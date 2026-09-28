@@ -1454,8 +1454,12 @@
       if (!sigs.length) return null;
       return sigs.map(s => {
         // Actionable signals get a one-tap Trade button (prefills the ticket
-        // with this signal's geometry) — same mechanism as the Signals stream.
-        const tradeable = s.pnl == null && s.entry_price && s.stop_loss && s.take_profit;
+        // with this signal's geometry) — same mechanism, and the same reading,
+        // as the Signals stream. It tested `s.pnl == null`, a field the public
+        // payload never carries, so every call offered Trade, a stopped-out
+        // one included. A missing model offers nothing.
+        const SSh = self.SignalStatusModel;
+        const tradeable = !!SSh && SSh.actionable(s) && s.entry_price && s.stop_loss && s.take_profit;
         const btn = tradeable
           ? `<button class="btn btn--sm btn--primary" data-ptrade='${esc(JSON.stringify({ d: s.direction, sy: s.symbol, e: s.entry_price, sl: s.stop_loss, tp: s.take_profit }))}'>Trade</button>`
           : '';

@@ -89,6 +89,7 @@ function sameAfterStorage(key, sealed, live) {
 <!-- Loaded BEFORE the renderer, not deferred: the receipt reads it inside a
      fetch callback, and "usually resolved by then" is a race, not an order. -->
 <script src="/js/thesis-model.js?v=1"></script>
+<script src="/js/signal-status-model.js?v=1"></script>
 <script src="/js/anchor_cell.js?v=1"></script>
 <script>
 (function () {
@@ -312,11 +313,15 @@ function sameAfterStorage(key, sealed, live) {
             html += '<div class="drift">⚠️ The live record DIFFERS from what was sealed: ' + esc(drift.join(' · ')) + '</div>';
           }
         }
+        // The route sends the outcome WORD and its time, never an R or an
+        // amount (§4). This line read a `pnl` the route never sends, so every
+        // call said "not resolved yet" -- a stop-out and a target alike. The
+        // word is read by the model the signal panels use; without it the
+        // word is printed as sent and no verdict is drawn from it.
         var o = d.outcome || {};
+        var SSM = window.SignalStatusModel || null;
         html += '<div class="kv"><span class="k">Outcome</span><span>'
-          + (o.pnl == null ? esc(o.status || 'pending') + ' — not resolved yet'
-            : (Number(o.pnl) > 0 ? '<b class="up-c">✓ WIN</b>' : '<b class="down-c">✗ LOSS</b>')
-              + (o.resolved_at ? ' · resolved ' + esc(String(o.resolved_at)) : ''))
+          + (SSM ? SSM.receiptOutcome(o, esc) : esc(o.status || 'NEW'))
           + '</span></div>';
         html += '<div style="margin-top:var(--s3)"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Seal (SHA-256)</div><div class="hash">' + esc(d.seal) + '</div></div>';
         html += '<div style="margin-top:8px"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Sealed payload (hash this yourself)</div><div class="hash">' + esc(d.seal_payload) + '</div></div>';

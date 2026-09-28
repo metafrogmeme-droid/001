@@ -61,7 +61,7 @@
   },
   "js/dashboard.js": {
     "v": 205,
-    "sha": "3c1f147a4f4a653c"
+    "sha": "5048ed0ac13dd9e6"
   },
   "js/decision-court-model.js": {
     "v": 2,
@@ -296,7 +296,7 @@
     "v": 1
   },
   "js/signal-status-model.js": {
-    "sha": "ad8080c4d626d9ca",
+    "sha": "4323d7e984b716e8",
     "v": 1
   }
 }

@@ -624,7 +624,7 @@ activity entries — base-onchain (:72, 'gas-only') and arbitrum-open (:108) —
 whose steps point at the governance forum and say to use protocols you'd use
 anyway. A 'testnet' chain key short-circuits the wallet hint to 'free faucet
 funds; your linked wallet works as-is' (:143-145), and the panel has a
-dedicated 'testnet' status chip (dashboard.js:1509-1519).
+dedicated 'testnet' status chip (dashboard.js:1513-1523).
 
 *Gap.* Informational only, and deliberately. Nothing calls a faucet, submits a
 transaction, or measures on-chain activity on any testnet; the wallet hint
@@ -649,7 +649,7 @@ points program on its official docs', 'deploy only capital whose loss you can
 absorb — points never justify bad risk' and 'track your positions in the
 Portfolio view like any other exposure', with a note that the base HYPE
 airdrop already happened. The dashboard renders a distinct blue 'points' chip
-for that status (dashboard.js:1515), so a points-farming campaign is visually
+for that status (dashboard.js:1519), so a points-farming campaign is visually
 separated from a live claim and from a taken snapshot.
 
 *Gap.* Thin, and it reads other people's programs rather than running one. No points
@@ -676,7 +676,7 @@ The loop itself is wired end to end on BOTH surfaces. An 8-char random, non-
 enumerable code is minted and back-filled (auth.js:405, :901); registration
 with a valid ?ref= credits users.referred_by, refusing self-referral
 (auth.js:588-602); the Account panel shows the link, a live 'N joined' count
-and three share buttons (dashboard.js:5311-5359); an anonymous ?ref= landing
+and three share buttons (dashboard.js:5315-5363); an anonymous ?ref= landing
 resolves the referrer's public handle only, 404s unknown codes and is rate-
 limited and cached (public_invite.js:25). Telegram is covered too: /start
 parses the ref_ payload and writes it write-once, refusing self-referral
@@ -759,7 +759,7 @@ and I confirm it (routes/command.js authMiddleware :25, mounted server.j…
 A referral/invite program and share tooling, not campaigns. A signed-in web
 user gets a personal invite code and a count of who signed up on it
 (app/auth.js:896, rendered in the Account view's c-ainvite panel at
-dashboard.js:4599), can share a dollar-free PNG close card (/api/share/card),
+dashboard.js:4603), can share a dollar-free PNG close card (/api/share/card),
 and a visitor arriving on /api/public/invite/:code is credited to the
 referrer. On Telegram the operator — or, as I read the body, any Telegram
 group admin/creator of the chat it is run in — can push text to the marketing
@@ -785,7 +785,7 @@ program and share tooling, not campaigns') and the status contradicts that
 sentence. Verified: (1) GET /api/auth/referrals (app/auth.js:896,
 authMiddleware, mounted server.js:327) returns a code + count, rendered in the
 Account view's c-ainvite panel (dashboard.html panel p-ainvite at
-dashboard.js:4599, loader…
+dashboard.js:4603, loader…
 
 **Reputation-based rewards** — partial
 
@@ -793,10 +793,10 @@ The SCORING half is shipped and genuinely reachable. A signed-in web user sees
 an outcome-based reputation score, grade, four sub-scores and honest red flags
 computed only from their realized closed trades (app/routes/reputation.js:22,
 mounted at app/server.js:440, fetched by the Reputation view at
-dashboard.js:5935; the scorer is app/lib/reputation.js:70 and abstains with
+dashboard.js:5939; the scorer is app/lib/reputation.js:70 and abstains with
 unrated/null rather than a zero). Wallet-native on-chain badges are earned
 from what an address verifiably holds (app/lib/badges.js:26 → the Worlds view
-panel at dashboard.js:5737). Arena badges are earned from closed paper trades
+panel at dashboard.js:5741). Arena badges are earned from closed paper trades
 (app/lib/arena_badges.js:18 → app/routes/arena.js:314). The Command Deck
 grants achievement glyphs 'by arithmetic, never by grant tables'
 (app/lib/achievements.js, app/routes/command.js:129). Public standing exists
@@ -821,8 +821,8 @@ exist. So: reputation is measured and displayed today; it buys nothing.
 not serve this row and the 'rewards' half is recognition-only. Verified
 shipped and reachable: GET /api/reputation (app/routes/reputation.js,
 authMiddleware, mounted app/server.js:440) is fetched by a real nav view —
-dashboard.js:47 registers { id:'reputation' }, dashboard.js:8810 maps it to
-renderReputation, which fetches at dashboard.js:5935 and abstains with
+dashboard.js:47 registers { id:'reputation' }, dashboard.js:8814 maps it to
+renderReputation, which fetches at dashboard.js:5939 and abstains with
 'Unrated' rather th…
 
 
@@ -938,7 +938,7 @@ the intercept table is dispatched in a loop (app/routes/chat.js:208-213), the
 nft row is chat.js:99, opensea.CHAT_RE/maybeHandleNftChat are
 opensea.js:125-141, /api/nft is mounted at server.js:434,
 /api/web3/collectibles is web3.js:37-58 and the Worlds view consumes it at
-dashboard.js:5751-5784, networth.js:118-133 lists collectibles and never sums
+dashboard.js:5755-5788, networth.js:118-133 lists collectibles and never sums
 a floor, dapps.js:47-49 is three…
 
 **Minting** — partial
@@ -950,7 +950,7 @@ wallet, art generated and stored fully on-chain). The server signs an EIP-712
 MintVoucher bound to the caller's linked wallet and returns the exact
 mint(bytes) calldata plus chain/RPC/explorer (app/lib/nft.js:158-206); it
 never signs or sends the transaction. The browser flow is fully wired:
-dashboard.js:4796 fetches the plan, :4805 renders the button, :4979-5023
+dashboard.js:4800 fetches the plan, :4809 renders the button, :4983-5027
 switches the wallet's chain and calls eth_sendTransaction from the USER's own
 wallet with their own gas. /rune (rune.html:107) reads GET /api/nft/stats for
 a minted count.
@@ -962,7 +962,7 @@ contracts/rune/README.md:40,50); there is no .env. contractAddress() therefore
 returns null (app/lib/nft.js:89-92), buildMintPlan returns {ready:false,
 not_ready_reasons:[…'contract not deployed yet'…]} (app/lib/nft.js:163-173),
 the dashboard renders NO mint button at all (the runeBlock is built only `if
-(p && p.ready)`, dashboard.js:4800), and /rune prints "The forge is cold — the
+(p && p.ready)`, dashboard.js:4804), and /rune prints "The forge is cold — the
 collection is not deployed yet" (rune.html:111). Deployment is a manual `forge
 create` by the operator. Scope gap even once lit: this is ONE free, one-per-
 wallet, permanently SOULBOUND badge (transferFrom/safeTransferFrom revert,
@@ -984,18 +984,18 @@ A signed-in web user can DRAFT and COMPILE an NFT collection contract. The
 Contract Studio view ships an explicit 'ERC-721 NFT' starter template whose
 spec text is "an ERC-721 NFT collection with a fixed max supply, a per-wallet
 mint limit, an owner-set mint price, and metadata baseURI — using OpenZeppelin
-ERC721 + Ownable" (dashboard.js:7145). It posts to /api/contract/studio
-(dashboard.js:7318 → app/routes/contract.js:37 → gateway
+ERC721 + Ownable" (dashboard.js:7149). It posts to /api/contract/studio
+(dashboard.js:7322 → app/routes/contract.js:37 → gateway
 handle_contract_studio, user_gateway.py:1435), which is gated by _guard_user
 (:1454) — any authorized web caller, NOT admin-only, with a free daily draft
 quota — and returns a Solidity draft plus heuristic security flags.
-/api/contract/compile (dashboard.js:7277 → contract.js:71 →
+/api/contract/compile (dashboard.js:7281 → contract.js:71 →
 handle_contract_compile, user_gateway.py:1552) is likewise _guard_user (:1574)
 and runs real solc off the event loop, reporting whether the collection
 actually builds.
 
 *Gap.* The draft is where it stops for an ordinary user — nothing lets them DEPLOY a
-collection. POST /api/web3/deploy (dashboard.js:7242) reaches
+collection. POST /api/web3/deploy (dashboard.js:7246) reaches
 handle_contract_deploy (user_gateway.py:1594), which returns 403 'contract
 deploy is admin-only' for every non-admin (:1609-1610), is TESTNET-ONLY with
 mainnet refused regardless of any flag, must pass an enforcing Authority
@@ -1008,8 +1008,8 @@ allowlist/Merkle tooling, no mint-page generator, and no royalty configuration
 accompanies it.
 
 *The verifier refused part of this row.* The DRAFT half is upheld exactly as described — I confirmed the 'ERC-721 NFT'
-template string at dashboard.js:7145, the #studio view is in VIEWS
-(dashboard.js:54) and RENDER (dashboard.js:10144), the POST reaches
+template string at dashboard.js:7149, the #studio view is in VIEWS
+(dashboard.js:54) and RENDER (dashboard.js:10148), the POST reaches
 handle_contract_studio (contract.js:37 → user_gateway.py:1435), and
 _guard_user with NO command argument means any signed-in web caller (auto-
 provisioned paper user, user_gateway.py:399-419) — not admin-only, metered by
@@ -1031,8 +1031,8 @@ Read-only market intelligence next to the flip, and nothing that flips. (1) A
 web-chat intercept answers 'nft radar'/'opensea'/'floor price' with the top
 collections by real 7-day volume, each row carrying floor price in ETH, 7d
 volume and owner count (chat.js:99 → opensea.js:127, radar built at
-opensea.js:59-96). (2) The dashboard Worlds view (dashboard.js:5660, fetches
-/api/web3/collectibles at :5741 → web3.js:38) splits the caller's SIWE-linked
+opensea.js:59-96). (2) The dashboard Worlds view (dashboard.js:5664, fetches
+/api/web3/collectibles at :5745 → web3.js:38) splits the caller's SIWE-linked
 wallet's NFTs into metaverse holdings via a curated slug map — The Sandbox,
 Decentraland, Otherside, Voxels, Somnium Space, typed land / name / wearable —
 and renders each world as an 'Enter →' deep-link into the official world
@@ -1119,9 +1119,9 @@ An outbound SHARE rail, nothing more. Three places build a real
 caller's own ?ref= link), the public trader-record page and the sealed-call
 receipt page. Two more share paths use `navigator.share` (the OS sheet, which
 can hand off to X if the app is installed) with a Telegram fallback — the
-symbol-modal decision picture (dashboard.js:3383-3403) and the journal close
+symbol-modal decision picture (dashboard.js:3387-3407) and the journal close
 card, which first fetches a server-rendered percent-only PNG from
-/api/share/card (dashboard.js:5027-5067). ~20 public pages carry twitter:card
+/api/share/card (dashboard.js:5031-5071). ~20 public pages carry twitter:card
 + og meta so a shared link unfurls, and four pages are SSR-injected with live
 values for the unfurl. Separately, X is an OAuth IDENTITY provider:
 app/lib/oauth2.js:58 requests scope `tweet.read users.read` but the only call
@@ -1173,7 +1173,7 @@ per-feature tier map in bot/token/tier_gate.py.
 billing, no invoice, no x402 pricing block (app/test/tool8257.test.js:50
 asserts the manifest has none). The plan card is STATIC and says so: "Tiers
 are granted by the operator through the Telegram bot… online checkout is
-coming later" (dashboard.js:5240). The $RCLAW tier gate that would enforce a
+coming later" (dashboard.js:5244). The $RCLAW tier gate that would enforce a
 paid tier is wired at four call sites but INERT — gate_enabled() needs
 TOKEN_TIER_GATE_ENABLED and RCLAW_MINT, neither of which is set anywhere, and
 docs/TOKEN_ROADMAP.md:27 says "No token exists. No sale has run." Most
@@ -1220,7 +1220,7 @@ the bot username), so `invite_link` falls through to the bare
 of it is real: genReferralCode() at auth.js:406-408, credit-on-register with
 self-referral guarded at auth.js:591-606, GET /api/auth/referrals returning
 code+count at auth.js:896-916, the invite panel's Telegram/X/Warpcast buttons
-at dashboard.js:5352-5356, GET /api/public/invite/:code, the Telegram
+at dashboard.js:5356-5360, GET /api/public/invite/:code, the Telegram
 `ref_<code>` deep link parsed on FIRST CONTACT ONLY at
 start_commands.py:139-142 v…
 
@@ -1325,7 +1325,7 @@ And nothing in the tree serves the freelance side of this leaf: no client
 intake, no scope/quote, no deliverable handoff, no invoicing and no payment
 rails — app/test/interop_design.test.js:34 structurally asserts that no
 x402/X-PAYMENT/facilitator/payTo/402 machinery exists in any app/routes file,
-and the plan card says 'online checkout is coming later' (dashboard.js:5240).
+and the plan card says 'online checkout is coming later' (dashboard.js:5244).
 This is a tool a smart-contract dev could use on their own work; it is not a
 way to be paid for that work.
 
@@ -1399,7 +1399,7 @@ are RUNECLAW's, with no user deploy door.
 
 *The verifier refused part of this row.* partial — STATUS UNCHANGED, but the claim must be narrowed to drafting. The
 draft half is genuinely shipped and reachable (nav id 'studio' dashboard.js:54
-→ renderContractStudio dashboard.js:7130, registered dashboard.js:10144; POST
+→ renderContractStudio dashboard.js:7134, registered dashboard.js:10148; POST
 /api/contract/studio app/routes/contract.js:37 → gateway handler
 user_gateway.py:1435 gated by _guard_user at :1454, route registered
 user_gateway.py:5220; five template buttons, flags, Copy and Download .sol at
@@ -1495,7 +1495,7 @@ rungs is literally named 'Ambassador' — but that rung grants nothing and says
 so. The door: GET /api/auth/referrals (app/auth.js:896, authMiddleware)
 returns the caller's invite code, the count of accounts that signed up on it,
 and a tier; the dashboard Account view renders it into #c-ainvite (panel
-declared app/public/js/dashboard.js:4599, fetched :5299, tier painted :5325
+declared app/public/js/dashboard.js:4603, fetched :5303, tier painted :5329
 through the pure app/public/js/referral-tier-model.js). What is LIVE on that
 ladder is one rung: 'Connector' at 1 invite (app/auth.js:438, state 'live'),
 whose perk is real — app/lib/duel_squads.js builds Daily Duel squads out of
@@ -1548,7 +1548,7 @@ mints the new user's own 8-char code and writes users.referred_by when the
 code resolves to someone else (self-referral and unknown codes ignored). GET
 /api/auth/referrals (app/auth.js:896) returns {code, count, tier, next}, back-
 filling a code for older accounts, and the Account view's c-ainvite panel
-(dashboard.js:5311) renders the link, three share buttons and the ladder. The
+(dashboard.js:5315) renders the link, three share buttons and the ladder. The
 tier ladder is honest by construction: REFERRAL_TIERS (auth.js:435-452)
 carries a per-perk `state`, referralTier() returns NULL rather than "Starter"
 for an unreadable count (auth.js:463), and referral-tier-model.js:71 omits the
@@ -1696,7 +1696,7 @@ execution-adjacent /api/meme/swap/build and /memeplan; the read-only on-chain
 meme/AI snapshot with a safety read is a separate, wider door.
 
 *Where.* Dashboard Markets panel #c-meme → GET /api/market/meme
-(app/routes/market.js:181, public; dashboard.js:1545); web chat intercept
+(app/routes/market.js:181, public; dashboard.js:1549); web chat intercept
 'meme' (app/routes/chat.js); MCP get_meme_radar (app/routes/mcp.js:666);
 app/lib/meme.js.
 
@@ -1706,7 +1706,7 @@ On-chain flow radar (exchange flows / whale accumulation). Public panel plus a
 BYOK provider that votes in the analyzer.
 
 *Where.* Dashboard Markets panel #c-flow (jump-nav 'On-chain flow') → GET
-/api/market/onchain-flow (app/routes/market.js:205; dashboard.js:1575),
+/api/market/onchain-flow (app/routes/market.js:205; dashboard.js:1579),
 app/lib/onchain_flow.js; engine side bot/core/onchain.py (BYOK
 Glassnode/Arkham/Nansen) imported by bot/core/analyzer.py and
 bot/core/token_safety.py; bot/core/smart_money.py imported by analyzer.py.
@@ -1743,7 +1743,7 @@ anomaly scope ('held' vs 'all') and a rate floor.
 
 *Where.* Web chat intercept row 1 'alerts' (app/routes/chat.js, first in the
 table); GET/POST /api/alerts and DELETE /api/alerts/:id (app/routes/alerts.js;
-dashboard.js:643, :675, :691, :7528); app/lib/alerts.js; Telegram /watch and
+dashboard.js:643, :675, :691, :7532); app/lib/alerts.js; Telegram /watch and
 /alerts (registered telegram_handler.py), bot/core/anomaly_scope.py +
 black_swan.py + proactive_monitor.py.
 
@@ -1754,7 +1754,7 @@ own recorded signal history. This is the evidence surface a person uses before
 deciding to follow the engine at all.
 
 *Where.* Web chat intercept row 2 'replay' (app/routes/chat.js); GET
-/api/replay?stake=&days= (app/routes/replay.js; dashboard.js:4076 and :7574
+/api/replay?stake=&days= (app/routes/replay.js; dashboard.js:4080 and :7578
 for the Agent Hub tile #c-hubreplay); app/lib/replay.js; MCP run_what_if
 (app/routes/mcp.js:725).
 
@@ -1963,7 +1963,7 @@ split, venue/chain HHI, largest single counterparty, settlement-issuer
 concentration, computed off the caller's own holdings fan-out.
 
 *Where.* GET /api/counterparty (app/routes/counterparty.js, JWT) →
-dashboard.js:5815 → panels #c-cphead, #c-cpbuckets, #c-cpflags, #c-cpissuers;
+dashboard.js:5819 → panels #c-cphead, #c-cpbuckets, #c-cpflags, #c-cpissuers;
 app/lib/counterparty.js reusing buildHoldings.
 
 **Risk Sentry**
@@ -1973,7 +1973,7 @@ Risk Sentry — a proactive read-only watch over the caller's standing book
 only.
 
 *Where.* GET /api/sentry (app/routes/sentry.js, JWT → gateway /sentry,
-bot/web/user_gateway.py) → dashboard.js:3899 panel #c-sentry; public /sentinel
+bot/web/user_gateway.py) → dashboard.js:3903 panel #c-sentry; public /sentinel
 page (server.js:463) and GET /api/market/sentinel (market.js:245); MCP
 get_systemic_risk (mcp.js:440).
 
@@ -1984,7 +1984,7 @@ Per-user watchlist — starred symbols that EXTEND the engine's pattern pushes
 changes what the bot tells you, not just what the page shows.
 
 *Where.* GET /api/watchlist and POST /api/watchlist/toggle
-(app/routes/watchlist.js, JWT; dashboard.js:2525 and :2723, panel #c-watch);
+(app/routes/watchlist.js, JWT; dashboard.js:2529 and :2727, panel #c-watch);
 app/lib/pattern_watch.js.
 
 **News radar with bring-your-own paid news key, and the personal-ingest direction**
@@ -2010,10 +2010,10 @@ path beneath it: a triple-gated execution preview and then a real first-leg
 signed transfer.
 
 *Where.* POST /api/web3/cross-plan (app/routes/web3_execute.js:100 → gateway
-/cross/plan; dashboard.js:8623, panel #c-crossyield section 'Worth moving? —
+/cross/plan; dashboard.js:8627, panel #c-crossyield section 'Worth moving? —
 cross-chain yield planner'); POST /api/web3/sign, POST /api/web3/sign/prepare,
-GET /api/web3/sign/status (web3_execute.js:52/178/155; dashboard.js:8683,
-:8731, :8758) → gateway /web3/sign*, bot/web/user_gateway.py. ADMIN-ONLY and
+GET /api/web3/sign/status (web3_execute.js:52/178/155; dashboard.js:8687,
+:8735, :8762) → gateway /web3/sign*, bot/web/user_gateway.py. ADMIN-ONLY and
 TESTNET-ONLY by the routes' own headers.
 
 **$RCLAW staking program and the tier gate that reads it**

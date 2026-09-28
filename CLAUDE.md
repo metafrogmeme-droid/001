@@ -16878,6 +16878,47 @@ the lines below the call it names. They are derived from what they name now
 `arena.html` citations, which no remap reads.
 (`app/test/an_ended_call_is_not_opened_in_the_arena.test.js`.)
 
+**TWO READERS OF A SIGNAL'S OUTCOME DECIDED FROM A FIELD THE PAYLOAD NEVER
+CARRIES.** Both were written before any signal could resolve, and both tested
+`pnl == null` as "unresolved". `GET /api/signals` publishes the outcome word and
+never a `pnl` (`publicSignal` drops it), and `/api/call/<key>` sends the word and
+its time, never an R. So the test answered "unresolved" for every call. Driven:
+
+- The home view's Latest-signals panel offered a one-tap Trade button on every
+  call: a stopped-out one, and one that was never filled. The button prefills
+  the ticket with a thesis the market has already settled, one screen from
+  Confirm.
+- The receipt page (`/call/<key>`) printed `STOP — not resolved yet`,
+  `TARGET — not resolved yet` and `EXPIRED — not resolved yet`: a resolved call,
+  on the page whose job is to prove what was called and how it ended, said it
+  had not ended.
+
+Both read the signal panels' own model now. The panel asks
+`SignalStatusModel.actionable`, which the Signals stream and the Arena's three
+doors already ask, and a page where the model did not load offers nothing. The
+receipt asks `receiptOutcome`, a new function in the same model. A pending word
+reads as not resolved, a final word reads as itself (`✗ STOP`, `NOT FILLED`)
+with its time, coloured only where the word carries an R, and a word the page
+does not know is printed as sent with no verdict. Without the model the receipt
+prints the word as sent. It used to print "pending", which claims the call had
+not ended.
+
+**A guard for the class, because the two readers were found one at a time.**
+No loader that fetches `/api/signals` reads `.pnl`, and the receipt script does
+not read `o.pnl`. Both are driven rather than scanned: the receipt script runs
+in a VM against a sealed payload whose hash matches, and the panel loader is
+sliced out and run over planted rows.
+
+Twenty mutations, each killed on the first round. One was re-aimed before it
+counted: "the model is loaded after the receipt" first only deleted the tag,
+which is "the model is not loaded" again. Moved below the receipt script, it
+dies on the ordering test. Three fixtures were added by planning the round
+before it ran: a resolved time carrying markup, an unknown word with a time on
+record, and a no-model receipt whose word carries markup. Without them, three
+mutations would have survived: an unescaped time, a dropped time, an unescaped
+fallback.
+(`app/test/a_resolved_call_reads_as_resolved.test.js`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —

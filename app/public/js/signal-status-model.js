@@ -153,9 +153,28 @@
       + `<p class="muted small mt-1">${esc(BASIS)}</p>`;
   }
 
+  /**
+   * The outcome line of a signal's receipt (/call/<key>), from the word and
+   * the time the route sends. The receipt carries no R -- it proves what was
+   * called and when -- so the word IS the outcome. The page used to test a
+   * `pnl` the route never sends, so every call read "<word> — not resolved
+   * yet": a stop-out and a target alike, and a call that was never filled.
+   * Colour only where the word carries an R, as everywhere else.
+   */
+  function receiptOutcome(o, esc) {
+    if (typeof esc !== 'function') throw new Error('receiptOutcome needs an escaper');
+    const st = status(o);
+    const at = o && o.resolved_at ? ' · resolved ' + esc(String(o.resolved_at)) : '';
+    if (!st.known) return esc(st.word) + ' — a word this page does not know' + at;
+    if (!st.final) return esc(st.label) + ' — not resolved yet';
+    const cls = st.cls === 'chip--up' ? 'up-c' : st.cls === 'chip--down' ? 'down-c' : '';
+    return (cls ? '<b class="' + cls + '">' : '<b>') + esc(st.label) + '</b>' + at;
+  }
+
   return {
     PENDING: PENDING, TERMINAL: TERMINAL, CHIP: CHIP,
     word: word, status: status, actionable: actionable,
     otherLine: otherLine, avgR: avgR, avgCls: avgCls, statsHtml: statsHtml, BASIS: BASIS,
+    receiptOutcome: receiptOutcome,
   };
 }));
