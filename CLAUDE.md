@@ -17229,6 +17229,18 @@ what they pin still holds in the paper branch. Seventeen mutations, each
 killed on the first round, none refused.
 (`tests/test_a_second_order_is_not_placed_beside_a_resting_one.py`.)
 
+**AND CONFIRM'S DUPLICATE CHECK READ THE OPERATOR'S BOOK FOR EVERY CALLER.**
+`confirm_trade` suppresses a confirm when the symbol already holds an open or
+resting order, and it read `self.live_executor` whoever was confirming. Under
+per-user live a linked trader places on their own executor
+(`_executor_for(user_id)`), so a trader whose own account was flat was refused
+with *"already have an open/pending order for it"* because the OPERATOR held
+BTC. The trader's idea was dropped with it. Driven through the real wrapper,
+the confirm now reaches the placement and the idea stays pending. The check
+reads the book `_executor_for` resolves, which is the account the placement
+below takes. A resolution that raises or answers nothing keeps the operator's
+book, which is what the check always read. Three mutations, each killed.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —

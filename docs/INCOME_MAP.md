@@ -351,7 +351,7 @@ signal modules; RiskEngine (bot/risk/risk_engine.py:269) is the fail-closed pre-
 trade gate whose whole enforcing set /enforcing lists. engine.py:6166-6224
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2553) with no human in the loop, adaptively moved by
-realized win rate (engine.py:9431): the paper book's in paper mode, both
+realized win rate (engine.py:9442): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
@@ -1432,7 +1432,7 @@ size/exposure/loss caps, symbol allow/deny, regime, horizon
 (app/lib/user_strategies.js:18-33) — saves it, publishes it to the community
 marketplace, and ARMS it on their own bot: the web projects its signal-
 checkable rules, the bot re-validates and stores the snapshot
-(bot/core/user_strategy_store.py:134-174), and bot/core/engine.py:7819-7868
+(bot/core/user_strategy_store.py:134-174), and bot/core/engine.py:7830-7879
 evaluates it on every confirm and refuses the trade when it fails. Followers
 of a published strategy get its would-take picks (app/routes/copy.js:105). (2)
 Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
@@ -1732,7 +1732,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1294, registered telegram_handler.py:1232) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:8409
+bot/core/stock_trading.py, also read by bot/core/engine.py:8420
 (get_market_session) and scan_commands.py:376.
 
 **Price alerts and anomaly-alert scoping**

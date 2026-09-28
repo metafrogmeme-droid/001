@@ -7758,7 +7758,18 @@ class RuneClawEngine:
         async with lock:
             if (CONFIG.is_live() and hasattr(self, "live_executor")
                     and not self._pending_pyramid.get(trade_id)):
-                for lp in self.live_executor.open_positions:  # open + pending_fill
+                # The book of the account THIS confirm places on. It read the
+                # operator's for every caller, so under per-user live a linked
+                # trader whose own account was flat was told "already have an
+                # open/pending order" because the OPERATOR held the symbol,
+                # and the trader's idea was dropped. `_executor_for` is the
+                # resolution the placement below takes; a fault in it keeps
+                # the operator's book, which is what this read always was.
+                try:
+                    _book = self._executor_for(user_id) or self.live_executor
+                except Exception:
+                    _book = self.live_executor
+                for lp in _book.open_positions:  # open + pending_fill
                     if normalize_symbol(lp.symbol) == key:
                         self._drop_pending_idea(trade_id)
                         self._pending_atr.pop(trade_id, None)

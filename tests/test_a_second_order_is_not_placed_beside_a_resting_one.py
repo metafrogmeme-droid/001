@@ -307,3 +307,66 @@ def test_the_analysis_asks_the_seam_once_and_maps_its_three_words():
     src = code_only(_analyze_src())
     assert src.count("self._pending_pyramid[idea.id]") == 1
     assert "existing_positions" not in src
+
+
+# ── confirm's duplicate check reads the book the confirm places on ─────────
+
+class TestConfirmReadsTheAccountItPlacesOn:
+    """`confirm_trade` suppressed a confirm when the OPERATOR's book held the
+    symbol, whoever was confirming. Driven under per-user live: a linked
+    trader whose own account was flat was told "already have an open/pending
+    order" because the operator held BTC, and the trader's idea was dropped.
+    The check reads `_executor_for(user_id)`, the resolution the placement
+    takes."""
+
+    @staticmethod
+    def _engine(own_rows=(), operator_rows=(), resolver="own"):
+        from tests.test_duplicate_entry_guard import _FakeEngine, _FakeExec
+        eng = _FakeEngine({"T7": SimpleNamespace(
+            asset="BTC/USDT", direction=SimpleNamespace(value="LONG"))})
+        eng.live_executor._pos.extend(operator_rows)
+        own = _FakeExec()
+        own._pos.extend(own_rows)
+        if resolver == "own":
+            eng._executor_for = lambda uid="", venue="": own if uid == "u7" else eng.live_executor
+        elif resolver == "raises":
+            def _boom(uid="", venue=""):
+                raise RuntimeError("store down")
+            eng._executor_for = _boom
+        elif resolver == "none":
+            eng._executor_for = lambda uid="", venue="": None
+        return eng
+
+    @staticmethod
+    def _confirm(eng, uid="u7"):
+        with patch.object(eng_mod, "CONFIG", SimpleNamespace(is_live=lambda: True)):
+            return asyncio.run(eng.confirm_trade("T7", user_id=uid))
+
+    _HELD = SimpleNamespace(symbol="BTC/USDT", status="open")
+    _RESTING = SimpleNamespace(symbol="BTC/USDT:USDT", status="pending_fill")
+
+    def test_the_operators_position_does_not_refuse_a_traders_confirm(self):
+        eng = self._engine(operator_rows=[self._HELD])
+        out = self._confirm(eng)
+        assert "duplicate suppressed" not in out
+        assert eng.inner_calls == ["T7"]
+        assert "T7" in eng._pending_ideas
+
+    def test_the_traders_own_resting_order_refuses_it(self):
+        eng = self._engine(own_rows=[self._RESTING])
+        out = self._confirm(eng)
+        assert "duplicate suppressed" in out
+        assert eng.inner_calls == []
+        assert "T7" not in eng._pending_ideas
+
+    def test_the_operators_own_confirm_still_reads_the_operators_book(self):
+        eng = self._engine(operator_rows=[self._HELD])
+        out = self._confirm(eng, uid="auto")
+        assert "duplicate suppressed" in out
+
+    @pytest.mark.parametrize("resolver", ["raises", "none"])
+    def test_a_resolution_that_fails_keeps_the_operators_book(self, resolver):
+        eng = self._engine(operator_rows=[self._HELD], resolver=resolver)
+        out = self._confirm(eng)
+        assert "duplicate suppressed" in out
+        assert eng.inner_calls == []
