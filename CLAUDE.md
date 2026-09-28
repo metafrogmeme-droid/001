@@ -14411,6 +14411,73 @@ slice's own suites ran; *a boundary that is "whatever happens to be next"*
 is this file's own sentence, arriving in a pin about the card whose
 drawdown block a chapter above had already re-anchored from the other side.
 
+**THE AUDIT'S ALLOW-LIST ADMITTED THE ONE VALUE THAT CLOSES THE GATE AND
+REFUSED EVERY VALUE IN THE UNIT THE FLAG READS.** The nightly self-audit card
+the operator pasted on 2026-09-27 carried this row:
+
+    VOLATILITY_GUARD_ATR_PCT=0.03
+      tighten the volatility guard
+      🟥 measured +0.00% (-0.97pp vs baseline) · PF 0.0 · 0tr
+
+`ALLOWED_FLAGS` bounded that knob at `0.03..0.15`, a FRACTION, on a field
+`config.py` declares as `_env_float_bounded("VOLATILITY_GUARD_ATR_PCT", 7.0,
+0.1, 100.0)` and the risk engine's check #16 compares as a PERCENT
+(`atr / entry * 100 > guard`). Driven: `validate_proposals` kept `0.03` and
+DROPPED `5` as out of range, so the only values that could reach the card
+were ones that refuse every entry (0.03% of price is under any candle's
+range), and the only values it refused were the ones in the flag's own unit.
+The shipped default, 7.0, sat outside the audit's range, which is the tell
+that would have caught it on day one: a range that excludes the default is
+in the wrong unit, or always proposes a change. Every other float row passed
+both readings; this one failed both. The row is `3..15` now, covering the
+grid the frozen benchmark measured (4.5..7.0, `docs/FROZEN_BENCHMARK.md`),
+and `tests/test_the_audits_allow_list_is_in_the_units_the_flag_reads.py`
+derives the rule for every float row: the range contains the declared
+default and sits inside the config's own bounds where it declares any, read
+off the DECLARATION rather than the value in force, because the value in
+force on this box is the box's and an operator's `.env` must not fail a test
+of the allow-list. An undeclared flag is a fault, never an acquittal.
+
+**AND THE ZERO-TRADE RUN WAS PAINTED RED AS A STRATEGY THAT LOST 0.97
+POINTS.** The benchmark runner prints `Total Return: +0.00%` and `Profit
+Factor: 0.00` for a run that took no trades, the same figures a run of pure
+losses prints, and the card read them as a measurement: red icon, `-0.97pp
+vs baseline`, `PF 0.0`. There is no return over nothing deployed and no
+ratio over no trades, so a run that REPORTED zero trades is its own verdict
+now, *"REFUSED EVERY ENTRY on this dataset — 0 trades against the baseline's
+31"*, with no figure and no colour; a run with one trade is still measured.
+The harness verdict is read first, as it was: a benchmark-blind knob that
+also took no trades is NOT MEASURABLE, not refused. And the measured line
+printed `int(m.get('trades', 0))` -- an absent count as `0tr`, the shapes
+table's own row on the line that says how many trades a figure is over -- so
+an unread count prints as unread.
+
+**THE CARD NEVER SAID WHAT THE KNOB WAS AT.** The same card proposed
+`OF_MAX_SPREAD_BPS=100` under *"tighten the spread guard"*, and the guard
+is at 50: the proposal LOOSENED the knob its own sentence promised to
+tighten, and nothing on the card let the operator see it. `validate_proposals`
+already read the value in force for its no-op check and threw it away; it
+rides on the proposal now (`current`, spelled short, `on`/`off` for a bool)
+and the header prints `(in force: 50)`. Membership, then the value: a result
+from a build that recorded nothing carries no key and prints nothing, `None`
+is a read that failed and prints as unread, never as a figure.
+
+**Nineteen mutations, each killed -- and the one that survived the first
+round was the corpus, not the code.** Recording the value in force RAW
+instead of spelled changed no verdict, because the only validator fixture
+handed it the STRING `"50"` from an env dict, which a raw record and a
+spelled one agree on; a CONFIG read hands it a float and a bool, and only
+those separate the two (`50.0` -> `50`, `True` -> `on`). Both are planted
+now and the mutation dies. Two more are worth naming for what they prove
+about the guards rather than the code: the zero-trade branch moved ABOVE the
+benchmark-blind one dies on a blind knob that also took no trades, which is
+the only input where the order of two verdicts shows; and the rule's own
+three branches (the default read, the config bounds read, the undeclared
+flag) each die on a planted table, because on the real tree every row
+passes and a mutation of the RULE changes no verdict there -- the argument
+`candle_hygiene_baseline` already makes for its own two-way rule.
+(`tests/test_the_audits_allow_list_is_in_the_units_the_flag_reads.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -15702,7 +15769,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **450 of 1134** reach for source text through `source_scan`, `code_only`
+Driven, **450 of 1135** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 450 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
