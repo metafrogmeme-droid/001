@@ -16488,6 +16488,103 @@ expiry.
 (`tests/test_a_signal_states_when_it_stops_being_live.py`,
 `app/test/copy_picks_read_the_bots_stated_window.test.js`.)
 
+**EVERY CANDLE CHART IS A TRADINGVIEW CHART, AND THE FIRST ONE WAS DRAWING
+ANOTHER SYMBOL'S LEVELS.** Asked for by the operator with two screenshots: the
+Markets view drew TradingView Lightweight Charts, and every chart a reader
+reaches from a signal drew its own SVG -- the signal row, the symbol modal,
+the pattern-read mini, the Arena's three and the embed board. The first
+screenshot also showed ETH's engine levels (`pdl 2667.12`, `poc 2478.40`,
+`swing 2462.85`) drawn on a BTC chart at 83,901.90, their axis labels stacked
+at the bottom edge. `drawChart` shares one chart and one series between
+draws, awaits the candles and then the levels, and `every(20000, drawChart)`
+starts another: a draw that finished its level fetch after the symbol changed
+wrote ITS levels onto the new chart, and could install its own live-candle
+timer that appended the old symbol's bars to the new series. Each draw takes a
+sequence number now, the candle fetch happens before `renderPanel` so a stale
+draw returns without writing the panel, and every write after an await asks
+whether the draw is still the chart's (`mine()`).
+
+**One renderer, one reading, and the SVG is the fallback.** `app/public/js/
+tv-chart.js` (`RCTVChart`) mounts every chart: the Markets option set, the
+candle colours, a price axis whose decimals follow the price (the library's
+default of 2 printed a sub-cent asset's whole axis as `0.00`), stated levels
+that widen the axis and overlays that never do, and a registry that removes a
+chart when its host leaves the page or a redraw replaces it. Each surface asks
+a chooser rather than a renderer -- `RCSignalChart.render`, `RCChartRead.
+drawInto` -- and each chooser draws the SVG when the library did not load.
+The signal chart's refusals (no candles, unreadable, too few, a flat market, a
+level at 0) are ONE function, `readSignal`, which both renderers read, so a
+reader does not get a chart from one and a placeholder from the other.
+
+**Four things the old charts said that the new ones do not.** A failed candle
+read on the pattern mini was cached as `[]` and drawn as "No price history
+returned for this symbol", a claim about the market from a request that never
+got an answer; it throws now, uncached (`wasRead`). The decision picture's
+structure tag printed `RANGING` for a window whose swings the detector never
+found -- the constructor's default, the neutral verdict over a read that did
+not happen -- and says the structure could not be read now, in the chart-read
+chips' own words (`dd.cr_st_unread`, no new key). The engine's levels outside
+the window are not drawn, and a liquidation price far from the candles does
+not squash them flat.
+
+**The library lays its chart out as a `<table>`, and a signal's chart lives in
+a table row.** On a phone `.tbl--collapse td { display: flex }` and the
+`td::before { content: attr(data-label) }` label reached into the chart: the
+price axis wrapped below the pane and the chart carried a stray label. The
+library's cells are handed back to the browser (`all: revert`), and the
+Chromium drive is what found that this was half a fix: reverting also drops
+the library's `cellspacing="0"`, a presentational hint that lives in the author
+origin, so the UA's 2px spacing and 1px padding came back and the time axis
+overhung the chart's box by 4px. The drive measures every canvas the chart
+draws against its host and requires the price axis beside the pane, on the
+signal row (phone and desktop) and in the modal.
+
+**The embed board's CSP refuses the library's logo**, which it injects as a
+`<style>`. The board turns the logo off and carries the attribution in its
+footer as a link; the drive loads it under the route's own header and fails on
+any console violation (a 404 for the browser's own favicon request was the
+first thing it caught, in the test's server rather than the product).
+
+> **And my own smoke fixture measured a placeholder and called it the
+> skeleton.** Playwright matches routes in REVERSE registration order, so a
+> catch-all registered after the slow candle route answered the candle read at
+> once, the loading state was never reached, and the test passed only because
+> nothing ever cleared `aria-busy`. The routes are reordered with the reason
+> beside them, and the slot says it is no longer busy once its read resolves.
+
+**Two ratchets found a second copy and the drive of it found a defect in the
+first.** The JS honesty ratchet counted `(Number(b.score) || 0)` twice in
+`chartread.js` where the file had held it once: the TradingView reader had
+copied the SVG's selection of the engine's levels, and its FVG selection
+beside it. Both are one function now (`windowLevels`, `windowFvgs`), which
+both renderers read, and driving the FVG one directly -- neither renderer's
+tests ever had -- found that it capped the INPUT at four before filtering, so
+a zone outside the window took a slot and hid one inside it, in the SVG too.
+It caps what is drawn now. The palette guard refused the legend's first
+background, `rgba(10,13,20,.6)`, as a hue of its own; it is neutral black at
+low alpha.
+
+**Forty mutations, and the round found three of this slice's own lines.**
+Thirty-four died on the first round, and two anchors were refused for
+matching twice -- the SVG and the TradingView reader share those lines -- and
+died once re-aimed at the TradingView reader's own. Four survived. The signal
+chart built its own bars beside the renderer's `toBars`, so a mutation that
+let a repeated timestamp through the renderer changed no verdict: one copy
+now, and both mutations die. Re-rendering a slot as a placeholder left the old
+chart alive with no test to say so: driven now. The `td::before` reset changed
+nothing, because a reverted cell is a table cell again and the collapsed row's
+label is empty on cells that carry no `data-label`: deleted. And the chooser's
+early refusal is an EQUIVALENT mutant -- `mount` refuses a spec with no bars
+and the SVG builder then refuses the same input for the same reason -- so the
+property is driven instead: no chart is mounted for a refusal. The second
+round's one new survivor was a guard of mine for a renderer that cannot be
+absent where the spec is asked for, and is deleted. Eight more on the two
+shared selections -- the window, the cap before or after the filter, the score
+order, the label, the filled gap's alpha -- and five of them survived until
+the selections were driven on their own; all eight die now.
+(`app/test/every_candle_chart_is_a_tradingview_chart.test.js`,
+`app/test/tv_charts_render.smoke.test.js`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —

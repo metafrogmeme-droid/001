@@ -101,7 +101,9 @@ test('a collapsed Signals row is a label and a value, not five columns',
       const page = await ctx.newPage();
       await page.goto(`${base}/dashboard#signals`, { waitUntil: 'load' });
       await page.waitForSelector('#c-stream td[data-label="Signal"]', { timeout: 10000 });
-      await page.waitForSelector('#c-stream td[data-label="Signal"] svg.sc', { timeout: 10000 });
+      // The chart is the site's TradingView chart (RCTVChart), which the page
+      // loads; the SVG is only the fallback for a library that failed to load.
+      await page.waitForSelector('#c-stream td[data-label="Signal"] .sc-tv canvas', { timeout: 10000 });
 
       const m = await page.evaluate(() => {
         const box = (el) => { const r = el.getBoundingClientRect(); return { w: r.width, h: r.height, top: r.top, left: r.left, right: r.right }; };
@@ -109,7 +111,7 @@ test('a collapsed Signals row is a label and a value, not five columns',
         const chip = cell.querySelector('.chip');
         const sym = cell.querySelector('b');
         const desc = cell.querySelector('div.muted');
-        const chart = cell.querySelector('svg.sc');
+        const chart = cell.querySelector('.sc-tv');
         const age = document.querySelector('#c-stream td[data-label="Age"]');
         const label = age && getComputedStyle(age, '::before');
         return {
@@ -182,14 +184,20 @@ test('the chart skeleton reserves what the chart draws', SKIP ? { skip: SKIP } :
     // min-height. Both must reserve what the chart draws, and the first draft
     // measured only the second — the mutation round said so by shrinking the
     // skeleton rule with no verdict changing.
-    await ctx.route('**/api/market/candles**', async (r) => {
-      if (slowCandles) { await new Promise((ok) => setTimeout(ok, 4000)); }
-      return r.fulfill({ status: 502, contentType: 'application/json', body: '{}' });
-    });
+    // ORDER MATTERS: Playwright runs matching routes in the REVERSE of their
+    // registration, so the catch-all goes first and the candle route second.
+    // The other way round, the catch-all answered the candle read at once with
+    // an empty body, the slow state below was never reached, and this test
+    // measured a placeholder while calling it the skeleton -- which passed
+    // only because nothing ever cleared `aria-busy`.
     await ctx.route('**/api/**', (route) => {
       const u = new URL(route.request().url());
       return route.fulfill({ status: 200, contentType: 'application/json',
         body: JSON.stringify(u.pathname.startsWith('/api/signals') ? SIGNAL : { ok: true, data: {}, rows: [], items: [] }) });
+    });
+    await ctx.route('**/api/market/candles**', async (r) => {
+      if (slowCandles) { await new Promise((ok) => setTimeout(ok, 4000)); }
+      return r.fulfill({ status: 502, contentType: 'application/json', body: '{}' });
     });
     await ctx.route('**/api/stream*', (r) => r.fulfill({ status: 200, contentType: 'text/event-stream', body: ': ok\n\n' }));
     await ctx.route(/^https?:\/\/(?!127\.0\.0\.1)/, (r) => r.abort());
@@ -197,7 +205,7 @@ test('the chart skeleton reserves what the chart draws', SKIP ? { skip: SKIP } :
     const read = () => page.$eval('#c-stream td[data-label="Signal"] .sc-slot', (el) => ({
       h: el.getBoundingClientRect().height,
       busy: el.getAttribute('aria-busy') === 'true',
-      hasSvg: !!el.querySelector('svg.sc'),
+      hasSvg: !!el.querySelector('svg.sc, .sc-tv'),
       skel: (() => { const k = el.querySelector('.skel--sc'); return k ? k.getBoundingClientRect().height : null; })(),
     }));
 
@@ -225,6 +233,12 @@ test('the chart skeleton reserves what the chart draws', SKIP ? { skip: SKIP } :
     const failed = await read();
     t.diagnostic(`failed-read ${Math.round(failed.h)}px (busy ${failed.busy}, svg ${failed.hasSvg})`);
     assert.equal(failed.hasSvg, false, 'the chart mounted despite a failed candle read');
+    // A 502 is a read that FAILED, and the slot says so -- not "no price
+    // history returned", which is a claim about the market.
+    const reason = await page.$eval('#c-stream td[data-label="Signal"] .sc-slot .sc-none',
+      (el) => el.getAttribute('data-sc-reason'));
+    assert.equal(reason, 'unreadable', `a failed candle read rendered as "${reason}"`);
+    assert.equal(failed.busy, false, 'the slot still announces itself as loading after the read failed');
     assert.ok(Math.abs(failed.h - CHART_HEIGHT.drawn) < 8,
       `after a failed read the slot reserves ${Math.round(failed.h)}px against the chart's `
       + `${Math.round(CHART_HEIGHT.drawn)}px — the row will jump if a later read succeeds`);

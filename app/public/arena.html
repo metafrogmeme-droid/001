@@ -22,7 +22,7 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0a0b10">
 <link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/styles.css?v=49">
+<link rel="stylesheet" href="/styles.css?v=50">
 <style>
   .ar-wrap { max-width: 1040px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
   .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
@@ -439,7 +439,9 @@ window.addEventListener('unhandledrejection', rcReportPageError);
 <script src="/js/arena_engine.js?v=1"></script>
 <script src="/js/sandbox.js?v=1" defer></script>
 <script src="/js/arena-risk-model.js?v=1"></script>
-<script src="/js/chartread.js?v=6"></script>
+<script src="/vendor/lightweight-charts.standalone.production.js?v=1"></script>
+<script src="/js/tv-chart.js?v=1"></script>
+<script src="/js/chartread.js?v=7"></script>
 <script src="/js/radar3d.js?v=3" defer></script>
 <script>
 (function () {
@@ -550,15 +552,19 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     var durMin = Math.round((new Date(t.closed_at).getTime() - new Date(t.opened_at).getTime()) / 60000);
     var durTxt = durMin >= 1440 ? Math.round(durMin / 144) / 10 + 'd'
       : durMin >= 60 ? Math.round(durMin / 6) / 10 + 'h' : durMin + 'm';
-    cell.innerHTML = CR.svgChart(parsed, {
-      width: Math.max(300, (cell.clientWidth || 0) - 10),
-      entry: t.entry, exit: t.exit_price,
-      vwap: false, structure: false,   // historical window: geometry only, no current-tail reads
-    }) + '<div class="read-chips"><span class="read-chip ' + (t.direction === 'LONG' ? 'up-c' : 'down-c') + '">'
+    // RCChartRead.drawInto: the site's TradingView chart, or the SVG when the
+    // library did not load. The host goes in first so it has a width.
+    cell.innerHTML = '<div class="rc-chart-host"></div><div class="read-chips"><span class="read-chip ' + (t.direction === 'LONG' ? 'up-c' : 'down-c') + '">'
       + esc(t.direction) + ' ' + t.leverage + '×</span>'
       + '<span class="read-chip ' + pnlCls(t.pnl) + '">' + (t.pnl > 0 ? '+' : '') + fmt2(t.pnl) + ' vUSDT</span>'
       + '<span class="read-chip">' + esc(t.reason) + '</span>'
       + '<span class="read-chip">' + durTxt + ' in trade</span></div>';
+    CR.drawInto(cell.firstChild, parsed, {
+      width: Math.max(300, (cell.clientWidth || 0) - 10), height: 240,
+      title: String(t.symbol || '').toUpperCase() + ' · ' + gg.g,
+      entry: t.entry, exit: t.exit_price,
+      vwap: false, structure: false,   // historical window: geometry only, no current-tail reads
+    });
   }
 
   // Per-position chart & engine read: 1h candles (public market proxy) with
@@ -673,13 +679,15 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     for (var wi = 0; wi < cps.length; wi++) {
       if (/^Elliott/i.test(cps[wi].name || '')) { ew = cps[wi]; break; }
     }
-    cell.innerHTML = tfRow(sym, p.id) + CR.svgChart(parsed, {
-      width: Math.max(300, (cell.clientWidth || 0) - 10),
+    cell.innerHTML = tfRow(sym, p.id) + '<div class="rc-chart-host"></div>' + readChips(p, parsed, d0.patterns, gran);
+    CR.drawInto(cell.querySelector('.rc-chart-host'), parsed, {
+      width: Math.max(300, (cell.clientWidth || 0) - 10), height: 260,
+      title: sym + ' · ' + gran,
       entry: p.entry, sl: p.sl, tp: p.tp, liq: p.liq_price, direction: p.direction,
       levels: (d0.insight && d0.insight.levels) || [],
       fvgs: (d0.insight && d0.insight.fvgs) || [],
       waves: ew ? CR.elliottWavePoints(ew) : [],
-    }) + readChips(p, parsed, d0.patterns, gran);
+    });
   }
   var lastHeatPct = 0;
   function renderAccount(d) {
@@ -1449,8 +1457,9 @@ window.addEventListener('unhandledrejection', rcReportPageError);
           if (/^Elliott/i.test(cps[wi].name || '')) { ew = cps[wi]; break; }
         }
         box.hidden = false;   // unhide first so clientWidth measures real
-        box.innerHTML = CR.svgChart(parsed, {
-          width: Math.max(300, (box.clientWidth || 0) - 4),
+        CR.drawInto(box, parsed, {
+          width: Math.max(300, (box.clientWidth || 0) - 4), height: 240,
+          title: sym + ' · 1h',
           entry: liveMark,
           tp: Number($('tTp').value) || null,
           sl: Number($('tSl').value) || null,

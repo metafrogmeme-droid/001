@@ -116,7 +116,7 @@ function page(title, bodyClass, script, meta, deps) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
 ${meta || ''}
-<link rel="stylesheet" href="/embed.css?v=5">
+<link rel="stylesheet" href="/embed.css?v=6">
 </head><body class="${bodyClass}">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}
@@ -147,8 +147,12 @@ router.get('/signals', (req, res) => {
     meta = r.origin ? require('../lib/farcaster_manifest').embedTags(r.origin) : '';
   } catch (_) { meta = ''; }
   res.type('html').send(
-    page('RUNECLAW — live signals', 'e-signals', '/js/embed-signals.js?v=7', meta,
-      ['/js/embed-read.js?v=2', '/js/embed-row.js?v=2', '/js/signal-chart.js?v=1']));
+    page('RUNECLAW — live signals', 'e-signals', '/js/embed-signals.js?v=8', meta,
+      // The TradingView library is ~51KB gzipped: the cost of the board's
+      // charts being the site's one chart style rather than a second, hand-drawn
+      // one. The SVG stays as the fallback if it fails to load.
+      ['/vendor/lightweight-charts.standalone.production.js?v=1', '/js/tv-chart.js?v=1',
+        '/js/embed-read.js?v=2', '/js/embed-row.js?v=2', '/js/signal-chart.js?v=2']));
 });
 
 /**

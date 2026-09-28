@@ -72,7 +72,12 @@ html, body {
 .e-short { color: var(--e-down); }
 .e-flat  { color: var(--e-text-3); }
 
-.e-chart { min-height: 72px; margin-bottom: 8px; }
+.e-chart { min-height: 96px; margin-bottom: 8px; }
+/* The chart: a TradingView chart (RCTVChart) or, if the library did not load,
+   the SVG. Both the height the slot reserves. */
+.e-chart .sc-tv, .e-chart .sc { height: 96px; }
+.tvc { position: relative; overflow: hidden; }
+.tvc-pane { position: absolute; inset: 0; }
 
 /* The levels sit on one row and share the width, so entry/stop/target line up
    across cards even when the numbers differ in length — the eye compares them
@@ -122,7 +127,7 @@ html, body {
    names the failure rather than hiding. */
 .sc-none {
   display: flex; align-items: center; justify-content: center;
-  min-height: 72px; padding: 8px;
+  min-height: 96px; padding: 8px;
   border: 1px dashed var(--e-line); border-radius: 8px;
   color: var(--e-text-3); font-size: 11.5px; text-align: center;
 }
