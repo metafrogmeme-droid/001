@@ -16045,8 +16045,12 @@ agrees with every fixture. `--leverage N` threads it into all three configs
 the runner builds and the walk-forward base, `--honest` does not touch it,
 and the artefact records it beside `fill_mode`. The default stays 1 so every
 number on the record reproduces line for line (re-run at this commit,
-identical pooled block), and the 5x arm is the next measurement on the
-benchmark page.
+identical pooled block). The 5x arm, run beside it on all three snapshots and
+tabled on the benchmark page: on `majors_1h` and `alts_1h` the same trades
+fold for fold at the same hit rate with the money scaled about fivefold (net
+-$343 to -$1,760; +$176 to +$852), and on `corr_dense_1h` a different run,
+eleven fewer trades and a worst fold of -19.98% where the same nine trades
+lost 4.04% at 1x.
 
 **Two decisions are filed rather than made, because each moves every live
 order or every recorded number.** Whether the budget should be a
@@ -17465,7 +17469,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **465 of 1156** reach for source text through `source_scan`, `code_only`
+Driven, **465 of 1157** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 465 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

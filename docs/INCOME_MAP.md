@@ -281,8 +281,8 @@ decision after shadow evidence, not a card.
 
 Basis is COMPUTED and read, never traded. bot/core/basis.py's BasisAnalyzer is
 constructed at engine.py:707 and fetched in `_analyze_signal`'s context gather
-(engine.py:7030) — its
-result is handed to analyzer.analyze at :7199 as `basis` CONTEXT that votes on
+(engine.py:7048) — its
+result is handed to analyzer.analyze at :7217 as `basis` CONTEXT that votes on
 nothing. Its own docstring (basis.py:16-30) records that it had no caller
 outside tests until recently and that a fabricated `basis_pct * 365`
 "annualized" field was removed rather than propagated. On the web,
@@ -351,7 +351,7 @@ signal modules; RiskEngine (bot/risk/risk_engine.py:269) is the fail-closed pre-
 trade gate whose whole enforcing set /enforcing lists. engine.py:6173-6231
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2544) with no human in the loop, adaptively moved by
-realized win rate (engine.py:9253): the paper book's in paper mode, both
+realized win rate (engine.py:9271): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
@@ -1432,7 +1432,7 @@ size/exposure/loss caps, symbol allow/deny, regime, horizon
 (app/lib/user_strategies.js:18-33) — saves it, publishes it to the community
 marketplace, and ARMS it on their own bot: the web projects its signal-
 checkable rules, the bot re-validates and stores the snapshot
-(bot/core/user_strategy_store.py:134-174), and bot/core/engine.py:7834-7883
+(bot/core/user_strategy_store.py:134-174), and bot/core/engine.py:7852-7901
 evaluates it on every confirm and refuses the trade when it fails. Followers
 of a published strategy get its would-take picks (app/routes/copy.js:105). (2)
 Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
@@ -1732,7 +1732,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1294, registered telegram_handler.py:1234) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:8424
+bot/core/stock_trading.py, also read by bot/core/engine.py:8442
 (get_market_session) and scan_commands.py:376.
 
 **Price alerts and anomaly-alert scoping**

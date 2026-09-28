@@ -1245,7 +1245,30 @@ Which leverage the record SHOULD be measured at, and whether the per-trade
 risk budget should be a loss-at-stop figure (divide the base by the leverage
 the order places at) rather than a notional the executor commits as margin,
 are the operator's decisions. Nothing about live sizing changed in this
-slice; the 5x arm's numbers are recorded below once measured.
+slice. The 5x arm, measured at this commit on all three snapshots beside a
+1x re-run (the 1x `majors_1h` row reproduces the committed pooled block line
+for line):
+
+| dataset | fills at | profitable folds | mean OOS | worst fold | pooled trades | win | PF | net |
+|---|---|---|---|---|---|---|---|---|
+| majors_1h | 1x | 0/6 | −0.57% | −0.92% | 129 | 51% | 0.58 | −$343.13 |
+| majors_1h | 5x | 0/6 | −2.93% | −4.58% | 129 | 51% | 0.58 | −$1,760.15 |
+| alts_1h | 1x | 3/6 | +0.29% | −1.00% | 250 | 60% | 1.14 | +$175.74 |
+| alts_1h | 5x | 3/6 | +1.42% | −5.00% | 250 | 60% | 1.13 | +$851.77 |
+| corr_dense_1h | 1x | 1/6 | −1.40% | −4.04% | 73 | 33% | 0.21 | −$838.74 |
+| corr_dense_1h | 5x | 1/6 | −6.71% | −19.98% | 62 | 32% | 0.16 | −$4,027.61 |
+
+On `majors_1h` and `alts_1h` the leverage moved the money and nothing else:
+the same trades fold for fold, the same hit rate, and a net about five times
+the size -- not exactly five, because each fill is sized off the equity the
+fills before it left, so the multiple drifts and `alts_1h`'s profit factor
+moves a hundredth. On `corr_dense_1h` it is a different run: fold 1 takes 3
+trades at 5x where it took 14 at 1x, and fold 2's nine trades lose 19.98%
+where the same nine lost 4.04% -- the shape the pre-cap table above records
+for arm B on this snapshot, a different equity path with fewer trades. That
+is what "returns, drawdowns and which bars the breakers trip on are not
+scale-free" means, with numbers on it. Which leverage the record should be
+measured at stays the operator's decision.
 
 ## Refreshing the snapshot
 
