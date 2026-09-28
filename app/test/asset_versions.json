@@ -1,6 +1,6 @@
 {
   "embed.css": {
-    "sha": "a2349842380ba3a7",
+    "sha": "878c429cbd87242e",
     "v": 6
   },
   "js/agent-page.js": {
@@ -212,7 +212,7 @@
     "v": 2
   },
   "js/signal-chart.js": {
-    "sha": "7daee2a2e0490ec9",
+    "sha": "2e83ab4f03fab28f",
     "v": 2
   },
   "js/solana_wallet.js": {
@@ -289,6 +289,10 @@
   },
   "js/tv-chart.js": {
     "sha": "35084df81d560864",
+    "v": 1
+  },
+  "js/embed-chart.js": {
+    "sha": "30bfbd7fcf31ac51",
     "v": 1
   }
 }

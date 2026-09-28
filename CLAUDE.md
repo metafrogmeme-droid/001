@@ -16651,6 +16651,67 @@ dict, a function OF the field that the widened rule reported as a gate.
 (`tests/test_the_telegram_cards_print_the_one_confidence.py`,
 `tests/test_every_confidence_reader_asks_the_one_reading.py`.)
 
+**A TELEGRAM CHART IS A PICTURE, AND THE PICTURE HAD ITS OWN COPY OF THE CARD'S
+FIGURES.** Asked for on 2026-09-28: the TradingView style in Telegram too. Two
+halves, and restyling the first found four readings the picture had wrong.
+
+- **Its price formatter was a second copy with an older rule.**
+  `chart_renderer._fmt` printed six decimal places below a cent, so a sub-cent
+  entry at 0.0000112 and its stop at 0.0000110 were both tagged `0.000011`: the
+  stop drawn ON the entry, which `rich_cards._fmt_price` records being cured of
+  on the card. Above a dollar it printed two places, so LINK's 15.0885 was
+  tagged `15.09` under a caption reading 15.0885. The chart asks the card's
+  formatter now.
+- **The price axis printed a multiplier.** matplotlib's scaled labels put
+  `1.20` on a sub-cent chart's axis with `1e−5` in the corner, and a reader
+  takes 1.20 as the price. The axis uses the same formatter as the tags.
+- **The last-price tag was dropped near a level.** It was skipped whenever any
+  level sat within 5% of the range, which is ordinary for an entry near the
+  market, so the tag that says where the market is went missing exactly when a
+  reader compares it with the entry.
+- **The RSI read 50 where nobody had read anything.** The warm-up bars were
+  filled with 50, a flat neutral line over fourteen bars with no RSI, and a
+  window with gains and no losses (a zero average loss) was filled the same
+  way: the strongest rally read as neutral. The warm-up is empty now, a window
+  with no loss reads 100, and a window that did not move has no RSI.
+
+The new legend follows the rules the cards do: an open or close that could not
+be read is muted rather than red, a flat move is muted, and an overlay still
+warming up prints a dash.
+
+**The live chart is a link, and the reason is two Telegram rules.** A message
+cannot run a chart, a `web_app` button works only in a private chat, and an
+album (a media group) carries no inline keyboard at all. So the caption links
+`/embed/chart`, a public page on the site's TradingView chart that reads public
+candles and places nothing (the /embed contract). The link carries only what the
+card printed: the market, the timeframe, and each level through
+`price_on_record`, so a level not on record is left out rather than sent as 0,
+spelled `.12g` so it round-trips. Both runtimes refuse a symbol they cannot
+place, and the timeframe table and the symbol rule are pinned across the two.
+
+**Three more things the drive found.** The plain-text retry Telegram forces when
+it refuses the HTML kept "Open the live TradingView chart" and dropped the
+address, so `_strip_html` spells a link's URL now. The page printed each level
+at the axis precision, which rounded 15.0885 to 15.088 under a line saying
+these were the levels as published; it keeps every decimal the link carried.
+And `parseCandles` capped every chart at the 60-bar mini-chart window whatever
+the page asked for, so the full-page chart got the thumbnail's history.
+
+**Stated, not changed.** The link opens once the website serving
+`/embed/chart` is deployed; the bot and the site deploy separately, so the
+order is the site first. `_build_chart_composite` has no caller, and was left
+alone.
+
+**Thirty-two mutations, each killed; the one that survived the first round was
+where the window was decided.** The page dropping its own 200-bar request
+changed no verdict, because the choice sat inside `draw()`, a browser callback
+behind a fetch and the library, and the smoke fixture serves 60 candles, which
+is the thumbnail window too: a fixture that cannot produce more bars than the
+defect keeps cannot see it. `specFor` is the pure seam now, a drive hands it
+150 rows, and a scan pins that `draw()` builds no second spec of its own.
+(`tests/test_a_telegram_chart_links_the_live_chart.py`,
+`app/test/embed_chart_page.test.js`, `app/test/tv_charts_render.smoke.test.js`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -17942,7 +18003,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **468 of 1164** reach for source text through `source_scan`, `code_only`
+Driven, **468 of 1165** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 468 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

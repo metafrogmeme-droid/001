@@ -186,6 +186,24 @@ router.get('/arena', (req, res) => {
       ['/js/embed-arena-view.js?v=2']));
 });
 
+/**
+ * GET /embed/chart — one signal's live chart, the page a Telegram signal links to.
+ *
+ * A Telegram chart is a PNG: nothing on it scrolls, zooms or moves past its
+ * last candle. This is the same setup on the site's TradingView chart, live.
+ * Public on the same terms as /signals: the link carries a symbol, a
+ * timeframe and the levels the signal published (prices, which are market
+ * facts), the candles come from the public `/api/market/candles`, and the page
+ * reads no cookie and places nothing. The route reads nothing from the query
+ * either: the page does, and draws only what it can read (embed-chart.js).
+ */
+router.get('/chart', (req, res) => {
+  res.type('html').send(
+    page('RUNECLAW — live chart', 'e-chartpage', '/js/embed-chart.js?v=1', '',
+      ['/vendor/lightweight-charts.standalone.production.js?v=1', '/js/tv-chart.js?v=1',
+        '/js/embed-read.js?v=2', '/js/signal-chart.js?v=2']));
+});
+
 module.exports = router;
 module.exports.embedCsp = embedCsp;
 module.exports.frameAncestors = frameAncestors;

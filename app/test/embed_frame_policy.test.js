@@ -252,7 +252,7 @@ test('the scan is actually reading the embed scripts', () => {
   // pages must be in the set, so a rename that empties the glob fails here.
   const names = EMBED_SCRIPTS.map((s) => s.name);
   assert.ok(names.length >= 2, `the embed script scan found ${names.length} files`);
-  for (const required of ['embed-signals.js', 'embed-arena.js']) {
+  for (const required of ['embed-signals.js', 'embed-arena.js', 'embed-chart.js']) {
     assert.ok(names.includes(required), `${required} is not being scanned`);
   }
 });

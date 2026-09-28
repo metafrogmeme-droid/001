@@ -82,7 +82,7 @@
    * different thing from a feed that works, and a chart drawn from the half
    * that happened to be numeric is a partial total presented as a whole one.
    */
-  function parseCandles(rows) {
+  function parseCandles(rows, maxBars) {
     var out = [], dropped = 0;
     if (!rows || typeof rows.length !== 'number') return { candles: [], dropped: 0 };
     for (var i = 0; i < rows.length; i++) {
@@ -94,7 +94,10 @@
       out.push({ t: t, o: o, h: h, l: l, c: c });
     }
     out.sort(function (a, b) { return a.t - b.t; });
-    return { candles: out.slice(-MAX_BARS), dropped: dropped };
+    // A row's mini chart shows the last MAX_BARS; a full-page chart (the live
+    // chart a Telegram signal links to) asks for more.
+    var cap = maxBars > 0 ? maxBars : MAX_BARS;
+    return { candles: out.slice(-cap), dropped: dropped };
   }
 
   /**
@@ -182,9 +185,9 @@
    * the flat-market trap, a level at 0, and a half-parsed feed are decided
    * here and nowhere else.
    */
-  function readSignal(rows, geo) {
+  function readSignal(rows, geo, maxBars) {
     geo = geo || {};
-    var parsed = parseCandles(rows);
+    var parsed = parseCandles(rows, maxBars);
     var cs = parsed.candles;
 
     if (!rows || !rows.length) return { ok: false, reason: REASONS.NO_CANDLES, dropped: 0 };
@@ -246,7 +249,7 @@
    */
   function tvSpec(rows, geo, opts) {
     opts = opts || {};
-    var R = readSignal(rows, geo);
+    var R = readSignal(rows, geo, opts.maxBars);
     if (!R.ok) return { ok: false, reason: R.reason, dropped: R.dropped };
     // The renderer's own bar reading (seconds, ascending, one bar per
     // timestamp). This function carried a second copy of it, and a mutation

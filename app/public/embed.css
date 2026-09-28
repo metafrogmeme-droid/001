@@ -312,3 +312,10 @@ html, body {
 .m-problem--note { color: var(--e-text-3); border: 1px dashed var(--e-line); }
 .m-problem--warn { color: var(--e-down); border: 1px solid var(--e-line); }
 .m-problem--ok   { color: var(--e-text-2); border: 1px dashed var(--e-line); }
+
+/* The live chart page a Telegram signal links to (/embed/chart). */
+.e-chartpage .e-ch-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.e-chartpage .e-ch-tf { margin-left: auto; color: var(--e-text-3); font-size: 12.5px; }
+.e-chartpage .e-ch-tf a { color: var(--e-info); text-decoration: none; }
+.e-chartpage .e-ch-tf b { color: var(--e-text); }
+.e-chartpage .e-ch-chart { height: 62vh; min-height: 280px; margin-bottom: 10px; }

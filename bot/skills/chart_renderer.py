@@ -21,11 +21,15 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import math
 import re
 import threading
 from typing import Optional
 
+from bot.core.position_telemetry import price_on_record
 from bot.core.signal_confidence import displayed_confidence
+from bot.formatters.rich_cards import _fmt_price
+from bot.utils.site_url import site_url
 
 logger = logging.getLogger(__name__)
 
@@ -34,21 +38,25 @@ _TS, _OPEN, _HIGH, _LOW, _CLOSE, _VOL = 0, 1, 2, 3, 4, 5
 
 # Visual themes. "dark" is the default — a TradingView-terminal look.
 _THEMES = {
+    # The site's TradingView charts (app/public/js/tv-chart.js): the same
+    # candle colours, the same muted axis text, the same faint grid, and the
+    # entry in the brand gold the web modal draws it in. A signal's Telegram
+    # picture and its web chart are one style, not two.
     "dark": {
-        "figcolor": "#0b0e14",
-        "facecolor": "#131722",
-        "gridcolor": "#222631",
-        "text": "#d1d4dc",
-        "muted": "#787b86",
-        "up": "#26a69a",
-        "down": "#ef5350",
+        "figcolor": "#12141c",
+        "facecolor": "#12141c",
+        "gridcolor": "#1d212e",
+        "text": "#d8dde8",
+        "muted": "#8f99ab",
+        "up": "#2fbf71",
+        "down": "#e5484d",
         "ema_fast": "#2962ff",
         "ema_slow": "#ff9800",
-        "rsi": "#ab47bc",
-        "entry": "#42a5f5",
-        "stop": "#ef5350",
-        "target": "#26a69a",
-        "vwap": "#ffd54f",
+        "rsi": "#7e57c2",
+        "entry": "#e6b03c",
+        "stop": "#e5484d",
+        "target": "#2fbf71",
+        "vwap": "#f5c542",
         "choch": "#ff7043",
     },
     "light": {
@@ -80,7 +88,6 @@ try:
     import matplotlib
     matplotlib.use("Agg")  # headless backend; must be set before pyplot import
     import matplotlib.pyplot as plt
-    from matplotlib.lines import Line2D as _Line2D
     import mplfinance as mpf
     import pandas as pd
     _CHARTS_AVAILABLE = True
@@ -108,7 +115,18 @@ def _wilder_rsi(close, length: int = 14):
     avg_loss = loss.ewm(alpha=1.0 / length, adjust=False, min_periods=length).mean()
     rs = avg_gain / avg_loss.replace(0.0, float("nan"))
     rsi = 100.0 - (100.0 / (1.0 + rs))
-    return rsi.fillna(50.0)  # neutral during warm-up so the panel renders cleanly
+    # NaN during the warm-up, not 50. The old fill drew a flat "neutral" line
+    # across the first fourteen bars, a reading nobody computed, and then a
+    # jump where the real series began. A line that starts where the
+    # indicator exists is what a terminal draws.
+    #
+    # And the fill was hiding a second reading: a window with gains and no
+    # down move divides by a zero loss, which the replace() above makes NaN,
+    # which the fill made 50 -- so a straight rally drew RSI "neutral", the
+    # calmest reading from the strongest trend. It is 100. A window that did
+    # not move at all has no RSI and draws nothing.
+    rsi = rsi.where(~(avg_loss.eq(0.0) & avg_gain.gt(0.0)), 100.0)
+    return rsi
 
 
 def compute_chart_indicators(candles, rsi_length: int = 14,
@@ -173,6 +191,9 @@ def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
         edgecolor=t["gridcolor"],
         gridcolor=t["gridcolor"],
         gridstyle="-",
+        # The price scale on the RIGHT, where TradingView and the site's
+        # charts keep it, so the level tags sit on the scale they belong to.
+        y_on_right=True,
         rc={
             "axes.labelcolor": t["muted"],
             "axes.edgecolor": t["gridcolor"],
@@ -186,28 +207,31 @@ def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
     )
 
     add = [
+        # No `label=`: mplfinance turns labels into a boxed key of its own,
+        # a second legend beside the terminal one this chart prints.
         mpf.make_addplot(df["EMA_9"], color=t["ema_fast"], width=1.3, panel=0,
-                         secondary_y=False, label="EMA 9"),
+                         secondary_y=False),
         mpf.make_addplot(df["EMA_21"], color=t["ema_slow"], width=1.3, panel=0,
-                         secondary_y=False, label="EMA 21"),
+                         secondary_y=False),
         mpf.make_addplot(df["VWAP"], color=t["vwap"], width=1.3, panel=0,
-                         secondary_y=False, linestyle=":", label="VWAP"),
+                         secondary_y=False, linestyle=":"),
         # RSI panel — all on the primary axis with a fixed 0-100 scale so the
         # 70/30 guides land in the right place (the old chart mis-scaled this).
-        mpf.make_addplot(df["RSI"], color=t["rsi"], width=1.4, panel=2,
-                         secondary_y=False, ylim=(0, 100), ylabel="RSI 14"),
-        mpf.make_addplot(df["RSI_70"], color=t["down"], linestyle="--", width=0.8,
+        mpf.make_addplot(df["RSI"], color=t["rsi"], width=1.3, panel=2,
+                         secondary_y=False, ylim=(0, 100), ylabel=""),
+        mpf.make_addplot(df["RSI_70"], color=t["muted"], linestyle="--", width=0.7,
                          panel=2, secondary_y=False, ylim=(0, 100)),
-        mpf.make_addplot(df["RSI_30"], color=t["up"], linestyle="--", width=0.8,
+        mpf.make_addplot(df["RSI_30"], color=t["muted"], linestyle="--", width=0.7,
                          panel=2, secondary_y=False, ylim=(0, 100)),
     ]
 
     plot_kwargs = dict(
         type="candle", style=style, addplot=add,
-        volume=True, panel_ratios=(6, 1.6, 2),
-        ylabel="Price", returnfig=True, figratio=(16, 10), figscale=1.3,
-        datetime_format="%m/%d %Hh", xrotation=15, tight_layout=False,
-        scale_padding={"left": 0.4, "right": 2.2, "top": 1.5, "bottom": 0.7},
+        volume=True, panel_ratios=(6, 1.4, 2),
+        ylabel="", ylabel_lower="", returnfig=True, figratio=(16, 10), figscale=1.3,
+        # Horizontal date labels, day and time, as a terminal prints them.
+        datetime_format="%d %b %H:%M", xrotation=0, tight_layout=False,
+        scale_padding={"left": 0.3, "right": 1.6, "top": 1.5, "bottom": 0.7},
     )
 
     # Trade-level overlay lines (entry / stop / target) on the price panel.
@@ -245,9 +269,9 @@ def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
             # Title + subtitle anchored just above the price panel (robust under
             # bbox_inches="tight"; the old figure-space placement overlapped).
             price_ax.set_title(title, loc="left", color=t["text"],
-                               fontsize=15, fontweight="bold", pad=30)
+                               fontsize=13, fontweight="bold", pad=26)
             if subtitle:
-                price_ax.text(0.0, 1.022, subtitle, transform=price_ax.transAxes,
+                price_ax.text(0.0, 1.02, subtitle, transform=price_ax.transAxes,
                               color=t["muted"], fontsize=9.5, ha="left", va="bottom")
 
             # Thin out crowded x-axis date labels (keep ~8, smaller font).
@@ -259,17 +283,18 @@ def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
                 step = max(1, len(ticks) // 8)
                 bottom_ax.set_xticks(ticks[::step])
 
-            # EMA legend.
-            handles = [
-                _Line2D([0], [0], color=t["ema_fast"], lw=1.6, label="EMA 9"),
-                _Line2D([0], [0], color=t["ema_slow"], lw=1.6, label="EMA 21"),
-                _Line2D([0], [0], color=t["vwap"], lw=1.6, ls=":", label="VWAP"),
-            ]
-            leg = price_ax.legend(handles=handles, loc="upper left", fontsize=8.5,
-                                  facecolor=t["facecolor"], edgecolor=t["gridcolor"],
-                                  labelcolor=t["text"], framealpha=0.85, ncol=3,
-                                  columnspacing=1.0, handlelength=1.4, borderpad=0.4)
-            leg.get_frame().set_linewidth(0.6)
+            # The price axis prints prices, as the tags and the card do. Left
+            # to matplotlib, a sub-cent chart read `1.20` under a `1e-5`
+            # multiplier in the corner, and a reader takes 1.20 as the price.
+            from matplotlib.ticker import FuncFormatter
+            price_ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _pos: _fmt(v)))
+
+            # The legend a terminal prints: the last bar's OHLC and move, then
+            # each overlay's last value in its own colour. Text, not a boxed
+            # key -- the values are what a reader looks up here.
+            _draw_tv_legend(price_ax, _tv_price_legend_rows(df, t), t["facecolor"])
+            if rsi_ax is not None:
+                _draw_tv_legend(rsi_ax, _tv_rsi_legend_rows(df, t), t["facecolor"])
 
             # Right-edge price tags (levels + last price), de-cluttered so they
             # never overprint or run off the axis. A tag nudged off its true
@@ -281,10 +306,12 @@ def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
             margin = (y1 - y0) * 0.02
 
             tags = [[val, f"{tag} {_fmt(val)}", color, 0.95, val] for val, color, tag in lvl_specs]
-            # Skip the last-price pill if it would just duplicate a nearby level.
-            if not any(abs(last_close - v) < gap for v, _, _ in lvl_specs):
-                tags.append([last_close, _fmt(last_close),
-                             t["up"] if last_up else t["down"], 0.62, last_close])
+            # The last price always has its tag, as the site chart's scale
+            # does: near the entry it is the figure a reader compares with the
+            # entry, and dropping it as a "duplicate" left the pill that says
+            # where the market is off the chart. The de-clutter below nudges it.
+            tags.append([last_close, _fmt(last_close),
+                         t["up"] if last_up else t["down"], 0.62, last_close])
 
             tags.sort(key=lambda x: x[0])
             draw_ys = [tg[0] for tg in tags]
@@ -299,16 +326,24 @@ def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
                     if draw_ys[i] - draw_ys[i - 1] < gap:
                         draw_ys[i - 1] = draw_ys[i] - gap
 
+            # The last price as a terminal draws it: a dotted line across the
+            # pane in the last bar's colour, its tag on the scale below.
+            price_ax.axhline(last_close, color=t["up"] if last_up else t["down"],
+                             lw=0.8, ls=(0, (1, 2)), alpha=0.85, zorder=2)
+
+            # The tags sit ON the price scale, over the tick labels they
+            # stand for, as TradingView's axis labels do. A tag nudged off its
+            # level keeps a short leader back to it.
             ytx = price_ax.get_yaxis_transform()
             for (true_y, text, fc, alpha, _), dy in zip(tags, draw_ys):
                 if abs(dy - true_y) > gap * 0.3:              # leader line when nudged
-                    price_ax.plot([1.0, 1.022], [true_y, dy], transform=ytx,
+                    price_ax.plot([1.0, 1.006], [true_y, dy], transform=ytx,
                                   color=fc, lw=0.7, alpha=0.7, clip_on=False, zorder=4)
                 price_ax.text(
-                    1.026, dy, f" {text} ", transform=ytx,
+                    1.006, dy, f" {text} ", transform=ytx,
                     color="#ffffff", fontsize=8, fontweight="bold",
-                    va="center", ha="left", clip_on=False,
-                    bbox=dict(boxstyle="round,pad=0.22", fc=fc, ec="none", alpha=alpha),
+                    va="center", ha="left", clip_on=False, zorder=7,
+                    bbox=dict(boxstyle="square,pad=0.25", fc=fc, ec="none", alpha=alpha),
                 )
 
             # Risk/reward shaded zones: entry→target (reward) and entry→stop
@@ -425,34 +460,41 @@ def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
             _fibonacci_levels_overlay(df, price_ax, t)
             _pattern_zones_overlay(df, price_ax, t)
 
-            # RSI overbought/oversold shaded zones + clean ticks.
+            # The RSI pane's one band between 30 and 70, faint in the line's
+            # own colour, as a terminal shades it.
             if rsi_ax is not None:
-                rsi_ax.axhspan(70, 100, color=t["down"], alpha=0.08, zorder=0)
-                rsi_ax.axhspan(0, 30, color=t["up"], alpha=0.08, zorder=0)
+                rsi_ax.axhspan(30, 70, color=t["rsi"], alpha=0.07, zorder=0)
                 rsi_ax.set_yticks([30, 50, 70])
 
-            # Faint centered brand mark, behind all content (never conflicts).
-            price_ax.text(0.5, 0.5, "RUNECLAW", transform=price_ax.transAxes,
-                          color=t["text"], alpha=0.035, fontsize=40,
+            # The pane's watermark is the symbol, as a terminal marks it, with
+            # the brand small beneath. Both far behind the data.
+            _mark = (title or "").split()[0] if (title or "").split() else "RUNECLAW"
+            price_ax.text(0.5, 0.53, _mark, transform=price_ax.transAxes,
+                          color=t["text"], alpha=0.045, fontsize=44,
+                          fontweight="bold", ha="center", va="center", zorder=0)
+            price_ax.text(0.5, 0.41, "RUNECLAW", transform=price_ax.transAxes,
+                          color=t["text"], alpha=0.045, fontsize=12,
                           fontweight="bold", ha="center", va="center", zorder=0)
 
             # ── Cosmetic smoothing pass (premium finish) ──
             for ax in axlist:
-                for sp_name in ("top", "right"):
+                # The price scale's border on the right and the time axis's at
+                # the bottom, as the site's charts draw them; nothing else.
+                for sp_name in ("top", "left"):
                     if sp_name in ax.spines:
                         ax.spines[sp_name].set_visible(False)
-                for sp_name in ("left", "bottom"):
+                for sp_name in ("right", "bottom"):
                     if sp_name in ax.spines:
                         ax.spines[sp_name].set_color(t["gridcolor"])
-                        ax.spines[sp_name].set_linewidth(0.8)
-                # Soft, horizontal-only gridlines read cleaner than a full mesh.
-                ax.grid(True, axis="y", color=t["gridcolor"], linewidth=0.5, alpha=0.45)
-                ax.grid(False, axis="x")
+                        ax.spines[sp_name].set_linewidth(0.9)
+                # A faint grid both ways, the site charts' mesh.
+                ax.grid(True, axis="both", color=t["gridcolor"], linewidth=0.6, alpha=0.9)
                 ax.tick_params(length=0)  # remove tick marks, keep labels
             # Dim the volume bars so the price action dominates the hierarchy.
             if len(axlist) > 2:
                 for patch in axlist[2].patches:
                     patch.set_alpha(0.45)
+                    patch.set_linewidth(0)
             # RSI 50 midline.
             if rsi_ax is not None:
                 rsi_ax.axhline(50, color=t["muted"], lw=0.6, alpha=0.35, zorder=0)
@@ -463,6 +505,77 @@ def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
             plt.close(fig)
     buf.seek(0)
     return buf.getvalue()
+
+
+def _last_reading(series) -> Optional[float]:
+    """The series' last value if it is a number, else None -- a legend prints a
+    dash for an overlay nobody could compute, never a zero."""
+    try:
+        v = float(series.iloc[-1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    return v if math.isfinite(v) else None
+
+
+def _tv_price_legend_rows(df, t) -> list:
+    """The price pane's legend, as rows of (text, colour) segments.
+
+    Row 1 is the last bar: O H L C and its move from the previous close, in the
+    bar's own colour. Row 2 is each overlay's last value in its line colour.
+    """
+    o, h, lo, c = (_last_reading(df[k]) for k in ("Open", "High", "Low", "Close"))
+    prev = _last_reading(df["Close"].iloc[:-1]) if len(df) > 1 else None
+    # Colour is a claim: a bar whose open or close could not be read is neither
+    # up nor down, and gets the muted colour rather than red.
+    if c is None or o is None:
+        val_col = t["muted"]
+    else:
+        val_col = t["up"] if c >= o else t["down"]
+    row1 = []
+    for label, v in (("O", o), ("H", h), ("L", lo), ("C", c)):
+        row1 += [(label, t["muted"]), (_fmt(v) if v is not None else "\u2014", val_col)]
+    if c is not None and prev:
+        chg = (c - prev) / prev * 100.0
+        row1.append((f"{chg:+.2f}%", t["up"] if chg > 0 else t["down"] if chg < 0 else t["muted"]))
+    row2 = []
+    for label, key, col in (("EMA 9", "EMA_9", t["ema_fast"]),
+                            ("EMA 21", "EMA_21", t["ema_slow"]),
+                            ("VWAP", "VWAP", t["vwap"])):
+        v = _last_reading(df[key]) if key in df else None
+        row2 += [(label, t["muted"]), (_fmt(v) if v is not None else "\u2014", col)]
+    return [row1, row2]
+
+
+def _tv_rsi_legend_rows(df, t) -> list:
+    """The RSI pane's legend: its name and its last value, or a dash while the
+    warm-up has not produced one."""
+    v = _last_reading(df["RSI"]) if "RSI" in df else None
+    return [[("RSI 14", t["muted"]),
+             (f"{v:.1f}" if v is not None else "\u2014", t["rsi"])]]
+
+
+def _draw_tv_legend(ax, rows, face: str, fontsize: float = 8.5) -> None:
+    """Draw rows of coloured text segments in the axes' top-left corner, the way
+    a TradingView pane labels itself. No frame: it is text over the chart."""
+    from matplotlib.offsetbox import AnchoredOffsetbox, HPacker, TextArea, VPacker
+    # Typed as plain lists: the packers take a list of Artist, and a list of
+    # TextArea is not one to the checker although every element is.
+    lines: list = []
+    for row in rows:
+        parts: list = [TextArea(txt, textprops=dict(color=col, fontsize=fontsize,
+                                                     family="monospace"))
+                       for txt, col in row]
+        lines.append(HPacker(children=parts, align="baseline", pad=0, sep=5))
+    box = VPacker(children=lines, align="left", pad=0, sep=3)
+    # A translucent backing, the site chart legend's: a level line crossing
+    # the corner must not run through the values.
+    anchored = AnchoredOffsetbox(loc="upper left", child=box, frameon=True,
+                                 pad=0.3, borderpad=0.35)
+    anchored.patch.set_facecolor(face)
+    anchored.patch.set_edgecolor("none")
+    anchored.patch.set_alpha(0.72)
+    anchored.set_zorder(6)
+    ax.add_artist(anchored)
 
 
 def _market_structure_lines(df):
@@ -1091,15 +1204,16 @@ def _pattern_zones_overlay(df, price_ax, t):
 
 
 def _fmt(price: float) -> str:
-    """Compact price label: 64,250 / 3.85 / 0.00231."""
-    p = abs(price)
-    if p >= 1000:
-        return f"{price:,.0f}"
-    if p >= 1:
-        return f"{price:,.2f}"
-    if p >= 0.01:
-        return f"{price:.4f}"
-    return f"{price:.6f}"
+    """A price on the chart, in the card's precision (``_fmt_price``).
+
+    This was a second copy with a coarser rule: six decimal places below a
+    cent, so a PEPE-class entry at 0.0000112 and its stop at 0.0000110 were
+    both tagged ``0.000011`` on the chart -- the stop drawn ON the entry, the
+    defect the card's formatter records being cured of -- and two places above
+    one, so LINK's published 15.0885 was tagged 15.09 under a caption reading
+    15.0885. The chart prints what the card prints, without the currency sign.
+    """
+    return _fmt_price(price).lstrip("$")
 
 
 def build_chart_png(candles, title: str = "RUNECLAW Setup",
@@ -1191,8 +1305,72 @@ async def _send_text_fallback(bot, chat_id, text: str) -> None:
                                text=_strip_html(text)[:_MESSAGE_LIMIT], parse_mode=None)
 
 
+_ANCHOR = re.compile(r'<a\s+href="([^"]*)"[^>]*>(.*?)</a>', re.S)
+
+
 def _strip_html(text: str) -> str:
+    """The caption as plain text, for the retry after Telegram refused HTML.
+
+    A link keeps its address: stripping the tag alone turned
+    ``<a href="...">Open the live TradingView chart</a>`` into a sentence
+    promising a chart with nothing to tap, on exactly the message where the
+    markup failed. Telegram links a bare URL in plain text by itself.
+    """
+    text = _ANCHOR.sub(lambda m: f"{m.group(2)}: {_html_unescape(m.group(1))}", text)
     return re.sub(r"<[^>]+>", "", text)
+
+
+def _html_unescape(text: str) -> str:
+    import html as _html
+    return _html.unescape(text)
+
+
+#: The timeframes the live chart page draws (``app/public/js/embed-chart.js``
+#: ``TIMEFRAMES``); anything else is linked as 1h, the page's own default.
+LIVE_CHART_TIMEFRAMES = ("15m", "1h", "4h", "1d")
+_LIVE_CHART_SYMBOL = re.compile(r"^[A-Z0-9]{2,24}$")
+
+
+def live_chart_url(idea, timeframe: Optional[str] = None) -> Optional[str]:
+    """The link to this signal's live TradingView chart, or None.
+
+    A Telegram chart is a PNG: drawn once, nothing to zoom, nothing after its
+    last candle. ``/embed/chart`` on the website is the same setup on the
+    site's TradingView chart, live, with the levels the signal published drawn
+    on it. It reads public market data and places nothing, which is why it can
+    be opened from any chat.
+
+    Everything in the link is what the card already printed. A level that is
+    not a price on record (``price_on_record``: zero, negative, NaN, junk) is
+    left OUT of the link rather than sent as 0, because the page draws what it
+    is handed and a stop at zero is a line nobody stated. None when the idea
+    names no symbol the page could ask the candle route about: a link to no
+    market is worse than no link.
+    """
+    import urllib.parse
+    asset = str(getattr(idea, "asset", "") or "")
+    sym = asset.split(":")[0].replace("/", "").upper()
+    if not _LIVE_CHART_SYMBOL.match(sym):
+        return None
+    tf = timeframe if timeframe in LIVE_CHART_TIMEFRAMES else "1h"
+    params = [("s", sym), ("tf", tf)]
+    for key, attr in (("e", "entry_price"), ("sl", "stop_loss"), ("tp", "take_profit")):
+        v = price_on_record(getattr(idea, attr, None))
+        if v is not None:
+            params.append((key, f"{v:.12g}"))
+    direction = str(getattr(getattr(idea, "direction", None), "value", "") or "").upper()
+    if direction in ("LONG", "SHORT"):
+        params.append(("d", direction))
+    return f"{site_url()}/embed/chart?{urllib.parse.urlencode(params)}"
+
+
+def live_chart_line(idea, timeframe: Optional[str] = None) -> str:
+    """The caption line that opens the live chart, or "" when there is none."""
+    import html as _html
+    url = live_chart_url(idea, timeframe)
+    if not url:
+        return ""
+    return f'\n📈 <a href="{_html.escape(url, quote=True)}">Open the live TradingView chart</a>'
 
 
 async def send_idea_chart(bot, chat_id, candles, idea,
@@ -1212,6 +1390,9 @@ async def send_idea_chart(bot, chat_id, candles, idea,
         pair, direction, subtitle, levels = _idea_meta(idea)
         import html as _html
         caption = f"<b>{_html.escape(pair)}</b> {_html.escape(direction)} — price · EMA9/21 · RSI(14)"
+        # The link sits above the extra text, so a long caption cut at the
+        # photo limit loses the tail and never half a tag.
+        caption += live_chart_line(idea, getattr(idea, "timeframe", None))
         if extra_caption:
             caption += f"\n{extra_caption}"
         return await send_chart(
@@ -1266,11 +1447,12 @@ async def send_idea_charts_multi(bot, chat_id, candles_by_tf: dict, idea,
             if png:
                 rendered.append((tf, png))
 
+        first_tf = next(iter(candles_by_tf or {}), None)
         if not rendered:
             await _send_text_fallback(
                 bot, chat_id,
                 f"<b>{_html.escape(pair)}</b> {_html.escape(direction)} — "
-                f"price · EMA9/21 · RSI(14)")
+                f"price · EMA9/21 · RSI(14)" + live_chart_line(idea, first_tf))
             return False
 
         # Single timeframe → a normal photo (albums need 2+).
@@ -1278,7 +1460,8 @@ async def send_idea_charts_multi(bot, chat_id, candles_by_tf: dict, idea,
             tf, png = rendered[0]
             return await _send_single_photo(
                 bot, chat_id, png,
-                f"<b>{_html.escape(pair)}</b> {_html.escape(direction)} · {tf}")
+                f"<b>{_html.escape(pair)}</b> {_html.escape(direction)} · {tf}"
+                + live_chart_line(idea, tf))
 
         # 2+ timeframes → a media group (album), caption on the first item.
         try:
@@ -1287,9 +1470,13 @@ async def send_idea_charts_multi(bot, chat_id, candles_by_tf: dict, idea,
             tf, png = rendered[0]
             return await _send_single_photo(
                 bot, chat_id, png,
-                f"<b>{_html.escape(pair)}</b> {_html.escape(direction)} · {tf}")
+                f"<b>{_html.escape(pair)}</b> {_html.escape(direction)} · {tf}"
+                + live_chart_line(idea, tf))
 
-        caption = f"<b>{_html.escape(pair)}</b> {_html.escape(direction)} — {_html.escape(subtitle)}"
+        # An album cannot carry a button (Telegram puts no inline keyboard on a
+        # media group), so the live chart is a link in the first caption.
+        caption = (f"<b>{_html.escape(pair)}</b> {_html.escape(direction)} — {_html.escape(subtitle)}"
+                   + live_chart_line(idea, rendered[0][0]))
         media = []
         for i, (tf, png) in enumerate(rendered):
             buf = io.BytesIO(png); buf.name = f"chart_{tf}.png"

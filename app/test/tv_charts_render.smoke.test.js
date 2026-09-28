@@ -199,3 +199,67 @@ test('the embed board draws its charts under its own CSP, with no violation',
       server.close();
     }
   });
+
+test('the live chart page a Telegram signal links to draws the signal on a TradingView chart, under its CSP',
+  SKIP ? { skip: SKIP } : {}, async (t) => {
+    const { server, base } = await serve(true);
+    const browser = await pw.chromium.launch({ executablePath: CHROMIUM, headless: true });
+    try {
+      const page = await (await browser.newContext({ viewport: { width: 412, height: 800 } })).newPage();
+      const errs = [];
+      const asked = [];
+      page.on('pageerror', (e) => errs.push(String(e)));
+      page.on('console', (msg) => {
+        if (msg.type() === 'error' || /Content Security Policy/i.test(msg.text())) errs.push(msg.text());
+      });
+      page.on('request', (r) => { if (r.url().includes('/api/market/candles/')) asked.push(new URL(r.url())); });
+      page.on('response', (r) => { if (r.status() >= 400) errs.push(`${r.status()} ${new URL(r.url()).pathname}`); });
+      const res = await page.goto(`${base}/embed/chart?s=LINKUSDT&tf=4h&e=15.0885&sl=14.271&tp=16.3148&d=LONG`,
+        { waitUntil: 'load' });
+      assert.match(res.headers()['content-security-policy'] || '', /style-src/,
+        'the page was served without its CSP -- this is not measuring the real page');
+      await page.waitForSelector('#e-ch-chart canvas', { timeout: 15000 });
+      await page.waitForTimeout(400);
+      const m = await canvasesInside(page, '#e-ch-chart');
+      t.diagnostic(`live chart ${Math.round(m.host.w)}x${Math.round(m.host.h)} · ${m.n} canvases`);
+      assert.ok(m.host.h >= 280, `the chart is ${Math.round(m.host.h)}px tall -- its height was not set`);
+      assert.equal(m.outside, 0, 'a canvas is drawn outside the chart');
+      assert.equal(m.beside, true, 'the price axis wrapped below the pane');
+      assert.equal(await page.$('#e-ch-chart svg'), null, 'the SVG fallback drew although the library loaded');
+      // The candles asked for are the link's market on the link's timeframe.
+      assert.equal(asked[0].pathname, '/api/market/candles/LINKUSDT');
+      assert.equal(asked[0].searchParams.get('granularity'), '4h');
+      const levels = await page.$eval('.e-lv', (el) => el.textContent);
+      assert.match(levels, /15\.0885/);
+      assert.match(levels, /14\.271/);
+      assert.match(levels, /16\.3148/);
+      assert.ok(await page.$('a[href="https://www.tradingview.com/"]'), 'the page carries no TradingView attribution');
+      assert.deepEqual(errs, [], `the page raised: ${errs.join(' | ')}`);
+    } finally {
+      await browser.close();
+      server.close();
+    }
+  });
+
+test('a chart link that names no market says so and asks the candle route nothing',
+  SKIP ? { skip: SKIP } : {}, async () => {
+    const { server, base } = await serve(true);
+    const browser = await pw.chromium.launch({ executablePath: CHROMIUM, headless: true });
+    try {
+      const page = await (await browser.newContext({ viewport: { width: 412, height: 800 } })).newPage();
+      const asked = [];
+      const errs = [];
+      page.on('pageerror', (e) => errs.push(String(e)));
+      page.on('request', (r) => { if (r.url().includes('/api/market/candles/')) asked.push(r.url()); });
+      await page.goto(`${base}/embed/chart?s=%3Cimg%3E&tf=4h`, { waitUntil: 'load' });
+      await page.waitForSelector('#root .e-state', { timeout: 15000 });
+      const text = await page.$eval('#root', (el) => el.textContent);
+      assert.match(text, /does not name a market/);
+      assert.deepEqual(asked, []);
+      assert.equal(await page.$('#root img'), null, 'the symbol reached the page as markup');
+      assert.deepEqual(errs, []);
+    } finally {
+      await browser.close();
+      server.close();
+    }
+  });
