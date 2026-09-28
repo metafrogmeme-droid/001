@@ -130,6 +130,19 @@ def _order_placement_reads(source: str) -> list[int]:
     the operator-account ratchet's own rule ("an identity comparison is not a
     read"). Any other use of that name -- an attribute, an argument, an `==`
     that can run `__eq__` -- counts as a read of the book.
+
+    A second shape is exempt, and it is the rule's premise satisfied rather
+    than a hole in it: a name that is REFUSED by identity against the
+    operator's executor before any use that is not an identity comparison.
+    The web-live envelope has to read the leverage the user's OWN executor
+    would place at, so the gate's resolution hands its answer on -- and the
+    operator's book is what the rule forbids handing on. So the acquitting
+    refusal is `if <name> is <operator>: return ...` at the function's own
+    top level, with `<operator>` spelled `<x>.live_executor` or a name bound
+    once from it (`getattr(<x>, "live_executor", ...)`), and every opened use
+    of the name sits below it. A use above the refusal, a refusal against
+    anything else, one that does not return, or one nested inside another
+    block is not the shape, and the call counts as a read.
     """
     import ast
 
@@ -158,9 +171,60 @@ def _order_placement_reads(source: str) -> list[int]:
             and all(isinstance(op, (ast.Is, ast.IsNot)) for op in parents[u].ops)
             for u in uses)
 
+    def _is_identity_compare(node) -> bool:
+        p = parents.get(node)
+        return (isinstance(p, ast.Compare)
+                and all(isinstance(op, (ast.Is, ast.IsNot)) for op in p.ops))
+
+    def _names_the_operator(node, fn) -> bool:
+        if isinstance(node, ast.Attribute):
+            return node.attr == "live_executor"
+        if not isinstance(node, ast.Name):
+            return False
+        binds = [a.value for a in ast.walk(fn)
+                 if isinstance(a, ast.Assign) and len(a.targets) == 1
+                 and isinstance(a.targets[0], ast.Name) and a.targets[0].id == node.id]
+        if len(binds) != 1:
+            return False
+        v = binds[0]
+        if isinstance(v, ast.Attribute):
+            return v.attr == "live_executor"
+        return (isinstance(v, ast.Call) and isinstance(v.func, ast.Name)
+                and v.func.id == "getattr" and len(v.args) >= 2
+                and isinstance(v.args[1], ast.Constant)
+                and v.args[1].value == "live_executor")
+
+    def refused_before_use(call) -> bool:
+        bound = parents.get(call)
+        if not (isinstance(bound, ast.Assign) and len(bound.targets) == 1
+                and isinstance(bound.targets[0], ast.Name)):
+            return False
+        name = bound.targets[0].id
+        fn = scope(call)
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return False
+        # `is`, and nothing else: `is not` refuses everyone BUT the operator,
+        # and an `==` refusal cannot acquit whatever this says, because the
+        # comparison's own load of the name is an opened use on the gate line.
+        refusals = [
+            s for s in fn.body
+            if isinstance(s, ast.If) and isinstance(s.test, ast.Compare)
+            and isinstance(s.test.left, ast.Name) and s.test.left.id == name
+            and len(s.test.ops) == 1 and isinstance(s.test.ops[0], ast.Is)
+            and _names_the_operator(s.test.comparators[0], fn)
+            and s.body and isinstance(s.body[-1], ast.Return)]
+        if not refusals:
+            return False
+        gate = refusals[0]
+        opened = [n for n in ast.walk(fn)
+                  if isinstance(n, ast.Name) and n.id == name
+                  and isinstance(n.ctx, ast.Load) and not _is_identity_compare(n)]
+        return bool(opened) and all(u.lineno > gate.end_lineno for u in opened)
+
     return [n.lineno for n in ast.walk(tree)
             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-            and n.func.attr == "_executor_for" and not identity_only(n)]
+            and n.func.attr == "_executor_for"
+            and not identity_only(n) and not refused_before_use(n)]
 
 
 def test_no_web_gateway_read_asks_the_order_placement_reading():
@@ -181,8 +245,11 @@ def test_no_web_gateway_read_asks_the_order_placement_reading():
 
 
 def test_the_web_live_gate_is_the_identity_use_and_is_still_seen():
-    """The exemption is not a hole the size of the file: the gate's call is
-    the one it acquits, and it still counts as a call."""
+    """The exemptions are not a hole the size of the file: the gate's ONE
+    resolution (`_own_account_executor`, which refuses the operator's book
+    before handing its answer on) is the call they acquit, and it still
+    counts as a call. `_placement_leverage` asks that resolution rather than
+    keeping one of its own, so the file holds exactly one call."""
     import ast
     from pathlib import Path
 
@@ -218,6 +285,83 @@ def test_the_web_live_gate_is_the_identity_use_and_is_still_seen():
 def test_only_a_pure_identity_use_is_acquitted(body, flagged):
     planted = "def h(t):\n" + body
     assert bool(_order_placement_reads(planted)) is flagged, planted
+
+
+@pytest.mark.parametrize("body,flagged", [
+    # refused by identity against the operator's book, then handed on
+    ("    ex = engine._executor_for(t)\n"
+     "    if ex is None:\n        return None, 'none'\n"
+     "    if ex is engine.live_executor:\n        return None, 'operator'\n"
+     "    return ex, None\n", False),
+    # the operator spelled as a name bound once from the engine
+    ("    op = getattr(engine, 'live_executor', None)\n"
+     "    ex = engine._executor_for(t)\n"
+     "    if ex is op:\n        return None\n"
+     "    return ex.balance\n", False),
+    ("    op = engine.live_executor\n"
+     "    ex = engine._executor_for(t)\n"
+     "    if ex is op:\n        return None\n"
+     "    return ex.balance\n", False),
+    # opened BEFORE the refusal: the operator's book was already read
+    ("    ex = engine._executor_for(t)\n"
+     "    b = ex.balance\n"
+     "    if ex is engine.live_executor:\n        return None\n"
+     "    return b\n", True),
+    # refused against something that is not the operator's executor
+    ("    ex = engine._executor_for(t)\n"
+     "    if ex is other:\n        return None\n"
+     "    return ex.balance\n", True),
+    # a name bound twice is not a name bound from the operator
+    ("    op = getattr(engine, 'live_executor', None)\n"
+     "    op = other()\n"
+     "    ex = engine._executor_for(t)\n"
+     "    if ex is op:\n        return None\n"
+     "    return ex.balance\n", True),
+    # a refusal that does not return refuses nothing
+    ("    ex = engine._executor_for(t)\n"
+     "    if ex is engine.live_executor:\n        log()\n"
+     "    return ex.balance\n", True),
+    # `==` can run __eq__; only `is` is a refusal
+    ("    ex = engine._executor_for(t)\n"
+     "    if ex == engine.live_executor:\n        return None\n"
+     "    return ex.balance\n", True),
+    # nested inside another block: not the function's own top level
+    ("    ex = engine._executor_for(t)\n"
+     "    try:\n"
+     "        if ex is engine.live_executor:\n            return None\n"
+     "    except Exception:\n        pass\n"
+     "    return ex.balance\n", True),
+    # the use guarded by `is not` inside the branch is not this shape either
+    ("    ex = engine._executor_for(t)\n"
+     "    if ex is not engine.live_executor:\n        return ex.balance\n"
+     "    return None\n", True),
+    # `is not ...: return` refuses everyone BUT the operator, and then reads
+    # the operator's book: the op has to be `is`, and this row is what says so
+    ("    ex = engine._executor_for(t)\n"
+     "    if ex is not engine.live_executor:\n        return None\n"
+     "    return ex.balance\n", True),
+])
+def test_only_a_refusal_of_the_operators_book_before_the_read_is_acquitted(body, flagged):
+    planted = "def h(t):\n" + body
+    assert bool(_order_placement_reads(planted)) is flagged, planted
+
+
+def test_the_real_resolution_takes_the_acquitted_shape_and_loses_it_with_the_refusal():
+    """Driven on the real function, because a planted table cannot say the
+    real tree takes the shape: `_own_account_executor` is acquitted as it
+    stands, and a copy of it with the refusal deleted, or the refusal spelled
+    `==`, is a read."""
+    import inspect
+    import textwrap
+
+    src = textwrap.dedent(inspect.getsource(ug._own_account_executor))
+    assert "_executor_for" in src
+    assert _order_placement_reads(src) == []
+    refusal = ("    if ex is operator:\n"
+               "        return None, \"this order would run on the operator's account, not yours\"\n")
+    assert src.count(refusal) == 1, "the refusal the rule reads has moved"
+    assert _order_placement_reads(src.replace(refusal, "")) != []
+    assert _order_placement_reads(src.replace("if ex is operator:", "if ex == operator:")) != []
 
 
 def test_a_read_of_the_same_name_elsewhere_is_not_this_calls_read():

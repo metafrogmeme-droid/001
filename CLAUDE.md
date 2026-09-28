@@ -5944,6 +5944,38 @@ round, both fixtures: the tuple row put the call inside a tuple on the value
 side, so it never reached the target check, and every planted snippet had one
 function, so scoping the uses to the module changed nothing.
 
+**AND IT WAS ONE USE SHORT A SECOND TIME, IN THE SLICE THAT MADE THE GATE READ
+A LEVERAGE.** The web-live envelope had to be asked about the notional at the
+leverage the user's OWN executor places at, so the gate's resolution stopped
+being identity-only: `_own_account_executor` refuses the operator's executor
+by identity and then HANDS BACK the one it did not refuse, for
+`_compute_target_leverage` to be read off it. That is a read of the answer,
+and the rule flagged it, together with a second resolution
+`_placement_leverage` had grown of its own for a caller that handed no
+executor, in the full preflight of that slice, on a suite none of the slice's
+runs included: the thirteenth time. Both reads are the rule's premise
+satisfied rather than broken, since the operator's book is refused before
+anything opens the answer, so the exemption is the SHAPE of that refusal and
+never a name: a call whose answer is compared `is` against the operator's
+executor (`engine.live_executor`, or a name bound once from it) in an `if` at
+the function's own top level that RETURNS, before any use that is not an
+identity comparison, is acquitted. A use above the refusal, a refusal against
+anything else, one that does not return, one spelled `==` and one nested in
+another block are not, and each is a planted row. The second resolution is
+gone: `_placement_leverage` asks `_own_account_executor` when it is handed
+nothing, one resolution and one refusal, and the fallback that used to read
+the OPERATOR's leverage there (what the resolver answers for a user with no
+usable keys) is refused now, driven. The rule is driven on the real function
+and on a copy of it with the refusal deleted, because a planted table alone
+cannot say the real tree takes the shape. Thirteen mutations, each killed --
+and the one that survived the first round was an EQUIVALENT mutant of the
+rule, re-aimed rather than counted. Accepting `==` as the refusal's operator
+changed no verdict, because an `==` comparison's own load of the name is an
+opened use ON the gate line, so the ordering half refuses it whatever the
+operator check says; the operator check is load-bearing for `is not`, which
+refuses everyone BUT the operator and then reads the operator's book, and
+that row was not in the table until the round asked for it.
+
 **A RESTART SOLD THE RUNNER TWICE, BECAUSE THE LADDER WAS NEVER WRITTEN DOWN.**
 `pos.partial_tp_state` records which take-profit stages have fired and the
 entry-time 1R they are measured in, and `_save_positions` never wrote it. Every

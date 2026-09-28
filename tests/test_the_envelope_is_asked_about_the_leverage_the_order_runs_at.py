@@ -156,6 +156,21 @@ class TestALeverageNobodyReadDenies:
         assert reasons == ["the account this order would run on could not be resolved (RuntimeError)"]
         assert ledger.spent(UID, time.time()) == 0.0
 
+    def test_a_resolver_that_answers_the_operators_account_denies(self, wired, tmp_path):
+        """With no executor handed, the resolution is `_own_account_executor`'s,
+        so the operator's executor -- what `_executor_for` answers for a user
+        with no usable keys -- is refused by identity, never read for its
+        leverage and never recorded against."""
+        store, ledger = wired
+        _bind(store, per_trade=10_000)
+        eng = _engine(None)
+        eng.live_executor = _real_executor(tmp_path)
+        eng._executor_for = lambda tg_id, venue=None: eng.live_executor
+        ok, reasons, recorded = ug._authorize_web_live_trade({}, eng, UID, "T1")
+        assert ok is False and recorded is False
+        assert reasons == ["this order would run on the operator's account, not yours"]
+        assert ledger.spent(UID, time.time()) == 0.0
+
     def test_no_executor_denies(self, wired):
         store, ledger = wired
         _bind(store, per_trade=10_000)

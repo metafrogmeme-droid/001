@@ -2103,19 +2103,18 @@ def _placement_leverage(engine, tg_id: str, idea, executor=None) -> tuple[Option
     number the venue is set to: the operator standard (the `/leverage`
     override under the MAX_LEVERAGE ceiling), lowered by the user's own
     preference and the idea's margin-risk cap. The caller hands the executor
-    it already resolved; with none handed, the resolver is asked here. Every
-    failure is a reason and never a number: an envelope checked at a leverage
-    nobody read is the defect this replaces.
+    it already resolved; with none handed, `_own_account_executor` is asked --
+    the ONE resolution under `bot/web/`, which refuses the operator's account
+    by identity before anything is read off the answer, so a fallback that
+    resolves for itself cannot read the operator's leverage for a user with
+    no keys. Every failure is a reason and never a number: an envelope
+    checked at a leverage nobody read is the defect this replaces.
     """
     ex = executor
     if ex is None:
-        try:
-            ex = engine._executor_for(tg_id)
-        except Exception as exc:
-            return None, ("the account this order would run on could not be "
-                          f"resolved ({type(exc).__name__})")
-    if ex is None:
-        return None, "no account of your own could be resolved for this order"
+        ex, why = _own_account_executor(engine, tg_id)
+        if ex is None:
+            return None, why
     try:
         lev = int(ex._compute_target_leverage(str(getattr(idea, "asset", "")), idea))
     except Exception as exc:
@@ -2267,9 +2266,15 @@ def _own_account_executor(engine, tg_id: str) -> tuple[Optional[object], Optiona
     except Exception as exc:
         system_log.warning("Web-live executor resolution failed for %s: %s",
                            tg_id, type(exc).__name__)
-        return None, "the account this order would run on could not be resolved"
+        # The exception's CLASS and never its text: a resolver's message can
+        # carry a venue's request, and this sentence reaches the user.
+        return None, ("the account this order would run on could not be "
+                      f"resolved ({type(exc).__name__})")
     if ex is None:
         return None, "no account of your own could be resolved for this order"
+    # The refusal sits BEFORE the answer is handed on, at this function's own
+    # top level: `tests/test_the_web_positions_panel_reads_the_callers_book.py`
+    # acquits an `_executor_for` read under `bot/web/` on exactly this shape.
     if ex is operator:
         return None, "this order would run on the operator's account, not yours"
     return ex, None
