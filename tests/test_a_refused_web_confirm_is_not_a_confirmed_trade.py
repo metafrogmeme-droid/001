@@ -245,7 +245,7 @@ def web_live(monkeypatch, tmp_path):
         # one; this one records what it was handed instead.
         authorized.append(trade_id)
         handed.append(kw.get("executor"))
-        return True, []
+        return ug.WebLiveAuthorization(True, [], False)
 
     monkeypatch.setattr(ug, "_authorize_web_live_trade", _authorize)
 

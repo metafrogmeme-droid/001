@@ -88,7 +88,7 @@ class TestTheLeverageIsTheExecutors:
         _bind(store, per_trade=300)
         ex = _real_executor(tmp_path)
         assert ex._compute_target_leverage("SOL/USDT", None) == 10, "the premise: the order places at 10x"
-        ok, reasons = ug._authorize_web_live_trade({}, _engine(ex), UID, "T1")
+        ok, reasons, _ = ug._authorize_web_live_trade({}, _engine(ex), UID, "T1")
         assert ok is False, "a $500 order is over a $300 per-trade cap"
         assert any("per-trade" in r or "notional" in r for r in reasons), reasons
         assert ledger.spent(UID, time.time()) == 0.0, "a denial records nothing"
@@ -96,7 +96,7 @@ class TestTheLeverageIsTheExecutors:
     def test_an_allowed_order_records_the_notional_that_fills(self, wired, override, tmp_path):
         store, ledger = wired
         _bind(store, per_trade=600)
-        ok, reasons = ug._authorize_web_live_trade({}, _engine(_real_executor(tmp_path)), UID, "T1")
+        ok, reasons, _ = ug._authorize_web_live_trade({}, _engine(_real_executor(tmp_path)), UID, "T1")
         assert ok is True, reasons
         assert ledger.spent(UID, time.time()) == 500.0
 
@@ -107,7 +107,7 @@ class TestTheLeverageIsTheExecutors:
         _bind(store, per_trade=150)
         ex = _real_executor(tmp_path, pref=2)
         assert ex._compute_target_leverage("SOL/USDT", None) == 2
-        ok, reasons = ug._authorize_web_live_trade({}, _engine(ex), UID, "T1")
+        ok, reasons, _ = ug._authorize_web_live_trade({}, _engine(ex), UID, "T1")
         assert ok is True, reasons
         assert ledger.spent(UID, time.time()) == 100.0
 
@@ -117,7 +117,7 @@ class TestTheLeverageIsTheExecutors:
         store, ledger = wired
         _bind(store, per_trade=600)
         stub = types.SimpleNamespace(_compute_target_leverage=lambda symbol, idea=None: 3)
-        ok, _ = ug._authorize_web_live_trade({}, _engine(stub), UID, "T1")
+        ok, _, _ = ug._authorize_web_live_trade({}, _engine(stub), UID, "T1")
         assert ok is True
         assert ledger.spent(UID, time.time()) == 150.0
 
@@ -135,7 +135,7 @@ class TestTheLeverageIsTheExecutors:
 
         eng = _engine(None)
         eng._executor_for = _resolve
-        ok, _ = ug._authorize_web_live_trade({}, eng, UID, "T1", executor=handed)
+        ok, _, _ = ug._authorize_web_live_trade({}, eng, UID, "T1", executor=handed)
         assert ok is True and calls == []
         assert ledger.spent(UID, time.time()) == 200.0
 
@@ -151,7 +151,7 @@ class TestALeverageNobodyReadDenies:
 
         eng = _engine(None)
         eng._executor_for = _boom
-        ok, reasons = ug._authorize_web_live_trade({}, eng, UID, "T1")
+        ok, reasons, _ = ug._authorize_web_live_trade({}, eng, UID, "T1")
         assert ok is False
         assert reasons == ["the account this order would run on could not be resolved (RuntimeError)"]
         assert ledger.spent(UID, time.time()) == 0.0
@@ -159,7 +159,7 @@ class TestALeverageNobodyReadDenies:
     def test_no_executor_denies(self, wired):
         store, ledger = wired
         _bind(store, per_trade=10_000)
-        ok, reasons = ug._authorize_web_live_trade({}, _engine(None), UID, "T1")
+        ok, reasons, _ = ug._authorize_web_live_trade({}, _engine(None), UID, "T1")
         assert ok is False
         assert reasons == ["no account of your own could be resolved for this order"]
         assert ledger.spent(UID, time.time()) == 0.0
@@ -169,7 +169,7 @@ class TestALeverageNobodyReadDenies:
         store, ledger = wired
         _bind(store, per_trade=10_000)
         stub = types.SimpleNamespace(_compute_target_leverage=lambda symbol, idea=None: answer)
-        ok, reasons = ug._authorize_web_live_trade({}, _engine(stub), UID, "T1")
+        ok, reasons, _ = ug._authorize_web_live_trade({}, _engine(stub), UID, "T1")
         assert ok is False
         assert reasons and reasons[0].startswith("the leverage this order would run at could not be read")
         assert "SECRETVALUE" not in " ".join(reasons)
@@ -183,7 +183,7 @@ class TestALeverageNobodyReadDenies:
             raise ValueError("apiKey=SECRETVALUE")
 
         stub = types.SimpleNamespace(_compute_target_leverage=_raise)
-        ok, reasons = ug._authorize_web_live_trade({}, _engine(stub), UID, "T1")
+        ok, reasons, _ = ug._authorize_web_live_trade({}, _engine(stub), UID, "T1")
         assert ok is False
         assert reasons == ["the leverage this order would run at could not be read (ValueError)"]
         assert ledger.spent(UID, time.time()) == 0.0
@@ -199,7 +199,7 @@ class TestALeverageNobodyReadDenies:
             _compute_target_leverage=lambda symbol, idea=None: asked.append(1) or 5)
         eng = _engine(stub, margin=None)
         eng._manual_margin_override = {}
-        ok, reasons = ug._authorize_web_live_trade({}, eng, UID, "T1")
+        ok, reasons, _ = ug._authorize_web_live_trade({}, eng, UID, "T1")
         assert ok is False and any("notional is unknown" in r for r in reasons)
         assert asked == []
 

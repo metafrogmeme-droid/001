@@ -209,7 +209,7 @@ def test_an_auto_sized_web_order_under_a_daily_cap_is_refused(web_live):
     ug, ledger = web_live
     engine = SimpleNamespace(_pending_ideas={"T1": SimpleNamespace(asset="BTC/USDT")},
                              _manual_margin_override={})
-    ok, reasons = ug._authorize_web_live_trade(None, engine, "web:9", "T1")
+    ok, reasons, _ = ug._authorize_web_live_trade(None, engine, "web:9", "T1")
     assert ok is False
     assert reasons == ["trade notional is unknown — cannot authorize against the daily cap"]
     assert ledger.spent("web:9", time.time()) == 99.0, "a refusal records nothing"
@@ -221,7 +221,7 @@ def test_a_sized_web_order_under_the_cap_is_allowed_and_recorded(web_live):
     engine = SimpleNamespace(_pending_ideas={"T2": SimpleNamespace(asset="BTC/USDT")},
                              _manual_margin_override={"T2": 0.1},
                              _executor_for=lambda tg_id, venue=None: executor)
-    ok, reasons = ug._authorize_web_live_trade(None, engine, "web:9", "T2")
+    ok, reasons, _ = ug._authorize_web_live_trade(None, engine, "web:9", "T2")
     assert ok is True, reasons
     assert ledger.spent("web:9", time.time()) > 99.0
 

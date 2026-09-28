@@ -11729,10 +11729,11 @@ enrolled and no code sent, a 429, a 503, a 500 and a 200 with no field were
 each forwarded to the confirm. Only a thrown fetch kept the promise. The one
 answer that skips the code is now a 200 saying `live_allowed: false`.
 
-**Recorded, not changed.** `_authorize_web_live_trade` records the notional
-before `confirm_trade` runs, so a refused web-live confirm still spends the 24h
-cap. The ledger is idempotent by trade id, so a retry does not double it, and
-it errs strict; it belongs to the slice that owns the authority code.
+**Recorded here, changed below.** `_authorize_web_live_trade` records the
+notional before `confirm_trade` runs, so a refused web-live confirm still spent
+the 24h cap. It was filed as erring strict and belonging to the authority
+code; driven, four refusals at the per-trade cap were a day locked out. The
+chapter on the refused web-live confirm's spend records the release.
 
 **Forty-seven mutations, each killed on the first round, and the three
 findings came from PLANNING the round, before it ran.** The first draft popped
@@ -15180,6 +15181,103 @@ handler resolving twice, the refusal no longer reading the one resolution,
 and the operator's executor answered as the user's own.
 (`tests/test_the_envelope_is_asked_about_the_leverage_the_order_runs_at.py`.)
 
+**A REFUSED WEB-LIVE CONFIRM SPENT THE DAY'S CAP ON AN ORDER THAT NEVER
+HAPPENED.** `_authorize_web_live_trade` records an order's notional against
+the 24h ledger BEFORE `confirm_trade` runs -- the allow is what lets the
+confirm proceed, and a recorder that waited for the fill would let two
+confirms race past one cap. Every refusal `confirm_trade` writes after that
+allow (the risk re-check, the strategy gate, a price drift, an order the
+venue refused) then left the day counting it. The chapter above had filed it
+as *"Recorded, not changed ... it errs strict"*. Driven through the real
+handler, a real ledger and the real authorization, on the unfixed tree:
+
+    refused (the chosen strategy)   -> placed False, spent_after 250.0
+    a retry of the same trade id    -> spent 250.0 (idempotent by ref)
+    placed                          -> spent 500.0
+
+Under a $300 day a refused $250 order denied the next $250 order, and four
+refusals at the per-trade cap were a day locked out. "Errs strict" was true
+of each refusal and false of the day.
+
+**THE RELEASE IS KEYED ON WHAT THIS ATTEMPT RECORDED, AND ONLY THE RECORDER
+CAN SAY.** The handler releases the spend when `placed is False` and never
+when `placed is None`: an UNVERIFIED outcome may be a filled order, and a
+spend released for a fill is the loose direction. Not every refusal is this
+attempt's to release, either. Attempt 1 submits an order the venue confirms
+neither way (its spend stands, the idea stays pending); attempt 2 is refused
+-- and its authorization recorded NOTHING, because the ledger already held
+the ref. A handler asking the ledger afterwards whether the ref is held would
+read attempt 1's row as attempt 2's and release an order the venue may hold.
+So `WebLiveAuthorization` carries `recorded`, the ledger's own answer to
+`record` (True for a row this call ADDED, False for a deny, a duplicate ref
+or an auto-sized order with no notional), and the handler releases exactly
+the trade id whose row this attempt added. The answer grew a third field and
+every reader moved with it, because the recorder is the one place that fact
+exists.
+
+**THE FILE-SIDE DROP HAS TO HAPPEN INSIDE THE MERGE.** `_save` is a
+read-modify-write that ADDS every row memory holds and the file lacks, so
+that a write cannot erase a person this process does not hold. A row
+released from memory alone would be read straight back in from the file on
+the next adopt. `release` takes the row out of memory and hands `_save` a
+`drop_ref`, which the merge subtracts after it has added -- the one
+subtraction the merge makes -- and a fresh reader of the file agrees with the
+process that released. The ref leaves the dedup set, so the same trade id
+records again when it is retried, and a fill on the retry counts once. A row
+with no ref matches no ref (`str(None)` is the word "None", and a trade could
+be named it), and only the ref's own key is touched.
+
+**A RELEASE THAT DID NOT LAND KEEPS COUNTING, which is the opposite of what a
+record that did not land does.** `record` keeps its row in memory over a
+failed write, because memory ahead of the file is the strict direction
+there. For `release` memory ahead of the file is the LOOSE direction -- a day
+read as emptier than the file says -- so the row is put back, the ref with
+it, and the write's `OSError` is raised. The handler says so: the refusal is
+still answered as a refusal and never a 500 over an accounting fault, the
+audit reads `web_live_spend: KEPT` with the exception's CLASS and never its
+text, and the spend counts for the rest of the window. Every outcome is
+audited (`RELEASED`, `NOT_HELD`, `KEPT`), and the authorization's own
+`except` now logs the class too, where it printed the exception -- a store's
+text names a path.
+
+**What is NOT changed, stated.** The Telegram confirm records into the risk
+engine's own bound ledger at the risk gate, and nothing binds an envelope to
+a `RiskEngine` (its setters are on the unreachable-methods baseline), so
+there is no refusal there to release. A process that dies between the record
+and the confirm leaves the spend recorded, which errs strict, and nothing
+retries a release: the audit is where an operator learns the cap reads fuller
+than the fills.
+
+> **And the first fixture was wrong before the code was.** Making every
+> ledger write fail made the RECORD's write fail, so the envelope denied
+> ("authorization check failed") and the handler never reached a confirm --
+> a 403 asserted as a 200, on a drive whose subject was the release. The
+> write that fails is the SECOND one now, and the drive asserts there were
+> two. And the class-only warning was first read through `caplog`, which the
+> system channel does not propagate to; the sibling suite's handler fixture
+> is what reads it, and a fixture imported by name is a parameter shadowing an
+> import to the strict lint gate, so it is defined beside the tests.
+
+**Twenty mutations, each killed -- and the two that survived the first round
+were the corpus, never the code.** The `"None"` decoy was planted and never
+released: the row named the WORD sat beside a row with no ref while the
+drive released `T1`, so a reader matching `str(None)` changed no verdict. It
+is released now, and the row with no ref has to stay. And the dedup discard
+in `release` survived because `_save` re-reads the file's refs on every write,
+so on a file-backed ledger the discard is redundant with the adopt that
+follows it -- the ONE ledger it is load-bearing for is one with no file, which
+every fixture had. Both shapes are driven now, and the round was re-run
+against them. The rest die where the drives say: the row dropped from memory
+only, a ref nobody holds still writing, a failed write leaving memory released
+or forgetting the ref, the readability check skipped, the file-side drop
+taking the ref out of every key; `recorded` True on every allow or never said,
+the handler marking whatever the recorder answered, an unverified outcome
+released, any refusal released whoever recorded, nothing ever released, a
+release that cannot land swallowed in silence or failing the confirm, the
+exception's text in the audit, the RELEASED audit missing or its words
+swapped, and the authorization's warning printing the text.
+(`tests/test_a_refused_web_live_confirm_takes_its_spend_back.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -15659,7 +15757,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 243 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 244 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -16471,9 +16569,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **454 of 1144** reach for source text through `source_scan`, `code_only`
+Driven, **455 of 1145** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 454 is a FLOOR and the honest shape is
+source scan that rule does not see, so 455 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
