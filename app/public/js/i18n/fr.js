@@ -520,6 +520,7 @@
   ["dd.t_trade_confirmed", "Transaction confirmée."],
   ["dd.t_trade_refused", "Rien n’a été placé."],
   ["dd.t_trade_unread", "Le bot a répondu sans dire si quelque chose a été placé — vérifiez vos positions."],
+  ["dd.t_trade_unverified", "La plateforme n'a confirmé l'ordre ni dans un sens ni dans l'autre — le bot l'a enregistré, rien n'a été renvoyé et sa prochaine vérification des positions le réconcilie. Ne le renvoyez pas."],
   ["dd.t_trade_update", "Mise à jour de transaction depuis le moteur."],
   ["dd.t_need_coin", "Saisissez d’abord une pièce."],
   ["dd.t_need_symbol", "Saisissez d’abord un symbole."],

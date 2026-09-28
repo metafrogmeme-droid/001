@@ -520,6 +520,7 @@
   ["dd.t_trade_confirmed", "Operación confirmada."],
   ["dd.t_trade_refused", "No se colocó nada."],
   ["dd.t_trade_unread", "El bot respondió sin indicar si se colocó algo; revisa tus posiciones."],
+  ["dd.t_trade_unverified", "El exchange no confirmó la orden en ningún sentido: el bot la tiene registrada, no se reenvió nada y su próxima comprobación de posiciones la concilia. No la envíes de nuevo."],
   ["dd.t_trade_update", "Actualización de operación desde el motor."],
   ["dd.t_need_coin", "Primero escribe una moneda."],
   ["dd.t_need_symbol", "Primero escribe un símbolo."],

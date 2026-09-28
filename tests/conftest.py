@@ -24,6 +24,12 @@ _STATE_FILES = (
     "data/live_positions.json.bak",
     "data/live_positions.json.tmp",
     "data/closed_trades.json",
+    # Entry submissions the venue never confirmed either way, reconciled by
+    # client id on every positions pass (bot/core/live_executor.py). Listed in
+    # the same commit as the feature, per the glob block's rule: a standing
+    # submission left behind would refuse the next test's entry on its symbol.
+    "data/unverified_submissions.json",
+    "data/unverified_submissions.json.tmp",
     "data/risk_state.json",
     "data/risk_state.json.bak",
     "data/risk_state.json.tmp",

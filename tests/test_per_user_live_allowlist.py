@@ -100,7 +100,7 @@ class TestManualOverrideRespectsCapAndClamp:
         # that re-applies the per-user cap and the free-balance clamp to a
         # /trade-specified margin. Anchored on the override read and the ATR
         # rejection that follows it, both code.
-        i = src.index("self._manual_margin_override.pop(idea.id)")
+        i = src.index("self._manual_margin_override[idea.id]")
         i = src.rindex("\n", 0, i) + 1
         # The block ends where its `if` does — the last statement inside it.
         # RC-2026-017 renamed it: the clamp is three-valued now and the manual

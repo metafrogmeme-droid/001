@@ -33,6 +33,15 @@ from typing import Any, Iterable, List, NamedTuple, Optional, Tuple
 #: it is written rather than joining by default.
 NOT_OPENED_DECISIONS = frozenset({"EXECUTION_FAILED", "TRADE_REJECTED_FAIL_CLOSED"})
 
+#: The decision word for a submission the venue confirmed neither way (the
+#: send raised in a way that leaves it unknown whether the order was taken,
+#: and the order lists could not be read after it). Whether it opened is
+#: exactly what nobody knows at decision time, and `opened` says so: the row
+#: joins only when an OUTCOME row arrives under its trade id, which is the
+#: measurement that it did open -- the executor books such a fill under the
+#: same id when the venue's lists finally read.
+UNVERIFIED_DECISIONS = frozenset({"EXECUTION_UNVERIFIED"})
+
 #: The rule a learned fit's samples were counted under. A fit saved by a build
 #: that counted differently rests on samples the current rule does not count --
 #: before 2 that meant a manual ticket's stamp fitted as a measurement and a
@@ -77,6 +86,8 @@ def opened(decision: Any) -> Optional[bool]:
         return False
     if word.startswith(_OPENED_PREFIX):
         return True
+    if word in UNVERIFIED_DECISIONS:
+        return None                          # placed: unknown until an outcome arrives
     return None
 
 

@@ -817,7 +817,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 688 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 686 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -5943,6 +5943,38 @@ or an `==` still counts. Six mutations, each killed. Two survived the first
 round, both fixtures: the tuple row put the call inside a tuple on the value
 side, so it never reached the target check, and every planted snippet had one
 function, so scoping the uses to the module changed nothing.
+
+**AND IT WAS ONE USE SHORT A SECOND TIME, IN THE SLICE THAT MADE THE GATE READ
+A LEVERAGE.** The web-live envelope had to be asked about the notional at the
+leverage the user's OWN executor places at, so the gate's resolution stopped
+being identity-only: `_own_account_executor` refuses the operator's executor
+by identity and then HANDS BACK the one it did not refuse, for
+`_compute_target_leverage` to be read off it. That is a read of the answer,
+and the rule flagged it, together with a second resolution
+`_placement_leverage` had grown of its own for a caller that handed no
+executor, in the full preflight of that slice, on a suite none of the slice's
+runs included: the thirteenth time. Both reads are the rule's premise
+satisfied rather than broken, since the operator's book is refused before
+anything opens the answer, so the exemption is the SHAPE of that refusal and
+never a name: a call whose answer is compared `is` against the operator's
+executor (`engine.live_executor`, or a name bound once from it) in an `if` at
+the function's own top level that RETURNS, before any use that is not an
+identity comparison, is acquitted. A use above the refusal, a refusal against
+anything else, one that does not return, one spelled `==` and one nested in
+another block are not, and each is a planted row. The second resolution is
+gone: `_placement_leverage` asks `_own_account_executor` when it is handed
+nothing, one resolution and one refusal, and the fallback that used to read
+the OPERATOR's leverage there (what the resolver answers for a user with no
+usable keys) is refused now, driven. The rule is driven on the real function
+and on a copy of it with the refusal deleted, because a planted table alone
+cannot say the real tree takes the shape. Thirteen mutations, each killed --
+and the one that survived the first round was an EQUIVALENT mutant of the
+rule, re-aimed rather than counted. Accepting `==` as the refusal's operator
+changed no verdict, because an `==` comparison's own load of the name is an
+opened use ON the gate line, so the ordering half refuses it whatever the
+operator check says; the operator check is load-bearing for `is not`, which
+refuses everyone BUT the operator and then reads the operator's book, and
+that row was not in the table until the round asked for it.
 
 **A RESTART SOLD THE RUNNER TWICE, BECAUSE THE LADDER WAS NEVER WRITTEN DOWN.**
 `pos.partial_tp_state` records which take-profit stages have fired and the
@@ -11729,10 +11761,11 @@ enrolled and no code sent, a 429, a 503, a 500 and a 200 with no field were
 each forwarded to the confirm. Only a thrown fetch kept the promise. The one
 answer that skips the code is now a 200 saying `live_allowed: false`.
 
-**Recorded, not changed.** `_authorize_web_live_trade` records the notional
-before `confirm_trade` runs, so a refused web-live confirm still spends the 24h
-cap. The ledger is idempotent by trade id, so a retry does not double it, and
-it errs strict; it belongs to the slice that owns the authority code.
+**Recorded here, changed below.** `_authorize_web_live_trade` records the
+notional before `confirm_trade` runs, so a refused web-live confirm still spent
+the 24h cap. It was filed as erring strict and belonging to the authority
+code; driven, four refusals at the per-trade cap were a day locked out. The
+chapter on the refused web-live confirm's spend records the release.
 
 **Forty-seven mutations, each killed on the first round, and the three
 findings came from PLANNING the round, before it ran.** The first draft popped
@@ -14912,6 +14945,536 @@ the mutation dies on the basis and on the commission both.
 (`tests/test_the_realized_fee_rate_is_the_venues.py`,
 `app/test/parity_fee_note_names_the_stated_sample.test.js`.)
 
+**AN ENTRY THE VENUE CONFIRMED NEITHER WAY WAS ANSWERED "NEVER SUBMITTED", AND
+ONE ORDER LIST READ PASSED AS A VERIFIED ABSENCE.** `_create_order_idempotent`
+sends the order under a client id, and when the send raises it asks the venue's
+two order lists whether the order landed before it re-raises. Driven with the
+send raising `RequestTimeout`, the open list answering `[]` and the closed list
+raising: `found=None, verified=True`. `verified` was set by the FIRST list that
+answered, and a filled market order is never in the open list, so the one list
+that could hold the fill was the one that could not be read, and the answer was
+a confirmed absence. `execute` then re-raised the timeout into its generic
+handler, which audited "never submitted" and answered `EXECUTION FAILED`. Every
+door read that as nothing placed: the Confirm button said ❌, the web said
+`placed: false` and gave the Confirm button back, the chain sealed
+EXECUTION_FAILED, the learner filed the idea as never opened, and the engine
+left the idea pending for the next tap to send AGAIN, over a fill that may have
+been sitting on the venue with no stop. A timeout on the send and an outage on
+the read are one event on a venue having a bad minute, not two.
+
+**A LIST THAT RAISED IS NOT A LIST THAT ANSWERED NOTHING.** The lookup confirms
+an absence only when EVERY list in `_ORDER_LISTS` was read, and a fetcher the
+client lacks is a list nobody read. The send's own vocabulary was one exception
+short as well: a bare `TimeoutError` from a deadline wrapped around the send is
+no answer at all, the same as ccxt's.
+
+**THE THIRD OUTCOME HAS ITS OWN WORD, AND NO DOOR READS IT AS EITHER OF THE
+OTHER TWO.** An unknown send beside an unverified absence raises
+`OrderOutcomeUnverified` (the cause's CLASS, never its text: a venue error
+string carries the request); `execute` records the submission per user and per
+venue beside the positions file (`data/unverified_submissions.json`, with the
+idea's levels, size, leverage and the pre-order ticker), says it once (a
+WARNING, a RECORDED audit, a `submit_unverified` warning-rate event), and
+answers `⚠️ ORDER UNVERIFIED`, a token `execution_indicates_failure` does not
+know and `placed_nothing` does not claim. `outcome_unverified` is the one
+reading and every door asks it FIRST: the Telegram button says the outcome is
+unverified and nothing was re-sent (fourteen languages) and posts nothing
+publicly; the web answers `placed: null`, audits UNVERIFIED and keeps the idea
+the proposer's; the browser's confirm model has a fifth kind, and both surfaces
+paint no colour and give no button back, because a re-send is exactly what the
+bot refuses and cancelling the idea cancels nothing on the venue; the
+auto-confirm notice is headed OUTCOME UNVERIFIED; the engine seals
+EXECUTION_UNVERIFIED and files the learning row under it, the learner reads that
+as not yet known rather than never opened, and the explainer has a verb for it.
+`placed: null` used to be `unread` on the page, which refreshes the book and
+tells the person to check their positions as though the bot did not know what
+it had done, and the JS suite had pinned that as the contract.
+
+**NOTHING IS RE-SENT WHILE THE RECORD STANDS, AND THE REFUSAL IS ON THE
+SYMBOL.** A second order on a symbol whose first may have landed is a doubled
+position whichever idea it came from, and a venue that does not dedup on the
+client id would take it, so `execute` refuses by name until the positions pass
+has read the venue. UNREADABLE IS NOT EMPTY: a record this build cannot read
+may name a symbol an order landed on, so every entry is refused while the file
+will not read, and nothing writes over it (`json_store`'s rule).
+
+**THE POSITIONS PASS ASKS FIRST, BY CLIENT ID.** Before it prices the book,
+`check_positions` asks the venue what became of each standing submission, so a
+fill found here is booked with its idea's levels before any sweep could read
+the venue's row as an orphan. Found and filled: booked as an OPEN under the
+idea's own id with the idea's stop and target, at the order's own average (else
+the pre-order ticker, MARKED as the estimate it is), saved to disk BEFORE the
+stops are asked for, the stops placed twice and the position marked UNPROTECTED
+(audited CRITICAL, `sltp_recovered`) when none lands, and told as
+`RECOVERED FILL:`, which the engine routes as an open. Found and resting:
+tracked as a pending limit order, told as `SUBMISSION:`, routed as information.
+Found cancelled with nothing filled, or both lists read and neither holding the
+id: dropped, and the idea is free to be sent again. A list that still will not
+read: kept, said once, still refusing. A fill whose symbol and side an adoption
+sweep already tracks is not booked twice: the idea's levels go onto that row
+where it has none, and a stop is placed where it has none.
+
+**And the emergency record had the estimated-entry defect one branch over.**
+The post-order crash path recorded the pre-order ticker as the entry with no
+marker for as long as it has existed; it reads the order's own average first
+now and marks the ticker as an estimate.
+
+**Fifty mutations, each killed on the first round, none refused, across both
+runtimes.** One is recorded as equivalent rather than run: the writer's own
+refusal to touch an unreadable file duplicates `update_json_store`'s, which
+re-reads the file and raises before writing, and the guard stays because
+without it every write logs an error over a file the helper was going to refuse
+anyway. Two are worth naming for what they prove about the guards: a list that
+raised counted as read dies on the lookup drive and on the executor's own card,
+because the only input that separates the two is a closed list that raises
+beside an open list that answers; and the fill not saved to disk before the
+stops are asked for dies on a stop placement that READS the positions file,
+which no assertion about the booked position could see.
+(`tests/test_an_unverified_submission_is_neither_a_fill_nor_a_failure.py`,
+`app/test/trade_confirm_reads_placed.test.js`.)
+
+**A CANCELLED LIMIT'S FINAL FILL WAS READ OFF THE SNAPSHOT TAKEN BEFORE THE
+CANCEL, WHENEVER THE READ AFTER IT RAISED.** `_check_pending_limit` cancels a
+resting limit that has expired or drifted, then reads the order back for the
+fill the cancel landed on, because a cancel can arrive after a partial fill
+and that filled portion is live exposure with no stop. When that read RAISED
+-- a network blip on the one call that decides what the bot holds -- the
+fallback took `filled` and `average` off the order the pass had read at its
+top, under a comment calling that snapshot *"stale by seconds at most, and
+strictly better than orphaning"*. Driven through the real
+`_check_pending_limit` with a planted read sequence:
+
+    snapshot 0.00 filled, venue fills 0.03, cancel, read raises
+      -> "LIMIT EXPIRED: LONG BTC/USDT -- order not filled", row closed,
+         0.03 BTC open on the venue with no stop, tracked by nothing
+    snapshot 0.02 filled, venue fills 0.03, cancel, read raises
+      -> adopted at 0.02, a third of the position unmanaged
+
+The snapshot is not the fill; it is the fill as of a moment before the cancel,
+and the window between the two is exactly where a resting order at the market
+fills. And the alternative to a stale snapshot was never orphaning: the order
+IS cancelled on the venue, so the row can simply stay `pending_fill` and the
+next pass reads the venue's final answer through the cancelled branch it
+already has, which adopts any partial with the idea's own levels
+(`LIMIT CANCELED -- PARTIAL FILL ADOPTED`) or closes a zero fill. That is what
+it does now, said at WARNING with the exception's CLASS and never its text,
+audited `limit_cancel: FILL_UNREAD`, for the expiry and the drift cancel
+alike. **The market fallback one function over had already been cured of the
+same read**, with a comment ending *"the limit is already cancelled, so the
+next sweep reads its final fill and adopts any partial"* -- the rule was in the
+file, twenty lines below the branch that broke it.
+
+**The `filled: None` shape was measured and is not reachable on this venue.**
+The next pass's cancelled branch reads `float(order.get("filled", 0) or 0)`,
+which would book an unstated fill as nothing filled; driven against the pinned
+ccxt 4.5.56, Bitget's `parse_order` always states `filled` (off `baseVolume`,
+`cumExecQty` or `size`), so a `None` there has no producer and only a RAISED
+read is live. Recorded rather than fixed, and the honesty ratchet counted the
+deleted fallback as an improvement (688 -> 686), re-recorded in the same commit.
+
+> **And my first assertion named the wrong word.** It expected the next pass's
+> message to say EXPIRED, because the cancel was for expiry; the cancelled
+> branch names the status the VENUE reports, and a cancelled order reads
+> `canceled` whatever prompted the cancel. *When a fresh assertion fails,
+> check whether the code or the assertion is wrong before touching the code*:
+> the code was right, and the message is pinned to the venue's word.
+
+**Nine mutations, each killed on the first round, none refused:** the snapshot
+fallback restored, the `return` dropped so an unread fill books as nothing
+filled, the row closed before the retry, the audit reworded to `CANCELLED` or
+not written, the venue's text in the warning, the fill read BEFORE the cancel,
+the market fallback proceeding on an unread pre-fill, and the next pass's
+cancelled branch orphaning the partial it was handed.
+(`tests/test_a_cancelled_limits_fill_is_read_after_the_cancel_or_not_at_all.py`.)
+
+**A PENDING ORDER PAST ITS HARD TIMEOUT WAS BOOKED "NEVER FILLED" ON THE
+CLOCK ALONE, AND THE BRANCH ABOVE MADE IT THE ORDINARY EXIT FOR AN
+UNREADABLE ORDER.** `_check_pending_limit` force-closes a `pending_fill` row
+that has sat for twice the normal expiry -- 8h by default -- before reading
+anything: a best-effort cancel, then `closed, pnl 0.0, close_reason
+stale_pending`. Its own comment names the case it exists for, *"when
+fetch_order keeps failing"*, which is precisely the case in which the fill is
+unknown, and the slice above routes a raised post-cancel read into it: a row
+whose venue stopped answering after a confirmed cancel now waits four more
+hours and lands here. Driven with the venue's reads raising for nine hours
+over an order that had filled 0.03: `STALE PENDING CLOSED`, `pnl_usd 0.0`, no
+word anywhere that the fill was never read, the position open on the venue
+with no stop under a record saying no money ever moved. That is the
+snapshot fallback's defect with an eight-hour horizon and a stated premise.
+
+**AND IT FIRED ON A READABLE ORDER TOO.** The clock was the whole condition,
+so an order the venue answered for at nine hours was force-closed however it
+read. A resting order whose cancel the venue kept refusing -- the normal
+expiry path returns `None` on *"still open after cancel attempt"* every pass
+from 4h on -- was closed off the record at 8h while it still rested, and a
+resting order whose cancel would have landed was closed as `stale_pending`
+with its final fill of 0.03 never adopted, where the expiry cancel one screen
+below reads that fill and adopts it with the idea's own levels.
+
+**THE READ COMES FIRST, AND THE HARD TIMEOUT CLOSES ONLY WHAT CANNOT BE
+READ.** The one order read sits above the decision now; a row with no order
+id, or whose read raised, is the unreadable case, and only that case is
+force-closed past the timeout -- as what it is. `close_reason` stays
+`stale_pending`, a non-fill for every reader of the record; `fill_source`
+carries `FINAL_FILL_UNREAD`, the word that separates it from a stale order
+the venue answered for; the audit carries `fill_read: False`, the cause
+(`no_order_id` or `order_unreadable`) and the exception's CLASS, never its
+text; a warning-rate event is recorded; and the operator's message says the
+fill was never read and that the venue may still hold a resting order or a
+filled position this record does not track. An order that READS goes through
+the normal flow whatever its age: expired through the venue's own answer,
+its final fill adopted with the idea's levels, or closed as the cancel the
+venue reports. A cancel the venue keeps refusing keeps the row tracked, said
+at WARNING on every pass -- a record closed over an order that still rests
+was the defect, so "stuck" is the honest state there. What the adoption
+sweep then does with a filled position the venue holds is its own rule
+(a 120s cooldown on a recently closed symbol, then an orphan adopted with
+no levels), and the message promises none of it.
+
+**A young unread read is left alone, and says the class.** A read that
+raises before the hard timeout keeps the row `pending_fill`, cancels nothing
+and warns with the exception's class -- the old handler printed its text,
+and a venue rejection can echo the request into the operator log.
+
+> **And my own fixture answered the wrong question twice.** `is_filled_close`
+> takes the reason and the P&L, not the row, and the venue stub turned a
+> planted `None` answer into a `TypeError` of its own, so the test written
+> for a read that answers nothing measured the stub. *When a fresh assertion
+> fails, check whether the code or the assertion is wrong before touching the
+> code*: both times the code was right.
+
+**Thirteen mutations, each killed on the first round, none refused:** the
+clock alone force-closing a readable order, a `None` answer read as an order,
+a young unread read force-closed, the venue's text in either warning, the row
+without its word, the cause named backwards, the exception's text on the
+card, the best-effort cancel not sent, the audit claiming the fill was read
+or written at INFO, no warning-rate event, and the message without "NEVER
+READ".
+(`tests/test_a_stale_pending_order_is_closed_as_unread_not_as_never_filled.py`.)
+
+**THE WEB-LIVE ENVELOPE WAS ASKED ABOUT HALF THE ORDER.** Before a web-live
+confirm places anything, `_authorize_web_live_trade` rebuilds the order's
+notional as margin × leverage and asks the user's enforce-mode Authority
+Envelope about it -- the per-trade cap, the 24h cap, and the 24h ledger it
+then records into. The leverage it multiplied by was
+`CONFIG.exchange.default_leverage`, a config field, while the executor
+places every order at the operator standard -- the `/leverage` override, up
+to the MAX_LEVERAGE ceiling -- lowered by the user's own preference and the
+idea's margin-risk cap (the ceiling chapter's `operator_standard`, which
+every placement starts from). Driven under `/leverage set 10` on the
+shipped 5x default and 10x ceiling, a $50 margin against a $300 per-trade
+cap: **authorized, and $250 recorded against the day, for an order the
+executor placed at $500.** The envelope is the one control a person writes
+for their OWN money on this surface, and it was checked at a figure no
+order runs at -- in the flattering direction under an override, and in the
+strict one for a person pinned below the default. Latent while
+`WEB_LIVE_TRADING_ENABLED` ships off, and the gate's whole purpose once it
+is on.
+
+**THE READING IS THE EXECUTOR'S, and the handler resolves it once.**
+`_placement_leverage` asks the user's own executor's
+`_compute_target_leverage` -- the one number the venue is set to, which is
+what the leverage chapter made both executor paths ask -- and
+`_own_account_executor` is the one resolution: the confirm handler asks it
+for the refusal it already made (*"this order would run on the operator's
+account"*) and hands the executor it answered to the authorization, rather
+than resolving `_executor_for` twice for two answers about one account. A
+leverage nobody could read is a denial by name, before the envelope is asked
+and before anything is recorded: a resolver that raised, no account of the
+user's own, a reading that raised, or a number under one. The exception's
+CLASS travels and never its text, because the reason reaches the browser.
+An auto-sized order reads no leverage at all -- with no margin there is no
+notional whatever the multiplier, and the envelope's own *"notional is
+unknown"* refusal stands.
+
+**What the reading cannot see is stated.** It is taken at authorization
+time, before the confirm's own risk re-check, which can only LOWER the
+leverage through the idea's margin-risk cap -- so the notional checked is
+at or above the one that fills, never below it. The venue's applied leverage
+is the read-back guard's question, one fill later.
+
+**Two suites had pinned the multiplier as the contract**, one of them in a
+comment reading *"leverage defaults to 5 in CONFIG.risk (margin 50 →
+notional 250)"* over an engine with no executor at all; their engines answer
+an executor now, and the leverage READING is driven on a real `LiveExecutor`
+under the override, with a planted preference and with none. And the
+confirm suite's authorization stand-in spelled four parameters, so the
+executor the handler now hands over was a `TypeError` inside the drive --
+*a hand-written stand-in that must remember each attribute is one that will
+forget the next*, one keyword over. It takes `**kw` and RECORDS what it was
+handed, which is the drive that proves the cable.
+
+**Twelve mutations, each killed on the first round, none refused:** the
+configured default as the multiplier again, an unread leverage read as the
+default or as one, the handed executor ignored for a second resolution, a
+raising resolver read as no executor, the resolver's or the reading's text
+in the reason, a raising reading read as 1x, a zero leverage accepted, the
+handler resolving twice, the refusal no longer reading the one resolution,
+and the operator's executor answered as the user's own.
+(`tests/test_the_envelope_is_asked_about_the_leverage_the_order_runs_at.py`.)
+
+**A REFUSED WEB-LIVE CONFIRM SPENT THE DAY'S CAP ON AN ORDER THAT NEVER
+HAPPENED.** `_authorize_web_live_trade` records an order's notional against
+the 24h ledger BEFORE `confirm_trade` runs -- the allow is what lets the
+confirm proceed, and a recorder that waited for the fill would let two
+confirms race past one cap. Every refusal `confirm_trade` writes after that
+allow (the risk re-check, the strategy gate, a price drift, an order the
+venue refused) then left the day counting it. The chapter above had filed it
+as *"Recorded, not changed ... it errs strict"*. Driven through the real
+handler, a real ledger and the real authorization, on the unfixed tree:
+
+    refused (the chosen strategy)   -> placed False, spent_after 250.0
+    a retry of the same trade id    -> spent 250.0 (idempotent by ref)
+    placed                          -> spent 500.0
+
+Under a $300 day a refused $250 order denied the next $250 order, and four
+refusals at the per-trade cap were a day locked out. "Errs strict" was true
+of each refusal and false of the day.
+
+**THE RELEASE IS KEYED ON WHAT THIS ATTEMPT RECORDED, AND ONLY THE RECORDER
+CAN SAY.** The handler releases the spend when `placed is False` and never
+when `placed is None`: an UNVERIFIED outcome may be a filled order, and a
+spend released for a fill is the loose direction. Not every refusal is this
+attempt's to release, either. Attempt 1 submits an order the venue confirms
+neither way (its spend stands, the idea stays pending); attempt 2 is refused
+-- and its authorization recorded NOTHING, because the ledger already held
+the ref. A handler asking the ledger afterwards whether the ref is held would
+read attempt 1's row as attempt 2's and release an order the venue may hold.
+So `WebLiveAuthorization` carries `recorded`, the ledger's own answer to
+`record` (True for a row this call ADDED, False for a deny, a duplicate ref
+or an auto-sized order with no notional), and the handler releases exactly
+the trade id whose row this attempt added. The answer grew a third field and
+every reader moved with it, because the recorder is the one place that fact
+exists.
+
+**THE FILE-SIDE DROP HAS TO HAPPEN INSIDE THE MERGE.** `_save` is a
+read-modify-write that ADDS every row memory holds and the file lacks, so
+that a write cannot erase a person this process does not hold. A row
+released from memory alone would be read straight back in from the file on
+the next adopt. `release` takes the row out of memory and hands `_save` a
+`drop_ref`, which the merge subtracts after it has added -- the one
+subtraction the merge makes -- and a fresh reader of the file agrees with the
+process that released. The ref leaves the dedup set, so the same trade id
+records again when it is retried, and a fill on the retry counts once. A row
+with no ref matches no ref (`str(None)` is the word "None", and a trade could
+be named it), and only the ref's own key is touched.
+
+**A RELEASE THAT DID NOT LAND KEEPS COUNTING, which is the opposite of what a
+record that did not land does.** `record` keeps its row in memory over a
+failed write, because memory ahead of the file is the strict direction
+there. For `release` memory ahead of the file is the LOOSE direction -- a day
+read as emptier than the file says -- so the row is put back, the ref with
+it, and the write's `OSError` is raised. The handler says so: the refusal is
+still answered as a refusal and never a 500 over an accounting fault, the
+audit reads `web_live_spend: KEPT` with the exception's CLASS and never its
+text, and the spend counts for the rest of the window. Every outcome is
+audited (`RELEASED`, `NOT_HELD`, `KEPT`), and the authorization's own
+`except` now logs the class too, where it printed the exception -- a store's
+text names a path.
+
+**What is NOT changed, stated.** The Telegram confirm records into the risk
+engine's own bound ledger at the risk gate, and nothing binds an envelope to
+a `RiskEngine` (its setters are on the unreachable-methods baseline), so
+there is no refusal there to release. A process that dies between the record
+and the confirm leaves the spend recorded, which errs strict, and nothing
+retries a release: the audit is where an operator learns the cap reads fuller
+than the fills.
+
+> **And the first fixture was wrong before the code was.** Making every
+> ledger write fail made the RECORD's write fail, so the envelope denied
+> ("authorization check failed") and the handler never reached a confirm --
+> a 403 asserted as a 200, on a drive whose subject was the release. The
+> write that fails is the SECOND one now, and the drive asserts there were
+> two. And the class-only warning was first read through `caplog`, which the
+> system channel does not propagate to; the sibling suite's handler fixture
+> is what reads it, and a fixture imported by name is a parameter shadowing an
+> import to the strict lint gate, so it is defined beside the tests.
+
+**Twenty mutations, each killed -- and the two that survived the first round
+were the corpus, never the code.** The `"None"` decoy was planted and never
+released: the row named the WORD sat beside a row with no ref while the
+drive released `T1`, so a reader matching `str(None)` changed no verdict. It
+is released now, and the row with no ref has to stay. And the dedup discard
+in `release` survived because `_save` re-reads the file's refs on every write,
+so on a file-backed ledger the discard is redundant with the adopt that
+follows it -- the ONE ledger it is load-bearing for is one with no file, which
+every fixture had. Both shapes are driven now, and the round was re-run
+against them. The rest die where the drives say: the row dropped from memory
+only, a ref nobody holds still writing, a failed write leaving memory released
+or forgetting the ref, the readability check skipped, the file-side drop
+taking the ref out of every key; `recorded` True on every allow or never said,
+the handler marking whatever the recorder answered, an unverified outcome
+released, any refusal released whoever recorded, nothing ever released, a
+release that cannot land swallowed in silence or failing the confirm, the
+exception's text in the audit, the RELEASED audit missing or its words
+swapped, and the authorization's warning printing the text.
+(`tests/test_a_refused_web_live_confirm_takes_its_spend_back.py`.)
+
+**A HAND-TYPED TICKET'S MARGIN WAS POPPED ON THE WAY TO THE EXECUTOR, AND A
+REFUSAL LEFT THE IDEA PENDING WITHOUT IT.** `/trade` and the web's propose
+route register a ticket with the margin the person typed, in
+`_manual_margin_override` keyed by the idea's id, and `_confirm_trade_inner`
+POPPED that figure on its way to the executor. C-05 then keeps a refused idea
+pending so the person can retry -- the venue minimum, a hard cap, a leverage
+the venue would not set, an outcome it confirmed neither way -- and the retry
+ran with no margin on record, sized by the risk engine. Driven through the
+real `confirm_trade`:
+
+    attempt 1 (the venue refuses)   size handed $50.00   idea pending, margin GONE
+    attempt 2 (the retry)           size handed $100.00  the risk engine's figure
+
+On Telegram the retry placed double the ticket. On the web-live path the
+retry's envelope authorization read `margin None`, answered "notional is
+unknown" and DENIED under any cap: fail-closed, and a sentence about a figure
+the person had typed one tap earlier. The margin is READ where the executor
+is sized now and leaves the book WITH the idea, through the one helper every
+exit takes: `_drop_pending_idea` pops the idea and its margin together, and a
+placement, a rejection, a TTL expiry, a duplicate suppression, a practice
+fill, the force-scan sweep and the engine's own dedup all ask it; the
+kill-switch clear takes the margins with the book. A rule walks the engine
+class and refuses any `_pending_ideas.pop(` outside the helper, because a
+list of the eight exits is the shape where the ninth added tomorrow is the
+one missing from it. The TTL sweep was a block inline in a 434-line `_tick`
+that no test could drive, so it is `_expire_pending_ideas` now, and the tick
+is pinned to call it.
+
+**THE MAP WAS CREATED FROM OUTSIDE THE CLASS, and the type ratchet is what
+said so.** `register_manual_idea` in `bot/skills/manual_trade.py` wrote
+`engine._manual_margin_override = {}` onto an engine that had never declared
+it, so the kill-switch clear read `"RuneClawEngine" has no attribute`
+(`attr-defined` 29 -> 30) the moment the engine touched the map by name. It is
+declared in `__init__` beside `_pending_ideas`; the lazy creation stays for a
+stand-in built without the constructor, and the helper reads it through
+`getattr` for the same reason.
+
+**THE MUTATION ROUND REFUSED ITS OWN BASELINE, and the refusal was two of
+this slice's tests reaching the network.** A placement syncs the book to the
+website on a daemon thread, and the network containment named the two drives
+that PLACE (`Thread-2 (sync_portfolio)`, three refused connects each) by the
+thread they STARTED. The seal-failure suite this one borrows its engine from
+stubs `sync_in_background` in an `autouse` fixture, and an autouse fixture is
+per MODULE, so importing that suite's `_engine` imported none of its quiet.
+The pytest tail read "515 passed" over an exit status of 1, because the
+containment sets the status at `pytest_sessionfinish` with no `FAILED` line
+-- the shape `ci_test_gate` records as *the gate cannot describe this run* --
+and the round's driver reads the return code, not the tail, so it refused
+rather than measuring thirteen mutations against a red baseline. The stub is
+re-registered under its own name here, which is the `envelope =
+_envelope_fixture` spelling one fixture over.
+
+**FOUR STAND-INS FORGOT THE NEXT TWO METHODS**, which this file records as
+the shape a hand-written stand-in takes: the ownership suite's `_host`, the
+duplicate guard's `_FakeEngine` and the scan-freshness `_Engine` each bind
+the real methods they need and none knew `_drop_pending_idea` or
+`_expire_pending_ideas`, so eight tests in three files failed on a wiring
+change they were not testing. Each binds the real methods now. The FOURTH
+was found after the commit, by the next slice's neighbouring run rather than
+by this one's: the trade-quality suite's `_PaperEng` binds the real paper
+fill, which now takes the idea off the book through the helper, and its
+`except` folded the `AttributeError` into *"Simulated fill failed"*. The full
+preflight on this commit would have refused it thirty minutes in, on a suite
+none of this slice's runs included, so that run was stopped by PID and the
+head re-preflighted with the binding in. A sweep of every suite that binds an
+engine method (26 files, 422 tests) found no fifth. And the per-user
+allowlist pin anchored on the spelling `.pop(idea.id)`; it anchors on the
+read.
+
+**Recorded, not changed.** `/web3/sign` records the transfer against the
+24h ledger before `build_and_sign` runs, so a signature that FAILS keeps the
+day's spend; the broadcast failure beside it keeps its spend correctly, since
+a transaction handed to the network is neither confirmed nor refused. It is
+off the trade path and filed as its own slice with the release helper #134
+built.
+
+**Eleven mutations, each killed on the first round, none refused.** Two are
+worth naming for what they prove about the guards rather than the code: each
+exit put back on a bare `_pending_ideas.pop(` dies on the rule alone for the
+sites a drive cannot reach (the force-scan sweep, the engine's dedup), and on
+the drive as well for the ones it can; and the web authorization reading the
+margin with `.pop` dies only on the retry drive that asks the envelope twice
+for one pending ticket, because a reader that consumes the figure agrees
+with a reader that does not on every single ask.
+(`tests/test_a_tickets_margin_lives_as_long_as_its_idea.py`.)
+
+**A HAND-TYPED LIMIT AT OR THROUGH THE MARKET WAS RE-PRICED TO CURRENT MINUS
+HALF AN ATR, ITS STOP AND TARGET MOVED WITH IT, AND ANSWERED "LIMIT ORDER
+PLACED".** Every `/trade` ticket is a limit (the typed grammar has no
+`market` word; the web's ticket offers one), and the dashboard's card says
+*"Limit -- rest at entry $3,000"*. `_confirm_trade_inner` skips the drift and
+stale-R:R checks for a typed ticket under a comment reading *"user chose these
+exact levels"*, and twenty lines below it the limit re-price ran for every
+limit idea whatever its source. Driven through the real `confirm_trade`:
+
+    /trade long ETH 3000 sl 2950 tp 3100, ETH at 2990
+        handed to execute: entry 2965  sl 2915  tp 3065   "✅ LIMIT ORDER PLACED"
+    the same ticket, ETH at exactly 3000
+        handed to execute: entry 2975  sl 2925  tp 3075
+
+The offset is half the SYNTHETIC ATR the confirm derives from the typed stop
+distance, so the person's own stop decides how far their entry is moved. A
+limit at or through the market is what "buy now, at most 3000" means, and
+the person who typed it against a market of 2990 was given a resting order
+35 below it that fills only if the market comes back, lapses as *never
+filled* after four hours if it does not, and a stop and target 35 away from
+the ones they typed, under a card that said their order was placed. The
+engine's own idea is different: its level was set at analysis time and is
+stale by confirm, and the re-price to rest as a maker is right for it.
+
+**TWO RE-PRICE SITES, NEITHER ASKED WHOSE LEVELS THEY WERE MOVING.** The
+executor's `_recalculate_limit_entry` runs the confluence re-price on
+whatever crosses at placement: a Tier D turns the typed limit into a MARKET
+order, a Tier C cuts the typed margin by 0.3, and a moved entry shifts the
+typed stop and target. And every crypto limit goes out post-only
+(`LIMIT_POST_ONLY` defaults True), which the venue REJECTS the moment the
+market reaches the price it names -- so a typed limit that crossed between
+the confirm's ticker read and the placement met the post-only retry, which
+widens the offset by up to an ATR and re-prices the typed levels a third
+way. A typed ticket passes through both sites as typed now, and is sent GTC,
+never post-only: the venue fills it at the market up to the price the person
+named, or rests it there. Metals and stocks were GTC already, for a different
+reason. The crossing is AUDITED at both sites (`manual_limit_as_typed`,
+`CROSSES_MARKET`) rather than acted on, and a resting typed limit is neither
+moved nor audited. The engine's own ideas keep the re-price they always had,
+driven: a signal limit through the market still moves to half an ATR below
+with its stop and target shifted.
+
+**ONE READING OF "CROSSES".** The engine spelled `entry >= current` for a
+long and `entry <= current` for a short, the executor spelled the same pair
+in `buy`/`sell`, and each decided something different from it.
+`limit_entry.limit_crosses_market` is the one reading, in either vocabulary,
+with equality counted (a limit AT the market fills at once too) and `None`
+for a price that is not a readable positive figure or a side it does not
+know -- never a guess at what the other side means.
+
+**What a typed crossing limit still meets, stated.** The past-stop check
+runs for a typed ticket before placement, so a long whose stop the market is
+already below is refused rather than filled and stopped out at once. The
+fee-aware entry gate prices a `limit` entry as a maker, and a crossing typed
+limit pays the taker fee; the gate is skipped for a typed ticket
+(`FEE_AWARE ... and not is_manual`), so nothing mis-models it, and the
+co-pilot's review card prices the same round trip as maker, which is 0.02%
+of notional optimistic for the one ticket shape this chapter is about and
+is filed rather than widened. A limit the venue fills at once comes back from
+Bitget with no status, so it is tracked as `pending_fill` for one tick and
+becomes a position on the next pending check, which is the path every
+resting limit that fills already takes.
+
+**Fifteen mutations, each killed -- and the one that survived the first
+round was the corpus, on the half this slice did not change.** The
+executor's re-price for the ENGINE's own idea given back a strict
+comparison of its own (`limit_price > current_price`) changed no verdict,
+because every signal fixture in the tree sat strictly through the market:
+a signal limit exactly AT the market is the input that separates `>` from
+the leaf's `>=`, and under the strict reading it would have been left to
+fill as a taker, which post-only then refuses. Both sides of that row are
+planted now and the mutation dies. The rest die where the drives say: the
+typed ticket re-priced again at the engine or at the executor, the crossing
+audit dropped or fired for a resting ticket at either site, the engine's own
+idea no longer re-priced, equality read as not crossing, the sell side read
+backwards, an unreadable price read as a no, an unknown side read as a buy,
+a typed limit sent post-only, and every limit sent GTC.
+(`tests/test_a_typed_ticket_is_placed_at_the_levels_it_typed.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -15391,7 +15954,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 240 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 246 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -16203,9 +16766,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **451 of 1140** reach for source text through `source_scan`, `code_only`
+Driven, **457 of 1147** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 451 is a FLOOR and the honest shape is
+source scan that rule does not see, so 457 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

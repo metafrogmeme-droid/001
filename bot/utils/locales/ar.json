@@ -222,6 +222,7 @@
   "trade_executed": "✅ نُفّذت الصفقة: {direction} {asset} عند ${price}",
   "trade_executed_fail": "<b>لم تُنفَّذ الصفقة</b>",
   "trade_executed_ok": "<b>نُفّذت الصفقة!</b>",
+  "trade_outcome_unverified": "<b>نتيجة الأمر غير مؤكدة</b> — لم يُسجَّل شيء ولم يُعَد الإرسال",
   "trade_expired": "انتهت صلاحية الصفقة (لم تُؤكَّد في الوقت المحدد)",
   "trade_expired_rescan": "<b>انتهت صلاحية الصفقة.</b> شغّل مسحاً جديداً.",
   "trade_help": "<b>صفقة يدوية</b>\n\nالصيغة:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1748 tp 1610 margin 250</code>\n\n• <code>buy/long</code> = شراء\n• <code>sell/short</code> = بيع\n• <code>margin</code> = هامش ثابت اختياري بالدولار",

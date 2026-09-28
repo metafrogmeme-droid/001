@@ -520,6 +520,7 @@
   ["dd.t_trade_confirmed", "İşlem onaylandı."],
   ["dd.t_trade_refused", "Hiçbir şey iletilmedi."],
   ["dd.t_trade_unread", "Bot yanıt verdi ama bir şey iletilip iletilmediğini söylemedi — pozisyonlarınızı kontrol edin."],
+  ["dd.t_trade_unverified", "Borsa emri hiçbir yönde doğrulamadı — bot bunu kayda aldı, hiçbir şey yeniden gönderilmedi ve bir sonraki pozisyon kontrolü bunu eşleştirecek. Yeniden göndermeyin."],
   ["dd.t_trade_update", "Motordan işlem güncellemesi."],
   ["dd.t_need_coin", "Önce bir coin yaz."],
   ["dd.t_need_symbol", "Önce bir sembol yaz."],

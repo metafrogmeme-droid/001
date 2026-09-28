@@ -60,6 +60,7 @@ def explain(record: dict) -> dict:
             "skipped": "passed on",
             "executed_live": "took",
             "execution_failed": "tried and failed to open",
+            "execution_unverified": "sent an order the venue never confirmed either way for",
             "rejected_on_recheck": "rejected"}.get(outcome_kind, "evaluated")
     mode = "paper" if is_paper else "live"
     conf_txt = f" at {conf*100:.0f}% confidence" if conf is not None else ""

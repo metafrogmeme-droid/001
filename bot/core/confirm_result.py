@@ -45,10 +45,31 @@ def placed_nothing(result: Any) -> bool:
     nothing placed (`execution_indicates_failure` answers that before the
     prefixes are asked): announcing a trade off an answer nobody can read is
     the direction that cannot be taken back.
+
+    THIS IS NOT THE ONLY QUESTION. An answer `outcome_unverified` reads as the
+    third outcome is neither a placement nor a refusal, and a door that asks
+    only this function announces it as one of the two; every door asks
+    `outcome_unverified` FIRST (a test walks them).
     """
     from bot.core.live_executor import execution_indicates_failure
 
     return execution_indicates_failure(result) or result.startswith(REFUSAL_PREFIXES)
+
+
+def outcome_unverified(result: Any) -> bool:
+    """True when the executor's answer says the venue confirmed the entry
+    neither way: the send raised in a way that leaves it unknown whether the
+    order was taken, and the order lists could not be read after it.
+
+    Not a placement (nothing is on the book, the public channel has nothing to
+    announce) and not a refusal (an announcement that nothing was placed is a
+    claim about the venue nobody could make). The executor keeps the
+    submission on record and reconciles it by client id; the doors say that,
+    and only that.
+    """
+    from bot.core.live_executor import execution_outcome_unverified
+
+    return execution_outcome_unverified(result)
 
 
 def held_on_operator_book(engine: Any, trade_id: str) -> bool:

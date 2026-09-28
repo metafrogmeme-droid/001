@@ -27,7 +27,7 @@ from types import SimpleNamespace
 import pytest
 
 import bot.config as bot_config
-from bot.core.confirm_result import REFUSAL_PREFIXES, held_on_operator_book, placed_nothing
+from bot.core.confirm_result import REFUSAL_PREFIXES, held_on_operator_book, outcome_unverified, placed_nothing
 from bot.core.engine import RuneClawEngine
 from bot.skills.manual_trade import build_manual_idea
 from bot.skills.telegram_handler import TelegramHandler
@@ -246,17 +246,28 @@ def test_the_executors_answers_are_read_both_ways():
     not begin with a refusal prefix, and its refusals are the executor's own
     vocabulary, which the reading must still ask."""
     from bot.core.live_executor import LiveExecutor
-    tree = ast.parse(textwrap.dedent(inspect.getsource(LiveExecutor.execute)))
-    texts = [t for n in ast.walk(tree)
-             if isinstance(n, ast.Return) and n.value is not None
-             for t in [_render(n.value)] if t]
+    texts = []
+    # The third outcome's answer is composed in the helper execute() returns
+    # through, so its literal is walked beside execute()'s own.
+    for fn in (LiveExecutor.execute, LiveExecutor._note_unverified_submission):
+        tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+        texts += [t for n in ast.walk(tree)
+                  if isinstance(n, ast.Return) and n.value is not None
+                  for t in [_render(n.value)] if t]
     placed = [t for t in texts if "opened" in t or "LIMIT ORDER" in t]
-    refused = [t for t in texts if t not in placed]
-    assert placed and refused, "the premise: execute() answers both ways"
+    # THE THIRD OUTCOME: a submission the venue confirmed neither way. Not a
+    # placement, not a refusal -- `outcome_unverified` is the reading, and
+    # `placed_nothing` must NOT claim it either way.
+    unverified = [t for t in texts if outcome_unverified(t)]
+    refused = [t for t in texts if t not in placed and t not in unverified]
+    assert placed and refused and unverified, (
+        "the premise: execute() answers all three ways")
     for text in placed:
         assert not placed_nothing(text), text
     for text in refused:
         assert placed_nothing(text), text
+    for text in unverified:
+        assert not placed_nothing(text) and text not in placed, text
 
 
 def test_a_non_string_answer_is_nothing_placed():

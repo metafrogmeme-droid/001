@@ -39,6 +39,7 @@ from bot.core.live_executor import LiveExecutor, committed_margin, display_symbo
 from bot.core import live_executor as _live_executor_mod
 from bot.core import size_bounds
 from bot.core.exchange_sync import sync_portfolio_with_exchange, get_exchange_position_count, invalidate_position_count_cache
+from bot.core.limit_entry import limit_crosses_market
 from bot.core.market_scanner import MarketScanner, _classify_symbol
 from bot.core.order_flow import OrderFlowAnalyzer
 from bot.core.position_telemetry import entered_at
@@ -908,6 +909,9 @@ class RuneClawEngine:
         # fill and sync messages -- see `_announce_executor_message`.
         self._owner_notify_callback: Optional[Callable] = None
         self._pending_ideas: dict[str, TradeIdea] = {}
+        # A hand-typed ticket's margin, keyed by its idea id, for as long as
+        # the idea is pending (`_drop_pending_idea` takes both off together).
+        self._manual_margin_override: dict[str, float] = {}
         # The ids in `_pending_ideas` the ENGINE's own scan put there. The dict
         # is shared with every person's ticket, card and analysis, and nothing
         # said whose an entry was: so one stranger's pending ticket paused the
@@ -3318,6 +3322,8 @@ class RuneClawEngine:
                 logger.error("Kill-switch: user %s risk engine halt failed: %s", uid, exc)
         pending_cleared = len(self._pending_ideas)
         self._pending_ideas.clear()
+        if isinstance(getattr(self, "_manual_margin_override", None), dict):
+            self._manual_margin_override.clear()
         self._pending_atr.clear()
         self._pending_timing.clear()
         self._pending_pyramid.clear()
@@ -5907,25 +5913,7 @@ class RuneClawEngine:
             self._cooldown_until = 0.0
 
         # TTL: expire stale pending ideas
-        now = datetime.now(UTC)
-        idea_ttl = CONFIG.pending_idea_ttl
-        expired_ids = [
-            idea_id
-            for idea_id, idea in self._pending_ideas.items()
-            if (now - idea.timestamp).total_seconds() > idea_ttl
-        ]
-        for idea_id in expired_ids:
-            expired_idea = self._pending_ideas.pop(idea_id, None)
-            self._pending_atr.pop(idea_id, None)  # clean up stored ATR
-            self._pending_pyramid.pop(idea_id, None)  # L-02 FIX: clean up pyramid flag
-            if expired_idea:
-                audit(
-                    trade_log,
-                    f"Trade idea {idea_id} expired (TTL)",
-                    action="ttl_expire",
-                    result="EXPIRED",
-                    data={"asset": expired_idea.asset, "age_seconds": (now - expired_idea.timestamp).total_seconds()},
-                )
+        self._expire_pending_ideas()
 
         # C2-26 FIX: Skip scanning while the ENGINE's own ideas await
         # confirmation. A concurrent confirm_trade call while mid-scan creates
@@ -7657,11 +7645,11 @@ class RuneClawEngine:
         try:
             trade = portfolio.open_position(idea, size_usd, leverage=leverage)
         except Exception as exc:
-            self._pending_ideas.pop(trade_id, None)
+            self._drop_pending_idea(trade_id)
             self._transition(AgentState.IDLE, f"paper fill error {trade_id}")
             return f"⚠️ [PAPER] Simulated fill failed: {str(exc)[:160]}"
 
-        self._pending_ideas.pop(trade_id, None)
+        self._drop_pending_idea(trade_id)
         # Log a DECISION row for this paper fill (gated, default OFF) so the
         # confidence-calibration / voter-weight learners can JOIN it to the paper
         # outcome (recorded later by the paper loop) via paper_trade_id and train
@@ -7737,7 +7725,7 @@ class RuneClawEngine:
                     and not self._pending_pyramid.get(trade_id)):
                 for lp in self.live_executor.open_positions:  # open + pending_fill
                     if normalize_symbol(lp.symbol) == key:
-                        self._pending_ideas.pop(trade_id, None)
+                        self._drop_pending_idea(trade_id)
                         self._pending_atr.pop(trade_id, None)
                         audit(trade_log,
                               f"Duplicate entry suppressed for {idea.asset} — an "
@@ -7939,12 +7927,30 @@ class RuneClawEngine:
         #   - LONG buy limit ABOVE current price fills immediately
         #   - SHORT sell limit BELOW current price fills immediately
         # If the limit price is already on the correct side, keep it.
+        # A LIMIT at or through the market fills at once, as a taker. For the
+        # ENGINE's own idea that is a level gone stale since analysis, and the
+        # block below re-prices it to rest as a maker. For a HAND-TYPED ticket
+        # it is the person's price cap ("buy now, at most $3,000") and the
+        # levels are theirs: the first version of this block moved a typed
+        # entry to current - 0.5*ATR, shifted the typed stop and target the
+        # same distance, and answered "LIMIT ORDER PLACED" at a price nobody
+        # typed -- driven, $3,000 typed against a market of $2,990 placed
+        # $2,965. A typed ticket passes through as typed (the executor sends
+        # it GTC, never post-only), and the crossing is audited rather than
+        # acted on. `limit_crosses_market` is the one reading of "crosses".
+        _crosses = bool(idea.order_type == "limit" and current_price > 0
+                        and limit_crosses_market(idea.direction.value,
+                                                 idea.entry_price, current_price))
+        if _crosses and is_manual:
+            audit(trade_log,
+                  f"Typed limit ${idea.entry_price:,.4f} is at or through the market "
+                  f"${current_price:,.4f}: placed AS TYPED, fills at the market up to "
+                  f"that price",
+                  action="manual_limit_as_typed", result="CROSSES_MARKET",
+                  data={"trade_id": trade_id, "entry": idea.entry_price,
+                        "current_price": current_price})
         if idea.order_type == "limit" and current_price > 0 and stored_atr and stored_atr > 0:
-            _needs_recalc = False
-            if idea.direction.value == "LONG" and idea.entry_price >= current_price:
-                _needs_recalc = True
-            elif idea.direction.value != "LONG" and idea.entry_price <= current_price:
-                _needs_recalc = True
+            _needs_recalc = _crosses and not is_manual
 
             if _needs_recalc:
                 # Use 0.5*ATR offset (not 0.1) so the limit is far enough from
@@ -8445,7 +8451,13 @@ class RuneClawEngine:
         # on $6,250 instead of $1,250). Pass the margin itself so manual trades
         # match the auto path and the user's stated margin.
         if hasattr(self, '_manual_margin_override') and idea.id in self._manual_margin_override:
-            manual_margin = self._manual_margin_override.pop(idea.id)
+            # READ, never popped here: the margin is the ticket's own size and
+            # lives as long as the idea does. It used to be popped on the way
+            # to the executor, so an attempt the venue REFUSED left the idea
+            # pending without it, and the retry the person then made was
+            # sized by the risk engine -- driven, $50 typed, $100 placed on
+            # the second tap. `_drop_pending_idea` takes it with the idea.
+            manual_margin = self._manual_margin_override[idea.id]
             leverage = CONFIG.exchange.default_leverage
             _before_manual = size_usd
             size_usd = manual_margin  # margin; executor applies leverage for notional
@@ -8567,8 +8579,16 @@ class RuneClawEngine:
         # missed "REFUSED:" / "EXECUTION BLOCKED:" / "Live execution blocked:"
         # and could not match emoji/HTML-prefixed strings, so blocked trades
         # were sealed to the audit chain as phantom live fills.
-        from bot.core.live_executor import execution_indicates_failure
-        live_failed = execution_indicates_failure(result)
+        from bot.core.live_executor import execution_indicates_failure, execution_outcome_unverified
+        # THREE OUTCOMES. A refusal and an unverified submission both leave the
+        # idea pending and announce no open (`live_failed` gates both); they
+        # part below, where the chain and the learning row are written: a
+        # refusal is sealed as EXECUTION_FAILED, and a submission the venue
+        # confirmed neither way as EXECUTION_UNVERIFIED, because "failed" is a
+        # claim about the venue nobody could make. The executor reconciles it
+        # by client id on its next positions pass.
+        live_unverified = execution_outcome_unverified(result)
+        live_failed = execution_indicates_failure(result) or live_unverified
 
         if not live_failed:
             # Exchange is single source of truth — no paper duplicate.
@@ -8582,7 +8602,7 @@ class RuneClawEngine:
             except Exception:
                 pass
             # C-05 FIX: only remove idea and ATR after successful execution
-            self._pending_ideas.pop(trade_id, None)
+            self._drop_pending_idea(trade_id)
             self._pending_atr.pop(trade_id, None)
             # Public mind-stream: operator-account opens only (per-user
             # executors are private). No sizes on the public feed.
@@ -8646,6 +8666,9 @@ class RuneClawEngine:
         # and the risk gate APPROVED this one. Naming the wrong cause is the
         # defect this is fixing, in a new place.
         _fail_reason = str(result)[:200] if live_failed else ""
+        _outcome_word = ("EXECUTED_LIVE" if not live_failed
+                         else "EXECUTION_UNVERIFIED" if live_unverified
+                         else "EXECUTION_FAILED")
 
         # Seal decision to tamper-evident audit chain (Guardian Flight Recorder:
         # provenance-complete idea/risk). The order is placed by now, so a seal
@@ -8656,7 +8679,7 @@ class RuneClawEngine:
             risk=_flight_risk(recheck, size_usd=size_usd),
             macro={"risk_state": macro_ctx.risk_state, "multiplier": macro_ctx.size_multiplier},
             compliance={"granted": True, "locks_passed": compliance_decision.locks_passed},
-            outcome="EXECUTED_LIVE" if not live_failed else "EXECUTION_FAILED",
+            outcome=_outcome_word,
             is_paper=False,
         )))
         self._emit_policy_decision(recheck, trade_id, idea.asset, user_id)
@@ -8683,19 +8706,63 @@ class RuneClawEngine:
             risk_engine_result="APPROVED",
             checks_passed=recheck.checks_passed,
             checks_failed=[],
-            decision="TRADE_ACCEPTED_LIVE" if not live_failed else "EXECUTION_FAILED",
+            decision=("TRADE_ACCEPTED_LIVE" if not live_failed
+                      else "EXECUTION_UNVERIFIED" if live_unverified
+                      else "EXECUTION_FAILED"),
             rejected_reason=_fail_reason,
             paper_trade_id=trade_id,
             confluence_votes=getattr(idea, "_confluence_votes", []),
         )
         self._transition(
             AgentState.IDLE,
-            "live trade executed" if not live_failed else "live execution failed")
+            "live trade executed" if not live_failed
+            else "live submission unverified" if live_unverified
+            else "live execution failed")
         return result + seal_note
+
+    def _expire_pending_ideas(self, now: Optional[datetime] = None) -> list:
+        """Drop every pending idea older than ``CONFIG.pending_idea_ttl``, with
+        its ATR, pyramid flag and manual margin. The tick calls this every
+        pass; it is a method so a test can drive the expiry without standing
+        up a tick. Returns the expired ids."""
+        now = now or datetime.now(UTC)
+        idea_ttl = CONFIG.pending_idea_ttl
+        expired_ids = [
+            idea_id
+            for idea_id, idea in self._pending_ideas.items()
+            if (now - idea.timestamp).total_seconds() > idea_ttl
+        ]
+        for idea_id in expired_ids:
+            expired_idea = self._drop_pending_idea(idea_id)
+            self._pending_atr.pop(idea_id, None)  # clean up stored ATR
+            self._pending_pyramid.pop(idea_id, None)  # L-02 FIX: clean up pyramid flag
+            if expired_idea:
+                audit(
+                    trade_log,
+                    f"Trade idea {idea_id} expired (TTL)",
+                    action="ttl_expire",
+                    result="EXPIRED",
+                    data={"asset": expired_idea.asset, "age_seconds": (now - expired_idea.timestamp).total_seconds()},
+                )
+        return expired_ids
+
+    def _drop_pending_idea(self, trade_id: str):
+        """Take an idea off the book, and with it the manual margin the ticket
+        carried: the margin's lifetime is the idea's. Every site where an idea
+        leaves `_pending_ideas` goes through here (a test walks the module),
+        so a refusal that keeps the idea keeps its margin, and a placement, a
+        rejection, an expiry, a duplicate suppression or a kill-switch clear
+        cannot leave a size behind for an idea that is gone. Returns the idea,
+        or None when none was pending under that id."""
+        idea = self._pending_ideas.pop(trade_id, None)
+        margins = getattr(self, "_manual_margin_override", None)
+        if isinstance(margins, dict):
+            margins.pop(trade_id, None)
+        return idea
 
     def reject_trade(self, trade_id: str) -> str:
         """Human explicitly rejects a pending idea."""
-        idea = self._pending_ideas.pop(trade_id, None)
+        idea = self._drop_pending_idea(trade_id)
         self._pending_atr.pop(trade_id, None)  # clean up stored ATR
         self._pending_pyramid.pop(trade_id, None)  # C2-30 FIX: clean up pyramid flag
         if idea:
@@ -8751,7 +8818,7 @@ class RuneClawEngine:
         _engine_ids = self._engine_pending_ids()
         old_pending = len(_engine_ids)
         for _eid in _engine_ids:
-            self._pending_ideas.pop(_eid, None)
+            self._drop_pending_idea(_eid)
             self._pending_atr.pop(_eid, None)
             self._pending_timing.pop(_eid, None)
             self._pending_pyramid.pop(_eid, None)
@@ -9056,7 +9123,7 @@ class RuneClawEngine:
         for eid in list(self._engine_pending_ids()):
             existing = self._pending_ideas.get(eid)
             if existing is not None and normalize_symbol(existing.asset) == key:
-                self._pending_ideas.pop(eid, None)
+                self._drop_pending_idea(eid)
                 self._pending_atr.pop(eid, None)
                 self._pending_pyramid.pop(eid, None)  # C2-31: no stale pyramid flag
                 self._engine_idea_ids.discard(eid)
@@ -9269,7 +9336,11 @@ class RuneClawEngine:
         "TRADE OPENED"; everything else as a close. The fallback message was
         previously misrouted to the close path and shown as "❌ Trade Closed"."""
         first = (msg or "").split("\n", 1)[0]
-        return first.startswith("LIMIT FILLED:") or "MARKET FALLBACK:" in first
+        # "RECOVERED FILL:" is a submission the venue never confirmed that
+        # the positions pass found filled by client id: an OPEN, booked with
+        # its idea's levels, and told as one.
+        return (first.startswith("LIMIT FILLED:") or "MARKET FALLBACK:" in first
+                or first.startswith("RECOVERED FILL:"))
 
     @staticmethod
     def _is_kept_open_message(msg: str) -> bool:
@@ -9297,7 +9368,11 @@ class RuneClawEngine:
         position is now TRACKED, nothing closed — and were previously
         misrouted to the close path and shown as "❌ Closed" (live incident:
         'Closed — SYNC: Adopted untracked position B from exchange')."""
-        return (msg or "").split("\n", 1)[0].startswith("SYNC:")
+        first = (msg or "").split("\n", 1)[0]
+        # "SUBMISSION:" is the positions pass reporting what became of a
+        # submission the venue never confirmed -- resting and now tracked,
+        # never landed, already tracked: information, nothing closed.
+        return first.startswith("SYNC:") or first.startswith("SUBMISSION:")
 
     async def _check_open_positions(self) -> None:
         """Monitor open positions for SL/TP hits.
@@ -9377,7 +9452,9 @@ class RuneClawEngine:
                         # close card, and skip the loss-cooldown scan below.
                         if self._is_sync_message(msg):
                             audit(trade_log, f"Exchange sync: {msg}",
-                                  action="exchange_sync_notify", result="ADOPTED")
+                                  action="exchange_sync_notify",
+                                  result=("SUBMISSION" if msg.startswith("SUBMISSION:")
+                                          else "ADOPTED"))
                             try:
                                 await self._announce_executor_message(_ex, "sync", msg)
                             except Exception as exc:

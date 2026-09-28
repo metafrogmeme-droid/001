@@ -562,6 +562,7 @@
     "dd.t_trade_confirmed": { en: "Trade confirmed." },
     "dd.t_trade_refused": { en: "Nothing was placed." },
     "dd.t_trade_unread": { en: "The bot answered without saying whether anything was placed — check your positions." },
+    "dd.t_trade_unverified": { en: "The venue confirmed the order neither way — the bot has it on record, nothing was re-sent, and its next positions check reconciles it. Do not send it again." },
     "dd.t_trade_update": { en: "Trade update from the engine." },
     "dd.t_need_coin": { en: "Type a coin first." },
     "dd.t_need_symbol": { en: "Type a symbol first." },
@@ -2150,7 +2151,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"d2a455cf","zh":"1f9b5a88","pt":"c135c2ae","fr":"a90021ed","de":"63a3edaf","nl":"89b09fed","ja":"7d5957ea","ko":"286930d8","ru":"a80ca489","tr":"2c7c41ab","it":"0246686b","hi":"3389ec26","ar":"665eddcf"};
+  var CHUNKS = {"es":"bfef5e1a","zh":"eb0b6b7f","pt":"2f8906b4","fr":"921c2d5a","de":"24678572","nl":"d1fe5b66","ja":"245cd3ea","ko":"f6a2607c","ru":"ed6efed4","tr":"8ccf9c75","it":"a4d6c9a0","hi":"16ab1770","ar":"3971a71f"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

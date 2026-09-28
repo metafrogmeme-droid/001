@@ -520,6 +520,7 @@
   ["dd.t_trade_confirmed", "Trade bevestigd."],
   ["dd.t_trade_refused", "Er is niets geplaatst."],
   ["dd.t_trade_unread", "De bot antwoordde zonder te zeggen of er iets is geplaatst — controleer je posities."],
+  ["dd.t_trade_unverified", "De beurs heeft de order in geen van beide richtingen bevestigd — de bot heeft hem vastgelegd, er is niets opnieuw verstuurd en de volgende positiecontrole verwerkt hem. Verstuur hem niet opnieuw."],
   ["dd.t_trade_update", "Trade-update van de engine."],
   ["dd.t_need_coin", "Typ eerst een coin."],
   ["dd.t_need_symbol", "Typ eerst een symbool."],

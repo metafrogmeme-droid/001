@@ -931,6 +931,10 @@ _STRINGS: dict[str, dict[str, str]] = {
     "btn_take_it": {"en": "Take it", "zh": "接受"},
     "btn_skip": {"en": "Skip", "zh": "略過"},
     "trade_executed_ok": {"en": "<b>Trade executed!</b>", "zh": "<b>交易已執行！</b>"},
+    "trade_outcome_unverified": {
+        "en": "<b>Order outcome unverified</b> — nothing recorded, nothing re-sent",
+        "zh": "<b>訂單結果未確認</b> — 未記錄任何倉位，也未重新發送",
+    },
     "trade_executed_fail": {"en": "<b>Trade didn't go through</b>", "zh": "<b>交易未成功</b>"},
 
     # ── Admin commands (en byte-identical; emoji/separators stay in code) ──

@@ -67,11 +67,29 @@ test('an ABSENT `placed` is an older bot and keeps the old behaviour, flagged', 
   assert.equal(out.legacy, true);
 });
 
-for (const junk of ['maybe', 'false', 0, 1, null, 'true']) {
+for (const junk of ['maybe', 'false', 0, 1, 'true']) {
   test(`a \`placed\` of ${JSON.stringify(junk)} is unread — neither placed nor refused`, () => {
     assert.equal(M.outcome(ok({ result_html: 'x', placed: junk })).kind, 'unread');
   });
 }
+
+// THE FIFTH OUTCOME. `placed: null` is the bot saying it SENT the order and
+// the venue confirmed it neither way (the send raised in a way that leaves it
+// unknown, and the order lists could not be read after it): nothing is on the
+// book, nothing is re-sent, and the bot's next positions pass asks the venue
+// by client id. This used to read as `unread` -- which refreshes the book and
+// tells the person to check their positions, as though the bot did not know
+// what it had done -- and a page reading `false` for it would offer a re-send
+// of exactly the order the bot refuses to re-send.
+const UNVERIFIED_TEXT = '⚠️ ORDER UNVERIFIED: SOL/USDT LONG — the venue raised RequestTimeout while the order was being sent';
+const UNVERIFIED = ok({ result_html: UNVERIFIED_TEXT, placed: null });
+
+test('a `placed` of null is the bot saying the venue confirmed it neither way', () => {
+  const out = M.outcome(UNVERIFIED);
+  assert.equal(out.kind, 'unverified');
+  assert.equal(out.text, UNVERIFIED_TEXT);
+  assert.equal(out.legacy, undefined, 'a null is a NEW bot, not an older one');
+});
 
 test('the answer text is carried, and a non-string answer is not invented', () => {
   assert.equal(M.outcome(ok({ result_html: 42, placed: false })).text, '');
@@ -176,6 +194,22 @@ test('MODAL: an unreadable `placed` claims neither — no toast, a refresh, the 
   assert.ok(r.msg.includes('check your positions'), r.msg);
 });
 
+test('MODAL: an unverified submission paints no colour, moves nothing, and keeps Confirm disabled', async () => {
+  const r = await runModal(UNVERIFIED);
+  assert.deepEqual(r.toasts, [], 'a submission the venue never confirmed was toasted');
+  assert.deepEqual(r.events, [], 'nothing on the book moved, so nothing announced a change');
+  assert.equal(r.closed, false, 'the modal closed over an unverified submission');
+  assert.equal(r.cache.portfolio, 'CACHED');
+  assert.ok(r.msg.includes('confirmed the order neither way'), r.msg);
+  assert.ok(r.msg.includes('Do not send it again'), r.msg);
+  assert.ok(r.msg.includes(UNVERIFIED_TEXT), 'the bot\'s own answer is shown');
+  assert.ok(r.msg.includes('class="muted"'), r.msg);
+  assert.ok(!r.msg.includes('class="neg"') && !r.msg.includes('class="up"'), 'a colour is a claim about the venue');
+  assert.ok(!r.msg.includes('Nothing was placed'), 'called refused');
+  assert.ok(!r.msg.includes('check your positions'), 'called unread');
+  assert.deepEqual(r.done, []);
+});
+
 test('MODAL: a failed request keeps its own sentence', async () => {
   const r = await runModal(FAILED);
   assert.deepEqual(r.toasts, []);
@@ -249,6 +283,19 @@ test('CHAT: a placement prints the answer and refreshes the book', async () => {
   assert.deepEqual(r.events, ['rc:portfolio-changed']);
 });
 
+test('CHAT: an unverified submission gives NEITHER button back and announces no change', async () => {
+  const r = await runChatCard(UNVERIFIED);
+  assert.equal(r.said.length, 1);
+  assert.ok(r.said[0].includes('confirmed the order neither way'), r.said[0]);
+  assert.ok(r.said[0].includes(UNVERIFIED_TEXT), r.said[0]);
+  assert.ok(!r.said[0].startsWith('Executed'), r.said[0]);
+  assert.ok(!r.said[0].includes('Nothing was placed'), 'called refused');
+  assert.ok(!r.said[0].includes('check your positions'), 'called unread');
+  assert.deepEqual(r.events, [], 'nothing on the book moved');
+  assert.equal(r.buttons[0].disabled, true, 'Confirm came back: a re-send is what the bot refuses');
+  assert.equal(r.buttons[1].disabled, true, 'Cancel came back: it cancels nothing on the venue');
+});
+
 test('CHAT: an unreadable `placed` is never printed as "Executed."', async () => {
   const r = await runChatCard(ok({ result_html: '', placed: 'maybe' }));
   assert.equal(r.said.length, 1);
@@ -270,6 +317,14 @@ test('CHAT: it ASKS the model — a planted refusal over `placed: true` is obeye
 
 // ── one reading, reachable on both pages, in fourteen languages ───────────
 
+test('both surfaces branch on the model\'s fifth kind by name, and spell no colour class on it', () => {
+  const modal = blockBetween(DASH, '// ── trade confirm modal ─', '// ── trade confirm modal end ─', { label: 'modal' });
+  const chat = blockBetween(CHAT, '// ── chat trade card ─', '// ── chat trade card end ─', { label: 'chat card' });
+  for (const b of [modal, chat]) assert.match(codeOnly(b), /out\.kind === 'unverified'/);
+  const arm = codeOnly(modal).split("out.kind === 'unverified'")[1].split('return;')[0];
+  assert.ok(!/class="(neg|up|down)"/.test(arm), arm);
+});
+
 test('neither surface reads `placed` itself — the model is the one reading', () => {
   const blocks = [
     blockBetween(DASH, '// ── trade confirm modal ─', '// ── trade confirm modal end ─', { label: 'modal' }),
@@ -288,10 +343,10 @@ test('both pages that host a Confirm button load the model', () => {
   }
 });
 
-test('the two sentences the surfaces add exist in all fourteen languages', () => {
+test('the three sentences the surfaces add exist in all fourteen languages', () => {
   const codes = I18N.LANGS.map((l) => l.code);
   assert.equal(codes.length, 14);
-  for (const key of ['dd.t_trade_refused', 'dd.t_trade_unread']) {
+  for (const key of ['dd.t_trade_refused', 'dd.t_trade_unread', 'dd.t_trade_unverified']) {
     const entry = I18N.STRINGS[key];
     assert.ok(entry, key);
     for (const c of codes) assert.ok(typeof entry[c] === 'string' && entry[c].length, `${key}:${c}`);

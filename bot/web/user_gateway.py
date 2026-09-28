@@ -37,7 +37,7 @@ import os
 import re
 import time
 from datetime import datetime, timezone
-from typing import Optional, cast, TYPE_CHECKING
+from typing import NamedTuple, Optional, cast, TYPE_CHECKING
 
 from aiohttp import web
 
@@ -46,7 +46,7 @@ from bot.nlp.sanitize import MAX_CHAT_INPUT_LEN
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from bot.skills.telegram_handler import TelegramHandler
 
-from bot.core.confirm_result import placed_nothing
+from bot.core.confirm_result import outcome_unverified, placed_nothing
 from bot.nlp.skill_memory import (
     not_run_memory,
     record_routed_turn,
@@ -2096,15 +2096,71 @@ def _web_live_ledger():
     return _WEB_LIVE_LEDGER
 
 
-def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str) -> tuple[bool, list]:
+def _placement_leverage(engine, tg_id: str, idea, executor=None) -> tuple[Optional[int], Optional[str]]:
+    """The leverage THIS user's order would be placed at, or why it cannot be read.
+
+    Asked of the user's own executor -- `_compute_target_leverage` is the one
+    number the venue is set to: the operator standard (the `/leverage`
+    override under the MAX_LEVERAGE ceiling), lowered by the user's own
+    preference and the idea's margin-risk cap. The caller hands the executor
+    it already resolved; with none handed, `_own_account_executor` is asked --
+    the ONE resolution under `bot/web/`, which refuses the operator's account
+    by identity before anything is read off the answer, so a fallback that
+    resolves for itself cannot read the operator's leverage for a user with
+    no keys. Every failure is a reason and never a number: an envelope
+    checked at a leverage nobody read is the defect this replaces.
+    """
+    ex = executor
+    if ex is None:
+        ex, why = _own_account_executor(engine, tg_id)
+        if ex is None:
+            return None, why
+    try:
+        lev = int(ex._compute_target_leverage(str(getattr(idea, "asset", "")), idea))
+    except Exception as exc:
+        return None, ("the leverage this order would run at could not be read "
+                      f"({type(exc).__name__})")
+    if lev < 1:
+        return None, "the leverage this order would run at could not be read"
+    return lev, None
+
+
+class WebLiveAuthorization(NamedTuple):
+    """What the envelope answered, and whether THIS call recorded a spend.
+
+    ``recorded`` is True only when this call added the trade's notional to
+    the 24h ledger -- an allow with a notional the ledger had not seen. A
+    deny, an auto-sized order with no notional, and a trade id the ledger
+    already held (an earlier attempt's row) all answer False. It is the one
+    fact the confirm handler needs to RELEASE a refused order's spend, and
+    only the recorder can state it: a handler asking the ledger afterwards
+    whether the ref is held would read an earlier attempt's row as this one."""
+    ok: bool
+    reasons: list
+    recorded: bool
+
+
+def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str,
+                              executor=None) -> WebLiveAuthorization:
     """Authorize a specific web-live trade against the user's ENFORCE-mode
     Authority Envelope. FAIL-CLOSED: any missing piece → deny.
 
-    Reconstructs the trade action (venue, market_type, symbol, notional) from the
-    pending idea + the user's active venue and configured leverage, runs
-    ``authority.authorize`` against the bound envelope with the 24h spend already
-    recorded, and — only on allow — records this trade's notional. Returns
-    ``(allowed, reasons)``.
+    Reconstructs the trade action (venue, market_type, symbol, notional) from
+    the pending idea, the user's active venue and the leverage the user's OWN
+    executor would place this order at, runs ``authority.authorize`` against
+    the bound envelope with the 24h spend already recorded, and — only on
+    allow — records this trade's notional. Returns
+    ``(allowed, reasons, recorded)``; see :class:`WebLiveAuthorization`.
+
+    THE NOTIONAL IS MARGIN × THE LEVERAGE THAT FILLS, never the configured
+    default. This read ``CONFIG.exchange.default_leverage`` (5) while the
+    executor places every order at the operator standard -- the `/leverage`
+    override, up to the MAX_LEVERAGE ceiling -- lowered by the user's own
+    preference. Driven under `/leverage set 10`: a $50 margin was authorized
+    and recorded as $250 against the user's per-trade and 24h caps for an
+    order the executor placed at $500. `executor` is the user's own executor
+    the confirm handler has already resolved; `_placement_leverage` is the
+    reading, and a leverage it cannot read denies, recording nothing.
     """
     import time as _time
     try:
@@ -2112,10 +2168,10 @@ def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str) -> tuple[b
         from bot.guardian.authority import authorize
         env = get_user_authority_store().get(tg_id)
         if not env:
-            return False, ["no Authority Envelope is bound"]
+            return WebLiveAuthorization(False, ["no Authority Envelope is bound"], False)
         idea = getattr(engine, "_pending_ideas", {}).get(trade_id)
         if idea is None:
-            return False, ["the proposed trade is no longer pending"]
+            return WebLiveAuthorization(False, ["the proposed trade is no longer pending"], False)
         asset = str(getattr(idea, "asset", "")).split("/")[0]
         # Active venue for this user (their own connected keys).
         try:
@@ -2123,15 +2179,20 @@ def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str) -> tuple[b
             venue = get_credential_store().get_venue(tg_id)
         except Exception:
             venue = ""
-        # Notional = manual margin × configured leverage. Auto-sized (no margin)
-        # → notional unknown → authorize() denies against any per-trade cap.
+        # Notional = manual margin × the leverage the user's own executor
+        # would place this order at. Auto-sized (no margin) → notional
+        # unknown → authorize() denies against any per-trade cap. A leverage
+        # that cannot be read denies here, by name, before anything is asked
+        # of the envelope and before anything is recorded.
         margin = getattr(engine, "_manual_margin_override", {}).get(trade_id)
         notional = None
         if margin is not None:
+            lev, lev_why = _placement_leverage(engine, tg_id, idea, executor)
+            if lev is None:
+                return WebLiveAuthorization(
+                    False, [lev_why or "the leverage this order would run at could not be read"], False)
             try:
-                exch = getattr(CONFIG, "exchange", None)
-                lev = float(getattr(exch, "default_leverage", 5) or 5)
-                notional = float(margin) * max(1.0, lev)
+                notional = float(margin) * float(lev)
             except (TypeError, ValueError):
                 notional = None
         action = {"kind": "trade", "venue": venue, "market_type": "swap",
@@ -2141,25 +2202,63 @@ def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str) -> tuple[b
         spent = ledger.spent(tg_id, now)
         result = authorize(env, action, now_ts=now, spent_today_usd=spent)
         if result.get("decision") != "allow":
-            return False, list(result.get("reasons") or ["not authorized"])
+            return WebLiveAuthorization(
+                False, list(result.get("reasons") or ["not authorized"]), False)
+        recorded = False
         if notional:
-            ledger.record(tg_id, notional, now, ref=trade_id)
-        return True, []
+            # True only for a row this call ADDED: a duplicate ref (an earlier
+            # attempt's row) is the ledger's False, and stays that attempt's.
+            recorded = bool(ledger.record(tg_id, notional, now, ref=trade_id))
+        return WebLiveAuthorization(True, [], recorded)
     except Exception as exc:
-        system_log.warning("Web-live authorization error for %s: %s", tg_id, exc)
-        return False, ["authorization check failed"]
+        # The CLASS and never the text: a store's exception names a path, a
+        # venue's echoes the request.
+        system_log.warning("Web-live authorization error for %s: %s", tg_id,
+                           type(exc).__name__)
+        return WebLiveAuthorization(False, ["authorization check failed"], False)
 
 
-def _operator_account_refusal(engine, tg_id: str) -> Optional[str]:
-    """None when this web id's live order would run on an account of its own,
-    else why not. FAIL-CLOSED: a resolver that raises or answers nothing is a
-    refusal, because "could not tell whose account" is not "the user's
-    account".
+def _release_web_live_spend(tg_id: str, trade_id: str) -> None:
+    """Take a REFUSED web-live order's notional back off the 24h ledger.
+
+    Called only when THIS confirm attempt recorded the spend and
+    `confirm_trade` then refused (`placed is False`): the order never
+    happened, so the day's cap must not count it. Never for an UNVERIFIED
+    outcome (`placed is None`): the venue may hold that order, and a spend
+    released for an order that filled is the loose direction. Every outcome
+    is audited, and a release that could not land is said as KEPT with the
+    exception's class -- the spend then counts for the rest of the window,
+    which errs strict, and an operator reading the audit knows why the cap
+    reads fuller than the fills."""
+    import time as _time
+    try:
+        released = _web_live_ledger().release(tg_id, trade_id, _time.time())
+    except Exception as exc:
+        system_log.warning(
+            "Web-live spend for refused %s could not be released (%s); it stays "
+            "counted against the 24h cap", trade_id, type(exc).__name__)
+        audit(system_log, f"Web-live spend KEPT after refusal: {trade_id}",
+              action="web_live_spend", result="KEPT",
+              data={"user": tg_id, "error": type(exc).__name__})
+        return
+    audit(system_log,
+          f"Web-live spend {'RELEASED' if released else 'NOT_HELD'} after refusal: {trade_id}",
+          action="web_live_spend", result="RELEASED" if released else "NOT_HELD",
+          data={"user": tg_id})
+
+
+def _own_account_executor(engine, tg_id: str) -> tuple[Optional[object], Optional[str]]:
+    """``(executor, None)`` when this web id's live order would run on an
+    account of its own, else ``(None, why)``. FAIL-CLOSED: a resolver that
+    raises or answers nothing is a refusal, because "could not tell whose
+    account" is not "the user's account".
 
     The web live gate's premise is that the order runs on the user's OWN keys.
     `engine._executor_for` is what decides that, and with per-user live off --
     or on, for a user whose keys it cannot use -- it answers
-    `engine.live_executor`, the operator's account.
+    `engine.live_executor`, the operator's account. ONE resolution: the
+    confirm handler asks this once and hands the executor to the envelope
+    authorization, which reads the leverage the order runs at off it.
     """
     operator = getattr(engine, "live_executor", None)
     try:
@@ -2167,12 +2266,25 @@ def _operator_account_refusal(engine, tg_id: str) -> Optional[str]:
     except Exception as exc:
         system_log.warning("Web-live executor resolution failed for %s: %s",
                            tg_id, type(exc).__name__)
-        return "the account this order would run on could not be resolved"
+        # The exception's CLASS and never its text: a resolver's message can
+        # carry a venue's request, and this sentence reaches the user.
+        return None, ("the account this order would run on could not be "
+                      f"resolved ({type(exc).__name__})")
     if ex is None:
-        return "no account of your own could be resolved for this order"
+        return None, "no account of your own could be resolved for this order"
+    # The refusal sits BEFORE the answer is handed on, at this function's own
+    # top level: `tests/test_the_web_positions_panel_reads_the_callers_book.py`
+    # acquits an `_executor_for` read under `bot/web/` on exactly this shape.
     if ex is operator:
-        return "this order would run on the operator's account, not yours"
-    return None
+        return None, "this order would run on the operator's account, not yours"
+    return ex, None
+
+
+def _operator_account_refusal(engine, tg_id: str) -> Optional[str]:
+    """None when this web id's live order would run on an account of its own,
+    else why not -- `_own_account_executor`'s sentence, for a caller that
+    needs only the verdict."""
+    return _own_account_executor(engine, tg_id)[1]
 
 
 def _trade_mode(app, tg_handler, tg_id: str) -> tuple[str, bool, str]:
@@ -2333,6 +2445,10 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
     # Authority Envelope). By default the gate denies, so this stays paper-only
     # exactly as before — but a tampered users.json entry alone (web:N with
     # role=admin) can never satisfy the gate, so it never opens a live path.
+    # The trade id whose notional THIS attempt recorded on the 24h ledger, so
+    # a refusal below can release exactly that and nothing an earlier attempt
+    # recorded.
+    web_live_recorded: Optional[str] = None
     if CONFIG.is_live() and _is_web_id(tg_id):
         dec = _web_live_decision(request.app, tg_handler, tg_id)
         if not dec.allowed:
@@ -2346,7 +2462,7 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
         # envelope authorizes, because authorizing records this order's
         # notional against the 24h cap, and an order refused here places
         # nothing.
-        why = _operator_account_refusal(engine, tg_id)
+        own_ex, why = _own_account_executor(engine, tg_id)
         if why is not None:
             audit(system_log, f"Web-live trade REFUSED: {trade_id} ({why})",
                   action="web_live_own_account", result="REFUSED",
@@ -2355,14 +2471,18 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
                 {"error": "not_own_account", "detail": why}, status=403)
         # Gate passed → this trade will route LIVE on the user's own keys. The
         # enforce-mode Authority Envelope must now authorize THIS specific order
-        # (venue, symbol, notional, 24h spend). Fail-closed: any deny blocks it.
-        ok, reasons = _authorize_web_live_trade(request.app, engine, tg_id, trade_id)
+        # (venue, symbol, notional, 24h spend) -- the notional at the leverage
+        # THAT executor places at. Fail-closed: any deny blocks it.
+        ok, reasons, recorded = _authorize_web_live_trade(
+            request.app, engine, tg_id, trade_id, executor=own_ex)
         if not ok:
             audit(system_log, f"Web-live trade DENIED by authority: {trade_id}",
                   action="web_authority_deny", result="DENY", data={"user": tg_id})
             return web.json_response(
                 {"error": "authority_denied", "detail": "; ".join(reasons),
                  "reasons": reasons}, status=403)
+        if recorded:
+            web_live_recorded = trade_id
     # Live gate — same H-18 check as the Telegram confirm path (non-web ids).
     elif CONFIG.is_live() and not _is_admin_id(tg_handler, tg_id):
         if not tg_handler._can_trade_live(tg_id):
@@ -2378,7 +2498,21 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
     # is the one reading of that sentence (the Telegram Confirm button asks
     # it too), and `placed` rides beside the text so the browser never has
     # to guess from a status code that only says the request was handled.
-    placed = not placed_nothing(result)
+    # THREE-VALUED: True placed, False refused, None when the venue confirmed
+    # the order neither way (`outcome_unverified`) -- the browser's confirm
+    # model paints neither colour over a `placed` that is not a boolean, and
+    # the answer's own text says what is on record and what happens next.
+    placed = None if outcome_unverified(result) else (not placed_nothing(result))
+    # A REFUSED order's notional comes back off the 24h ledger. The envelope
+    # records BEFORE `confirm_trade` runs (an allow is what lets the confirm
+    # proceed), so every refusal after it -- the risk re-check, the strategy
+    # gate, a price drift, an order the venue refused -- left the day's cap
+    # counting an order that never happened, four refusals at the per-trade
+    # cap being a day locked out. Only the spend THIS attempt recorded, and
+    # only on a refusal: an UNVERIFIED outcome may be a filled order, and its
+    # spend stands.
+    if web_live_recorded is not None and placed is False:
+        _release_web_live_spend(tg_id, web_live_recorded)
     # The proposer entry goes when the idea does. Most refusals leave the idea
     # pending (a price drift, the strategy gate, the risk re-check, an order
     # the venue refused), and dropping the entry anyway left a pending idea its
@@ -2388,7 +2522,11 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
     # fill), so asking the book answers both cases with one reading.
     if trade_id not in getattr(engine, "_pending_ideas", {}):
         request.app["proposers"].pop(trade_id, None)
-    if placed:
+    if placed is None:
+        audit(system_log, f"Web trade confirm UNVERIFIED: {trade_id}",
+              action="web_trade_confirm", result="UNVERIFIED",
+              data={"user": tg_id, "reason": _refusal_line(result)})
+    elif placed:
         audit(system_log, f"Web trade confirm: {trade_id}",
               action="web_trade_confirm", result="OK", data={"user": tg_id})
     else:

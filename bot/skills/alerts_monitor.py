@@ -643,16 +643,18 @@ class AlertsMonitor:
             gets its own heading, its own closing sentence and its own record.
             """
             try:
-                from bot.core.confirm_result import placed_nothing
+                from bot.core.confirm_result import outcome_unverified, placed_nothing
                 from bot.formatters.rich_cards import _fmt_price
-                refused = placed_nothing(result_msg)
+                unverified = outcome_unverified(result_msg)
+                refused = placed_nothing(result_msg) and not unverified
                 pair = idea.asset.replace("/USDT", "")
                 direction = idea.direction.value if hasattr(idea.direction, "value") else str(idea.direction)
                 # The measured reading, for the reason the caption above gives.
                 conf_txt = displayed_confidence(idea).pct()
                 from datetime import datetime as _dt, timezone as _tz
                 card_lines = [
-                    ("\U0001f916 <b>AUTO-CONFIRM: NOTHING PLACED</b>" if refused
+                    ("\U0001f916 <b>AUTO-CONFIRM: OUTCOME UNVERIFIED</b>" if unverified
+                     else "\U0001f916 <b>AUTO-CONFIRM: NOTHING PLACED</b>" if refused
                      else "\U0001f916 <b>AUTO-CONFIRMED TRADE</b>"),
                     "\u2500" * 28,
                     "",
@@ -668,7 +670,13 @@ class AlertsMonitor:
                 first_line = (result_msg.strip().split("\n")[0]
                               if isinstance(result_msg, str) else "")
                 _plain = html.escape(re.sub(r"<[^>]+>", "", first_line)) if first_line else ""
-                if refused:
+                if unverified:
+                    card_lines.append(
+                        "Auto-confirm sent this idea and the venue confirmed it neither "
+                        "way: nothing is recorded as placed, nothing is re-sent, and the "
+                        "next positions pass asks the venue by client id. "
+                        + (_plain or "the answer could not be read") + ".")
+                elif refused:
                     card_lines.append(
                         "Auto-confirm tried this idea and nothing was placed: "
                         + (_plain or "the answer could not be read") + ".")
@@ -678,7 +686,9 @@ class AlertsMonitor:
                     "",
                     "\u2500" * 28,
                     f"\U0001f43e RUNECLAW | {_dt.now(_tz.utc).strftime('%H:%M')} UTC",
-                    ("<i>Confidence cleared the auto-confirm threshold; the "
+                    ("<i>Confidence cleared the auto-confirm threshold; whether "
+                     "the order landed is not yet known.</i>" if unverified
+                     else "<i>Confidence cleared the auto-confirm threshold; the "
                      "trade did not go through.</i>" if refused
                      else "<i>Confidence exceeded auto-confirm threshold</i>"),
                 ])
@@ -693,7 +703,8 @@ class AlertsMonitor:
                 await _notify_chats(
                     [c.strip() for c in a_chat.split(",")
                      if c.strip().isdigit()],
-                    "AUTO_CONFIRM_REFUSED" if refused else "AUTO_CONFIRMED",
+                    ("AUTO_CONFIRM_UNVERIFIED" if unverified
+                     else "AUTO_CONFIRM_REFUSED" if refused else "AUTO_CONFIRMED"),
                     "\n".join(card_lines))
             except Exception as exc:
                 system_log.debug("Auto-confirm notify send failed: %s", exc)

@@ -21,10 +21,24 @@ class _Idea:
         self.asset = asset
 
 
+class _Executor:
+    """The user's own executor, answering the leverage it would place at.
+    Five, so a $50 margin is a $250 notional as these predictions were
+    written; the leverage READING is driven on a real executor in
+    test_the_envelope_is_asked_about_the_leverage_the_order_runs_at.py."""
+
+    def _compute_target_leverage(self, symbol, idea=None):
+        return 5
+
+
 class _Engine:
     def __init__(self, ideas, margins):
         self._pending_ideas = ideas
         self._manual_margin_override = margins
+        self.live_executor = object()
+
+    def _executor_for(self, tg_id, venue=None):
+        return _Executor()
 
 
 def _bind_env(store, uid, *, symbols=("BTC", "ETH", "SOL"), per_trade=500,
@@ -49,7 +63,7 @@ def wired(monkeypatch, tmp_path):
     fake_cred = types.SimpleNamespace(get_venue=lambda uid: "bitget")
     monkeypatch.setattr("bot.core.exchange_credentials.get_credential_store",
                         lambda: fake_cred)
-    # leverage defaults to 5 in CONFIG.risk (margin 50 → notional 250).
+    # the engine's executor answers 5x (margin 50 → notional 250).
     return store, ledger
 
 
@@ -63,7 +77,7 @@ def test_z1_within_caps_allows_and_records(wired):
     store, ledger = wired
     _bind_env(store, "web:5")
     eng = _engine()
-    ok, reasons = ug._authorize_web_live_trade({}, eng, "web:5", "T1")
+    ok, reasons, _ = ug._authorize_web_live_trade({}, eng, "web:5", "T1")
     assert ok is True and reasons == []
     # 50 margin × 5x = 250 recorded
     assert abs(ledger.spent("web:5", __import__("time").time()) - 250.0) < 1e-6
@@ -74,7 +88,7 @@ def test_z1_within_caps_allows_and_records(wired):
 def test_z2_symbol_not_allowed_denies(wired):
     store, _ = wired
     _bind_env(store, "web:5", symbols=("BTC", "ETH"))     # no SOL
-    ok, reasons = ug._authorize_web_live_trade({}, _engine("SOL/USDT"), "web:5", "T1")
+    ok, reasons, _ = ug._authorize_web_live_trade({}, _engine("SOL/USDT"), "web:5", "T1")
     assert ok is False
     assert any("SOL" in r for r in reasons)
 
@@ -84,7 +98,7 @@ def test_z2_symbol_not_allowed_denies(wired):
 def test_z3_over_per_trade_cap_denies(wired):
     store, _ = wired
     _bind_env(store, "web:5", per_trade=100)              # 250 > 100
-    ok, reasons = ug._authorize_web_live_trade({}, _engine(margin=50), "web:5", "T1")
+    ok, reasons, _ = ug._authorize_web_live_trade({}, _engine(margin=50), "web:5", "T1")
     assert ok is False
     assert any("per-trade cap" in r for r in reasons)
 
@@ -96,9 +110,9 @@ def test_z4_daily_cap_blocks_second_trade(wired):
     _bind_env(store, "web:5", per_trade=2000, daily=300)  # 250 ok once, not twice
     eng = _Engine({"T1": _Idea("SOL/USDT"), "T2": _Idea("BTC/USDT")},
                   {"T1": 50, "T2": 50})
-    ok1, _ = ug._authorize_web_live_trade({}, eng, "web:5", "T1")
+    ok1, _, _ = ug._authorize_web_live_trade({}, eng, "web:5", "T1")
     assert ok1 is True
-    ok2, reasons = ug._authorize_web_live_trade({}, eng, "web:5", "T2")
+    ok2, reasons, _ = ug._authorize_web_live_trade({}, eng, "web:5", "T2")
     assert ok2 is False
     assert any("daily" in r for r in reasons)
 
@@ -106,7 +120,7 @@ def test_z4_daily_cap_blocks_second_trade(wired):
 # ── Z5 — no envelope denies ───────────────────────────────────────────
 
 def test_z5_no_envelope_denies(wired):
-    ok, reasons = ug._authorize_web_live_trade({}, _engine(), "web:9", "T1")
+    ok, reasons, _ = ug._authorize_web_live_trade({}, _engine(), "web:9", "T1")
     assert ok is False
     assert any("Envelope" in r or "envelope" in r for r in reasons)
 
@@ -117,6 +131,6 @@ def test_z6_unknown_notional_denies_against_cap(wired):
     store, _ = wired
     _bind_env(store, "web:5", per_trade=500)
     eng = _Engine({"T1": _Idea("SOL/USDT")}, {})          # no margin override
-    ok, reasons = ug._authorize_web_live_trade({}, eng, "web:5", "T1")
+    ok, reasons, _ = ug._authorize_web_live_trade({}, eng, "web:5", "T1")
     assert ok is False
     assert any("notional is unknown" in r for r in reasons)

@@ -78,6 +78,13 @@ def _ident(entry: dict) -> tuple:
     return (entry.get("ts"), entry.get("amount"), entry.get("ref"))
 
 
+def _has_ref(entry: dict, ref: str) -> bool:
+    """Whether ``entry`` was recorded under ``ref``. A row with no ref matches
+    no ref: ``str(None)`` is the word "None", and a trade could be named it."""
+    r = entry.get("ref")
+    return r is not None and str(r) == ref
+
+
 def prune(entries: list[dict], now_ts: float, window_s: float = DEFAULT_WINDOW_S) -> list[dict]:
     """Return only the entries within ``[now-window, now]``. Pure. ``ts`` is a
     numeric epoch in the SAME unit the caller uses for ``now_ts`` (seconds)."""
@@ -149,14 +156,18 @@ class AuthoritySpendLedger:
         if not self._loaded:
             raise StoreUnreadable(self._path or "", self._unread_detail)
 
-    def _save(self, key: str, now_ts: float) -> None:
+    def _save(self, key: str, now_ts: float, drop_ref: Optional[str] = None) -> None:
         """Merge memory into the FILE, never over it, and adopt the result.
 
         Read-modify-write: the file is read again and every row in memory it
         does not already hold is added, so a write cannot erase a person this
         process does not hold, and a write that failed earlier is repaired by
-        the next one. Raises :class:`StoreUnreadable` (nothing written) or the
-        write's ``OSError``."""
+        the next one. ``drop_ref`` is the one subtraction the merge makes: the
+        row recorded under that ref for ``key`` is taken OUT of the file, for
+        :meth:`release`. It has to happen inside the merge, because the merge
+        adds back every row memory lacks, and a row released from memory alone
+        would be read straight back in from the file. Raises
+        :class:`StoreUnreadable` (nothing written) or the write's ``OSError``."""
         if not self._path:
             return
         mem = self._book
@@ -170,7 +181,10 @@ class AuthoritySpendLedger:
                     if _ident(e) not in seen:
                         held.append(e)
                         seen.add(_ident(e))
-            book[key] = prune(book.get(key, []), now_ts, self._window_s)
+            rows = book.get(key, [])
+            if drop_ref is not None:
+                rows = [e for e in rows if not _has_ref(e, drop_ref)]
+            book[key] = prune(rows, now_ts, self._window_s)
 
         data, _written = update_json_store(self._path, _merge, check=_is_ledger)
         self._adopt(data)
@@ -216,6 +230,38 @@ class AuthoritySpendLedger:
                 self._book[k] = kept
                 self._refs[k] = {str(e.get("ref")) for e in kept if e.get("ref") is not None}
             self._save(k, now_ts)
+            return True
+
+    def release(self, key: str, ref: str, now_ts: float) -> bool:
+        """Take back the spend recorded under ``ref``: the order it was
+        recorded for was REFUSED before anything was placed, so the notional
+        it holds against the window is an order that never happened.
+
+        Returns True when a row was released, False when none was held under
+        that ref -- a ref recorded by an earlier attempt and already
+        released, or never recorded at all. The row goes from memory AND from
+        the file (``_save`` drops it inside its merge), and the ref leaves the
+        dedup set, so the same trade id records again when it is retried.
+
+        Raises :class:`StoreUnreadable` with nothing changed when the file
+        cannot be read, and a write's ``OSError`` with the row PUT BACK in
+        memory: a release that did not land keeps counting, because the loose
+        direction here is a day's cap read as emptier than the file says."""
+        k, r = str(key), str(ref)
+        with self._lock:
+            self._readable()
+            book = list(self._book.get(k, []))
+            kept = [e for e in book if not _has_ref(e, r)]
+            if len(kept) == len(book):
+                return False
+            self._book[k] = kept
+            self._refs.setdefault(k, set()).discard(r)
+            try:
+                self._save(k, now_ts, drop_ref=r)
+            except Exception:
+                self._book[k] = book
+                self._refs.setdefault(k, set()).add(r)
+                raise
             return True
 
     def remaining(self, key: str, daily_cap: Any, now_ts: float) -> Optional[float]:

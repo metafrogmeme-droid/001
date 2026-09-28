@@ -520,6 +520,7 @@
   ["dd.t_trade_confirmed", "Trade bestätigt."],
   ["dd.t_trade_refused", "Nichts wurde platziert."],
   ["dd.t_trade_unread", "Der Bot hat geantwortet, ohne zu sagen, ob etwas platziert wurde — prüfe deine Positionen."],
+  ["dd.t_trade_unverified", "Die Börse hat die Order weder bestätigt noch abgelehnt — der Bot hat sie vermerkt, nichts wurde erneut gesendet, und die nächste Positionsprüfung gleicht sie ab. Nicht erneut senden."],
   ["dd.t_trade_update", "Trade-Update von der Engine."],
   ["dd.t_need_coin", "Gib zuerst eine Coin ein."],
   ["dd.t_need_symbol", "Gib zuerst ein Symbol ein."],
