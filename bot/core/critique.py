@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from bot.core.signal_confidence import displayed_confidence
+
 
 @dataclass
 class CritiqueResult:
@@ -44,8 +46,26 @@ class TradeCritique:
         confidence_adj = 0.0
 
         # 1. Overconfidence check
-        if idea.confidence > self.HIGH_CONFIDENCE_WARN:
-            concerns.append(f"Suspiciously high confidence ({idea.confidence:.0%}) — model may be overfitting to recent pattern")
+        #
+        # THE MEASURED BLEND, NOT THE FIELD. `HIGH_CONFIDENCE_WARN` is 0.90 on
+        # the RAW scale -- the scale every confidence floor in this repo is
+        # defined on -- and `idea.confidence` is whatever the calibration curve
+        # left on the field. Driven both ways: a hand-typed ticket
+        # (`build_manual_idea` stamps 1.0) tripped this concern EVERY time at
+        # shipped defaults, under a sentence blaming "the model" for a number
+        # the operator typed, costing -0.05 and one of the four concerns that
+        # HALT a trade; and with a curve applied, a measured blend of 0.95 came
+        # back 0.31 on the field and was NOT flagged -- the exact idea this
+        # check exists to catch.
+        #
+        # A stamp is not overconfidence, because nothing measured it, and an
+        # unreadable confidence is not overconfidence either. Both abstain:
+        # this concern is a claim about what the MODEL said.
+        _conf_read = displayed_confidence(idea)
+        if _conf_read.above(self.HIGH_CONFIDENCE_WARN):
+            concerns.append(
+                f"Suspiciously high confidence ({_conf_read.pct()}) — "
+                "model may be overfitting to recent pattern")
             confidence_adj -= 0.05
 
         # 2. Marginal R:R

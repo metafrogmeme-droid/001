@@ -181,6 +181,40 @@ def steps(fast: bool) -> list[tuple[str, str, str]]:
     return out
 
 
+def node_job_names() -> tuple[str, ...]:
+    """The local jobs whose steps run under `actions/setup-node`.
+
+    A box whose `node` is not the pinned one cannot measure those steps as
+    the CI gates, whatever they answer: a suite that passes on Node 20 says
+    nothing about the Node 24 CI runs it on, and the app half of this plan
+    was reported green on exactly that basis for as long as the plan had one.
+    """
+    wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    return tuple(
+        job.get("name") for job in wf.get("jobs", {}).values()
+        if job.get("name") in LOCAL_JOBS
+        and any(str(s.get("uses", "")).startswith("actions/setup-node")
+                for s in job.get("steps", []))
+    )
+
+
+def node_refusal(step_name: str, node: Optional["toolchain.Comparability"],
+                 node_jobs: Sequence[str]) -> Optional[str]:
+    """Why a step cannot be measured on this box's node, or None.
+
+    The reason names both versions, because "could not check" and "not
+    installed" send an operator to different fixes -- the same rule the
+    `Outcome.reason` field states for the ratchets.
+    """
+    if node is None or node.comparable:
+        return None
+    if step_name.split(" — ", 1)[0] not in node_jobs:
+        return None
+    return (f"node {node.running or 'unreadable'} is not the "
+            f"{node.pinned or 'unreadable'} CI pins, so this is not the CI gate "
+            f"-- see the toolchain reading above")
+
+
 def uncovered() -> list[str]:
     """CI jobs this cannot run. Named in the summary, never left implied."""
     wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
@@ -293,9 +327,11 @@ def main() -> int:
     stale = [c for c in (toolchain.comparability(t)
                          for t in toolchain.VERSION_PINNED_TOOLS)
              if not c.comparable]
+    node_cmp = next((c for c in stale if c.tool == "node"), None)
+    node_jobs = node_job_names() if node_cmp is not None else ()
     if stale:
-        print("\n\033[33mTOOLCHAIN — the whole-tree ratchets cannot check on "
-              "this box:\033[0m")
+        print("\n\033[33mTOOLCHAIN — the whole-tree ratchets and the node jobs "
+              "cannot check on this box:\033[0m")
         for c in stale:
             print(f"  {c.describe()}")
         hint = toolchain.install_hint(stale)
@@ -342,6 +378,11 @@ def main() -> int:
             print(f"\n\033[33m— SKIP\033[0m {name}\n  {tool!r} is not installed")
             results.append(Outcome(name, None, 0.0, True,
                                    f"{tool!r} is not installed"))
+            continue
+        why = node_refusal(name, node_cmp, node_jobs)
+        if why is not None:
+            print(f"\n\033[33m— SKIP\033[0m {name}\n  {why}")
+            results.append(Outcome(name, None, 0.0, True, why))
             continue
         why = launch_refusal(cmd, ignored)
         if why is not None:

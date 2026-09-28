@@ -163,6 +163,29 @@ lint failure the way CI sees it (`PATH=/usr/local/bin:$PATH python3
 scripts/ruff_gate.py`) before fixing it, or the fix is aimed at a different
 tool's opinion.
 
+**AND THAT SAME PREFIX PUT NODE 20 IN FRONT OF EVERY APP GATE, FOR AS LONG AS
+THIS BOX HAS HAD ONE.** The preflight read two pins where `ci.yml` carries
+three: `requirements-ci.txt` for ruff and mypy, and nothing for the
+`node-version: "24.21.0"` every node job's `actions/setup-node` step declares.
+On this box `/usr/local/bin/node` has been a symlink into `/opt/node20` since
+the image was built and the default shell's `node` is 22, so the prefix this
+chapter prescribes for the two Python pins resolved the app, site and Anchor
+gates to Node **20.20.2** and reported them as CI's -- and a PR body of the
+same day said 22, off the shell I had asked rather than the one the preflight
+uses, *a measurement you remember is not a measurement* in a fourth place.
+`toolchain.pinned("node")` reads the workflow's own pin now (every job that
+sets up node must agree, or there is no pin to compare against and the answer
+is None, never the first value found), `running("node")` reads the
+`v`-prefixed version, the toolchain banner names it beside ruff and mypy, and a
+box whose node differs files every step of the node jobs as CANNOT CHECK, by
+name and with both versions, WITHOUT running them: a suite that passes on 20
+says nothing about the 24 CI runs it on, and a step measured on the wrong
+runtime is not the CI gate whatever it answers. The pinned Node was installed
+here (checksum verified) and put first on that PATH before this push's own
+run reached its app gates, so that run measured them on 24.21.0; every run
+before it did not, and their app halves read as "passed on Node 20". Eleven
+mutations, each killed on the first round.
+
 **AND THE LAUNCHER IS A CONDITION OF THE BOX TOO, and it manufactured a
 regression on 2026-09-21.** A full preflight started as
 `(nohup python3 scripts/preflight.py > log 2>&1 &)` went red on ONE test the
@@ -13654,6 +13677,17 @@ flat.
 
 Fourteen mutations, each killed on the first round. The case a flat figure
 needed (neither colour) was added before the round ran.
+**And that suite read the wall clock at import, so a full run that crossed
+UTC midnight forgave four of its cases as flaky.** The rows were stamped off a
+`NOW` taken when the module was imported, and the handler reads its own clock
+when it runs; a preflight that starts before midnight and reaches this file
+after it files a close stamped "a minute ago" as yesterday's, driven: a row at
+23:58:30 read at 00:00:30 is on no day the card counts. The flake filter
+re-ran each alone and passed them, which is the forgiveness this file records
+for the `get_source_segment` timeouts, one clock over. The day is pinned to the
+fixture's own `NOW` now, and the handler's `now` is still checked to be the
+wall clock within a minute, so a handler passing anything else fails rather
+than being frozen along with the fixture.
 (`tests/test_the_daily_report_is_the_days.py`.)
 
 **FOURTEEN READERS OF THE CLOSED-TRADE RECORD, AND THREE ASKED WHETHER IT
@@ -13747,9 +13781,11 @@ re-recorded.
 card printed, in green, `Leverage 1 / 5`, whatever the open positions ran at:
 a hard-coded reading on the card whose job is to show risk. Drawing the real
 figure as a bar against the `5` beside it would have been wrong too. That `5`
-is `default_leverage`, the standard every order is set to, not a ceiling (the
-executor's hard ceiling uses `max_leverage` through the notional check), so a
-bar would paint the ordinary state, 5x at a 5x standard, full and red.
+is `default_leverage`, the standard every order is set to, not a ceiling in the
+gauge's sense (and `max_leverage` is no ceiling either: the F-3 notional check
+reads it inside a `max()` with the order's own leverage, so it binds nothing;
+the compliance-cap chapter drives it), so a bar would paint the ordinary state,
+5x at a 5x standard, full and red.
 `leverage_in_use` reads the highest leverage across the caller's open
 positions through `position_leverage`, which refuses the stored `0` an
 adopted position carries and derives it from margin and notional when both
@@ -13969,6 +14005,290 @@ states. *Don't fix what cannot fire.*
 (`tests/test_one_signal_one_confidence.py`,
 `tests/test_a_collapsed_setup_prints_no_ratio.py`,
 `bot/core/signal_confidence.py`, `bot/core/signal_levels.py`.)
+
+**AND THE RULE THAT WIDENING PRODUCED COVERED ONE HALF OF THE PAIR, SO FOUR
+GATES WENT ON READING THE OTHER.** The chapter above forbids a surface reading
+`blended_confidence_raw` itself and says so over the whole tree. Nothing forbade
+reading **`idea.confidence`** — the field the calibration curve leaves behind —
+and driven, that class held eleven displays and *four gates*, three of them
+reachable at shipped defaults because `build_manual_idea` STAMPS `1.0` on every
+hand-typed ticket:
+
+| gate | what it does | what a STAMP did | what a CURVE did |
+|---|---|---|---|
+| critique overconfidence (`> 0.90`) | −0.05, one of four concerns that HALT | fired on EVERY typed ticket, blaming *"the model"* | a measured 0.95 blend read 0.31 and was **not** flagged |
+| pyramid add (`< 0.70`) | authorises MORE risk on an open position | cleared on the stamp | a measured 0.82 was skipped |
+| drawdown recovery (`< 0.85`) | requires HIGHER conviction while down | cleared the higher bar on the stamp | a measured 0.90 was refused |
+| a strategy preset's own threshold | the caller's chosen floor | cleared on the stamp | a measured blend refused |
+
+**THE FIRST ROW IS THE ONE WITH NO FLAG IN FRONT OF IT.** `/trade` writes 1.0,
+the bar is 0.90, so the bear-case gate flagged every ticket a person typed as
+the MODEL being overconfident — a sentence about a producer that never ran, on
+the one surface whose job is to argue against the trade. And the second and
+third are `_high_conviction_margin`'s recorded defect (*"a stamp cleared every
+floor by construction"*) arriving at two more floors, one of them the gate that
+exists to tighten while the account is losing.
+
+**A STAMP DOES NOT CLEAR A FLOOR, AND IS NOT A CONCERN EITHER — for opposite
+reasons.** At the three floors, abstaining would be a LOOSENING, so unmeasured
+is refused and the reason names which absence it was. At the critique, the
+finding is a claim about what the MODEL said, so unmeasured ABSTAINS. Same
+reading, two directions, and `ConfidenceReading.clears` / `.above` are the two
+methods that say which — the strict one for a concern, the `>=` one for a
+permission.
+
+**THOSE TWO METHODS EXIST BECAUSE FIVE CALL SITES WROTE THE SAME COMPARISON
+TWICE AND MYPY COULD NOT NARROW IT.** Each gate read `read.measured and
+read.value >= bar` — two reads of one reading — and `measured` is a `@property`,
+so the analyser has no way to connect it to `value`: five fresh `operator`
+findings. A cast would have silenced them; one method on the reading removes the
+second read instead, and the whole-tree ratchet **IMPROVED** by five
+(`union-attr` 135 → 130), re-recorded in the same commit. Ruff improved by two
+as well (`E501` 204 → 202), from wrapping the concern sentence.
+
+**THE PUBLIC CHANNEL WAS PUBLISHING THE CALIBRATED FIGURE.**
+`channel_forwarder.post_signal` printed `Confidence: 31%` for the signal whose
+measured blend was 70%, under `🤖 AI-generated signal`, on a channel anybody can
+read — and a typed ticket's stamp published as a measured `100%`. **And the
+alert caption was the sibling the last slice missed**:
+`telegram_handler._send_idea_with_door` was cured and `alerts_monitor`'s caption
+— same claim, same card, one module over — was not, which is *fixing two left
+the third* at one file's distance. The auto-confirm card beside it read the same
+field, and so did nine more Telegram cards, `rich_cards` twice among them.
+
+**THE RULE COVERS THE TWO SHAPES THE DEFECT TOOK AND NOT "ANY READ".** A
+PERCENT-formatted display is what a caller is TOLD; a COMPARISON against a bar
+is what a gate DOES. An internal read that neither prints nor gates is outside
+the class on purpose — `risk_engine`'s own arithmetic, the four decision-row
+writers and the flight recorder each hand the field onward under its own name,
+and *a recorder is not a reader*, which is the distinction the sibling rule
+already draws and what keeps both baselines short. Driven over `bot/`: sixty-seven
+reads of an idea-like `.confidence`, of which twenty are in the class and eight
+remain, each a row with its reason.
+
+**THE RECEIVER IS JUDGED BY NAME, WHICH OVER-REPORTS BY CONSTRUCTION, AND THE
+BASELINE IS WHERE THAT IS ANSWERED.** A pattern's confidence, a backtest trade's
+and an explainability report's are different quantities that happen to share the
+word; narrowing by TYPE would mean guessing a type from a name, which is the
+`confidence_provenance_baseline` ruling. So every remaining row states what
+quantity it is, and the rule checks the COUNTS as well as the paths — which is
+what caught its own baseline one row short on its first run, because
+`explainability.py` holds two sites and I had written one reason.
+
+**AND `code_only` COST THE RULE ITS OWN PARSE, for the second slice running.**
+It blanks DOCSTRINGS, so `class TokenStore:` with nothing but one is a class with
+an empty body and no longer parses — the eleven-file cost the chapter above
+measured. An AST walk cannot see a comment at all and reads a docstring as a bare
+string constant carrying neither a `FormattedValue` nor a `Compare`, so the rule
+parses RAW source and a planted docstring-only class is a test.
+
+> **And two of my own AST assertions were aimed at a shape the fix then
+> removed.** They looked for a `Compare` against the bar; once the bar moved
+> inside `clears(0.70)` there was no comparison to find. Their first draft had
+> also sliced the method from *"the `if` before the skip audit"* — a boundary
+> that is whatever happens to be next, which started BELOW the assignment it was
+> looking for. One helper reads the `.clears(<bar>)` call and the name it is
+> called on, with no window at all.
+
+
+**AND THE DISPLAY HALF LANDED FROM SOMEWHERE ELSE WHILE THIS WAS OPEN, WHICH IS
+THE SAME SUBJECT FIXED TWICE AT ONE END.** Four commits on main
+(`Keep signal confidence consistent across surfaces` and its three follow-ups)
+converted the caption, the forwarded channel post and the website signal payload
+to the one reading, extracting `alerts_monitor.signal_card_caption` as a seam —
+strictly better than the inline version this slice had, and it is the one kept.
+They reached every site that PRINTS and none that DECIDES: run against that tree,
+the rule named **eleven** sites in six files, and three of them were the pyramid
+add, the drawdown-recovery floor and the critique's overconfidence warning. *Ask
+which OTHER surface makes the same claim* is a rule about surfaces, and a GATE is
+one; a slice scoped to "the cards disagree" answers the cards and leaves the
+money. The ratchet is what made the remainder visible rather than a second
+reading of the same five files, which is the whole argument for a rule over a
+class instead of a list of the sites somebody found.
+
+**THE ROW THE WEBSITE SYNC BUILDS IS SEALED, SO AN ABSENCE THERE IS A MEASURED
+ZERO INSIDE A HASH.** `app/routes/sync.js` coerces `confidence: Number(s.confidence) || 0`
+and hands the coerced dict to `sealCall`, under its own comment saying the
+receipt is sealed *"from the EXACT coerced values being stored"* — so `null` on
+that field is hashed as a confidence of zero on the Proof-of-PnL surface. That is
+`csf.py`'s recorded defect (*"an unmeasured cost rendered as a measured zero …
+inside a commitment hash"*) one producer over, and it decides the shape of the
+fix: the builder may not SEND an unmeasured reading, and making the wire carry an
+honest absence needs a seal kind of its own, which is a decision rather than a
+wiring line.
+
+**THE PRECONDITION IS MEASURED RATHER THAN HOPED FOR, and driving it is what
+stopped a false claim going into this file.** The first reading of that builder
+was that a stamp published as `confidence: 1.0` and an out-of-range figure as
+`2.5` on `GET /api/signals` — which has no auth and FILTERS on that column. Both
+are true of `build_signal_payload` called directly, and **neither can happen
+through its one caller**: `TradeIdea.confidence` is `ge=0.0, le=1.0`, so pydantic
+refuses `None`, `2.5`, `-0.5`, NaN and inf at construction, a bool coerces to
+`1.0` and a numeric string to a float, and `_register_engine_idea` never hands a
+person's stamped ticket to this sync. Driven over every one of those, the reading
+is `blend` or `own` every time. So the fallback the `try` guarded was **a line no
+input can reach**, which this file calls a claim that there is a check — and what
+replaced it is the reading, a module-level import (`displayed_confidence` never
+raises, so the only thing that `except` could catch was the IMPORT, whose silent
+failure would publish the calibrated figure on a public route with no trace), and
+a test that drives both halves of the precondition: every value the model admits
+reads measured, and every value that would read `unread` is refused by the model.
+
+> **And the blank-line probe was passing because the citation had rotted off its
+> blank line.** The map records a retraction naming `skill_registry.py:<n>` as *a
+> blank line between `_list` and `_run_symbol_scan`* — a claim about the CURRENT
+> tree — and this slice's own additions had slid that number onto a `return`
+> statement, which is exactly what made the probe green. Deriving the number from
+> the two methods it names made the sentence true again and the probe then
+> objected, correctly: its rule is that no citation lands on a blank line, and
+> here is the one whose sentence says it does. That is *a comment that quotes the
+> string it forbids*, and the exclusion is keyed on the SENTENCE (`"<rel>:<n> is
+> a blank line"`) rather than on a line number, so it cannot outlive the
+> retraction it exists for.
+
+**Forty-one mutations, thirty-nine killed, three EQUIVALENT — and six of the
+first round's non-kills were the instrument or the corpus, never the code.**
+Three anchors matched zero times: two spelled the inline caption and channel
+post this slice had written, which main's four commits had since turned into a
+named seam and a local binding under the rebase; the third spelled `—`
+where the file holds a real `—`, the PNG chapter's own trap, in the driver
+written from that chapter. Three survived and each was the same finding: no
+input can separate the two spellings, and the reason is a property worth
+pinning rather than a mutation worth counting. `int((read.value or 0.0) * 10)
+if read.measured else 0` cannot differ from the unguarded form because the
+producer's invariant is *measured ⇔ value is not None*, so the `or 0.0` — a row
+of the shapes table — is gone and the guard stays; the top rung's `or 0.0`
+sits BELOW an early return that already answers the unmeasured case; and
+`(confidence or 0.0) >= 0.8` equals the explicit guard because **no grader
+rung sits at or below zero** — the day one does, the terse spelling admits an
+absent confidence, so that property is the test. Two of the three pins were
+wrong before the code was (a grader keyword that does not exist; a keyword-only
+fixture called positionally), which is *when a fresh assertion fails, check the
+assertion first* arriving in the pins written from the round that found them.
+And the round's edits were read in my own working tree mid-run — a `_dd_conf`
+gate reverted to the raw field, in a `git diff` I had opened to review the
+slice — which is the stranded-mutation hazard from the driver's side: nothing
+is committed while a round runs.
+
+**And the honesty ratchet refused the slice's own fallback, one slice later.**
+The sealed row's `else` branch was written as
+`float(_attr(idea, "confidence", 0) or 0)` -- the or-zero shape, directly under
+a paragraph explaining why an honest absence on that wire needs a seal kind of
+its own -- and it grew `website_sync.py`'s count from 6 to 7. The three ratchets
+were run on this tree BEFORE that edit and never after it, so the growth was
+found by running the gate on the NEXT slice's tree, which had not touched the
+file, while the full preflight it was going to fail was twenty minutes into its
+test gate. *Run the gate after the last edit, not after the edit you remember as
+last* is already recorded above, and it was done again here. The branch keeps
+main's own spelling (`confidence = _attr(idea, "confidence", 0)`), which the
+payload line's `float(confidence or 0)` coerces once; a second coercion one line
+above it was a second copy of the same claim, and the seal it feeds is filed.
+
+**CI IS PAPER BY DEFAULT AND A DEFAULT IS NOT A GUARD.** `LIVE_TRADING_ENABLED`
+defaults False, `SIMULATION_MODE` defaults True, and no job in `ci.yml` sets
+either — driven: seven env keys across every `env:` block, none of them a live
+flag, and no step writes a `.env`. Nothing pinned that. A workflow edit putting
+`LIVE_TRADING_ENABLED: "true"` in a job's `env:`, or `export
+SIMULATION_MODE=false` in a `run:` step, would run the red team, the custody red
+team and the whole suite against a bot configured to place real orders, on a
+runner holding whatever secrets that job was given. The uploaded 2026 plan's A6
+lists *"paper-only CI: live flags cannot be on in GitHub Actions"* as a gap, and
+it was the one A6 item the tree did not already have.
+
+**A name cannot say whether a flag is a door or a protection, and the
+derivation found the flag the obvious derivation could not see.** The family
+was first derived from `config.py`'s `_env_bool` declarations, and
+`WEB_LIVE_TRADING_ENABLED` — the website's live-order door — is read ONLY as a
+direct `e.get(...)` in `bot/web/web_live_gate.py`, so the guard's first draft
+had a hole exactly where it would matter. Read all three spellings and the
+family is fifteen, and it holds `LIVE_BOOK_RISK_GATES_ENABLED` and
+`LIVE_PERFORMANCE_GOVERNOR_ENABLED` beside `LIVE_TRADING_ENABLED`: the first
+two guard the live path and the third opens it, and refusing CI from turning a
+protection ON would be a wrong claim. So every derived flag is CLASSIFIED —
+ten doors refused in their live direction, five protections excluded with
+their reasons — and an unclassified flag fails, as does a row naming a flag
+nothing reads any more. That is `command_gates.py`'s rule one surface over: an
+unrecognised spelling is loud, never an acquittal. The truth vocabulary is
+`_env_bool`'s own, pinned against its source (an EMPTY value on a default-True
+switch reads True, the C2-07 rule, so `SIMULATION_MODE: ""` is paper); a
+`${{ secrets.X }}` as a door's value is refused, because this file cannot know
+what a secret holds; and what is not read is stated — a `with:` block handing
+environment to a composite action. The real workflows are clean, so every
+branch is driven on a planted workflow.
+(`tests/test_ci_cannot_enable_a_live_flag.py`.)
+
+**COMPLIANCE LOCK 4 REFUSED "NOTIONAL $25,000" ABOUT A MARGIN OF $25,000.**
+`ComplianceEngine` called its per-trade ceiling `max_notional_usd` and refused
+with *"Notional $X exceeds cap $Y"*, and the figure it is handed is the MARGIN:
+`engine._confirm_trade_inner` passes `recheck.position_size_usd`, which
+`live_executor`'s own audit F-3 note settles -- *"size_usd is MARGIN; the real
+exchange exposure is notional = quantity * price = size_usd * leverage"*.
+Driven, a $100 margin at 5x is $500 of exposure and the lock compared $100
+against the cap, under a sentence claiming a comparison nobody made, on the
+last authorization before a live order. That is the `size_usd` two-meanings
+defect one envelope over. The field is `max_margin_usd`, the keyword is
+`margin_usd`, the lock is `margin_cap` and the refusal names the margin; the
+four test files that pinned the old spelling move with it (every occurrence a
+compliance call), and `tests/selftest_upgrade.py` among them is a SCRIPT with
+its own runner, not a pytest file -- handed to pytest it runs at collection and
+`sys.exit`s into an INTERNALERROR, so it is driven the way it was written. The
+risk engine's LOCAL `max_notional_usd` is a recorded misnomer, not a rename: it
+clamps `position_usd`, the margin, its behaviour is deliberate and documented,
+and moving the name would move no number while touching every sizing test.
+
+**IT CANNOT FIRE AT SHIPPED CAPS, so the change is a name and not a
+behaviour.** `MICRO_MAX_POSITION_USD` is $100 and the demo profile's cap is
+$10,000, so the margin never approaches the cap and neither does the notional
+at the highest leverage an order can run at. Both facts are read from the live
+constants, so an operator who raises them is told here first; the cap becomes
+reachable behind `SIZE_BOUNDS_ENABLED` on a large account.
+
+**AND THE COMMENT WRITTEN TO SAY WHAT THE CAP DOES NOT BOUND NAMED A BACKSTOP
+THAT IS NOT ONE.** It said exposure was bounded by the executor's F-3 hard
+block, a sentence copied from `risk_engine.py`'s module docstring (*"a hard
+notional ceiling (margin * max_leverage) as a backstop"*), and the drive written
+for it FAILED: the block's ceiling is
+`max(size, $100) * max(MAX_LEVERAGE, lev) * 1.05`, so a consistent order at 60x
+on a $100 margin passes it, $6,000 against $6,300. It refuses a QUANTITY that
+does not match margin x the leverage the order was sized at -- an arithmetic
+check against a sizing bug, which is what audit F-3 was for -- and says nothing
+about the leverage. `docs/DEEP_AUDIT_2026.md` had already recorded that the
+check "uses max_leverage so it cannot catch the 1.4x leverage over-set", filed
+low, and the sentence stood in three places anyway. *When a fresh assertion
+fails, check whether the code or the assertion is wrong before touching the
+code*: here the code was right, and the assertion, the comment and the
+docstring it was copied from were wrong.
+
+**`MAX_LEVERAGE` BINDS NOTHING.** Driven, `CONFIG.exchange.max_leverage`
+(default 10, bounded 1..125) has exactly ONE code reader in `bot/`, that gate,
+and there it is one arm of a `max()` with the order's own leverage: set to 1, it
+refuses no consistent order. `order_rules.ASSET_RULES` carries a per-class
+`max_leverage` too (Stock 10, Crypto 125), in a "quick reference" table that
+nothing reads. What bounds exposure is the STANDARD leverage every order is
+lowered from -- `default_leverage` (5), or the operator's `/leverage set`
+override clamped to `LEVERAGE_OVERRIDE_MAX` (20) -- and the four readers past
+it (a user's preference through `resolve_user_leverage`, dynamic scaling, the
+margin-risk cap, the quality ladder) only ever lower it. Three surfaces called
+`max_leverage` a ceiling: the risk engine's docstring, this file's `/risk`-card
+chapter (*"the executor's hard ceiling uses `max_leverage` through the notional
+check"*) and the compliance comment; all three say what the gate does now.
+Whether the knob should become a real ceiling on the standard, or be deleted
+with the dead table rows, is a sizing decision -- a ceiling below
+`DEFAULT_LEVERAGE` or the override changes every live order -- so it is FILED
+with this measurement rather than made inside a rename, and
+`test_max_leverage_binds_nothing` pins the fact both ways, so the change lands
+at the filed decision instead of in silence.
+
+**Fourteen mutations, each killed on the first round, none refused.** The cap
+made exclusive or doubled, both lock names and both halves of the refusal back
+on "notional", the engine handing the lock a second leverage resolution or the
+old keyword, the F-3 gate turned into a `max_leverage` ceiling and the gate
+that stops reading it, a second reader planted in `leverage.py`, and each of the
+three reduce-only readers (the preference clamp, the margin-risk cap, the
+override's ceiling) made able to raise the standard. The engine's call grew a
+three-line comment, so the two map citations below it moved with it, and the
+derived counts moved by this file's one new test.
+(`tests/test_the_compliance_cap_is_the_quantity_it_checks.py`.)
 
 ## Public-surface rules
 
@@ -14449,7 +14769,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 237 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 239 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -15261,9 +15581,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **447 of 1129** reach for source text through `source_scan`, `code_only`
+Driven, **449 of 1133** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 447 is a FLOOR and the honest shape is
+source scan that rule does not see, so 449 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

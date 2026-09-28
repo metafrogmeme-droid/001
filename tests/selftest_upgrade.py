@@ -138,7 +138,7 @@ demo = default_demo_profile()
 dec = ce.authorize(
     action=Permission.PAPER_TRADE, profile=demo,
     live_mode=False, risk_passed=True, macro_ok=True,
-    notional_usd=100.0,
+    margin_usd=100.0,
 )
 check(dec.granted is True, "paper trade → GRANTED")
 
@@ -146,7 +146,7 @@ check(dec.granted is True, "paper trade → GRANTED")
 dec_live = ce.authorize(
     action=Permission.LIVE_TRADE, profile=demo,
     live_mode=True, risk_passed=True, macro_ok=True,
-    notional_usd=100.0,
+    margin_usd=100.0,
 )
 check(dec_live.granted is False, "demo live → DENIED")
 check(any("LIVE_TRADE" in r for r in dec_live.reasons), "denial names missing lock")
@@ -156,7 +156,7 @@ live_profile = SubjectProfile(
     subject_id="live-trader",
     permissions={Permission.READ_ONLY, Permission.ANALYSIS, Permission.PAPER_TRADE, Permission.LIVE_TRADE},
     jurisdiction="DE",
-    max_notional_usd=50_000.0,
+    max_margin_usd=50_000.0,
     kyc_verified=True,
 )
 
@@ -164,7 +164,7 @@ live_profile = SubjectProfile(
 dec_no_token = ce.authorize(
     action=Permission.LIVE_TRADE, profile=live_profile,
     live_mode=True, risk_passed=True, macro_ok=True,
-    notional_usd=100.0, trade_id="TI-001",
+    margin_usd=100.0, trade_id="TI-001",
 )
 check(dec_no_token.granted is False, "live without token → DENIED")
 
@@ -173,7 +173,7 @@ token = ce.issue_approval_token("TI-001", "live-trader")
 dec_with_token = ce.authorize(
     action=Permission.LIVE_TRADE, profile=live_profile,
     live_mode=True, risk_passed=True, macro_ok=True,
-    notional_usd=100.0, trade_id="TI-001",
+    margin_usd=100.0, trade_id="TI-001",
     approval_token=token,
 )
 check(dec_with_token.granted is True, "live with all five locks → GRANTED")
@@ -182,7 +182,7 @@ check(dec_with_token.granted is True, "live with all five locks → GRANTED")
 dec_reuse = ce.authorize(
     action=Permission.LIVE_TRADE, profile=live_profile,
     live_mode=True, risk_passed=True, macro_ok=True,
-    notional_usd=100.0, trade_id="TI-001",
+    margin_usd=100.0, trade_id="TI-001",
     approval_token=token,
 )
 check(dec_reuse.granted is False, "reused token → DENIED")
@@ -196,7 +196,7 @@ restricted = SubjectProfile(
 dec_jurisdiction = ce.authorize(
     action=Permission.PAPER_TRADE, profile=restricted,
     live_mode=False, risk_passed=True, macro_ok=True,
-    notional_usd=100.0,
+    margin_usd=100.0,
 )
 check(dec_jurisdiction.granted is False, "restricted jurisdiction → DENIED")
 

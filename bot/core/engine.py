@@ -7222,9 +7222,26 @@ class RuneClawEngine:
 
             if same_direction:
                 # ── Same direction: pyramid add ──
-                # Condition 1: confidence >= 70%
-                if idea.confidence < 0.70:
-                    audit(scan_log, f"Pyramid skipped: confidence {idea.confidence:.0%} < 70% for {idea.asset}",
+                # Condition 1: confidence >= 70%, MEASURED.
+                #
+                # `0.70` is on the RAW scale, like every confidence floor here,
+                # and `idea.confidence` is whatever the calibration curve left
+                # on the field. Driven: a measured blend of 0.82 with a curve
+                # applied reads 0.31 and every pyramid add is skipped; and a
+                # hand-typed ticket, whose 1.0 `build_manual_idea` STAMPS,
+                # cleared this gate on a figure nobody measured -- which is
+                # `_high_conviction_margin`'s recorded defect one gate over,
+                # on an ADDITION to risk on a position already open.
+                #
+                # A stamp and an unreadable confidence do not pyramid. That is
+                # fail-closed and it is the right direction: the caller keeps
+                # the position they have, and the reason names which it was.
+                from bot.core.signal_confidence import displayed_confidence
+                _pyr_conf = displayed_confidence(idea)
+                if not _pyr_conf.clears(0.70):
+                    audit(scan_log,
+                          f"Pyramid skipped: confidence {_pyr_conf.pct()} "
+                          f"({_pyr_conf.basis}) < 70% for {idea.asset}",
                           action="pyramid_low_conf", result="SKIPPED")
                     return None
 
@@ -7248,9 +7265,12 @@ class RuneClawEngine:
                 # All conditions met — flag as pyramid add
                 is_pyramid_add = True
                 audit(scan_log,
-                      f"Pyramid APPROVED: {idea.asset} {r_achieved:.2f}R profit, conf {idea.confidence:.0%}",
+                      f"Pyramid APPROVED: {idea.asset} {r_achieved:.2f}R profit, "
+                      f"conf {_pyr_conf.pct()} ({_pyr_conf.basis})",
                       action="pyramid_approved", result="APPROVED",
-                      data={"r_achieved": round(r_achieved, 2), "confidence": idea.confidence})
+                      data={"r_achieved": round(r_achieved, 2),
+                            "confidence": _pyr_conf.value,
+                            "confidence_basis": _pyr_conf.basis})
             else:
                 # ── Opposite direction: NEVER auto-flip ──
                 # Don't automatically close and reverse positions.
@@ -8111,7 +8131,10 @@ class RuneClawEngine:
             live_mode=CONFIG.is_live(),
             risk_passed=(recheck.verdict == RiskVerdict.APPROVED),
             macro_ok=macro_ok,
-            notional_usd=recheck.position_size_usd,
+            # THE MARGIN, named as such. `position_size_usd` is the margin
+            # (`live_executor`'s audit F-3 note), and Lock 4's cap and refusal
+            # used to say "notional" over it.
+            margin_usd=recheck.position_size_usd,
             trade_id=trade_id,
             approval_token=approval_token,
         )

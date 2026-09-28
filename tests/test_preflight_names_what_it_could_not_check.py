@@ -28,6 +28,7 @@ scripts.
 """
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -360,3 +361,105 @@ class TestPinnedCopyElsewhere:
                                                          monkeypatch):
         monkeypatch.setenv("PATH", str(tmp_path))
         assert toolchain._pinned_copy_elsewhere("tool", None, None) is None
+
+
+# ── the third pin: node ──────────────────────────────────────────────────
+
+class TestTheNodePin:
+    """CI carries three pins and the preflight read two. Its app gates were
+    measured on whatever `node` came first on its PATH (Node 20 on the box
+    that found this, against a CI pin of 24) and reported as the CI gates."""
+
+    def test_the_pin_is_the_one_version_every_setup_node_step_declares(self):
+        wf = ('steps:\n  - uses: actions/setup-node@abc\n    with:\n'
+              '      node-version: "24.21.0"\n')
+        assert toolchain.pinned_node(wf + wf) == "24.21.0"
+        assert toolchain.pinned_node(wf + wf.replace("24.21.0", "22.0.0")) is None, (
+            "two jobs pinning two versions is no single pin, not the first one found")
+        assert toolchain.pinned_node("steps: []\n") is None
+        assert toolchain.pinned_node("      node-version: 24\n") == "24"
+
+    def test_the_real_workflow_pins_one_node_version_and_pinned_reads_it(self):
+        text = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        literal = set(re.findall(r'node-version:\s*"?([0-9][0-9.]*)"?', text))
+        assert len(literal) == 1, literal
+        assert toolchain.pinned("node") == literal.pop()
+
+    def test_running_node_reads_the_v_prefixed_version(self, tmp_path, monkeypatch):
+        env = _fake_tool(tmp_path, "node", "v24.21.0")
+        monkeypatch.setenv("PATH", env["PATH"])
+        assert toolchain.running("node") == "24.21.0"
+
+    def test_a_node_row_names_the_workflow_not_the_requirements_file(self):
+        row = toolchain.Comparability("node", "24.21.0", "20.20.2",
+                                      source="ci.yml node-version")
+        assert "ci.yml" in row.describe() and "requirements-ci.txt" not in row.describe()
+        assert "requirements-ci.txt" in toolchain.Comparability("ruff", "1", "2").describe()
+        assert toolchain.comparability("node").source == "ci.yml node-version"
+
+    def test_the_node_hint_is_not_a_pip_install(self):
+        hint = toolchain.install_hint(
+            [toolchain.Comparability("node", "24.21.0", "20.20.2")])
+        assert "24.21.0" in hint and "Node" in hint and "pip install" not in hint
+        both = toolchain.install_hint([
+            toolchain.Comparability("ruff", "0.11.13", "0.15.8"),
+            toolchain.Comparability("node", "24.21.0", "20.20.2")])
+        assert "pip install 'ruff==0.11.13'" in both and "Node 24.21.0" in both
+        assert "node==" not in both
+
+    def test_the_node_jobs_are_the_local_jobs_that_set_up_node(self):
+        jobs = preflight.node_job_names()
+        assert set(jobs) == {"Web app (express)", "Marketing site (vite)",
+                             "Anchor workspace (node)"}, jobs
+        assert "Lint + tests (baseline gate)" not in jobs
+
+    @staticmethod
+    def _stale_node(monkeypatch):
+        def cmp(t):
+            if t == "node":
+                return toolchain.Comparability("node", "24.21.0", "20.20.2",
+                                               source="ci.yml node-version")
+            return toolchain.Comparability(t, "1.0.0", "1.0.0")
+        monkeypatch.setattr(toolchain, "comparability", cmp)
+        monkeypatch.setattr(preflight, "node_job_names", lambda: ("Web app (express)",))
+
+    def test_a_stale_node_files_every_node_job_step_as_unchecked_and_runs_none(
+            self, monkeypatch, capsys):
+        _plan(monkeypatch, [
+            ("Web app (express) — Parse", "node --check x.js", "app"),
+            ("Web app (express) — Suite", "npm test", "app"),
+            ("Lint + tests (baseline gate) — Ratchet", "python3 scripts/ruff_gate.py", "."),
+        ])
+        self._stale_node(monkeypatch)
+        ran: list = []
+        _calls(monkeypatch, lambda cmd: (ran.append(cmd), 0)[1])
+        rc = preflight.main()
+        said = capsys.readouterr().out
+        assert ran == ["python3 scripts/ruff_gate.py"], ran
+        assert rc == 2
+        assert "2 gate(s) could not check" in said, said
+        for step in ("Web app (express) — Parse", "Web app (express) — Suite"):
+            line = next(ln for ln in said.splitlines() if step in ln and "(0.0s)" in ln)
+            assert "?" in line and "20.20.2" in line and "24.21.0" in line, line
+        assert said.index("TOOLCHAIN") < said.index("▶"), "the reading came after a gate ran"
+
+    def test_a_matching_node_runs_the_node_jobs(self, monkeypatch, capsys):
+        _plan(monkeypatch, [("Web app (express) — Suite", "npm test", "app")])
+        _no_toolchain_noise(monkeypatch)
+        ran: list = []
+        _calls(monkeypatch, lambda cmd: (ran.append(cmd), 0)[1])
+        assert preflight.main() == 0
+        assert ran == ["npm test"]
+        assert "could not check" not in capsys.readouterr().out
+
+    def test_the_refusal_is_per_job_and_names_both_versions(self):
+        node = toolchain.Comparability("node", "24.21.0", "20.20.2")
+        jobs = ("Web app (express)",)
+        why = preflight.node_refusal("Web app (express) — Suite", node, jobs)
+        assert why and "20.20.2" in why and "24.21.0" in why
+        assert preflight.node_refusal("Lint + tests (baseline gate) — Ratchet", node, jobs) is None
+        assert preflight.node_refusal("Web app (express) — Suite", None, jobs) is None
+        ok = toolchain.Comparability("node", "24.21.0", "24.21.0")
+        assert preflight.node_refusal("Web app (express) — Suite", ok, jobs) is None
+        unread = toolchain.Comparability("node", "24.21.0", None)
+        assert "unreadable" in (preflight.node_refusal("Web app (express) — Suite", unread, jobs) or "")

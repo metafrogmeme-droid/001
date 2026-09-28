@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from bot.core.position_telemetry import pct_on_record, price_on_record
+from bot.core.signal_confidence import displayed_confidence
 from bot.formatters.drawdown_card import drawdown_source_note
 from bot.utils.candles import drop_forming_candle
 from bot.utils.i18n import t
@@ -511,7 +512,7 @@ def render_analysis_card(data: Dict[str, Any], idea: Optional[Any] = None) -> st
         lines.append(f"- SL: {_fmt_price(sl)} (-{sl_pct:.1f}%)")
         lines.append(f"- TP: {_fmt_price(tp)} (+{tp_pct:.1f}%)")
         lines.append(f"- Risk/Reward: 1:{rr:.1f}")
-        lines.append(f"- Confidence: {idea.confidence:.0%}")
+        lines.append(f"- Confidence: {displayed_confidence(idea).pct()}")
 
     # Velocity gate warning. SILENCE IS TWO FACTS: a change measured inside
     # the band, and a change nobody read — `abs(None)` raises and `abs(nan)`
@@ -713,7 +714,7 @@ def render_recommended_orders(assets: List[Dict[str, Any]],
         lines.append(f"<b>{a['pair']}</b> ({rank}):")
         lines.append(f"- Entry: {_fmt_price(idea.entry_price)}")
         lines.append(f"- SL: {_fmt_price(idea.stop_loss)} (-{sl_pct:.1f}%) | TP: {_fmt_price(idea.take_profit)} (+{tp_pct:.1f}%)")
-        lines.append(f"- R:R 1:{idea.risk_reward_ratio:.1f} | Conf: {idea.confidence:.0%}")
+        lines.append(f"- R:R 1:{idea.risk_reward_ratio:.1f} | Conf: {displayed_confidence(idea).pct()}")
         if i == best_idx and a["bid_depth"] > a["ask_depth"]:
             lines.append("- \u2705 Bid dominance \u2014 cleaner setup")
         elif a["ask_depth"] > a["bid_depth"] * 1.5:

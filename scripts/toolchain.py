@@ -35,7 +35,16 @@ REQUIREMENTS = ROOT / "requirements-ci.txt"
 #: here without it calling `check_version` would overstate the check, so
 #: `tests/test_preflight_names_what_it_could_not_check.py` pins the two lists
 #: against each other.
-VERSION_PINNED_TOOLS = ("ruff", "mypy")
+VERSION_PINNED_TOOLS = ("ruff", "mypy", "node")
+#: Where each pin is READ. Two tools are pinned in requirements-ci.txt and the
+#: third in the workflow itself: every node job's `actions/setup-node` step
+#: declares `node-version`, and the preflight read the first two pins and not
+#: the third for as long as it read any -- so its app gates were measured on
+#: whatever `node` came first on PATH (Node 20 on the box that found this,
+#: against a CI pin of 24) and reported as the CI gates.
+WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+PIN_SOURCE = {"node": "ci.yml node-version"}
+NODE_VERSION_RE = re.compile(r'node-version:\s*"?([0-9][0-9.]*)"?')
 
 
 class Comparability(NamedTuple):
@@ -53,6 +62,10 @@ class Comparability(NamedTuple):
     #: sits if one exists further down PATH. Both are None when unknown.
     resolved: Optional[str] = None
     shadowed_pinned: Optional[str] = None
+    #: The file the pin was read from, so the sentence names it: a node row
+    #: that said "requirements-ci.txt pins 24.21.0" would send the reader to
+    #: a file that pins no such thing.
+    source: str = "requirements-ci.txt"
 
     @property
     def comparable(self) -> bool:
@@ -69,11 +82,11 @@ class Comparability(NamedTuple):
     def describe(self) -> str:
         if self.unknown:
             return (f"{self.tool}: could not determine the version to compare "
-                    f"(requirements-ci.txt={self.pinned}, running={self.running})")
+                    f"({self.source}={self.pinned}, running={self.running})")
         if self.comparable:
-            return f"{self.tool} {self.running} matches requirements-ci.txt"
+            return f"{self.tool} {self.running} matches {self.source}"
         where = f" ({self.resolved})" if self.resolved else ""
-        line = (f"{self.tool}: requirements-ci.txt pins {self.pinned}, "
+        line = (f"{self.tool}: {self.source} pins {self.pinned}, "
                 f"this is {self.running}{where}")
         if self.shadowed_pinned:
             # The case that cost an hour: `pip install ruff==0.11.13` reported
@@ -87,8 +100,26 @@ class Comparability(NamedTuple):
         return line
 
 
+def pinned_node(workflow_text: Optional[str] = None) -> Optional[str]:
+    """The ONE node version every `actions/setup-node` step in ci.yml pins.
+
+    Every job that sets up node must agree, or there is no single pin to
+    compare a box against and the answer is None: an absent reading, never
+    the first value found.
+    """
+    if workflow_text is None:
+        if not WORKFLOW.exists():
+            return None
+        workflow_text = WORKFLOW.read_text(encoding="utf-8")
+    found = set(NODE_VERSION_RE.findall(workflow_text))
+    return found.pop() if len(found) == 1 else None
+
+
 def pinned(tool: str) -> Optional[str]:
-    """The version CI installs, read from requirements-ci.txt."""
+    """The version CI installs: requirements-ci.txt for a Python tool, and
+    the workflow's own `node-version` for node."""
+    if tool == "node":
+        return pinned_node()
     if not REQUIREMENTS.exists():
         return None
     m = re.search(rf"^{re.escape(tool)}==([0-9][^\s#]*)",
@@ -155,7 +186,8 @@ def comparability(tool: str) -> Comparability:
     resolved = shutil.which(tool)
     shadowed = (None if (want is None or have is None or want == have)
                 else _pinned_copy_elsewhere(tool, want, resolved))
-    return Comparability(tool, want, have, resolved, shadowed)
+    return Comparability(tool, want, have, resolved, shadowed,
+                         PIN_SOURCE.get(tool, REQUIREMENTS.name))
 
 
 def install_hint(rows: list[Comparability]) -> str:
@@ -167,8 +199,13 @@ def install_hint(rows: list[Comparability]) -> str:
     token tooling out of LOCAL_JOBS.
     """
     need_install = [r for r in rows if r.pinned and not r.shadowed_pinned]
-    specs = " ".join(f"'{r.tool}=={r.pinned}'" for r in need_install)
-    return f"python3 -m pip install {specs}" if specs else ""
+    specs = " ".join(f"'{r.tool}=={r.pinned}'"
+                     for r in need_install if r.tool != "node")
+    parts = [f"python3 -m pip install {specs}"] if specs else []
+    parts += [f"install Node {r.pinned} (nodejs.org/dist/v{r.pinned}/) and put "
+              f"its bin directory first on PATH"
+              for r in need_install if r.tool == "node"]
+    return "; ".join(parts)
 
 
 def require_comparable(tool: str) -> None:

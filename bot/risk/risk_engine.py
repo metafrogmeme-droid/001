@@ -36,9 +36,9 @@ Units (audit V7, F-3) — RECONCILED:
   * Loss-risk checks reason about NOTIONAL: the Portfolio VaR (#21) sums open
     position notionals and now adds the proposed position's notional
     (margin * leverage), not its margin, so it no longer mixes units.
-  * The executor enforces a hard notional ceiling (margin * max_leverage) as a
-    backstop, and every evaluation logs ``leverage`` + ``approx_notional_usd`` so
-    the margin->notional relationship is explicit in the audit trail.
+  * The executor's F-3 notional check refuses a quantity that does not match
+    margin * the leverage the order runs at (x1.05): an ARITHMETIC check, not a
+    leverage ceiling -- ``MAX_LEVERAGE`` binds nothing (see compliance_engine).
 
 Checks:
   1.  Circuit breaker status
@@ -96,6 +96,7 @@ from bot.core.leverage import (
     set_margin_risk_cap,
     tighten_leverage_cap,
 )
+from bot.core.signal_confidence import displayed_confidence
 from bot.core.size_trace import note_size_step, reset_size_trace, size_basis, size_path
 from bot.risk import ladder_shadow
 from bot.risk.held_book import HeldRow, direction_word, margin_read
@@ -1768,10 +1769,27 @@ class RiskEngine:
             if _ladder.table_note:
                 passed.append(f"QUALITY_LADDER: {_ladder.table_note}")
 
-        # Drawdown recovery mode: require higher confidence, reduce size
+        # Drawdown recovery mode: require higher confidence, reduce size.
+        #
+        # THE MEASURED READING, because this is a FLOOR and a floor cleared by a
+        # figure nobody measured is not a floor. `DRAWDOWN_RECOVERY_CONF_MIN`
+        # defaults 0.85 on the RAW scale, like every confidence floor here, and
+        # `idea.confidence` is whatever the calibration curve left on the field.
+        # Driven: a hand-typed ticket, whose 1.0 `build_manual_idea` STAMPS,
+        # cleared the HIGHER bar this gate exists to impose while the account is
+        # down -- `_high_conviction_margin`'s recorded defect, on the gate that
+        # tightens during a drawdown -- and a measured 0.90 blend was refused
+        # once a curve left 0.31 on the field.
+        #
+        # A stamp and an unreadable figure do not clear it, which is the same
+        # ruling `_high_conviction_margin` takes: abstaining would be a
+        # LOOSENING of a floor. The reason names which of the two it was.
         if self._in_drawdown_recovery:
-            if idea.confidence < CONFIG.risk.drawdown_recovery_conf_min:
-                failed.append(f"DD_RECOVERY: confidence {idea.confidence:.2f} < {CONFIG.risk.drawdown_recovery_conf_min} (recovery mode)")
+            _dd_conf = displayed_confidence(idea)
+            if not _dd_conf.clears(CONFIG.risk.drawdown_recovery_conf_min):
+                failed.append(
+                    f"DD_RECOVERY: confidence {_dd_conf.pct()} ({_dd_conf.basis}) "
+                    f"< {CONFIG.risk.drawdown_recovery_conf_min} (recovery mode)")
             _before = position_usd
             _dd_mult = CONFIG.risk.drawdown_recovery_size_mult
             position_usd *= _dd_mult

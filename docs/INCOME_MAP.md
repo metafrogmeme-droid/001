@@ -123,9 +123,9 @@ CONFIG.strategy_types then gives swing its own geometry and lifecycle: SL 2.5
 ATR / TP 3.5 ATR (config.py:2221-2222), trailing ENABLED on the stage table
 every type shares (:2223), a 48h time-close with a 12h warn (:2226-2227), min
 confidence 0.50 (:2242), max risk 2% (:2248) — every one distinct from the scalp row
-above it. skill_registry.py:2011 reads those multipliers when it builds the
+above it. skill_registry.py:2012 reads those multipliers when it builds the
 SL/TP ladder. Doors: /swing (scan_commands.py:1046) dispatches pro_scan
-mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2759) —
+mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2834) —
 and renders a signal card whose Take/Limit buttons run the normal confirm-and-
 execute path; the router's scan_swing intent reaches the same skill through
 SCAN_DISPATCH; /fullscan accepts a `swing` argument.
@@ -136,8 +136,8 @@ to be treated as a swing, only pick the scan timeframe. Tier feature
 `premium_scan` nominally gates /swing at pro, though the whole $RCLAW gate is
 off by default.
 
-*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:2011 is a blank line
-between RunStrategySkill._list and _run_symbol_scan; :2209-2215 is the literal
+*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:2250 is a blank line
+between RunStrategySkill._list and _run_symbol_scan; :2213-2219 is the literal
 "safe scalper" preset dict inside RunStrategySkill.PRESETS. No line in
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1866-1869
@@ -154,9 +154,9 @@ time-close with a 1h warn (:2208-2209), min confidence 0.65 (:2240), max risk
 of movement; config.py:1617 recomputes session VWAP on 15m candles
 specifically so scalps read a real intraday anchor. Doors: /scalp
 (scan_commands.py:1012) dispatches pro_scan mode=scalp — 5m candles, top-3 by
-volume, tight zones (skill_registry.py:2743); the router's scan_scalp intent
+volume, tight zones (skill_registry.py:2818); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
-(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:2209) as a
+(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:2213) as a
 tighten-only veto on that user's own confirms (trading_commands.py:413); /run
 scalp and /fullscan scalp are the other two.
 
@@ -347,18 +347,18 @@ execution on a real venue.
 The whole product is an algo bot and every layer is reachable. bot/main.py:587
 starts engine.run(), the scan→analyze→risk→execute FSM; market_scanner feeds
 analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
-signal modules; RiskEngine (bot/risk/risk_engine.py:267) is the fail-closed pre-
+signal modules; RiskEngine (bot/risk/risk_engine.py:268) is the fail-closed pre-
 trade gate whose whole enforcing set /enforcing lists. engine.py:6059-6117
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2482) with no human in the loop, adaptively moved by
-realized win rate (engine.py:8999): the paper book's in paper mode, both
+realized win rate (engine.py:9022): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
 with /autoconfirm, halt it with /halt //pause //emergency_stop, and inspect it
 with /risk, /gates, /shadow, /enforcing, /parity. Users get four named
 strategy presets (Dip Sniper, Momentum Hunter, Safe Scalper, Full Scan —
-skill_registry.py:2194) runnable via /run, /momentum, /dip, and pinnable to
+skill_registry.py:2198) runnable via /run, /momentum, /dip, and pinnable to
 their own confirms as a tighten-only veto (/mystrategy →
 user_strategy_store.py:37, mirrored on the web at /api/bot-strategy). Research
 rails exist and are wired: /backtest, /walkforward, /optimize, and the browser
@@ -1212,7 +1212,7 @@ attribution of revenue (there is no revenue), and no third-party affiliate
 integration: app/lib/venue_links.js:17 builds plain
 Bitget/Bybit/BingX/OKX/Hyperliquid/DexScreener deep links with no referral
 parameter on any of them. One concrete hole: the Telegram close-card share
-button is constructed with no ref_code (alerts_monitor.py:429-431 passes only
+button is constructed with no ref_code (alerts_monitor.py:439-441 passes only
 the bot username), so `invite_link` falls through to the bare
 `https://t.me/<bot>` and that share is unattributable.
 
@@ -1432,7 +1432,7 @@ size/exposure/loss caps, symbol allow/deny, regime, horizon
 (app/lib/user_strategies.js:18-33) — saves it, publishes it to the community
 marketplace, and ARMS it on their own bot: the web projects its signal-
 checkable rules, the bot re-validates and stores the snapshot
-(bot/core/user_strategy_store.py:134-174), and bot/core/engine.py:7700-7749
+(bot/core/user_strategy_store.py:134-174), and bot/core/engine.py:7720-7769
 evaluates it on every confirm and refuses the trade when it fails. Followers
 of a published strategy get its would-take picks (app/routes/copy.js:105). (2)
 Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
@@ -1580,7 +1580,7 @@ its own self-referral check — the bot store never mints a referral_code,
 nothing syncs it to the MySQL users table the count is computed from, and
 there is no Telegram command to see your own invite link (command_catalog's
 `share` is the private-notes command). (3) The close-card share button passes
-only close_data and the bot username (alerts_monitor.py:429-430), so invite_link()
+only close_data and the bot username (alerts_monitor.py:439-440), so invite_link()
 is called with ref_code=None and the shared link is a bare t.me/<bot> with no
 attribution.
 
@@ -1732,7 +1732,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1294, registered telegram_handler.py:1226) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:8269
+bot/core/stock_trading.py, also read by bot/core/engine.py:8292
 (get_market_session) and scan_commands.py:376.
 
 **Price alerts and anomaly-alert scoping**

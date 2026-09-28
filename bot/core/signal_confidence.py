@@ -68,6 +68,30 @@ class ConfidenceReading(NamedTuple):
         """True only where a figure was measured about THIS idea."""
         return self.basis in ("blend", "own")
 
+    def clears(self, bar: float) -> bool:
+        """True only when a MEASURED figure reaches ``bar`` (>=).
+
+        Every gate that reads a confidence asks exactly this, and each of them
+        wrote it as ``read.measured and read.value >= bar`` -- two reads of one
+        reading, and a shape mypy cannot narrow, because ``measured`` is a
+        property and the analyser has no way to connect it to ``value``. A cast
+        would silence that; one method removes the second read instead.
+
+        Unmeasured does not clear a bar. A bar is a FLOOR, and a floor cleared
+        by a figure nobody measured is not a floor -- which is the ruling
+        `_high_conviction_margin` already takes for a hand-typed ticket's stamp.
+        """
+        return self.value is not None and self.measured and self.value >= bar
+
+    def above(self, bar: float) -> bool:
+        """True only when a MEASURED figure exceeds ``bar`` (strict).
+
+        The other direction, for a check whose finding is a CONCERN rather than
+        a permission: the critique's overconfidence rule fires on what the model
+        said, so a stamp nobody measured is not overconfidence and abstains.
+        """
+        return self.value is not None and self.measured and self.value > bar
+
     def pct(self, *, dash: str = UNREAD_DASH, stamp: str = STAMP_TEXT) -> str:
         """The card's own text: a percent, or why there is none.
 

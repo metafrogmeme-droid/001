@@ -19,6 +19,7 @@ import ast
 import asyncio
 import pathlib
 import re
+import textwrap
 import types
 
 import pytest
@@ -528,3 +529,73 @@ class TestTheMonitorCard:
         assert not self._alerts(idea), (
             "a flag read as 1.0 cleared the alert bar for a 20% idea"
         )
+
+
+class TestTheSealedSignalRow:
+    """`build_signal_payload`'s confidence is sealed, so it may not be absent.
+
+    `app/routes/sync.js` does `confidence: Number(s.confidence) || 0` and hands
+    the coerced dict to `sealCall`, so an absence sent from here is hashed as a
+    MEASURED zero -- `csf.py`'s recorded defect, one surface over. The producer
+    cannot send one, and that is measured here rather than assumed.
+    """
+
+    @staticmethod
+    def _payload(**kw):
+        from bot.utils.website_sync import build_signal_payload
+        d = dict(asset="BTC/USDT", direction="LONG", entry_price=63000.0,
+                 stop_loss=62000.0, take_profit=65000.0, reasoning="r")
+        d.update(kw)
+        idea = TradeIdea(**d)
+        return idea, build_signal_payload(idea.id, idea, score=idea.confidence)
+
+    def test_the_reading_is_measured_for_every_idea_the_model_admits(self):
+        """Every value `TradeIdea` accepts reads `blend` or `own`, never absent."""
+        from bot.core.signal_confidence import displayed_confidence
+        admitted = []
+        for v in (0.0, 0.31, 0.62, 1.0, True, "0.62"):
+            idea, payload = self._payload(confidence=v)
+            read = displayed_confidence(idea)
+            admitted.append(v)
+            assert read.measured, (v, read)
+            assert read.value is not None, (v, read)
+            assert payload["confidence"] == read.value, (v, payload["confidence"])
+            assert payload["score"] == read.value, (v, payload["score"])
+        assert len(admitted) == 6
+
+    def test_the_model_refuses_every_value_that_would_read_unread(self):
+        """The precondition's other half: pydantic is what keeps it true."""
+        import math
+        for v in (None, 2.5, -0.5, float("nan"), math.inf):
+            try:
+                self._payload(confidence=v)
+            except Exception:
+                continue
+            raise AssertionError(f"TradeIdea admitted {v!r}; the payload's "
+                                 "confidence could then be sealed as a zero")
+
+    def test_a_blend_wins_over_the_calibrated_field_on_the_wire(self):
+        """The 70/31 signal: the sealed row carries the blend, not the curve."""
+        idea, payload = self._payload(confidence=0.31, blended_confidence_raw=0.70)
+        assert payload["confidence"] == 0.70
+        assert payload["score"] == 0.70
+
+    def test_no_swallowing_try_guards_the_reading(self):
+        """A swallowed import would publish the calibrated figure with no trace."""
+        import inspect
+
+        from bot.utils import website_sync
+        src = code_only(inspect.getsource(website_sync.build_signal_payload))
+        body = ast.parse(textwrap.dedent(src)).body[0]
+        assert not [n for n in ast.walk(body) if isinstance(n, ast.Try)], (
+            "build_signal_payload guards its confidence read with a try; "
+            "displayed_confidence never raises, so the only thing that catches "
+            "is the import, and the fallback is the field the reading replaces")
+        imports = [a.name for n in ast.walk(body)
+                   if isinstance(n, (ast.Import, ast.ImportFrom))
+                   for a in n.names]
+        assert "displayed_confidence" not in imports, (
+            "the reading is imported at MODULE level, not inside the builder: "
+            "a function-local import is the only thing a swallowing try could "
+            "have been catching")
+        assert "displayed_confidence" in src, "the builder asks the reading"

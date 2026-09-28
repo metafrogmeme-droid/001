@@ -90,7 +90,16 @@ def owner_chat_id(owner) -> Optional[int]:
 
 
 def signal_card_caption(idea) -> str:
-    """Caption a signal image with the same confidence the image renders."""
+    """Caption a signal image with the same confidence the image renders.
+
+    THE SIBLING CAPTION, in the other file. `telegram_handler`'s
+    `_send_idea_with_door` was cured of printing the CALIBRATED figure beside
+    an image drawn from the BLEND -- one `send_photo`, two numbers -- and this
+    caption, the same claim about the same card one module over, was left
+    reading `idea.confidence`. `displayed_confidence` is the one reading, so
+    the caption and the image cannot disagree, and a hand-typed ticket's
+    stamped 1.0 is not printed as a measurement.
+    """
     pair = idea.asset.replace("/USDT", "")
     direction = (idea.direction.value if hasattr(idea.direction, "value")
                  else str(idea.direction))
@@ -639,14 +648,15 @@ class AlertsMonitor:
                 refused = placed_nothing(result_msg)
                 pair = idea.asset.replace("/USDT", "")
                 direction = idea.direction.value if hasattr(idea.direction, "value") else str(idea.direction)
-                conf = idea.confidence * 100
+                # The measured reading, for the reason the caption above gives.
+                conf_txt = displayed_confidence(idea).pct()
                 from datetime import datetime as _dt, timezone as _tz
                 card_lines = [
                     ("\U0001f916 <b>AUTO-CONFIRM: NOTHING PLACED</b>" if refused
                      else "\U0001f916 <b>AUTO-CONFIRMED TRADE</b>"),
                     "\u2500" * 28,
                     "",
-                    f"\U0001f4b0 <b>{pair}</b> {direction} | Conf <b>{conf:.0f}%</b>",
+                    f"\U0001f4b0 <b>{pair}</b> {direction} | Conf <b>{conf_txt}</b>",
                     f"Entry: <code>{_fmt_price(idea.entry_price)}</code>",
                     f"SL: <code>{_fmt_price(idea.stop_loss)}</code> | TP: <code>{_fmt_price(idea.take_profit)}</code>",
                     "",

@@ -85,7 +85,7 @@ def test_restricted_jurisdiction_blocked_regardless_of_casing(juris):
         live_mode=True,
         risk_passed=True,
         macro_ok=True,
-        notional_usd=100.0,
+        margin_usd=100.0,
     )
     assert decision.granted is False
     assert "jurisdiction" in decision.locks_failed
@@ -100,7 +100,7 @@ def test_custom_restricted_set_is_normalized():
     )
     decision = eng.authorize(
         action=Permission.LIVE_TRADE, profile=profile, live_mode=True,
-        risk_passed=True, macro_ok=True, notional_usd=100.0,
+        risk_passed=True, macro_ok=True, margin_usd=100.0,
     )
     assert decision.granted is False
 

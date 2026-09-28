@@ -985,9 +985,18 @@ def test_the_two_stale_citations_it_names_are_where_it_says():
         assert flat.count(cited) == 1, cited
 
     # And no citation anywhere in the map lands on a blank line -- the one
-    # probe that found both of the originals.
+    # probe that found both of the originals. The ONE exception is a citation
+    # whose own sentence says it IS a blank line: the map's retraction of a
+    # stale citation has to name what it pointed at, which is the "a comment
+    # that quotes the string it forbids" shape. It is excluded by that
+    # SENTENCE rather than by its line number, so the exclusion cannot outlive
+    # the retraction -- and the probe was passing here only because the
+    # citation had rotted off its blank line onto a `return`.
+    _flat_income = " ".join(income.split())
     for m in re.finditer(r"([\w/]+\.py):(\d+)", income):
         rel, n = m.group(1), int(m.group(2))
+        if f"{rel}:{n} is a blank line" in _flat_income:
+            continue
         path = ROOT / rel if (ROOT / rel).exists() else None
         if path is None:
             for base in ("bot/skills", "bot/core", "bot/risk", "bot/web", "bot"):
@@ -1466,6 +1475,15 @@ def test_the_pro_scan_and_preset_citations_are_the_lines_they_name():
     scalper_end = next(i + 1 for i in range(scalper, len(lines)) if lines[i].strip() == "},")
     swing = line_of('"swing": {', mode_cfg)
     scalp = line_of('"scalp": {', mode_cfg)
+    # The retraction paragraph names a blank line between two methods. That is
+    # a claim about the CURRENT tree, so it is derived too: a slice that grows
+    # `skill_registry.py` left `:2012` pointing at a `return` statement while
+    # the sentence still called it blank.
+    lst = line_of("def _list(cls) -> str:")
+    runsym = line_of('async def _run_symbol_scan(cls, engine: "RuneClawEngine", '
+                     'raw_symbol: str) -> str:')
+    blank = next(i + 1 for i in range(lst, runsym) if not lines[i].strip())
+    assert f"skill_registry.py:{blank} is a blank line" in doc
     assert f"wide SL/TP (skill_registry.py:{swing})" in doc
     assert f"tight zones (skill_registry.py:{scalp})" in doc
     assert f"top-3 volume — skill_registry.py:{scalper})" in doc
