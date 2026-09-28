@@ -14148,6 +14148,39 @@ main's own spelling (`confidence = _attr(idea, "confidence", 0)`), which the
 payload line's `float(confidence or 0)` coerces once; a second coercion one line
 above it was a second copy of the same claim, and the seal it feeds is filed.
 
+**CI IS PAPER BY DEFAULT AND A DEFAULT IS NOT A GUARD.** `LIVE_TRADING_ENABLED`
+defaults False, `SIMULATION_MODE` defaults True, and no job in `ci.yml` sets
+either — driven: seven env keys across every `env:` block, none of them a live
+flag, and no step writes a `.env`. Nothing pinned that. A workflow edit putting
+`LIVE_TRADING_ENABLED: "true"` in a job's `env:`, or `export
+SIMULATION_MODE=false` in a `run:` step, would run the red team, the custody red
+team and the whole suite against a bot configured to place real orders, on a
+runner holding whatever secrets that job was given. The uploaded 2026 plan's A6
+lists *"paper-only CI: live flags cannot be on in GitHub Actions"* as a gap, and
+it was the one A6 item the tree did not already have.
+
+**A name cannot say whether a flag is a door or a protection, and the
+derivation found the flag the obvious derivation could not see.** The family
+was first derived from `config.py`'s `_env_bool` declarations, and
+`WEB_LIVE_TRADING_ENABLED` — the website's live-order door — is read ONLY as a
+direct `e.get(...)` in `bot/web/web_live_gate.py`, so the guard's first draft
+had a hole exactly where it would matter. Read all three spellings and the
+family is fifteen, and it holds `LIVE_BOOK_RISK_GATES_ENABLED` and
+`LIVE_PERFORMANCE_GOVERNOR_ENABLED` beside `LIVE_TRADING_ENABLED`: the first
+two guard the live path and the third opens it, and refusing CI from turning a
+protection ON would be a wrong claim. So every derived flag is CLASSIFIED —
+ten doors refused in their live direction, five protections excluded with
+their reasons — and an unclassified flag fails, as does a row naming a flag
+nothing reads any more. That is `command_gates.py`'s rule one surface over: an
+unrecognised spelling is loud, never an acquittal. The truth vocabulary is
+`_env_bool`'s own, pinned against its source (an EMPTY value on a default-True
+switch reads True, the C2-07 rule, so `SIMULATION_MODE: ""` is paper); a
+`${{ secrets.X }}` as a door's value is refused, because this file cannot know
+what a secret holds; and what is not read is stated — a `with:` block handing
+environment to a composite action. The real workflows are clean, so every
+branch is driven on a planted workflow.
+(`tests/test_ci_cannot_enable_a_live_flag.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -15439,7 +15472,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **448 of 1131** reach for source text through `source_scan`, `code_only`
+Driven, **448 of 1132** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 448 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
