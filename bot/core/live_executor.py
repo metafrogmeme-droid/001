@@ -3329,11 +3329,28 @@ class LiveExecutor:
         # operator deliberately allowed it. Operator executor (user_id None)
         # is governed by the MICRO_* caps above, not this.
         if self.user_id is not None:
-            try:
-                per_user_cap = float(os.environ.get("PER_USER_MAX_FUNDS_USD", "100"))
-            except ValueError:
-                per_user_cap = 100.0
-            if per_user_cap > 0 and total_exposure + size_usd > per_user_cap:
+            # ONE reading (`size_bounds.per_user_funds_cap`), and a cap that
+            # cannot be read REFUSES rather than reading as the default: this
+            # used to be `float(os.environ.get(..., "100"))` under `except
+            # ValueError: 100.0`, so a typo in the one knob the runbook tells
+            # an operator to set was the default $100, and NaN or a negative
+            # failed `> 0` and disabled the cap. The reason travels, never the
+            # value, because this sentence reaches a person's chat.
+            _cap = size_bounds.per_user_funds_cap()
+            if _cap.unread is not None:
+                audit(trade_log,
+                      f"PER-USER CAP could not be read for user {self.user_id}: "
+                      f"PER_USER_MAX_FUNDS_USD is {_cap.unread} -- refusing",
+                      action="per_user_cap", result="UNREAD",
+                      data={"user_id": str(self.user_id), "why": _cap.unread,
+                            "exposure": total_exposure, "new_size": size_usd})
+                return (
+                    "Linked-account protection: PER_USER_MAX_FUNDS_USD could not be "
+                    f"read ({_cap.unread}) -- refusing rather than reading an "
+                    f"unreadable cap as the default ${size_bounds.PER_USER_CAP_DEFAULT_USD:.0f}"
+                ), None
+            per_user_cap = _cap.usd
+            if per_user_cap is not None and total_exposure + size_usd > per_user_cap:
                 audit(trade_log,
                       f"PER-USER CAP blocked trade for user {self.user_id}: "
                       f"${total_exposure + size_usd:.2f} > ${per_user_cap:.2f}",

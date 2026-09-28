@@ -15902,6 +15902,54 @@ both; and the typed test moved below the momentum read dies on the typed
 drive's await count, which no assertion about the cancel can see.
 (`tests/test_the_drift_fallback_places_what_was_approved.py`.)
 
+**THE ONE CAP THE RUNBOOK TELLS AN OPERATOR TO SET READ A TYPO AS THE
+DEFAULT, AND NaN AS NO CAP.** `PER_USER_MAX_FUNDS_USD` is the hard max-funds
+ceiling on every linked account, and `docs/LIVE_TESTING_READINESS.md` opens
+its checklist with *"Set `PER_USER_MAX_FUNDS_USD` to the per-account risk you
+actually want"*. `_hard_cap_refusal` read it as
+`float(os.environ.get(..., "100"))` under `except ValueError: 100.0` and
+applied it under `per_user_cap > 0`. Driven, a $60 order on a linked account
+the operator had capped at $20:
+
+    PER_USER_MAX_FUNDS_USD='20'      -> REFUSED
+    PER_USER_MAX_FUNDS_USD='20 usd'  -> ALLOWED   (a typo, read as the default $100)
+    PER_USER_MAX_FUNDS_USD='$20'     -> ALLOWED
+    PER_USER_MAX_FUNDS_USD='nan'     -> ALLOWED   (`nan > 0` is False: no cap)
+    PER_USER_MAX_FUNDS_USD='-5'      -> ALLOWED
+    PER_USER_MAX_FUNDS_USD='inf'     -> ALLOWED   (a cap of infinity)
+
+That is `config.py`'s own `_env_float` shape -- a value that will not parse is
+the default, silently -- at the one site where the default is five times
+looser than what the operator typed, on real money, with no warning anywhere.
+`size_bounds.per_user_funds_cap` is the one reading now: unset or empty is
+the default, `0` disables (documented in `.env.example` and pinned, a recorded
+decision), and anything that is not a finite non-negative number is UNREAD
+with a reason. The refusal refuses a linked-account order by name on an
+unread cap, audits `UNREAD` beside the `BLOCKED` it already wrote, and the
+sentence carries the reason and never the value, because it reaches a chat.
+The operator's own executor never read the cap and still does not. The
+reading takes an explicit environment and reads `{}` as empty, never as the
+process's -- the trap the on-chain readers walked into one directory over.
+
+> **And two of the suite's own fixtures could not produce the state they
+> named.** A $101 order to show the default $100 binding met the flat
+> per-trade bound first, which refuses $101 before the per-user cap is ever
+> asked; and the held row that replaced it was a `SimpleNamespace` the book
+> reader could not read, then a BTC row that met the duplicate-symbol guard
+> under a BTC order. A real ETH row beside a BTC order is the fixture, and the
+> claim it drives is the TOTAL: $60 held plus $50 against the default $100.
+> *A fixture positioned where another gate fires first measures nothing about
+> the gate it names.*
+
+**Ten mutations, each killed on the first round, none refused.** Two are
+worth naming for what they prove about the guards: an empty value read as
+unread dies on the reading's own table (`""` and a blank are the default,
+since `.env` tooling writes an unset variable that way), and `env or
+os.environ` in place of `os.environ if env is None else env` dies on the one
+test that plants junk in the process environment and asks the reading about
+`{}` -- the only input that separates an empty environment from a missing
+one. (`tests/test_the_per_user_cap_is_read_or_refused.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -16381,7 +16429,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 251 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 252 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -17193,9 +17241,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **462 of 1152** reach for source text through `source_scan`, `code_only`
+Driven, **463 of 1153** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 462 is a FLOOR and the honest shape is
+source scan that rule does not see, so 463 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
