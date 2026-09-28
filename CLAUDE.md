@@ -12605,7 +12605,10 @@ still say the record is unknown when any row was unreadable, as before.
 matches the same glob and is restored by `MultiUserPortfolio` as a per-user
 book named `state`. READ, not driven: `combined_state.json` gets a `.bak` that
 nothing reads, and a combined file that will not parse falls back to
-individual files that have not been written since the migration. And
+individual files that have not been written since the migration. (Driven
+later and changed: the chapter on the unreadable combined state records
+what the fallback restored, and that the next save then copied the
+unreadable bytes over that `.bak`.) And
 `test_backtest_validity._run_once` leaves `logging.disable(logging.WARNING)`
 set for the rest of the session, which is why a WARNING-level assertion in a
 later file (`test_audit_v7_followups::test_risk_audit_logs_leverage_and_notional`)
@@ -14646,6 +14649,52 @@ only on that same raising exchange driven twice inside the interval, because
 a probe that answers nothing and one that raises are spaced alike only if
 the stamp precedes both.
 
+**A COMBINED STATE FILE THAT COULD NOT BE READ BOOTED THE BREAKER CLOSED, FROM
+FILES NOBODY HAD WRITTEN SINCE THE MIGRATION.** `combined_state.json` is the
+only current record of the operator's breaker: every save since C2-34 funnels
+through `_save_combined_state`, so the individual files each component loads
+in `__init__` are frozen at the migration moment. `_wire_combined_state_saver`
+caught every failure around the whole load with *"Combined state corrupt,
+using individual files"* and went on -- and "using" them restored whatever the
+breaker read weeks ago, closed as often as not, over a combined file whose
+last good write may have held a trip. Driven through the real loader on a
+real `RiskEngine`: a file that will not parse, an EMPTY file (with no log line
+at all) and a portfolio block that would not load beside a risk block saying
+HALTED each booted with the breaker CLOSED. `RiskEngine._load_state` fails its
+own corrupt file closed and says so in its docstring; the combined file's
+reader had the opposite rule for the same state one file over, which is the
+`_load_from_state_dict` chapter's finding arriving one frame out.
+
+**And the next save destroyed the evidence twice.** `_save_combined_state`
+copies the current file over the `.bak` before every write, so the first save
+after such a boot replaced the one backup that held the last good state with
+the unreadable bytes, and then wrote memory over the file itself. The file is
+MOVED ASIDE first now (`combined_state.json.corrupt`, the first rescue only,
+the rule `_fail_closed_restore` already keeps for the individual file), and
+the risk engine fails closed with that function's own sentence, told not to
+touch its own file: the damaged one is the engine's, and rescuing
+`risk_state.json` would preserve a file that read perfectly well and label it
+as the evidence. The two blocks are read INDEPENDENTLY, because one `try`
+around both meant the paper book's own refusal (`ValueError` on a block with
+no balance) cost the risk block its read; a combined file with no risk block
+at all is an unread risk state, since every file this saver writes carries
+one. The exception's CLASS travels and never its text, and the operator is
+told at ERROR that the paper book is whatever the legacy file or a fresh start
+left. A missing file is still a fresh start: nothing in it can be lost.
+
+**Thirteen mutations, each killed -- and the three that survived the first
+round were the driver's and the corpus's, never the code's.** The "no risk
+block" mutation inserted a `pass` ABOVE the call it meant to remove, a no-op
+that proves nothing about the guard; re-aimed to delete the call, it dies.
+The other two were drives the prose had described and the corpus had not
+planted: the exception's text reaching the log survived because no fixture's
+exception carried text worth keeping out (a JSON error names a column, and an
+`IsADirectoryError` names the class), so a read that raises with a planted
+secret and a path is in the corpus now; and the risk engine rescuing its own
+file survived because no fixture HAD an individual file to rescue, so one is
+written first and required to stay where it is.
+(`tests/test_an_unreadable_combined_state_fails_closed.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -15937,7 +15986,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **451 of 1137** reach for source text through `source_scan`, `code_only`
+Driven, **451 of 1138** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 451 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

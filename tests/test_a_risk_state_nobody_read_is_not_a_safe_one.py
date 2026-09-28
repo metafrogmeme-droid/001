@@ -179,6 +179,12 @@ class TestTheDayIsRestoredOnTheProductionPath:
             _combined_state_file = combined_path
             _wire_combined_state_saver = RuneClawEngine._wire_combined_state_saver
             _save_combined_state = RuneClawEngine._save_combined_state
+            # The loader reads its two blocks and refuses an unreadable file
+            # through two helpers of the engine's; a stand-in that must
+            # remember each one is one that will forget the next, so it took
+            # this pair the day they were added.
+            _load_combined_blocks = RuneClawEngine._load_combined_blocks
+            _combined_state_unreadable = RuneClawEngine._combined_state_unreadable
             def __init__(self):
                 self.portfolio = StandPortfolio()
                 self.risk = risk

@@ -3704,29 +3704,39 @@ class RuneClawEngine:
             return
 
         if combined_path.exists():
-            # Load from combined state file
+            # THE COMBINED FILE IS THE ONLY CURRENT RECORD, so a file that
+            # cannot be read is an unread risk state and takes the answer
+            # `RiskEngine._load_state` gives its own file: the breaker opens.
+            # This used to log "Combined state corrupt, using individual
+            # files" and go on -- and the individual files have been written
+            # by nobody since the migration (every save funnels through
+            # `_save_combined_state`), so "using" them restored whatever the
+            # breaker read WEEKS ago, closed as often as not, over a combined
+            # file whose last good write may have held a trip. Driven: a
+            # corrupt file, an EMPTY file (silently) and a portfolio block
+            # that would not load beside a risk block saying HALTED each
+            # booted with the breaker closed. The two blocks are read
+            # INDEPENDENTLY now, because one `try` around both meant an
+            # unreadable paper book cost the risk block its read.
+            raw: Optional[str] = None
             try:
-                with open(combined_path) as f:
-                    raw = f.read()
-                if raw.strip():
-                    combined = _json.loads(raw)
-                    if "portfolio" in combined:
-                        self.portfolio._load_from_state_dict(combined["portfolio"])
-                        self.portfolio._persistence_active = True
-                    if "risk" in combined:
-                        self.risk._load_from_state_dict(combined["risk"])
-                    system_log.info(
-                        "C2-34: Loaded combined state (v%s, saved %s)",
-                        combined.get("version", "?"),
-                        combined.get("written_at", "?"),
-                    )
-            except Exception as exc:
-                # Combined file corrupt — fall back to individual files
-                # (which were already loaded by each component's __init__)
-                system_log.warning(
-                    "C2-34: Combined state corrupt (%s), using individual files",
-                    exc,
-                )
+                raw = combined_path.read_text()
+            except OSError as exc:
+                self._combined_state_unreadable("could not be read", exc)
+            if raw is not None:
+                if not raw.strip():
+                    self._combined_state_unreadable("is empty", None)
+                else:
+                    try:
+                        combined = _json.loads(raw)
+                    except ValueError as exc:
+                        self._combined_state_unreadable("will not parse", exc)
+                    else:
+                        if not isinstance(combined, dict):
+                            self._combined_state_unreadable(
+                                "is not a state object", None)
+                        else:
+                            self._load_combined_blocks(combined)
         else:
             # Legacy migration: individual files were already loaded by
             # portfolio.__init__ and risk_engine.__init__. Write the combined
@@ -3746,6 +3756,72 @@ class RuneClawEngine:
         # Wire both components to use combined saver
         self.portfolio._combined_saver = self._save_combined_state
         self.risk._combined_saver = self._save_combined_state
+
+    def _load_combined_blocks(self, combined: dict) -> None:
+        """Restore the operator's paper book and risk state from a combined
+        file that parsed, each block on its own.
+
+        The paper book's loader validates its rows and RAISES on a block it
+        cannot read; that is its own design and is kept, but it must not cost
+        the risk block its read, so the two are separate `try`s. A risk block
+        that is absent is an unread risk state (every file this saver writes
+        carries one), and a block that is present and unreadable fails closed
+        inside `RiskEngine._load_from_state_dict` already.
+        """
+        if "portfolio" in combined:
+            try:
+                self.portfolio._load_from_state_dict(combined["portfolio"])
+                self.portfolio._persistence_active = True
+            except Exception as exc:
+                system_log.error(
+                    "C2-34: the combined state's portfolio block could not be "
+                    "loaded (%s): the paper book is whatever the legacy file "
+                    "or a fresh start left, which may be stale -- the risk "
+                    "block is read regardless", type(exc).__name__)
+        if "risk" in combined:
+            self.risk._load_from_state_dict(combined["risk"])
+        else:
+            self.risk._fail_closed_restore(
+                "Combined state file carries no risk block",
+                "COMBINED_FILE_FAIL_CLOSED", rescue=False)
+        system_log.info(
+            "C2-34: Loaded combined state (v%s, saved %s)",
+            combined.get("version", "?"), combined.get("written_at", "?"))
+
+    def _combined_state_unreadable(self, what: str,
+                                   exc: Optional[BaseException]) -> None:
+        """A combined state file that exists and cannot be read.
+
+        Two things, in this order. The file is MOVED ASIDE to `.corrupt`
+        (the first rescue only, so a second failure cannot overwrite the good
+        copy), because the next save would otherwise copy the unreadable bytes
+        over the `.bak` -- the one backup that held the last good state -- and
+        then write memory over the file itself, destroying the evidence twice.
+        Then the risk engine fails closed with the sentence
+        `_fail_closed_restore` already has for an unread risk state; the
+        rescue is this engine's, so the risk engine is told not to touch its
+        own file. The exception's CLASS travels, never its text.
+        """
+        detail = type(exc).__name__ if exc is not None else "no exception"
+        combined_path = Path(self._combined_state_file)
+        damaged = combined_path.with_name(combined_path.name + ".corrupt")
+        kept = "not preserved"
+        try:
+            if not damaged.exists():
+                os.replace(str(combined_path), str(damaged))
+                kept = f"preserved at {damaged.name}"
+            else:
+                kept = f"an earlier {damaged.name} is kept instead"
+        except OSError as rescue_exc:
+            kept = f"could not be preserved ({type(rescue_exc).__name__})"
+        system_log.error(
+            "C2-34: the combined state file %s (%s); the original is %s. The "
+            "risk breaker is opened until /reset, and the paper book is "
+            "whatever the legacy file or a fresh start left, which may be "
+            "stale.", what, detail, kept)
+        self.risk._fail_closed_restore(
+            f"Combined state file {what} ({detail}; original {kept})",
+            "COMBINED_FILE_FAIL_CLOSED", rescue=False)
 
     #: How many symbols' last refusals `/whynot` keeps, and how many a prune
     #: keeps once that is passed.
