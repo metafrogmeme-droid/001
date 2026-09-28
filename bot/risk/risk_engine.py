@@ -36,9 +36,9 @@ Units (audit V7, F-3) — RECONCILED:
   * Loss-risk checks reason about NOTIONAL: the Portfolio VaR (#21) sums open
     position notionals and now adds the proposed position's notional
     (margin * leverage), not its margin, so it no longer mixes units.
-  * The executor enforces a hard notional ceiling (margin * max_leverage) as a
-    backstop, and every evaluation logs ``leverage`` + ``approx_notional_usd`` so
-    the margin->notional relationship is explicit in the audit trail.
+  * The executor's F-3 notional check refuses a quantity that does not match
+    margin * the leverage the order runs at (x1.05): an ARITHMETIC check, not a
+    leverage ceiling -- ``MAX_LEVERAGE`` binds nothing (see compliance_engine).
 
 Checks:
   1.  Circuit breaker status

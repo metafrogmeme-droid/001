@@ -8131,7 +8131,10 @@ class RuneClawEngine:
             live_mode=CONFIG.is_live(),
             risk_passed=(recheck.verdict == RiskVerdict.APPROVED),
             macro_ok=macro_ok,
-            notional_usd=recheck.position_size_usd,
+            # THE MARGIN, named as such. `position_size_usd` is the margin
+            # (`live_executor`'s audit F-3 note), and Lock 4's cap and refusal
+            # used to say "notional" over it.
+            margin_usd=recheck.position_size_usd,
             trade_id=trade_id,
             approval_token=approval_token,
         )

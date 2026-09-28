@@ -49,7 +49,7 @@ def _make_profile(
         subject_id=subject_id,
         permissions=permissions,
         jurisdiction=jurisdiction,
-        max_notional_usd=max_notional,
+        max_margin_usd=max_notional,
         kyc_verified=kyc,
     )
 
@@ -164,7 +164,7 @@ class TestComplianceEngine:
             live_mode=False,
             risk_passed=True,
             macro_ok=True,
-            notional_usd=1000.0,
+            margin_usd=1000.0,
         )
         assert decision.granted is True
         assert "permission" in decision.locks_passed
@@ -182,7 +182,7 @@ class TestComplianceEngine:
             live_mode=True,
             risk_passed=True,
             macro_ok=True,
-            notional_usd=100.0,
+            margin_usd=100.0,
         )
         assert decision.granted is False
         assert "permission" in decision.locks_failed
@@ -199,7 +199,7 @@ class TestComplianceEngine:
             live_mode=True,
             risk_passed=False,
             macro_ok=True,
-            notional_usd=100.0,
+            margin_usd=100.0,
         )
         assert decision.granted is False
         assert "risk" in decision.locks_failed
@@ -217,7 +217,7 @@ class TestComplianceEngine:
             live_mode=False,
             risk_passed=True,
             macro_ok=True,
-            notional_usd=0.0,
+            margin_usd=0.0,
         )
         # Paper mode checks PAPER_TRADE permission; profile has it
         assert decision.granted is True
@@ -232,7 +232,7 @@ class TestComplianceEngine:
             live_mode=False,
             risk_passed=False,
             macro_ok=True,
-            notional_usd=100.0,
+            margin_usd=100.0,
         )
         assert decision.granted is False
         assert len(decision.reasons) >= 1
@@ -252,12 +252,12 @@ class TestComplianceEngine:
             live_mode=True,
             risk_passed=True,
             macro_ok=True,
-            notional_usd=50_000.0,
+            margin_usd=50_000.0,
             trade_id="trade-1",
             approval_token=token,
         )
         assert decision.granted is False
-        assert "notional_cap" in decision.locks_failed
+        assert "margin_cap" in decision.locks_failed
         assert any("exceeds" in r.lower() for r in decision.reasons)
 
 

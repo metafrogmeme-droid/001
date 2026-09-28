@@ -351,7 +351,7 @@ signal modules; RiskEngine (bot/risk/risk_engine.py:268) is the fail-closed pre-
 trade gate whose whole enforcing set /enforcing lists. engine.py:6059-6117
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2482) with no human in the loop, adaptively moved by
-realized win rate (engine.py:9019): the paper book's in paper mode, both
+realized win rate (engine.py:9022): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
@@ -1732,7 +1732,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1294, registered telegram_handler.py:1226) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:8289
+bot/core/stock_trading.py, also read by bot/core/engine.py:8292
 (get_market_session) and scan_commands.py:376.
 
 **Price alerts and anomaly-alert scoping**

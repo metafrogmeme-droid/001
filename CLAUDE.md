@@ -13747,9 +13747,11 @@ re-recorded.
 card printed, in green, `Leverage 1 / 5`, whatever the open positions ran at:
 a hard-coded reading on the card whose job is to show risk. Drawing the real
 figure as a bar against the `5` beside it would have been wrong too. That `5`
-is `default_leverage`, the standard every order is set to, not a ceiling (the
-executor's hard ceiling uses `max_leverage` through the notional check), so a
-bar would paint the ordinary state, 5x at a 5x standard, full and red.
+is `default_leverage`, the standard every order is set to, not a ceiling in the
+gauge's sense (and `max_leverage` is no ceiling either: the F-3 notional check
+reads it inside a `max()` with the order's own leverage, so it binds nothing;
+the compliance-cap chapter drives it), so a bar would paint the ordinary state,
+5x at a 5x standard, full and red.
 `leverage_in_use` reads the highest leverage across the caller's open
 positions through `position_leverage`, which refuses the stored `0` an
 adopted position carries and derives it from margin and notional when both
@@ -14180,6 +14182,79 @@ what a secret holds; and what is not read is stated — a `with:` block handing
 environment to a composite action. The real workflows are clean, so every
 branch is driven on a planted workflow.
 (`tests/test_ci_cannot_enable_a_live_flag.py`.)
+
+**COMPLIANCE LOCK 4 REFUSED "NOTIONAL $25,000" ABOUT A MARGIN OF $25,000.**
+`ComplianceEngine` called its per-trade ceiling `max_notional_usd` and refused
+with *"Notional $X exceeds cap $Y"*, and the figure it is handed is the MARGIN:
+`engine._confirm_trade_inner` passes `recheck.position_size_usd`, which
+`live_executor`'s own audit F-3 note settles -- *"size_usd is MARGIN; the real
+exchange exposure is notional = quantity * price = size_usd * leverage"*.
+Driven, a $100 margin at 5x is $500 of exposure and the lock compared $100
+against the cap, under a sentence claiming a comparison nobody made, on the
+last authorization before a live order. That is the `size_usd` two-meanings
+defect one envelope over. The field is `max_margin_usd`, the keyword is
+`margin_usd`, the lock is `margin_cap` and the refusal names the margin; the
+four test files that pinned the old spelling move with it (every occurrence a
+compliance call), and `tests/selftest_upgrade.py` among them is a SCRIPT with
+its own runner, not a pytest file -- handed to pytest it runs at collection and
+`sys.exit`s into an INTERNALERROR, so it is driven the way it was written. The
+risk engine's LOCAL `max_notional_usd` is a recorded misnomer, not a rename: it
+clamps `position_usd`, the margin, its behaviour is deliberate and documented,
+and moving the name would move no number while touching every sizing test.
+
+**IT CANNOT FIRE AT SHIPPED CAPS, so the change is a name and not a
+behaviour.** `MICRO_MAX_POSITION_USD` is $100 and the demo profile's cap is
+$10,000, so the margin never approaches the cap and neither does the notional
+at the highest leverage an order can run at. Both facts are read from the live
+constants, so an operator who raises them is told here first; the cap becomes
+reachable behind `SIZE_BOUNDS_ENABLED` on a large account.
+
+**AND THE COMMENT WRITTEN TO SAY WHAT THE CAP DOES NOT BOUND NAMED A BACKSTOP
+THAT IS NOT ONE.** It said exposure was bounded by the executor's F-3 hard
+block, a sentence copied from `risk_engine.py`'s module docstring (*"a hard
+notional ceiling (margin * max_leverage) as a backstop"*), and the drive written
+for it FAILED: the block's ceiling is
+`max(size, $100) * max(MAX_LEVERAGE, lev) * 1.05`, so a consistent order at 60x
+on a $100 margin passes it, $6,000 against $6,300. It refuses a QUANTITY that
+does not match margin x the leverage the order was sized at -- an arithmetic
+check against a sizing bug, which is what audit F-3 was for -- and says nothing
+about the leverage. `docs/DEEP_AUDIT_2026.md` had already recorded that the
+check "uses max_leverage so it cannot catch the 1.4x leverage over-set", filed
+low, and the sentence stood in three places anyway. *When a fresh assertion
+fails, check whether the code or the assertion is wrong before touching the
+code*: here the code was right, and the assertion, the comment and the
+docstring it was copied from were wrong.
+
+**`MAX_LEVERAGE` BINDS NOTHING.** Driven, `CONFIG.exchange.max_leverage`
+(default 10, bounded 1..125) has exactly ONE code reader in `bot/`, that gate,
+and there it is one arm of a `max()` with the order's own leverage: set to 1, it
+refuses no consistent order. `order_rules.ASSET_RULES` carries a per-class
+`max_leverage` too (Stock 10, Crypto 125), in a "quick reference" table that
+nothing reads. What bounds exposure is the STANDARD leverage every order is
+lowered from -- `default_leverage` (5), or the operator's `/leverage set`
+override clamped to `LEVERAGE_OVERRIDE_MAX` (20) -- and the four readers past
+it (a user's preference through `resolve_user_leverage`, dynamic scaling, the
+margin-risk cap, the quality ladder) only ever lower it. Three surfaces called
+`max_leverage` a ceiling: the risk engine's docstring, this file's `/risk`-card
+chapter (*"the executor's hard ceiling uses `max_leverage` through the notional
+check"*) and the compliance comment; all three say what the gate does now.
+Whether the knob should become a real ceiling on the standard, or be deleted
+with the dead table rows, is a sizing decision -- a ceiling below
+`DEFAULT_LEVERAGE` or the override changes every live order -- so it is FILED
+with this measurement rather than made inside a rename, and
+`test_max_leverage_binds_nothing` pins the fact both ways, so the change lands
+at the filed decision instead of in silence.
+
+**Fourteen mutations, each killed on the first round, none refused.** The cap
+made exclusive or doubled, both lock names and both halves of the refusal back
+on "notional", the engine handing the lock a second leverage resolution or the
+old keyword, the F-3 gate turned into a `max_leverage` ceiling and the gate
+that stops reading it, a second reader planted in `leverage.py`, and each of the
+three reduce-only readers (the preference clamp, the margin-risk cap, the
+override's ceiling) made able to raise the standard. The engine's call grew a
+three-line comment, so the two map citations below it moved with it, and the
+derived counts moved by this file's one new test.
+(`tests/test_the_compliance_cap_is_the_quantity_it_checks.py`.)
 
 ## Public-surface rules
 
@@ -14660,7 +14735,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 238 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 239 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -15472,9 +15547,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **448 of 1132** reach for source text through `source_scan`, `code_only`
+Driven, **449 of 1133** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 448 is a FLOOR and the honest shape is
+source scan that rule does not see, so 449 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

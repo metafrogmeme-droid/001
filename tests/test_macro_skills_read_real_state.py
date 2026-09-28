@@ -83,12 +83,12 @@ def _populated_compliance() -> ComplianceEngine:
     ok = SubjectProfile(subject_id="op", permissions=set(perms), jurisdiction="US")
     for i in range(3):
         eng.authorize(action=perms[0], profile=ok, live_mode=False,
-                      risk_passed=True, macro_ok=True, notional_usd=100.0,
+                      risk_passed=True, macro_ok=True, margin_usd=100.0,
                       trade_id=f"T{i}")
     blocked = SubjectProfile(subject_id="x", permissions=set(perms),
                              jurisdiction="RU")
     eng.authorize(action=perms[0], profile=blocked, live_mode=False,
-                  risk_passed=True, macro_ok=True, notional_usd=1.0,
+                  risk_passed=True, macro_ok=True, margin_usd=1.0,
                   trade_id="T-DENY")
     return eng
 

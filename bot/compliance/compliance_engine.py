@@ -38,7 +38,42 @@ class SubjectProfile:
     subject_id: str
     permissions: Set[Permission]
     jurisdiction: str = "US"
-    max_notional_usd: float = 10_000.0
+    #: THE PER-TRADE MARGIN CEILING, and the name says margin because margin is
+    #: what Lock 4 is handed. `engine._confirm_trade_inner` passes
+    #: `recheck.position_size_usd`, and `live_executor`'s own audit F-3 note
+    #: settles what that is: *"size_usd is MARGIN; the real exchange exposure is
+    #: notional = quantity * price = size_usd * leverage. The risk engine's
+    #: %-caps are margin-based, so they validate size_usd, not this notional."*
+    #: This field was called `max_notional_usd`, and the refusal it printed said
+    #: "Notional $X exceeds cap" -- a claim about a comparison nobody made, on
+    #: an authorization lock, which is the `size_usd` two-meanings-under-one-name
+    #: defect one envelope over.
+    #:
+    #: WHAT IT DOES NOT BOUND, stated rather than implied: exposure. At the 20x
+    #: the operator's `/leverage set` override can reach, a $10,000 margin
+    #: ceiling permits $200,000 of notional, so reading this as an exposure
+    #: envelope over-states it by the leverage. Naming the exposure at THIS
+    #: point needs the leverage the order will run at, and that is resolved
+    #: ONCE per order inside `LiveExecutor.execute` (#201: two reads of the
+    #: leverage in one order are two answers). A second resolution here to
+    #: feed a cap that cannot fire would be that defect rebuilt to make a
+    #: name true.
+    #:
+    #: The first draft of this comment named the executor's F-3 notional block
+    #: as the exposure backstop, copying `risk_engine.py`'s module docstring,
+    #: and the drive written for it said otherwise: that block's ceiling is
+    #: `max(size, $100) * max(MAX_LEVERAGE, lev) * 1.05`, so a consistent
+    #: order at ANY leverage passes it. It checks the order's ARITHMETIC and
+    #: never its leverage, and `MAX_LEVERAGE` has no other reader, so it binds
+    #: nothing. Exposure is bounded by the STANDARD leverage every order is
+    #: lowered from (`default_leverage`, or the override clamped to
+    #: `LEVERAGE_OVERRIDE_MAX`); every reader past it only lowers.
+    #:
+    #: Driven at shipped caps it cannot fire either way: `MICRO_MAX_POSITION_USD`
+    #: is $100, so the margin never approaches $10,000 and neither would the
+    #: notional at the override's 20x ($2,000). It becomes reachable behind
+    #: `SIZE_BOUNDS_ENABLED` on a large account.
+    max_margin_usd: float = 10_000.0
     kyc_verified: bool = False
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -112,11 +147,16 @@ class ComplianceEngine:
         live_mode: bool,
         risk_passed: bool,
         macro_ok: bool,
-        notional_usd: float,
+        margin_usd: float,
         trade_id: Optional[str] = None,
         approval_token: Optional[ApprovalToken] = None,
     ) -> AuthorizationDecision:
-        """Evaluate all applicable locks and return a decision."""
+        """Evaluate all applicable locks and return a decision.
+
+        ``margin_usd`` is the MARGIN the risk gate sized, which is what every
+        caller has at the moment it authorizes; see `SubjectProfile
+        .max_margin_usd` for what that cap does and does not bound.
+        """
 
         # Jurisdiction gate — hard block regardless of mode
         if profile.jurisdiction in self._restricted:
@@ -136,7 +176,7 @@ class ComplianceEngine:
         if live_mode:
             return self._authorize_live(
                 action, profile, risk_passed, macro_ok,
-                notional_usd, trade_id, approval_token,
+                margin_usd, trade_id, approval_token,
             )
         return self._authorize_paper(action, profile, risk_passed, trade_id)
 
@@ -270,7 +310,7 @@ class ComplianceEngine:
         profile: SubjectProfile,
         risk_passed: bool,
         macro_ok: bool,
-        notional_usd: float,
+        margin_usd: float,
         trade_id: Optional[str],
         approval_token: Optional[ApprovalToken],
     ) -> AuthorizationDecision:
@@ -300,14 +340,18 @@ class ComplianceEngine:
             failed.append("macro")
             reasons.append("Macro window is in BLOCK state")
 
-        # Lock 4 — Notional cap
-        if notional_usd <= profile.max_notional_usd:
-            passed.append("notional_cap")
+        # Lock 4 — Per-trade margin cap. The word is `margin` on every side of
+        # this comparison now: the figure handed in is the margin the risk gate
+        # sized, so a refusal saying "Notional" named a quantity nobody
+        # compared. `SubjectProfile.max_margin_usd` records what it does not
+        # bound.
+        if margin_usd <= profile.max_margin_usd:
+            passed.append("margin_cap")
         else:
-            failed.append("notional_cap")
+            failed.append("margin_cap")
             reasons.append(
-                f"Notional ${notional_usd:,.2f} exceeds cap "
-                f"${profile.max_notional_usd:,.2f}"
+                f"Margin ${margin_usd:,.2f} exceeds the subject's per-trade "
+                f"margin cap ${profile.max_margin_usd:,.2f}"
             )
 
         # Lock 5 — Human approval token
@@ -351,6 +395,6 @@ def default_demo_profile() -> SubjectProfile:
         subject_id="demo-user",
         permissions={Permission.READ_ONLY, Permission.ANALYSIS, Permission.PAPER_TRADE},
         jurisdiction="US",
-        max_notional_usd=10_000.0,
+        max_margin_usd=10_000.0,
         kyc_verified=False,
     )
