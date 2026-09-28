@@ -15701,6 +15701,90 @@ nothing or logged and swallowed, an unreadable revoke read as eligible, the
 refusal or the gate's warning carrying the exception's text.
 (`tests/test_a_user_store_that_failed_to_load_is_not_a_permissive_one.py`.)
 
+**A LIVE-PERMISSION WRITE THAT FAILED AT THE DISK WAS IN FORCE, ABSENT ON
+DISK, AND REPORTED AS "SOMETHING BROKE".** `set_live_trading`,
+`set_max_margin` and `set_sim_opt_in` change the user map and then write the
+whole file. When the write raises -- a full disk, a permission -- the map
+already holds the change. Driven with the write raising `OSError(28)`:
+
+    /revoke_live 4242   memory: revoked, can_trade_live False   disk: live
+    /setcap 4242 5      memory: cap $5.00                        disk: cap $20.00
+    restart             the revoke and the cap are gone
+
+The command reached `_on_error`, whose generic line reads as "nothing
+happened", and no audit was written, because the audit sits after the save.
+For a REVOKE that is the safe direction badly described. For a GRANT and for
+`/paper off` it is the loosening one: the operator believes the grant failed
+while the user can trade live until the next restart, and a person believes
+paper mode is still on while their next confirm executes live. The website's
+control pull had the same shape and already handled it by accident of design:
+its generic `except` acks the row `ok: False`, the website keeps the row
+pending, and the next pull applies it again -- which is what persists it once
+the disk is writable.
+
+**The change is KEPT and the writer says it is held.** Undoing it would put a
+revoke back to "live" because the disk was full, the wrong direction, and the
+map is written whole, so the next successful save of ANY kind carries the held
+change to disk (driven: a later, unrelated save persists the revoke). The
+three writers save through `_save_or_hold`, which audits `HELD` naming the
+exception's class and raises `StoreWriteHeld` carrying the class and never the
+text, since an `OSError` names the path and the sentence reaches a chat. Only
+a disk fault is held; a write that raises for any other reason is a defect to
+surface and still propagates. `/grant_live` and `/revoke_live` answer with a
+fourteen-language sentence (`grant_live_held`, `revoke_live_held`) that says
+the change is in force for this bot process only, that a restart forgets it,
+and what to run once the disk is writable -- the grant's names the undo
+beside it. `/setcap` and `/paper` say the same in their own English, and
+`/paper off`'s says which way the next confirm goes. The control pull acks a
+held write as `not persisted` and logs that the row stays pending, so the
+website's own retry is the durable copy.
+
+**What is deliberately left.** `revoke`, `approve`, `set_role` and `set_tier`
+write through the same `_save` and still raise the generic error over a
+change that is in force until the next restart; they decide admission, not
+money, and each is filed rather than folded into a slice about the live
+permission. The store's refusal to write over a FAILED LOAD is unchanged and
+unreachable from these writers: the map is empty then, so every one of them
+answers "unknown user" before the save.
+
+**THE PREFLIGHT THAT SHIPPED THE PREVIOUS PUSH FORGAVE FIVE TESTS AS FLAKY,
+AND THE LEAK PROBE NAMED TWO FIXTURES OF MINE.** The full gate on 64b7ae76
+read *All local gates green* over five backtest resting-limit tests that
+failed in the full run and passed alone -- five of one class, which this file
+records as the state-leak signature. A pytest plugin snapshotting every
+frozen-config field and the limit modules' attributes after every test named
+the writers in one subset run: the cancelled-limit suite's `limit_cfg`
+replaced `CONFIG.limit_orders` with `drift_market_fallback=False` and never
+handed it back, and the stale-order suite's did the same with
+`price_drift_cancel_pct=0.0` -- a drift band of ZERO, which cancelled every
+resting limit the backtest suites placed for the rest of the session. A third,
+the typed-ticket suite's `post_only=True`, leaked the same way and happened to
+break nothing yet. All three restore in a finally, and each carries a drive of
+its own restore: the fixture is run as the generator pytest runs, through its
+finally, because `gen.close()` throws `GeneratorExit` at the yield and skips
+exactly the restore a fixture without one lacks. Each write was `object.
+__setattr__` on a frozen dataclass -- outside monkeypatch's bookkeeping, the
+shape this file already records for the gateway secret -- and the pushed head
+carries the leak; the fix is in the commit that follows it.
+
+**Nineteen mutations, each killed on the first round, none refused.** Three
+are worth naming for what they prove about the guards rather than the code.
+The stale-order fixture's restore removed dies twice over -- on its own
+generator drive and on the backtest limit suite that runs after it in the
+round, which is the leak reproduced rather than asserted; the typed-ticket
+fixture's restore removed dies on its drive alone, because nothing after it
+reads `post_only`, and that is the reason the drive exists. And the revoke
+command reading a held write as an unknown user passes every assertion about
+the store and dies only on the sentence, which is the whole slice: the state
+was already right, and what the person was told was not. The rest die where
+the drives say -- the helper swallowing the fault, auditing nothing, or
+holding every exception; the class replaced by the text in the audit or on
+the exception; each writer saving directly again; the grant falling through
+to the generic error; the cap sentence naming no class or claiming a save;
+`/paper off` saying trades stay simulated; `/paper on` ignoring the hold; the
+pull acking a held write as applied or folding it into the generic error.
+(`tests/test_a_permission_write_that_did_not_land_says_so.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -16180,7 +16264,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 249 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 250 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -16992,9 +17076,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **460 of 1150** reach for source text through `source_scan`, `code_only`
+Driven, **461 of 1151** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 460 is a FLOOR and the honest shape is
+source scan that rule does not see, so 461 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

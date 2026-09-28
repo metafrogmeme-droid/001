@@ -78,6 +78,7 @@ from bot.utils.leveraged_return import (
     position_leverage,
 )
 from bot.utils.logger import audit, system_log
+from bot.utils.user_store import StoreWriteHeld
 from bot.warroom.warroom_bot import render_emergency_stop as wr_emergency_stop
 from bot.warroom.warroom_bot import render_pause as wr_pause
 from bot.warroom.warroom_bot import render_resume as wr_resume
@@ -373,6 +374,22 @@ def pending_order_card(po: dict) -> str:
             "distance to the stop.")
     lines.append(f"\u23f3 <b>Waiting:</b> {age_str}")
     return "\n".join(lines)
+
+
+def _paper_held(enabled: bool, cls: str) -> str:
+    """`/paper`'s sentence for a switch that is in force and not on disk."""
+    if enabled:
+        now = ("your confirmed trades are <b>SIMULATED</b> for this bot process "
+               "only")
+        later = ("after the next restart they execute <b>LIVE</b> again unless "
+                 "<code>/paper on</code> is run again once the disk is writable")
+    else:
+        now = ("your confirmed trades execute <b>LIVE</b> (real orders) for this "
+               "bot process")
+        later = ("after the next restart they are simulated again unless "
+                 "<code>/paper off</code> is run again once the disk is writable")
+    return (f"\u26a0\ufe0f <b>PAPER mode {'ON' if enabled else 'OFF'} — NOT SAVED</b>\n\n"
+            f"The setting could not be written ({cls}), so {now}; {later}.")
 
 
 class TradingCommands:
@@ -1076,7 +1093,12 @@ class TradingCommands:
         tg_id = self._get_tg_id(update)
         action = (ctx.args[0].lower() if ctx.args else "status")
         if action in ("on", "enable", "start", "sim"):
-            if self.users.set_sim_opt_in(tg_id, True):
+            try:
+                _saved = self.users.set_sim_opt_in(tg_id, True)
+            except StoreWriteHeld as exc:
+                await self._send(update, _paper_held(True, exc.detail))
+                return
+            if _saved:
                 await self._send(update,
                     "📝 <b>PAPER mode ON</b> — your confirmed trades will be "
                     "<b>SIMULATED</b> (no real orders). Risk-free practice.\n"
@@ -1084,7 +1106,15 @@ class TradingCommands:
             else:
                 await self._send(update, "⚠️ Could not enable paper mode (unknown user — use /start first).")
         elif action in ("off", "disable", "stop", "live"):
-            if self.users.set_sim_opt_in(tg_id, False):
+            try:
+                _saved = self.users.set_sim_opt_in(tg_id, False)
+            except StoreWriteHeld as exc:
+                # OFF means LIVE: a person told "something broke" over a
+                # switch that is in force would confirm the next trade
+                # believing it is still simulated.
+                await self._send(update, _paper_held(False, exc.detail))
+                return
+            if _saved:
                 await self._send(update,
                     "🔴 <b>PAPER mode OFF</b> — your confirmed trades will execute "
                     "<b>LIVE</b> (real orders), subject to your live-trading permission.")

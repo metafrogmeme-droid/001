@@ -381,6 +381,29 @@ TOUCH_PERSIST_SECONDS = 300
 log = logging.getLogger("runeclaw.user_store")
 
 
+class StoreWriteHeld(RuntimeError):
+    """A change that is IN FORCE in memory and NOT on disk.
+
+    `set_live_trading`, `set_max_margin` and `set_sim_opt_in` change the map
+    and then write the whole file. When the write raises -- a full disk, a
+    permission -- the map already holds the change, so for THIS process the
+    user is revoked / capped / paused (or granted / uncapped / live). A
+    restart forgets it and nothing re-applies it. Reading the raise as
+    "nothing happened" is wrong in the loosening direction for a grant and
+    for `/paper off`, so the callers say what is in force and what is not.
+
+    Carries the exception's CLASS and never its text: an OSError names the
+    path, and this reaches an operator's chat.
+    """
+
+    def __init__(self, what: str, exc: BaseException) -> None:
+        self.what = what
+        self.detail = type(exc).__name__
+        super().__init__(
+            f"{what} -- HELD IN MEMORY, NOT SAVED: users.json could not be "
+            f"written ({self.detail}); a restart forgets it")
+
+
 class UserStore:
     """JSON-file backed user database with roles and tiers."""
 
@@ -501,6 +524,24 @@ class UserStore:
                          "load, so writing would destroy the real user list")
             return
         atomic_write_json(self._path, self._users, indent=2, default=str)
+
+    def _save_or_hold(self, what: str, action: str) -> None:
+        """Save, or audit HELD and raise `StoreWriteHeld` -- the change stays.
+
+        The map is already changed when this runs, and it is left changed:
+        undoing it would put a revoke back to "live" because the disk was
+        full, which is the wrong direction; keeping it means this process
+        honours the decision and the next successful save of ANY kind
+        (the map is written whole) persists it. The audit names the class.
+        """
+        try:
+            self._save()
+        except OSError as exc:
+            audit(system_log,
+                  f"{what} -- HELD IN MEMORY, NOT SAVED: users.json could not "
+                  f"be written ({type(exc).__name__})",
+                  action=action, result="HELD")
+            raise StoreWriteHeld(what, exc) from exc
 
     # ── Public API ─────────────────────────────────────────────
 
@@ -962,10 +1003,9 @@ class UserStore:
                 self._users[key].pop("live_revoked_at", None)
             else:
                 self._users[key]["live_revoked_at"] = datetime.now(UTC).isoformat()
-            self._save()
-            audit(system_log,
-                  f"Live trading {'enabled' if enabled else 'disabled'} for user {key}",
-                  action="live_trading_permission", result="OK")
+            what = f"Live trading {'enabled' if enabled else 'disabled'} for user {key}"
+            self._save_or_hold(what, "live_trading_permission")
+            audit(system_log, what, action="live_trading_permission", result="OK")
             return True
 
     def max_margin(self, telegram_id: int | str) -> Optional[float]:
@@ -998,11 +1038,10 @@ class UserStore:
                 self._users[key].pop("max_margin_usd", None)
             else:
                 self._users[key]["max_margin_usd"] = float(usd)
-            self._save()
-            audit(system_log,
-                  f"Max margin {'cleared' if usd is None else f'set to ${usd:.2f}'} "
-                  f"for user {key}",
-                  action="user_max_margin", result="OK")
+            what = (f"Max margin {'cleared' if usd is None else f'set to ${usd:.2f}'} "
+                    f"for user {key}")
+            self._save_or_hold(what, "user_max_margin")
+            audit(system_log, what, action="user_max_margin", result="OK")
             return True
 
     def anomaly_prefs(self, telegram_id: int | str) -> dict:
@@ -1085,10 +1124,9 @@ class UserStore:
             if key not in self._users:
                 return False
             self._users[key]["sim_opt_in"] = enabled
-            self._save()
-            audit(system_log,
-                  f"Paper sim mode {'enabled' if enabled else 'disabled'} for user {key}",
-                  action="sim_opt_in", result="OK")
+            what = f"Paper sim mode {'enabled' if enabled else 'disabled'} for user {key}"
+            self._save_or_hold(what, "sim_opt_in")
+            audit(system_log, what, action="sim_opt_in", result="OK")
             return True
 
     # ── Tier management ────────────────────────────────────────

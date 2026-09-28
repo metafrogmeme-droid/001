@@ -292,5 +292,7 @@
   "tx_off": "⏱ Ce bot n'exécute aucune sortie temporelle : les positions se ferment à leur stop ou à leur objectif.",
   "tx_practice": "⏱ Aucune sortie temporelle sur une position d'entraînement : elle se ferme à son stop ou à son objectif.",
   "tx_untracked": "⏱ Aucune sortie temporelle : le bot n'a aucun enregistrement de cette position, donc aucune ne s'exécute.",
-  "tx_more": "Sorties temporelles de {n} autres : ouvrez-les dans /positions."
+  "tx_more": "Sorties temporelles de {n} autres : ouvrez-les dans /positions.",
+  "grant_live_held": "<b>TRADING RÉEL ACCORDÉ — NON ENREGISTRÉ</b>\n\n- Utilisateur : <code>{id}</code>\n- L'autorisation ne vaut que pour ce processus du bot : <code>users.json</code> n'a pas pu être écrit ({cls}).\n- Un redémarrage l'oublie et rien ne la réapplique. Réparez le disque, puis relancez <code>/grant_live {id}</code> — ou annulez-la maintenant avec <code>/revoke_live {id}</code>.",
+  "revoke_live_held": "<b>TRADING RÉEL RÉVOQUÉ — NON ENREGISTRÉ</b>\n\n- Utilisateur : <code>{id}</code>\n- La révocation ne vaut que pour ce processus du bot : <code>users.json</code> n'a pas pu être écrit ({cls}).\n- Un redémarrage l'oublie : cet utilisateur pourra de nouveau trader en réel après le prochain redémarrage, sauf si <code>/revoke_live {id}</code> est relancé une fois le disque à nouveau inscriptible."
 }

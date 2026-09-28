@@ -292,5 +292,7 @@
   "tx_off": "⏱ Dieser Bot führt keine Zeitausstiege aus: Positionen schließen an ihrem Stop oder Ziel.",
   "tx_practice": "⏱ Bei einer Übungsposition laufen keine Zeitausstiege: sie schließt an ihrem Stop oder Ziel.",
   "tx_untracked": "⏱ Keine Zeitausstiege: der Bot hat keinen Eintrag zu dieser Position, daher läuft keiner.",
-  "tx_more": "Zeitausstiege für {n} weitere: öffne sie in /positions."
+  "tx_more": "Zeitausstiege für {n} weitere: öffne sie in /positions.",
+  "grant_live_held": "<b>LIVE-TRADING ERTEILT — NICHT GESPEICHERT</b>\n\n- Nutzer: <code>{id}</code>\n- Die Freigabe gilt nur für diesen Bot-Prozess: <code>users.json</code> konnte nicht geschrieben werden ({cls}).\n- Ein Neustart vergisst sie, und nichts wendet sie erneut an. Datenträger reparieren, dann <code>/grant_live {id}</code> erneut ausführen — oder jetzt mit <code>/revoke_live {id}</code> zurücknehmen.",
+  "revoke_live_held": "<b>LIVE-TRADING ENTZOGEN — NICHT GESPEICHERT</b>\n\n- Nutzer: <code>{id}</code>\n- Der Entzug gilt nur für diesen Bot-Prozess: <code>users.json</code> konnte nicht geschrieben werden ({cls}).\n- Ein Neustart vergisst ihn: dieser Nutzer kann nach dem nächsten Neustart wieder live handeln, sofern <code>/revoke_live {id}</code> nicht erneut ausgeführt wird, sobald der Datenträger beschreibbar ist."
 }

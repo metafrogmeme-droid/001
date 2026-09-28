@@ -29,10 +29,34 @@ from bot.compat import UTC
 from bot.formatters.user_roster import render_table
 from bot.utils.i18n import get_user_lang, t
 from bot.utils.logger import audit, system_log
-from bot.utils.user_store import ROLES, SELF_ADMISSION_ROLE, UserStore, is_vouchable
+from bot.utils.user_store import (
+    ROLES,
+    SELF_ADMISSION_ROLE,
+    StoreWriteHeld,
+    UserStore,
+    is_vouchable,
+)
 
 if TYPE_CHECKING:
     from bot.marketing.channel_forwarder import ChannelForwarder
+
+
+def _cap_held(target_id: str, usd, cls: str) -> str:
+    """`/setcap`'s sentence for a cap that is in force and not on disk.
+
+    The store keeps the change (this process caps at the new figure), the
+    file does not, and a restart goes back to whatever the file holds.
+    `cls` is the exception's class name, never its text.
+    """
+    change = ("cleared" if usd is None
+              else f"set to <b>${float(usd):,.2f}</b> per live trade")
+    again = "off" if usd is None else f"{float(usd):g}"
+    return (f"\u26a0\ufe0f Margin cap {change} for <code>{target_id}</code> — "
+            "<b>NOT SAVED</b>.\n\n"
+            f"It is in force for this bot process only: <code>users.json</code> "
+            f"could not be written ({cls}). A restart goes back to the cap on "
+            f"disk. Fix the disk, then run <code>/setcap {target_id} {again}</code> "
+            "again.")
 
 
 class AccessCommands:
@@ -170,7 +194,15 @@ class AccessCommands:
             await self._send(update,
                 f"\U0001f534 {t('grant_live_not_approved', self._lang(update), id=target_id)}")
             return
-        ok = self.users.set_live_trading(target_id, True)
+        try:
+            ok = self.users.set_live_trading(target_id, True)
+        except StoreWriteHeld as exc:
+            # The grant IS in force for this process (the map holds it) and
+            # is NOT on disk; "something broke" would read as "nothing
+            # happened", which for a grant is the loosening direction.
+            await self._send(update,
+                f"\u26a0\ufe0f {t('grant_live_held', self._lang(update), id=target_id, cls=exc.detail)}")
+            return
         if ok:
             name = user.get("name", "Unknown")
             await self._send(update,
@@ -192,7 +224,12 @@ class AccessCommands:
         if not target_id.isdigit():
             await self._send(update, f"\U0001f534 {t('invalid_tg_id', self._lang(update))}")
             return
-        ok = self.users.set_live_trading(target_id, False)
+        try:
+            ok = self.users.set_live_trading(target_id, False)
+        except StoreWriteHeld as exc:
+            await self._send(update,
+                f"\u26a0\ufe0f {t('revoke_live_held', self._lang(update), id=target_id, cls=exc.detail)}")
+            return
         if ok:
             user = self.users.get(target_id)
             name = user.get("name", "Unknown") if user else "Unknown"
@@ -449,7 +486,11 @@ class AccessCommands:
             await self._send(update, "🔴 No such user. They must /start first.")
             return
         if raw in ("off", "none", "clear", "0"):
-            self.users.set_max_margin(target_id, None)
+            try:
+                self.users.set_max_margin(target_id, None)
+            except StoreWriteHeld as exc:
+                await self._send(update, _cap_held(target_id, None, exc.detail))
+                return
             await self._send(update,
                 f"🟢 Margin cap <b>cleared</b> for <code>{target_id}</code> — "
                 "back to the global live cap.")
@@ -463,7 +504,11 @@ class AccessCommands:
         if usd <= 0:
             await self._send(update, "🔴 Cap must be greater than 0 (or <code>off</code>).")
             return
-        self.users.set_max_margin(target_id, usd)
+        try:
+            self.users.set_max_margin(target_id, usd)
+        except StoreWriteHeld as exc:
+            await self._send(update, _cap_held(target_id, usd, exc.detail))
+            return
         await self._send(update,
             f"🟢 Margin cap set: <code>{target_id}</code> may commit at most "
             f"<b>${usd:,.2f}</b> margin per live trade (still bounded by the global cap).")

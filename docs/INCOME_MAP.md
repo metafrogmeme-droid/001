@@ -86,7 +86,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 
 Spot ORDER placement on a CEX does not exist and is refused by name: /buy and
 /sell both answer "Spot trading is disabled — RUNECLAW operates in futures-
-only mode" (trading_commands.py:1044, :1053), and a tree-wide grep finds no spot
+only mode" (trading_commands.py:1061, :1070), and a tree-wide grep finds no spot
 create_order in bot/ at all (venues.py:340 sets defaultType 'spot' only for
 market-data reads). What a user gets today is spot READING: /livebalance
 prices the caller's spot holdings on their linked venue; exposure/networth net
@@ -157,7 +157,7 @@ specifically so scalps read a real intraday anchor. Doors: /scalp
 volume, tight zones (skill_registry.py:2818); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
 (tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:2213) as a
-tighten-only veto on that user's own confirms (trading_commands.py:413); /run
+tighten-only veto on that user's own confirms (trading_commands.py:430); /run
 scalp and /fullscan scalp are the other two.
 
 *Gap.* Scalping is a strategy class of the same perp execution engine, not a separate
@@ -173,7 +173,7 @@ the exchange-side stop and take-profit, and every venue call carries
 productType USDT-FUTURES (:2471, :2487, :2615); venues.py:340 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
-(trading_commands.py:1101); signal cards from /analyze, /scan and the pro scans
+(trading_commands.py:1131); signal cards from /analyze, /scan and the pro scans
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:125).
@@ -330,7 +330,7 @@ community strategy and returns a "would-take" picks feed built by applying
 that agent's published gates to the live signal stream, surfaced in the
 dashboard Agents view. Users can also publish their own strategy CONFIGS to
 the marketplace (/api/strategies) and pin one to their own confirms
-(/mystrategy, trading_commands.py:413).
+(/mystrategy, trading_commands.py:430).
 
 *Gap.* No real-money copying anywhere, and no copying of another HUMAN's live trades.
 copy.js:11-17 states it: "follow is a bookmark + a personalised would-take
@@ -401,7 +401,7 @@ all.
 
 *Gap.* There is no way to ACQUIRE or hold a position as long-term capital. /buy and
 /sell are hard-disabled with 'Spot trading is disabled — RUNECLAW operates in
-futures-only mode' (trading_commands.py:1044, :1053); the engine, live_executor
+futures-only mode' (trading_commands.py:1061, :1070); the engine, live_executor
 and every confirm path place USDT-M perps only. app/lib/spot.js is read-only
 by its own header ('nothing in this module places orders') and its
 reachable consumers are the chat intercept at chat.js:101 and /spot on
@@ -680,7 +680,7 @@ and three share buttons (dashboard.js:5267-5315); an anonymous ?ref= landing
 resolves the referrer's public handle only, 404s unknown codes and is rate-
 limited and cached (public_invite.js:25). Telegram is covered too: /start
 parses the ref_ payload and writes it write-once, refusing self-referral
-(start_commands.py:139-142 → user_store.py:661). And one perk is genuinely
+(start_commands.py:139-142 → user_store.py:702). And one perk is genuinely
 backed — app/lib/duel_squads.js builds Daily Duel SQUADS out of exactly this
 referral graph, served by GET /api/public/duel/squads (public_duel.js:101) and
 rendered on /duel.
@@ -700,8 +700,8 @@ computed or paid anywhere.
 *The verifier refused part of this row.* partial stands for the WEB surface only. On Telegram the loop is redemption-
 only, and what it redeems is read by nothing. Three independent checks: (1)
 record_referrer writes record['referred_by'] into the JSON user store
-(user_store.py:682) and a whole-tree grep for readers of that key returns only
-the writer's own guard at user_store.py:678 and four assertions in
+(user_store.py:723) and a whole-tree grep for readers of that key returns only
+the writer's own guard at user_store.py:719 and four assertions in
 tests/test_share_invite.py — zero non-test readers, which is this repo's own
 unreachable-mod…
 
@@ -763,7 +763,7 @@ dashboard.js:4555), can share a dollar-free PNG close card (/api/share/card),
 and a visitor arriving on /api/public/invite/:code is credited to the
 referrer. On Telegram the operator — or, as I read the body, any Telegram
 group admin/creator of the chat it is run in — can push text to the marketing
-channels with /broadcast (access_commands.py:334) and manage those channels
+channels with /broadcast (access_commands.py:371) and manage those channels
 with /channel. Exactly one referral perk is real and I verified it:
 app/lib/duel_squads.js:5,92 builds Daily Duel squads out of users.referred_by,
 so one recruit really does put you both on a squad.
@@ -1507,7 +1507,7 @@ states the whole ladder's limit plainly: 'This endpoint still grants nothing:
 referralTier has one caller, right below, and nothing in the tree gates a
 feature on a referral count.' There is NO moderator program at all; the
 closest adjacent fact is that /broadcast and /channel
-(bot/skills/access_commands.py:254, :334) accept a Telegram GROUP admin or
+(bot/skills/access_commands.py:291, :371) accept a Telegram GROUP admin or
 creator of the chat they are run in, which is Telegram's own moderation status
 being honoured, not a role RUNECLAW confers or rewards.
 
