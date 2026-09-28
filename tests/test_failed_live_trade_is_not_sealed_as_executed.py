@@ -43,7 +43,12 @@ def _block():
 
 class TestTheChain:
     def test_the_sealed_outcome_depends_on_whether_it_filled(self):
-        assert '"EXECUTED_LIVE" if not live_failed else "EXECUTION_FAILED"' in _block()
+        # Three sealed outcomes since the venue's silence became one of its
+        # own; whitespace-normalised, because the expression wraps.
+        flat = " ".join(_block().split())
+        assert ('_outcome_word = ("EXECUTED_LIVE" if not live_failed '
+                'else "EXECUTION_UNVERIFIED" if live_unverified '
+                'else "EXECUTION_FAILED")') in flat
 
     def test_execute_live_is_no_longer_asserted_unconditionally(self):
         # The old shape: a bare `outcome="EXECUTED_LIVE",` with nothing
@@ -78,8 +83,13 @@ class TestTheChain:
 
 class TestTheLearner:
     def test_the_logged_decision_depends_on_whether_it_filled(self):
-        assert ('decision="TRADE_ACCEPTED_LIVE" if not live_failed '
-                'else "EXECUTION_FAILED"') in _block()
+        # Three outcomes since the venue's silence became one of its own:
+        # accepted, unverified (submitted, confirmed neither way), failed.
+        # Whitespace-normalised, because the expression wraps.
+        flat = " ".join(_block().split())
+        assert ('decision=("TRADE_ACCEPTED_LIVE" if not live_failed '
+                'else "EXECUTION_UNVERIFIED" if live_unverified '
+                'else "EXECUTION_FAILED")') in flat
 
     def test_the_reason_travels_with_it(self):
         assert "rejected_reason=_fail_reason" in _block()

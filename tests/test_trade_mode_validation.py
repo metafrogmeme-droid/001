@@ -121,12 +121,17 @@ def test_is_futures_really_is_a_bare_equality_on_this_value():
 
 def test_the_skipped_guards_really_are_behind_it():
     """If these ever stop being gated on is_futures, this whole hazard
-    changes shape and the note above goes stale."""
-    i = EXECUTOR.index('is_futures = CONFIG.exchange.trade_mode == "futures"')
-    # Wide enough to reach _ensure_leverage, which sits ~3.6k chars after
-    # the flag. A window that stops short would pass this test by
-    # missing the guard rather than by finding it absent.
-    block = EXECUTOR[i:i + 4500]
+    changes shape and the note above goes stale.
+
+    Bounded by the FUNCTION that sets the flag, not by a character count:
+    the old window (4500 chars after the flag) was "wide enough to reach
+    _ensure_leverage" until the entry path grew, and then failed on a tree
+    where every guard it names still sat behind the flag."""
+    import inspect
+
+    from bot.core.live_executor import LiveExecutor
+    block = code_only(inspect.getsource(LiveExecutor.execute))
+    assert 'is_futures = CONFIG.exchange.trade_mode == "futures"' in block
     assert "if is_futures:" in block
     assert "_ensure_leverage" in block
     assert "has_futures" in block
