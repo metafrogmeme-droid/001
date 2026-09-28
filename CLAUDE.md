@@ -16428,6 +16428,20 @@ other. Twenty-nine in the round, none refused.
 (`bot/core/red_team.py`, `tests/test_core.py`,
 `tests/test_stop_distance_floor_is_final.py`.)
 
+**Main fixed the same two scenarios its own way while this branch was open,
+and the rebase merged the two readings into a third that neither side wrote.**
+Main's `aa4b4b70` set both `liquidity_drain` scenarios to REJECTED. Replaying
+this branch onto it kept the branch's side of every conflicting hunk, and the
+one line main changed that did NOT conflict was the capped scenario's
+`expected_verdict`: it came across as REJECTED under this branch's stop just
+above the floor, which the gate approves at the capped size. The red team then
+read **"1 of 30 got past the risk engine"**, from a scenario whose own
+description says it should APPROVE. The rebase reported success; running the
+red team on the rebased head is what showed it. The verdict is APPROVED again,
+in a commit of its own, so the capped path stays a scenario beside the
+refusal. A clean rebase is a statement about text, not about what the text
+means.
+
 **THE AGENT FEED'S THESIS EVENT PUBLISHED A SECOND CONFIDENCE, AND THE GUARD
 OVER THE CLASS ACQUITTED IT BY ITS LOOP VARIABLE'S NAME.** Every fresh engine
 idea goes to two public surfaces: the signal-stream row on `GET /api/signals`,

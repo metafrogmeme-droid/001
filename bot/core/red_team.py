@@ -295,7 +295,7 @@ class RedTeamEngine:
                     "times the account; the notional cap takes it back -- "
                     "should APPROVE at the capped size, never at the base."
                 ),
-                "expected_verdict": "REJECTED",
+                "expected_verdict": "APPROVED",
                 "atr": "auto",
                 "build_idea": lambda: _make_idea(
                     entry=price, sl=price * (1.0 - floor - 0.001), tp=price * 1.01,
