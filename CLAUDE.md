@@ -13654,6 +13654,17 @@ flat.
 
 Fourteen mutations, each killed on the first round. The case a flat figure
 needed (neither colour) was added before the round ran.
+**And that suite read the wall clock at import, so a full run that crossed
+UTC midnight forgave four of its cases as flaky.** The rows were stamped off a
+`NOW` taken when the module was imported, and the handler reads its own clock
+when it runs; a preflight that starts before midnight and reaches this file
+after it files a close stamped "a minute ago" as yesterday's, driven: a row at
+23:58:30 read at 00:00:30 is on no day the card counts. The flake filter
+re-ran each alone and passed them, which is the forgiveness this file records
+for the `get_source_segment` timeouts, one clock over. The day is pinned to the
+fixture's own `NOW` now, and the handler's `now` is still checked to be the
+wall clock within a minute, so a handler passing anything else fails rather
+than being frozen along with the fixture.
 (`tests/test_the_daily_report_is_the_days.py`.)
 
 **FOURTEEN READERS OF THE CLOSED-TRADE RECORD, AND THREE ASKED WHETHER IT

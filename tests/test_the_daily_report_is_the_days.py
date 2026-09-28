@@ -63,7 +63,25 @@ def _public_post_stamp_in_tmp(monkeypatch, tmp_path):
                         str(tmp_path / "public_daily_report.json"))
 
 
+def _freeze_the_day(monkeypatch):
+    """The rows are stamped off `NOW`, read once at import; the handler reads
+    its own clock at call time. A full run that crosses UTC midnight between
+    the two files a close stamped "a minute ago" as yesterday's, which is how
+    four of these cases were forgiven as flaky in one preflight. The day is
+    pinned to `NOW` here, and the handler's own `now` is still checked to be
+    the wall clock, so a handler passing anything else fails rather than
+    being frozen along with it."""
+    real = closes_on_utc_day
+
+    def pinned(rows, now):
+        assert abs((now - datetime.now(UTC)).total_seconds()) < 60, now
+        return real(rows, NOW)
+
+    monkeypatch.setattr(pc, "closes_on_utc_day", pinned)
+
+
 async def _live_report(monkeypatch, rows, scope="own"):
+    _freeze_the_day(monkeypatch)
     monkeypatch.setattr(pc, "CONFIG", _Live(True))
     monkeypatch.setattr(pc, "_caller_dd_status", lambda engine, uid: {})
     book = types.SimpleNamespace(closed_positions=rows, open_positions=[],
@@ -117,6 +135,7 @@ async def test_a_close_with_no_time_is_not_todays_and_is_counted(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_the_paper_branch_is_the_day_too(monkeypatch):
+    _freeze_the_day(monkeypatch)
     monkeypatch.setattr(pc, "CONFIG", _Live(False))
     old = types.SimpleNamespace(pnl=50.0, asset="ETH/USDT", closed_at=NOW - timedelta(days=3))
     new = types.SimpleNamespace(pnl=5.0, asset="BTC/USDT", closed_at=NOW - timedelta(minutes=1))
