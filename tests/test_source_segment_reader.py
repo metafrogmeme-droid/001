@@ -194,16 +194,33 @@ class TestItIsActuallyFasterOnThePathologicalFile:
         # itself stayed two orders of magnitude ahead. The 50x bar is the
         # lookup, measured on the whole file so the quadratic case is what
         # the bar sees.
-        t = time.perf_counter()
-        for n in funcs:
-            ast.get_source_segment(src, n)
-        stdlib_per_node = (time.perf_counter() - t) / len(funcs)
+        # Best of three on EACH side. Two timings taken once each under
+        # full-suite load are one measurement of the code and one of the
+        # scheduler: the 2026-09-28 preflight forgave this test as flaky
+        # when a load spike landed inside the stdlib pass and inverted the
+        # ratio on a file byte-identical to main. The minimum over three
+        # passes is the reading a spike cannot lower, on either side, and
+        # the claim (a two-orders-of-magnitude margin) is unchanged.
+        def _best_of(passes: int, fn) -> float:
+            best = float("inf")
+            for _ in range(passes):
+                t = time.perf_counter()
+                fn()
+                best = min(best, time.perf_counter() - t)
+            return best / len(funcs)
+
+        def _stdlib_pass() -> None:
+            for n in funcs:
+                ast.get_source_segment(src, n)
 
         seg = segment_reader(src)
-        t = time.perf_counter()
-        for n in funcs:
-            seg(n)
-        ours_per_node = (time.perf_counter() - t) / len(funcs)
+
+        def _ours_pass() -> None:
+            for n in funcs:
+                seg(n)
+
+        stdlib_per_node = _best_of(3, _stdlib_pass)
+        ours_per_node = _best_of(3, _ours_pass)
 
         assert ours_per_node * 50 < stdlib_per_node, (
             f"expected a large margin; stdlib {stdlib_per_node*1e6:.0f}us/node "

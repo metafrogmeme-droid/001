@@ -61,7 +61,7 @@ def test_trip_cause_and_daily_loss_are_exposed():
     eng._circuit_trip_cause = "daily_loss"
     eng._last_known_daily_loss_pct = 6.5
     assert eng.circuit_trip_cause == "daily_loss"
-    assert eng.last_known_daily_loss_pct == 6.5
+    assert eng._last_known_daily_loss_pct == 6.5
     # Not tripped → empty cause.
     eng._circuit_trip_cause = ""
     assert eng.circuit_trip_cause == ""

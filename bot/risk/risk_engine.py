@@ -498,12 +498,6 @@ class RiskEngine:
         return self._circuit_trip_cause
 
     @property
-    def last_known_daily_loss_pct(self) -> float:
-        """Most recent computed daily-loss percentage (persists across a failed
-        recompute). For truthful breaker alerts."""
-        return self._last_known_daily_loss_pct
-
-    @property
     def circuit_trip_at(self) -> Optional[float]:
         """When the breaker tripped, epoch seconds, or None when the trip on
         record carries no time (no trip, or a state a build before this
@@ -513,9 +507,10 @@ class RiskEngine:
     def last_daily_pnl_reading(self) -> tuple[Optional[float], str]:
         """``(signed percent of equity, basis)`` from the last evaluation that
         measured today's P&L, or ``(None, "")`` when none has since this
-        process started. `last_known_daily_loss_pct` is the MAGNITUDE the
+        process started. `_last_known_daily_loss_pct` is the MAGNITUDE the
         gate compares and cannot say whether the day is up or down; a card
-        that printed it behind a minus sign called a winning day a loss."""
+        that printed it behind a minus sign called a winning day a loss, and
+        the public accessor that fed it went with that card (no reader)."""
         return self._last_known_daily_pnl_pct, self._last_known_daily_pnl_basis
 
     @property
@@ -1421,7 +1416,7 @@ class RiskEngine:
         missing = tuple(getattr(t, "unreadable", ()) or ())
         return f"could not read {', '.join(missing)}" if missing else ""
 
-    def evaluate(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None, live_account: str = "") -> RiskCheck:
+    def evaluate(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None, live_account: str = "", fill_leverage: Optional[int] = None) -> RiskCheck:
         """
         Run all 23 pre-trade checks (16 in-engine + #17 liquidity + #18 macro + #19 MTF + #20 PCA + #21 VaR + #22 taker 3-bar + #23 bid dominance).
         Returns RiskCheck with APPROVED or REJECTED.
@@ -1441,11 +1436,15 @@ class RiskEngine:
         live drawdown is measured against THAT account's high-water mark, and
         an account never seen before starts its own. Unnamed keeps whichever
         account the peak was last measured on.
+        Pass fill_leverage= from the BACKTEST only: the leverage its fill
+        opens at (`BacktestConfig.leverage`). Every other caller places at the
+        operator standard, which the gate reads for itself; the risk-budget
+        base and the margin-risk cap are measured at that one figure.
         """
         with self._lock:
-            return self._evaluate_locked(idea, atr, live_equity=live_equity, max_position_usd=max_position_usd, live_open_count=live_open_count, as_of=as_of, live_mode=live_mode, live_book=live_book, live_account=live_account)
+            return self._evaluate_locked(idea, atr, live_equity=live_equity, max_position_usd=max_position_usd, live_open_count=live_open_count, as_of=as_of, live_mode=live_mode, live_book=live_book, live_account=live_account, fill_leverage=fill_leverage)
 
-    def _evaluate_locked(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None, live_account: str = "") -> RiskCheck:
+    def _evaluate_locked(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None, live_account: str = "", fill_leverage: Optional[int] = None) -> RiskCheck:
         self._total_checks += 1
         passed: list[str] = []
         failed: list[str] = []
@@ -1462,6 +1461,24 @@ class RiskEngine:
         # a test that plants one drives it.
         _rungs, _rungs_note = rungs_from_config(CONFIG.risk)
         _ladder = ladder_verdict(idea, _rungs, _rungs_note)
+        # THE LEVERAGE THE ORDER PLACES AT, read ONCE and read HERE, because
+        # two readers below -- the risk-budget base and the margin-risk cap --
+        # must be one reading. The backtest hands its fill leverage in
+        # (`BacktestConfig.leverage`: 1 on a plain run, the live standard
+        # under --honest); every other caller places at the operator
+        # standard, the /leverage override under the MAX_LEVERAGE ceiling.
+        # A user's preference, the quality ladder and the margin-risk cap only
+        # ever LOWER an order's leverage from it, so a budget divided by it
+        # bounds the loss at the stop at every leverage an order can run at.
+        if fill_leverage is not None:
+            _lev_std = max(1, int(fill_leverage))
+        else:
+            try:
+                from bot.config import RUNTIME
+                _lev_override = RUNTIME.leverage_override
+            except Exception:
+                _lev_override = None
+            _lev_std = operator_standard(CONFIG.exchange, _lev_override).leverage
         # The book a new trade JOINS (bot/risk/held_book.py). Paper and
         # backtest: this engine's tracker, as always (`None` below). Live: the
         # executor's rows, which the caller hands in, because the tracker holds
@@ -1551,10 +1568,20 @@ class RiskEngine:
 
         position_usd = sizing_equity * (CONFIG.risk.max_position_pct / 100.0)
 
-        # Fixed-fractional risk sizing: size by stop distance, not flat notional.
-        # risk_budget = equity * max_position_pct (the max we're willing to lose)
-        # position_usd = risk_budget / (stop_distance / entry_price)
-        # The notional cap (20%) is enforced by check #2 below, NOT here.
+        # Fixed-fractional risk sizing: the per-strategy risk budget is the
+        # LOSS AT THE STOP, as a share of equity. The figure this gate answers
+        # is a MARGIN at every site that opens a position (the live executor
+        # places `size_usd * leverage / price` contracts; the practice fill and
+        # the backtest open at their fill leverage), so the loss when the stop
+        # is hit is margin x leverage x stop_distance -- and the base divides
+        # by the leverage as well as the stop distance:
+        #   margin = risk_budget / (stop_distance * leverage)
+        # Divided by the stop distance alone (the shape this held until
+        # 2026-09-28) the base was a NOTIONAL committed as margin, so a 2%
+        # budget lost 2% x 5 at the stop at the 5x default, and the four
+        # *_MAX_RISK_PCT knobs bound nothing under the notional cap. The cap
+        # (check #2 below) still binds a tight stop; the budget binds a wide
+        # one, which is what a budget is for.
         # This separation gives the check real authority: if a tight stop would
         # produce an oversized position, the check catches it and caps it.
         stop_distance_pct = abs(idea.entry_price - idea.stop_loss) / idea.entry_price if idea.entry_price > 0 else 0
@@ -1571,9 +1598,10 @@ class RiskEngine:
             _st = getattr(idea, 'strategy_type', 'swing')
             st_risk_pct = CONFIG.strategy_types.get_max_risk_pct(_st)
             risk_budget = sizing_equity * (st_risk_pct / 100.0)
-            position_usd = risk_budget / stop_distance_pct
+            position_usd = risk_budget / (stop_distance_pct * _lev_std)
             note_size_step(idea, f"fixed-fractional ({_st} risk {st_risk_pct:g}% / "
-                                 f"stop {stop_distance_pct * 100:.2f}%)", position_usd)
+                                 f"stop {stop_distance_pct * 100:.2f}% at {_lev_std}x)",
+                           position_usd)
 
         # Apply execution cap (e.g., micro-test $10 limit).
         # The risk engine must evaluate the ACTUAL position size that will
@@ -2084,7 +2112,7 @@ class RiskEngine:
             else:
                 passed.append("CIRCUIT_BREAKER: OK")
         except Exception as exc:
-            failed.append(f"CIRCUIT_BREAKER: evaluation error ({exc})")
+            failed.append(f"CIRCUIT_BREAKER: evaluation error ({type(exc).__name__})")
 
         try:
             # 1b. Warning rate circuit breaker — infrastructure health
@@ -2095,7 +2123,7 @@ class RiskEngine:
             else:
                 passed.append("WARNING_RATE_BREAKER: OK")
         except Exception as exc:
-            failed.append(f"WARNING_RATE_BREAKER: evaluation error ({exc})")
+            failed.append(f"WARNING_RATE_BREAKER: evaluation error ({type(exc).__name__})")
 
         try:
             # 2. Position size — fail-closed invariant that the per-trade cap held.
@@ -2121,7 +2149,7 @@ class RiskEngine:
                 else:
                     failed.append(f"POSITION_SIZE: margin {margin_pct:.1f}% exceeds {max_margin_pct}% cap")
         except Exception as exc:
-            failed.append(f"POSITION_SIZE: evaluation error ({exc})")
+            failed.append(f"POSITION_SIZE: evaluation error ({type(exc).__name__})")
 
         daily_loss_pct = 0.0
         try:
@@ -2188,7 +2216,7 @@ class RiskEngine:
             else:
                 passed.append(f"DAILY_LOSS: {daily_loss_pct:.1f}% OK")
         except Exception as exc:
-            failed.append(f"DAILY_LOSS: evaluation error ({exc})")
+            failed.append(f"DAILY_LOSS: evaluation error ({type(exc).__name__})")
             # C2-42 FIX: Use last known value instead of zeroing, so we don't
             # mask an actual loss that was previously computed.
             daily_loss_pct = self._last_known_daily_loss_pct
@@ -2260,7 +2288,7 @@ class RiskEngine:
             else:
                 passed.append(f"DRAWDOWN: {_cur_dd:.1f}% OK ({_dd_basis})")
         except Exception as exc:
-            failed.append(f"DRAWDOWN: evaluation error ({exc})")
+            failed.append(f"DRAWDOWN: evaluation error ({type(exc).__name__})")
 
         try:
             # 5. Open positions limit
@@ -2290,7 +2318,7 @@ class RiskEngine:
             else:
                 passed.append(f"OPEN_POSITIONS: {effective_open} OK")
         except Exception as exc:
-            failed.append(f"MAX_POSITIONS: evaluation error ({exc})")
+            failed.append(f"MAX_POSITIONS: evaluation error ({type(exc).__name__})")
 
         if is_manual:
             passed.append("RISK_REWARD: skipped (manual trade)")
@@ -2311,7 +2339,7 @@ class RiskEngine:
                 else:
                     passed.append(f"RISK_REWARD: {rr:.2f} OK (min {min_rr:.1f} for {_st})")
             except Exception as exc:
-                failed.append(f"RISK_REWARD: evaluation error ({exc})")
+                failed.append(f"RISK_REWARD: evaluation error ({type(exc).__name__})")
 
         # Fee-aware entry gate (opt-in, default OFF). min-RR is a ratio and can
         # pass a tight-stop trade whose absolute TP distance barely clears fees.
@@ -2362,15 +2390,10 @@ class RiskEngine:
             # lower env default let an override above it size past the cap
             # unchecked, and evaluating at an override above the ceiling
             # measured a leverage no order runs at. No override → the default.
-            try:
-                from bot.config import RUNTIME
-                _lev_override = RUNTIME.leverage_override
-            except Exception:
-                _lev_override = None
-            leverage = operator_standard(CONFIG.exchange, _lev_override).leverage
-            # The standard this evaluation would be SET at before any rung
-            # touches it: the ledger row below records the cut FROM it.
-            _lev_std = leverage
+            # The one reading, taken at the top of this evaluation beside the
+            # risk-budget base that divides by it; the ledger row below
+            # records the rung's cut FROM it.
+            leverage = _lev_std
             # Trade QUALITY caps the leverage the VENUE is set to, before the
             # margin-risk cap measures anything -- so the verdict below is
             # measured at the leverage this trade will really run at. The
@@ -2454,7 +2477,7 @@ class RiskEngine:
             else:
                 passed.append(_mr.sentence)
         except Exception as exc:
-            failed.append(f"MARGIN_RISK: evaluation error ({exc})")
+            failed.append(f"MARGIN_RISK: evaluation error ({type(exc).__name__})")
 
         # Final stop-distance backstop. The analyzer applies the same floor,
         # but later paths may refine or replace the entry/stop pair. Reject here
@@ -2470,7 +2493,7 @@ class RiskEngine:
                 else:
                     passed.append(f"STOP_DISTANCE: {_stop_dist:.2%} OK")
         except Exception as exc:
-            failed.append(f"STOP_DISTANCE: evaluation error ({exc})")
+            failed.append(f"STOP_DISTANCE: evaluation error ({type(exc).__name__})")
 
         if is_manual:
             passed.append("CONFIDENCE: skipped (manual trade)")
@@ -2507,7 +2530,7 @@ class RiskEngine:
                 else:
                     passed.append(f"CONFIDENCE: {_shown} OK")
             except Exception as exc:
-                failed.append(f"CONFIDENCE: evaluation error ({exc})")
+                failed.append(f"CONFIDENCE: evaluation error ({type(exc).__name__})")
 
         # RC-AUD-008: correlation is a portfolio-safety check, not a signal-opinion
         # check — it binds for manual trades too (a manual entry can still
@@ -2533,7 +2556,7 @@ class RiskEngine:
                 else:
                     passed.append("CORRELATION: no concentrated exposure")
         except Exception as exc:
-            failed.append(f"CORRELATION: evaluation error ({exc})")
+            failed.append(f"CORRELATION: evaluation error ({type(exc).__name__})")
 
         # RC-AUD-008: the loss-streak guard exists to stop revenge trading, which
         # manifests most in manual entries — so it must bind for manual trades too.
@@ -2564,7 +2587,7 @@ class RiskEngine:
             else:
                 passed.append(f"LOSS_STREAK: {self._consecutive_losses} OK")
         except Exception as exc:
-            failed.append(f"LOSS_STREAK: evaluation error ({exc})")
+            failed.append(f"LOSS_STREAK: evaluation error ({type(exc).__name__})")
 
         try:
             # 10. Entry price sanity
@@ -2577,7 +2600,7 @@ class RiskEngine:
             else:
                 passed.append("ENTRY_PRICE: valid")
         except Exception as exc:
-            failed.append(f"ENTRY_PRICE: evaluation error ({exc})")
+            failed.append(f"ENTRY_PRICE: evaluation error ({type(exc).__name__})")
 
         try:
             # 11. Stop-loss required
@@ -2592,7 +2615,7 @@ class RiskEngine:
             else:
                 passed.append("STOP_LOSS: not required (config)")
         except Exception as exc:
-            failed.append(f"STOP_LOSS: evaluation error ({exc})")
+            failed.append(f"STOP_LOSS: evaluation error ({type(exc).__name__})")
 
         try:
             # 11b. Directional SL/TP side re-validation (audit fix #17).
@@ -2617,7 +2640,7 @@ class RiskEngine:
             else:
                 failed.append("SLTP_SIDES: non-finite level")
         except Exception as exc:
-            failed.append(f"SLTP_SIDES: evaluation error ({exc})")
+            failed.append(f"SLTP_SIDES: evaluation error ({type(exc).__name__})")
 
         try:
             # 12. Stale data guard
@@ -2640,7 +2663,7 @@ class RiskEngine:
             else:
                 passed.append(f"STALE_DATA: {data_age:.0f}s old OK")
         except Exception as exc:
-            failed.append(f"STALE_DATA: evaluation error ({exc})")
+            failed.append(f"STALE_DATA: evaluation error ({type(exc).__name__})")
 
         # RC-AUD-008: cooldown-after-loss also binds for manual trades (anti-revenge).
         try:
@@ -2667,7 +2690,7 @@ class RiskEngine:
             else:
                 passed.append("COOLDOWN: no recent losses")
         except Exception as exc:
-            failed.append(f"COOLDOWN: evaluation error ({exc})")
+            failed.append(f"COOLDOWN: evaluation error ({type(exc).__name__})")
 
         # Re-entry cooldown: throttle rapid same-symbol re-entries to curb fee
         # churn. Unlike check #13 (loss-only), this fires after ANY close and
@@ -2728,7 +2751,7 @@ class RiskEngine:
                 else:
                     passed.append(f"PORTFOLIO_EXPOSURE: {new_exposure:.1f}% OK")
         except Exception as exc:
-            failed.append(f"PORTFOLIO_EXPOSURE: evaluation error ({exc})")
+            failed.append(f"PORTFOLIO_EXPOSURE: evaluation error ({type(exc).__name__})")
 
         try:
             # 15. Per-symbol exposure limit (mark-to-market)
@@ -2752,7 +2775,7 @@ class RiskEngine:
                 else:
                     passed.append(f"SYMBOL_EXPOSURE: {idea.asset} {symbol_exposure_pct:.1f}% OK")
         except Exception as exc:
-            failed.append(f"SYMBOL_EXPOSURE: evaluation error ({exc})")
+            failed.append(f"SYMBOL_EXPOSURE: evaluation error ({type(exc).__name__})")
 
         try:
             # 16. Volatility guard (fail-closed: ATR required and must be > 0)
@@ -2777,7 +2800,7 @@ class RiskEngine:
             else:
                 failed.append("VOLATILITY: invalid entry price")
         except Exception as exc:
-            failed.append(f"VOLATILITY: evaluation error ({exc})")
+            failed.append(f"VOLATILITY: evaluation error ({type(exc).__name__})")
 
         try:
             # 18. Macro event risk state (v2: enhanced macro provider with size throttling)
@@ -2818,7 +2841,7 @@ class RiskEngine:
             elif not macro_checked:
                 passed.append("MACRO_EVENT: no calendar configured (skipped)")
         except Exception as exc:
-            failed.append(f"MACRO_EVENT: evaluation error ({exc})")
+            failed.append(f"MACRO_EVENT: evaluation error ({type(exc).__name__})")
 
         # 19. Multi-timeframe alignment (Feature #2) — graceful skip if no data
         try:
@@ -2828,7 +2851,7 @@ class RiskEngine:
             else:
                 passed.append("MTF_ALIGNMENT: aligned or skipped (no data)")
         except Exception as exc:
-            failed.append(f"MTF_ALIGNMENT: evaluation error ({exc})")
+            failed.append(f"MTF_ALIGNMENT: evaluation error ({type(exc).__name__})")
 
         # 20. Portfolio concentration / PCA (Feature #4)
         # "OK or skipped (no data)" was one string for two opposite facts: a
@@ -2851,7 +2874,7 @@ class RiskEngine:
                 else:
                     passed.append(f"CONCENTRATION_PCA: {conc_detail}")
         except Exception as exc:
-            failed.append(f"CONCENTRATION_PCA: evaluation error ({exc})")
+            failed.append(f"CONCENTRATION_PCA: evaluation error ({type(exc).__name__})")
 
         # 21. Portfolio VaR (parametric Value at Risk)
         # RC-AUD-007: branch on the explicit VarResult.status instead of a magic
@@ -2893,7 +2916,7 @@ class RiskEngine:
                     passed.append(f"PORTFOLIO_VAR: {var_result.proposed_var_pct:.2f}% <= "
                                   f"{max_var}% limit{_book_word}")
         except Exception as exc:
-            failed.append(f"PORTFOLIO_VAR: evaluation error ({exc})")
+            failed.append(f"PORTFOLIO_VAR: evaluation error ({type(exc).__name__})")
 
         # RC-AUD-011: Checks #22 and #23 are DELIBERATE fail-open exceptions to
         # this module's otherwise fail-closed contract (the same posture as the
@@ -2924,7 +2947,7 @@ class RiskEngine:
                       data={"check": "TAKER_3BAR"})
                 passed.append("TAKER_3BAR: skipped (no order flow analyzer)")
         except Exception as exc:
-            failed.append(f"TAKER_3BAR: evaluation error ({exc})")
+            failed.append(f"TAKER_3BAR: evaluation error ({type(exc).__name__})")
 
         # 23. Bid dominance gate (Rule 20) — book-side dominance in the trade
         # direction; fail-open (audited) when unwired. The cached signal is
@@ -2962,7 +2985,7 @@ class RiskEngine:
                             "cached_symbol": getattr(self._last_of_signal, "symbol", None)})
                 passed.append("BID_DOMINANCE: skipped (no fresh order flow data)")
         except Exception as exc:
-            failed.append(f"BID_DOMINANCE: evaluation error ({exc})")
+            failed.append(f"BID_DOMINANCE: evaluation error ({type(exc).__name__})")
 
         # -- Funding clock (default ON, narrow by construction) --
         # Blocks ONLY an entry that would sit on the PAYING side of an

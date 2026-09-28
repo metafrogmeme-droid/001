@@ -17,11 +17,12 @@ measures a bot risking a fifth of what live risks per trade, and the
 MAX_LEVERAGE chapter of CLAUDE.md had claimed the benchmark ran at the live
 leverage. `BacktestConfig.leverage` is the fill's leverage now, threaded from
 the runner's ``--leverage`` into every config the runner builds and lowered by
-the same ``apply_margin_risk_cap`` the practice fill uses; the default STAYS 1
-so the record on file reproduces line for line, ``--honest`` does not touch
-it, the artefact records it, and both documents say which leverage the record
-was measured at. Which leverage the record SHOULD be measured at is the
-operator's decision and is filed with the 5x arm's numbers.
+the same ``apply_margin_risk_cap`` the practice fill uses; the plain default
+STAYS 1, the artefact records it, and both documents say which leverage the
+record was measured at. Since the risk-budget decision (2026-09-28)
+``--honest`` fills at the leverage live places -- the operator standard under
+the MAX_LEVERAGE ceiling -- unless ``--leverage`` is passed explicitly, so the
+record on file measures what live commits.
 """
 from __future__ import annotations
 
@@ -46,6 +47,13 @@ from tests.source_scan import code_only
 from tests.test_the_parity_card_reads_the_benchmark_on_record import _artefact, _card_shaped_rows, _plant
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _honest_leverage() -> int:
+    """What `--honest` fills at, read off the runner's own resolution."""
+    args = SimpleNamespace(honest=True, leverage=None, commission=None)
+    runner._apply_honest_fidelity(args)
+    return int(args.leverage)
 
 
 def _engine(**cfg):
@@ -161,15 +169,21 @@ class TestTheConfigRefusesWhatIsNotAFill:
 
 class TestTheRunnerThreadsTheFlag:
 
-    def test_the_flag_defaults_to_the_records_leverage_and_honest_leaves_it(self):
+    def test_the_flag_is_absent_until_resolved_and_honest_fills_at_the_standard(self):
+        """The parser leaves the flag ABSENT (None) so an explicit --leverage
+        can be told from none: a plain run resolves to 1, the record's old
+        fill; an honest run resolves to the leverage live places (the
+        operator standard, 5 today) unless the flag was passed."""
         ns = runner.build_parser().parse_args(["--dataset", "x"])
-        assert ns.leverage == 1
-        ns = runner.build_parser().parse_args(["--dataset", "x", "--honest", "--leverage", "5"])
+        assert ns.leverage is None
         runner._apply_honest_fidelity(ns)
-        assert ns.leverage == 5, "--honest measures the record's exits and fees, never a leverage"
+        assert ns.leverage == 1
+        ns = runner.build_parser().parse_args(["--dataset", "x", "--honest", "--leverage", "2"])
+        runner._apply_honest_fidelity(ns)
+        assert ns.leverage == 2, "an explicit flag is kept under --honest"
         ns = runner.build_parser().parse_args(["--dataset", "x", "--honest"])
         runner._apply_honest_fidelity(ns)
-        assert ns.leverage == 1
+        assert ns.leverage == _honest_leverage() == 5
 
     def test_every_config_the_runner_builds_carries_it(self):
         """A scan, stated as one: the three `BacktestConfig(...)` calls in the
@@ -194,15 +208,22 @@ class TestTheRunnerThreadsTheFlag:
 class TestBothDocumentsSayWhichLeverageTheRecordWasMeasuredAt:
 
     def test_the_benchmark_doc_states_the_records_leverage(self):
+        """A plain run still fills at the config default (1); the RECORD is
+        the honest run, which fills at the leverage live places since the
+        risk-budget decision, and the page says both, each derived."""
         doc = (ROOT / "docs" / "FROZEN_BENCHMARK.md").read_text()
-        lev = BacktestConfig().leverage
-        assert f"fills every trade at {lev}x" in doc, "the record's leverage is stated, derived"
+        plain = BacktestConfig().leverage
+        assert f"fills every trade at {plain}x" in doc, "the plain default is stated, derived"
+        honest = _honest_leverage()
+        assert f"fills every trade at {honest}x" in doc, "the honest record's leverage is stated, derived"
         assert "--leverage 5" in doc, "the arm that measures what live places is named"
 
-    def test_claude_md_no_longer_claims_the_benchmark_runs_at_the_live_leverage(self):
+    def test_claude_md_states_the_leverage_the_honest_record_fills_at(self):
         text = (ROOT / "CLAUDE.md").read_text()
         assert len(re.findall(r"frozen benchmark runs at 5x", text)) == 0
-        assert "the frozen benchmark fills at 1x" in text
+        honest = _honest_leverage()
+        assert f"the frozen benchmark fills at {honest}x" in text
+        assert "the frozen benchmark fills at 1x" not in text, "the superseded claim, stated as current"
 
 
 # ── the record on file says which leverage it was measured at ────────────

@@ -44,6 +44,7 @@ from aiohttp import web
 from bot.config import CONFIG
 from bot.nlp.sanitize import MAX_CHAT_INPUT_LEN
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from bot.guardian.authority_ledger import AuthoritySpendLedger
     from bot.skills.telegram_handler import TelegramHandler
 
 from bot.core.confirm_result import outcome_unverified, placed_nothing
@@ -4846,6 +4847,33 @@ async def handle_guardian_review_tighten(request: web.Request) -> web.Response:
         return web.json_response({"error": "tightening failed"}, status=400)
 
 
+def _release_web3_spend(ledger: "AuthoritySpendLedger | None", tg_id: str, ref: str,
+                        now: float) -> Optional[bool]:
+    """Take a FAILED signature's notional back off the 24h ledger.
+
+    True: released. False: the ledger held no such row (an exact retry of a
+    ref an earlier attempt still holds, or a ledger nobody could reach at
+    record time -- which refused the sign before this). None: the release
+    raised, and the spend stays counted for the rest of the window; said with
+    the exception's CLASS, since a store's text names a path."""
+    try:
+        if ledger is None:
+            return False
+        released = bool(ledger.release(tg_id, ref, now))
+    except Exception as exc:
+        system_log.warning("web3 spend for a failed signature could not be released (%s); "
+                           "it stays counted against the 24h cap", type(exc).__name__)
+        audit(system_log, f"Web3 spend KEPT after a failed signature: {ref}",
+              action="web3_spend", result="KEPT",
+              data={"user": tg_id, "error": type(exc).__name__})
+        return None
+    audit(system_log,
+          f"Web3 spend {'RELEASED' if released else 'NOT_HELD'} after a failed signature: {ref}",
+          action="web3_spend", result="RELEASED" if released else "NOT_HELD",
+          data={"user": tg_id})
+    return released
+
+
 async def handle_web3_sign(request: web.Request) -> web.Response:
     """WEB3-LIVE-EXEC slice 2 — admin-only, TESTNET-ONLY live SIGN + broadcast of
     a native-value transfer to an envelope-allowlisted destination. Gated by
@@ -4989,12 +5017,12 @@ async def handle_web3_sign(request: web.Request) -> web.Response:
     # on the same nonce counts again. Recording on approval can only over-count
     # (the ledger's own stated bias); a spend that cannot be recorded is not
     # signed, because the next request would read a day without it.
+    _ref = f"web3:{chain_id}:{nonce}:{value_wei}:{dest.lower()}"
     if notional > 0:
         try:
             if ledger is None:
                 raise RuntimeError("authority ledger unavailable")
-            ledger.record(tg_id, notional, now,
-                          ref=f"web3:{chain_id}:{nonce}:{value_wei}:{dest.lower()}")
+            ledger.record(tg_id, notional, now, ref=_ref)
         except Exception:
             return web.json_response(
                 {"error": "spend_unrecorded",
@@ -5005,7 +5033,16 @@ async def handle_web3_sign(request: web.Request) -> web.Response:
     signed = _signer.build_and_sign(network=network, to=dest, value_wei=value_wei,
                                     nonce=nonce, **_sign_kw)
     if not signed.get("ok"):
-        return web.json_response({"error": "sign_failed", "reason": signed.get("error")},
+        # NOTHING WAS HANDED TO THE NETWORK, so the day must not count it:
+        # the spend recorded above is taken back, the refused web-live
+        # confirm's rule. A release that could not land keeps counting and
+        # says so (KEPT, the exception's class), which errs strict. The
+        # broadcast failure one step down is the other fact and keeps its
+        # spend: a transaction handed to the network is neither confirmed
+        # nor refused.
+        released = _release_web3_spend(ledger, tg_id, _ref, now) if notional > 0 else None
+        return web.json_response({"error": "sign_failed", "reason": signed.get("error"),
+                                  "spend_released": released},
                                  status=400)
     bcast = await _signer.broadcast(signed["raw"], _signer.rpc_url_for(network), chain_id)
 

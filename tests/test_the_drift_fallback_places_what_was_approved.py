@@ -351,19 +351,21 @@ class TestATypedTicketIsNeverChased:
         assert msg == "FALLBACK RAN"
         assert ex._check_drift_market_fallback.await_count == 1
 
-    def test_a_typed_ticket_is_cancelled_and_told_why(self, tmp_path):
+    def test_a_typed_ticket_that_drifts_keeps_resting_and_is_never_chased(self, tmp_path):
+        """The first cure cancelled a drifted typed ticket rather than chase
+        it; the decision of 2026-09-28 is that the drift rule is the engine's
+        freshness rule and does not read a person's ticket at all
+        (`tests/test_a_typed_ticket_rests_on_its_own_clock.py`). What this
+        class still owns: momentum is never asked and nothing is placed."""
         ex = _executor(tmp_path)
         pos = _resting(idea_source="manual")
         venue = _Venue(104.9)
         msg, audits = _pending_check(ex, pos, venue)
         assert ex._check_drift_market_fallback.await_count == 0, "momentum is never even asked"
         assert ex._execute_drift_market_fallback.await_count == 0
-        assert venue.cancels == ["L1"] and venue.orders == []
-        assert msg.startswith("LIMIT CANCELLED (price drift): LONG SOL/USDT")
-        assert "4.9% away from the price you typed" in msg
-        assert "never chased to the market: nothing was placed" in msg
-        assert pos.status == "closed" and pos.close_reason == "price_drift"
-        assert any(a.get("result") == "TYPED_NOT_CHASED" for a in audits)
+        assert venue.cancels == [] and venue.orders == []
+        assert msg is None and pos.status == "pending_fill"
+        assert not any(a.get("action") == "limit_drift_cancel" for a in audits)
 
     def test_a_typed_ticket_inside_the_drift_band_keeps_resting(self, tmp_path):
         ex = _executor(tmp_path)
@@ -372,14 +374,16 @@ class TestATypedTicketIsNeverChased:
         msg, _ = _pending_check(ex, pos, venue)
         assert msg is None and venue.cancels == [] and pos.status == "pending_fill"
 
-    def test_the_typed_check_sits_above_the_momentum_check(self):
+    def test_the_typed_check_sits_above_the_drift_read(self):
         """A scan, stated as one: `_check_pending_limit` is a 400-line
-        coroutine and the claim is an ORDER -- the typed test is the first
-        thing decided once drift is detected, above the momentum read."""
+        coroutine and the claim is an ORDER -- the typed test is read before
+        the drift band is, and the drift block is entered only for an
+        untyped row, so the momentum read is never reached for a ticket."""
         src = code_only(inspect.getsource(LiveExecutor._check_pending_limit))
-        typed = src.index('getattr(pos, "idea_source", None) == "manual"')
+        typed = src.index('_typed = getattr(pos, "idea_source", None) == "manual"')
+        drift = src.index("if drift_pct > 0 and pos.entry_price > 0 and not _typed:")
         momentum = src.index("await self._check_drift_market_fallback(")
-        assert typed < momentum
+        assert typed < drift < momentum
 
 
 # ── the provenance rides on the position, and survives a restart ────────

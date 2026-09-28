@@ -1373,15 +1373,17 @@ class TestEngineFSM:
         atr=None and the volatility guard fail-closed ("VOLATILITY: ATR data
         unavailable"), rejecting a valid manual trade BEFORE the synthetic-ATR
         fallback ran. The fix derives the synthetic ATR from the SL distance
-        before the re-check, so the trade drives to execution. Reproduces
-        the reported shape, with a stop wide enough to pass the final stop
-        floor: /trade short BTC 63105 sl 63505 tp 59000."""
+        before the re-check, so the trade drives to execution. The reported
+        case was /trade short BTC 63105 sl 63231 tp 59000 -- a 0.2% stop,
+        which the gate's stop-distance floor (0.40%, 2026-09-28) now refuses
+        by name; a fixture there measures the floor and not the volatility
+        guard this test is about, so the stop sits at 0.5%."""
         from types import SimpleNamespace
 
         engine = self._make_engine()
         idea = TradeIdea(
             id="TI-MANUAL-BTC", asset="BTC/USDT", direction=Direction.SHORT,
-            entry_price=63105, stop_loss=63505, take_profit=59000,
+            entry_price=63105, stop_loss=63421, take_profit=59000,
             confidence=1.0, reasoning="Manual trade placed by user",
             signals_used=["manual"], source="manual", order_type="limit",
             timestamp=datetime.now(UTC),
@@ -2285,7 +2287,11 @@ class TestFailClosedFaultInjection:
         corr_fails = [c for c in result.checks_failed if "CORRELATION" in c]
         assert len(corr_fails) == 1
         assert "evaluation error" in corr_fails[0]
-        assert "injected fault" in corr_fails[0]
+        # The exception's CLASS and never its text: a venue error string
+        # carries the request, and every check line reaches the audit, the
+        # card and the chat model.
+        assert "RuntimeError" in corr_fails[0]
+        assert "injected fault" not in corr_fails[0]
 
     def test_portfolio_snapshot_fault_causes_rejection(self):
         """If portfolio.snapshot() raises, the trade must be REJECTED."""

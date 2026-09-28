@@ -562,7 +562,11 @@ class BacktestEngine:
                     self.risk.set_regime(_reg.value, "NORMAL")
             except Exception:
                 pass
-        risk_check = self.risk.evaluate(idea, atr=atr_value, as_of=bar.timestamp)
+        # The gate divides the risk budget by the leverage the fill opens at
+        # and measures the margin-risk cap there; only the backtest knows its
+        # own (every other caller places at the operator standard).
+        risk_check = self.risk.evaluate(idea, atr=atr_value, as_of=bar.timestamp,
+                                        fill_leverage=int(self.config.leverage))
         if risk_check.verdict == RiskVerdict.REJECTED:
             self._ideas_rejected_risk += 1
             for _chk in (risk_check.checks_failed or []):

@@ -622,11 +622,12 @@ Examples:
                                   "Overrides --symbol; real data only.")
     trade_group.add_argument("--timeframe", type=str, default="1h", help="Candle timeframe (default: 1h)")
     trade_group.add_argument("--balance", type=float, default=10000.0, help="Starting balance (default: 10000)")
-    trade_group.add_argument("--leverage", type=int, default=1,
-                             help="Leverage every fill is opened at (default: 1, the frozen "
-                                  "record's; live places at DEFAULT_LEVERAGE, 5x, lowered by "
-                                  "the idea's margin-risk cap, and --leverage 5 measures that). "
-                                  "--honest does NOT change it: the record on file is 1x.")
+    trade_group.add_argument("--leverage", type=int, default=None,
+                             help="Leverage every fill is opened at (default: 1 on a plain run; "
+                                  "under --honest, the leverage live places at -- DEFAULT_LEVERAGE "
+                                  "under the MAX_LEVERAGE ceiling, 5x today -- lowered per fill by "
+                                  "the idea's margin-risk cap). Pass it explicitly to measure "
+                                  "another.")
     trade_group.add_argument("--commission", type=float, default=None,
                              help="Commission %% (default: 0.1%%; under --honest, the live-modeled "
                                   "taker rate, CONFIG.risk.taker_fee_pct, currently 0.06%%)")
@@ -726,8 +727,22 @@ def _apply_honest_fidelity(args: argparse.Namespace) -> None:
         if getattr(args, "commission", None) is None:
             from bot.config import CONFIG as _CFG
             args.commission = _CFG.risk.taker_fee_pct
+        # And the LEVERAGE: live commits the gate's figure as margin at the
+        # operator standard (DEFAULT_LEVERAGE under the MAX_LEVERAGE ceiling),
+        # and the record filled it at 1x from the day the benchmark existed,
+        # measuring a bot risking a fifth of what live risks per trade. The
+        # honest run fills at the standard unless the operator passed
+        # --leverage explicitly. The configured default, never the runtime
+        # /leverage override: a benchmark is a reproducible measurement and
+        # the override is a state file.
+        if getattr(args, "leverage", None) is None:
+            from bot.config import CONFIG as _CFG2
+            from bot.core.leverage import operator_standard
+            args.leverage = int(operator_standard(_CFG2.exchange, None).leverage)
     if getattr(args, "commission", None) is None:
         args.commission = 0.1
+    if getattr(args, "leverage", None) is None:
+        args.leverage = 1
 
 
 def main() -> None:

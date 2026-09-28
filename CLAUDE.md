@@ -14413,11 +14413,12 @@ stays: a ceiling above 20 is still not reachable by a command. The paper fill
 and the analyzer's stop tightening read the DEFAULT rather than the override,
 a pre-existing asymmetry (`RuntimeState`'s own comment says the override is
 "consulted by LiveExecutor on every open") filed rather than folded into a
-slice about the ceiling. And the frozen benchmark fills at 1x (this
-sentence said the live 5x until the chapter on the benchmark's leverage
-below drove it) under a 10x ceiling, so the ceiling binds nothing there:
-re-run at this commit (`--dataset benchmark/majors_1h --honest
---walk-forward 6`), the pooled block is the recorded one line for line,
+slice about the ceiling. And the frozen benchmark fills at 5x under
+`--honest` since the risk-budget chapter below drove the decision (it
+filled at 1x, and before that this sentence said 5x when it did not) under
+a 10x ceiling, so the ceiling binds nothing there at either leverage: re-run
+at the ceiling's own commit (`--dataset benchmark/majors_1h --honest
+--walk-forward 6`), the pooled block was the recorded one line for line,
 which is the measurement and not the reasoning.
 
 **Twenty-five mutations, each killed on the first round, none refused -- and
@@ -16178,6 +16179,242 @@ asymmetric-fixture rule one sign over.
 (`tests/test_the_breaker_card_says_what_the_gate_read.py`,
 `bot/formatters/breaker_card.py`.)
 
+**A RISK BUDGET THAT BOUNDED THE NOTIONAL BOUNDED A LOSS FIVE TIMES ITS
+NAME, AND BOTH DECISIONS THE CHAPTER ABOVE FILED WERE MADE THE SAME DAY.**
+The benchmark chapter above measured it: the gate's base was
+`risk_budget / stop_distance`, a NOTIONAL whose loss at the stop is the
+budget, and every fill site but the backtest committed that figure as MARGIN
+at 5x, so the loss at the stop was five times the budget wherever the
+notional cap did not bind -- and the cap bound on every stop under 15.4%, so
+the four `*_MAX_RISK_PCT` knobs bound nothing at the default leverage and
+the per-trade loss ceiling was `cap x MAX_MARGIN_RISK_PCT`, a product of two
+knobs neither of which is called a budget. Delegated on 2026-09-28 ("for all
+open choices do what's best"), decided: **the budget is a loss at the stop.**
+
+**The base divides by the leverage the order places at, read ONCE.**
+`margin = risk_budget / (stop_distance x _lev_std)`, where `_lev_std` is
+`operator_standard(CONFIG.exchange, RUNTIME.leverage_override).leverage` --
+the standard every placement starts from, which the user's preference, the
+quality ladder and the margin-risk cap only ever LOWER, so a budget divided
+by it bounds the loss at every leverage an order can run at. It is read at
+the top of `_evaluate_locked` and the margin-risk cap measures at the same
+figure; the cap used to re-resolve its own copy of the same question three
+hundred lines down, which is the two-answers shape one gate over. The
+backtest is the one caller that knows its own fill leverage and hands it in
+(`fill_leverage=int(self.config.leverage)`); every other caller places at
+the standard. Driven at the shipped knobs ($10,000, swing budget 2%, cap
+13%, standard 5x, London session): a 4% stop sizes $1,000 and loses exactly
+the budget at the stop, a 6% stop $666.67, a 3% stop meets the cap at $1,300
+(loss 1.95%); from 2% to 6% the loss at the stop never exceeds $200. Under
+`/leverage set 10` the same 2% stop sizes $1,000 where at 5x it sized
+$2,000 and met the cap. At a fill leverage of 1 -- the plain backtest -- a
+20% stop sizes $1,000, and a 10% stop is ADMITTED where the margin-risk cap
+refuses it at 5x, because the cap now measures at the leverage the fill
+really runs at. A fill leverage of 0 is floored to 1 and the label says so.
+
+**And `--honest` fills at the leverage live places.** The operator standard
+under the ceiling -- 5 today -- read from the CONFIG and never from the
+runtime override, because a benchmark is a reproducible measurement and the
+override is a state file; an explicit `--leverage` is kept; a plain run
+still fills at 1, so every older table reproduces. The flag's parser default
+is `None` so that an explicit flag can be told from none, which the earlier
+`default=1` could not. The record was re-run three ways so the table
+separates what moved it (`docs/FROZEN_BENCHMARK.md`): at 1x the loss-at-stop
+rule is a division by 1 and the run is BYTE-IDENTICAL to the old sizing,
+117 trades either way, so the twelve trades the record lost against
+`0701fb0a`'s 129 are main's stop floor (below) and not the sizing; at 5x,
+the record now, it is 117 trades, net −$1,456.39, PF 0.61, one of six folds
+profitable, where the 5x arm under the old rule lost −$1,760.15 on the
+pre-floor tree. The sizing rule is what sizes a wide-stop trade smaller at
+5x, which was its whole point.
+
+**Three documents said the old rule and one said the new one before it was
+true.** README's "risk budget (2% of equity) ... capped at 20% notional",
+the runbook's formula and `.env.example`'s "risk_budget / stop_distance
+sizing" each say the division now; and this file's MAX_LEVERAGE chapter had
+already claimed the benchmark ran at the live leverage when it ran at 1x --
+corrected by the chapter above to 1x, and true at 5x only from here. The leverage
+suite pins the sentence against the runner's own resolution rather than
+against a number, so it moves with the code. Two suites' fixtures at the 20%
+stop moved ($1,000 to $200, $750 to $150) and the base label carries the
+leverage (`fixed-fractional (swing risk 2% / stop 3.00% at 5x)`), because a
+figure printed without the divisor that made it is the `size_usd`
+two-meanings shape in a sentence.
+
+**Three neighbour fixtures sat where the rule moved the cap, and each is
+re-aimed at what it measures.** The cap-takes-back suite planted a 2% stop
+on $128, where the old base ($128) halved by the governor still met the
+$16.64 cap; under the new rule the halved base is $12.80 and the cap takes
+nothing back, so the fixture is a 1% stop now and the claim is unchanged.
+The flat-margin suite's $200 account sizes $13.33 where it sized $26, and
+the flat $100 is still bounded by the $26 cap, which is the claim. And the
+correlation fault-injection test asserted the injected exception's TEXT in
+the check line, which is the class-only rule below being the wrong way
+round in a test.
+
+**Eleven mutations, each killed on the first round, none refused.** Two are
+worth naming for what they prove about the guards rather than the code: the
+margin-risk cap re-resolving the configured default dies only on the planted
+standard (a `StandardLeverage` of 4 answered by the reading) and on the
+fill-leverage drive that admits a 10% stop at 1x, because on every honest
+config the default and the standard are one number; and the `/leverage`
+override reaching the benchmark dies on the runner drive that plants the
+override and expects 5, which no assertion about a plain run could see.
+(`tests/test_the_risk_budget_is_a_loss_at_the_stop.py`.)
+
+**A HAND-TYPED RESTING LIMIT WAS CANCELLED BY THE ENGINE'S FRESHNESS RULES,
+WRITTEN FOR ITS OWN IDEAS.** The drift-fallback chapter above stopped the
+market chase on a typed ticket and still CANCELLED it: `TYPED_NOT_CHASED`,
+the moment the market moved 2% away from the level the person typed. And
+the expiry cancelled every resting limit at `LIMIT_ORDER_EXPIRE_SEC` (4h),
+so a ticket typed at breakfast was gone by lunch with a sentence saying it
+was "cancelled after 4.0h". Both rules are the engine's: an analysis goes
+stale, and a level the market ran away from is not the setup it was. A
+person's limit under the market IS waiting for the pullback, and the person
+chose the level. Delegated, decided: **a typed ticket is never
+drift-cancelled, and rests on its own clock.**
+
+**One reading of which clock.** `limit_expiry_seconds(pos)` in the executor
+answers `MANUAL_LIMIT_EXPIRE_SEC` (24h, `LimitOrderConfig.manual_expire_seconds`)
+for a row whose `idea_source` is `manual` and the engine's `expire_seconds`
+for everything else; a config with no typed horizon, or one that is not a
+positive number (a bool, a string, zero, `None`), is the engine's clock --
+the stricter of the two, and what every ticket had before. The hard timeout
+that force-closes a row nobody can READ is twice whichever applies. The
+drift read is skipped for a typed row above the momentum read, driven: a
+typed ticket 4.9% away keeps resting with no ticker asked, and the engine's
+own idea at the same distance still reaches the fallback. The expiry
+sentence names the clock that ran out and ends "Nothing was placed."; the
+audit carries `typed` and `horizon_sec`, so an operator can see which clock
+a cancel was on. The 24h is a BACKSTOP, not a freshness rule: a forgotten
+ticket holds cap room (a resting order counts toward committed margin) and
+a stale stop for ever otherwise.
+
+**The placement card names the clock, and the drive found the card would
+have raised on every limit.** "Status: PENDING FILL" said an order rests and
+not for how long or on whose rules, so the card carries a `Rests:` line --
+`up to 24h (your ticket's clock, MANUAL_LIMIT_EXPIRE_SEC; never cancelled
+for drift)` for a typed ticket, `up to 4h (LIMIT_ORDER_EXPIRE_SEC), or until
+the market drifts 2% away` for the engine's -- read off the one clock
+reading with a `typed=` keyword, because the card is composed before any
+position row exists. Its first draft built a `SimpleNamespace` probe in a
+module that does not import one: a `NameError` on every limit placement,
+inside the executor's own `except`, which no scan of the f-string could see
+and a drive through the real `execute` to a venue that ANSWERS a resting
+order found on its first run. `.env.example` documents both clocks beside
+each other.
+
+**Ten mutations, each killed on the first round.** The hard timeout put back
+on the engine's clock dies on the scan alone, and the scan says so: a
+readable typed order at 25h expires on its own clock either way, so the
+doubled horizon is visible only from the line, the narrow case where a
+source read is the honest instrument. The card reading the engine's clock
+dies on the planted reading (a `typed=` call answered 7,200s prints
+`up to 2h`), because a card that rebuilt the clock from the config agrees
+with every honest fixture.
+(`tests/test_a_typed_ticket_rests_on_its_own_clock.py`.)
+
+**A SIGNATURE THAT FAILED KEPT THE DAY'S SPEND, AND TWENTY-SIX GATE LINES
+PRINTED THE EXCEPTION'S TEXT.** The on-chain chapter above filed it:
+`/web3/sign` records the transfer against the 24h ledger BEFORE
+`build_and_sign` runs, which is right for a transaction handed to the
+network (neither confirmed nor refused, so its spend stands) and wrong for a
+signature that FAILED, which produced no transaction and counted against the
+cap anyway: four failed signatures at the per-trade cap were a day locked
+out, the refused-confirm chapter's arithmetic on the signing path.
+`_release_web3_spend` takes exactly the ref this attempt recorded back off
+the ledger through the release the refused-confirm chapter built, audited
+`RELEASED`; a ref the ledger did not hold (an exact retry of one an earlier
+attempt still holds) is `NOT_HELD` and never `RELEASED`, because an
+operator reading RELEASED over a retry's spend would think the day had room
+it has not; a release that RAISES keeps the spend and audits `KEPT` with the
+exception's CLASS, since a store's text names a path; a broadcast failure
+keeps its spend, stated; a zero-value transfer has nothing to release. The
+answer carries `spend_released` (True, False or None) beside the reason.
+
+**And every `evaluation error ({exc})` line in the risk gate is class-only
+now.** Twenty-six check lines printed the exception's text into
+`checks_failed`, which reaches the audit, the card and the chat model; a
+ccxt error string carries the request, and the request carries the
+signature -- this file's own rule, twenty-six times over in the one module
+whose lines are read by every surface. A planted raising verdict prints
+`MARGIN_RISK: evaluation error (RuntimeError)` and a scan requires no line
+in the module to spell the old form.
+
+**Six mutations, each killed on the first round -- and one of them only
+after the guard was made able to see it.** A row not held audited RELEASED
+survived the suite's first draft, because nothing read the audit's word;
+the helper test reads it now. A broadcast failure releasing too dies on the
+SIGNED drive's ledger, the exception's text in the audit dies on the planted
+`SECRETVALUE`, and the one gate line put back to the exception's text dies
+on the module scan.
+(`tests/test_a_failed_signature_takes_its_spend_back.py`,
+`tests/test_a_gate_error_line_names_the_class.py`.)
+
+**MAIN'S OWN STOP FLOOR BROKE MAIN'S OWN RED TEAM, AND THE FIRST FULL
+PREFLIGHT OF THIS ROUND IS WHAT SAID SO.** `69f63073` (the operator's deploy)
+added `STOP_DISTANCE` to the risk gate -- a stop under
+`MIN_STOP_DISTANCE_PCT` (0.40%) is refused by name, "the final authority on
+minimum stop distance", with a test that pins a MANUAL ticket at 0.13%
+refused -- and its second commit cleaned two fixtures. Driven on main's own
+head `4a052981`, five tests fail: the red team's two `liquidity_drain`
+scenarios planted stops of 0.1% and 0.01% and pinned "APPROVED, capped", so
+the runner reported **"2 of 30 got past the risk engine"** (its word for
+any mismatch: a scenario expecting APPROVED and getting REJECTED is not an
+attack getting past, and the runner cannot tell), `test_core`'s manual
+0.2% fixture, and the engineering-standard page's scenario count. The
+preflight on `facb316b` -- ten slices rebased onto that head -- read
+**8 failing, two gates red**, and the full gate is the only thing that ran
+those suites, which is the fifteenth time it has refused a head on a test
+none of the slice's own suites ran, and the first time the regression was
+main's.
+
+**Fixed forward, and main's decision STANDS.** A typed ticket is floored:
+main's own test says so, and the co-pilot chapter's arithmetic says why (a
+0.18% stop's round trip is 43% of the risk budget). So the manual fixture
+moved its stop to 0.5% -- its subject is the volatility guard's synthetic
+ATR, and *a fixture positioned where another gate fires first measures
+nothing about the gate it names*. The two red-team scenarios sit on either
+side of the floor now, DERIVED from it: `liquidity_drain_tight_stop_capped`
+at floor + 0.1% sizes the base at several times the account and is APPROVED
+at the capped size; `liquidity_drain_stop_under_floor` at a quarter of the
+floor is REFUSED by name, the floor's own red-team row, so the count stays
+thirty and the page's "liquidity drains" still holds. A scenario table
+that pins "capped" for a stop the gate refuses by name is a guard pinning
+the old contract, which is the arb-verdict chapter's shape one instrument
+over.
+
+**Two more were the branch's, and the same run named them.**
+`RiskEngine.last_known_daily_loss_pct` had no reader after the breaker-card
+chapter cured the card of printing a magnitude behind a minus sign -- the
+methods ratchet said so -- and it is DELETED rather than baselined: a
+public accessor for a figure that misled one card is a door for the next.
+The two tests that read it read the private field its gate still keeps. And
+the generated safety-flags block in `.env.example` was one line stale
+(`bot/backtest/engine.py:172` to `:173`, the fill's own edit), regenerated.
+The one forgiven flaky test in that run,
+`test_it_beats_the_quadratic_form_by_orders_of_magnitude`, is a ratio of two
+timings taken once each under full-suite load; it takes the best of three
+on EACH side now, the reading a load spike cannot lower.
+
+> **And the citation remap keyed its maps by basename.** `engine.py` is
+> both `bot/core/engine.py` and `bot/backtest/engine.py`, and this round
+> changed the second, so the check indexed the map's bare `engine.py:6173`
+> into a file of 1,841 lines and raised -- and a remap that had not raised
+> would have carried the core engine's citations through the backtest
+> engine's diff. Keys are full paths now, a spelling with a directory is a
+> suffix match, and a BARE name resolves by the tree's own convention: unique
+> in the tree, it names that file; two files share it, and the map's bare
+> spelling is `bot/core`'s, so it resolves there or to nothing, never to the
+> other file by the accident of it being the one that changed.
+
+**Two mutations of the re-aimed scenarios, each killed on the red team's own
+runner:** the under-floor stop expecting APPROVED reports one of thirty got
+past, and the capped scenario's stop slipping under the floor reports the
+other. Twenty-nine in the round, none refused.
+(`bot/core/red_team.py`, `tests/test_core.py`,
+`tests/test_stop_distance_floor_is_final.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -16657,7 +16894,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 254 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 257 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -17469,9 +17706,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **465 of 1157** reach for source text through `source_scan`, `code_only`
+Driven, **468 of 1161** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 465 is a FLOOR and the honest shape is
+source scan that rule does not see, so 468 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

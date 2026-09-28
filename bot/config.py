@@ -2206,6 +2206,15 @@ class LimitOrderConfig:
     default_order_type: str = _env("DEFAULT_ORDER_TYPE", "limit")
     # Max seconds to wait for a limit order fill before cancelling
     expire_seconds: int = int(_env_float("LIMIT_ORDER_EXPIRE_SEC", 14400))  # 4 hours
+    # A HAND-TYPED ticket rests on its own clock. The expiry above and the
+    # drift cancel below are the engine's freshness rules for its OWN ideas
+    # (an analysis goes stale; a level the market ran away from is not the
+    # setup it was). A person's limit is theirs: the drift rule never cancels
+    # it -- a limit under the market IS waiting for the pullback -- and this
+    # is the backstop that stops a forgotten ticket holding cap room and a
+    # stale stop for ever. Past it the ticket is cancelled and the person told
+    # which clock ran out. Decided 2026-09-28 (delegated).
+    manual_expire_seconds: int = int(_env_float("MANUAL_LIMIT_EXPIRE_SEC", 86400))  # 24 hours
     # Check interval for pending limit orders (seconds)
     check_interval_seconds: int = int(_env_float("LIMIT_CHECK_INTERVAL_SEC", 30))
     # Use POST_ONLY time-in-force to guarantee maker-only (rejects if would fill)

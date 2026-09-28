@@ -256,6 +256,14 @@ short, which is $15.37 over 129 trades (−$0.12 a trade) with the profit factor
 marginally better. The claim on the audit line is true now, and what it cost on
 this window is on the record rather than in a memory.
 
+**Re-recorded on 2026-09-28 at `__SHA_A__`, the commit that makes the risk
+budget a loss at the stop and fills the honest run at the live leverage
+(below).** The record fills at **5x** from here: 117 pooled trades, 58/59,
+net −$1,456.39, PF 0.61, 1 of 6 folds profitable, mean OOS −2.43%, worst
+−4.66%, on the same `dataset_hash`. Twelve of the 129 trades left with
+main's stop-distance floor (`69f63073`) and none with the sizing rule at 1x;
+the money moved with the leverage, which is the section below.
+
 `code_sha` names the commit the measurement was taken AT, which is why the
 artefact lands in the commit AFTER the one that changed the code: an artefact
 whose sha is the commit containing it cannot exist. `73740a1a` above set the
@@ -1269,6 +1277,55 @@ for arm B on this snapshot, a different equity path with fewer trades. That
 is what "returns, drawdowns and which bars the breakers trip on are not
 scale-free" means, with numbers on it. Which leverage the record should be
 measured at stays the operator's decision.
+
+### The record fills every trade at 5x, and the budget is the loss at the stop (2026-09-28)
+
+The section above filed two decisions and both were delegated on
+2026-09-28 ("for all open choices do what's best"). **The per-trade risk
+budget is a loss-at-stop figure now**: the gate's base is
+`risk_budget / (stop_distance x the leverage the order places at)`, so a
+stop-out costs at most the budget at every leverage an order can run at --
+the leverage is the operator standard (`DEFAULT_LEVERAGE` under the
+`MAX_LEVERAGE` ceiling, or the `/leverage` override), read once at the top of
+the evaluation, and every later step (a user's preference, the quality
+ladder, the margin-risk cap) only lowers it. The backtest hands the gate its
+own fill leverage (`fill_leverage=`), because only the backtest knows it.
+**And `--honest` fills at the leverage live places** (the operator standard,
+5 today, never the runtime override -- a benchmark is a reproducible
+measurement and the override is a state file) unless `--leverage` is passed
+explicitly; a plain run still fills at the config default of 1, so every
+older table on this page reproduces. So the record fills every trade at 5x.
+
+Measured on this snapshot, walk-forward 6, `--honest`:
+
+| tree | sizing | fills at | profitable folds | mean OOS | worst fold | pooled trades | W/L | win | PF | net |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `0701fb0a` (the record until today) | notional | 1x | 0/6 | −0.57% | −0.92% | 129 | 66/63 | 51% | 0.58 | −$343.13 |
+| `facb316b` (main's stop floor in, old sizing) | notional | 1x | 0/6 | −0.57% | −0.94% | 117 | 58/59 | 50% | 0.57 | −$342.80 |
+| this commit | loss at stop | 1x | 0/6 | −0.57% | −0.94% | 117 | 58/59 | 50% | 0.57 | −$342.80 |
+| `facb316b` (main's stop floor in, old sizing) | notional | 5x | 0/6 | −2.92% | −4.66% | 117 | 58/59 | 50% | 0.57 | −$1,751.85 |
+| **this commit, the record now** | loss at stop | **5x** | 1/6 | −2.43% | −4.66% | 117 | 58/59 | 50% | 0.61 | −$1,456.39 |
+
+Three things the table separates. **At 1x the two sizings are one formula**
+-- a division by 1 -- and the rows are byte-identical, so the twelve trades
+the record lost (129 to 117) are main's stop-distance floor (`69f63073`,
+`MIN_STOP_DISTANCE_PCT` 0.40%, the gate's final authority since
+2026-09-28): twelve ideas whose stop sat under it, refused by name. **At 5x
+the sizing rule is what moves the money**: under the old rule the base at a
+3% stop was 66% of equity and the cap took every trade to 13%, so the loss
+at the stop was `0.13 x 5 x 3%` = 1.95% of equity on a 2% budget and 3.9% at
+a 6% stop; under the loss-at-stop rule a 6% stop sizes 6.7% and loses the
+budget. The `facb316b` 5x row is the old rule with the floor in, and the
+difference between it and the record is the sizing decision alone: the
+same 117 trades, net −$1,751.85 under the old rule and −$1,456.39 under the
+new one, the profit factor 0.57 to 0.61, one fold profitable where none was
+-- the loss-at-stop rule sizes a wide-stop trade smaller, so the losers it
+had been over-sizing cost less. It is not an edge: the record still loses.
+**And the record is a different equity path from the 1x rows over the same
+117 trades**: each fill is sized off the equity the fills before it left, so
+a fold's compounded return, the pooled net's per-trade weights and the
+profit factor (0.57 to 0.61) move with the leverage, which is what the
+section above says about `corr_dense_1h` with numbers on this snapshot.
 
 ## Refreshing the snapshot
 

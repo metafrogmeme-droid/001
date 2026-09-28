@@ -2003,6 +2003,28 @@ class LeverageStuck(RuntimeError):
     """
 
 
+def limit_expiry_seconds(pos: Any = None, *, typed: Optional[bool] = None) -> int:
+    """How long THIS resting limit may rest before the executor cancels it.
+
+    The engine's own ideas expire on `LIMIT_ORDER_EXPIRE_SEC` (4h): an
+    analysis goes stale. A HAND-TYPED ticket (`idea_source == "manual"`)
+    rests on `MANUAL_LIMIT_EXPIRE_SEC` (24h): the level is the person's, and
+    the horizon is a backstop against a forgotten ticket holding cap room and
+    a stale stop, not a freshness rule. The hard timeout that closes a row
+    nobody can READ is twice whichever applies. A config with no typed
+    horizon, or one that is not a positive number, is the engine's clock --
+    the stricter of the two, and what every ticket had before.
+    """
+    cfg = CONFIG.limit_orders
+    if typed is None:
+        typed = getattr(pos, "idea_source", None) == "manual"
+    if typed:
+        manual = getattr(cfg, "manual_expire_seconds", None)
+        if isinstance(manual, (int, float)) and not isinstance(manual, bool) and manual > 0:
+            return int(manual)
+    return int(cfg.expire_seconds)
+
+
 class LiveExecutor:
     """Executes real trades on Bitget with micro-test safety limits.
 
@@ -8045,6 +8067,16 @@ class LiveExecutor:
                 mode_label = "FUTURES" if is_futures else "SPOT"
                 dir_icon = "🟢" if side == "buy" else "🔴"
                 st_label = getattr(idea, 'strategy_type', 'swing').upper()
+                # Which clock the resting order is on, named: a typed ticket
+                # rests on its own (MANUAL_LIMIT_EXPIRE_SEC) and is never
+                # drift-cancelled; the engine's idea on the engine's.
+                _typed_ticket = getattr(idea, "source", "") == "manual"
+                _rest_h = limit_expiry_seconds(typed=_typed_ticket) / 3600
+                rests_line = (
+                    f"- Rests: up to {_rest_h:g}h (your ticket's clock, MANUAL_LIMIT_EXPIRE_SEC; "
+                    "never cancelled for drift)\n" if _typed_ticket else
+                    f"- Rests: up to {_rest_h:g}h (LIMIT_ORDER_EXPIRE_SEC), or until the market "
+                    f"drifts {CONFIG.limit_orders.price_drift_cancel_pct:g}% away\n")
                 return (
                     f"{dir_icon} <b>LIMIT ORDER {side.upper()} {idea.asset}</b> ({mode_label}{lev_info}) [{st_label}]\n"
                     f"{'─' * 16}\n"
@@ -8056,6 +8088,7 @@ class LiveExecutor:
                     f"- TP: <code>${idea.take_profit:,.4f}</code>\n"
                     f"- Order: <code>{order_id}</code>\n"
                     f"- Status: ⏳ PENDING FILL\n"
+                    f"{rests_line}"
                     f"- Mode: 🔥 Live {mode_label}"
                 )
 
@@ -10572,7 +10605,11 @@ class LiveExecutor:
         # this idea's levels), and a cancel the venue keeps refusing is a
         # resting order this record keeps tracking, said at WARNING on every
         # pass, rather than a record closed over an order that still rests.
-        hard_timeout = 2 * CONFIG.limit_orders.expire_seconds
+        # Which clock this row rests on: the engine's (4h) or a hand-typed
+        # ticket's own (24h). The hard timeout is twice it either way.
+        _typed = getattr(pos, "idea_source", None) == "manual"
+        _expire = limit_expiry_seconds(pos)
+        hard_timeout = 2 * _expire
         stale_age = (datetime.now(UTC) - pos.opened_at).total_seconds() if pos.opened_at else 0
         order: Optional[dict] = None
         read_exc: Optional[Exception] = None
@@ -10787,7 +10824,6 @@ class LiveExecutor:
                 # Still open — check price drift and time expiry
                 age_sec = (datetime.now(UTC) - pos.opened_at).total_seconds()
                 cancel_reason = None
-                typed_not_chased: Optional[float] = None
 
                 # ── PRICE DRIFT CANCEL (from Getclaw) ──
                 # If price has moved >X% away from the limit, the setup is stale.
@@ -10795,8 +10831,15 @@ class LiveExecutor:
                 # MARKET FALLBACK: if drift is detected but momentum is strong
                 # and in the trade's direction, convert to market order instead
                 # of cancelling (catches momentum breakouts that moved past limit).
+                # A HAND-TYPED TICKET IS NOT THE ENGINE'S IDEA. The drift rule
+                # says a level the market ran away from is a stale setup --
+                # true of an analysis, and false of a person's limit under the
+                # market, which IS waiting for the pullback. It used to cancel
+                # the typed ticket (never chase it, since the previous slice);
+                # now it does not read it at all, and the typed clock below is
+                # the one thing that ends a resting typed ticket.
                 drift_pct = CONFIG.limit_orders.price_drift_cancel_pct
-                if drift_pct > 0 and pos.entry_price > 0:
+                if drift_pct > 0 and pos.entry_price > 0 and not _typed:
                     try:
                         ticker = await exchange.fetch_ticker(self._venue.order_symbol(pos.symbol))
                         cur_price = float(ticker.get("last", 0) or 0)
@@ -10805,23 +10848,7 @@ class LiveExecutor:
                             if pct_away > drift_pct:
                                 # Check if we should convert to market instead of cancelling
                                 should_market_fallback = False
-                                if getattr(pos, "idea_source", None) == "manual":
-                                    # A HAND-TYPED TICKET IS NEVER CHASED. Its
-                                    # levels are the person's -- the placement
-                                    # path keeps them as typed -- and the
-                                    # fallback would market up to 5% past the
-                                    # price they typed and move their stop and
-                                    # target with it. The drift cancels it and
-                                    # the sentence below says why.
-                                    typed_not_chased = pct_away
-                                    audit(trade_log,
-                                          f"Typed limit for {pos.symbol} drifted "
-                                          f"{pct_away:.1f}%: cancelled, NOT chased to the market",
-                                          action="limit_drift_cancel", result="TYPED_NOT_CHASED",
-                                          data={"trade_id": trade_id, "pct_away": pct_away,
-                                                "limit_price": pos.entry_price,
-                                                "market_price": cur_price})
-                                elif CONFIG.limit_orders.drift_market_fallback:
+                                if CONFIG.limit_orders.drift_market_fallback:
                                     should_market_fallback = await self._check_drift_market_fallback(
                                         exchange, pos, cur_price)
 
@@ -10855,7 +10882,7 @@ class LiveExecutor:
                                      pos.symbol, drift_exc)
 
                 # ── TIME EXPIRY ──
-                if not cancel_reason and age_sec > CONFIG.limit_orders.expire_seconds:
+                if not cancel_reason and age_sec > _expire:
                     cancel_reason = "expired"
 
                 if cancel_reason:
@@ -10950,16 +10977,19 @@ class LiveExecutor:
                         audit(trade_log, f"Limit order CANCELLED (price drift): {pos.symbol}",
                               action="limit_drift_cancel", result="CANCELLED",
                               data={"trade_id": trade_id, "age_sec": age_sec})
-                        if typed_not_chased is not None:
-                            return (f"LIMIT CANCELLED (price drift): {pos.direction} {pos.symbol} "
-                                    f"— the market moved {typed_not_chased:.1f}% away from the "
-                                    "price you typed. A typed ticket is never chased to the "
-                                    "market: nothing was placed.")
                         return f"LIMIT CANCELLED (price drift): {pos.direction} {pos.symbol} — market moved away"
                     else:
                         audit(trade_log, f"Limit order EXPIRED after {age_sec:.0f}s: {pos.symbol}",
                               action="limit_expire", result="EXPIRED",
-                              data={"trade_id": trade_id, "age_sec": age_sec})
+                              data={"trade_id": trade_id, "age_sec": age_sec,
+                                    "typed": _typed, "horizon_sec": _expire})
+                        if _typed:
+                            # The person's clock ran out, not the engine's: say
+                            # which, and that the cancel placed nothing.
+                            return (f"LIMIT EXPIRED: {pos.direction} {pos.symbol} — your ticket "
+                                    f"rested {age_sec/3600:.1f}h, the typed-ticket horizon "
+                                    f"(MANUAL_LIMIT_EXPIRE_SEC, {_expire/3600:.0f}h). "
+                                    "Nothing was placed.")
                         return f"LIMIT EXPIRED: {pos.direction} {pos.symbol} — cancelled after {age_sec/3600:.1f}h"
 
         except Exception as exc:

@@ -329,14 +329,15 @@ class TestTheDailyReading:
         assert _risk(tmp_path).last_daily_pnl_reading() == (None, "")
 
     def test_the_magnitude_the_gate_compares_has_no_sign(self, live, tmp_path):
-        """The premise: `last_known_daily_loss_pct` is `abs()`, so a card
+        """The premise: `_last_known_daily_loss_pct` is `abs()` (the public
+        accessor went with the card that misread it; no reader), so a card
         cannot read the day's direction off it."""
         risk = _risk(tmp_path)
         risk._live_daily_pnl = 8.0
         risk._live_daily_day = risk._utc_day()
         risk._live_equity_peak = 10000.0
         risk.evaluate(_idea(), live_equity=10000.0)
-        assert risk.last_known_daily_loss_pct == pytest.approx(0.08)
+        assert risk._last_known_daily_loss_pct == pytest.approx(0.08)
         assert risk.last_daily_pnl_reading() == (pytest.approx(0.08), "live")
 
     def test_a_paper_evaluation_reads_the_paper_book(self, paper, tmp_path):

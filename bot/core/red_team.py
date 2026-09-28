@@ -275,35 +275,45 @@ class RedTeamEngine:
 
     def _liquidity_drain_scenarios(self) -> list[dict]:
         price = 50000.0
-        # The risk engine now rejects stops below the analyzer's configured
-        # floor before sizing.  Auto-capping an oversized position is not
-        # enough: fees and ordinary fill drift become unsafe fractions of R.
+        # A tight stop makes the fixed-fractional base several times the
+        # account; the notional cap takes it back to the strategy's cap and
+        # the trade is APPROVED at the capped size. That holds only ABOVE the
+        # stop-distance floor (MIN_STOP_DISTANCE_PCT, 0.40%): a stop under it
+        # is a stop the fee round trip eats, and the gate REFUSES it outright
+        # rather than capping it into a position (the floor is the gate's own
+        # rule since 2026-09-28). The two scenarios sit on either side of that
+        # floor -- the old pair (0.1% and 0.01%) were both under it and pinned
+        # "APPROVED, capped" for stops the gate now refuses by name.
+        floor = float(CONFIG.analyzer.min_stop_distance_pct)
+        assert 0.0 < floor < 0.005, floor  # the scenarios are built around it
         return [
             {
-                "name": "liquidity_drain_50pct_equity",
+                "name": "liquidity_drain_tight_stop_capped",
                 "category": "liquidity_drain",
                 "description": (
-                    "Position sized at 50% of equity via a very tight stop. "
-                    "Stop is below the final floor — should REJECT."
+                    "A stop just above the floor sizes the base at several "
+                    "times the account; the notional cap takes it back -- "
+                    "should APPROVE at the capped size, never at the base."
                 ),
                 "expected_verdict": "REJECTED",
                 "atr": "auto",
                 "build_idea": lambda: _make_idea(
-                    entry=price, sl=price * 0.999, tp=price * 1.01,
+                    entry=price, sl=price * (1.0 - floor - 0.001), tp=price * 1.01,
                     confidence=0.80,
                 ),
             },
             {
-                "name": "liquidity_drain_100pct_equity",
+                "name": "liquidity_drain_stop_under_floor",
                 "category": "liquidity_drain",
                 "description": (
-                    "Position sized at 100% of equity via ultra-tight stop. "
-                    "Stop is below the final floor — should REJECT."
+                    "A stop under the floor -- the round trip in fees is most of "
+                    "the risk distance -- must be REFUSED by the floor, not "
+                    "capped into a position."
                 ),
                 "expected_verdict": "REJECTED",
                 "atr": "auto",
                 "build_idea": lambda: _make_idea(
-                    entry=price, sl=price * 0.9999, tp=price * 1.005,
+                    entry=price, sl=price * (1.0 - floor / 4.0), tp=price * 1.005,
                     confidence=0.80,
                 ),
             },

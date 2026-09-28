@@ -8,7 +8,9 @@ for that stated reason. Seven did not: session, the session provider fallback,
 the equity-curve breaker, the live-performance governor, drawdown recovery,
 macro, and correlation sizing. Driven at $128 of equity, the governor's REDUCE
 x0.50 left the order at $16.64 either way, with "governor x0.50" on the size
-trace one step above the cap that undid it.
+trace one step above the cap that undid it. (Driven at a 1% stop since the
+risk budget became a loss at the stop: the base is a fifth of what it was at
+5x, and a 2% stop's halved base no longer reaches the cap on $128.)
 
 Letting them reach the order was measured on the frozen benchmark and did not
 come back harmless: it helped majors_1h and cost alts_1h and corr_dense_1h
@@ -35,8 +37,15 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def _idea():
+    # A 1% stop: under the loss-at-stop rule (2026-09-28) the base at 5x is
+    # budget / (stop x leverage), $51.20 on $128, so a halved base ($25.60)
+    # still sits ABOVE the $16.64 cap and the cap takes the halving back --
+    # which is the claim every drive here makes. At the 2% stop this file
+    # was written with, the halved base ($12.80) sits under the cap and the
+    # cap takes nothing back: a fixture positioned where the cap does not
+    # bind measures nothing about what the cap takes back.
     return TradeIdea(asset="ARB/USDT:USDT", direction=Direction.LONG, entry_price=1.0,
-                     stop_loss=0.98, take_profit=1.06, confidence=0.8, reasoning="x")
+                     stop_loss=0.99, take_profit=1.03, confidence=0.8, reasoning="x")
 
 
 class _Session:
