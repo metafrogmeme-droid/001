@@ -16450,6 +16450,44 @@ and on twenty baseline rows the narrowed rule no longer finds, because the
 baseline is two-way.
 (`tests/test_the_agent_feeds_thesis_states_the_signal_rows_confidence.py`.)
 
+**THE FOLLOW FEATURE SELECTED SIGNALS BY A STATUS NO PRODUCER EVER WROTE.**
+`/api/copy/picks` (the dashboard's "Following — live picks" panel) and the
+copy push sweep (`copy_watch`, which notifies a follower when an agent they
+follow has a new pick) both read `FROM signals WHERE status = 'OPEN'`. Both
+producers push `NEW`, the column defaults to `NEW`, and nothing ever writes an
+outcome back to a signal row, so no row has ever matched: the filter has stood
+since #243. Every follower read *"No live signal matches this agent's gates
+right now"*, a confident negative from a filter no row could satisfy, and the
+sweep never sent a pick. **The tests could not see it because the shim's
+catch-all for `FROM signals` ignores the WHERE clause**, so the copy suite's
+planted `OPEN` rows passed a filter production never could. That is *a
+fixture that cannot produce the state it names*, with the fixture being the
+database.
+
+**Switching the filter to `NEW` would have been the wrong fix.** Every signal
+ever published is `NEW`, so the panel would have offered stale calls as live
+picks. A signal is live while the bot would still take it: its creation plus
+the bot's `PENDING_IDEA_TTL`, the time an idea stays confirmable. The website
+cannot read the bot's config, and a second copy of that number there would be
+a second answer, so the PRODUCER states it: `website_sync.signal_expires_at`,
+asked by the engine's rows and the scan's. The ingest stores `expires_at`
+beside the seal (a display window, not a decision fact), never updates it on a
+re-sync, and stores nothing for a value that does not parse. Both readers
+select `expires_at > now`, and a row that states no window is never live. The
+shim now has a branch for that filter, and it maps an INSERT by the
+statement's own column list, not by position. The sweep runs once a minute,
+because a sweep as long as the five-minute window it reads can miss a signal to
+timer drift.
+
+**Fourteen mutations: thirteen killed, one equivalent.** Putting the window
+into the object the seal is built from changes nothing, because
+`canonicalPayload` seals an explicit list of fields. No key added beside them
+can reach the seal, and the suite drives that property instead: the stored seal
+equals a reseal of the decision facts alone, and `seal_payload` carries no
+expiry.
+(`tests/test_a_signal_states_when_it_stops_being_live.py`,
+`app/test/copy_picks_read_the_bots_stated_window.test.js`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -17741,7 +17779,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **468 of 1162** reach for source text through `source_scan`, `code_only`
+Driven, **468 of 1163** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 468 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

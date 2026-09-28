@@ -50,7 +50,8 @@ function newPicks(catalogueById, signals, followedAgentIds, seenSet) {
 /**
  * One sweep. `deps` supplies the data (all injectable for tests):
  *   loadFollowedAgentIds() -> string[]   (distinct followed slugs)
- *   loadSignals()          -> signal[]   (live OPEN signals)
+ *   loadSignals()          -> signal[]   (live signals: expires_at, stated by
+ *                                          the bot, still in the future)
  *   loadCatalogue()        -> agent[]    (marketplace cards w/ scorecard.gates)
  *   loadFollowers(agentId) -> number[]   (user_ids following that agent)
  *   loadOptIns()           -> Set<number>(user_ids with push_copy === true)
@@ -124,7 +125,7 @@ async function dbSignals() {
   const { pool } = require('../db');
   const [rows] = await pool.execute(
     `SELECT signal_key, symbol, direction, confidence, regime, status
-     FROM signals WHERE status = ? ORDER BY created_at DESC LIMIT 100`, ['OPEN']);
+     FROM signals WHERE expires_at > ? ORDER BY created_at DESC LIMIT 100`, [new Date()]);
   return rows;
 }
 async function dbCatalogue() {
@@ -148,8 +149,13 @@ function defaultNotify(payload, userIds) {
   return require('./push').notifySubscribers(payload, userIds);
 }
 
-/** Start the periodic sweep (best-effort; needs push + gateway configured). */
-function startCopyWatch(intervalMs = 5 * 60 * 1000) {
+/** Start the periodic sweep (best-effort; needs push + gateway configured).
+ *
+ * Once a minute, because a signal is live only for the bot's idea TTL
+ * (`expires_at`, 5 minutes by default): a sweep as long as the window it
+ * reads can miss a signal to timer drift, and a pick nobody was told about
+ * while it was live is a push that never happened. */
+function startCopyWatch(intervalMs = 60 * 1000) {
   const push = require('./push');
   const tick = () => { if (push.isConfigured() && gatewayConfigured()) sweepCopy().catch(() => {}); };
   setTimeout(tick, 30 * 1000);            // first real sweep after boot settles

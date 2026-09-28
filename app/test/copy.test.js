@@ -76,15 +76,24 @@ test.before(async () => {
 
   ({ pool } = require('../db'));
   // Seed the live signal stream: one dip match, one momentum match, one miss.
-  const ins = (k, sym, dir, conf, regime) => pool.execute(
+  // Status is what the producers really write (NEW); LIVE is the expiry the
+  // bot states. The shim used to ignore the WHERE, so rows planted as 'OPEN'
+  // -- a status no producer writes -- passed a filter production never could.
+  const LIVE = () => new Date(Date.now() + 5 * 60 * 1000).toISOString();
+  const ins = (k, sym, dir, conf, regime, expires = LIVE(), status = 'NEW') => pool.execute(
     `INSERT INTO signals (signal_key, symbol, direction, confidence, score, pattern,
        regime, entry_price, stop_loss, take_profit, rr, thesis, status, pnl,
-       created_at, resolved_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [k, sym, dir, conf, conf, 'x', regime, 100, 95, 110, 2, '', 'OPEN', null,
-     new Date().toISOString(), null]);
+       created_at, resolved_at, expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [k, sym, dir, conf, conf, 'x', regime, 100, 95, 110, 2, '', status, null,
+     new Date().toISOString(), null, expires]);
   await ins('s1', 'BTC/USDT', 'LONG', 0.82, 'TREND_DOWN');   // dip-sniper
   await ins('s2', 'SOL/USDT', 'LONG', 0.55, 'TREND_DOWN');   // nobody (low conf)
   await ins('s3', 'ETH/USDT', 'LONG', 0.71, 'TREND_UP');     // momentum-hunter
+  // Not live, and each would match dip-sniper's gates if it were read:
+  await ins('x1', 'AVAX/USDT', 'LONG', 0.9, 'TREND_DOWN',
+    new Date(Date.now() - 60 * 1000).toISOString());          // expired a minute ago
+  await ins('x2', 'LINK/USDT', 'LONG', 0.9, 'TREND_DOWN', null); // states no window
+  await ins('x3', 'DOT/USDT', 'LONG', 0.9, 'TREND_DOWN', null, 'OPEN'); // 'OPEN' is not a window
 
   const app = express();
   app.use(express.json());

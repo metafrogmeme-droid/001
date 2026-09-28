@@ -48,10 +48,13 @@ async function seedSignal(key, symbol, direction, conf, regime) {
   await pool.execute(
     `INSERT INTO signals (signal_key, symbol, direction, confidence, score, pattern,
        regime, entry_price, stop_loss, take_profit, rr, thesis, status, pnl,
-       created_at, resolved_at, seal, seal_payload, sealed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       created_at, resolved_at, seal, seal_payload, sealed_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    // What the producers write: NEW, with the window the bot states. It was
+    // 'OPEN', a status no producer writes, which the shim's catch-all accepted.
     [key, symbol, direction, conf, 80, 'x', regime, 60000, 58000, 66000, 3,
-      't', 'OPEN', null, new Date(), null, null, null, null]);
+      't', 'NEW', null, new Date(), null, null, null, null,
+      new Date(Date.now() + 5 * 60 * 1000)]);
 }
 
 test.before(async () => {
