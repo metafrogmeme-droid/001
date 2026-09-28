@@ -305,7 +305,11 @@ class AlertsMonitor:
             await _original_dispatch(alert, send_fn)
             # Send signal card image for trade signals
             if alert.alert_type == "TRADE_SIGNAL" and alert.idea is not None:
-                for cid in list(self.monitor._enabled_chats):
+                # The image goes where the text went: `_recipients_for` is the
+                # one reading of an alert's audience. This loop walked every
+                # watching chat, so a re-offer the text sends to the operator
+                # alone still reached every watcher as a picture.
+                for cid in list(self.monitor._recipients_for(alert)):
                     try:
                         await _signal_card_fn(cid, alert.idea, rank=1)
                     except Exception:

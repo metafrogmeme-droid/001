@@ -17004,9 +17004,11 @@ withholding a call on a guess is not.
 
 **Three things are deliberately left as they were.**
 
-- The operator's private alert still fires for a re-offer. It is a live idea
+- The Telegram signal card still fires for a re-offer. It is a live idea
   with a live Take-it button, and the button on the earlier card points at an
-  idea that has expired.
+  idea that has expired. This bullet first called it "the operator's private
+  alert", which it was not: it went to every watching chat, text and picture,
+  headed NEW SIGNAL. The chapter below narrows it to the operator.
 - The website row keeps the first offer's five-minute window. It is not
   extended. The call's levels are what it said when it was made, and the bot
   is no longer offering those exact levels.
@@ -17046,6 +17048,44 @@ eight without the containment and passes with it. Four mutations, each killed
 on the first round: `autouse=False`, no restore, the saved value taken after the
 yield, and the comparison inverted.
 (`tests/test_a_test_that_builds_an_engine_hands_the_halt_check_back.py`.)
+
+**THE CHAPTER ABOVE CALLED THE RE-OFFER ALERT "PRIVATE", AND IT WENT TO EVERY
+WATCHING CHAT.** `TRADE_SIGNAL` has the audience "all". Each re-offer was a new
+idea id, so it passed the monitor's dedup, and every chat that ran `/watch on`
+was sent the same call again every idea TTL, headed "NEW SIGNAL", as text and
+as the signal picture. Its title went to the public mind-stream each time too,
+because `_dispatch` emits every non-admin alert's title there. A watcher's
+Take-it on that card is refused, since the button is tagged to the operator.
+So a watcher was told one market move was several signals, which is the
+defect #163 fixed for the ledger, the website and the public channel, on the
+one surface it did not check.
+
+**A re-offer goes to the operator alone and says what it is.**
+`_check_trade_signals` builds a re-offer (`idea.repeat_of` naming a call) with
+a constant `audience="admin"`, headed "SIGNAL RE-OFFERED", with a line saying
+it is the same call and that watching chats are not sent it again. A new call
+keeps the fan-out it always had. They are two constructors with constant
+audiences, because the audience ratchet reads the keyword by AST and scores an
+expression as "all". Only a non-empty string names a call, so a stand-in
+whose attribute answers anything is a new call.
+
+**The picture had its own fan-out.** The alert sender's hook sent the signal
+image to every watching chat whatever the alert's audience, so narrowing the
+text alone would still have sent every watcher the picture. It sends to
+`_recipients_for(alert)` now, the one reading of an alert's audience.
+
+**The audience ratchet had no rule for a type built both ways.** It pinned the
+admin-only set and listed the by-book types, and a type that gained a second
+audience without being listed passed silently. `BY_CALL` names
+`TRADE_SIGNAL` with its reason, and the rule is two-way: a split without a
+reason fails, and so does a listed split that collapsed.
+
+**Nine mutations, each killed. The one that survived the first round was the
+guard.** Dropping the text card's buttons on a re-offer survived because the
+assertion collected callback data from every message the operator received,
+and the image card carries its own Take-it. It reads the text card's own
+markup now.
+(`tests/test_a_re_offered_setup_is_one_call.py`, `tests/test_alert_audience.py`.)
 
 ## Public-surface rules
 

@@ -12,8 +12,13 @@ as many calls as the setup survived five-minute windows.
 A row the engine publishes on a market and direction it already has a PENDING
 call on is a re-offer of that call: not recorded, not sent, and the idea says
 which call it re-offers (`repeat_of`), so the public surfaces say the call
-once. The private alert is unchanged: the re-offer is a live idea with a live
-button.
+once.
+
+The Telegram signal card went to every watching chat as "NEW SIGNAL" on every
+re-offer too, text and picture, and its title to the public mind-stream. A
+re-offer is news to the operator alone, whose Take-it on the earlier card
+points at an expired idea: it goes to the operator, headed as a re-offer, with
+the live button. A new call keeps the fan-out it always had.
 """
 from __future__ import annotations
 
@@ -227,3 +232,110 @@ def test_the_public_channel_posts_a_call_once():
     asyncio.run(fwd.post_signal(call))
     asyncio.run(fwd.post_signal(again))
     assert len(sent) == 1 and "RUNECLAW SIGNAL" in sent[0]
+
+
+# ── the Telegram signal card ───────────────────────────────────────────────
+
+from tests.test_the_scheduled_posts_say_whose_book_they_read import (  # noqa: E402
+    OPERATOR,
+    WATCHER,
+    _book_engine,
+    _deliver,
+    _engine_idea,
+    _wire,
+)
+
+
+@pytest.fixture()
+def operator_chat():
+    """TELEGRAM_CHAT_ID planted on the frozen config and restored."""
+    import dataclasses
+
+    from bot.config import CONFIG
+    original = CONFIG.telegram
+    object.__setattr__(CONFIG, "telegram", dataclasses.replace(
+        original, chat_id=OPERATOR, admin_ids=""))
+    yield
+    object.__setattr__(CONFIG, "telegram", original)
+
+
+@pytest.fixture()
+def public_feed(monkeypatch):
+    seen = []
+    monkeypatch.setattr(af.FEED, "emit", lambda *a, **k: seen.append(a))
+    return seen
+
+
+def _card(repeat_of=None):
+    idea = _engine_idea()
+    if repeat_of is not None:
+        idea.repeat_of = repeat_of
+    eng = _book_engine()
+    eng._register_engine_idea(idea)
+    w = _wire(eng)
+    alerts = w.monitor._check_trade_signals()
+    assert len(alerts) == 1
+    return idea, w, alerts
+
+
+class TestTheSignalCard:
+    def test_a_re_offer_reaches_the_operator_alone_with_the_live_button(
+            self, operator_chat, public_feed):
+        idea, w, alerts = _card(repeat_of="TI-first")
+        assert alerts[0].audience == "admin"
+        _deliver(w, alerts)
+        assert w.bot.to(WATCHER) == [], "a watcher was sent the same call again"
+        cards = [(t, m) for t, m in w.bot.to(OPERATOR)
+                 if t and "SIGNAL RE-OFFERED" in t]
+        assert len(cards) == 1, "the operator was not sent the re-offer"
+        text, markup = cards[0]
+        assert "NEW SIGNAL" not in text
+        assert "Watching chats are not sent it again" in text
+        # The TEXT card's own button, read off that message alone: the image
+        # card carries a Take-it of its own, so a check over every message
+        # the operator got passes for a text card that lost its button.
+        assert markup is not None, "the re-offer card carries no button"
+        data = [b.callback_data for row in markup.inline_keyboard for b in row]
+        assert f"confirm:{idea.id}:{OPERATOR}" in data
+        assert w.bot.public() == [], "a re-offer was posted publicly"
+        assert not [a for a in public_feed if a and a[0] == "alert"], (
+            "a re-offer's title reached the public mind-stream")
+
+    def test_a_new_call_keeps_the_fan_out(self, operator_chat, public_feed):
+        idea, w, alerts = _card()
+        assert alerts[0].audience == "all"
+        _deliver(w, alerts)
+        for chat in (OPERATOR, WATCHER):
+            texts = [t for t, _ in w.bot.to(chat) if t]
+            assert any("NEW SIGNAL" in t for t in texts), chat
+            assert not any("RE-OFFERED" in t for t in texts), chat
+        assert w.bot.public() and "RUNECLAW SIGNAL" in w.bot.public()[0]
+        assert [a for a in public_feed if a and a[0] == "alert"]
+
+    def test_the_picture_goes_where_the_text_went(self, operator_chat, monkeypatch):
+        """The image loop walked every watching chat whatever the audience.
+        Planted: an alert read as the operator's alone, delivered through the
+        real hook, and the picture has to follow it."""
+        idea, w, alerts = _card(repeat_of="TI-first")
+        pictures = []
+        import bot.skills.alerts_monitor as am
+
+        real = w.monitor._recipients_for
+        monkeypatch.setattr(w.monitor, "_recipients_for",
+                            lambda a: pictures.append(a.alert_type) or real(a))
+        _deliver(w, alerts)
+        assert pictures.count("TRADE_SIGNAL") >= 2, (
+            "the image loop did not ask whom the alert is for")
+        assert am is not None
+        assert w.bot.to(WATCHER) == []
+
+    @pytest.mark.parametrize("value", ["", 0, object()])
+    def test_only_a_named_call_is_a_re_offer(self, operator_chat, value):
+        # A stand-in whose attribute answers anything (a Mock, an empty
+        # string) has named no call, so it is a new call and keeps the fan-out.
+        idea = _engine_idea()
+        object.__setattr__(idea, "repeat_of", value)
+        eng = _book_engine()
+        eng._register_engine_idea(idea)
+        alerts = _wire(eng).monitor._check_trade_signals()
+        assert alerts[0].audience == "all" and "NEW SIGNAL" in alerts[0].body

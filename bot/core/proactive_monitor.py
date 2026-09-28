@@ -3610,13 +3610,38 @@ class ProactiveMonitor:
                     # the operator's to take. With no operator chat configured
                     # there is nobody to tag, so no button and no sentence.
                     buttons, door = _signal_buttons(idea)
-                    alerts.append(Alert(
-                        alert_type="TRADE_SIGNAL",
+                    # A RE-OFFER IS THE OPERATOR'S, AND SAYS WHAT IT IS. The
+                    # engine re-reads the same setup when its pending idea
+                    # lapses untaken, and the publish step stamps the new idea
+                    # with the call it repeats (`repeat_of`). Every watching
+                    # chat has already been sent that call; the one reader a
+                    # re-offer is news to is the operator, whose Take-it on the
+                    # earlier card points at an idea that has expired. So it
+                    # is built with the admin audience, and the heading says
+                    # it is the same call. A new call keeps the fan-out it
+                    # has always had. Two constructors with CONSTANT
+                    # audiences, because the audience ratchet reads the
+                    # keyword by AST and scores an expression as "all".
+                    _repeat = getattr(idea, "repeat_of", None)
+                    reoffer = isinstance(_repeat, str) and bool(_repeat)
+                    heading = (
+                        f"\U0001f501 <b>SIGNAL RE-OFFERED — {idea.asset}</b>\n"
+                        if reoffer else
+                        f"\U0001f514 <b>NEW SIGNAL — {idea.asset}</b>\n")
+                    reoffer_line = (
+                        "\u2139\ufe0f The same call as one already sent: its "
+                        "idea lapsed untaken and the engine read the same "
+                        "setup again. This card carries the live button. "
+                        "Watching chats are not sent it again.\n"
+                        if reoffer else "")
+                    signal_fields = dict(
                         severity="INFO",
                         title=f"Signal: {idea.asset}",
                         body=(
-                            f"\U0001f514 <b>NEW SIGNAL — {idea.asset}</b>\n"
-                            "────────────────\n"
+                            heading
+                            + "────────────────\n"
+                            + reoffer_line
+                            +
                             f"- Direction: {d}\n"
                             f"- Confidence: <code>{_conf_read.pct()}</code>\n"
                             # The repo's adaptive formatter: `:,.2f` printed a
@@ -3635,7 +3660,13 @@ class ProactiveMonitor:
                         dedup_key=key,
                         idea=idea,
                         buttons=buttons,
-                    ))
+                    )
+                    if reoffer:
+                        alerts.append(Alert(alert_type="TRADE_SIGNAL",
+                                            audience="admin", **signal_fields))
+                    else:
+                        alerts.append(Alert(alert_type="TRADE_SIGNAL",
+                                            **signal_fields))
         except Exception as exc:
             logger.debug("_check_trade_signals error: %s", exc)
         return alerts
