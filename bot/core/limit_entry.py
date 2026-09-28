@@ -12,6 +12,7 @@ Used by live_executor.execute() when recalculating limit prices.
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -385,3 +386,36 @@ def validate_entry_distance(
         )
 
     return True, ""
+
+
+def limit_crosses_market(side: str, limit_price, current_price) -> Optional[bool]:
+    """Does a LIMIT at ``limit_price`` sit at or through the market, so the venue
+    fills it at once (as a taker) rather than resting it on the book?
+
+    ``side`` is the order side (``buy``/``sell``) or the direction it opens
+    (``LONG``/``SHORT``). A buy at or above the market crosses; a sell at or
+    below it does. Equality counts: a limit AT the market fills at once too.
+    ``None`` when either price is not a readable positive figure, because
+    "does not cross" is a claim about two prices and nothing can be said
+    about one that was not read -- and ``None`` for a side this reading does
+    not know, never a guess at what the other side means.
+
+    ONE reading. The engine's confirm-time block and the executor's
+    placement each spelled it inline, and each decides something different
+    from it: the engine's own idea is re-priced to rest as a maker, a
+    hand-typed ticket is placed as typed and sent GTC so the venue fills it
+    at the market up to the price the person named.
+    """
+    try:
+        lp = float(limit_price)
+        cp = float(current_price)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(lp) and math.isfinite(cp)) or lp <= 0 or cp <= 0:
+        return None
+    s = str(side or "").strip().lower()
+    if s in ("buy", "long"):
+        return lp >= cp
+    if s in ("sell", "short"):
+        return lp <= cp
+    return None

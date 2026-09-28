@@ -39,6 +39,7 @@ from bot.core.live_executor import LiveExecutor, committed_margin, display_symbo
 from bot.core import live_executor as _live_executor_mod
 from bot.core import size_bounds
 from bot.core.exchange_sync import sync_portfolio_with_exchange, get_exchange_position_count, invalidate_position_count_cache
+from bot.core.limit_entry import limit_crosses_market
 from bot.core.market_scanner import MarketScanner, _classify_symbol
 from bot.core.order_flow import OrderFlowAnalyzer
 from bot.core.position_telemetry import entered_at
@@ -7926,12 +7927,30 @@ class RuneClawEngine:
         #   - LONG buy limit ABOVE current price fills immediately
         #   - SHORT sell limit BELOW current price fills immediately
         # If the limit price is already on the correct side, keep it.
+        # A LIMIT at or through the market fills at once, as a taker. For the
+        # ENGINE's own idea that is a level gone stale since analysis, and the
+        # block below re-prices it to rest as a maker. For a HAND-TYPED ticket
+        # it is the person's price cap ("buy now, at most $3,000") and the
+        # levels are theirs: the first version of this block moved a typed
+        # entry to current - 0.5*ATR, shifted the typed stop and target the
+        # same distance, and answered "LIMIT ORDER PLACED" at a price nobody
+        # typed -- driven, $3,000 typed against a market of $2,990 placed
+        # $2,965. A typed ticket passes through as typed (the executor sends
+        # it GTC, never post-only), and the crossing is audited rather than
+        # acted on. `limit_crosses_market` is the one reading of "crosses".
+        _crosses = bool(idea.order_type == "limit" and current_price > 0
+                        and limit_crosses_market(idea.direction.value,
+                                                 idea.entry_price, current_price))
+        if _crosses and is_manual:
+            audit(trade_log,
+                  f"Typed limit ${idea.entry_price:,.4f} is at or through the market "
+                  f"${current_price:,.4f}: placed AS TYPED, fills at the market up to "
+                  f"that price",
+                  action="manual_limit_as_typed", result="CROSSES_MARKET",
+                  data={"trade_id": trade_id, "entry": idea.entry_price,
+                        "current_price": current_price})
         if idea.order_type == "limit" and current_price > 0 and stored_atr and stored_atr > 0:
-            _needs_recalc = False
-            if idea.direction.value == "LONG" and idea.entry_price >= current_price:
-                _needs_recalc = True
-            elif idea.direction.value != "LONG" and idea.entry_price <= current_price:
-                _needs_recalc = True
+            _needs_recalc = _crosses and not is_manual
 
             if _needs_recalc:
                 # Use 0.5*ATR offset (not 0.1) so the limit is far enough from

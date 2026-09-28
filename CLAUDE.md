@@ -15362,14 +15362,22 @@ rather than measuring thirteen mutations against a red baseline. The stub is
 re-registered under its own name here, which is the `envelope =
 _envelope_fixture` spelling one fixture over.
 
-**THREE STAND-INS FORGOT THE NEXT TWO METHODS**, which this file records as
+**FOUR STAND-INS FORGOT THE NEXT TWO METHODS**, which this file records as
 the shape a hand-written stand-in takes: the ownership suite's `_host`, the
 duplicate guard's `_FakeEngine` and the scan-freshness `_Engine` each bind
 the real methods they need and none knew `_drop_pending_idea` or
 `_expire_pending_ideas`, so eight tests in three files failed on a wiring
-change they were not testing. Each binds the real methods now. And the
-per-user allowlist pin anchored on the spelling `.pop(idea.id)`; it anchors on
-the read.
+change they were not testing. Each binds the real methods now. The FOURTH
+was found after the commit, by the next slice's neighbouring run rather than
+by this one's: the trade-quality suite's `_PaperEng` binds the real paper
+fill, which now takes the idea off the book through the helper, and its
+`except` folded the `AttributeError` into *"Simulated fill failed"*. The full
+preflight on this commit would have refused it thirty minutes in, on a suite
+none of this slice's runs included, so that run was stopped by PID and the
+head re-preflighted with the binding in. A sweep of every suite that binds an
+engine method (26 files, 422 tests) found no fifth. And the per-user
+allowlist pin anchored on the spelling `.pop(idea.id)`; it anchors on the
+read.
 
 **Recorded, not changed.** `/web3/sign` records the transfer against the
 24h ledger before `build_and_sign` runs, so a signature that FAILS keeps the
@@ -15387,6 +15395,85 @@ margin with `.pop` dies only on the retry drive that asks the envelope twice
 for one pending ticket, because a reader that consumes the figure agrees
 with a reader that does not on every single ask.
 (`tests/test_a_tickets_margin_lives_as_long_as_its_idea.py`.)
+
+**A HAND-TYPED LIMIT AT OR THROUGH THE MARKET WAS RE-PRICED TO CURRENT MINUS
+HALF AN ATR, ITS STOP AND TARGET MOVED WITH IT, AND ANSWERED "LIMIT ORDER
+PLACED".** Every `/trade` ticket is a limit (the typed grammar has no
+`market` word; the web's ticket offers one), and the dashboard's card says
+*"Limit -- rest at entry $3,000"*. `_confirm_trade_inner` skips the drift and
+stale-R:R checks for a typed ticket under a comment reading *"user chose these
+exact levels"*, and twenty lines below it the limit re-price ran for every
+limit idea whatever its source. Driven through the real `confirm_trade`:
+
+    /trade long ETH 3000 sl 2950 tp 3100, ETH at 2990
+        handed to execute: entry 2965  sl 2915  tp 3065   "✅ LIMIT ORDER PLACED"
+    the same ticket, ETH at exactly 3000
+        handed to execute: entry 2975  sl 2925  tp 3075
+
+The offset is half the SYNTHETIC ATR the confirm derives from the typed stop
+distance, so the person's own stop decides how far their entry is moved. A
+limit at or through the market is what "buy now, at most 3000" means, and
+the person who typed it against a market of 2990 was given a resting order
+35 below it that fills only if the market comes back, lapses as *never
+filled* after four hours if it does not, and a stop and target 35 away from
+the ones they typed, under a card that said their order was placed. The
+engine's own idea is different: its level was set at analysis time and is
+stale by confirm, and the re-price to rest as a maker is right for it.
+
+**TWO RE-PRICE SITES, NEITHER ASKED WHOSE LEVELS THEY WERE MOVING.** The
+executor's `_recalculate_limit_entry` runs the confluence re-price on
+whatever crosses at placement: a Tier D turns the typed limit into a MARKET
+order, a Tier C cuts the typed margin by 0.3, and a moved entry shifts the
+typed stop and target. And every crypto limit goes out post-only
+(`LIMIT_POST_ONLY` defaults True), which the venue REJECTS the moment the
+market reaches the price it names -- so a typed limit that crossed between
+the confirm's ticker read and the placement met the post-only retry, which
+widens the offset by up to an ATR and re-prices the typed levels a third
+way. A typed ticket passes through both sites as typed now, and is sent GTC,
+never post-only: the venue fills it at the market up to the price the person
+named, or rests it there. Metals and stocks were GTC already, for a different
+reason. The crossing is AUDITED at both sites (`manual_limit_as_typed`,
+`CROSSES_MARKET`) rather than acted on, and a resting typed limit is neither
+moved nor audited. The engine's own ideas keep the re-price they always had,
+driven: a signal limit through the market still moves to half an ATR below
+with its stop and target shifted.
+
+**ONE READING OF "CROSSES".** The engine spelled `entry >= current` for a
+long and `entry <= current` for a short, the executor spelled the same pair
+in `buy`/`sell`, and each decided something different from it.
+`limit_entry.limit_crosses_market` is the one reading, in either vocabulary,
+with equality counted (a limit AT the market fills at once too) and `None`
+for a price that is not a readable positive figure or a side it does not
+know -- never a guess at what the other side means.
+
+**What a typed crossing limit still meets, stated.** The past-stop check
+runs for a typed ticket before placement, so a long whose stop the market is
+already below is refused rather than filled and stopped out at once. The
+fee-aware entry gate prices a `limit` entry as a maker, and a crossing typed
+limit pays the taker fee; the gate is skipped for a typed ticket
+(`FEE_AWARE ... and not is_manual`), so nothing mis-models it, and the
+co-pilot's review card prices the same round trip as maker, which is 0.02%
+of notional optimistic for the one ticket shape this chapter is about and
+is filed rather than widened. A limit the venue fills at once comes back from
+Bitget with no status, so it is tracked as `pending_fill` for one tick and
+becomes a position on the next pending check, which is the path every
+resting limit that fills already takes.
+
+**Fifteen mutations, each killed -- and the one that survived the first
+round was the corpus, on the half this slice did not change.** The
+executor's re-price for the ENGINE's own idea given back a strict
+comparison of its own (`limit_price > current_price`) changed no verdict,
+because every signal fixture in the tree sat strictly through the market:
+a signal limit exactly AT the market is the input that separates `>` from
+the leaf's `>=`, and under the strict reading it would have been left to
+fill as a taker, which post-only then refuses. Both sides of that row are
+planted now and the mutation dies. The rest die where the drives say: the
+typed ticket re-priced again at the engine or at the executor, the crossing
+audit dropped or fired for a resting ticket at either site, the engine's own
+idea no longer re-priced, equality read as not crossing, the sell side read
+backwards, an unreadable price read as a no, an unknown side read as a buy,
+a typed limit sent post-only, and every limit sent GTC.
+(`tests/test_a_typed_ticket_is_placed_at_the_levels_it_typed.py`.)
 
 ## Public-surface rules
 
@@ -15867,7 +15954,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 245 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 246 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -16679,9 +16766,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **456 of 1146** reach for source text through `source_scan`, `code_only`
+Driven, **457 of 1147** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 456 is a FLOOR and the honest shape is
+source scan that rule does not see, so 457 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

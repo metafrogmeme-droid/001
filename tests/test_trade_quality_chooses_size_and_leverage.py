@@ -554,6 +554,9 @@ class TestTheCardsPrintTheBasis:
     def test_the_paper_card_prints_the_basis_and_runs_at_the_capped_leverage(self):
         class _PaperEng:
             _simulate_paper_fill = RuneClawEngine._simulate_paper_fill
+            # the paper fill takes the idea (and a typed margin) off the book
+            # through the one helper every exit asks
+            _drop_pending_idea = RuneClawEngine._drop_pending_idea
             _high_conviction_margin = RuneClawEngine._high_conviction_margin
             _high_conviction_ceiling = RuneClawEngine._high_conviction_ceiling
 

@@ -45,7 +45,7 @@ from bot.core.order_rules import (
     is_market_open, is_weekend_queued, adjust_sl_for_gap_risk,
     adjust_size_for_weekend, should_defer_tp_sl,
 )
-from bot.core.limit_entry import calculate_entry
+from bot.core.limit_entry import calculate_entry, limit_crosses_market
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import ccxt_margin_mode, get_venue
 from bot.core.close_lookup import (
@@ -6365,18 +6365,30 @@ class LiveExecutor:
         and a moved entry shifts the idea's stop and target with it. Mutates
         ``idea.stop_loss`` / ``idea.take_profit`` on the copy execute() works on.
         """
+        # A HAND-TYPED ticket's levels are the person's, and everything below
+        # is the engine's: a Tier D would turn the typed limit into a market
+        # order, a Tier C would cut the typed margin by 0.3, and a moved entry
+        # would shift the typed stop and target with it. A typed limit that
+        # crosses the market is sent GTC, never post-only (see
+        # _submit_entry_order), so the venue fills it at the market up to the
+        # price the person named -- which is what that order means.
+        if use_limit and limit_price and getattr(idea, "source", "") == "manual":
+            if current_price > 0 and limit_crosses_market(side, limit_price, current_price):
+                audit(trade_log,
+                      f"Typed limit ${limit_price:,.4f} crosses the market "
+                      f"${current_price:,.4f} for {symbol}: sent as typed, fills at "
+                      f"the market up to that price",
+                      action="manual_limit_as_typed", result="CROSSES_MARKET",
+                      data={"symbol": symbol, "limit_price": limit_price,
+                            "market_price": current_price})
+            return use_limit, limit_price, size_usd, quantity
+
         # ── LIMIT ORDER PRICE VALIDATION ──
         # A limit order that's on the wrong side of the market fills instantly
         # as a taker (effectively a market order). Recalculate the limit price
         # using the CURRENT price with an offset to ensure it rests on the book.
         if use_limit and limit_price and current_price > 0:
-            needs_recalc = False
-            if side == "buy" and limit_price >= current_price:
-                # LONG limit buy above market = instant fill = market order
-                needs_recalc = True
-            elif side == "sell" and limit_price <= current_price:
-                # SHORT limit sell below market = instant fill = market order
-                needs_recalc = True
+            needs_recalc = bool(limit_crosses_market(side, limit_price, current_price))
 
             if needs_recalc and atr_value > 0:
                 # GETCLAW: confluence-based limit entry calculation
@@ -6609,6 +6621,13 @@ class LiveExecutor:
                 asset_class = _classify_symbol(symbol)
                 if asset_class in ("Metal", "Commodity", "Stock", "Pre-IPO"):
                     # GTC: stays live through session close/reopen
+                    futures_params.update(self._venue.gtc_params())
+                elif getattr(idea, "source", "") == "manual":
+                    # A hand-typed limit is the person's price cap and is
+                    # never post-only: post-only REJECTS the order the moment
+                    # the market reaches the price it names, and the retry
+                    # below would then re-price the levels the person typed.
+                    # GTC fills it at the market up to that price, or rests.
                     futures_params.update(self._venue.gtc_params())
                 elif CONFIG.limit_orders.post_only:
                     # POST_ONLY: maker-only, rejects if would fill as taker
