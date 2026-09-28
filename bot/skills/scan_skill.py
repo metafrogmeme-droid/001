@@ -1320,14 +1320,15 @@ def _push_scan_to_dashboard(results: list[dict], engine=None, payload: dict | No
     message would 404.
     """
     try:
-        from bot.utils.website_sync import (
-            sync_scan_in_background, sync_signals_in_background)
+        from bot.core.signal_outcomes import publish_signals
+        from bot.utils.website_sync import sync_scan_in_background
         if payload is None:
             payload = _build_scan_payload(results, engine)
         sync_scan_in_background(payload)
         # Also append the scan's signals to the global signal-stream (every
-        # generated signal, taken or not). Best-effort, non-blocking.
-        sync_signals_in_background(_scan_signal_rows(payload))
+        # generated signal, taken or not). Best-effort, non-blocking; recorded
+        # too, so the engine can say later what became of each one.
+        publish_signals(_scan_signal_rows(payload))
     except Exception as exc:
         log.warning("Dashboard scan push failed: %s", exc)
 

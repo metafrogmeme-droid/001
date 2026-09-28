@@ -325,12 +325,14 @@ test('the dashboard stream has the one-tap Arena button and its handler', () => 
   const dash = read('public', 'js', 'dashboard.js');
   assert.match(dash, /data-parena="\$\{esc\(s\.signal_key\)\}"/,
     'the button must carry the signal_key, not an id the public API lacks');
-  // Resolution is read from the outcome LABEL now, not the amount: /api/signals
-  // stopped publishing `pnl` (§4 — no dollars on an anonymous payload), and a
-  // key that is simply absent would make `s.pnl == null` true for every
-  // resolved signal and offer an open on all of them.
-  assert.match(dash, /s\.outcome == null && s\.signal_key/,
+  // Resolution is read from the signal's WORD now (SignalStatusModel), not the
+  // amount: /api/signals stopped publishing `pnl` (§4 — no dollars on an
+  // anonymous payload), and the bot's outcome walk writes eight words of which
+  // five are final and only two carry an R, so an outcome label alone would
+  // offer an open on every expired or ambiguous call.
+  assert.match(dash, /const live = SS \? SS\.actionable\(s\) : false;/,
     'a resolved signal must not offer an open');
+  assert.match(dash, /const arenaBtn = live && s\.signal_key/);
   assert.match(dash, /signal_key: abtn\.getAttribute\('data-parena'\)/);
   // The refusals the route encodes translate; free-text errors pass through.
   assert.match(dash, /stale: \['arena\.sig_b_stale'/);

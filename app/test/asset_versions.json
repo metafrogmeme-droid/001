@@ -61,7 +61,7 @@
   },
   "js/dashboard.js": {
     "v": 205,
-    "sha": "8c0dffca2fedc848"
+    "sha": "fd80adaf3ca50128"
   },
   "js/decision-court-model.js": {
     "v": 2,
@@ -293,6 +293,10 @@
   },
   "js/embed-chart.js": {
     "sha": "30bfbd7fcf31ac51",
+    "v": 1
+  },
+  "js/signal-status-model.js": {
+    "sha": "ad8080c4d626d9ca",
     "v": 1
   }
 }

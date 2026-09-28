@@ -201,7 +201,11 @@ class TestTickWiresSignalStreamSync:
         import inspect
         src = inspect.getsource(RuneClawEngine._tick)
         assert "_synced_ideas.append(idea)" in src
-        assert "sync_signals_in_background(" in src
+        # Through the one door both producers use, which records each row
+        # before pushing it, so its outcome can be walked later
+        # (bot/core/signal_outcomes.py); the push itself is still
+        # sync_signals_in_background, driven in the outcome suite.
+        assert "_publish_signals(" in src
         assert "_build_signal_sync_payloads(_synced_ideas, self._outcome_regime)" in src
         # Fail-open: the push is wrapped so a sync failure can't break the tick.
         assert "logger.debug(\"Signal stream sync skipped: %s\", _sig_sync_exc)" in src

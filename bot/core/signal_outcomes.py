@@ -1,0 +1,451 @@
+"""What became of each signal the bot published.
+
+Both producers of the public signal stream (the engine's own ideas and the
+scan cards) push a row with ``status: NEW`` and no outcome, and nothing ever
+pushed a second one. So every signal stayed NEW for good, ``/api/signals/stats``
+could never count a resolved signal, and the panel promising that "outcomes
+appear once signals hit target or stop" described a path that did not exist.
+
+This module is that path. Every published row is recorded here, and the engine
+walks hourly candles from the moment each signal was published and says what
+it did. A signal is a CALL, not a position: nobody's money is in it, so what it
+realized is stated in R, the multiple of its own risk distance, and never in
+dollars (the stream is public).
+
+The words, and what each one claims:
+
+* ``NEW`` -- published; price has not reached the entry yet.
+* ``OPEN`` -- price reached the entry; neither level yet.
+* ``TARGET`` -- the target was reached after the entry: R = reward / risk.
+* ``STOP`` -- the stop was reached after the entry: R = -1.
+* ``AMBIGUOUS`` -- one bar spans both levels (or the entry and the level on the
+  far side of it), and OHLC cannot say which came first, so it carries no R in
+  either direction. It is counted, never folded into a win or a loss.
+* ``EXPIRED`` -- the entry window closed before price reached the entry. The
+  call was never taken, which is not a loss.
+* ``NO_EXIT`` -- the entry was reached and neither level within ``HORIZON_S``.
+* ``UNSCORED`` -- the candles could not answer: they do not reach back to the
+  signal, or its levels do not describe a trade. Not a verdict.
+
+THE ENTRY WINDOW IS THE BOT'S RESTING-LIMIT CLOCK, not the row's
+``expires_at``. That field is the PENDING_IDEA_TTL (five minutes by default):
+how long a follower may still act on the call, which is what the copy readers
+select on. It is finer than an hourly candle, so a walk that honoured it would
+call nearly every signal EXPIRED before its first bar closed. What the call
+itself did is asked over the time the bot would rest a limit order at its entry
+(``LIMIT_ORDER_EXPIRE_SEC``, four hours by default), which the engine hands in.
+
+The R is GROSS: a signal has no size, so no fee can be charged to it, and the
+panel says so. And the walk is over HOURLY bars, so a bar that spans both
+levels is more common than it would be at a finer grain; that is the price of
+reading a week in one fetch, and it is why AMBIGUOUS is its own word.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any, Callable, Optional, Sequence
+
+from bot.utils.json_store import StoreUnreadable, read_json_store, update_json_store
+from bot.utils.paths import state_path
+
+logger = logging.getLogger(__name__)
+
+NEW, OPEN = "NEW", "OPEN"
+TARGET, STOP, AMBIGUOUS = "TARGET", "STOP", "AMBIGUOUS"
+EXPIRED, NO_EXIT, UNSCORED = "EXPIRED", "NO_EXIT", "UNSCORED"
+
+#: Still being walked: the bot asks the candles about these again.
+PENDING = (NEW, OPEN)
+#: Final. A row in one of these is not asked about again.
+TERMINAL = (TARGET, STOP, AMBIGUOUS, EXPIRED, NO_EXIT, UNSCORED)
+#: The words that carry an R.
+SCORED = (TARGET, STOP)
+
+TIMEFRAME = "1h"
+BAR_MS = 3_600_000
+#: How long a signal may sit in the market with neither level reached before
+#: it is NO_EXIT. A week: longer than any strategy's own time exit.
+HORIZON_S = 7 * 24 * 3600
+#: The window to reach the entry when the caller hands none: the default of
+#: LIMIT_ORDER_EXPIRE_SEC, the time the bot rests a limit order at its entry.
+DEFAULT_ENTRY_WINDOW_S = 4 * 3600
+#: Candles asked for per signal: 200 hourly bars is eight days and a bit, which
+#: covers the entry window plus the horizon for a signal read on time.
+FETCH_LIMIT = 200
+#: A resolved row is kept this long after it was synced, then pruned.
+KEEP_RESOLVED_S = 14 * 24 * 3600
+#: The ledger never holds more than this many rows (oldest resolved go first).
+MAX_ROWS = 2000
+
+_LEDGER_REL = "data/learning/signal_outcomes.json"
+
+
+def ledger_path():
+    return state_path(_LEDGER_REL)
+
+
+def _f(value: object) -> Optional[float]:
+    """A finite float, or None. A bool is not a number here."""
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        out = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if out != out or out in (float("inf"), float("-inf")):
+        return None
+    return out
+
+
+def parse_time_ms(value: object) -> Optional[int]:
+    """Epoch milliseconds from an ISO stamp or the scan's ``%Y-%m-%d %H:%M UTC``.
+
+    None for anything else: a signal whose publication time cannot be read
+    cannot be walked from it.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    s = value.strip()
+    for fmt in ("%Y-%m-%d %H:%M UTC",):
+        try:
+            return int(datetime.strptime(s, fmt).replace(tzinfo=UTC).timestamp() * 1000)
+        except ValueError:
+            pass
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return int(dt.timestamp() * 1000)
+
+
+def market_for(symbol: object) -> Optional[str]:
+    """The market to ask for candles, from the symbol a row was published under.
+
+    The engine publishes ``BTC/USDT``; the scan cards publish the base alone
+    (``BTC``). A bare ``BTCUSDT`` is read as the USDT pair too.
+    """
+    s = str(symbol or "").strip().upper()
+    if not s:
+        return None
+    if "/" in s:
+        return s
+    if s.endswith("USDT") and len(s) > 4:
+        return f"{s[:-4]}/USDT"
+    if s.isalnum():
+        return f"{s}/USDT"
+    return None
+
+
+@dataclass(frozen=True)
+class Resolution:
+    """What one signal did, as far as the bars say."""
+
+    status: str
+    why: str
+    r: Optional[float] = None
+    resolved_ms: Optional[int] = None
+    triggered_ms: Optional[int] = None
+    #: The bars could not answer THIS time (a candle that did not read, none
+    #: closed yet). Nothing about the signal is recorded from such a walk.
+    retry: bool = False
+
+
+def _levels(row: dict):
+    """(long, entry, stop, target) or None when they do not describe a trade."""
+    d = str(row.get("direction", "")).split(".")[-1].upper()
+    if d not in ("LONG", "SHORT"):
+        return None
+    e, s, t = (_f(row.get(k)) for k in ("entry_price", "stop_loss", "take_profit"))
+    if e is None or s is None or t is None or e <= 0 or s <= 0 or t <= 0:
+        return None
+    long = d == "LONG"
+    if long and not (s < e < t):
+        return None
+    if not long and not (t < e < s):
+        return None
+    return long, e, s, t
+
+
+def entry_window_s(value: object) -> int:
+    """The entry window in seconds: ``value`` when it is a positive number,
+    otherwise the default. A setting that does not read is not a window of 0."""
+    v = _f(value)
+    return int(v) if v is not None and v >= 1 else DEFAULT_ENTRY_WINDOW_S
+
+
+def resolve(row: dict, bars: Sequence[Sequence[Any]], now_ms: int,
+            window_s: object = None) -> Resolution:
+    """Walk ``bars`` (closed OHLCV rows, oldest first) and say what ``row`` did.
+
+    Only bars that OPENED at or after the signal's publication are read: the
+    bar that was forming when the signal went out holds prices from before it,
+    and one of those reaching the entry is not the market answering the call.
+
+    HOW THE ENTRY IS REACHED depends on where it sits. An entry on the far side
+    of the market from the first bar's open (below it for a long) is a
+    pullback, reached when a bar trades down to it; one on the near side is a
+    break, reached when a bar trades up to it. A single rule for both reads a
+    gap past a pullback entry as never filled, or a gap past a break as filled.
+
+    ON THE BAR THAT REACHES THE ENTRY, a level on the far side of the entry
+    from where price came from (the stop, for a pullback long) is reached after
+    it, and counts. A level on the side price came FROM may have been reached
+    before the entry was, so that bar is AMBIGUOUS rather than a win.
+    """
+    lv = _levels(row)
+    if lv is None:
+        return Resolution(UNSCORED, "the levels do not describe a trade")
+    long, e, s, t = lv
+    created = parse_time_ms(row.get("created_at"))
+    if created is None:
+        return Resolution(UNSCORED, "the publication time could not be read")
+    expires = created + entry_window_s(window_s) * 1000
+
+    walk = []
+    for b in bars:
+        if not b or len(b) < 5:
+            return Resolution(NEW, "a candle could not be read; asked again later", retry=True)
+        ts = _f(b[0])
+        if ts is None:
+            return Resolution(NEW, "a candle could not be read; asked again later", retry=True)
+        if ts >= created:
+            walk.append(b)
+    if not walk:
+        if now_ms >= expires:
+            # Nothing after publication came back at all, past the window.
+            return Resolution(UNSCORED, "no candle after the signal was published came back")
+        return Resolution(NEW, "no candle has closed since the signal was published", retry=True)
+    first_ts = _f(walk[0][0])
+    if first_ts is not None and first_ts > created + BAR_MS:
+        # The series starts later than the signal: bars in between are missing,
+        # and the entry may have been reached in them.
+        return Resolution(UNSCORED, "the candles do not reach back to the signal")
+
+    first_open = _f(walk[0][1])
+    if first_open is None:
+        return Resolution(NEW, "a candle could not be read; asked again later", retry=True)
+    # Pullback: the entry sits on the far side of the market (below for a long).
+    pullback = e <= first_open if long else e >= first_open
+    reward = (t - e) if long else (e - t)
+    risk = (e - s) if long else (s - e)
+    r_target = round(reward / risk, 2)
+
+    trig_ts: Optional[int] = None
+    for b in walk:
+        ts = int(float(b[0]))
+        hi, lo = _f(b[2]), _f(b[3])
+        if hi is None or lo is None:
+            return Resolution(NEW if trig_ts is None else OPEN,
+                              "a candle could not be read; asked again later",
+                              triggered_ms=trig_ts, retry=True)
+        hit_stop = (lo <= s) if long else (hi >= s)
+        hit_target = (hi >= t) if long else (lo <= t)
+        if trig_ts is None:
+            if ts >= expires:
+                return Resolution(EXPIRED, "the window closed before price reached the entry",
+                                  resolved_ms=expires)
+            reached = ((lo <= e) if long else (hi >= e)) if pullback else \
+                ((hi >= e) if long else (lo <= e))
+            if not reached:
+                continue
+            trig_ts = ts
+            # The level beyond the entry (in the direction price was moving)
+            # is reached after it; the level behind it may have come first.
+            ahead_hit = hit_stop if pullback else hit_target
+            behind_hit = hit_target if pullback else hit_stop
+            if behind_hit:
+                return Resolution(AMBIGUOUS, "the bar that reached the entry also spans the "
+                                  "other level; OHLC cannot say which came first",
+                                  resolved_ms=ts + BAR_MS, triggered_ms=ts)
+            if ahead_hit:
+                status = STOP if pullback else TARGET
+                return Resolution(status, "reached on the bar that reached the entry",
+                                  r=-1.0 if status == STOP else r_target,
+                                  resolved_ms=ts + BAR_MS, triggered_ms=ts)
+            continue
+        if ts - trig_ts >= HORIZON_S * 1000:
+            return Resolution(NO_EXIT, "neither level was reached within a week of the entry",
+                              resolved_ms=trig_ts + HORIZON_S * 1000, triggered_ms=trig_ts)
+        if hit_stop and hit_target:
+            return Resolution(AMBIGUOUS, "one bar spans the stop and the target; OHLC "
+                              "cannot say which came first",
+                              resolved_ms=ts + BAR_MS, triggered_ms=trig_ts)
+        if hit_target:
+            return Resolution(TARGET, "the target was reached", r=r_target,
+                              resolved_ms=ts + BAR_MS, triggered_ms=trig_ts)
+        if hit_stop:
+            return Resolution(STOP, "the stop was reached", r=-1.0,
+                              resolved_ms=ts + BAR_MS, triggered_ms=trig_ts)
+
+    if trig_ts is None:
+        if now_ms >= expires:
+            return Resolution(EXPIRED, "the window closed before price reached the entry",
+                              resolved_ms=expires)
+        return Resolution(NEW, "price has not reached the entry")
+    if now_ms - trig_ts >= HORIZON_S * 1000:
+        return Resolution(NO_EXIT, "neither level was reached within a week of the entry",
+                          resolved_ms=trig_ts + HORIZON_S * 1000, triggered_ms=trig_ts)
+    return Resolution(OPEN, "the entry was reached; neither level yet", triggered_ms=trig_ts)
+
+
+# ---------------------------------------------------------------- the ledger
+
+def _check(data: Any) -> str:
+    if not isinstance(data.get("signals", {}), dict):
+        return "signals is not a map"
+    return ""
+
+
+def record_published(rows: Sequence[dict], path=None) -> int:
+    """Record every published row, so the engine can walk it later.
+
+    The row is kept WHOLE: a resolution is re-sent as the same row with its
+    outcome fields set, because the website INSERTs a row it has never seen and
+    seals it from the decision facts, so a row re-sent with only its key and
+    outcome would be sealed with zeros. A key already recorded is left alone.
+    Returns how many were added; an unreadable ledger is never written over.
+    """
+    p = path or ledger_path()
+    fresh = [dict(r) for r in rows or ()
+             if isinstance(r, dict) and r.get("signal_key") and r.get("symbol")
+             and r.get("direction")]
+    if not fresh:
+        return 0
+    added = 0
+
+    def change(data):
+        nonlocal added
+        sigs = data.setdefault("signals", {})
+        for r in fresh:
+            k = str(r["signal_key"])
+            if k in sigs:
+                continue
+            sigs[k] = {"row": r, "status": str(r.get("status") or NEW),
+                       "r": None, "resolved_ms": None, "why": "",
+                       "checked_ms": None, "synced": True}
+            added += 1
+        _prune(sigs)
+        return added > 0
+
+    try:
+        update_json_store(p, change, check=_check, separators=(",", ":"))
+    except StoreUnreadable as exc:
+        logger.error("signal outcome ledger unreadable (%s); %d published signal(s) "
+                     "not recorded, and the file is left as it is", exc.detail, len(fresh))
+        return 0
+    except OSError as exc:
+        logger.warning("signal outcome ledger could not be written (%s)", type(exc).__name__)
+        return 0
+    return added
+
+
+def _prune(sigs: dict, now_ms: Optional[int] = None) -> None:
+    now = now_ms if now_ms is not None else int(time.time() * 1000)
+    for k in [k for k, v in sigs.items()
+              if v.get("status") in TERMINAL and v.get("synced")
+              and (v.get("resolved_ms") or now) < now - KEEP_RESOLVED_S * 1000]:
+        del sigs[k]
+    if len(sigs) > MAX_ROWS:
+        order = sorted(sigs, key=lambda k: (sigs[k].get("status") not in TERMINAL,
+                                            sigs[k].get("resolved_ms") or 0))
+        for k in order[:len(sigs) - MAX_ROWS]:
+            del sigs[k]
+
+
+def rows_due(path=None, *, limit: int = 12) -> Optional[list[tuple[str, dict]]]:
+    """The rows to walk now: pending ones, then resolved ones not yet synced.
+
+    Oldest check first, so a burst of new signals cannot starve an old one.
+    None when the ledger could not be read (never an empty list).
+    """
+    got = read_json_store(path or ledger_path(), check=_check)
+    if got.state == "unreadable":
+        return None
+    sigs = (got.data or {}).get("signals", {})
+    items = [(k, v) for k, v in sigs.items()
+             if isinstance(v, dict) and (v.get("status") in PENDING or not v.get("synced"))]
+    items.sort(key=lambda kv: kv[1].get("checked_ms") or 0)
+    return items[:limit]
+
+
+def outcome_row(entry: dict) -> dict:
+    """The published row with its outcome fields set, ready to re-send."""
+    row = dict(entry.get("row") or {})
+    row["status"] = entry.get("status") or NEW
+    row["pnl"] = entry.get("r") if entry.get("status") in SCORED else None
+    ms = entry.get("resolved_ms")
+    row["resolved_at"] = (datetime.fromtimestamp(ms / 1000, UTC).isoformat()
+                          if isinstance(ms, (int, float)) and entry.get("status") in TERMINAL
+                          else "")
+    return row
+
+
+def apply(key: str, res: Resolution, now_ms: int, path=None) -> Optional[dict]:
+    """Record a walk's answer. Returns the ledger entry when it CHANGED the
+    signal's word (so it must be re-sent), None otherwise."""
+    changed: dict = {}
+
+    def change(data):
+        sigs = data.setdefault("signals", {})
+        v = sigs.get(key)
+        if not isinstance(v, dict):
+            return False
+        v["checked_ms"] = now_ms
+        if v.get("status") in TERMINAL or res.retry:
+            return True
+        # A signal that reached its entry does not un-reach it: a shorter or
+        # later fetch that no longer holds the bar is not evidence against it.
+        if v.get("status") == OPEN and res.status == NEW:
+            return True
+        if res.status != v.get("status"):
+            v["status"] = res.status
+            v["r"] = res.r
+            v["resolved_ms"] = res.resolved_ms
+            v["why"] = res.why
+            v["synced"] = False
+            changed.update(v)
+        return True
+
+    try:
+        update_json_store(path or ledger_path(), change, check=_check, separators=(",", ":"))
+    except (StoreUnreadable, OSError) as exc:
+        logger.warning("signal outcome not recorded for %s (%s)", key, type(exc).__name__)
+        return None
+    return changed or None
+
+
+def mark_synced(key: str, path=None) -> bool:
+    def change(data):
+        v = data.setdefault("signals", {}).get(key)
+        if not isinstance(v, dict) or v.get("synced"):
+            return False
+        v["synced"] = True
+        return True
+    try:
+        _, written = update_json_store(path or ledger_path(), change, check=_check, separators=(",", ":"))
+    except (StoreUnreadable, OSError) as exc:
+        logger.warning("signal outcome sync mark not recorded for %s (%s)",
+                       key, type(exc).__name__)
+        return False
+    return bool(written)
+
+
+def publish_signals(rows: Sequence[dict], sync_fn: Optional[Callable[[list], None]] = None) -> None:
+    """Record the rows, then push them. The one door both producers use."""
+    rows = [r for r in rows or () if isinstance(r, dict)]
+    if not rows:
+        return
+    try:
+        record_published(rows)
+    except Exception as exc:  # noqa: BLE001 -- recording must never cost the push
+        logger.warning("signal outcome ledger: record failed (%s)", type(exc).__name__)
+    send = sync_fn
+    if send is None:
+        from bot.utils.website_sync import sync_signals_in_background
+        send = sync_signals_in_background
+    send(list(rows))

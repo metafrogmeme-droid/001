@@ -2708,14 +2708,12 @@
     renderPanel(C('sstats'), async () => {
       const r = await fetchJSON('/api/signals/stats', { auth: false });
       mustRead(r);
-      const s = r.data;
-      if (!s || !s.resolved) return null;
-      return `<div class="stat-row">
-        <div class="stat"><div class="k">Resolved</div><div class="v">${s.resolved}</div></div>
-        <div class="stat"><div class="k">Win rate</div><div class="v">${s.win_rate != null ? fmt(s.win_rate, 1) + '%' : '—'}</div></div>
-        <div class="stat"><div class="k">Wins / Losses</div><div class="v">${s.wins} / ${s.losses}${s.flat ? ` <span class="muted small">/ ${s.flat} flat</span>` : ''}</div></div>
-      </div>`;
-    }, { empty: { icon: 'icon-radar', text: 'No resolved signals yet — outcomes appear once signals hit target or stop.' } });
+      // SignalStatusModel owns the words the bot's outcome walk writes; an
+      // absent model is a script that did not load, not a record of nothing.
+      const SS = self.SignalStatusModel;
+      if (!SS) throw new Error('signal-status-model.js did not load');
+      return SS.statsHtml(r.data, esc);
+    }, { empty: { icon: 'icon-radar', text: 'No resolved signals yet. Each signal is walked on hourly candles until it reaches its target or stop, is not filled within the bot\'s limit-order window, or runs a week with neither.' } });
 
     async function drawStream() {
       renderPanel(C('stream'), async () => {
@@ -2734,13 +2732,20 @@
               LOSS: ['chip--down', '✗ LOSS'],
               FLAT: ['', '= FLAT'],
             };
-            const oc = OUTCOME_CHIP[s.outcome];
+            // The bot's outcome walk writes one of eight words; the model
+            // reads them. An outcome label with no word it knows is an older
+            // server, which derived it from the R alone.
+            const SS = self.SignalStatusModel;
+            const st = SS ? SS.status(s) : null;
+            const oc = (!st || !st.known || st.word === 'NEW') ? OUTCOME_CHIP[s.outcome] : null;
             const status = oc
               ? `<span class="chip ${oc[0]}">${oc[1]}</span>`
-              : `<span class="chip">${esc(s.status || 'NEW')}</span>`;
+              : `<span class="chip ${st ? st.cls : ''}">${esc(st ? st.label : (s.status || 'NEW'))}</span>`;
             // UX-4: one-tap paper-trade — only for still-actionable signals
-            // (unresolved + full geometry). Resolved rows show nothing.
-            const canTrade = s.outcome == null && s.entry_price && s.stop_loss && s.take_profit;
+            // (pending + full geometry). A call that ended, or that a missing
+            // model cannot place, shows nothing.
+            const live = SS ? SS.actionable(s) : false;
+            const canTrade = live && s.entry_price && s.stop_loss && s.take_profit;
             const tradeBtn = canTrade
               ? `<button class="btn btn--sm" data-ptrade='${esc(JSON.stringify({ d: s.direction, sy: s.symbol, e: s.entry_price, sl: s.stop_loss, tp: s.take_profit }))}'>Trade</button>`
               : '';
@@ -2748,7 +2753,7 @@
             // link and no full geometry, only a signal the engine still
             // stands behind. Fills at the LIVE mark server-side; the toast
             // reports the drift and any exit the market already passed.
-            const arenaBtn = s.outcome == null && s.signal_key
+            const arenaBtn = live && s.signal_key
               ? `<button class="btn btn--ghost btn--sm" data-parena="${esc(s.signal_key)}" title="${esc(T('dd.arena_t', 'Open this call in your paper Arena account — filled at the live mark, never the signal price'))}">${esc(T('dd.b_arena', '🏟 Paper'))}</button>`
               : '';
             return `<tr>

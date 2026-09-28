@@ -5966,6 +5966,14 @@ class RuneClawEngine:
         # TTL: expire stale pending ideas
         self._expire_pending_ideas()
 
+        # What became of the signals this bot published: throttled, bounded,
+        # and under the quiet cap, because it is bookkeeping and never a trade.
+        try:
+            await self._with_maintenance_cap(
+                self._resolve_signal_outcomes(), "signal outcomes")
+        except Exception as _so_exc:  # noqa: BLE001 -- never costs the tick
+            logger.debug("Signal outcomes skipped: %s", type(_so_exc).__name__)
+
         # C2-26 FIX: Skip scanning while the ENGINE's own ideas await
         # confirmation. A concurrent confirm_trade call while mid-scan creates
         # a race on shared _pending_ideas state.
@@ -6143,8 +6151,10 @@ class RuneClawEngine:
         # what the autonomous engine actually generates and trades on.
         if _synced_ideas:
             try:
-                from bot.utils.website_sync import sync_signals_in_background
-                sync_signals_in_background(
+                # Recorded as well as pushed, so the engine can say later
+                # what became of each one (signal_outcomes).
+                from bot.core.signal_outcomes import publish_signals as _publish_signals
+                _publish_signals(
                     _build_signal_sync_payloads(_synced_ideas, self._outcome_regime))
             except Exception as _sig_sync_exc:
                 logger.debug("Signal stream sync skipped: %s", _sig_sync_exc)
@@ -6288,6 +6298,68 @@ class RuneClawEngine:
         )
         if _is_connectivity_error(exc):
             self.health.set_exchange_status(False)
+
+    #: How often the published signals are walked against their candles.
+    _SIGNAL_OUTCOME_EVERY_S = 900.0
+
+    async def _resolve_signal_outcomes(self, now_ms: Optional[int] = None) -> int:
+        """Walk the published signals that are still pending and say what each
+        did (`bot.core.signal_outcomes`); re-send each one whose word changed.
+
+        Both signal producers pushed ``status: NEW`` and nothing ever pushed a
+        second row, so every signal stayed NEW and the stats panel's promise
+        that outcomes appear "once signals hit target or stop" had no path.
+        Throttled to one pass per ``_SIGNAL_OUTCOME_EVERY_S`` and bounded to the
+        ledger's oldest-checked rows, reading candles through `_cached_ohlcv`,
+        the engine's one hygiened read. A row whose re-send did not land stays
+        unsynced and is sent again on the next pass. Returns how many landed.
+        """
+        from bot.core import signal_outcomes as so
+        from bot.utils.website_sync import sync_signals
+
+        mono = time.monotonic()
+        last = getattr(self, "_signal_outcome_pass_at", None)
+        if last is not None and mono - last < self._SIGNAL_OUTCOME_EVERY_S:
+            return 0
+        self._signal_outcome_pass_at = mono
+        items = await asyncio.to_thread(so.rows_due)
+        if items is None:
+            logger.warning("Signal outcomes: the ledger could not be read; nothing walked")
+            return 0
+        landed = 0
+        for key, entry in items:
+            if entry.get("status") in so.PENDING:
+                row = entry.get("row") or {}
+                market = so.market_for(row.get("symbol"))
+                if market is None:
+                    res = so.Resolution(so.UNSCORED, "the symbol names no market")
+                else:
+                    try:
+                        ex = await (self.scanner._get_futures_exchange() if ":" in market
+                                    else self.scanner._get_exchange())
+                        bars = await self._cached_ohlcv(
+                            ex, market, so.TIMEFRAME, limit=so.FETCH_LIMIT, ttl=600)
+                    except Exception as exc:  # noqa: BLE001 -- asked again next pass
+                        logger.debug("Signal outcome candles for %s not read: %s",
+                                     market, type(exc).__name__)
+                        continue
+                    res = so.resolve(row, bars or [],
+                                     now_ms if now_ms is not None else int(time.time() * 1000),
+                                     getattr(CONFIG.limit_orders, "expire_seconds", None))
+                changed = await asyncio.to_thread(
+                    so.apply, key, res,
+                    now_ms if now_ms is not None else int(time.time() * 1000))
+                if changed is None:
+                    continue
+                entry = changed
+            try:
+                ok = await asyncio.to_thread(sync_signals, [so.outcome_row(entry)])
+            except Exception as exc:  # noqa: BLE001 -- sent again next pass
+                logger.debug("Signal outcome re-send failed: %s", type(exc).__name__)
+                ok = False
+            if ok and await asyncio.to_thread(so.mark_synced, key):
+                landed += 1
+        return landed
 
     async def _cached_ohlcv(self, exchange, symbol, timeframe, limit=100, ttl=120):
         """Fetch OHLCV with a simple TTL cache to avoid refetching within `ttl` seconds.

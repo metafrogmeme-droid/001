@@ -48,6 +48,34 @@ router.get('/', async (req, res) => {
   }
 });
 
+/** The words a signal can carry, as the bot's outcome walk writes them. */
+const SIGNAL_STATUSES = ['NEW', 'OPEN', 'TARGET', 'STOP', 'AMBIGUOUS', 'EXPIRED', 'NO_EXIT', 'UNSCORED'];
+
+/**
+ * How many signals carry each word. A word this build does not know is
+ * counted under `other` rather than dropped, and a read that fails answers
+ * null, never a map of zeros: "no signal expired" and "nobody counted" are
+ * different sentences.
+ */
+async function statusCounts() {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT status, COUNT(*) AS n FROM signals GROUP BY status');
+    const out = { other: 0 };
+    for (const w of SIGNAL_STATUSES) out[w] = 0;
+    for (const row of rows || []) {
+      const w = String(row.status || 'NEW').toUpperCase();
+      const n = parseInt(row.n || 0) || 0;
+      if (Object.prototype.hasOwnProperty.call(out, w) && w !== 'other') out[w] += n;
+      else out.other += n;
+    }
+    return out;
+  } catch (e) {
+    console.error('Signal status counts unreadable:', e.message);
+    return null;
+  }
+}
+
 // GET /api/signals/stats - aggregate signal performance (resolved signals only).
 router.get('/stats', async (req, res) => {
   try {
@@ -58,18 +86,25 @@ router.get('/stats', async (req, res) => {
     const [rows] = await pool.execute(
       `SELECT COUNT(*) AS resolved,
               SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS wins,
-              SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) AS losses
+              SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) AS losses,
+              SUM(pnl) AS net_r
        FROM signals WHERE pnl IS NOT NULL`
     );
     const r = rows[0] || {};
     const resolved = parseInt(r.resolved || 0);
     const wins = parseInt(r.wins || 0);
     const losses = parseInt(r.losses || 0);
-    // No `net_pnl`. This endpoint is unauthenticated (server.js mounts it with
-    // no auth), so §4 allows percent, ratio and count here and nothing else —
-    // and `SUM(pnl)` is an amount. It was emitted for as long as the column
-    // stayed NULL in production, which is the only reason it never leaked.
-    // The win rate carries the same information the panel actually shows.
+    // A signal's `pnl` is the R its own levels realized, written by the bot's
+    // outcome walk (bot/core/signal_outcomes.py): +reward/risk at the target,
+    // -1 at the stop. A signal is a call, not a position, so it has no size
+    // and no dollar figure, and a mean R is a ratio §4 allows on this
+    // unauthenticated route. It is GROSS: nothing can charge fees to a call.
+    const netR = Number(r.net_r);
+    // Every word a signal can end in, counted. The win rate is over TARGET
+    // and STOP alone, and an expired entry, an ambiguous bar or a call with
+    // no exit in a week is none of those: dropped silently, they would make
+    // the resolved rows read as the whole record.
+    const byStatus = await statusCounts();
     res.json({
       resolved,
       wins,
@@ -78,6 +113,9 @@ router.get('/stats', async (req, res) => {
       // null over an empty set, never 0. "0% of nothing" and "0% of forty"
       // are different sentences and the dashboard prints them identically.
       win_rate: resolved > 0 ? Math.round((wins / resolved) * 1000) / 10 : null,
+      avg_r: resolved > 0 && Number.isFinite(netR) ? Math.round((netR / resolved) * 100) / 100 : null,
+      r_basis: 'gross',
+      by_status: byStatus,
     });
   } catch (err) {
     console.error('Signal stats error:', err.stack || err.message);
@@ -118,3 +156,4 @@ router.get('/analytics', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.SIGNAL_STATUSES = SIGNAL_STATUSES;

@@ -497,11 +497,21 @@ class MemoryDB {
       }).length;
       return [[{ n }], []];
     }
+    if (cmd.includes('FROM SIGNALS') && cmd.includes('GROUP BY STATUS')) {
+      // How many signals carry each outcome word (routes/signals.js).
+      const counts = new Map();
+      for (const s of this.signals) {
+        const w = s.status == null ? null : s.status;
+        counts.set(w, (counts.get(w) || 0) + 1);
+      }
+      return [[...counts].map(([status, n]) => ({ status, n })), []];
+    }
     if (cmd.includes('FROM SIGNALS') && cmd.includes('COUNT(*)')) {
       const resolved = this.signals.filter(s => s.pnl !== null && s.pnl !== undefined);
       const wins = resolved.filter(s => Number(s.pnl) > 0).length;
-      const net_pnl = resolved.reduce((a, s) => a + (Number(s.pnl) || 0), 0);
-      return [[{ resolved: resolved.length, wins, net_pnl }], []];
+      const losses = resolved.filter(s => Number(s.pnl) < 0).length;
+      const net = resolved.reduce((a, s) => a + (Number(s.pnl) || 0), 0);
+      return [[{ resolved: resolved.length, wins, losses, net_pnl: net, net_r: net }], []];
     }
 
     if (cmd.includes('FROM SIGNALS') && cmd.includes('SIGNAL_KEY = ?')) {

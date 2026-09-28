@@ -16712,6 +16712,85 @@ defect keeps cannot see it. `specFor` is the pure seam now, a drive hands it
 (`tests/test_a_telegram_chart_links_the_live_chart.py`,
 `app/test/embed_chart_page.test.js`, `app/test/tv_charts_render.smoke.test.js`.)
 
+**NO SIGNAL WAS EVER RESOLVED, AND THE STATS PANEL PROMISED THAT OUTCOMES
+WOULD APPEAR.** Both producers of the public signal stream (the engine's own
+ideas and the scan cards) pushed a row with `status: NEW` and no outcome, and
+nothing ever pushed a second one. The website's ingest has updated `status`,
+`pnl` and `resolved_at` on a re-sync since it was written, and the stats query
+counted `WHERE pnl IS NOT NULL`, so every signal stayed NEW for good and the
+panel's empty sentence, *"outcomes appear once signals hit target or stop"*,
+described a path that did not exist. The copy-picks chapter above found the
+same absence from the other side: a filter on `status = 'OPEN'`, a word no
+producer wrote.
+
+**`bot/core/signal_outcomes.py` is that path.** Both producers publish through
+`publish_signals`, which records the whole row in a ledger
+(`data/learning/signal_outcomes.json`) before it pushes. Every fifteen minutes
+the engine walks the oldest-checked pending rows on hourly candles through
+`_cached_ohlcv`, under the maintenance cap, and re-sends each row whose word
+changed. The row is re-sent WHOLE, because the ingest INSERTs a row it has not
+seen and seals it from the decision facts, so a key and an outcome alone would
+be sealed with zeros. A re-send that did not land stays unsynced and is sent
+again on the next pass, without a second walk.
+
+**A signal is a call, not a position, so it is scored in R and never in
+dollars.** The target scores its own reward over risk, the stop scores -1R,
+gross of fees (a call has no size). Eight words, and only two carry an R:
+`NEW`, `OPEN` (entry reached), `TARGET`, `STOP`, `AMBIGUOUS` (one bar spans
+both levels, or the entry and the level behind it, and OHLC cannot order
+them), `EXPIRED` (not filled), `NO_EXIT` (a week after the entry with neither
+level) and `UNSCORED` (the candles cannot answer, or the levels describe no
+trade). Only bars that opened after publication are read. How the entry is
+reached depends on where it sits: a pullback entry is reached by a bar trading
+down to it and a break entry by one trading up to it, because one rule for
+both reads a gap past either as the wrong answer. On the bar that reaches the
+entry, the level ahead counts and the level behind is `AMBIGUOUS`. A candle
+that does not read is asked again and never scored.
+
+**The entry window is the bot's resting-limit clock, not the row's
+`expires_at`.** That field is the pending-idea TTL, five minutes by default:
+how long a follower may still act, which is what copy picks select on. It is
+finer than an hourly bar, so a walk that honoured it called nearly every
+signal EXPIRED before its first bar closed; the first draft did exactly that.
+The engine hands in `LIMIT_ORDER_EXPIRE_SEC` (four hours), the time the bot
+would rest a limit at the entry.
+
+**The website reads the words, and five of them are final.** The stream's
+Trade and Paper buttons asked `s.outcome == null`, derived from the R, so an
+EXPIRED or AMBIGUOUS call kept offering a trade.
+`public/js/signal-status-model.js` is the one reading: a pending word with no
+outcome label is actionable, a final word or one the page does not know is
+not, and only TARGET and STOP get a colour. `/api/signals/stats` adds the mean
+R (a ratio, so §4 allows it on that anonymous route, with `r_basis: 'gross'`)
+and a count per word, `null` when the count query fails, never zeros. The
+panel prints the win rate over TARGET and STOP, the mean R, the other words
+counted, and one sentence saying how a signal is walked. The daily digest
+counted every row with a `resolved_at` beside its wins, so every unfilled call
+would have read as a loss; it counts the rows that carry an R.
+
+**The methods ratchet would have lost four methods to two of the leaf's
+names.** `_multiply_defined_methods` excludes any name that is also a
+module-level function, and the first draft's `due` and `publish` took
+`ProofOfPnLPublisher.due`, `SelfAudit.due`, `ProofOfPnLPublisher.publish` and
+`SwarmBus.publish` out of the method sweep. The ambiguity count fell 41 to 39
+and the pin said so. They are `rows_due` and `publish_signals` now, and the
+count is 41 again.
+
+**Two old pins spelled `s.outcome == null`** and broke on the move while the
+property they guard held (a resolved signal offers no open); they pin the
+model's reading now. **Fifty-two mutations, each killed. The two that survived
+the first round were fixtures that could not tell:** every break fixture went
+on to reach its entry, so reaching a break the way a pullback is reached
+changed only WHEN it triggered, and the answer was the same; and every retry
+fixture carried the word already stored, so recording a retry's word changed
+nothing. A break price never trades up to, and a retry carrying OPEN over a
+stored NEW, are in the suite now. Two map citations into `dashboard.js` in the X/Twitter
+paragraph were already wrong (the symbol-modal share cited the stats panel,
+the journal share an allocation chart). A remap carried both, because neither
+line was blank; they are derived from the handlers they name now.
+(`tests/test_a_published_signal_is_resolved.py`,
+`app/test/signal_outcomes_reach_the_panels.test.js`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -18003,7 +18082,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **468 of 1165** reach for source text through `source_scan`, `code_only`
+Driven, **468 of 1166** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 468 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
