@@ -7796,6 +7796,26 @@ sits under a taker round trip at the default rate (0.12%), and a rebuilt
 ladder sizes TP2 off the quantity left after TP1 rather than the entry's.
 (`tests/test_a_ladder_stage_is_neither_repeated_nor_left_half_done.py`.)
 
+**And the last of those three was driven and is RECORDED rather than changed,
+with the direction of its error as the reason.** A record written before the
+ladder was persisted (2026-09-24) whose stop already sat at breakeven is
+rebuilt with the position's CURRENT quantity as its entry quantity, so at 2.5R
+the rebuilt ladder closes 30% of the half that is left -- 15% of the entry
+where the ladder intends 30% -- and keeps a runner of 35% under a breakeven
+stop where it intends 20%. Driven, on a long of 1.0 at 100 with a 2.0 risk:
+TP2 closes 0.15 and leaves 0.35. The entry quantity is on no record for such a
+row (`LivePosition` carries one `quantity`, the current one), so every
+correction is an inference from the configured split, and the inference errs
+the OTHER way when TP1 under-filled: sizing TP2 as 60% of what is left closes
+more than the entry's 30% whenever less than half was banked, which is the
+direction the rebuild's own docstring names as the one NOT to be wrong in (a
+missed partial close keeps a position the stop still protects; a repeated one
+sells a runner twice). The population is fixed and shrinking: the rebuilt
+ladder is saved on the first pass after that build boots, so only a position
+opened before it and still open takes this path, and `partial_tp_summary`'s
+percentages over the wrong entry quantity have no reader in the tree. *Don't
+fix what cannot fire*, and do not replace a safe error with an inferred one.
+
 **A VWAP REVERSION WAS CLOSED ON ITS OWN ENTRY, AND THAT WAS MOST OF THEM.**
 The analyzer calls an idea `vwap_reversion` when its price is within 0.5% of
 VWAP (or half a VWAP band), and the smart exit read the price's distance from
@@ -11890,7 +11910,10 @@ every adopted order, so only a reclaimed fill separates them.
 
 **Filed, not changed.** An undetected hold mode (`_hedge_mode is None`, until
 the first order after a restart) is read three ways: reconcile as one-way,
-`plan_rows_to_cancel` as hedge, `_fill_by_close_side` by refusing. The exposure cap refuses
+`plan_rows_to_cancel` as hedge, `_fill_by_close_side` by refusing. (Driven
+later and changed: the three readings each err in the cheaper direction, and
+the defect was the probe caching a FAILURE as one-way; the chapter on the
+unread hold mode records it.) The exposure cap refuses
 new orders while an adopted resting limit's margin is unread (its recorded
 rule). The post-fill sync does not clear `adoption_unread`. The `*_local_pnl`
 closes estimate fees the history row stated. The paper ghost sweep has no
@@ -14558,6 +14581,71 @@ the bot's own close dropping it, the drift fallback booking the ticker as an
 order price or printing it as a fill, the chat row saying nothing, and the web
 row's flag collapsed to two values.
 
+**A HOLD-MODE PROBE THAT FAILED WAS CACHED AS "ONE-WAY" FOR THE LIFE OF THE
+PROCESS, AND NOTHING PROBED AFTER A RESTART UNTIL THE FIRST ORDER.** The note
+above filed the three readers of an unknown mode as disagreeing. Driven, the
+disagreement is the safe half: with `_hedge_mode` None the plan cleanup before
+a re-place keeps every row it cannot place, the close-side fill reader refuses
+an unmarked fill, and reconcile reads every row on the symbol and keeps the
+position -- each the cheaper mistake. The defect was one line above them.
+`_detect_hold_mode` answered every failure with `self._hedge_mode = False`: the
+v2 probe raising anything but 40085 (a network blip, at DEBUG), the v3 probe
+raising, a v3 answer with a code that was not 00000 -- and the field's own
+comment calls it *"cached after first detection"*, so a blip on the first
+order after a restart labelled a hedge account one-way for good. One-way is
+the reading the two readers above take as LICENCE: the cleanup sweeps BOTH
+sides' stops on a one-way account (the plan-cleanup chapter's own defect,
+reachable again through a failed read), and an unmarked close-side fill is
+priced as a close. A failed read rendered as the most permissive measurement,
+on the account topology every exit order is spelled against.
+
+**And the probe ran only inside `_ensure_leverage`, on the first ORDER.** A
+bot that restarted holding positions and placed nothing -- halted, paused, or
+with every idea refused -- monitored and reconciled them on an unread mode for
+the whole process lifetime -- the fill-clock chapter's "a restart put every
+hold and time exit back on the placement clock", one reading over. Both loops
+ask at the top of every pass now (`_probe_hold_mode_if_unknown`): one venue
+read the first time, one every five minutes after a failure
+(`HOLD_MODE_RETRY_S`), a field test once the mode is known, and a venue with
+no hedge topology is one-way by construction, which is a measurement rather
+than a default. A failed probe leaves `None`, says so ONCE per unread streak
+at WARNING with the exception's CLASS and never its text (a venue rejection
+can echo the request into the operator log), audits `hold_mode: UNREAD`, and
+counts ONCE on the warning-rate feed; a probe that answers ends the streak, so
+a later failure is a new one. The message says in as many words that it is
+not a mismatch and not an all-clear, the sentence the unread margin mode
+already carries one probe over.
+
+**The spacing and the once-per-streak count are the difference between a
+diagnostic and a halt, and the first draft had neither.** It counted every
+failed probe on the warning-rate feed and both loops probed every pass, and
+the warning-rate breaker trips on more than five of one key per hour with
+both loops running every minute: an account whose probe keeps failing -- a
+settings endpoint it cannot reach -- would have been HALTED within three
+minutes by its own diagnostic, on a topology reading every reader already
+handles safely and that changes nothing about what an order sends. Found by
+reading `record_warning` before the push rather than by any suite, because
+no fixture ran the loops for an hour. The stamp is taken BEFORE the probe, so
+a probe that raises is spaced like one that answered nothing, and it starts
+as `None` rather than `0.0`, the monotonic-near-zero trap the balance cache
+records. The order path stays unspaced: an order is rare and is the one
+moment the answer changes what is sent.
+(`tests/test_an_unread_hold_mode_is_not_one_way.py`.)
+
+**Seventeen mutations, each killed, none refused.** Four are worth naming
+for what they prove about the guards rather than the code: each of the three
+failure branches put back on `False` dies on a drive whose probe raises with
+a planted secret in its text, so the same drive is what pins that the
+exception's CLASS and not its words reach the log and the audit; the probe
+removed from either loop dies on a drive through the real `check_positions`
+or `reconcile_positions` with a present venue row, because a scan of the
+helper cannot see whether a loop asks; the `except` around the loop probe
+narrowed dies on a `_get_exchange` that raises, the one input that separates
+a failed read from a crashed pass; and the stamp moved AFTER the probe dies
+only on that same raising exchange driven twice inside the interval, because
+a probe that answers nothing and one that raises are spaced alike only if
+the stamp precedes both.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -15849,9 +15937,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **450 of 1136** reach for source text through `source_scan`, `code_only`
+Driven, **451 of 1137** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 450 is a FLOOR and the honest shape is
+source scan that rule does not see, so 451 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

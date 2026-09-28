@@ -730,6 +730,14 @@ ENTRY_UNREAD = "+entry_unread"
 #: states no ``entryPrice``: the card said "Fill: $4,000.00" for a ticker,
 #: the record carried no trace, and every reader took it as the fill. Only
 #: this value is a marker readers act on; the rest are provenance.
+#: How long the monitoring and reconcile loops wait before asking the venue
+#: for the hold mode AGAIN after a probe failed. The warning-rate breaker
+#: trips on more than five of one key per hour, both loops run every minute,
+#: and an account whose probe keeps failing (a settings endpoint it cannot
+#: reach) must not be halted by its own diagnostic: a retry is not a new
+#: fault, so it is spaced, and only the first failure of a streak counts.
+HOLD_MODE_RETRY_S = 300.0
+
 ENTRY_ESTIMATED = "pre_order_ticker"
 
 #: Appended to a close's ``fill_source`` when its P&L was computed LOCALLY
@@ -2946,6 +2954,18 @@ class LiveExecutor:
 
         Tries v2 API first (classic accounts), falls back to v3 settings
         endpoint for UTA accounts.
+
+        A PROBE THAT FAILED LEAVES THE MODE UNKNOWN. It used to cache
+        "one-way" for the life of the process, so a network blip on the first
+        order after a restart labelled a hedge account one-way for good, and
+        the readers that treat one-way as licence -- the plan cleanup before a
+        re-place, which sweeps BOTH sides' stops on a one-way account, and the
+        close-side fill reader, which prices an unmarked fill as a close there
+        -- acted on a reading nobody made. `None` is the state every reader of
+        `_hedge_mode` already handles in the cheaper direction (the cleanup
+        keeps what it cannot place, the fill reader refuses, reconcile reads
+        every row on the symbol and keeps the position), and the probe is
+        asked again on the next monitoring pass and the next order.
         """
         exchange = await self._get_exchange()
 
@@ -2964,14 +2984,14 @@ class LiveExecutor:
                 data = data[0]
             hold_mode = data.get("holdMode", "") if isinstance(data, dict) else ""
             self._hedge_mode = (hold_mode == "double_hold")
+            self._hold_mode_unread_said = False
             self._is_uta = False
             logger.info("Bitget position mode (v2): %s (hedge=%s)", hold_mode, self._hedge_mode)
             return
         except Exception as exc:
             err_str = str(exc)
             if "40085" not in err_str:
-                logger.debug("Hold mode detection failed: %s, defaulting to one-way", exc)
-                self._hedge_mode = False
+                self._say_hold_mode_unread(exc)
                 return
             logger.info("UTA account detected (40085), trying v3 settings endpoint")
             self._is_uta = True
@@ -2988,15 +3008,82 @@ class LiveExecutor:
             if resp_data.get("code") == "00000":
                 hold_mode = resp_data.get("data", {}).get("holdMode", "")
                 self._hedge_mode = (hold_mode == "hedge_mode")
+                self._hold_mode_unread_said = False
                 logger.info("Bitget position mode (v3 settings): %s (hedge=%s)",
                             hold_mode, self._hedge_mode)
                 return
+            self._say_hold_mode_unread(
+                RuntimeError(f"v3 settings code {resp_data.get('code')!r}"))
+            return
         except Exception as exc2:
-            logger.debug("v3 settings detection failed: %s", exc2)
+            self._say_hold_mode_unread(exc2)
 
-        # Default to one-way (most common)
-        self._hedge_mode = False
-        logger.info("Hold mode detection exhausted, defaulting to one-way")
+    def _say_hold_mode_unread(self, exc: BaseException) -> None:
+        """The account's hold mode could not be read: said ONCE per unread
+        streak at WARNING, audited, counted ONCE on the warning-rate breaker,
+        and the mode is left `None`. A streak ends when a probe answers, so a
+        later failure is a new one and is said again. The retries inside a
+        streak are DEBUG and count nothing: the breaker trips on more than
+        five of one key per hour, and a retry of one fault is not five faults.
+        The exception's CLASS travels and never its text, because a venue
+        rejection can echo the request into the operator log."""
+        detail = type(exc).__name__
+        if getattr(self, "_hold_mode_unread_said", False):
+            logger.debug("Hold mode still unread on %s: %s", self._venue.id, detail)
+            return
+        self._hold_mode_unread_said = True
+        self._record_warning("hold_mode_unread")
+        logger.warning(
+            "Hold mode could not be read on %s (%s): the account is treated as "
+            "UNKNOWN, not one-way -- plan cleanups keep the rows they cannot "
+            "place, an unmarked close-side fill is not priced, reconcile reads "
+            "every row on the symbol -- and the probe is retried every %.0fs "
+            "and on the next order. This is not a mismatch and not an "
+            "all-clear.",
+            self._venue.id, detail, HOLD_MODE_RETRY_S)
+        audit(trade_log,
+              f"Hold mode UNREAD on {self._venue.id}: {detail} -- treated as "
+              f"unknown until a probe answers",
+              action="hold_mode", result="UNREAD", level=logging.WARNING,
+              data={"venue": self._venue.id, "detail": detail})
+
+    async def _probe_hold_mode_if_unknown(self) -> None:
+        """Ask the venue for the hold mode when nothing has read it yet.
+
+        The probe used to run only inside `_ensure_leverage`, i.e. on the first
+        ORDER after a restart -- so a bot that restarted holding positions and
+        placed nothing (a halted one, a paused one, one whose ideas keep being
+        refused) monitored and reconciled them for the whole process lifetime
+        on an unread mode. The monitoring and reconcile loops ask here, at the
+        top of every pass: one venue read the first time, one every
+        `HOLD_MODE_RETRY_S` after a failure, and a field test once the mode is
+        known. The spacing is what keeps a probe that keeps failing from
+        tripping the warning-rate breaker with its own retries. The stamp is
+        taken BEFORE the probe, so a probe that raises is spaced like one that
+        answered nothing, and it is `None` until the first probe rather than
+        `0.0`, because `time.monotonic()` starts near zero on a fresh host.
+        A venue with no hedge topology is one-way by construction, which is a
+        measurement rather than a default. A probe that raises out of
+        `_get_exchange` is a failed read like any other: the mode stays
+        unknown and the pass goes on. The order path (`_ensure_leverage`)
+        still asks whenever the mode is unknown, unspaced: an order is rare
+        and is the one moment the answer changes what is sent.
+        """
+        if self._hedge_mode is not None:
+            return
+        if not self._venue.supports_hedge_mode:
+            self._hedge_mode = False
+            self._is_uta = False
+            return
+        now = time.monotonic()
+        last = getattr(self, "_hold_mode_probed_at", None)
+        if last is not None and now - last < HOLD_MODE_RETRY_S:
+            return
+        self._hold_mode_probed_at = now
+        try:
+            await self._detect_hold_mode()
+        except Exception as exc:
+            self._say_hold_mode_unread(exc)
 
     async def close(self) -> None:
         """Clean up exchange connection."""
@@ -9062,6 +9149,7 @@ class LiveExecutor:
         closed_messages = []
         try:
             exchange = await self._get_exchange()
+            await self._probe_hold_mode_if_unknown()
             # C2-27 FIX: Fetch tickers per-symbol instead of batch.
             # A single delisted/erroring symbol in fetch_tickers() would block
             # SL/TP checks for ALL positions. Per-symbol isolation ensures
@@ -14377,6 +14465,7 @@ class LiveExecutor:
         messages = []
         try:
             exchange = await self._get_exchange()
+            await self._probe_hold_mode_if_unknown()
 
             for pos in open_pos:
                 # ── Skip pending_fill (unfilled limit orders) ──
