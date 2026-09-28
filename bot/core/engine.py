@@ -107,6 +107,13 @@ def _is_connectivity_error(exc: BaseException) -> bool:
 
 
 
+def _direction_word(direction) -> str:
+    """A side as the word ``LONG`` or ``SHORT``, whatever holds it: the paper
+    book's enum, a live row's string, a lower-case string. An f-string of the
+    enum printed ``Direction.SHORT`` into the flip audit."""
+    return str(getattr(direction, "value", direction) or "").upper()
+
+
 def filter_adopted_messages(sync_msgs: list[str]) -> list[str]:
     """The "Adopted"-labeled subset of sync_portfolio_with_exchange's messages.
 
@@ -7369,99 +7376,11 @@ class RuneClawEngine:
         # strategy_type classification + CONFIG.strategy_types.)
 
         # ── Smart pyramid / duplicate symbol guard ─────────────────
-        # Rules: max 2 entries per symbol, same direction adds require
-        # 1R profit + 70% confidence. Opposite direction with high
-        # confidence triggers a flip (close existing + open new).
-        existing_positions = []  # list of (position, is_live, current_price)
-
-        if CONFIG.is_live() and hasattr(self, 'live_executor'):
-            for lp in self.live_executor.open_positions:
-                lp_key = normalize_symbol(lp.symbol)
-                if lp_key == symbol_key:
-                    existing_positions.append((lp, True))
-
-        if not existing_positions and hasattr(self, 'portfolio'):
-            for pp in self.portfolio.open_positions:
-                pp_key = normalize_symbol(pp.asset)
-                if pp_key == symbol_key:
-                    existing_positions.append((pp, False))
-
-        is_pyramid_add = False
-        if existing_positions:
-            # Max 2 entries per symbol
-            if len(existing_positions) >= 2:
-                audit(scan_log, f"Signal skipped: max 2 positions on {idea.asset}",
-                      action="pyramid_maxed", result="SKIPPED")
-                return None
-
-            pos, is_live = existing_positions[0]
-            pos_dir = pos.direction if isinstance(pos.direction, str) else pos.direction.value
-            idea_dir = idea.direction.value
-
-            same_direction = (pos_dir.upper() == idea_dir.upper())
-
-            if same_direction:
-                # ── Same direction: pyramid add ──
-                # Condition 1: confidence >= 70%, MEASURED.
-                #
-                # `0.70` is on the RAW scale, like every confidence floor here,
-                # and `idea.confidence` is whatever the calibration curve left
-                # on the field. Driven: a measured blend of 0.82 with a curve
-                # applied reads 0.31 and every pyramid add is skipped; and a
-                # hand-typed ticket, whose 1.0 `build_manual_idea` STAMPS,
-                # cleared this gate on a figure nobody measured -- which is
-                # `_high_conviction_margin`'s recorded defect one gate over,
-                # on an ADDITION to risk on a position already open.
-                #
-                # A stamp and an unreadable confidence do not pyramid. That is
-                # fail-closed and it is the right direction: the caller keeps
-                # the position they have, and the reason names which it was.
-                from bot.core.signal_confidence import displayed_confidence
-                _pyr_conf = displayed_confidence(idea)
-                if not _pyr_conf.clears(0.70):
-                    audit(scan_log,
-                          f"Pyramid skipped: confidence {_pyr_conf.pct()} "
-                          f"({_pyr_conf.basis}) < 70% for {idea.asset}",
-                          action="pyramid_low_conf", result="SKIPPED")
-                    return None
-
-                # Condition 2: existing position is at least 1R in profit
-                entry_px = pos.entry_price
-                sl_px = pos.stop_loss if hasattr(pos, 'stop_loss') else getattr(pos, 'stop_loss', 0)
-                initial_risk = abs(entry_px - sl_px) if sl_px else 0
-                current_price = idea.entry_price  # new signal's entry = current price
-                if pos_dir.upper() == "LONG":
-                    unrealized = current_price - entry_px
-                else:
-                    unrealized = entry_px - current_price
-
-                r_achieved = unrealized / initial_risk if initial_risk > 0 else 0
-                if initial_risk <= 0 or unrealized < initial_risk:
-                    audit(scan_log,
-                          f"Pyramid skipped: {idea.asset} only {r_achieved:.2f}R in profit (need 1R)",
-                          action="pyramid_insufficient_profit", result="SKIPPED")
-                    return None
-
-                # All conditions met — flag as pyramid add
-                is_pyramid_add = True
-                audit(scan_log,
-                      f"Pyramid APPROVED: {idea.asset} {r_achieved:.2f}R profit, "
-                      f"conf {_pyr_conf.pct()} ({_pyr_conf.basis})",
-                      action="pyramid_approved", result="APPROVED",
-                      data={"r_achieved": round(r_achieved, 2),
-                            "confidence": _pyr_conf.value,
-                            "confidence_basis": _pyr_conf.basis})
-            else:
-                # ── Opposite direction: NEVER auto-flip ──
-                # Don't automatically close and reverse positions.
-                # Skip the idea — user must manually close first.
-                audit(scan_log, f"Flip BLOCKED: {idea.asset} {pos_dir} -> {idea_dir} (auto-flip disabled)",
-                      action="flip_blocked", result="SKIPPED",
-                      data={"confidence": idea.confidence, "existing": pos_dir, "proposed": idea_dir})
-                return None
-
+        _same = self._same_symbol_verdict(idea, symbol_key)
+        if _same == "skip":
+            return None
         # Store pyramid flag for confirm_trade to apply half-size + SL-to-breakeven
-        if is_pyramid_add:
+        if _same == "pyramid":
             self._pending_pyramid[idea.id] = True
 
         # Risk gate — pass ATR so all risk-engine checks run
@@ -8899,6 +8818,159 @@ class RuneClawEngine:
                     data={"asset": expired_idea.asset, "age_seconds": (now - expired_idea.timestamp).total_seconds()},
                 )
         return expired_ids
+
+    def _same_symbol_verdict(self, idea, symbol_key: str) -> str:
+        """What an idea on a symbol the book already touches may become:
+        ``"clear"`` (nothing on the symbol), ``"pyramid"`` (a same-direction add
+        the confirm path halves) or ``"skip"`` (audited here, by name).
+
+        LIVE MODE READS THE LIVE BOOK AND NOTHING ELSE. The shared paper book
+        was the fallback whenever the live book held nothing on the symbol,
+        and nothing in this build writes that book: what it holds in live mode
+        is a paper position restored from before the account went live.
+        Driven, a stale paper SHORT refused a live LONG as a "flip".
+
+        A RESTING ORDER IS NOT A POSITION IN PROFIT. ``open_positions`` lists
+        open AND ``pending_fill`` rows, and the add rule below measured "1R in
+        profit" from the entry price, which for a resting limit is a price
+        nothing has filled at. Driven: a BTC long limit resting at 95 with its
+        stop at 93, the market at 97, read "1.00R profit" and a pyramid add
+        was approved; the flag skips confirm's duplicate check, and the
+        executor's own same-symbol guard counted only ``open`` rows, so a
+        second order went out beside the resting one. A resting order on the
+        symbol skips the idea now, and the executor refuses the second order
+        as well.
+
+        A HELD SYMBOL GETS NO ADD IN LIVE MODE. The executor holds one position
+        per symbol and refuses a second whatever the engine decided, so the
+        add was approved, offered on a card whose Take-it the executor then
+        refused, and retried by auto-confirm every tick until the idea lapsed.
+        The paper book keeps its add rules.
+        """
+        if CONFIG.is_live():
+            _ex = getattr(self, "live_executor", None)
+            rows = [lp for lp in (_ex.open_positions if _ex is not None else [])
+                    if normalize_symbol(lp.symbol) == symbol_key]
+            if not rows:
+                return "clear"
+            resting = [lp for lp in rows if lp.status == "pending_fill"]
+            if resting:
+                audit(scan_log,
+                      f"Signal skipped: an order on {idea.asset} is still resting "
+                      f"(trade {resting[0].trade_id}); a second order is not "
+                      "placed beside it",
+                      action="resting_order_on_symbol", result="SKIPPED",
+                      data={"symbol": idea.asset, "trade_id": resting[0].trade_id})
+                return "skip"
+            if len(rows) >= 2:
+                audit(scan_log, f"Signal skipped: max 2 positions on {idea.asset}",
+                      action="pyramid_maxed", result="SKIPPED")
+                return "skip"
+            held = rows[0]
+            held_dir = _direction_word(held.direction)
+            idea_dir = _direction_word(idea.direction)
+            if held_dir != idea_dir:
+                audit(scan_log,
+                      f"Flip BLOCKED: {idea.asset} {held_dir} -> {idea_dir} "
+                      "(auto-flip disabled)",
+                      action="flip_blocked", result="SKIPPED",
+                      data={"confidence": idea.confidence, "existing": held_dir,
+                            "proposed": idea_dir})
+                return "skip"
+            audit(scan_log,
+                  f"Signal skipped: {idea.asset} is held {held_dir} (trade "
+                  f"{held.trade_id}); a live account holds one position per "
+                  "symbol, so no add is offered",
+                  action="pyramid_live_one_per_symbol", result="SKIPPED",
+                  data={"symbol": idea.asset, "trade_id": held.trade_id})
+            return "skip"
+
+        # Paper mode: the shared paper book, with the add rules below.
+        # Rules: max 2 entries per symbol, same direction adds require
+        # 1R profit + 70% confidence. Opposite direction is blocked (no
+        # auto-flip).
+        existing_positions = []  # list of (position, is_live)
+        if hasattr(self, 'portfolio'):
+            for pp in self.portfolio.open_positions:
+                pp_key = normalize_symbol(pp.asset)
+                if pp_key == symbol_key:
+                    existing_positions.append((pp, False))
+
+        is_pyramid_add = False
+        if existing_positions:
+            # Max 2 entries per symbol
+            if len(existing_positions) >= 2:
+                audit(scan_log, f"Signal skipped: max 2 positions on {idea.asset}",
+                      action="pyramid_maxed", result="SKIPPED")
+                return "skip"
+
+            pos, is_live = existing_positions[0]
+            pos_dir = _direction_word(pos.direction)
+            idea_dir = _direction_word(idea.direction)
+
+            same_direction = (pos_dir.upper() == idea_dir.upper())
+
+            if same_direction:
+                # ── Same direction: pyramid add ──
+                # Condition 1: confidence >= 70%, MEASURED.
+                #
+                # `0.70` is on the RAW scale, like every confidence floor here,
+                # and `idea.confidence` is whatever the calibration curve left
+                # on the field. Driven: a measured blend of 0.82 with a curve
+                # applied reads 0.31 and every pyramid add is skipped; and a
+                # hand-typed ticket, whose 1.0 `build_manual_idea` STAMPS,
+                # cleared this gate on a figure nobody measured -- which is
+                # `_high_conviction_margin`'s recorded defect one gate over,
+                # on an ADDITION to risk on a position already open.
+                #
+                # A stamp and an unreadable confidence do not pyramid. That is
+                # fail-closed and it is the right direction: the caller keeps
+                # the position they have, and the reason names which it was.
+                from bot.core.signal_confidence import displayed_confidence
+                _pyr_conf = displayed_confidence(idea)
+                if not _pyr_conf.clears(0.70):
+                    audit(scan_log,
+                          f"Pyramid skipped: confidence {_pyr_conf.pct()} "
+                          f"({_pyr_conf.basis}) < 70% for {idea.asset}",
+                          action="pyramid_low_conf", result="SKIPPED")
+                    return "skip"
+
+                # Condition 2: existing position is at least 1R in profit
+                entry_px = pos.entry_price
+                sl_px = pos.stop_loss if hasattr(pos, 'stop_loss') else getattr(pos, 'stop_loss', 0)
+                initial_risk = abs(entry_px - sl_px) if sl_px else 0
+                current_price = idea.entry_price  # new signal's entry = current price
+                if pos_dir.upper() == "LONG":
+                    unrealized = current_price - entry_px
+                else:
+                    unrealized = entry_px - current_price
+
+                r_achieved = unrealized / initial_risk if initial_risk > 0 else 0
+                if initial_risk <= 0 or unrealized < initial_risk:
+                    audit(scan_log,
+                          f"Pyramid skipped: {idea.asset} only {r_achieved:.2f}R in profit (need 1R)",
+                          action="pyramid_insufficient_profit", result="SKIPPED")
+                    return "skip"
+
+                # All conditions met — flag as pyramid add
+                is_pyramid_add = True
+                audit(scan_log,
+                      f"Pyramid APPROVED: {idea.asset} {r_achieved:.2f}R profit, "
+                      f"conf {_pyr_conf.pct()} ({_pyr_conf.basis})",
+                      action="pyramid_approved", result="APPROVED",
+                      data={"r_achieved": round(r_achieved, 2),
+                            "confidence": _pyr_conf.value,
+                            "confidence_basis": _pyr_conf.basis})
+            else:
+                # ── Opposite direction: NEVER auto-flip ──
+                # Don't automatically close and reverse positions.
+                # Skip the idea — user must manually close first.
+                audit(scan_log, f"Flip BLOCKED: {idea.asset} {pos_dir} -> {idea_dir} (auto-flip disabled)",
+                      action="flip_blocked", result="SKIPPED",
+                      data={"confidence": idea.confidence, "existing": pos_dir, "proposed": idea_dir})
+                return "skip"
+
+        return "pyramid" if is_pyramid_add else "clear"
 
     def _drop_pending_idea(self, trade_id: str):
         """Take an idea off the book, and with it the manual margin the ticket

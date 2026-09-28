@@ -3525,18 +3525,32 @@ class LiveExecutor:
         if open_count >= MICRO_MAX_OPEN_POSITIONS:
             return f"Already {open_count} open positions (max {MICRO_MAX_OPEN_POSITIONS})"
 
-        # DUPLICATE SYMBOL GUARD: block opening a second position on the same symbol
+        # DUPLICATE SYMBOL GUARD: block opening a second position on the same
+        # symbol, and a second order beside one still RESTING there. The guard
+        # counted `open` rows only, so a resting limit let a second order
+        # through, and when both filled the book held two records the
+        # duplicate merge folds into one every five minutes, leaving the other
+        # quantity on the venue with nothing tracking it. The engine's confirm
+        # check covered a resting row except for a pyramid-flagged idea, which
+        # skipped it by design.
         if symbol:
             norm = normalize_symbol(symbol)
             for p in self._positions.values():
-                if p.status != "open":
+                if p.status not in ("open", "pending_fill"):
                     continue
                 p_norm = normalize_symbol(p.symbol)
-                if p_norm == norm:
+                if p_norm != norm:
+                    continue
+                if p.status == "pending_fill":
                     return (
-                        f"Already have an open {p.direction} position on {p.symbol} "
-                        f"(trade {p.trade_id}). Close it first or wait for SL/TP."
+                        f"An order on {p.symbol} is still resting (trade "
+                        f"{p.trade_id}). A second order is not placed beside it: "
+                        "cancel it first or wait for it to fill."
                     )
+                return (
+                    f"Already have an open {p.direction} position on {p.symbol} "
+                    f"(trade {p.trade_id}). Close it first or wait for SL/TP."
+                )
 
         return None
 

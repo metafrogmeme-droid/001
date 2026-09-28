@@ -17172,6 +17172,63 @@ ccxt, an amount under the grid step raises `InvalidOrder` rather than answering
 zero, so the `except` above it already covers that case.
 (`tests/test_a_resting_limit_is_sized_at_its_own_price.py`.)
 
+**A PYRAMID ADD WAS APPROVED BESIDE A RESTING ORDER, AND THE EXECUTOR LET IT
+THROUGH.** The engine's same-symbol guard read `live_executor.open_positions`,
+which lists open AND `pending_fill` rows, and measured a same-direction add's
+"1R in profit" from the row's entry price. For a resting limit that is a price
+nothing has filled at. Driven through the guard: a BTC long limit resting at 95
+with its stop at 93, the market at 97, read "1.00R profit", and the add was
+approved at a measured confidence of 0.80. A pyramid-flagged idea skips
+confirm's duplicate check by design, and the executor's own same-symbol guard
+counted `open` rows only, so a second order went out beside the resting one.
+Driven, the preflight refused a second order beside an open row and returned
+nothing beside a resting one. If both fill, the book holds two records on one
+symbol and direction, and `dedupe_duplicate_positions`, which runs every five
+minutes in live mode, closes the newer one locally with no exchange action. The
+venue then holds both quantities and the book tracks one.
+
+**Two more came out of the same guard.** In live mode it fell back to the
+shared PAPER book whenever the live book held nothing on the symbol. Nothing in
+this build writes that book, so what it holds in live mode is a paper position
+restored from before the account went live. Driven, a stale paper SHORT refused
+a live LONG as a "flip". And a same-direction add on an OPEN live position was
+approved and offered, although the executor holds one position per symbol and
+refuses a second whatever the engine decided. The idea reached watching chats
+with a Take-it the executor would refuse, and auto-confirm retried it every tick
+until it lapsed. The comment above the confirm path's half-size step already
+said the executor blocks a same-symbol add; nothing upstream asked.
+
+**The guard is a seam now, and live mode reads the live book and nothing
+else.** `_same_symbol_verdict` answers `clear`, `pyramid` or `skip`, and audits
+its own skips by name. In live mode:
+
+- a resting order on the symbol skips the idea (`resting_order_on_symbol`),
+  whichever side the idea is on;
+- two rows on the symbol are still the maximum;
+- the opposite side is still a blocked flip;
+- the same side is skipped (`pyramid_live_one_per_symbol`), because no add
+  offered there can be placed.
+
+Paper mode keeps its add rules. The executor's preflight refuses a new entry
+beside a resting row as well, in its own sentence, so the last line holds
+whatever sets the pyramid flag. The flip audit printed `Direction.SHORT` for a
+paper position's enum; `_direction_word` reads every spelling.
+
+**Recorded, not changed.** The paper add rule measures 1R from the position's
+current stop, which after a breakeven move is a fraction of the entry-time
+risk. It is unreachable: nothing in this build writes the shared paper book.
+Confirm's pyramid bypass stays, and nothing in live mode sets the flag now. And
+a `duplicate_merged` row is closed with P&L 0.0 under a reason
+`NON_FILL_CLOSE_REASONS` does not know, so while it is in memory
+`closed_positions` lists it as a measured break-even trade. It is not saved, so
+a restart drops it. Filed with the vocabulary it would change.
+
+Two pins in the stamp suite read the add gate's confidence bar inside
+`_analyze_signal`; the gate lives in the seam now, so they read it there, and
+what they pin still holds in the paper branch. Seventeen mutations, each
+killed on the first round, none refused.
+(`tests/test_a_second_order_is_not_placed_beside_a_resting_one.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -17651,7 +17708,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 258 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 259 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -18463,9 +18520,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **469 of 1170** reach for source text through `source_scan`, `code_only`
+Driven, **470 of 1171** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 469 is a FLOOR and the honest shape is
+source scan that rule does not see, so 470 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
