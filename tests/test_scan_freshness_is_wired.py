@@ -118,6 +118,8 @@ class _Engine:
         return None
 
     _record_sweep_complete = RuneClawEngine._record_sweep_complete
+    _expire_pending_ideas = RuneClawEngine._expire_pending_ideas
+    _drop_pending_idea = RuneClawEngine._drop_pending_idea
     # The REAL auto-confirm selection, for the reason the monitor above is
     # real: `_tick` calls `_auto_confirm_batch` unconditionally (it used to
     # inline the comprehension, which never ran with an empty pending dict),

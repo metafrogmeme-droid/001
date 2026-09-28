@@ -54,7 +54,7 @@ def _host():
                            _engine_idea_ids=set())
     for name in ("_auto_confirm_batch", "_auto_confirm_gate_value",
                  "_auto_confirm_suppressed", "_engine_pending_ids",
-                 "_register_engine_idea"):
+                 "_register_engine_idea", "_drop_pending_idea"):
         setattr(host, name, getattr(RuneClawEngine, name).__get__(host))
     return host
 

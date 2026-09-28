@@ -908,6 +908,9 @@ class RuneClawEngine:
         # fill and sync messages -- see `_announce_executor_message`.
         self._owner_notify_callback: Optional[Callable] = None
         self._pending_ideas: dict[str, TradeIdea] = {}
+        # A hand-typed ticket's margin, keyed by its idea id, for as long as
+        # the idea is pending (`_drop_pending_idea` takes both off together).
+        self._manual_margin_override: dict[str, float] = {}
         # The ids in `_pending_ideas` the ENGINE's own scan put there. The dict
         # is shared with every person's ticket, card and analysis, and nothing
         # said whose an entry was: so one stranger's pending ticket paused the
@@ -3318,6 +3321,8 @@ class RuneClawEngine:
                 logger.error("Kill-switch: user %s risk engine halt failed: %s", uid, exc)
         pending_cleared = len(self._pending_ideas)
         self._pending_ideas.clear()
+        if isinstance(getattr(self, "_manual_margin_override", None), dict):
+            self._manual_margin_override.clear()
         self._pending_atr.clear()
         self._pending_timing.clear()
         self._pending_pyramid.clear()
@@ -5907,25 +5912,7 @@ class RuneClawEngine:
             self._cooldown_until = 0.0
 
         # TTL: expire stale pending ideas
-        now = datetime.now(UTC)
-        idea_ttl = CONFIG.pending_idea_ttl
-        expired_ids = [
-            idea_id
-            for idea_id, idea in self._pending_ideas.items()
-            if (now - idea.timestamp).total_seconds() > idea_ttl
-        ]
-        for idea_id in expired_ids:
-            expired_idea = self._pending_ideas.pop(idea_id, None)
-            self._pending_atr.pop(idea_id, None)  # clean up stored ATR
-            self._pending_pyramid.pop(idea_id, None)  # L-02 FIX: clean up pyramid flag
-            if expired_idea:
-                audit(
-                    trade_log,
-                    f"Trade idea {idea_id} expired (TTL)",
-                    action="ttl_expire",
-                    result="EXPIRED",
-                    data={"asset": expired_idea.asset, "age_seconds": (now - expired_idea.timestamp).total_seconds()},
-                )
+        self._expire_pending_ideas()
 
         # C2-26 FIX: Skip scanning while the ENGINE's own ideas await
         # confirmation. A concurrent confirm_trade call while mid-scan creates
@@ -7657,11 +7644,11 @@ class RuneClawEngine:
         try:
             trade = portfolio.open_position(idea, size_usd, leverage=leverage)
         except Exception as exc:
-            self._pending_ideas.pop(trade_id, None)
+            self._drop_pending_idea(trade_id)
             self._transition(AgentState.IDLE, f"paper fill error {trade_id}")
             return f"⚠️ [PAPER] Simulated fill failed: {str(exc)[:160]}"
 
-        self._pending_ideas.pop(trade_id, None)
+        self._drop_pending_idea(trade_id)
         # Log a DECISION row for this paper fill (gated, default OFF) so the
         # confidence-calibration / voter-weight learners can JOIN it to the paper
         # outcome (recorded later by the paper loop) via paper_trade_id and train
@@ -7737,7 +7724,7 @@ class RuneClawEngine:
                     and not self._pending_pyramid.get(trade_id)):
                 for lp in self.live_executor.open_positions:  # open + pending_fill
                     if normalize_symbol(lp.symbol) == key:
-                        self._pending_ideas.pop(trade_id, None)
+                        self._drop_pending_idea(trade_id)
                         self._pending_atr.pop(trade_id, None)
                         audit(trade_log,
                               f"Duplicate entry suppressed for {idea.asset} — an "
@@ -8445,7 +8432,13 @@ class RuneClawEngine:
         # on $6,250 instead of $1,250). Pass the margin itself so manual trades
         # match the auto path and the user's stated margin.
         if hasattr(self, '_manual_margin_override') and idea.id in self._manual_margin_override:
-            manual_margin = self._manual_margin_override.pop(idea.id)
+            # READ, never popped here: the margin is the ticket's own size and
+            # lives as long as the idea does. It used to be popped on the way
+            # to the executor, so an attempt the venue REFUSED left the idea
+            # pending without it, and the retry the person then made was
+            # sized by the risk engine -- driven, $50 typed, $100 placed on
+            # the second tap. `_drop_pending_idea` takes it with the idea.
+            manual_margin = self._manual_margin_override[idea.id]
             leverage = CONFIG.exchange.default_leverage
             _before_manual = size_usd
             size_usd = manual_margin  # margin; executor applies leverage for notional
@@ -8590,7 +8583,7 @@ class RuneClawEngine:
             except Exception:
                 pass
             # C-05 FIX: only remove idea and ATR after successful execution
-            self._pending_ideas.pop(trade_id, None)
+            self._drop_pending_idea(trade_id)
             self._pending_atr.pop(trade_id, None)
             # Public mind-stream: operator-account opens only (per-user
             # executors are private). No sizes on the public feed.
@@ -8708,9 +8701,49 @@ class RuneClawEngine:
             else "live execution failed")
         return result + seal_note
 
+    def _expire_pending_ideas(self, now: Optional[datetime] = None) -> list:
+        """Drop every pending idea older than ``CONFIG.pending_idea_ttl``, with
+        its ATR, pyramid flag and manual margin. The tick calls this every
+        pass; it is a method so a test can drive the expiry without standing
+        up a tick. Returns the expired ids."""
+        now = now or datetime.now(UTC)
+        idea_ttl = CONFIG.pending_idea_ttl
+        expired_ids = [
+            idea_id
+            for idea_id, idea in self._pending_ideas.items()
+            if (now - idea.timestamp).total_seconds() > idea_ttl
+        ]
+        for idea_id in expired_ids:
+            expired_idea = self._drop_pending_idea(idea_id)
+            self._pending_atr.pop(idea_id, None)  # clean up stored ATR
+            self._pending_pyramid.pop(idea_id, None)  # L-02 FIX: clean up pyramid flag
+            if expired_idea:
+                audit(
+                    trade_log,
+                    f"Trade idea {idea_id} expired (TTL)",
+                    action="ttl_expire",
+                    result="EXPIRED",
+                    data={"asset": expired_idea.asset, "age_seconds": (now - expired_idea.timestamp).total_seconds()},
+                )
+        return expired_ids
+
+    def _drop_pending_idea(self, trade_id: str):
+        """Take an idea off the book, and with it the manual margin the ticket
+        carried: the margin's lifetime is the idea's. Every site where an idea
+        leaves `_pending_ideas` goes through here (a test walks the module),
+        so a refusal that keeps the idea keeps its margin, and a placement, a
+        rejection, an expiry, a duplicate suppression or a kill-switch clear
+        cannot leave a size behind for an idea that is gone. Returns the idea,
+        or None when none was pending under that id."""
+        idea = self._pending_ideas.pop(trade_id, None)
+        margins = getattr(self, "_manual_margin_override", None)
+        if isinstance(margins, dict):
+            margins.pop(trade_id, None)
+        return idea
+
     def reject_trade(self, trade_id: str) -> str:
         """Human explicitly rejects a pending idea."""
-        idea = self._pending_ideas.pop(trade_id, None)
+        idea = self._drop_pending_idea(trade_id)
         self._pending_atr.pop(trade_id, None)  # clean up stored ATR
         self._pending_pyramid.pop(trade_id, None)  # C2-30 FIX: clean up pyramid flag
         if idea:
@@ -8766,7 +8799,7 @@ class RuneClawEngine:
         _engine_ids = self._engine_pending_ids()
         old_pending = len(_engine_ids)
         for _eid in _engine_ids:
-            self._pending_ideas.pop(_eid, None)
+            self._drop_pending_idea(_eid)
             self._pending_atr.pop(_eid, None)
             self._pending_timing.pop(_eid, None)
             self._pending_pyramid.pop(_eid, None)
@@ -9071,7 +9104,7 @@ class RuneClawEngine:
         for eid in list(self._engine_pending_ids()):
             existing = self._pending_ideas.get(eid)
             if existing is not None and normalize_symbol(existing.asset) == key:
-                self._pending_ideas.pop(eid, None)
+                self._drop_pending_idea(eid)
                 self._pending_atr.pop(eid, None)
                 self._pending_pyramid.pop(eid, None)  # C2-31: no stale pyramid flag
                 self._engine_idea_ids.discard(eid)

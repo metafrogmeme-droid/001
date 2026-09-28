@@ -15310,6 +15310,84 @@ exception's text in the audit, the RELEASED audit missing or its words
 swapped, and the authorization's warning printing the text.
 (`tests/test_a_refused_web_live_confirm_takes_its_spend_back.py`.)
 
+**A HAND-TYPED TICKET'S MARGIN WAS POPPED ON THE WAY TO THE EXECUTOR, AND A
+REFUSAL LEFT THE IDEA PENDING WITHOUT IT.** `/trade` and the web's propose
+route register a ticket with the margin the person typed, in
+`_manual_margin_override` keyed by the idea's id, and `_confirm_trade_inner`
+POPPED that figure on its way to the executor. C-05 then keeps a refused idea
+pending so the person can retry -- the venue minimum, a hard cap, a leverage
+the venue would not set, an outcome it confirmed neither way -- and the retry
+ran with no margin on record, sized by the risk engine. Driven through the
+real `confirm_trade`:
+
+    attempt 1 (the venue refuses)   size handed $50.00   idea pending, margin GONE
+    attempt 2 (the retry)           size handed $100.00  the risk engine's figure
+
+On Telegram the retry placed double the ticket. On the web-live path the
+retry's envelope authorization read `margin None`, answered "notional is
+unknown" and DENIED under any cap: fail-closed, and a sentence about a figure
+the person had typed one tap earlier. The margin is READ where the executor
+is sized now and leaves the book WITH the idea, through the one helper every
+exit takes: `_drop_pending_idea` pops the idea and its margin together, and a
+placement, a rejection, a TTL expiry, a duplicate suppression, a practice
+fill, the force-scan sweep and the engine's own dedup all ask it; the
+kill-switch clear takes the margins with the book. A rule walks the engine
+class and refuses any `_pending_ideas.pop(` outside the helper, because a
+list of the eight exits is the shape where the ninth added tomorrow is the
+one missing from it. The TTL sweep was a block inline in a 434-line `_tick`
+that no test could drive, so it is `_expire_pending_ideas` now, and the tick
+is pinned to call it.
+
+**THE MAP WAS CREATED FROM OUTSIDE THE CLASS, and the type ratchet is what
+said so.** `register_manual_idea` in `bot/skills/manual_trade.py` wrote
+`engine._manual_margin_override = {}` onto an engine that had never declared
+it, so the kill-switch clear read `"RuneClawEngine" has no attribute`
+(`attr-defined` 29 -> 30) the moment the engine touched the map by name. It is
+declared in `__init__` beside `_pending_ideas`; the lazy creation stays for a
+stand-in built without the constructor, and the helper reads it through
+`getattr` for the same reason.
+
+**THE MUTATION ROUND REFUSED ITS OWN BASELINE, and the refusal was two of
+this slice's tests reaching the network.** A placement syncs the book to the
+website on a daemon thread, and the network containment named the two drives
+that PLACE (`Thread-2 (sync_portfolio)`, three refused connects each) by the
+thread they STARTED. The seal-failure suite this one borrows its engine from
+stubs `sync_in_background` in an `autouse` fixture, and an autouse fixture is
+per MODULE, so importing that suite's `_engine` imported none of its quiet.
+The pytest tail read "515 passed" over an exit status of 1, because the
+containment sets the status at `pytest_sessionfinish` with no `FAILED` line
+-- the shape `ci_test_gate` records as *the gate cannot describe this run* --
+and the round's driver reads the return code, not the tail, so it refused
+rather than measuring thirteen mutations against a red baseline. The stub is
+re-registered under its own name here, which is the `envelope =
+_envelope_fixture` spelling one fixture over.
+
+**THREE STAND-INS FORGOT THE NEXT TWO METHODS**, which this file records as
+the shape a hand-written stand-in takes: the ownership suite's `_host`, the
+duplicate guard's `_FakeEngine` and the scan-freshness `_Engine` each bind
+the real methods they need and none knew `_drop_pending_idea` or
+`_expire_pending_ideas`, so eight tests in three files failed on a wiring
+change they were not testing. Each binds the real methods now. And the
+per-user allowlist pin anchored on the spelling `.pop(idea.id)`; it anchors on
+the read.
+
+**Recorded, not changed.** `/web3/sign` records the transfer against the
+24h ledger before `build_and_sign` runs, so a signature that FAILS keeps the
+day's spend; the broadcast failure beside it keeps its spend correctly, since
+a transaction handed to the network is neither confirmed nor refused. It is
+off the trade path and filed as its own slice with the release helper #134
+built.
+
+**Eleven mutations, each killed on the first round, none refused.** Two are
+worth naming for what they prove about the guards rather than the code: each
+exit put back on a bare `_pending_ideas.pop(` dies on the rule alone for the
+sites a drive cannot reach (the force-scan sweep, the engine's dedup), and on
+the drive as well for the ones it can; and the web authorization reading the
+margin with `.pop` dies only on the retry drive that asks the envelope twice
+for one pending ticket, because a reader that consumes the figure agrees
+with a reader that does not on every single ask.
+(`tests/test_a_tickets_margin_lives_as_long_as_its_idea.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -15789,7 +15867,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 244 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 245 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -16601,9 +16679,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **455 of 1145** reach for source text through `source_scan`, `code_only`
+Driven, **456 of 1146** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 455 is a FLOOR and the honest shape is
+source scan that rule does not see, so 456 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

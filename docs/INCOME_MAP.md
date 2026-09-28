@@ -177,7 +177,7 @@ margin 250` into a Confirm card that places nothing until tapped
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:125).
-Autonomously: engine.py:6135-6193 confirms and executes any idea at or above
+Autonomously: engine.py:6122-6180 confirms and executes any idea at or above
 RUNTIME.auto_confirm_threshold with no human tap.
 
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
@@ -281,8 +281,8 @@ decision after shadow evidence, not a card.
 
 Basis is COMPUTED and read, never traded. bot/core/basis.py's BasisAnalyzer is
 constructed at engine.py:706 and fetched in `_analyze_signal`'s context gather
-(engine.py:6992) — its
-result is handed to analyzer.analyze at :7161 as `basis` CONTEXT that votes on
+(engine.py:6979) — its
+result is handed to analyzer.analyze at :7148 as `basis` CONTEXT that votes on
 nothing. Its own docstring (basis.py:16-30) records that it had no caller
 outside tests until recently and that a fabricated `basis_pct * 365`
 "annualized" field was removed rather than propagated. On the web,
@@ -348,10 +348,10 @@ The whole product is an algo bot and every layer is reachable. bot/main.py:587
 starts engine.run(), the scan→analyze→risk→execute FSM; market_scanner feeds
 analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
 signal modules; RiskEngine (bot/risk/risk_engine.py:269) is the fail-closed pre-
-trade gate whose whole enforcing set /enforcing lists. engine.py:6135-6193
+trade gate whose whole enforcing set /enforcing lists. engine.py:6122-6180
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2524) with no human in the loop, adaptively moved by
-realized win rate (engine.py:9113): the paper book's in paper mode, both
+realized win rate (engine.py:9146): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
@@ -1402,7 +1402,7 @@ draft half is genuinely shipped and reachable (nav id 'studio' dashboard.js:54
 → renderContractStudio dashboard.js:7086, registered dashboard.js:10100; POST
 /api/contract/studio app/routes/contract.js:37 → gateway handler
 user_gateway.py:1433 gated by _guard_user at :1452, route registered
-user_gateway.py:5218; five template buttons, flags, Copy and Download .sol at
+user_gateway.py:5223; five template buttons, flags, Copy and Download .sol at
 dashboard.js:625…
 
 **Trading/analytics tools** — partial
@@ -1432,7 +1432,7 @@ size/exposure/loss caps, symbol allow/deny, regime, horizon
 (app/lib/user_strategies.js:18-33) — saves it, publishes it to the community
 marketplace, and ARMS it on their own bot: the web projects its signal-
 checkable rules, the bot re-validates and stores the snapshot
-(bot/core/user_strategy_store.py:134-174), and bot/core/engine.py:7796-7845
+(bot/core/user_strategy_store.py:134-174), and bot/core/engine.py:7783-7832
 evaluates it on every confirm and refuses the trade when it fails. Followers
 of a published strategy get its would-take picks (app/routes/copy.js:105). (2)
 Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
@@ -1613,8 +1613,8 @@ preferring the non-custodial option and stating the tradeoff
 failed fetch yields NO option, never a fabricated APY). Two doors reach it:
 GET /api/idleyield (app/routes/idleyield.js, authMiddleware — any signed-in
 web user, mounted app/server.js:387) via gateway POST /idleyield
-(bot/web/user_gateway.py:3540, which calls fetch_noncustodial_options at
-:3506), and Telegram /idleyield, which is ADMIN-ONLY by an inline _is_admin
+(bot/web/user_gateway.py:3545, which calls fetch_noncustodial_options at
+:3511), and Telegram /idleyield, which is ADMIN-ONLY by an inline _is_admin
 check (bot/skills/yield_commands.py:142). Separately, an existing stETH
 position is MIRRORED read-only from the mainnet contract (app/lib/defi.js:36
 LIDO_STETH, :103 readLido) through GET /api/defi and the c-defi panel. The
@@ -1732,7 +1732,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1294, registered telegram_handler.py:1234) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:8368
+bot/core/stock_trading.py, also read by bot/core/engine.py:8355
 (get_market_session) and scan_commands.py:376.
 
 **Price alerts and anomaly-alert scoping**
@@ -2366,7 +2366,7 @@ half of the measurement that says where the measurement stops.
   comments (`app/routes/web3_execute.js:52, :93, :124`), and a comment that
   misdescribes which half of a gate is off is a failure mode this repo has
   recorded before. All three re-checks exist and refuse:
-  `handle_web3_sign` (`bot/web/user_gateway.py:4910`), `handle_cross_plan`
+  `handle_web3_sign` (`bot/web/user_gateway.py:4915`), `handle_cross_plan`
   (`:1722`) and `handle_contract_deploy` (`:1607`) each `403` a non-admin —
   and the last of those is why the check had to be driven rather than
   grepped, because a search for `handle_web3_deploy`, the name the route
@@ -2468,7 +2468,7 @@ half of the measurement that says where the measurement stops.
 
   **The macro_skills shape does not apply.** Walked by AST, the eight handlers
   make exactly THREE attribute probes between them, and all three name real
-  attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:966`),
+  attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:969`),
   `CONFIG.deepscan_timeout_sec` (`bot/config.py:2713`, and three sibling call
   sites read it with no `getattr` at all) and `engine.analyzer`
   (`bot/core/engine.py:691`). Every handler guards its own read and has an

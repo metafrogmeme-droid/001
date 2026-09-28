@@ -25,6 +25,7 @@ class _FakeExec:
 
 class _FakeEngine:
     confirm_trade = RuneClawEngine.confirm_trade  # exercise the real wrapper
+    _drop_pending_idea = RuneClawEngine._drop_pending_idea  # the wrapper's own exit
 
     def __init__(self, ideas):
         self._pending_ideas = ideas
