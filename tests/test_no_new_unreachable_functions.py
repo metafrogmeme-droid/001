@@ -253,6 +253,29 @@ def _production_identifier_counts() -> Counter:
     return counts
 
 
+def _production_mentions_beyond_defs() -> Counter:
+    """Identifier mentions in production code, less each name's `def` lines.
+
+    Read over the same files as `_production_identifier_counts`, so a name's
+    own definitions (every one of them, at any depth, in any class) cancel
+    exactly and what is left is every other way the code mentions it.
+    """
+    counts = _production_identifier_counts()
+    files = set()
+    for root in IMPORTER_ROOTS:
+        files.update(_py_files(REPO / root))
+    files.update(p for p in REPO.iterdir() if p.suffix == ".py")
+    for path in files:
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                counts[node.name] -= 1
+    return counts
+
+
 def unreachable_functions() -> set:
     """Public module-level functions whose only mention is their own `def`."""
     defs = _candidate_defs()
@@ -686,14 +709,29 @@ def _resolved_and_ambiguous() -> tuple[set, set]:
     receivers = _method_call_receivers()
     dead: set = set()
     ambiguous: set = set()
+    mentions = None
 
     for name, sites in _multiply_defined_methods().items():
         calls = receivers.get(name, [])
         if not calls:
-            # Nobody calls the name at all under any receiver, so every class
-            # defining it is dead — but that is what the identifier count
-            # already decides, and duplicating it here would double-report.
-            ambiguous.add(name)
+            # No `<recv>.<name>()` call anywhere. This used to be filed as
+            # ambiguous "because the identifier count already decides it", and
+            # it does not: `_candidate_methods` drops every name more than one
+            # class defines, so a shared name nobody calls was checked by
+            # NOTHING. Deleting the one caller of `format_for_telegram` (the
+            # SignalTracker card) turned six baselined dead renderers into
+            # "no longer unreachable" rows, which is the checker going blind
+            # and reading as the code being wired. Decided soundly here: every
+            # definition is dead when nothing in production mentions the name
+            # but its own `def` lines; a name mentioned any other way (a
+            # getattr string, a bound method handed on) stays ambiguous.
+            if mentions is None:
+                mentions = _production_mentions_beyond_defs()
+            if mentions[name] <= 0:
+                for rel, cls, _ln in sites:
+                    dead.add(f"{rel}:{cls}.{name}")
+            else:
+                ambiguous.add(name)
             continue
         reached: set = set()
         resolvable = True
@@ -788,6 +826,56 @@ def test_the_ambiguity_the_sweep_cannot_resolve_is_stated_not_hidden():
         f"baseline says {m.group(1)} ambiguous names, sweep finds "
         f"{len(ambiguous_method_names())}"
     )
+
+
+def _planted_shared_name(tmp_path, monkeypatch, caller: str):
+    pkg = tmp_path / "bot"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "planted.py").write_text(
+        "class Watcher:\n"
+        "    def shared_name(self):\n"
+        "        return 1\n\n"
+        "class Other:\n"
+        "    def shared_name(self):\n"
+        "        return 2\n", encoding="utf-8")
+    (pkg / "caller.py").write_text(caller, encoding="utf-8")
+    import sys
+    mod = sys.modules[__name__]
+    monkeypatch.setattr(mod, "REPO", tmp_path)
+    return mod._resolved_and_ambiguous()
+
+
+def test_a_shared_name_nobody_mentions_is_dead_in_every_class(tmp_path, monkeypatch):
+    """A name several classes define, with no call and no other mention.
+
+    The receiver pass filed this as ambiguous and deferred to the identifier
+    count, which drops every name more than one class defines, so it was
+    checked by nothing: deleting the last caller of a shared name made its
+    baselined dead rows read as wired. Planted, because the real tree's only
+    case is already baselined and a stale-entry failure is the only trace.
+    """
+    dead, ambiguous = _planted_shared_name(
+        tmp_path, monkeypatch, "from bot.planted import Watcher\nx = 1\n")
+    assert {e for e in dead if e.endswith(".shared_name")} == {
+        "bot/planted.py:Watcher.shared_name", "bot/planted.py:Other.shared_name"}, (
+        f"a shared name nothing mentions was not reported dead: dead={sorted(dead)}")
+    assert "shared_name" not in ambiguous
+
+
+def test_a_shared_name_mentioned_without_a_call_stays_ambiguous(tmp_path, monkeypatch):
+    """Mentioned, but not as `<recv>.<name>()`: a getattr, a bound method.
+
+    Nothing can say which class that mention reaches, so neither is accused.
+    """
+    for caller in ("fn = getattr(object(), 'shared_name', None)\n",
+                   "from bot.planted import Watcher\nhandler = Watcher().shared_name\n"):
+        dead, ambiguous = _planted_shared_name(tmp_path, monkeypatch, caller)
+        assert not any(e.endswith(".shared_name") for e in dead), (caller, sorted(dead))
+        assert "shared_name" in ambiguous, caller
+        for p in (tmp_path / "bot").iterdir():
+            p.unlink()
+        (tmp_path / "bot").rmdir()
 
 
 def test_a_factory_bound_receiver_never_types_the_name(tmp_path, monkeypatch):

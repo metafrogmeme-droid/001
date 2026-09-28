@@ -54,7 +54,7 @@ def test_a_headless_handler_is_a_real_handler_with_no_telegram_in_it():
     h = chat_facade.headless_handler(_engine())
     assert isinstance(h, TelegramHandler)
     assert h.users is None and h.registry is None
-    for telegram_only in ("_limiter", "monitor", "forwarder", "signal_tracker"):
+    for telegram_only in ("_limiter", "monitor", "forwarder"):
         assert not hasattr(h, telegram_only), telegram_only
 
 

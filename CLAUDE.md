@@ -16919,6 +16919,53 @@ mutations would have survived: an unescaped time, a dropped time, an unescaped
 fallback.
 (`app/test/a_resolved_call_reads_as_resolved.test.js`.)
 
+**`/signals` SAID "NO SIGNALS RECORDED YET" FOR EVERY SIGNAL THE BOT HAD EVER
+PUBLISHED.** The Telegram command read `SignalTracker`, an in-memory store whose
+`record_signal` and `record_outcome` had no caller outside tests. The
+unreachable-methods baseline recorded both, and an earlier chapter here recorded
+the tracker's feed as dark. So the card's empty branch was the only one that
+could run: a confident "nothing recorded" about the signal stream, beside the
+outcome ledger the engine now resolves on hourly candles (the chapter on the
+first signal outcome). The bot's own `/api/signals` on the dashboard server read
+`engine.signal_tracker`, an attribute the engine does not have, and answered an
+empty list forever. Nothing consumes that endpoint (every `/api/signals` in the
+tree is the website's own route), so it was the same defect with no reader.
+
+**Both read the ledger through one summary now, and the tracker is deleted.**
+`signal_outcomes.ledger_summary` counts each pair's calls by word, and the
+counts close (`target + stop + other + open + unknown == calls`). `other` is a
+call that ended with no R: not filled, an ambiguous bar, no exit, or unscorable.
+A word this build does not know is counted as `unknown`, never dropped, and the
+card names it. The R is summed only over TARGET and STOP rows carrying a finite
+R, with its own count. A ledger that will not read is `None`, and both surfaces
+say so: the card prints a sentence, the endpoint `signals_read: false`. The
+card (`bot/formatters/signal_history_card.py`) prints per-pair calls, targets,
+stops, other, pending, the target share of the calls that reached a level, and
+the mean R. It draws no verdict, says the R is gross of fees, and says what
+span the ledger covers: resolved calls are kept 14 days after they sync, at most
+2000 rows, so this is the recent record and not necessarily the whole history.
+
+**Deleting the tracker's one caller blinded the methods ratchet, and the
+baseline said the renderers were wired.** `format_for_telegram` is defined by
+six classes, and the only call was `self.signal_tracker.format_for_telegram()`.
+With that call gone, six baselined dead renderers failed the stale-entry test
+as "no longer unreachable". Nothing had wired them: the receiver pass files a
+shared name with no `<recv>.<name>()` call as ambiguous, under a comment saying
+"that is what the identifier count already decides". It does not: the
+identifier count drops every name more than one class defines. So a shared-name
+method nobody calls was checked by nothing. A zero-call shared name is decided
+now: every definition is dead when nothing in production mentions the name
+except its own `def` lines, and a name mentioned any other way (a `getattr`
+string, a bound method handed on) stays ambiguous. The ambiguity count is 41
+again, nothing new is dead, and two planted tests hold the rule both ways,
+because on today's tree the only case is already baselined.
+
+Twenty-two mutations, each killed on the first round. Two sweep mutations first
+died on the real tree's stale-entry test, which depends on today's baseline;
+re-run against the planted test alone, each dies there too.
+(`tests/test_the_signal_history_reads_the_outcome_ledger.py`,
+`bot/formatters/signal_history_card.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -18210,7 +18257,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **468 of 1166** reach for source text through `source_scan`, `code_only`
+Driven, **468 of 1167** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 468 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

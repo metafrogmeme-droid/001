@@ -183,7 +183,7 @@ RUNTIME.auto_confirm_threshold with no human tap.
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
 LIVE_TRADING_ENABLED defaults False (config.py:2493-2494), so a stock deploy
 trades perps on paper until the operator runs /golive. A real order
-additionally needs _can_trade_live (telegram_handler.py:4887), which requires
+additionally needs _can_trade_live (telegram_handler.py:4885), which requires
 BOTH the env allowlist and the per-user store flag; web-only `web:<id>`
 identities are structurally paper-only and can never pass it. Venue coverage
 is Bitget (primary) with Bybit/Hyperliquid adapters; long/short perps only —
@@ -847,7 +847,7 @@ bot/skills/start_commands.py:578 (@guard("start"), which `pending` holds, so
 the free on-ramp stays reachable by a newcomer while the allowlist gate and the
 rate limit are no longer skipped — it carried NO gate at all until 2026-09-18),
 registered at
-telegram_handler.py:1013, with LONG/SHORT/PASS inline buttons whose taps land
+telegram_handler.py:1012, with LONG/SHORT/PASS inline buttons whose taps land
 in _handle_duel_callback at start_commands.py:596; the web page at
 app/server.js:477 driving the four authed routes at
 app/routes/duel.js:43/57/73/98; and the session-free public board and referral
@@ -1278,7 +1278,7 @@ whoever already has access, not an income stream a person can run.
 
 *The verifier refused part of this row.* Status PARTIAL survives (the research surfaces are real and I drove each
 door), but the tiering claim is false on every ordinary deploy. tier_gate is
-wired — check_user() is called from telegram_handler.py:1447/4560 and
+wired — check_user() is called from telegram_handler.py:1445/4560 and
 user_gateway.py:380 — and its FIRST line is `if not gate_enabled(): return
 True, "ok"` (tier_gate.py:821). gate_enabled() (line 365-371) requires BOTH
 `TOKEN_TIER_GATE_ENABLED` AND a configured mint. The module's line-1 docstring
@@ -1680,7 +1680,7 @@ in the map.
 (app/public/js/dashboard.js:1290 jump-nav, :1349 panel, :1439 fetch) → GET
 /api/market/rwa (app/routes/market.js:169, auth:false, public); Telegram /rwa
 (@guard("rwa"), bot/skills/market_commands.py:69, registered
-bot/skills/telegram_handler.py:1017, reads the web via
+bot/skills/telegram_handler.py:1016, reads the web via
 bot/utils/web_data_pull.py → /api/bot/sync/card/rwa, the card RENDERED);
 web chat intercept row 4
 'rwa' (app/routes/chat.js INTERCEPTS, says "a tokenized-asset sector
@@ -1730,7 +1730,7 @@ session detection, stock-specific risk overrides, stock universe scan, sector
 rotation, index beta.
 
 *Where.* Telegram /stockscan (@guard("scan"),
-bot/skills/scan_commands.py:1294, registered telegram_handler.py:1234) and
+bot/skills/scan_commands.py:1294, registered telegram_handler.py:1232) and
 /mode stocks (universe switch, command_catalog.py:96);
 bot/core/stock_trading.py, also read by bot/core/engine.py:8505
 (get_market_session) and scan_commands.py:376.
@@ -2382,7 +2382,7 @@ half of the measurement that says where the measurement stops.
   out of the DB row keyed on `req.user.user_id` — never off the body, the
   query or a header — so the id the gateway admin-checks is the one the
   database holds for the JWT's own subject. `_is_admin_id`
-  (`bot/skills/telegram_handler.py:4986`) is server-side too: the user store's
+  (`bot/skills/telegram_handler.py:4984`) is server-side too: the user store's
   role, or `ADMIN_TELEGRAM_IDS`. An escalation needs a foreign `telegram_id`
   written onto your own row, which is the invariant
   `identity.foreignIdentityBlock` already documents and asserts.

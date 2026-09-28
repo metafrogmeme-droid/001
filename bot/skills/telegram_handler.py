@@ -859,7 +859,6 @@ def _operator_exc_detail(exc: BaseException, *, limit: int = 240) -> str:
 
 
 from bot.core.engine import RuneClawEngine
-from bot.core.signal_tracker import SignalTracker
 from bot.nlp.skill_memory import (button_reply_memory, button_turn_text,
                                   card_shown_memory, command_reply_memory,
                                   command_turn_text, not_run_memory,
@@ -1059,7 +1058,6 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # user at a command that does not exist.
         self._known_commands: list = []
         self._last_pane: dict[int, str] = {}
-        self.signal_tracker = SignalTracker()
         self.users = UserStore()
         # Seed admin from .env TELEGRAM_CHAT_ID
         self.users.seed_admin(CONFIG.telegram.chat_id)

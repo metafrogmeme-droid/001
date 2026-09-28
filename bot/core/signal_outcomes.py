@@ -432,6 +432,71 @@ def mark_synced(key: str, path=None) -> bool:
     return bool(written)
 
 
+#: The per-pair counts a summary carries, in the order a card prints them.
+SUMMARY_COUNTS = ("calls", "target", "stop", "other", "open", "unknown")
+
+
+def ledger_summary(path=None) -> Optional[dict]:
+    """What the ledger holds, per pair, for the cards that report the record.
+
+    None when the ledger could not be read, never an empty summary: "no signal
+    on record" is a claim about the stream, and a failed read is not one.
+
+    Each pair counts its calls by word, and the words close
+    (``target + stop + other + open + unknown == calls``): ``other`` is a word
+    that ends a call and carries no R (not filled, ambiguous, no exit,
+    unscored), ``open`` is still pending, and ``unknown`` is a word this build
+    does not know, counted rather than dropped so a total never reads as whole
+    when it is not. The R is summed over TARGET and STOP rows that carry a
+    finite one, with its own count, because a mean needs its denominator.
+
+    A row that is not a record is ``skipped`` and counted; the span the record
+    covers travels with it (the oldest publication time on record, the keep
+    period and the row cap), because the ledger prunes and a card that did not
+    say so would read as the whole history.
+    """
+    got = read_json_store(path or ledger_path(), check=_check)
+    if got.state == "unreadable":
+        return None
+    sigs = (got.data or {}).get("signals", {}) or {}
+    pairs: dict[str, dict] = {}
+    oldest: Optional[int] = None
+    skipped = 0
+    for v in sigs.values():
+        if not isinstance(v, dict):
+            skipped += 1
+            continue
+        raw = v.get("row")
+        row = raw if isinstance(raw, dict) else {}
+        sym = str(row.get("symbol") or "").strip() or "?"
+        p = pairs.setdefault(sym, {**{k: 0 for k in SUMMARY_COUNTS}, "r_sum": 0.0, "r_n": 0})
+        p["calls"] += 1
+        st = v.get("status")
+        if st == TARGET:
+            p["target"] += 1
+        elif st == STOP:
+            p["stop"] += 1
+        elif st in TERMINAL:
+            p["other"] += 1
+        elif st in PENDING:
+            p["open"] += 1
+        else:
+            p["unknown"] += 1
+        if st in SCORED:
+            r = _f(v.get("r"))
+            if r is not None:
+                p["r_sum"] += r
+                p["r_n"] += 1
+        ms = parse_time_ms(row.get("created_at"))
+        if ms is not None and (oldest is None or ms < oldest):
+            oldest = ms
+    total: dict = {k: sum(p[k] for p in pairs.values()) for k in SUMMARY_COUNTS}
+    total["r_sum"] = sum(p["r_sum"] for p in pairs.values())
+    total["r_n"] = sum(p["r_n"] for p in pairs.values())
+    return {"pairs": pairs, "total": total, "oldest_ms": oldest, "skipped": skipped,
+            "keep_resolved_s": KEEP_RESOLVED_S, "max_rows": MAX_ROWS}
+
+
 def publish_signals(rows: Sequence[dict], sync_fn: Optional[Callable[[list], None]] = None) -> None:
     """Record the rows, then push them. The one door both producers use."""
     rows = [r for r in rows or () if isinstance(r, dict)]
