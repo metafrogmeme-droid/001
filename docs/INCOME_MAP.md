@@ -177,7 +177,7 @@ margin 250` into a Confirm card that places nothing until tapped
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:125).
-Autonomously: engine.py:6164-6222 confirms and executes any idea at or above
+Autonomously: engine.py:6173-6231 confirms and executes any idea at or above
 RUNTIME.auto_confirm_threshold with no human tap.
 
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
@@ -281,8 +281,8 @@ decision after shadow evidence, not a card.
 
 Basis is COMPUTED and read, never traded. bot/core/basis.py's BasisAnalyzer is
 constructed at engine.py:707 and fetched in `_analyze_signal`'s context gather
-(engine.py:7021) — its
-result is handed to analyzer.analyze at :7190 as `basis` CONTEXT that votes on
+(engine.py:7030) — its
+result is handed to analyzer.analyze at :7199 as `basis` CONTEXT that votes on
 nothing. Its own docstring (basis.py:16-30) records that it had no caller
 outside tests until recently and that a fabricated `basis_pct * 365`
 "annualized" field was removed rather than propagated. On the web,
@@ -348,10 +348,10 @@ The whole product is an algo bot and every layer is reachable. bot/main.py:587
 starts engine.run(), the scan→analyze→risk→execute FSM; market_scanner feeds
 analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
 signal modules; RiskEngine (bot/risk/risk_engine.py:269) is the fail-closed pre-
-trade gate whose whole enforcing set /enforcing lists. engine.py:6164-6222
+trade gate whose whole enforcing set /enforcing lists. engine.py:6173-6231
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2524) with no human in the loop, adaptively moved by
-realized win rate (engine.py:9244): the paper book's in paper mode, both
+realized win rate (engine.py:9253): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
@@ -680,7 +680,7 @@ and three share buttons (dashboard.js:5267-5315); an anonymous ?ref= landing
 resolves the referrer's public handle only, 404s unknown codes and is rate-
 limited and cached (public_invite.js:25). Telegram is covered too: /start
 parses the ref_ payload and writes it write-once, refusing self-referral
-(start_commands.py:139-142 → user_store.py:659). And one perk is genuinely
+(start_commands.py:139-142 → user_store.py:661). And one perk is genuinely
 backed — app/lib/duel_squads.js builds Daily Duel SQUADS out of exactly this
 referral graph, served by GET /api/public/duel/squads (public_duel.js:101) and
 rendered on /duel.
@@ -700,8 +700,8 @@ computed or paid anywhere.
 *The verifier refused part of this row.* partial stands for the WEB surface only. On Telegram the loop is redemption-
 only, and what it redeems is read by nothing. Three independent checks: (1)
 record_referrer writes record['referred_by'] into the JSON user store
-(user_store.py:680) and a whole-tree grep for readers of that key returns only
-the writer's own guard at user_store.py:676 and four assertions in
+(user_store.py:682) and a whole-tree grep for readers of that key returns only
+the writer's own guard at user_store.py:678 and four assertions in
 tests/test_share_invite.py — zero non-test readers, which is this repo's own
 unreachable-mod…
 
@@ -1432,7 +1432,7 @@ size/exposure/loss caps, symbol allow/deny, regime, horizon
 (app/lib/user_strategies.js:18-33) — saves it, publishes it to the community
 marketplace, and ARMS it on their own bot: the web projects its signal-
 checkable rules, the bot re-validates and stores the snapshot
-(bot/core/user_strategy_store.py:134-174), and bot/core/engine.py:7825-7874
+(bot/core/user_strategy_store.py:134-174), and bot/core/engine.py:7834-7883
 evaluates it on every confirm and refuses the trade when it fails. Followers
 of a published strategy get its would-take picks (app/routes/copy.js:105). (2)
 Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
@@ -1732,7 +1732,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1294, registered telegram_handler.py:1234) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:8415
+bot/core/stock_trading.py, also read by bot/core/engine.py:8424
 (get_market_session) and scan_commands.py:376.
 
 **Price alerts and anomaly-alert scoping**
@@ -2382,7 +2382,7 @@ half of the measurement that says where the measurement stops.
   out of the DB row keyed on `req.user.user_id` — never off the body, the
   query or a header — so the id the gateway admin-checks is the one the
   database holds for the JWT's own subject. `_is_admin_id`
-  (`bot/skills/telegram_handler.py:4979`) is server-side too: the user store's
+  (`bot/skills/telegram_handler.py:4987`) is server-side too: the user store's
   role, or `ADMIN_TELEGRAM_IDS`. An escalation needs a foreign `telegram_id`
   written onto your own row, which is the invariant
   `identity.foreignIdentityBlock` already documents and asserts.

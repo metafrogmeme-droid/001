@@ -483,7 +483,9 @@ class UserStore:
                 "users.json unreadable (%s) — REFUSING to write this store "
                 "until it is repaired, so a registration cannot overwrite the "
                 "real user list with an empty file.%s Users will appear "
-                "unregistered until this is resolved.",
+                "unregistered until this is resolved, and every live-permission "
+                "read (revoke, per-trade cap) REFUSES rather than answering "
+                "from an empty map.",
                 exc.__class__.__name__, _kept)
 
     def _save(self) -> None:
@@ -917,11 +919,34 @@ class UserStore:
         DEFAULT, so that test called every trader revoked and would have banned
         the entire user base the moment live opened. A default and a decision
         are different facts and the store has to record them separately.
+
+        A store that FAILED TO LOAD raises rather than answering: its map is
+        empty, so every user reads as never revoked, and under the open live
+        policy (the shipped default) "not revoked" plus linked keys is a live
+        order. Driven, a corrupt `users.json` placed a $500 ticket for a user
+        whose revoke and per-trade cap were in the file that did not read.
+        Every caller already maps an exception to a refusal, which is the
+        erasure path's own rule one method down.
         """
+        self._refuse_permission_read("live_trading_revoked")
         user = self.get(telegram_id)
         if not user:
             return False
         return bool(user.get("live_revoked_at"))
+
+    def _refuse_permission_read(self, question: str) -> None:
+        """A permission read off a store that failed to load is not a reading.
+
+        `_users` is `{}` after a failed load and the writers already refuse;
+        a READER answering from that map answers the most permissive value
+        it has -- "not revoked", "no cap" -- for every person the file holds.
+        Raised, never logged and swallowed, because the money path's callers
+        (`per_user_live_eligibility`, `_per_user_margin_cap`,
+        `_can_trade_live`) each read an exception as a refusal."""
+        if getattr(self, "_load_failed", False):
+            raise RuntimeError(
+                f"users.json failed to load; {question} cannot be read "
+                "(a store that could not be read is not a permissive one)")
 
     def set_live_trading(self, telegram_id: int | str, enabled: bool) -> bool:
         """Grant or revoke live trading permission for a user."""
@@ -945,7 +970,11 @@ class UserStore:
 
     def max_margin(self, telegram_id: int | str) -> Optional[float]:
         """Operator-set max margin (USD) a user may commit to a single live trade,
-        or None if unset. Used by the engine to tighten the per-user position cap."""
+        or None if unset. Used by the engine to tighten the per-user position cap.
+
+        Raises on a store that failed to load: `None` is "no cap was set", and
+        nobody read the file to say so (`_refuse_permission_read`)."""
+        self._refuse_permission_read("max_margin")
         user = self.get(telegram_id)
         if not user:
             return None

@@ -15641,6 +15641,66 @@ which is the fail-closed direction and still the wrong sentence.
 (`tests/test_the_envelope_is_asked_at_every_door.py`,
 `bot/guardian/order_authority.py`.)
 
+**A USER STORE THAT FAILED TO LOAD ANSWERED "NOT REVOKED" AND "NO CAP" FOR
+EVERYONE, UNDER THE LIVE POLICY THAT SHIPS ON.** `UserStore._load` was cured
+of writing an unreadable `users.json` back as an empty one: it sets
+`_load_failed`, refuses every write, and logs CRITICAL. Its READERS went on
+answering from the empty map. `live_trading_revoked` read a user it could
+not find as never revoked, `max_margin` read one as uncapped, and
+`LIVE_OPEN_TO_KEY_HOLDERS` defaults True, under which "not revoked" plus
+linked keys IS the live permission. Driven with per-user live on over a
+`users.json` reading `{not json`:
+
+    per_user_live_eligibility  ->  (True, "linked keys (live open to key holders)")
+    _per_user_margin_cap       ->  None
+    /trade LONG SOL $500       ->  "LIVE LONG SOL/USDT opened", size 500.0
+
+for a user whose revoke and $20 cap were in the file that did not read. The
+one trace was the store's CRITICAL line at boot. Under the staged policy the
+same store answers `can_trade_live` False and the order is refused, so the
+hole is exactly the width of the default.
+
+**The store's own erasure path already had the rule.** `delete` raises on a
+failed load -- *"cannot honour an erasure request against a store that could
+not be read"* -- because *"every caller already maps an exception to
+`error`"*. The two permission readers raise the same way now
+(`_refuse_permission_read`), and every caller on the money path reads the
+exception as a refusal: `per_user_live_eligibility` refuses by the
+exception's class, the Telegram gate `_can_trade_live` refuses a revoke it
+cannot read (under the open policy it falls through to "has own keys", so an
+unreadable store answering False there would have been a live order), and
+`_per_user_margin_cap` stops swallowing. That last one was written as
+*"Fail-open: a store hiccup → None"* in its own docstring -- a cap that
+vanished at DEBUG, on the bound an operator sets with `/setcap` -- and
+`test_per_user_margin_cap.py::test_fail_open_on_store_error` pinned it as
+the contract. It pins the refusal now. The Earn account resolver had already
+mapped a raise from the same reader to `unavailable`, which is the shape the
+rest caught up with.
+
+**What is deliberately left, stated.** `can_trade_live` keeps answering
+False from an empty map: that is the closed direction, and raising there
+would turn every reader that already treats False as "not granted" into an
+error path for no gain. The `/accounts` row still folds a cap it cannot read
+into `None`, so a failed store lists nobody as capped; that card is
+oversight, not an order, and the CRITICAL line is what says the store did
+not load.
+
+**Nine mutations, each killed on the first round, none refused.** Two are
+worth naming for what they prove about the guards rather than the code. The
+Telegram gate falling through to the key check on an unreadable revoke dies
+on exactly ONE test, the drive that hands it a raising store beside a caller
+who HAS keys: a caller without keys is refused either way, so a fixture
+without them measures nothing about the fall-through, and the healthy-store
+control in the same class is that fixture. The cap reader swallowing again
+dies on four -- the flipped pin, the scan that its body holds no `except`,
+and two drives, one of them through the real confirm path with a store that
+raises on the cap alone, where the eligibility read still answers and only
+the recheck's own refusal separates the two. The rest die where the drives
+say: either reader answering from the empty map, the refusal checking
+nothing or logged and swallowed, an unreadable revoke read as eligible, the
+refusal or the gate's warning carrying the exception's text.
+(`tests/test_a_user_store_that_failed_to_load_is_not_a_permissive_one.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -16120,7 +16180,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 248 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 249 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -16932,9 +16992,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **459 of 1149** reach for source text through `source_scan`, `code_only`
+Driven, **460 of 1150** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 459 is a FLOOR and the honest shape is
+source scan that rule does not see, so 460 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

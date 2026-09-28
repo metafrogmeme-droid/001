@@ -4903,8 +4903,16 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         if str(tg_id).startswith("web:"):
             return False
         # An explicit revoke outranks every path below, including a user who
-        # brings their own keys.
-        if self.users.live_trading_revoked(tg_id):
+        # brings their own keys. A revoke that cannot be READ (the store
+        # failed to load) is refused too, by the exception's class: under the
+        # open policy this gate falls through to "has own keys", so an
+        # unreadable store answering False here would be a live order.
+        try:
+            if self.users.live_trading_revoked(tg_id):
+                return False
+        except Exception as exc:
+            system_log.warning("Live gate: the revoke record for %s could not be read "
+                               "(%s) — refusing", tg_id, type(exc).__name__)
             return False
 
         if not getattr(CONFIG, "live_open_to_key_holders", False):

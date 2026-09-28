@@ -1483,7 +1483,14 @@ class RuneClawEngine:
         operator/admin trade the operator account under the global micro caps.
         Tighten-only: the caller folds it into the existing position cap with a
         min(), so it can only REDUCE the size the risk engine already sized and
-        capped. None (no cap set) → no change. Fail-open: a store hiccup → None.
+        capped. None (no cap set) → no change.
+
+        FAIL-CLOSED: a store that cannot answer RAISES, and the confirm-time
+        re-check that asks first refuses the trade with it. This read
+        `except Exception: return None` -- "a store hiccup → None", a cap that
+        vanished at DEBUG -- and a user store that failed to load answers
+        exactly that way for every cap the file held, under the open live
+        policy that ships on. No cap the operator set is read as no cap set.
         """
         if not getattr(CONFIG, "per_user_live_enabled", False):
             return None
@@ -1492,11 +1499,7 @@ class RuneClawEngine:
         store = getattr(self, "_user_store", None)
         if store is None:
             return None
-        try:
-            cap = store.max_margin(user_id)
-        except Exception as exc:
-            logger.debug("Per-user margin cap lookup failed for %s: %s", user_id, exc)
-            return None
+        cap = store.max_margin(user_id)
         return cap if (cap is not None and cap > 0) else None
 
     def _outcome_regime(self, symbol: str) -> str:
@@ -3128,7 +3131,13 @@ class RuneClawEngine:
                 if store.live_trading_revoked(user_id):
                     return False, "live trading revoked for this account"
             except Exception as exc:
-                return False, f"live access check failed: {exc}"
+                # The CLASS, never the text, in the sentence a person reads:
+                # a store that failed to load is refused here, by name, under
+                # the one policy where "not revoked" would have been a live
+                # order (the open policy is the shipped default).
+                return False, ("your live-access record could not be read "
+                               f"({type(exc).__name__}) — refusing rather than "
+                               "reading an unreadable store as permission")
             return True, "linked keys (live open to key holders)"
         try:
             if not store.can_trade_live(user_id):

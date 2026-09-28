@@ -129,11 +129,17 @@ class TestEngineMarginCap:
         finally:
             p.stop()
 
-    def test_fail_open_on_store_error(self):
+    def test_fail_closed_on_store_error(self):
+        """This pinned `None` -- "fail-open: a store hiccup → None" -- and a
+        user store that failed to load answers exactly that way for every cap
+        the file held, under the open live policy that ships on. A store that
+        cannot answer RAISES, and the confirm-time re-check refuses with it."""
+        import pytest
         p = _cfg(per_user=True)
         try:
             eng = _engine(_FakeStore(raises=True))
-            assert eng._per_user_margin_cap("alice") is None
+            with pytest.raises(Exception):
+                eng._per_user_margin_cap("alice")
         finally:
             p.stop()
 
