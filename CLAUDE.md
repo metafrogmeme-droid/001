@@ -16805,6 +16805,65 @@ line was blank; they are derived from the handlers they name now.
 (`tests/test_a_published_signal_is_resolved.py`,
 `app/test/signal_outcomes_reach_the_panels.test.js`.)
 
+**THE ARENA OPENED A CALL THAT HAD ALREADY ENDED, AT ALL THREE OF ITS DOORS.**
+Now that signals are resolved (the chapter above), a signal row can read
+TARGET or STOP forty minutes after it was posted. The Arena's three ways to
+open a signal never read that word. Driven on the real routes, on the
+in-memory database:
+
+- the picker (`GET /api/arena/signals`) marked a stopped-out call tradeable;
+- `/open-signal` filled it at the live mark, with its passed stop dropped
+  under the planner's own rule 2, so a stop-out was re-opened as a position
+  with no stop;
+- practice-follow mirrored it.
+
+`callBlock` in `app/lib/arena_signal_trade.js` is the one reading of whether a
+call is still current: `direction`, then `ended` (a final word, or one this
+server does not know, read off the dashboard's own `signal-status-model.js`),
+then `stale`. All three doors ask it, and a test drives them over a corpus of
+words, ages and directions and requires the same answer from each.
+`routes/signals.js` reads its word list off the same model.
+
+**Practice-follow had no age rule at all, and it is lazy.** The sweep runs when
+the follower next reads their account, so a follower back after two days had a
+two-day-old call opened at that day's mark. It takes the open route's 6-hour
+rule now, and the follow panel says so in fourteen languages.
+
+**A skip moved the cursor past a signal even when the skip was about the
+moment.** With the ticker map past its fill bound the route handed the sweep an
+empty map, every new call was skipped as `no_mark`, and the cursor moved past
+it for good. The account route's own comment said the work "simply happens on
+the next load"; for follow it never did. The route tells the planner whether
+the marks were fillable now, and an unread map mirrors nothing and holds the
+cursor. A fresh map that lacks a symbol is still a skip about that signal.
+
+**Two more in the switch that turns follow on.** It started the cursor at the
+newest signal by `created_at` while the cursor is an id, so a row pushed late
+with an older timestamp sat above it and was mirrored. And a failed read of the
+stream started the cursor at 0, which would mirror the whole stream from its
+first row, five calls per account read, on the switch that promises never to
+back-fill. Enabling refuses over a failed read and changes nothing; disabling
+still works, because a switch that cannot be turned off is worse than one that
+cannot be turned on. The in-memory database sorted every signal read by
+`created_at` whatever the statement ordered by, so it gained an id branch.
+
+**The in-memory database returns whole rows whatever a SELECT names**, so no
+drive can see a SELECT that forgets `status` (the row then reads NEW). That one
+claim is held by a scan, and the test says why.
+
+Twenty-eight mutations, each killed on the first round. One existing pin
+(`arena_slow_marks`) spelled the old call to `sweepFollows` and moved with it;
+its claim, that both writers get the age-gated map, held throughout.
+
+**The map's bare `arena.js` citations had never been remapped**, because
+`app/lib/arena.js` shares the name and a remap that guessed would carry a
+citation into the other file. Three had drifted: `keys/agent` onto a blank
+line, the key mint onto the key LIST's error handler, and the season trap onto
+the lines below the call it names. They are derived from what they name now
+(`test_the_arena_citations_are_the_lines_they_name`), with the page's two
+`arena.html` citations, which no remap reads.
+(`app/test/an_ended_call_is_not_opened_in_the_arena.test.js`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —

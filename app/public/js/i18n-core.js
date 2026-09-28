@@ -155,6 +155,7 @@
     "arena.sig_b_stale": { en: "Too old to open" },
     "arena.sig_b_open": { en: "Already open" },
     "arena.sig_b_dir": { en: "No direction" },
+    "arena.sig_b_ended": { en: "Already over" },
     "arena.sig_b_no": { en: "Not openable" },
     "arena.sig_filled": { en: "Opened {s} {d} at {e} — the live mark." },
     "arena.sig_filled_drift": { en: "The call was posted at {p} ({m}%)." },
@@ -342,6 +343,7 @@
     "arena.b_open_app": { en: "Open the app" },
     "arena.lb_loading": { en: "Loading the board…" },
     "arena.ph_handle": { en: "Pick an anonymous handle to appear on the board" },
+    "arena.follow_rule": { en: "Signals are opened the next time you visit the Arena. A call older than 6 hours, or one that has already ended, is skipped rather than opened late." },
     "arena.follow_body": { en: "Mirror the engine’s live signal stream into your paper account: each new signal opens a position at your chosen size, filled at the <b>live mark</b>. It starts from the next signal — never back-fills old calls — and can never touch real funds." },
     "arena.disc": { en: "The Arena is <b>paper trading</b>: balances are virtual, no real funds ever move, and no order reaches any exchange. Prices are live public Bitget USDT-M marks; fills are simulated at the last price with no slippage or fees, so real trading results will differ. The public board shows percent return and opt-in anonymous handles only. Practice and competition — not investment advice." },
     "sec.prov_eyebrow": { en: "Provable Calls" },
@@ -2151,7 +2153,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"bfef5e1a","zh":"eb0b6b7f","pt":"2f8906b4","fr":"921c2d5a","de":"24678572","nl":"d1fe5b66","ja":"245cd3ea","ko":"f6a2607c","ru":"ed6efed4","tr":"8ccf9c75","it":"a4d6c9a0","hi":"16ab1770","ar":"3971a71f"};
+  var CHUNKS = {"es":"440e638b","zh":"7a58d10e","pt":"f4595edf","fr":"9ddc2ecd","de":"8e8ecfb8","nl":"34068a8e","ja":"e510287a","ko":"99a6a499","ru":"7e3eac68","tr":"6b7a5f15","it":"9273b851","hi":"12671dc5","ar":"e2da9eeb"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

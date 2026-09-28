@@ -147,10 +147,15 @@ test('GET /account is a WRITE path and must not settle off a stale mark', async 
   // age-gated map, never the display map.
   assert.match(src, /settleLiquidations\(userId, positions, fillMarks\)/,
     'settleLiquidations gets the age-gated marks');
-  assert.match(src, /sweepFollows\(userId, positions, fillMarks\)/,
-    'sweepFollows gets the age-gated marks');
-  assert.match(src, /const fillMarks = tick\.ageMs <= FILL_MAX_AGE_MS \? marks : \{\}/,
+  // sweepFollows is also told whether the marks were fillable, so it can
+  // hold its cursor rather than skip every new call as `no_mark` for good
+  // (test/an_ended_call_is_not_opened_in_the_arena.test.js drives that).
+  assert.match(src, /sweepFollows\(userId, positions, fillMarks, fillable\)/,
+    'sweepFollows gets the age-gated marks, and whether they were fillable');
+  assert.match(src, /const fillable = tick\.ageMs <= FILL_MAX_AGE_MS;/,
     'and the gate is an explicit age comparison');
+  assert.match(src, /const fillMarks = fillable \? marks : \{\}/,
+    'from which the writers\' map is built');
 });
 
 test('a stale price cannot liquidate a real position', async () => {

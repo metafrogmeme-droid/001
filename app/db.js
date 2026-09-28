@@ -572,6 +572,17 @@ class MemoryDB {
       return [rows.map(r => ({ ...r })), []];
     }
 
+    if (cmd.includes('FROM SIGNALS') && cmd.includes('ORDER BY ID DESC')) {
+      // Newest by ID (the Arena picker, the practice-follow start). MySQL
+      // orders by the column the statement names; the catch-all below sorts
+      // by created_at, which is a different answer for a row pushed late.
+      const inline = cmd.match(/LIMIT\s+(\d+)/);
+      const limit = inline ? Number(inline[1]) : 50;
+      const rows = [...this.signals]
+        .sort((a, b) => Number(b.id) - Number(a.id))
+        .slice(0, limit);
+      return [rows.map(r => ({ ...r })), []];
+    }
     if (cmd.includes('FROM SIGNALS')) {
       // Filters are ignored in the mock; newest-first up to the LIMIT. An
       // INLINE `LIMIT 12` wins over the last param — reading the last param

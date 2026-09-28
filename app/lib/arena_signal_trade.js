@@ -26,11 +26,28 @@
  *      no longer the engine's current read of the market, and letting someone
  *      open it would put the engine's name on a decision it is not making.
  *
+ *   4. A call that has ENDED is refused for the same reason, whatever its age.
+ *      The bot walks each signal on hourly candles and re-sends it with the
+ *      word for what became of it (bot/core/signal_outcomes.py), so a signal
+ *      row can say TARGET or STOP forty minutes after it was posted. None of
+ *      the three Arena doors read that word: a call that had already hit its
+ *      stop was offered in the picker, filled by /open-signal, and mirrored by
+ *      practice-follow, each at the live mark, with the exit the market had
+ *      passed quietly dropped under rule 2 -- a stop-out re-opened as a fresh
+ *      position with no stop. `callBlock` is the one reading of "is this call
+ *      still current", and all three doors ask it.
+ *
+ * The outcome words are the dashboard's own (public/js/signal-status-model.js):
+ * a word this server does not know is FINAL there, and it is refused here, so
+ * the panel that hides the button and the route that would have filled it
+ * cannot disagree about one row.
+ *
  * Pure: signal + market state in, decision out. The route does the I/O.
  */
 
 const arena = require('./arena');
 const { exchangeSymbol } = require('./agent_match');
+const SignalStatus = require('../public/js/signal-status-model.js');
 
 // A call older than this is history, not a position to take.
 const MAX_SIGNAL_AGE_MS = 6 * 60 * 60 * 1000;   // 6 hours
@@ -41,9 +58,46 @@ const MAX_SIGNAL_AGE_MS = 6 * 60 * 60 * 1000;   // 6 hours
 // warn rather than quietly fill somewhere else.
 const DRIFT_WARN_PCT = 1.5;
 
+// What the refusal says for each word. English, like the other refusals;
+// the pages translate the CODE ('ended'), not this sentence.
+const ENDED = {
+  TARGET: 'it already reached its target',
+  STOP: 'it already hit its stop',
+  AMBIGUOUS: 'it ended on a bar that reached both its target and its stop',
+  EXPIRED: 'its entry was not filled within its window',
+  NO_EXIT: 'it ran a week with neither exit reached',
+  UNSCORED: 'it could not be scored',
+};
+
+/**
+ * Is this call still one the engine stands behind? `null` when it is, else
+ * the reason it is not: 'direction' (no LONG/SHORT), 'ended' (the row carries
+ * a final outcome word, or a word this server does not know) or 'stale'
+ * (older than MAX_SIGNAL_AGE_MS). Checked in that order: an ended call is
+ * ended whatever its age. A row that states no word is NEW, which is what the
+ * table's own default says.
+ */
+function callBlock(s, now) {
+  const direction = String((s && s.direction) || '').trim().toUpperCase();
+  if (direction !== 'LONG' && direction !== 'SHORT') return 'direction';
+  if (SignalStatus.status(s).final) return 'ended';
+  const at = now instanceof Date ? now : new Date();
+  const createdAt = s.created_at ? new Date(s.created_at) : null;
+  const ageMs = createdAt && !isNaN(createdAt.getTime()) ? at.getTime() - createdAt.getTime() : null;
+  if (ageMs != null && ageMs > MAX_SIGNAL_AGE_MS) return 'stale';
+  return null;
+}
+
+/** The refusal for an ended call, naming what became of it. */
+function endedError(s) {
+  const st = SignalStatus.status(s);
+  const why = ENDED[st.word] || `it is marked ${st.word}, a word this server does not know`;
+  return `That call is over — ${why}. Open a current one.`;
+}
+
 /**
  * @param {object} ctx
- *   signal    — { id, symbol, direction, entry_price, stop_loss, take_profit, created_at }
+ *   signal    — { id, symbol, direction, entry_price, stop_loss, take_profit, status, created_at }
  *   positions — currently open arena positions ([{ symbol }])
  *   balance   — free balance (open margins already deducted)
  *   margin    — vUSDT the user wants on this one
@@ -58,17 +112,18 @@ function planSignalOpen(ctx = {}) {
 
   const symbol = String(s.symbol || '').trim().toUpperCase();
   const direction = String(s.direction || '').trim().toUpperCase();
-  if (direction !== 'LONG' && direction !== 'SHORT') {
+  const now = ctx.now instanceof Date ? ctx.now : new Date();
+  const block = callBlock(s, now);
+  if (block === 'direction') {
     return { ok: false, code: 'direction', error: 'That signal has no tradeable direction' };
   }
-
-  const now = ctx.now instanceof Date ? ctx.now : new Date();
-  const createdAt = s.created_at ? new Date(s.created_at) : null;
-  const ageMs = createdAt && !isNaN(createdAt.getTime()) ? now.getTime() - createdAt.getTime() : null;
-  if (ageMs != null && ageMs > MAX_SIGNAL_AGE_MS) {
+  if (block === 'ended') return { ok: false, code: 'ended', error: endedError(s) };
+  if (block === 'stale') {
     return { ok: false, code: 'stale',
       error: 'That call is more than 6 hours old — the engine has moved on. Open a current one.' };
   }
+  const createdAt = s.created_at ? new Date(s.created_at) : null;
+  const ageMs = createdAt && !isNaN(createdAt.getTime()) ? now.getTime() - createdAt.getTime() : null;
 
   const mark = Number(ctx.mark);
   if (!(mark > 0)) {
@@ -146,10 +201,8 @@ function decorateForPicker(signals, ctx = {}) {
     const ageMs = createdAt && !isNaN(createdAt.getTime()) ? now.getTime() - createdAt.getTime() : null;
     const mark = marks[symbol] && Number(marks[symbol].price);
     const signalEntry = Number(s.entry_price);
-    let reason = null;
-    if (direction !== 'LONG' && direction !== 'SHORT') reason = 'direction';
-    else if (ageMs != null && ageMs > MAX_SIGNAL_AGE_MS) reason = 'stale';
-    else if (openSymbols.has(symbol)) reason = 'already_open';
+    let reason = callBlock(s, now);
+    if (!reason && openSymbols.has(symbol)) reason = 'already_open';
     return {
       id: Number(s.id), symbol, direction,
       // Prices are public market facts (§4) — levels, never amounts.
@@ -170,4 +223,4 @@ function decorateForPicker(signals, ctx = {}) {
   });
 }
 
-module.exports = { planSignalOpen, decorateForPicker, MAX_SIGNAL_AGE_MS, DRIFT_WARN_PCT };
+module.exports = { planSignalOpen, decorateForPicker, callBlock, MAX_SIGNAL_AGE_MS, DRIFT_WARN_PCT };

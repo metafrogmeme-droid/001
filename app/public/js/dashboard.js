@@ -10314,10 +10314,11 @@
           parts.push(T('dd.arena_view', 'See it in the Arena →'));
           toast(parts.join(' '));
         } else {
-          // The route names WHY (stale, already_open, limits) — translate the
+          // The route names WHY (stale, ended, already_open, limits) — translate the
           // coded refusals, pass the rest through as the server said it.
           const code = r?.data?.code;
           const coded = { stale: ['arena.sig_b_stale', 'Too old to open'],
+            ended: ['arena.sig_b_ended', 'Already over'],
             already_open: ['arena.sig_b_open', 'Already open'] }[code];
           toast(coded ? T(coded[0], coded[1])
             : (r?.data?.error || T('arena.sig_failed', 'Could not open that call — try again.')));

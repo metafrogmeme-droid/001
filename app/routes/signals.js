@@ -8,6 +8,7 @@ const express = require('express');
 const { pool } = require('../db');
 const { computeAnalytics } = require('../lib/signal_analytics');
 const { publicSignal, publicAnalytics } = require('../lib/public_signal');
+const SignalStatus = require('../public/js/signal-status-model.js');
 
 const router = express.Router();
 
@@ -48,8 +49,13 @@ router.get('/', async (req, res) => {
   }
 });
 
-/** The words a signal can carry, as the bot's outcome walk writes them. */
-const SIGNAL_STATUSES = ['NEW', 'OPEN', 'TARGET', 'STOP', 'AMBIGUOUS', 'EXPIRED', 'NO_EXIT', 'UNSCORED'];
+/**
+ * The words a signal can carry, as the bot's outcome walk writes them. Read
+ * off the dashboard's model rather than spelled here: the Arena's open route
+ * refuses a call by the same model's reading, and a second list is a second
+ * answer about which words exist.
+ */
+const SIGNAL_STATUSES = [...SignalStatus.PENDING, ...SignalStatus.TERMINAL];
 
 /**
  * How many signals carry each word. A word this build does not know is

@@ -319,10 +319,10 @@ arb with a paper tracker is the funding one.
 **Copy trading** — partial
 
 Two real doors, both paper. (1) Arena practice-follow: POST /api/arena/follow
-(arena.js:904), toggled from the Follow control at arena.html:1326, stores
-enabled/margin/leverage; sweepFollows (arena.js:145-200) then AUTOMATICALLY
+(arena.js:907), toggled from the Follow control at arena.html:1328, stores
+enabled/margin/leverage; sweepFollows (arena.js:146-201) then AUTOMATICALLY
 opens each new engine signal as a position in the caller's virtual 10,000
-vUSDT Arena account (INSERT at arena.js:188), inheriting the signal's own stop
+vUSDT Arena account (INSERT at arena.js:189), inheriting the signal's own stop
 and target when they are still valid against the live fill. That is genuine
 automatic mirroring — of the house engine, in virtual money. (2) Strategy-
 agent follow: /api/copy (copy.js) follows a published engine agent or a
@@ -797,7 +797,7 @@ dashboard.js:5935; the scorer is app/lib/reputation.js:70 and abstains with
 unrated/null rather than a zero). Wallet-native on-chain badges are earned
 from what an address verifiably holds (app/lib/badges.js:26 → the Worlds view
 panel at dashboard.js:5737). Arena badges are earned from closed paper trades
-(app/lib/arena_badges.js:18 → app/routes/arena.js:311). The Command Deck
+(app/lib/arena_badges.js:18 → app/routes/arena.js:314). The Command Deck
 grants achievement glyphs 'by arithmetic, never by grant tables'
 (app/lib/achievements.js, app/routes/command.js:129). Public standing exists
 on the leaderboard/track-record boards, and bot/proofofpnl/erc8004.py:52 binds
@@ -1070,9 +1070,9 @@ time windows over the paper book — 'a NAMED TIME WINDOW over the existing
 Arena, never a reset', ranking percent return from trades closed inside the
 window (arena_seasons.js:3-11), with rule variants a live season enforces
 server-side (max leverage 1-20, majors only: arena_seasons.js:63-86, enforced
-at arena.js:173/444/587). GET /api/arena/season is public and returns status
-plus in-window standings (arena.js:974-998), with the wrong-season trap
-already fixed by pickCurrentSeason (:979-987). Alongside it: an opt-in
+at arena.js:174/447/590). GET /api/arena/season is public and returns status
+plus in-window standings (arena.js:993-1017), with the wrong-season trap
+already fixed by pickCurrentSeason (:996). Alongside it: an opt-in
 anonymous ranked leaderboard showing handle, return %, trade count and win
 rate and never a dollar (leaderboard.js:1-20), the Daily Duel with a 90-day
 record and referral 'squads' board (duel.js:3-17, duel_squads.js), and the
@@ -1086,7 +1086,7 @@ arena.js's engine, leaderboard.js, duel*.js and achievements.js returns only
 bot/formatters/board_cards.py:72 naming a promo prize footer as the
 HYPOTHETICAL future leak its dollar guard exists to catch. Rank, glyph and
 streak are the entire reward. Season creation and deletion are adminOnly and
-API-only with no UI (arena.js:1061, :1085, :1139, :1168), so a user cannot
+API-only with no UI (arena.js:1080, :1104, :1158, :1187), so a user cannot
 host a tournament; there is no bracket, no team registration, no
 entry/settlement of stakes, and no esports data or integration of any kind.
 
@@ -1462,8 +1462,8 @@ it), compile_intent, stress_portfolio, plan_escape (app/routes/mcp.js:116,
 developers.html:55 advertises. The MARKER is the list, here as everywhere: this
 paragraph named four of the five and cited four of the five lines, because
 xray_transaction joined the family and no prose moved. Mint an rcarena_
-key yourself from the Arena page's Agent keys panel (arena.html:366 →
-app/routes/arena.js:1216, max 5, revocable, shown once) and the three arena_*
+key yourself from the Arena page's Agent keys panel (arena.html:367 →
+app/routes/arena.js:1243, max 5, revocable, shown once) and the three arena_*
 write tools let that agent paper-trade and be ranked. The manifest and invoke
 endpoint are served for on-chain discovery, and /api/llm lets a user plug
 their own model key in.
@@ -1472,7 +1472,7 @@ their own model key in.
 deliberately carries no pricing block and no access predicate, with per-call
 charging (x402) stated as design-only (app/lib/tool8257.js:16-22). The agent-
 IDENTITY half has no UI — POST /api/agents (claim a slug, app/server.js:363)
-and POST /api/arena/keys/agent (bind a key to it, arena.js:1256) are mounted
+and POST /api/arena/keys/agent (bind a key to it, arena.js:1283) are mounted
 and authed but referenced by nothing in app/public; the only thing naming the
 claim door is an error string, 'Claim it first at POST /api/agents'
 (app/lib/arena_keys.js:155), which is this repo's own card-names-a-door-with-
