@@ -897,7 +897,19 @@ class ExchangeConfig:
     # ever REDUCES from the standard, never raises it.
     dynamic_leverage_enabled: bool = _env_bool("DYNAMIC_LEVERAGE_ENABLED", False)
     min_leverage: int = int(_env_float_bounded("MIN_LEVERAGE", 2, 1, 125))
+    # The CEILING on the leverage any NEW position is set to (operator
+    # decision 2026-09-28). The standard (DEFAULT_LEVERAGE or the /leverage
+    # override) and every reduce-only step below it stay at or under this,
+    # and the executor's F-3 notional block refuses an order above
+    # margin x MAX_LEVERAGE. It had one reader before that decision, inside a
+    # max() with the order's own leverage, and bound nothing: /leverage set 20
+    # was set on the venue under MAX_LEVERAGE=10.
     max_leverage: int = int(_env_float_bounded("MAX_LEVERAGE", 10, 1, 125))
+    # What DEFAULT_LEVERAGE asked for, before __post_init__ placed it under the
+    # ceiling. 0 until then; read by the /leverage card so an operator whose
+    # .env says 20 is told the standard is 10 BECAUSE of the ceiling, not shown
+    # a 10 they never typed.
+    default_leverage_requested: int = 0
     # Margin mode: "isolated" by default (GetClaw rule: prevents runaway losses on gap-risk assets).
     # Validated, because it was read raw and every venue reads a spelling of
     # its own: ccxt's Hyperliquid call is cross only for exactly "cross" (so
@@ -920,6 +932,36 @@ class ExchangeConfig:
     exchange_min_roundup_max_mult: float = _env_float_bounded("EXCHANGE_MIN_ROUNDUP_MAX_MULT", 1.5, 1.0, 10.0)
     # C2-57: Configurable hold mode probe symbol (used for account mode detection)
     hold_mode_probe_symbol: str = _env("HOLD_MODE_PROBE_SYMBOL", "BTCUSDT")
+
+    def __post_init__(self) -> None:
+        """Place the standard and the floor under the ceiling, where the
+        fields are declared.
+
+        Every reader of ``default_leverage`` -- the paper fill, the analyzer's
+        stop tightening, the risk engine's notional estimates, the web ledger,
+        the cards -- inherits the ceiling from here with no edit of its own;
+        `bot.core.leverage.operator_standard` is the placement reading and
+        caps the runtime override the same way. A default above the ceiling
+        is a config that says two things, and the ceiling wins: clamped with
+        a warning rather than refused at boot, because `_env_float_bounded`
+        already clamps an out-of-range value with a warning and this is a
+        range whose upper bound is another field. The figure asked for is
+        kept in ``default_leverage_requested`` for the /leverage card.
+        """
+        object.__setattr__(self, "default_leverage_requested", int(self.default_leverage))
+        if self.default_leverage > self.max_leverage:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "DEFAULT_LEVERAGE=%d is above the MAX_LEVERAGE=%d ceiling -- every new "
+                "position is set at %dx; raise MAX_LEVERAGE or lower DEFAULT_LEVERAGE",
+                self.default_leverage, self.max_leverage, self.max_leverage)
+            object.__setattr__(self, "default_leverage", int(self.max_leverage))
+        if self.min_leverage > self.max_leverage:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "MIN_LEVERAGE=%d is above the MAX_LEVERAGE=%d ceiling -- the floor is "
+                "%dx", self.min_leverage, self.max_leverage, self.max_leverage)
+            object.__setattr__(self, "min_leverage", int(self.max_leverage))
 
 
 # C2-61: Warn if leverage is dangerously high

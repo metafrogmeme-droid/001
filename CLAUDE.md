@@ -13782,10 +13782,11 @@ card printed, in green, `Leverage 1 / 5`, whatever the open positions ran at:
 a hard-coded reading on the card whose job is to show risk. Drawing the real
 figure as a bar against the `5` beside it would have been wrong too. That `5`
 is `default_leverage`, the standard every order is set to, not a ceiling in the
-gauge's sense (and `max_leverage` is no ceiling either: the F-3 notional check
-reads it inside a `max()` with the order's own leverage, so it binds nothing;
-the compliance-cap chapter drives it), so a bar would paint the ordinary state,
-5x at a 5x standard, full and red.
+gauge's sense (and `max_leverage` was no ceiling either, then: the F-3 notional
+check read it inside a `max()` with the order's own leverage, so it bound
+nothing; it is the ceiling since the chapter that made it one, and the line
+prints both), so a bar would paint the ordinary state, 5x at a 5x standard,
+full and red.
 `leverage_in_use` reads the highest leverage across the caller's open
 positions through `position_leverage`, which refuses the stored `0` an
 adopted position carries and derives it from margin and notional when both
@@ -14290,6 +14291,126 @@ three-line comment, so the two map citations below it moved with it, and the
 derived counts moved by this file's one new test.
 (`tests/test_the_compliance_cap_is_the_quantity_it_checks.py`.)
 
+**`MAX_LEVERAGE` IS THE CEILING NOW, AND THE ORDER THAT PROVED IT WAS NOT ONE
+NEEDED NO CEILING TO PASS.** The chapter above filed the decision and the
+operator made it (2026-09-28): a real ceiling. Driven before the change, on
+the shipped config (default 5, `MAX_LEVERAGE` 10, override backstop 20):
+`/leverage set 15` placed at 15x and `/leverage set 20` at 20x, the venue was
+asked for 20x, and the F-3 notional block passed a consistent 20x order on
+$100 of margin with its ceiling reading $2,100 -- `max(MAX_LEVERAGE, lev)`
+took the order's own leverage, so the one reader of the field was the one
+place it could not bind.
+
+**ONE READING, AND THE CONFIG PLACES ITS OWN FIGURES UNDER IT.**
+`bot.core.leverage.operator_standard` is what every placement starts from:
+the `/leverage` override, else the configured default, capped at
+`leverage_ceiling`. `LiveExecutor._standard_leverage`, the risk gate's
+margin-risk block, `/leverage` and `/risk` all ask it, and every step after
+it (a user's preference, dynamic scaling, the quality ladder, the margin-risk
+cap) only lowers, so the cap there is the whole enforcement. The default and
+the floor are placed under the ceiling in `ExchangeConfig.__post_init__`,
+where the fields are declared, so the twenty raw readers of
+`default_leverage` -- the paper fill, the analyzer's stop tightening, the
+risk engine's notional estimates, the web ledger, the cards -- inherit it
+with no edit of their own. A default above the ceiling is clamped with a
+warning rather than refused at boot, because `_env_float_bounded` already
+clamps an out-of-range value with a warning and this is a range whose upper
+bound is another field; the figure asked for is kept
+(`default_leverage_requested`) so the `/leverage` card can say WHY the
+standard is 10 and not the 20 in `.env`. The reading caps the default again
+anyway, because a stand-in config that breaks the invariant must not break
+the ceiling with it, and a stand-in that names no ceiling gets the declared
+default and never none: "no ceiling" is the loose direction, and a
+hand-written stand-in that forgot the attribute must not loosen anything.
+
+**THE F-3 BLOCK READS THE CEILING ALONE, so it is the backstop the risk
+engine's docstring always said it was.** `max(size, $100) x MAX_LEVERAGE x
+1.05`, measured on the rounded quantity the venue will be sent, after every
+step that could have raised the leverage. A consistent order above the
+ceiling is refused by name; one at the ceiling passes; and the arithmetic
+half, a quantity double what margin x leverage implies, is kept. The
+compliance comment, the risk engine's docstring and this file's `/risk`
+chapter, each corrected a slice ago to say the block was NOT a ceiling, say
+what it is now; a correction that stays after the thing it corrected has
+changed is the `/vault` hint shape pointed at this document.
+
+**The cards say both figures, because "set to 20x" over a venue at 10x is the
+one false answer.** `/leverage set 20` replies *set to 10x (20x asked;
+MAX_LEVERAGE caps every new position at 10x)*, the card prints the standard
+with its source and the ceiling on a line of its own, the usage names the
+reachable range (the lower of the override backstop and the ceiling), and a
+user's own preference is measured against the standard the executor places
+at rather than the configured default it used to read. On `/risk` the field
+named `leverage_cap` carries the ceiling -- a field named cap that held the
+STANDARD, back when the ceiling bound nothing -- and the standard rides
+beside it under its own name, so the line prints `7x in use (standard 5x ·
+ceiling 10x)` and an older payload prints as before. `order_rules.ASSET_RULES`
+lost its per-class `max_leverage` rows (Crypto 125, Metal 20): read by
+nothing, and a second unread claim about a ceiling beside the real one is two
+answers.
+
+**What is deliberately NOT changed, stated.** The override's own 20x backstop
+stays: a ceiling above 20 is still not reachable by a command. The paper fill
+and the analyzer's stop tightening read the DEFAULT rather than the override,
+a pre-existing asymmetry (`RuntimeState`'s own comment says the override is
+"consulted by LiveExecutor on every open") filed rather than folded into a
+slice about the ceiling. And the frozen benchmark runs at 5x under a 10x
+ceiling, so the ceiling binds nothing there: re-run at this commit
+(`--dataset benchmark/majors_1h --honest --walk-forward 6`), the pooled
+block is the recorded one line for line, which is the measurement and not
+the reasoning.
+
+**Twenty-five mutations, each killed on the first round, none refused -- and
+two are worth naming for what they prove about the guards rather than the
+code.** The F-3 block reading `CONFIG.exchange.max_leverage` itself, instead
+of asking `leverage_ceiling`, answers the same number on every honest config,
+so no drive can tell the two apart; it dies on the reads pin, which requires
+the field to have exactly two readers (the reading and the config's own
+clamp), the narrow case where a source read is the honest instrument, because
+the claim is that there is ONE reading and a byte-identical second one agrees
+with every fixture. And `MAX_LEVERAGE_DEFAULT = 125` dies on a pin that reads
+the number out of `bot/config.py`'s own `_env_float_bounded("MAX_LEVERAGE",
+10, ...)` declaration rather than off the leaf, which is the venue-cap
+chapter's lesson: a guard deriving its expectation from the thing it guards
+moves with it and can see nothing.
+
+**And the citation remap moved eleven numbers and left fourteen behind, in
+one paragraph's worth of `config.py` rows.** The `__post_init__` clamp added
+forty-two lines above every strategy-type field the map cites, and the remap
+this file's chapters lean on is per LINE: it moves `path:N` and a `, :N`
+continuation on the same line, and nothing else. So `config.py:2221-2222`
+became `config.py:2263-2222` (a range whose end is below its start), and the
+`(:2223)`, `(:2226-2227)`, `(:2242)` and `(:2248)` continuations on the next
+two lines stayed where they were, now naming the limit-order fields forty-two
+lines above the swing rows the sentence describes; the scalp paragraph and the
+`LIVE_TRADING_ENABLED` range went the same way. The accuracy suite caught ONE
+of the three, the inverted range, because it derives that row; the other two
+were found by a paragraph-aware check that maps every citation into every
+file this commit changed through the same difflib walk (520 citations, 0
+wrong after the fix), which is the instrument the per-line remap should have
+been. A remap that moves the first number of a paragraph and not the rest is
+worse than one that moves none: the moved half reads as proof the paragraph
+was re-derived.
+
+**AND THE FULL GATE REFUSED THE SLICE ON A PIN WHOSE FAR ANCHOR WAS THE
+LINE THE SLICE REWROTE.** `test_risk_card_sources.py::test_the_reading_comes
+_from_the_gate_not_the_paper_worst_ever` slices the `/risk` card's source from
+`_dd_now = None` to the card's leverage line, spelled as the STANDARD
+leverage -- a line the drawdown block does not own, and the one this slice
+changed to carry the ceiling. `ValueError: substring not found`, in the full
+run and re-run alone, on a tree where every property the pin names held: the
+caller's gate is read, both of its fields are read, the reporter's fault is
+caught, the paper seed is gone. That pin's own docstring records it being
+re-anchored ONCE already, at the NEAR end and for the same reason (*"its
+ANCHOR was the paper number itself"*), and the far end had the same shape.
+It closes on the next block's own first statement now, the line its sibling
+pin already opens on, so the two hold one boundary from either side and a
+move of it fails both rather than one of them quietly slicing a wrong
+window. Twelfth time the full gate has refused a slice on a test none of the
+slice's own suites ran; *a boundary that is "whatever happens to be next"*
+is this file's own sentence, arriving in a pin about the card whose
+drawdown block a chapter above had already re-anchored from the other side.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -14769,7 +14890,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 239 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 240 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -15581,9 +15702,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **449 of 1133** reach for source text through `source_scan`, `code_only`
+Driven, **450 of 1134** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 449 is a FLOOR and the honest shape is
+source scan that rule does not see, so 450 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

@@ -949,13 +949,21 @@ class PortfolioCommands:
                 _max_trades = _cap
         except Exception:
             pass
+        from bot.config import RUNTIME as _RT
+        from bot.core.leverage import leverage_ceiling, operator_standard
+        _lev_ceiling = leverage_ceiling(CONFIG.exchange)
+        _lev_standard = operator_standard(CONFIG.exchange, _RT.leverage_override).leverage
         data = {
             "daily_loss_limit": CONFIG.risk.max_daily_loss_pct,
             "drawdown_limit": _dd_limit,
             "current_drawdown": _dd_now,
             "max_open_trades": _max_trades,
             "open_trades": open_count,
-            "leverage_cap": CONFIG.exchange.default_leverage,
+            # The CEILING (MAX_LEVERAGE), which is what a field named "cap" has
+            # to carry: it used to hold the standard, back when the ceiling
+            # bound nothing. The standard rides beside it under its own name.
+            "leverage_cap": _lev_ceiling,
+            "leverage_standard": _lev_standard,
             "leverage_in_use": _lev_used,
             "leverage_unread": _lev_unread,
             # WHY trades are being rejected, or "" — so this card cannot score

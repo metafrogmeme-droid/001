@@ -61,17 +61,19 @@ class SubjectProfile:
     #:
     #: The first draft of this comment named the executor's F-3 notional block
     #: as the exposure backstop, copying `risk_engine.py`'s module docstring,
-    #: and the drive written for it said otherwise: that block's ceiling is
+    #: and the drive written for it said otherwise: that block's ceiling was
     #: `max(size, $100) * max(MAX_LEVERAGE, lev) * 1.05`, so a consistent
-    #: order at ANY leverage passes it. It checks the order's ARITHMETIC and
-    #: never its leverage, and `MAX_LEVERAGE` has no other reader, so it binds
-    #: nothing. Exposure is bounded by the STANDARD leverage every order is
-    #: lowered from (`default_leverage`, or the override clamped to
-    #: `LEVERAGE_OVERRIDE_MAX`); every reader past it only lowers.
+    #: order at ANY leverage passed it, and `MAX_LEVERAGE` had no other
+    #: reader. Since 2026-09-28 it IS the ceiling: every placement starts
+    #: from `bot.core.leverage.operator_standard`, which caps the standard
+    #: (`default_leverage`, or the /leverage override) at MAX_LEVERAGE, every
+    #: reader past it only lowers, and the F-3 block refuses an order above
+    #: margin x MAX_LEVERAGE as the backstop. So the exposure this cap does
+    #: not bound is at most margin x MAX_LEVERAGE.
     #:
     #: Driven at shipped caps it cannot fire either way: `MICRO_MAX_POSITION_USD`
     #: is $100, so the margin never approaches $10,000 and neither would the
-    #: notional at the override's 20x ($2,000). It becomes reachable behind
+    #: notional at the 10x ceiling ($1,000). It becomes reachable behind
     #: `SIZE_BOUNDS_ENABLED` on a large account.
     max_margin_usd: float = 10_000.0
     kyc_verified: bool = False

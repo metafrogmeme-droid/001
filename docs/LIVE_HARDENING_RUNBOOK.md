@@ -661,6 +661,10 @@ nothing else below matters yet.
 /leverage reset         # back to the configured default
 ```
 
+`MAX_LEVERAGE` (default 10) is the ceiling: a `/leverage set` above it is
+placed at the ceiling and the reply says so, and raising the ceiling itself
+is an env change and a restart. `/leverage` with no argument prints both.
+
 ### The arithmetic to check first
 
 Work these out for YOUR equity before step 2, because they decide whether your

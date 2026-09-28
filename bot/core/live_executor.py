@@ -53,7 +53,12 @@ from bot.core.close_lookup import (
     lookup_skipped, lookup_unmatched, nearest_entry_gap_pct,
 )
 from bot.core.plan_cleanup import plan_rows_to_cancel
-from bot.core.leverage import apply_margin_risk_cap, leverage_floor
+from bot.core.leverage import (
+    apply_margin_risk_cap,
+    leverage_ceiling,
+    leverage_floor,
+    operator_standard,
+)
 from bot.core.size_trace import note_size_step, size_basis
 from bot.core import bounds_shadow, size_bounds
 from bot.core.sltp_reason import REASON_MAX, refusal_suffix
@@ -2123,15 +2128,17 @@ class LiveExecutor:
         Returns an int ≥ 1."""
         cfg = CONFIG.exchange
         # Standard leverage: runtime /leverage override wins over the env
-        # default. One uniform number everywhere unless dynamic scaling is
-        # explicitly enabled (which only ever reduces it).
+        # default, and MAX_LEVERAGE caps both (`operator_standard`, the one
+        # reading the risk gate and the cards take too). One uniform number
+        # everywhere unless dynamic scaling is explicitly enabled (which only
+        # ever reduces it). Before the ceiling reached here, /leverage set 20
+        # was set on the venue under MAX_LEVERAGE=10.
         try:
             from bot.config import RUNTIME
             _override = RUNTIME.leverage_override
         except Exception:
             _override = None
-        default_lev = max(1, int(_override if _override is not None
-                                 else cfg.default_leverage))
+        default_lev = operator_standard(cfg, _override).leverage
         # NB3: a BYOK live user can pin their OWN standard leverage, applied
         # reduce-only against the operator cap (never above it). Absent/invalid
         # pref → unchanged. A pref the store could not read is NOT absent:
@@ -5555,10 +5562,19 @@ class LiveExecutor:
         # margin-based, so they validate size_usd, not this notional. Make the
         # relationship explicit in the audit trail, and HARD-BLOCK only when
         # notional exceeds the design envelope (the configured margin cap times
-        # the max allowed leverage, with a small rounding tolerance) — this
-        # catches a sizing/leverage misconfiguration without touching the
-        # legitimate per-trade range. Manual-margin trades intentionally exceed
-        # the micro cap, so the ceiling scales with the actual margin used.
+        # MAX_LEVERAGE, with a small rounding tolerance) — this catches a
+        # sizing/leverage misconfiguration without touching the legitimate
+        # per-trade range. Manual-margin trades intentionally exceed the micro
+        # cap, so the ceiling scales with the actual margin used.
+        #
+        # MAX_LEVERAGE is read ALONE here. Until 2026-09-28 this was
+        # `max(MAX_LEVERAGE, leverage_mult)`, so a consistent order at ANY
+        # leverage passed: an arithmetic check on the quantity, never a
+        # ceiling, and the field's only reader. Every placement now starts
+        # from `operator_standard`, which is at or under the ceiling, so this
+        # block is the backstop that measures the ceiling on the order itself
+        # -- after every step that could have raised the leverage, and on the
+        # rounded quantity the venue will be sent.
         _notional = quantity * current_price
         # The basis stays the OPERATOR's flat figure rather than the
         # balance-relative bound. This is a HARD BLOCK against a
@@ -5568,15 +5584,16 @@ class LiveExecutor:
         # is larger than the flat cap, `size_usd` has already been clamped to
         # the bound and `max` picks it.
         _margin_basis = max(size_usd, MICRO_MAX_POSITION_USD)
-        _max_lev = max(int(getattr(CONFIG.exchange, "max_leverage", leverage_mult) or 1),
-                       int(leverage_mult or 1))
+        _max_lev = leverage_ceiling(CONFIG.exchange)
         _notional_ceiling = _margin_basis * _max_lev * 1.05  # 5% rounding headroom
         audit(trade_log,
               f"Notional check {symbol}: notional=${_notional:.2f} "
-              f"(margin=${size_usd:.2f} x {leverage_mult}x), ceiling=${_notional_ceiling:.2f}",
+              f"(margin=${size_usd:.2f} x {leverage_mult}x), ceiling=${_notional_ceiling:.2f} "
+              f"(margin basis x MAX_LEVERAGE {_max_lev}x)",
               action="notional_boundary", result="OK",
               data={"symbol": symbol, "notional": round(_notional, 2),
                     "margin": round(size_usd, 2), "leverage": leverage_mult,
+                    "max_leverage": _max_lev,
                     "ceiling": round(_notional_ceiling, 2)})
         if _notional > _notional_ceiling:
             audit(trade_log,
