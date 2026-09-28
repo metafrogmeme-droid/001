@@ -10796,13 +10796,36 @@ class LiveExecutor:
                         _d_filled = float(_final.get("filled", 0) or 0)
                         _d_avg = float(_final.get("average", 0) or 0)
                     except Exception as _pf_exc:
-                        # Fall back to the sweep's earlier fetch — stale by
-                        # seconds at most, and strictly better than orphaning.
-                        _d_filled = float(order.get("filled", 0) or 0)
-                        _d_avg = float(order.get("average", 0) or 0)
-                        logger.warning("Post-cancel fill read failed for %s (%s) — "
-                                       "using pre-cancel snapshot filled=%.8f",
-                                       pos.symbol, _pf_exc, _d_filled)
+                        # AN UNREAD FILL IS NOT ZERO FILLED, AND A SNAPSHOT TAKEN
+                        # BEFORE THE CANCEL IS NOT THE FILL EITHER. This used to
+                        # fall back to the order the pass read at its top
+                        # ("stale by seconds at most, and strictly better than
+                        # orphaning"): a fill that landed between that read and
+                        # the cancel was booked "closed, nothing filled" off the
+                        # snapshot's 0, or adopted at the snapshot's smaller
+                        # quantity, while the venue held it with no stop. The
+                        # alternative to a stale snapshot is not orphaning: the
+                        # order IS cancelled on the venue, so the row stays
+                        # pending_fill and the next pass reads the venue's final
+                        # answer through the cancelled branch above, which adopts
+                        # any partial with this idea's own levels. The market
+                        # fallback one function over already refuses on the same
+                        # unread read, for the same reason.
+                        logger.warning(
+                            "Post-cancel fill read failed for %s (%s): the final fill "
+                            "is UNREAD, so nothing is booked — kept pending_fill and "
+                            "read again next pass (the order is cancelled on the venue).",
+                            pos.symbol, type(_pf_exc).__name__)
+                        audit(trade_log,
+                              f"Limit {cancel_reason} cancel for {pos.symbol}: the final "
+                              f"fill could not be read ({type(_pf_exc).__name__}) — kept "
+                              f"pending, read again next pass",
+                              action="limit_cancel", result="FILL_UNREAD",
+                              level=logging.WARNING,
+                              data={"trade_id": trade_id, "cancel_reason": cancel_reason,
+                                    "limit_order_id": pos.limit_order_id,
+                                    "error": type(_pf_exc).__name__})
+                        return None
                     if _d_filled > 0 and not self._is_duplicate_fill(
                             pos, _d_avg or pos.entry_price):
                         return await self._adopt_partial_fill(

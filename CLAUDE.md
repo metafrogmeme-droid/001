@@ -817,7 +817,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 688 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 686 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -15000,6 +15000,60 @@ which no assertion about the booked position could see.
 (`tests/test_an_unverified_submission_is_neither_a_fill_nor_a_failure.py`,
 `app/test/trade_confirm_reads_placed.test.js`.)
 
+**A CANCELLED LIMIT'S FINAL FILL WAS READ OFF THE SNAPSHOT TAKEN BEFORE THE
+CANCEL, WHENEVER THE READ AFTER IT RAISED.** `_check_pending_limit` cancels a
+resting limit that has expired or drifted, then reads the order back for the
+fill the cancel landed on, because a cancel can arrive after a partial fill
+and that filled portion is live exposure with no stop. When that read RAISED
+-- a network blip on the one call that decides what the bot holds -- the
+fallback took `filled` and `average` off the order the pass had read at its
+top, under a comment calling that snapshot *"stale by seconds at most, and
+strictly better than orphaning"*. Driven through the real
+`_check_pending_limit` with a planted read sequence:
+
+    snapshot 0.00 filled, venue fills 0.03, cancel, read raises
+      -> "LIMIT EXPIRED: LONG BTC/USDT -- order not filled", row closed,
+         0.03 BTC open on the venue with no stop, tracked by nothing
+    snapshot 0.02 filled, venue fills 0.03, cancel, read raises
+      -> adopted at 0.02, a third of the position unmanaged
+
+The snapshot is not the fill; it is the fill as of a moment before the cancel,
+and the window between the two is exactly where a resting order at the market
+fills. And the alternative to a stale snapshot was never orphaning: the order
+IS cancelled on the venue, so the row can simply stay `pending_fill` and the
+next pass reads the venue's final answer through the cancelled branch it
+already has, which adopts any partial with the idea's own levels
+(`LIMIT CANCELED -- PARTIAL FILL ADOPTED`) or closes a zero fill. That is what
+it does now, said at WARNING with the exception's CLASS and never its text,
+audited `limit_cancel: FILL_UNREAD`, for the expiry and the drift cancel
+alike. **The market fallback one function over had already been cured of the
+same read**, with a comment ending *"the limit is already cancelled, so the
+next sweep reads its final fill and adopts any partial"* -- the rule was in the
+file, twenty lines below the branch that broke it.
+
+**The `filled: None` shape was measured and is not reachable on this venue.**
+The next pass's cancelled branch reads `float(order.get("filled", 0) or 0)`,
+which would book an unstated fill as nothing filled; driven against the pinned
+ccxt 4.5.56, Bitget's `parse_order` always states `filled` (off `baseVolume`,
+`cumExecQty` or `size`), so a `None` there has no producer and only a RAISED
+read is live. Recorded rather than fixed, and the honesty ratchet counted the
+deleted fallback as an improvement (688 -> 686), re-recorded in the same commit.
+
+> **And my first assertion named the wrong word.** It expected the next pass's
+> message to say EXPIRED, because the cancel was for expiry; the cancelled
+> branch names the status the VENUE reports, and a cancelled order reads
+> `canceled` whatever prompted the cancel. *When a fresh assertion fails,
+> check whether the code or the assertion is wrong before touching the code*:
+> the code was right, and the message is pinned to the venue's word.
+
+**Nine mutations, each killed on the first round, none refused:** the snapshot
+fallback restored, the `return` dropped so an unread fill books as nothing
+filled, the row closed before the retry, the audit reworded to `CANCELLED` or
+not written, the venue's text in the warning, the fill read BEFORE the cancel,
+the market fallback proceeding on an unread pre-fill, and the next pass's
+cancelled branch orphaning the partial it was handed.
+(`tests/test_a_cancelled_limits_fill_is_read_after_the_cancel_or_not_at_all.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -15479,7 +15533,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 240 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 241 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -16291,9 +16345,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **451 of 1141** reach for source text through `source_scan`, `code_only`
+Driven, **452 of 1142** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 451 is a FLOOR and the honest shape is
+source scan that rule does not see, so 452 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
