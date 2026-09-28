@@ -15522,6 +15522,125 @@ on a denied order changes no verdict on the placed-order drives, because a
 denied order never reaches the executor, and dies only on the test that reads
 the idea back after a denial. (`tests/test_a_round_up_never_places_more_than_the_envelope_authorized.py`.)
 
+**THE AUTHORITY ENVELOPE WAS ASKED AT ONE DOOR, AND THREE SURFACES SAID
+"EVERY LIVE ORDER".** A person binds an envelope on the website -- *"only
+majors, max $500 a trade, $2,000 a day, only on bitget"* -- and the intent
+panel says it *"caps and authorizes every live order"*, the readiness panel
+says *"Enforce-mode envelope is authorizing every order"*, and
+`docs/authority_nl.md` says the same. Grepped, the store had readers in
+`bot/web/` and nowhere else: the web confirm handler asked it, and the
+Telegram confirm door for the same person, the same account and the same
+order never did. Driven with per-user live on, a person with their own keys
+and an enforce envelope bound (BTC only, $50 a trade, $100 a day):
+
+    /trade LONG SOL, $500 margin, confirmed on Telegram
+      -> "LIVE LONG SOL/USDT opened", execute awaited once, ledger $0.00
+
+The symbol list, both caps and the day's record were skipped, and every web
+order after it was checked against a day the Telegram orders were missing
+from. That is *fixed at one door* on the surface whose whole claim is that it
+bounds all of them.
+
+**ONE LEAF, ASKED AT THE BOUNDARY EVERY DOOR CROSSES.**
+`bot/guardian/order_authority.py` holds the ask -- the leverage the order is
+placed at (`placement_leverage`, the executor's own `_compute_target_leverage`,
+which the web door used to read for itself), the notional, the envelope's
+answer, the stamp the round-up bound reads, and the recording -- and the
+release. The web door's `_authorize_web_live_trade` resolves what it knows
+(the pending idea, the active venue, the typed margin, the person's own
+executor) and asks the leaf; its sentences are the leaf's constants and its
+403 is unchanged. The engine asks the leaf in `_confirm_trade_inner`, after
+every other refusal and right before `executor.execute`, for every human
+confirm that runs on an executor that is not the shared operator one under
+an enforce-mode envelope -- the `_fmt_price(None)` rule, so the Telegram
+`/trade` confirm, the scan card's Confirm, the chat-action confirm and the
+door added tomorrow all inherit it. A denial is *"Trade REJECTED by your
+Authority Envelope: ..."*, which `placed_nothing` already reads, and a refusal
+AFTER the ask takes back only the spend the engine's own ask recorded, never
+on an unverified outcome -- the web door's own release rule, one door over.
+
+**Two asks on one order are ONE recording, and the second must not meet the
+first.** The web door asks on the typed margin before `confirm_trade` runs
+(its 403 carries the reasons and a checklist), the engine asks on the FINAL
+size right before the order, and the ledger dedupes by trade id -- so the
+engine's ask records nothing new for a web order. What it must not do is read
+the web door's row as spend already made: under a $300 day a $250 order
+would be denied at the engine by the $250 the web door had just recorded for
+it. `AuthoritySpendLedger.spent(excluding_ref=...)` leaves out the ref being
+asked about, and the drive is one order through both doors: one row, placed.
+
+**What the engine asks about is the final size, the executor's own venue,
+and a store that cannot say.** The typed $500 under a $20 per-user margin cap
+is a $100 order at 5x, and $100 is what the envelope hears and records. An
+order routed to a bybit executor is a bybit order whatever the person's
+active venue in the credential store says. And a store that cannot say
+whether an envelope is bound REFUSES, by the exception's class: in doubt,
+deny, which is the envelope's own rule.
+
+**Who is deliberately NOT asked, stated in the leaf rather than left to be
+inferred.** A person with no envelope bound, or one in a non-enforce mode,
+places as before: Telegram per-user live never required an envelope, and
+requiring one is a product decision about existing per-user traders, not a
+wiring line -- `docs/guardian_authority.md`'s *"nothing moves user funds
+without a human-set, revocable authority envelope"* is true of the web door
+and the on-chain paths and is filed here as not yet true of Telegram. The
+operator's shared executor is never asked: the envelope is a person's grant
+over THEIR account, and identity decides (an operator who linked their own
+keys trades on their own executor, and an enforce envelope bound for that id
+is asked like anyone's). An auto confirm is never asked.
+
+**Two pins moved with the reading, and one door test passed for a reason
+the move changed.** `test_the_recorder_is_the_one_that_says_recorded` spelled
+the web door's `ledger.record(...)` line and
+`test_the_executors_reading_is_the_one_every_order_is_placed_at` required
+`_compute_target_leverage(` in the door's own source; both read the leaf now
+and require the door to keep no copy. And the door's raising-store test
+asserted the phrase *"authorization error"* in the log, which the door's own
+`except` no longer writes because the leaf catches first -- the leaf's
+warning carries the phrase, so the contract that the class and never the text
+reaches the log is one sentence in one place.
+
+**Nineteen mutations, each killed on the first round that shipped, none
+refused -- and the one that survived the round before it was three lines of
+mine no input could reach.** The first draft of the engine's ask opened with
+`if not CONFIG.is_live() or not self._human_confirmed(user_id): return None`
+and `if executor is None ...`, and dropping the caller clause changed no
+verdict: the one call site sits past the paper return and past the
+no-executor refusal, and `_executor_for`'s first rule answers the shared
+executor for an auto or unattended confirm, named venue or not, so identity
+already refuses everything those clauses named. *A line no input can reach
+is a claim that there is a check.* All three are deleted, the reading is
+identity alone, and the property that makes the clauses redundant is DRIVEN
+on the real resolver rather than restated as a guard. Two are worth naming
+for what they prove about the guards rather than the code: the ask moved
+ABOVE the auth-halt refusal dies only on the scan that counts one ask and
+orders it last (a second ask records nothing, the ledger dedupes, and no
+drive can see a spend that was kept for a halted order without standing up
+the halt); and the door handing the leaf `executor` instead of the account
+it resolved dies on the leaf reading a leverage off `None` -- an
+`AttributeError` inside the leaf's own `try`, reported as an unread leverage,
+which is the fail-closed direction and still the wrong sentence.
+
+> **And the instrument produced eighty-one failures on a tree that had
+> none.** The full preflight for the head below this slice reported 81
+> failures with the gate's own banner *SOURCE CHANGED DURING THE RUN -- flake
+> filter DISABLED*, and every one was a source pin reading the wrong
+> function: `inspect.getsource(RuneClawEngine._on_live_position_closed)`
+> came back as `_venue_of_closed_position`. Nothing had edited that
+> worktree. The run BEFORE it had been stopped by killing the preflight's
+> PID, which left the test gate's pytest running in the same worktree with
+> the same log open; the relaunch then checked the next sha out beneath that
+> orphan (the two shas differ in `engine.py` and `live_executor.py`), and
+> its output -- line numbers from the old text over the new file -- landed
+> in the new run's log through the still-open descriptor while both suites
+> shared one `data/`. *Two full-suite runs at once are not two
+> measurements*, this file's own sentence, arriving because "kill by PID"
+> was read as one PID. The launcher refuses to start over a running
+> preflight tree now, and the kill script takes the whole tree.
+
+(`tests/test_the_envelope_is_asked_at_every_door.py`,
+`bot/guardian/order_authority.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -16001,7 +16120,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 247 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 248 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -16813,9 +16932,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **458 of 1148** reach for source text through `source_scan`, `code_only`
+Driven, **459 of 1149** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 458 is a FLOOR and the honest shape is
+source scan that rule does not see, so 459 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

@@ -1435,6 +1435,47 @@ class RuneClawEngine:
             return SimpleNamespace(open_positions=rc.open_count)
         return recheck_engine.book_snapshot()
 
+    def _own_account_order_authority(self, user_id, trade_id: str, idea, size_usd,
+                                     executor):
+        """The person's ENFORCE-mode Authority Envelope asked about THIS order,
+        or None when the order is not one an envelope bounds.
+
+        Asked on the live execute path for an order executing on a person's
+        OWN account: the executor is not the shared operator one (IDENTITY
+        decides -- an operator who linked their own keys trades on their own
+        executor, and an enforce envelope bound for that id is asked like
+        anyone's; an auto confirm and an unattended one resolve to the shared
+        executor by `_executor_for`'s first rule, so no clause about the
+        caller is needed here and none is written) and the person has an
+        envelope bound in enforce mode. A store that cannot say whether one is
+        bound REFUSES, by the exception's class: in doubt, deny, which is the
+        envelope's own rule. `size_usd` is the final margin, and the venue is
+        the executor's own, else the person's active venue. The one call site
+        sits past the paper return and past the no-executor refusal, so
+        neither is guarded again here.
+        """
+        if executor is self.live_executor:
+            return None
+        from bot.guardian.order_authority import OrderAuthorization, authorize_order
+        try:
+            from bot.guardian.user_authority_store import get_user_authority_store
+            enforcing = get_user_authority_store().is_enforcing(user_id)
+        except Exception as exc:
+            return OrderAuthorization(
+                False, [f"the Authority Envelope store could not be read ({type(exc).__name__})"],
+                False)
+        if enforcing is not True:
+            return None
+        venue = str(getattr(getattr(executor, "_venue", None), "id", "") or "")
+        if not venue:
+            try:
+                from bot.core.exchange_credentials import get_credential_store
+                venue = str(get_credential_store().get_venue(user_id) or "")
+            except Exception:
+                venue = ""
+        return authorize_order(str(user_id), trade_id, idea, margin=size_usd,
+                               executor=executor, venue=venue)
+
     def _per_user_margin_cap(self, user_id) -> Optional[float]:
         """Operator-set max margin (USD) for THIS user's live trade, or None.
 
@@ -8585,11 +8626,49 @@ class RuneClawEngine:
                     + " — new live entries are halted until the credentials are "
                     "fixed. Open positions are still monitored.")
 
+        # THE AUTHORITY ENVELOPE IS ASKED HERE, AT THE BOUNDARY EVERY DOOR
+        # CROSSES. A person binds an envelope on the website ("only majors,
+        # max $500 a trade, $2,000 a day, only on bitget") and three surfaces
+        # say it "caps and authorizes every live order"; it was asked at the
+        # web confirm door and nowhere else. Driven: with per-user live on
+        # and an enforce envelope bound (BTC only, $50 a trade), a $500 SOL
+        # ticket confirmed on TELEGRAM executed on the person's own account
+        # and the day's ledger recorded nothing. The ask sits after every
+        # other refusal and right before the order, on the FINAL size, so the
+        # web door's earlier ask on the typed margin is a floor-safe pre-ask
+        # (its 403 carries the reasons) and this is the exact one. Not asked
+        # for the operator's shared executor, an auto confirm, or a person
+        # with no enforce-mode envelope (stated in `order_authority`).
+        _authority = self._own_account_order_authority(
+            user_id, trade_id, idea, size_usd, executor)
+        if _authority is not None and not _authority.ok:
+            self._pending_pyramid.pop(trade_id, None)
+            self._transition(AgentState.IDLE, f"authority refused {trade_id}")
+            audit(trade_log,
+                  f"Live execution REFUSED by the Authority Envelope: {trade_id}",
+                  action="order_authority", result="DENY",
+                  data={"trade_id": trade_id, "user_id": str(user_id),
+                        "reasons": list(_authority.reasons)})
+            return ("Trade REJECTED by your Authority Envelope: "
+                    + "; ".join(str(r) for r in _authority.reasons)
+                    + ". Nothing was placed.")
+
         result = await executor.execute(
             idea, size_usd,
             order_type=idea.order_type,
             atr_value=stored_atr,
         )
+
+        # A REFUSED order's notional comes back off the 24h ledger -- only the
+        # spend THIS ask recorded (the web door's own pre-ask releases its
+        # own), and never for an UNVERIFIED outcome: the venue may hold that
+        # order, and a spend released for an order that filled is the loose
+        # direction.
+        if _authority is not None and _authority.recorded:
+            from bot.core.confirm_result import outcome_unverified, placed_nothing
+            from bot.guardian.order_authority import release_order_spend
+            if not outcome_unverified(result) and placed_nothing(result):
+                release_order_spend(str(user_id), trade_id)
 
         # Only record the trade if a LIVE position actually resulted.
         # Audit F-1: classification is centralized in live_executor next to the

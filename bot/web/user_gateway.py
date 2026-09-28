@@ -2115,14 +2115,11 @@ def _placement_leverage(engine, tg_id: str, idea, executor=None) -> tuple[Option
         ex, why = _own_account_executor(engine, tg_id)
         if ex is None:
             return None, why
-    try:
-        lev = int(ex._compute_target_leverage(str(getattr(idea, "asset", "")), idea))
-    except Exception as exc:
-        return None, ("the leverage this order would run at could not be read "
-                      f"({type(exc).__name__})")
-    if lev < 1:
-        return None, "the leverage this order would run at could not be read"
-    return lev, None
+    # The READING is the leaf's (`order_authority.placement_leverage`), the
+    # same one the engine asks right before the order: two readings of one
+    # leverage are two notionals for one order.
+    from bot.guardian.order_authority import placement_leverage
+    return placement_leverage(ex, idea)
 
 
 class WebLiveAuthorization(NamedTuple):
@@ -2145,12 +2142,13 @@ def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str,
     """Authorize a specific web-live trade against the user's ENFORCE-mode
     Authority Envelope. FAIL-CLOSED: any missing piece → deny.
 
-    Reconstructs the trade action (venue, market_type, symbol, notional) from
-    the pending idea, the user's active venue and the leverage the user's OWN
-    executor would place this order at, runs ``authority.authorize`` against
-    the bound envelope with the 24h spend already recorded, and — only on
-    allow — records this trade's notional. Returns
-    ``(allowed, reasons, recorded)``; see :class:`WebLiveAuthorization`.
+    Resolves the trade's inputs the web door knows -- the pending idea, the
+    user's active venue, the typed margin, the user's OWN executor (the one
+    the confirm handler resolved, or `_own_account_executor`'s answer, which
+    refuses the operator's account by identity) -- and asks the ONE leaf
+    (`bot.guardian.order_authority.authorize_order`) that the engine asks
+    again right before the order. Returns ``(allowed, reasons, recorded)``;
+    see :class:`WebLiveAuthorization`.
 
     THE NOTIONAL IS MARGIN × THE LEVERAGE THAT FILLS, never the configured
     default. This read ``CONFIG.exchange.default_leverage`` (5) while the
@@ -2158,71 +2156,34 @@ def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str,
     override, up to the MAX_LEVERAGE ceiling -- lowered by the user's own
     preference. Driven under `/leverage set 10`: a $50 margin was authorized
     and recorded as $250 against the user's per-trade and 24h caps for an
-    order the executor placed at $500. `executor` is the user's own executor
-    the confirm handler has already resolved; `_placement_leverage` is the
-    reading, and a leverage it cannot read denies, recording nothing.
+    order the executor placed at $500. The leaf reads the executor's own
+    leverage, and a leverage it cannot read denies, recording nothing.
     """
-    import time as _time
     try:
-        from bot.guardian.user_authority_store import get_user_authority_store
-        from bot.guardian.authority import authorize
-        env = get_user_authority_store().get(tg_id)
-        if not env:
-            return WebLiveAuthorization(False, ["no Authority Envelope is bound"], False)
+        from bot.guardian.order_authority import NOT_PENDING, authorize_order
+        # Whether an envelope is bound is the leaf's own first question; a
+        # second read of the store here would be a second answer to it.
         idea = getattr(engine, "_pending_ideas", {}).get(trade_id)
         if idea is None:
-            return WebLiveAuthorization(False, ["the proposed trade is no longer pending"], False)
-        asset = str(getattr(idea, "asset", "")).split("/")[0]
+            return WebLiveAuthorization(False, [NOT_PENDING], False)
         # Active venue for this user (their own connected keys).
         try:
             from bot.core.exchange_credentials import get_credential_store
             venue = get_credential_store().get_venue(tg_id)
         except Exception:
             venue = ""
-        # Notional = manual margin × the leverage the user's own executor
-        # would place this order at. Auto-sized (no margin) → notional
-        # unknown → authorize() denies against any per-trade cap. A leverage
-        # that cannot be read denies here, by name, before anything is asked
-        # of the envelope and before anything is recorded.
         margin = getattr(engine, "_manual_margin_override", {}).get(trade_id)
-        notional = None
-        if margin is not None:
-            lev, lev_why = _placement_leverage(engine, tg_id, idea, executor)
-            if lev is None:
+        ex = executor
+        if margin is not None and ex is None:
+            # Auto-sized (no margin) → notional unknown → the envelope denies
+            # against any per-trade cap, and no leverage is read for it.
+            ex, why = _own_account_executor(engine, tg_id)
+            if ex is None:
                 return WebLiveAuthorization(
-                    False, [lev_why or "the leverage this order would run at could not be read"], False)
-            try:
-                notional = float(margin) * float(lev)
-            except (TypeError, ValueError):
-                notional = None
-        action = {"kind": "trade", "venue": venue, "market_type": "swap",
-                  "asset": asset, "notional_usd": notional}
-        now = _time.time()
-        ledger = _web_live_ledger()
-        spent = ledger.spent(tg_id, now)
-        result = authorize(env, action, now_ts=now, spent_today_usd=spent)
-        if result.get("decision") != "allow":
-            return WebLiveAuthorization(
-                False, list(result.get("reasons") or ["not authorized"]), False)
-        recorded = False
-        if notional:
-            # The venue's minimum can round the order UP past this figure at
-            # placement (up to 1.5x the approved quantity, on by default), so
-            # the executor is told what was authorized and refuses a round-up
-            # over it (`_exchange_minimum_gate`). A stamp that cannot be
-            # written is a denial: an order the executor cannot bound is not
-            # an order the envelope authorized.
-            try:
-                setattr(idea, "authorized_notional_usd", float(notional))
-            except Exception as exc:
-                system_log.warning("Web-live authorization could not stamp the order for %s: %s",
-                                   tg_id, type(exc).__name__)
-                return WebLiveAuthorization(
-                    False, ["the authorized notional could not be recorded on the order"], False)
-            # True only for a row this call ADDED: a duplicate ref (an earlier
-            # attempt's row) is the ledger's False, and stays that attempt's.
-            recorded = bool(ledger.record(tg_id, notional, now, ref=trade_id))
-        return WebLiveAuthorization(True, [], recorded)
+                    False, [why or "no account of your own could be resolved for this order"], False)
+        auth = authorize_order(tg_id, trade_id, idea, margin=margin, executor=ex,
+                               venue=venue, ledger=_web_live_ledger())
+        return WebLiveAuthorization(auth.ok, list(auth.reasons), auth.recorded)
     except Exception as exc:
         # The CLASS and never the text: a store's exception names a path, a
         # venue's echoes the request.
@@ -2237,27 +2198,10 @@ def _release_web_live_spend(tg_id: str, trade_id: str) -> None:
     Called only when THIS confirm attempt recorded the spend and
     `confirm_trade` then refused (`placed is False`): the order never
     happened, so the day's cap must not count it. Never for an UNVERIFIED
-    outcome (`placed is None`): the venue may hold that order, and a spend
-    released for an order that filled is the loose direction. Every outcome
-    is audited, and a release that could not land is said as KEPT with the
-    exception's class -- the spend then counts for the rest of the window,
-    which errs strict, and an operator reading the audit knows why the cap
-    reads fuller than the fills."""
-    import time as _time
-    try:
-        released = _web_live_ledger().release(tg_id, trade_id, _time.time())
-    except Exception as exc:
-        system_log.warning(
-            "Web-live spend for refused %s could not be released (%s); it stays "
-            "counted against the 24h cap", trade_id, type(exc).__name__)
-        audit(system_log, f"Web-live spend KEPT after refusal: {trade_id}",
-              action="web_live_spend", result="KEPT",
-              data={"user": tg_id, "error": type(exc).__name__})
-        return
-    audit(system_log,
-          f"Web-live spend {'RELEASED' if released else 'NOT_HELD'} after refusal: {trade_id}",
-          action="web_live_spend", result="RELEASED" if released else "NOT_HELD",
-          data={"user": tg_id})
+    outcome (`placed is None`). The release itself is the leaf's
+    (`order_authority.release_order_spend`), over the web door's ledger."""
+    from bot.guardian.order_authority import release_order_spend
+    release_order_spend(tg_id, trade_id, ledger=_web_live_ledger())
 
 
 def _own_account_executor(engine, tg_id: str) -> tuple[Optional[object], Optional[str]]:

@@ -451,6 +451,11 @@ def test_the_release_is_keyed_on_this_attempts_record_and_a_false_placed():
 def test_the_recorder_is_the_one_that_says_recorded():
     """`recorded` is the ledger's own answer to `record` (True for an added
     row), not a flag set on allow: a duplicate ref must read False."""
-    src = code_only(inspect.getsource(ug._authorize_web_live_trade))
-    assert "recorded = bool(ledger.record(tg_id, notional, now, ref=trade_id))" in src
-    assert "WebLiveAuthorization(True, [], recorded)" in src
+    from bot.guardian import order_authority
+    src = code_only(inspect.getsource(order_authority.authorize_order))
+    assert "recorded = bool(ledger.record(user_id, notional, now_ts, ref=trade_id))" in src
+    assert "OrderAuthorization(True, [], recorded, notional)" in src
+    # And the web door hands the leaf's answer on, never a flag of its own.
+    door = code_only(inspect.getsource(ug._authorize_web_live_trade))
+    assert "WebLiveAuthorization(auth.ok, list(auth.reasons), auth.recorded)" in door
+    assert "ledger.record(" not in door

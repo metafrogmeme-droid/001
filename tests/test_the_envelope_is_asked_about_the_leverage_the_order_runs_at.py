@@ -263,8 +263,13 @@ def test_the_executors_reading_is_the_one_every_order_is_placed_at():
     (the leverage chapter); the envelope asks that name and no other."""
     import inspect
 
+    from bot.guardian import order_authority
     from tests.source_scan import code_only
-    src = code_only(inspect.getsource(ug._placement_leverage))
+    # The reading lives in the leaf both doors ask; the web door's wrapper
+    # resolves the account and reads nothing of its own.
+    src = code_only(inspect.getsource(order_authority.placement_leverage))
     assert "_compute_target_leverage(" in src
+    door = code_only(inspect.getsource(ug._placement_leverage))
+    assert "placement_leverage(ex, idea)" in door and "_compute_target_leverage" not in door
     assert "default_leverage" not in code_only(inspect.getsource(ug._authorize_web_live_trade))
     assert le.LiveExecutor._compute_target_leverage is LiveExecutor._compute_target_leverage
