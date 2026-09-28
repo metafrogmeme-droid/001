@@ -17020,6 +17020,33 @@ Eighteen mutations, each killed on the first round. The two direction cases
 same side) were added before the round ran.
 (`tests/test_a_re_offered_setup_is_one_call.py`.)
 
+**THE LAST ENGINE A TEST BUILT ANSWERED "HALTED?" FOR EVERY EXECUTOR AFTER
+IT.** `RuneClawEngine.__init__` wires `live_executor.set_halt_check` to a
+closure over itself. The check is a module global: it is the last-mile kill
+switch every `LiveExecutor` reads before its first irreversible step. One bot
+process builds one engine, so in production that is the right shape. A test
+process builds hundreds, and nothing unwired them. In a grouped run of this
+round's neighbouring suites, eight `test_the_placed_order_is_the_checked_order`
+cases were refused with *"the engine was halted or a circuit breaker opened
+while the order was being prepared"*. All eight passed alone, and that is
+exactly what the flake filter forgives.
+
+A probe that logged `trading_halted()` after every test named the writer
+in one run. `test_the_bridge_is_a_reader_of_the_bots_state` builds a bridge
+engine whose restored breaker is tripped (it has to: the test exists to show a
+reader cannot erase that trip). The halt check stayed bound to that engine
+for the rest of the session. `tests/conftest.py::_contain_executor_halt_check`
+hands the check back after every test. It sits beside the logging and
+vault-env containments, for the same reason they give: the leaking test tested
+what it meant to. The executor module is read out of `sys.modules`, so a test
+that never imports it does not pay for it.
+
+Driven both ways: the bridge suite followed by the placed-order suite fails
+eight without the containment and passes with it. Four mutations, each killed
+on the first round: `autouse=False`, no restore, the saved value taken after the
+yield, and the comparison inverted.
+(`tests/test_a_test_that_builds_an_engine_hands_the_halt_check_back.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -18311,7 +18338,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **468 of 1168** reach for source text through `source_scan`, `code_only`
+Driven, **468 of 1169** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 468 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

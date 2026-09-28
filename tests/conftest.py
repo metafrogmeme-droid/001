@@ -1304,3 +1304,34 @@ def _contain_logging_disable():
     yield
     if _logging.root.manager.disable != saved:
         _logging.disable(saved)
+
+
+@pytest.fixture(autouse=True)
+def _contain_executor_halt_check():
+    """Hand the executor's halt check back after every test.
+
+    `RuneClawEngine.__init__` wires `live_executor.set_halt_check` to a closure
+    over ITSELF, and the check is a MODULE global (the last-mile kill switch
+    every `LiveExecutor` reads before its first irreversible step). One bot
+    process builds one engine, so in production that is the right shape. A test
+    process builds hundreds, and the last one built answers for every executor
+    after it: `test_the_bridge_is_a_reader_of_the_bots_state` builds an engine
+    whose restored breaker is tripped, and every later test that drives
+    `LiveExecutor.execute` was refused as "the engine was halted or a circuit
+    breaker opened while the order was being prepared". Eight
+    `test_the_placed_order_is_the_checked_order` cases failed that way in a
+    grouped run and passed alone, which the flake filter forgives.
+
+    Restore rather than assert, for the reason the fixtures above give: the
+    test that leaks tested what it meant to. The module is read out of
+    `sys.modules` so a test that never imports the executor does not pay for
+    it, and a module first imported during the test is handed back its own
+    default, None.
+    """
+    import sys as _sys
+    le = _sys.modules.get("bot.core.live_executor")
+    saved = le._HALT_CHECK if le is not None else None
+    yield
+    le = _sys.modules.get("bot.core.live_executor")
+    if le is not None and le._HALT_CHECK is not saved:
+        le.set_halt_check(saved)
