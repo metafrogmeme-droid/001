@@ -21,10 +21,24 @@ class _Idea:
         self.asset = asset
 
 
+class _Executor:
+    """The user's own executor, answering the leverage it would place at.
+    Five, so a $50 margin is a $250 notional as these predictions were
+    written; the leverage READING is driven on a real executor in
+    test_the_envelope_is_asked_about_the_leverage_the_order_runs_at.py."""
+
+    def _compute_target_leverage(self, symbol, idea=None):
+        return 5
+
+
 class _Engine:
     def __init__(self, ideas, margins):
         self._pending_ideas = ideas
         self._manual_margin_override = margins
+        self.live_executor = object()
+
+    def _executor_for(self, tg_id, venue=None):
+        return _Executor()
 
 
 def _bind_env(store, uid, *, symbols=("BTC", "ETH", "SOL"), per_trade=500,
@@ -49,7 +63,7 @@ def wired(monkeypatch, tmp_path):
     fake_cred = types.SimpleNamespace(get_venue=lambda uid: "bitget")
     monkeypatch.setattr("bot.core.exchange_credentials.get_credential_store",
                         lambda: fake_cred)
-    # leverage defaults to 5 in CONFIG.risk (margin 50 → notional 250).
+    # the engine's executor answers 5x (margin 50 → notional 250).
     return store, ledger
 
 

@@ -238,9 +238,13 @@ def web_live(monkeypatch, tmp_path):
     monkeypatch.setattr(uas, "get_user_authority_store", lambda: SimpleNamespace(
         is_enforcing=lambda tg: True, get=lambda tg: {"mode": "enforce"}))
     authorized: list = []
+    handed: list = []
 
-    def _authorize(app, engine, tg_id, trade_id):
+    def _authorize(app, engine, tg_id, trade_id, **kw):
+        # A stand-in that spells the parameters it knows forgets the next
+        # one; this one records what it was handed instead.
         authorized.append(trade_id)
+        handed.append(kw.get("executor"))
         return True, []
 
     monkeypatch.setattr(ug, "_authorize_web_live_trade", _authorize)
@@ -251,7 +255,7 @@ def web_live(monkeypatch, tmp_path):
             per_user_live_enabled=per_user,
             exchange=SimpleNamespace(default_leverage=5)))
 
-    return SimpleNamespace(configure=configure, authorized=authorized)
+    return SimpleNamespace(configure=configure, authorized=authorized, handed=handed)
 
 
 async def _web_live_confirm(engine, web_live, per_user):
@@ -309,5 +313,9 @@ async def test_the_users_own_executor_reaches_the_envelope_and_the_confirm(web_l
     status, body = await _web_live_confirm(engine, web_live, per_user=True)
     assert status == 200, body
     assert len(web_live.authorized) == 1
+    assert web_live.handed == [OWN], (
+        "the envelope is handed the executor the own-account check resolved, "
+        "so the notional it checks is at the leverage THAT account places at")
+    assert engine.resolved == ["web:5"], "one resolution, not two"
     assert engine.confirm_calls and engine.confirm_calls[0][1] == "web:5"
     assert body["placed"] is True

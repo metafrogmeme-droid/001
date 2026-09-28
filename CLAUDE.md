@@ -15119,6 +15119,67 @@ or written at INFO, no warning-rate event, and the message without "NEVER
 READ".
 (`tests/test_a_stale_pending_order_is_closed_as_unread_not_as_never_filled.py`.)
 
+**THE WEB-LIVE ENVELOPE WAS ASKED ABOUT HALF THE ORDER.** Before a web-live
+confirm places anything, `_authorize_web_live_trade` rebuilds the order's
+notional as margin × leverage and asks the user's enforce-mode Authority
+Envelope about it -- the per-trade cap, the 24h cap, and the 24h ledger it
+then records into. The leverage it multiplied by was
+`CONFIG.exchange.default_leverage`, a config field, while the executor
+places every order at the operator standard -- the `/leverage` override, up
+to the MAX_LEVERAGE ceiling -- lowered by the user's own preference and the
+idea's margin-risk cap (the ceiling chapter's `operator_standard`, which
+every placement starts from). Driven under `/leverage set 10` on the
+shipped 5x default and 10x ceiling, a $50 margin against a $300 per-trade
+cap: **authorized, and $250 recorded against the day, for an order the
+executor placed at $500.** The envelope is the one control a person writes
+for their OWN money on this surface, and it was checked at a figure no
+order runs at -- in the flattering direction under an override, and in the
+strict one for a person pinned below the default. Latent while
+`WEB_LIVE_TRADING_ENABLED` ships off, and the gate's whole purpose once it
+is on.
+
+**THE READING IS THE EXECUTOR'S, and the handler resolves it once.**
+`_placement_leverage` asks the user's own executor's
+`_compute_target_leverage` -- the one number the venue is set to, which is
+what the leverage chapter made both executor paths ask -- and
+`_own_account_executor` is the one resolution: the confirm handler asks it
+for the refusal it already made (*"this order would run on the operator's
+account"*) and hands the executor it answered to the authorization, rather
+than resolving `_executor_for` twice for two answers about one account. A
+leverage nobody could read is a denial by name, before the envelope is asked
+and before anything is recorded: a resolver that raised, no account of the
+user's own, a reading that raised, or a number under one. The exception's
+CLASS travels and never its text, because the reason reaches the browser.
+An auto-sized order reads no leverage at all -- with no margin there is no
+notional whatever the multiplier, and the envelope's own *"notional is
+unknown"* refusal stands.
+
+**What the reading cannot see is stated.** It is taken at authorization
+time, before the confirm's own risk re-check, which can only LOWER the
+leverage through the idea's margin-risk cap -- so the notional checked is
+at or above the one that fills, never below it. The venue's applied leverage
+is the read-back guard's question, one fill later.
+
+**Two suites had pinned the multiplier as the contract**, one of them in a
+comment reading *"leverage defaults to 5 in CONFIG.risk (margin 50 →
+notional 250)"* over an engine with no executor at all; their engines answer
+an executor now, and the leverage READING is driven on a real `LiveExecutor`
+under the override, with a planted preference and with none. And the
+confirm suite's authorization stand-in spelled four parameters, so the
+executor the handler now hands over was a `TypeError` inside the drive --
+*a hand-written stand-in that must remember each attribute is one that will
+forget the next*, one keyword over. It takes `**kw` and RECORDS what it was
+handed, which is the drive that proves the cable.
+
+**Twelve mutations, each killed on the first round, none refused:** the
+configured default as the multiplier again, an unread leverage read as the
+default or as one, the handed executor ignored for a second resolution, a
+raising resolver read as no executor, the resolver's or the reading's text
+in the reason, a raising reading read as 1x, a zero leverage accepted, the
+handler resolving twice, the refusal no longer reading the one resolution,
+and the operator's executor answered as the user's own.
+(`tests/test_the_envelope_is_asked_about_the_leverage_the_order_runs_at.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -15598,7 +15659,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 242 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 243 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -16410,9 +16471,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **453 of 1143** reach for source text through `source_scan`, `code_only`
+Driven, **454 of 1144** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 453 is a FLOOR and the honest shape is
+source scan that rule does not see, so 454 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

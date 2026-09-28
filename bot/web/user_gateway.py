@@ -2096,15 +2096,56 @@ def _web_live_ledger():
     return _WEB_LIVE_LEDGER
 
 
-def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str) -> tuple[bool, list]:
+def _placement_leverage(engine, tg_id: str, idea, executor=None) -> tuple[Optional[int], Optional[str]]:
+    """The leverage THIS user's order would be placed at, or why it cannot be read.
+
+    Asked of the user's own executor -- `_compute_target_leverage` is the one
+    number the venue is set to: the operator standard (the `/leverage`
+    override under the MAX_LEVERAGE ceiling), lowered by the user's own
+    preference and the idea's margin-risk cap. The caller hands the executor
+    it already resolved; with none handed, the resolver is asked here. Every
+    failure is a reason and never a number: an envelope checked at a leverage
+    nobody read is the defect this replaces.
+    """
+    ex = executor
+    if ex is None:
+        try:
+            ex = engine._executor_for(tg_id)
+        except Exception as exc:
+            return None, ("the account this order would run on could not be "
+                          f"resolved ({type(exc).__name__})")
+    if ex is None:
+        return None, "no account of your own could be resolved for this order"
+    try:
+        lev = int(ex._compute_target_leverage(str(getattr(idea, "asset", "")), idea))
+    except Exception as exc:
+        return None, ("the leverage this order would run at could not be read "
+                      f"({type(exc).__name__})")
+    if lev < 1:
+        return None, "the leverage this order would run at could not be read"
+    return lev, None
+
+
+def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str,
+                              executor=None) -> tuple[bool, list]:
     """Authorize a specific web-live trade against the user's ENFORCE-mode
     Authority Envelope. FAIL-CLOSED: any missing piece → deny.
 
-    Reconstructs the trade action (venue, market_type, symbol, notional) from the
-    pending idea + the user's active venue and configured leverage, runs
-    ``authority.authorize`` against the bound envelope with the 24h spend already
-    recorded, and — only on allow — records this trade's notional. Returns
-    ``(allowed, reasons)``.
+    Reconstructs the trade action (venue, market_type, symbol, notional) from
+    the pending idea, the user's active venue and the leverage the user's OWN
+    executor would place this order at, runs ``authority.authorize`` against
+    the bound envelope with the 24h spend already recorded, and — only on
+    allow — records this trade's notional. Returns ``(allowed, reasons)``.
+
+    THE NOTIONAL IS MARGIN × THE LEVERAGE THAT FILLS, never the configured
+    default. This read ``CONFIG.exchange.default_leverage`` (5) while the
+    executor places every order at the operator standard -- the `/leverage`
+    override, up to the MAX_LEVERAGE ceiling -- lowered by the user's own
+    preference. Driven under `/leverage set 10`: a $50 margin was authorized
+    and recorded as $250 against the user's per-trade and 24h caps for an
+    order the executor placed at $500. `executor` is the user's own executor
+    the confirm handler has already resolved; `_placement_leverage` is the
+    reading, and a leverage it cannot read denies, recording nothing.
     """
     import time as _time
     try:
@@ -2123,15 +2164,19 @@ def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str) -> tuple[b
             venue = get_credential_store().get_venue(tg_id)
         except Exception:
             venue = ""
-        # Notional = manual margin × configured leverage. Auto-sized (no margin)
-        # → notional unknown → authorize() denies against any per-trade cap.
+        # Notional = manual margin × the leverage the user's own executor
+        # would place this order at. Auto-sized (no margin) → notional
+        # unknown → authorize() denies against any per-trade cap. A leverage
+        # that cannot be read denies here, by name, before anything is asked
+        # of the envelope and before anything is recorded.
         margin = getattr(engine, "_manual_margin_override", {}).get(trade_id)
         notional = None
         if margin is not None:
+            lev, lev_why = _placement_leverage(engine, tg_id, idea, executor)
+            if lev is None:
+                return False, [lev_why or "the leverage this order would run at could not be read"]
             try:
-                exch = getattr(CONFIG, "exchange", None)
-                lev = float(getattr(exch, "default_leverage", 5) or 5)
-                notional = float(margin) * max(1.0, lev)
+                notional = float(margin) * float(lev)
             except (TypeError, ValueError):
                 notional = None
         action = {"kind": "trade", "venue": venue, "market_type": "swap",
@@ -2150,16 +2195,18 @@ def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str) -> tuple[b
         return False, ["authorization check failed"]
 
 
-def _operator_account_refusal(engine, tg_id: str) -> Optional[str]:
-    """None when this web id's live order would run on an account of its own,
-    else why not. FAIL-CLOSED: a resolver that raises or answers nothing is a
-    refusal, because "could not tell whose account" is not "the user's
-    account".
+def _own_account_executor(engine, tg_id: str) -> tuple[Optional[object], Optional[str]]:
+    """``(executor, None)`` when this web id's live order would run on an
+    account of its own, else ``(None, why)``. FAIL-CLOSED: a resolver that
+    raises or answers nothing is a refusal, because "could not tell whose
+    account" is not "the user's account".
 
     The web live gate's premise is that the order runs on the user's OWN keys.
     `engine._executor_for` is what decides that, and with per-user live off --
     or on, for a user whose keys it cannot use -- it answers
-    `engine.live_executor`, the operator's account.
+    `engine.live_executor`, the operator's account. ONE resolution: the
+    confirm handler asks this once and hands the executor to the envelope
+    authorization, which reads the leverage the order runs at off it.
     """
     operator = getattr(engine, "live_executor", None)
     try:
@@ -2167,12 +2214,19 @@ def _operator_account_refusal(engine, tg_id: str) -> Optional[str]:
     except Exception as exc:
         system_log.warning("Web-live executor resolution failed for %s: %s",
                            tg_id, type(exc).__name__)
-        return "the account this order would run on could not be resolved"
+        return None, "the account this order would run on could not be resolved"
     if ex is None:
-        return "no account of your own could be resolved for this order"
+        return None, "no account of your own could be resolved for this order"
     if ex is operator:
-        return "this order would run on the operator's account, not yours"
-    return None
+        return None, "this order would run on the operator's account, not yours"
+    return ex, None
+
+
+def _operator_account_refusal(engine, tg_id: str) -> Optional[str]:
+    """None when this web id's live order would run on an account of its own,
+    else why not -- `_own_account_executor`'s sentence, for a caller that
+    needs only the verdict."""
+    return _own_account_executor(engine, tg_id)[1]
 
 
 def _trade_mode(app, tg_handler, tg_id: str) -> tuple[str, bool, str]:
@@ -2346,7 +2400,7 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
         # envelope authorizes, because authorizing records this order's
         # notional against the 24h cap, and an order refused here places
         # nothing.
-        why = _operator_account_refusal(engine, tg_id)
+        own_ex, why = _own_account_executor(engine, tg_id)
         if why is not None:
             audit(system_log, f"Web-live trade REFUSED: {trade_id} ({why})",
                   action="web_live_own_account", result="REFUSED",
@@ -2355,8 +2409,10 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
                 {"error": "not_own_account", "detail": why}, status=403)
         # Gate passed → this trade will route LIVE on the user's own keys. The
         # enforce-mode Authority Envelope must now authorize THIS specific order
-        # (venue, symbol, notional, 24h spend). Fail-closed: any deny blocks it.
-        ok, reasons = _authorize_web_live_trade(request.app, engine, tg_id, trade_id)
+        # (venue, symbol, notional, 24h spend) -- the notional at the leverage
+        # THAT executor places at. Fail-closed: any deny blocks it.
+        ok, reasons = _authorize_web_live_trade(request.app, engine, tg_id, trade_id,
+                                                executor=own_ex)
         if not ok:
             audit(system_log, f"Web-live trade DENIED by authority: {trade_id}",
                   action="web_authority_deny", result="DENY", data={"user": tg_id})
