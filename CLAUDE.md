@@ -15639,6 +15639,24 @@ which is the fail-closed direction and still the wrong sentence.
 > was read as one PID. The launcher refuses to start over a running
 > preflight tree now, and the kill script takes the whole tree.
 
+**AND THE FULL GATE REFUSED THE SLICE ON THE PARITY GUARD, WHICH READ THE
+ENVELOPE'S REFUSAL AS A GATE CONDITION NOBODY REPORTED.**
+`test_trade_gate_parity::test_no_other_refusal_hides_in_the_gate` slices the
+confirm from the user-breaker read to `executor.execute` and pinned the count
+of `return ("Trade REJECTED` at ONE -- the venue-auth halt -- so that a new
+refusal added to the money path fails a test rather than going unreported by
+every status surface, which is how the two incidents its module records
+happened. The envelope's refusal sits inside that window on purpose (asked
+last, right before the order) and is not a gate condition: it depends on the
+ORDER -- its notional, its symbol, its venue -- so `entry_gate` cannot report
+it as "entries halted" and deliberately does not. The guard names it now
+rather than counting it, so a fourth refusal of either kind still fails.
+Fourteenth time the full gate has refused a slice on a test none of the
+slice's own suites ran. The same run forgave `test_source_segment_reader`'s
+speed ratio as flaky: two timings taken under full-suite load, pinned as a
+ratio rather than a budget for exactly that reason, and the load moved the
+ratio anyway; it passes alone.
+
 (`tests/test_the_envelope_is_asked_at_every_door.py`,
 `bot/guardian/order_authority.py`.)
 
