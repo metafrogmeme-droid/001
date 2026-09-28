@@ -180,7 +180,6 @@ class TestRefineEntryMtfStopTighten:
 
     @pytest.mark.asyncio
     async def test_long_refinement_below_stop_floor_is_skipped(self):
-        from bot.config import CONFIG
         from bot.core.engine import RuneClawEngine
         eng = RuneClawEngine.__new__(RuneClawEngine)
         candles = self._candles_with_support(support=99.7)
@@ -195,7 +194,6 @@ class TestRefineEntryMtfStopTighten:
 
     @pytest.mark.asyncio
     async def test_long_refinement_with_normal_stop_passes(self):
-        from bot.config import CONFIG
         from bot.core.engine import RuneClawEngine
         eng = RuneClawEngine.__new__(RuneClawEngine)
         candles = self._candles_with_support(support=99.7)

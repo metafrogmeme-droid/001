@@ -1,7 +1,6 @@
 """The risk gate is the final authority on minimum stop distance."""
 from __future__ import annotations
 
-from bot.config import CONFIG
 from bot.risk.portfolio import PortfolioTracker
 from bot.risk.risk_engine import RiskEngine
 from bot.utils.models import Direction, TradeIdea
