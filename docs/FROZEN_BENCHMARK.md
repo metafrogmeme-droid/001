@@ -1220,6 +1220,33 @@ the order is one named policy (`risk_engine.PRE_CAP_TIGHTENS_CAP`, empty), and
 whenever the cap binds, the reductions it took back are named on the check
 line and the size trace instead of reading as reductions.
 
+### The record fills every trade at 1x; live fills the same figure at 5x (2026-09-28)
+
+The risk gate's `position_size_usd` is a MARGIN at every site that opens a
+position: the live executor places `size_usd * leverage / price` contracts
+and the engine's practice fill opens the paper book at `DEFAULT_LEVERAGE`
+(5x), both lowered by the idea's margin-risk cap. The backtest's fill called
+`PortfolioTracker.open_position(idea, size_usd)` with no leverage, so it took
+the tracker's default of 1 and opened the size as the whole notional. Every
+table above was measured that way: a bot risking a fifth of what live risks
+per trade, with the breakers (daily loss, drawdown, streak) meeting a fifth
+of the swing. Hit rate and profit factor are scale-free and comparable;
+returns, drawdowns and which bars the breakers trip on are not.
+
+`BacktestConfig.leverage` is the fill's leverage now, `--leverage N` sets
+it, the artefact records it (`leverage` beside `fill_mode`, and the parity
+card prints it), and the default stays 1 so every number on this page
+reproduces line for line; `--honest` does not touch it. The arm that
+measures what live places:
+
+    python -m bot.backtest.runner --dataset <DIR> --honest --walk-forward 6 --leverage 5
+
+Which leverage the record SHOULD be measured at, and whether the per-trade
+risk budget should be a loss-at-stop figure (divide the base by the leverage
+the order places at) rather than a notional the executor commits as margin,
+are the operator's decisions. Nothing about live sizing changed in this
+slice; the 5x arm's numbers are recorded below once measured.
+
 ## Refreshing the snapshot
 
 Re-run step 1 to fetch a newer window (e.g. quarterly). This changes the

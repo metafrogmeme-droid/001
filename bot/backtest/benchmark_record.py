@@ -70,6 +70,12 @@ class BenchmarkReading(NamedTuple):
     pooled_pf: Optional[float] = None       # None with no losing trade (a ratio over nothing)
     pooled_mean_net_usd: Optional[float] = None
     universe: tuple = ()                    # symbol BASES the benchmark measured
+    #: The leverage every fill was opened at. An artefact written before the
+    #: runner recorded it filled at 1x by construction -- the backtest took
+    #: PortfolioTracker's default and had no other -- so an absent key reads
+    #: as 1 with ``leverage_recorded`` False, and the card says which.
+    leverage: Optional[int] = None
+    leverage_recorded: bool = False
 
 
 _POOLED_FIELDS = ("trades", "wins", "losses", "net_usd", "win_rate", "mean_net_usd")
@@ -166,6 +172,12 @@ def benchmark_on_record(path: Optional[Path] = None) -> BenchmarkReading:
             f"artefact was recorded off snapshot {recorded_hash[:12]}, the manifest beside "
             f"it names {pinned_hash[:12]} — regenerate it",
             shown)
+    lev_recorded = "leverage" in d
+    leverage = _int(d.get("leverage")) if lev_recorded else 1
+    if leverage is None or leverage < 1:
+        # Recorded and unplaceable: not a fill this runner can have made.
+        return BenchmarkReading(
+            "unreadable", f"artefact's leverage is {d.get('leverage')!r}, not a fill", shown)
     universe_raw = d.get("universe")
     universe = universe_raw if isinstance(universe_raw, dict) else {}
     measured_raw = universe.get("measured")
@@ -187,6 +199,8 @@ def benchmark_on_record(path: Optional[Path] = None) -> BenchmarkReading:
         pooled_pf=_num(pooled.get("pf")),
         pooled_mean_net_usd=_num(pooled.get("mean_net_usd")),
         universe=tuple(symbol_base(s) for s in measured),
+        leverage=leverage,
+        leverage_recorded=lev_recorded,
     )
 
 
@@ -234,6 +248,15 @@ def card_line(r: BenchmarkReading) -> str:
             else f"{r.mean_oos_return_pct:+.2f}%")
     win = "n/a" if r.pooled_win_rate is None else f"{r.pooled_win_rate:.0%}"
     net = "n/a" if r.pooled_net_usd is None else f"${r.pooled_net_usd:+,.2f}"
+    # The leverage the record filled at, beside the figures it scales: live
+    # places every order at DEFAULT_LEVERAGE, and a record read against it
+    # has to say which leverage its returns and drawdowns were measured at.
+    if r.leverage is None:
+        lev = "fills at an unrecorded leverage"
+    elif r.leverage_recorded:
+        lev = f"fills at {r.leverage}x"
+    else:
+        lev = f"fills at {r.leverage}x (recorded before the artefact said; the runner then had no other)"
     return (f"  Benchmark on record ({r.dataset}, --honest, {r.folds_run} folds, recorded "
-            f"{when} {at}): mean OOS {mean} · {r.profitable_folds}/{r.folds_run} folds "
+            f"{when} {at}, {lev}): mean OOS {mean} · {r.profitable_folds}/{r.folds_run} folds "
             f"profitable · pooled {r.pooled_trades} tr  net {net}  win {win}  PF {pf}")

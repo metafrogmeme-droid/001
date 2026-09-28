@@ -21,6 +21,7 @@ from bot.backtest.funding import funding_for_position
 from bot.backtest.metrics import PF_UNDEFINED
 from bot.config import CONFIG
 from bot.core.analyzer import Analyzer
+from bot.core.leverage import apply_margin_risk_cap
 from bot.risk.risk_engine import RiskEngine
 from bot.risk.portfolio import PortfolioTracker
 from bot.utils.logger import audit, system_log, trade_log
@@ -746,8 +747,16 @@ class BacktestEngine:
         # the bar gap in next_open mode) may have consumed the margin.
         # open_position rejects-not-clamps by contract; live catches this in
         # confirm_trade, so the backtest must too — skip the fill, not the run.
+        # The gate's size is a MARGIN at every other fill site (the live
+        # executor's `size_usd * leverage / price`, the engine's practice fill
+        # at DEFAULT_LEVERAGE), and this call took PortfolioTracker's default
+        # of 1 -- the size as the whole notional -- for as long as the
+        # benchmark has existed. The leverage is the config's now, lowered by
+        # the idea's margin-risk cap through the same reading the practice
+        # fill uses, and the record on file stays 1x (BacktestConfig.leverage).
+        leverage = apply_margin_risk_cap(int(self.config.leverage), idea)
         try:
-            trade = self.portfolio.open_position(slipped_idea, size_usd)
+            trade = self.portfolio.open_position(slipped_idea, size_usd, leverage=leverage)
         except ValueError as exc:
             self._ideas_rejected_risk += 1
             audit(trade_log, f"[BT] Fill REJECTED at execution: {exc}",

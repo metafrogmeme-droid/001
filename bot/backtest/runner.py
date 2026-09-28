@@ -497,6 +497,7 @@ async def _run_backtest(args: argparse.Namespace) -> None:
         initial_balance=args.balance,
         commission_pct=args.commission,
         slippage_pct=args.slippage,
+        leverage=args.leverage,
         fill_mode=args.fill_mode,
         breaker_reset_bars=args.breaker_reset_bars,
         use_llm=args.use_llm,
@@ -621,6 +622,11 @@ Examples:
                                   "Overrides --symbol; real data only.")
     trade_group.add_argument("--timeframe", type=str, default="1h", help="Candle timeframe (default: 1h)")
     trade_group.add_argument("--balance", type=float, default=10000.0, help="Starting balance (default: 10000)")
+    trade_group.add_argument("--leverage", type=int, default=1,
+                             help="Leverage every fill is opened at (default: 1, the frozen "
+                                  "record's; live places at DEFAULT_LEVERAGE, 5x, lowered by "
+                                  "the idea's margin-risk cap, and --leverage 5 measures that). "
+                                  "--honest does NOT change it: the record on file is 1x.")
     trade_group.add_argument("--commission", type=float, default=None,
                              help="Commission %% (default: 0.1%%; under --honest, the live-modeled "
                                   "taker rate, CONFIG.risk.taker_fee_pct, currently 0.06%%)")
@@ -929,7 +935,8 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
     config = BacktestConfig(
         symbol=symbols[0], timeframe=args.timeframe,
         initial_balance=args.balance, commission_pct=args.commission,
-        slippage_pct=args.slippage, fill_mode=args.fill_mode,
+        slippage_pct=args.slippage, leverage=args.leverage,
+        fill_mode=args.fill_mode,
         breaker_reset_bars=args.breaker_reset_bars,
         use_llm=args.use_llm, use_recorded_llm=args.use_recorded_llm,
         use_recorded_order_flow=args.use_recorded_order_flow,
@@ -1057,6 +1064,9 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
                 "commission_pct": config.commission_pct,
                 "slippage_pct": config.slippage_pct,
                 "fill_mode": config.fill_mode,
+                # The leverage every fill was opened at. A record that does
+                # not say is the 1x this key was added beside.
+                "leverage": config.leverage,
                 "folds": [{k: v for k, v in f.items() if not k.startswith("_")}
                           for f in folds],
             })
@@ -1099,7 +1109,8 @@ async def _run_walk_forward(args: argparse.Namespace) -> None:
     from bot.backtest.walk_forward import run_walk_forward
     config = BacktestConfig(
         symbol=args.symbol, timeframe=args.timeframe, initial_balance=args.balance,
-        commission_pct=args.commission, slippage_pct=args.slippage, use_llm=args.use_llm,
+        commission_pct=args.commission, slippage_pct=args.slippage,
+        leverage=args.leverage, use_llm=args.use_llm,
         use_recorded_llm=args.use_recorded_llm,
         use_recorded_order_flow=args.use_recorded_order_flow,
         recorded_order_flow_path=args.of_snapshot_path,
@@ -1113,7 +1124,8 @@ async def _run_walk_forward(args: argparse.Namespace) -> None:
 
     base = {"symbol": args.symbol, "timeframe": args.timeframe,
             "initial_balance": args.balance, "commission_pct": args.commission,
-            "slippage_pct": args.slippage, "use_llm": args.use_llm,
+            "slippage_pct": args.slippage, "leverage": args.leverage,
+            "use_llm": args.use_llm,
             "use_recorded_llm": args.use_recorded_llm,
             "use_recorded_order_flow": args.use_recorded_order_flow,
             "recorded_order_flow_path": args.of_snapshot_path}

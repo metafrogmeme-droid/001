@@ -14413,11 +14413,12 @@ stays: a ceiling above 20 is still not reachable by a command. The paper fill
 and the analyzer's stop tightening read the DEFAULT rather than the override,
 a pre-existing asymmetry (`RuntimeState`'s own comment says the override is
 "consulted by LiveExecutor on every open") filed rather than folded into a
-slice about the ceiling. And the frozen benchmark runs at 5x under a 10x
-ceiling, so the ceiling binds nothing there: re-run at this commit
-(`--dataset benchmark/majors_1h --honest --walk-forward 6`), the pooled
-block is the recorded one line for line, which is the measurement and not
-the reasoning.
+slice about the ceiling. And the frozen benchmark fills at 1x (this
+sentence said the live 5x until the chapter on the benchmark's leverage
+below drove it) under a 10x ceiling, so the ceiling binds nothing there:
+re-run at this commit (`--dataset benchmark/majors_1h --honest
+--walk-forward 6`), the pooled block is the recorded one line for line,
+which is the measurement and not the reasoning.
 
 **Twenty-five mutations, each killed on the first round, none refused -- and
 two are worth naming for what they prove about the guards rather than the
@@ -15988,6 +15989,74 @@ the preflight nothing dies on a scan, stated as one, because the block sits
 inside `main()` behind argument parsing and a `sys.exit`.
 (`tests/test_an_env_value_that_did_not_parse_is_said_every_boot.py`.)
 
+**THE FROZEN BENCHMARK FILLS EVERY TRADE AT 1x, AND EVERY OTHER FILL SITE
+COMMITS THE SAME FIGURE AS MARGIN AT 5x.** The risk gate's
+`position_size_usd` is `risk_budget / stop_distance`, a NOTIONAL such that
+the loss at the stop is the budget, and the live executor commits it as
+MARGIN: `quantity = size_usd * leverage / price`, at `DEFAULT_LEVERAGE` (5x)
+lowered by the idea's margin-risk cap. So does the engine's practice fill.
+`docs/AUDIT_REPORT_V7.md` §2 recorded that gap between the gate and the
+executor, chose not to flip live sizing on a real-money bot, and left "pick a
+single unit" to the operator. The third fill site was never recorded: the
+backtest called `PortfolioTracker.open_position(idea, size_usd)` with no
+leverage and took the tracker's default of 1, so every table in
+`docs/FROZEN_BENCHMARK.md` measured a bot risking a fifth of what live risks
+per trade, and this file's MAX_LEVERAGE chapter said the benchmark "runs at
+the live 5x under a 10x ceiling" -- a claim I wrote and nobody drove. Driven
+on one $100 fill at $100: the backtest opens one unit and makes $1.00 on a
++1% move; live and the practice book open five and make $5.00.
+
+**What the budget bounds, driven at the shipped defaults.** On a $1,000
+account, swing budget 2%, margin cap 13%, 5x, margin-risk cap 30%: the cap
+binds on every stop under 15.4%, so the loss at the stop is
+`0.13 x 5 x stop_distance` -- 0.65% of equity at a 1% stop, 1.95% at 3%,
+3.9% at 6%, the widest stop the margin-risk cap admits at 5x. The 2% budget
+would bind only past a 15.4% stop, which the margin-risk cap refuses, so the
+four `*_MAX_RISK_PCT` knobs bind nothing at the default leverage: the
+per-trade loss ceiling is `cap x MAX_MARGIN_RISK_PCT`, a product of two knobs
+neither of which is called a risk budget. `README.md` said "risk budget (2% of
+equity) ... capped at 20% notional", stale on both counts, and says what the
+code does now.
+
+**The record's leverage is stated and threaded, and the record itself is
+unchanged.** `BacktestConfig.leverage` (default 1, a fill below 1x refused)
+is what the backtest's one fill site opens at, lowered by the idea's
+margin-risk cap through the same `apply_margin_risk_cap` the practice fill
+uses -- proved by planting it, because a byte-identical copy of that clamp
+agrees with every fixture. `--leverage N` threads it into all three configs
+the runner builds and the walk-forward base, `--honest` does not touch it,
+and the artefact records it beside `fill_mode`. The default stays 1 so every
+number on the record reproduces line for line (re-run at this commit,
+identical pooled block), and the 5x arm is the next measurement on the
+benchmark page.
+
+**Two decisions are filed rather than made, because each moves every live
+order or every recorded number.** Whether the budget should be a
+loss-at-stop figure (`margin = budget / (stop_distance x leverage)`: halves
+the 6%-stop position, leaves a 3% stop about where it is, the cap still binds
+above) or stay a notional the executor commits as margin; and whether
+`--honest` should fill at the live leverage so the record measures what live
+places. Neither is changed unprompted.
+
+> **And a hand-written stand-in forgot the next attribute, again.** The
+> artefact suite's `_args` lists every flag the runner reads by name, so the
+> new `leverage=args.leverage` raised `AttributeError` in all twenty-five of
+> its cases -- the venue-cap chapter's "a hand-written stand-in that must
+> remember each attribute is one that will forget the next", found by the
+> neighbouring run and not by the slice's own suite.
+
+**Twenty mutations, each killed on the first round, none refused.** Four are
+worth naming for what they prove about the guards rather than the code: the
+fill given a private copy of the clamp dies only on the planted reading,
+because a byte-identical copy agrees with every fixture; each of the three
+runner sites dropping the leverage dies on the call-shape scan and nowhere
+else, which is why that scan is stated as one; `--honest` quietly moving the
+record to 5x dies on the drive that parses the flag and runs the preset; and
+an artefact written before the key read as the live 5x dies on the reader's
+own case, where the card has to say the leverage was not recorded rather than
+print a figure the runner of that day could not have filled at.
+(`tests/test_the_benchmark_fills_at_the_leverage_it_states.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -16467,7 +16536,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 253 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 254 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -17279,9 +17348,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **464 of 1154** reach for source text through `source_scan`, `code_only`
+Driven, **465 of 1155** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 464 is a FLOOR and the honest shape is
+source scan that rule does not see, so 465 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
