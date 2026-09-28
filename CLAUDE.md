@@ -817,7 +817,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 686 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 683 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -16415,6 +16415,41 @@ other. Twenty-nine in the round, none refused.
 (`bot/core/red_team.py`, `tests/test_core.py`,
 `tests/test_stop_distance_floor_is_final.py`.)
 
+**THE AGENT FEED'S THESIS EVENT PUBLISHED A SECOND CONFIDENCE, AND THE GUARD
+OVER THE CLASS ACQUITTED IT BY ITS LOOP VARIABLE'S NAME.** Every fresh engine
+idea goes to two public surfaces: the signal-stream row on `GET /api/signals`,
+which asks `displayed_confidence`, and the agent feed's "thesis" event, which
+printed and sent `idea.confidence`. That field is not the reading. The
+setup-expectancy nudge, on by default, moves it after the analyzer snapshots
+its blend, and the calibration curve does the same when it is enabled. Driven
+on an idea whose blend is 0.62 and whose nudged field is 0.67, the feed said
+67% and the signals API said 62%: one signal, two published confidences, the
+defect the SUI card chapter fixed, one surface over.
+`agent_feed.thesis_event` builds the event beside `close_event`, from the one
+reading. A stamp prints the stamp and sends None, and a level the idea does not
+state is None rather than 0. The engine's loop calls it, and a scan (stated as
+one: the emit sits inside `_tick`) requires every "thesis" emit in `bot/` to be
+the builder.
+
+**The guard missed it because it judged a receiver by name.**
+`test_every_confidence_reader_asks_the_one_reading` kept a hand-written list of
+the names that hold an idea (`idea`, `new_idea`, `best`, `p`, ...), and the
+engine's loop variable was `_fi`. A vocabulary of names is the `/setllm`
+ten-of-eleven shape, and it failed in the quiet direction. Every receiver is in
+scope now, and one the rule cannot place needs a baseline row saying what
+quantity it is: twenty rows, for the intent router's classification
+confidence, the pattern detectors' own and the quality reading itself. That is
+`tests/command_gates.py`'s rule, where an unrecognised spelling demands a
+reason. Widened, the rule found exactly one TradeIdea it had been missing. The
+honesty ratchet improved by three (the engine's `float(x or 0)` levels became
+`price_on_record` in the builder) and was re-recorded in the same commit.
+
+**Eight mutations, each killed on the first round.** The one worth naming is
+the guard given back a receiver-name list: it dies on the planted `_fi` case,
+and on twenty baseline rows the narrowed rule no longer finds, because the
+baseline is two-way.
+(`tests/test_the_agent_feeds_thesis_states_the_signal_rows_confidence.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -17706,7 +17741,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **468 of 1161** reach for source text through `source_scan`, `code_only`
+Driven, **468 of 1162** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 468 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

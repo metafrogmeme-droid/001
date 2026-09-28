@@ -6147,22 +6147,12 @@ class RuneClawEngine:
                     _build_signal_sync_payloads(_synced_ideas, self._outcome_regime))
             except Exception as _sig_sync_exc:
                 logger.debug("Signal stream sync skipped: %s", _sig_sync_exc)
-            # Public mind-stream: the thesis behind each fresh idea (capped —
-            # a wide cycle shouldn't flood the public feed).
+            # Public mind-stream: each fresh idea's thesis (capped at five), at the
+            # one reading its signal-stream row publishes (`thesis_event`).
             try:
-                from bot.core.agent_feed import FEED
+                from bot.core.agent_feed import FEED, thesis_event
                 for _fi in _synced_ideas[:5]:
-                    _fdir = str(getattr(_fi.direction, "value", _fi.direction))
-                    FEED.emit(
-                        "thesis",
-                        f"{_fdir} {_fi.asset} — confidence {_fi.confidence:.0%}",
-                        body=str(getattr(_fi, "reasoning", "") or "")[:300],
-                        symbol=_fi.asset,
-                        data={"direction": _fdir,
-                              "confidence": round(float(_fi.confidence), 3),
-                              "entry": float(_fi.entry_price or 0),
-                              "sl": float(_fi.stop_loss or 0),
-                              "tp": float(_fi.take_profit or 0)})
+                    FEED.emit("thesis", **thesis_event(_fi))
             except Exception as _feed_exc:
                 logger.debug("Agent feed thesis events skipped: %s", _feed_exc)
 

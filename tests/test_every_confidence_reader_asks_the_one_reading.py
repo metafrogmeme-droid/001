@@ -25,23 +25,27 @@ reader* — which is the distinction the sibling rule already draws for
 `blended_confidence_raw`, and what lets both rules cover the tree with a short
 baseline rather than a long one.
 
-The receiver is judged by NAME, which over-reports by construction: a pattern's
-confidence, a backtest trade's and an explainability report's are different
-quantities that happen to share the word. Narrowing by TYPE would mean guessing
-a type from a name, so the over-report is answered by a row with a reason rather
-than by a cleverer regex — the ruling `confidence_provenance_baseline` already
-takes for the same ambiguity.
+The receiver is NOT judged, and it used to be. The first version kept a
+hand-written list of names that hold an idea (`idea`, `new_idea`, `best`, `p`,
+...), and a TradeIdea under any other name was acquitted in silence: the
+engine's public thesis event read `_fi.confidence` -- the figure the
+setup-expectancy nudge had already moved -- and published it on the agent
+feed beside a signal row publishing the one reading for the same idea. A
+vocabulary of names is the `/setllm` ten-of-eleven shape, and it failed in the
+quiet direction. So every receiver is in scope, and one this rule cannot place
+is LOUD: it needs a baseline row saying what quantity it is, the rule
+`tests/command_gates.py` already follows for an unrecognised gate spelling.
+That over-reports by construction -- the intent router's classification
+confidence, a pattern detector's own, the quality reading itself -- and the
+over-report is answered by a row with a reason rather than by a cleverer regex,
+the ruling `confidence_provenance_baseline` already takes for the same
+ambiguity.
 """
 
 import ast
 import pathlib
-import re
 
 import pytest
-
-#: A receiver whose name says it holds a trade idea or a decision about one.
-IDEA_RECEIVER = re.compile(
-    r"^(idea|new_idea|_idea|i|best|p|pending|t|decision|report)$")
 
 #: The one reading every gate and display must ask.
 READING = "displayed_confidence"
@@ -85,10 +89,10 @@ def _reads(src: str):
     out = []
 
     def _is_idea_conf(node):
+        # Any receiver. A name list acquitted `_fi` (see the module docstring).
         for a in ast.walk(node):
             if (isinstance(a, ast.Attribute) and a.attr == "confidence"
-                    and isinstance(a.ctx, ast.Load)
-                    and IDEA_RECEIVER.match(ast.unparse(a.value))):
+                    and isinstance(a.ctx, ast.Load)):
                 return True
         return False
 
@@ -164,6 +168,10 @@ class TestTheRuleItself:
          'def f(idea):\n    return idea.confidence >= CONFIG.risk.min_confidence\n'),
         ("a pill wrapping the format",
          'def f(idea):\n    return _pill(f"{idea.confidence:.0%}")\n'),
+        ("a TradeIdea under a name no list anticipated (the engine's `_fi`)",
+         'def f(ideas):\n    for _fi in ideas:\n        emit(f"{_fi.confidence:.0%}")\n'),
+        ("a receiver the rule cannot place, which must carry a reason",
+         'def f(row):\n    return f"{row.confidence:.0%}"\n'),
     ])
     def test_the_rule_flags_each_shape_the_slice_removed(self, shape, src):
         assert _reads(src), shape
@@ -177,8 +185,6 @@ class TestTheRuleItself:
          'def f(idea):\n    return Row(confidence=idea.confidence)\n'),
         ("a dict entry of the same name",
          'def f(idea):\n    return {"confidence": idea.confidence}\n'),
-        ("a receiver that is not an idea",
-         'def f(row):\n    return f"{row.confidence:.0%}"\n'),
         ("a threshold that is not an idea's figure",
          'def f(cfg):\n    return f"{cfg.min_confidence:.0%}"\n'),
         ("a non-percent format",

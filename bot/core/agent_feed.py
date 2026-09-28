@@ -115,6 +115,40 @@ def close_event(symbol: object, pnl_usd: object, margin_usd: object,
     }
 
 
+def thesis_event(idea: Any) -> dict[str, Any]:
+    """The public ``thesis`` event for one fresh engine idea.
+
+    The confidence is ``displayed_confidence``: the reading the signal-stream
+    row for the same idea publishes on ``GET /api/signals``
+    (`website_sync.build_signal_payload`). ``idea.confidence`` is not that
+    reading: the setup-expectancy nudge (on by default) and, when it is
+    enabled, the calibration curve move it after the analyzer snapshots its
+    blend, so reading it here published a second figure for one signal on a
+    second public surface. A reading that is not a measurement prints the
+    reading's own dash and sends None, never a figure.
+
+    A level the idea does not state is sent as None rather than 0: a zero
+    stop on a public payload reads as a stop at zero.
+    """
+    from bot.core.position_telemetry import price_on_record
+    from bot.core.signal_confidence import displayed_confidence
+
+    raw_dir = getattr(idea, "direction", "")
+    direction = str(getattr(raw_dir, "value", raw_dir))
+    symbol = str(getattr(idea, "asset", "") or "")
+    reading = displayed_confidence(idea)
+    return {
+        "title": f"{direction} {symbol} — confidence {reading.pct()}",
+        "body": str(getattr(idea, "reasoning", "") or "")[:300],
+        "symbol": symbol,
+        "data": {"direction": direction,
+                 "confidence": None if reading.value is None else round(reading.value, 3),
+                 "entry": price_on_record(getattr(idea, "entry_price", None)),
+                 "sl": price_on_record(getattr(idea, "stop_loss", None)),
+                 "tp": price_on_record(getattr(idea, "take_profit", None))},
+    }
+
+
 class AgentFeed:
     """Bounded queue + background flusher for public agent-feed events."""
 

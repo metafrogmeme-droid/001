@@ -28,3 +28,26 @@ bot/learning/reflection.py  pct  the same row's figure in the sibling sentence o
 bot/learning/reflection.py  cmp  the same row again: the reflection describes what was recorded, not what an idea claims now
 bot/learning/strategy_eval.py  cmp  a recorded trade row read back for strategy evaluation, not a live idea
 bot/skills/skill_registry.py  pct  a PATTERN's own confidence (PatternsSkill), which no calibration curve touches
+#
+# Receivers the rule no longer judges by name. Each is a different quantity
+# that shares the word, and the rule makes it LOUD rather than acquitting it.
+bot/core/divergence.py  cmp  two DivergenceSignals ranked by the detector's own pattern confidence, which no curve or nudge touches
+bot/core/engine.py  cmp  a QualityReading (`_q = quality_reading(idea)`): the reading displayed_confidence itself asks, tested for None
+bot/core/liquidity_sweep.py  cmp  two SweepSignals ranked by the detector's own confidence
+bot/core/smart_money.py  cmp  the order-flow composite's own confidence, not an idea's
+bot/learning/strategy_eval.py  cmp  a rejected-trade row read back for evaluation (`r` in `rejected`), not a live idea
+bot/nlp/chat_facade.py  cmp  an IntentResult: the router's classification confidence, not a trade's
+bot/nlp/intent_router.py  cmp  the router grading its own IntentResult (the 0.8 dispatch bar)
+bot/nlp/intent_router.py  cmp  the same IntentResult at the router's 0.5 clarification bar
+bot/risk/ladder_shadow.py  cmp  a ladder verdict's own reading, recorded; the verdict came from quality_reading
+bot/risk/quality_ladder.py  cmp  the QualityReading this module defines, tested for None where it is built
+bot/risk/quality_ladder.py  cmp  the same reading against a rung's floor: the ladder's own gate on its own reading
+bot/risk/quality_ladder.py  cmp  the same reading tested for None where the Kelly factor reads it
+bot/skills/telegram_handler.py  cmp  an IntentResult at the 0.8 dispatch bar, not a trade's confidence
+bot/skills/telegram_handler.py  cmp  an IntentResult at the 0.5 clarification bar
+bot/web/user_gateway.py  cmp  an IntentResult at the 0.8 dispatch bar (the web chat turn)
+bot/web/user_gateway.py  cmp  an IntentResult at the 0.8 bar, a second branch of the same turn
+bot/web/user_gateway.py  cmp  an IntentResult at the 0.8 bar, a third branch
+bot/web/user_gateway.py  cmp  an IntentResult at the 0.8 bar, a fourth branch
+bot/web/user_gateway.py  cmp  an IntentResult at the 0.8 bar, a fifth branch
+bot/web/user_gateway.py  cmp  the public chat turn's IntentResult (`_pub_intent`) at the 0.8 bar
