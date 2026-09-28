@@ -31,7 +31,7 @@ from bot.utils.paths import state_path
 from bot.utils.outbound import reply_safe
 from bot.utils.tg_retry import send_with_retry
 from bot.utils.leveraged_return import _leveraged_return_pct, position_leverage
-from bot.core.live_executor import position_size_basis
+from bot.core.live_executor import entry_is_estimated, position_size_basis
 from bot.core.signal_confidence import displayed_confidence
 from bot.core.limit_input import (consume_pending, limit_expired_text,
                                   read_pending)
@@ -185,6 +185,14 @@ def _live_position_row(p, mark) -> str:
         # the bot's record does not hold it because the venue never said.
         parts.append(f"the venue did not state {', '.join(unread)} at "
                      "adoption — do not estimate them")
+    if entry_is_estimated(p):
+        # The figure is on record and it is not a fill: the ticker read before
+        # the order, booked because the venue stated no fill price. Said in
+        # words, because an entry the model reads as exact anchors every R
+        # and P&L it goes on to state.
+        parts.append("the entry is an ESTIMATE (the pre-order ticker; the venue "
+                     "stated no fill price) — treat the entry, its R and its "
+                     "P&L as approximate")
 
     return f"  - {direction or '?'} {getattr(p, 'symbol', '?')}: " + ", ".join(parts)
 

@@ -49,8 +49,9 @@ from bot.core.limit_entry import calculate_entry
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import ccxt_margin_mode, get_venue
 from bot.core.close_lookup import (
-    StageOutcome, lookup_class, lookup_no_rows, lookup_raised, lookup_sentence,
-    lookup_skipped, lookup_unmatched, nearest_entry_gap_pct,
+    FEE_CLOSE_LEG, FEE_ESTIMATED, FEE_VENUE, StageOutcome, client_is_uta,
+    is_ticker_priced, lookup_class, lookup_no_rows, lookup_raised, lookup_sentence,
+    lookup_skipped, lookup_unmatched, nearest_entry_gap_pct, uta_history_row,
 )
 from bot.core.plan_cleanup import plan_rows_to_cancel
 from bot.core.leverage import (
@@ -499,6 +500,13 @@ def closed_trade_row(pos) -> dict:
         "origin": pos.origin,
         "fill_source": pos.fill_source,
         "close_lookup": pos.close_lookup,
+        # What the commission is made of (close_lookup.FEE_*), so a reader can
+        # tell a fee the venue stated from the configured estimate that stands
+        # in for one; None on a row a build before this reading wrote.
+        "fee_basis": getattr(pos, "fee_basis", None),
+        # Where the ENTRY came from (see ENTRY_ESTIMATED); absent on a record
+        # whose entry path recorded no source.
+        "entry_source": getattr(pos, "entry_source", None),
         # Provenance for the parity/attribution buckets — the fields lived on
         # LivePosition since the strategy-type work but were never serialized,
         # so the live parity report's "By setup"/"By signal type" sections
@@ -562,6 +570,10 @@ class CloseAccounting(NamedTuple):
     commission: Optional[float]
     funding_usd: Optional[float]
     funding_in_net: Optional[bool]
+    #: What ``commission`` is made of (close_lookup.FEE_*): the venue's whole
+    #: round trip, its close leg beside an estimated entry leg, or two
+    #: estimates. None where there is no commission to have a basis.
+    fee_basis: Optional[str] = None
 
 
 def close_pnl_line(net_pnl, pnl_pct, leverage, commission, *, margin_usd):
@@ -713,6 +725,84 @@ ENTRY_UNREAD_NOTE = (
 #: and ``close_lookup.is_ticker_priced`` reads the prefix, so a ticker-priced
 #: exit stays counted as one.
 ENTRY_UNREAD = "+entry_unread"
+
+#: ``entry_source`` on a position opened at MARKET says where its recorded
+#: entry came from: ``order`` (the venue's order response stated an average
+#: or a price), ``fills`` (the fills it produced), ``fetched_order`` (the
+#: order read back), ``venue_row`` (the position row read after the fill),
+#: ``venue_sync`` (a later position sync stated it) -- or this one, which is
+#: not a venue figure at all: the ticker read BEFORE the order was sent,
+#: booked as the fill because nothing the venue answered stated a price.
+#: Driven, that is every market entry whose order response carries no
+#: average (Bitget's create endpoint answers ids only), whose fills and
+#: order read-back answer nothing (a latency blip), and whose position row
+#: states no ``entryPrice``: the card said "Fill: $4,000.00" for a ticker,
+#: the record carried no trace, and every reader took it as the fill. Only
+#: this value is a marker readers act on; the rest are provenance.
+#: How long the monitoring and reconcile loops wait before asking the venue
+#: for the hold mode AGAIN after a probe failed. The warning-rate breaker
+#: trips on more than five of one key per hour, both loops run every minute,
+#: and an account whose probe keeps failing (a settings endpoint it cannot
+#: reach) must not be halted by its own diagnostic: a retry is not a new
+#: fault, so it is spaced, and only the first failure of a streak counts.
+HOLD_MODE_RETRY_S = 300.0
+
+ENTRY_ESTIMATED = "pre_order_ticker"
+
+#: Appended to a close's ``fill_source`` when its P&L was computed LOCALLY
+#: (the venue stated none) against an entry that is an estimate, so the
+#: record says the figure rests on a price nobody stated. Same shape as
+#: ``ENTRY_UNREAD``: the source word before it still says where the exit
+#: came from.
+ENTRY_ESTIMATED_SUFFIX = "+entry_estimated"
+
+
+def entry_is_estimated(pos: Any) -> bool:
+    """True when the position's recorded entry is the pre-order ticker."""
+    return str(getattr(pos, "entry_source", "") or "") == ENTRY_ESTIMATED
+
+
+def entry_estimated_state(pos: Any) -> Optional[bool]:
+    """Three-valued for a wire: True (the entry is the pre-order ticker),
+    False (a source the venue stated), None (the entry path recorded no
+    source -- an older record, or a limit fill). None is not False: a
+    dashboard chip may only say "fill" about an entry something stated."""
+    src = getattr(pos, "entry_source", None)
+    if not src:
+        return None
+    return str(src) == ENTRY_ESTIMATED
+
+
+def venue_avg_price(row: dict) -> Optional[float]:
+    """The average entry price a venue position row STATES, or None.
+
+    Reads the v3 spelling (``avgPrice``) and the classic ones
+    (``openPriceAvg``, ``entryPrice``); a blank, a non-number and a
+    non-positive figure are None -- a price of zero is a level nobody stated.
+    """
+    if not isinstance(row, dict):
+        return None
+    for key in ("avgPrice", "openPriceAvg", "entryPrice"):
+        raw = row.get(key)
+        if raw is None or str(raw).strip() == "":
+            continue
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if val > 0 and val == val and val not in (float("inf"), float("-inf")):
+            return val
+    return None
+
+
+def entry_close_suffix(pos: Any, *, entry_unread: bool, local_pnl: bool) -> str:
+    """The suffix a close record carries about its ENTRY: unread, estimated
+    (only when the P&L was computed locally off it), or nothing."""
+    if entry_unread:
+        return ENTRY_UNREAD
+    if local_pnl and entry_is_estimated(pos):
+        return ENTRY_ESTIMATED_SUFFIX
+    return ""
 
 
 def entry_on_record(pos: Any) -> Optional[float]:
@@ -926,6 +1016,9 @@ def restore_provenance(pos: Any, pdata: dict) -> None:
         setattr(pos, "adoption_unread", tuple(str(n) for n in unread))
     if pdata.get("unprotected") is True:
         setattr(pos, "unprotected", True)
+    entry_src = pdata.get("entry_source")
+    if entry_src:
+        setattr(pos, "entry_source", str(entry_src))
     if pdata.get("close_interrupted") is True:
         setattr(pos, "close_interrupted", True)
     filled = _datetime_or_none(pdata.get("filled_at"))
@@ -1682,6 +1775,11 @@ class LivePosition:
     origin: str = "executed"
     fill_source: Optional[str] = None
     close_lookup: Optional[str] = None
+    #   fee_basis   — what `commission` is made of (close_lookup.FEE_*): the
+    #                 venue's round trip, its close leg beside an estimated
+    #                 entry leg, or two estimates. None on an unpriced close
+    #                 and on a row written before the reading.
+    fee_basis: Optional[str] = None
     # venue_recorded: the venue a CLOSED row carried when it was loaded, so a
     #                 save writes it back rather than restamping another
     #                 venue's history with this executor's. None for a row
@@ -2870,6 +2968,18 @@ class LiveExecutor:
 
         Tries v2 API first (classic accounts), falls back to v3 settings
         endpoint for UTA accounts.
+
+        A PROBE THAT FAILED LEAVES THE MODE UNKNOWN. It used to cache
+        "one-way" for the life of the process, so a network blip on the first
+        order after a restart labelled a hedge account one-way for good, and
+        the readers that treat one-way as licence -- the plan cleanup before a
+        re-place, which sweeps BOTH sides' stops on a one-way account, and the
+        close-side fill reader, which prices an unmarked fill as a close there
+        -- acted on a reading nobody made. `None` is the state every reader of
+        `_hedge_mode` already handles in the cheaper direction (the cleanup
+        keeps what it cannot place, the fill reader refuses, reconcile reads
+        every row on the symbol and keeps the position), and the probe is
+        asked again on the next monitoring pass and the next order.
         """
         exchange = await self._get_exchange()
 
@@ -2888,14 +2998,14 @@ class LiveExecutor:
                 data = data[0]
             hold_mode = data.get("holdMode", "") if isinstance(data, dict) else ""
             self._hedge_mode = (hold_mode == "double_hold")
+            self._hold_mode_unread_said = False
             self._is_uta = False
             logger.info("Bitget position mode (v2): %s (hedge=%s)", hold_mode, self._hedge_mode)
             return
         except Exception as exc:
             err_str = str(exc)
             if "40085" not in err_str:
-                logger.debug("Hold mode detection failed: %s, defaulting to one-way", exc)
-                self._hedge_mode = False
+                self._say_hold_mode_unread(exc)
                 return
             logger.info("UTA account detected (40085), trying v3 settings endpoint")
             self._is_uta = True
@@ -2912,15 +3022,82 @@ class LiveExecutor:
             if resp_data.get("code") == "00000":
                 hold_mode = resp_data.get("data", {}).get("holdMode", "")
                 self._hedge_mode = (hold_mode == "hedge_mode")
+                self._hold_mode_unread_said = False
                 logger.info("Bitget position mode (v3 settings): %s (hedge=%s)",
                             hold_mode, self._hedge_mode)
                 return
+            self._say_hold_mode_unread(
+                RuntimeError(f"v3 settings code {resp_data.get('code')!r}"))
+            return
         except Exception as exc2:
-            logger.debug("v3 settings detection failed: %s", exc2)
+            self._say_hold_mode_unread(exc2)
 
-        # Default to one-way (most common)
-        self._hedge_mode = False
-        logger.info("Hold mode detection exhausted, defaulting to one-way")
+    def _say_hold_mode_unread(self, exc: BaseException) -> None:
+        """The account's hold mode could not be read: said ONCE per unread
+        streak at WARNING, audited, counted ONCE on the warning-rate breaker,
+        and the mode is left `None`. A streak ends when a probe answers, so a
+        later failure is a new one and is said again. The retries inside a
+        streak are DEBUG and count nothing: the breaker trips on more than
+        five of one key per hour, and a retry of one fault is not five faults.
+        The exception's CLASS travels and never its text, because a venue
+        rejection can echo the request into the operator log."""
+        detail = type(exc).__name__
+        if getattr(self, "_hold_mode_unread_said", False):
+            logger.debug("Hold mode still unread on %s: %s", self._venue.id, detail)
+            return
+        self._hold_mode_unread_said = True
+        self._record_warning("hold_mode_unread")
+        logger.warning(
+            "Hold mode could not be read on %s (%s): the account is treated as "
+            "UNKNOWN, not one-way -- plan cleanups keep the rows they cannot "
+            "place, an unmarked close-side fill is not priced, reconcile reads "
+            "every row on the symbol -- and the probe is retried every %.0fs "
+            "and on the next order. This is not a mismatch and not an "
+            "all-clear.",
+            self._venue.id, detail, HOLD_MODE_RETRY_S)
+        audit(trade_log,
+              f"Hold mode UNREAD on {self._venue.id}: {detail} -- treated as "
+              f"unknown until a probe answers",
+              action="hold_mode", result="UNREAD", level=logging.WARNING,
+              data={"venue": self._venue.id, "detail": detail})
+
+    async def _probe_hold_mode_if_unknown(self) -> None:
+        """Ask the venue for the hold mode when nothing has read it yet.
+
+        The probe used to run only inside `_ensure_leverage`, i.e. on the first
+        ORDER after a restart -- so a bot that restarted holding positions and
+        placed nothing (a halted one, a paused one, one whose ideas keep being
+        refused) monitored and reconciled them for the whole process lifetime
+        on an unread mode. The monitoring and reconcile loops ask here, at the
+        top of every pass: one venue read the first time, one every
+        `HOLD_MODE_RETRY_S` after a failure, and a field test once the mode is
+        known. The spacing is what keeps a probe that keeps failing from
+        tripping the warning-rate breaker with its own retries. The stamp is
+        taken BEFORE the probe, so a probe that raises is spaced like one that
+        answered nothing, and it is `None` until the first probe rather than
+        `0.0`, because `time.monotonic()` starts near zero on a fresh host.
+        A venue with no hedge topology is one-way by construction, which is a
+        measurement rather than a default. A probe that raises out of
+        `_get_exchange` is a failed read like any other: the mode stays
+        unknown and the pass goes on. The order path (`_ensure_leverage`)
+        still asks whenever the mode is unknown, unspaced: an order is rare
+        and is the one moment the answer changes what is sent.
+        """
+        if self._hedge_mode is not None:
+            return
+        if not self._venue.supports_hedge_mode:
+            self._hedge_mode = False
+            self._is_uta = False
+            return
+        now = time.monotonic()
+        last = getattr(self, "_hold_mode_probed_at", None)
+        if last is not None and now - last < HOLD_MODE_RETRY_S:
+            return
+        self._hold_mode_probed_at = now
+        try:
+            await self._detect_hold_mode()
+        except Exception as exc:
+            self._say_hold_mode_unread(exc)
 
     async def close(self) -> None:
         """Clean up exchange connection."""
@@ -6624,6 +6801,7 @@ class LiveExecutor:
                            _lev_mismatch: Optional[tuple[int, int]], _lev_close_failed: bool,
                            _slip_warn: str = "", _pos_state: Any = None,
                            size_usd: Optional[float] = None,
+                           entry_estimated: bool = False,
                            ) -> str:
         """The card the operator reads after a fill. Pure formatting.
 
@@ -6693,8 +6871,12 @@ class LiveExecutor:
         return (
             f"{dir_icon} <b>LIVE {side.upper()} {idea.asset}</b> ({mode_label}{lev_info}) [{st_label}]\n"
             f"{'─' * 16}\n"
-            f"- Fill: <code>${fill_price:,.4f}</code>\n"
-            f"- Qty: <code>{filled_qty:.6f}</code>\n"
+            + (f"- Fill: <code>~${fill_price:,.4f}</code> ESTIMATED from the "
+               f"pre-order ticker — the venue stated no fill price; the next "
+               f"position sync corrects it if the venue states one\n"
+               if entry_estimated else
+               f"- Fill: <code>${fill_price:,.4f}</code>\n")
+            + f"- Qty: <code>{filled_qty:.6f}</code>\n"
             f"- Cost: <code>${cost:.2f}</code>{sizing_line}\n"
             f"- Notional: <code>${fill_price * filled_qty:.2f}</code>\n"
             f"- Leverage: <code>{leverage}x</code>\n"
@@ -7028,6 +7210,9 @@ class LiveExecutor:
                 # recalculation). The exchange fills at limit_price, not
                 # the original signal price.
                 fill_price = limit_price if (use_limit and limit_price) else idea.entry_price
+                # A resting order has no fill to source; the fill path that
+                # later fills it records what it can.
+                fill_price_source = None
                 filled_qty = quantity  # expected quantity
                 raw_cost = fill_price * filled_qty
                 if is_futures and leverage_mult > 1:
@@ -7035,7 +7220,18 @@ class LiveExecutor:
                 else:
                     cost = raw_cost
             else:
-                fill_price = float(order.get("average", 0) or order.get("price", 0) or current_price)
+                # WHERE THE ENTRY CAME FROM travels with the figure. The
+                # fallback below is the ticker read BEFORE the order went
+                # out, and it used to become the recorded entry with no
+                # trace: the card printed it as the fill and every reader
+                # took it as one.
+                _ord_px = order.get("average") or order.get("price")
+                if _ord_px:
+                    fill_price = float(_ord_px)
+                    fill_price_source = "order"
+                else:
+                    fill_price = float(current_price)
+                    fill_price_source = ENTRY_ESTIMATED
                 filled_qty = float(order.get("filled") or 0)
 
                 # GETCLAW: Enhanced fill verification — try fetch_my_trades first
@@ -7056,6 +7252,7 @@ class LiveExecutor:
                             )
                             if filled_qty > 0 and total_cost > 0:
                                 fill_price = total_cost / filled_qty
+                                fill_price_source = "fills"
                             audit(trade_log,
                                   f"Fill verified via trades: {symbol} qty={filled_qty:.6f} @ ${fill_price:,.4f}",
                                   action="fill_verify", result="TRADES",
@@ -7070,6 +7267,7 @@ class LiveExecutor:
                             filled_qty = float(confirmed.get("filled", 0) or 0)
                             if confirmed.get("average"):
                                 fill_price = float(confirmed["average"])
+                                fill_price_source = "fetched_order"
                         except Exception as fetch_exc:
                             logger.warning("Could not confirm fill for order %s: %s", order_id, fetch_exc)
                             self._record_warning("order_fill_confirm")
@@ -7153,6 +7351,8 @@ class LiveExecutor:
                 status="pending_fill" if is_pending_limit else "open",
             )
             self._positions[idea.id] = position
+            if fill_price_source is not None:
+                setattr(position, "entry_source", fill_price_source)
             self._recent_local_opens[normalize_symbol(idea.asset)] = time.time()
 
             # F-07 FIX: persist after opening
@@ -7235,6 +7435,10 @@ class LiveExecutor:
                 if pos_verify["exchange_entry"] > 0:
                     position.entry_price = pos_verify["exchange_entry"]
                     fill_price = pos_verify["exchange_entry"]
+                    # The venue's row STATED it: whatever the order response
+                    # or the ticker said, this is the entry on record now.
+                    fill_price_source = "venue_row"
+                    setattr(position, "entry_source", fill_price_source)
                 if pos_verify["exchange_qty"] > 0:
                     position.quantity = pos_verify["exchange_qty"]
                     filled_qty = pos_verify["exchange_qty"]
@@ -7292,12 +7496,19 @@ class LiveExecutor:
                 cost = raw_cost
             position.cost_usd = cost
 
+            if fill_price_source == ENTRY_ESTIMATED:
+                self._note_entry_estimated(position, fill_price)
+
             # Persist verified position data
             self._save_positions()
 
-            # Record slippage (expected vs actual fill)
+            # Record slippage (expected vs actual fill). Not for an ESTIMATED
+            # fill: the "actual" would be the ticker read before the order,
+            # so the figure recorded would be the idea's distance from the
+            # ticker, which is not slippage.
             try:
-                if hasattr(self, '_slippage_tracker') and self._slippage_tracker:
+                if (hasattr(self, '_slippage_tracker') and self._slippage_tracker
+                        and fill_price_source != ENTRY_ESTIMATED):
                     self._slippage_tracker.record(
                         symbol=symbol,
                         expected_price=idea.entry_price,
@@ -7313,7 +7524,14 @@ class LiveExecutor:
             # A flatten that FAILED hands back a warning for the card instead
             # of an abort, so the run carries on into stop placement — the only
             # protection left on a position that is still open.
-            _gate_msg, _slip_warn = await self._post_fill_slippage_guard(idea, fill_price)
+            if fill_price_source == ENTRY_ESTIMATED:
+                # The guard measures the FILL against the expected price, and
+                # this fill is the pre-order ticker: there is nothing to
+                # measure, and a flatten on that comparison would act on a
+                # slippage nobody read. `_note_entry_estimated` said so.
+                _gate_msg, _slip_warn = None, ""
+            else:
+                _gate_msg, _slip_warn = await self._post_fill_slippage_guard(idea, fill_price)
             if _gate_msg:
                 return _gate_msg
 
@@ -7363,7 +7581,8 @@ class LiveExecutor:
                 idea, side, leverage, is_futures, fill_price, filled_qty, cost, order_id,
                 sl_id, tp_id, trailing_st, confirmed, position_confirmed, verify,
                 exchange_fees, _lev_mismatch, _lev_close_failed, _slip_warn,
-                pos_verify.get("state"), size_usd=size_usd)
+                pos_verify.get("state"), size_usd=size_usd,
+                entry_estimated=(fill_price_source == ENTRY_ESTIMATED))
 
         except ccxt.InsufficientFunds as exc:
             self.record_api_error()
@@ -7967,6 +8186,29 @@ class LiveExecutor:
                         raw_notional = pos.entry_price * pos.quantity
                         pos.cost_usd = raw_notional / ex_lev
                         clear_unread(pos, "margin")
+                    changed = True
+
+            # AN ESTIMATED ENTRY IS CORRECTED BY THE VENUE'S OWN FIGURE, the
+            # way an unread leverage is: this row states the average entry
+            # (`avgPrice`), which the position row read at the fill did not.
+            # Only an ESTIMATE is overwritten -- a fill the venue stated is
+            # this position's own price, and the row's average can
+            # legitimately differ from it (a pyramid add moves it).
+            if entry_is_estimated(pos):
+                _avg = venue_avg_price(ex_data)
+                if _avg is not None:
+                    _old_entry = pos.entry_price
+                    pos.entry_price = _avg
+                    setattr(pos, "entry_source", "venue_sync")
+                    if pos.quantity > 0 and pos.leverage > 0:
+                        pos.cost_usd = (_avg * pos.quantity) / pos.leverage
+                    audit(trade_log,
+                          f"Entry sync: {pos.symbol} entry ${_old_entry:,.4f} "
+                          f"(estimated from the pre-order ticker) → "
+                          f"${_avg:,.4f} (the venue's stated average)",
+                          action="entry_sync", result="UPDATED",
+                          data={"trade_id": pos.trade_id, "old": _old_entry,
+                                "new": _avg})
                     changed = True
 
             # Quantity drift — REPORT-ONLY (see docstring: never auto-write).
@@ -8921,6 +9163,7 @@ class LiveExecutor:
         closed_messages = []
         try:
             exchange = await self._get_exchange()
+            await self._probe_hold_mode_if_unknown()
             # C2-27 FIX: Fetch tickers per-symbol instead of batch.
             # A single delisted/erroring symbol in fetch_tickers() would block
             # SL/TP checks for ALL positions. Per-symbol isolation ensures
@@ -10262,7 +10505,15 @@ class LiveExecutor:
                 self._venue.order_symbol(pos.symbol), "market", side, qty,
                 **_fb_kwargs)
 
-            fill_price = float(order.get("average", 0) or order.get("price", 0) or cur_price)
+            # Same reading as the market entry's: a fill the venue stated, or
+            # the ticker read before the order, MARKED as an estimate.
+            _fb_ord_px = order.get("average") or order.get("price")
+            if _fb_ord_px:
+                fill_price = float(_fb_ord_px)
+                _fb_source = "order"
+            else:
+                fill_price = float(cur_price)
+                _fb_source = ENTRY_ESTIMATED
             filled_qty = float(order.get("filled", 0) or qty)
             if pre_filled > 0:
                 # Blend the resting partial fill with the market fill so the
@@ -10276,6 +10527,7 @@ class LiveExecutor:
             # 3. Update position
             old_entry = pos.entry_price
             pos.entry_price = fill_price
+            setattr(pos, "entry_source", _fb_source)
             pos.quantity = filled_qty
             pos.status = "open"
             # Stamp the actual fill time so the 90s grace machinery applies to
@@ -10363,9 +10615,15 @@ class LiveExecutor:
             # meaningless to the operator and were rendering as huge integers.
             sl_info = f" | SL: ${pos.stop_loss:,.4f}" if pos.stop_loss else ""
             tp_info = f" | TP: ${pos.take_profit:,.4f}" if pos.take_profit else ""
+            if _fb_source == ENTRY_ESTIMATED:
+                self._note_entry_estimated(pos, fill_price)
+                self._save_positions()
+            _fb_fill = (f"~${fill_price:,.4f} (ESTIMATED from the pre-order ticker — "
+                        f"the venue stated no fill price)"
+                        if _fb_source == ENTRY_ESTIMATED else f"${fill_price:,.4f}")
             return (
                 f"LIMIT → MARKET FALLBACK: {pos.direction} {pos.symbol}\n"
-                f"Original limit: ${old_entry:,.4f} → Market fill: ${fill_price:,.4f}\n"
+                f"Original limit: ${old_entry:,.4f} → Market fill: {_fb_fill}\n"
                 f"Qty: {filled_qty:.6f}{sl_info}{tp_info}\n"
                 f"Reason: momentum breakout past limit price"
             )
@@ -10616,17 +10874,27 @@ class LiveExecutor:
         placement = place_funding(exchange_pnl, funding, funding_in_pnl)
         base = placement.base
 
+        # What the commission is MADE OF travels with it: a net the venue
+        # stated carries its own round trip, a gross carries the close leg the
+        # fill stated beside an entry leg estimated here, and a fee of 0 on
+        # either branch is a leg nobody stated rather than a stated zero --
+        # the fills stage writes 0.0 for a leg it could not price, and the
+        # history reader reads an unstated fee field as 0.
+        fee_basis: Optional[str]
         if pnl_is_net:
             net_pnl: Optional[float] = base
             commission: Optional[float] = exchange_close_fees
             gross_pnl = base + exchange_close_fees
+            fee_basis = FEE_VENUE if exchange_close_fees > 0 else None
         elif entry_notional is None:
             gross_pnl, net_pnl, commission = base, None, None
+            fee_basis = None
         else:
             gross_pnl = base
             estimated_entry_fee = entry_notional * entry_fee_pct / 100.0
             commission = exchange_close_fees + estimated_entry_fee
             net_pnl = gross_pnl - commission
+            fee_basis = FEE_CLOSE_LEG if exchange_close_fees > 0 else FEE_ESTIMATED
 
         # A stated funding of ZERO reaches this with `add_to_net` set to 0.0, so
         # it adds nothing and reads as in-net: there is no separate zero branch,
@@ -10638,7 +10906,7 @@ class LiveExecutor:
             in_net: Optional[bool] = True
         else:
             in_net = None
-        return CloseAccounting(gross_pnl, net_pnl, commission, funding, in_net)
+        return CloseAccounting(gross_pnl, net_pnl, commission, funding, in_net, fee_basis)
 
     @staticmethod
     def _local_close_commission(entry_notional: float, exit_notional: float,
@@ -10654,12 +10922,54 @@ class LiveExecutor:
         is what all three local branches used to do whatever the venue had
         said.
         """
-        stated = stated_fees if stated_fees is not None and stated_fees > 0 else None
+        stated, _basis = LiveExecutor._fee_reading(stated_fees, fees_cover)
         if stated is not None and fees_cover == "round_trip":
             return stated
         exit_fee = (stated if stated is not None
                     else exit_notional * exit_fee_pct / 100.0)
         return entry_notional * entry_fee_pct / 100.0 + exit_fee
+
+    @staticmethod
+    def _fee_reading(stated_fees: Optional[float],
+                     fees_cover: str) -> tuple[Optional[float], str]:
+        """``(stated, basis)``: the fee the venue stated (None for none, or
+        for the 0 a stage writes for a leg it could not price) and what the
+        commission built on it is made of (close_lookup.FEE_*). ONE predicate
+        for `_local_close_commission` and for the basis the record carries,
+        so the two cannot disagree about whether a fee was stated."""
+        stated = stated_fees if stated_fees is not None and stated_fees > 0 else None
+        if stated is None:
+            return None, FEE_ESTIMATED
+        return stated, (FEE_VENUE if fees_cover == "round_trip" else FEE_CLOSE_LEG)
+
+    def _note_entry_estimated(self, pos: "LivePosition", ticker: float) -> None:
+        """Say that a market fill was booked at the PRE-ORDER TICKER because
+        nothing the venue answered stated a fill price.
+
+        A WARNING, an ``ESTIMATED`` audit row and a warning-rate event, the
+        way an unread entry at close is said: an estimate that leaves no
+        trace is read as a fill by every surface. The row names what was
+        asked (the order response, its fills, the order read back, the
+        position row) so an operator reads a latency blip as one and a venue
+        that never states fills as that. The slippage record and guard are
+        skipped for it, and this row says so.
+        """
+        logger.warning(
+            "Entry of %s booked at the PRE-ORDER TICKER $%s: the order "
+            "response, its fills, the order read-back and the position row "
+            "stated no fill price. Marked as an estimate; the next position "
+            "sync corrects it if the venue states an average.",
+            pos.symbol, f"{ticker:,.4f}")
+        audit(trade_log,
+              f"Entry price ESTIMATED for {pos.symbol}: the venue stated no "
+              f"fill price (order response, fills, order read-back, position "
+              f"row), so the pre-order ticker ${ticker:,.4f} is recorded as "
+              f"the entry and MARKED — the slippage guard was not run on it",
+              action="fill_price_estimated", result="ESTIMATED",
+              level=logging.WARNING,
+              data={"trade_id": pos.trade_id, "symbol": pos.symbol,
+                    "ticker": ticker})
+        self._record_warning("entry_price_estimated")
 
     def _note_entry_unread_close(self, pos: "LivePosition", action: str,
                                  exit_source: str) -> None:
@@ -11429,6 +11739,9 @@ class LiveExecutor:
             # pessimistic estimate below that shares the variable above.
             _stated_close_fee: Optional[float] = (
                 exchange_close_fees if exchange_close_fees > 0 else None)
+            # What the stated fee COVERS: the close leg (the close order's own
+            # fee, a fill's) or the whole round trip (a position-history row).
+            _stated_fee_cover = "close"
 
             # ── RC-AUD-023b: residual-close reconciliation ──────────────
             # A partial market close can leave residual exchange exposure while
@@ -11644,17 +11957,45 @@ class LiveExecutor:
                 import asyncio as _aio_pnl
                 await _aio_pnl.sleep(2)  # brief delay for Bitget to finalize
                 pos_hist_data = await self._fetch_bitget_close_data(pos)
+                _lk_px = (_num_or_none(pos_hist_data.get("close_price"))
+                          if pos_hist_data else None)
                 if pos_hist_data and pos_hist_data.get("pnl") is not None:
                     exchange_pnl = pos_hist_data["pnl"]
                     exchange_close_fees = pos_hist_data.get("fees", 0) or 0
                     _pnl_is_net = pos_hist_data.get("pnl_is_net", False)
                     _funding = pos_hist_data.get("funding")
                     _funding_in = pos_hist_data.get("funding_in_pnl")
-                    if pos_hist_data.get("close_price", 0) > 0:
-                        fill_price = pos_hist_data["close_price"]
-                        _fill_src = "bitget_position_history"
+                    if _lk_px is not None and _lk_px > 0:
+                        fill_price = _lk_px
+                        # The stage's own word: a fill or a closed order can
+                        # state a profit too, and every one of them used to be
+                        # booked as "bitget_position_history".
+                        _fill_src = str(pos_hist_data.get("source") or "bitget_position_history")
                     logger.info("Using Bitget position history PnL for %s: $%.4f (fees $%.4f)",
                                 pos.symbol, exchange_pnl, exchange_close_fees)
+                elif (pos_hist_data and _lk_px is not None and _lk_px > 0
+                        and (fill_price <= 0 or is_ticker_priced(_fill_src))):
+                    # A stage matched this close's own row and PRICED it; the
+                    # row stated no profit, which the arithmetic below derives
+                    # from the price. The old branch took NOTHING from such a
+                    # find -- the venue's matched price thrown away over a
+                    # secondary field, the defect the lookup was cured of, at
+                    # the lookup's own caller -- and kept the ticker read
+                    # before the lookup ran, with no cause on the record,
+                    # because the lookup HAD priced it. A fill price the
+                    # close order itself confirmed is left alone: it is the
+                    # more direct reading.
+                    fill_price = _lk_px
+                    _fill_src = str(pos_hist_data.get("source")
+                                    or "bitget_position_history_local_pnl")
+                    _lk_fee = pos_hist_data.get("fees")
+                    if (_stated_close_fee is None and isinstance(_lk_fee, (int, float))
+                            and _lk_fee > 0):
+                        _stated_close_fee = float(_lk_fee)
+                        _stated_fee_cover = str(pos_hist_data.get("fees_cover") or "close")
+                    logger.info("Using the venue's close price for %s from %s: %.6f "
+                                "(no venue profit stated; derived from the price)",
+                                pos.symbol, _fill_src, fill_price)
             except Exception as _hist_exc:
                 logger.debug("Position history lookup failed for %s: %s", pos.symbol, _hist_exc)
 
@@ -11689,6 +12030,7 @@ class LiveExecutor:
                         if total_fees > 0:
                             exchange_close_fees = total_fees
                             _stated_close_fee = total_fees
+                            _stated_fee_cover = "close"
                 except Exception as _fee_exc:
                     # CRITICAL FIX: use pessimistic fee assumption (20bp round-trip)
                     # instead of 0 when exchange data unavailable
@@ -11734,6 +12076,7 @@ class LiveExecutor:
                     _acct.gross_pnl, _acct.net_pnl, _acct.commission)
                 pos.funding_usd = _acct.funding_usd
                 pos.funding_in_net = _acct.funding_in_net
+                pos.fee_basis = _acct.fee_basis
             elif entry_unread:
                 gross_pnl = net_pnl = commission = None
                 self._note_entry_unread_close(pos, "live_close", _fill_src)
@@ -11767,7 +12110,8 @@ class LiveExecutor:
                 _comm = self._local_close_commission(
                     pos.entry_price * pos.quantity, fill_price * pos.quantity,
                     entry_rate_pct(getattr(pos, 'order_type', None)), exit_rate_pct(),
-                    _stated_close_fee, "close")
+                    _stated_close_fee, _stated_fee_cover)
+                pos.fee_basis = self._fee_reading(_stated_close_fee, _stated_fee_cover)[1]
                 gross_pnl, commission = _gross, _comm
                 net_pnl = _gross - _comm
 
@@ -11780,7 +12124,10 @@ class LiveExecutor:
             pos.closed_at = datetime.now(UTC)
             # Provenance, same field _record_exchange_close fills: a forensic
             # pass must be able to tell an unpriced record from a real fill.
-            pos.fill_source = ((_fill_src + (ENTRY_UNREAD if entry_unread else ""))
+            pos.fill_source = ((_fill_src + entry_close_suffix(
+                                    pos, entry_unread=entry_unread,
+                                    local_pnl=(exchange_pnl is None
+                                               and net_pnl is not None)))
                                if exit_price_known else "unread")
 
             # AUDIT-FIX: Append to closed trades BEFORE save_positions, because
@@ -12235,7 +12582,21 @@ class LiveExecutor:
     async def _close_from_history(self, pos: LivePosition, exchange,
                                   opened_ms: Optional[int],
                                   outcomes: list[StageOutcome]) -> dict | None:
-        """Stage 1: GET /api/v2/mix/position/history-position.
+        """Stage 1: the venue's own position history.
+
+        ``GET /api/v3/position/history-position`` when the client in hand is
+        a unified-account one (``options["uta"]``, which is how `venues.py`
+        builds every Bitget client and how every ccxt read beside this one
+        is routed), else the classic ``GET /api/v2/mix/position/history-
+        position``. This was the ONE raw call in the executor that did not
+        follow the client's family: on a unified account the classic
+        endpoint refuses, the pinned ccxt leaves that refusal as the bare
+        ``ExchangeError``, and the 2026-09-28 parity card counted ``history
+        raised ExchangeError`` on every close the lookup had recorded -- the
+        most authoritative stage dead on every close, and the reason so many
+        exits read ``CLOSED (unknown)``. A v3 row is spelled into the v2
+        vocabulary at the boundary (``close_lookup.uta_history_row``) so the
+        reader below stays one reader.
 
         Returns (v2 field names): openAvgPrice, closeAvgPrice, pnl (gross),
         netProfit (fee-adjusted), openFee, closeFee. NOTE: the v1 endpoint used
@@ -12257,17 +12618,27 @@ class LiveExecutor:
             time_windows.append(opened_ms - 300_000)    # 5 min before open
             time_windows.append(opened_ms - 3_600_000)  # 1 hour before open
         time_windows.append(None)  # no filter
+        # WHICH family: the client's own, read off the client rather than off
+        # a probe, because it is the fact that routes every other read this
+        # executor makes through the same object.
+        uta = client_is_uta(exchange)
 
         for since_ms in time_windows:
             try:
-                params: dict = {
-                    "productType": "USDT-FUTURES",
-                    "symbol": raw_symbol,
-                }
-                if since_ms is not None:
-                    params["startTime"] = str(since_ms)
-                resp = await exchange.privateMixGetV2MixPositionHistoryPosition(params)
+                params: dict
+                if uta:
+                    params = {"category": "USDT-FUTURES", "symbol": raw_symbol}
+                    if since_ms is not None:
+                        params["startTime"] = str(since_ms)
+                    resp = await exchange.privateUtaGetV3PositionHistoryPosition(params)
+                else:
+                    params = {"productType": "USDT-FUTURES", "symbol": raw_symbol}
+                    if since_ms is not None:
+                        params["startTime"] = str(since_ms)
+                    resp = await exchange.privateMixGetV2MixPositionHistoryPosition(params)
                 entries = resp.get("data", {}).get("list", []) if isinstance(resp.get("data"), dict) else []
+                if uta:
+                    entries = [uta_history_row(e) for e in entries]
 
                 logger.debug(
                     "Position history for %s (window=%s): %d entries returned",
@@ -12408,7 +12779,10 @@ class LiveExecutor:
             except Exception as e:
                 logger.debug("Bitget position history lookup failed for %s (window=%s): %s",
                              pos.symbol, since_ms, e)
-                outcomes.append(lookup_raised("history", e))
+                # The channel rides in the WARNING (never in the class): a v3
+                # refusal and a v2 one are the same cause to a record and a
+                # different door to the operator reading the log.
+                outcomes.append(lookup_raised("history", e, "v3" if uta else ""))
         return None
 
     @staticmethod
@@ -13040,6 +13414,7 @@ class LiveExecutor:
                 _acct.gross_pnl, _acct.net_pnl, _acct.commission)
             pos.funding_usd = _acct.funding_usd
             pos.funding_in_net = _acct.funding_in_net
+            pos.fee_basis = _acct.fee_basis
         elif _entry_px is None:
             gross_pnl = net_pnl = commission = None
             self._note_entry_unread_close(pos, "live_close_25227", fill_source)
@@ -13053,6 +13428,9 @@ class LiveExecutor:
                 entry_rate_pct(getattr(pos, 'order_type', None)), exit_rate_pct(),
                 _num_or_none((close_data or {}).get("fees")),
                 str((close_data or {}).get("fees_cover", "close")))
+            pos.fee_basis = self._fee_reading(
+                _num_or_none((close_data or {}).get("fees")),
+                str((close_data or {}).get("fees_cover", "close")))[1]
             gross_pnl, commission, net_pnl = _gross, _comm, _gross - _comm
 
         pos.close_reason = reason
@@ -13065,7 +13443,9 @@ class LiveExecutor:
         # Provenance: how this close was sourced — "ticker_fallback" flags a
         # record whose exit/PnL are inferred, not exchange-authoritative, so a
         # future forensic pass can tell a fabricated record from a real fill.
-        pos.fill_source = fill_source + (ENTRY_UNREAD if entry_unread else "")
+        pos.fill_source = fill_source + entry_close_suffix(
+            pos, entry_unread=entry_unread,
+            local_pnl=(exchange_reported_pnl is None and net_pnl is not None))
 
         self._append_closed_trade(pos)
         self._save_positions()
@@ -13676,6 +14056,11 @@ class LiveExecutor:
                     "partial_tp_state": pos.partial_tp_state,
                     "adoption_unread": list(getattr(pos, "adoption_unread", ()) or ()),
                     "unprotected": bool(getattr(pos, "unprotected", False)),
+                    # WHERE THE ENTRY CAME FROM. Unsaved, a restart turned an
+                    # entry estimated from the pre-order ticker into a fill
+                    # on every surface at once. None for a path that records
+                    # no source (a limit fill), restored as absent.
+                    "entry_source": getattr(pos, "entry_source", None),
                     # When a limit entry FILLED (opened_at is when it was
                     # placed). Unsaved, a restart put every hold and time
                     # exit back on the placement clock.
@@ -14057,6 +14442,11 @@ class LiveExecutor:
             origin=item.get("origin") or "executed",
             fill_source=item.get("fill_source"),
             close_lookup=item.get("close_lookup"),
+            # A word this build does not know is kept as written: a reader
+            # compares it to the one word it counts, and an unknown word is
+            # simply not that one. Anything but a string is no basis.
+            fee_basis=(item.get("fee_basis")
+                       if isinstance(item.get("fee_basis"), str) else None),
             strategy_type=item.get("strategy_type") or "swing",
             signal_type=item.get("signal_type") or "momentum_confluence",
         )
@@ -14182,6 +14572,7 @@ class LiveExecutor:
         messages = []
         try:
             exchange = await self._get_exchange()
+            await self._probe_hold_mode_if_unknown()
 
             for pos in open_pos:
                 # ── Skip pending_fill (unfilled limit orders) ──
@@ -14372,7 +14763,10 @@ class LiveExecutor:
                             if entry_unread:
                                 self._note_entry_unread_close(
                                     pos, "reconcile_close", fill_source)
-                                fill_source = fill_source + ENTRY_UNREAD
+                            fill_source = fill_source + entry_close_suffix(
+                                pos, entry_unread=entry_unread,
+                                local_pnl=(exchange_reported_pnl is None
+                                           and pnl is not None))
 
                             pos.close_reason = reason
                             pos.status = "closed"
@@ -14403,6 +14797,7 @@ class LiveExecutor:
                                     _acct.gross_pnl, _acct.net_pnl, _acct.commission)
                                 pos.funding_usd = _acct.funding_usd
                                 pos.funding_in_net = _acct.funding_in_net
+                                pos.fee_basis = _acct.fee_basis
                                 pnl = gross_pnl
                                 logger.info("Using exchange-reported PnL for %s: %s",
                                             pos.symbol, money(net_pnl))
@@ -14427,6 +14822,9 @@ class LiveExecutor:
                                     exit_rate_pct(),
                                     _num_or_none((close_data or {}).get("fees")),
                                     str((close_data or {}).get("fees_cover", "close")))
+                                pos.fee_basis = self._fee_reading(
+                                    _num_or_none((close_data or {}).get("fees")),
+                                    str((close_data or {}).get("fees_cover", "close")))[1]
                                 gross_pnl, commission = pnl, _comm
                                 net_pnl = pnl - _comm
                             pos.gross_pnl = None if gross_pnl is None else round(gross_pnl, 4)

@@ -817,7 +817,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 693 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 688 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -7796,6 +7796,26 @@ sits under a taker round trip at the default rate (0.12%), and a rebuilt
 ladder sizes TP2 off the quantity left after TP1 rather than the entry's.
 (`tests/test_a_ladder_stage_is_neither_repeated_nor_left_half_done.py`.)
 
+**And the last of those three was driven and is RECORDED rather than changed,
+with the direction of its error as the reason.** A record written before the
+ladder was persisted (2026-09-24) whose stop already sat at breakeven is
+rebuilt with the position's CURRENT quantity as its entry quantity, so at 2.5R
+the rebuilt ladder closes 30% of the half that is left -- 15% of the entry
+where the ladder intends 30% -- and keeps a runner of 35% under a breakeven
+stop where it intends 20%. Driven, on a long of 1.0 at 100 with a 2.0 risk:
+TP2 closes 0.15 and leaves 0.35. The entry quantity is on no record for such a
+row (`LivePosition` carries one `quantity`, the current one), so every
+correction is an inference from the configured split, and the inference errs
+the OTHER way when TP1 under-filled: sizing TP2 as 60% of what is left closes
+more than the entry's 30% whenever less than half was banked, which is the
+direction the rebuild's own docstring names as the one NOT to be wrong in (a
+missed partial close keeps a position the stop still protects; a repeated one
+sells a runner twice). The population is fixed and shrinking: the rebuilt
+ladder is saved on the first pass after that build boots, so only a position
+opened before it and still open takes this path, and `partial_tp_summary`'s
+percentages over the wrong entry quantity have no reader in the tree. *Don't
+fix what cannot fire*, and do not replace a safe error with an inferred one.
+
 **A VWAP REVERSION WAS CLOSED ON ITS OWN ENTRY, AND THAT WAS MOST OF THEM.**
 The analyzer calls an idea `vwap_reversion` when its price is within 0.5% of
 VWAP (or half a VWAP band), and the smart exit read the price's distance from
@@ -11890,7 +11910,10 @@ every adopted order, so only a reclaimed fill separates them.
 
 **Filed, not changed.** An undetected hold mode (`_hedge_mode is None`, until
 the first order after a restart) is read three ways: reconcile as one-way,
-`plan_rows_to_cancel` as hedge, `_fill_by_close_side` by refusing. The exposure cap refuses
+`plan_rows_to_cancel` as hedge, `_fill_by_close_side` by refusing. (Driven
+later and changed: the three readings each err in the cheaper direction, and
+the defect was the probe caching a FAILURE as one-way; the chapter on the
+unread hold mode records it.) The exposure cap refuses
 new orders while an adopted resting limit's margin is unread (its recorded
 rule). The post-fill sync does not clear `adoption_unread`. The `*_local_pnl`
 closes estimate fees the history row stated. The paper ghost sweep has no
@@ -12582,7 +12605,10 @@ still say the record is unknown when any row was unreadable, as before.
 matches the same glob and is restored by `MultiUserPortfolio` as a per-user
 book named `state`. READ, not driven: `combined_state.json` gets a `.bak` that
 nothing reads, and a combined file that will not parse falls back to
-individual files that have not been written since the migration. And
+individual files that have not been written since the migration. (Driven
+later and changed: the chapter on the unreadable combined state records
+what the fallback restored, and that the next save then copied the
+unreadable bytes over that `.bak`.) And
 `test_backtest_validity._run_once` leaves `logging.disable(logging.WARNING)`
 set for the rest of the session, which is why a WARNING-level assertion in a
 later file (`test_audit_v7_followups::test_risk_audit_logs_leverage_and_notional`)
@@ -14411,6 +14437,481 @@ slice's own suites ran; *a boundary that is "whatever happens to be next"*
 is this file's own sentence, arriving in a pin about the card whose
 drawdown block a chapter above had already re-anchored from the other side.
 
+**THE AUDIT'S ALLOW-LIST ADMITTED THE ONE VALUE THAT CLOSES THE GATE AND
+REFUSED EVERY VALUE IN THE UNIT THE FLAG READS.** The nightly self-audit card
+the operator pasted on 2026-09-27 carried this row:
+
+    VOLATILITY_GUARD_ATR_PCT=0.03
+      tighten the volatility guard
+      🟥 measured +0.00% (-0.97pp vs baseline) · PF 0.0 · 0tr
+
+`ALLOWED_FLAGS` bounded that knob at `0.03..0.15`, a FRACTION, on a field
+`config.py` declares as `_env_float_bounded("VOLATILITY_GUARD_ATR_PCT", 7.0,
+0.1, 100.0)` and the risk engine's check #16 compares as a PERCENT
+(`atr / entry * 100 > guard`). Driven: `validate_proposals` kept `0.03` and
+DROPPED `5` as out of range, so the only values that could reach the card
+were ones that refuse every entry (0.03% of price is under any candle's
+range), and the only values it refused were the ones in the flag's own unit.
+The shipped default, 7.0, sat outside the audit's range, which is the tell
+that would have caught it on day one: a range that excludes the default is
+in the wrong unit, or always proposes a change. Every other float row passed
+both readings; this one failed both. The row is `3..15` now, covering the
+grid the frozen benchmark measured (4.5..7.0, `docs/FROZEN_BENCHMARK.md`),
+and `tests/test_the_audits_allow_list_is_in_the_units_the_flag_reads.py`
+derives the rule for every float row: the range contains the declared
+default and sits inside the config's own bounds where it declares any, read
+off the DECLARATION rather than the value in force, because the value in
+force on this box is the box's and an operator's `.env` must not fail a test
+of the allow-list. An undeclared flag is a fault, never an acquittal.
+
+**AND THE ZERO-TRADE RUN WAS PAINTED RED AS A STRATEGY THAT LOST 0.97
+POINTS.** The benchmark runner prints `Total Return: +0.00%` and `Profit
+Factor: 0.00` for a run that took no trades, the same figures a run of pure
+losses prints, and the card read them as a measurement: red icon, `-0.97pp
+vs baseline`, `PF 0.0`. There is no return over nothing deployed and no
+ratio over no trades, so a run that REPORTED zero trades is its own verdict
+now, *"REFUSED EVERY ENTRY on this dataset — 0 trades against the baseline's
+31"*, with no figure and no colour; a run with one trade is still measured.
+The harness verdict is read first, as it was: a benchmark-blind knob that
+also took no trades is NOT MEASURABLE, not refused. And the measured line
+printed `int(m.get('trades', 0))` -- an absent count as `0tr`, the shapes
+table's own row on the line that says how many trades a figure is over -- so
+an unread count prints as unread.
+
+**THE CARD NEVER SAID WHAT THE KNOB WAS AT.** The same card proposed
+`OF_MAX_SPREAD_BPS=100` under *"tighten the spread guard"*, and the guard
+is at 50: the proposal LOOSENED the knob its own sentence promised to
+tighten, and nothing on the card let the operator see it. `validate_proposals`
+already read the value in force for its no-op check and threw it away; it
+rides on the proposal now (`current`, spelled short, `on`/`off` for a bool)
+and the header prints `(in force: 50)`. Membership, then the value: a result
+from a build that recorded nothing carries no key and prints nothing, `None`
+is a read that failed and prints as unread, never as a figure.
+
+**Nineteen mutations, each killed -- and the one that survived the first
+round was the corpus, not the code.** Recording the value in force RAW
+instead of spelled changed no verdict, because the only validator fixture
+handed it the STRING `"50"` from an env dict, which a raw record and a
+spelled one agree on; a CONFIG read hands it a float and a bool, and only
+those separate the two (`50.0` -> `50`, `True` -> `on`). Both are planted
+now and the mutation dies. Two more are worth naming for what they prove
+about the guards rather than the code: the zero-trade branch moved ABOVE the
+benchmark-blind one dies on a blind knob that also took no trades, which is
+the only input where the order of two verdicts shows; and the rule's own
+three branches (the default read, the config bounds read, the undeclared
+flag) each die on a planted table, because on the real tree every row
+passes and a mutation of the RULE changes no verdict there -- the argument
+`candle_hygiene_baseline` already makes for its own two-way rule.
+(`tests/test_the_audits_allow_list_is_in_the_units_the_flag_reads.py`.)
+
+**A MARKET FILL NOBODY STATED WAS BOOKED AT THE TICKER READ BEFORE THE ORDER,
+AND EVERY SURFACE CALLED IT THE FILL.** `execute()` reads the fill price off
+the order response (`average`, else `price`), else off the fills it produced,
+else off the order read back, else off the position row read after the fill
+-- and when none of those states one, `current_price`: the ticker read BEFORE
+the order went out. Driven through the real `execute` with a Bitget-shaped
+venue (its create endpoint answers ids only, so `average`, `price` and
+`filled` parse as None), fills empty, an order read-back with no average and
+a position row with `entryPrice: None`:
+
+    pre-order ticker 4000.0   recorded entry 4000.0   card: "Fill: $4,000.00"
+    markers: none             audits: fill_fallback ESTIMATED (the QUANTITY)
+
+The one audit line was about the quantity. The price reached the record as
+a fill, the card printed it as one, the slippage tracker recorded the idea's
+distance from the ticker as slippage and the slippage guard measured the
+same nothing, and every reader downstream -- the chat prompt's row, the
+`/positions` card, the time-exit R, the close's local P&L -- took the figure
+as the venue's. A latency blip on a live fill is enough to reach it, and the
+periodic position sync corrected leverage and margin on every pass and never
+the entry.
+
+**THE SOURCE TRAVELS WITH THE FIGURE, AND ONLY THE ESTIMATE IS A MARKER.**
+`entry_source` says where a market entry came from -- `order`, `fills`,
+`fetched_order`, `venue_row`, later `venue_sync` -- and `ENTRY_ESTIMATED`
+(`pre_order_ticker`) is the one value readers act on; the rest are
+provenance, so a stated fill is never overwritten by a later average that
+can legitimately differ from it (a pyramid add moves the venue's average).
+The estimate is SAID: `_note_entry_estimated` writes a WARNING, an
+`ESTIMATED` audit row naming the four reads that stated nothing, and a
+warning-rate event, the way an unread entry at close is said; the card
+prints `Fill: ~$4,000.0000 ESTIMATED from the pre-order ticker -- the venue
+stated no fill price`; the chat prompt's row tells the model to treat the
+entry, its R and its P&L as approximate; the web row carries a THREE-valued
+flag (an older record or a limit fill recorded no source, and None is not
+False). The slippage record and guard are skipped for it -- the "fill" is
+the ticker the idea was priced from, so the comparison would measure
+nothing and a flatten on it would act on a slippage nobody read. It is
+saved and restored (a marker that is not persisted is a marker for one
+process lifetime), and the drift fallback's market order takes the same
+reading. A close whose P&L was computed LOCALLY off an estimate carries
+`+entry_estimated` in its `fill_source`, the `ENTRY_UNREAD` shape: a
+venue-priced close carries nothing, because the venue knows the entry even
+when this record only estimated it.
+
+**THE SYNC CORRECTS IT FROM THE VENUE'S OWN FIGURE, and only an estimate.**
+The periodic position sync already reads the v3 row that carries `avgPrice`
+(the venue's average entry) beside the leverage it trues up; a position
+marked estimated takes that figure, recomputes its margin at the synced
+leverage, audits `entry_sync: UPDATED` with both prices, and reads as
+`venue_sync` from then on -- the way `clear_unread` hands an unread leverage
+back. A row stating no usable average (blank, `0`, junk, negative, NaN)
+corrects nothing, and `venue_avg_price` reads the three spellings the venues
+use. The trailing state's 1R was computed off the estimate and is left
+alone, stated rather than hidden: the error is bounded by the spread the
+entry gate admitted, and moving a ladder's risk unit after the fact is a
+decision about the ladder. The limit-fill paths are left as they were for a
+reason: a limit fills at its price or better, so recording the limit price
+is a bound the venue accepted rather than an estimate, and those paths
+record no source. The honesty ratchet counted the fix as an improvement
+(`get-default-zero` in the executor 37 -> 35) and was re-recorded.
+
+**Twenty-four mutations, each killed -- and the one the driver REFUSED on the
+first round was its own anchor.** "The source is not saved" spelled the open
+row's `entry_source` line followed by the dict's closing brace, and the row
+this build writes carries the fill time below it, so the anchor matched zero
+times; a driver that took that for a kill would have reported coverage of the
+persisted row it never touched. Re-aimed on the row's own next comment, it
+dies on the save-and-restore drive. The rest die where the drives say: the
+ticker booked as an order price, each of the three stated sources left
+carrying the ticker's word, the source never written onto the position, the
+estimate not said, the slippage tracker and the slippage guard measuring the
+ticker against the idea, the card printing the estimate as a fill or never
+told, the source not restored, the sync correcting every entry or none or
+leaving the estimate marked or keeping the old margin, a zero average read as
+a price, the close suffix written for a venue-priced close or a stated entry,
+the bot's own close dropping it, the drift fallback booking the ticker as an
+order price or printing it as a fill, the chat row saying nothing, and the web
+row's flag collapsed to two values.
+
+**A HOLD-MODE PROBE THAT FAILED WAS CACHED AS "ONE-WAY" FOR THE LIFE OF THE
+PROCESS, AND NOTHING PROBED AFTER A RESTART UNTIL THE FIRST ORDER.** The note
+above filed the three readers of an unknown mode as disagreeing. Driven, the
+disagreement is the safe half: with `_hedge_mode` None the plan cleanup before
+a re-place keeps every row it cannot place, the close-side fill reader refuses
+an unmarked fill, and reconcile reads every row on the symbol and keeps the
+position -- each the cheaper mistake. The defect was one line above them.
+`_detect_hold_mode` answered every failure with `self._hedge_mode = False`: the
+v2 probe raising anything but 40085 (a network blip, at DEBUG), the v3 probe
+raising, a v3 answer with a code that was not 00000 -- and the field's own
+comment calls it *"cached after first detection"*, so a blip on the first
+order after a restart labelled a hedge account one-way for good. One-way is
+the reading the two readers above take as LICENCE: the cleanup sweeps BOTH
+sides' stops on a one-way account (the plan-cleanup chapter's own defect,
+reachable again through a failed read), and an unmarked close-side fill is
+priced as a close. A failed read rendered as the most permissive measurement,
+on the account topology every exit order is spelled against.
+
+**And the probe ran only inside `_ensure_leverage`, on the first ORDER.** A
+bot that restarted holding positions and placed nothing -- halted, paused, or
+with every idea refused -- monitored and reconciled them on an unread mode for
+the whole process lifetime -- the fill-clock chapter's "a restart put every
+hold and time exit back on the placement clock", one reading over. Both loops
+ask at the top of every pass now (`_probe_hold_mode_if_unknown`): one venue
+read the first time, one every five minutes after a failure
+(`HOLD_MODE_RETRY_S`), a field test once the mode is known, and a venue with
+no hedge topology is one-way by construction, which is a measurement rather
+than a default. A failed probe leaves `None`, says so ONCE per unread streak
+at WARNING with the exception's CLASS and never its text (a venue rejection
+can echo the request into the operator log), audits `hold_mode: UNREAD`, and
+counts ONCE on the warning-rate feed; a probe that answers ends the streak, so
+a later failure is a new one. The message says in as many words that it is
+not a mismatch and not an all-clear, the sentence the unread margin mode
+already carries one probe over.
+
+**The spacing and the once-per-streak count are the difference between a
+diagnostic and a halt, and the first draft had neither.** It counted every
+failed probe on the warning-rate feed and both loops probed every pass, and
+the warning-rate breaker trips on more than five of one key per hour with
+both loops running every minute: an account whose probe keeps failing -- a
+settings endpoint it cannot reach -- would have been HALTED within three
+minutes by its own diagnostic, on a topology reading every reader already
+handles safely and that changes nothing about what an order sends. Found by
+reading `record_warning` before the push rather than by any suite, because
+no fixture ran the loops for an hour. The stamp is taken BEFORE the probe, so
+a probe that raises is spaced like one that answered nothing, and it starts
+as `None` rather than `0.0`, the monotonic-near-zero trap the balance cache
+records. The order path stays unspaced: an order is rare and is the one
+moment the answer changes what is sent.
+(`tests/test_an_unread_hold_mode_is_not_one_way.py`.)
+
+**Seventeen mutations, each killed, none refused.** Four are worth naming
+for what they prove about the guards rather than the code: each of the three
+failure branches put back on `False` dies on a drive whose probe raises with
+a planted secret in its text, so the same drive is what pins that the
+exception's CLASS and not its words reach the log and the audit; the probe
+removed from either loop dies on a drive through the real `check_positions`
+or `reconcile_positions` with a present venue row, because a scan of the
+helper cannot see whether a loop asks; the `except` around the loop probe
+narrowed dies on a `_get_exchange` that raises, the one input that separates
+a failed read from a crashed pass; and the stamp moved AFTER the probe dies
+only on that same raising exchange driven twice inside the interval, because
+a probe that answers nothing and one that raises are spaced alike only if
+the stamp precedes both.
+
+**A COMBINED STATE FILE THAT COULD NOT BE READ BOOTED THE BREAKER CLOSED, FROM
+FILES NOBODY HAD WRITTEN SINCE THE MIGRATION.** `combined_state.json` is the
+only current record of the operator's breaker: every save since C2-34 funnels
+through `_save_combined_state`, so the individual files each component loads
+in `__init__` are frozen at the migration moment. `_wire_combined_state_saver`
+caught every failure around the whole load with *"Combined state corrupt,
+using individual files"* and went on -- and "using" them restored whatever the
+breaker read weeks ago, closed as often as not, over a combined file whose
+last good write may have held a trip. Driven through the real loader on a
+real `RiskEngine`: a file that will not parse, an EMPTY file (with no log line
+at all) and a portfolio block that would not load beside a risk block saying
+HALTED each booted with the breaker CLOSED. `RiskEngine._load_state` fails its
+own corrupt file closed and says so in its docstring; the combined file's
+reader had the opposite rule for the same state one file over, which is the
+`_load_from_state_dict` chapter's finding arriving one frame out.
+
+**And the next save destroyed the evidence twice.** `_save_combined_state`
+copies the current file over the `.bak` before every write, so the first save
+after such a boot replaced the one backup that held the last good state with
+the unreadable bytes, and then wrote memory over the file itself. The file is
+MOVED ASIDE first now (`combined_state.json.corrupt`, the first rescue only,
+the rule `_fail_closed_restore` already keeps for the individual file), and
+the risk engine fails closed with that function's own sentence, told not to
+touch its own file: the damaged one is the engine's, and rescuing
+`risk_state.json` would preserve a file that read perfectly well and label it
+as the evidence. The two blocks are read INDEPENDENTLY, because one `try`
+around both meant the paper book's own refusal (`ValueError` on a block with
+no balance) cost the risk block its read; a combined file with no risk block
+at all is an unread risk state, since every file this saver writes carries
+one. The exception's CLASS travels and never its text, and the operator is
+told at ERROR that the paper book is whatever the legacy file or a fresh start
+left. A missing file is still a fresh start: nothing in it can be lost.
+
+**Thirteen mutations, each killed -- and the three that survived the first
+round were the driver's and the corpus's, never the code's.** The "no risk
+block" mutation inserted a `pass` ABOVE the call it meant to remove, a no-op
+that proves nothing about the guard; re-aimed to delete the call, it dies.
+The other two were drives the prose had described and the corpus had not
+planted: the exception's text reaching the log survived because no fixture's
+exception carried text worth keeping out (a JSON error names a column, and an
+`IsADirectoryError` names the class), so a read that raises with a planted
+secret and a path is in the corpus now; and the risk engine rescuing its own
+file survived because no fixture HAD an individual file to rescue, so one is
+written first and required to stay where it is.
+(`tests/test_an_unreadable_combined_state_fails_closed.py`.)
+
+**THE ONE RAW CALL IN THE EXECUTOR SPOKE THE CLASSIC API TO A UNIFIED
+ACCOUNT, AND THE MOST AUTHORITATIVE CLOSE READ WAS DEAD ON EVERY CLOSE.** The
+2026-09-28 weekly parity card read `182 of 211 strategy exits are
+ticker-priced` and, under it, `why the venue lookup priced none of them:
+unrecorded ×179 · history raised ExchangeError ×3` -- every close the lookup
+had recorded since it learned to say why, refused at its first stage by one
+class. `venues.py` builds the Bitget client with `options["uta"] = True`, and
+driven on the pinned ccxt with the transport stubbed, every ccxt read the
+lookup makes through that object goes to the `/api/v3` family
+(`fetch_my_trades` to `v3/trade/fills`, `fetch_closed_orders` to
+`v3/trade/history-orders`), while `_close_from_history` called
+`privateMixGetV2MixPositionHistoryPosition` directly: the classic
+`v2/mix/position/history-position`, which a unified account refuses with a
+code the pinned ccxt leaves unmapped (40085 is the one the executor already
+reads as "this is a unified account" on the classic account endpoint), so it
+surfaced as the bare `ExchangeError`. The funding chapter above says in as
+many words that *"the call this bot makes is the CLASSIC v2 endpoint"* and
+reads the UTA twins' semantics off the vendored docs; nobody asked whether the
+classic endpoint answered at all. It is also why 107 of the 211 exits read
+`CLOSED (unknown)`: the row that carries the venue's own close price, net,
+fees and funding was never read, and a price the fills stage found was
+matched to nothing the venue named.
+
+**The family is the CLIENT's, read off the client.** `close_lookup.
+client_is_uta` reads `options["uta"]` off the object in hand -- the fact that
+routes every other read -- and never a probe; a stand-in whose options are not
+a dict is the classic client it always was, because an `AsyncMock` answers a
+truthy Mock for every attribute, and the first draft would have re-routed
+every existing fixture to v3. On a unified client the stage asks
+`GET /api/v3/position/history-position?category=USDT-FUTURES&symbol=BTCUSDT`
+over the same three windows, and the row is spelled into the v2 vocabulary at
+the boundary (`uta_history_row`: `openPriceAvg`, `cumRealisedPnl`,
+`openFeeTotal`/`closeFeeTotal`, `posSide`, `createdTime`/`updatedTime` under
+the names the reader knows) so the matcher, the reader and `funding_on_row`
+stay one reader. `funding_on_row`'s own comment had named those fee spellings
+as the ones it could not place, and driven on the docs' row with a funding
+figure that is not zero, the spelled row places it (`48.5 == 50 - 0.27 -
+1.23`, NET_INCLUDES) where the raw one is UNPLACED. A v3 row carries no
+`closeType` and no leverage, so the reason is inferred from the exit and the
+leverage is absent, which is what the reader already does for a v2 row missing
+either. The channel rides in the WARNING (`history: raised ExchangeError
+(v3)`) and never in the class, because a class is a cause a record carries and
+the channel is which door refused; the v2 spelling on every existing record
+is byte-identical.
+
+**AND THE BOT'S OWN CLOSE THREW THE VENUE'S MATCHED PRICE AWAY OVER A
+SECONDARY FIELD, AT THE LOOKUP'S OWN CALLER.** `_close_position_inner` asks
+the same lookup for the P&L and took its find only `if
+pos_hist_data.get("pnl") is not None`. The lookup was cured of exactly that
+shape -- *"a matched fill's PRICE was thrown away over a SECONDARY field"* --
+and answers `pnl: None` beside a real `close_price` for a fill whose profit
+Bitget left at "0", which the DOT card shows is the ordinary case. The caller
+then took nothing: the ticker read BEFORE the lookup ran stayed on the record
+as `ticker_after_bot_close`, with no cause, because the lookup HAD priced it.
+Driven through the real `close_position` with the close order's fill unread,
+the record held the ticker (96) where the fills stage had the venue's 95, and
+`close_lookup` None, which is a row the parity card counts as `unrecorded`.
+The venue's price wins over a ticker or an unread fill now, under the stage's
+own source word (a fills-stage find used to be booked as
+`bitget_position_history` whatever stage found it), and its stated fee travels
+with what it COVERS: a history row states the round trip, a fill its own leg,
+and the close order's own fill, read after, takes both the fee and the cover
+back to the close leg, or a 0.2 close fee would be charged as a whole round
+trip. A fill price the close order itself confirmed is left alone, as the more
+direct reading.
+
+**A row with no cause on record is not a reason, and the card printed it as
+the heaviest one.** `unrecorded ×179` sat under "why the venue lookup priced
+none of them", the row with the most weight on the line and the one that
+names no endpoint, no matching defect and nothing to fix; the digest called it
+"most often". `split_causes` is the one reading: the card says `...; 179 carry
+no cause on record (closed before the lookup said why)` after the named
+causes, and the digest names the most common NAMED cause. And each abort
+guard's latest firing is dated on the aborts line (`leverage_overshoot 18
+(latest 2026-09-27)`), read off the rows' own `closed_at` and absent for a
+guard whose rows carry none, so a count of 18 can be read as the 2026-09-15
+incident on record or as a guard still firing. Which of those it is on the
+live box is not measurable from here; the date is what answers it.
+
+**What is stated rather than fixed.** Whether the venue answers the v3
+endpoint for THIS account's permission set is the venue's to say; a refusal
+there reads as `history raised <Class> (v3)` in the log, and the fills and
+orders stages beside it are unchanged. `unrecorded` on the live record is two
+populations the card cannot tell apart -- rows from before the lookup said
+why, and own-close rows this branch just closed -- and both stop growing from
+here; nothing rewrites a row already booked.
+
+**Twenty-eight mutations, each killed on the first round, none refused.**
+Three are worth naming for what they prove about the guards rather than the
+code. A stand-in's options read like a dict (`getattr(opts, "get")`) dies on
+the leaf test and on every classic fixture in the older suites at once: an
+`AsyncMock` answers a truthy Mock for `options.get("uta")`, so every v2 stub
+would go unasked while the v3 method was called on a mock that had never been
+planted. The own close overriding a fill the close order itself confirmed
+passes every assertion about a ticker-priced close and dies only on the
+"left alone" drive, which is the asymmetric fixture that separates *beats a
+ticker* from *beats everything*. And the close order's own fill not taking
+the fee cover back to the close leg was a corpus gap found by PLANNING the
+round: every own-close fixture answered no fills, so a round trip stated by
+the history row could never meet a close-leg fee stated after it; the drive
+was written before the round ran, and the mutation dies on it.
+> **And the accuracy suite refused the head this slice was built on, for two
+> citations the remap had carried faithfully to the wrong line.** The map's
+> entry-order sentence (`live_executor.py:6127 creates the entry order
+> idempotently`) and its three `productType` citations were 28 and 8 lines
+> short of what they name at f9314dc5, and green one commit earlier: the
+> hold-mode slice's cadence fixup added lines above both after that slice's
+> remap had run, and a remap run before the last edit is a remap of a tree
+> nobody committed. `test_claude_md_accuracy` derives both from the code, so
+> it said so on the first run here; every other citation into the five files
+> this branch touches reads the content it read at the last green base. The
+> preflight running on that head was stopped by PID rather than waited out,
+> because a test gate that will fail on a known cause is forty minutes of
+> nothing measured.
+
+(`tests/test_the_history_stage_speaks_the_clients_api_family.py`.)
+
+**THE "REALIZED" FEE RATE WAS THE BOT'S OWN CONFIGURED ESTIMATE, COMPARED
+WITH THE MODEL AND CALLED BETTER THAN IT.** The same 2026-09-28 parity card
+read *"Fees: realized 0.093%/round-trip vs modeled 0.200% → 0.46× (better
+than model); $63.98 total = 25% of gross profit"*, four lines under *"182 of
+211 strategy exits are ticker-priced"*. A ticker-priced close carries no
+venue fee: its commission is `_local_close_commission` at the CONFIGURED
+rates, the entry leg at `entry_rate_pct` (the maker rate on a limit entry,
+the taker rate on a market one) and the close leg at `exit_rate_pct`. The
+"modeled" rate is `2 × COMMISSION_PCT`, a third configured figure. So the
+card compared two of the bot's own settings with each other on 182 of 211
+rows, and the verdict read "better than model" because the executor's fee
+table (0.02 + 0.06, or 0.06 + 0.06) is lower than the card's modeled
+constant (2 × 0.1 on the live box). `parity._fees` counted any numeric
+`commission` as a fee record, which was the right cure for the defect its
+own docstring records (a None read as a free trade); it left nothing on the
+row saying what the commission was MADE OF, so a record 86% estimate read as
+a complete measurement and the ratio printed with a verdict. Driven over a
+record shaped like the card's -- 182 closes at the executor's own rates (120
+limit entries at 0.08%, 62 market entries at 0.12%) and 29 venue-stated
+closes at 0.093% -- the old reading printed *realized 0.094%/round-trip …
+0.47× (better than model)* over all 211, and the new one prints its ratio
+over the 29 and says beside it that 182 of the recorded commissions are at
+the configured rates.
+
+**THE RECORD SAYS WHICH FEES THE VENUE STATED, IN THREE WORDS.** `fee_basis`
+on every closed row: `venue` (a position-history row stated both legs),
+`close_leg` (a fill or the close order stated its own leg; the entry leg is
+estimated beside it), `estimated` (both legs at the configured rates), and
+None on a row a build before this reading wrote, or on a close nobody
+priced. `_fee_reading` is the ONE predicate: the commission arithmetic and
+the basis the record carries both ask it, proved by planting a reading no
+honest input produces and watching the arithmetic follow it, because a
+byte-identical second copy agrees with every fixture. `CloseAccounting`
+carries it for the venue-priced branch (a venue net with no fee stated
+carries None, not `venue`: the net is the venue's and the commission is a
+0.0 the row did not state), and all six sites that book a close stamp it: the
+bot's own close, a close found already done and reconcile, each on its
+venue-priced and its locally-priced branch. The row writes it and the loader
+reads it back as a word or nothing; a word this build does not know is kept
+as written, because a reader compares it to the one word it counts.
+
+**PARITY READS THE RATE OVER THE VENUE'S ROWS AND NAMES THEM.** The realized
+rate is over `venue` rows only; the verdict needs `MIN_FEE_SAMPLE` (ten, the
+floor the card's other verdicts use) of them, and is withheld by name under
+it; the sentence says *on the N of M closes whose round trip the venue
+stated*; and the recorded total rides beside it with what it is made of (*3
+at the configured rates; 2 with the close leg stated and the entry leg
+estimated; 1 from before the record said*), printed only where it bites,
+because a record the venue stated in full has nothing to caveat. A record
+with commissions and no stated close says the venue stated a round trip on
+none of them, which is a different sentence from no fee record at all. The
+weekly digest's withheld clause names the stated sample, the dashboard's
+note beside a dashed tile does the same and keeps the older bot's sentence
+for a payload that sends no such count, and the web section carries the
+count (a count, on a public route).
+
+**THREE FIXTURES CARRIED NO BASIS, SO EVERY FEE IN THE CORPUS HAD BEEN A
+STATED ONE BY DEFAULT.** The `_t` builders in `test_parity_report.py`,
+`test_parity_unread_is_not_zero.py` and the card suite wrote a commission
+and nothing about where it came from, and eight pins went red on the new
+contract at once. Each builder says `fee_basis="venue"` now, because that is
+what those rows had always meant, and the verdict fixtures hold ten rows.
+Twelve venue-stated rows beside two estimated ones is the input that
+separates *the rate is over the stated rows* from *the rate is over every
+recorded commission*; twenty rows whose commission IS the configured rate is
+the one that shows the old reading answering 1.00× "matches model" with the
+model agreeing with itself.
+
+**The honesty ratchet caught the sentence written to say what a fee is made
+of.** `fee_line`'s first draft read its three counts as
+`int(s.get("fees_stated") or 0)`: an absent count as a count of zero, in the
+function whose subject is that an estimate is not a measurement. Every count
+is on the summary this build writes, so they are read as such, and the
+ratchet IMPROVED by two (690 → 688) and was re-recorded in the same commit.
+
+**Thirty-two mutations, each killed on the first round, none refused — and
+one fixture was added by PLANNING the round.** The bot's own close reads the
+close order's fills after the lookup, and a fill's fee REPLACES a round trip
+the history stage had stated for the local price (the more direct reading of
+the close leg). Dropping the cover reset beside that replacement would have
+recorded a close-leg fee as a venue-stated round trip, and no drive in the
+suite held both a priced history row and a fill with a fee; one does now, and
+the mutation dies on the basis and on the commission both.
+
+> **And the previous slice's preflight was killed by PID and kept running.**
+> The f9314dc5 run had to go (the accuracy suite would have refused it), so
+> the launcher wrapper and the test gate's children were killed by PID, as
+> this file says to. `scripts/preflight.py` itself was not among them: it
+> outlived its test gate, ran the node gates, and wrote *"✗ Lint + tests …
+> 1 gate(s) failed."* into the log the NEXT run had already truncated, at its
+> own file offset, so that file now ENDS with a dead run's verdict under a
+> live run's output. And the first attempt to find it, `pkill -f
+> "wt_pf.*ci_test_gate"`, matched the shell it was typed in and killed it
+> (exit 144) — `verify_bot_alive.sh`'s recorded trap, in the dev loop, for
+> the second time in this file. Kill the preflight process itself, by PID,
+> and judge a log by the summary its own run printed rather than by its last
+> line.
+(`tests/test_the_realized_fee_rate_is_the_venues.py`,
+`app/test/parity_fee_note_names_the_stated_sample.test.js`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -15702,9 +16203,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **450 of 1134** reach for source text through `source_scan`, `code_only`
+Driven, **451 of 1140** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 450 is a FLOOR and the honest shape is
+source scan that rule does not see, so 451 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

@@ -72,7 +72,19 @@ ALLOWED_FLAGS: dict[str, dict[str, Any]] = {
     "TREND_UP_SIZE_MULT": {"type": "float", "min": 0.3, "max": 1.2},
     "LIVE_PERF_REDUCE_WINRATE": {"type": "float", "min": 0.25, "max": 0.55},
     "LIVE_PERF_REDUCE_MULT": {"type": "float", "min": 0.25, "max": 0.75},
-    "VOLATILITY_GUARD_ATR_PCT": {"type": "float", "min": 0.03, "max": 0.15},
+    # PERCENT of price, the unit `config.py` declares
+    # (`_env_float_bounded("VOLATILITY_GUARD_ATR_PCT", 7.0, 0.1, 100.0)`) and
+    # the risk engine's check #16 compares (`atr / entry * 100 > guard`). This
+    # row read `0.03..0.15` -- a FRACTION -- so on 2026-09-27 the model's
+    # `0.03` passed validation, the benchmark run refused every entry (0.03%
+    # of price is under any candle's range), and the card painted the
+    # zero-trade run red as "measured +0.00% (-0.97pp)"; a proposal of `5`,
+    # in the unit the flag reads, would have been DROPPED as out of range.
+    # The shipped default sits inside this range and the range inside the
+    # config's own bounds, and a test derives both for every float row.
+    # 3..15 covers the grid the frozen benchmark measured (4.5..7.0, see
+    # docs/FROZEN_BENCHMARK.md) with room above; the meme floor is 10.
+    "VOLATILITY_GUARD_ATR_PCT": {"type": "float", "min": 3, "max": 15},
     "SYMBOL_LOSS_STREAK_THRESHOLD": {"type": "float", "min": 2, "max": 6},
     # Liquidity-guard knobs (order_flow): the audit found these measured
     # nightly but untunable by the self-audit. The executor's spread ceiling
@@ -212,6 +224,32 @@ def _same_value(current: Any, norm: str, kind: str) -> bool:
         return False
 
 
+def _current_text(cur: Any) -> Optional[str]:
+    """The value in force, spelled for the card: ``None`` stays ``None`` (a
+    read that failed prints as unread), a bool is ``on``/``off``, a figure is
+    its shortest spelling (``50.0`` -> ``50``), anything else is its text."""
+    if cur is None:
+        return None
+    if isinstance(cur, bool):
+        return "on" if cur else "off"
+    try:
+        return f"{float(cur):g}"
+    except (TypeError, ValueError):
+        return str(cur)
+
+
+def _zero_trades(measured: dict) -> bool:
+    """True only for a run that REPORTED a trade count of zero. An absent
+    count is unread, not zero, and is not this."""
+    t = measured.get("trades")
+    if t is None:
+        return False
+    try:
+        return int(t) == 0
+    except (TypeError, ValueError):
+        return False
+
+
 def validate_proposals(raw: Optional[list], current_env: Optional[dict] = None,
                        max_proposals: int = 2) -> list[dict]:
     """Filter LLM proposals to allowlisted flags with in-bounds values.
@@ -263,8 +301,15 @@ def validate_proposals(raw: Optional[list], current_env: Optional[dict] = None,
             if cur is not None and _same_value(cur, norm, spec["type"]):
                 continue  # no-op
             seen.add(flag)
+            # THE VALUE IN FORCE TRAVELS WITH THE PROPOSAL. The card used to
+            # print `OF_MAX_SPREAD_BPS=100` under a rationale reading
+            # "tighten the spread guard", and nothing on it said the guard
+            # was at 50: the operator could not see that the proposal
+            # LOOSENED the knob its own sentence promised to tighten. `None`
+            # is a read that failed and prints as unread, never as a figure.
             out.append({"flag": flag, "value": norm,
-                        "rationale": str(p.get("rationale", ""))[:240]})
+                        "rationale": str(p.get("rationale", ""))[:240],
+                        "current": _current_text(cur)})
             if len(out) >= max_proposals:
                 break
         except Exception:
@@ -1185,13 +1230,35 @@ class SelfAudit:
                            "condition the change binds on. A different "
                            "dataset or window may; that is not evidence the "
                            "change is neutral in live.")
+            elif _zero_trades(m):
+                # A RUN THAT TOOK NO TRADES IS NOT A MEASURED RETURN. The
+                # runner prints `Total Return: +0.00%` and `Profit Factor:
+                # 0.00` for it -- the same 0 a run of pure losses prints --
+                # and on 2026-09-27 the card painted that red as "measured
+                # +0.00% (-0.97pp vs baseline) · PF 0.0 · 0tr": a guard set
+                # so tight it refused every entry, reported as a strategy
+                # that lost 0.97 points. There is no return over nothing
+                # deployed and no ratio over no trades, so neither is
+                # printed and the icon claims no direction.
+                verdict = ("⬜ REFUSED EVERY ENTRY on this dataset — 0 trades "
+                           + (f"against the baseline's {int(baseline['trades'])}"
+                              if baseline.get("trades") is not None
+                              else "where the baseline took some")
+                           + ", so there is no return or PF to compare. A "
+                           "setting that closes the gate is not a tuning of it.")
             else:
                 delta = ret - base_ret
                 icon = "\U0001f7e9" if delta > 0 else (
                     "\U0001f7e5" if delta < 0 else "⬜")
+                # An ABSENT trade count is "unread", never `0tr`: the parser
+                # answers no key for a line it did not find, and a zero it
+                # never read is the shapes table's own row.
+                _t = m.get("trades")
                 verdict = (f"{icon} measured {ret:+.2f}% "
                            f"({delta:+.2f}pp vs baseline) · "
-                           f"PF {m.get('pf', '?')} · {int(m.get('trades', 0))}tr")
+                           f"PF {m.get('pf', '?')} · "
+                           + (f"{int(_t)}tr" if _t is not None
+                              else "trades unread"))
             # BETWEEN THE VERDICT AND THE INSTRUCTION, because it is
             # evidence and `Apply:` is what the reader does with it. The
             # benchmark verdict above answers "did this DATASET reach the
@@ -1202,7 +1269,12 @@ class SelfAudit:
             # readers learn to skip.
             bind = proposal_binding(r.get("flag", ""), r.get("value"),
                                     evidence.get("governor_inputs"))
-            lines.append(f"\n<b>{r['flag']}={r['value']}</b>\n"
+            # Membership, then the value: a result written by a build that
+            # did not record the value in force carries no key and prints
+            # nothing; `None` is a read that failed and says so.
+            _cur = (f" (in force: {r['current']})" if r.get("current") is not None
+                    else (" (in force: unread)" if "current" in r else ""))
+            lines.append(f"\n<b>{r['flag']}={r['value']}</b>{_cur}\n"
                          f"  {r['rationale']}\n"
                          f"  {verdict}\n"
                          + (f"  {bind}\n" if bind else "")

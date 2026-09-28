@@ -492,8 +492,13 @@ class TestTheRecordCarriesTheCause:
                                          "fills unmatched": 2, UNRECORDED: 1}
         card = parity.format_report(s)
         assert "7 of 13 strategy exits are ticker-priced (fill_source=ticker_*" in card
+        # A row with no cause on record is not a reason the lookup priced
+        # nothing, so it is counted APART from the causes rather than listed
+        # among them (the 2026-09-28 card read "unrecorded ×179" as the
+        # heaviest row under "why").
         assert ("why the venue lookup priced none of them: history raised NetworkError ×4 · "
-                "fills unmatched ×2 · unrecorded ×1") in card
+                "fills unmatched ×2; 1 carry no cause on record") in card
+        assert "unrecorded ×" not in card
 
     def test_no_cause_line_over_a_record_with_no_ticker_priced_row(self):
         rows = [r for r in self._rows() if not is_ticker_priced(r["fill_source"])]
@@ -518,5 +523,5 @@ class TestTheRecordCarriesTheCause:
         alerts = pm.ProactiveMonitor(NS(live_executor=NS(_closed_trades_file=str(f))))._check_parity_digest()
         body = alerts[0].body
         assert "⚠ 7 of 13 strategy exits are ticker-priced" in body
-        assert "(most often: history raised &lt;Fake&gt;Error ×4)" in body
+        assert "(most often: history raised &lt;Fake&gt;Error ×4; 1 carry no cause on record)" in body
         assert "<Fake>" not in body

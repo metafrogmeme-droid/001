@@ -1117,10 +1117,13 @@ class ProactiveMonitor:
                 if (fee_x is not None and fee_x > 1.5) else ""
             # Two decimals: the full card prints 0.46×, and a digest that
             # rounded the same reading to "0.5×" was a second answer.
+            # The ratio is read over the closes whose round trip the VENUE
+            # stated; withheld, the clause says how many those were, which is
+            # the reason and not a count of closes carrying some commission.
             fee_clause = (f"(<code>{fee_x:.2f}×</code> the modeled rate)" if fee_x is not None
-                          else f"(fee record on {int(s.get('fees_read') or 0)} of "
-                               f"{s['trades']} closes — ratio withheld)")
-            from bot.backtest.parity import _pf_str, aborts_line
+                          else f"(round trip stated by the venue on {s['fees_stated']} "
+                               f"of {s['trades']} closes — ratio withheld)")
+            from bot.backtest.parity import _pf_str, aborts_line, cause_clause
             v = s.get("verdict") or {}
             # The digest carries what the full card carries: the aborts kept
             # apart, the ticker-priced share (a net printed as measured over a
@@ -1133,13 +1136,15 @@ class ProactiveMonitor:
                 extra += (f"\n⚠ {s['inferred_fills']} of {s['trades']} strategy exits are "
                           f"ticker-priced — their PnL is approximate")
                 causes = v.get("inferred_causes") or {}
-                if causes:
-                    # The most common cause, so the digest says what to fix
-                    # and not only how much is approximate. Escaped: the
-                    # cause carries an exception class name read off a venue
-                    # driver, which is text this process did not write.
-                    top, n_top = next(iter(causes.items()))
-                    extra += f" (most often: {_html.escape(str(top))} ×{n_top})"
+                clause = cause_clause(causes) if causes else ""
+                if clause:
+                    # The most common NAMED cause, so the digest says what to
+                    # fix and not only how much is approximate; a row with
+                    # no cause on record is counted apart, never named as
+                    # the thing to fix. Escaped: a cause carries an exception
+                    # class name read off a venue driver, which is text this
+                    # process did not write.
+                    extra += f" ({_html.escape(clause)})"
             if v.get("edge_sentence"):
                 extra += (f"\nVerdict: {_html.escape(v['edge_sentence'])}; "
                           f"{_html.escape(v.get('ballpark_sentence', ''))}")
