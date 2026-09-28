@@ -735,14 +735,22 @@ class EngineOpsCommands:
     async def _cmd_leverage(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/leverage — the standard leverage, runtime-adjustable (admin).
 
-        ``/leverage`` shows the standard and where it comes from;
-        ``/leverage set <n>`` overrides it at runtime (clamped 1-20x, applies
-        to every NEW position on every venue); ``/leverage reset`` returns to
-        the configured default. Open positions keep the leverage they were
+        ``/leverage`` shows the standard, where it comes from and the
+        MAX_LEVERAGE ceiling; ``/leverage set <n>`` overrides it at runtime
+        (clamped 1-20x, and never above the ceiling; applies to every NEW
+        position on every venue); ``/leverage reset`` returns to the
+        configured default. Open positions keep the leverage they were
         opened with — the exchange cannot change it under an open position.
+
+        Every figure here is `operator_standard`, the reading the executor
+        places at: the card used to print the override as the standard while
+        `MAX_LEVERAGE` sat in the config unread, so `/leverage set 20` under a
+        ceiling of 10 was shown as 20x and set on the venue as 20x.
         """
         from bot.config import CONFIG as _CFG, RUNTIME as _RT
+        from bot.core.leverage import leverage_ceiling, operator_standard
         args = [a.lower() for a in (ctx.args or [])]
+        _top = min(_RT.LEVERAGE_OVERRIDE_MAX, leverage_ceiling(_CFG.exchange))
         # NB3: a non-admin BYOK user manages their OWN standard leverage
         # (reduce-only vs the operator default); the GLOBAL standard stays
         # admin-only. A user setting/resetting only touches their per-user pref.
@@ -770,9 +778,10 @@ class EngineOpsCommands:
                         _ex._user_leverage_pref = None
                 except Exception:
                     pass
+                _std = operator_standard(_CFG.exchange, _RT.leverage_override)
                 await self._reply(update,
                     "⚙️ Your leverage preference is cleared — back to the "
-                    f"operator standard (<b>{_CFG.exchange.default_leverage}x</b>).")
+                    f"operator standard (<b>{_std.leverage}x</b>).")
                 return
             if args[:1] == ["set"] and len(args) >= 2:
                 try:
@@ -801,9 +810,14 @@ class EngineOpsCommands:
                         _ex._user_leverage_pref = _stored
                 except Exception:
                     pass
-                _eff = resolve_user_leverage(_stored, _CFG.exchange.default_leverage)
+                # The cap a preference is measured against is the standard the
+                # executor places at -- override or default, under the ceiling
+                # -- which is what `_standard_leverage` hands
+                # `resolve_user_leverage` on every order.
+                _std = operator_standard(_CFG.exchange, _RT.leverage_override)
+                _eff = resolve_user_leverage(_stored, _std.leverage)
                 _note = "" if _eff == _stored else \
-                    f" (capped at the operator {_CFG.exchange.default_leverage}x)"
+                    f" (capped at the operator {_std.leverage}x)"
                 await self._reply(update,
                     f"⚙️ Your standard leverage is now <b>{_eff}x</b>{_note}.\n"
                     "Applies to your NEW live positions; open positions keep "
@@ -815,31 +829,44 @@ class EngineOpsCommands:
             try:
                 val = int(float(args[1].rstrip("x")))
             except ValueError:
-                await self._reply(update, "Usage: /leverage set <1-20>")
+                await self._reply(update, f"Usage: /leverage set <1-{_top}>")
                 return
             _RT.leverage_override = val
             applied = _RT.leverage_override
-            note = "" if applied == val else f" (clamped from {val}x)"
+            _std = operator_standard(_CFG.exchange, applied)
+            notes = []
+            if applied != val:
+                notes.append(f"clamped from {val}x to the {_RT.LEVERAGE_OVERRIDE_MAX}x "
+                             "override backstop")
+            if _std.capped:
+                # The figure the operator typed is NOT the figure the venue is
+                # set to, and the card says both -- "set to 20x" over a venue
+                # at 10x is the one false answer.
+                notes.append(f"{_std.requested}x asked; MAX_LEVERAGE caps every new "
+                             f"position at {_std.ceiling}x")
+            note = f" ({'; '.join(notes)})" if notes else ""
             await self._reply(
                 update,
-                f"⚙️ Standard leverage set to <b>{applied}x</b>{note}.\n"
+                f"⚙️ Standard leverage set to <b>{_std.leverage}x</b>{note}.\n"
                 "Applies to every NEW position on every venue. Open positions "
                 "keep the leverage they were opened with.")
             return
         if args[:1] == ["reset"]:
             _RT.leverage_override = None
+            _std = operator_standard(_CFG.exchange, None)
             await self._reply(
                 update,
                 f"⚙️ Standard leverage reset to the configured default "
-                f"(<b>{_CFG.exchange.default_leverage}x</b>).")
+                f"(<b>{_std.leverage}x</b>"
+                + (f", {_std.source_note()}" if _std.capped else "") + ").")
             return
-        override = _RT.leverage_override
-        standard = override if override is not None else _CFG.exchange.default_leverage
+        _std = operator_standard(_CFG.exchange, _RT.leverage_override)
         dyn = getattr(_CFG.exchange, "dynamic_leverage_enabled", False)
         lines = [
             "⚙️ <b>Leverage standard</b>",
-            f"• Standard: <b>{standard}x</b> "
-            + ("(runtime override)" if override is not None else "(configured default)"),
+            f"• Standard: <b>{_std.leverage}x</b> ({_std.source_note()})",
+            f"• Ceiling: <b>{_std.ceiling}x</b> (MAX_LEVERAGE) — no new position is set "
+            f"above it; <code>/leverage set</code> takes 1-{_top}",
             f"• Dynamic vol scaling: {'ON — can only REDUCE below the standard' if dyn else 'OFF — uniform everywhere'}",
             "• Unconfirmed leverage: orders ABORT (fail-closed) unless "
             "LEVERAGE_FAIL_OPEN=1",

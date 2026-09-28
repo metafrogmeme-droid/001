@@ -306,10 +306,15 @@ def should_defer_tp_sl(asset_class: str, is_weekend: bool, order_type: str) -> b
 
 
 # ── Quick reference: asset limits ──────────────────────────────────
+# Read by nothing in the tree; kept as the table it says it is. It used to
+# carry a per-class `max_leverage` (Crypto 125, Metal 20, the rest 10) that
+# nothing read either -- deleted on 2026-09-28, when MAX_LEVERAGE became the
+# one ceiling every placement is under: a second, unread claim about a
+# leverage ceiling beside the real one is two answers.
 ASSET_RULES = {
-    "Metal":     {"min_sl_pct": 1.5, "weekend_sl_pct": 2.5, "max_leverage": 20},
-    "Stock":     {"min_sl_pct": 2.0, "weekend_sl_pct": 3.0, "max_leverage": 10},
-    "Commodity": {"min_sl_pct": 2.0, "weekend_sl_pct": 3.0, "max_leverage": 10},
-    "ETF":       {"min_sl_pct": 2.0, "weekend_sl_pct": 2.5, "max_leverage": 10},
-    "Crypto":    {"min_sl_pct": 1.0, "weekend_sl_pct": 1.0, "max_leverage": 125},
+    "Metal":     {"min_sl_pct": 1.5, "weekend_sl_pct": 2.5},
+    "Stock":     {"min_sl_pct": 2.0, "weekend_sl_pct": 3.0},
+    "Commodity": {"min_sl_pct": 2.0, "weekend_sl_pct": 3.0},
+    "ETF":       {"min_sl_pct": 2.0, "weekend_sl_pct": 2.5},
+    "Crypto":    {"min_sl_pct": 1.0, "weekend_sl_pct": 1.0},
 }

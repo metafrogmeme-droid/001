@@ -411,7 +411,7 @@ class TestNotionalBoundary:
         from bot.config import CONFIG
         margin = MICRO_MAX_POSITION_USD
         leverage = CONFIG.exchange.default_leverage
-        max_lev = max(int(getattr(CONFIG.exchange, "max_leverage", leverage)), int(leverage))
+        max_lev = int(CONFIG.exchange.max_leverage)   # the ceiling, read alone
         notional = margin * leverage
         ceiling = max(margin, MICRO_MAX_POSITION_USD) * max_lev * 1.05
         assert notional <= ceiling
@@ -423,7 +423,7 @@ class TestNotionalBoundary:
         from bot.config import CONFIG
         margin = MICRO_MAX_POSITION_USD
         leverage = CONFIG.exchange.default_leverage
-        max_lev = max(int(getattr(CONFIG.exchange, "max_leverage", leverage)), int(leverage))
+        max_lev = int(CONFIG.exchange.max_leverage)   # the ceiling, read alone
         bugged_notional = margin * leverage * leverage  # double-applied
         ceiling = max(margin, MICRO_MAX_POSITION_USD) * max_lev * 1.05
         assert bugged_notional > ceiling

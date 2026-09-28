@@ -36,9 +36,9 @@ Units (audit V7, F-3) — RECONCILED:
   * Loss-risk checks reason about NOTIONAL: the Portfolio VaR (#21) sums open
     position notionals and now adds the proposed position's notional
     (margin * leverage), not its margin, so it no longer mixes units.
-  * The executor's F-3 notional check refuses a quantity that does not match
-    margin * the leverage the order runs at (x1.05): an ARITHMETIC check, not a
-    leverage ceiling -- ``MAX_LEVERAGE`` binds nothing (see compliance_engine).
+  * ``MAX_LEVERAGE`` is the ceiling on the leverage any order is placed at
+    (``bot.core.leverage.operator_standard``), and the executor's F-3 notional
+    check refuses an order above margin * MAX_LEVERAGE (x1.05) as the backstop.
 
 Checks:
   1.  Circuit breaker status
@@ -93,6 +93,7 @@ from bot.config import CONFIG
 from bot.core.leverage import (
     leverage_floor,
     margin_risk_verdict,
+    operator_standard,
     set_margin_risk_cap,
     tighten_leverage_cap,
 )
@@ -2315,20 +2316,21 @@ class RiskEngine:
             # 6b. Leverage-aware margin risk cap
             # SL distance % × leverage must not exceed max_margin_risk_pct.
             # Use the leverage the executor will ACTUALLY size with: a runtime
-            # /leverage override wins over the env default (the executor's
-            # _compute_target_leverage reads RUNTIME.leverage_override first).
-            # Per-user prefs and dynamic scaling only REDUCE from here, so the
-            # override is the conservative worst case this cap must bound —
-            # evaluating at the lower env default let an override above it size
-            # past the cap unchecked. No override → identical to before.
-            leverage = CONFIG.exchange.default_leverage
+            # /leverage override wins over the env default, and MAX_LEVERAGE
+            # caps both -- `operator_standard` is the executor's own reading
+            # (`_standard_leverage`), so the cap below is measured at the
+            # leverage the venue will be set to. Per-user prefs and dynamic
+            # scaling only REDUCE from here, so the standard is the
+            # conservative worst case this cap must bound — evaluating at the
+            # lower env default let an override above it size past the cap
+            # unchecked, and evaluating at an override above the ceiling
+            # measured a leverage no order runs at. No override → the default.
             try:
                 from bot.config import RUNTIME
                 _lev_override = RUNTIME.leverage_override
-                if _lev_override is not None:
-                    leverage = max(1, int(_lev_override))
             except Exception:
-                pass
+                _lev_override = None
+            leverage = operator_standard(CONFIG.exchange, _lev_override).leverage
             # The standard this evaluation would be SET at before any rung
             # touches it: the ledger row below records the cut FROM it.
             _lev_std = leverage

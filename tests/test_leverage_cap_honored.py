@@ -137,8 +137,12 @@ def test_margin_risk_cap_uses_the_effective_override_leverage():
     bound = "\n".join(ast.unparse(b) for b in binds)
     assert "RUNTIME.leverage_override" in src, \
         "the cap must read the runtime /leverage override, not only the env default"
-    assert "CONFIG.exchange.default_leverage" in bound, \
-        "and it still falls back to the env default when no override is set"
+    # The bind is the one reading the executor places at: the override, else
+    # the default, and never above the MAX_LEVERAGE ceiling
+    # (`bot.core.leverage.operator_standard`). It used to spell the default
+    # and the override by hand here, a second copy of `_standard_leverage`.
+    assert "operator_standard(CONFIG.exchange, _lev_override)" in bound, \
+        "the cap must be measured at the standard the executor places at"
 
 
 def test_the_gate_hands_over_the_shared_floor():

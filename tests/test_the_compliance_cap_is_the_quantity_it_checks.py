@@ -13,30 +13,30 @@ MARGIN: `engine._confirm_trade_inner` passes `recheck.position_size_usd`, and
 `size_usd` two-meanings-under-one-name defect, one envelope over, on the last
 gate before a live order.
 
-WHAT IT DOES NOT BOUND IS STATED RATHER THAN IMPLIED. At the 20x the operator's
-`/leverage set` override can reach, a $10,000 margin ceiling permits $200,000 of
-notional. Naming the exposure HERE would need the leverage the order will run
-at, and that is resolved ONCE per order inside `LiveExecutor.execute` -- two
-reads of the leverage in one order are two answers, which is the defect #201
-fixed. So the cap stays a margin cap and the words follow it.
+WHAT IT DOES NOT BOUND IS STATED RATHER THAN IMPLIED. At the MAX_LEVERAGE
+ceiling (10x shipped), a $10,000 margin ceiling permits $100,000 of notional.
+Naming the exposure HERE would need the leverage the order will run at, and
+that is resolved ONCE per order inside `LiveExecutor.execute` -- two reads of
+the leverage in one order are two answers, which is the defect #201 fixed. So
+the cap stays a margin cap and the words follow it.
 
 AND THE FIRST DRAFT OF THIS FILE NAMED THE WRONG BACKSTOP. It said exposure was
 bounded by the executor's F-3 hard block, a sentence copied off
 `risk_engine.py`'s module docstring, and the drive written for it failed: that
-block's ceiling is `max(size, $100) * max(MAX_LEVERAGE, lev) * 1.05`, so a
-consistent order at ANY leverage passes it. It checks the order's ARITHMETIC
-(quantity against margin x the leverage it was sized at) and nothing about the
-leverage, and `CONFIG.exchange.max_leverage` has no other reader in `bot/`, so
-it binds nothing. What bounds exposure is the STANDARD leverage every order is
-lowered from -- `default_leverage`, or the override clamped to
-`LEVERAGE_OVERRIDE_MAX` -- and every reader past it (a user's preference,
-dynamic scaling, the margin-risk cap, the quality ladder) only lowers it.
-Driven below, and recorded rather than "fixed": whether `MAX_LEVERAGE` should
-become a ceiling is a sizing decision, filed with this measurement.
+block's ceiling was `max(size, $100) * max(MAX_LEVERAGE, lev) * 1.05`, so a
+consistent order at ANY leverage passed it -- an ARITHMETIC check on the
+quantity, nothing about the leverage -- and `CONFIG.exchange.max_leverage` had
+no other reader in `bot/`, so it bound nothing. That was recorded here rather
+than "fixed", as a sizing decision filed with its measurement. The decision was
+made on 2026-09-28: `MAX_LEVERAGE` IS the ceiling now. Every placement starts
+from `bot.core.leverage.operator_standard` (the standard, capped), every reader
+past it only lowers, and the F-3 block reads the ceiling alone as the backstop.
+`tests/test_max_leverage_is_the_ceiling.py` drives it; this file keeps the
+reads pin, so a third reader of the field arrives here by name.
 
-AND IT CANNOT FIRE AT SHIPPED CAPS, either way, which is why the change is a
+AND IT CANNOT FIRE AT SHIPPED CAPS, either way, which is why the rename was a
 name and not a behaviour: `MICRO_MAX_POSITION_USD` is $100, so the margin never
-approaches $10,000 and the notional at the override's 20x does not either. Both
+approaches $10,000 and the notional at the ceiling does not either. Both
 arithmetic facts are read from the live constants here, so the day an operator
 raises them this test says so rather than the claim going stale.
 """
@@ -203,88 +203,75 @@ class TestWhatTheCapDoesNotBound:
 
     def test_it_cannot_fire_at_shipped_caps_either_way(self):
         """Read from the live constants, so a raised cap fails here first. The
-        leverage an order can run at is bounded by the standard and the
-        override ceiling, never by `max_leverage` (driven two tests down)."""
-        from bot.config import CONFIG, RUNTIME
+        highest leverage an order can run at is the MAX_LEVERAGE ceiling
+        (driven two tests down)."""
+        from bot.config import CONFIG
+        from bot.core.leverage import leverage_ceiling
         from bot.core.live_executor import MICRO_MAX_POSITION_USD
 
         cap = default_demo_profile().max_margin_usd
-        top = max(int(CONFIG.exchange.default_leverage), int(RUNTIME.LEVERAGE_OVERRIDE_MAX))
+        top = leverage_ceiling(CONFIG.exchange)
         assert MICRO_MAX_POSITION_USD < cap, (MICRO_MAX_POSITION_USD, cap)
         assert MICRO_MAX_POSITION_USD * top < cap, (
-            f"the notional at {top}x now reaches the ${cap:,.0f} cap: Lock 4 is a "
-            "margin ceiling and this arithmetic is the reason the slice was a "
-            "rename rather than a behaviour change")
+            f"the notional at the {top}x ceiling now reaches the ${cap:,.0f} cap: "
+            "Lock 4 is a margin ceiling and this arithmetic is the reason the "
+            "rename was a name rather than a behaviour change")
 
     def test_at_the_highest_leverage_an_order_can_run_the_cap_permits_that_much(self):
-        """The field comment's own figure, driven: $10,000 x 20 = $200,000."""
-        from bot.config import RUNTIME
+        """The field comment's own figure, driven: $10,000 x the 10x ceiling."""
+        from bot.config import CONFIG
+        from bot.core.leverage import leverage_ceiling
 
         cap = default_demo_profile().max_margin_usd
         assert _authorize(cap).granted
-        assert cap * RUNTIME.LEVERAGE_OVERRIDE_MAX == 200_000.0
+        assert cap * leverage_ceiling(CONFIG.exchange) == 100_000.0
 
-    def test_the_f3_hard_block_checks_the_orders_arithmetic_and_not_its_leverage(self):
-        """The fixture sits far past `max_leverage`, the only input that tells
-        `max(MAX_LEVERAGE, lev)` from `MAX_LEVERAGE`: a consistent order there
-        PASSES, and a quantity double what margin x leverage implies is BLOCKED.
-        The first draft asserted the opposite of the first half."""
+    def test_the_f3_hard_block_is_the_ceilings_backstop(self):
+        """It used to check the order's arithmetic and nothing about its
+        leverage: a consistent order at six times `max_leverage` PASSED. It
+        reads the ceiling alone now, so that order is BLOCKED, one at the
+        ceiling passes, and the arithmetic half (a doubled quantity) is kept.
+        `tests/test_max_leverage_is_the_ceiling.py` drives the rest."""
         from bot.config import CONFIG
         from bot.core.live_executor import MICRO_MAX_POSITION_USD, LiveExecutor
 
         ex = LiveExecutor.__new__(LiveExecutor)
         market = {"limits": {"amount": {"min": 0.0}, "cost": {"min": 0.0}}}
         price, margin = 100.0, MICRO_MAX_POSITION_USD
-        lev = 6 * int(CONFIG.exchange.max_leverage)
-        assert lev > int(CONFIG.exchange.max_leverage)
-        consistent = ex._notional_boundary_gate(
-            "BTC/USDT", margin * lev / price, price, margin, lev, market)
-        assert consistent is None, consistent
+        ceil = int(CONFIG.exchange.max_leverage)
+        above = ex._notional_boundary_gate(
+            "BTC/USDT", margin * 6 * ceil / price, price, margin, 6 * ceil, market)
+        assert above and "BLOCKED" in above, above
+        at = ex._notional_boundary_gate(
+            "BTC/USDT", margin * ceil / price, price, margin, ceil, market)
+        assert at is None, at
         doubled = ex._notional_boundary_gate(
-            "BTC/USDT", 2 * margin * lev / price, price, margin, lev, market)
+            "BTC/USDT", 2 * margin * ceil / price, price, margin, ceil, market)
         assert doubled and "BLOCKED" in doubled, doubled
 
-    def test_max_leverage_binds_nothing(self):
-        """DRIVEN: set to 1, it refuses no consistent order. Pinned by SHAPE:
-        its only code read in `bot/` sits inside that gate, as one arm of a
-        `max()` with the order's own leverage. The day either half changes,
-        `MAX_LEVERAGE` has become a ceiling -- a sizing decision this repo files
-        rather than makes inside a rename -- and this test sends the reader to
-        the filed decision instead of letting the change land in silence."""
-        from bot.config import CONFIG
-        from bot.core.live_executor import MICRO_MAX_POSITION_USD, LiveExecutor
-
-        ex = LiveExecutor.__new__(LiveExecutor)
-        market = {"limits": {"amount": {"min": 0.0}, "cost": {"min": 0.0}}}
-        price, margin, lev = 100.0, MICRO_MAX_POSITION_USD, 60
-        was = CONFIG.exchange.max_leverage
-        object.__setattr__(CONFIG.exchange, "max_leverage", 1)  # frozen dataclass
-        try:
-            verdict = ex._notional_boundary_gate(
-                "BTC/USDT", margin * lev / price, price, margin, lev, market)
-        finally:
-            object.__setattr__(CONFIG.exchange, "max_leverage", was)
-        assert verdict is None, verdict
-
+    def test_max_leverage_is_read_in_two_places_and_both_are_the_ceiling(self):
+        """The reads pin, kept here so a THIRD reader of the field arrives by
+        name: the leaf's reading, which every placement and the F-3 block ask,
+        and the config's own clamp of its default and floor under it. Before
+        2026-09-28 the one read was a `max()` arm in the gate, and this test's
+        predecessor pinned that it bound nothing."""
         reads = _reads_of_max_leverage()
-        assert set(reads) == {"bot/core/live_executor.py:_notional_boundary_gate"}, reads
-        src = code_only(inspect.getsource(LiveExecutor._notional_boundary_gate))
-        tree = ast.parse(textwrap.dedent(src))
-        arms = [
-            [ast.unparse(a) for a in n.args]
-            for n in ast.walk(tree)
-            if isinstance(n, ast.Call) and ast.unparse(n.func) == "max"
-            and any("max_leverage" in ast.unparse(a) for a in n.args)
-        ]
-        assert len(arms) == 1, arms
-        assert any("leverage_mult" in a for a in arms[0]), arms
+        assert set(reads) == {"bot/core/leverage.py:leverage_ceiling",
+                              "bot/config.py:__post_init__"}, reads
 
     def test_what_does_bound_it_is_the_standard_every_order_is_lowered_from(self):
         """Three of the four readers past the standard, driven as reduce-only;
-        the fourth (the quality ladder) has a suite of its own. And the
-        override's own ceiling, which is the highest an order can ever run."""
+        the fourth (the quality ladder) has a suite of its own. The override's
+        own 20x backstop stays, and the standard it feeds is capped at the
+        ceiling before any of them read it."""
         from bot.config import CONFIG, RUNTIME
-        from bot.core.leverage import RISK_CAP_ATTR, apply_margin_risk_cap, resolve_user_leverage
+        from bot.core.leverage import (
+            RISK_CAP_ATTR,
+            apply_margin_risk_cap,
+            leverage_ceiling,
+            operator_standard,
+            resolve_user_leverage,
+        )
 
         std = int(CONFIG.exchange.default_leverage)
         assert resolve_user_leverage(60, std) == std  # a preference only lowers
@@ -296,5 +283,7 @@ class TestWhatTheCapDoesNotBound:
         try:
             RUNTIME.leverage_override = 60
             assert RUNTIME.leverage_override == RUNTIME.LEVERAGE_OVERRIDE_MAX == 20
+            assert operator_standard(CONFIG.exchange, RUNTIME.leverage_override).leverage \
+                == leverage_ceiling(CONFIG.exchange)
         finally:
             RUNTIME.leverage_override = was

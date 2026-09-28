@@ -300,7 +300,12 @@ def render_risk(data: Dict[str, Any]) -> Dict[str, Any]:
     # None is a book nobody read (a caller with no linked account): a dash,
     # never the 0 of a flat account.
     open_t = data.get("open_trades")
-    lev = data.get("leverage_cap", 5)
+    # The ceiling (MAX_LEVERAGE, what a key named "cap" carries now) and the
+    # standard every order starts from. An older payload sent the standard
+    # under `leverage_cap` and no ceiling; it prints as the standard alone.
+    lev_cap = data.get("leverage_cap", 5)
+    lev_std = data.get("leverage_standard")
+    lev = lev_std if lev_std is not None else lev_cap
     # The highest leverage among the open positions, as read. The gauge was
     # drawn from a literal 1.0, which said in green that the account ran at
     # 1x whatever its positions ran at.
@@ -312,11 +317,13 @@ def render_risk(data: Dict[str, Any]) -> Dict[str, Any]:
     else:
         pos_gauge = "  Positions  │" + "┄" * 12 + "│ -- (book not read)"
         open_txt = "—"
-    # A plain line, not a gauge: the figure beside it is the STANDARD every
-    # order is set to, not a ceiling, so a bar would paint the ordinary state
-    # (5x at a 5x standard) full and red.
+    # A plain line, not a gauge, and it names both figures: the STANDARD
+    # every order starts from (a bar against it would paint the ordinary
+    # state, 5x at a 5x standard, full and red) and the CEILING no new
+    # position is set above.
+    _ceil_txt = f" · ceiling {lev_cap}x" if lev_std is not None else ""
     if isinstance(lev_used, (int, float)) and not isinstance(lev_used, bool):
-        lev_gauge = (f"  {_NEU} Leverage   {lev_used:g}x in use (standard {lev}x)"
+        lev_gauge = (f"  {_NEU} Leverage   {lev_used:g}x in use (standard {lev}x{_ceil_txt})"
                      + (f"  <i>({lev_unread} unread)</i>" if lev_unread else ""))
     elif open_t == 0:
         lev_gauge = "  Leverage   — (nothing open)"

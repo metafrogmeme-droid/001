@@ -1,19 +1,29 @@
 """Leverage resolution (pure) — every rule that can only ever REDUCE.
 
-Two things live here, and they share one property: nothing in this module can
-raise leverage above what the operator configured.
+Three things live here, and they share one property: nothing in this module
+can raise leverage above what the operator configured.
 
+- **The ceiling.** ``MAX_LEVERAGE`` is the leverage no NEW position is set
+  above (operator decision 2026-09-28). `operator_standard` is the one reading
+  of the standard every order starts from -- the `/leverage` override or the
+  configured default, capped at the ceiling -- and every step after it (the
+  two rules below, dynamic scaling, the quality ladder) only lowers, so the
+  cap applied there is the whole enforcement. The executor's F-3 notional
+  block then measures it on the order itself, as the backstop.
 - **The per-user preference (NB3).** A BYOK live user may pin their own
-  standard leverage, but only ever DOWN from the operator's configured default.
+  standard leverage, but only ever DOWN from the operator's standard.
 - **The margin-risk cap.** `max_margin_risk_pct` bounds SL-distance ×
   leverage, and the leverage it bounds is the one the VENUE is set to. See the
   block above `RISK_CAP_ATTR` for why the sized leverage cannot stand in for
   it, and `margin_risk_verdict` for why a reduction that does not clear the cap
   is a refusal rather than a pass.
 
-Both are here so the executor's two set paths, its sizing path and the risk
-gate ask one function: a second copy of a reduce-only rule is a second answer
-about how much of the account a stop can take.
+All three are here so the executor's two set paths, its sizing path, the risk
+gate and the two cards that print the standard ask one function: a second
+copy of a reduce-only rule is a second answer about how much of the account a
+stop can take, and a second copy of the standard is two answers about what
+leverage the next order runs at -- which is how `/leverage set 20` was set on
+the venue under a ``MAX_LEVERAGE=10`` that nothing read.
 
 THE RISK GATE IMPORTING THIS IS A NEW DIRECTION, and it is recorded rather
 than routed around. Everywhere else `bot.core` reads `bot.risk`; here
@@ -104,6 +114,92 @@ executor, 2 in the risk engine — for a field that cannot be missing: a fallbac
 that cannot fire and disagrees with its twin is a claim that there is a check.
 One default, read from one place.
 """
+
+MAX_LEVERAGE_DEFAULT = 10
+"""The ceiling when the config cannot state one.
+
+`CONFIG.exchange.max_leverage` is a dataclass field with its own default of
+10, so like the floor it is never absent on a real config and this is
+unreachable from production. A stand-in that names no ceiling gets the one the
+field declares rather than none, because "no ceiling" is the LOOSE direction:
+a hand-written stand-in that forgot the attribute must not loosen anything,
+and `MIN_LEVERAGE_DEFAULT` above is the same reading for the floor.
+"""
+
+
+def leverage_ceiling(cfg: Any) -> int:
+    """``MAX_LEVERAGE`` as every placement reads it, an int >= 1.
+
+    The one read of the field on the money path: the executor's F-3 notional
+    block and `operator_standard` both ask this rather than the attribute, so a
+    stand-in with no ceiling, or one holding junk, answers the declared default
+    in both places instead of two different fallbacks.
+    """
+    try:
+        return max(1, int(getattr(cfg, "max_leverage", MAX_LEVERAGE_DEFAULT)))
+    except (TypeError, ValueError):
+        return MAX_LEVERAGE_DEFAULT
+
+
+class StandardLeverage(NamedTuple):
+    """The standard leverage every order starts from, and where it came from.
+
+    NAMED, for the reason `MarginRiskVerdict` gives.
+
+    ``leverage`` is the number the next order starts from: ``requested``
+    capped at ``ceiling``. ``requested`` is what was asked for -- the
+    `/leverage` override when one is set, else the configured default -- and
+    ``source`` says which (``"override"`` / ``"default"``). ``capped`` is the
+    one fact the cards must not hide: an operator who typed 15 and is shown
+    "15x" while every order runs at 10 has been told two numbers for one thing.
+    """
+
+    leverage: int
+    requested: int
+    source: str
+    ceiling: int
+
+    @property
+    def capped(self) -> bool:
+        return self.requested > self.leverage
+
+    def source_note(self) -> str:
+        """The parenthetical the cards print beside the figure."""
+        where = "runtime override" if self.source == "override" else "configured default"
+        if not self.capped:
+            return where
+        return (f"{where} {self.requested}x, capped at the MAX_LEVERAGE "
+                f"ceiling {self.ceiling}x")
+
+
+def operator_standard(cfg: Any, override: Any) -> StandardLeverage:
+    """The operator's standard leverage: the override, else the configured
+    default, and never above the ceiling.
+
+    ``override`` is `RUNTIME.leverage_override` (``None`` for none). The
+    config places its own default under the ceiling where the fields are
+    declared, so on a real config only the override can arrive above it; the
+    cap is made here anyway, because this is the reading every placement
+    takes and a stand-in config that breaks the config's invariant must not
+    break the ceiling with it. A user's preference, dynamic scaling, the
+    quality ladder and the margin-risk cap all start from ``.leverage`` and
+    only lower it.
+    """
+    ceiling = leverage_ceiling(cfg)
+    requested: Optional[int] = None
+    source = "default"
+    if override is not None:
+        try:
+            requested = int(override)
+            source = "override"
+        except (TypeError, ValueError):
+            requested = None
+    if requested is None:
+        requested = int(cfg.default_leverage)
+        source = "default"
+    requested = max(1, requested)
+    return StandardLeverage(min(requested, ceiling), requested, source, ceiling)
+
 
 MARGIN_RISK_TOLERANCE_PCT = 0.5
 """Slack on the cap, applied to the TRIGGER and to the acceptance alike.

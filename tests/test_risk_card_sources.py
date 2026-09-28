@@ -106,9 +106,17 @@ def test_the_reading_comes_from_the_gate_not_the_paper_worst_ever():
     The seed is now None, so a failed read stays a failed read instead of
     silently becoming the paper snapshot, and the assertion below says so
     directly rather than relying on an overwrite happening later.
+
+    RE-ANCHORED A SECOND TIME, at the other end. The slice used to close on
+    the card's leverage line, spelled as the standard leverage -- a line
+    this block does not own, which the MAX_LEVERAGE slice rewrote to carry
+    the ceiling. The full gate then failed this pin on a tree where every
+    property it names held. It closes on the next block's own first
+    statement now, the line its sibling below opens on, so the two pins
+    hold one boundary from either side and a move of it fails both.
     """
     block = SRC[SRC.index("_dd_now = None"):
-                SRC.index('"leverage_cap": CONFIG.exchange.default_leverage,')]
+                SRC.index("_max_trades = CONFIG.risk.max_open_positions")]
     # The gate's reporter, of THIS caller's engine: `_caller_dd_status` is
     # `caller_risk(engine, uid).drawdown_status()`. It read the shared
     # engine's, which under per-user live is the operator's drawdown.
