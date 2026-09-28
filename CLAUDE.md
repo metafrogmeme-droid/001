@@ -16805,6 +16805,20 @@ line was blank; they are derived from the handlers they name now.
 (`tests/test_a_published_signal_is_resolved.py`,
 `app/test/signal_outcomes_reach_the_panels.test.js`.)
 
+**And the full gate refused the head carrying this slice and the Telegram chart
+link, on two rules neither slice's own suites ran.** The outcome ledger kept
+its relative path in a constant and anchored it one function later
+(`state_path(_LEDGER_REL)`). That is correct and the durable-path rule cannot see
+the flow: a relative literal that is not a direct argument of an anchoring helper
+reads as resolved against the working directory. The constant had one reader, so
+the literal is the argument now, and the harness test that read the constant asks
+`ledger_path()` instead. The chart-link test skipped itself with
+`pytest.importorskip("telegram")`, and `python-telegram-bot` is pinned in
+`requirements.lock`, so a missing module is a broken environment, not an optional
+feature; it asks `tests.dep_policy.require` now, which fails for a pinned module.
+Sixteenth time the full gate has refused a head on a test none of its slices'
+suites ran.
+
 **THE ARENA OPENED A CALL THAT HAD ALREADY ENDED, AT ALL THREE OF ITS DOORS.**
 Now that signals are resolved (the chapter above), a signal row can read
 TARGET or STOP forty minutes after it was posted. The Arena's three ways to

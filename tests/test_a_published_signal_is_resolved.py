@@ -554,6 +554,8 @@ def test_the_tick_runs_the_walk_under_the_maintenance_cap():
 def test_the_harness_cleans_the_ledger():
     # The ledger lives under a directory the harness removes between tests,
     # so a test that records a signal cannot leave it for the next one.
+    from bot.utils.paths import REPO_ROOT
     from tests import conftest
-    assert any(so._LEDGER_REL.startswith(d.rstrip("/") + "/")
+    rel = so.ledger_path().relative_to(REPO_ROOT).as_posix()
+    assert any(rel.startswith(d.rstrip("/") + "/")
                for d in conftest._STATE_DIRS)

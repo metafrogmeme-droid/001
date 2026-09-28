@@ -22,6 +22,7 @@ from types import SimpleNamespace as NS
 import pytest
 
 from bot.skills import chart_renderer as cr
+from tests.dep_policy import require
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -138,7 +139,7 @@ class TestTheCaptionCarriesIt:
         assert "tf=4h" in href and "s=LINKUSDT" in href
 
     def test_an_album_links_in_its_first_caption(self, monkeypatch):
-        pytest.importorskip("telegram")
+        require("telegram")
         bot = _Bot()
         assert _send(bot, ["4h", "1h"], monkeypatch) is True
         first, second = bot.albums[0]
@@ -160,7 +161,7 @@ class TestTheCaptionCarriesIt:
         assert re.search(r"Open the live TradingView chart: https://\S+/embed/chart\?s=LINKUSDT&tf=1h", caption)
 
     def test_the_plain_retry_of_an_album_keeps_the_address(self, monkeypatch):
-        pytest.importorskip("telegram")
+        require("telegram")
         bot = _Bot(refuse_html=True)
         assert _send(bot, ["4h", "1h"], monkeypatch) is True
         assert re.search(r"chart: https://\S+/embed/chart\?s=LINKUSDT&tf=4h", bot.albums[0][0])

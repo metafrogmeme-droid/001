@@ -80,11 +80,8 @@ KEEP_RESOLVED_S = 14 * 24 * 3600
 #: The ledger never holds more than this many rows (oldest resolved go first).
 MAX_ROWS = 2000
 
-_LEDGER_REL = "data/learning/signal_outcomes.json"
-
-
 def ledger_path():
-    return state_path(_LEDGER_REL)
+    return state_path("data/learning/signal_outcomes.json")
 
 
 def _f(value: object) -> Optional[float]:
