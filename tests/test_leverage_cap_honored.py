@@ -134,6 +134,15 @@ def test_margin_risk_cap_uses_the_effective_override_leverage():
              if isinstance(n, ast.Assign) and len(n.targets) == 1
              and isinstance(n.targets[0], ast.Name)
              and n.targets[0].id == "leverage"]
+    # One hop: the risk budget's sizing and this cap read ONE standard, bound
+    # once at the top of the evaluation as `_lev_std`, so the cap's bind names
+    # that and the reading lives one assignment up. Pinning the call on the
+    # `leverage =` line itself failed the day the cap stopped re-resolving its
+    # own copy -- a spelling pin, while the property held.
+    hop = {ast.unparse(b.value) for b in binds if isinstance(b.value, ast.Name)}
+    binds += [n for n in ast.walk(tree)
+              if isinstance(n, ast.Assign) and len(n.targets) == 1
+              and isinstance(n.targets[0], ast.Name) and n.targets[0].id in hop]
     bound = "\n".join(ast.unparse(b) for b in binds)
     assert "RUNTIME.leverage_override" in src, \
         "the cap must read the runtime /leverage override, not only the env default"
