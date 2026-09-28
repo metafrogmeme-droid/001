@@ -49,8 +49,9 @@ from bot.core.limit_entry import calculate_entry
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import ccxt_margin_mode, get_venue
 from bot.core.close_lookup import (
-    StageOutcome, lookup_class, lookup_no_rows, lookup_raised, lookup_sentence,
-    lookup_skipped, lookup_unmatched, nearest_entry_gap_pct,
+    StageOutcome, client_is_uta, is_ticker_priced, lookup_class, lookup_no_rows,
+    lookup_raised, lookup_sentence, lookup_skipped, lookup_unmatched,
+    nearest_entry_gap_pct, uta_history_row,
 )
 from bot.core.plan_cleanup import plan_rows_to_cancel
 from bot.core.leverage import (
@@ -11702,6 +11703,9 @@ class LiveExecutor:
             # pessimistic estimate below that shares the variable above.
             _stated_close_fee: Optional[float] = (
                 exchange_close_fees if exchange_close_fees > 0 else None)
+            # What the stated fee COVERS: the close leg (the close order's own
+            # fee, a fill's) or the whole round trip (a position-history row).
+            _stated_fee_cover = "close"
 
             # ── RC-AUD-023b: residual-close reconciliation ──────────────
             # A partial market close can leave residual exchange exposure while
@@ -11917,17 +11921,45 @@ class LiveExecutor:
                 import asyncio as _aio_pnl
                 await _aio_pnl.sleep(2)  # brief delay for Bitget to finalize
                 pos_hist_data = await self._fetch_bitget_close_data(pos)
+                _lk_px = (_num_or_none(pos_hist_data.get("close_price"))
+                          if pos_hist_data else None)
                 if pos_hist_data and pos_hist_data.get("pnl") is not None:
                     exchange_pnl = pos_hist_data["pnl"]
                     exchange_close_fees = pos_hist_data.get("fees", 0) or 0
                     _pnl_is_net = pos_hist_data.get("pnl_is_net", False)
                     _funding = pos_hist_data.get("funding")
                     _funding_in = pos_hist_data.get("funding_in_pnl")
-                    if pos_hist_data.get("close_price", 0) > 0:
-                        fill_price = pos_hist_data["close_price"]
-                        _fill_src = "bitget_position_history"
+                    if _lk_px is not None and _lk_px > 0:
+                        fill_price = _lk_px
+                        # The stage's own word: a fill or a closed order can
+                        # state a profit too, and every one of them used to be
+                        # booked as "bitget_position_history".
+                        _fill_src = str(pos_hist_data.get("source") or "bitget_position_history")
                     logger.info("Using Bitget position history PnL for %s: $%.4f (fees $%.4f)",
                                 pos.symbol, exchange_pnl, exchange_close_fees)
+                elif (pos_hist_data and _lk_px is not None and _lk_px > 0
+                        and (fill_price <= 0 or is_ticker_priced(_fill_src))):
+                    # A stage matched this close's own row and PRICED it; the
+                    # row stated no profit, which the arithmetic below derives
+                    # from the price. The old branch took NOTHING from such a
+                    # find -- the venue's matched price thrown away over a
+                    # secondary field, the defect the lookup was cured of, at
+                    # the lookup's own caller -- and kept the ticker read
+                    # before the lookup ran, with no cause on the record,
+                    # because the lookup HAD priced it. A fill price the
+                    # close order itself confirmed is left alone: it is the
+                    # more direct reading.
+                    fill_price = _lk_px
+                    _fill_src = str(pos_hist_data.get("source")
+                                    or "bitget_position_history_local_pnl")
+                    _lk_fee = pos_hist_data.get("fees")
+                    if (_stated_close_fee is None and isinstance(_lk_fee, (int, float))
+                            and _lk_fee > 0):
+                        _stated_close_fee = float(_lk_fee)
+                        _stated_fee_cover = str(pos_hist_data.get("fees_cover") or "close")
+                    logger.info("Using the venue's close price for %s from %s: %.6f "
+                                "(no venue profit stated; derived from the price)",
+                                pos.symbol, _fill_src, fill_price)
             except Exception as _hist_exc:
                 logger.debug("Position history lookup failed for %s: %s", pos.symbol, _hist_exc)
 
@@ -11962,6 +11994,7 @@ class LiveExecutor:
                         if total_fees > 0:
                             exchange_close_fees = total_fees
                             _stated_close_fee = total_fees
+                            _stated_fee_cover = "close"
                 except Exception as _fee_exc:
                     # CRITICAL FIX: use pessimistic fee assumption (20bp round-trip)
                     # instead of 0 when exchange data unavailable
@@ -12040,7 +12073,7 @@ class LiveExecutor:
                 _comm = self._local_close_commission(
                     pos.entry_price * pos.quantity, fill_price * pos.quantity,
                     entry_rate_pct(getattr(pos, 'order_type', None)), exit_rate_pct(),
-                    _stated_close_fee, "close")
+                    _stated_close_fee, _stated_fee_cover)
                 gross_pnl, commission = _gross, _comm
                 net_pnl = _gross - _comm
 
@@ -12511,7 +12544,21 @@ class LiveExecutor:
     async def _close_from_history(self, pos: LivePosition, exchange,
                                   opened_ms: Optional[int],
                                   outcomes: list[StageOutcome]) -> dict | None:
-        """Stage 1: GET /api/v2/mix/position/history-position.
+        """Stage 1: the venue's own position history.
+
+        ``GET /api/v3/position/history-position`` when the client in hand is
+        a unified-account one (``options["uta"]``, which is how `venues.py`
+        builds every Bitget client and how every ccxt read beside this one
+        is routed), else the classic ``GET /api/v2/mix/position/history-
+        position``. This was the ONE raw call in the executor that did not
+        follow the client's family: on a unified account the classic
+        endpoint refuses, the pinned ccxt leaves that refusal as the bare
+        ``ExchangeError``, and the 2026-09-28 parity card counted ``history
+        raised ExchangeError`` on every close the lookup had recorded -- the
+        most authoritative stage dead on every close, and the reason so many
+        exits read ``CLOSED (unknown)``. A v3 row is spelled into the v2
+        vocabulary at the boundary (``close_lookup.uta_history_row``) so the
+        reader below stays one reader.
 
         Returns (v2 field names): openAvgPrice, closeAvgPrice, pnl (gross),
         netProfit (fee-adjusted), openFee, closeFee. NOTE: the v1 endpoint used
@@ -12533,17 +12580,27 @@ class LiveExecutor:
             time_windows.append(opened_ms - 300_000)    # 5 min before open
             time_windows.append(opened_ms - 3_600_000)  # 1 hour before open
         time_windows.append(None)  # no filter
+        # WHICH family: the client's own, read off the client rather than off
+        # a probe, because it is the fact that routes every other read this
+        # executor makes through the same object.
+        uta = client_is_uta(exchange)
 
         for since_ms in time_windows:
             try:
-                params: dict = {
-                    "productType": "USDT-FUTURES",
-                    "symbol": raw_symbol,
-                }
-                if since_ms is not None:
-                    params["startTime"] = str(since_ms)
-                resp = await exchange.privateMixGetV2MixPositionHistoryPosition(params)
+                params: dict
+                if uta:
+                    params = {"category": "USDT-FUTURES", "symbol": raw_symbol}
+                    if since_ms is not None:
+                        params["startTime"] = str(since_ms)
+                    resp = await exchange.privateUtaGetV3PositionHistoryPosition(params)
+                else:
+                    params = {"productType": "USDT-FUTURES", "symbol": raw_symbol}
+                    if since_ms is not None:
+                        params["startTime"] = str(since_ms)
+                    resp = await exchange.privateMixGetV2MixPositionHistoryPosition(params)
                 entries = resp.get("data", {}).get("list", []) if isinstance(resp.get("data"), dict) else []
+                if uta:
+                    entries = [uta_history_row(e) for e in entries]
 
                 logger.debug(
                     "Position history for %s (window=%s): %d entries returned",
@@ -12684,7 +12741,10 @@ class LiveExecutor:
             except Exception as e:
                 logger.debug("Bitget position history lookup failed for %s (window=%s): %s",
                              pos.symbol, since_ms, e)
-                outcomes.append(lookup_raised("history", e))
+                # The channel rides in the WARNING (never in the class): a v3
+                # refusal and a v2 one are the same cause to a record and a
+                # different door to the operator reading the log.
+                outcomes.append(lookup_raised("history", e, "v3" if uta else ""))
         return None
 
     @staticmethod

@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -248,6 +249,73 @@ def inferred_causes(strategy: list[dict]) -> dict[str, int]:
     return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
 
 
+def split_causes(causes: dict[str, int]) -> tuple[dict[str, int], int]:
+    """``(named, unrecorded)``: the causes the lookup stamped, and the count
+    of rows that carry none. ``unrecorded`` is an ABSENCE on the record, not
+    a reason the venue lookup priced nothing, and the 2026-09-28 card printed
+    it under "why the venue lookup priced none of them: unrecorded ×179" --
+    the row with the most weight on the line, and the one that names no
+    endpoint, no matching defect and nothing to fix. It is said apart."""
+    named = {k: c for k, c in causes.items() if k != UNRECORDED}
+    return named, int(causes.get(UNRECORDED, 0))
+
+
+def cause_sentence(causes: dict[str, int]) -> str:
+    """The card's line under the ticker-priced count: the named causes, most
+    common first, and the rows with no cause on record counted apart from
+    them. Empty when there is nothing to say."""
+    named, unrecorded = split_causes(causes)
+    parts = []
+    if named:
+        parts.append("why the venue lookup priced none of them: "
+                     + " · ".join(f"{k} ×{c}" for k, c in named.items()))
+    if unrecorded:
+        parts.append(f"{unrecorded} carry no cause on record "
+                     f"(closed before the lookup said why)")
+    return "; ".join(parts)
+
+
+def cause_clause(causes: dict[str, int]) -> str:
+    """The digest's clause: the most common NAMED cause, and the no-cause
+    count apart from it. Same split as the card, so the two cannot disagree
+    about whether an absence is a cause."""
+    named, unrecorded = split_causes(causes)
+    parts = []
+    if named:
+        top, n_top = next(iter(named.items()))
+        parts.append(f"most often: {top} ×{n_top}")
+    if unrecorded:
+        parts.append(f"{unrecorded} carry no cause on record")
+    return "; ".join(parts)
+
+
+def _closed_day(t: dict) -> Optional[str]:
+    """The UTC day a row closed, off its recorded ``closed_at``; None for a
+    row that carries none or one that will not parse -- never today."""
+    raw = t.get("closed_at")
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw)).date().isoformat()
+    except ValueError:
+        return None
+
+
+def latest_close_by(rows: list[dict], key: str) -> dict[str, str]:
+    """The most recent close day per bucket of ``key``, over the rows whose
+    close time is on record. A bucket whose rows carry no time is absent, so
+    a reader is told nothing rather than a date nobody recorded."""
+    out: dict[str, str] = {}
+    for t in rows:
+        day = _closed_day(t)
+        if day is None:
+            continue
+        k = str(t.get(key) or "(unknown)")
+        if k not in out or day > out[k]:
+            out[k] = day
+    return out
+
+
 def _group(trades: list[dict], key: str,
            inferred_of: Callable[[dict], bool] = _ticker_priced) -> dict[str, dict]:
     """Bucket the scored rows by ``key``. Each row carries its own sample —
@@ -387,9 +455,7 @@ def parity_verdict(strategy: list[dict], benchmark: BenchmarkReading, *,
             f"above is approximate to that extent")
         causes = inferred_causes(strategy)
         v["inferred_causes"] = causes
-        v["inferred_cause_sentence"] = (
-            "why the venue lookup priced none of them: "
-            + " · ".join(f"{k} ×{c}" for k, c in causes.items()))
+        v["inferred_cause_sentence"] = cause_sentence(causes)
     return v
 
 
@@ -435,7 +501,10 @@ def parity_summary(trades: list[dict], modeled_commission_pct: float,
         "excluded_non_fills": len(parts["non_fills"]),
         "unscored_pnl": len(parts["unscored"]),
         "aborts": {"trades": len(aborts), "net": round(sum(abort_nets), 2),
-                   "by_reason": _group(aborts, "close_reason")},
+                   "by_reason": _group(aborts, "close_reason"),
+                   # WHEN each guard last fired, so a count of 18 can be read
+                   # as one incident on record or as a guard still firing.
+                   "latest": latest_close_by(aborts, "close_reason")},
         "win_rate": head["win_rate"],
         "wins": head["wins"],
         "losses": head["losses"],
@@ -484,7 +553,10 @@ def aborts_line(s: dict) -> str:
     a = s.get("aborts") or {}
     if not a.get("trades"):
         return ""
-    reasons = ", ".join(f"{k} {g['trades']}" for k, g in a["by_reason"].items())
+    latest = a.get("latest") or {}
+    reasons = ", ".join(
+        f"{k} {g['trades']}" + (f" (latest {latest[k]})" if k in latest else "")
+        for k, g in a["by_reason"].items())
     return (f"Execution aborts kept apart: {a['trades']} (net ${a['net']:+,.2f}) — {reasons} "
             f"(post-fill flatten guards, not strategy exits)")
 

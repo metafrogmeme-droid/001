@@ -26,11 +26,23 @@ signature. And a stage that was never asked is ``skipped`` with its reason,
 because "history found nothing" and "history was not consulted on this venue"
 are different facts with different remedies, and the old code answered them
 with one ``None``.
+
+A third reading arrived with the 2026-09-28 parity card, which counted
+``history raised ExchangeError`` on every close the reading had seen. The
+executor builds its Bitget client with ``options["uta"] = True`` (a unified
+trading account), so every ccxt read it makes -- fills, closed orders -- is
+routed to the ``/api/v3`` family, while the history stage's one RAW call went
+to the classic ``/api/v2/mix/position/history-position``, which a unified
+account refuses with a code the pinned ccxt leaves as the bare
+``ExchangeError``. The most authoritative stage was dead on that deployment,
+on every close. ``client_is_uta`` reads the fact off the client in hand, and
+``uta_history_row`` spells a v3 row in the v2 vocabulary the one reader knows,
+so the reader stays one reader.
 """
 
 from __future__ import annotations
 
-from typing import Iterable, NamedTuple, Optional, Sequence
+from typing import Any, Iterable, NamedTuple, Optional, Sequence
 
 #: The stages in order of authority. ``lookup_class`` answers with the
 #: outcome of the FIRST stage in this order that was actually asked, because
@@ -51,9 +63,17 @@ class StageOutcome(NamedTuple):
     detail: str = ""  # exception CLASS name, a row count with the nearest gap, or why it was skipped
 
 
-def lookup_raised(stage: str, exc: BaseException) -> StageOutcome:
-    """The stage raised. The class travels; the text never does."""
-    return StageOutcome(stage, "raised", type(exc).__name__)
+def lookup_raised(stage: str, exc: BaseException, channel: str = "") -> StageOutcome:
+    """The stage raised. The class travels; the text never does. ``channel``
+    names WHICH endpoint family was asked when the stage has more than one
+    (the history stage: ``v3`` on a unified account), so next week's WARNING
+    can say which door refused; it stays out of ``lookup_class``, which is
+    the cause a record carries, because a class is a thing to fix and the
+    channel is where it was met."""
+    detail = type(exc).__name__
+    if channel:
+        detail = f"{detail} ({channel})"
+    return StageOutcome(stage, "raised", detail)
 
 
 def lookup_no_rows(stage: str) -> StageOutcome:
@@ -72,6 +92,49 @@ def lookup_unmatched(stage: str, rows: int, nearest_gap_pct: Optional[float] = N
     if why:
         bits.append(why)
     return StageOutcome(stage, "unmatched", "; ".join(bits))
+
+
+def client_is_uta(exchange: Any) -> bool:
+    """Whether the ccxt client in hand speaks the unified-account (``/api/v3``)
+    family. Read off the client's own options -- the fact that routes every
+    ccxt call it makes -- and never inferred from a probe: a stand-in whose
+    options are not a dict answers False, so a test double is the classic
+    client it has always been."""
+    opts = getattr(exchange, "options", None)
+    return isinstance(opts, dict) and opts.get("uta") is True
+
+
+#: The unified-account position-history row (``GET /api/v3/position/
+#: history-position``, docs/bitget-uta/trade.md) spelled in the classic v2
+#: row's vocabulary, which is the one the history reader knows. Only names
+#: that differ are listed; ``netProfit`` and ``totalFunding`` are spelled
+#: the same on both. The v3 row carries no ``closeType`` and no ``leverage``,
+#: so the reason is inferred from the exit price and the leverage is absent,
+#: which is what the reader already does for a v2 row missing either.
+UTA_HISTORY_FIELDS = {
+    "openPriceAvg": "openAvgPrice",
+    "closePriceAvg": "closeAvgPrice",
+    "cumRealisedPnl": "pnl",           # "Excluding fees and funding costs": the gross
+    "openFeeTotal": "openFee",
+    "closeFeeTotal": "closeFee",
+    "posSide": "holdSide",
+    "createdTime": "ctime",
+    "updatedTime": "utime",
+}
+
+
+def uta_history_row(row: Any) -> dict:
+    """A v3 history row as the v2 reader reads it. Every key the row carries
+    is kept; the ones the reader knows by another name are added under that
+    name. A row that is not a dict is handed back empty, which the reader
+    matches to nothing rather than raising inside its own ``except``."""
+    if not isinstance(row, dict):
+        return {}
+    out = dict(row)
+    for uta_name, v2_name in UTA_HISTORY_FIELDS.items():
+        if uta_name in row and v2_name not in row:
+            out[v2_name] = row[uta_name]
+    return out
 
 
 def lookup_skipped(stage: str, why: str) -> StageOutcome:

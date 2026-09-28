@@ -817,7 +817,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 691 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 690 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -14695,6 +14695,123 @@ file survived because no fixture HAD an individual file to rescue, so one is
 written first and required to stay where it is.
 (`tests/test_an_unreadable_combined_state_fails_closed.py`.)
 
+**THE ONE RAW CALL IN THE EXECUTOR SPOKE THE CLASSIC API TO A UNIFIED
+ACCOUNT, AND THE MOST AUTHORITATIVE CLOSE READ WAS DEAD ON EVERY CLOSE.** The
+2026-09-28 weekly parity card read `182 of 211 strategy exits are
+ticker-priced` and, under it, `why the venue lookup priced none of them:
+unrecorded ×179 · history raised ExchangeError ×3` -- every close the lookup
+had recorded since it learned to say why, refused at its first stage by one
+class. `venues.py` builds the Bitget client with `options["uta"] = True`, and
+driven on the pinned ccxt with the transport stubbed, every ccxt read the
+lookup makes through that object goes to the `/api/v3` family
+(`fetch_my_trades` to `v3/trade/fills`, `fetch_closed_orders` to
+`v3/trade/history-orders`), while `_close_from_history` called
+`privateMixGetV2MixPositionHistoryPosition` directly: the classic
+`v2/mix/position/history-position`, which a unified account refuses with a
+code the pinned ccxt leaves unmapped (40085 is the one the executor already
+reads as "this is a unified account" on the classic account endpoint), so it
+surfaced as the bare `ExchangeError`. The funding chapter above says in as
+many words that *"the call this bot makes is the CLASSIC v2 endpoint"* and
+reads the UTA twins' semantics off the vendored docs; nobody asked whether the
+classic endpoint answered at all. It is also why 107 of the 211 exits read
+`CLOSED (unknown)`: the row that carries the venue's own close price, net,
+fees and funding was never read, and a price the fills stage found was
+matched to nothing the venue named.
+
+**The family is the CLIENT's, read off the client.** `close_lookup.
+client_is_uta` reads `options["uta"]` off the object in hand -- the fact that
+routes every other read -- and never a probe; a stand-in whose options are not
+a dict is the classic client it always was, because an `AsyncMock` answers a
+truthy Mock for every attribute, and the first draft would have re-routed
+every existing fixture to v3. On a unified client the stage asks
+`GET /api/v3/position/history-position?category=USDT-FUTURES&symbol=BTCUSDT`
+over the same three windows, and the row is spelled into the v2 vocabulary at
+the boundary (`uta_history_row`: `openPriceAvg`, `cumRealisedPnl`,
+`openFeeTotal`/`closeFeeTotal`, `posSide`, `createdTime`/`updatedTime` under
+the names the reader knows) so the matcher, the reader and `funding_on_row`
+stay one reader. `funding_on_row`'s own comment had named those fee spellings
+as the ones it could not place, and driven on the docs' row with a funding
+figure that is not zero, the spelled row places it (`48.5 == 50 - 0.27 -
+1.23`, NET_INCLUDES) where the raw one is UNPLACED. A v3 row carries no
+`closeType` and no leverage, so the reason is inferred from the exit and the
+leverage is absent, which is what the reader already does for a v2 row missing
+either. The channel rides in the WARNING (`history: raised ExchangeError
+(v3)`) and never in the class, because a class is a cause a record carries and
+the channel is which door refused; the v2 spelling on every existing record
+is byte-identical.
+
+**AND THE BOT'S OWN CLOSE THREW THE VENUE'S MATCHED PRICE AWAY OVER A
+SECONDARY FIELD, AT THE LOOKUP'S OWN CALLER.** `_close_position_inner` asks
+the same lookup for the P&L and took its find only `if
+pos_hist_data.get("pnl") is not None`. The lookup was cured of exactly that
+shape -- *"a matched fill's PRICE was thrown away over a SECONDARY field"* --
+and answers `pnl: None` beside a real `close_price` for a fill whose profit
+Bitget left at "0", which the DOT card shows is the ordinary case. The caller
+then took nothing: the ticker read BEFORE the lookup ran stayed on the record
+as `ticker_after_bot_close`, with no cause, because the lookup HAD priced it.
+Driven through the real `close_position` with the close order's fill unread,
+the record held the ticker (96) where the fills stage had the venue's 95, and
+`close_lookup` None, which is a row the parity card counts as `unrecorded`.
+The venue's price wins over a ticker or an unread fill now, under the stage's
+own source word (a fills-stage find used to be booked as
+`bitget_position_history` whatever stage found it), and its stated fee travels
+with what it COVERS: a history row states the round trip, a fill its own leg,
+and the close order's own fill, read after, takes both the fee and the cover
+back to the close leg, or a 0.2 close fee would be charged as a whole round
+trip. A fill price the close order itself confirmed is left alone, as the more
+direct reading.
+
+**A row with no cause on record is not a reason, and the card printed it as
+the heaviest one.** `unrecorded ×179` sat under "why the venue lookup priced
+none of them", the row with the most weight on the line and the one that
+names no endpoint, no matching defect and nothing to fix; the digest called it
+"most often". `split_causes` is the one reading: the card says `...; 179 carry
+no cause on record (closed before the lookup said why)` after the named
+causes, and the digest names the most common NAMED cause. And each abort
+guard's latest firing is dated on the aborts line (`leverage_overshoot 18
+(latest 2026-09-27)`), read off the rows' own `closed_at` and absent for a
+guard whose rows carry none, so a count of 18 can be read as the 2026-09-15
+incident on record or as a guard still firing. Which of those it is on the
+live box is not measurable from here; the date is what answers it.
+
+**What is stated rather than fixed.** Whether the venue answers the v3
+endpoint for THIS account's permission set is the venue's to say; a refusal
+there reads as `history raised <Class> (v3)` in the log, and the fills and
+orders stages beside it are unchanged. `unrecorded` on the live record is two
+populations the card cannot tell apart -- rows from before the lookup said
+why, and own-close rows this branch just closed -- and both stop growing from
+here; nothing rewrites a row already booked.
+
+**Twenty-eight mutations, each killed on the first round, none refused.**
+Three are worth naming for what they prove about the guards rather than the
+code. A stand-in's options read like a dict (`getattr(opts, "get")`) dies on
+the leaf test and on every classic fixture in the older suites at once: an
+`AsyncMock` answers a truthy Mock for `options.get("uta")`, so every v2 stub
+would go unasked while the v3 method was called on a mock that had never been
+planted. The own close overriding a fill the close order itself confirmed
+passes every assertion about a ticker-priced close and dies only on the
+"left alone" drive, which is the asymmetric fixture that separates *beats a
+ticker* from *beats everything*. And the close order's own fill not taking
+the fee cover back to the close leg was a corpus gap found by PLANNING the
+round: every own-close fixture answered no fills, so a round trip stated by
+the history row could never meet a close-leg fee stated after it; the drive
+was written before the round ran, and the mutation dies on it.
+> **And the accuracy suite refused the head this slice was built on, for two
+> citations the remap had carried faithfully to the wrong line.** The map's
+> entry-order sentence (`live_executor.py:6127 creates the entry order
+> idempotently`) and its three `productType` citations were 28 and 8 lines
+> short of what they name at f9314dc5, and green one commit earlier: the
+> hold-mode slice's cadence fixup added lines above both after that slice's
+> remap had run, and a remap run before the last edit is a remap of a tree
+> nobody committed. `test_claude_md_accuracy` derives both from the code, so
+> it said so on the first run here; every other citation into the five files
+> this branch touches reads the content it read at the last green base. The
+> preflight running on that head was stopped by PID rather than waited out,
+> because a test gate that will fail on a known cause is forty minutes of
+> nothing measured.
+
+(`tests/test_the_history_stage_speaks_the_clients_api_family.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -15986,7 +16103,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **451 of 1138** reach for source text through `source_scan`, `code_only`
+Driven, **451 of 1139** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 451 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
