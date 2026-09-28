@@ -2419,6 +2419,22 @@ class RiskEngine:
         except Exception as exc:
             failed.append(f"MARGIN_RISK: evaluation error ({exc})")
 
+        # Final stop-distance backstop. The analyzer applies the same floor,
+        # but later paths may refine or replace the entry/stop pair. Reject here
+        # rather than widening because reward:risk and sizing already use the
+        # submitted geometry.
+        try:
+            _stop_floor = CONFIG.analyzer.min_stop_distance_pct
+            if _stop_floor > 0 and idea.entry_price > 0:
+                _stop_dist = abs(idea.entry_price - idea.stop_loss) / idea.entry_price
+                if _stop_dist < _stop_floor:
+                    failed.append(
+                        f"STOP_DISTANCE: {_stop_dist:.3%} < {_stop_floor:.2%} floor")
+                else:
+                    passed.append(f"STOP_DISTANCE: {_stop_dist:.2%} OK")
+        except Exception as exc:
+            failed.append(f"STOP_DISTANCE: evaluation error ({exc})")
+
         if is_manual:
             passed.append("CONFIDENCE: skipped (manual trade)")
         else:

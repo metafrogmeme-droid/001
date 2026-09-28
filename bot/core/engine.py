@@ -6404,6 +6404,15 @@ class RuneClawEngine:
                             refined_tp = refined_entry + new_risk * original_rr
 
                             if new_risk > 0:
+                                _floor = CONFIG.analyzer.min_stop_distance_pct
+                                _distance = new_risk / refined_entry
+                                if _floor > 0 and _distance < _floor:
+                                    audit(system_log,
+                                          f"MTF entry refinement skipped for {symbol}: "
+                                          f"stop distance {_distance:.3%} < {_floor:.2%} floor",
+                                          action="mtf_refine", result="SKIPPED")
+                                    return idea
+
                                 audit(system_log,
                                       f"MTF entry refined for {symbol}: {idea.entry_price:.4f} -> {refined_entry:.4f} "
                                       f"(SL: {idea.stop_loss:.4f} -> {refined_sl:.4f})",
@@ -6443,6 +6452,15 @@ class RuneClawEngine:
 
                             if new_risk <= 0:
                                 return idea  # invalid geometry — keep original
+
+                            _floor = CONFIG.analyzer.min_stop_distance_pct
+                            _distance = new_risk / refined_entry
+                            if _floor > 0 and _distance < _floor:
+                                audit(system_log,
+                                      f"MTF entry refinement skipped for {symbol}: "
+                                      f"stop distance {_distance:.3%} < {_floor:.2%} floor",
+                                      action="mtf_refine", result="SKIPPED")
+                                return idea
 
                             audit(system_log,
                                   f"MTF entry refined for {symbol}: {idea.entry_price:.4f} -> {refined_entry:.4f} "

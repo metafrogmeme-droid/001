@@ -176,3 +176,36 @@ class TestRefineEntryMtfStopTighten:
         if refined.entry_price != idea.entry_price:  # refinement triggered
             assert refined.stop_loss > idea.stop_loss
             assert refined.stop_loss < refined.entry_price
+
+
+    @pytest.mark.asyncio
+    async def test_long_refinement_below_stop_floor_is_skipped(self):
+        from bot.config import CONFIG
+        from bot.core.engine import RuneClawEngine
+        eng = RuneClawEngine.__new__(RuneClawEngine)
+        candles = self._candles_with_support(support=99.7)
+
+        async def _fake_ohlcv(exchange, symbol, tf, limit=48, ttl=60):
+            return candles
+        eng._cached_ohlcv = _fake_ohlcv
+
+        idea = self._idea(entry=100.0, sl=99.6, tp=100.8)
+        refined = await eng._refine_entry_mtf(idea, exchange=None)
+        assert refined == idea
+
+    @pytest.mark.asyncio
+    async def test_long_refinement_with_normal_stop_passes(self):
+        from bot.config import CONFIG
+        from bot.core.engine import RuneClawEngine
+        eng = RuneClawEngine.__new__(RuneClawEngine)
+        candles = self._candles_with_support(support=99.7)
+        candles[-3][3] = 98.0  # keep the structure stop comfortably below the floor
+
+        async def _fake_ohlcv(exchange, symbol, tf, limit=48, ttl=60):
+            return candles
+        eng._cached_ohlcv = _fake_ohlcv
+
+        idea = self._idea(entry=100.0, sl=99.2, tp=101.6)
+        refined = await eng._refine_entry_mtf(idea, exchange=None)
+        assert refined.entry_price != idea.entry_price
+        assert abs(refined.entry_price - refined.stop_loss) / refined.entry_price >= 0.004
