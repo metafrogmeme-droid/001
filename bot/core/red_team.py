@@ -275,19 +275,18 @@ class RedTeamEngine:
 
     def _liquidity_drain_scenarios(self) -> list[dict]:
         price = 50000.0
-        # The risk engine auto-caps oversized positions at 20% of equity.
-        # Tight stops produce large theoretical positions, but the auto-cap
-        # brings them within limits.  These scenarios verify the system
-        # handles tight stops gracefully (APPROVED with capped position).
+        # The risk engine now rejects stops below the analyzer's configured
+        # floor before sizing.  Auto-capping an oversized position is not
+        # enough: fees and ordinary fill drift become unsafe fractions of R.
         return [
             {
                 "name": "liquidity_drain_50pct_equity",
                 "category": "liquidity_drain",
                 "description": (
                     "Position sized at 50% of equity via a very tight stop. "
-                    "Risk engine auto-caps to 20% notional — should APPROVE."
+                    "Stop is below the final floor — should REJECT."
                 ),
-                "expected_verdict": "APPROVED",
+                "expected_verdict": "REJECTED",
                 "atr": "auto",
                 "build_idea": lambda: _make_idea(
                     entry=price, sl=price * 0.999, tp=price * 1.01,
@@ -299,9 +298,9 @@ class RedTeamEngine:
                 "category": "liquidity_drain",
                 "description": (
                     "Position sized at 100% of equity via ultra-tight stop. "
-                    "Risk engine auto-caps to 20% notional — should APPROVE."
+                    "Stop is below the final floor — should REJECT."
                 ),
-                "expected_verdict": "APPROVED",
+                "expected_verdict": "REJECTED",
                 "atr": "auto",
                 "build_idea": lambda: _make_idea(
                     entry=price, sl=price * 0.9999, tp=price * 1.005,

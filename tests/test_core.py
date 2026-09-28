@@ -1373,14 +1373,15 @@ class TestEngineFSM:
         atr=None and the volatility guard fail-closed ("VOLATILITY: ATR data
         unavailable"), rejecting a valid manual trade BEFORE the synthetic-ATR
         fallback ran. The fix derives the synthetic ATR from the SL distance
-        before the re-check, so the trade drives to execution. Reproduces the
-        exact reported case: /trade short BTC 63105 sl 63231 tp 59000."""
+        before the re-check, so the trade drives to execution. Reproduces
+        the reported shape, with a stop wide enough to pass the final stop
+        floor: /trade short BTC 63105 sl 63505 tp 59000."""
         from types import SimpleNamespace
 
         engine = self._make_engine()
         idea = TradeIdea(
             id="TI-MANUAL-BTC", asset="BTC/USDT", direction=Direction.SHORT,
-            entry_price=63105, stop_loss=63231, take_profit=59000,
+            entry_price=63105, stop_loss=63505, take_profit=59000,
             confidence=1.0, reasoning="Manual trade placed by user",
             signals_used=["manual"], source="manual", order_type="limit",
             timestamp=datetime.now(UTC),
