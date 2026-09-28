@@ -333,6 +333,19 @@ class RiskEngine:
         # at day rollover while drawdown/streak/manual trips stay manual.
         self._circuit_trip_cause: str = ""        # "daily_loss" | "drawdown" | "streak" | "manual"
         self._circuit_trip_day: str = ""          # UTC YYYY-MM-DD of the trip
+        # WHEN it tripped, epoch seconds from the engine's own clock. The
+        # breaker card prints this and never the moment a monitor pass
+        # noticed: a restart with the breaker persisted open announced a
+        # fresh trip "Triggered At: <boot time>". Restored by
+        # `_restore_trip_time`; None when the trip on record carries no time.
+        self._circuit_trip_at: Optional[float] = None
+        # The last evaluation's SIGNED daily P&L over its base, and which
+        # book it was ("live" / "paper"). `_last_known_daily_loss_pct` is the
+        # MAGNITUDE the gate compares, and a card printing it behind a minus
+        # sign turned a winning day into a "Daily loss". None until an
+        # evaluation measures it.
+        self._last_known_daily_pnl_pct: Optional[float] = None
+        self._last_known_daily_pnl_basis: str = ""
         self._total_checks = 0
         self._total_rejections = 0
         # Gate telemetry + strangle-watchdog counters (see gate_stats() /
@@ -489,6 +502,21 @@ class RiskEngine:
         """Most recent computed daily-loss percentage (persists across a failed
         recompute). For truthful breaker alerts."""
         return self._last_known_daily_loss_pct
+
+    @property
+    def circuit_trip_at(self) -> Optional[float]:
+        """When the breaker tripped, epoch seconds, or None when the trip on
+        record carries no time (no trip, or a state a build before this
+        field wrote)."""
+        return self._circuit_trip_at
+
+    def last_daily_pnl_reading(self) -> tuple[Optional[float], str]:
+        """``(signed percent of equity, basis)`` from the last evaluation that
+        measured today's P&L, or ``(None, "")`` when none has since this
+        process started. `last_known_daily_loss_pct` is the MAGNITUDE the
+        gate compares and cannot say whether the day is up or down; a card
+        that printed it behind a minus sign called a winning day a loss."""
+        return self._last_known_daily_pnl_pct, self._last_known_daily_pnl_basis
 
     @property
     def consecutive_losses(self) -> int:
@@ -2008,6 +2036,7 @@ class RiskEngine:
             self._circuit_open = False
             self._circuit_trip_cause = ""
             self._circuit_trip_day = ""
+            self._circuit_trip_at = None
             audit(risk_log,
                   f"Daily-loss circuit breaker auto-reset at day rollover "
                   f"(tripped {_prev_day}, now {_today_utc})",
@@ -2029,6 +2058,7 @@ class RiskEngine:
             self._circuit_open = False
             self._circuit_trip_cause = ""
             self._circuit_trip_day = ""
+            self._circuit_trip_at = None
             self._consecutive_losses = 0
             _cool_h = (self._now() - self._last_loss_time) / 3600.0
             audit(risk_log,
@@ -2111,10 +2141,17 @@ class RiskEngine:
                 # halted, flat book no close ever comes to roll it.
                 _daily_pnl = self.live_daily_pnl_today()
                 loss_base = live_equity
+                _dl_basis = "live"
             else:
                 _daily_pnl = state.daily_pnl
                 loss_base = min(sizing_equity, state.equity_usd) if sizing_equity > 0 and state.equity_usd > 0 else max(sizing_equity, state.equity_usd)
+                _dl_basis = "paper"
             daily_loss_pct = abs(_daily_pnl / loss_base * 100) if loss_base > 0 else 0
+            # The SIGNED day for the card, beside the magnitude the gate
+            # compares: this book's own, before the person-level tighten.
+            self._last_known_daily_pnl_pct = (
+                float(_daily_pnl / loss_base * 100) if loss_base > 0 else None)
+            self._last_known_daily_pnl_basis = _dl_basis
             # MULTI-VENUE, Phase 3: this cap is PER PERSON. Both halves of the
             # ratio move together or neither does — a person-level numerator
             # over one venue's equity overstates the loss, and one venue's PnL
@@ -4423,6 +4460,25 @@ class RiskEngine:
         except Exception:
             return
 
+    def _restore_trip_time(self, data: dict) -> None:
+        """Restore WHEN the breaker tripped, so a restart does not re-date it.
+
+        Not one of `_STATE_FIELDS`, for the reason `_restore_governor_clear`
+        gives: an unreadable value there fails the whole state closed over a
+        field whose safe reading is "the time is not on record". A value that
+        is not a finite non-negative number, or one in the future, is ignored
+        and the card says so; a state written by a build before this field
+        reads the same way.
+        """
+        try:
+            val = data.get("circuit_trip_at")
+            if (not isinstance(val, (int, float)) or isinstance(val, bool)
+                    or not math.isfinite(val) or val < 0 or val > self._now()):
+                return
+            self._circuit_trip_at = float(val)
+        except Exception:
+            return
+
     def _load_state(self) -> None:
         """Restore safety state from disk.
         Fix 3 (fail-closed persistence):
@@ -4452,6 +4508,7 @@ class RiskEngine:
             self._restore_live_peak(data)
             self._restore_governor_clear(data)
             self._restore_unpriced_close(data)
+            self._restore_trip_time(data)
             if self._circuit_open:
                 audit(risk_log, "Circuit breaker state restored from disk: ACTIVE",
                       action="state_restore", result="LOADED")
@@ -4501,6 +4558,7 @@ class RiskEngine:
         self._circuit_breaker_trips += 1
         self._circuit_trip_cause = "state_unreadable"
         self._circuit_trip_day = datetime.now(UTC).strftime("%Y-%m-%d")
+        self._circuit_trip_at = self._now()
         if rescue:
             kept = ""
             try:
@@ -4575,6 +4633,7 @@ class RiskEngine:
             "circuit_breaker_trips": self._circuit_breaker_trips,
             "circuit_trip_cause": self._circuit_trip_cause,
             "circuit_trip_day": self._circuit_trip_day,
+            "circuit_trip_at": self._circuit_trip_at,
             "live_drawdown_override_pct": _dd_override,
             # Always WRITTEN (it is just a number); only RESTORED behind
             # CONFIG.risk.persist_live_drawdown_peak. Writing unconditionally
@@ -4671,6 +4730,7 @@ class RiskEngine:
         self._restore_live_peak(data)
         self._restore_governor_clear(data)
         self._restore_unpriced_close(data)
+        self._restore_trip_time(data)
         if self._circuit_open:
             audit(risk_log, "Circuit breaker state restored from combined state: ACTIVE",
                   action="state_restore", result="LOADED")
@@ -4934,6 +4994,7 @@ class RiskEngine:
             # auto-reset at rollover while drawdown/streak/manual stay manual.
             self._circuit_trip_cause = cause
             self._circuit_trip_day = datetime.now(UTC).strftime("%Y-%m-%d")
+            self._circuit_trip_at = self._now()
             audit(risk_log, f"CIRCUIT BREAKER TRIPPED: {reason}",
                   action="circuit_breaker", result="HALTED",
                   data={"cause": cause, "day": self._circuit_trip_day})
@@ -4953,6 +5014,7 @@ class RiskEngine:
             self._last_loss_time = None
             self._circuit_trip_cause = ""
             self._circuit_trip_day = ""
+            self._circuit_trip_at = None
             # Re-seed the live drawdown high-water mark from the NEXT live
             # evaluation's current equity. Without this a peak corrupted by a
             # transient too-high equity reading (e.g. a stale/paper-fallback

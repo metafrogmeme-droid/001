@@ -16075,6 +16075,105 @@ own case, where the card has to say the leverage was not recorded rather than
 print a figure the runner of that day could not have filled at.
 (`tests/test_the_benchmark_fills_at_the_leverage_it_states.py`.)
 
+**THE BREAKER CARD PRINTED "SEE CAUSE" WHERE THE GATE HAD A FIGURE, A WINNING
+DAY AS A LOSS, AND A RESTART AS A FRESH TRIP.** Reported from the live bot on
+2026-09-28, three cards in one minute: `CIRCUIT BREAKER TRIPPED · Reason:
+drawdown · Drawdown: see cause · Daily loss: -0.08% · Open Positions: 3 ·
+Triggered At: 09:34:27 UTC`, then `⚠️ DRAWDOWN AT 85% OF LIMIT · Current
+drawdown: 8.59% · Circuit-breaker limit: 7.00% · The risk engine halts all
+entries at 100% of the limit. Consider reducing size`. Driven on the real
+`RiskEngine` and the real `ProactiveMonitor`
+(`tests/test_the_breaker_card_says_what_the_gate_read.py`), each line was
+one of the shapes this file tabulates.
+
+- **"see cause"** stood under a comment reading *"the exact live % isn't
+  separately retained"*. It is: `drawdown_status()` answered `8.59 · live ·
+  7.0` to the tier check ten lines below, and the trip card never asked.
+- **"Daily loss: -0.09%"** printed `last_known_daily_loss_pct`, which the gate
+  stores as `abs(_daily_pnl / base)` because it COMPARES a magnitude, behind a
+  hard-coded minus. Driven with the accumulator at **+$8**, the card called
+  the day a loss of 0.09%. And `if _dl` printed a measured `0.0` as `N/A`.
+- **"Open Positions: 0"** for an executor that raised, or none: the shapes
+  table's first row, on the card an operator opens because trading stopped.
+- **"Triggered At: <now>"** was the moment the monitor's pass NOTICED.
+  `_last_cb_state` started `False`, so on every restart with the breaker
+  persisted open the first pass announced a fresh trip at boot time, with
+  the daily loss `N/A` and the book `0`. The engine recorded the trip's DAY
+  and never its time.
+
+**Two cards in one tick is the restart's signature, and the pasted pair has
+it.** The tier check's `_last_dd_tier` starts at 0 too, so a first pass over a
+persisted 8.59% fires the 85 tier beside the "trip" -- which is what the
+pasted minute looks like, and the SEI limit fill that the overshoot guard
+flattened at 09:35 is consistent with a resting order filling after a boot
+rather than an entry placed through a tripped breaker. Not provable from
+here, and not needed: each card was wrong on its own.
+
+**The readings are the engine's, and the cards are pure.**
+`RiskEngine.circuit_trip_at` is written by both trip sites (the gate's and
+the fail-closed restore's), cleared with the cause, exported, and restored by
+a helper of its own -- not one of `_STATE_FIELDS`, for the reason
+`_restore_governor_clear` gives: an unreadable time there fails the whole
+state closed over a field whose safe reading is "not on record"; junk, a bool,
+NaN, a negative and a future time are all ignored. `last_daily_pnl_reading()`
+is the SIGNED figure with its basis (`live`: realized closes; `paper`), None
+until an evaluation measures it. `bot/formatters/breaker_card.py` renders
+both cards from plain values, and `_num` refuses a bool, a NaN and a stand-in
+before anything is printed: a MagicMock read as `1 (+1 resting order)` on the
+first draft, because `int(MagicMock())` is 1. The monitor's
+`_enforced_drawdown_reading` is the ONE drawdown both cards read, and in live
+mode a `paper` source is unread with its own sentence -- after a restart no
+live equity has been read yet and `drawdown_status()` falls back to the paper
+snapshot, so the restored card printed `0.00% (paper snapshot)` under a live
+trip before the reading was shared. The operator's book comes from
+`_operator_book_rows`, positions apart from resting orders, or "unread".
+
+**The first pass is a first pass.** `_last_cb_state` starts as None; a
+breaker found open then gets `CIRCUIT BREAKER OPEN AT STARTUP` with the
+recorded trip time (day and time), or "not on record (before this process
+started)" for a state a build before this field wrote, under its own dedup
+key. A fresh trip prints the trip's own time; a stand-in engine with no time
+on record is labelled "Noticed at", which is what that moment is. A closed
+breaker on the first pass is not a clear.
+
+**The tier card names the measured fraction, and past the limit it is not an
+early warning.** `DRAWDOWN AT 123% OF LIMIT`, a fourth tier at 100, and two
+sentences: below the limit the card it always was; past it, *the breaker
+trips on the next entry evaluation; nothing has been halted yet* -- a
+reachable state, since the gate trips at EVALUATION time and a quiet market
+evaluates nothing. Beside a breaker that has already tripped the tier card
+is not sent at all (the trip card is the card) and the tier is still
+recorded, so it does not fire later; a breaker that cannot be read gets the
+louder sentence rather than no card. One neighbour had pinned `"85%" in
+title` for a measured 86%, with its own comment computing the 86.
+
+**What is deliberately left, with the reason.** The public channel's `📉
+TRADE CLOSED 🔴 SEIUSDT LONG closed (leverage overshoot) … #TradeResult` over
+an execution abort is the product decision the DOT chapter filed; the record
+counts the abort as a filled close with real fees, so the two public surfaces
+agree, and the icon is the net's. And the overshoot itself is the fill guard
+doing its job on the design this file records: the pre-order verdict keeps
+its confirmation when the margin mode cannot be read (`governs=None`, the
+2026-07-21 reason), so a wrong-leverage fill costs one round trip of fees at
+the post-fill guard rather than every trade at the pre-order one.
+
+**Thirty-four mutations, each killed -- and the one REFUSED on the first
+round was the driver's anchor.** The tier header's mutation spelled the
+⚠️ as a Python escape where the file holds the character, so the
+anchor matched zero times: the PNG chapter's trap with the sign flipped
+(there the file held the escape), and a driver that took that for a kill
+would have reported coverage of the one line the header change lives on.
+Re-anchored on the bytes the file holds, it dies on the 123% test. Two more
+are worth naming for what they prove about the guards rather than the code:
+the tier check keeping a private copy of the drawdown reading dies only on
+the test that PATCHES the monitor's one reading and asks both cards, because
+a byte-identical copy agrees with every honest fixture; and the reading
+answering the gate's magnitude dies on the LOSING day alone -- on the +$8
+day the magnitude and the signed figure are the same number, which is the
+asymmetric-fixture rule one sign over.
+(`tests/test_the_breaker_card_says_what_the_gate_read.py`,
+`bot/formatters/breaker_card.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -17366,7 +17465,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **465 of 1155** reach for source text through `source_scan`, `code_only`
+Driven, **465 of 1156** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 465 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
