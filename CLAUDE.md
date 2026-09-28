@@ -16966,6 +16966,60 @@ re-run against the planted test alone, each dies there too.
 (`tests/test_the_signal_history_reads_the_outcome_ledger.py`,
 `bot/formatters/signal_history_card.py`.)
 
+**THE ENGINE PUBLISHED THE SAME SETUP AS A NEW CALL EVERY FIVE MINUTES.** An
+engine idea stays pending for `PENDING_IDEA_TTL` (300s), and the tick skips its
+scan while one is pending. When the idea lapses untaken, the next scan reads the
+same closed hourly candles (cached 900s) and the same cached thesis, and emits
+the same setup under a new TradeIdea id. Each emission went through the publish
+step as a new call:
+
+- a new outcome-ledger row, scored on its own, so the stats and `/signals`
+  counted one market move as many calls;
+- a new website row, which the copy push sweep (deduplicated by signal key)
+  pushed to followers again;
+- a new public thesis event;
+- and, above the display threshold, a new RUNECLAW SIGNAL post on the public
+  channel.
+
+The within-the-hour repeat was read, not driven: the inputs are identical except
+the live order-flow reads. The across-hours persistence was measured. On
+`majors_1h_v2`'s honest walk-forward, which asks each symbol every 4 bars, 2,699
+of 5,228 ideas were followed by another idea on the same symbol at the next ask,
+and 2,597 of those were in the same direction.
+
+**One call per market and direction, per producer, while it is pending.**
+`record_published` takes a `producer` and stores it on the entry. A row from the
+engine (`signal_outcomes.ENGINE`) is a re-offer when the engine already has a
+PENDING call (NEW or OPEN) on the same market and direction, whether in the
+ledger or earlier in the same batch. The market is read through `market_for`
+and `normalize_symbol`, so `BTC`, `BTC/USDT` and `BTC/USDT:USDT` are one
+market. A re-offer is not recorded and not sent. `publish_signals` returns
+which call each re-offer repeats, and the engine's publish step (a seam now,
+`_publish_engine_ideas`) stamps that key on the idea (`TradeIdea.repeat_of`).
+The public thesis event and the channel post skip an idea that carries it. The
+opposite direction is a new call, and so is the same direction once the earlier
+call has resolved. A ledger that cannot be read sends every row as it always
+did: counting a re-offer twice is the mistake that can be recovered from, and
+withholding a call on a guess is not.
+
+**Three things are deliberately left as they were.**
+
+- The operator's private alert still fires for a re-offer. It is a live idea
+  with a live Take-it button, and the button on the earlier card points at an
+  idea that has expired.
+- The website row keeps the first offer's five-minute window. It is not
+  extended. The call's levels are what it said when it was made, and the bot
+  is no longer offering those exact levels.
+- The scan cards carry no producer and are recorded as sent. Each scan card's
+  verify link points at the key it was published under, and its levels are the
+  scan's own. Linking a card to an earlier call's receipt would show different
+  levels.
+
+Eighteen mutations, each killed on the first round. The two direction cases
+(an unreadable direction is no side, and a lowercase or enum spelling is the
+same side) were added before the round ran.
+(`tests/test_a_re_offered_setup_is_one_call.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -18257,7 +18311,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **468 of 1167** reach for source text through `source_scan`, `code_only`
+Driven, **468 of 1168** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 468 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

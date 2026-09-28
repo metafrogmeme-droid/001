@@ -35,6 +35,19 @@ call nearly every signal EXPIRED before its first bar closed. What the call
 itself did is asked over the time the bot would rest a limit order at its entry
 (``LIMIT_ORDER_EXPIRE_SEC``, four hours by default), which the engine hands in.
 
+ONE CALL PER MARKET AND DIRECTION, PER PRODUCER, WHILE IT IS PENDING. The
+engine's pending idea lives ``PENDING_IDEA_TTL`` (five minutes); when it lapses
+untaken, the next scan reads the same closed hourly candles and the same cached
+thesis and emits the same setup under a new id. Each of those used to be a new
+call: a new ledger row scored on its own, a new website row, a new copy push.
+One market move was counted as many calls as the setup survived five-minute
+windows. A row whose producer already has a PENDING call on the same market in
+the same direction is a RE-OFFER of that call: it is not recorded and not sent,
+and ``publish_signals`` says which call it re-offers. The opposite direction is
+a new call, and so is the same direction once the earlier call has resolved.
+The re-offer's own levels are not the call's: the call is scored on what it
+said when it was made, which is what a call is.
+
 The R is GROSS: a signal has no size, so no fee can be charged to it, and the
 panel says so. And the walk is over HOURLY bars, so a bar that spans both
 levels is more common than it would be at a finer grain; that is the price of
@@ -46,7 +59,7 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, NamedTuple, Optional, Sequence
 
 from bot.utils.json_store import StoreUnreadable, read_json_store, update_json_store
 from bot.utils.paths import state_path
@@ -298,33 +311,89 @@ def _check(data: Any) -> str:
     return ""
 
 
-def record_published(rows: Sequence[dict], path=None) -> int:
-    """Record every published row, so the engine can walk it later.
+#: The engine's own ideas: the one producer that re-emits the same setup on
+#: its own clock, so the one whose rows are held to one live call per market
+#: and direction. The scan cards carry no producer and are recorded as sent,
+#: because a scan card's verify link points at the key it was published under.
+ENGINE = "engine"
+
+
+def call_market(row: dict) -> Optional[tuple[str, str]]:
+    """(market, direction) a row makes a call on, or None when it names neither.
+
+    The market is read the way every other reader here reads one (``BTC``,
+    ``BTC/USDT`` and ``BTC/USDT:USDT`` are one market), so two spellings of it
+    are never two calls.
+    """
+    from bot.core.symbol_form import normalize_symbol
+
+    m = market_for(row.get("symbol"))
+    d = str(row.get("direction", "")).split(".")[-1].upper()
+    if m is None or d not in ("LONG", "SHORT"):
+        return None
+    return normalize_symbol(m), d
+
+
+class Recorded(NamedTuple):
+    """What ``record_published`` did: how many rows became calls, and
+    ``{row key: the key of the call it re-offers}`` for the rows that did not."""
+
+    added: int
+    reoffers: dict
+
+
+def record_published(rows: Sequence[dict], path=None, *,
+                     producer: str = "") -> Optional[Recorded]:
+    """Record every published row that is a new call, so the engine can walk it.
 
     The row is kept WHOLE: a resolution is re-sent as the same row with its
     outcome fields set, because the website INSERTs a row it has never seen and
     seals it from the decision facts, so a row re-sent with only its key and
     outcome would be sealed with zeros. A key already recorded is left alone.
-    Returns how many were added; an unreadable ledger is never written over.
+
+    With a ``producer``, a row on a market and direction that producer already
+    has a PENDING call on (in the ledger, or earlier in this batch) is a
+    re-offer of that call and is not recorded. None when the ledger could not
+    be read or written: then nothing is known about which rows re-offer what,
+    and nothing was recorded.
     """
     p = path or ledger_path()
     fresh = [dict(r) for r in rows or ()
              if isinstance(r, dict) and r.get("signal_key") and r.get("symbol")
              and r.get("direction")]
     if not fresh:
-        return 0
+        return Recorded(0, {})
+    reoffers: dict[str, str] = {}
     added = 0
 
     def change(data):
         nonlocal added
         sigs = data.setdefault("signals", {})
+        live: dict[tuple[str, str], str] = {}
+        if producer:
+            for k, v in sigs.items():
+                if (isinstance(v, dict) and v.get("producer") == producer
+                        and v.get("status") in PENDING and isinstance(v.get("row"), dict)):
+                    cm = call_market(v["row"])
+                    if cm is not None:
+                        live.setdefault(cm, k)
         for r in fresh:
             k = str(r["signal_key"])
             if k in sigs:
                 continue
-            sigs[k] = {"row": r, "status": str(r.get("status") or NEW),
-                       "r": None, "resolved_ms": None, "why": "",
-                       "checked_ms": None, "synced": True}
+            cm = call_market(r) if producer else None
+            call = live.get(cm) if cm is not None else None
+            if call is not None:
+                reoffers[k] = call
+                continue
+            entry = {"row": r, "status": str(r.get("status") or NEW),
+                     "r": None, "resolved_ms": None, "why": "",
+                     "checked_ms": None, "synced": True}
+            if producer:
+                entry["producer"] = producer
+            sigs[k] = entry
+            if cm is not None:
+                live[cm] = k
             added += 1
         _prune(sigs)
         return added > 0
@@ -334,11 +403,11 @@ def record_published(rows: Sequence[dict], path=None) -> int:
     except StoreUnreadable as exc:
         logger.error("signal outcome ledger unreadable (%s); %d published signal(s) "
                      "not recorded, and the file is left as it is", exc.detail, len(fresh))
-        return 0
+        return None
     except OSError as exc:
         logger.warning("signal outcome ledger could not be written (%s)", type(exc).__name__)
-        return 0
-    return added
+        return None
+    return Recorded(added, dict(reoffers))
 
 
 def _prune(sigs: dict, now_ms: Optional[int] = None) -> None:
@@ -497,17 +566,32 @@ def ledger_summary(path=None) -> Optional[dict]:
             "keep_resolved_s": KEEP_RESOLVED_S, "max_rows": MAX_ROWS}
 
 
-def publish_signals(rows: Sequence[dict], sync_fn: Optional[Callable[[list], None]] = None) -> None:
-    """Record the rows, then push them. The one door both producers use."""
+def publish_signals(rows: Sequence[dict], sync_fn: Optional[Callable[[list], None]] = None,
+                    *, producer: str = "") -> dict[str, str]:
+    """Record the rows, then push the ones that are calls. The one door both
+    producers use.
+
+    Returns ``{row key: the key of the call it re-offers}`` for every row that
+    was a re-offer (see ``record_published``); those are not pushed. When the
+    ledger could not say, every row is pushed as it always was and the answer
+    is ``{}``: a re-offer counted twice is the recoverable mistake, and a call
+    withheld on a guess is not.
+    """
     rows = [r for r in rows or () if isinstance(r, dict)]
     if not rows:
-        return
+        return {}
+    got: Optional[Recorded] = None
     try:
-        record_published(rows)
+        got = record_published(rows, producer=producer)
     except Exception as exc:  # noqa: BLE001 -- recording must never cost the push
         logger.warning("signal outcome ledger: record failed (%s)", type(exc).__name__)
+    reoffers: dict[str, str] = got.reoffers if got is not None else {}
+    calls = [r for r in rows if str(r.get("signal_key") or "") not in reoffers]
+    if not calls:
+        return reoffers
     send = sync_fn
     if send is None:
         from bot.utils.website_sync import sync_signals_in_background
         send = sync_signals_in_background
-    send(list(rows))
+    send(calls)
+    return reoffers

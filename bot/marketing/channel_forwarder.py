@@ -140,8 +140,17 @@ class ChannelForwarder:
                 system_log.debug("Channel post to %s failed: %s", gid, exc)
 
     async def post_signal(self, idea) -> None:
-        """Post a new trade signal to the group (no buttons)."""
+        """Post a new trade signal to the group (no buttons).
+
+        A CALL IS POSTED ONCE. The engine's idea lapses after PENDING_IDEA_TTL
+        and the next scan re-emits the same setup under a new id; each of those
+        was posted here as a new RUNECLAW SIGNAL, so a channel read one setup
+        as a run of calls. An idea that re-offers a call still pending
+        (`repeat_of`, set by the engine's publish step) is not posted.
+        """
         if not self._enabled or not self._group_ids:
+            return
+        if getattr(idea, "repeat_of", None):
             return
         try:
             d = "\U0001f7e2 LONG" if idea.direction.value == "LONG" else "\U0001f534 SHORT"

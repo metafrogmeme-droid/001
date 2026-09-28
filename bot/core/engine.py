@@ -6150,22 +6150,7 @@ class RuneClawEngine:
         # manual Telegram /scan (a different, simpler scanner) — it never saw
         # what the autonomous engine actually generates and trades on.
         if _synced_ideas:
-            try:
-                # Recorded as well as pushed, so the engine can say later
-                # what became of each one (signal_outcomes).
-                from bot.core.signal_outcomes import publish_signals as _publish_signals
-                _publish_signals(
-                    _build_signal_sync_payloads(_synced_ideas, self._outcome_regime))
-            except Exception as _sig_sync_exc:
-                logger.debug("Signal stream sync skipped: %s", _sig_sync_exc)
-            # Public mind-stream: each fresh idea's thesis (capped at five), at the
-            # one reading its signal-stream row publishes (`thesis_event`).
-            try:
-                from bot.core.agent_feed import FEED, thesis_event
-                for _fi in _synced_ideas[:5]:
-                    FEED.emit("thesis", **thesis_event(_fi))
-            except Exception as _feed_exc:
-                logger.debug("Agent feed thesis events skipped: %s", _feed_exc)
+            self._publish_engine_ideas(_synced_ideas)
 
         from bot.config import RUNTIME
         self._adapt_auto_confirm_threshold()
@@ -9279,6 +9264,46 @@ class RuneClawEngine:
                           action="live_smart_exit", result="ERROR")
         except Exception as exc:
             system_log.debug("Live smart-exit evaluation failed: %s", exc)
+
+    def _publish_engine_ideas(self, ideas: list) -> None:
+        """Publish the engine's scan ideas as calls, once per call.
+
+        An idea lapses untaken after PENDING_IDEA_TTL, and the next scan reads
+        the same closed candles and the same cached thesis and emits the same
+        setup under a new id. Each of those was published as a new call: a new
+        ledger row scored on its own, a new website row, a new copy push, a new
+        public thesis event. `publish_signals` records a row as a call only
+        when the engine has no PENDING call on that market in that direction,
+        and says which call each other row re-offers; the idea carries that key
+        (`repeat_of`), so the public surfaces say the call once. The idea
+        itself stays in the pending book and its private alert is unchanged:
+        it is a live offer with a live button.
+        """
+        reoffers: dict = {}
+        try:
+            # Recorded as well as pushed, so the engine can say later what
+            # became of each one (signal_outcomes).
+            from bot.core.signal_outcomes import ENGINE
+            from bot.core.signal_outcomes import publish_signals as _publish_signals
+            reoffers = _publish_signals(
+                _build_signal_sync_payloads(ideas, self._outcome_regime), producer=ENGINE)
+        except Exception as _sig_sync_exc:
+            logger.debug("Signal stream sync skipped: %s", type(_sig_sync_exc).__name__)
+        calls = []
+        for idea in ideas:
+            call = reoffers.get(idea.id)
+            if call is not None:
+                idea.repeat_of = call
+            else:
+                calls.append(idea)
+        # Public mind-stream: each fresh CALL's thesis (capped at five), at the
+        # one reading its signal-stream row publishes (`thesis_event`).
+        try:
+            from bot.core.agent_feed import FEED, thesis_event
+            for _fi in calls[:5]:
+                FEED.emit("thesis", **thesis_event(_fi))
+        except Exception as _feed_exc:
+            logger.debug("Agent feed thesis events skipped: %s", type(_feed_exc).__name__)
 
     def _register_engine_idea(self, idea: TradeIdea) -> None:
         """Put one of the ENGINE's own scan ideas into the pending book.

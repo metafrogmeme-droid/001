@@ -269,17 +269,17 @@ def ledger(tmp_path, monkeypatch):
 
 class TestTheLedger:
     def test_a_published_row_is_recorded_whole_once(self, ledger):
-        assert so.record_published([_long(), _long(), {"signal_key": "x"}]) == 1
+        assert so.record_published([_long(), _long(), {"signal_key": "x"}]).added == 1
         data = json.loads(ledger.read_text())
         entry = data["signals"]["K1"]
         assert entry["row"]["confidence"] == 0.71        # the WHOLE row
         assert entry["status"] == "NEW" and entry["synced"] is True
-        assert so.record_published([_long(status="OPEN")]) == 0
+        assert so.record_published([_long(status="OPEN")]).added == 0
 
     def test_an_unreadable_ledger_is_not_written_over(self, ledger, caplog):
         ledger.write_text("{not json")
         with caplog.at_level(logging.ERROR, logger=so.__name__):
-            assert so.record_published([_long()]) == 0
+            assert so.record_published([_long()]) is None
         assert ledger.read_text() == "{not json"
         assert so.rows_due() is None                         # never an empty list
         assert so.apply("K1", so.Resolution(so.TARGET, "t", r=2.0), NOW) is None
@@ -401,7 +401,18 @@ def test_publish_still_sends_when_the_ledger_cannot_record(ledger):
 
 
 def test_both_producers_publish_through_the_ledger():
-    for rel, fn in (("bot/core/engine.py", "_tick"),
+    # The engine's publish step is a seam of its own (`_publish_engine_ideas`,
+    # so its once-per-call rule can be driven); the tick reaches it, and
+    # neither sends a signal around the ledger.
+    tick = [n for n in ast.walk(ast.parse((ROOT / "bot/core/engine.py").read_text()))
+            if isinstance(n, ast.AsyncFunctionDef) and n.name == "_tick"]
+    assert len(tick) == 1
+    assert any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+               and n.func.attr == "_publish_engine_ideas" for n in ast.walk(tick[0]))
+    assert not [n for n in ast.walk(tick[0]) if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Name)
+                and n.func.id in ("sync_signals_in_background", "sync_signals")]
+    for rel, fn in (("bot/core/engine.py", "_publish_engine_ideas"),
                     ("bot/skills/scan_skill.py", "_push_scan_to_dashboard")):
         tree = ast.parse((ROOT / rel).read_text())
         defs = [n for n in ast.walk(tree)
