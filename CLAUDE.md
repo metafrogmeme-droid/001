@@ -15950,6 +15950,44 @@ test that plants junk in the process environment and asks the reading about
 `{}` -- the only input that separates an empty environment from a missing
 one. (`tests/test_the_per_user_cap_is_read_or_refused.py`.)
 
+**A NUMERIC KNOB THAT WOULD NOT PARSE WAS ITS DEFAULT, SILENTLY, ON 236 CONFIG
+READS.** The cap above was one site's copy of the shape; `config._env_float`
+is the reader the other 236 numeric knobs go through (`_env_float_bounded`
+included), and its `except ValueError: return default` said nothing at all --
+where the non-finite branch two lines below it already warned. So
+`MAX_POSITION_PCT=13%`, a typo in a risk limit, ran 13.0 with nothing said
+anywhere; `MAX_DAILY_LOSS_PCT=5%` ran the default the same way. The bool and
+switch readers beside it warn on a word they do not know, and had since the
+`X=off` incident their docstring records; the float reader never got the
+line.
+
+**A WARNING AT IMPORT IS NOT A SURFACE, so the boot says it every time.** The
+master-key chapter records why: a warning that fires once is a line in a
+container log from months ago, and the condition persists while the only
+thing that reported it does not. `config.ENV_UNREAD` records every value the
+reader could not use (key, reason, the default in force) -- said at import
+too, naming the key and the reason and never the raw text -- and
+`boot_health.env_preflight` takes the record and renders one sentence per
+row, *`MAX_POSITION_PCT is not a number; the default 13.0 is in force`*, on
+the report `main.py` prints and audits on every Telegram boot beside the
+missing-secrets tiers. The record is handed in rather than imported, so the
+boot-health module stays the leaf its own suite drives. An older report
+without the key still formats, and the all-clear sentence is printed only
+when nothing is missing AND nothing was unread: an all-clear over a risk
+limit running its default is the confident negative this file is about. One
+pin in the boot-health suite compared the report to an exact two-key dict and
+moved with the contract, and the record's twenty-two lines sit above every
+flag `config.py` declares, so the generated safety-flags block in
+`.env.example` was regenerated rather than left citing lines that had moved.
+
+**Eleven mutations, each killed on the first round, none refused.** Two are
+worth naming: the all-clear sentence printed over unread rows dies on one
+assertion only, the negative one, because every positive assertion about the
+row still holds when the sentence is prepended to it; and the boot handing
+the preflight nothing dies on a scan, stated as one, because the block sits
+inside `main()` behind argument parsing and a `sys.exit`.
+(`tests/test_an_env_value_that_did_not_parse_is_said_every_boot.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -16429,7 +16467,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 252 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 253 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -17241,9 +17279,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **463 of 1153** reach for source text through `source_scan`, `code_only`
+Driven, **464 of 1154** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 463 is a FLOOR and the honest shape is
+source scan that rule does not see, so 464 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

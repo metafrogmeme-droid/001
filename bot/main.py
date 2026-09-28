@@ -879,8 +879,9 @@ def main() -> None:
         # already run its self-heal by now, so this reflects the post-restore
         # state. Critical-missing is fatal; important-missing degrades a web
         # surface but the bot still trades, so we log and continue.
+        from bot.config import ENV_UNREAD
         from bot.core.boot_health import env_preflight, format_preflight
-        _pf = env_preflight(os.environ)
+        _pf = env_preflight(os.environ, unread=ENV_UNREAD)
         _msg = format_preflight(_pf)
         if _pf["critical"]:
             print(f"ERROR: {_msg}")
@@ -889,6 +890,12 @@ def main() -> None:
         if _pf["important"]:
             print(f"WARNING: {_msg}")
             audit(system_log, _msg, action="startup", result="ENV_DEGRADED")
+        if _pf["unread"]:
+            # A numeric knob that did not parse is its default, in force, on
+            # every boot until the .env is fixed -- said here rather than in
+            # the import-time warning a container log swallows.
+            print(f"WARNING: {_msg}")
+            audit(system_log, _msg, action="startup", result="ENV_UNREAD")
         run_telegram()
     elif args.mode == "scan":
         asyncio.run(run_scan())
