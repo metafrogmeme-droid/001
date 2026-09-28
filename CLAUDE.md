@@ -13970,6 +13970,184 @@ states. *Don't fix what cannot fire.*
 `tests/test_a_collapsed_setup_prints_no_ratio.py`,
 `bot/core/signal_confidence.py`, `bot/core/signal_levels.py`.)
 
+**AND THE RULE THAT WIDENING PRODUCED COVERED ONE HALF OF THE PAIR, SO FOUR
+GATES WENT ON READING THE OTHER.** The chapter above forbids a surface reading
+`blended_confidence_raw` itself and says so over the whole tree. Nothing forbade
+reading **`idea.confidence`** — the field the calibration curve leaves behind —
+and driven, that class held eleven displays and *four gates*, three of them
+reachable at shipped defaults because `build_manual_idea` STAMPS `1.0` on every
+hand-typed ticket:
+
+| gate | what it does | what a STAMP did | what a CURVE did |
+|---|---|---|---|
+| critique overconfidence (`> 0.90`) | −0.05, one of four concerns that HALT | fired on EVERY typed ticket, blaming *"the model"* | a measured 0.95 blend read 0.31 and was **not** flagged |
+| pyramid add (`< 0.70`) | authorises MORE risk on an open position | cleared on the stamp | a measured 0.82 was skipped |
+| drawdown recovery (`< 0.85`) | requires HIGHER conviction while down | cleared the higher bar on the stamp | a measured 0.90 was refused |
+| a strategy preset's own threshold | the caller's chosen floor | cleared on the stamp | a measured blend refused |
+
+**THE FIRST ROW IS THE ONE WITH NO FLAG IN FRONT OF IT.** `/trade` writes 1.0,
+the bar is 0.90, so the bear-case gate flagged every ticket a person typed as
+the MODEL being overconfident — a sentence about a producer that never ran, on
+the one surface whose job is to argue against the trade. And the second and
+third are `_high_conviction_margin`'s recorded defect (*"a stamp cleared every
+floor by construction"*) arriving at two more floors, one of them the gate that
+exists to tighten while the account is losing.
+
+**A STAMP DOES NOT CLEAR A FLOOR, AND IS NOT A CONCERN EITHER — for opposite
+reasons.** At the three floors, abstaining would be a LOOSENING, so unmeasured
+is refused and the reason names which absence it was. At the critique, the
+finding is a claim about what the MODEL said, so unmeasured ABSTAINS. Same
+reading, two directions, and `ConfidenceReading.clears` / `.above` are the two
+methods that say which — the strict one for a concern, the `>=` one for a
+permission.
+
+**THOSE TWO METHODS EXIST BECAUSE FIVE CALL SITES WROTE THE SAME COMPARISON
+TWICE AND MYPY COULD NOT NARROW IT.** Each gate read `read.measured and
+read.value >= bar` — two reads of one reading — and `measured` is a `@property`,
+so the analyser has no way to connect it to `value`: five fresh `operator`
+findings. A cast would have silenced them; one method on the reading removes the
+second read instead, and the whole-tree ratchet **IMPROVED** by five
+(`union-attr` 135 → 130), re-recorded in the same commit. Ruff improved by two
+as well (`E501` 204 → 202), from wrapping the concern sentence.
+
+**THE PUBLIC CHANNEL WAS PUBLISHING THE CALIBRATED FIGURE.**
+`channel_forwarder.post_signal` printed `Confidence: 31%` for the signal whose
+measured blend was 70%, under `🤖 AI-generated signal`, on a channel anybody can
+read — and a typed ticket's stamp published as a measured `100%`. **And the
+alert caption was the sibling the last slice missed**:
+`telegram_handler._send_idea_with_door` was cured and `alerts_monitor`'s caption
+— same claim, same card, one module over — was not, which is *fixing two left
+the third* at one file's distance. The auto-confirm card beside it read the same
+field, and so did nine more Telegram cards, `rich_cards` twice among them.
+
+**THE RULE COVERS THE TWO SHAPES THE DEFECT TOOK AND NOT "ANY READ".** A
+PERCENT-formatted display is what a caller is TOLD; a COMPARISON against a bar
+is what a gate DOES. An internal read that neither prints nor gates is outside
+the class on purpose — `risk_engine`'s own arithmetic, the four decision-row
+writers and the flight recorder each hand the field onward under its own name,
+and *a recorder is not a reader*, which is the distinction the sibling rule
+already draws and what keeps both baselines short. Driven over `bot/`: sixty-seven
+reads of an idea-like `.confidence`, of which twenty are in the class and eight
+remain, each a row with its reason.
+
+**THE RECEIVER IS JUDGED BY NAME, WHICH OVER-REPORTS BY CONSTRUCTION, AND THE
+BASELINE IS WHERE THAT IS ANSWERED.** A pattern's confidence, a backtest trade's
+and an explainability report's are different quantities that happen to share the
+word; narrowing by TYPE would mean guessing a type from a name, which is the
+`confidence_provenance_baseline` ruling. So every remaining row states what
+quantity it is, and the rule checks the COUNTS as well as the paths — which is
+what caught its own baseline one row short on its first run, because
+`explainability.py` holds two sites and I had written one reason.
+
+**AND `code_only` COST THE RULE ITS OWN PARSE, for the second slice running.**
+It blanks DOCSTRINGS, so `class TokenStore:` with nothing but one is a class with
+an empty body and no longer parses — the eleven-file cost the chapter above
+measured. An AST walk cannot see a comment at all and reads a docstring as a bare
+string constant carrying neither a `FormattedValue` nor a `Compare`, so the rule
+parses RAW source and a planted docstring-only class is a test.
+
+> **And two of my own AST assertions were aimed at a shape the fix then
+> removed.** They looked for a `Compare` against the bar; once the bar moved
+> inside `clears(0.70)` there was no comparison to find. Their first draft had
+> also sliced the method from *"the `if` before the skip audit"* — a boundary
+> that is whatever happens to be next, which started BELOW the assignment it was
+> looking for. One helper reads the `.clears(<bar>)` call and the name it is
+> called on, with no window at all.
+
+
+**AND THE DISPLAY HALF LANDED FROM SOMEWHERE ELSE WHILE THIS WAS OPEN, WHICH IS
+THE SAME SUBJECT FIXED TWICE AT ONE END.** Four commits on main
+(`Keep signal confidence consistent across surfaces` and its three follow-ups)
+converted the caption, the forwarded channel post and the website signal payload
+to the one reading, extracting `alerts_monitor.signal_card_caption` as a seam —
+strictly better than the inline version this slice had, and it is the one kept.
+They reached every site that PRINTS and none that DECIDES: run against that tree,
+the rule named **eleven** sites in six files, and three of them were the pyramid
+add, the drawdown-recovery floor and the critique's overconfidence warning. *Ask
+which OTHER surface makes the same claim* is a rule about surfaces, and a GATE is
+one; a slice scoped to "the cards disagree" answers the cards and leaves the
+money. The ratchet is what made the remainder visible rather than a second
+reading of the same five files, which is the whole argument for a rule over a
+class instead of a list of the sites somebody found.
+
+**THE ROW THE WEBSITE SYNC BUILDS IS SEALED, SO AN ABSENCE THERE IS A MEASURED
+ZERO INSIDE A HASH.** `app/routes/sync.js` coerces `confidence: Number(s.confidence) || 0`
+and hands the coerced dict to `sealCall`, under its own comment saying the
+receipt is sealed *"from the EXACT coerced values being stored"* — so `null` on
+that field is hashed as a confidence of zero on the Proof-of-PnL surface. That is
+`csf.py`'s recorded defect (*"an unmeasured cost rendered as a measured zero …
+inside a commitment hash"*) one producer over, and it decides the shape of the
+fix: the builder may not SEND an unmeasured reading, and making the wire carry an
+honest absence needs a seal kind of its own, which is a decision rather than a
+wiring line.
+
+**THE PRECONDITION IS MEASURED RATHER THAN HOPED FOR, and driving it is what
+stopped a false claim going into this file.** The first reading of that builder
+was that a stamp published as `confidence: 1.0` and an out-of-range figure as
+`2.5` on `GET /api/signals` — which has no auth and FILTERS on that column. Both
+are true of `build_signal_payload` called directly, and **neither can happen
+through its one caller**: `TradeIdea.confidence` is `ge=0.0, le=1.0`, so pydantic
+refuses `None`, `2.5`, `-0.5`, NaN and inf at construction, a bool coerces to
+`1.0` and a numeric string to a float, and `_register_engine_idea` never hands a
+person's stamped ticket to this sync. Driven over every one of those, the reading
+is `blend` or `own` every time. So the fallback the `try` guarded was **a line no
+input can reach**, which this file calls a claim that there is a check — and what
+replaced it is the reading, a module-level import (`displayed_confidence` never
+raises, so the only thing that `except` could catch was the IMPORT, whose silent
+failure would publish the calibrated figure on a public route with no trace), and
+a test that drives both halves of the precondition: every value the model admits
+reads measured, and every value that would read `unread` is refused by the model.
+
+> **And the blank-line probe was passing because the citation had rotted off its
+> blank line.** The map records a retraction naming `skill_registry.py:<n>` as *a
+> blank line between `_list` and `_run_symbol_scan`* — a claim about the CURRENT
+> tree — and this slice's own additions had slid that number onto a `return`
+> statement, which is exactly what made the probe green. Deriving the number from
+> the two methods it names made the sentence true again and the probe then
+> objected, correctly: its rule is that no citation lands on a blank line, and
+> here is the one whose sentence says it does. That is *a comment that quotes the
+> string it forbids*, and the exclusion is keyed on the SENTENCE (`"<rel>:<n> is
+> a blank line"`) rather than on a line number, so it cannot outlive the
+> retraction it exists for.
+
+**Forty-one mutations, thirty-nine killed, three EQUIVALENT — and six of the
+first round's non-kills were the instrument or the corpus, never the code.**
+Three anchors matched zero times: two spelled the inline caption and channel
+post this slice had written, which main's four commits had since turned into a
+named seam and a local binding under the rebase; the third spelled `—`
+where the file holds a real `—`, the PNG chapter's own trap, in the driver
+written from that chapter. Three survived and each was the same finding: no
+input can separate the two spellings, and the reason is a property worth
+pinning rather than a mutation worth counting. `int((read.value or 0.0) * 10)
+if read.measured else 0` cannot differ from the unguarded form because the
+producer's invariant is *measured ⇔ value is not None*, so the `or 0.0` — a row
+of the shapes table — is gone and the guard stays; the top rung's `or 0.0`
+sits BELOW an early return that already answers the unmeasured case; and
+`(confidence or 0.0) >= 0.8` equals the explicit guard because **no grader
+rung sits at or below zero** — the day one does, the terse spelling admits an
+absent confidence, so that property is the test. Two of the three pins were
+wrong before the code was (a grader keyword that does not exist; a keyword-only
+fixture called positionally), which is *when a fresh assertion fails, check the
+assertion first* arriving in the pins written from the round that found them.
+And the round's edits were read in my own working tree mid-run — a `_dd_conf`
+gate reverted to the raw field, in a `git diff` I had opened to review the
+slice — which is the stranded-mutation hazard from the driver's side: nothing
+is committed while a round runs.
+
+**And the honesty ratchet refused the slice's own fallback, one slice later.**
+The sealed row's `else` branch was written as
+`float(_attr(idea, "confidence", 0) or 0)` -- the or-zero shape, directly under
+a paragraph explaining why an honest absence on that wire needs a seal kind of
+its own -- and it grew `website_sync.py`'s count from 6 to 7. The three ratchets
+were run on this tree BEFORE that edit and never after it, so the growth was
+found by running the gate on the NEXT slice's tree, which had not touched the
+file, while the full preflight it was going to fail was twenty minutes into its
+test gate. *Run the gate after the last edit, not after the edit you remember as
+last* is already recorded above, and it was done again here. The branch keeps
+main's own spelling (`confidence = _attr(idea, "confidence", 0)`), which the
+payload line's `float(confidence or 0)` coerces once; a second coercion one line
+above it was a second copy of the same claim, and the seal it feeds is filed.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -14449,7 +14627,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 237 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 238 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -15261,9 +15439,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **447 of 1129** reach for source text through `source_scan`, `code_only`
+Driven, **448 of 1131** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 447 is a FLOOR and the honest shape is
+source scan that rule does not see, so 448 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

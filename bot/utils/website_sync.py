@@ -15,6 +15,8 @@ import uuid
 import urllib.request
 import urllib.error
 from typing import Optional
+
+from bot.core.signal_confidence import displayed_confidence
 from bot.utils.site_url import site_url
 
 log = logging.getLogger(__name__)
@@ -427,15 +429,38 @@ def build_signal_payload(signal_key: str, idea, *, score: float = 0.0,
     if rr is None:
         risk = abs(entry - sl)
         rr = (abs(tp - entry) / risk) if risk > 0 else 0.0
-    confidence = _attr(idea, "confidence", 0)
-    try:
-        from bot.core.signal_confidence import displayed_confidence
-        reading = displayed_confidence(idea)
-        if reading.measured and reading.value is not None:
-            confidence = reading.value
-            score = reading.value
-    except Exception:
-        pass
+    # ONE READING, AND NO FALLBACK TO THE FIELD IT REPLACES. The row this
+    # builds is served on `GET /api/signals`, which has no auth and FILTERS on
+    # this column (`min_confidence`), and `app/routes/sync.js` SEALS it:
+    # `confidence: Number(s.confidence) || 0` goes into `sealCall`, so whatever
+    # is sent here is hashed into the tamper-evident receipt.
+    #
+    # Two things follow, and both were driven rather than assumed.
+    #
+    # `displayed_confidence` NEVER RAISES -- its own docstring says so, and its
+    # body catches for itself -- so the only thing a `try` here could catch is
+    # the IMPORT, and swallowing that would publish the CALIBRATED figure (a
+    # win-rate estimate on a different scale) on a public route with no trace.
+    # It is a module-level import.
+    #
+    # And an unmeasured reading must not be SENT. `Number(null) || 0` is 0, so
+    # an absence would be sealed as a MEASURED zero -- `csf.py`'s recorded
+    # defect, "an unmeasured cost rendered as a measured zero, inside a
+    # commitment hash". The producer cannot send one: `TradeIdea.confidence` is
+    # `ge=0.0, le=1.0`, so pydantic refuses None, 2.5, -0.5, NaN and inf at
+    # construction, a bool coerces to 1.0 and a numeric string to a float, and
+    # `_register_engine_idea` never hands a person's STAMPED ticket to this
+    # sync. Driven over all of those, the reading is `blend` or `own` every
+    # time. That is a measured precondition, not a hope, so it is a test; the
+    # wire carrying an honest absence needs a seal kind of its own, which is a
+    # decision rather than a wiring line.
+    reading = displayed_confidence(idea)
+    _measured = reading.value if reading.measured else None
+    if _measured is not None:
+        confidence: float = float(_measured)
+        score = float(_measured)
+    else:
+        confidence = _attr(idea, "confidence", 0)
     return {
         "signal_key": str(signal_key),
         "symbol": _attr(idea, "asset", "") or _attr(idea, "symbol", ""),

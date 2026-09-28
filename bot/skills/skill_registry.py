@@ -18,6 +18,10 @@ from pathlib import Path
 from bot.compat import UTC
 from typing import Any, Optional
 
+from bot.core.signal_confidence import (
+    ConfidenceReading,
+    displayed_confidence,
+)
 from bot.core.live_executor import (
     committed_margin,
     committed_margin_note,
@@ -1453,7 +1457,7 @@ class ExplainTradeSkill(BaseSkill):
                     f"{_BOOK} <b>EXPLANATION</b>\n{SEP}\n\n"
                     f"  {d_icon} {_pill(idea.id)}\n"
                     f"  {idea.direction.value} {_esc(idea.asset)}\n\n"
-                    f"- Confidence: <code>{idea.confidence:.0%}</code>\n"
+                    f"- Confidence: <code>{displayed_confidence(idea).pct()}</code>\n"
                     f"- Signals: <code>{', '.join(idea.signals_used)}</code>\n"
                     + (f"- Provenance: <code>{_esc(tag)}</code>\n" if tag else "")
                     + "\n"
@@ -2284,7 +2288,7 @@ class RunStrategySkill(BaseSkill):
             d_icon = _OK if idea.direction.value == "LONG" else _BAD
             results.append(
                 f"  {d_icon} <b>{_esc(idea.asset)}</b>  "
-                f"<code>{idea.confidence:.0%}</code>  R:R <code>{idea.risk_reward_ratio}</code>"
+                f"<code>{displayed_confidence(idea).pct()}</code>  R:R <code>{idea.risk_reward_ratio}</code>"
             )
 
         lines = [
@@ -2339,14 +2343,19 @@ class RunStrategySkill(BaseSkill):
             if not idea:
                 continue
             ct = cfg.get("confidence_threshold")
-            if ct and idea.confidence < ct:
-                continue
+            # The MEASURED reading: a preset's threshold is on the raw scale
+            # like every confidence threshold here, and a stamped confidence
+            # must not clear a caller's own floor. Unmeasured does not pass.
+            if ct:
+                _pc = displayed_confidence(idea)
+                if not _pc.clears(ct):
+                    continue
             engine._pending_ideas[idea.id] = idea
             ideas += 1
             d_icon = _OK if idea.direction.value == "LONG" else _BAD
             results.append(
                 f"  {d_icon} <b>{_esc(idea.asset)}</b>  "
-                f"<code>{idea.confidence:.0%}</code>  R:R <code>{idea.risk_reward_ratio}</code>"
+                f"<code>{displayed_confidence(idea).pct()}</code>  R:R <code>{idea.risk_reward_ratio}</code>"
             )
             setups.append({
                 "sym": idea.asset, "dir": idea.direction.value,
@@ -2662,10 +2671,33 @@ class OptimizationSkill(BaseSkill):
 # ── Setup Quality helpers ──
 
 
-def _setup_quality_score(confidence: float, rr: float, rsi: float,
-                          vol_confirmed: bool, structure_clear: bool) -> tuple[int, str]:
-    """Rate setup quality 0-10 with label."""
+def _setup_quality_score(confidence: Optional[float], rr: float, rsi: float,
+                          vol_confirmed: bool, structure_clear: bool,
+                          ) -> tuple[int, str, int]:
+    """Rate setup quality, and say what the rating was made from.
+
+    ``confidence`` is the MEASURED figure or ``None`` -- `displayed_confidence`
+    answers None for a hand-typed ticket's stamp and for a field nobody could
+    read, and this function's four confidence rungs are on the RAW scale like
+    every confidence threshold here. It used to take `idea.confidence`, which
+    once a calibration curve is applied is an estimated win rate on a different
+    scale, so a measured 0.95 blend left at 0.31 on the field scored **zero** of
+    the four points its own reading had earned.
+
+    Returns ``(score, label, max_score)``. With no confidence to read, the four
+    confidence rungs are NOT awarded and ``max_score`` is what the measurable
+    rungs could reach -- 6 rather than 10 -- because six points out of a
+    reachable six printed as ``6/10`` is a partial total presented as a whole
+    one, which is the shape this repo tabulates. The LABEL then states the basis
+    rather than grading on it: the rungs below are cut for a 0-10 scale, and
+    reading them off a 0-6 one would call the maximum measurable score
+    "Tradable with confirmation".
+    """
     score = 0
+    conf_read = confidence is not None
+    #: What the measurable rungs can reach: structure 2 + momentum 2 + R:R 2,
+    #: plus the four confidence rungs when there is a confidence to read.
+    max_score = 10 if conf_read else 6
     # Structure clarity (0-2)
     if structure_clear:
         score += 2
@@ -2677,9 +2709,9 @@ def _setup_quality_score(confidence: float, rr: float, rsi: float,
     elif rsi <= 30 or rsi >= 70:
         score += 1  # extreme RSI = momentum signal
     # Entry location via confidence (0-2)
-    if confidence >= 0.8:
+    if confidence is not None and confidence >= 0.8:
         score += 2
-    elif confidence >= 0.6:
+    elif confidence is not None and confidence >= 0.6:
         score += 1
     # Risk-to-reward (0-2)
     if rr >= 3.0:
@@ -2687,13 +2719,16 @@ def _setup_quality_score(confidence: float, rr: float, rsi: float,
     elif rr >= 2.0:
         score += 1
     # Invalidation quality = confidence proxy (0-1)
-    if confidence >= 0.7:
+    if confidence is not None and confidence >= 0.7:
         score += 1
     # Timeframe alignment bonus (0-1)
-    if structure_clear and confidence >= 0.6:
+    if structure_clear and confidence is not None and confidence >= 0.6:
         score += 1
 
-    score = min(10, score)
+    score = min(max_score, score)
+
+    if not conf_read:
+        return score, f"graded on {max_score} of 10 — no confidence read", max_score
 
     if score <= 3:
         label = "No-Trade"
@@ -2706,13 +2741,26 @@ def _setup_quality_score(confidence: float, rr: float, rsi: float,
     else:
         label = "Rare Premium Setup"
 
-    return score, label
+    return score, label, max_score
 
 
-def _status_label(confidence: float, rr: float, rsi: float, in_midrange: bool) -> tuple[str, str]:
-    """Return (icon, label) for the setup status."""
+def _status_label(confidence: Optional[float], rr: float, rsi: float,
+                 in_midrange: bool) -> tuple[str, str]:
+    """Return (icon, label) for the setup status.
+
+    ``confidence`` is the MEASURED figure or ``None``, and its three rungs are on
+    the RAW scale. An unread or stamped confidence reaches NONE of them and must
+    not fall through to "Stand Down", which is this card's verdict for a setup
+    whose confidence was measured and found low -- a confident negative
+    assembled from a figure nobody read. The in-midrange and RSI rungs are facts
+    about the market and still apply.
+    """
     if in_midrange and 40 < rsi < 60:
         return "⛔", "No-Trade Zone"
+    if confidence is None:
+        if rsi > 80 or rsi < 20:
+            return "⚠️", "Elevated Risk"
+        return "⚪", "Confidence Unread"
     if confidence >= 0.75 and rr >= 2.0:
         return "🎯", "Execution Ready"
     if confidence >= 0.7 and rr >= 1.5:
@@ -2722,6 +2770,33 @@ def _status_label(confidence: float, rr: float, rsi: float, in_midrange: bool) -
     if rsi > 80 or rsi < 20:
         return "⚠️", "Elevated Risk"
     return "🔒", "Stand Down"
+
+
+def conviction_row(read: ConfidenceReading, rr: float) -> tuple[str, str]:
+    """The conviction BAR and the risk BAND, from one reading.
+
+    A seam because the card is 400 lines inside an async skill behind a scanner,
+    an analyzer and a venue, and both halves are claims a reader acts on: the bar
+    is a length and the band is a COLOUR. Drawn off `idea.confidence` the bar was
+    a picture of the calibrated figure beside a band computed from it, and a
+    stamped 1.0 filled the bar to ten blocks under "LOWER RISK".
+
+    An unmeasured reading fills no blocks and gets a word of its own, because a
+    band is a verdict and "ELEVATED RISK" over a figure nobody read is the
+    confident negative this file is about.
+    """
+    # `read.value is not None` narrows for mypy; the producer's invariant is
+    # measured <=> value is not None, so it cannot decide anything here.
+    fill = int(read.value * 10) if read.measured and read.value is not None else 0
+    fill = max(0, min(10, fill))
+    bar = _BLOCKS[7] * fill + _BLOCKS[0] * (10 - fill)
+    if not read.measured:
+        return bar, "\u26aa RISK UNKNOWN"
+    if read.clears(0.7) and rr >= 2:
+        return bar, "\U0001f7e2 LOWER RISK"
+    if read.clears(0.5):
+        return bar, "\U0001f7e1 MODERATE RISK"
+    return bar, "\U0001f534 ELEVATED RISK"
 
 
 # ══════════════════════════════════════════════════════════════
@@ -3143,10 +3218,14 @@ class ProScanSkill(BaseSkill):
             if idea:
                 _sl_d = abs(idea.entry_price - idea.stop_loss)
                 _rr_q = abs(idea.take_profit - idea.entry_price) / _sl_d if _sl_d > 0 else 0
-                sq_score, sq_label = _setup_quality_score(
-                    idea.confidence, _rr_q, rsi, vol_conf, structure_clear)
-                sq_bar = "█" * sq_score + "░" * (10 - sq_score)
-                structure_lines.append(f"  Setup Quality: {sq_bar} <code>{sq_score}/10</code> — <i>{sq_label}</i>\n")
+                _q_read = displayed_confidence(idea)
+                sq_score, sq_label, sq_max = _setup_quality_score(
+                    _q_read.value if _q_read.measured else None,
+                    _rr_q, rsi, vol_conf, structure_clear)
+                sq_bar = "█" * sq_score + "░" * (sq_max - sq_score)
+                structure_lines.append(
+                    f"  Setup Quality: {sq_bar} "
+                    f"<code>{sq_score}/{sq_max}</code> — <i>{sq_label}</i>\n")
                 engine._pending_ideas[idea.id] = idea
                 ideas_found.append((idea, read))
             else:
@@ -3171,29 +3250,27 @@ class ProScanSkill(BaseSkill):
                 sl_d = abs(idea.entry_price - idea.stop_loss)
                 tp_d = abs(idea.take_profit - idea.entry_price)
                 rr = tp_d / sl_d if sl_d > 0 else 0
-                conf_fill = int(idea.confidence * 10)
-                conf_bar = _BLOCKS[7] * conf_fill + _BLOCKS[0] * (10 - conf_fill)
+                # One reading for the bar and the bands below it, so a card
+                # cannot draw a bar off one figure and label it off another.
+                _sc = displayed_confidence(idea)
+                conf_bar, setup_risk = conviction_row(_sc, rr)
 
-                if idea.confidence >= 0.7 and rr >= 2:
-                    setup_risk = "\U0001f7e2 LOWER RISK"
-                elif idea.confidence >= 0.5:
-                    setup_risk = "\U0001f7e1 MODERATE RISK"
-                else:
-                    setup_risk = "\U0001f534 ELEVATED RISK"
-
-                # Status label and quality, off this asset's own readings.
+                # Status label and quality, off this asset's own readings and
+                # the MEASURED confidence: both compare against raw-scale bars.
+                _conf_graded = _sc.value if _sc.measured else None
                 status_icon, status_text = _status_label(
-                    idea.confidence, rr, idea_rsi, idea_read["in_midrange"])
-                _idea_sq_score, _idea_sq_label = _setup_quality_score(
-                    idea.confidence, rr, idea_rsi,
+                    _conf_graded, rr, idea_rsi, idea_read["in_midrange"])
+                _idea_sq_score, _idea_sq_label, _idea_sq_max = _setup_quality_score(
+                    _conf_graded, rr, idea_rsi,
                     idea_read["vol_conf"], idea_read["structure_clear"])
-                _idea_sq_bar = "█" * _idea_sq_score + "░" * (10 - _idea_sq_score)
+                _idea_sq_bar = ("█" * _idea_sq_score
+                                + "░" * (_idea_sq_max - _idea_sq_score))
 
                 verdict_lines.append(
                     f"\n  {status_icon} <b>{status_text}</b>\n"
                     f"  {d_icon}{d_arrow} <b>{idea.direction.value} {_esc(idea.asset)}</b>  "
                     f"{setup_risk}\n"
-                    f"  \u2502{conf_bar}\u2502 {_pill(f'{idea.confidence:.0%}')}\n"
+                    f"  \u2502{conf_bar}\u2502 {_pill(displayed_confidence(idea).pct())}\n"
                     f"<pre>"
                     # `_price` carries its own "$"; a second one in front
                     # printed "$     $100.30" and "(-$$1.00)".
@@ -3202,7 +3279,8 @@ class ProScanSkill(BaseSkill):
                     f"  Take Profit   {_price(idea.take_profit):>13s}  (+{_price(tp_d)})\n"
                     f"  R:R           {idea.risk_reward_ratio:>10}x"
                     f"</pre>"
-                    f"  Quality: {_idea_sq_bar} <code>{_idea_sq_score}/10</code> — <i>{_idea_sq_label}</i>"
+                    f"  Quality: {_idea_sq_bar} "
+                    f"<code>{_idea_sq_score}/{_idea_sq_max}</code> — <i>{_idea_sq_label}</i>"
                 )
                 # `if idea.reasoning:` was already here and already passed on
                 # every idea, because the string is never empty — it opens with
@@ -3235,12 +3313,18 @@ class ProScanSkill(BaseSkill):
             _best_sl_d = abs(best.entry_price - best.stop_loss)
             _best_tp_d = abs(best.take_profit - best.entry_price)
             _best_rr = _best_tp_d / _best_sl_d if _best_sl_d > 0 else 0
-            _gl_icon, _gl_text = _status_label(best.confidence, _best_rr, _best_read["rsi"],
-                                               _best_read["in_midrange"])
+            # The one-glance verdict reads the same measured figure the card
+            # beside it prints. `ideas_found` is ranked by `best.confidence`,
+            # which for an analyzer idea is monotone in the blend, so the ORDER
+            # is unchanged; what moved is which quantity the verdict compares.
+            _gl_read = displayed_confidence(best)
+            _gl_icon, _gl_text = _status_label(
+                _gl_read.value if _gl_read.measured else None,
+                _best_rr, _best_read["rsi"], _best_read["in_midrange"])
             one_glance_lines.append(f"\n{_gl_icon} <b>One-Glance Verdict: {_gl_text}</b>")
             one_glance_lines.append(
                 f"  {len(ideas_found)} actionable setup(s) detected  •  "
-                f"Best: <b>{_esc(best.asset)}</b> ({best.confidence:.0%} conf, {_best_rr:.1f}R)\n"
+                f"Best: <b>{_esc(best.asset)}</b> ({displayed_confidence(best).pct()} conf, {_best_rr:.1f}R)\n"
             )
         else:
             one_glance_lines.append("\n🔒 <b>One-Glance Verdict: Stand Down</b>")
@@ -3318,7 +3402,7 @@ class ProScanSkill(BaseSkill):
                         "rr": str(idea.risk_reward_ratio),
                         "book_ratio": (None if idea_read["vol_ratio"] is None
                                        else round(idea_read["vol_ratio"], 2)),
-                        "trigger": f"Confidence {idea.confidence:.0%}",
+                        "trigger": f"Confidence {displayed_confidence(idea).pct()}",
                         # The website's scan card labels this "thesis". Send
                         # the model's words or an empty string — never the
                         # provenance tag, which the old truthiness check let
@@ -3711,7 +3795,7 @@ class PlaybookSkill(BaseSkill):
                 d = "\u25b2" if idea.direction.value == "LONG" else "\u25bc"
                 lines.append(
                     f"  {d} <b>{_esc(idea.asset)}</b>  "
-                    f"{_pill(f'{idea.confidence:.0%}')}  "
+                    f"{_pill(displayed_confidence(idea).pct())}  "
                     f"R:R {idea.risk_reward_ratio}x"
                 )
             lines.append("")

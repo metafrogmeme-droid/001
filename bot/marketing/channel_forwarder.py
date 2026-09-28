@@ -13,6 +13,7 @@ import threading
 from datetime import datetime
 from typing import Optional
 
+from bot.core.signal_confidence import displayed_confidence
 from bot.compat import UTC
 from bot.marketing.public_text import scrub_money
 from bot.utils.logger import audit, system_log
@@ -155,8 +156,14 @@ class ChannelForwarder:
             _sep = "\u2500" * 18
             # The adaptive formatter: `:,.4f` published a PEPE signal's three
             # levels as `$0.0000` each.
-            from bot.core.signal_confidence import displayed_confidence
             from bot.formatters.rich_cards import _fmt_price
+            # THE PUBLIC RECORD, so it is the figure every floor in this
+            # repo is defined against. `idea.confidence` is whatever the
+            # calibration curve left on the field -- a win-rate estimate on a
+            # different scale -- so this line published 31% for a signal whose
+            # measured blend was 70%, under a bare word "Confidence" on a
+            # channel with `AI-generated signal` beneath it. A hand-typed
+            # ticket's stamped 1.0 published as a measured 100%.
             confidence = displayed_confidence(idea).pct()
             msg = (
                 f"\U0001f4e1 <b>RUNECLAW SIGNAL</b>\n"

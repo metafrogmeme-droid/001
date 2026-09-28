@@ -1,0 +1,30 @@
+# Reads of an idea-like `.confidence` that do NOT go through
+# `bot.core.signal_confidence.displayed_confidence`, each with its reason.
+#
+# TWO-WAY, as `known_failures.txt` is: a new site fails by name on every run, a
+# listed site the rule no longer finds fails too, and the COUNTS must match, so
+# a second site inside a listed file is not acquitted by the row already there.
+# A row with no reason fails.
+#
+# The rule covers the two shapes the defect took: a PERCENT-formatted display
+# (what a caller is told the confidence is) and a COMPARISON against a bar
+# (what a gate does about it). An internal read that neither prints nor gates is
+# not in the class -- `risk_engine`'s own arithmetic, the four decision-row
+# writers, the flight recorder -- because handing a field onward under its own
+# name is the opposite of re-deriving what it means.
+#
+# The receiver is judged by NAME, which over-reports by construction: every row
+# below is a different quantity that happens to share the word. Narrowing by
+# TYPE would mean guessing a type from a name, so the over-report is answered by
+# a reason rather than by a cleverer regex.
+#
+# format: path  kind  reason        (one row per site)
+#
+bot/backtest/runner.py  pct  a BacktestTrade in the backtest's own report; the backtest applies no calibration curve
+bot/core/explainability.py  pct  an ExplainabilityReport's own confidence field, not a TradeIdea's
+bot/core/explainability.py  pct  the same report, the same field, one line of its own further down
+bot/learning/reflection.py  pct  a recorded decision row's own figure, quoted back in the reflection it belongs to
+bot/learning/reflection.py  pct  the same row's figure in the sibling sentence of the same reflection
+bot/learning/reflection.py  cmp  the same row again: the reflection describes what was recorded, not what an idea claims now
+bot/learning/strategy_eval.py  cmp  a recorded trade row read back for strategy evaluation, not a live idea
+bot/skills/skill_registry.py  pct  a PATTERN's own confidence (PatternsSkill), which no calibration curve touches
