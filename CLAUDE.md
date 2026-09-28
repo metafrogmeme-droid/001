@@ -163,6 +163,29 @@ lint failure the way CI sees it (`PATH=/usr/local/bin:$PATH python3
 scripts/ruff_gate.py`) before fixing it, or the fix is aimed at a different
 tool's opinion.
 
+**AND THAT SAME PREFIX PUT NODE 20 IN FRONT OF EVERY APP GATE, FOR AS LONG AS
+THIS BOX HAS HAD ONE.** The preflight read two pins where `ci.yml` carries
+three: `requirements-ci.txt` for ruff and mypy, and nothing for the
+`node-version: "24.21.0"` every node job's `actions/setup-node` step declares.
+On this box `/usr/local/bin/node` has been a symlink into `/opt/node20` since
+the image was built and the default shell's `node` is 22, so the prefix this
+chapter prescribes for the two Python pins resolved the app, site and Anchor
+gates to Node **20.20.2** and reported them as CI's -- and a PR body of the
+same day said 22, off the shell I had asked rather than the one the preflight
+uses, *a measurement you remember is not a measurement* in a fourth place.
+`toolchain.pinned("node")` reads the workflow's own pin now (every job that
+sets up node must agree, or there is no pin to compare against and the answer
+is None, never the first value found), `running("node")` reads the
+`v`-prefixed version, the toolchain banner names it beside ruff and mypy, and a
+box whose node differs files every step of the node jobs as CANNOT CHECK, by
+name and with both versions, WITHOUT running them: a suite that passes on 20
+says nothing about the 24 CI runs it on, and a step measured on the wrong
+runtime is not the CI gate whatever it answers. The pinned Node was installed
+here (checksum verified) and put first on that PATH before this push's own
+run reached its app gates, so that run measured them on 24.21.0; every run
+before it did not, and their app halves read as "passed on Node 20". Eleven
+mutations, each killed on the first round.
+
 **AND THE LAUNCHER IS A CONDITION OF THE BOX TOO, and it manufactured a
 regression on 2026-09-21.** A full preflight started as
 `(nohup python3 scripts/preflight.py > log 2>&1 &)` went red on ONE test the
