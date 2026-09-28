@@ -15054,6 +15054,71 @@ the market fallback proceeding on an unread pre-fill, and the next pass's
 cancelled branch orphaning the partial it was handed.
 (`tests/test_a_cancelled_limits_fill_is_read_after_the_cancel_or_not_at_all.py`.)
 
+**A PENDING ORDER PAST ITS HARD TIMEOUT WAS BOOKED "NEVER FILLED" ON THE
+CLOCK ALONE, AND THE BRANCH ABOVE MADE IT THE ORDINARY EXIT FOR AN
+UNREADABLE ORDER.** `_check_pending_limit` force-closes a `pending_fill` row
+that has sat for twice the normal expiry -- 8h by default -- before reading
+anything: a best-effort cancel, then `closed, pnl 0.0, close_reason
+stale_pending`. Its own comment names the case it exists for, *"when
+fetch_order keeps failing"*, which is precisely the case in which the fill is
+unknown, and the slice above routes a raised post-cancel read into it: a row
+whose venue stopped answering after a confirmed cancel now waits four more
+hours and lands here. Driven with the venue's reads raising for nine hours
+over an order that had filled 0.03: `STALE PENDING CLOSED`, `pnl_usd 0.0`, no
+word anywhere that the fill was never read, the position open on the venue
+with no stop under a record saying no money ever moved. That is the
+snapshot fallback's defect with an eight-hour horizon and a stated premise.
+
+**AND IT FIRED ON A READABLE ORDER TOO.** The clock was the whole condition,
+so an order the venue answered for at nine hours was force-closed however it
+read. A resting order whose cancel the venue kept refusing -- the normal
+expiry path returns `None` on *"still open after cancel attempt"* every pass
+from 4h on -- was closed off the record at 8h while it still rested, and a
+resting order whose cancel would have landed was closed as `stale_pending`
+with its final fill of 0.03 never adopted, where the expiry cancel one screen
+below reads that fill and adopts it with the idea's own levels.
+
+**THE READ COMES FIRST, AND THE HARD TIMEOUT CLOSES ONLY WHAT CANNOT BE
+READ.** The one order read sits above the decision now; a row with no order
+id, or whose read raised, is the unreadable case, and only that case is
+force-closed past the timeout -- as what it is. `close_reason` stays
+`stale_pending`, a non-fill for every reader of the record; `fill_source`
+carries `FINAL_FILL_UNREAD`, the word that separates it from a stale order
+the venue answered for; the audit carries `fill_read: False`, the cause
+(`no_order_id` or `order_unreadable`) and the exception's CLASS, never its
+text; a warning-rate event is recorded; and the operator's message says the
+fill was never read and that the venue may still hold a resting order or a
+filled position this record does not track. An order that READS goes through
+the normal flow whatever its age: expired through the venue's own answer,
+its final fill adopted with the idea's levels, or closed as the cancel the
+venue reports. A cancel the venue keeps refusing keeps the row tracked, said
+at WARNING on every pass -- a record closed over an order that still rests
+was the defect, so "stuck" is the honest state there. What the adoption
+sweep then does with a filled position the venue holds is its own rule
+(a 120s cooldown on a recently closed symbol, then an orphan adopted with
+no levels), and the message promises none of it.
+
+**A young unread read is left alone, and says the class.** A read that
+raises before the hard timeout keeps the row `pending_fill`, cancels nothing
+and warns with the exception's class -- the old handler printed its text,
+and a venue rejection can echo the request into the operator log.
+
+> **And my own fixture answered the wrong question twice.** `is_filled_close`
+> takes the reason and the P&L, not the row, and the venue stub turned a
+> planted `None` answer into a `TypeError` of its own, so the test written
+> for a read that answers nothing measured the stub. *When a fresh assertion
+> fails, check whether the code or the assertion is wrong before touching the
+> code*: both times the code was right.
+
+**Thirteen mutations, each killed on the first round, none refused:** the
+clock alone force-closing a readable order, a `None` answer read as an order,
+a young unread read force-closed, the venue's text in either warning, the row
+without its word, the cause named backwards, the exception's text on the
+card, the best-effort cancel not sent, the audit claiming the fill was read
+or written at INFO, no warning-rate event, and the message without "NEVER
+READ".
+(`tests/test_a_stale_pending_order_is_closed_as_unread_not_as_never_filled.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -15533,7 +15598,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 241 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 242 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -16345,9 +16410,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **452 of 1142** reach for source text through `source_scan`, `code_only`
+Driven, **453 of 1143** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 452 is a FLOOR and the honest shape is
+source scan that rule does not see, so 453 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

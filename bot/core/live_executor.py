@@ -844,6 +844,11 @@ ENTRY_ESTIMATED = "pre_order_ticker"
 #: ``ENTRY_UNREAD``: the source word before it still says where the exit
 #: came from.
 ENTRY_ESTIMATED_SUFFIX = "+entry_estimated"
+# A pending_fill row force-closed past its hard timeout with its final fill
+# never read -- no order id, or a read that raised for hours. The row's
+# `close_reason` is `stale_pending` (a non-fill); this word on `fill_source`
+# is what separates it from a stale order the venue answered for.
+FINAL_FILL_UNREAD = "final_fill_unread"
 
 
 def entry_is_estimated(pos: Any) -> bool:
@@ -10455,56 +10460,45 @@ class LiveExecutor:
         Returns a message string if status changed, else None.
         """
         # ── HARD TIMEOUT: stale pending_fill safety net ──
-        # If a pending_fill position has been stuck for 2x the normal expiry
-        # (e.g. 8 hours by default), force-close it regardless of exchange
-        # state.  This prevents positions from being stuck forever when
-        # fetch_order keeps failing or the exchange silently cancelled the
-        # order. Checked BEFORE the order-id guard: a pending record whose
-        # limit_order_id was lost (empty placement echo) has no other exit —
-        # with the guard first it sat in _positions forever, invisibly.
+        # A pending_fill row that has sat for 2x the normal expiry (8h by
+        # default) has outlived every ordinary exit. The fill branch, the
+        # cancelled branch and the expiry cancel below all need the order to
+        # be READ, so a row is still pending at this age only when there is
+        # no order id to read (an empty placement echo) or the venue has not
+        # answered a read for hours. Those two are what this closes, and it
+        # closes them as what they are -- a record whose final fill was NEVER
+        # READ -- and not as an order that never filled. The old branch booked
+        # "nothing filled" off the clock alone, so a limit that filled while
+        # its reads were failing was orphaned on the venue with no stop under
+        # a record saying no money ever moved. An order that READS is never
+        # force-closed here, however old: the flow below expires it through
+        # the venue's own answer (a cancel, then the final fill, adopted with
+        # this idea's levels), and a cancel the venue keeps refusing is a
+        # resting order this record keeps tracking, said at WARNING on every
+        # pass, rather than a record closed over an order that still rests.
         hard_timeout = 2 * CONFIG.limit_orders.expire_seconds
         stale_age = (datetime.now(UTC) - pos.opened_at).total_seconds() if pos.opened_at else 0
-        if stale_age > hard_timeout:
-            # Best-effort cancel on exchange
-            if pos.limit_order_id:
-                try:
-                    await exchange.cancel_order(pos.limit_order_id, self._venue.order_symbol(pos.symbol))
-                except Exception as cancel_exc:
-                    logger.warning(
-                        "Stale pending hard-timeout: cancel attempt failed for %s order %s: %s",
-                        pos.symbol, pos.limit_order_id, cancel_exc,
-                    )
-
-            pos.status = "closed"
-            pos.closed_at = datetime.now(UTC)
-            pos.pnl_usd = 0.0
-            pos.close_reason = "stale_pending"
-            self._save_positions()
-            self._append_closed_trade(pos)
-
-            audit(
-                trade_log,
-                f"Stale pending_fill FORCE-CLOSED after {stale_age / 3600:.1f}h: {pos.symbol}",
-                action="stale_pending_close",
-                result="FORCE_CLOSED",
-                data={
-                    "trade_id": trade_id,
-                    "age_sec": stale_age,
-                    "hard_timeout_sec": hard_timeout,
-                    "limit_order_id": pos.limit_order_id,
-                },
-            )
-
-            return (
-                f"STALE PENDING CLOSED: {pos.direction} {pos.symbol} — "
-                f"stuck for {stale_age / 3600:.1f}h (hard timeout {hard_timeout / 3600:.1f}h)"
-            )
-
-        if not pos.limit_order_id:
+        order: Optional[dict] = None
+        read_exc: Optional[Exception] = None
+        if pos.limit_order_id:
+            try:
+                order = await self._fetch_order(exchange, pos.limit_order_id, pos.symbol)
+            except Exception as exc:
+                read_exc = exc
+        if order is None:
+            if stale_age > hard_timeout:
+                return await self._force_close_stale_pending(
+                    exchange, trade_id, pos, stale_age, hard_timeout, read_exc)
+            if read_exc is not None:
+                # The class and never the text: a venue rejection can echo
+                # the request into the operator log.
+                logger.warning(
+                    "Pending limit check for %s: the order could not be read (%s) "
+                    "-- kept pending_fill, read again next pass",
+                    trade_id, type(read_exc).__name__)
             return None
 
         try:
-            order = await self._fetch_order(exchange, pos.limit_order_id, pos.symbol)
             order_status = order.get("status", "unknown")
 
             if order_status in ("closed", "filled", "partially_filled"):
@@ -10854,6 +10848,76 @@ class LiveExecutor:
             logger.warning("Pending limit check failed for %s: %s", trade_id, exc)
 
         return None
+
+    async def _force_close_stale_pending(
+        self, exchange: "ccxt.Exchange", trade_id: str, pos: "LivePosition",
+        stale_age: float, hard_timeout: float, read_exc: Optional[Exception],
+    ) -> str:
+        """Close a pending_fill row nothing could read, past the hard timeout.
+
+        Reached from `_check_pending_limit` only when the order is UNREADABLE
+        at the hard timeout: no order id on record, or a read that raised. An
+        order that reads is never closed here, whatever its age -- the normal
+        flow expires it through the venue's own answer.
+
+        What it books is a record whose final fill was never read, and it
+        says so three ways: `close_reason` stays `stale_pending` (a non-fill
+        for every reader of the record), `fill_source` carries
+        FINAL_FILL_UNREAD, and the audit and the operator's message name the
+        cause. The message also says what the record cannot: the venue may
+        still hold a resting order, or a position that filled while nothing
+        could read it, that this record does not track.
+        """
+        cause = "no_order_id" if not pos.limit_order_id else "order_unreadable"
+        err = type(read_exc).__name__ if read_exc is not None else None
+        if pos.limit_order_id:
+            # Best-effort: the order may still rest, and a cancel that lands
+            # keeps it from filling into an untracked position later.
+            try:
+                await exchange.cancel_order(pos.limit_order_id, self._venue.order_symbol(pos.symbol))
+            except Exception as cancel_exc:
+                logger.warning(
+                    "Stale pending hard-timeout: cancel attempt failed for %s order %s (%s)",
+                    pos.symbol, pos.limit_order_id, type(cancel_exc).__name__)
+        pos.status = "closed"
+        pos.closed_at = datetime.now(UTC)
+        pos.pnl_usd = 0.0
+        pos.close_reason = "stale_pending"
+        pos.fill_source = FINAL_FILL_UNREAD
+        self._save_positions()
+        self._append_closed_trade(pos)
+        why = ("no order id is on record, so nothing could be read"
+               if cause == "no_order_id"
+               else f"the order could not be read ({err})")
+        logger.warning(
+            "Stale pending_fill FORCE-CLOSED after %.1fh for %s: final fill NEVER READ (%s)",
+            stale_age / 3600, pos.symbol, cause)
+        audit(
+            trade_log,
+            f"Stale pending_fill FORCE-CLOSED after {stale_age / 3600:.1f}h: {pos.symbol} "
+            f"-- final fill NEVER READ ({why})",
+            action="stale_pending_close",
+            result="FORCE_CLOSED",
+            level=logging.WARNING,
+            data={
+                "trade_id": trade_id,
+                "age_sec": stale_age,
+                "hard_timeout_sec": hard_timeout,
+                "limit_order_id": pos.limit_order_id,
+                "fill_read": False,
+                "cause": cause,
+                "error": err,
+            },
+        )
+        self._record_warning("stale_pending_unread")
+        return (
+            f"STALE PENDING CLOSED: {pos.direction} {pos.symbol} -- "
+            f"stuck for {stale_age / 3600:.1f}h (hard timeout {hard_timeout / 3600:.1f}h). "
+            f"Its final fill was NEVER READ: {why}. Nothing is booked as filled; the "
+            f"venue may still hold a resting order or a filled position this record "
+            f"does not track -- review it there."
+        )
+
 
     async def _check_drift_market_fallback(
         self, exchange: "ccxt.Exchange", pos: "LivePosition", cur_price: float,
