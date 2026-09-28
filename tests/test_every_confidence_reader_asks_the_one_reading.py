@@ -40,6 +40,15 @@ confidence, a pattern detector's own, the quality reading itself -- and the
 over-report is answered by a row with a reason rather than by a cleverer regex,
 the ruling `confidence_provenance_baseline` already takes for the same
 ambiguity.
+
+And the SPELLING is not judged either. The rule first walked for the attribute
+alone, and four surfaces read the field as `getattr(idea, "confidence")` or
+through a local bound to it -- the chart subtitle, the `/analyze` card, the
+model's pending-ideas row, the web chat's "Trade this" hint -- each printing
+the calibrated field beside cards printing the blend. A local of the same
+function bound to the field (coerced or not) carries it now; a local bound to
+a function OF the field is a different quantity and is not followed; and an
+`is None` check asks whether a figure is there, which is not a gate.
 """
 
 import ast
@@ -77,6 +86,50 @@ def _rows():
     return out
 
 
+#: What a local may be wrapped in and still BE the field it was read from.
+#: `float(getattr(idea, "confidence", 0) or 0)` is the field, coerced; a call
+#: that computes something else from it (`displayed_confidence(idea)`) is not.
+_PASS_THROUGH = frozenset({"float", "round", "int", "abs", "_f", "_num"})
+
+
+def _is_getattr_conf(node) -> bool:
+    """`getattr(x, "confidence"[, default])` -- the field under another
+    spelling, which the attribute walk alone could not see (#158)."""
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr" and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value == "confidence")
+
+
+def _is_the_field(value) -> bool:
+    """Is this expression the field itself, perhaps coerced? A local bound to
+    it carries the field under a new name."""
+    while True:
+        if (isinstance(value, ast.Call) and isinstance(value.func, ast.Name)
+                and value.func.id in _PASS_THROUGH and value.args):
+            value = value.args[0]
+            continue
+        if isinstance(value, ast.BoolOp) and isinstance(value.op, ast.Or):
+            value = value.values[0]
+            continue
+        break
+    return ((isinstance(value, ast.Attribute) and value.attr == "confidence")
+            or _is_getattr_conf(value))
+
+
+def _own_nodes(scope):
+    """Every node in `scope` that belongs to it and not to a function nested
+    inside it: a local is bound per function."""
+    out, stack = [], list(ast.iter_child_nodes(scope))
+    while stack:
+        n = stack.pop()
+        out.append(n)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue
+        stack.extend(ast.iter_child_nodes(n))
+    return out
+
+
 def _reads(src: str):
     """Every (kind, line, text) where an idea-like `.confidence` is PRINTED as a
     percent or COMPARED against something, and the reading is not asked."""
@@ -88,23 +141,46 @@ def _reads(src: str):
     tree = ast.parse(src)
     out = []
 
-    def _is_idea_conf(node):
+    def _reads_the_field(node, carriers):
         # Any receiver. A name list acquitted `_fi` (see the module docstring).
+        # And any SPELLING: the attribute, `getattr(x, "confidence")`, or a
+        # local of this function bound to either -- the three the Telegram
+        # chart subtitle and the model's pending-ideas row used (#158).
         for a in ast.walk(node):
             if (isinstance(a, ast.Attribute) and a.attr == "confidence"
                     and isinstance(a.ctx, ast.Load)):
                 return True
+            if _is_getattr_conf(a):
+                return True
+            if (isinstance(a, ast.Name) and isinstance(a.ctx, ast.Load)
+                    and a.id in carriers):
+                return True
         return False
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FormattedValue):
-            spec = ast.unparse(node.format_spec) if node.format_spec else ""
-            src_v = ast.unparse(node.value)
-            if ("%" in spec or "* 100" in src_v) and _is_idea_conf(node.value):
-                out.append(("pct", node.lineno, src_v[:60]))
-        elif isinstance(node, ast.Compare):
-            if any(_is_idea_conf(s) for s in [node.left, *node.comparators]):
-                out.append(("cmp", node.lineno, ast.unparse(node)[:60]))
+    scopes = [tree] + [n for n in ast.walk(tree)
+                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    for scope in scopes:
+        nodes = _own_nodes(scope)
+        carriers = {n.targets[0].id for n in nodes
+                    if isinstance(n, ast.Assign) and len(n.targets) == 1
+                    and isinstance(n.targets[0], ast.Name)
+                    and _is_the_field(n.value)}
+        for node in nodes:
+            if isinstance(node, ast.FormattedValue):
+                spec = ast.unparse(node.format_spec) if node.format_spec else ""
+                src_v = ast.unparse(node.value)
+                if ("%" in spec or "* 100" in src_v) and _reads_the_field(
+                        node.value, carriers):
+                    out.append(("pct", node.lineno, src_v[:60]))
+            elif isinstance(node, ast.Compare):
+                # `x.confidence is None` asks whether a figure is THERE, which
+                # is the question every honest reader asks first; it prints
+                # nothing and gates on no bar.
+                if all(isinstance(op, (ast.Is, ast.IsNot)) for op in node.ops):
+                    continue
+                if any(_reads_the_field(s, carriers)
+                       for s in [node.left, *node.comparators]):
+                    out.append(("cmp", node.lineno, ast.unparse(node)[:60]))
     return out
 
 
@@ -172,6 +248,19 @@ class TestTheRuleItself:
          'def f(ideas):\n    for _fi in ideas:\n        emit(f"{_fi.confidence:.0%}")\n'),
         ("a receiver the rule cannot place, which must carry a reason",
          'def f(row):\n    return f"{row.confidence:.0%}"\n'),
+        # #158: the three spellings the Telegram chart subtitle, the analyze
+        # card and the model's pending-ideas row used, none of which is the
+        # attribute the first rule walked for.
+        ("getattr in the format itself",
+         'def f(idea):\n    return f"{getattr(idea, \'confidence\', 0):.0%}"\n'),
+        ("a local bound to getattr, formatted later (the chart subtitle)",
+         'def f(idea):\n    conf = getattr(idea, "confidence", None)\n'
+         '    bits.append(f"conf {conf:.0%}")\n'),
+        ("a local bound to the coerced field (the analyze card)",
+         'def f(idea):\n    conf = float(getattr(idea, "confidence", 0) or 0)\n'
+         '    return f"{conf * 100:.0f}%"\n'),
+        ("a local bound to the attribute, gated later",
+         'def f(idea):\n    c = idea.confidence\n    return c >= 0.7\n'),
     ])
     def test_the_rule_flags_each_shape_the_slice_removed(self, shape, src):
         assert _reads(src), shape
@@ -189,6 +278,22 @@ class TestTheRuleItself:
          'def f(cfg):\n    return f"{cfg.min_confidence:.0%}"\n'),
         ("a non-percent format",
          'def f(idea):\n    return f"{idea.confidence:.2f}"\n'),
+        ("asking whether the figure is there",
+         'def f(r):\n    return r.confidence is None\n'),
+        ("asking whether a carried figure is there",
+         'def f(r):\n    c = r.confidence\n    return c is not None\n'),
+        ("a local bound to the ONE READING's value",
+         'def f(idea):\n    conf = displayed_confidence(idea).value\n'
+         '    return f"{conf:.0%}"\n'),
+        ("a local of ANOTHER function, which is not this one's carrier",
+         'def g(idea):\n    conf = idea.confidence\n    return conf\n'
+         'def f(x):\n    conf = x.size\n    return f"{conf:.0%}"\n'),
+        ("a local bound to a function OF the field, not a coercion of it",
+         'def f(idea):\n    band = bucket(idea.confidence)\n'
+         '    return f"{band:.0%}"\n'),
+        ("a local computed FROM the field, which is a different quantity",
+         'def f(idea):\n    gap = 1 - idea.confidence\n    return gap\n'
+         'def h(idea):\n    edge = max(0.0, 0.5)\n    return f"{edge:.0%}"\n'),
     ])
     def test_the_rule_leaves_these_alone(self, shape, src):
         assert not _reads(src), shape

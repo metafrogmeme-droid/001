@@ -920,7 +920,12 @@ class AnalyzeAssetSkill(BaseSkill):
         d_icon = _OK if d == "LONG" else _BAD
         d_arrow = "\u25b2" if d == "LONG" else "\u25bc"
         rr = idea.risk_reward_ratio
-        conf = idea.confidence
+        # The one reading every card of this signal shows (signal_confidence):
+        # the blend the floors compare against. `idea.confidence` is what the
+        # setup-expectancy nudge and the calibration curve left on the field,
+        # so this card said one figure while the signal row and the alert
+        # caption for the same idea said another.
+        _conf = displayed_confidence(idea)
         sl_d = abs(idea.entry_price - idea.stop_loss)
         tp_d = abs(idea.take_profit - idea.entry_price)
 
@@ -948,11 +953,16 @@ class AnalyzeAssetSkill(BaseSkill):
                 f"  \U0001f3af TP    \u2502 {_tp:>11}  (+{_price(tp_d)})"
             )
 
-        # Confidence bar using gradient blocks
+        # Confidence bar using gradient blocks. A figure nobody measured draws
+        # no fill: an empty bar is a reading of zero.
         conf_w = 12
-        conf_fill = int(conf * conf_w)
-        conf_bar = _BLOCKS[7] * conf_fill + _BLOCKS[0] * (conf_w - conf_fill)
-        conf_ring = _progress_ring(conf * 100)
+        if _conf.value is not None:
+            conf_fill = int(_conf.value * conf_w)
+            conf_bar = _BLOCKS[7] * conf_fill + _BLOCKS[0] * (conf_w - conf_fill)
+            conf_ring = _progress_ring(_conf.value * 100)
+        else:
+            conf_bar = "\u00b7" * conf_w
+            conf_ring = "\u2012"
         thesis_bq = _thesis_bq(idea.reasoning, 250, tail="\n\n")
         _record = _setup_record_line(engine, idea)
         record_line = f"{_esc(_record)}\n\n" if _record else ""
@@ -962,7 +972,7 @@ class AnalyzeAssetSkill(BaseSkill):
             f"<pre>"
             f"{ladder}"
             f"</pre>\n\n"
-            f"  {conf_ring} Confidence \u2502{conf_bar}\u2502 {_pill(f'{conf:.0%}')}\n"
+            f"  {conf_ring} Confidence \u2502{conf_bar}\u2502 {_pill(_conf.pct())}\n"
             f"  \u2606 Risk:Reward {_stars(rr)} {_pill(f'{rr}x')}\n\n"
             f"{record_line}"
             f"{thesis_bq}"

@@ -2600,10 +2600,9 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             try:
                 _d = getattr(getattr(idea, "direction", None), "value",
                              getattr(idea, "direction", "?"))
-                _conf = getattr(idea, "confidence", None)
-                _conf_txt = (f", confidence {_conf:.0%}"
-                             if isinstance(_conf, (int, float))
-                             and not isinstance(_conf, bool) else "")
+                # The one reading the idea's cards show; a stamp says it was
+                # not measured rather than handing the model a 100%.
+                _conf_txt = f", confidence {displayed_confidence(idea).pct()}"
                 _entry_raw = getattr(idea, "entry_price", _MISSING)
                 if _entry_raw is _MISSING:
                     _entry_txt = ""

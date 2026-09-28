@@ -16598,6 +16598,59 @@ the selections were driven on their own; all eight die now.
 (`app/test/every_candle_chart_is_a_tradingview_chart.test.js`,
 `app/test/tv_charts_render.smoke.test.js`.)
 
+**THE ONE-READING RULE SAW ONE SPELLING OF THE FIELD, AND FOUR CARDS USED THE
+OTHER TWO.** The rule behind `displayed_confidence` walked for the ATTRIBUTE
+`x.confidence` inside a percent format or a comparison. Four surfaces read the
+field another way and printed it where the signal's other cards printed the
+blend:
+
+- the chart subtitle baked into the signal PNG, in both of its builders, bound
+  `conf = getattr(idea, "confidence", None)` and formatted the local;
+- the `/analyze` card bound `conf = idea.confidence` and drew its bar, its
+  ring and its pill from the local;
+- the model's PENDING TRADE IDEAS row bound `_conf = getattr(...)`;
+- the web chat's "Trade this" hint handed `getattr(idea, "confidence")` to the
+  browser, under the analysis card that printed the blend.
+
+Each printed the figure the calibration curve and the setup-expectancy nudge
+leave on the field, and each printed a hand-typed ticket's STAMP
+(`build_manual_idea` writes 1.0) as a measured 100%. All four ask the one
+reading now. A stamp draws no bar on the analyze card: an empty bar of blocks
+would read as a measured zero, and a full one as certainty. The pending row
+used to drop its confidence clause when the field was not a number, so an
+idea with no readable confidence read as one nobody had scored; it says the
+dash now. And the single-chart sender kept its own copy of the subtitle lines
+beside `_idea_meta`'s, which is how one chart of a signal could print a
+different confidence from its sibling album. It asks `_idea_meta` now, proved
+by planting it.
+
+**The rule sees three spellings now, and what it still cannot see is stated.**
+The attribute, `getattr(x, "confidence")`, and a local of the same function
+bound to either, coerced or not (`float(getattr(idea, "confidence", 0) or
+0)`). A local is bound per function, so a nested function's locals are not the
+outer one's. A local bound to a function OF the field (`band =
+bucket(idea.confidence)`) is a different quantity and is not followed; the
+pass-through vocabulary is `float`, `round`, `int`, `abs`, `_f` and `_num`.
+And `x.confidence is None` is not a gate: it asks whether a figure is there,
+the question every honest reader asks first. Widening the rule found four
+sites the attribute walk could not see, each read and baselined with its
+reason: the order-flow snapshot's own data confidence in the analyzer, the
+high-conviction floor's QualityReading figure and its audit line in the
+engine, and a journal entry's recorded confidence quoted back in the
+post-mortem. Excluding the `is None` checks retired four rows that had never
+been gates.
+
+**Sixteen mutations, each killed on the first round, none refused.** Two are
+worth naming for what they prove about the guards rather than the code: the
+pending row dropping its clause for an unreadable figure passes every
+assertion about a readable one and dies only on an idea whose confidence is
+junk, and the rule's pass-through vocabulary widened to any call dies on the
+real tree: the backtest's walk-forward report binds `bucket =
+_confidence_bucket(trade.confidence)` and tests the label for membership in a
+dict, a function OF the field that the widened rule reported as a gate.
+(`tests/test_the_telegram_cards_print_the_one_confidence.py`,
+`tests/test_every_confidence_reader_asks_the_one_reading.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -17889,7 +17942,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **468 of 1163** reach for source text through `source_scan`, `code_only`
+Driven, **468 of 1164** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 468 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

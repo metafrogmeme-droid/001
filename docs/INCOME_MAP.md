@@ -123,9 +123,9 @@ CONFIG.strategy_types then gives swing its own geometry and lifecycle: SL 2.5
 ATR / TP 3.5 ATR (config.py:2292-2293), trailing ENABLED on the stage table
 every type shares (:2294), a 48h time-close with a 12h warn (:2297-2298), min
 confidence 0.50 (:2313), max risk 2% (:2319) — every one distinct from the scalp row
-above it. skill_registry.py:2012 reads those multipliers when it builds the
+above it. skill_registry.py:2022 reads those multipliers when it builds the
 SL/TP ladder. Doors: /swing (scan_commands.py:1046) dispatches pro_scan
-mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2834) —
+mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2844) —
 and renders a signal card whose Take/Limit buttons run the normal confirm-and-
 execute path; the router's scan_swing intent reaches the same skill through
 SCAN_DISPATCH; /fullscan accepts a `swing` argument.
@@ -136,8 +136,8 @@ to be treated as a swing, only pick the scan timeframe. Tier feature
 `premium_scan` nominally gates /swing at pro, though the whole $RCLAW gate is
 off by default.
 
-*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:2250 is a blank line
-between RunStrategySkill._list and _run_symbol_scan; :2213-2219 is the literal
+*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:2260 is a blank line
+between RunStrategySkill._list and _run_symbol_scan; :2223-2229 is the literal
 "safe scalper" preset dict inside RunStrategySkill.PRESETS. No line in
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1866-1869
@@ -154,9 +154,9 @@ time-close with a 1h warn (:2279-2280), min confidence 0.65 (:2311), max risk
 of movement; config.py:1679 recomputes session VWAP on 15m candles
 specifically so scalps read a real intraday anchor. Doors: /scalp
 (scan_commands.py:1012) dispatches pro_scan mode=scalp — 5m candles, top-3 by
-volume, tight zones (skill_registry.py:2818); the router's scan_scalp intent
+volume, tight zones (skill_registry.py:2828); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
-(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:2213) as a
+(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:2223) as a
 tighten-only veto on that user's own confirms (trading_commands.py:430); /run
 scalp and /fullscan scalp are the other two.
 
@@ -183,7 +183,7 @@ RUNTIME.auto_confirm_threshold with no human tap.
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
 LIVE_TRADING_ENABLED defaults False (config.py:2493-2494), so a stock deploy
 trades perps on paper until the operator runs /golive. A real order
-additionally needs _can_trade_live (telegram_handler.py:4888), which requires
+additionally needs _can_trade_live (telegram_handler.py:4887), which requires
 BOTH the env allowlist and the per-user store flag; web-only `web:<id>`
 identities are structurally paper-only and can never pass it. Venue coverage
 is Bitget (primary) with Bybit/Hyperliquid adapters; long/short perps only —
@@ -358,7 +358,7 @@ suppressible in live mode. Operators tune it
 with /autoconfirm, halt it with /halt //pause //emergency_stop, and inspect it
 with /risk, /gates, /shadow, /enforcing, /parity. Users get four named
 strategy presets (Dip Sniper, Momentum Hunter, Safe Scalper, Full Scan —
-skill_registry.py:2198) runnable via /run, /momentum, /dip, and pinnable to
+skill_registry.py:2208) runnable via /run, /momentum, /dip, and pinnable to
 their own confirms as a tighten-only veto (/mystrategy →
 user_strategy_store.py:37, mirrored on the web at /api/bot-strategy). Research
 rails exist and are wired: /backtest, /walkforward, /optimize, and the browser
@@ -986,33 +986,33 @@ spec text is "an ERC-721 NFT collection with a fixed max supply, a per-wallet
 mint limit, an owner-set mint price, and metadata baseURI — using OpenZeppelin
 ERC721 + Ownable" (dashboard.js:7140). It posts to /api/contract/studio
 (dashboard.js:7313 → app/routes/contract.js:37 → gateway
-handle_contract_studio, user_gateway.py:1434), which is gated by _guard_user
-(:1453) — any authorized web caller, NOT admin-only, with a free daily draft
+handle_contract_studio, user_gateway.py:1435), which is gated by _guard_user
+(:1454) — any authorized web caller, NOT admin-only, with a free daily draft
 quota — and returns a Solidity draft plus heuristic security flags.
 /api/contract/compile (dashboard.js:7272 → contract.js:71 →
-handle_contract_compile, user_gateway.py:1551) is likewise _guard_user (:1573)
+handle_contract_compile, user_gateway.py:1552) is likewise _guard_user (:1574)
 and runs real solc off the event loop, reporting whether the collection
 actually builds.
 
 *Gap.* The draft is where it stops for an ordinary user — nothing lets them DEPLOY a
 collection. POST /api/web3/deploy (dashboard.js:7237) reaches
-handle_contract_deploy (user_gateway.py:1593), which returns 403 'contract
-deploy is admin-only' for every non-admin (:1608-1609), is TESTNET-ONLY with
+handle_contract_deploy (user_gateway.py:1594), which returns 403 'contract
+deploy is admin-only' for every non-admin (:1609-1610), is TESTNET-ONLY with
 mainnet refused regardless of any flag, must pass an enforcing Authority
 Envelope, and is inert until the operator supplies WEB3_SIGNER_PRIVATE_KEY and
 installs eth-account (which CI does not). So a user gets source code they must
 take elsewhere to ship. The output is also explicitly a DRAFT with flags,
 never an audit — the audit disclaimer travels with every response
-(user_gateway.py:1543). No metadata hosting, no art pipeline, no
+(user_gateway.py:1544). No metadata hosting, no art pipeline, no
 allowlist/Merkle tooling, no mint-page generator, and no royalty configuration
 accompanies it.
 
 *The verifier refused part of this row.* The DRAFT half is upheld exactly as described — I confirmed the 'ERC-721 NFT'
 template string at dashboard.js:7140, the #studio view is in VIEWS
 (dashboard.js:54) and RENDER (dashboard.js:10139), the POST reaches
-handle_contract_studio (contract.js:37 → user_gateway.py:1434), and
+handle_contract_studio (contract.js:37 → user_gateway.py:1435), and
 _guard_user with NO command argument means any signed-in web caller (auto-
-provisioned paper user, user_gateway.py:398-418) — not admin-only, metered by
+provisioned paper user, user_gateway.py:399-419) — not admin-only, metered by
 chat_quota (user_gateway.py:…
 
 
@@ -1279,7 +1279,7 @@ whoever already has access, not an income stream a person can run.
 *The verifier refused part of this row.* Status PARTIAL survives (the research surfaces are real and I drove each
 door), but the tiering claim is false on every ordinary deploy. tier_gate is
 wired — check_user() is called from telegram_handler.py:1447/4560 and
-user_gateway.py:379 — and its FIRST line is `if not gate_enabled(): return
+user_gateway.py:380 — and its FIRST line is `if not gate_enabled(): return
 True, "ok"` (tier_gate.py:821). gate_enabled() (line 365-371) requires BOTH
 `TOKEN_TIER_GATE_ENABLED` AND a configured mint. The module's line-1 docstring
 reads '$RC…
@@ -1301,12 +1301,12 @@ reads '$RC…
 
 A real, reachable Solidity drafting tool. Any logged-in web user (a website
 signup auto-provisions as a paper trader and clears _guard_user at
-user_gateway.py:1453 — no role permission, no $RCLAW tier) opens the Contract
+user_gateway.py:1454 — no role permission, no $RCLAW tier) opens the Contract
 Studio view, picks one of five one-tap starters (ERC-20, ERC-721, Escrow,
 Multisig, Vesting) or types a free-text spec, and gets back a Solidity DRAFT
 plus heuristic security flags, with Copy and Download .sol buttons. Free
 accounts spend from the same 5/day chat quota; paid tiers are unmetered
-(user_gateway.py:1457-1485). A Compile button posts the draft to solc for
+(user_gateway.py:1458-1486). A Compile button posts the draft to solc for
 bytecode+ABI+diagnostics, and a testnet Deploy bar appears once bytecode
 exists.
 
@@ -1317,7 +1317,7 @@ it is absent (contract_studio.py:196-199) — neither solcx nor py-solc-x
 appears in requirements.lock or requirements-ci.txt, so compile answers
 'compiler not available' unless the operator installs the toolchain. DEPLOY:
 handle_contract_deploy is admin-only by _is_admin_id
-(user_gateway.py:1593-1609), testnet-only with mainnet refused regardless of
+(user_gateway.py:1594-1610), testnet-only with mainnet refused regardless of
 flag, needs an enforcing Authority Envelope, and needs eth-account, which is
 also in neither requirements file. There is no Telegram door (grep of
 bot/skills for contract_studio / contract/studio returns nothing — web only).
@@ -1382,11 +1382,11 @@ in the Contract Studio — five starter templates (ERC-20, ERC-721, Escrow,
 Multisig, Vesting) or free text — read the heuristic security flags that come
 back with it, compile it (solc bytecode + ABI + diagnostics), and copy or
 download the .sol. The drafting and compile gateway handlers are _guard_user,
-not admin: bot/web/user_gateway.py:1453 and :1573 (the _is_admin read at :1457
+not admin: bot/web/user_gateway.py:1454 and :1574 (the _is_admin read at :1458
 only picks the LLM tier).
 
 *Gap.* Nobody but the operator can ship the thing they drafted. POST /contract/deploy
-is `if not _is_admin_id(...): 403` (bot/web/user_gateway.py:1608), testnet-
+is `if not _is_admin_id(...): 403` (bot/web/user_gateway.py:1609), testnet-
 only with mainnet hard-refused, and inert until the operator installs eth-
 account and supplies WEB3_SIGNER_PRIVATE_KEY behind an enforcing envelope.
 Compile itself depends on an operator-installed py-solc-x that is in neither
@@ -1401,8 +1401,8 @@ are RUNECLAW's, with no user deploy door.
 draft half is genuinely shipped and reachable (nav id 'studio' dashboard.js:54
 → renderContractStudio dashboard.js:7125, registered dashboard.js:10139; POST
 /api/contract/studio app/routes/contract.js:37 → gateway handler
-user_gateway.py:1434 gated by _guard_user at :1453, route registered
-user_gateway.py:5217; five template buttons, flags, Copy and Download .sol at
+user_gateway.py:1435 gated by _guard_user at :1454, route registered
+user_gateway.py:5220; five template buttons, flags, Copy and Download .sol at
 dashboard.js:625…
 
 **Trading/analytics tools** — partial
@@ -1613,8 +1613,8 @@ preferring the non-custodial option and stating the tradeoff
 failed fetch yields NO option, never a fabricated APY). Two doors reach it:
 GET /api/idleyield (app/routes/idleyield.js, authMiddleware — any signed-in
 web user, mounted app/server.js:387) via gateway POST /idleyield
-(bot/web/user_gateway.py:3503, which calls fetch_noncustodial_options at
-:3469), and Telegram /idleyield, which is ADMIN-ONLY by an inline _is_admin
+(bot/web/user_gateway.py:3506, which calls fetch_noncustodial_options at
+:3472), and Telegram /idleyield, which is ADMIN-ONLY by an inline _is_admin
 check (bot/skills/yield_commands.py:142). Separately, an existing stETH
 position is MIRRORED read-only from the mainnet contract (app/lib/defi.js:36
 LIDO_STETH, :103 readLido) through GET /api/defi and the c-defi panel. The
@@ -2366,8 +2366,8 @@ half of the measurement that says where the measurement stops.
   comments (`app/routes/web3_execute.js:52, :93, :124`), and a comment that
   misdescribes which half of a gate is off is a failure mode this repo has
   recorded before. All three re-checks exist and refuse:
-  `handle_web3_sign` (`bot/web/user_gateway.py:4900`), `handle_cross_plan`
-  (`:1723`) and `handle_contract_deploy` (`:1608`) each `403` a non-admin —
+  `handle_web3_sign` (`bot/web/user_gateway.py:4903`), `handle_cross_plan`
+  (`:1724`) and `handle_contract_deploy` (`:1609`) each `403` a non-admin —
   and the last of those is why the check had to be driven rather than
   grepped, because a search for `handle_web3_deploy`, the name the route
   suggests, matches nothing.
@@ -2382,7 +2382,7 @@ half of the measurement that says where the measurement stops.
   out of the DB row keyed on `req.user.user_id` — never off the body, the
   query or a header — so the id the gateway admin-checks is the one the
   database holds for the JWT's own subject. `_is_admin_id`
-  (`bot/skills/telegram_handler.py:4987`) is server-side too: the user store's
+  (`bot/skills/telegram_handler.py:4986`) is server-side too: the user store's
   role, or `ADMIN_TELEGRAM_IDS`. An escalation needs a foreign `telegram_id`
   written onto your own row, which is the invariant
   `identity.foreignIdentityBlock` already documents and asserts.
@@ -2413,7 +2413,7 @@ half of the measurement that says where the measurement stops.
   False` (`bot/core/meme_swap.py:178`), driven by
   `tests/test_meme_swap.py:132`. So the claim is not merely 'the planner never
   sets it' — a plan that DID claim it would execute is refused by the builder
-  one layer down. `bot/web/user_gateway.py:1853` forwards the planner's own
+  one layer down. `bot/web/user_gateway.py:1854` forwards the planner's own
   value to the web and manufactures nothing.
 
 - ANSWERED, and what driving it found was one route over. /miniapp/arena

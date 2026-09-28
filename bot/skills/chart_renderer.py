@@ -25,6 +25,8 @@ import re
 import threading
 from typing import Optional
 
+from bot.core.signal_confidence import displayed_confidence
+
 logger = logging.getLogger(__name__)
 
 # CCXT OHLCV column indices.
@@ -1203,28 +1205,19 @@ async def send_idea_chart(bot, chat_id, candles, idea,
     cards and the proactive new-signal alerts.
     """
     try:
-        asset = getattr(idea, "asset", "") or ""
-        pair = asset.replace("/", "")
-        direction = getattr(getattr(idea, "direction", None), "value", "") or ""
+        # The subtitle baked into the image (direction · confidence · R:R) is
+        # `_idea_meta`'s: this function kept its own copy of those lines, and
+        # the two copies were how one chart of a signal could print a
+        # different confidence from its sibling album.
+        pair, direction, subtitle, levels = _idea_meta(idea)
         import html as _html
         caption = f"<b>{_html.escape(pair)}</b> {_html.escape(direction)} — price · EMA9/21 · RSI(14)"
         if extra_caption:
             caption += f"\n{extra_caption}"
-        # Subtitle line baked into the image: direction · confidence · R:R.
-        bits = []
-        if direction:
-            bits.append(direction)
-        conf = getattr(idea, "confidence", None)
-        if isinstance(conf, (int, float)):
-            bits.append(f"conf {conf:.0%}")
-        rr = getattr(idea, "risk_reward_ratio", None)
-        if isinstance(rr, (int, float)) and rr > 0:
-            bits.append(f"R:R 1:{rr:.1f}")
-        subtitle = "   ".join(bits)
         return await send_chart(
             bot, chat_id, candles, caption=caption,
             title=f"{pair} {direction}".strip(),
-            dpi=dpi, levels=_levels_from_idea(idea), subtitle=subtitle, theme=theme,
+            dpi=dpi, levels=levels, subtitle=subtitle, theme=theme,
         )
     except Exception as exc:  # noqa: BLE001
         logger.debug("send_idea_chart skipped: %s", exc)
@@ -1239,9 +1232,11 @@ def _idea_meta(idea):
     bits = []
     if direction:
         bits.append(direction)
-    conf = getattr(idea, "confidence", None)
-    if isinstance(conf, (int, float)):
-        bits.append(f"conf {conf:.0%}")
+    # The one reading every card of this signal shows. This baked
+    # `idea.confidence` into the image -- the figure the calibration curve and
+    # the setup-expectancy nudge left on the field -- under a caption and a
+    # signal row that print the blend, so one alert carried two confidences.
+    bits.append(f"conf {displayed_confidence(idea).pct()}")
     rr = getattr(idea, "risk_reward_ratio", None)
     if isinstance(rr, (int, float)) and rr > 0:
         bits.append(f"R:R 1:{rr:.1f}")

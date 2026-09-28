@@ -48,6 +48,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from bot.skills.telegram_handler import TelegramHandler
 
 from bot.core.confirm_result import outcome_unverified, placed_nothing
+from bot.core.signal_confidence import displayed_confidence
 from bot.nlp.skill_memory import (
     not_run_memory,
     record_routed_turn,
@@ -1910,7 +1911,9 @@ def _setup_from_new_idea(engine, ideas_before: set) -> dict | None:
     if direction not in ("LONG", "SHORT"):
         return None
     rr = getattr(idea, "risk_reward_ratio", None)
-    conf = getattr(idea, "confidence", None)
+    # The one reading the analysis card above this hint shows: the two used to
+    # print different figures for one idea, one under the other.
+    conf = displayed_confidence(idea).value
     return {
         "symbol": str(getattr(idea, "asset", "")).split("/")[0],
         "direction": direction,
