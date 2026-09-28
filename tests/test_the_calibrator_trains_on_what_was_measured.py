@@ -29,7 +29,7 @@ import pytest
 
 from bot.learning.confidence_calibration import ConfidenceCalibrator
 from bot.learning.models import DecisionMemory
-from bot.learning.outcome_join import NOT_OPENED_DECISIONS, join_outcomes, opened
+from bot.learning.outcome_join import NOT_OPENED_DECISIONS, UNVERIFIED_DECISIONS, join_outcomes, opened
 from bot.learning.voter_weights import VoterWeightLearner
 from bot.risk import quality_ladder
 from bot.risk.quality_ladder import MEASURED_BASIS, confidence_basis
@@ -216,8 +216,27 @@ def _decision_words():
 def test_every_word_the_engine_writes_is_placed():
     words = _decision_words()
     assert "EXECUTION_FAILED" in words and "TRADE_ACCEPTED_LIVE" in words, words
-    unplaced = sorted(w for w in words if opened(w) is None)
+    assert "EXECUTION_UNVERIFIED" in words, words
+    # A submission the venue confirmed neither way is placed as UNKNOWN by
+    # design (`UNVERIFIED_DECISIONS`): it joins only through an outcome row,
+    # which is the measurement that it opened. Unknown by decision is not
+    # unknown by omission, so the word is declared rather than acquitted.
+    unplaced = sorted(w for w in words
+                      if opened(w) is None and w not in UNVERIFIED_DECISIONS)
     assert unplaced == [], f"decision words the join cannot place: {unplaced}"
+
+
+def test_the_unverified_word_joins_only_through_an_outcome():
+    from bot.learning.outcome_join import UNVERIFIED_DECISIONS as _U
+    assert _U == frozenset({"EXECUTION_UNVERIFIED"})
+    assert opened("EXECUTION_UNVERIFIED") is None
+    # Decided unknown: an outcome row under the id joins it (the trade opened);
+    # no outcome row, nothing joins (nothing to learn from).
+    d = SimpleNamespace(paper_trade_id="TU", pnl_result=None, confidence=0.7,
+                        blended_confidence_raw=0.7, confidence_basis=MEASURED_BASIS,
+                        decision="EXECUTION_UNVERIFIED")
+    assert len(join_outcomes([d, _outcome("TU", 1.0)]).rows) == 1
+    assert len(join_outcomes([d]).rows) == 0
 
 
 @pytest.mark.parametrize("word", sorted(NOT_OPENED_DECISIONS))

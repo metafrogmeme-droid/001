@@ -46,7 +46,7 @@ from bot.nlp.sanitize import MAX_CHAT_INPUT_LEN
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from bot.skills.telegram_handler import TelegramHandler
 
-from bot.core.confirm_result import placed_nothing
+from bot.core.confirm_result import outcome_unverified, placed_nothing
 from bot.nlp.skill_memory import (
     not_run_memory,
     record_routed_turn,
@@ -2378,7 +2378,11 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
     # is the one reading of that sentence (the Telegram Confirm button asks
     # it too), and `placed` rides beside the text so the browser never has
     # to guess from a status code that only says the request was handled.
-    placed = not placed_nothing(result)
+    # THREE-VALUED: True placed, False refused, None when the venue confirmed
+    # the order neither way (`outcome_unverified`) -- the browser's confirm
+    # model paints neither colour over a `placed` that is not a boolean, and
+    # the answer's own text says what is on record and what happens next.
+    placed = None if outcome_unverified(result) else (not placed_nothing(result))
     # The proposer entry goes when the idea does. Most refusals leave the idea
     # pending (a price drift, the strategy gate, the risk re-check, an order
     # the venue refused), and dropping the entry anyway left a pending idea its
@@ -2388,7 +2392,11 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
     # fill), so asking the book answers both cases with one reading.
     if trade_id not in getattr(engine, "_pending_ideas", {}):
         request.app["proposers"].pop(trade_id, None)
-    if placed:
+    if placed is None:
+        audit(system_log, f"Web trade confirm UNVERIFIED: {trade_id}",
+              action="web_trade_confirm", result="UNVERIFIED",
+              data={"user": tg_id, "reason": _refusal_line(result)})
+    elif placed:
         audit(system_log, f"Web trade confirm: {trade_id}",
               action="web_trade_confirm", result="OK", data={"user": tg_id})
     else:

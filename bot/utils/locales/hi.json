@@ -222,6 +222,7 @@
   "trade_executed": "✅ ट्रेड निष्पादित: {direction} {asset} ${price} पर",
   "trade_executed_fail": "<b>ट्रेड पूरा नहीं हुआ</b>",
   "trade_executed_ok": "<b>ट्रेड निष्पादित!</b>",
+  "trade_outcome_unverified": "<b>ऑर्डर का परिणाम असत्यापित</b> — कुछ दर्ज नहीं हुआ, कुछ दोबारा नहीं भेजा गया",
   "trade_expired": "ट्रेड की अवधि समाप्त (समय पर पुष्टि नहीं हुई)",
   "trade_expired_rescan": "<b>ट्रेड की अवधि समाप्त।</b> नया स्कैन चलाएं।",
   "trade_help": "<b>मैनुअल ट्रेड</b>\n\nप्रारूप:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1748 tp 1610 margin 250</code>\n\n• <code>buy/long</code> = लॉन्ग\n• <code>sell/short</code> = शॉर्ट\n• <code>margin</code> = वैकल्पिक निश्चित मार्जिन (USD में)",

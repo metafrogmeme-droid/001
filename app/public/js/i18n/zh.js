@@ -520,6 +520,7 @@
   ["dd.t_trade_confirmed", "交易已確認。"],
   ["dd.t_trade_refused", "未送出任何委託。"],
   ["dd.t_trade_unread", "機器人已回應，但未說明是否送出任何委託 — 請檢查你的持倉。"],
+  ["dd.t_trade_unverified", "交易所未以任何方式確認此委託 — 機器人已將其記錄在案，未重新發送任何內容，下一次持倉檢查將會核對。請勿再次發送。"],
   ["dd.t_trade_update", "來自引擎的交易更新。"],
   ["dd.t_need_coin", "請先輸入幣種。"],
   ["dd.t_need_symbol", "請先輸入標的代號。"],

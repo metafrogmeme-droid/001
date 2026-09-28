@@ -222,6 +222,7 @@
   "trade_executed": "✅ Trade eseguito: {direction} {asset} a ${price}",
   "trade_executed_fail": "<b>Il trade non è andato a buon fine</b>",
   "trade_executed_ok": "<b>Trade eseguito!</b>",
+  "trade_outcome_unverified": "<b>Esito dell'ordine non verificato</b> — nulla registrato, nulla reinviato",
   "trade_expired": "Trade scaduto (non confermato in tempo)",
   "trade_expired_rescan": "<b>Trade scaduto.</b> Esegui una nuova scansione.",
   "trade_help": "<b>Trade manuale</b>\n\nFormato:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1748 tp 1610 margin 250</code>\n\n• <code>buy/long</code> = LONG\n• <code>sell/short</code> = SHORT\n• <code>margin</code> = margine fisso opzionale in USD",

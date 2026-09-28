@@ -10,14 +10,21 @@
  * Telegram Confirm button asks (`placed_nothing`), so this page decides
  * nothing from the WORDING and nothing from the status code.
  *
- * FOUR OUTCOMES, because four things can come back:
+ * FIVE OUTCOMES, because five things can come back:
  *
- *   failed    the request did not go through (not ok) -- each surface keeps
- *             its own sentence for that, which is not this model's subject;
- *   refused   `placed === false`: the bot handled it and placed NOTHING;
- *   placed    `placed === true`: something was placed;
- *   unread    `placed` present and not a boolean: the page cannot tell, and
- *             neither green nor red may be painted over it.
+ *   failed      the request did not go through (not ok) -- each surface keeps
+ *               its own sentence for that, which is not this model's subject;
+ *   refused     `placed === false`: the bot handled it and placed NOTHING;
+ *   placed      `placed === true`: something was placed;
+ *   unverified  `placed === null`: the bot SENT the order and the venue
+ *               confirmed it neither way (the send raised in a way that
+ *               leaves it unknown, and the order lists could not be read
+ *               after it). Nothing is on the book, nothing is re-sent, and
+ *               the bot's next positions pass asks the venue by client id;
+ *               the page must not paint a colour, must not offer a re-send,
+ *               and must not call it refused.
+ *   unread      `placed` present and none of the above: the page cannot
+ *               tell, and neither green nor red may be painted over it.
  *
  * AN ABSENT `placed` IS AN OLDER BOT, and it keeps the behaviour it has always
  * had -- read as placed. That is a deliberate compatibility decision rather
@@ -35,6 +42,7 @@
     var text = typeof d.result_html === 'string' ? d.result_html : '';
     if (d.placed === false) return { kind: 'refused', text: text };
     if (d.placed === true) return { kind: 'placed', text: text, legacy: false };
+    if (d.placed === null) return { kind: 'unverified', text: text };
     if (!Object.prototype.hasOwnProperty.call(d, 'placed')) {
       return { kind: 'placed', text: text, legacy: true };
     }

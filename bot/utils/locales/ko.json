@@ -222,6 +222,7 @@
   "trade_executed": "✅ 거래 실행: {direction} {asset} @ ${price}",
   "trade_executed_fail": "<b>거래가 체결되지 않았습니다</b>",
   "trade_executed_ok": "<b>거래가 실행되었습니다!</b>",
+  "trade_outcome_unverified": "<b>주문 결과 미확인</b> — 기록된 것도, 재전송된 것도 없습니다",
   "trade_expired": "거래 만료(제시간에 확인되지 않음)",
   "trade_expired_rescan": "<b>거래가 만료되었습니다.</b> 새 스캔을 실행하세요.",
   "trade_help": "<b>수동 거래</b>\n\n형식:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1748 tp 1610 margin 250</code>\n\n• <code>buy/long</code> = 롱\n• <code>sell/short</code> = 숏\n• <code>margin</code> = 선택적 고정 증거금(USD)",

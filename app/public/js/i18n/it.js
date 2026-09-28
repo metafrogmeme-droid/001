@@ -520,6 +520,7 @@
   ["dd.t_trade_confirmed", "Operazione confermata."],
   ["dd.t_trade_refused", "Non è stato inviato nulla."],
   ["dd.t_trade_unread", "Il bot ha risposto senza dire se è stato inviato qualcosa — controlla le tue posizioni."],
+  ["dd.t_trade_unverified", "La venue non ha confermato l'ordine in nessun senso — il bot lo ha registrato, nulla è stato reinviato e il prossimo controllo delle posizioni lo riconcilia. Non inviarlo di nuovo."],
   ["dd.t_trade_update", "Aggiornamento dell’operazione dal motore."],
   ["dd.t_need_coin", "Scrivi prima una moneta."],
   ["dd.t_need_symbol", "Scrivi prima uno strumento."],

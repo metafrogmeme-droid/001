@@ -1748,8 +1748,16 @@ class CallbackHandler:
             # writes without "REJECTED" -- the chosen-strategy refusal, the
             # duplicate skip, paper-disabled, the practice cooldown -- and
             # each was announced "✅ executed" and posted publicly.
-            from bot.core.confirm_result import held_on_operator_book, placed_nothing
-            if not placed_nothing(result):
+            from bot.core.confirm_result import held_on_operator_book, outcome_unverified, placed_nothing
+            if outcome_unverified(result):
+                # THE THIRD OUTCOME: the venue confirmed the order neither
+                # way. Not "\u2705 executed" (nothing is on the book and the
+                # public channel has nothing to announce) and not "\u274c
+                # failed" (a claim about the venue nobody could make). The
+                # answer itself says what the executor recorded and what the
+                # next positions pass does about it.
+                msg = f"\u26a0\ufe0f {t('trade_outcome_unverified', self._lang(update))}\n\n{result}"
+            elif not placed_nothing(result):
                 msg = f"\u2705 {t('trade_executed_ok', self._lang(update))}\n\n{result}"
                 # The public channels carry the AGENT's book, so the post is
                 # made when the operator's executor now holds this trade -- a

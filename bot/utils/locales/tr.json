@@ -222,6 +222,7 @@
   "trade_executed": "✅ İşlem gerçekleşti: {direction} {asset} ${price} fiyattan",
   "trade_executed_fail": "<b>İşlem gerçekleşmedi</b>",
   "trade_executed_ok": "<b>İşlem gerçekleşti!</b>",
+  "trade_outcome_unverified": "<b>Emir sonucu doğrulanmadı</b> — hiçbir şey kaydedilmedi, yeniden gönderilmedi",
   "trade_expired": "İşlem süresi doldu (zamanında onaylanmadı)",
   "trade_expired_rescan": "<b>İşlem süresi doldu.</b> Yeni bir tarama çalıştırın.",
   "trade_help": "<b>Manuel İşlem</b>\n\nBiçim:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1748 tp 1610 margin 250</code>\n\n• <code>buy/long</code> = LONG\n• <code>sell/short</code> = SHORT\n• <code>margin</code> = isteğe bağlı sabit USD teminatı",

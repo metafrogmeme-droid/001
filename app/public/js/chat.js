@@ -243,6 +243,13 @@
         okBtn.disabled = noBtn.disabled = false;
         return;
       }
+      if (out.kind === 'unverified') {
+        // Neither button comes back: a re-send is exactly what the bot refuses
+        // while the submission stands, and cancelling the idea cancels
+        // nothing on the venue. The answer says what happens next.
+        appendMsg('bot', `<b>${esc(T('dd.t_trade_unverified', 'The venue confirmed the order neither way — the bot has it on record, nothing was re-sent, and its next positions check reconciles it. Do not send it again.'))}</b> ${sanitizeBotHtml(out.text)}`);
+        return;
+      }
       if (out.kind === 'unread') {
         appendMsg('bot', `${esc(T('dd.t_trade_unread', 'The bot answered without saying whether anything was placed — check your positions.'))} ${sanitizeBotHtml(out.text)}`);
         document.dispatchEvent(new CustomEvent('rc:portfolio-changed'));

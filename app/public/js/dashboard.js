@@ -3958,6 +3958,14 @@
         msg.innerHTML = `<span class="neg"><b>${esc(T('dd.t_trade_refused', 'Nothing was placed.'))}</b> ${sanitizeBotHtml(out.text)}</span>`;
         return;
       }
+      if (out.kind === 'unverified') {
+        // The modal stays open with NO colour and the Confirm button stays
+        // disabled: a re-send is what the bot refuses while the submission
+        // stands, and green or red would each be a claim about the venue
+        // nobody could make. The answer says what happens next.
+        msg.innerHTML = `<span class="muted"><b>${esc(T('dd.t_trade_unverified', 'The venue confirmed the order neither way — the bot has it on record, nothing was re-sent, and its next positions check reconciles it. Do not send it again.'))}</b></span> ${sanitizeBotHtml(out.text)}`;
+        return;
+      }
       if (out.kind === 'unread') {
         msg.innerHTML = `<span class="muted">${esc(T('dd.t_trade_unread', 'The bot answered without saying whether anything was placed — check your positions.'))}</span> ${sanitizeBotHtml(out.text)}`;
         cache.portfolio = null;

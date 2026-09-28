@@ -222,6 +222,7 @@
   "trade_executed": "✅ Trade uitgevoerd: {direction} {asset} op ${price}",
   "trade_executed_fail": "<b>Trade is niet doorgegaan</b>",
   "trade_executed_ok": "<b>Trade uitgevoerd!</b>",
+  "trade_outcome_unverified": "<b>Orderresultaat onbevestigd</b> — niets vastgelegd, niets opnieuw verzonden",
   "trade_expired": "Trade verlopen (niet op tijd bevestigd)",
   "trade_expired_rescan": "<b>Trade verlopen.</b> Draai een nieuwe scan.",
   "trade_help": "<b>Handmatige trade</b>\n\nFormaat:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1748 tp 1610 margin 250</code>\n\n• <code>buy/long</code> = LONG\n• <code>sell/short</code> = SHORT\n• <code>margin</code> = optionele vaste marge in USD",

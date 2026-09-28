@@ -8567,8 +8567,16 @@ class RuneClawEngine:
         # missed "REFUSED:" / "EXECUTION BLOCKED:" / "Live execution blocked:"
         # and could not match emoji/HTML-prefixed strings, so blocked trades
         # were sealed to the audit chain as phantom live fills.
-        from bot.core.live_executor import execution_indicates_failure
-        live_failed = execution_indicates_failure(result)
+        from bot.core.live_executor import execution_indicates_failure, execution_outcome_unverified
+        # THREE OUTCOMES. A refusal and an unverified submission both leave the
+        # idea pending and announce no open (`live_failed` gates both); they
+        # part below, where the chain and the learning row are written: a
+        # refusal is sealed as EXECUTION_FAILED, and a submission the venue
+        # confirmed neither way as EXECUTION_UNVERIFIED, because "failed" is a
+        # claim about the venue nobody could make. The executor reconciles it
+        # by client id on its next positions pass.
+        live_unverified = execution_outcome_unverified(result)
+        live_failed = execution_indicates_failure(result) or live_unverified
 
         if not live_failed:
             # Exchange is single source of truth — no paper duplicate.
@@ -8646,6 +8654,9 @@ class RuneClawEngine:
         # and the risk gate APPROVED this one. Naming the wrong cause is the
         # defect this is fixing, in a new place.
         _fail_reason = str(result)[:200] if live_failed else ""
+        _outcome_word = ("EXECUTED_LIVE" if not live_failed
+                         else "EXECUTION_UNVERIFIED" if live_unverified
+                         else "EXECUTION_FAILED")
 
         # Seal decision to tamper-evident audit chain (Guardian Flight Recorder:
         # provenance-complete idea/risk). The order is placed by now, so a seal
@@ -8656,7 +8667,7 @@ class RuneClawEngine:
             risk=_flight_risk(recheck, size_usd=size_usd),
             macro={"risk_state": macro_ctx.risk_state, "multiplier": macro_ctx.size_multiplier},
             compliance={"granted": True, "locks_passed": compliance_decision.locks_passed},
-            outcome="EXECUTED_LIVE" if not live_failed else "EXECUTION_FAILED",
+            outcome=_outcome_word,
             is_paper=False,
         )))
         self._emit_policy_decision(recheck, trade_id, idea.asset, user_id)
@@ -8683,14 +8694,18 @@ class RuneClawEngine:
             risk_engine_result="APPROVED",
             checks_passed=recheck.checks_passed,
             checks_failed=[],
-            decision="TRADE_ACCEPTED_LIVE" if not live_failed else "EXECUTION_FAILED",
+            decision=("TRADE_ACCEPTED_LIVE" if not live_failed
+                      else "EXECUTION_UNVERIFIED" if live_unverified
+                      else "EXECUTION_FAILED"),
             rejected_reason=_fail_reason,
             paper_trade_id=trade_id,
             confluence_votes=getattr(idea, "_confluence_votes", []),
         )
         self._transition(
             AgentState.IDLE,
-            "live trade executed" if not live_failed else "live execution failed")
+            "live trade executed" if not live_failed
+            else "live submission unverified" if live_unverified
+            else "live execution failed")
         return result + seal_note
 
     def reject_trade(self, trade_id: str) -> str:
@@ -9269,7 +9284,11 @@ class RuneClawEngine:
         "TRADE OPENED"; everything else as a close. The fallback message was
         previously misrouted to the close path and shown as "❌ Trade Closed"."""
         first = (msg or "").split("\n", 1)[0]
-        return first.startswith("LIMIT FILLED:") or "MARKET FALLBACK:" in first
+        # "RECOVERED FILL:" is a submission the venue never confirmed that
+        # the positions pass found filled by client id: an OPEN, booked with
+        # its idea's levels, and told as one.
+        return (first.startswith("LIMIT FILLED:") or "MARKET FALLBACK:" in first
+                or first.startswith("RECOVERED FILL:"))
 
     @staticmethod
     def _is_kept_open_message(msg: str) -> bool:
@@ -9297,7 +9316,11 @@ class RuneClawEngine:
         position is now TRACKED, nothing closed — and were previously
         misrouted to the close path and shown as "❌ Closed" (live incident:
         'Closed — SYNC: Adopted untracked position B from exchange')."""
-        return (msg or "").split("\n", 1)[0].startswith("SYNC:")
+        first = (msg or "").split("\n", 1)[0]
+        # "SUBMISSION:" is the positions pass reporting what became of a
+        # submission the venue never confirmed -- resting and now tracked,
+        # never landed, already tracked: information, nothing closed.
+        return first.startswith("SYNC:") or first.startswith("SUBMISSION:")
 
     async def _check_open_positions(self) -> None:
         """Monitor open positions for SL/TP hits.
@@ -9377,7 +9400,9 @@ class RuneClawEngine:
                         # close card, and skip the loss-cooldown scan below.
                         if self._is_sync_message(msg):
                             audit(trade_log, f"Exchange sync: {msg}",
-                                  action="exchange_sync_notify", result="ADOPTED")
+                                  action="exchange_sync_notify",
+                                  result=("SUBMISSION" if msg.startswith("SUBMISSION:")
+                                          else "ADOPTED"))
                             try:
                                 await self._announce_executor_message(_ex, "sync", msg)
                             except Exception as exc:

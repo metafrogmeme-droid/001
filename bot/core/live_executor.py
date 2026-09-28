@@ -77,6 +77,7 @@ from bot.core.order_state import (
 )
 from bot.core.symbol_form import normalize_symbol
 from bot.core.close_funding import funding_on_row, place_funding
+from bot.utils.json_store import StoreUnreadable, load_json_store, update_json_store
 from bot.risk.funding_clock import read_funding_rate, seconds_to_settlement
 from bot.risk.held_book import HeldRow, direction_word
 
@@ -141,6 +142,58 @@ _EXECUTION_FAILURE_TOKENS = (
     "REFUSED:",
     "Live execution blocked",
 )
+
+#: THE THIRD OUTCOME OF AN ENTRY. The send raised in a way that leaves it
+#: unknown whether the venue took the order (`send_outcome_unknown`) and the
+#: lookup by client id could not read every order list, so the order's absence
+#: is unverified. Deliberately NOT a failure token: "no live position resulted"
+#: is exactly what nobody knows. `execute` used to answer this case with
+#: "EXECUTION FAILED" under an audit reading "never submitted", over a fill
+#: that may be sitting on the venue with no stop.
+EXECUTION_UNVERIFIED_TOKEN = "ORDER UNVERIFIED"
+
+#: Every list an order can sit in. `_find_order_by_client_oid` confirms an
+#: ABSENCE only when each of these was read: a filled market order is never in
+#: the open list, so one list read is not a reading of the other.
+_ORDER_LISTS = ("fetch_open_orders", "fetch_closed_orders")
+
+
+def execution_outcome_unverified(result: Any) -> bool:
+    """True when execute()'s answer says the venue confirmed the order neither
+    way. Neither a fill nor a refusal: the doors announce neither, the engine
+    keeps the idea pending, and the next positions pass asks the venue again
+    by client id."""
+    return isinstance(result, str) and EXECUTION_UNVERIFIED_TOKEN in result
+
+
+class OrderOutcomeUnverified(RuntimeError):
+    """The venue may have taken an order and nothing could say so.
+
+    Raised by `_create_order_idempotent` in ONE case: the send raised something
+    `send_outcome_unknown` reads as unknown (a timeout, a connection dropped
+    after the send, a 5xx) AND `_find_order_by_client_oid` could not read
+    every order list, so the order is neither found nor confirmed absent. A
+    refusal the venue answered re-raises as itself whatever the lookup read
+    (nothing landed), and so does a confirmed absence (the failure is real).
+
+    It carries what the submission was, so `execute` can record it and the
+    positions pass can ask the venue again. ``str()`` opens with the cause's
+    own words, because the POST_ONLY retry reads the text of whatever the
+    send raised.
+    """
+
+    def __init__(self, cause: BaseException, *, coid: str, symbol: str, side: str,
+                 order_type: str, amount: float, price: Optional[float]) -> None:
+        self.cause_class = type(cause).__name__
+        self.coid = coid
+        self.symbol = symbol
+        self.side = side
+        self.order_type = order_type
+        self.amount = amount
+        self.price = price
+        super().__init__(
+            f"{cause} [order outcome unverified: {self.cause_class} on the submission "
+            f"of {symbol}, and the venue's order lists could not be read after it]")
 
 
 def min_amount_step(precision_amount: Any) -> float:
@@ -337,7 +390,8 @@ def send_outcome_unknown(exc: BaseException) -> bool:
     stops the cancel pass had just removed.
 
     What is genuinely unknown is anything that happened once the request was
-    on the wire: a timeout (socket, 408, 504 — no answer at all); a
+    on the wire: a timeout (socket, 408, 504, or a bare ``TimeoutError`` from
+    a deadline wrapped around the send — no answer at all); a
     connection that dropped after the send (the server disconnected, the
     socket reset), which ccxt raises as ``ExchangeNotAvailable`` from the
     aiohttp connection error; a body cut mid-transfer (``ClientPayloadError``,
@@ -349,8 +403,8 @@ def send_outcome_unknown(exc: BaseException) -> bool:
     A connection that never opened — DNS, refused, TLS — sent nothing and is
     a refusal.
     """
-    if isinstance(exc, ccxt.RequestTimeout):
-        return True
+    if isinstance(exc, (ccxt.RequestTimeout, TimeoutError)):
+        return True                          # no answer at all, from either clock
     if isinstance(exc, ccxt.OnMaintenance):
         return False                         # the venue said it is not trading
     try:
@@ -443,6 +497,14 @@ _CLOSED_TRADES_FILE = os.path.join(
     os.environ.get("RUNECLAW_STATE_DIR", "data"), "closed_trades.json"
 )
 _MAX_CLOSED_TRADES = 500  # Cap closed trade history
+# Submissions the venue never confirmed either way (a send that timed out,
+# and order lists that could not be read after it), kept beside the positions
+# file until the venue says what became of each -- see
+# LiveExecutor._reconcile_unverified_submissions. Per user and per venue the
+# way the positions file is.
+_UNVERIFIED_FILE = os.path.join(
+    os.environ.get("RUNECLAW_STATE_DIR", "data"), "unverified_submissions.json"
+)
 
 
 def _iso_or_none(when: Any) -> Optional[str]:
@@ -672,6 +734,33 @@ def trail_starts_for(strategy_type: str) -> bool:
     """
     return bool(CONFIG.trailing.enabled
                 and CONFIG.strategy_types.get_trailing_enabled(strategy_type))
+
+
+def _rec_num(rec: Any, key: str) -> Optional[float]:
+    """A finite number a record states under ``key``, or None. Never a zero
+    for a field nobody wrote: the unverified-submission record is read back
+    field by field, and an absent stop is an absent stop."""
+    v = rec.get(key) if isinstance(rec, dict) else None
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    f = float(v)
+    return f if math.isfinite(f) else None
+
+
+def _order_time(order: Any) -> Optional[datetime]:
+    """When a venue order last traded (ccxt ``lastTradeTimestamp``, else
+    ``timestamp``, milliseconds), or None when the order states neither."""
+    if not isinstance(order, dict):
+        return None
+    for key in ("lastTradeTimestamp", "timestamp"):
+        ms = order.get(key)
+        if isinstance(ms, bool) or not isinstance(ms, (int, float)):
+            continue
+        try:
+            return datetime.fromtimestamp(float(ms) / 1000.0, tz=UTC)
+        except (OverflowError, OSError, ValueError):
+            continue
+    return None
 
 
 def margin_at_fill(raw_cost: float, leverage: Any) -> float:
@@ -1937,6 +2026,7 @@ class LiveExecutor:
         self._venue = get_venue(venue or "bitget") if credentials else get_venue()
         self._positions_file = _user_state_path(_POSITIONS_FILE, state_dir, user_id)
         self._closed_trades_file = _user_state_path(_CLOSED_TRADES_FILE, state_dir, user_id)
+        self._unverified_file = _user_state_path(_UNVERIFIED_FILE, state_dir, user_id)
         self._exchange: Optional[ccxt.Exchange] = None
         self._positions: dict[str, LivePosition] = {}
         self._closed_trades: list[LivePosition] = []  # F-14: persisted closed trades
@@ -2041,6 +2131,13 @@ class LiveExecutor:
         self._load_positions()
         # F-14 FIX: Load persisted closed trades on startup
         self._load_closed_trades()
+        # Entry submissions the venue never confirmed either way, reconciled
+        # by client id on every positions pass (`_reconcile_unverified_
+        # submissions`). Loaded last: a file this build cannot read refuses new
+        # entries on every symbol, because it may name one an order landed on.
+        self._unverified_submissions: dict[str, dict] = {}
+        self._unverified_file_unreadable: Optional[str] = None
+        self._load_unverified_submissions()
 
     # ── Dynamic leverage & graceful degradation helpers ──────────────
 
@@ -3521,10 +3618,17 @@ class LiveExecutor:
 
         Returns (order, verified):
           order    — the matching order dict, or None if not found.
-          verified — True only if at least one venue query succeeded, so a None
-                     order can be trusted as "confirmed absent". False means
-                     every query failed (e.g. outage) and absence is UNVERIFIED;
-                     callers must then fail-closed (RC-AUD-006).
+          verified — True only when EVERY order list was read (`_ORDER_LISTS`),
+                     so a None order can be trusted as "confirmed absent".
+                     False means a list could not be read (an outage, a refused
+                     endpoint, a client without the fetcher) and absence is
+                     UNVERIFIED; callers must then fail-closed (RC-AUD-006).
+
+        ONE LIST READ IS NOT A READING OF THE OTHER. A filled MARKET order is
+        never in the open list -- the closed list is the only place it can be
+        found -- so a closed read that raised beside an open read answering
+        ``[]`` used to be "verified absent": the partial total printed as
+        whole, on the read that decides whether an order is sent again.
         """
         # The venue may transform the internal key into its own legal id
         # format (Hyperliquid: 128-bit hex) — match what was actually sent.
@@ -3538,21 +3642,21 @@ class LiveExecutor:
             info = o.get("info") or {}
             return isinstance(info, dict) and info.get("clientOid") == coid
 
-        # 1) ccxt unified fetch by clientOrderId (params), if the venue supports it
-        verified = False
-        for fetcher in ("fetch_open_orders", "fetch_closed_orders"):
+        lists_read = 0
+        for fetcher in _ORDER_LISTS:
             fn = getattr(exchange, fetcher, None)
             if fn is None:
-                continue
+                continue                     # a list this client cannot read
             try:
                 orders = await fn(symbol)
-                verified = True
-                for o in orders or []:
-                    if _matches(o):
-                        return o, True
             except Exception as exc:  # noqa: BLE001 — best effort, never fatal
                 logger.debug("clientOid lookup via %s failed: %s", fetcher, exc)
-        return None, verified
+                continue
+            lists_read += 1
+            for o in orders or []:
+                if _matches(o):
+                    return o, True
+        return None, lists_read == len(_ORDER_LISTS)
 
     async def _create_order_idempotent(
         self,
@@ -3603,8 +3707,455 @@ class LiveExecutor:
                       data={"symbol": symbol, "coid": coid,
                             "order_id": found.get("id", "unknown")})
                 return found
-            # Confirmed absent — safe to surface the failure to the caller.
+            if not _coid_verified and send_outcome_unknown(exc):
+                # NEITHER FOUND NOR CONFIRMED ABSENT, after a send the venue
+                # may have taken. The lookup's own docstring says callers must
+                # fail closed here, and this caller re-raised the cause as if
+                # absence had been confirmed -- so `execute` audited "never
+                # submitted" and answered EXECUTION FAILED over a fill that
+                # may be on the venue with no stop. It is its own outcome now:
+                # recorded, refused a re-send, and asked again by client id.
+                # `type` is this function's ORDER-TYPE parameter, so the
+                # builtin is shadowed here: the class is read off the instance.
+                _cause = exc.__class__.__name__
+                audit(trade_log,
+                      f"Order outcome UNVERIFIED for {symbol}: {_cause} on submission, "
+                      f"and the venue's order lists could not be read after it",
+                      action="live_execute", result="SUBMIT_UNVERIFIED",
+                      level=logging.WARNING,
+                      data={"symbol": symbol, "coid": coid, "cause": _cause})
+                raise OrderOutcomeUnverified(
+                    exc, coid=coid, symbol=symbol, side=side, order_type=type,
+                    amount=float(amount), price=price) from exc
+            # Confirmed absent, or a refusal the venue answered (nothing landed)
+            # — safe to surface the failure to the caller.
             raise
+
+
+    # ── Entry submissions the venue never confirmed either way ─────────
+    #
+    # `_create_order_idempotent` raises `OrderOutcomeUnverified` when the send
+    # raised something `send_outcome_unknown` reads as unknown AND the lookup
+    # by client id could not read every order list. What follows is the third
+    # outcome's whole life: recorded (per user and per venue, beside the
+    # positions file), refused a re-send on its symbol, said as unknown to
+    # whoever confirmed it, and asked about again on every positions pass
+    # until the venue answers -- a fill is booked with the idea's own levels
+    # and protected, a resting order is tracked, a confirmed absence frees the
+    # idea. The previous life was one line: re-raised as if absence had been
+    # confirmed, audited "never submitted", answered EXECUTION FAILED.
+
+    def _load_unverified_submissions(self) -> None:
+        """Read the standing record, or note that the file could not be read.
+
+        UNREADABLE IS NOT EMPTY. A record this build cannot read may name a
+        symbol an order landed on, so `_unverified_standing` refuses every
+        entry while the file will not read, and nothing here writes over it:
+        `bot/utils/json_store.py`'s rule, that the next write must not erase
+        what this process could not parse.
+        """
+        self._unverified_submissions = {}
+        self._unverified_file_unreadable = None
+        try:
+            data = load_json_store(self._unverified_file)
+        except StoreUnreadable as exc:
+            self._unverified_file_unreadable = exc.detail
+            audit(trade_log,
+                  f"Unverified-submission record {self._unverified_file} could not be "
+                  f"read ({exc.detail}): every entry is refused until it reads",
+                  action="unverified_submission", result="RECORD_UNREADABLE",
+                  level=logging.ERROR,
+                  data={"path": str(self._unverified_file), "detail": exc.detail})
+            return
+        for coid, rec in data.items():
+            if isinstance(coid, str) and isinstance(rec, dict):
+                self._unverified_submissions[coid] = rec
+        if self._unverified_submissions:
+            audit(trade_log,
+                  f"{len(self._unverified_submissions)} entry submission(s) the venue never "
+                  f"confirmed are on record; the next positions pass asks the venue by "
+                  f"client id",
+                  action="unverified_submission", result="LOADED",
+                  data={"coids": sorted(self._unverified_submissions)})
+
+    def _write_unverified_submissions(self) -> None:
+        """Replace the file with the standing record -- never over a file that
+        could not be read, which may hold rows this build cannot see."""
+        if self._unverified_file_unreadable is not None:
+            return
+        snapshot = {k: dict(v) for k, v in self._unverified_submissions.items()}
+
+        def _replace(data: dict) -> dict:
+            data.clear()
+            data.update(snapshot)
+            return data
+
+        try:
+            Path(self._unverified_file).parent.mkdir(parents=True, exist_ok=True)
+            update_json_store(self._unverified_file, _replace, indent=2)
+        except StoreUnreadable as exc:
+            self._unverified_file_unreadable = exc.detail
+            logger.error("Unverified-submission record %s stopped reading (%s): left as "
+                         "it is; every entry is refused until it reads",
+                         self._unverified_file, exc.detail)
+        except OSError as exc:
+            logger.error("Unverified-submission record %s could not be written: %s",
+                         self._unverified_file, type(exc).__name__)
+
+    def _drop_unverified_submission(self, coid: str) -> None:
+        if self._unverified_submissions.pop(coid, None) is not None:
+            self._write_unverified_submissions()
+
+    def _unverified_standing(self, asset: str, coid: str) -> Optional[str]:
+        """Why a new order on ``asset`` must not go out yet, or None.
+
+        Keyed on the SYMBOL and not only the idea: a second order on a symbol
+        whose first may have landed is a doubled position whichever idea it
+        came from, and on a venue that does not dedup on the client id the
+        idempotency key would not stop it either.
+        """
+        if self._unverified_file_unreadable is not None:
+            return (f"the record of unverified submissions ({self._unverified_file}) "
+                    f"could not be read ({self._unverified_file_unreadable}), so whether "
+                    f"an earlier order for {asset} landed on the venue is unknown; no "
+                    f"entry is sent until that file reads")
+        base = normalize_symbol(asset)
+        for rec in self._unverified_submissions.values():
+            same_idea = rec.get("coid") == coid
+            if not same_idea and normalize_symbol(str(rec.get("symbol") or "")) != base:
+                continue
+            what = "this idea" if same_idea else str(rec.get("symbol") or asset)
+            return (f"an order for {what} sent at {rec.get('at')} ({rec.get('cause')} on "
+                    f"submission, client id {rec.get('coid')}) may have landed on the venue "
+                    f"and has not been confirmed either way; nothing new is sent on {asset} "
+                    f"until the positions check reads the venue's order lists")
+        return None
+
+    def _note_unverified_submission(self, exc: "OrderOutcomeUnverified", idea: TradeIdea, *,
+                                    size_usd: float, leverage_mult: Any,
+                                    pre_order_price: float, atr_value: float) -> str:
+        """Record a submission the venue never confirmed, say so, and answer
+        the card that names the third outcome."""
+        _lev = leverage_mult if isinstance(leverage_mult, (int, float)) and not isinstance(
+            leverage_mult, bool) and leverage_mult >= 1 else 1
+        rec = {
+            "coid": exc.coid, "trade_id": idea.id, "symbol": idea.asset,
+            "order_symbol": exc.symbol, "side": exc.side,
+            "direction": idea.direction.value, "order_type": exc.order_type,
+            "amount": float(exc.amount), "price": exc.price,
+            "size_usd": float(size_usd), "leverage": int(_lev),
+            "stop_loss": float(idea.stop_loss), "take_profit": float(idea.take_profit),
+            "strategy_type": str(getattr(idea, "strategy_type", "swing")),
+            "signal_type": str(getattr(idea, "signal_type", "momentum_confluence")),
+            "atr_value": float(atr_value) if isinstance(atr_value, (int, float)) else 0.0,
+            "pre_order_price": float(pre_order_price),
+            "at": datetime.now(UTC).isoformat(), "cause": exc.cause_class,
+        }
+        self._unverified_submissions[exc.coid] = rec
+        self._write_unverified_submissions()
+        self._record_warning("submit_unverified")
+        logger.warning(
+            "Entry submission UNVERIFIED for %s: %s on submission and the order lists "
+            "could not be read after it. Recorded (client id %s); nothing is re-sent on "
+            "%s until the positions pass reads the venue.",
+            idea.asset, exc.cause_class, exc.coid, idea.asset)
+        audit(trade_log,
+              f"Entry submission UNVERIFIED for {idea.asset} — recorded, refused a re-send, "
+              f"reconciled by client id on the next positions pass",
+              action="unverified_submission", result="RECORDED",
+              level=logging.WARNING,
+              data={"trade_id": idea.id, "asset": idea.asset, "coid": exc.coid,
+                    "cause": exc.cause_class, "size_usd": float(size_usd)})
+        # The token is spelled here rather than interpolated so the walk over
+        # execute()'s literal answers can read it; a drive pins the two agree.
+        return (f"\u26a0\ufe0f ORDER UNVERIFIED: {idea.asset} {idea.direction.value} — "
+                f"the venue raised {exc.cause_class} while the order was being sent, and its "
+                f"order lists could not be read after it, so whether the order landed is "
+                f"unknown. Nothing was recorded as a position and nothing was re-sent. The "
+                f"next positions check asks the venue by client id ({exc.coid}): a fill is "
+                f"booked with this idea's stop and target and protected, a resting order is "
+                f"tracked, and a confirmed absence frees the idea to be sent again. Until "
+                f"then no new order goes out on {idea.asset} — do not re-send it by hand.")
+
+    @staticmethod
+    def _entry_from_order(order: Any, ticker: Any) -> tuple[float, Optional[str]]:
+        """The entry a found order states (its average, else its price), or the
+        pre-order ticker MARKED as an estimate, or 0.0 and no source when
+        neither is on record."""
+        if isinstance(order, dict):
+            for key in ("average", "price"):
+                stated = price_on_record(order.get(key))
+                if stated is not None:
+                    return stated, "order"
+        tick = price_on_record(ticker)
+        if tick is not None:
+            return tick, ENTRY_ESTIMATED
+        return 0.0, None
+
+    def _tracked_on(self, base: str, direction: str) -> Optional[LivePosition]:
+        for pos in self._positions.values():
+            if (pos.status in ("open", "pending_fill")
+                    and normalize_symbol(pos.symbol) == base
+                    and str(pos.direction).upper() == direction):
+                return pos
+        return None
+
+    async def _reconcile_unverified_submissions(self, exchange: Any) -> list[str]:
+        """Ask the venue, by client id, what became of each standing submission.
+
+        Found and filled: booked with the idea's own levels and protected.
+        Found and resting: tracked as a pending order. Found on the venue as
+        cancelled or expired with nothing filled, or confirmed absent (both
+        order lists read, neither holds the id): dropped, and the idea may be
+        sent again. Still unverified: kept, said once.
+        """
+        if not self._unverified_submissions:
+            return []
+        messages: list[str] = []
+        for coid, rec in list(self._unverified_submissions.items()):
+            order_symbol = str(rec.get("order_symbol") or rec.get("symbol") or "")
+            found, verified = await self._find_order_by_client_oid(exchange, order_symbol, coid)
+            if found is None:
+                if not verified:
+                    if not rec.get("said"):
+                        rec["said"] = True
+                        self._write_unverified_submissions()
+                        logger.warning(
+                            "Submission %s for %s is still UNVERIFIED: the venue's order "
+                            "lists could not be read; asked again next pass, and nothing "
+                            "is sent on %s meanwhile.",
+                            coid, rec.get("symbol"), rec.get("symbol"))
+                    continue
+                self._drop_unverified_submission(coid)
+                audit(trade_log,
+                      f"Submission {coid} for {rec.get('symbol')} never landed: both order "
+                      f"lists were read and neither holds it",
+                      action="unverified_submission", result="NEVER_LANDED",
+                      data={"coid": coid, "symbol": rec.get("symbol"),
+                            "trade_id": rec.get("trade_id")})
+                messages.append(
+                    f"SUBMISSION: {rec.get('symbol')} {rec.get('direction')} — the order sent "
+                    f"at {rec.get('at')} ({rec.get('cause')} on submission) never landed: both "
+                    f"of the venue's order lists were read and neither holds client id {coid}. "
+                    f"Nothing is open from it; the idea may be sent again.")
+                continue
+            msg = await self._book_recovered_submission(exchange, rec, found)
+            if msg:
+                messages.append(msg)
+        return messages
+
+    async def _place_recovered_stops(self, exchange: Any, pos: LivePosition) -> None:
+        """Place the stop and target on a recovered fill, twice if the stop is
+        refused, and mark the position UNPROTECTED when it still has none.
+
+        Not `_place_entry_stops`: that helper flattens a just-opened position
+        whose stop cannot be placed, on the reasoning that nothing has been
+        told about it yet. A recovered fill has been on the venue for at least
+        one pass and its owner is being told about it in this same message,
+        so it is kept and named as unprotected -- the periodic stop check
+        re-places on an empty id, and the unprotected alerts carry it.
+        """
+        sl_id = tp_id = None
+        if pos.stop_loss > 0 and pos.take_profit > 0:
+            for _attempt in (1, 2):
+                try:
+                    sl_id, tp_id = await self._place_sl_tp(
+                        exchange, pos.symbol, Direction(str(pos.direction).upper()),
+                        pos.quantity, pos.stop_loss, pos.take_profit)
+                except Exception as exc:  # noqa: BLE001 — said below, never raised over a booking
+                    logger.warning("Stop placement on recovered %s raised %s",
+                                   pos.symbol, type(exc).__name__)
+                if sl_id:
+                    break
+        pos.sl_order_id = sl_id
+        pos.tp_order_id = tp_id
+        if not sl_id:
+            setattr(pos, "unprotected", True)
+            audit(trade_log,
+                  f"Recovered fill {pos.symbol} has NO STOP: placement failed twice — "
+                  f"UNPROTECTED until the periodic stop check places one",
+                  action="unverified_submission", result="RECOVERED_UNPROTECTED",
+                  level=logging.CRITICAL,
+                  data={"trade_id": pos.trade_id, "symbol": pos.symbol})
+            self._record_warning("sltp_recovered")
+
+    async def _book_recovered_submission(self, exchange: Any, rec: dict, order: dict) -> Optional[str]:
+        """What a FOUND order becomes: an open position, a resting order, or
+        a dropped record -- and a message for whoever confirmed it."""
+        coid = str(rec.get("coid") or "")
+        symbol = str(rec.get("symbol") or "")
+        direction = str(rec.get("direction") or "").upper()
+        base = normalize_symbol(symbol)
+        at = str(rec.get("at") or "?")
+        cause = str(rec.get("cause") or "?")
+        status = order_status(order)
+        filled = read_amount(order, "filled")
+        _lev_raw = rec.get("leverage")
+        leverage = int(_lev_raw) if (isinstance(_lev_raw, (int, float))
+                                     and not isinstance(_lev_raw, bool) and _lev_raw >= 1) else 1
+        sl_v = _rec_num(rec, "stop_loss")
+        tp_v = _rec_num(rec, "take_profit")
+        sl = sl_v if sl_v is not None else 0.0
+        tp = tp_v if tp_v is not None else 0.0
+        atr_v = _rec_num(rec, "atr_value")
+        atr = atr_v if atr_v is not None else 0.0
+        strategy = str(rec.get("strategy_type") or "swing")
+        signal = str(rec.get("signal_type") or "momentum_confluence")
+        trade_id = str(rec.get("trade_id") or coid)
+        try:
+            opened_at = datetime.fromisoformat(at)
+        except ValueError:
+            opened_at = datetime.now(UTC)
+        order_id = str(order.get("id") or "") or None
+        existing = self._tracked_on(base, direction)
+
+        if filled is not None and filled > 0:
+            if existing is not None:
+                return await self._recover_into_tracked(exchange, rec, existing)
+            entry, source = self._entry_from_order(order, _rec_num(rec, "pre_order_price"))
+            qty = float(filled)
+            cost = margin_at_fill(qty * entry, leverage) if entry > 0 else 0.0
+            trailing_st = None
+            if trail_starts_for(strategy) and atr > 0 and sl > 0 and entry > 0:
+                trailing_st = make_trailing_state(
+                    entry_price=entry, direction=direction,
+                    initial_risk=abs(entry - sl), atr_value=atr)
+            pos = LivePosition(
+                trade_id=trade_id, symbol=symbol, direction=direction,
+                entry_price=entry, quantity=qty, cost_usd=cost,
+                stop_loss=sl, take_profit=tp, leverage=leverage, is_spot=False,
+                trailing_state=trailing_st, order_type=str(rec.get("order_type") or "market"),
+                atr_at_entry=atr, strategy_type=strategy, signal_type=signal,
+                opened_at=opened_at, status="open")
+            if source is not None:
+                setattr(pos, "entry_source", source)
+            else:
+                setattr(pos, "adoption_unread", ("entry_price",))
+            filled_at = _order_time(order)
+            if filled_at is not None:
+                setattr(pos, "filled_at", filled_at)
+            self._positions[trade_id] = pos
+            self._recent_local_opens[base] = time.time()
+            if source == ENTRY_ESTIMATED:
+                self._note_entry_estimated(pos, entry)
+            self._save_positions()
+            self._drop_unverified_submission(coid)
+            await self._place_recovered_stops(exchange, pos)
+            self._save_positions()
+            audit(trade_log,
+                  f"Recovered submission {coid} for {symbol}: the venue holds the fill — "
+                  f"booked as {trade_id} with the idea's stop and target",
+                  action="unverified_submission", result="RECOVERED_FILL",
+                  data={"coid": coid, "trade_id": trade_id, "symbol": symbol,
+                        "order_id": order_id, "filled": qty, "entry": entry,
+                        "entry_source": source, "sl_order_id": pos.sl_order_id,
+                        "tp_order_id": pos.tp_order_id})
+            if pos.sl_order_id and pos.tp_order_id:
+                protection = "stop and target placed"
+            elif pos.sl_order_id:
+                protection = "stop placed; the target could not be"
+            else:
+                protection = ("NO STOP could be placed — UNPROTECTED until the periodic "
+                              "stop check places one")
+            entry_txt = (f"~${entry:,.4f} (ESTIMATED from the pre-order ticker)"
+                         if source == ENTRY_ESTIMATED else
+                         f"${entry:,.4f}" if entry > 0 else "an entry the venue did not state")
+            return (f"RECOVERED FILL: {symbol} {direction} — the order sent at {at} ({cause} "
+                    f"on submission) had landed on the venue: filled {qty:g} @ {entry_txt}. "
+                    f"Booked as {trade_id} with this idea's stop ${sl:,.4f} / target "
+                    f"${tp:,.4f}; {protection}.")
+
+        if status == "open":
+            if existing is not None:
+                return await self._recover_into_tracked(exchange, rec, existing)
+            price_v = _rec_num(rec, "price")
+            if price_v is None:
+                price_v = price_on_record(order.get("price"))
+            price = price_v if price_v is not None else 0.0
+            amount_v = read_amount(order, "amount")
+            if amount_v is None:
+                amount_v = _rec_num(rec, "amount")
+            amount = amount_v if amount_v is not None else 0.0
+            cost = margin_at_fill(amount * price, leverage) if price > 0 else 0.0
+            pos = LivePosition(
+                trade_id=trade_id, symbol=symbol, direction=direction,
+                entry_price=price, quantity=amount, cost_usd=cost,
+                stop_loss=sl, take_profit=tp, leverage=leverage, is_spot=False,
+                order_type="limit", limit_order_id=order_id, atr_at_entry=atr,
+                strategy_type=strategy, signal_type=signal,
+                opened_at=opened_at, status="pending_fill")
+            self._positions[trade_id] = pos
+            self._save_positions()
+            self._drop_unverified_submission(coid)
+            audit(trade_log,
+                  f"Recovered submission {coid} for {symbol}: the order is resting on the "
+                  f"venue ({order_id}) — tracked as pending {trade_id}",
+                  action="unverified_submission", result="RECOVERED_RESTING",
+                  data={"coid": coid, "trade_id": trade_id, "symbol": symbol,
+                        "order_id": order_id, "price": price, "amount": amount})
+            return (f"SUBMISSION: {symbol} {direction} — the limit order sent at {at} ({cause} "
+                    f"on submission) is resting on the venue ({order_id}); tracked as pending "
+                    f"{trade_id}, and its fill places the stop and target.")
+
+        if status in ("canceled", "cancelled", "expired", "rejected", "closed") and (
+                filled is None or filled == 0):
+            self._drop_unverified_submission(coid)
+            audit(trade_log,
+                  f"Submission {coid} for {symbol} is on the venue as {status} with "
+                  f"nothing filled: never opened",
+                  action="unverified_submission", result="NEVER_FILLED",
+                  data={"coid": coid, "symbol": symbol, "order_id": order_id,
+                        "status": status})
+            return (f"SUBMISSION: {symbol} {direction} — the order sent at {at} ({cause} on "
+                    f"submission) is on the venue as {status} with nothing filled. Nothing "
+                    f"is open from it; the idea may be sent again.")
+
+        # Found, and neither its status nor its fill can be read: kept, said once.
+        if not rec.get("said_unread"):
+            rec["said_unread"] = True
+            self._write_unverified_submissions()
+            logger.warning(
+                "Submission %s for %s was found on the venue (%s) but its status (%r) and "
+                "fill (%r) cannot be read; kept, asked again next pass.",
+                coid, symbol, order_id, status, filled)
+        return None
+
+    async def _recover_into_tracked(self, exchange: Any, rec: dict, pos: LivePosition) -> str:
+        """A found order whose symbol and side are ALREADY tracked (an adoption
+        sweep read the venue's row before the order lists could be read):
+        the idea's levels go onto that row where it has none, its stop is
+        placed where it has none, and the record is dropped."""
+        coid = str(rec.get("coid") or "")
+        changed: list[str] = []
+        sl_v = _rec_num(rec, "stop_loss")
+        tp_v = _rec_num(rec, "take_profit")
+        if not pos.stop_loss > 0 and sl_v is not None and sl_v > 0:
+            pos.stop_loss = sl_v
+            changed.append("stop")
+        if not pos.take_profit > 0 and tp_v is not None and tp_v > 0:
+            pos.take_profit = tp_v
+            changed.append("target")
+        if changed:
+            setattr(pos, "sl_tp_source", "recovered_idea")
+            if getattr(pos, "origin", "executed") == "adopted":
+                pos.strategy_type = str(rec.get("strategy_type") or pos.strategy_type)
+                pos.signal_type = str(rec.get("signal_type") or pos.signal_type)
+        if pos.status == "open" and not pos.sl_order_id:
+            await self._place_recovered_stops(exchange, pos)
+            if pos.sl_order_id:
+                changed.append("stop order placed")
+        self._save_positions()
+        self._drop_unverified_submission(coid)
+        audit(trade_log,
+              f"Recovered submission {coid} for {rec.get('symbol')}: already tracked as "
+              f"{pos.trade_id} ({getattr(pos, 'origin', 'executed')}); "
+              f"{', '.join(changed) or 'nothing to change'}",
+              action="unverified_submission", result="RECOVERED_INTO_TRACKED",
+              data={"coid": coid, "trade_id": pos.trade_id, "changed": changed})
+        return (f"SUBMISSION: {rec.get('symbol')} {rec.get('direction')} — the order sent at "
+                f"{rec.get('at')} ({rec.get('cause')} on submission) had landed and is already "
+                f"tracked as {pos.trade_id} ({getattr(pos, 'origin', 'executed')}); "
+                f"{', '.join(changed) if changed else 'its record needed nothing'}.")
 
     # ── Reading an order back, in the venue's own spelling ────────────
     async def _fetch_order(self, exchange: "ccxt.Exchange", order_id: Optional[str],
@@ -7006,6 +7557,17 @@ class LiveExecutor:
             # Reused for every order/cancel below so a timeout-retry can never
             # double-submit (Bitget dedups on clientOid).
             coid = self._client_oid(idea.id)
+            # AN ORDER THAT MAY HAVE LANDED IS NOT RE-SENT. A submission the
+            # venue never confirmed either way stands on record until the
+            # positions pass reads the venue's order lists; a second order on
+            # that symbol meanwhile is the double fill the client id exists
+            # to prevent, on a venue that may not dedup on it.
+            _standing = self._unverified_standing(idea.asset, coid)
+            if _standing:
+                audit(trade_log, f"Entry refused for {idea.asset}: {_standing}",
+                      action="live_execute", result="BLOCKED_UNVERIFIED_STANDING",
+                      data={"asset": idea.asset, "coid": coid})
+                return f"EXECUTION BLOCKED: {_standing}"
 
             # Check if futures market exists for this symbol
             # Some tokens (e.g., SNEK) are spot-only on Bitget
@@ -7603,6 +8165,19 @@ class LiveExecutor:
                   data={"asset": idea.asset, "size_usd": size_usd, "error": str(exc)})
             return f"INVALID ORDER: {exc}"
 
+        except OrderOutcomeUnverified as exc:
+            # NEITHER SUBMITTED NOR NOT: the send raised in a way that leaves
+            # it unknown whether the venue took the order, and the lookup by
+            # client id could not read every order list. The generic handler
+            # below audited this as "never submitted" and answered EXECUTION
+            # FAILED, which every door read as nothing placed -- over a fill
+            # that may be on the venue with no stop. It is recorded, said as
+            # unknown, and asked again on every positions pass.
+            self.record_api_error()
+            return self._note_unverified_submission(
+                exc, idea, size_usd=size_usd, leverage_mult=leverage_mult,
+                pre_order_price=current_price, atr_value=atr_value)
+
         except Exception as exc:
             self.record_api_error()
             # Check if the order was already submitted to the exchange.
@@ -7612,11 +8187,16 @@ class LiveExecutor:
                 logger.error("Post-order crash for %s: %s — creating emergency position",
                              idea.asset, exc)
                 _side_upper = ("buy" if idea.direction == Direction.LONG else "sell").upper()
+                # The order's own average when it states one; else the
+                # pre-order ticker, MARKED as the estimate it is. This branch
+                # recorded the ticker as the entry with no marker for as long
+                # as it has existed, the estimated-entry defect one path over.
+                _em_entry, _em_source = self._entry_from_order(order, current_price)
                 emergency_pos = LivePosition(
                     trade_id=idea.id,
                     symbol=idea.asset,
                     direction="LONG" if idea.direction == Direction.LONG else "SHORT",
-                    entry_price=current_price,
+                    entry_price=_em_entry,
                     quantity=quantity,
                     cost_usd=size_usd,
                     stop_loss=idea.stop_loss,
@@ -7632,6 +8212,10 @@ class LiveExecutor:
                     status="open",
                 )
                 self._positions[idea.id] = emergency_pos
+                if _em_source is not None:
+                    setattr(emergency_pos, "entry_source", _em_source)
+                if _em_source == ENTRY_ESTIMATED:
+                    self._note_entry_estimated(emergency_pos, current_price)
                 self._recent_local_opens[normalize_symbol(idea.asset)] = time.time()
                 self._save_positions()
                 audit(trade_log,
@@ -9157,13 +9741,17 @@ class LiveExecutor:
         3. Pending limit order fills → transition to open position
         4. Pending limit order expiry → cancel stale limit orders
         """
-        if not self._positions:
+        if not self._positions and not self._unverified_submissions:
             return []
 
         closed_messages = []
         try:
             exchange = await self._get_exchange()
             await self._probe_hold_mode_if_unknown()
+            # Submissions the venue never confirmed are asked about FIRST, by
+            # client id, so a fill found here is booked with its idea's levels
+            # before any sweep could read the venue's row as an orphan.
+            closed_messages.extend(await self._reconcile_unverified_submissions(exchange))
             # C2-27 FIX: Fetch tickers per-symbol instead of batch.
             # A single delisted/erroring symbol in fetch_tickers() would block
             # SL/TP checks for ALL positions. Per-symbol isolation ensures

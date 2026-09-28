@@ -14912,6 +14912,94 @@ the mutation dies on the basis and on the commission both.
 (`tests/test_the_realized_fee_rate_is_the_venues.py`,
 `app/test/parity_fee_note_names_the_stated_sample.test.js`.)
 
+**AN ENTRY THE VENUE CONFIRMED NEITHER WAY WAS ANSWERED "NEVER SUBMITTED", AND
+ONE ORDER LIST READ PASSED AS A VERIFIED ABSENCE.** `_create_order_idempotent`
+sends the order under a client id, and when the send raises it asks the venue's
+two order lists whether the order landed before it re-raises. Driven with the
+send raising `RequestTimeout`, the open list answering `[]` and the closed list
+raising: `found=None, verified=True`. `verified` was set by the FIRST list that
+answered, and a filled market order is never in the open list, so the one list
+that could hold the fill was the one that could not be read, and the answer was
+a confirmed absence. `execute` then re-raised the timeout into its generic
+handler, which audited "never submitted" and answered `EXECUTION FAILED`. Every
+door read that as nothing placed: the Confirm button said ❌, the web said
+`placed: false` and gave the Confirm button back, the chain sealed
+EXECUTION_FAILED, the learner filed the idea as never opened, and the engine
+left the idea pending for the next tap to send AGAIN, over a fill that may have
+been sitting on the venue with no stop. A timeout on the send and an outage on
+the read are one event on a venue having a bad minute, not two.
+
+**A LIST THAT RAISED IS NOT A LIST THAT ANSWERED NOTHING.** The lookup confirms
+an absence only when EVERY list in `_ORDER_LISTS` was read, and a fetcher the
+client lacks is a list nobody read. The send's own vocabulary was one exception
+short as well: a bare `TimeoutError` from a deadline wrapped around the send is
+no answer at all, the same as ccxt's.
+
+**THE THIRD OUTCOME HAS ITS OWN WORD, AND NO DOOR READS IT AS EITHER OF THE
+OTHER TWO.** An unknown send beside an unverified absence raises
+`OrderOutcomeUnverified` (the cause's CLASS, never its text: a venue error
+string carries the request); `execute` records the submission per user and per
+venue beside the positions file (`data/unverified_submissions.json`, with the
+idea's levels, size, leverage and the pre-order ticker), says it once (a
+WARNING, a RECORDED audit, a `submit_unverified` warning-rate event), and
+answers `⚠️ ORDER UNVERIFIED`, a token `execution_indicates_failure` does not
+know and `placed_nothing` does not claim. `outcome_unverified` is the one
+reading and every door asks it FIRST: the Telegram button says the outcome is
+unverified and nothing was re-sent (fourteen languages) and posts nothing
+publicly; the web answers `placed: null`, audits UNVERIFIED and keeps the idea
+the proposer's; the browser's confirm model has a fifth kind, and both surfaces
+paint no colour and give no button back, because a re-send is exactly what the
+bot refuses and cancelling the idea cancels nothing on the venue; the
+auto-confirm notice is headed OUTCOME UNVERIFIED; the engine seals
+EXECUTION_UNVERIFIED and files the learning row under it, the learner reads that
+as not yet known rather than never opened, and the explainer has a verb for it.
+`placed: null` used to be `unread` on the page, which refreshes the book and
+tells the person to check their positions as though the bot did not know what
+it had done, and the JS suite had pinned that as the contract.
+
+**NOTHING IS RE-SENT WHILE THE RECORD STANDS, AND THE REFUSAL IS ON THE
+SYMBOL.** A second order on a symbol whose first may have landed is a doubled
+position whichever idea it came from, and a venue that does not dedup on the
+client id would take it, so `execute` refuses by name until the positions pass
+has read the venue. UNREADABLE IS NOT EMPTY: a record this build cannot read
+may name a symbol an order landed on, so every entry is refused while the file
+will not read, and nothing writes over it (`json_store`'s rule).
+
+**THE POSITIONS PASS ASKS FIRST, BY CLIENT ID.** Before it prices the book,
+`check_positions` asks the venue what became of each standing submission, so a
+fill found here is booked with its idea's levels before any sweep could read
+the venue's row as an orphan. Found and filled: booked as an OPEN under the
+idea's own id with the idea's stop and target, at the order's own average (else
+the pre-order ticker, MARKED as the estimate it is), saved to disk BEFORE the
+stops are asked for, the stops placed twice and the position marked UNPROTECTED
+(audited CRITICAL, `sltp_recovered`) when none lands, and told as
+`RECOVERED FILL:`, which the engine routes as an open. Found and resting:
+tracked as a pending limit order, told as `SUBMISSION:`, routed as information.
+Found cancelled with nothing filled, or both lists read and neither holding the
+id: dropped, and the idea is free to be sent again. A list that still will not
+read: kept, said once, still refusing. A fill whose symbol and side an adoption
+sweep already tracks is not booked twice: the idea's levels go onto that row
+where it has none, and a stop is placed where it has none.
+
+**And the emergency record had the estimated-entry defect one branch over.**
+The post-order crash path recorded the pre-order ticker as the entry with no
+marker for as long as it has existed; it reads the order's own average first
+now and marks the ticker as an estimate.
+
+**Fifty mutations, each killed on the first round, none refused, across both
+runtimes.** One is recorded as equivalent rather than run: the writer's own
+refusal to touch an unreadable file duplicates `update_json_store`'s, which
+re-reads the file and raises before writing, and the guard stays because
+without it every write logs an error over a file the helper was going to refuse
+anyway. Two are worth naming for what they prove about the guards: a list that
+raised counted as read dies on the lookup drive and on the executor's own card,
+because the only input that separates the two is a closed list that raises
+beside an open list that answers; and the fill not saved to disk before the
+stops are asked for dies on a stop placement that READS the positions file,
+which no assertion about the booked position could see.
+(`tests/test_an_unverified_submission_is_neither_a_fill_nor_a_failure.py`,
+`app/test/trade_confirm_reads_placed.test.js`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -16203,7 +16291,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **451 of 1140** reach for source text through `source_scan`, `code_only`
+Driven, **451 of 1141** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 451 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
