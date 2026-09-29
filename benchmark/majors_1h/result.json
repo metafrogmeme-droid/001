@@ -1,7 +1,7 @@
 {
   "mode": "portfolio_walk_forward",
-  "recorded_at": "2026-09-29T08:46:03+00:00",
-  "code_sha": "cbbf934802c9c1d8c7d47c52882a3a81488eeedc",
+  "recorded_at": "2026-09-29T09:13:46+00:00",
+  "code_sha": "d8b0f7d6665bc19ec53ec56b4eac466d82396350",
   "dataset": "benchmark/majors_1h",
   "honest": true,
   "folds_requested": 6,
@@ -15,12 +15,12 @@
     "wins": 58,
     "losses": 59,
     "flat": 0,
-    "net_usd": -1456.38,
-    "gross_win_usd": 2322.36,
-    "gross_loss_usd": 3778.74,
+    "net_usd": -1456.42,
+    "gross_win_usd": 2322.3,
+    "gross_loss_usd": 3778.72,
     "win_rate": 0.49572649572649574,
-    "pf": 0.6145858143190588,
-    "mean_net_usd": -12.44769230769231
+    "pf": 0.6145731888046747,
+    "mean_net_usd": -12.448034188034192
   },
   "data_source": "frozen_snapshot:8dbe73514ce8d2aeecd767a193c005cd1a179221bdce5df2cbe4ded2886bde36",
   "universe": {
@@ -73,7 +73,7 @@
         },
         "AVAX/USDT:USDT": {
           "trades": 5,
-          "net_pnl": 266.73,
+          "net_pnl": 266.72,
           "win_rate": 1.0
         },
         "BNB/USDT:USDT": {
@@ -83,12 +83,12 @@
         },
         "BTC/USDT:USDT": {
           "trades": 6,
-          "net_pnl": 93.83,
+          "net_pnl": 93.82,
           "win_rate": 0.8333
         },
         "DOGE/USDT:USDT": {
           "trades": 3,
-          "net_pnl": 0.05,
+          "net_pnl": 0.01,
           "win_rate": 0.6667
         },
         "ETH/USDT:USDT": {
@@ -103,7 +103,7 @@
         },
         "LTC/USDT:USDT": {
           "trades": 9,
-          "net_pnl": -538.47,
+          "net_pnl": -538.46,
           "win_rate": 0.2222
         },
         "SOL/USDT:USDT": {
@@ -214,7 +214,7 @@
         },
         "DOGE/USDT:USDT": {
           "trades": 2,
-          "net_pnl": -235.28,
+          "net_pnl": -235.27,
           "win_rate": 0.0
         },
         "ETH/USDT:USDT": {

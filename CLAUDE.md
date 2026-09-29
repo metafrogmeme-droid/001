@@ -18048,10 +18048,13 @@ and on no drive, and that is stated rather than hidden.** SMA50 and the
 analyzer's fallback limit entry are computed inside `analyze()`, a
 1,400-line coroutine behind a thesis model, and the `/positions` rows inside
 a 400-line async handler. The invariance test drives `_compute_indicators`
-and reaches none of the three. The fourth was the dashboard pusher. Planning
-the round showed it was held by the rule alone, and it can be driven, so it
-is now: a stub portfolio holding a sub-cent position, whose snapshot rows
+and reaches none of the three. The fourth was the dashboard pusher. The
+round showed it was held by the rule alone, and it can be driven, so it is
+now: a stub portfolio holding a sub-cent position, whose snapshot rows
 keep the entry, the mark, the stop, the target and the closed trade's exit.
+The majors record was re-measured at `d8b0f7d6` and moved by four cents (net
+−$1,456.42), the same 117 trades with the same count and win rate per symbol
+in every fold; that snapshot holds no sub-cent asset.
 (`tests/test_a_sub_cent_level_is_recorded_in_significant_digits.py`,
 `bot/core/signal_levels.py`.)
 
