@@ -61,7 +61,10 @@ class PartialTPState:
     original_tp: float
     initial_risk: float  # abs(entry - sl)
     original_qty: float
-    atr: float  # ATR at entry for trailing
+    #: ATR at entry, which the runner trails at a multiple of. 0.0 is UNREAD:
+    #: the runner then holds its stop (and still asks for the stage locks)
+    #: rather than trailing on a figure nobody measured.
+    atr: float
     #: The ROUND TRIP this position pays, as a percent of notional, in the fee
     #: model of the runtime that built this ladder. TP1's lock is this far past
     #: the entry, so a stop-out there costs nothing rather than a fifth of it.
@@ -160,7 +163,7 @@ def create_partial_tp_state(
         original_tp=take_profit,
         initial_risk=initial_risk,
         original_qty=quantity,
-        atr=atr if atr > 0 else entry_price * 0.02,
+        atr=atr if isinstance(atr, (int, float)) and math.isfinite(atr) and atr > 0 else 0.0,
         fee_round_trip_pct=fee_round_trip_pct,
     )
 
@@ -378,7 +381,11 @@ def check_partial_tp(
 
     # Runner: aggressive trailing stop for remaining position
     if state.tp2_hit and state.remaining_qty > 0:
-        trail_dist = state.atr * cfg.runner_trail_atr_mult
+        # No ATR on record: no trail. The floor is still the stage lock, so a
+        # lock the stop has not reached is asked for; the runner otherwise
+        # holds its stop and the static check closes it there.
+        trail_dist = (state.atr * cfg.runner_trail_atr_mult
+                      if state.atr > 0 else None)
         floor = lock if lock is not None else state.current_sl
 
         if is_long:
@@ -388,8 +395,8 @@ def check_partial_tp(
             # the two agree whenever every move lands; after a move the venue
             # refused at the peak, a level off the best sits above a price that
             # has already fallen through it, where no stop can rest.
-            trail_sl = current_price - trail_dist
-            new_sl = max(trail_sl, floor)  # never lower SL
+            new_sl = (max(current_price - trail_dist, floor)  # never lower SL
+                      if trail_dist is not None else floor)
 
             if new_sl > state.current_sl:
                 state.current_sl = new_sl
@@ -411,8 +418,8 @@ def check_partial_tp(
         else:
             if current_price < state.runner_trail_best:
                 state.runner_trail_best = current_price
-            trail_sl = current_price + trail_dist
-            new_sl = min(trail_sl, floor)  # never raise SL for shorts
+            new_sl = (min(current_price + trail_dist, floor)  # never raise SL for shorts
+                      if trail_dist is not None else floor)
 
             if new_sl < state.current_sl:
                 state.current_sl = new_sl

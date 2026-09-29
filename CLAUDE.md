@@ -18307,6 +18307,36 @@ branch.** The three were fixtures:
   paper-mode twin shows the fixture reaches the rule.
 (`tests/test_a_live_exit_reads_its_own_price_book_and_vwap.py`.)
 
+**THREE MORE EXIT RULES ACTED ON A READING NOBODY TOOK.** Each was driven
+through the real `check_positions` before it was fixed, and 22 of the new
+suite's 33 cases fail on the code before it.
+
+- **The ladder scaled out of positions the bot has no plan for.** An adopted
+  position is built with the dataclass defaults for its strategy, and every
+  time exit already stands down for it (`time_exits.thesis_recorded`). The
+  partial-TP ladder did not: at 1.5R of a risk nobody chose, it closed half
+  the position at market. It stands down now, said once per position, and
+  the stop and target still apply. A position that inherited a thesis from
+  a local record still scales out.
+- **An unprotected position took profits on an hour-old price.** When the
+  ticker is stale and the position has no exchange stop, the monitor still
+  runs, because a stale price is a better guardian than none (the XPD
+  incident). That argument is about the stop. The same pass also banked the
+  target, moved the trail, ran the ladder and ran the time stop on that
+  price. Only the stop runs on it now (`_local_stop_breached(stop_only=)`).
+  The retry, the breach-by-rejection close and the escalation are unchanged.
+- **The runner trailed on an ATR nobody measured.** With no ATR recorded at
+  entry, the ladder was built with a stand-in of 2% of the entry, and the
+  runner trailed at a multiple of it. `atr` 0 is unread now: the runner holds
+  its stop, still asks for a stage lock it has not reached, and still closes
+  at its stop. A ladder saved with the stand-in is read against the book on
+  every pass (`_entry_atr`), the way its fees already are. The backtest
+  always hands in a measured or derived ATR, so its runner is unchanged.
+
+Seventeen mutations, each killed. One anchor matched three places and was
+refused until re-aimed at `_entry_atr`'s own line.
+(`tests/test_an_exit_acts_only_on_what_it_can_read.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -19598,7 +19628,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1188** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1189** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

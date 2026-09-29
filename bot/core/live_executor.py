@@ -2076,6 +2076,20 @@ def limit_expiry_seconds(pos: Any = None, *, typed: Optional[bool] = None) -> in
     return int(cfg.expire_seconds)
 
 
+
+def _entry_atr(pos) -> float:
+    """The ATR recorded on `pos` at entry, or 0.0 when none was.
+
+    0.0 is the ladder's word for unread (`partial_tp`): the runner holds its
+    stop rather than trailing at a multiple of a figure nobody measured.
+    """
+    v = getattr(pos, "atr_at_entry", None)
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return 0.0
+    v = float(v)
+    return v if math.isfinite(v) and v > 0 else 0.0
+
+
 class LiveExecutor:
     """Executes real trades on Bitget with micro-test safety limits.
 
@@ -9607,6 +9621,25 @@ class LiveExecutor:
 
         is_long = pos.direction == "LONG"
 
+        # A position with no strategy on record (adopted or reclaimed with
+        # none to inherit) has no plan for the ladder to scale out of: its
+        # take-profit is whatever the venue held, or nothing, and the operator
+        # may be managing it by hand. The ladder sold slices of it at 1.5R and
+        # 2.5R of a risk nobody chose. It stands down, said once per position;
+        # the stop and the target still apply. The time exits read the same
+        # rule (`time_exits.thesis_recorded`).
+        if not thesis_recorded(pos):
+            said = self.__dict__.setdefault("_ladder_no_thesis_said", set())
+            if pos.trade_id not in said:
+                said.add(pos.trade_id)
+                audit(trade_log,
+                      f"Partial TP ladder stands down for {pos.symbol}: no strategy is "
+                      f"on record for it (adopted), so no scale-out plan applies. Its "
+                      f"stop and take-profit still apply.",
+                      action="partial_tp", result="NO_THESIS",
+                      data={"trade_id": pos.trade_id, "symbol": pos.symbol})
+            return
+
         raw_state = pos.partial_tp_state
         if isinstance(raw_state, dict) and raw_state.get("ladder") == LADDER_OFF:
             return
@@ -9618,7 +9651,7 @@ class LiveExecutor:
                 trade_id=pos.trade_id, direction=pos.direction,
                 entry_price=pos.entry_price, stop_loss=pos.stop_loss,
                 take_profit=pos.take_profit, quantity=pos.quantity,
-                atr=getattr(pos, "atr_at_entry", 0.0) or pos.entry_price * 0.02,
+                atr=_entry_atr(pos),
                 entry_risk=_ts.get("initial_risk"),
                 restored_without_ladder=unrecorded)
             if built is None:
@@ -9655,7 +9688,7 @@ class LiveExecutor:
                     trade_id=pos.trade_id, direction=pos.direction,
                     entry_price=pos.entry_price, stop_loss=pos.stop_loss,
                     take_profit=pos.take_profit, quantity=pos.quantity,
-                    atr=getattr(pos, "atr_at_entry", 0.0) or pos.entry_price * 0.02,
+                    atr=_entry_atr(pos),
                 )
                 # Preserve the entry-time 1R if the dict carried it, so a
                 # ratcheted live stop can't collapse initial_risk to ~0.
@@ -9678,6 +9711,12 @@ class LiveExecutor:
         # is upgraded on its first pass rather than through a rebuild that would
         # forget which stages had fired.
         st.fee_round_trip_pct = round_trip_pct(getattr(pos, "order_type", None))
+        # And its ATR is the one recorded at entry, or none. The runner trails
+        # at a multiple of it; a ladder built before this read carries a
+        # stand-in of 2% of the entry for a position whose ATR nobody measured
+        # (an adopted one), and the runner trailed on that figure. With no ATR
+        # on record the runner holds its stop (partial_tp: atr 0 is unread).
+        st.atr = _entry_atr(pos)
 
         def _would_tighten(new_sl: float) -> bool:
             """True iff new_sl tightens the stop (raise LONG / lower SHORT).
@@ -9912,7 +9951,8 @@ class LiveExecutor:
         if changed:
             self._save_positions()
 
-    def _local_stop_breached(self, pos, price: float) -> tuple[bool, str]:
+    def _local_stop_breached(self, pos, price: float, *,
+                             stop_only: bool = False) -> tuple[bool, str]:
         """Whether `price` has hit `pos`'s local stop or target.
 
         The one reading of "breached": the grace sub-loop and the per-tick
@@ -9921,6 +9961,10 @@ class LiveExecutor:
         had lost the guards below, so an unset level read as hit there and not
         here. Guards stop_loss/take_profit > 0 so an unset level (0.0) can
         never be read as an instant TP/SL hit.
+
+        `stop_only` reads the stop and never the target: a price too old to
+        trust may still close a position at its stop, which is the protection,
+        and must not bank a profit the market may no longer offer.
         """
         if price <= 0:
             return False, ""
@@ -9936,14 +9980,14 @@ class LiveExecutor:
                 return True, stop_exit_label(True, pos.entry_price, sl,
                                              exit_price=price,
                                              trailing_active=trailing)
-            if tp > 0 and price >= tp:
+            if tp > 0 and price >= tp and not stop_only:
                 return True, "TP HIT"
         else:  # SHORT
             if sl > 0 and price >= sl:
                 return True, stop_exit_label(False, pos.entry_price, sl,
                                              exit_price=price,
                                              trailing_active=trailing)
-            if tp > 0 and price <= tp:
+            if tp > 0 and price <= tp and not stop_only:
                 return True, "TP HIT"
         return False, ""
 
@@ -10329,6 +10373,7 @@ class LiveExecutor:
                     # this symbol this cycle — the exchange-side stop remains the
                     # protection. (Pairs with the WS staleness guard; this covers the
                     # REST path the WS guard does not.)
+                    price_stale = False
                     if self._ticker_too_old(
                         tickers.get(pos.symbol), CONFIG.execution.live_ticker_max_age_sec, time.time()
                     ):
@@ -10350,16 +10395,25 @@ class LiveExecutor:
                         # local backstop from ever running while price sat past
                         # the stop for 40+ minutes. A stale price is a better
                         # guardian than no price — monitor anyway.
+                        # Only the STOP runs on it. A stale price that says
+                        # "take profit", "trail up" or "time out, not in
+                        # profit" is a guess about where the market was, and
+                        # each of those closes or moves a position that the
+                        # stop, the one protection this is here to keep, does
+                        # not need moved.
+                        price_stale = True
                         audit(trade_log,
                               f"Stale ticker for {pos.symbol} ({_age:.0f}s old) but position "
-                              f"is UNPROTECTED — running local SL/TP on the stale price",
+                              f"is UNPROTECTED — running the local stop only on the stale "
+                              f"price (no take-profit, trail, ladder or time stop)",
                               action="ticker_stale", result="MONITORING_UNPROTECTED",
                               level=logging.WARNING,
                               data={"symbol": pos.symbol, "age_sec": round(_age, 1),
                                     "max_age": CONFIG.execution.live_ticker_max_age_sec})
 
                     # ── Trailing stop update ──
-                    if CONFIG.trailing.enabled and pos.trailing_state is not None:
+                    if (CONFIG.trailing.enabled and pos.trailing_state is not None
+                            and not price_stale):
                         old_sl = pos.stop_loss
                         pos_strategy = getattr(pos, 'strategy_type', 'swing')
                         trail_mult = CONFIG.strategy_types.get_trailing_atr_mult(pos_strategy)
@@ -10490,7 +10544,8 @@ class LiveExecutor:
                     # rides the ratcheted stop. Additive overlay on the exchange SL/TP
                     # (reduceOnly backstops clamp to the shrinking position). The
                     # runner's exit is the existing static SL/TP check below.
-                    if CONFIG.partial_tp.enabled and pos.status == "open" and pos.quantity > 0:
+                    if (CONFIG.partial_tp.enabled and pos.status == "open" and pos.quantity > 0
+                            and not price_stale):
                         try:
                             await self._run_partial_tp(exchange, pos, price)
                         except Exception as _ptp_exc:
@@ -10596,7 +10651,7 @@ class LiveExecutor:
                     # Not on a position adopted with no recorded strategy: its
                     # strategy_type is the dataclass default, and adopted
                     # positions are never force-closed (see time_exits.py).
-                    if CONFIG.time_stop.enabled and thesis_recorded(pos):
+                    if CONFIG.time_stop.enabled and thesis_recorded(pos) and not price_stale:
                         hold_hours = (datetime.now(UTC) - entered_at(pos)).total_seconds() / 3600
                         # Get strategy-type-aware thresholds
                         pos_strategy = getattr(pos, 'strategy_type', 'intraday')
@@ -10642,7 +10697,8 @@ class LiveExecutor:
                     # as already hit: a LONG's TP, a SHORT's SL. An adopted
                     # limit order was market-closed as "TP HIT" or "SL HIT"
                     # on the first tick after it filled.
-                    should_close, reason = self._local_stop_breached(pos, price)
+                    should_close, reason = self._local_stop_breached(
+                        pos, price, stop_only=price_stale)
 
                     if should_close:
                         # Close manually if no exchange SL/TP, or if SL/TP exists but
