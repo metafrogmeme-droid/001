@@ -9612,12 +9612,30 @@ class RuneClawEngine:
         market fill) — rather than an actual CLOSE. Fills are notified as
         "TRADE OPENED"; everything else as a close. The fallback message was
         previously misrouted to the close path and shown as "❌ Trade Closed"."""
+        from bot.core.order_state import PARTIAL_FILL_ADOPTED
+
         first = (msg or "").split("\n", 1)[0]
         # "RECOVERED FILL:" is a submission the venue never confirmed that
         # the positions pass found filled by client id: an OPEN, booked with
-        # its idea's levels, and told as one.
+        # its idea's levels, and told as one. A partial fill adopted when a
+        # resting order was cancelled is an OPEN too, and its first line
+        # begins "LIMIT EXPIRED —" like a message that opens nothing; it
+        # was routed as a close and posted publicly as a trade result.
         return (first.startswith("LIMIT FILLED:") or "MARKET FALLBACK:" in first
-                or first.startswith("RECOVERED FILL:"))
+                or first.startswith("RECOVERED FILL:")
+                or PARTIAL_FILL_ADOPTED in first)
+
+    @staticmethod
+    def _is_unfilled_order_message(msg: str) -> bool:
+        """True when a position-monitor message reports a RESTING ORDER that
+        ended without opening a position: expired, cancelled on drift or by
+        the venue, rejected, force-closed with its fill unread, or a market
+        fallback refused. Not a close. It still goes to the close door,
+        because the owner must read it, and that door heads it for what it
+        is and never publishes it (`order_state.unfilled_order_heading`)."""
+        from bot.core.order_state import unfilled_order_heading
+
+        return unfilled_order_heading(msg or "") is not None
 
     @staticmethod
     def _is_kept_open_message(msg: str) -> bool:
@@ -9738,7 +9756,13 @@ class RuneClawEngine:
                                 logger.debug("Sync notify failed: %s", exc)
                             continue
 
-                        if self._is_kept_open_message(msg):
+                        if self._is_unfilled_order_message(msg):
+                            # A resting order that ended without opening a
+                            # position: nothing closed, and the chain must
+                            # not say a position did.
+                            audit(trade_log, f"Resting order ended unfilled: {msg}",
+                                  action="limit_order_ended", result="UNFILLED")
+                        elif self._is_kept_open_message(msg):
                             # A flatten that did not complete, or a stop that
                             # could not be placed: the position is still
                             # there, and the chain must not say it closed.

@@ -29,7 +29,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from bot.config import CONFIG
-from bot.core.order_state import close_did_not_happen
+from bot.core.order_state import close_did_not_happen, unfilled_order_heading
 from bot.core.signal_confidence import displayed_confidence
 from bot.marketing.public_text import close_outcome, public_close_line
 from bot.utils.i18n import get_user_lang, t
@@ -408,6 +408,13 @@ class AlertsMonitor:
             publicly.
             """
             kept_open = close_did_not_happen(msg)
+            # A RESTING ORDER THAT ENDED WITHOUT A POSITION IS NOT A CLOSE.
+            # Every limit that expired or was cancelled reached this door as
+            # one: headed "Closed", recorded TRADE_CLOSED and posted to the
+            # public channels as "TRADE CLOSED ... #TradeResult". With an
+            # earlier close of the same symbol in the slot, the card and the
+            # public post were THAT close, published again as a new result.
+            unfilled = unfilled_order_heading(msg)
             try:
                 # Try to render a styled PNG close card. The decision of
                 # WHETHER this message may wear a card is `close_card_for`,
@@ -484,6 +491,8 @@ class AlertsMonitor:
                     # guard and the engine's audit already take.
                     if kept_open:
                         emoji, heading = "\u26a0\ufe0f", "Not closed"
+                    elif unfilled:
+                        emoji, heading = unfilled
                     sym = close_data.get("symbol", "") if close_data else ""
                     direction = close_data.get("direction", "") if close_data else ""
                     if sym and direction:
@@ -495,7 +504,9 @@ class AlertsMonitor:
                     # The record's word too: "[TRADE_CLOSED] Not closed ...
                     # still OPEN" would hand the model two answers.
                     await _notify_chats(
-                        chat_ids, "NOT_CLOSED" if kept_open else "TRADE_CLOSED",
+                        chat_ids,
+                        ("NOT_CLOSED" if kept_open
+                         else "ORDER_NOT_FILLED" if unfilled else "TRADE_CLOSED"),
                         card.strip())
             except Exception as exc:
                 system_log.debug("Close notify send failed: %s", exc)
@@ -504,7 +515,7 @@ class AlertsMonitor:
             # closes, and a close that did not happen is an operator matter.
             # It was posted as "TRADE CLOSED #TradeResult", an unprotected
             # position's "No exchange stop-loss could be placed" included.
-            if not public or kept_open:
+            if not public or kept_open or unfilled:
                 return
 
             # Forward trade close to marketing channels — those groups are

@@ -17241,6 +17241,43 @@ reads the book `_executor_for` resolves, which is the account the placement
 below takes. A resolution that raises or answers nothing keeps the operator's
 book, which is what the check always read. Three mutations, each killed.
 
+**A LIMIT THAT NEVER FILLED WAS PUBLISHED AS A TRADE RESULT, AND SOMETIMES AS
+AN EARLIER ONE.** When a resting order ends, the executor's pending-order paths
+hand the engine a message: expired, cancelled on drift, cancelled or rejected
+by the venue, force-closed with its fill unread, or a market fallback refused
+after a drift cancel. The engine knew three kinds (fill, sync, close) and
+routed all of these as closes. Driven through the real close door and the real
+forwarder:
+
+- the operator's card was headed "⚪ Closed" over an order that never became a
+  position, and the transcript recorded TRADE_CLOSED;
+- the chain audited "Live position auto-closed";
+- every one went to the public channels as "TRADE CLOSED ... #TradeResult";
+- with an earlier close of the same symbol in the last-close slot, the card
+  and the public post were THAT close. A SOL limit expiring an hour after a
+  SOL take-profit re-published "🟢 SOLUSDT LONG closed (TP HIT)" as a new win.
+  The card guard matches the slot by symbol, and nothing told it the message
+  was not a close.
+
+The partial-fill adoption was the opposite mistake. "LIMIT EXPIRED —
+PARTIAL FILL ADOPTED as OPEN" opens a position, and its first line begins like
+a message that opens nothing, so it was routed as a close too.
+
+`order_state.unfilled_order_heading` is the one reading: an icon and a heading
+for each message that ended an order without a position, None for everything
+else, the adoption included. The engine audits those as UNFILLED. The close
+door heads them for what they are ("Order not filled", "Order fill not read",
+"Market fallback refused"), records ORDER_NOT_FILLED, wears no card and never
+publishes them. `_is_fill_message` reads the adoption as a fill. A walk takes
+every message the pending-order paths return and requires each to be read as
+exactly one kind, so a message added later cannot fall to "close" by default.
+
+Fourteen mutations, each killed. The one that survived the first round was a
+test that could not tell: `startswith` on the whole text and on the first line
+agree for every prefix, so the first-line split matters only to the adoption
+marker. The test plants an expiry that quotes an adoption on a later line.
+(`tests/test_an_unfilled_order_is_not_a_trade_result.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -18532,9 +18569,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **470 of 1171** reach for source text through `source_scan`, `code_only`
+Driven, **471 of 1172** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 470 is a FLOOR and the honest shape is
+source scan that rule does not see, so 471 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
