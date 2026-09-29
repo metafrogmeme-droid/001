@@ -75,10 +75,16 @@ So::
 verdict on it. It cannot see the dependency half, which is why this note
 exists and why the growth message names the environment as a suspect.
 
+The baseline stores no total: it is summed from the counts wherever it is
+printed, and a baseline that still stores one is refused as CANNOT CHECK
+(``scripts/ratchet_baseline.py`` says why). It stores no file count either,
+for the same reason (``record`` says why).
+
 USAGE
 -----
     python3 scripts/mypy_gate.py             # gate (CI)
     python3 scripts/mypy_gate.py --update    # re-record, deliberately
+    python3 scripts/rerecord.py --all        # every ratchet at once
 """
 from __future__ import annotations
 
@@ -90,6 +96,7 @@ from collections import Counter
 from pathlib import Path
 
 import toolchain
+from ratchet_baseline import BaselineUnreadable, compare, derived_total, read_record
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "tests" / "mypy_baseline.json"
@@ -113,7 +120,19 @@ def check_version(tool: str) -> None:
     toolchain.require_comparable(tool)
 
 def current_counts() -> tuple[Counter, int]:
-    proc = subprocess.run(["mypy", TARGET], capture_output=True, text=True, cwd=ROOT)
+    """Per-class counts, and the file count today's run reports.
+
+    A mypy that cannot be started at all is CANNOT CHECK, exit 2, not the
+    ``FileNotFoundError`` traceback (exit 1, "the code grew") it used to be.
+    """
+    try:
+        proc = subprocess.run(["mypy", TARGET], capture_output=True, text=True,
+                              cwd=ROOT)
+    except OSError as exc:
+        print(f"CANNOT CHECK: mypy could not be run ({type(exc).__name__}); "
+              "no count was read, so this says nothing about whether the code "
+              "grew. Put the pinned mypy on PATH.", file=sys.stderr)
+        raise SystemExit(2) from None
     if proc.returncode not in (0, 1):
         print(f"mypy failed to run (exit {proc.returncode}):\n"
               f"{proc.stdout[-2000:]}{proc.stderr[-2000:]}", file=sys.stderr)
@@ -130,47 +149,67 @@ def current_counts() -> tuple[Counter, int]:
     return counts, files
 
 
+def record(counts: Counter) -> None:
+    """Write the baseline: the counts, and no aggregate over them.
+
+    Neither a total (it is summed from the counts) nor a file count. The file
+    count is not derivable from per-class counts, and it is the same kind of
+    stored aggregate a total is: two branches that each lowered a different
+    class and each re-recorded ``files`` 84 -> 83 merge cleanly into 83 where
+    the tree has 82. Nothing compares it, so nothing would have noticed; the
+    gate printed it beside the derived total. Today's file count is printed
+    from today's run, which is a measurement.
+    """
+    BASELINE.write_text(json.dumps({
+        "_comment": "Per-error-class mypy counts over the whole bot/ tree. "
+                    "A RATCHET: a class may only go DOWN. This is NOT the "
+                    "strict per-module gate in ci.yml, which fails on any "
+                    "error at all for the money modules. The total is the sum "
+                    "of the counts and is never stored, and neither is a file "
+                    "count. Regenerate with "
+                    "scripts/mypy_gate.py --update (or scripts/rerecord.py "
+                    "--all), and only alongside the commit that actually "
+                    "lowered it.",
+        "counts": dict(sorted(counts.items())),
+    }, indent=2) + "\n", encoding="utf-8")
+
+
 def main() -> int:
     check_version("mypy")
-    counts, files = current_counts()
-    total = sum(counts.values())
 
     if "--update" in sys.argv:
-        BASELINE.write_text(json.dumps({
-            "_comment": "Per-error-class mypy counts over the whole bot/ tree. "
-                        "A RATCHET: a class may only go DOWN. This is NOT the "
-                        "strict per-module gate in ci.yml, which fails on any "
-                        "error at all for the money modules. Regenerate with "
-                        "scripts/mypy_gate.py --update, and only alongside the "
-                        "commit that actually lowered it.",
-            "total": total,
-            "files": files,
-            "counts": dict(sorted(counts.items())),
-        }, indent=2) + "\n", encoding="utf-8")
-        print(f"Baseline updated: {total} errors in {files} files, "
-              f"{len(counts)} classes")
+        counts, files = current_counts()
+        record(counts)
+        print(f"Baseline updated: {sum(counts.values())} errors in {files} "
+              f"files, {len(counts)} classes")
         return 0
 
     if not BASELINE.exists():
         print(f"No {BASELINE}. Create it with: python3 scripts/mypy_gate.py --update",
               file=sys.stderr)
         return 2
-    baseline = json.loads(BASELINE.read_text(encoding="utf-8"))
-    base_counts = baseline.get("counts", {})
-
-    grew = {c: (n, base_counts.get(c, 0))
-            for c, n in counts.items() if n > base_counts.get(c, 0)}
-    shrank = {c: (n, base_counts[c])
-              for c, n in ((c, counts.get(c, 0)) for c in base_counts)
-              if n < base_counts[c]}
+    try:
+        baseline = read_record(BASELINE)
+        base_total = derived_total(baseline)
+    except BaselineUnreadable as exc:
+        # Exit 2, not 1: the baseline cannot be compared against, which says
+        # nothing about whether the code grew. Checked before mypy runs, so a
+        # refusal does not cost the whole-tree analysis first.
+        print(f"CANNOT CHECK: {BASELINE.name}: {exc}", file=sys.stderr)
+        return 2
+    counts, files = current_counts()
+    total = sum(counts.values())
+    grew, shrank = compare(counts, baseline["counts"])
 
     print(f"mypy {TARGET}: {total} errors in {files} files, {len(counts)} classes")
-    print(f"baseline:    {baseline.get('total')} errors in "
-          f"{baseline.get('files')} files")
+    # The baseline's line carries no file count: a stored one is an aggregate
+    # a clean merge gets wrong (see `record`), and one left in an older file is
+    # neither read nor printed.
+    print(f"baseline:    {base_total} errors")
 
     if grew:
         print("\nNEW type errors -- this gate fails on growth, not on the backlog:")
-        for cls, (now, was) in sorted(grew.items()):
+        for (cls,), was, now in grew:
             print(f"  {cls}: {was} -> {now}  (+{now - was})")
         print("\nBEFORE assuming these are real: mypy counts depend on the")
         print("INSTALLED DEPENDENCY SET, not just on the code. Confirm in a")
@@ -182,7 +221,7 @@ def main() -> int:
 
     if shrank:
         print("\nThese improved; re-record the baseline in this commit:")
-        for cls, (now, was) in sorted(shrank.items()):
+        for (cls,), was, now in shrank:
             print(f"  {cls}: {was} -> {now}  (-{was - now})")
         print("\n  python3 scripts/mypy_gate.py --update")
         return 1

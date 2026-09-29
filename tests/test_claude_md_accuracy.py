@@ -174,9 +174,15 @@ def test_the_honesty_backlog_it_quotes_is_the_real_one():
     assert m, "the honesty-ratchet backlog sentence is gone"
     baseline = json.loads((ROOT / "tests" / "honesty_baseline.json")
                           .read_text(encoding="utf-8"))
-    assert int(m.group(1).replace(",", "")) == baseline["total"], (
-        f"CLAUDE.md says {m.group(1)} baselined hits; the baseline records "
-        f"{baseline['total']}")
+    # The baseline stores no total; it is the sum of the counts, read through
+    # the gate's own reading so the two cannot answer differently.
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import honesty_gate
+    from ratchet_baseline import derived_total
+    total = derived_total(baseline, honesty_gate.DEPTH)
+    assert int(m.group(1).replace(",", "")) == total, (
+        f"the log says {m.group(1)} baselined hits; the baseline's counts "
+        f"sum to {total}")
 
 
 def test_the_shapes_it_says_are_uncovered_really_are():

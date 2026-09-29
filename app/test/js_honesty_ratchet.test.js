@@ -187,7 +187,19 @@ test('the baseline has the shape the ratchet depends on', () => {
   for (const shape of H.SHAPES) {
     assert.ok(shape in base.counts, `${shape} missing from the baseline`);
   }
-  assert.strictEqual(typeof base.total, 'number');
+  // This baseline still STORES a total (the Python ones derive it; dropping
+  // this one is filed). A stored total is the field a clean git merge gets
+  // wrong: two branches that each lowered a different count, and each
+  // re-recorded the total, merge into counts one below it. So it must equal
+  // the sum of the counts, or it describes no run at all.
+  const summed = Object.values(base.counts)
+    .flatMap((files) => Object.values(files))
+    .reduce((a, b) => a + b, 0);
+  assert.strictEqual(
+    base.total, summed,
+    `the baseline stores a total of ${base.total} and its counts sum to `
+    + `${summed}: a merge kept one side's total. Re-record: `
+    + 'node app/test/update_js_honesty_baseline.js');
 });
 
 test('the vocabulary really is the one the Python gate reads', () => {

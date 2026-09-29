@@ -70,11 +70,16 @@ under mypy 1.19.1 and checked under 1.15.0 reported eleven classes as having
 grown and not one was a code change. A mismatch here is CANNOT CHECK (exit 2),
 never a verdict.
 
+The baseline stores no total: it is summed from the counts wherever it is
+printed, and a baseline that still stores one is refused as CANNOT CHECK
+(``scripts/ratchet_baseline.py`` says why).
+
 USAGE
 -----
     python3 scripts/honesty_gate.py             # gate (CI)
     python3 scripts/honesty_gate.py --list      # every hit, with source
     python3 scripts/honesty_gate.py --update    # re-record, deliberately
+    python3 scripts/rerecord.py --all           # every ratchet at once
 """
 from __future__ import annotations
 
@@ -84,8 +89,13 @@ import json
 import sys
 from pathlib import Path
 
+from ratchet_baseline import BaselineUnreadable, compare, derived_total, read_record
+
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "tests" / "honesty_baseline.json"
+
+#: The baseline keys by shape and then by file.
+DEPTH = 2
 
 #: Directories scanned. `tests/` is deliberately absent -- see the docstring.
 ROOTS = ("bot", "scripts")
@@ -356,7 +366,30 @@ def _load_baseline() -> dict:
         print(f"No {BASELINE}. Create it with: "
               f"python3 scripts/honesty_gate.py --update", file=sys.stderr)
         raise SystemExit(2)
-    return json.loads(BASELINE.read_text(encoding="utf-8"))
+    try:
+        return read_record(BASELINE)
+    except BaselineUnreadable as exc:
+        print(f"CANNOT CHECK: {BASELINE.name}: {exc}", file=sys.stderr)
+        raise SystemExit(2) from None
+
+
+def record(counts: dict, fingerprint: str) -> None:
+    """Write the baseline: the counts, and no total (it is always derived)."""
+    BASELINE.write_text(json.dumps({
+        "_comment": "Per-file counts of the shapes CLAUDE.md tabulates for "
+                    "'unreadable is never zero'. A RATCHET: a file may only "
+                    "go DOWN, and a file that improves must be re-recorded "
+                    "in the same commit, same rule as known_failures.txt. "
+                    "A hit is a place to LOOK -- most are not defects. "
+                    "The total is the sum of the counts and is never "
+                    "stored. Regenerate with scripts/honesty_gate.py "
+                    "--update (or scripts/rerecord.py --all).",
+        "_coverage": "Python only, bot/ and scripts/ only, five of the "
+                     "eight shapes. See the module docstring for what is "
+                     "NOT covered and why.",
+        "rules_fingerprint": fingerprint,
+        "counts": counts,
+    }, indent=2) + "\n", encoding="utf-8")
 
 
 def _money_line(hits: list) -> str:
@@ -407,20 +440,7 @@ def main() -> int:
         return 0
 
     if "--update" in sys.argv:
-        BASELINE.write_text(json.dumps({
-            "_comment": "Per-file counts of the shapes CLAUDE.md tabulates for "
-                        "'unreadable is never zero'. A RATCHET: a file may only "
-                        "go DOWN, and a file that improves must be re-recorded "
-                        "in the same commit, same rule as known_failures.txt. "
-                        "A hit is a place to LOOK -- most are not defects. "
-                        "Regenerate with scripts/honesty_gate.py --update.",
-            "_coverage": "Python only, bot/ and scripts/ only, five of the "
-                         "eight shapes. See the module docstring for what is "
-                         "NOT covered and why.",
-            "rules_fingerprint": fingerprint,
-            "total": total,
-            "counts": counts,
-        }, indent=2) + "\n", encoding="utf-8")
+        record(counts, fingerprint)
         print(f"Baseline updated: {total} hit(s) across {len(counts)} shape(s)")
         return 0
 
@@ -436,24 +456,22 @@ def main() -> int:
               file=sys.stderr)
         return 2
 
-    base = baseline.get("counts", {})
-    grew, shrank = [], []
-    for shape in sorted(set(counts) | set(base)):
-        now_files, was_files = counts.get(shape, {}), base.get(shape, {})
-        for rel in sorted(set(now_files) | set(was_files)):
-            now, was = now_files.get(rel, 0), was_files.get(rel, 0)
-            if now > was:
-                grew.append((shape, rel, was, now))
-            elif now < was:
-                shrank.append((shape, rel, was, now))
+    try:
+        base_total = derived_total(baseline, DEPTH)
+    except BaselineUnreadable as exc:
+        # Exit 2 beside the fingerprint's: a baseline this gate cannot sum is
+        # one it cannot compare against, which is not a verdict on the code.
+        print(f"CANNOT CHECK: {BASELINE.name}: {exc}", file=sys.stderr)
+        return 2
+    grew, shrank = compare(counts, baseline["counts"], DEPTH)
 
     print(f"honesty shapes: {total} hit(s) across {len(counts)} shape(s)")
     print(_money_line(hits))
-    print(f"baseline:       {baseline.get('total')} hit(s)")
+    print(f"baseline:       {base_total} hit(s)")
 
     if grew:
         print("\nNEW hits -- this gate fails on growth, not on the backlog:")
-        for shape, rel, was, now in grew:
+        for (shape, rel), was, now in grew:
             print(f"  {shape:22} {rel}: {was} -> {now}  (+{now - was})")
         print("\nRead each one. If the zero really is a measurement (the field "
               "cannot be null,\nthe rows are pre-filtered, the branch is "
@@ -466,7 +484,7 @@ def main() -> int:
         # stops meaning anything, exactly as a stale known_failures.txt entry
         # does, so it fails until it is re-recorded in the same commit.
         print("\nThese improved; re-record the baseline in this commit:")
-        for shape, rel, was, now in shrank:
+        for (shape, rel), was, now in shrank:
             print(f"  {shape:22} {rel}: {was} -> {now}  (-{was - now})")
         print("\n  python3 scripts/honesty_gate.py --update")
         return 1
