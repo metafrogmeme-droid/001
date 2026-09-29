@@ -4117,7 +4117,7 @@ class DeepScanSkill(BaseSkill):
         # volume ratio and computes no trade levels, so it sends no entry
         # cards, no symbols table and no market-bias headline. It used to
         # build all three from values it made up: a direction of "LONG if RSI
-        # < 50 or the 24h move is up", a volume ratio of exactly 2.5 or 1.0,
+        # < 50 or the last bar closed up", a volume ratio of exactly 2.5 or 1.0,
         # and an ATR of 2% of price when none was read. Those rows became the
         # public Setups panel's entry cards and the "Market bias" line, as if
         # a scan had found them. `scanned=False` is the push that scanned

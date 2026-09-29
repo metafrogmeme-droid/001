@@ -124,7 +124,9 @@ router.get('/candles/:symbol', async (req, res) => {
       '1d': '1D', '1w': '1W',
     };
     const bg = BITGET_GRAN[gran.toLowerCase()] || gran;
-    const limit = Math.min(parseInt(req.query.limit) || 24, 200);
+    // Clamped at both ends: every negative value used to be a cache key of
+    // its own and an upstream fetch of its own, in a cache that never evicts.
+    const limit = Math.max(1, Math.min(parseInt(req.query.limit) || 24, 200));
     // Optional ms-epoch window (trade replay theater fetches the candles
     // around a recorded trade). Validated numeric; Bitget ignores unknowns.
     const startTime = /^\d{10,16}$/.test(String(req.query.startTime || '')) ? `&startTime=${req.query.startTime}` : '';

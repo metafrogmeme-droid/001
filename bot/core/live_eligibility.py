@@ -88,7 +88,10 @@ def strategy_hash(root: Optional[Path] = None) -> str:
     """v1: sha256 over every ``.py`` under ``bot/``, path and bytes, sorted.
 
     Computed once per process for the repo root, because the code a process
-    runs does not change under it. A different ``root`` is never cached.
+    runs does not change under it; the engine takes it at start, so a
+    ``git reset --hard`` landing new code (and its record) while the old
+    process runs cannot be hashed as the old process's code. A different
+    ``root`` is never cached.
     """
     global _HASH_CACHE
     if root is None and _HASH_CACHE is not None:
@@ -140,7 +143,8 @@ def read_eligibility(strategy: Optional[str] = None,
                            f"could not be read ({got.detail})",
                            running)
     data = got.data
-    if data.get("schema") != SCHEMA or isinstance(data.get("schema"), bool):
+    # The integer 1 and nothing else: 1.0 and true both compare equal to 1.
+    if type(data.get("schema")) is not int or data.get("schema") != SCHEMA:
         return Eligibility(MALFORMED,
                            f"the eligibility record for {short} is not schema {SCHEMA}",
                            running)

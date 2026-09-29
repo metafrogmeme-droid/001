@@ -205,3 +205,132 @@ class TestTheChatSpendReading:
 def test_the_share_is_bounded_to_zero_through_one():
     src = (ROOT / "bot" / "config.py").read_text(encoding="utf-8")
     assert '_env_float_bounded("LLM_CHAT_BUDGET_SHARE", 0.5, 0.0, 1.0)' in src
+
+
+# ---------------------------------------------------------------------------
+# The rolling-note fold is a chat call too.
+# ---------------------------------------------------------------------------
+
+def _pruned_store():
+    from bot.nlp.conversation_store import ConversationStore
+    store = ConversationStore(max_messages_per_user=2)
+    store.append("u", "user", "I only trade small, 1% risk")
+    store.append("u", "assistant", "Noted.")
+    store.append("u", "user", "what about SOL?")
+    store.append("u", "assistant", "SOL looks choppy.")
+    return store
+
+
+def _fold(monkeypatch, cost: CostTracker, *, usage=None):
+    """One `_summarize_if_due` on a stand-in that HAS an engine with a cost
+    tracker. Returns (wrote a note, whether the model was asked, the store)."""
+    monkeypatch.setattr(
+        th_mod, "resolve_tier_config",
+        lambda *a, **kw: LLMConfig(provider=LLMProvider.OPENAI, api_key="k",
+                                   model=_MODEL))
+    monkeypatch.setattr(th_mod, "create_llm_client", lambda cfg: object())
+    asked: list = []
+
+    async def _complete(client, cfg, system_prompt, user_prompt, **kw):
+        asked.append(user_prompt)
+        if usage is not None and kw.get("usage_out") is not None:
+            kw["usage_out"].update(usage)
+        return "The user trades small."
+
+    monkeypatch.setattr(th_mod, "llm_complete", _complete)
+    store = _pruned_store()
+    host = SimpleNamespace(conversations=store, engine=SimpleNamespace(cost=cost),
+                           _SUMMARY_SYSTEM_PROMPT=H._SUMMARY_SYSTEM_PROMPT)
+    wrote = asyncio.run(H._summarize_if_due(host, "u"))
+    return wrote, bool(asked), store
+
+
+def test_a_fold_is_booked_as_chat(monkeypatch):
+    """It used to call the chat model after every reply and book nothing, so
+    chat could spend past its share unseen by /costs and by the bound."""
+    _budget(monkeypatch)
+    cost = CostTracker()
+    wrote, asked, _ = _fold(monkeypatch, cost, usage={"in": 50_000, "out": 0})
+    assert wrote and asked
+    snap = cost.snapshot()
+    assert snap.llm_calls == 1
+    assert snap.cost_by_category.get("chat") == pytest.approx(0.15)
+
+
+def test_a_fold_with_no_usage_books_an_estimate_not_nothing(monkeypatch):
+    _budget(monkeypatch)
+    cost = CostTracker()
+    _fold(monkeypatch, cost)
+    assert cost.snapshot().cost_by_category.get("chat", 0) > 0
+
+
+def test_a_fold_past_chats_share_asks_no_model_and_keeps_the_turns(monkeypatch):
+    seen: list[str] = []
+    monkeypatch.setattr(th_mod, "audit", lambda log, msg, **kw: seen.append(msg))
+    _budget(monkeypatch)
+    cost = CostTracker()
+    _spend(cost, 0.60, "chat")
+    wrote, asked, store = _fold(monkeypatch, cost)
+    assert not wrote and not asked
+    assert len(store.take_pending_summary("u")) == 2, "the turns were lost"
+    assert any("chat's share of the dollar budget" in m for m in seen), seen
+
+
+def test_a_fold_under_the_share_is_asked(monkeypatch):
+    """The other arm: the refusal above passes against a fold that never
+    asks anything."""
+    _budget(monkeypatch)
+    cost = CostTracker()
+    _spend(cost, 0.60, "thesis")
+    wrote, asked, _ = _fold(monkeypatch, cost)
+    assert wrote and asked
+
+
+def test_the_share_refusal_says_the_rest_is_the_engines(monkeypatch):
+    """"I've used up today's AI budget" was false when only chat's share was
+    spent: trade analysis still had the rest."""
+    _budget(monkeypatch)
+    cost = CostTracker()
+    _spend(cost, 0.60, "chat")
+    answer, _ = _ask(monkeypatch, cost)
+    assert "share" in answer and "Trade analysis keeps the rest" in answer
+    assert "used up today's AI budget" not in answer
+
+
+def test_the_whole_budget_refusal_is_the_old_sentence(monkeypatch):
+    _budget(monkeypatch)
+    cost = CostTracker()
+    _spend(cost, 1.01, "thesis")
+    answer, _ = _ask(monkeypatch, cost)
+    assert "used up today's AI budget" in answer
+
+
+class TestTheBound:
+    def _cfg(self, **kw):
+        base = dict(daily_call_limit=10, daily_budget_usd=1.0, chat_budget_share=0.5)
+        base.update(kw)
+        return SimpleNamespace(**base)
+
+    def test_none_reached(self):
+        from bot.core.cost import chat_budget_bound
+        s = CostSummary(llm_cost_usd=0.2, llm_calls=1)
+        s.cost_by_category["chat"] = 0.2
+        assert chat_budget_bound(s, self._cfg()) == ""
+
+    def test_the_share_exactly_reached_is_reached(self):
+        from bot.core.cost import CHAT_SHARE_BOUND, chat_budget_bound
+        s = CostSummary(llm_cost_usd=0.5, llm_calls=1)
+        s.cost_by_category["chat"] = 0.5
+        assert chat_budget_bound(s, self._cfg()) == CHAT_SHARE_BOUND
+
+    def test_the_call_limit_is_named_first(self):
+        from bot.core.cost import chat_budget_bound
+        s = CostSummary(llm_cost_usd=2.0, llm_calls=10)
+        s.cost_by_category["chat"] = 2.0
+        assert chat_budget_bound(s, self._cfg()) == "daily call limit"
+
+    def test_the_total_is_named_before_the_share(self):
+        from bot.core.cost import chat_budget_bound
+        s = CostSummary(llm_cost_usd=1.0, llm_calls=1)
+        s.cost_by_category["chat"] = 1.0
+        assert chat_budget_bound(s, self._cfg()) == "daily dollar budget"

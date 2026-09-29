@@ -199,6 +199,12 @@ _STRINGS: dict[str, dict[str, str]] = {
                "or use a specific command like /scan or /positions."),
         "zh": "今天的 AI 預算已用完 — 明天再試，或使用 /scan、/positions 等指令。",
     },
+    "chat_share_exhausted": {
+        "en": ("Chat has used its share of today's AI budget — try again tomorrow, "
+               "or use a specific command like /scan or /positions. Trade analysis "
+               "keeps the rest."),
+        "zh": "聊天已用完今天 AI 預算中屬於它的份額 — 明天再試，或使用 /scan、/positions 等指令。其餘預算留給交易分析。",
+    },
     "chat_deadline": {
         "en": ("I stopped waiting before any model answered — that's a "
                "timeout on my side, not an answer, and nothing was analyzed. "

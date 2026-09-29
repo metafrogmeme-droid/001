@@ -99,3 +99,13 @@ test('a limit spelled differently but clamped to the same value shares one entry
   assert.equal(upstream.length, 1);
   assert.equal(upstream[0].searchParams.get('limit'), '200');
 });
+
+test('every negative limit is one clamped request, not a key and a fetch each', async () => {
+  // Clamped only from above, `-1`, `-2`, `-3` were three cache entries and
+  // three upstream reads, in a cache that never evicts.
+  for (const n of ['-1', '-2', '-3', '-999999']) {
+    await get(`/api/market/candles/ADAUSDT?granularity=1h&limit=${n}`);
+  }
+  assert.equal(upstream.length, 1, 'each negative limit fetched on its own');
+  assert.equal(upstream[0].searchParams.get('limit'), '1');
+});

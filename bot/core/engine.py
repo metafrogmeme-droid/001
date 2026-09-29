@@ -815,6 +815,15 @@ class RuneClawEngine:
             return False
 
         _live_executor_mod.set_halt_check(_halted_now)
+        # The strategy hash names the code this process RUNS, so it is taken
+        # at start (cached per process), not at the first autonomous confirm:
+        # a `git reset --hard` landing new code and its record before that
+        # confirm would otherwise let the old code read the new record.
+        try:
+            from bot.core.live_eligibility import strategy_hash
+            strategy_hash()
+        except Exception as exc:  # noqa: BLE001 -- the mint refuses on its own
+            logger.warning("strategy hash not taken at start (%s)", type(exc).__name__)
         # Wire the shared WS feed so degradation reads true price-staleness, not
         # the coarse per-tick shadow clock (avoids false "feed disconnected"
         # pauses during calm-market cycles where the scan tick > pause threshold).
@@ -9310,6 +9319,11 @@ class RuneClawEngine:
             "signals": len(signals),
             "ideas": ideas_found,
             "auto_confirmed": auto_confirmed,
+            # Ideas that cleared the bar and were NOT confirmed because a live
+            # order with no human tap is refused, and the sentence saying why:
+            # "Auto-confirmed: 0" alone reads as "nothing cleared the bar".
+            "auto_withheld": len(_force_suppressed),
+            "auto_withheld_why": _force_refusal if _force_suppressed else None,
             "pending": len(self._pending_ideas),
             "cleared_pending": old_pending,
         }

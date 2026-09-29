@@ -33,7 +33,7 @@ from bot.utils.tg_retry import send_with_retry
 from bot.utils.leveraged_return import _leveraged_return_pct, position_leverage
 from bot.core.live_executor import entry_is_estimated, position_size_basis
 from bot.core.signal_confidence import displayed_confidence
-from bot.core.cost import chat_spend_usd
+from bot.core.cost import CHAT_SHARE_BOUND, chat_budget_bound, chat_spend_usd
 from bot.core.limit_input import (consume_pending, limit_expired_text,
                                   read_pending, typed_limit_outside_levels)
 from bot.nlp.button_actions import action_label
@@ -2953,20 +2953,23 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             snap = self.engine.cost.snapshot()
             _chat_cap = CONFIG.llm.daily_budget_usd * CONFIG.llm.chat_budget_share
             _chat_spent = chat_spend_usd(snap)
-            if snap.llm_calls >= CONFIG.llm.daily_call_limit:
-                _bound = "daily call limit"
-            elif snap.llm_cost_usd >= CONFIG.llm.daily_budget_usd:
-                _bound = "daily dollar budget"
-            elif _chat_spent >= _chat_cap:
-                _bound = "chat's share of the dollar budget"
-            else:
-                _bound = ""
+            _bound = chat_budget_bound(snap, CONFIG.llm)
             if _bound:
                 audit(system_log,
                       f"Chat LLM budget exhausted: {_bound} (calls={snap.llm_calls}, "
                       f"cost=${snap.llm_cost_usd:.4f}, chat=${_chat_spent:.4f} "
                       f"of a ${_chat_cap:.4f} chat share)",
                       action="chat_llm_budget", result="EXHAUSTED")
+                # Chat's share is its own bound, and the trade analysis still
+                # has the rest of the budget, so "used up today's AI budget"
+                # would be false about the one bound that was reached.
+                if _bound == CHAT_SHARE_BOUND:
+                    return _chat_ret(_say(
+                        _ui, "chat_share_exhausted",
+                        "Chat has used its share of today's AI budget — try "
+                        "again tomorrow, or use a specific command like /scan "
+                        "or /positions. Trade analysis keeps the rest."),
+                        None, return_meta)
                 return _chat_ret(_say(
                     _ui, "chat_budget_exhausted",
                     "I've used up today's AI budget — try again tomorrow, "
@@ -3518,6 +3521,18 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             if client is None:
                 store.push_back_pending(user_id, pending)
                 return False
+            # The same bound the reply reads. A fold is a chat call, so a day
+            # whose chat share is spent folds nothing; the turns go back on the
+            # bounded queue for tomorrow rather than being spent past the cap.
+            _cost = getattr(getattr(self, "engine", None), "cost", None)
+            if _cost is not None:
+                _bound = chat_budget_bound(_cost.snapshot(), CONFIG.llm)
+                if _bound:
+                    store.push_back_pending(user_id, pending)
+                    audit(system_log,
+                          f"Conversation summary deferred: {_bound} reached",
+                          action="chat_summary", result="BUDGET")
+                    return False
             ctx = store.get_context(user_id)
             prior = (getattr(ctx, "summary", "") or "").strip()
             # Each turn with the date it was said (`to_summary_turn`), so the
@@ -3529,8 +3544,24 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             user_prompt = ((f"Existing note:\n{prior}\n\n" if prior else
                             "Existing note: (none)\n\n")
                            + f"Older turns to fold in:\n{turns}")
+            _usage: dict = {}
             note = await llm_complete(client, cfg, self._SUMMARY_SYSTEM_PROMPT,
-                                      user_prompt)
+                                      user_prompt, usage_out=_usage)
+            # Booked as chat, the way the reply is: the measured pair when the
+            # response carried one, an estimate labelled by the same rule when
+            # not. A fold that was never booked let chat spend past its share
+            # unseen by /costs and by the bound above.
+            # Each half the response did not report is estimated on its own
+            # (~4 chars/token), never booked as zero.
+            if _cost is not None:
+                _in, _out = _usage.get("in"), _usage.get("out")
+                _pt = (_in if isinstance(_in, int) and not isinstance(_in, bool)
+                       else max(1, (len(self._SUMMARY_SYSTEM_PROMPT)
+                                    + len(user_prompt)) // 4))
+                _ct = (_out if isinstance(_out, int) and not isinstance(_out, bool)
+                       else len(note or "") // 4)
+                _cost.record_llm(model=cfg.model, prompt_tokens=_pt,
+                                 completion_tokens=_ct, category="chat")
             note = (note or "").strip()
             # The note is the model's own text, and the turns it folds hold
             # `[skill] result:` blocks — the one shape `strip_fabricated_tool_

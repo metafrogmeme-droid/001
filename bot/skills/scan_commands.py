@@ -1161,7 +1161,7 @@ class ScanCommands:
             if result:
                 # NO SETUPS PICTURE. A deep scan measures patterns and decides no
                 # direction, so it has no trade to draw. This block used to build
-                # one per hit anyway -- "LONG if RSI < 50 or the 24h move is up",
+                # one per hit anyway -- "LONG if RSI < 50 or the last bar closed up",
                 # a volume ratio of exactly 2.5 or 1.0, and entry, stop and target
                 # from an ATR that fell back to 2% of price -- and send it as a
                 # scan-results card with an R:R on it. The website push had the

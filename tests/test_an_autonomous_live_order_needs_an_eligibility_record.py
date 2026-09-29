@@ -79,7 +79,7 @@ class TestTheRecord:
         assert le.read_eligibility(HASH, tmp_path).state == le.UNREADABLE
 
     @pytest.mark.parametrize("fields", [
-        {"schema": 2}, {"schema": True}, {"schema": "1"},
+        {"schema": 2}, {"schema": True}, {"schema": "1"}, {"schema": 1.0},
         {"strategy_hash": ""}, {"strategy_hash": 7},
         {"verdict": "yes"}, {"verdict": None},
         {"stage": "all of it"}, {"stage": None},
@@ -159,6 +159,34 @@ class TestTheStrategyHash:
     def test_the_repo_hash_is_the_running_one(self):
         assert le.strategy_hash() == le.strategy_hash(ROOT)
         assert len(le.strategy_hash()) == 64
+
+    def test_the_engine_takes_the_hash_at_start(self, monkeypatch):
+        """Taken lazily, the hash described whatever was on DISK at the first
+        autonomous confirm: a `git reset --hard` landing new code and its
+        record before then would let the old process read the new record as
+        its own. Construction takes it now, so the cache holds the code the
+        process started with."""
+        seen: list = []
+        real = le.strategy_hash
+
+        def _counting(root=None):
+            seen.append(root)
+            return real(root)
+
+        monkeypatch.setattr(le, "_HASH_CACHE", None)
+        monkeypatch.setattr(le, "strategy_hash", _counting)
+        RuneClawEngine()
+        assert seen == [None], seen
+        assert le._HASH_CACHE == real(ROOT)
+
+    def test_a_hash_that_raises_at_start_does_not_stop_the_engine(self, monkeypatch):
+        """The mint refuses on its own when the hash cannot be taken, so start
+        says so and goes on."""
+        def _boom(root=None):
+            raise OSError("disk")
+
+        monkeypatch.setattr(le, "strategy_hash", _boom)
+        RuneClawEngine()
 
     def test_no_record_ships_for_the_running_strategy(self):
         """Every deployment today is ineligible, by construction: a record is
@@ -250,13 +278,16 @@ def _engine(tmp_path):
     engine.portfolio._peak_equity = 50000.0
     engine._live_balance_cache = {"total": 50000.0, "free": 50000.0}
     engine._live_balance_cache_ts = time.monotonic()
+    # An ENGINE idea, registered the way the engine registers its own: a
+    # manual ticket confirmed under "auto" is a state the product never
+    # produces (auto-confirm refuses a stamp before it gets here).
     idea = TradeIdea(
         id="TI-ELIG1", asset="BTC/USDT", direction=Direction.LONG,
-        entry_price=65000, stop_loss=63050, take_profit=68120,
-        confidence=1.0, reasoning="manual", signals_used=["manual"],
-        source="manual", timestamp=datetime.now(UTC), order_type="market",
+        entry_price=65000, stop_loss=63050, take_profit=68900,
+        confidence=0.9, reasoning="engine setup", signals_used=["momentum"],
+        timestamp=datetime.now(UTC), order_type="market",
     )
-    engine._pending_ideas[idea.id] = idea
+    engine._register_engine_idea(idea)
     engine._pending_atr[idea.id] = 500.0
     ex = AsyncMock()
     ex.fetch_ticker = AsyncMock(return_value={"last": idea.entry_price})
@@ -414,6 +445,9 @@ class TestForceScan:
         summary = _run(_forcescan_host(confirmed)._force_scan_locked())
         assert confirmed == []
         assert summary["auto_confirmed"] == 0
+        # "Auto-confirmed: 0" alone reads as "nothing cleared the bar".
+        assert summary["auto_withheld"] == 1
+        assert "no eligibility record exists" in summary["auto_withheld_why"]
         sup = [r for r in seen if r.get("result") == "SUPPRESSED_LIVE"]
         assert len(sup) == 1, seen
         assert "no eligibility record exists" in sup[0]["data"]["why"]
@@ -427,6 +461,8 @@ class TestForceScan:
         summary = _run(_forcescan_host(confirmed)._force_scan_locked())
         assert [u for _, u in confirmed] == ["auto"]
         assert summary["auto_confirmed"] == 1
+        assert summary["auto_withheld"] == 0
+        assert summary["auto_withheld_why"] is None
 
     def test_the_flag_off_confirms_nothing(self, monkeypatch):
         _flag(monkeypatch, False)
@@ -484,3 +520,91 @@ def test_the_mint_asks_only_for_a_caller_that_is_not_a_human():
     src = ast.unparse(node)
     assert "if not human:\n            _auto_refusal = self._autonomous_live_refusal()" in src
     assert "if human or _auto_refusal is None:" in src
+
+
+# ---------------------------------------------------------------------------
+# The two operator cards say what an auto-confirm does now.
+# ---------------------------------------------------------------------------
+
+from bot.skills import engine_ops_commands as eoc  # noqa: E402
+
+
+class TestTheCards:
+    def test_live_with_no_record_says_nothing_is_placed_and_why(self, monkeypatch):
+        _flag(monkeypatch, True)
+        line = eoc.autoconfirm_placement_line(RuneClawEngine, is_live=True)
+        assert "no order is placed without a tap" in line
+        assert "no eligibility record exists" in line
+        assert "auto-execute" not in line
+
+    def test_live_with_a_record_says_it_is_placed(self, monkeypatch):
+        _flag(monkeypatch, True)
+        _eligible(monkeypatch)
+        line = eoc.autoconfirm_placement_line(RuneClawEngine, is_live=True)
+        assert line == "Live: an idea that clears the bar is placed with no tap."
+
+    def test_the_flag_off_is_named(self, monkeypatch):
+        _flag(monkeypatch, False)
+        line = eoc.autoconfirm_placement_line(RuneClawEngine, is_live=True)
+        assert "AUTO_CONFIRM_LIVE_ENABLED is off" in line
+
+    def test_paper_mode_places_nothing_and_asks_nothing(self):
+        def _never():
+            raise AssertionError("paper mode read the live gate")
+
+        line = eoc.autoconfirm_placement_line(
+            SimpleNamespace(_autonomous_live_refusal=_never), is_live=False)
+        assert "places nothing" in line
+
+    def test_a_gate_that_raises_is_said_not_passed(self):
+        def _boom():
+            raise RuntimeError("x")
+
+        line = eoc.autoconfirm_placement_line(
+            SimpleNamespace(_autonomous_live_refusal=_boom), is_live=True)
+        assert "could not be read (RuntimeError)" in line
+        assert "is placed with no tap" not in line
+
+    def test_the_reason_is_escaped(self):
+        line = eoc.autoconfirm_placement_line(
+            SimpleNamespace(_autonomous_live_refusal=lambda: "<b>x</b>"), is_live=True)
+        assert "<b>x</b>" not in line and "&lt;b&gt;" in line
+
+    @pytest.mark.parametrize("result", [
+        {}, {"auto_withheld": 0}, {"auto_withheld": True},
+        {"auto_withheld": "2"}, {"auto_withheld": -1},
+    ])
+    def test_no_line_when_nothing_was_held_back(self, result):
+        assert eoc.forcescan_withheld_line(result) is None
+
+    def test_the_held_back_line_counts_and_says_why(self):
+        line = eoc.forcescan_withheld_line(
+            {"auto_withheld": 2, "auto_withheld_why": "no <record>"})
+        assert "<b>2</b>" in line and "no &lt;record&gt;" in line
+
+    def test_the_held_back_line_with_no_reason(self):
+        line = eoc.forcescan_withheld_line({"auto_withheld": 1})
+        assert "<b>1</b>." in line
+
+    def test_the_status_card_reads_runtime_not_the_boot_config(self, monkeypatch):
+        """`/autoconfirm 0.75` and the adaptive threshold move RUNTIME; the
+        card read the frozen CONFIG value and showed the boot default."""
+        from bot.config import RUNTIME
+        monkeypatch.setattr(RUNTIME, "auto_confirm_threshold", 0.72)
+        sent: list = []
+
+        async def _send(update, text, **kw):
+            sent.append(text)
+
+        host = SimpleNamespace(
+            engine=SimpleNamespace(_autonomous_live_refusal=lambda: "nope"),
+            _send=_send, _guard=AsyncMock(return_value=True),
+            _get_tg_id=lambda u: "1")
+        fn = eoc.EngineOpsCommands._cmd_autoconfirm
+        fn = getattr(fn, "__wrapped__", fn)
+        with patch.object(type(CONFIG), "is_live", return_value=True):
+            _run(fn(host, SimpleNamespace(), SimpleNamespace(args=[])))
+        assert len(sent) == 1, sent
+        assert "72%" in sent[0], sent[0]
+        assert "auto-execute" not in sent[0]
+        assert "no order is placed without a tap, because nope" in sent[0]

@@ -177,13 +177,16 @@ margin 250` into a Confirm card that places nothing until tapped
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:125).
-Autonomously: engine.py:6290-6350 confirms and executes any idea at or above
-RUNTIME.auto_confirm_threshold with no human tap.
+Autonomously: engine.py:6299-6359 confirms any engine idea at or above
+RUNTIME.auto_confirm_threshold with no human tap, and the confirm places a live
+order only when benchmark/eligibility/ holds a record for the running strategy
+(bot/core/live_eligibility.py). None ships, so today nothing is placed without a
+tap; in paper mode the confirm places nothing either (the bot is live-only).
 
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
 LIVE_TRADING_ENABLED defaults False (config.py:2500-2501), so a stock deploy
 trades perps on paper until the operator runs /golive. A real order
-additionally needs _can_trade_live (telegram_handler.py:4918), which requires
+additionally needs _can_trade_live (telegram_handler.py:4949), which requires
 BOTH the env allowlist and the per-user store flag; web-only `web:<id>`
 identities are structurally paper-only and can never pass it. Venue coverage
 is Bitget (primary) with Bybit/Hyperliquid adapters; long/short perps only —
@@ -281,8 +284,8 @@ decision after shadow evidence, not a card.
 
 Basis is COMPUTED and read, never traded. bot/core/basis.py's BasisAnalyzer is
 constructed at engine.py:716 and fetched in `_analyze_signal`'s context gather
-(engine.py:7231) — its
-result is handed to analyzer.analyze at :7400 as `basis` CONTEXT that votes on
+(engine.py:7240) — its
+result is handed to analyzer.analyze at :7409 as `basis` CONTEXT that votes on
 nothing. Its own docstring (basis.py:16-30) records that it had no caller
 outside tests until recently and that a fabricated `basis_pct * 365`
 "annualized" field was removed rather than propagated. On the web,
@@ -348,10 +351,11 @@ The whole product is an algo bot and every layer is reachable. bot/main.py:587
 starts engine.run(), the scan→analyze→risk→execute FSM; market_scanner feeds
 analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
 signal modules; RiskEngine (bot/risk/risk_engine.py:270) is the fail-closed pre-
-trade gate whose whole enforcing set /enforcing lists. engine.py:6290-6350
-auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
-(default 0.85, config.py:2560) with no human in the loop, adaptively moved by
-realized win rate (engine.py:9634): the paper book's in paper mode, both
+trade gate whose whole enforcing set /enforcing lists. engine.py:6299-6359
+auto-confirms any idea at or above RUNTIME.auto_confirm_threshold
+(default 0.85, config.py:2560) with no human in the loop, and places it live only
+under an eligibility record for the running strategy (none ships), adaptively moved by
+realized win rate (engine.py:9648): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
@@ -1432,7 +1436,7 @@ size/exposure/loss caps, symbol allow/deny, regime, horizon
 (app/lib/user_strategies.js:18-33) — saves it, publishes it to the community
 marketplace, and ARMS it on their own bot: the web projects its signal-
 checkable rules, the bot re-validates and stores the snapshot
-(bot/core/user_strategy_store.py:134-174), and bot/core/engine.py:7958-8007
+(bot/core/user_strategy_store.py:134-174), and bot/core/engine.py:7967-8016
 evaluates it on every confirm and refuses the trade when it fails. Followers
 of a published strategy get its would-take picks (app/routes/copy.js:105). (2)
 Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
@@ -1678,7 +1682,7 @@ in the map.
 
 *Where.* Dashboard Markets view panel #p-rwa/#c-rwa
 (app/public/js/dashboard.js:1373 jump-nav, :1432 panel, :1522 fetch) → GET
-/api/market/rwa (app/routes/market.js:173, auth:false, public); Telegram /rwa
+/api/market/rwa (app/routes/market.js:175, auth:false, public); Telegram /rwa
 (@guard("rwa"), bot/skills/market_commands.py:72, registered
 bot/skills/telegram_handler.py:1017, reads the web via
 bot/utils/web_data_pull.py → /api/bot/sync/card/rwa, the card RENDERED);
@@ -1696,7 +1700,7 @@ execution-adjacent /api/meme/swap/build and /memeplan; the read-only on-chain
 meme/AI snapshot with a safety read is a separate, wider door.
 
 *Where.* Dashboard Markets panel #c-meme → GET /api/market/meme
-(app/routes/market.js:197, public; dashboard.js:1632); web chat intercept
+(app/routes/market.js:199, public; dashboard.js:1632); web chat intercept
 'meme' (app/routes/chat.js); MCP get_meme_radar (app/routes/mcp.js:666);
 app/lib/meme.js.
 
@@ -1706,7 +1710,7 @@ On-chain flow radar (exchange flows / whale accumulation). Public panel plus a
 BYOK provider that votes in the analyzer.
 
 *Where.* Dashboard Markets panel #c-flow (jump-nav 'On-chain flow') → GET
-/api/market/onchain-flow (app/routes/market.js:221; dashboard.js:1662),
+/api/market/onchain-flow (app/routes/market.js:223; dashboard.js:1662),
 app/lib/onchain_flow.js; engine side bot/core/onchain.py (BYOK
 Glassnode/Arkham/Nansen) imported by bot/core/analyzer.py and
 bot/core/token_safety.py; bot/core/smart_money.py imported by analyzer.py.
@@ -1719,7 +1723,7 @@ account market-discovery surface.
 
 *Where.* Public page GET /strengthmap (app/server.js:676) →
 app/public/js/strengthmap.js:253 → GET /api/market/strengthmap?limit=240
-(app/routes/market.js:237), app/lib/strengthmap.js; linked from
+(app/routes/market.js:239), app/lib/strengthmap.js; linked from
 app/public/index.html:149 and explore.html:183. Also the dashboard Markets
 'Sector sweep' panel #p-radar3d (dashboard.js:1425).
 
@@ -1732,7 +1736,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1244, registered telegram_handler.py:1233) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:8602
+bot/core/stock_trading.py, also read by bot/core/engine.py:8611
 (get_market_session) and scan_commands.py:376.
 
 **Price alerts and anomaly-alert scoping**
@@ -1974,7 +1978,7 @@ only.
 
 *Where.* GET /api/sentry (app/routes/sentry.js, JWT → gateway /sentry,
 bot/web/user_gateway.py) → dashboard.js:4004 panel #c-sentry; public /sentinel
-page (server.js:463) and GET /api/market/sentinel (market.js:261); MCP
+page (server.js:463) and GET /api/market/sentinel (market.js:263); MCP
 get_systemic_risk (mcp.js:440).
 
 **Per-user watchlist**
@@ -2382,7 +2386,7 @@ half of the measurement that says where the measurement stops.
   out of the DB row keyed on `req.user.user_id` — never off the body, the
   query or a header — so the id the gateway admin-checks is the one the
   database holds for the JWT's own subject. `_is_admin_id`
-  (`bot/skills/telegram_handler.py:5017`) is server-side too: the user store's
+  (`bot/skills/telegram_handler.py:5048`) is server-side too: the user store's
   role, or `ADMIN_TELEGRAM_IDS`. An escalation needs a foreign `telegram_id`
   written onto your own row, which is the invariant
   `identity.foreignIdentityBlock` already documents and asserts.
@@ -2468,7 +2472,7 @@ half of the measurement that says where the measurement stops.
 
   **The macro_skills shape does not apply.** Walked by AST, the eight handlers
   make exactly THREE attribute probes between them, and all three name real
-  attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:984`),
+  attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:993`),
   `CONFIG.deepscan_timeout_sec` (`bot/config.py:2752`, and three sibling call
   sites read it with no `getattr` at all) and `engine.analyzer`
   (`bot/core/engine.py:701`). Every handler guards its own read and has an

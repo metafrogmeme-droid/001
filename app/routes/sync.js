@@ -939,6 +939,12 @@ router.post('/events', async (req, res) => {
 router.post('/scan', async (req, res) => {
   try {
     const incoming = req.body || {};
+    // After a website restart `latestScan` is empty until a reader loads it,
+    // and the carry-forward below reads it: the first cycle summary would
+    // then carry nothing and REPLACE the saved scan in the DB, cards and all.
+    // The saved copy is loaded first; a read that fails leaves it empty, as
+    // before (getLatestScan never throws).
+    if (!latestScan) await getLatestScan();
     // Preserve the deep-scan pattern block across scans that don't carry one.
     // A fresh block (from /deepscan) is stamped with its web arrival time; a
     // carried-forward block is dropped once older than the TTL.
