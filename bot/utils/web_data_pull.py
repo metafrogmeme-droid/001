@@ -32,7 +32,7 @@ _SYMBOL_RE = re.compile(r"^[A-Z0-9]{1,10}$")
 #: for a caller it cannot map to a web account.
 WEB_CARDS: tuple[str, ...] = ("nft", "spot", "airdrops", "replay", "letter",
                               "venue_router", "meme_radar", "wallet", "defi", "alerts",
-                              "rwa")
+                              "rwa", "etf_flows")
 
 #: The one argument each of three cards takes — the intercept's own capture
 #: group, as a query parameter (`bot/nlp/web_card_args.py` reads it from the

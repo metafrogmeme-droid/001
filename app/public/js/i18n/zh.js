@@ -312,6 +312,7 @@
   ["sec.prov_totals_anch", "其中 {a} 天已錨定於 Base"],
   ["sec.prov_root_head", "{day} 封存 · {n} 筆呼叫承諾於這一個雜湊"],
   ["dp.radar3d", "板塊掃描——即時 3D 雷達"],
+  ["dp.etf", "美國現貨加密 ETF 資金流"],
   ["dp.rwa", "RWA 與鏈上雷達"],
   ["dp.airdrops", "空投與測試網雷達"],
   ["dp.meme", "迷因與 AI 代幣雷達"],

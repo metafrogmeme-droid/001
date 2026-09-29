@@ -23,6 +23,7 @@ from bot.config import CONFIG
 from bot.core.analyzer import Analyzer
 from bot.core.leverage import apply_margin_risk_cap
 from bot.core.limit_entry import resting_limit_drift
+from bot.core.partial_tp import _tp1_lock, _tp2_lock
 from bot.risk.risk_engine import RiskEngine
 from bot.risk.portfolio import PortfolioTracker
 from bot.utils.logger import audit, system_log, trade_log
@@ -751,8 +752,12 @@ class BacktestEngine:
         else:
             adjusted_entry = fill_price - slippage
 
-        # Create a slippage-adjusted copy of the idea for portfolio
-        slipped_idea = idea.model_copy(update={"entry_price": round(adjusted_entry, 6)})
+        # Create a slippage-adjusted copy of the idea for portfolio. The entry
+        # is not rounded: six decimal places is an absolute grid, and a
+        # sub-cent asset's price sits on it at one or two significant digits.
+        # A PEPE long entered at 0.0000114957 was booked at 0.000011, so a
+        # flat exit read +4.38 on $100; an entry of 4.9e-07 rounded to 0.0.
+        slipped_idea = idea.model_copy(update={"entry_price": adjusted_entry})
         # Balance-exhaustion race: the size was approved against balance at
         # scan time, but fills since then (other streams in portfolio mode, or
         # the bar gap in next_open mode) may have consumed the margin.
@@ -1258,11 +1263,13 @@ class BacktestEngine:
                     state.tp1_hit = True
                     state.tp1_qty_closed = close_qty
                     state.remaining_qty -= close_qty
-                    fee_buffer = state.entry_price * 0.001
-                    state.current_sl = (
-                        state.entry_price + fee_buffer if is_long
-                        else state.entry_price - fee_buffer
-                    )
+                    # The live ladder's own TP1 lock: breakeven after the
+                    # round trip this engine charges, which `_execute_fill`
+                    # hands the state as `fee_round_trip_pct`. This copy
+                    # hard-coded 0.1% and never read that input, so under
+                    # `--honest` (a 0.12% round trip) every "breakeven"
+                    # stop-out lost 0.02% of notional.
+                    state.current_sl = _tp1_lock(state)
                     pos.stop_loss = state.current_sl
                     self._partial_close(tid, bt_meta, pos, close_qty, tp1_price, bar, "TP1")
 
@@ -1281,10 +1288,7 @@ class BacktestEngine:
                     state.tp2_hit = True
                     state.tp2_qty_closed = close_qty
                     state.remaining_qty -= close_qty
-                    lock = state.initial_risk
-                    state.current_sl = (
-                        state.entry_price + lock if is_long else state.entry_price - lock
-                    )
+                    state.current_sl = _tp2_lock(state)
                     pos.stop_loss = state.current_sl
                     self._partial_close(tid, bt_meta, pos, close_qty, tp2_price, bar, "TP2")
 

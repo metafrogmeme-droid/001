@@ -80,6 +80,7 @@
     "fundingscan": "funding annualizzato, multi-venue",
     "arb": "tracker paper dell'arbitraggio di funding",
     "rwa": "radar degli asset reali tokenizzati",
+    "etf": "Flussi degli ETF cripto spot statunitensi questa settimana, come immagine, sola lettura",
     "spot": "coppie spot su tutti gli exchange e la base spot/perp, sola lettura",
     "nft": "collezioni NFT per volume reale a 7 giorni, floor e volume, sola lettura",
     "airdrops": "radar di airdrop e testnet — solo guida, mai farmato al posto tuo",

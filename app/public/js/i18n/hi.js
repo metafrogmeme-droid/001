@@ -312,6 +312,7 @@
   ["sec.prov_totals_anch", "उनमें से {a} दिन Base पर anchor किए गए"],
   ["sec.prov_root_head", "{day} को सील किया गया · {n} calls इसी एक hash में कमिट किए गए"],
   ["dp.radar3d", "सेक्टर स्वीप — लाइव 3D रडार"],
+  ["dp.etf", "अमेरिकी स्पॉट क्रिप्टो ETF प्रवाह"],
   ["dp.rwa", "RWA और ऑन-चेन रडार"],
   ["dp.airdrops", "Airdrop और testnet रडार"],
   ["dp.meme", "Meme और AI-token रडार"],

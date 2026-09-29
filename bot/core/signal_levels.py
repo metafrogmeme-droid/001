@@ -69,6 +69,36 @@ def record_atr(value: Any) -> float:
     return float(f"{v:.{ATR_SIG_DIGITS}g}")
 
 
+#: The fewest decimal places a recorded level keeps: the old `round(..., 6)`.
+LEVEL_MIN_PLACES = 6
+
+
+def record_level(value: Any, min_places: int = LEVEL_MIN_PLACES) -> float:
+    """A price level, or a signed figure in price units, as it is recorded.
+
+    Six decimal places or six significant digits, whichever keeps more. The
+    analyzer rounded every level it computes (the VWAP and its bands, the
+    EMAs, SMA50, Bollinger, Keltner and Donchian channels, the fib ladder,
+    the session range, MACD) to six decimal PLACES, the ATR's defect across
+    forty-two readings. On a sub-cent asset every one of them landed on a grid a
+    few percent of the price wide, so both EMAs read one number, MACD and its
+    histogram read exactly 0.0 (the MACD voter abstained on every such
+    asset), and Bollinger %B read 0.83 for a price above the upper band.
+
+    At or above 0.1 in magnitude the answer is byte-identical to
+    `round(value, 6)`, so no reading of a larger price moves. The sign is
+    kept, and a value that is not finite is handed back as `round` would.
+    `min_places` is for a site that rounded to more places than six (the
+    volume profile and the limit entry used eight): it keeps that many, so
+    those sites move only where eight places kept fewer than six digits.
+    """
+    v = float(value)
+    if v == 0.0 or not math.isfinite(v):
+        return round(v, min_places)
+    places = ATR_SIG_DIGITS - 1 - math.floor(math.log10(abs(v)))
+    return round(v, max(min_places, places))
+
+
 def atr_on_record(value: Any) -> Optional[float]:
     """A recorded ATR when it is a measurement, `None` when it is not.
 
@@ -88,9 +118,9 @@ def atr_on_record(value: Any) -> Optional[float]:
 
 def _price_text(p: float) -> str:
     """The product's own price formatter, asked rather than re-spelled."""
-    from bot.formatters.rich_cards import _fmt_price
+    from bot.formatters.price_text import fmt_price
 
-    return _fmt_price(p)
+    return fmt_price(p)
 
 
 def levels_separate(entry: Any, stop_loss: Any, take_profit: Any) -> bool:

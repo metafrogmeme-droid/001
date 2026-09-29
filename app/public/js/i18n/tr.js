@@ -312,6 +312,7 @@
   ["sec.prov_totals_anch", "bu günlerin {a} tanesi Base üzerinde sabitlendi"],
   ["sec.prov_root_head", "{day} tarihinde mühürlendi · {n} çağrı bu tek özete bağlandı"],
   ["dp.radar3d", "Sektör taraması — canlı 3B radar"],
+  ["dp.etf", "ABD spot kripto ETF akışları"],
   ["dp.rwa", "RWA ve zincir üstü radar"],
   ["dp.airdrops", "Airdrop ve testnet radarı"],
   ["dp.meme", "Meme ve yapay zekâ token radarı"],

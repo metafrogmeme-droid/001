@@ -57,6 +57,8 @@ def _open(eng: BacktestEngine, direction: Direction, entry: float, sl: float,
     }
     if eng._partial_tp_enabled:
         eng._open_bt_positions[idea.id]["ptp_state"] = create_partial_tp_state(
+            # The engine's own round trip, as `_execute_fill` hands it.
+            fee_round_trip_pct=2.0 * eng.config.commission_pct,
             trade_id=idea.id, direction=direction.value, entry_price=entry,
             stop_loss=sl, take_profit=tp, quantity=trade.quantity, atr=atr,
         )
@@ -107,8 +109,10 @@ class TestLongLadder:
         # 50% closed
         assert eng._trades[-1].exit_reason == "TP1"
         assert abs(state.remaining_qty - full_qty * 0.5) < 1e-9
-        # SL moved to breakeven (entry + 0.1% buffer)
-        assert state.current_sl == pytest.approx(100.0 + 100.0 * 0.001)
+        # SL moved to breakeven after the engine's round trip: commission
+        # 0.1% a leg is 0.2% of notional, so the lock sits 0.2% past entry.
+        # It was a hard-coded 0.1% here, which read no fee input at all.
+        assert state.current_sl == pytest.approx(100.0 + 100.0 * 0.002)
         assert eng.portfolio._positions[tid].stop_loss == state.current_sl
 
     def test_full_ladder_tp1_tp2_then_runner_trails(self):

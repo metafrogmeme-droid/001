@@ -312,6 +312,7 @@
   ["sec.prov_totals_anch", "{a} de esos días anclados en Base"],
   ["sec.prov_root_head", "Sellado el {day} · {n} llamadas comprometidas en este único hash"],
   ["dp.radar3d", "Barrido sectorial — radar 3D en vivo"],
+  ["dp.etf", "Flujos de los ETF cripto spot de EE. UU."],
   ["dp.rwa", "Radar RWA y on-chain"],
   ["dp.airdrops", "Radar de airdrops y testnets"],
   ["dp.meme", "Radar de memes y tokens de IA"],

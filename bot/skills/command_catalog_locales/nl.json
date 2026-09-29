@@ -80,6 +80,7 @@
     "fundingscan": "funding op jaarbasis, meerdere venues",
     "arb": "paper-tracker voor funding-arbitrage",
     "rwa": "radar voor getokeniseerde real-world assets",
+    "etf": "Stromen van Amerikaanse spot-crypto-ETF's deze week, als afbeelding, alleen-lezen",
     "spot": "spotparen op alle beurzen en de spot/perp-basis, alleen-lezen",
     "nft": "NFT-collecties op echt 7-daags volume, floor en volume, alleen-lezen",
     "airdrops": "airdrop- en testnetradar — alleen begeleiding, nooit voor je gefarmd",

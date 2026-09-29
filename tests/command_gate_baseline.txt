@@ -54,6 +54,7 @@ emergency_stop guard
 enforcing guard
 equitycurve is_admin
 escape is_admin
+etf guard
 eventrisk guard
 exchange guard
 exposure guard

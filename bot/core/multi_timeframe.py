@@ -21,6 +21,7 @@ import numpy as np
 from pydantic import BaseModel, Field
 
 from bot.core.ta_utils import _ema, _compute_adx
+from bot.core.signal_levels import record_level
 from bot.utils.candles import ohlc_on_record
 
 
@@ -276,9 +277,9 @@ def _analyze_single_tf(
         "trend_score": round(trend_score, 2),
         "rsi": round(rsi, 2),
         "adx": adx,
-        "ema20": round(ema20_val, 6),
-        "ema50": round(ema50_val, 6),
-        "price": round(price, 6),
+        "ema20": record_level(ema20_val),
+        "ema50": record_level(ema50_val),
+        "price": record_level(price),
         "structure": structure["structure"],
         "structure_bias": round(structure["bias"], 2),
         "bos": structure["bos"],

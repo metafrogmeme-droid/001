@@ -264,6 +264,26 @@ net −$1,456.39, PF 0.61, 1 of 6 folds profitable, mean OOS −2.43%, worst
 main's stop-distance floor (`69f63073`) and none with the sizing rule at 1x;
 the money moved with the leverage, which is the section below.
 
+**Re-recorded on 2026-09-29 at `cbbf9348`, the commit that books a backtest
+fill at the price it filled at and runs the live ladder's TP1 and TP2 locks.**
+117 pooled trades, 58/59, net −$1,456.38, PF 0.61, 1 of 6 folds profitable,
+mean OOS −2.43%, worst −4.66%, on the same `dataset_hash`. One cent moved.
+Neither fix has much to act on in this snapshot: it holds no sub-cent asset,
+and the ladder's TP1 fired twice in the whole run (counted by wrapping the
+lock). The alts and correlation snapshots hold PEPE, FLOKI and SHIB, whose
+six-decimal rounding moved a price by a median of up to 9%. Their tables on
+this page were measured with that rounding in place and are not re-run here.
+
+**Re-recorded on 2026-09-29 at `d8b0f7d6`, the commit that records the
+analyzer's levels in significant digits rather than six decimal places.** 117
+pooled trades, 58/59, net −$1,456.42, PF 0.61, 1 of 6 folds profitable, mean
+OOS −2.43%, worst −4.66%, on the same `dataset_hash`. Four cents moved. The
+trades are the same trades: each symbol's count and win rate in every fold is
+unchanged, and the per-symbol nets differ by one to four cents on AVAX, BTC,
+DOGE and LTC. The alts and correlation snapshots, where the rounding moved a
+sub-cent asset's levels by several percent, are not re-run here, for the
+reason the paragraph above gives.
+
 `code_sha` names the commit the measurement was taken AT, which is why the
 artefact lands in the commit AFTER the one that changed the code: an artefact
 whose sha is the commit containing it cannot exist. `73740a1a` above set the

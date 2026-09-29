@@ -1302,9 +1302,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 106 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 107 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 97 of the 106 reach the tool-less chat model and 9
+typed as the card prints them, 98 of the 107 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -6038,11 +6038,15 @@ whose whole claim is that the leg costs nothing.
 
 **IT IS AN INPUT, NEVER COMPUTED IN THE LADDER, because two runtimes run this
 ladder and the module must not pick a fee model.** `PARTIAL_TP_ENABLED` defaults
-True, so the backtest scales out through the same `check_partial_tp` — the live
-executor supplies the position's own entry leg and the backtest supplies its
-`commission_pct` pair, which is the division this file already records for fees
-(`bot/risk/portfolio.py` is injected with the backtest's rate *"so the simulated
-fee matches the run being compared"*). A test fails on `partial_tp` importing
+True, so the backtest scales out too — the live executor supplies the position's
+own entry leg and the backtest supplies its `commission_pct` pair, which is the
+division this file already records for fees (`bot/risk/portfolio.py` is injected
+with the backtest's rate *"so the simulated fee matches the run being
+compared"*). (Corrected 2026-09-29: this sentence said the backtest scales out
+"through the same `check_partial_tp`". It does not: it runs
+`_check_ladder_intrabar`, a bar-aware copy, which was handed the pair and built
+its own 0.1% lock anyway, so the fix below never reached the benchmark. The
+chapter on the backtest's sub-cent entries records it.) A test fails on `partial_tp` importing
 `trade_costs`, `commission_pct` or either fee field.
 
 **THE LIVE FIGURE IS SET ON EVERY PASS, ABOVE THE CHECK, AND THAT IS WHAT MAKES
@@ -17795,6 +17799,265 @@ read it as an order path that never asks. It is excluded beside `_place_sl_tp`
 for the same reason: a missing stop must still be placed while trading is
 halted. No suite in that slice ran `guard_lint`.
 
+**US SPOT CRYPTO ETF FLOWS: ONE READING, A PANEL, A PICTURE, AND NOTHING IN
+IT IS A ZERO THE SOURCE DID NOT STATE.** Asked for on 2026-09-29 with an
+example infographic: the week's net flows into the US spot ETFs, by asset and
+by provider, on the website and as a picture on Telegram. The example's
+branding is not copied; the picture names its source. Farside answers 403 to
+a script and CoinGlass needs a key, so the source is SoSoValue's keyless open
+API: a daily history per asset (BTC, ETH, SOL; the other names it lists come
+back empty) and the latest day's metrics, where every field carries its own
+date and a status.
+
+**`app/lib/etf_flows.js` is the one reading**, and three surfaces render it:
+the Markets panel (`GET /api/market/etf-flows`), the web chat card, and
+Telegram's `/etf`, which fetches the card route. The route now forwards the
+payload a card was built from as `data` (a plain object only, never a list),
+so the picture draws the same figures rather than a second reading of the
+source. What the reading refuses, each driven:
+
+- a day listed with no readable flow is left out of the week's sum and
+  counted as unread, never added as zero;
+- a metrics field whose status is not the source's `'1'` is unread;
+- an asset reported on an earlier day than the others is named, and is not
+  summed into a total for a different week;
+- the coin estimate needs the funds' net assets and holdings stated for the
+  same day, and is marked approximate on every surface;
+- a fund whose flow is dated another day is unread for that day, and a
+  provider whose funds were only partly read says so;
+- the takeaway ("about N days of newly mined bitcoin") is labelled derived,
+  with its constant (450 BTC a day since the 2024 halving) printed beside it,
+  and a week whose coin estimate is a measured zero has none;
+- a read that reached no asset THROWS: the route answers 502, the card route
+  500, the panel its failure state and `/etf` the transport's sentence, never
+  "no flows".
+
+The providers are the latest day only, and each surface says so: the source's
+per-fund figures are current metrics, and a weekly provider breakdown would
+need a per-fund history it does not publish. `prior_week` was computed and
+read by no surface, so it is deleted: a field nobody reads is one the next
+reader trusts because it is there. ETF flows in dollars are public market
+facts, like volume, so they are fine on the public route.
+
+**The picture's formatter was a second copy that rounded differently.**
+`render_etf_card` draws the payload and computes nothing, but it formats
+figures, and Python's format rounds an exact tie to even where the website's
+`toFixed` and `maximumFractionDigits` round it up: -3.25 coins printed
+`≈ -3.2 BTC` on the picture and `≈ -3.3 BTC` on the panel, and a 12.5-day
+takeaway `12` against `13`. `_fixed` rounds the exact binary value half-up,
+and a test runs the real JS formatters and the Python ones over one table
+(ties, absences, junk) and requires them equal. The panel carries a third
+copy, because the browser cannot load the server lib; a Node test holds it to
+the lib over the same kind of table, and on its first run found the panel
+reading a blank string as a measured `≈ 0 BTC` where the lib reads it as
+absent.
+
+**Two gates found the rest before the full run.** The Chromium smoke put the
+new panel in its failure state, because the generic stub carries no `total`
+and the loader correctly throws over it; the fixture is now built by
+`buildEtfFlows` over planted rows, so it cannot drift from the route's shape.
+And the JS honesty ratchet counted the provider sum's `?? 0`, which started a
+running sum inside a guard; it is written without the shape.
+
+**The caption is the card's first two lines and its source line**, because
+the picture carries the rest and Telegram caps a caption at 1024 characters;
+the caption is what the transcript records. A picture that could not be drawn
+or that Telegram refused sends the text card instead, and the exception's
+class, never its text, is logged. `/etf` is guarded under its own permission,
+held by trader, paper and viewer.
+
+**A new command is five tables, and the slice's own suites saw three.** The
+catalogue, the guard baseline and the role table each had a test in this
+slice; the gate-spelling baseline (`command_gate_baseline.txt`), the card-name
+pin, the twelve catalogue locales and the catalogue drive's count did not, and
+each failed only when every suite that reads those tables was run. They are
+recorded in this commit. That is the run to make before a full preflight when a
+slice adds a command.
+
+**Thirty-six mutations, each killed; four survived the first round and all
+four were cases no fixture planted**: a week whose coin estimate is exactly
+zero, the source's own refusal code (driven through `fetch` itself, since
+every other test injects a fetcher), a renderer handing the route a list as
+its data, and an unread asset on the picture that also got a bar.
+**And the citation check for this slice found three map citations that were
+wrong before it.** The map's funding paragraph cited `/funding`, `/fundingscan`
+and `/arb` at lines 74, 149 and 241 of `market_commands.py`, for handlers at
+201, 265 and 240, and called `/funding` ungated beside its `@guard("status")`.
+None sat on a blank line, and the remap carried all three faithfully. They are
+derived from the handlers now, and the gate from the decorator
+(`test_the_funding_citations_are_the_handlers_they_name`).
+(`app/test/etf_flows_reads_what_the_source_stated.test.js`,
+`tests/test_the_etf_flows_picture_draws_the_websites_figures.py`.)
+
+**A TRAIL STOP THE PRICE HAS ALREADY CROSSED WAS SENT TO THE VENUE ON EVERY
+TICK, REFUSED EVERY TIME, AND NEVER ACTED ON.** The live trail computes its
+stop, asks the venue to move the resting one there, and advances the record
+only when the venue accepts. That is right, and it left one case open. Once
+the move at the peak did not land, the next tick computed the same stop from
+the same best price, and by then the price was below it. Driven through the
+real `check_positions`, a long from 100 with its stop at 98 at prices 106.5,
+104.0 and 103.2:
+
+- the trail proposed 105.5 on every tick;
+- the venue was asked for it three times;
+- the stop stayed 98 and the position stayed open.
+
+The trail had stopped working, and the only trace was a WARNING per tick
+saying the update failed. The wave ratchet reaches the same state without a
+failed move. It reads confirmed pivots off closed candles, and a pivot the
+price has already broken proposes a stop above the price the first time it is
+read. The backtest closes this case at the next bar's open (`min(sl, open)`
+for a long), so the benchmark was measuring an exit that live never made.
+
+**A stop the price has crossed has been hit.** `stop_rests` is the one reading
+of whether a stop can rest at a price: below it for a long, above it for a
+short. At the price counts as crossed, the rule the static check already uses
+(`price <= sl`). The partial-TP ladder asked the same question with its own
+comparison, and asks this reading now. When the trail's stop does not rest,
+the position is closed at market through the normal close path. The label is
+`stop_exit_label`'s, the same one the static check writes. The audit reads
+`trailing_sl: CROSSED` at WARNING, and nothing is sent to the venue. The check
+runs before `TRAILING_MIN_SL_UPDATE_PCT`. That gate keeps small moves from
+spamming the venue, and it does not decide whether the price has crossed the
+trail. The staleness guard still runs first, so a frozen price on a position
+the venue still protects moves nothing.
+
+**The other choice was waiting, and it was refused on arithmetic.** The ladder
+waits when a lock is behind the price. For a trail, waiting means riding the
+original stop, so a trail locking +2R becomes a -1R loss if the price keeps
+going. Preventing that is the only reason the trail exists.
+
+**Fifteen mutations: fourteen killed and one equivalent. The one that
+survived a round was a test gap.** Nothing read what the monitor pass returns, so
+dropping the close message changed no verdict. The drive reads it now. The
+equivalent mutant labels the close from the old stop instead of the new one.
+The trail reports itself active on every tick whose stop moved, under all
+three rules, and an active trail's label is TRAILING SL HIT whatever the
+level. That property is driven over a price path for every rule and
+direction, so the day a rule moves the stop while inactive, the label starts
+depending on which stop it was handed, and the test fails. Two anchors
+matched twice, because the close's three lines are the static check's too, and
+were refused until re-anchored.
+(`tests/test_a_trail_stop_the_price_has_crossed_closes_the_position.py`.)
+
+**THE BACKTEST BOOKED A SUB-CENT FILL AT A DIFFERENT PRICE FROM THE ONE IT
+FILLED AT, AND ITS LADDER NEVER READ THE FEE MODEL IT WAS HANDED.** Two
+defects in `bot/backtest/engine.py`, one surface each.
+
+**`_execute_fill` rounded every entry to six decimal places.** Six places is an
+absolute grid, and a price is relative. A sub-cent asset sits on that grid at
+one or two significant digits, so its entry was booked at a different price
+from its fill, and it was sized off that price. Driven on a real
+`PortfolioTracker`:
+
+- a PEPE long filled at 0.0000114957 was booked at 0.000011, and an exit at
+  the fill price read **+$4.38 on $100** (the short mirror, -$4.52);
+- a long whose stop sat at 0.000011 was refused as a stop at its own entry and
+  counted as a risk rejection;
+- an entry of 4.9e-07 rounded to 0.0 and was refused as a zero price.
+
+Measured over the snapshots' closes, the rounding moves a price by a median
+of:
+
+- **PEPE**: 6.08% in `alts_1h`, 3.43% in `alts_1h_v2` and `corr_dense_1h`,
+  9.12% in `alts_1h_v3`;
+- **FLOKI**: 0.40% to 1.05%;
+- **SHIB**: 2.51% in `corr_dense_1h`.
+
+Four snapshots are affected. The three `majors_1h` snapshots hold no sub-cent
+asset, and the rounding changes nothing on them. The entry is booked unrounded
+now. The docs recorded the alts and correlation tables with it in place. They
+are not re-run here and stand as measurements of the code that produced them.
+
+**The ladder the backtest runs is a copy, and it never read the fee input.**
+The TP1 chapter made the live lock "breakeven after the round trip", read from
+`fee_round_trip_pct`. Its `_execute_fill` was taught to hand the backtest's
+state `2 x commission_pct`. The sentence in that chapter saying the backtest
+scales out "through the same `check_partial_tp`" was false:
+
+- the backtest runs `_check_ladder_intrabar`, a bar-aware copy of the live
+  ladder;
+- the copy built TP1's lock as `entry * 0.001` itself;
+- its TP2 lock was a second spelling of `_tp2_lock`.
+
+`--honest` turns this ladder on and charges a 0.12% round trip, so every
+"breakeven" stop-out in the frozen record lost 0.02% of notional, the defect
+that chapter was written to remove. The only pin over it asserted that the
+argument STRING appeared in the source. Both locks are the live functions now
+(`_tp1_lock`, `_tp2_lock`), proved by planting each and reading the backtest's
+stop back. The ladder's own suite had pinned the hard-coded 0.1% as the
+contract, through a helper that built its state with no fee input. That meant
+the fallback, `LEGACY_FEE_BUFFER_PCT`, was the only branch it drove. The helper
+passes the engine's round trip, and the pin is 0.2%. The majors record was
+re-measured in the commit after this one, for the reason `code_sha` gives, and
+moved by one cent (net −$1,456.38): that snapshot holds no sub-cent asset, and
+its TP1 fired twice in the whole run.
+
+**Ten mutations, each killed. The one that survived the first round was the
+assertion's tolerance.** Rounding the entry to twelve places passed a
+`pytest.approx(..., rel=1e-12)`, because `approx` also allows an ABSOLUTE
+1e-12, and at a price of 1e-05 that is a relative 1e-07. The two entry
+assertions set `abs=0`, and the mutation dies.
+(`tests/test_a_backtest_fill_keeps_a_sub_cent_entry.py`,
+`tests/test_the_backtest_ladder_locks_what_the_live_ladder_locks.py`.)
+
+**THE ANALYZER ROUNDED FORTY-TWO LEVELS TO SIX DECIMAL PLACES, THE ATR'S
+DEFECT FORTY-TWO TIMES OVER.** The SUI chapter fixed `round(atr, 6)` with `record_atr`,
+significant digits. Every other level the analyzer computes kept the old rule:
+the VWAP and its bands, EMA9 and EMA21, SMA50, the Bollinger, Keltner and
+Donchian channels, the fib ladder, the session range and MACD. BONK is in the
+scan universe, and PEPE, FLOKI and SHIB are in four of the frozen snapshots. Driven on one series and
+on the same series scaled by 1e-6, a price near 2e-05:
+
+- MACD, its signal line and its histogram read exactly 0.0, where the scaled
+  truth is 2.4e-07. The MACD voter and the Keltner squeeze's direction
+  abstained on every sub-cent asset.
+- EMA9 and EMA21 both read 1.9e-05, where they are 1.9075e-05 and 1.8752e-05.
+  The model's evidence line calls a tie "bearish" (`ema_9 > ema_21`), so the
+  ribbon read bearish over a rising ribbon.
+- Bollinger %B read 0.832 for a price above the upper band (1.06), because it
+  is computed from the rounded bands.
+- Every VWAP, fib and channel level sat on a 1e-06 grid, up to 3.9% from where
+  it was computed. Those levels are the fallback limit entry's candidates, the
+  SL/TP snap's extras and the VWAP classifier's band.
+
+The volume profile's POC and value area, and the analyzer's fallback limit
+entry, rounded to eight places. At a price near 1e-07, eight places keep one
+significant digit. The model's evidence printed the POC with four decimals,
+so it read `POC=$0.0000`.
+
+**One reading, and no reading of a price at or above 0.1 moves.**
+`record_level` keeps six decimal places or six significant digits, whichever
+keeps more. At or above 0.1 in magnitude it is byte-identical to
+`round(x, 6)`, and `min_places=8` keeps the two eight-place sites
+byte-identical where eight places were enough. It keeps the sign, which
+`round(-2.4e-07, 6)` did not (it answered `-0.0`). The analyzer, the
+multi-timeframe EMAs, the volume profile, the executor's last-resort tick
+rounding, the `/positions` rows and the dashboard pusher ask it. The model's
+POC line keeps four decimals above a cent. The two scale-free sites
+(`bb_width`, `vwap_slope_pct`) keep six places, named with their reasons.
+
+**The test is a property, not a list.** Every numeric indicator either scales
+with the price or does not move, on three seeds at 1e-06 and 1e-04. On the
+unfixed code it fails for every seed. A rule over the four files, and over
+the two converted functions in larger ones, refuses a `round(x, 6)` or
+`round(x, 8)` that is not a named scale-free figure.
+
+**Twenty-four mutations, each killed on the first round. Four die on the rule
+and on no drive, and that is stated rather than hidden.** SMA50 and the
+analyzer's fallback limit entry are computed inside `analyze()`, a
+1,400-line coroutine behind a thesis model, and the `/positions` rows inside
+a 400-line async handler. The invariance test drives `_compute_indicators`
+and reaches none of the three. The fourth was the dashboard pusher. The
+round showed it was held by the rule alone, and it can be driven, so it is
+now: a stub portfolio holding a sub-cent position, whose snapshot rows
+keep the entry, the mark, the stop, the target and the closed trade's exit.
+The majors record was re-measured at `d8b0f7d6` and moved by four cents (net
+−$1,456.42), the same 117 trades with the same count and win rate per symbol
+in every fold; that snapshot holds no sub-cent asset.
+(`tests/test_a_sub_cent_level_is_recorded_in_significant_digits.py`,
+`bot/core/signal_levels.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -19086,9 +19349,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **474 of 1179** reach for source text through `source_scan`, `code_only`
+Driven, **476 of 1184** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 474 is a FLOOR and the honest shape is
+source scan that rule does not see, so 476 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

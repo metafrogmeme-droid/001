@@ -312,6 +312,7 @@
   ["sec.prov_totals_anch", "{a} dieser Tage auf Base verankert"],
   ["sec.prov_root_head", "Versiegelt am {day} · {n} Calls in diesem einen Hash festgeschrieben"],
   ["dp.radar3d", "Sektor-Sweep — Live-3D-Radar"],
+  ["dp.etf", "Zuflüsse der US-Spot-Krypto-ETFs"],
   ["dp.rwa", "RWA- & On-Chain-Radar"],
   ["dp.airdrops", "Airdrop- & Testnet-Radar"],
   ["dp.meme", "Meme- & KI-Token-Radar"],

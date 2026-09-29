@@ -46,6 +46,7 @@ _cmd_disconnect connect
 _cmd_duel start
 _cmd_emergency_stop halt
 _cmd_enforcing enforcing
+_cmd_etf etf
 _cmd_eventrisk macro
 _cmd_exchange status
 _cmd_exposure exposure

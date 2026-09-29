@@ -312,6 +312,7 @@
   ["sec.prov_totals_anch", "그중 {a}일은 Base에 앵커됨"],
   ["sec.prov_root_head", "{day} 봉인 · 이 하나의 해시에 콜 {n}건이 고정됨"],
   ["dp.radar3d", "섹터 스윕 — 실시간 3D 레이더"],
+  ["dp.etf", "미국 현물 암호화폐 ETF 자금 흐름"],
   ["dp.rwa", "RWA · 온체인 레이더"],
   ["dp.airdrops", "에어드롭 · 테스트넷 레이더"],
   ["dp.meme", "밈 · AI 토큰 레이더"],

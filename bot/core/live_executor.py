@@ -62,6 +62,7 @@ from bot.core.leverage import (
     operator_standard,
 )
 from bot.core.size_trace import note_size_step, size_basis
+from bot.core.signal_levels import record_level
 from bot.core import bounds_shadow, size_bounds
 from bot.core.sltp_reason import REASON_MAX, refusal_suffix
 from bot.core.trade_costs import (
@@ -762,6 +763,19 @@ def trail_starts_for(strategy_type: str) -> bool:
     """
     return bool(CONFIG.trailing.enabled
                 and CONFIG.strategy_types.get_trailing_enabled(strategy_type))
+
+
+def stop_rests(direction: str, level: float, price: float) -> bool:
+    """Whether a stop at ``level`` can rest on the venue at ``price``: under
+    the price for a long, over it for a short. A stop the price is at or
+    through is refused by the venue, or fills at once.
+
+    The one reading of that question. The partial-TP ladder asks it before
+    it moves a stop, and the trailing stop asks it before it sends one: a
+    trail stop the price is already through is a stop that has been hit,
+    not one to send.
+    """
+    return level < price if direction == "LONG" else level > price
 
 
 def _rec_num(rec: Any, key: str) -> Optional[float]:
@@ -6674,7 +6688,7 @@ class LiveExecutor:
                 elif limit_price >= 0.01:
                     limit_price = round(limit_price, 4)
                 else:
-                    limit_price = round(limit_price, 6)
+                    limit_price = record_level(limit_price)
             logger.debug("Limit price fallback rounding: %s -> %s", _prec_price, limit_price)
 
         # Safety net: double-check tick alignment via market info fields
@@ -9661,10 +9675,8 @@ class LiveExecutor:
             return bool(new_sl > pos.stop_loss if is_long else new_sl < pos.stop_loss)
 
         def _rests(level: float) -> bool:
-            """A stop at `level` can rest on the venue: under the price for a
-            long, over it for a short. One the price is already through is
-            refused, or fills at once."""
-            return level < price if is_long else level > price
+            """A stop at `level` can rest on the venue (`stop_rests`)."""
+            return stop_rests(pos.direction, level, price)
 
         def _ratchet_sl(new_sl: float) -> bool:
             """Raise (LONG) / lower (SHORT) the stop only — never loosen it."""
@@ -10340,6 +10352,31 @@ class LiveExecutor:
                             except Exception as _st_exc:
                                 logger.debug("structure ratchet skipped for %s: %s",
                                              pos.symbol, _st_exc)
+                        if new_sl != old_sl and not stop_rests(pos.direction, new_sl, price):
+                            # The trail's stop is at or past the price, so it
+                            # cannot rest: the venue refuses it, and it used
+                            # to be sent and refused on every tick while the
+                            # looser stop stayed in force. It gets there when
+                            # the move at the peak did not land, or when the
+                            # wave ratchet reads a pivot the price has broken.
+                            # A stop the price has crossed has been hit, and
+                            # the backtest closes there at the next bar's
+                            # open, so this closes at market.
+                            reason = stop_exit_label(
+                                pos.direction == "LONG", pos.entry_price, new_sl,
+                                exit_price=price, trailing_active=trailing_active)
+                            audit(trade_log,
+                                  f"Trailing stop crossed for {pos.symbol}: the trail's stop "
+                                  f"${new_sl:.4f} is at or past the price ${price:.4f} and "
+                                  f"cannot rest on the venue; closing at market as {reason}",
+                                  action="trailing_sl", result="CROSSED",
+                                  level=logging.WARNING,
+                                  data={"trade_id": trade_id, "old_sl": old_sl,
+                                        "trail_sl": new_sl, "price": price,
+                                        "trailing_active": trailing_active})
+                            msg = await self.close_position(trade_id, reason, price)
+                            closed_messages.append(msg)
+                            continue
                         if new_sl != old_sl:
                             # Check if the SL moved enough to update on exchange
                             sl_change_pct = abs(new_sl - old_sl) / old_sl * 100 if old_sl > 0 else 100
