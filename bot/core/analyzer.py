@@ -29,6 +29,7 @@ from pathlib import Path
 from bot.compat import UTC
 from bot.llm import failure_cause as _fc
 from bot.risk.quality_ladder import confidence_on_record
+from bot.core.position_telemetry import price_on_record
 from bot.core.signal_levels import atr_on_record, record_atr
 from typing import Optional
 
@@ -1908,6 +1909,10 @@ class Analyzer:
         stop_loss = entry - sl_mult * atr if direction == Direction.LONG else entry + sl_mult * atr
         take_profit = entry + tp_mult * atr if direction == Direction.LONG else entry - tp_mult * atr
 
+        # The market the analysis was made at, kept before a limit entry moves
+        # `entry` away from it (TradeIdea.market_at_signal).
+        market_at_signal = entry
+
         # Apply limit entry if a better price was found
         if limit_entry is not None and limit_entry != entry:
             # Shift SL/TP by the same offset so R:R stays the same
@@ -2186,6 +2191,7 @@ class Analyzer:
             analysis_version=_ANALYSIS_VERSION,
             data_bars=indicators.get("data_bars"),
             data_thin=indicators.get("data_thin"),
+            market_at_signal=price_on_record(market_at_signal),
         )
 
         # Phase B: attach the per-voter breakdown so the decision recorder can

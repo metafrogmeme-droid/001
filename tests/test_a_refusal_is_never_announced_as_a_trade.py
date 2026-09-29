@@ -13,8 +13,9 @@ and posted publicly under the RUNECLAW name:
 
 And the post was not limited to the agent's own book at all: a person's trade
 on their OWN account, and a practice fill, were posted the same way, the
-second labelled LIVE whenever the person held live authority. The post is now
-made when the operator's executor holds the trade, which is measured.
+second labelled LIVE whenever the person held live authority. The door posts
+nothing now: the engine announces the agent's open when the operator's row is
+open (`tests/test_an_open_is_announced_when_the_position_opens.py`).
 """
 from __future__ import annotations
 
@@ -27,7 +28,7 @@ from types import SimpleNamespace
 import pytest
 
 import bot.config as bot_config
-from bot.core.confirm_result import REFUSAL_PREFIXES, held_on_operator_book, outcome_unverified, placed_nothing
+from bot.core.confirm_result import REFUSAL_PREFIXES, outcome_unverified, placed_nothing
 from bot.core.engine import RuneClawEngine
 from bot.skills.manual_trade import build_manual_idea
 from bot.skills.telegram_handler import TelegramHandler
@@ -55,8 +56,8 @@ class _Forwarder:
     def __init__(self):
         self.posts = []
 
-    async def post_trade_opened(self, idea, mode="PAPER"):
-        self.posts.append((idea, mode))
+    async def post_trade_opened(self, *a, **k):
+        self.posts.append((a, k))
 
 
 def _tap(result, *, lands_on_operator_book=False):
@@ -143,12 +144,13 @@ def test_a_refusal_is_not_announced_or_posted(result):
     assert posts == [], "a refusal was posted publicly as a TRADE OPENED"
 
 
-def test_a_fill_on_the_operators_book_is_announced_and_posted():
+def test_a_fill_on_the_operators_book_is_not_posted_by_the_door():
+    """The public post is the engine's, made when the operator's row is open
+    (`_announce_agent_open`); the door used to post the IDEA, before the
+    executor re-priced it, and for a resting limit too."""
     replies, posts, idea = _tap("✅ LIVE LONG BTC/USDT filled", lands_on_operator_book=True)
     assert replies[-1].startswith("✅")
-    assert [(p[0].id, p[1]) for p in posts] == [(idea.id, "LIVE")], (
-        "the post names the idea this button confirmed, read before the confirm "
-        "popped it")
+    assert posts == []
 
 
 def test_a_fill_on_a_persons_own_book_is_announced_and_not_posted():
@@ -166,20 +168,10 @@ def test_a_practice_fill_is_not_posted():
     assert posts == [], "a practice fill was posted publicly (as LIVE, for a live-enabled person)"
 
 
-# ── the operator-book reading ──────────────────────────────────────────────
-
-
-@pytest.mark.parametrize("status, held", [
-    ("open", True), ("pending_fill", True), ("closing", False), ("closed", False)])
-def test_the_operator_book_holds_only_what_is_open_or_resting(status, held):
-    engine = SimpleNamespace(live_executor=SimpleNamespace(
-        _positions={"T": SimpleNamespace(status=status)}))
-    assert held_on_operator_book(engine, "T") is held
-
-
-def test_no_operator_executor_holds_nothing():
-    assert held_on_operator_book(SimpleNamespace(live_executor=None), "T") is False
-    assert held_on_operator_book(SimpleNamespace(), "T") is False
+def test_the_door_does_not_reach_the_forwarder():
+    import bot.skills.callback_handler as ch
+    from tests.source_scan import code_only
+    assert "post_trade_opened" not in code_only(inspect.getsource(ch))
 
 
 # ── every answer confirm_trade can give is read correctly ─────────────────

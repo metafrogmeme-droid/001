@@ -60,7 +60,9 @@ async def test_protected_position_untouched(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_combined_id_replaced_only_when_confirmed_missing(tmp_path, monkeypatch):
     # v3 combined order shares one id. The self-heal must NOT blindly
-    # re-place (that cancels-then-places = a naked window every cycle). It
+    # re-place (when written, the placer cancelled before it placed: a naked
+    # window every cycle; it places first now, and a healthy stop still needs
+    # nothing). It
     # re-places ONLY when the exchange positively confirms the stop is gone.
     e, calls = _exec(tmp_path, monkeypatch, place_result=("X", "X"))
 

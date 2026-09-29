@@ -22,6 +22,7 @@ from bot.backtest.metrics import PF_UNDEFINED
 from bot.config import CONFIG
 from bot.core.analyzer import Analyzer
 from bot.core.leverage import apply_margin_risk_cap
+from bot.core.limit_entry import resting_limit_drift
 from bot.risk.risk_engine import RiskEngine
 from bot.risk.portfolio import PortfolioTracker
 from bot.utils.logger import audit, system_log, trade_log
@@ -676,6 +677,9 @@ class BacktestEngine:
         self._pending_limits.append({
             "idea": idea, "risk_check": risk_check, "px": px,
             "placed_ts": bar.timestamp.timestamp(),
+            # The market this limit was placed against: drift is the market's
+            # move from here, as live measures it (`resting_limit_drift`).
+            "placed_close": bar.close,
         })
 
     def _drain_pending_limits(self, bar) -> None:
@@ -703,11 +707,14 @@ class BacktestEngine:
                 self._limits_expired += 1
                 self.risk.clear_pending_intent(idea.id)
                 continue
-            try:
-                drift = abs(float(bar.close) - px) / px * 100.0
-            except (TypeError, ValueError, ZeroDivisionError):
-                drift = 0.0
-            if drift > float(cfg.price_drift_cancel_pct):
+            # The market's move AWAY from the limit since it was placed, the
+            # one reading live asks. The limit's own distance from the close is
+            # not drift: a pullback limit is placed up to an ATR away on
+            # purpose, and reading that as drift cancelled it on the first bar
+            # that did not touch it. An unreadable close is no drift.
+            _drift = resting_limit_drift(idea.direction, px, bar.close,
+                                         order.get("placed_close"))
+            if _drift is not None and _drift[0] > float(cfg.price_drift_cancel_pct):
                 # NOT MODELLED, and stated rather than hidden: live has a
                 # `drift_market_fallback` (default ON) that converts a
                 # drifted limit to a MARKET order when ADX clears

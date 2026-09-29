@@ -8,6 +8,7 @@ no sensitive data. Public-facing marketing content only.
 
 from __future__ import annotations
 
+import html
 import json
 import threading
 from datetime import datetime
@@ -191,32 +192,41 @@ class ChannelForwarder:
         except Exception as exc:
             system_log.debug("post_signal error: %s", exc)
 
-    async def post_trade_opened(self, idea, mode: str = "PAPER") -> None:
-        """Post when a trade is confirmed and opened."""
+    async def post_trade_opened(self, levels: dict) -> None:
+        """Post the agent's open: an `agent_feed.opened_levels` reading.
+
+        The ROW's levels, not the idea's: the executor re-prices a limit and
+        moves its stop and target with it, and the post is made when the
+        position OPENS (`RuneClawEngine._announce_agent_open`), never when a
+        limit is placed to rest. It is LIVE by construction: only the
+        operator's live book is announced.
+        """
         if not self._enabled or not self._group_ids:
             return
         try:
-            d = "\U0001f7e2 LONG" if idea.direction.value == "LONG" else "\U0001f534 SHORT"
-            asset = idea.asset
+            d = "\U0001f7e2 LONG" if levels["direction"] == "LONG" else "\U0001f534 SHORT"
+            asset = levels["symbol"]
             now = datetime.now(UTC).strftime("%H:%M UTC")
-            mode_icon = "\U0001f525" if mode == "LIVE" else "\U0001f4dd"
 
             _sep = "\u2500" * 18
             from bot.formatters.rich_cards import _fmt_price
+            entry = _fmt_price(levels.get("entry"))
+            if levels.get("entry_estimated") and levels.get("entry") is not None:
+                entry = f"~{entry} (estimated: the venue stated no fill price)"
             msg = (
                 f"\u2705 <b>TRADE OPENED</b>\n"
                 f"{_sep}\n\n"
-                f"{d} <b>{asset}</b> | {mode_icon} {mode}\n\n"
-                f"Entry: <code>{_fmt_price(idea.entry_price)}</code>\n"
-                f"Stop Loss: <code>{_fmt_price(idea.stop_loss)}</code>\n"
-                f"Take Profit: <code>{_fmt_price(idea.take_profit)}</code>\n\n"
+                f"{d} <b>{html.escape(asset)}</b> | \U0001f525 LIVE\n\n"
+                f"Entry: <code>{entry}</code>\n"
+                f"Stop Loss: <code>{_fmt_price(levels.get('stop'))}</code>\n"
+                f"Take Profit: <code>{_fmt_price(levels.get('target'))}</code>\n\n"
                 f"{_sep}\n"
                 f"\U0001f916 RUNECLAW | {now}\n"
-                f"#RUNECLAW #{asset.split('/')[0] if '/' in asset else asset}"
+                f"#RUNECLAW #{html.escape(asset.split('/')[0] if '/' in asset else asset)}"
             )
             await self._post(msg)
         except Exception as exc:
-            system_log.debug("post_trade_opened error: %s", exc)
+            system_log.debug("post_trade_opened error: %s", type(exc).__name__)
 
     async def post_trade_closed(self, close_msg: str,
                                 outcome: Optional[str] = None) -> None:

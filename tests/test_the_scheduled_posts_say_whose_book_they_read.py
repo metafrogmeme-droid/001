@@ -300,8 +300,9 @@ class TestOnlyTheEnginesOwnIdeaIsASignal:
         fwd = ChannelForwarder.__new__(ChannelForwarder)
         fwd._bot, fwd._group_ids = _Bot(), {-1001}
         fwd._lock, fwd._enabled = threading.Lock(), True
-        idea = _engine_idea("PEPE/USDT:USDT", 0.0000102, 0.0000098, 0.0000115)
-        asyncio.run(fwd.post_trade_opened(idea, mode="LIVE"))
+        levels = {"symbol": "PEPE/USDT:USDT", "direction": "LONG", "entry": 0.0000102,
+                  "stop": 0.0000098, "target": 0.0000115, "entry_estimated": False}
+        asyncio.run(fwd.post_trade_opened(levels))
         post = fwd._bot.public()[0]
         for want in ("$0.00001020", "$0.00000980", "$0.00001150"):
             assert want in post, (want, post)

@@ -567,6 +567,14 @@ class AlertsMonitor:
 
         self.engine.set_fill_notify_callback(_on_limit_filled)
 
+        # The public channel's TRADE OPENED post, made when the agent's
+        # position OPENS (a fill at confirm, or a resting limit filling on a
+        # later pass), off the row's levels -- `_announce_agent_open`.
+        async def _on_agent_opened(levels: dict) -> None:
+            await _forwarder.post_trade_opened(levels)
+
+        self.engine.set_public_open_callback(_on_agent_opened)
+
         # Register periodic-sync adoption notification callback. These are
         # informational — the position/order is now TRACKED, nothing closed —
         # and were previously misrouted to the close path and rendered as

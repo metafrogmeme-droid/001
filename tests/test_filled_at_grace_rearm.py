@@ -49,7 +49,10 @@ def test_cancel_races_attempt_protection():
     # The cancel-race open transitions previously placed NO exchange stop at
     # all. They must now attempt placement and mark unprotected on failure.
     src = inspect.getsource(LiveExecutor._close_position_inner)
-    assert src.count("_place_sl_tp") >= 2, "both cancel races must attempt an exchange stop"
+    # Both races place through `_place_missing_sltp`, which places what the
+    # record is missing and writes what now rests back onto it.
+    assert src.count("self._place_missing_sltp(") >= 2, \
+        "both cancel races must attempt an exchange stop"
     assert src.count('setattr(pos, "unprotected", True)') >= 2
 
 

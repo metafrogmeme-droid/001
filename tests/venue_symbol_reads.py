@@ -38,7 +38,14 @@ from pathlib import Path
 from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = ("bot/core/live_executor.py", "bot/core/open_orders.py")
+#: The executor, /orders, and the three files that read a PRICE about a
+#: position or an idea on the order's market: the position cards, the confirm's
+#: drift check and the callback buttons. They read the recorded spelling raw,
+#: so a Bitget card priced a perp off the spot book and a Hyperliquid card had
+#: no mark at all.
+FILES = ("bot/core/live_executor.py", "bot/core/open_orders.py",
+         "bot/skills/trading_commands.py", "bot/core/engine.py",
+         "bot/skills/callback_handler.py")
 BASELINE = ROOT / "tests" / "venue_symbol_read_baseline.txt"
 
 #: method -> (positional index of the symbol argument, its keyword name)

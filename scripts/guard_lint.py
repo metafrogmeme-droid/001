@@ -238,6 +238,8 @@ RULES: list[Rule] = [
         # or protects a position keeps working while halted, by design.
         exclude_functions=[
             "_place_sl_tp",           # places the protective stop — must run while halted
+            "_place_classic_trigger", # one reduce-only SL/TP leg; the retry places a
+                                      # missing stop through it, which must run while halted
             "_partial_close",         # reduces exposure
             "_update_exchange_sl",    # tightens the stop
             "_close_position_inner",  # exits

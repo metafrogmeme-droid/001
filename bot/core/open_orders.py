@@ -265,6 +265,17 @@ def _tracked_pending(executor) -> list:
         return []
 
 
+def order_source(executor) -> str:
+    """The venue an executor's orders rest on, in the words every orders card
+    prints: its display name, or "the exchange" when the executor names none.
+
+    One reading for the text card, the /orders picture and the pending-orders
+    picture, which used to print "Bitget USDT-M Futures" whatever venue held
+    the order."""
+    venue = getattr(executor, "_venue", None)
+    return (getattr(venue, "display_name", "") or "the exchange") if venue is not None else "the exchange"
+
+
 async def read_open_orders(executor, *, now: Optional[datetime] = None,
                            expire_sec: Optional[float] = None) -> OpenOrdersReading:
     """Ask the exchange what is resting for THIS executor's account.
@@ -282,7 +293,7 @@ async def read_open_orders(executor, *, now: Optional[datetime] = None,
     venue = getattr(executor, "_venue", None)
     params = (venue.futures_params() if venue is not None and hasattr(venue, "futures_params")
               else {"productType": "USDT-FUTURES"})
-    source = (getattr(venue, "display_name", "") or "the exchange") if venue is not None else "the exchange"
+    source = order_source(executor)
 
     open_orders = list(await exchange.fetch_open_orders(params=params) or [])
     tracked_pending = _tracked_pending(executor)

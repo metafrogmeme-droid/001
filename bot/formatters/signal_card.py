@@ -1124,8 +1124,10 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
     draw.text((PAD, y), pnl_text, fill=pnl_color, font=_font(28, bold=True))
     pnl_w = draw.textlength(pnl_text, font=_font(28, bold=True))
 
-    usd_text = ("  (price unavailable)" if pnl_unknown
-                else f"  (${pnl_usd:+,.2f})")
+    # The producer names WHICH reading is missing; a mark that was read and a
+    # margin that was not used to print "price unavailable" too.
+    usd_text = (f"  ({data.get('pnl_unread') or 'price unavailable'})"
+                if pnl_unknown else f"  (${pnl_usd:+,.2f})")
     draw.text((PAD + pnl_w, y + 8), usd_text, fill=pnl_color, font=f_value)
 
     y += 42
@@ -1414,7 +1416,8 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
 # ORDERS CARD — styled PNG for open/pending orders display
 # ═══════════════════════════════════════════════════════════════════
 
-def render_orders_card(orders: list[Dict[str, Any]], timestamp: str = "") -> bytes:
+def render_orders_card(orders: list[Dict[str, Any]], timestamp: str = "",
+                       source: str = "") -> bytes:
     """Render open orders as a styled PNG card.
 
     Args:
@@ -1422,6 +1425,9 @@ def render_orders_card(orders: list[Dict[str, Any]], timestamp: str = "") -> byt
             sym, side, price, current_price, amount, ttl_str, oid, created,
             type ("limit"|"stop"|"take_profit"), dist_pct
         timestamp: UTC time string
+        source: the venue the orders rest on (`open_orders.order_source`).
+            No footer is drawn when no caller names one: the footer used to
+            read "Bitget USDT-M Futures" for an order on any venue.
 
     Returns:
         PNG bytes
@@ -1502,13 +1508,16 @@ def render_orders_card(orders: list[Dict[str, Any]], timestamp: str = "") -> byt
         sym = o.get("sym", "???").replace("/USDT", "").replace(":USDT", "")
         side = o.get("side", "BUY").upper()
         price = o.get("price", 0)
-        cur_price = o.get("current_price", 0)
-        amount = o.get("amount", 0)
+        # `_num`, not `.get(k, 0)`: a mark nobody read arrives as None, which
+        # the `> 0` below raised on, and a default never fires for a stored
+        # None. A failed read omits the CURRENT and TO FILL cells.
+        cur_price = _num(o.get("current_price"))
+        amount = _num(o.get("amount"))
         ttl = o.get("ttl_str", "")
         oid = o.get("oid", "")
         created = o.get("created", "")
         otype = o.get("type", "limit")
-        dist_pct = o.get("dist_pct", 0)
+        dist_pct = _num(o.get("dist_pct"))
 
         is_buy = side == "BUY"
         dir_label = "LONG" if is_buy else "SHORT"
@@ -1560,17 +1569,18 @@ def render_orders_card(orders: list[Dict[str, Any]], timestamp: str = "") -> byt
         draw.text((c1, dy), "LIMIT PRICE", fill=_GRAY, font=f_label)
         draw.text((c1, dy + 14), _fmt(price), fill=_WHITE, font=f_value)
 
-        if cur_price > 0:
+        if cur_price is not None and cur_price > 0:
             draw.text((c2, dy), "CURRENT", fill=_GRAY, font=f_label)
             draw.text((c2, dy + 14), _fmt(cur_price), fill=_CYAN, font=f_value)
 
-            draw.text((c3, dy), "TO FILL", fill=_GRAY, font=f_label)
-            dist_color = _GREEN if abs(dist_pct) < 0.5 else _YELLOW if abs(dist_pct) < 2 else _WHITE
-            draw.text((c3, dy + 14), f"{dist_pct:+.2f}%", fill=dist_color, font=f_value)
+            if dist_pct is not None:
+                draw.text((c3, dy), "TO FILL", fill=_GRAY, font=f_label)
+                dist_color = _GREEN if abs(dist_pct) < 0.5 else _YELLOW if abs(dist_pct) < 2 else _WHITE
+                draw.text((c3, dy + 14), f"{dist_pct:+.2f}%", fill=dist_color, font=f_value)
 
         # Bottom: Qty | TTL | ID
         dy2 = dy + 36
-        info_parts = [f"Qty: {amount:.4f}"]
+        info_parts = ["Qty: unread" if amount is None else f"Qty: {amount:.4f}"]
         if ttl:
             # Strip emoji from ttl_str
             clean_ttl = ttl.replace(" | ", "").replace("\u23f0 ", "").strip()
@@ -1588,7 +1598,8 @@ def render_orders_card(orders: list[Dict[str, Any]], timestamp: str = "") -> byt
 
     # Footer
     footer_y = y + n * ROW_H + 4
-    draw.text((PAD, footer_y), "Bitget USDT-M Futures", fill=_DIM, font=f_small)
+    if source:
+        draw.text((PAD, footer_y), f"Source: {source}", fill=_DIM, font=f_small)
 
     draw.rectangle([0, H - 3, W, H], fill=_PURPLE)
     wm_w = draw.textlength("RUNECLAW", font=f_small)

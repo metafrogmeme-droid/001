@@ -34,7 +34,7 @@ from bot.utils.leveraged_return import _leveraged_return_pct, position_leverage
 from bot.core.live_executor import entry_is_estimated, position_size_basis
 from bot.core.signal_confidence import displayed_confidence
 from bot.core.limit_input import (consume_pending, limit_expired_text,
-                                  read_pending)
+                                  read_pending, typed_limit_outside_levels)
 from bot.nlp.button_actions import action_label
 # The chat's runtime pieces that are not the handler — the per-user rate
 # limiter, the chain's timing constants, the thinking phrases, the two tool
@@ -3864,10 +3864,27 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                                           routed_answer_memory("trade_confirm", _gone))
                     return
 
+                # The typed price must sit between this idea's own stop and
+                # target: a LONG limit at or below its stop fills straight into
+                # a stop the venue will refuse to place (above the fill), and
+                # the post-fill guard then flattens it for a round trip of
+                # fees. The assignment below bypasses the model's own
+                # directional check, so the check is made here, before it.
+                _refusal = typed_limit_outside_levels(idea, custom_price)
+                if _refusal:
+                    await self._send(update, _refusal)
+                    self._remember_routed(
+                        tg_id, text, "limit_price_input",
+                        routed_answer_memory("limit_price_input", _refusal))
+                    return
+
                 old_price = idea.entry_price
                 idea.entry_price = custom_price
                 # Force limit order type
                 idea.order_type = "limit"
+                # The entry is the person's now: nothing re-prices it or chases
+                # it (`limit_entry.levels_as_shown`).
+                idea.entry_typed = True
 
                 # Clean up
                 consume_pending(self, caller_uid)

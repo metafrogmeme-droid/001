@@ -149,6 +149,70 @@ def thesis_event(idea: Any) -> dict[str, Any]:
     }
 
 
+def opened_levels(pos: Any) -> Optional[dict[str, Any]]:
+    """The agent's opened position as the public surfaces state it, or None.
+
+    A position is the agent's OPEN when the executor's row says so: status
+    ``open`` and ``origin`` ``executed``. A resting limit order
+    (``pending_fill``) is not a position, and announcing one as "Opened"
+    published a trade that may never fill: the feed event, the web push to
+    every subscriber's phone and the channel's TRADE OPENED post all fired
+    at placement, off the idea's levels rather than the order's, and the
+    fill that later opened the position was announced nowhere public. An
+    adopted or reclaimed row is not the agent's own open either: somebody
+    placed it by hand, or the bot lost its record of placing it.
+
+    The levels are the ROW's (the executor re-prices a limit and moves its
+    stop and target with it), each through `price_on_record`, so a level the
+    row does not state is None rather than a stop at zero. ``entry_estimated``
+    is the executor's own marker for a fill the venue stated no price for.
+    """
+    from bot.core.position_telemetry import price_on_record
+
+    if getattr(pos, "status", None) != "open" or getattr(pos, "origin", None) != "executed":
+        return None
+    symbol = str(getattr(pos, "symbol", "") or "")
+    raw_dir = getattr(pos, "direction", "")
+    direction = str(getattr(raw_dir, "value", raw_dir) or "").upper()
+    if not symbol or direction not in ("LONG", "SHORT"):
+        return None
+    from bot.core.live_executor import ENTRY_ESTIMATED
+
+    return {
+        "symbol": symbol,
+        "direction": direction,
+        "entry": price_on_record(getattr(pos, "entry_price", None)),
+        "stop": price_on_record(getattr(pos, "stop_loss", None)),
+        "target": price_on_record(getattr(pos, "take_profit", None)),
+        "entry_estimated": getattr(pos, "entry_source", None) == ENTRY_ESTIMATED,
+    }
+
+
+def open_event(levels: dict[str, Any]) -> dict[str, Any]:
+    """The public ``trade_open`` event for one `opened_levels` reading.
+
+    No size and no confidence: the size is account money, and the confidence
+    is the thesis event's, stated once for the signal.
+    """
+    from bot.formatters.price_text import fmt_price as _fmt_price
+
+    entry = _fmt_price(levels.get("entry"))
+    if levels.get("entry_estimated") and levels.get("entry") is not None:
+        entry = f"~{entry} (estimated: the venue stated no fill price)"
+    return {
+        "title": f"Opened {levels['direction']} {levels['symbol']}",
+        "body": (f"Entry {entry} · SL {_fmt_price(levels.get('stop'))} · "
+                 f"TP {_fmt_price(levels.get('target'))}"),
+        "symbol": levels["symbol"],
+        "severity": "success",
+        "data": {"direction": levels["direction"],
+                 "entry": levels.get("entry"),
+                 "sl": levels.get("stop"),
+                 "tp": levels.get("target"),
+                 "entry_estimated": bool(levels.get("entry_estimated"))},
+    }
+
+
 class AgentFeed:
     """Bounded queue + background flusher for public agent-feed events."""
 

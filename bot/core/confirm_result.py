@@ -14,9 +14,10 @@ Confirm button then posted the idea to the public channels as a TRADE OPENED.
 answer `confirm_trade` can give and requires it to be read correctly, so a
 refusal added tomorrow fails a test rather than a person's chat.
 
-`held_on_operator_book` answers the other question the public post needs, by
-MEASURING rather than predicting: the live executor keys a new position by the
-idea's id, so the trade landed on the operator's book when that book holds it.
+`left_resting` answers the third: a limit order placed to rest is neither a
+refusal nor a trade, so the door does not call it "executed". The public post
+is not the door's to make: the engine announces the agent's open when the
+row on the operator's book is open (`RuneClawEngine._announce_agent_open`).
 """
 from __future__ import annotations
 
@@ -72,16 +73,14 @@ def outcome_unverified(result: Any) -> bool:
     return execution_outcome_unverified(result)
 
 
-def held_on_operator_book(engine: Any, trade_id: str) -> bool:
-    """True when the operator's live executor holds `trade_id` open or resting.
+def left_resting(result: Any) -> bool:
+    """True when the answer is a limit order placed and resting, not filled.
 
-    This is what the public channel may announce: the agent's own book. A
-    person's own account, a practice fill and every refusal leave it without
-    the id, whatever the answer's wording.
+    Something was placed, so `placed_nothing` is False, and nothing is held:
+    the door says the order is resting rather than "executed", and the
+    public announcement of the open waits for the fill
+    (`RuneClawEngine._announce_agent_open`).
     """
-    executor = getattr(engine, "live_executor", None)
-    positions = getattr(executor, "_positions", None)
-    if not isinstance(positions, dict):
-        return False
-    pos = positions.get(trade_id)
-    return pos is not None and getattr(pos, "status", None) in ("open", "pending_fill")
+    from bot.core.live_executor import execution_left_resting
+
+    return execution_left_resting(result)

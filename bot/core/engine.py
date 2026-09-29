@@ -39,10 +39,10 @@ from bot.core.live_executor import LiveExecutor, committed_margin, display_symbo
 from bot.core import live_executor as _live_executor_mod
 from bot.core import size_bounds
 from bot.core.exchange_sync import sync_portfolio_with_exchange, get_exchange_position_count, invalidate_position_count_cache
-from bot.core.limit_entry import limit_crosses_market
+from bot.core.limit_entry import levels_as_shown, limit_crosses_market
 from bot.core.market_scanner import MarketScanner, _classify_symbol
 from bot.core.order_flow import OrderFlowAnalyzer
-from bot.core.position_telemetry import entered_at
+from bot.core.position_telemetry import entered_at, price_on_record
 from bot.core.ws_feed import BitgetWSFeed
 from bot.compliance.compliance_engine import ComplianceEngine, Permission, default_demo_profile
 from bot.learning.orchestrator import LearningOrchestrator
@@ -916,6 +916,11 @@ class RuneClawEngine:
         # `(owner, kind, msg, close_slot)` for a PER-USER executor's close,
         # fill and sync messages -- see `_announce_executor_message`.
         self._owner_notify_callback: Optional[Callable] = None
+        # `(levels)` for the public channel's TRADE OPENED post, and the ids of
+        # the operator rows already announced as open -- see
+        # `_announce_agent_open`.
+        self._public_open_callback: Optional[Callable] = None
+        self._agent_open_seen: Optional[tuple[Any, set[str]]] = None
         self._pending_ideas: dict[str, TradeIdea] = {}
         # A hand-typed ticket's margin, keyed by its idea id, for as long as
         # the idea is pending (`_drop_pending_idea` takes both off together).
@@ -1185,6 +1190,23 @@ class RuneClawEngine:
     async def get_futures_exchange(self):
         """Public accessor for the futures exchange instance."""
         return await self.scanner._get_futures_exchange()
+
+    async def market_price(self, asset: str) -> Optional[float]:
+        """The last price of the perp an order on ``asset`` is placed on.
+
+        TRADE_MODE accepts "futures" and nothing else, so an order is always
+        the perp. The scanner's clients are Bitget clients with spot and swap
+        markets loaded, and asked for the recorded ``BTC/USDT`` they answer
+        with the SPOT book, so the spelling is Bitget's perp mapping. On an
+        executor for another venue this is still Bitget's perp, the market
+        the analysis read; the executor reads its own venue again when it
+        places. None when the ticker states no price; raises when the read
+        failed.
+        """
+        from bot.core.venues import get_venue
+        exchange = await self.get_exchange(_classify_symbol(asset))
+        ticker = await exchange.fetch_ticker(get_venue("bitget").order_symbol(asset))
+        return price_on_record(ticker.get("last") if isinstance(ticker, dict) else None)
 
     # -- Live equity cache --
 
@@ -1831,7 +1853,11 @@ class RuneClawEngine:
             d["close_reason"] = pos.close_reason
             return d
 
-        positions = [_open_dict(p) for p in executor.open_positions]
+        # Positions only. `open_positions` lists resting limit orders too, and
+        # the website published one as a held position -- an entry nothing
+        # had filled at, with a P&L measured from it.
+        positions = [_open_dict(p) for p in executor.open_positions
+                     if getattr(p, "status", None) == "open"]
         closed = [_closed_dict(p) for p in executor.closed_positions[-50:]]
         # Truthful equity: in LIVE mode with an empty balance cache this must
         # send None (website renders "unavailable"), never the paper baseline
@@ -4036,6 +4062,106 @@ class RuneClawEngine:
         """Register `cb(owner, kind, msg, close_slot)` for a per-user book's
         close, fill and sync messages. See `_announce_executor_message`."""
         self._owner_notify_callback = cb
+
+    def set_public_open_callback(self, cb: Callable) -> None:
+        """Register `cb(levels)` for the public channel's TRADE OPENED post.
+        See `_announce_agent_open`."""
+        self._public_open_callback = cb
+
+    def _agent_open_ids(self, executor) -> set[str]:
+        """The operator rows already open or announced, seeded once per book.
+
+        The first ask about an executor takes the rows that are open now: a
+        restart must not announce every position the book held before it, and
+        neither must a `/venue` switch, whose new executor loads that venue's
+        own saved book. Both callers ask BEFORE the call that can open a row
+        (the confirm before `execute`, the monitor at the top of its live
+        pass), so a row that opens after the seed is not in it.
+        """
+        held: Optional[tuple[Any, set[str]]] = getattr(self, "_agent_open_seen", None)
+        if held is not None and held[0] is executor:
+            return held[1]
+        positions = getattr(executor, "_positions", None)
+        rows = positions.items() if isinstance(positions, dict) else ()
+        seen = {tid for tid, p in rows if getattr(p, "status", None) == "open"}
+        self._agent_open_seen = (executor, seen)
+        return seen
+
+    async def _announce_agent_open(self, executor, trade_id: str) -> bool:
+        """Announce the operator's position `trade_id` as opened, once.
+
+        This is the one place an agent open is published: the public feed's
+        ``trade_open`` event (which the website pushes to subscribers'
+        phones), the channel's TRADE OPENED post and the website sync. It runs
+        when the ROW is open -- at confirm for an order that filled there, and
+        on the monitor pass after a resting limit fills. Before, all three
+        fired at CONFIRM for any order that placed, a resting limit included,
+        off the idea's levels rather than the order's; the fill that later
+        opened the position was announced nowhere public, and a TRADE CLOSED
+        was the channel's first word about a trade auto-confirm had opened.
+
+        The operator's book only, by identity: a person's own account is
+        private. The row must be the agent's own (`agent_feed.opened_levels`);
+        an adopted one is synced and not announced. Answers whether it
+        announced.
+        """
+        if executor is None or executor is not getattr(self, "live_executor", None):
+            return False
+        positions = getattr(executor, "_positions", None)
+        pos = positions.get(trade_id) if isinstance(positions, dict) else None
+        if pos is None or getattr(pos, "status", None) != "open":
+            return False
+        seen = self._agent_open_ids(executor)
+        # Checked and marked with no await between: the confirm and a monitor
+        # pass can both reach one row, and it is announced once.
+        if trade_id in seen:
+            return False
+        seen.add(trade_id)
+        try:
+            self._sync_live_state_to_website()
+        except Exception as exc:
+            logger.debug("Live website sync skipped: %s", type(exc).__name__)
+        from bot.core.agent_feed import FEED, open_event, opened_levels
+
+        levels = opened_levels(pos)
+        if levels is None:
+            return False
+        try:
+            FEED.emit("trade_open", **open_event(levels))
+        except Exception as exc:
+            logger.debug("Agent feed open event skipped: %s", type(exc).__name__)
+        cb = getattr(self, "_public_open_callback", None)
+        if cb is not None:
+            try:
+                await cb(levels)
+            except Exception as exc:
+                logger.debug("Public open post skipped: %s", type(exc).__name__)
+        return True
+
+    async def _announce_new_agent_opens(self, executor) -> int:
+        """Announce every operator row that opened since the seed.
+
+        Read off the book's STATE, not off the message that reported it: a
+        resting limit can be filled by the pending check, the drift fallback,
+        a partial fill adopted at a cancel or a submission recovered by client
+        id, and a list of those four is the shape where the fifth is missed.
+        Ids no longer on the book are dropped from the record.
+        """
+        if executor is None or executor is not getattr(self, "live_executor", None):
+            return 0
+        positions = getattr(executor, "_positions", None)
+        if not isinstance(positions, dict):
+            return 0
+        seen = self._agent_open_ids(executor)
+        announced = 0
+        for tid, pos in list(positions.items()):
+            if getattr(pos, "status", None) != "open" or tid in seen:
+                continue
+            if await self._announce_agent_open(executor, tid):
+                announced += 1
+            seen.add(tid)
+        seen.intersection_update(positions.keys())
+        return announced
 
     async def _announce_executor_message(self, executor, kind: str, msg: str) -> None:
         """Hand one executor's message to whoever holds that book.
@@ -7906,11 +8032,20 @@ class RuneClawEngine:
                       action="synthetic_atr_from_sl", result="OK")
 
         try:
-            idea_category = _classify_symbol(idea.asset)
-            exchange = await self.get_exchange(idea_category)
-            ticker = await exchange.fetch_ticker(idea.asset)
-            current_price = float(ticker.get("last") or 0)
-            if current_price > 0 and idea.entry_price > 0:
+            # The PERP's price, the market this order is placed on
+            # (`market_price`); the recorded spelling asked the spot book. A
+            # ticker that states no price REFUSES, like a read that failed:
+            # it used to skip the drift, past-stop and R:R checks and place.
+            _read = await self.market_price(idea.asset)
+            if _read is None:
+                audit(trade_log, "Price drift check: the ticker stated no price (rejecting)",
+                      action="price_drift", result="REJECTED",
+                      data={"trade_id": trade_id, "asset": idea.asset, "reason": "price_unread"})
+                self._pending_pyramid.pop(trade_id, None)
+                self._transition(AgentState.IDLE, f"price unread for {trade_id}")
+                return "Trade REJECTED: unable to verify current price. Try again."
+            current_price = _read
+            if idea.entry_price > 0:
                 drift_pct = abs(current_price - idea.entry_price) / idea.entry_price * 100
                 max_drift = 2.0  # reject if price moved more than 2%
                 is_limit = getattr(idea, 'order_type', '') == 'limit'
@@ -7926,6 +8061,31 @@ class RuneClawEngine:
                     self._transition(AgentState.IDLE, f"price drift for {trade_id}")
                     return (f"Trade REJECTED: price drifted {drift_pct:.1f}% since analysis "
                             f"(${idea.entry_price:,.2f} → ${current_price:,.2f}). Re-analyze.")
+                # The same rule for a LIMIT idea, measured from the market the
+                # analysis was made at: a limit's entry is a level away from the
+                # market by design, so its distance from the entry says nothing
+                # about staleness. It used to skip limits altogether, so an idea
+                # the market had run 4% from was placed at the old pullback
+                # level. Levels a person confirmed as shown, or typed, are theirs.
+                _mas = price_on_record(getattr(idea, "market_at_signal", None))
+                if is_limit and _mas is not None and not levels_as_shown(idea):
+                    _since = abs(current_price - _mas) / _mas * 100
+                    if _since > max_drift:
+                        from bot.formatters.rich_cards import _fmt_price
+                        audit(trade_log,
+                              f"Market moved {_since:.2f}% since analysis, over the "
+                              f"{max_drift}% threshold (limit idea)",
+                              action="price_drift", result="REJECTED",
+                              data={"trade_id": trade_id, "asset": idea.asset,
+                                    "market_at_signal": _mas,
+                                    "current_price": current_price,
+                                    "drift_pct": round(_since, 2), "order_type": "limit"})
+                        self._pending_pyramid.pop(trade_id, None)
+                        self._transition(AgentState.IDLE, f"price drift for {trade_id}")
+                        return (f"Trade REJECTED: the market moved {_since:.1f}% since "
+                                f"analysis ({_fmt_price(_mas)} → {_fmt_price(current_price)}), "
+                                f"so the limit at {_fmt_price(idea.entry_price)} is a stale "
+                                f"level. Re-analyze.")
 
                 # ── Validate price hasn't already blown through SL ──
                 # If market price is already past the SL, the trade would be
@@ -7961,7 +8121,7 @@ class RuneClawEngine:
                                     f"R:R no longer favorable — re-analyze.")
         except Exception as exc:
             # H-08 FIX: fail-closed — reject if exchange is unreachable
-            audit(trade_log, f"Price drift check failed (rejecting): {exc}",
+            audit(trade_log, f"Price drift check failed (rejecting): {type(exc).__name__}",
                   action="price_drift", result="REJECTED")
             self._pending_pyramid.pop(trade_id, None)
             self._transition(AgentState.IDLE, f"price drift check failed for {trade_id}")
@@ -7984,19 +8144,26 @@ class RuneClawEngine:
         # $2,965. A typed ticket passes through as typed (the executor sends
         # it GTC, never post-only), and the crossing is audited rather than
         # acted on. `limit_crosses_market` is the one reading of "crosses".
+        # A scan card's idea is the same case: its ✅ says it "places the entry
+        # shown, as a limit order, with its stop and target", and so is an
+        # entry the person typed through the Limit button. `levels_as_shown`
+        # is the one reading of whose levels these are.
         _crosses = bool(idea.order_type == "limit" and current_price > 0
                         and limit_crosses_market(idea.direction.value,
                                                  idea.entry_price, current_price))
-        if _crosses and is_manual:
+        _as_shown = levels_as_shown(idea)
+        if _crosses and _as_shown:
             audit(trade_log,
-                  f"Typed limit ${idea.entry_price:,.4f} is at or through the market "
-                  f"${current_price:,.4f}: placed AS TYPED, fills at the market up to "
-                  f"that price",
+                  f"Limit ${idea.entry_price:,.4f} ({getattr(idea, 'source', '')}) is at "
+                  f"or through the market ${current_price:,.4f}: placed AS SHOWN, fills "
+                  f"at the market up to that price",
                   action="manual_limit_as_typed", result="CROSSES_MARKET",
                   data={"trade_id": trade_id, "entry": idea.entry_price,
-                        "current_price": current_price})
+                        "current_price": current_price,
+                        "source": getattr(idea, "source", None),
+                        "entry_typed": getattr(idea, "entry_typed", None) is True})
         if idea.order_type == "limit" and current_price > 0 and stored_atr and stored_atr > 0:
-            _needs_recalc = _crosses and not is_manual
+            _needs_recalc = _crosses and not _as_shown
 
             if _needs_recalc:
                 # Use 0.5*ATR offset (not 0.1) so the limit is far enough from
@@ -8640,6 +8807,10 @@ class RuneClawEngine:
                     + "; ".join(str(r) for r in _authority.reasons)
                     + ". Nothing was placed.")
 
+        # Seeded BEFORE the order, so a row this execute opens is not taken
+        # for one the book already held (`_agent_open_ids`).
+        if executor is getattr(self, "live_executor", None):
+            self._agent_open_ids(executor)
         result = await executor.execute(
             idea, size_usd,
             order_type=idea.order_type,
@@ -8688,32 +8859,13 @@ class RuneClawEngine:
             # C-05 FIX: only remove idea and ATR after successful execution
             self._drop_pending_idea(trade_id)
             self._pending_atr.pop(trade_id, None)
-            # Public mind-stream: operator-account opens only (per-user
-            # executors are private). No sizes on the public feed.
+            # An OPEN is announced where the row is open: here for an order
+            # that filled at confirm, on the monitor pass for a resting limit
+            # that fills later (`_announce_agent_open`). Operator's book only.
             try:
-                from bot.core.agent_feed import FEED
-                if executor is getattr(self, "live_executor", None):
-                    _fdir = idea.direction.value
-                    FEED.emit(
-                        "trade_open",
-                        f"Opened {_fdir} {idea.asset}",
-                        body=(f"Entry ${idea.entry_price:,.4f} · "
-                              f"SL ${idea.stop_loss:,.4f} · "
-                              f"TP ${idea.take_profit:,.4f}"),
-                        symbol=idea.asset, severity="success",
-                        data={"direction": _fdir,
-                              "confidence": round(float(idea.confidence), 3)})
-            except Exception as _feed_exc:
-                logger.debug("Agent feed open event skipped: %s", _feed_exc)
-            # Push the new live position to the website immediately. Before
-            # this, live state only synced on CLOSE — an open position sat
-            # invisible on the web dashboard (while Telegram showed it) until
-            # the trade finished.
-            try:
-                if executor is getattr(self, "live_executor", None):
-                    self._sync_live_state_to_website()
-            except Exception as _sync_exc:
-                logger.debug("Live website sync skipped: %s", _sync_exc)
+                await self._announce_agent_open(executor, trade_id)
+            except Exception as _open_exc:
+                logger.debug("Agent open announcement skipped: %s", type(_open_exc).__name__)
             # Pyramid add filled — NOW move the existing position's SL to breakeven
             # (deferred from before execute() so a blocked/failed add never leaves
             # the existing winner sitting at breakeven with no rollback).
@@ -9758,6 +9910,9 @@ class RuneClawEngine:
 
         # Also check live positions if in live mode
         if CONFIG.is_live():
+            # Before anything below can open a row (`_agent_open_ids`).
+            if getattr(self, "live_executor", None) is not None:
+                self._agent_open_ids(self.live_executor)
             # An executor dropped by a /connect, a /disconnect or a website
             # control change is rebuilt before the loops below walk them.
             self._rebind_invalidated_executors()
@@ -9877,6 +10032,13 @@ class RuneClawEngine:
                 except Exception as exc:
                     audit(system_log, f"Live position monitor error: {exc}",
                           action="live_monitor", result="ERROR")
+
+                # A resting limit that filled on this pass (by whichever of
+                # the executor's paths) is announced now, off the row.
+                try:
+                    await self._announce_new_agent_opens(_ex)
+                except Exception as exc:
+                    logger.debug("Agent open announcements skipped: %s", type(exc).__name__)
 
                 # F-14 FIX: Reconcile tracked positions with exchange
                 # Detects positions closed by exchange-side SL/TP triggers

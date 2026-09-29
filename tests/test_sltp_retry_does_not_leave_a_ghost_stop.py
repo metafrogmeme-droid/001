@@ -1,40 +1,20 @@
-"""A failed SL/TP re-place must not leave the position believing it has a stop.
+"""A re-place must leave the record naming what rests on the venue.
 
-`_place_sl_tp` CANCELS every existing plan order before placing new ones
-(live_executor.py, "GETCLAW: Check and cancel existing plan orders") — correct
-on its own, it prevents duplicate stops causing double-closes.
+WHEN THIS FILE WAS WRITTEN `_place_sl_tp` CANCELLED every existing plan order
+BEFORE placing new ones. The retry that calls it fires when EITHER leg is
+missing, so a position with a live SL and a missing TP had its working stop
+cancelled first, and a refused replacement left `pos.sl_order_id` naming the
+cancelled order: every signal downstream read "protected". The fix then was to
+clear the id and mark the position unprotected.
 
-The retry that calls it fires when EITHER leg is missing:
-
-    if (not pos.sl_order_id or not pos.tp_order_id) and ...
-
-So a position with a live SL and a missing TP takes this path, and the first
-thing that happens is its working stop being cancelled. If the replacement is
-then refused — precision, min-distance, 45115, an already-breached trigger —
-`_place_sl_tp` returns (None, None) and:
-
-    if sl_id or tp_id:          # False, so nothing below runs
-
-`pos.sl_order_id` is left naming the order that was just cancelled. Every
-signal downstream then reads as protected:
-
-  * the grace-window skip trusts it outright —
-    `if pos.sl_order_id: continue  # protected by exchange SL`
-  * the stale-ticker skip logs "exchange stop still active" and skips the
-    local check, and the comment beneath it describes the XPD incident where
-    exactly that kept the backstop from running for 40+ minutes
-  * the `unprotected` alarm is actively CLEARED, because clearing is gated on
-    `pos.sl_order_id` being truthy
-
-and the only trace of the failure is a `logger.debug`.
-
-NOT a permanently naked position: the static SL/TP check runs unconditionally
-once past grace, so the local backstop still closes on breach. The cost is the
-grace window, every stale-ticker cycle, and an operator-facing marker that
-says protected while the venue holds nothing.
-
-The fix is to make the ids tell the truth: a cancelled stop that could not be
-replaced is an absent stop.
+The fix that sent the plan listing to the plan table reversed the placer's order: it places first and
+cancels this side's resting plan orders only once a NEW stop rests. That made
+this file's premise false and its fix the defect. An answer of (None, None)
+now means nothing was cancelled, so clearing the id cleared a stop that was
+still on the venue, marked a protected position unprotected, audited "the
+existing one was cancelled", and let a 25588-family refusal of the new stop
+close the position at market beside the working one. The tests below
+pin the claim under the current contract: the record names what rests.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -70,17 +50,31 @@ def _executor(place_result, price=100.0):
     ex._last_exchange_sync = __import__("time").time()
     ex.close_position = AsyncMock(return_value="CLOSED")
     ex._save_positions = lambda *a, **k: None
-    # The real one cancels every plan order first, then places. Both outcomes
-    # are driven from here.
+    # The real one places first and sweeps this side's plan orders only once
+    # a new stop rests. Both outcomes are driven from here.
     ex._place_sl_tp = AsyncMock(return_value=place_result)
+    # A UTA account: the retry places the pair through the placer above (a
+    # classic account places only the missing leg, driven in
+    # tests/test_a_retry_places_only_the_missing_leg.py). The hold mode is
+    # read, so the monitor's probe leaves the account type alone.
+    ex._is_uta = True
+    ex._hedge_mode = False
     return ex
 
 
-class TestAFailedRePlaceTellsTheTruth:
+class TestTheRecordNamesWhatRests:
+    """The same claim under the placer's current contract.
+
+    `_place_sl_tp` cancels this side's resting plan orders only ONCE A NEW
+    STOP RESTS. So an answer of (None, None) means nothing was cancelled, and
+    a held stop is still on the venue: clearing its id there was the defect,
+    and a 25588-family refusal of the new stop then closed the position at
+    market beside a working stop. A placed stop means the held one was swept,
+    so the record takes the new id.
+    """
+
     @pytest.mark.asyncio
-    async def test_a_cancelled_stop_that_could_not_be_replaced_is_not_still_named(self):
-        # The live SL is cancelled to replace a missing TP, and the placement
-        # is refused. `sl_order_id` must not keep naming the dead order.
+    async def test_a_stop_the_placer_did_not_replace_is_still_named(self):
         ex = _executor(place_result=(None, None))
         pos = _pos(sl_id="SL1", tp_id="")
         ex._positions[pos.trade_id] = pos
@@ -88,58 +82,50 @@ class TestAFailedRePlaceTellsTheTruth:
         await ex.check_positions()
 
         assert ex._place_sl_tp.await_count == 1, "the retry did not run"
-        assert not pos.sl_order_id, (
-            "sl_order_id still names the order _place_sl_tp cancelled — the "
-            "grace skip, the stale-ticker skip and the unprotected marker all "
-            "read this as an exchange stop being in place")
+        assert pos.sl_order_id == "SL1", (
+            "the placer placed no stop, so it cancelled none: the held stop "
+            "still rests and the record must keep naming it")
+        assert not getattr(pos, "unprotected", False), (
+            "a position whose stop still rests was marked unprotected")
 
     @pytest.mark.asyncio
-    async def test_it_is_marked_unprotected(self):
-        ex = _executor(place_result=(None, None))
+    async def test_a_placed_stop_replaces_the_swept_ones_id(self):
+        ex = _executor(place_result=("SL2", None))
         pos = _pos(sl_id="SL1", tp_id="")
         ex._positions[pos.trade_id] = pos
 
         await ex.check_positions()
 
-        assert getattr(pos, "unprotected", False) is True, (
-            "the position carries no unprotected marker after its stop was "
-            "cancelled and not replaced")
+        assert pos.sl_order_id == "SL2", (
+            "the record kept the id of the stop the placer's sweep cancelled "
+            "beside an untracked live one")
+        assert not pos.tp_order_id
 
     @pytest.mark.asyncio
-    async def test_losing_a_working_stop_is_reported(self, monkeypatch):
-        # It used to be one `logger.debug` line. The CAUSE — a stop that
-        # existed and was cancelled — is distinct from the standing state and
-        # is recorded once, where an operator sees it.
-        # `audit()` emits through `channel.log(level, ...)`, not `.warning()`
-        # — patching the convenience method catches nothing.
+    async def test_a_held_stop_is_never_reported_lost(self, monkeypatch):
         import bot.core.live_executor as le
         seen = []
         monkeypatch.setattr(le.trade_log, "log",
                             lambda lvl, msg, *a, **k: seen.append((lvl, str(msg))),
+                            raising=False)
+        crits = []
+        monkeypatch.setattr(le.logger, "critical",
+                            lambda *a, **k: crits.append(str(a[0]) if a else ""),
                             raising=False)
         ex = _executor(place_result=(None, None))
         ex._positions["TI-ghost"] = _pos(sl_id="SL1", tp_id="")
 
         await ex.check_positions()
 
-        import logging
-        hits = [(lvl, m) for lvl, m in seen if "NO exchange stop" in m]
-        assert hits, f"losing a working stop left no operator-visible trace. saw: {seen}"
-        assert hits[0][0] >= logging.WARNING, (
-            "reported below WARNING — it used to be logger.debug, which is why "
-            "nobody saw it")
+        assert not [m for _, m in seen if "NO exchange stop" in m], (
+            "a stop that still rests was reported as cancelled and not replaced")
+        assert not [c for c in crits if "UNPROTECTED POSITION" in c]
 
     @pytest.mark.asyncio
-    async def test_it_unlocks_the_escalation_that_could_never_fire(self, monkeypatch):
-        """The alarm written for exactly this condition, and unreachable in it.
-
-        `if (unprotected_escalation_enabled and not pos.sl_order_id ...)` logs
-        CRITICAL "UNPROTECTED POSITION ... Place a stop on Bitget manually."
-        While the cancelled order was still named, `not pos.sl_order_id` was
-        False and the escalation could not fire in the one case it describes.
-        """
-        import logging as _logging
-
+    async def test_the_escalation_fires_for_a_record_with_no_stop(self, monkeypatch):
+        """`if (unprotected_escalation_enabled and not pos.sl_order_id ...)`
+        logs CRITICAL "UNPROTECTED POSITION". It must still fire for the case
+        it is written for: a position that names no stop after the retry."""
         import bot.core.live_executor as le
         crits = []
         monkeypatch.setattr(le.logger, "critical",
@@ -147,16 +133,14 @@ class TestAFailedRePlaceTellsTheTruth:
                             raising=False)
         monkeypatch.setattr(le.trade_log, "log", lambda *a, **k: None,
                             raising=False)
-        assert _logging  # keep the import meaningful to linters
-
         ex = _executor(place_result=(None, None))
-        ex._positions["TI-ghost"] = _pos(sl_id="SL1", tp_id="")
+        pos = _pos(sl_id="", tp_id="")
+        ex._positions["TI-ghost"] = pos
 
         await ex.check_positions()
 
-        assert any("UNPROTECTED POSITION" in c for c in crits), (
-            "the CRITICAL escalation still cannot fire — it is gated on "
-            "`not pos.sl_order_id`, which the ghost id kept truthy")
+        assert getattr(pos, "unprotected", False) is True
+        assert any("UNPROTECTED POSITION" in c for c in crits)
 
 
 class TestItDoesNotOverreact:

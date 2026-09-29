@@ -237,7 +237,9 @@ def test_the_paper_close_refuses_rather_than_closing_at_the_entry_price():
     start = code.index("for pos in list(portfolio.open_positions)")
     block = code[start:start + 2500]
     assert "close_position(pos.trade_id, pos.entry_price)" not in block
-    assert "paper_close_price(ticker)" in block
+    # The price is the engine's one reading of the perp, which answers None
+    # for a ticker that states no price (the refusal below).
+    assert "self.engine.market_price(pos.asset)" in block
     assert "NOT</b> closed" in block
 
 

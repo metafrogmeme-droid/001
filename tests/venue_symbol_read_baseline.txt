@@ -43,3 +43,12 @@ bot/core/live_executor.py: adopt_exchange_positions.fetch_open_orders(raw_sym) |
 # bare read is the default for a caller holding no executor (the handler
 # wrapper the desync tests drive with Bitget-shaped stubs).
 bot/core/open_orders.py: resolve_desync_orders.fetch_order(p.symbol) outside _fetch_order | 1 | default reader only; read_open_orders passes the executor's _fetch_order as read_order
+
+# ── Reads that name no market, or the venue's own. The Proof-of-PnL and
+# leaderboard publishers list the account's fills across every symbol, and the
+# untracked-position close in the callback handler acts on a position row the
+# venue itself returned, in the symbol that row carries.
+bot/core/engine.py: _maybe_publish_proofofpnl.fetch_my_trades(None) | 1 | account-wide read: symbol None names no market
+bot/core/engine.py: _maybe_publish_user_leaderboards.fetch_my_trades(None) | 1 | account-wide read: symbol None names no market
+bot/skills/callback_handler.py: _handle_callback.create_order(ep_sym) | 1 | the venue's own spelling, read off the position row it returned
+bot/skills/callback_handler.py: _handle_callback.fetch_ticker(ep_sym) | 1 | the venue's own spelling, read off the position row it returned

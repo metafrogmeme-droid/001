@@ -817,7 +817,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 683 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 674 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -3406,7 +3406,7 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Fifty-two call sites across the two entry points today, one on
+never happened. Fifty-three call sites across the two entry points today, one on
 every branch that answers — the stance card, the paywall refusal, the scan card,
 orders, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall
@@ -17334,6 +17334,467 @@ raises, a kill switch that cannot be read, and one cause on one engine said
 once. Without them, reading a failed read as a halt and saying a reason twice
 would have survived. (`tests/test_a_halt_cancels_a_resting_entry.py`.)
 
+**A SCAN CARD'S ✅ SAYS IT "PLACES THE ENTRY SHOWN, AS A LIMIT ORDER, WITH ITS
+STOP AND TARGET", AND FOUR SITES MOVED THE LEVELS AFTER THE TAP.** The
+scan-button chapter above made the ✅ register the row's own levels, and the
+typed-ticket chapter made a hand-typed limit reach the venue as typed. The
+second fix keyed every site on `source == "manual"`, so a scan card's idea
+took the engine's treatment:
+
+- the confirm re-priced a limit at or through the market to current minus
+  half an ATR, with the stop and target shifted by the same amount;
+- the executor's confluence re-price could do the same, or turn the limit into
+  a MARKET order on a Tier D;
+- the limit went out post-only, which the venue refuses once the market
+  reaches it, and the retry then re-priced it;
+- the drift fallback chased a resting limit at the market with its stop and
+  target shifted by the drift.
+
+Driven through the real confirm, a card showing SOL LONG 99.4 / stop 95 /
+target 106, with the market at 99.3, reached the executor as 98.3 / 93.9 /
+104.9. The Limit button had the same shape one door over: it replaces an
+idea's entry with the price the person typed and confirms, and the typed entry
+of an engine idea took the engine's re-price.
+
+**`levels_as_shown` is the one reading, asked at all four sites.** It answers
+True for a hand-typed ticket and a scan card's idea (`source`, or
+`idea_source` on the resting row the executor built), and for any idea whose
+entry was typed through the Limit button (`TradeIdea.entry_typed`, stamped on
+the position and saved with it, so a restart does not bring the chase back).
+A source that is not a string, and a stamp that is not literally True, read as
+not shown. What it deliberately does not decide is stated in the leaf: the
+clock a resting order rests on, and whether drift may CANCEL it. A scan
+card's idea is the engine's analysis and rests on the engine's four hours, and
+a level the market ran away from may still be cancelled, audited
+`NOT_CHASED`. Cancelling places nothing; moving the levels places an order
+nobody confirmed.
+
+**And the Limit button took a price outside the setup.** The assignment
+bypasses the model's own directional check, so a LONG with its stop at 95
+took a typed 94. The order rests there, fills there, and the stop at 95 is
+above the fill, so the venue will not place it and the post-fill guard
+flattens the position for a round trip of fees. `typed_limit_outside_levels`
+refuses a price that does not sit strictly between the idea's stop and
+target, names both, says nothing was placed, and leaves the prompt armed for
+another price. A direction it cannot read is refused before the levels are
+read.
+
+**Three suites had pinned the defect as the contract.** The typed-ticket and
+resting-limit suites used `source="scan_skill"` to mean "the engine's own
+idea", so every assertion that the engine re-prices its own limit was an
+assertion that a scan card's levels are moved. Those fixtures say `unknown`
+now, the analyzer's own source. The transcript suite's pending idea carried no
+direction, stop or target, which the refusal reads.
+
+**Twenty-one mutations, each killed on the first round, none refused.** The
+leaf's string check died only after a case was added before the round ran: a
+source that is a list holding `"scan_skill"`, which `in` against a frozenset
+would raise on rather than refuse. Each boundary of the price range died on
+its own parametrized row, because a price exactly at the stop or the target
+is the input that separates `<` from `<=`.
+(`tests/test_a_scan_cards_levels_are_placed_as_shown.py`.)
+
+**A PULLBACK LIMIT WAS "DRIFTED" ON THE FIRST PASS WITH THE MARKET STANDING
+STILL.** The drift rule cancels a resting limit once the market drifts 2% away,
+and for the engine's own idea with momentum behind it, markets the order
+instead. It measured drift as the limit's distance from the market. The
+analyzer places a pullback limit up to one ATR from the market on purpose
+(`_compute_limit_entry`), so on any asset whose ATR is over 2% of price the
+distance was over the band the moment the order rested. Driven with a 3% ATR:
+the analyzer's SOL LONG limit sat at 97.2 under a market at 100, and with the
+market not moving the next monitor pass cancelled it (no trend) or marketed it
+at 100 (a trend up). The second outcome turns a pullback entry into a buy at
+the price the analysis said to wait below.
+
+**Drift is the market's move since placement.** `limit_entry.resting_limit_drift`
+is the one reading. It measures the market's move since the order was placed,
+signed so that away from the limit is positive: up for a buy limit, down for a
+sell limit. A move toward the limit is not drift. The market at placement is
+recorded on the resting row (`placed_market_price`) by `execute` and by the
+recovery of an unverified submission, which uses the pre-order ticker. It is
+saved and restored, and a saved value that is not a positive price (a bool
+included, since JSON `true` is 1.0 to `float`) restores as absent. A row placed
+before the market was recorded is measured from the limit as before. Such a
+row has already been read under that rule on every pass since it was placed,
+so the ones still resting sit inside the band. The audit names the basis.
+
+**The backtest's resting limits had the same rule and ask the same reading
+now.** `_drain_pending_limits` measured drift from the limit and records the
+signal bar's close at placement now. The honest benchmark fills at the next
+open and places no resting limits, so the frozen record does not move. Two
+tests in `test_backtest_limit_fills_need_a_touch.py` pinned the old formula as
+the contract. One cancelled a limit the market had moved TOWARD: placed at 95
+under a close of 100, then "drifted" at 97.85. Its docstring cited the live
+line that computed the same thing. Both measure from the placement close now.
+
+**The confirm half: a limit idea skipped the staleness check entirely.** F-05
+refuses a MARKET idea the market has moved more than 2% from since analysis,
+measured from its entry, which for a market idea is the analysis price. It
+skipped every limit, because a limit's distance from its entry is the design.
+So an idea the market had run 4% from was placed at the old pullback level.
+The analyzer records the market it analysed at (`TradeIdea.market_at_signal`,
+taken before the limit shift rebinds `entry`). The confirm refuses a limit
+idea measured from that, in either direction, as the market rule reads it.
+Levels a person confirmed as shown or typed (`levels_as_shown`) are not
+refused, and neither is an idea that records no analysis market. A
+`not is_manual` clause beside `levels_as_shown` was deleted before the round:
+`manual` is one of the shown sources, so the clause could not decide anything.
+
+**Twenty-four mutations, each killed. The one that survived the first round
+was a fixture that measured nothing.** "A market fill records no placement"
+iterated the positions and asserted each had none, and the market drive
+aborted on its own slippage guard (idea at 3600, fill at 4000), so there were
+no positions and the loop asserted nothing. It drives the drift suite's
+filling venue now and requires one open position first. The analyzer stamp is
+held by a scan, stated as one: `analyze` is a 1,400-line coroutine behind a
+thesis model, and the claim is an order of three assignments.
+(`tests/test_a_resting_limit_drifts_only_when_the_market_moves.py`.)
+
+**A RESTING LIMIT WAS ANNOUNCED AS OPENED THE MOMENT IT WAS PLACED, AND THE
+FILL THAT OPENED IT WAS ANNOUNCED NOWHERE PUBLIC.** On a confirm that placed
+anything, the engine emitted the public feed's `trade_open` event ("Opened
+LONG SOL/USDT", which the website pushes to every subscriber's phone), the
+Confirm button posted TRADE OPENED to the public channels, and the website
+sync sent the executor's rows as held positions. A limit order that went to
+rest on the book did all three at placement. Driven through the real confirm
+with a resting order:
+
+    feed:    ('trade_open', 'Opened LONG BTC/USDT', 'Entry $59,600.0000 · SL $58,400.0000 · TP $63,200.0000')
+    channel: TRADE OPENED  Entry $60,000.00  Stop Loss $58,800.00  Take Profit $63,600.00
+    sync:    the pending_fill row posted as a position
+
+The channel post carried the IDEA's levels, which the executor had re-priced
+and moved its stop and target from. When the order later filled, the monitor
+sent the watching chats a card and nothing else, so the public record's first
+word about the trade was its TRADE CLOSED. The same was true of every
+auto-confirmed engine trade: only the Telegram Confirm button posted TRADE
+OPENED, while every operator close was posted.
+
+**One announcer, run where the row is open.**
+`RuneClawEngine._announce_agent_open` emits the feed event, posts to the
+channel (through `set_public_open_callback`, which the alerts monitor wires to
+the forwarder) and syncs the website. The confirm calls it after `execute`, so
+an order that filled there is announced at once. The monitor pass calls
+`_announce_new_agent_opens`, which announces every operator row that is open
+and was not open when the engine first looked at that book, so a resting
+limit is announced on the pass it fills. That is read off the book's state,
+not off the message: the pending check, the drift fallback, a partial fill
+adopted at a cancel and a submission recovered by client id all open a row,
+and a list of those four is the shape where the fifth is missed. A row is
+announced once, checked and marked with no await between, because the confirm
+and a monitor pass can both reach it.
+
+**The seed is per book and is taken before anything can open a row.** The
+first look at an executor records its open rows, so a restart does not
+announce the book it found, and neither does a `/venue` switch, whose new
+executor loads that venue's saved book. The confirm seeds before `execute`,
+and the monitor at the top of its live pass, before the self-heal and the
+leverage sync. A seed taken after `execute` would hold the row the order had
+just opened, and it would never be announced.
+
+**What is announced is the agent's own open, off the row.**
+`agent_feed.opened_levels` answers for a row whose status is `open` and whose
+origin is `executed`, with the row's entry, stop and target, each through
+`price_on_record` (a level the row does not state is None, not a stop at
+zero), and the executor's marker for an estimated entry. An adopted or
+reclaimed row is synced and not announced. A person's book is never
+announced; the operator's book is decided by identity. The event carries no
+size and no confidence: the size is account money, and the confidence is the
+thesis event's, stated once for the signal. The website sync sends only
+`open` rows now; `open_positions` lists resting orders too, and the website
+priced one as a held position.
+
+**This is a decision as well as a fix, and it is stated.** Every open on the
+operator's book is posted now, whichever door placed it. Before, only the
+Telegram Confirm button posted, so auto-confirmed engine trades were posted
+closed and never opened. Opens now mirror closes, which were always posted
+for every operator trade. A person's own book is still never posted.
+
+**The door said "Trade executed!" over an order that was only resting.**
+`execute` answers a resting limit with `RESTING_ANSWER` (`⏳ PENDING FILL`), a
+constant now, and `confirm_result.left_resting` reads it. The Confirm button
+answers it with `trade_order_resting` ("Order placed — resting, not filled
+yet"), in fourteen languages. The door no longer posts anything publicly, and
+`held_on_operator_book`, which decided that post, is deleted with its tests.
+
+**The survey's other claim did not reproduce.** It said the placement card
+printed the idea's pre-re-price levels. It does not: `execute` works on a copy
+of the idea whose levels the re-price moved, and the card, the row and the
+resting answer all read that copy. The public post and the feed were the
+surfaces that read the original.
+
+**Neighbours the change reached, and none of them was the code's.** The
+transcript suite's `_HookEngine` stand-in had no `set_public_open_callback`,
+so `start_monitor` raised in eleven tests. When it raised, `_started` never
+reached its restore, and the Telegram config it patched leaked into
+`test_core`'s auth tests, which failed in the same run. That is a harness
+fragility worth knowing and not a regression. My own `_Book` stand-in lacked
+`closed_trades_read_failed`, so the sync raised inside its own `try` and was
+swallowed at debug. One fixture of mine was wrong before the code was:
+`_fmt_price` prints two decimals above $100. The no-dollar guard names every
+emit that spreads its fields, so `trade_open` joined its list with a drive of
+`open_event`'s title.
+
+**Thirty mutations, twenty-nine killed on the first round.** The survivor was
+the operator-book identity check in `_announce_agent_open`. My person's-book
+test passed without it, because the seed taken inside the call already held
+the row it was asked about. The check's real cost is elsewhere: without it,
+an attempt on a person's book replaces the operator's seed, and the
+operator's next fill is taken for a row the book already held. Two tests pin
+that now, and the mutation dies on both.
+(`tests/test_an_open_is_announced_when_the_position_opens.py`.)
+
+**THE /livepositions PICTURE CARD PRINTED FIGURES THE RECORD DOES NOT HOLD,
+AND /positions HAD THE SAME DEFECTS ONE COMMAND OVER, WITH TWO CRASHES.** The
+card's producer built its own dict inline. Driven before the fix:
+
+- `rr` read `getattr(p, "rr", 0)`, an attribute `LivePosition` does not have,
+  so every card printed `R:R 0.0x`: the worst ratio there is, on every
+  position.
+- `fees` was the literal `0.0` and the net was the gross, so the NET cell
+  repeated the gross beside `fees $0.00`.
+- An adopted position whose margin the venue never stated printed
+  `SIZE $0.00`, and its stop, which adoption records as `0.0`, was tagged
+  `bot-managed`: a stop the card vouches for and nothing will act on.
+- A mark nobody read printed as a price of `0`, with both distances `0.0%`.
+- A pending order whose mark could not be read raised on `None > 0` after the
+  positions picture had been sent, so the caller sent the text readout on top
+  of it.
+
+`live_position_card_data` is one reading, built from the helpers /positions
+already uses: `position_size_basis`, `position_leverage`, the leveraged P&L
+pair, `position_fee_estimate`, `live_rr` and `entered_at`. Every figure is
+None when it cannot be read, and the renderer prints its own word for each.
+`level_status` has three answers: on exchange, bot-managed, none on record.
+The pending row is `live_pending_order_row`, and the pending card has a `try`
+of its own. When it fails after the positions picture went out, one line says
+so and names /orders; when nothing went out, the text readout follows as
+before.
+
+**/positions, driven before the fix:**
+
+- An adopted position with no margin on record printed `$102.00` as its size.
+  That was `cost_usd if > 0 else notional` again, the two-meanings shape
+  `position_size_basis` retired. `open_book_return` then multiplied that
+  notional by the ROE and headed the card `+10.00% total`.
+- The row under that header said `price unavailable` over a mark that had been
+  read. The missing reading was the margin.
+- An entry of `0.0` raised `ZeroDivisionError` and ended the command before it
+  sent anything.
+- An adopted resting order, whose leverage adoption records as 0, raised in
+  `pending_order_card` on `{None:.0f}`.
+- The stop and target distances were measured from the entry whenever the mark
+  was unread.
+
+The size is the margin or None. The distances and the R:R come from the mark
+only. The entry and the mark are read through `price_on_record`. And the
+pending card prints `margin unread` and `leverage unread`.
+
+**A P&L that cannot be shown names the reading that is missing.**
+`pnl_unread_cause` answers the first one missing, in the order the arithmetic
+needs them: mark, entry, leverage, margin. Every card prints it in place of
+the figure. "price unavailable" over a read mark is a false cause, and so was
+the coverage note's "have no readable mark" for a row left out for want of a
+margin. `open_book_return` counts the two causes apart now, and the note names
+each. The orphan row's P&L is the venue's, so its cause is "P&L not stated".
+
+**Making the size honest found the third crash before it shipped.** The text
+card formatted the dollars as `{None:+,.2f}` once a percent was read and a
+margin was not. It prints a dash there now. The /orders card read
+`.get(k, 0)` and drew `CURRENT 0`, `TO FILL +0.00%` and `Qty 0.0000` for a
+read that failed. It omits the two cells and says `Qty: unread`.
+
+**One change was reverted as equivalent.** Giving `pending_order_card`'s stop
+tag the three-valued reading changed no output. The tag is printed only beside
+a stop distance, and a stop distance already requires a stop on record.
+
+**A guard anchored on the text the fix changed.** The abort chapter's
+`test_positions_really_CALLS_the_seam` found its owner by the literal
+`SL bot-managed`. The refusal line now prints the stop's own status, so the
+spelling moved while the property held. It is anchored on
+`placement was refused` now.
+
+**The type ratchet grew by three, from one function holding both branches.**
+The live branch's `pnl_pct_raw` and `pnl_pct` became Optional, and the paper
+branch below, in the same function, uses the same names for plain floats. So
+the paper arithmetic became two `operator` findings and one `assignment`. The
+live locals have names of their own now, and the ratchet improved by one.
+Honesty went 683 to 679: the orders card's `.get(k, 0)` reads and the card's
+`getattr(p, "rr", 0)`.
+
+**Forty-two mutations. Eight survived the first round, and seven of those
+were drives the slice had not written.** The /orders producer's rows were read
+by no test, so an unread amount and distance reaching its card as `0` changed
+nothing. The time-exit caption's marks were wired before this slice and never
+driven. The renderer was never handed junk, or a pending order with a mark and
+no price of its own. The paper row writes `current: 0` beside its unread flag,
+and nothing drove that shape. And an infinite mark: the fetch stores any
+`last > 0`, and the row read it as a mark for its unread flag and as no mark
+for everything else, so the card printed the entry as the current price. Each
+has a drive now and each mutation dies. The eighth was a check no input
+reaches: the coverage note refused a `bool` count, and no producer writes one.
+It is deleted.
+(`tests/test_the_livepositions_card_prints_what_the_record_holds.py`.)
+
+**THE SL/TP RETRY WAS WRITTEN FOR A PLACER THAT CANCELLED FIRST, AND THE
+PLACER PLACES FIRST NOW.** `_place_sl_tp` lists this side's resting plan
+orders, places the new pair, and cancels the listed rows only once a new stop
+rests. Every retry door still called it for the whole pair and recorded the
+answer by a rule written for the old order. The periodic retry used
+`if sl_id and not pos.sl_order_id`, and its failure branch, added by an earlier
+ghost-stop fix, cleared the record's stop with an audit reading "the existing
+one was cancelled and the replacement was refused". Driven on the base tree
+through the real `check_positions`, a classic Bitget long, stop 95, target 110:
+
+- **A missing target replaced a working stop.** The stop rested and the target
+  was missing. The retry placed a new stop, the placer swept the resting one,
+  and the record kept the swept id while the new stop rested untracked. With
+  the target refused, that happened on every pass.
+- **A refused re-place cleared a live stop.** The stop rested and the new one
+  was refused. The placer had cancelled nothing, and the retry recorded no stop
+  and marked the position unprotected. When the refusal was a 25588-family
+  answer, the breach-by-rejection branch then closed the position at market
+  beside its resting stop.
+- **A missing stop swept the resting target and the record kept its id.** The
+  new stop landed, the placer cancelled the old target, and the record still
+  named it. When the new target was placed too, it rested untracked.
+- **A refused stop added a full-size target every pass.** With the target
+  resting and the stop refused, nothing was cancelled and a new target was
+  placed each time: four targets resting after three passes.
+
+**`_protect_legs` is the one rule, and it places only what is missing.** On the
+classic path, with one leg held and the other missing, it places the missing
+leg alone through `_place_classic_trigger`, the single-leg helper the placer's
+own classic branch now calls, so the two cannot differ about the grid, the
+params or what a refusal records. A v3 order carries both legs, so the pair
+goes through the placer on a v3 account, while the account type is unresolved,
+for inverted levels, and for a position holding neither leg. The pair's answer
+is read by the placer's contract: a placed stop means the held ids were swept
+and both answers stand; no stop placed means nothing was cancelled, so the held
+stop still rests and a target is taken only where none was held. A held stop is
+never answered as absent. `_place_missing_sltp` writes the answer onto a
+position record and returns only what this call placed, for the caller's audit.
+
+**Nine doors ask it:** the periodic retry, the grace retry, the grace sub-loop,
+the post-fill ladder, the entry retry, the adoption retry, both cancel-race
+sites, and the startup fix. The startup fix clears a leg the venue confirmed
+gone before asking, so a lost target is placed beside the resting stop instead
+of the pair replacing it, and a v3 id confirmed gone no longer stays on the
+record when the re-place is refused. The periodic retry marks a position
+unprotected only when the record named no stop before and after the retry.
+The rule is a structural test: every direct caller of the placer is named with
+its reason, one call each, and each places a first protection on a record
+that holds none.
+
+**Four pins broke, and the mutation driver found the fourth.** The ghost-stop
+suite asserted the cleared stop as the contract; it is rewritten to the
+placer's order. The post-fill guard pinned `sl_id = retry_sl` three times, and
+a re-arm pin counted `_place_sl_tp(` at the cancel-race sites. The
+venue-routing pin spelled `trigger_params("sl"` inside the placer, which reads
+it through the helper now. None of the slice's own runs included that file:
+the driver refused its red baseline. Three suites' prose still said the
+placer cancels before it places.
+
+**Thirty-seven mutations. Eight survived the first round; seven were paths no
+suite in the tree drove, and each has a test now.** Rerun against all 51
+suites that call the placer, one died; the other seven still survived.
+
+- Nothing checked that a classic trigger closes the position it protects: a
+  reversed side survived. Nor that its level is rounded onto the market's tick
+  grid.
+- A refused stop's reason, which the unprotected alert and the abort cards
+  read, was pinned only as a count of call sites. So deleting the note and
+  clearing it on a placed target both survived.
+- The retry's own unprotected mark, and its save, were masked by the
+  escalation alert, which sets the same marker in memory. A test with the
+  alert throttled isolates them, and reads the saved row.
+- The record form reporting a held target as placed by this call survived; so
+  did keeping a swept target's id once a new stop landed, killed only outside
+  the round.
+
+All thirty-seven die now.
+(`tests/test_a_retry_places_only_the_missing_leg.py`.)
+
+**And the head carrying the four slices before this one failed the strict
+mypy gate.** `mypy bot/risk ... bot/core/live_executor.py` follows imports.
+The open-announcement slice gave `agent_feed`, which the executor imports, a
+lazy `from bot.formatters.rich_cards import _fmt_price`. So the gate walked
+into the card renderers and reported 25 old errors in four files. None of
+that slice's runs included the gate. The formatter lives in
+`bot/formatters/price_text.py` now, which imports nothing, and `rich_cards`
+re-exports it.
+
+**A POSITION CARD PRICED A PERP OFF THE SPOT BOOK, AND THE CONFIRM JUDGED A
+PERP ORDER THE SAME WAY.** The Bitget read-back chapter moved the executor's
+own reads onto the perp. The cards were outside it: `/livepositions` (picture
+and text), the pending-order row and `/positions` each took the executor's
+exchange and called `fetch_ticker(p.symbol)`, the recorded `BTC/USDT`. Driven
+on a UTA client, a BTC perp held at 60,050 was priced at **59,000**, asked as
+`category=SPOT`. On Hyperliquid `BTC/USDT` is not a market at all, so every
+mark on every card was unread. `LiveExecutor.last_price` is the one reading:
+the venue's spelling, `price_on_record` on the answer (None, never 0), and a
+read that fails raises for the card to say so.
+
+**The confirm's drift check read the same wrong book.** `_confirm_trade_inner`
+asked the scanner's plain Bitget client, which has spot and swap markets
+loaded, for `idea.asset`, so the drift, past-stop and R:R re-checks measured a
+perp order against the spot price. Driven, a long whose stop sat between the
+two books (spot 59,000, stop 59,500, perp 60,050) was refused as already below
+its stop while the perp it would trade was above it. `engine.market_price`
+reads Bitget's perp spelling, and the two buttons that priced off the same
+read ask it too: the paper Close button and
+the drift re-analyze. Stated rather than hidden: on an executor for another
+venue this is still Bitget's perp, the market the analysis read; the executor
+reads its own venue again when it places.
+
+**A TICKER THAT STATED NO PRICE PLACED THE ORDER.** The check read
+`float(ticker.get("last") or 0)` and ran only `if current_price > 0`, so a
+ticker answering `last: None` skipped all three checks. Driven:
+`🟢 LIVE LONG BTC/USDT opened`, execute awaited once. H-08's comment on the
+`except` says the check fails closed when the exchange is unreachable, and it
+did; a read that answered with nothing was the open door beside it. That is
+refused now, audited `price_unread`, with the pyramid flag dropped and the
+engine idle, as every sibling refusal in the block does. The failed read's
+audit printed the exception's text; it prints the class.
+
+**The rule that checks this class was three files short.**
+`tests/venue_symbol_reads.py` walked the executor and `/orders` only, so the
+cards, the confirm and the buttons were never read. It walks them now. The
+widening found four more rows, each baselined with its reason: two
+account-wide `fetch_my_trades(None)` reads that name no market, and the
+untracked close in the callback handler, which acts on a row the venue
+returned, in that row's own spelling.
+
+**And the orders picture named Bitget for every venue.** Its footer was the
+literal `Bitget USDT-M Futures`, so a Bybit or Hyperliquid resting limit was
+labelled a Bitget order. `open_orders.order_source` is the one reading (the
+venue's display name, or "the exchange"), `/orders` and the pending card both
+hand it to the picture, and no footer is drawn when nobody names a venue.
+
+**Twenty-five mutations, each killed. The one that survived the first round
+was a fixture that could not tell.** The unread-price refusal's test asserted
+the engine was idle, and it starts idle: nothing in the confirm moves the
+state before the drift check, so deleting the transition changed nothing.
+The test plants the state a mid-cycle tick leaves (`ANALYZING`) now. Eight
+neighbouring tests broke on stand-ins that spelled the old read: the card
+suite keyed its marks on the recorded spelling, two Close-button drives
+stubbed an exchange with no category, and one pin read the old call. The
+neighbouring run found two more pins, in the card suite that first made an
+unread mark None: both spelled the inline `px > 0` read this replaced. They
+drive `last_price` now, over a ticker that states no price and an exchange
+that cannot be built. The honesty ratchet fell 679 to 674 and the type
+ratchet's `union-attr` 128 to 127, both re-recorded in this commit.
+(`tests/test_a_mark_is_read_on_the_market_the_position_trades.py`.)
+
+**And the full gate refused the retry slice below it, on guard
+reachability.** The kill-switch rule requires every order path in the
+executor to consult the switch, and names the paths that REDUCE exposure as
+exclusions. The retry slice split the classic stop placement out as
+`_place_classic_trigger`, which sends one reduce-only SL/TP leg, and the rule
+read it as an order path that never asks. It is excluded beside `_place_sl_tp`
+for the same reason: a missing stop must still be placed while trading is
+halted. No suite in that slice ran `guard_lint`.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -17813,7 +18274,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 260 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 263 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -18625,9 +19086,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **472 of 1173** reach for source text through `source_scan`, `code_only`
+Driven, **474 of 1179** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 472 is a FLOOR and the honest shape is
+source scan that rule does not see, so 474 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

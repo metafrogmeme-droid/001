@@ -18,6 +18,7 @@ import numpy as np
 from bot.core.position_telemetry import pct_on_record, price_on_record
 from bot.core.signal_confidence import displayed_confidence
 from bot.formatters.drawdown_card import drawdown_source_note
+from bot.formatters.price_text import fmt_price as _fmt_price
 from bot.utils.candles import drop_forming_candle
 from bot.utils.i18n import t
 
@@ -167,37 +168,6 @@ def compute_atr(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray,
     h, l, c = highs[1:], lows[1:], closes[:-1]
     tr = np.maximum(h - l, np.maximum(np.abs(h - c), np.abs(l - c)))
     return float(np.mean(tr[-period:]))
-
-
-def _fmt_price(p) -> str:
-    """Smart price formatter — fewer decimals for larger prices.
-
-    None renders as an em dash, never `$0.00`. Every caller is a display path,
-    and a price is exactly the field this repo's doctrine opens on: an
-    unfetchable one shown as a number is the defect, not the crash. Guarding
-    here rather than at each call site means a new caller inherits the honest
-    behaviour instead of having to remember it.
-    """
-    if p is None:
-        return "—"
-    try:
-        p = float(p)
-    except (TypeError, ValueError):
-        return "—"
-    if p != p:            # NaN: not a price, and every comparison below is False
-        return "—"
-    if p >= 100:
-        return f"${p:,.2f}"
-    if p >= 1:
-        return f"${p:,.4f}"
-    if p >= 0.01:
-        return f"${p:,.5f}"
-    if 0 < p < 0.0001:
-        # Six places leave a PEPE-class price one or two significant digits,
-        # so an entry at 0.0000102 and a stop at 0.0000098 both printed
-        # `$0.000010`: a card whose stop sat ON its entry. Eight keeps four.
-        return f"${p:,.8f}"
-    return f"${p:,.6f}"
 
 
 def _fmt_vol(v) -> str:
@@ -1195,12 +1165,20 @@ def render_open_positions(positions: List[Dict[str, Any]], lang: str = "en") -> 
         strategy_type = p.get("strategy_type", "").upper()
         st_tag = f" [{strategy_type}]" if strategy_type else ""
 
+        # The MARK cell says whether the mark was read, and nothing else: a
+        # P&L missing its margin or leverage over a read mark printed
+        # "price unavailable" beside a price that was there.
+        _mark_read = current is not None and not p.get("price_unavailable")
+        _mark_cell = (_fmt_price(current) if _mark_read
+                      else f"<i>{t('price_unread', lang)}</i>")
         if _unread:
             _pnl_cell = f"{pnl_icon} {t('pnl_unknown', lang)}"
-            _mark_cell = f"<i>{t('price_unread', lang)}</i>"
+        elif pnl_usd_val is None:
+            # The percent is read and the dollars are not (no margin on
+            # record): a dash, where `{None:+,.2f}` raised.
+            _pnl_cell = f"{pnl_icon} {_pct(pnl)} (\u2014)"
         else:
             _pnl_cell = f"{pnl_icon} {_pct(pnl)} (${pnl_usd_val:+,.2f})"
-            _mark_cell = _fmt_price(current)
         lines.extend([
             f"{d_icon} <b>{pair}</b> {direction}{st_tag} | {_pnl_cell}",
             f"  {_fmt_price(entry)} -> {_mark_cell} | {size_str}{lev_str}{rr_str} | {hold_str}",

@@ -159,8 +159,11 @@ def test_a_limit_left_behind_by_price_is_cancelled_on_drift():
     cleared = []
     eng.risk.clear_pending_intent = lambda i: cleared.append(i)
 
+    # Away is UP from the close the limit was placed at (100), by more than the
+    # band. This used to be measured from the limit (95), so a market that
+    # had moved TOWARD it, to 97.85, was cancelled as "drifted".
     drift = float(CONFIG.limit_orders.price_drift_cancel_pct)
-    away = 95.0 * (1 + (drift + 1) / 100.0)
+    away = 100.0 * (1 + (drift + 1) / 100.0)
     eng._drain_pending_limits(_bar(away - 0.5, away + 0.5, close=away, hours=1))
 
     assert eng.portfolio.open_positions == []
@@ -228,13 +231,13 @@ def test_every_recorded_entry_lies_inside_some_bar_that_traded_it():
 
 
 def test_drift_is_measured_the_way_the_LIVE_executor_measures_it():
-    """Same formula, or the backtest diverges from live in a NEW way.
+    """Same reading, or the backtest diverges from live in a NEW way.
 
-    `bot/core/live_executor.py:6721` computes
-    `abs(cur_price - entry_price) / entry_price * 100` and cancels above
-    `price_drift_cancel_pct`. Modelling drift differently here would trade one
-    fill-assumption defect for another, which is the whole failure this change
-    exists to end. Driven at the boundary: just inside stays, just outside goes.
+    Both ask `limit_entry.resting_limit_drift`: the market's move AWAY from
+    the limit since it was placed, above `price_drift_cancel_pct`. (This used
+    to pin the limit's distance from the market, which a pullback limit placed
+    an ATR away carries by design.) Driven at the boundary, measured from the
+    signal bar's close: just inside stays, just outside goes.
     """
     from bot.config import CONFIG
     band = float(CONFIG.limit_orders.price_drift_cancel_pct)
@@ -243,13 +246,13 @@ def test_drift_is_measured_the_way_the_LIVE_executor_measures_it():
     # and passed for the wrong reason.
     px = 95.0
 
-    inside = px * (1 + (band - 0.5) / 100.0)
+    inside = 100.0 * (1 + (band - 0.5) / 100.0)
     eng = _engine()
     eng._place_entry(_idea(px), _risk_check(), _bar(99.0, 101.0, close=100.0))
     eng._drain_pending_limits(_bar(inside - 0.1, inside + 0.1, close=inside, hours=1))
     assert len(eng._pending_limits) == 1, "cancelled inside the band"
 
-    outside = px * (1 + (band + 0.5) / 100.0)
+    outside = 100.0 * (1 + (band + 0.5) / 100.0)
     eng2 = _engine()
     eng2._place_entry(_idea(px), _risk_check(), _bar(99.0, 101.0, close=100.0))
     eng2._drain_pending_limits(_bar(outside - 0.1, outside + 0.1, close=outside, hours=1))

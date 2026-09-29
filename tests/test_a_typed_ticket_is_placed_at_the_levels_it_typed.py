@@ -118,7 +118,8 @@ class TestATypedTicketReachesTheExecutorAsTyped:
         assert _by(audits, "limit_price_update") == []
         crossing = _by(audits, "manual_limit_as_typed")
         assert len(crossing) == 1 and crossing[0]["result"] == "CROSSES_MARKET"
-        assert crossing[0]["data"] == {"trade_id": idea.id, "entry": 3000.0, "current_price": market}
+        assert crossing[0]["data"] == {"trade_id": idea.id, "entry": 3000.0, "current_price": market,
+                                       "source": "manual", "entry_typed": False}
 
     def test_a_short_through_the_market_keeps_its_levels(self, tmp_path, audits):
         idea = _typed("SHORT", 3000, 3050, 2900)
@@ -152,7 +153,7 @@ class TestTheEnginesOwnIdeaIsStillRePriced:
     def _signal(self, entry, sl, tp):
         return TradeIdea(id="TI-SIG", asset="ETH/USDT:USDT", direction=Direction.LONG,
                          entry_price=entry, stop_loss=sl, take_profit=tp, confidence=0.8,
-                         reasoning="signal", signals_used=["x"], source="scan_skill",
+                         reasoning="signal", signals_used=["x"],
                          timestamp=datetime.now(UTC), order_type="limit")
 
     def test_a_signal_limit_through_the_market_moves_to_half_an_atr_below(self, tmp_path, audits):
@@ -242,7 +243,8 @@ class TestTheExecutorLeavesATypedTicketAlone:
         assert fx.calls == []
         row = ex_audits[0]
         assert (row["action"], row["result"]) == ("manual_limit_as_typed", "CROSSES_MARKET")
-        assert row["data"] == {"symbol": "BTC/USDT:USDT", "limit_price": 101.0, "market_price": 100.0}
+        assert row["data"] == {"symbol": "BTC/USDT:USDT", "limit_price": 101.0, "market_price": 100.0,
+                               "source": "manual"}
 
     def test_a_crossing_typed_limit_with_no_atr_is_not_downgraded_to_market(self, tmp_path, ex_audits):
         ex = LiveExecutor(state_dir=str(tmp_path))
@@ -272,7 +274,7 @@ class TestTheExecutorLeavesATypedTicketAlone:
             explanation="planted", confluence_count=2, levels_used=["vwap"]))
         monkeypatch.setattr(le, "recalc_sl_tp_for_shifted_entry", lambda **kw: (97.0, 103.0, True, None))
         ex = LiveExecutor(state_dir=str(tmp_path))
-        idea = _ex_idea(source="scan_skill")
+        idea = _ex_idea(source="unknown")
         out = _run(ex._recalculate_limit_entry(_FakeExchange(), "BTC/USDT:USDT", idea, "buy", None,
                                                True, 101.0, 100.0, 100.0, 5.0, 5, 2.0))
         assert out[:2] == (True, 99.0) and seen
@@ -289,7 +291,7 @@ class TestTheExecutorLeavesATypedTicketAlone:
             natural_sl=None, explanation="planted", confluence_count=2, levels_used=["vwap"]))
         monkeypatch.setattr(le, "recalc_sl_tp_for_shifted_entry", lambda **kw: (97.0, 103.0, True, None))
         ex = LiveExecutor(state_dir=str(tmp_path))
-        _run(ex._recalculate_limit_entry(_FakeExchange(), "BTC/USDT:USDT", _ex_idea(source="scan_skill"),
+        _run(ex._recalculate_limit_entry(_FakeExchange(), "BTC/USDT:USDT", _ex_idea(source="unknown"),
                                          side, None, True, limit, 100.0, 100.0, 5.0, 5, 2.0))
         assert seen, "a limit at the market was left to fill as a taker"
 
@@ -359,7 +361,7 @@ class TestATypedLimitIsSentGtcAtThePriceTyped:
         assert sent["params"].get("timeInForce") == "GTC"
 
     def test_a_signal_limit_keeps_post_only(self, tmp_path):
-        sent = _place(tmp_path, _live_idea(3990.0, "scan_skill"), 4000.0)
+        sent = _place(tmp_path, _live_idea(3990.0, "unknown"), 4000.0)
         assert sent["price"] == 3990.0
         assert sent["params"].get("timeInForce") == "post_only"
 

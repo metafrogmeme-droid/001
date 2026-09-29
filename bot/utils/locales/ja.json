@@ -223,6 +223,7 @@
   "trade_executed_fail": "<b>取引は成立しませんでした</b>",
   "trade_executed_ok": "<b>取引を執行しました！</b>",
   "trade_outcome_unverified": "<b>注文結果は未確認</b> — 何も記録されず、再送もされていません",
+  "trade_order_resting": "<b>注文を発注済み — 待機中、まだ約定していません</b>",
   "trade_expired": "取引の期限切れ（時間内に確認されませんでした）",
   "trade_expired_rescan": "<b>取引の期限が切れました。</b> 新しいスキャンを実行してください。",
   "trade_help": "<b>手動取引</b>\n\n形式:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1748 tp 1610 margin 250</code>\n\n• <code>buy/long</code> = ロング\n• <code>sell/short</code> = ショート\n• <code>margin</code> = 任意の固定証拠金（USD）",

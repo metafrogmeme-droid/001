@@ -149,6 +149,16 @@ class TradeIdea(BaseModel):
     # call once. None for every idea that is a call, and for every producer
     # that publishes no call at all.
     repeat_of: Optional[str] = None
+    # True when the person TYPED this idea's entry through the Limit button,
+    # which rewrites the entry of an idea some producer built. The levels are
+    # then theirs as they stand (`limit_entry.levels_as_shown`), and nothing
+    # re-prices them. False for every other producer.
+    entry_typed: bool = False
+    # The market price the analysis was made at. A market idea's entry IS that
+    # price, so confirm's drift check reads the entry; a limit idea's entry is
+    # a level away from it, and the drift since the analysis has to be measured
+    # from this. None for every producer that does not record it.
+    market_at_signal: Optional[float] = None
 
     @property
     def risk_reward_ratio(self) -> float:

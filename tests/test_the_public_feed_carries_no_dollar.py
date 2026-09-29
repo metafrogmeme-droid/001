@@ -199,12 +199,13 @@ def test_no_emit_site_spells_a_dollar_in_its_title():
     amount; the receiver refuses it too, and this says so at the source. A
     call that spreads its fields has no title this scan can read, so each one
     is NAMED here and its builder is driven: the close event by the drives
-    above, the thesis event by the one below."""
+    above, the thesis and open events by the two below."""
     sites = list(_emit_calls())
     assert len(sites) >= 7, f"the walk found too few emit sites: {sites}"
     spread = sorted((str(p), c.args[0].value if c.args and isinstance(c.args[0], ast.Constant) else None)
                     for p, c in sites if any(k.arg is None for k in c.keywords))
-    assert spread == [("bot/core/engine.py", "thesis"), ("bot/core/engine.py", "trade_close")], spread
+    assert spread == [("bot/core/engine.py", "thesis"), ("bot/core/engine.py", "trade_close"),
+                      ("bot/core/engine.py", "trade_open")], spread
     for path, call in sites:
         if len(call.args) < 2:
             continue
@@ -221,6 +222,17 @@ def test_the_thesis_event_title_carries_no_dollar():
                            entry_price=63000.0, stop_loss=62000.0, take_profit=66000.0,
                            confidence=0.7, blended_confidence_raw=0.7)
     ev = thesis_event(idea)
+    assert "$" not in ev["title"]
+    assert ev["data"]["entry"] == 63000.0
+
+
+def test_the_open_event_title_carries_no_dollar():
+    """The spread open emit's title comes from `open_event`; its levels are
+    prices and go to the body and `data`, never the title."""
+    from bot.core.agent_feed import open_event
+
+    ev = open_event({"symbol": "BTC/USDT", "direction": "LONG", "entry": 63000.0,
+                     "stop": 62000.0, "target": 66000.0, "entry_estimated": False})
     assert "$" not in ev["title"]
     assert ev["data"]["entry"] == 63000.0
 
