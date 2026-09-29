@@ -191,14 +191,25 @@ class AuthoritySpendLedger:
 
     # -- public API ------------------------------------------------------
 
-    def spent(self, key: str, now_ts: float) -> float:
+    def spent(self, key: str, now_ts: float, *,
+              excluding_ref: Optional[str] = None) -> float:
         """In-window notional already recorded under ``key`` as of ``now_ts``.
+
+        ``excluding_ref`` leaves out the row recorded under that ref: an order
+        asked about TWICE on its way to the venue (the web door's pre-ask and
+        the engine's ask right before the order) must not meet its own first
+        recording as spend already made, or every web order under a daily cap
+        would be denied at the second ask by the notional the first recorded.
 
         Raises :class:`StoreUnreadable` when the ledger file cannot be read:
         $0 is a measurement, and nobody measured it."""
         with self._lock:
             self._readable()
-            return window_sum(self._book.get(str(key), []), now_ts, self._window_s)
+            rows = self._book.get(str(key), [])
+            if excluding_ref is not None:
+                r = str(excluding_ref)
+                rows = [e for e in rows if not _has_ref(e, r)]
+            return window_sum(rows, now_ts, self._window_s)
 
     def record(self, key: str, amount: Any, now_ts: float,
                ref: Optional[str] = None) -> bool:

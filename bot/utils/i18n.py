@@ -1016,6 +1016,24 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "<b>LIVE TRADING REVOKED</b>\n\n- User: <b>{name}</b> (<code>{id}</code>)\n- Trading: \U0001f4dd Paper only",
         "zh": "<b>已撤銷實盤交易</b>\n\n- 用戶: <b>{name}</b> (<code>{id}</code>)\n- 交易: \U0001f4dd 僅模擬",
     },
+    "grant_live_held": {
+        "en": ("<b>LIVE TRADING GRANTED — NOT SAVED</b>\n\n- User: <code>{id}</code>\n- The grant is in force for "
+               "this bot process only: <code>users.json</code> could not be written ({cls}).\n- A restart forgets it "
+               "and nothing re-applies it. Fix the disk, then run <code>/grant_live {id}</code> again — or "
+               "<code>/revoke_live {id}</code> to undo it now."),
+        "zh": ("<b>已授予實盤交易 — 未儲存</b>\n\n- 用戶: <code>{id}</code>\n- 此授權僅在本次機器人程序中生效：<"
+               "code>users.json</code> 無法寫入（{cls}）。\n- 重啟後會遗失，且不會自動重新套用。修復磁碟後請再執"
+               "行 <code>/grant_live {id}</code>，或立即執行 <code>/revoke_live {id}</code> 撤销。"),
+    },
+    "revoke_live_held": {
+        "en": ("<b>LIVE TRADING REVOKED — NOT SAVED</b>\n\n- User: <code>{id}</code>\n- The revoke is in force for "
+               "this bot process only: <code>users.json</code> could not be written ({cls}).\n- A restart forgets it: "
+               "this user can trade live again after the next restart unless <code>/revoke_live {id}</code> is run "
+               "again once the disk is writable."),
+        "zh": ("<b>已撤銷實盤交易 — 未儲存</b>\n\n- 用戶: <code>{id}</code>\n- 此撤銷僅在本次機器人程序中生效：<"
+               "code>users.json</code> 無法寫入（{cls}）。\n- 重啟後會遗失：除非磁碟可寫入後再次執行 <code>/revo"
+               "ke_live {id}</code>，否則此用戶在下次重啟後又能實盤交易。"),
+    },
     "set_tier_usage": {
         "en": "<b>Usage</b>\n\n<code>/set_tier &lt;telegram_id&gt; &lt;tier&gt;</code>\n\nTiers: {tiers}\n\n\U0001f7e2 <b>basic</b> — Paper trading, basic analysis\n\U0001f535 <b>pro</b> — + Backtesting, patterns, strategies\n\U0001f7e1 <b>elite</b> — + Live eligible, priority signals, early access\n\U0001f534 <b>admin</b> — Full access",
         "zh": "<b>用法</b>\n\n<code>/set_tier &lt;telegram_id&gt; &lt;tier&gt;</code>\n\n等級: {tiers}\n\n\U0001f7e2 <b>basic</b> — 模擬交易、基礎分析\n\U0001f535 <b>pro</b> — ＋回測、形態、策略\n\U0001f7e1 <b>elite</b> — ＋可實盤、優先信號、搶先體驗\n\U0001f534 <b>admin</b> — 完整存取",

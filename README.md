@@ -368,7 +368,7 @@ A closed-loop backstop on top of the pre-trade checks (gated `LIVE_PERFORMANCE_G
 ### Risk Engine (Fail-Closed)
 - **Fail-closed risk gate** -- strict rules where one failure rejects the trade, a fail-open liquidity guard (no order-book data = pass), and advisory rules that skip when their data is unavailable. How many run depends on the trade, so no total is quoted here; `config/risk_manifest.yaml` is the authoritative list and `checks_passed` on each decision record reports what actually ran.
 - Circuit breaker halts trading on daily loss or drawdown breach
-- Fixed-fractional position sizing: risk budget (2% of equity) divided by stop distance, capped at 20% notional
+- Fixed-fractional position sizing: the per-strategy risk budget (1-2% of equity) is the loss at the stop. Divided by the stop distance AND the leverage the order places at (`DEFAULT_LEVERAGE`, 5x, or the `/leverage` override under `MAX_LEVERAGE`) it gives the margin the executor commits, capped at the per-strategy margin cap (8-15% of equity). A stop-out costs at most the budget, and less where the cap binds a tight stop; the frozen benchmark under `--honest` fills the same figure at the live leverage (see CLAUDE.md, "the frozen benchmark fills at 5x")
 - Max open positions limit
 - Risk/reward ratio minimum (1.2x)
 - Confidence threshold gate (≥60%)

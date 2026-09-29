@@ -13,7 +13,7 @@ class TestEnvPreflight:
     def test_all_present_is_clean(self):
         env = {k: "x" * 40 for k in bh.CRITICAL_ENV + bh.IMPORTANT_ENV}
         report = bh.env_preflight(env)
-        assert report == {"critical": [], "important": []}
+        assert report == {"critical": [], "important": [], "unread": []}
         assert "all critical and important secrets present" in bh.format_preflight(report)
 
     def test_missing_token_is_critical(self):

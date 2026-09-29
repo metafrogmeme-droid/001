@@ -1119,6 +1119,18 @@ def _scan_signal_rows(payload: dict) -> list[dict]:
     except Exception:
         regime = ""
     ts = str(payload.get("timestamp", "") or "")
+    # The window a follower may act in (`signal_expires_at`): the scan's own
+    # minute plus the bot's idea TTL. A stamp that does not parse states none,
+    # so the row is never read as live.
+    try:
+        from datetime import UTC, datetime
+
+        from bot.utils.website_sync import signal_expires_at
+
+        expires = signal_expires_at(
+            datetime.strptime(ts, "%Y-%m-%d %H:%M UTC").replace(tzinfo=UTC))
+    except (ValueError, ImportError):
+        expires = ""
     # Compact, stable-per-(symbol,direction,scan) key so re-pushing the same scan
     # signal UPSERTs (carries an outcome later) instead of duplicating.
     ts_key = "".join(ch for ch in ts if ch.isalnum())
@@ -1156,6 +1168,7 @@ def _scan_signal_rows(payload: dict) -> list[dict]:
             "pnl": None,
             "created_at": ts,
             "resolved_at": "",
+            "expires_at": expires,
         })
     return rows
 
@@ -1307,14 +1320,15 @@ def _push_scan_to_dashboard(results: list[dict], engine=None, payload: dict | No
     message would 404.
     """
     try:
-        from bot.utils.website_sync import (
-            sync_scan_in_background, sync_signals_in_background)
+        from bot.core.signal_outcomes import publish_signals
+        from bot.utils.website_sync import sync_scan_in_background
         if payload is None:
             payload = _build_scan_payload(results, engine)
         sync_scan_in_background(payload)
         # Also append the scan's signals to the global signal-stream (every
-        # generated signal, taken or not). Best-effort, non-blocking.
-        sync_signals_in_background(_scan_signal_rows(payload))
+        # generated signal, taken or not). Best-effort, non-blocking; recorded
+        # too, so the engine can say later what became of each one.
+        publish_signals(_scan_signal_rows(payload))
     except Exception as exc:
         log.warning("Dashboard scan push failed: %s", exc)
 

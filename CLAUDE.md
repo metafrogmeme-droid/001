@@ -817,7 +817,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 686 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 683 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -14413,11 +14413,13 @@ stays: a ceiling above 20 is still not reachable by a command. The paper fill
 and the analyzer's stop tightening read the DEFAULT rather than the override,
 a pre-existing asymmetry (`RuntimeState`'s own comment says the override is
 "consulted by LiveExecutor on every open") filed rather than folded into a
-slice about the ceiling. And the frozen benchmark runs at 5x under a 10x
-ceiling, so the ceiling binds nothing there: re-run at this commit
-(`--dataset benchmark/majors_1h --honest --walk-forward 6`), the pooled
-block is the recorded one line for line, which is the measurement and not
-the reasoning.
+slice about the ceiling. And the frozen benchmark fills at 5x under
+`--honest` since the risk-budget chapter below drove the decision (it
+filled at 1x, and before that this sentence said 5x when it did not) under
+a 10x ceiling, so the ceiling binds nothing there at either leverage: re-run
+at the ceiling's own commit (`--dataset benchmark/majors_1h --honest
+--walk-forward 6`), the pooled block was the recorded one line for line,
+which is the measurement and not the reasoning.
 
 **Twenty-five mutations, each killed on the first round, none refused -- and
 two are worth naming for what they prove about the guards rather than the
@@ -15475,6 +15477,1701 @@ backwards, an unreadable price read as a no, an unknown side read as a buy,
 a typed limit sent post-only, and every limit sent GTC.
 (`tests/test_a_typed_ticket_is_placed_at_the_levels_it_typed.py`.)
 
+**THE VENUE-MINIMUM ROUND-UP PLACED MORE THAN THE WEB-LIVE ENVELOPE HAD
+AUTHORIZED AND RECORDED.** The web-live authorization asks the user's
+enforce-mode Authority Envelope about THIS order's notional, margin times the
+leverage it places at, and records that figure against the day.
+`_exchange_minimum_gate` then raises a quantity under the venue's minimum, up
+to `EXCHANGE_MIN_ROUNDUP_MAX_MULT` of the approved quantity (1.5x, on by
+default), and nothing asked the envelope again: the hard caps are re-asked at
+the rounded margin, since the placed-order chapter, and those are the
+OPERATOR's caps. Driven through the real `execute` against a venue whose
+minimum is 0.001 BTC at $63,000:
+
+    $10 margin at 5x      authorized and recorded  $50.00
+    placed 0.001 BTC      $63.00 of notional       1.26x what was authorized
+
+A per-trade cap of $60 was breached and the day under-counted by $13, on the
+one order shape a small live account near a venue minimum produces, which is
+the account most likely to have set those caps. The authorization STAMPS the
+idea with what it authorized (`TradeIdea.authorized_notional_usd`, None for
+every order with no envelope over it), both calls of the gate hand it in, and
+a round-up over it is refused by name: what the venue needs, in notional and
+in margin at this leverage, and that nothing was placed. The confirm handler
+then reads the refusal as placed nothing and takes the recorded spend back,
+which is the release the chapter above built. A stamp that cannot be written
+is a DENIAL, because an order the executor cannot bound is not an order the
+envelope authorized.
+
+**Only the round-up is bounded, and the reason is arithmetic.** Without one
+the placed notional is the approved size times the leverage, and the approved
+size is at most the typed margin, so it is at most the figure the envelope was
+asked about; a stamp below the order's own notional is therefore not this
+gate's subject, and the multiplier bound still refuses first when it bites.
+The stamp is read through `price_on_record`, so a zero, a negative, a NaN or
+junk bounds nothing and is never a $0 authorization. The figure is compared
+exactly: a round-up landing exactly on the authorization places, because that
+is the order the envelope allowed.
+
+**Eleven mutations, each killed on the first round, none refused.** The bound
+gone, the comparison made inclusive, the bound read off the approved quantity
+rather than the rounded one, the refusal handing back the rounded quantity,
+the audit renamed, the stamp read as a number-or-zero, either call of the gate
+dropping the stamp, the gateway stamping nothing, a stamp that could not be
+written allowed anyway, and the stamp written before the envelope decided.
+The last is worth naming for what it proves about the guard: a stamp written
+on a denied order changes no verdict on the placed-order drives, because a
+denied order never reaches the executor, and dies only on the test that reads
+the idea back after a denial. (`tests/test_a_round_up_never_places_more_than_the_envelope_authorized.py`.)
+
+**THE AUTHORITY ENVELOPE WAS ASKED AT ONE DOOR, AND THREE SURFACES SAID
+"EVERY LIVE ORDER".** A person binds an envelope on the website -- *"only
+majors, max $500 a trade, $2,000 a day, only on bitget"* -- and the intent
+panel says it *"caps and authorizes every live order"*, the readiness panel
+says *"Enforce-mode envelope is authorizing every order"*, and
+`docs/authority_nl.md` says the same. Grepped, the store had readers in
+`bot/web/` and nowhere else: the web confirm handler asked it, and the
+Telegram confirm door for the same person, the same account and the same
+order never did. Driven with per-user live on, a person with their own keys
+and an enforce envelope bound (BTC only, $50 a trade, $100 a day):
+
+    /trade LONG SOL, $500 margin, confirmed on Telegram
+      -> "LIVE LONG SOL/USDT opened", execute awaited once, ledger $0.00
+
+The symbol list, both caps and the day's record were skipped, and every web
+order after it was checked against a day the Telegram orders were missing
+from. That is *fixed at one door* on the surface whose whole claim is that it
+bounds all of them.
+
+**ONE LEAF, ASKED AT THE BOUNDARY EVERY DOOR CROSSES.**
+`bot/guardian/order_authority.py` holds the ask -- the leverage the order is
+placed at (`placement_leverage`, the executor's own `_compute_target_leverage`,
+which the web door used to read for itself), the notional, the envelope's
+answer, the stamp the round-up bound reads, and the recording -- and the
+release. The web door's `_authorize_web_live_trade` resolves what it knows
+(the pending idea, the active venue, the typed margin, the person's own
+executor) and asks the leaf; its sentences are the leaf's constants and its
+403 is unchanged. The engine asks the leaf in `_confirm_trade_inner`, after
+every other refusal and right before `executor.execute`, for every human
+confirm that runs on an executor that is not the shared operator one under
+an enforce-mode envelope -- the `_fmt_price(None)` rule, so the Telegram
+`/trade` confirm, the scan card's Confirm, the chat-action confirm and the
+door added tomorrow all inherit it. A denial is *"Trade REJECTED by your
+Authority Envelope: ..."*, which `placed_nothing` already reads, and a refusal
+AFTER the ask takes back only the spend the engine's own ask recorded, never
+on an unverified outcome -- the web door's own release rule, one door over.
+
+**Two asks on one order are ONE recording, and the second must not meet the
+first.** The web door asks on the typed margin before `confirm_trade` runs
+(its 403 carries the reasons and a checklist), the engine asks on the FINAL
+size right before the order, and the ledger dedupes by trade id -- so the
+engine's ask records nothing new for a web order. What it must not do is read
+the web door's row as spend already made: under a $300 day a $250 order
+would be denied at the engine by the $250 the web door had just recorded for
+it. `AuthoritySpendLedger.spent(excluding_ref=...)` leaves out the ref being
+asked about, and the drive is one order through both doors: one row, placed.
+
+**What the engine asks about is the final size, the executor's own venue,
+and a store that cannot say.** The typed $500 under a $20 per-user margin cap
+is a $100 order at 5x, and $100 is what the envelope hears and records. An
+order routed to a bybit executor is a bybit order whatever the person's
+active venue in the credential store says. And a store that cannot say
+whether an envelope is bound REFUSES, by the exception's class: in doubt,
+deny, which is the envelope's own rule.
+
+**Who is deliberately NOT asked, stated in the leaf rather than left to be
+inferred.** A person with no envelope bound, or one in a non-enforce mode,
+places as before: Telegram per-user live never required an envelope, and
+requiring one is a product decision about existing per-user traders, not a
+wiring line -- `docs/guardian_authority.md`'s *"nothing moves user funds
+without a human-set, revocable authority envelope"* is true of the web door
+and the on-chain paths and is filed here as not yet true of Telegram. The
+operator's shared executor is never asked: the envelope is a person's grant
+over THEIR account, and identity decides (an operator who linked their own
+keys trades on their own executor, and an enforce envelope bound for that id
+is asked like anyone's). An auto confirm is never asked.
+
+**Two pins moved with the reading, and one door test passed for a reason
+the move changed.** `test_the_recorder_is_the_one_that_says_recorded` spelled
+the web door's `ledger.record(...)` line and
+`test_the_executors_reading_is_the_one_every_order_is_placed_at` required
+`_compute_target_leverage(` in the door's own source; both read the leaf now
+and require the door to keep no copy. And the door's raising-store test
+asserted the phrase *"authorization error"* in the log, which the door's own
+`except` no longer writes because the leaf catches first -- the leaf's
+warning carries the phrase, so the contract that the class and never the text
+reaches the log is one sentence in one place.
+
+**Nineteen mutations, each killed on the first round that shipped, none
+refused -- and the one that survived the round before it was three lines of
+mine no input could reach.** The first draft of the engine's ask opened with
+`if not CONFIG.is_live() or not self._human_confirmed(user_id): return None`
+and `if executor is None ...`, and dropping the caller clause changed no
+verdict: the one call site sits past the paper return and past the
+no-executor refusal, and `_executor_for`'s first rule answers the shared
+executor for an auto or unattended confirm, named venue or not, so identity
+already refuses everything those clauses named. *A line no input can reach
+is a claim that there is a check.* All three are deleted, the reading is
+identity alone, and the property that makes the clauses redundant is DRIVEN
+on the real resolver rather than restated as a guard. Two are worth naming
+for what they prove about the guards rather than the code: the ask moved
+ABOVE the auth-halt refusal dies only on the scan that counts one ask and
+orders it last (a second ask records nothing, the ledger dedupes, and no
+drive can see a spend that was kept for a halted order without standing up
+the halt); and the door handing the leaf `executor` instead of the account
+it resolved dies on the leaf reading a leverage off `None` -- an
+`AttributeError` inside the leaf's own `try`, reported as an unread leverage,
+which is the fail-closed direction and still the wrong sentence.
+
+> **And the instrument produced eighty-one failures on a tree that had
+> none.** The full preflight for the head below this slice reported 81
+> failures with the gate's own banner *SOURCE CHANGED DURING THE RUN -- flake
+> filter DISABLED*, and every one was a source pin reading the wrong
+> function: `inspect.getsource(RuneClawEngine._on_live_position_closed)`
+> came back as `_venue_of_closed_position`. Nothing had edited that
+> worktree. The run BEFORE it had been stopped by killing the preflight's
+> PID, which left the test gate's pytest running in the same worktree with
+> the same log open; the relaunch then checked the next sha out beneath that
+> orphan (the two shas differ in `engine.py` and `live_executor.py`), and
+> its output -- line numbers from the old text over the new file -- landed
+> in the new run's log through the still-open descriptor while both suites
+> shared one `data/`. *Two full-suite runs at once are not two
+> measurements*, this file's own sentence, arriving because "kill by PID"
+> was read as one PID. The launcher refuses to start over a running
+> preflight tree now, and the kill script takes the whole tree.
+
+**AND THE FULL GATE REFUSED THE SLICE ON THE PARITY GUARD, WHICH READ THE
+ENVELOPE'S REFUSAL AS A GATE CONDITION NOBODY REPORTED.**
+`test_trade_gate_parity::test_no_other_refusal_hides_in_the_gate` slices the
+confirm from the user-breaker read to `executor.execute` and pinned the count
+of `return ("Trade REJECTED` at ONE -- the venue-auth halt -- so that a new
+refusal added to the money path fails a test rather than going unreported by
+every status surface, which is how the two incidents its module records
+happened. The envelope's refusal sits inside that window on purpose (asked
+last, right before the order) and is not a gate condition: it depends on the
+ORDER -- its notional, its symbol, its venue -- so `entry_gate` cannot report
+it as "entries halted" and deliberately does not. The guard names it now
+rather than counting it, so a fourth refusal of either kind still fails.
+Fourteenth time the full gate has refused a slice on a test none of the
+slice's own suites ran. The same run forgave `test_source_segment_reader`'s
+speed ratio as flaky: two timings taken under full-suite load, pinned as a
+ratio rather than a budget for exactly that reason, and the load moved the
+ratio anyway; it passes alone.
+
+(`tests/test_the_envelope_is_asked_at_every_door.py`,
+`bot/guardian/order_authority.py`.)
+
+**A USER STORE THAT FAILED TO LOAD ANSWERED "NOT REVOKED" AND "NO CAP" FOR
+EVERYONE, UNDER THE LIVE POLICY THAT SHIPS ON.** `UserStore._load` was cured
+of writing an unreadable `users.json` back as an empty one: it sets
+`_load_failed`, refuses every write, and logs CRITICAL. Its READERS went on
+answering from the empty map. `live_trading_revoked` read a user it could
+not find as never revoked, `max_margin` read one as uncapped, and
+`LIVE_OPEN_TO_KEY_HOLDERS` defaults True, under which "not revoked" plus
+linked keys IS the live permission. Driven with per-user live on over a
+`users.json` reading `{not json`:
+
+    per_user_live_eligibility  ->  (True, "linked keys (live open to key holders)")
+    _per_user_margin_cap       ->  None
+    /trade LONG SOL $500       ->  "LIVE LONG SOL/USDT opened", size 500.0
+
+for a user whose revoke and $20 cap were in the file that did not read. The
+one trace was the store's CRITICAL line at boot. Under the staged policy the
+same store answers `can_trade_live` False and the order is refused, so the
+hole is exactly the width of the default.
+
+**The store's own erasure path already had the rule.** `delete` raises on a
+failed load -- *"cannot honour an erasure request against a store that could
+not be read"* -- because *"every caller already maps an exception to
+`error`"*. The two permission readers raise the same way now
+(`_refuse_permission_read`), and every caller on the money path reads the
+exception as a refusal: `per_user_live_eligibility` refuses by the
+exception's class, the Telegram gate `_can_trade_live` refuses a revoke it
+cannot read (under the open policy it falls through to "has own keys", so an
+unreadable store answering False there would have been a live order), and
+`_per_user_margin_cap` stops swallowing. That last one was written as
+*"Fail-open: a store hiccup → None"* in its own docstring -- a cap that
+vanished at DEBUG, on the bound an operator sets with `/setcap` -- and
+`test_per_user_margin_cap.py::test_fail_open_on_store_error` pinned it as
+the contract. It pins the refusal now. The Earn account resolver had already
+mapped a raise from the same reader to `unavailable`, which is the shape the
+rest caught up with.
+
+**What is deliberately left, stated.** `can_trade_live` keeps answering
+False from an empty map: that is the closed direction, and raising there
+would turn every reader that already treats False as "not granted" into an
+error path for no gain. The `/accounts` row still folds a cap it cannot read
+into `None`, so a failed store lists nobody as capped; that card is
+oversight, not an order, and the CRITICAL line is what says the store did
+not load.
+
+**Nine mutations, each killed on the first round, none refused.** Two are
+worth naming for what they prove about the guards rather than the code. The
+Telegram gate falling through to the key check on an unreadable revoke dies
+on exactly ONE test, the drive that hands it a raising store beside a caller
+who HAS keys: a caller without keys is refused either way, so a fixture
+without them measures nothing about the fall-through, and the healthy-store
+control in the same class is that fixture. The cap reader swallowing again
+dies on four -- the flipped pin, the scan that its body holds no `except`,
+and two drives, one of them through the real confirm path with a store that
+raises on the cap alone, where the eligibility read still answers and only
+the recheck's own refusal separates the two. The rest die where the drives
+say: either reader answering from the empty map, the refusal checking
+nothing or logged and swallowed, an unreadable revoke read as eligible, the
+refusal or the gate's warning carrying the exception's text.
+(`tests/test_a_user_store_that_failed_to_load_is_not_a_permissive_one.py`.)
+
+**A LIVE-PERMISSION WRITE THAT FAILED AT THE DISK WAS IN FORCE, ABSENT ON
+DISK, AND REPORTED AS "SOMETHING BROKE".** `set_live_trading`,
+`set_max_margin` and `set_sim_opt_in` change the user map and then write the
+whole file. When the write raises -- a full disk, a permission -- the map
+already holds the change. Driven with the write raising `OSError(28)`:
+
+    /revoke_live 4242   memory: revoked, can_trade_live False   disk: live
+    /setcap 4242 5      memory: cap $5.00                        disk: cap $20.00
+    restart             the revoke and the cap are gone
+
+The command reached `_on_error`, whose generic line reads as "nothing
+happened", and no audit was written, because the audit sits after the save.
+For a REVOKE that is the safe direction badly described. For a GRANT and for
+`/paper off` it is the loosening one: the operator believes the grant failed
+while the user can trade live until the next restart, and a person believes
+paper mode is still on while their next confirm executes live. The website's
+control pull had the same shape and already handled it by accident of design:
+its generic `except` acks the row `ok: False`, the website keeps the row
+pending, and the next pull applies it again -- which is what persists it once
+the disk is writable.
+
+**The change is KEPT and the writer says it is held.** Undoing it would put a
+revoke back to "live" because the disk was full, the wrong direction, and the
+map is written whole, so the next successful save of ANY kind carries the held
+change to disk (driven: a later, unrelated save persists the revoke). The
+three writers save through `_save_or_hold`, which audits `HELD` naming the
+exception's class and raises `StoreWriteHeld` carrying the class and never the
+text, since an `OSError` names the path and the sentence reaches a chat. Only
+a disk fault is held; a write that raises for any other reason is a defect to
+surface and still propagates. `/grant_live` and `/revoke_live` answer with a
+fourteen-language sentence (`grant_live_held`, `revoke_live_held`) that says
+the change is in force for this bot process only, that a restart forgets it,
+and what to run once the disk is writable -- the grant's names the undo
+beside it. `/setcap` and `/paper` say the same in their own English, and
+`/paper off`'s says which way the next confirm goes. The control pull acks a
+held write as `not persisted` and logs that the row stays pending, so the
+website's own retry is the durable copy.
+
+**What is deliberately left.** `revoke`, `approve`, `set_role` and `set_tier`
+write through the same `_save` and still raise the generic error over a
+change that is in force until the next restart; they decide admission, not
+money, and each is filed rather than folded into a slice about the live
+permission. The store's refusal to write over a FAILED LOAD is unchanged and
+unreachable from these writers: the map is empty then, so every one of them
+answers "unknown user" before the save.
+
+**THE PREFLIGHT THAT SHIPPED THE PREVIOUS PUSH FORGAVE FIVE TESTS AS FLAKY,
+AND THE LEAK PROBE NAMED TWO FIXTURES OF MINE.** The full gate on 64b7ae76
+read *All local gates green* over five backtest resting-limit tests that
+failed in the full run and passed alone -- five of one class, which this file
+records as the state-leak signature. A pytest plugin snapshotting every
+frozen-config field and the limit modules' attributes after every test named
+the writers in one subset run: the cancelled-limit suite's `limit_cfg`
+replaced `CONFIG.limit_orders` with `drift_market_fallback=False` and never
+handed it back, and the stale-order suite's did the same with
+`price_drift_cancel_pct=0.0` -- a drift band of ZERO, which cancelled every
+resting limit the backtest suites placed for the rest of the session. A third,
+the typed-ticket suite's `post_only=True`, leaked the same way and happened to
+break nothing yet. All three restore in a finally, and each carries a drive of
+its own restore: the fixture is run as the generator pytest runs, through its
+finally, because `gen.close()` throws `GeneratorExit` at the yield and skips
+exactly the restore a fixture without one lacks. Each write was `object.
+__setattr__` on a frozen dataclass -- outside monkeypatch's bookkeeping, the
+shape this file already records for the gateway secret -- and the pushed head
+carries the leak; the fix is in the commit that follows it.
+
+**Nineteen mutations, each killed on the first round, none refused.** Three
+are worth naming for what they prove about the guards rather than the code.
+The stale-order fixture's restore removed dies twice over -- on its own
+generator drive and on the backtest limit suite that runs after it in the
+round, which is the leak reproduced rather than asserted; the typed-ticket
+fixture's restore removed dies on its drive alone, because nothing after it
+reads `post_only`, and that is the reason the drive exists. And the revoke
+command reading a held write as an unknown user passes every assertion about
+the store and dies only on the sentence, which is the whole slice: the state
+was already right, and what the person was told was not. The rest die where
+the drives say -- the helper swallowing the fault, auditing nothing, or
+holding every exception; the class replaced by the text in the audit or on
+the exception; each writer saving directly again; the grant falling through
+to the generic error; the cap sentence naming no class or claiming a save;
+`/paper off` saying trades stay simulated; `/paper on` ignoring the hold; the
+pull acking a held write as applied or folding it into the generic error.
+(`tests/test_a_permission_write_that_did_not_land_says_so.py`.)
+
+**THE DRIFT MARKET FALLBACK PLACED THE LIMIT'S QUANTITY AT A PRICE UP TO 5%
+PAST IT, AND NOTHING ASKED THE CAPS OR THE ENVELOPE AGAIN.** A resting limit
+that drifts more than `LIMIT_DRIFT_CANCEL_PCT` in the trade's direction with
+momentum behind it is cancelled and its remainder is marketed at the current
+price, up to `DRIFT_MARKET_MAX_CHASE_PCT` (5%) past the limit. The limit was
+sized, capped and authorized at ITS price. Driven through the real
+`_execute_drift_market_fallback` on a per-user executor holding a $20
+approval (qty 1 at $100, 5x) under a $20 `PER_USER_MAX_FUNDS_USD` cap, the
+market at $104.90:
+
+    orders placed: [market buy 1.0]    placed margin $20.98 (cap $20.00)
+    stop/target 98/106 -> 102.80/111.19    entry 100 -> 104.9
+
+The same chase carried an order the Authority Envelope had authorized at
+$100 of notional to $104.90, because the envelope's figure is stamped on the
+IDEA and the idea is popped at the confirm: by the time a resting order
+drifts there is nothing to read it off. And a hand-typed ticket -- whose
+levels the placement path keeps as typed, the chapter above -- was chased up
+to 5% past the price the person typed, with their stop and target moved to
+match. That is the round-up chapter's defect (`execute` asks the hard caps
+again at the margin the venue minimum really places) on the second door that
+turns an approved figure into a larger one, and the door nobody had pointed
+the round-up's fix at.
+
+**THE PROVENANCE RIDES ON THE POSITION, AND SURVIVES A RESTART.** `execute`
+stamps `idea_source` and `authorized_notional_usd` on the position it
+constructs, directly after the `entry_source` it already stamps, and the
+row writer and loader carry both; an older row reads as absent and a saved
+figure that is not one is dropped, never read as an authorization of $0.
+Driven rather than pinned, and the reason is the round: the first draft was
+an AST pin on the two `setattr` calls, and `if False:` around either
+survived it -- a call that exists is not a call that runs, this file's own
+`if False:` sentence arriving in a pin I had just written. The drive runs the
+real `execute` against the placed-order suite's venue, subclassed to fill,
+and on its first run the venue's own v3 stop ladder aborted the position it
+had just opened (`Invalid ACCESS_KEY`), so the stop placement is stubbed
+the way every sibling drive stubs it.
+
+**ONE SEAM, ASKED BETWEEN THE HALT AND THE ORDER.**
+`_drift_fallback_size_refusal` answers `(reason, sentence)` or None. The
+caps are asked at the WHOLE position's margin -- a partial fill that landed
+before the cancel plus the remainder at the market price -- against
+`_hard_cap_refusal`, the one reading `execute` and the preflight already
+share, with the bounds read off this account's own available margin. The
+row's OWN resting margin is excluded from the book it is checked against: a
+pending row counts toward committed margin (a resting order holds cap room),
+and counting it here would refuse every fallback on its own approval,
+$20 resting plus a $20.98 chase against a $21 cap. A chase that LOWERS the
+margin (a short drifting down) asks the caps nothing, as `execute` asks
+nothing of a quantity the round-up did not raise; the envelope is asked
+either way, on the whole notional, because a notional is a notional. The
+limit is already cancelled when the seam runs, so a refusal opens nothing,
+and both refusals -- the seam's and the halt's beside it -- say what a
+partial fill left on the venue rather than "No position was opened" over
+0.4 that is live there.
+
+**A LEVERAGE THE RECORD DOES NOT HOLD IS NOT A MARGIN OF ZERO.** An adopted
+limit order records leverage 0, and `margin_at_fill` answers 0.0 for it --
+its own spelling of unread -- so `0.0 > 0.0` is False and the caps would
+never have been asked. The margin is measured at the leverage the fill is
+CHECKED against (`_intended_fill_leverage`): a reclaimed order's standard,
+which every placement starts from and every later step only lowers. An
+adopted order has no approved leverage at all, and its chase is refused by
+name, which moves one pin of the adoption chapter: that chapter drove the
+fallback for `[adopted-0]` to show the fill guard reads 0 for it, and the
+guard is no longer reached from that door. The partial-fill guard still reads
+0 for an adopted fill, because a fill that already landed is the venue's fact
+and not this bot's choice; a chase is this bot's choice.
+
+**A TYPED TICKET IS NEVER CHASED, and the test sits above the momentum
+read.** `_check_pending_limit` decides it first once drift is detected: a
+row whose `idea_source` is `manual` is cancelled with a `TYPED_NOT_CHASED`
+audit and the sentence says the market moved N% away from the price the
+person typed and that nothing was placed; the momentum check is never even
+asked. Driven both ways through the real pending check, with an engine idea
+reaching the fallback and a typed one inside the 2% band left resting.
+
+**THE CAPS FOUND WHAT THE OLDER DRIVES HAD APPROVED.** Six drift-fallback
+drives in four sibling suites went red on the seam, and none on the claim it
+makes. Three build their executor with `LiveExecutor.__new__` and had never
+carried `user_id`, which the per-user cap reads -- *a hand-written stand-in
+that must remember each attribute is one that will forget the next* -- and
+the fault surfaced as `msg is None`, because it raised inside the fallback's
+own `except`. The estimated-entry fixture sat at 10 ETH, $280 of margin: a
+size the flat $100 per-trade bound would never have approved, driving a
+claim about the entry's SOURCE. It is 1 ETH now. And my own persistence
+fixture rewrote every `100.0` in the saved file to `"abc"` to plant one junk
+figure, took the entry price with it, and failed the whole load: *a fixture
+that cannot produce the state it names measures nothing*. The honesty gate
+caught the seam's first draft reading `float(pos.cost_usd or 0.0)`, the
+or-zero shape on the approved margin, in the commit written to ask the caps
+about it.
+
+**AND THE NEIGHBOURING RUN FOUND THE PREVIOUS SLICE'S REGRESSION BEFORE THE
+FULL GATE DID.** `test_the_critique_counts_the_book_the_trade_opens_on`'s
+per-user-live case failed on the branch head and passed on main; bisected,
+it broke at the failed-load store slice. That slice made the per-user margin
+cap read FAIL-CLOSED -- a store that cannot answer refuses the trade -- and
+the critique harness's store is `NS(sim_opt_in=...)`, a stand-in that answers
+the practice opt-in and nothing else, so the cap read raised `AttributeError`
+and the confirm was refused before the critique ran (`seen == []`). The
+stand-in answers `max_margin` now, and so does its sibling in the
+seal-failure suite. The full preflight on that head was twenty-six minutes
+in and was stopped by PID, because a test gate that will fail on a known
+cause is forty minutes of nothing measured.
+
+**Twenty-eight mutations, each killed, none refused -- and the two that
+survived the first round were the pin above, on both stamps.** Three are
+worth naming for what they prove about the guards rather than the code: the
+row's own margin counted against it dies on the $21 cap alone, because every
+other cap fixture refuses or places either way; the reclaimed order left
+unmeasured (never falling back to its standard) dies on the reason word,
+`over_cap` against `leverage_unread`, with the same empty order list under
+both; and the typed test moved below the momentum read dies on the typed
+drive's await count, which no assertion about the cancel can see.
+(`tests/test_the_drift_fallback_places_what_was_approved.py`.)
+
+**THE ONE CAP THE RUNBOOK TELLS AN OPERATOR TO SET READ A TYPO AS THE
+DEFAULT, AND NaN AS NO CAP.** `PER_USER_MAX_FUNDS_USD` is the hard max-funds
+ceiling on every linked account, and `docs/LIVE_TESTING_READINESS.md` opens
+its checklist with *"Set `PER_USER_MAX_FUNDS_USD` to the per-account risk you
+actually want"*. `_hard_cap_refusal` read it as
+`float(os.environ.get(..., "100"))` under `except ValueError: 100.0` and
+applied it under `per_user_cap > 0`. Driven, a $60 order on a linked account
+the operator had capped at $20:
+
+    PER_USER_MAX_FUNDS_USD='20'      -> REFUSED
+    PER_USER_MAX_FUNDS_USD='20 usd'  -> ALLOWED   (a typo, read as the default $100)
+    PER_USER_MAX_FUNDS_USD='$20'     -> ALLOWED
+    PER_USER_MAX_FUNDS_USD='nan'     -> ALLOWED   (`nan > 0` is False: no cap)
+    PER_USER_MAX_FUNDS_USD='-5'      -> ALLOWED
+    PER_USER_MAX_FUNDS_USD='inf'     -> ALLOWED   (a cap of infinity)
+
+That is `config.py`'s own `_env_float` shape -- a value that will not parse is
+the default, silently -- at the one site where the default is five times
+looser than what the operator typed, on real money, with no warning anywhere.
+`size_bounds.per_user_funds_cap` is the one reading now: unset or empty is
+the default, `0` disables (documented in `.env.example` and pinned, a recorded
+decision), and anything that is not a finite non-negative number is UNREAD
+with a reason. The refusal refuses a linked-account order by name on an
+unread cap, audits `UNREAD` beside the `BLOCKED` it already wrote, and the
+sentence carries the reason and never the value, because it reaches a chat.
+The operator's own executor never read the cap and still does not. The
+reading takes an explicit environment and reads `{}` as empty, never as the
+process's -- the trap the on-chain readers walked into one directory over.
+
+> **And two of the suite's own fixtures could not produce the state they
+> named.** A $101 order to show the default $100 binding met the flat
+> per-trade bound first, which refuses $101 before the per-user cap is ever
+> asked; and the held row that replaced it was a `SimpleNamespace` the book
+> reader could not read, then a BTC row that met the duplicate-symbol guard
+> under a BTC order. A real ETH row beside a BTC order is the fixture, and the
+> claim it drives is the TOTAL: $60 held plus $50 against the default $100.
+> *A fixture positioned where another gate fires first measures nothing about
+> the gate it names.*
+
+**Ten mutations, each killed on the first round, none refused.** Two are
+worth naming for what they prove about the guards: an empty value read as
+unread dies on the reading's own table (`""` and a blank are the default,
+since `.env` tooling writes an unset variable that way), and `env or
+os.environ` in place of `os.environ if env is None else env` dies on the one
+test that plants junk in the process environment and asks the reading about
+`{}` -- the only input that separates an empty environment from a missing
+one. (`tests/test_the_per_user_cap_is_read_or_refused.py`.)
+
+**A NUMERIC KNOB THAT WOULD NOT PARSE WAS ITS DEFAULT, SILENTLY, ON 236 CONFIG
+READS.** The cap above was one site's copy of the shape; `config._env_float`
+is the reader the other 236 numeric knobs go through (`_env_float_bounded`
+included), and its `except ValueError: return default` said nothing at all --
+where the non-finite branch two lines below it already warned. So
+`MAX_POSITION_PCT=13%`, a typo in a risk limit, ran 13.0 with nothing said
+anywhere; `MAX_DAILY_LOSS_PCT=5%` ran the default the same way. The bool and
+switch readers beside it warn on a word they do not know, and had since the
+`X=off` incident their docstring records; the float reader never got the
+line.
+
+**A WARNING AT IMPORT IS NOT A SURFACE, so the boot says it every time.** The
+master-key chapter records why: a warning that fires once is a line in a
+container log from months ago, and the condition persists while the only
+thing that reported it does not. `config.ENV_UNREAD` records every value the
+reader could not use (key, reason, the default in force) -- said at import
+too, naming the key and the reason and never the raw text -- and
+`boot_health.env_preflight` takes the record and renders one sentence per
+row, *`MAX_POSITION_PCT is not a number; the default 13.0 is in force`*, on
+the report `main.py` prints and audits on every Telegram boot beside the
+missing-secrets tiers. The record is handed in rather than imported, so the
+boot-health module stays the leaf its own suite drives. An older report
+without the key still formats, and the all-clear sentence is printed only
+when nothing is missing AND nothing was unread: an all-clear over a risk
+limit running its default is the confident negative this file is about. One
+pin in the boot-health suite compared the report to an exact two-key dict and
+moved with the contract, and the record's twenty-two lines sit above every
+flag `config.py` declares, so the generated safety-flags block in
+`.env.example` was regenerated rather than left citing lines that had moved.
+
+**Eleven mutations, each killed on the first round, none refused.** Two are
+worth naming: the all-clear sentence printed over unread rows dies on one
+assertion only, the negative one, because every positive assertion about the
+row still holds when the sentence is prepended to it; and the boot handing
+the preflight nothing dies on a scan, stated as one, because the block sits
+inside `main()` behind argument parsing and a `sys.exit`.
+(`tests/test_an_env_value_that_did_not_parse_is_said_every_boot.py`.)
+
+**THE FROZEN BENCHMARK FILLS EVERY TRADE AT 1x, AND EVERY OTHER FILL SITE
+COMMITS THE SAME FIGURE AS MARGIN AT 5x.** The risk gate's
+`position_size_usd` is `risk_budget / stop_distance`, a NOTIONAL such that
+the loss at the stop is the budget, and the live executor commits it as
+MARGIN: `quantity = size_usd * leverage / price`, at `DEFAULT_LEVERAGE` (5x)
+lowered by the idea's margin-risk cap. So does the engine's practice fill.
+`docs/AUDIT_REPORT_V7.md` §2 recorded that gap between the gate and the
+executor, chose not to flip live sizing on a real-money bot, and left "pick a
+single unit" to the operator. The third fill site was never recorded: the
+backtest called `PortfolioTracker.open_position(idea, size_usd)` with no
+leverage and took the tracker's default of 1, so every table in
+`docs/FROZEN_BENCHMARK.md` measured a bot risking a fifth of what live risks
+per trade, and this file's MAX_LEVERAGE chapter said the benchmark "runs at
+the live 5x under a 10x ceiling" -- a claim I wrote and nobody drove. Driven
+on one $100 fill at $100: the backtest opens one unit and makes $1.00 on a
++1% move; live and the practice book open five and make $5.00.
+
+**What the budget bounds, driven at the shipped defaults.** On a $1,000
+account, swing budget 2%, margin cap 13%, 5x, margin-risk cap 30%: the cap
+binds on every stop under 15.4%, so the loss at the stop is
+`0.13 x 5 x stop_distance` -- 0.65% of equity at a 1% stop, 1.95% at 3%,
+3.9% at 6%, the widest stop the margin-risk cap admits at 5x. The 2% budget
+would bind only past a 15.4% stop, which the margin-risk cap refuses, so the
+four `*_MAX_RISK_PCT` knobs bind nothing at the default leverage: the
+per-trade loss ceiling is `cap x MAX_MARGIN_RISK_PCT`, a product of two knobs
+neither of which is called a risk budget. `README.md` said "risk budget (2% of
+equity) ... capped at 20% notional", stale on both counts, and says what the
+code does now.
+
+**The record's leverage is stated and threaded, and the record itself is
+unchanged.** `BacktestConfig.leverage` (default 1, a fill below 1x refused)
+is what the backtest's one fill site opens at, lowered by the idea's
+margin-risk cap through the same `apply_margin_risk_cap` the practice fill
+uses -- proved by planting it, because a byte-identical copy of that clamp
+agrees with every fixture. `--leverage N` threads it into all three configs
+the runner builds and the walk-forward base, `--honest` does not touch it,
+and the artefact records it beside `fill_mode`. The default stays 1 so every
+number on the record reproduces line for line (re-run at this commit,
+identical pooled block). The 5x arm, run beside it on all three snapshots and
+tabled on the benchmark page: on `majors_1h` and `alts_1h` the same trades
+fold for fold at the same hit rate with the money scaled about fivefold (net
+-$343 to -$1,760; +$176 to +$852), and on `corr_dense_1h` a different run,
+eleven fewer trades and a worst fold of -19.98% where the same nine trades
+lost 4.04% at 1x.
+
+**Two decisions are filed rather than made, because each moves every live
+order or every recorded number.** Whether the budget should be a
+loss-at-stop figure (`margin = budget / (stop_distance x leverage)`: halves
+the 6%-stop position, leaves a 3% stop about where it is, the cap still binds
+above) or stay a notional the executor commits as margin; and whether
+`--honest` should fill at the live leverage so the record measures what live
+places. Neither is changed unprompted.
+
+> **And a hand-written stand-in forgot the next attribute, again.** The
+> artefact suite's `_args` lists every flag the runner reads by name, so the
+> new `leverage=args.leverage` raised `AttributeError` in all twenty-five of
+> its cases -- the venue-cap chapter's "a hand-written stand-in that must
+> remember each attribute is one that will forget the next", found by the
+> neighbouring run and not by the slice's own suite.
+
+**Twenty mutations, each killed on the first round, none refused.** Four are
+worth naming for what they prove about the guards rather than the code: the
+fill given a private copy of the clamp dies only on the planted reading,
+because a byte-identical copy agrees with every fixture; each of the three
+runner sites dropping the leverage dies on the call-shape scan and nowhere
+else, which is why that scan is stated as one; `--honest` quietly moving the
+record to 5x dies on the drive that parses the flag and runs the preset; and
+an artefact written before the key read as the live 5x dies on the reader's
+own case, where the card has to say the leverage was not recorded rather than
+print a figure the runner of that day could not have filled at.
+(`tests/test_the_benchmark_fills_at_the_leverage_it_states.py`.)
+
+**THE BREAKER CARD PRINTED "SEE CAUSE" WHERE THE GATE HAD A FIGURE, A WINNING
+DAY AS A LOSS, AND A RESTART AS A FRESH TRIP.** Reported from the live bot on
+2026-09-28, three cards in one minute: `CIRCUIT BREAKER TRIPPED · Reason:
+drawdown · Drawdown: see cause · Daily loss: -0.08% · Open Positions: 3 ·
+Triggered At: 09:34:27 UTC`, then `⚠️ DRAWDOWN AT 85% OF LIMIT · Current
+drawdown: 8.59% · Circuit-breaker limit: 7.00% · The risk engine halts all
+entries at 100% of the limit. Consider reducing size`. Driven on the real
+`RiskEngine` and the real `ProactiveMonitor`
+(`tests/test_the_breaker_card_says_what_the_gate_read.py`), each line was
+one of the shapes this file tabulates.
+
+- **"see cause"** stood under a comment reading *"the exact live % isn't
+  separately retained"*. It is: `drawdown_status()` answered `8.59 · live ·
+  7.0` to the tier check ten lines below, and the trip card never asked.
+- **"Daily loss: -0.09%"** printed `last_known_daily_loss_pct`, which the gate
+  stores as `abs(_daily_pnl / base)` because it COMPARES a magnitude, behind a
+  hard-coded minus. Driven with the accumulator at **+$8**, the card called
+  the day a loss of 0.09%. And `if _dl` printed a measured `0.0` as `N/A`.
+- **"Open Positions: 0"** for an executor that raised, or none: the shapes
+  table's first row, on the card an operator opens because trading stopped.
+- **"Triggered At: <now>"** was the moment the monitor's pass NOTICED.
+  `_last_cb_state` started `False`, so on every restart with the breaker
+  persisted open the first pass announced a fresh trip at boot time, with
+  the daily loss `N/A` and the book `0`. The engine recorded the trip's DAY
+  and never its time.
+
+**Two cards in one tick is the restart's signature, and the pasted pair has
+it.** The tier check's `_last_dd_tier` starts at 0 too, so a first pass over a
+persisted 8.59% fires the 85 tier beside the "trip" -- which is what the
+pasted minute looks like, and the SEI limit fill that the overshoot guard
+flattened at 09:35 is consistent with a resting order filling after a boot
+rather than an entry placed through a tripped breaker. Not provable from
+here, and not needed: each card was wrong on its own.
+
+**The readings are the engine's, and the cards are pure.**
+`RiskEngine.circuit_trip_at` is written by both trip sites (the gate's and
+the fail-closed restore's), cleared with the cause, exported, and restored by
+a helper of its own -- not one of `_STATE_FIELDS`, for the reason
+`_restore_governor_clear` gives: an unreadable time there fails the whole
+state closed over a field whose safe reading is "not on record"; junk, a bool,
+NaN, a negative and a future time are all ignored. `last_daily_pnl_reading()`
+is the SIGNED figure with its basis (`live`: realized closes; `paper`), None
+until an evaluation measures it. `bot/formatters/breaker_card.py` renders
+both cards from plain values, and `_num` refuses a bool, a NaN and a stand-in
+before anything is printed: a MagicMock read as `1 (+1 resting order)` on the
+first draft, because `int(MagicMock())` is 1. The monitor's
+`_enforced_drawdown_reading` is the ONE drawdown both cards read, and in live
+mode a `paper` source is unread with its own sentence -- after a restart no
+live equity has been read yet and `drawdown_status()` falls back to the paper
+snapshot, so the restored card printed `0.00% (paper snapshot)` under a live
+trip before the reading was shared. The operator's book comes from
+`_operator_book_rows`, positions apart from resting orders, or "unread".
+
+**The first pass is a first pass.** `_last_cb_state` starts as None; a
+breaker found open then gets `CIRCUIT BREAKER OPEN AT STARTUP` with the
+recorded trip time (day and time), or "not on record (before this process
+started)" for a state a build before this field wrote, under its own dedup
+key. A fresh trip prints the trip's own time; a stand-in engine with no time
+on record is labelled "Noticed at", which is what that moment is. A closed
+breaker on the first pass is not a clear.
+
+**The tier card names the measured fraction, and past the limit it is not an
+early warning.** `DRAWDOWN AT 123% OF LIMIT`, a fourth tier at 100, and two
+sentences: below the limit the card it always was; past it, *the breaker
+trips on the next entry evaluation; nothing has been halted yet* -- a
+reachable state, since the gate trips at EVALUATION time and a quiet market
+evaluates nothing. Beside a breaker that has already tripped the tier card
+is not sent at all (the trip card is the card) and the tier is still
+recorded, so it does not fire later; a breaker that cannot be read gets the
+louder sentence rather than no card. One neighbour had pinned `"85%" in
+title` for a measured 86%, with its own comment computing the 86.
+
+**What is deliberately left, with the reason.** The public channel's `📉
+TRADE CLOSED 🔴 SEIUSDT LONG closed (leverage overshoot) … #TradeResult` over
+an execution abort is the product decision the DOT chapter filed; the record
+counts the abort as a filled close with real fees, so the two public surfaces
+agree, and the icon is the net's. And the overshoot itself is the fill guard
+doing its job on the design this file records: the pre-order verdict keeps
+its confirmation when the margin mode cannot be read (`governs=None`, the
+2026-07-21 reason), so a wrong-leverage fill costs one round trip of fees at
+the post-fill guard rather than every trade at the pre-order one.
+
+**Thirty-four mutations, each killed -- and the one REFUSED on the first
+round was the driver's anchor.** The tier header's mutation spelled the
+⚠️ as a Python escape where the file holds the character, so the
+anchor matched zero times: the PNG chapter's trap with the sign flipped
+(there the file held the escape), and a driver that took that for a kill
+would have reported coverage of the one line the header change lives on.
+Re-anchored on the bytes the file holds, it dies on the 123% test. Two more
+are worth naming for what they prove about the guards rather than the code:
+the tier check keeping a private copy of the drawdown reading dies only on
+the test that PATCHES the monitor's one reading and asks both cards, because
+a byte-identical copy agrees with every honest fixture; and the reading
+answering the gate's magnitude dies on the LOSING day alone -- on the +$8
+day the magnitude and the signed figure are the same number, which is the
+asymmetric-fixture rule one sign over.
+(`tests/test_the_breaker_card_says_what_the_gate_read.py`,
+`bot/formatters/breaker_card.py`.)
+
+**A RISK BUDGET THAT BOUNDED THE NOTIONAL BOUNDED A LOSS FIVE TIMES ITS
+NAME, AND BOTH DECISIONS THE CHAPTER ABOVE FILED WERE MADE THE SAME DAY.**
+The benchmark chapter above measured it: the gate's base was
+`risk_budget / stop_distance`, a NOTIONAL whose loss at the stop is the
+budget, and every fill site but the backtest committed that figure as MARGIN
+at 5x, so the loss at the stop was five times the budget wherever the
+notional cap did not bind -- and the cap bound on every stop under 15.4%, so
+the four `*_MAX_RISK_PCT` knobs bound nothing at the default leverage and
+the per-trade loss ceiling was `cap x MAX_MARGIN_RISK_PCT`, a product of two
+knobs neither of which is called a budget. Delegated on 2026-09-28 ("for all
+open choices do what's best"), decided: **the budget is a loss at the stop.**
+
+**The base divides by the leverage the order places at, read ONCE.**
+`margin = risk_budget / (stop_distance x _lev_std)`, where `_lev_std` is
+`operator_standard(CONFIG.exchange, RUNTIME.leverage_override).leverage` --
+the standard every placement starts from, which the user's preference, the
+quality ladder and the margin-risk cap only ever LOWER, so a budget divided
+by it bounds the loss at every leverage an order can run at. It is read at
+the top of `_evaluate_locked` and the margin-risk cap measures at the same
+figure; the cap used to re-resolve its own copy of the same question three
+hundred lines down, which is the two-answers shape one gate over. The
+backtest is the one caller that knows its own fill leverage and hands it in
+(`fill_leverage=int(self.config.leverage)`); every other caller places at
+the standard. Driven at the shipped knobs ($10,000, swing budget 2%, cap
+13%, standard 5x, London session): a 4% stop sizes $1,000 and loses exactly
+the budget at the stop, a 6% stop $666.67, a 3% stop meets the cap at $1,300
+(loss 1.95%); from 2% to 6% the loss at the stop never exceeds $200. Under
+`/leverage set 10` the same 2% stop sizes $1,000 where at 5x it sized
+$2,000 and met the cap. At a fill leverage of 1 -- the plain backtest -- a
+20% stop sizes $1,000, and a 10% stop is ADMITTED where the margin-risk cap
+refuses it at 5x, because the cap now measures at the leverage the fill
+really runs at. A fill leverage of 0 is floored to 1 and the label says so.
+
+**And `--honest` fills at the leverage live places.** The operator standard
+under the ceiling -- 5 today -- read from the CONFIG and never from the
+runtime override, because a benchmark is a reproducible measurement and the
+override is a state file; an explicit `--leverage` is kept; a plain run
+still fills at 1, so every older table reproduces. The flag's parser default
+is `None` so that an explicit flag can be told from none, which the earlier
+`default=1` could not. The record was re-run three ways so the table
+separates what moved it (`docs/FROZEN_BENCHMARK.md`): at 1x the loss-at-stop
+rule is a division by 1 and the run is BYTE-IDENTICAL to the old sizing,
+117 trades either way, so the twelve trades the record lost against
+`0701fb0a`'s 129 are main's stop floor (below) and not the sizing; at 5x,
+the record now, it is 117 trades, net −$1,456.39, PF 0.61, one of six folds
+profitable, where the 5x arm under the old rule lost −$1,760.15 on the
+pre-floor tree. The sizing rule is what sizes a wide-stop trade smaller at
+5x, which was its whole point.
+
+**Three documents said the old rule and one said the new one before it was
+true.** README's "risk budget (2% of equity) ... capped at 20% notional",
+the runbook's formula and `.env.example`'s "risk_budget / stop_distance
+sizing" each say the division now; and this file's MAX_LEVERAGE chapter had
+already claimed the benchmark ran at the live leverage when it ran at 1x --
+corrected by the chapter above to 1x, and true at 5x only from here. The leverage
+suite pins the sentence against the runner's own resolution rather than
+against a number, so it moves with the code. Two suites' fixtures at the 20%
+stop moved ($1,000 to $200, $750 to $150) and the base label carries the
+leverage (`fixed-fractional (swing risk 2% / stop 3.00% at 5x)`), because a
+figure printed without the divisor that made it is the `size_usd`
+two-meanings shape in a sentence.
+
+**Three neighbour fixtures sat where the rule moved the cap, and each is
+re-aimed at what it measures.** The cap-takes-back suite planted a 2% stop
+on $128, where the old base ($128) halved by the governor still met the
+$16.64 cap; under the new rule the halved base is $12.80 and the cap takes
+nothing back, so the fixture is a 1% stop now and the claim is unchanged.
+The flat-margin suite's $200 account sizes $13.33 where it sized $26, and
+the flat $100 is still bounded by the $26 cap, which is the claim. And the
+correlation fault-injection test asserted the injected exception's TEXT in
+the check line, which is the class-only rule below being the wrong way
+round in a test.
+
+**Eleven mutations, each killed on the first round, none refused.** Two are
+worth naming for what they prove about the guards rather than the code: the
+margin-risk cap re-resolving the configured default dies only on the planted
+standard (a `StandardLeverage` of 4 answered by the reading) and on the
+fill-leverage drive that admits a 10% stop at 1x, because on every honest
+config the default and the standard are one number; and the `/leverage`
+override reaching the benchmark dies on the runner drive that plants the
+override and expects 5, which no assertion about a plain run could see.
+(`tests/test_the_risk_budget_is_a_loss_at_the_stop.py`.)
+
+**A HAND-TYPED RESTING LIMIT WAS CANCELLED BY THE ENGINE'S FRESHNESS RULES,
+WRITTEN FOR ITS OWN IDEAS.** The drift-fallback chapter above stopped the
+market chase on a typed ticket and still CANCELLED it: `TYPED_NOT_CHASED`,
+the moment the market moved 2% away from the level the person typed. And
+the expiry cancelled every resting limit at `LIMIT_ORDER_EXPIRE_SEC` (4h),
+so a ticket typed at breakfast was gone by lunch with a sentence saying it
+was "cancelled after 4.0h". Both rules are the engine's: an analysis goes
+stale, and a level the market ran away from is not the setup it was. A
+person's limit under the market IS waiting for the pullback, and the person
+chose the level. Delegated, decided: **a typed ticket is never
+drift-cancelled, and rests on its own clock.**
+
+**One reading of which clock.** `limit_expiry_seconds(pos)` in the executor
+answers `MANUAL_LIMIT_EXPIRE_SEC` (24h, `LimitOrderConfig.manual_expire_seconds`)
+for a row whose `idea_source` is `manual` and the engine's `expire_seconds`
+for everything else; a config with no typed horizon, or one that is not a
+positive number (a bool, a string, zero, `None`), is the engine's clock --
+the stricter of the two, and what every ticket had before. The hard timeout
+that force-closes a row nobody can READ is twice whichever applies. The
+drift read is skipped for a typed row above the momentum read, driven: a
+typed ticket 4.9% away keeps resting with no ticker asked, and the engine's
+own idea at the same distance still reaches the fallback. The expiry
+sentence names the clock that ran out and ends "Nothing was placed."; the
+audit carries `typed` and `horizon_sec`, so an operator can see which clock
+a cancel was on. The 24h is a BACKSTOP, not a freshness rule: a forgotten
+ticket holds cap room (a resting order counts toward committed margin) and
+a stale stop for ever otherwise.
+
+**The placement card names the clock, and the drive found the card would
+have raised on every limit.** "Status: PENDING FILL" said an order rests and
+not for how long or on whose rules, so the card carries a `Rests:` line --
+`up to 24h (your ticket's clock, MANUAL_LIMIT_EXPIRE_SEC; never cancelled
+for drift)` for a typed ticket, `up to 4h (LIMIT_ORDER_EXPIRE_SEC), or until
+the market drifts 2% away` for the engine's -- read off the one clock
+reading with a `typed=` keyword, because the card is composed before any
+position row exists. Its first draft built a `SimpleNamespace` probe in a
+module that does not import one: a `NameError` on every limit placement,
+inside the executor's own `except`, which no scan of the f-string could see
+and a drive through the real `execute` to a venue that ANSWERS a resting
+order found on its first run. `.env.example` documents both clocks beside
+each other.
+
+**Ten mutations, each killed on the first round.** The hard timeout put back
+on the engine's clock dies on the scan alone, and the scan says so: a
+readable typed order at 25h expires on its own clock either way, so the
+doubled horizon is visible only from the line, the narrow case where a
+source read is the honest instrument. The card reading the engine's clock
+dies on the planted reading (a `typed=` call answered 7,200s prints
+`up to 2h`), because a card that rebuilt the clock from the config agrees
+with every honest fixture.
+(`tests/test_a_typed_ticket_rests_on_its_own_clock.py`.)
+
+**A SIGNATURE THAT FAILED KEPT THE DAY'S SPEND, AND TWENTY-SIX GATE LINES
+PRINTED THE EXCEPTION'S TEXT.** The on-chain chapter above filed it:
+`/web3/sign` records the transfer against the 24h ledger BEFORE
+`build_and_sign` runs, which is right for a transaction handed to the
+network (neither confirmed nor refused, so its spend stands) and wrong for a
+signature that FAILED, which produced no transaction and counted against the
+cap anyway: four failed signatures at the per-trade cap were a day locked
+out, the refused-confirm chapter's arithmetic on the signing path.
+`_release_web3_spend` takes exactly the ref this attempt recorded back off
+the ledger through the release the refused-confirm chapter built, audited
+`RELEASED`; a ref the ledger did not hold (an exact retry of one an earlier
+attempt still holds) is `NOT_HELD` and never `RELEASED`, because an
+operator reading RELEASED over a retry's spend would think the day had room
+it has not; a release that RAISES keeps the spend and audits `KEPT` with the
+exception's CLASS, since a store's text names a path; a broadcast failure
+keeps its spend, stated; a zero-value transfer has nothing to release. The
+answer carries `spend_released` (True, False or None) beside the reason.
+
+**And every `evaluation error ({exc})` line in the risk gate is class-only
+now.** Twenty-six check lines printed the exception's text into
+`checks_failed`, which reaches the audit, the card and the chat model; a
+ccxt error string carries the request, and the request carries the
+signature -- this file's own rule, twenty-six times over in the one module
+whose lines are read by every surface. A planted raising verdict prints
+`MARGIN_RISK: evaluation error (RuntimeError)` and a scan requires no line
+in the module to spell the old form.
+
+**Six mutations, each killed on the first round -- and one of them only
+after the guard was made able to see it.** A row not held audited RELEASED
+survived the suite's first draft, because nothing read the audit's word;
+the helper test reads it now. A broadcast failure releasing too dies on the
+SIGNED drive's ledger, the exception's text in the audit dies on the planted
+`SECRETVALUE`, and the one gate line put back to the exception's text dies
+on the module scan.
+(`tests/test_a_failed_signature_takes_its_spend_back.py`,
+`tests/test_a_gate_error_line_names_the_class.py`.)
+
+**MAIN'S OWN STOP FLOOR BROKE MAIN'S OWN RED TEAM, AND THE FIRST FULL
+PREFLIGHT OF THIS ROUND IS WHAT SAID SO.** `69f63073` (the operator's deploy)
+added `STOP_DISTANCE` to the risk gate -- a stop under
+`MIN_STOP_DISTANCE_PCT` (0.40%) is refused by name, "the final authority on
+minimum stop distance", with a test that pins a MANUAL ticket at 0.13%
+refused -- and its second commit cleaned two fixtures. Driven on main's own
+head `4a052981`, five tests fail: the red team's two `liquidity_drain`
+scenarios planted stops of 0.1% and 0.01% and pinned "APPROVED, capped", so
+the runner reported **"2 of 30 got past the risk engine"** (its word for
+any mismatch: a scenario expecting APPROVED and getting REJECTED is not an
+attack getting past, and the runner cannot tell), `test_core`'s manual
+0.2% fixture, and the engineering-standard page's scenario count. The
+preflight on `facb316b` -- ten slices rebased onto that head -- read
+**8 failing, two gates red**, and the full gate is the only thing that ran
+those suites, which is the fifteenth time it has refused a head on a test
+none of the slice's own suites ran, and the first time the regression was
+main's.
+
+**Fixed forward, and main's decision STANDS.** A typed ticket is floored:
+main's own test says so, and the co-pilot chapter's arithmetic says why (a
+0.18% stop's round trip is 43% of the risk budget). So the manual fixture
+moved its stop to 0.5% -- its subject is the volatility guard's synthetic
+ATR, and *a fixture positioned where another gate fires first measures
+nothing about the gate it names*. The two red-team scenarios sit on either
+side of the floor now, DERIVED from it: `liquidity_drain_tight_stop_capped`
+at floor + 0.1% sizes the base at several times the account and is APPROVED
+at the capped size; `liquidity_drain_stop_under_floor` at a quarter of the
+floor is REFUSED by name, the floor's own red-team row, so the count stays
+thirty and the page's "liquidity drains" still holds. A scenario table
+that pins "capped" for a stop the gate refuses by name is a guard pinning
+the old contract, which is the arb-verdict chapter's shape one instrument
+over.
+
+**Two more were the branch's, and the same run named them.**
+`RiskEngine.last_known_daily_loss_pct` had no reader after the breaker-card
+chapter cured the card of printing a magnitude behind a minus sign -- the
+methods ratchet said so -- and it is DELETED rather than baselined: a
+public accessor for a figure that misled one card is a door for the next.
+The two tests that read it read the private field its gate still keeps. And
+the generated safety-flags block in `.env.example` was one line stale
+(`bot/backtest/engine.py:172` to `:173`, the fill's own edit), regenerated.
+The one forgiven flaky test in that run,
+`test_it_beats_the_quadratic_form_by_orders_of_magnitude`, is a ratio of two
+timings taken once each under full-suite load.
+
+> **And the repair for that flake failed the next preflight alone.** Its
+> first draft took the best of three on EACH side, which ran the quadratic
+> stdlib pass three times over the 12,800-line executor: about 20s a pass,
+> past the suite's 60s timeout, so the gate refused 8af5fb9a on a test that
+> now failed in the run AND alone. Only one side can manufacture a failure:
+> a load spike inside the stdlib pass makes it slower, which WIDENS the
+> margin; a spike inside our pass is the one that can invert the ratio. So
+> the stdlib runs once, ours takes the best of five, and both time the same
+> strided sample of about forty nodes from the top of the file to the
+> bottom -- each stdlib call splits the whole file whichever node it is
+> asked about, so every node in the sample sees the quadratic case. 14s
+> alone, where the draft was over 60. A repair aimed at the scheduler that
+> had not measured the cost of its own measurement.
+
+> **And the citation remap keyed its maps by basename.** `engine.py` is
+> both `bot/core/engine.py` and `bot/backtest/engine.py`, and this round
+> changed the second, so the check indexed the map's bare `engine.py:6173`
+> into a file of 1,841 lines and raised -- and a remap that had not raised
+> would have carried the core engine's citations through the backtest
+> engine's diff. Keys are full paths now, a spelling with a directory is a
+> suffix match, and a BARE name resolves by the tree's own convention: unique
+> in the tree, it names that file; two files share it, and the map's bare
+> spelling is `bot/core`'s, so it resolves there or to nothing, never to the
+> other file by the accident of it being the one that changed.
+
+**Two mutations of the re-aimed scenarios, each killed on the red team's own
+runner:** the under-floor stop expecting APPROVED reports one of thirty got
+past, and the capped scenario's stop slipping under the floor reports the
+other. Twenty-nine in the round, none refused.
+(`bot/core/red_team.py`, `tests/test_core.py`,
+`tests/test_stop_distance_floor_is_final.py`.)
+
+**Main fixed the same two scenarios its own way while this branch was open,
+and the rebase merged the two readings into a third that neither side wrote.**
+Main's `aa4b4b70` set both `liquidity_drain` scenarios to REJECTED. Replaying
+this branch onto it kept the branch's side of every conflicting hunk, and the
+one line main changed that did NOT conflict was the capped scenario's
+`expected_verdict`: it came across as REJECTED under this branch's stop just
+above the floor, which the gate approves at the capped size. The red team then
+read **"1 of 30 got past the risk engine"**, from a scenario whose own
+description says it should APPROVE. The rebase reported success; running the
+red team on the rebased head is what showed it. The verdict is APPROVED again,
+in a commit of its own, so the capped path stays a scenario beside the
+refusal. A clean rebase is a statement about text, not about what the text
+means.
+
+**THE AGENT FEED'S THESIS EVENT PUBLISHED A SECOND CONFIDENCE, AND THE GUARD
+OVER THE CLASS ACQUITTED IT BY ITS LOOP VARIABLE'S NAME.** Every fresh engine
+idea goes to two public surfaces: the signal-stream row on `GET /api/signals`,
+which asks `displayed_confidence`, and the agent feed's "thesis" event, which
+printed and sent `idea.confidence`. That field is not the reading. The
+setup-expectancy nudge, on by default, moves it after the analyzer snapshots
+its blend, and the calibration curve does the same when it is enabled. Driven
+on an idea whose blend is 0.62 and whose nudged field is 0.67, the feed said
+67% and the signals API said 62%: one signal, two published confidences, the
+defect the SUI card chapter fixed, one surface over.
+`agent_feed.thesis_event` builds the event beside `close_event`, from the one
+reading. A stamp prints the stamp and sends None, and a level the idea does not
+state is None rather than 0. The engine's loop calls it, and a scan (stated as
+one: the emit sits inside `_tick`) requires every "thesis" emit in `bot/` to be
+the builder.
+
+**The guard missed it because it judged a receiver by name.**
+`test_every_confidence_reader_asks_the_one_reading` kept a hand-written list of
+the names that hold an idea (`idea`, `new_idea`, `best`, `p`, ...), and the
+engine's loop variable was `_fi`. A vocabulary of names is the `/setllm`
+ten-of-eleven shape, and it failed in the quiet direction. Every receiver is in
+scope now, and one the rule cannot place needs a baseline row saying what
+quantity it is: twenty rows, for the intent router's classification
+confidence, the pattern detectors' own and the quality reading itself. That is
+`tests/command_gates.py`'s rule, where an unrecognised spelling demands a
+reason. Widened, the rule found exactly one TradeIdea it had been missing. The
+honesty ratchet improved by three (the engine's `float(x or 0)` levels became
+`price_on_record` in the builder) and was re-recorded in the same commit.
+
+**Eight mutations, each killed on the first round.** The one worth naming is
+the guard given back a receiver-name list: it dies on the planted `_fi` case,
+and on twenty baseline rows the narrowed rule no longer finds, because the
+baseline is two-way.
+(`tests/test_the_agent_feeds_thesis_states_the_signal_rows_confidence.py`.)
+
+**THE FOLLOW FEATURE SELECTED SIGNALS BY A STATUS NO PRODUCER EVER WROTE.**
+`/api/copy/picks` (the dashboard's "Following — live picks" panel) and the
+copy push sweep (`copy_watch`, which notifies a follower when an agent they
+follow has a new pick) both read `FROM signals WHERE status = 'OPEN'`. Both
+producers push `NEW`, the column defaults to `NEW`, and nothing ever writes an
+outcome back to a signal row, so no row has ever matched: the filter has stood
+since #243. Every follower read *"No live signal matches this agent's gates
+right now"*, a confident negative from a filter no row could satisfy, and the
+sweep never sent a pick. **The tests could not see it because the shim's
+catch-all for `FROM signals` ignores the WHERE clause**, so the copy suite's
+planted `OPEN` rows passed a filter production never could. That is *a
+fixture that cannot produce the state it names*, with the fixture being the
+database.
+
+**Switching the filter to `NEW` would have been the wrong fix.** Every signal
+ever published is `NEW`, so the panel would have offered stale calls as live
+picks. A signal is live while the bot would still take it: its creation plus
+the bot's `PENDING_IDEA_TTL`, the time an idea stays confirmable. The website
+cannot read the bot's config, and a second copy of that number there would be
+a second answer, so the PRODUCER states it: `website_sync.signal_expires_at`,
+asked by the engine's rows and the scan's. The ingest stores `expires_at`
+beside the seal (a display window, not a decision fact), never updates it on a
+re-sync, and stores nothing for a value that does not parse. Both readers
+select `expires_at > now`, and a row that states no window is never live. The
+shim now has a branch for that filter, and it maps an INSERT by the
+statement's own column list, not by position. The sweep runs once a minute,
+because a sweep as long as the five-minute window it reads can miss a signal to
+timer drift.
+
+**Fourteen mutations: thirteen killed, one equivalent.** Putting the window
+into the object the seal is built from changes nothing, because
+`canonicalPayload` seals an explicit list of fields. No key added beside them
+can reach the seal, and the suite drives that property instead: the stored seal
+equals a reseal of the decision facts alone, and `seal_payload` carries no
+expiry.
+(`tests/test_a_signal_states_when_it_stops_being_live.py`,
+`app/test/copy_picks_read_the_bots_stated_window.test.js`.)
+
+**EVERY CANDLE CHART IS A TRADINGVIEW CHART, AND THE FIRST ONE WAS DRAWING
+ANOTHER SYMBOL'S LEVELS.** Asked for by the operator with two screenshots: the
+Markets view drew TradingView Lightweight Charts, and every chart a reader
+reaches from a signal drew its own SVG -- the signal row, the symbol modal,
+the pattern-read mini, the Arena's three and the embed board. The first
+screenshot also showed ETH's engine levels (`pdl 2667.12`, `poc 2478.40`,
+`swing 2462.85`) drawn on a BTC chart at 83,901.90, their axis labels stacked
+at the bottom edge. `drawChart` shares one chart and one series between
+draws, awaits the candles and then the levels, and `every(20000, drawChart)`
+starts another: a draw that finished its level fetch after the symbol changed
+wrote ITS levels onto the new chart, and could install its own live-candle
+timer that appended the old symbol's bars to the new series. Each draw takes a
+sequence number now, the candle fetch happens before `renderPanel` so a stale
+draw returns without writing the panel, and every write after an await asks
+whether the draw is still the chart's (`mine()`).
+
+**One renderer, one reading, and the SVG is the fallback.** `app/public/js/
+tv-chart.js` (`RCTVChart`) mounts every chart: the Markets option set, the
+candle colours, a price axis whose decimals follow the price (the library's
+default of 2 printed a sub-cent asset's whole axis as `0.00`), stated levels
+that widen the axis and overlays that never do, and a registry that removes a
+chart when its host leaves the page or a redraw replaces it. Each surface asks
+a chooser rather than a renderer -- `RCSignalChart.render`, `RCChartRead.
+drawInto` -- and each chooser draws the SVG when the library did not load.
+The signal chart's refusals (no candles, unreadable, too few, a flat market, a
+level at 0) are ONE function, `readSignal`, which both renderers read, so a
+reader does not get a chart from one and a placeholder from the other.
+
+**Four things the old charts said that the new ones do not.** A failed candle
+read on the pattern mini was cached as `[]` and drawn as "No price history
+returned for this symbol", a claim about the market from a request that never
+got an answer; it throws now, uncached (`wasRead`). The decision picture's
+structure tag printed `RANGING` for a window whose swings the detector never
+found -- the constructor's default, the neutral verdict over a read that did
+not happen -- and says the structure could not be read now, in the chart-read
+chips' own words (`dd.cr_st_unread`, no new key). The engine's levels outside
+the window are not drawn, and a liquidation price far from the candles does
+not squash them flat.
+
+**The library lays its chart out as a `<table>`, and a signal's chart lives in
+a table row.** On a phone `.tbl--collapse td { display: flex }` and the
+`td::before { content: attr(data-label) }` label reached into the chart: the
+price axis wrapped below the pane and the chart carried a stray label. The
+library's cells are handed back to the browser (`all: revert`), and the
+Chromium drive is what found that this was half a fix: reverting also drops
+the library's `cellspacing="0"`, a presentational hint that lives in the author
+origin, so the UA's 2px spacing and 1px padding came back and the time axis
+overhung the chart's box by 4px. The drive measures every canvas the chart
+draws against its host and requires the price axis beside the pane, on the
+signal row (phone and desktop) and in the modal.
+
+**The embed board's CSP refuses the library's logo**, which it injects as a
+`<style>`. The board turns the logo off and carries the attribution in its
+footer as a link; the drive loads it under the route's own header and fails on
+any console violation (a 404 for the browser's own favicon request was the
+first thing it caught, in the test's server rather than the product).
+
+> **And my own smoke fixture measured a placeholder and called it the
+> skeleton.** Playwright matches routes in REVERSE registration order, so a
+> catch-all registered after the slow candle route answered the candle read at
+> once, the loading state was never reached, and the test passed only because
+> nothing ever cleared `aria-busy`. The routes are reordered with the reason
+> beside them, and the slot says it is no longer busy once its read resolves.
+
+**Two ratchets found a second copy and the drive of it found a defect in the
+first.** The JS honesty ratchet counted `(Number(b.score) || 0)` twice in
+`chartread.js` where the file had held it once: the TradingView reader had
+copied the SVG's selection of the engine's levels, and its FVG selection
+beside it. Both are one function now (`windowLevels`, `windowFvgs`), which
+both renderers read, and driving the FVG one directly -- neither renderer's
+tests ever had -- found that it capped the INPUT at four before filtering, so
+a zone outside the window took a slot and hid one inside it, in the SVG too.
+It caps what is drawn now. The palette guard refused the legend's first
+background, `rgba(10,13,20,.6)`, as a hue of its own; it is neutral black at
+low alpha.
+
+**Forty mutations, and the round found three of this slice's own lines.**
+Thirty-four died on the first round, and two anchors were refused for
+matching twice -- the SVG and the TradingView reader share those lines -- and
+died once re-aimed at the TradingView reader's own. Four survived. The signal
+chart built its own bars beside the renderer's `toBars`, so a mutation that
+let a repeated timestamp through the renderer changed no verdict: one copy
+now, and both mutations die. Re-rendering a slot as a placeholder left the old
+chart alive with no test to say so: driven now. The `td::before` reset changed
+nothing, because a reverted cell is a table cell again and the collapsed row's
+label is empty on cells that carry no `data-label`: deleted. And the chooser's
+early refusal is an EQUIVALENT mutant -- `mount` refuses a spec with no bars
+and the SVG builder then refuses the same input for the same reason -- so the
+property is driven instead: no chart is mounted for a refusal. The second
+round's one new survivor was a guard of mine for a renderer that cannot be
+absent where the spec is asked for, and is deleted. Eight more on the two
+shared selections -- the window, the cap before or after the filter, the score
+order, the label, the filled gap's alpha -- and five of them survived until
+the selections were driven on their own; all eight die now.
+(`app/test/every_candle_chart_is_a_tradingview_chart.test.js`,
+`app/test/tv_charts_render.smoke.test.js`.)
+
+**THE ONE-READING RULE SAW ONE SPELLING OF THE FIELD, AND FOUR CARDS USED THE
+OTHER TWO.** The rule behind `displayed_confidence` walked for the ATTRIBUTE
+`x.confidence` inside a percent format or a comparison. Four surfaces read the
+field another way and printed it where the signal's other cards printed the
+blend:
+
+- the chart subtitle baked into the signal PNG, in both of its builders, bound
+  `conf = getattr(idea, "confidence", None)` and formatted the local;
+- the `/analyze` card bound `conf = idea.confidence` and drew its bar, its
+  ring and its pill from the local;
+- the model's PENDING TRADE IDEAS row bound `_conf = getattr(...)`;
+- the web chat's "Trade this" hint handed `getattr(idea, "confidence")` to the
+  browser, under the analysis card that printed the blend.
+
+Each printed the figure the calibration curve and the setup-expectancy nudge
+leave on the field, and each printed a hand-typed ticket's STAMP
+(`build_manual_idea` writes 1.0) as a measured 100%. All four ask the one
+reading now. A stamp draws no bar on the analyze card: an empty bar of blocks
+would read as a measured zero, and a full one as certainty. The pending row
+used to drop its confidence clause when the field was not a number, so an
+idea with no readable confidence read as one nobody had scored; it says the
+dash now. And the single-chart sender kept its own copy of the subtitle lines
+beside `_idea_meta`'s, which is how one chart of a signal could print a
+different confidence from its sibling album. It asks `_idea_meta` now, proved
+by planting it.
+
+**The rule sees three spellings now, and what it still cannot see is stated.**
+The attribute, `getattr(x, "confidence")`, and a local of the same function
+bound to either, coerced or not (`float(getattr(idea, "confidence", 0) or
+0)`). A local is bound per function, so a nested function's locals are not the
+outer one's. A local bound to a function OF the field (`band =
+bucket(idea.confidence)`) is a different quantity and is not followed; the
+pass-through vocabulary is `float`, `round`, `int`, `abs`, `_f` and `_num`.
+And `x.confidence is None` is not a gate: it asks whether a figure is there,
+the question every honest reader asks first. Widening the rule found four
+sites the attribute walk could not see, each read and baselined with its
+reason: the order-flow snapshot's own data confidence in the analyzer, the
+high-conviction floor's QualityReading figure and its audit line in the
+engine, and a journal entry's recorded confidence quoted back in the
+post-mortem. Excluding the `is None` checks retired four rows that had never
+been gates.
+
+**Sixteen mutations, each killed on the first round, none refused.** Two are
+worth naming for what they prove about the guards rather than the code: the
+pending row dropping its clause for an unreadable figure passes every
+assertion about a readable one and dies only on an idea whose confidence is
+junk, and the rule's pass-through vocabulary widened to any call dies on the
+real tree: the backtest's walk-forward report binds `bucket =
+_confidence_bucket(trade.confidence)` and tests the label for membership in a
+dict, a function OF the field that the widened rule reported as a gate.
+(`tests/test_the_telegram_cards_print_the_one_confidence.py`,
+`tests/test_every_confidence_reader_asks_the_one_reading.py`.)
+
+**A TELEGRAM CHART IS A PICTURE, AND THE PICTURE HAD ITS OWN COPY OF THE CARD'S
+FIGURES.** Asked for on 2026-09-28: the TradingView style in Telegram too. Two
+halves, and restyling the first found four readings the picture had wrong.
+
+- **Its price formatter was a second copy with an older rule.**
+  `chart_renderer._fmt` printed six decimal places below a cent, so a sub-cent
+  entry at 0.0000112 and its stop at 0.0000110 were both tagged `0.000011`: the
+  stop drawn ON the entry, which `rich_cards._fmt_price` records being cured of
+  on the card. Above a dollar it printed two places, so LINK's 15.0885 was
+  tagged `15.09` under a caption reading 15.0885. The chart asks the card's
+  formatter now.
+- **The price axis printed a multiplier.** matplotlib's scaled labels put
+  `1.20` on a sub-cent chart's axis with `1e−5` in the corner, and a reader
+  takes 1.20 as the price. The axis uses the same formatter as the tags.
+- **The last-price tag was dropped near a level.** It was skipped whenever any
+  level sat within 5% of the range, which is ordinary for an entry near the
+  market, so the tag that says where the market is went missing exactly when a
+  reader compares it with the entry.
+- **The RSI read 50 where nobody had read anything.** The warm-up bars were
+  filled with 50, a flat neutral line over fourteen bars with no RSI, and a
+  window with gains and no losses (a zero average loss) was filled the same
+  way: the strongest rally read as neutral. The warm-up is empty now, a window
+  with no loss reads 100, and a window that did not move has no RSI.
+
+The new legend follows the rules the cards do: an open or close that could not
+be read is muted rather than red, a flat move is muted, and an overlay still
+warming up prints a dash.
+
+**The live chart is a link, and the reason is two Telegram rules.** A message
+cannot run a chart, a `web_app` button works only in a private chat, and an
+album (a media group) carries no inline keyboard at all. So the caption links
+`/embed/chart`, a public page on the site's TradingView chart that reads public
+candles and places nothing (the /embed contract). The link carries only what the
+card printed: the market, the timeframe, and each level through
+`price_on_record`, so a level not on record is left out rather than sent as 0,
+spelled `.12g` so it round-trips. Both runtimes refuse a symbol they cannot
+place, and the timeframe table and the symbol rule are pinned across the two.
+
+**Three more things the drive found.** The plain-text retry Telegram forces when
+it refuses the HTML kept "Open the live TradingView chart" and dropped the
+address, so `_strip_html` spells a link's URL now. The page printed each level
+at the axis precision, which rounded 15.0885 to 15.088 under a line saying
+these were the levels as published; it keeps every decimal the link carried.
+And `parseCandles` capped every chart at the 60-bar mini-chart window whatever
+the page asked for, so the full-page chart got the thumbnail's history.
+
+**Stated, not changed.** The link opens once the website serving
+`/embed/chart` is deployed; the bot and the site deploy separately, so the
+order is the site first. `_build_chart_composite` has no caller, and was left
+alone.
+
+**Thirty-two mutations, each killed; the one that survived the first round was
+where the window was decided.** The page dropping its own 200-bar request
+changed no verdict, because the choice sat inside `draw()`, a browser callback
+behind a fetch and the library, and the smoke fixture serves 60 candles, which
+is the thumbnail window too: a fixture that cannot produce more bars than the
+defect keeps cannot see it. `specFor` is the pure seam now, a drive hands it
+150 rows, and a scan pins that `draw()` builds no second spec of its own.
+(`tests/test_a_telegram_chart_links_the_live_chart.py`,
+`app/test/embed_chart_page.test.js`, `app/test/tv_charts_render.smoke.test.js`.)
+
+**NO SIGNAL WAS EVER RESOLVED, AND THE STATS PANEL PROMISED THAT OUTCOMES
+WOULD APPEAR.** Both producers of the public signal stream (the engine's own
+ideas and the scan cards) pushed a row with `status: NEW` and no outcome, and
+nothing ever pushed a second one. The website's ingest has updated `status`,
+`pnl` and `resolved_at` on a re-sync since it was written, and the stats query
+counted `WHERE pnl IS NOT NULL`, so every signal stayed NEW for good and the
+panel's empty sentence, *"outcomes appear once signals hit target or stop"*,
+described a path that did not exist. The copy-picks chapter above found the
+same absence from the other side: a filter on `status = 'OPEN'`, a word no
+producer wrote.
+
+**`bot/core/signal_outcomes.py` is that path.** Both producers publish through
+`publish_signals`, which records the whole row in a ledger
+(`data/learning/signal_outcomes.json`) before it pushes. Every fifteen minutes
+the engine walks the oldest-checked pending rows on hourly candles through
+`_cached_ohlcv`, under the maintenance cap, and re-sends each row whose word
+changed. The row is re-sent WHOLE, because the ingest INSERTs a row it has not
+seen and seals it from the decision facts, so a key and an outcome alone would
+be sealed with zeros. A re-send that did not land stays unsynced and is sent
+again on the next pass, without a second walk.
+
+**A signal is a call, not a position, so it is scored in R and never in
+dollars.** The target scores its own reward over risk, the stop scores -1R,
+gross of fees (a call has no size). Eight words, and only two carry an R:
+`NEW`, `OPEN` (entry reached), `TARGET`, `STOP`, `AMBIGUOUS` (one bar spans
+both levels, or the entry and the level behind it, and OHLC cannot order
+them), `EXPIRED` (not filled), `NO_EXIT` (a week after the entry with neither
+level) and `UNSCORED` (the candles cannot answer, or the levels describe no
+trade). Only bars that opened after publication are read. How the entry is
+reached depends on where it sits: a pullback entry is reached by a bar trading
+down to it and a break entry by one trading up to it, because one rule for
+both reads a gap past either as the wrong answer. On the bar that reaches the
+entry, the level ahead counts and the level behind is `AMBIGUOUS`. A candle
+that does not read is asked again and never scored.
+
+**The entry window is the bot's resting-limit clock, not the row's
+`expires_at`.** That field is the pending-idea TTL, five minutes by default:
+how long a follower may still act, which is what copy picks select on. It is
+finer than an hourly bar, so a walk that honoured it called nearly every
+signal EXPIRED before its first bar closed; the first draft did exactly that.
+The engine hands in `LIMIT_ORDER_EXPIRE_SEC` (four hours), the time the bot
+would rest a limit at the entry.
+
+**The website reads the words, and five of them are final.** The stream's
+Trade and Paper buttons asked `s.outcome == null`, derived from the R, so an
+EXPIRED or AMBIGUOUS call kept offering a trade.
+`public/js/signal-status-model.js` is the one reading: a pending word with no
+outcome label is actionable, a final word or one the page does not know is
+not, and only TARGET and STOP get a colour. `/api/signals/stats` adds the mean
+R (a ratio, so §4 allows it on that anonymous route, with `r_basis: 'gross'`)
+and a count per word, `null` when the count query fails, never zeros. The
+panel prints the win rate over TARGET and STOP, the mean R, the other words
+counted, and one sentence saying how a signal is walked. The daily digest
+counted every row with a `resolved_at` beside its wins, so every unfilled call
+would have read as a loss; it counts the rows that carry an R.
+
+**The methods ratchet would have lost four methods to two of the leaf's
+names.** `_multiply_defined_methods` excludes any name that is also a
+module-level function, and the first draft's `due` and `publish` took
+`ProofOfPnLPublisher.due`, `SelfAudit.due`, `ProofOfPnLPublisher.publish` and
+`SwarmBus.publish` out of the method sweep. The ambiguity count fell 41 to 39
+and the pin said so. They are `rows_due` and `publish_signals` now, and the
+count is 41 again.
+
+**Two old pins spelled `s.outcome == null`** and broke on the move while the
+property they guard held (a resolved signal offers no open); they pin the
+model's reading now. **Fifty-two mutations, each killed. The two that survived
+the first round were fixtures that could not tell:** every break fixture went
+on to reach its entry, so reaching a break the way a pullback is reached
+changed only WHEN it triggered, and the answer was the same; and every retry
+fixture carried the word already stored, so recording a retry's word changed
+nothing. A break price never trades up to, and a retry carrying OPEN over a
+stored NEW, are in the suite now. Two map citations into `dashboard.js` in the X/Twitter
+paragraph were already wrong (the symbol-modal share cited the stats panel,
+the journal share an allocation chart). A remap carried both, because neither
+line was blank; they are derived from the handlers they name now.
+(`tests/test_a_published_signal_is_resolved.py`,
+`app/test/signal_outcomes_reach_the_panels.test.js`.)
+
+**And the full gate refused the head carrying this slice and the Telegram chart
+link, on two rules neither slice's own suites ran.** The outcome ledger kept
+its relative path in a constant and anchored it one function later
+(`state_path(_LEDGER_REL)`). That is correct and the durable-path rule cannot see
+the flow: a relative literal that is not a direct argument of an anchoring helper
+reads as resolved against the working directory. The constant had one reader, so
+the literal is the argument now, and the harness test that read the constant asks
+`ledger_path()` instead. The chart-link test skipped itself with
+`pytest.importorskip("telegram")`, and `python-telegram-bot` is pinned in
+`requirements.lock`, so a missing module is a broken environment, not an optional
+feature; it asks `tests.dep_policy.require` now, which fails for a pinned module.
+Sixteenth time the full gate has refused a head on a test none of its slices'
+suites ran.
+
+**THE ARENA OPENED A CALL THAT HAD ALREADY ENDED, AT ALL THREE OF ITS DOORS.**
+Now that signals are resolved (the chapter above), a signal row can read
+TARGET or STOP forty minutes after it was posted. The Arena's three ways to
+open a signal never read that word. Driven on the real routes, on the
+in-memory database:
+
+- the picker (`GET /api/arena/signals`) marked a stopped-out call tradeable;
+- `/open-signal` filled it at the live mark, with its passed stop dropped
+  under the planner's own rule 2, so a stop-out was re-opened as a position
+  with no stop;
+- practice-follow mirrored it.
+
+`callBlock` in `app/lib/arena_signal_trade.js` is the one reading of whether a
+call is still current: `direction`, then `ended` (a final word, or one this
+server does not know, read off the dashboard's own `signal-status-model.js`),
+then `stale`. All three doors ask it, and a test drives them over a corpus of
+words, ages and directions and requires the same answer from each.
+`routes/signals.js` reads its word list off the same model.
+
+**Practice-follow had no age rule at all, and it is lazy.** The sweep runs when
+the follower next reads their account, so a follower back after two days had a
+two-day-old call opened at that day's mark. It takes the open route's 6-hour
+rule now, and the follow panel says so in fourteen languages.
+
+**A skip moved the cursor past a signal even when the skip was about the
+moment.** With the ticker map past its fill bound the route handed the sweep an
+empty map, every new call was skipped as `no_mark`, and the cursor moved past
+it for good. The account route's own comment said the work "simply happens on
+the next load"; for follow it never did. The route tells the planner whether
+the marks were fillable now, and an unread map mirrors nothing and holds the
+cursor. A fresh map that lacks a symbol is still a skip about that signal.
+
+**Two more in the switch that turns follow on.** It started the cursor at the
+newest signal by `created_at` while the cursor is an id, so a row pushed late
+with an older timestamp sat above it and was mirrored. And a failed read of the
+stream started the cursor at 0, which would mirror the whole stream from its
+first row, five calls per account read, on the switch that promises never to
+back-fill. Enabling refuses over a failed read and changes nothing; disabling
+still works, because a switch that cannot be turned off is worse than one that
+cannot be turned on. The in-memory database sorted every signal read by
+`created_at` whatever the statement ordered by, so it gained an id branch.
+
+**The in-memory database returns whole rows whatever a SELECT names**, so no
+drive can see a SELECT that forgets `status` (the row then reads NEW). That one
+claim is held by a scan, and the test says why.
+
+Twenty-eight mutations, each killed on the first round. One existing pin
+(`arena_slow_marks`) spelled the old call to `sweepFollows` and moved with it;
+its claim, that both writers get the age-gated map, held throughout.
+
+**The map's bare `arena.js` citations had never been remapped**, because
+`app/lib/arena.js` shares the name and a remap that guessed would carry a
+citation into the other file. Three had drifted: `keys/agent` onto a blank
+line, the key mint onto the key LIST's error handler, and the season trap onto
+the lines below the call it names. They are derived from what they name now
+(`test_the_arena_citations_are_the_lines_they_name`), with the page's two
+`arena.html` citations, which no remap reads.
+(`app/test/an_ended_call_is_not_opened_in_the_arena.test.js`.)
+
+**TWO READERS OF A SIGNAL'S OUTCOME DECIDED FROM A FIELD THE PAYLOAD NEVER
+CARRIES.** Both were written before any signal could resolve, and both tested
+`pnl == null` as "unresolved". `GET /api/signals` publishes the outcome word and
+never a `pnl` (`publicSignal` drops it), and `/api/call/<key>` sends the word and
+its time, never an R. So the test answered "unresolved" for every call. Driven:
+
+- The home view's Latest-signals panel offered a one-tap Trade button on every
+  call: a stopped-out one, and one that was never filled. The button prefills
+  the ticket with a thesis the market has already settled, one screen from
+  Confirm.
+- The receipt page (`/call/<key>`) printed `STOP — not resolved yet`,
+  `TARGET — not resolved yet` and `EXPIRED — not resolved yet`: a resolved call,
+  on the page whose job is to prove what was called and how it ended, said it
+  had not ended.
+
+Both read the signal panels' own model now. The panel asks
+`SignalStatusModel.actionable`, which the Signals stream and the Arena's three
+doors already ask, and a page where the model did not load offers nothing. The
+receipt asks `receiptOutcome`, a new function in the same model. A pending word
+reads as not resolved, a final word reads as itself (`✗ STOP`, `NOT FILLED`)
+with its time, coloured only where the word carries an R, and a word the page
+does not know is printed as sent with no verdict. Without the model the receipt
+prints the word as sent. It used to print "pending", which claims the call had
+not ended.
+
+**A guard for the class, because the two readers were found one at a time.**
+No loader that fetches `/api/signals` reads `.pnl`, and the receipt script does
+not read `o.pnl`. Both are driven rather than scanned: the receipt script runs
+in a VM against a sealed payload whose hash matches, and the panel loader is
+sliced out and run over planted rows.
+
+Twenty mutations, each killed on the first round. One was re-aimed before it
+counted: "the model is loaded after the receipt" first only deleted the tag,
+which is "the model is not loaded" again. Moved below the receipt script, it
+dies on the ordering test. Three fixtures were added by planning the round
+before it ran: a resolved time carrying markup, an unknown word with a time on
+record, and a no-model receipt whose word carries markup. Without them, three
+mutations would have survived: an unescaped time, a dropped time, an unescaped
+fallback.
+(`app/test/a_resolved_call_reads_as_resolved.test.js`.)
+
+**`/signals` SAID "NO SIGNALS RECORDED YET" FOR EVERY SIGNAL THE BOT HAD EVER
+PUBLISHED.** The Telegram command read `SignalTracker`, an in-memory store whose
+`record_signal` and `record_outcome` had no caller outside tests. The
+unreachable-methods baseline recorded both, and an earlier chapter here recorded
+the tracker's feed as dark. So the card's empty branch was the only one that
+could run: a confident "nothing recorded" about the signal stream, beside the
+outcome ledger the engine now resolves on hourly candles (the chapter on the
+first signal outcome). The bot's own `/api/signals` on the dashboard server read
+`engine.signal_tracker`, an attribute the engine does not have, and answered an
+empty list forever. Nothing consumes that endpoint (every `/api/signals` in the
+tree is the website's own route), so it was the same defect with no reader.
+
+**Both read the ledger through one summary now, and the tracker is deleted.**
+`signal_outcomes.ledger_summary` counts each pair's calls by word, and the
+counts close (`target + stop + other + open + unknown == calls`). `other` is a
+call that ended with no R: not filled, an ambiguous bar, no exit, or unscorable.
+A word this build does not know is counted as `unknown`, never dropped, and the
+card names it. The R is summed only over TARGET and STOP rows carrying a finite
+R, with its own count. A ledger that will not read is `None`, and both surfaces
+say so: the card prints a sentence, the endpoint `signals_read: false`. The
+card (`bot/formatters/signal_history_card.py`) prints per-pair calls, targets,
+stops, other, pending, the target share of the calls that reached a level, and
+the mean R. It draws no verdict, says the R is gross of fees, and says what
+span the ledger covers: resolved calls are kept 14 days after they sync, at most
+2000 rows, so this is the recent record and not necessarily the whole history.
+
+**Deleting the tracker's one caller blinded the methods ratchet, and the
+baseline said the renderers were wired.** `format_for_telegram` is defined by
+six classes, and the only call was `self.signal_tracker.format_for_telegram()`.
+With that call gone, six baselined dead renderers failed the stale-entry test
+as "no longer unreachable". Nothing had wired them: the receiver pass files a
+shared name with no `<recv>.<name>()` call as ambiguous, under a comment saying
+"that is what the identifier count already decides". It does not: the
+identifier count drops every name more than one class defines. So a shared-name
+method nobody calls was checked by nothing. A zero-call shared name is decided
+now: every definition is dead when nothing in production mentions the name
+except its own `def` lines, and a name mentioned any other way (a `getattr`
+string, a bound method handed on) stays ambiguous. The ambiguity count is 41
+again, nothing new is dead, and two planted tests hold the rule both ways,
+because on today's tree the only case is already baselined.
+
+Twenty-two mutations, each killed on the first round. Two sweep mutations first
+died on the real tree's stale-entry test, which depends on today's baseline;
+re-run against the planted test alone, each dies there too.
+(`tests/test_the_signal_history_reads_the_outcome_ledger.py`,
+`bot/formatters/signal_history_card.py`.)
+
+**THE ENGINE PUBLISHED THE SAME SETUP AS A NEW CALL EVERY FIVE MINUTES.** An
+engine idea stays pending for `PENDING_IDEA_TTL` (300s), and the tick skips its
+scan while one is pending. When the idea lapses untaken, the next scan reads the
+same closed hourly candles (cached 900s) and the same cached thesis, and emits
+the same setup under a new TradeIdea id. Each emission went through the publish
+step as a new call:
+
+- a new outcome-ledger row, scored on its own, so the stats and `/signals`
+  counted one market move as many calls;
+- a new website row, which the copy push sweep (deduplicated by signal key)
+  pushed to followers again;
+- a new public thesis event;
+- and, above the display threshold, a new RUNECLAW SIGNAL post on the public
+  channel.
+
+The within-the-hour repeat was read, not driven: the inputs are identical except
+the live order-flow reads. The across-hours persistence was measured. On
+`majors_1h_v2`'s honest walk-forward, which asks each symbol every 4 bars, 2,699
+of 5,228 ideas were followed by another idea on the same symbol at the next ask,
+and 2,597 of those were in the same direction.
+
+**One call per market and direction, per producer, while it is pending.**
+`record_published` takes a `producer` and stores it on the entry. A row from the
+engine (`signal_outcomes.ENGINE`) is a re-offer when the engine already has a
+PENDING call (NEW or OPEN) on the same market and direction, whether in the
+ledger or earlier in the same batch. The market is read through `market_for`
+and `normalize_symbol`, so `BTC`, `BTC/USDT` and `BTC/USDT:USDT` are one
+market. A re-offer is not recorded and not sent. `publish_signals` returns
+which call each re-offer repeats, and the engine's publish step (a seam now,
+`_publish_engine_ideas`) stamps that key on the idea (`TradeIdea.repeat_of`).
+The public thesis event and the channel post skip an idea that carries it. The
+opposite direction is a new call, and so is the same direction once the earlier
+call has resolved. A ledger that cannot be read sends every row as it always
+did: counting a re-offer twice is the mistake that can be recovered from, and
+withholding a call on a guess is not.
+
+**Three things are deliberately left as they were.**
+
+- The Telegram signal card still fires for a re-offer. It is a live idea
+  with a live Take-it button, and the button on the earlier card points at an
+  idea that has expired. This bullet first called it "the operator's private
+  alert", which it was not: it went to every watching chat, text and picture,
+  headed NEW SIGNAL. The chapter below narrows it to the operator.
+- The website row keeps the first offer's five-minute window. It is not
+  extended. The call's levels are what it said when it was made, and the bot
+  is no longer offering those exact levels.
+- The scan cards carry no producer and are recorded as sent. Each scan card's
+  verify link points at the key it was published under, and its levels are the
+  scan's own. Linking a card to an earlier call's receipt would show different
+  levels.
+
+Eighteen mutations, each killed on the first round. The two direction cases
+(an unreadable direction is no side, and a lowercase or enum spelling is the
+same side) were added before the round ran.
+(`tests/test_a_re_offered_setup_is_one_call.py`.)
+
+**THE LAST ENGINE A TEST BUILT ANSWERED "HALTED?" FOR EVERY EXECUTOR AFTER
+IT.** `RuneClawEngine.__init__` wires `live_executor.set_halt_check` to a
+closure over itself. The check is a module global: it is the last-mile kill
+switch every `LiveExecutor` reads before its first irreversible step. One bot
+process builds one engine, so in production that is the right shape. A test
+process builds hundreds, and nothing unwired them. In a grouped run of this
+round's neighbouring suites, eight `test_the_placed_order_is_the_checked_order`
+cases were refused with *"the engine was halted or a circuit breaker opened
+while the order was being prepared"*. All eight passed alone, and that is
+exactly what the flake filter forgives.
+
+A probe that logged `trading_halted()` after every test named the writer
+in one run. `test_the_bridge_is_a_reader_of_the_bots_state` builds a bridge
+engine whose restored breaker is tripped (it has to: the test exists to show a
+reader cannot erase that trip). The halt check stayed bound to that engine
+for the rest of the session. `tests/conftest.py::_contain_executor_halt_check`
+hands the check back after every test. It sits beside the logging and
+vault-env containments, for the same reason they give: the leaking test tested
+what it meant to. The executor module is read out of `sys.modules`, so a test
+that never imports it does not pay for it.
+
+Driven both ways: the bridge suite followed by the placed-order suite fails
+eight without the containment and passes with it. Four mutations, each killed
+on the first round: `autouse=False`, no restore, the saved value taken after the
+yield, and the comparison inverted.
+(`tests/test_a_test_that_builds_an_engine_hands_the_halt_check_back.py`.)
+
+**THE CHAPTER ABOVE CALLED THE RE-OFFER ALERT "PRIVATE", AND IT WENT TO EVERY
+WATCHING CHAT.** `TRADE_SIGNAL` has the audience "all". Each re-offer was a new
+idea id, so it passed the monitor's dedup, and every chat that ran `/watch on`
+was sent the same call again every idea TTL, headed "NEW SIGNAL", as text and
+as the signal picture. Its title went to the public mind-stream each time too,
+because `_dispatch` emits every non-admin alert's title there. A watcher's
+Take-it on that card is refused, since the button is tagged to the operator.
+So a watcher was told one market move was several signals, which is the
+defect #163 fixed for the ledger, the website and the public channel, on the
+one surface it did not check.
+
+**A re-offer goes to the operator alone and says what it is.**
+`_check_trade_signals` builds a re-offer (`idea.repeat_of` naming a call) with
+a constant `audience="admin"`, headed "SIGNAL RE-OFFERED", with a line saying
+it is the same call and that watching chats are not sent it again. A new call
+keeps the fan-out it always had. They are two constructors with constant
+audiences, because the audience ratchet reads the keyword by AST and scores an
+expression as "all". Only a non-empty string names a call, so a stand-in
+whose attribute answers anything is a new call.
+
+**The picture had its own fan-out.** The alert sender's hook sent the signal
+image to every watching chat whatever the alert's audience, so narrowing the
+text alone would still have sent every watcher the picture. It sends to
+`_recipients_for(alert)` now, the one reading of an alert's audience.
+
+**The audience ratchet had no rule for a type built both ways.** It pinned the
+admin-only set and listed the by-book types, and a type that gained a second
+audience without being listed passed silently. `BY_CALL` names
+`TRADE_SIGNAL` with its reason, and the rule is two-way: a split without a
+reason fails, and so does a listed split that collapsed.
+
+**Nine mutations, each killed. The one that survived the first round was the
+guard.** Dropping the text card's buttons on a re-offer survived because the
+assertion collected callback data from every message the operator received,
+and the image card carries its own Take-it. It reads the text card's own
+markup now.
+(`tests/test_a_re_offered_setup_is_one_call.py`, `tests/test_alert_audience.py`.)
+
+**A CALL THAT REACHED ITS ENTRY IN THE WINDOW'S LAST HOUR WAS RECORDED
+EXPIRED, AND EXPIRED IS FINAL.** The outcome walk reads closed hourly bars
+only: `_cached_ohlcv` drops the forming candle at the fetch and caches the
+series for up to ten minutes. So at any moment the bars end up to about an
+hour before now. `resolve` decided both words at the end of a window off the
+clock alone: EXPIRED once `now` passed the entry window, and NO_EXIT once it
+passed a week after the entry. Neither asked whether any bar had reached that
+point.
+
+Driven: a call published at 10:17 with the four-hour window closes at 14:17,
+inside the bar that opens at 14:00. That bar reaches the entry at 14:05. A walk
+at 14:20 recorded EXPIRED; a walk at 15:05 would have found OPEN. Because
+EXPIRED is terminal, the ledger never walks the call again, so a filled call
+was counted on the public stats as never filled. The verdict depended on when
+the walk happened to run. The #155 suite pinned the NO_EXIT half as the
+contract: its "bars ending early but the clock past the horizon" case asserted
+NO_EXIT over a week whose end no candle had reached.
+
+**A verdict at the end of a window needs the bars to reach that end.** The
+walk records how far its bars reach (the end of the last closed bar). EXPIRED
+needs them to reach the window's close and NO_EXIT the week's end. Until they
+do, the call stays NEW or OPEN and says its last hour has not been read yet.
+If they never reach it, the call is UNSCORED after `TAIL_GRACE_S`, which says
+the end was never read. A walk that found no candle at all waits the same
+grace. The grace is three days, because a market closed for a weekend
+produces no bar until it reopens. The bar it reopens with opens after the
+window, which answers the question correctly (EXPIRED).
+
+Twelve mutations, each killed. The one that survived the first round was the
+grace length: a one-hour grace changed no verdict until a test drove a
+weekend gap, which a short grace would have scored.
+(`tests/test_a_published_signal_is_resolved.py`.)
+
+**A RESTING LIMIT WAS SIZED AT THE MARKET PRICE AND FILLED AT ITS OWN.**
+`_size_or_block` computes `quantity = size_usd * leverage / current_price` for
+every order, and a limit that rests on the book fills at its own price. Driven
+through the real `execute`, $20 at 5x with ETH at 4000:
+
+    typed SHORT limit at 4400 -> 0.025 sent, $22.00 of margin at fill
+    typed LONG  limit at 3600 -> 0.025 sent, $18.00 of margin at fill
+
+The minimum round-up, the hard caps, the Authority Envelope's authorized
+notional and the F-3 ceiling were all asked at the market price, so none of
+them saw the SHORT's extra 10%. The drift cancel used to bound the gap to about
+2%. #145 took it away from hand-typed tickets, which now rest for 24h at
+whatever distance the person typed.
+
+**One reading of the price an order fills at.** `order_fill_price` in
+`bot/core/limit_entry.py` answers the limit's own price when the limit rests,
+and the market price when it crosses or the order is a market order. It
+answers the market price when `limit_crosses_market` cannot place the limit,
+which is what every order was measured at before. `execute` asks it once the
+entry tier and the tick grid have decided the order's price. It moves the
+quantity to that price and asks the minimum, the caps and the ceiling there,
+once. The minimum gate used to run before the entry tier and again when
+Tier C re-sized the order. It now runs once, after both, so a re-size is gated
+because nothing is gated before it. A resting order's pending record now
+carries the approved margin, where the SHORT above recorded $22.
+
+**The post-only retry re-prices after the checks.** A post-only refusal
+re-prices an engine limit to the market plus or minus one ATR. For a SELL that
+is above the price the order was checked at, and the same amount at the higher
+price is more notional than the checks passed. `_retry_amount_within` cuts the
+amount to the checked notional on the venue's grid, truncated and never rounded
+up. `_submit_entry_order` hands the amount it sent back to `execute`, so the
+pending record carries it. That changes its return to five values, and eight
+test sites unpacked four. A cut amount under the venue's minimum amount or cost
+is refused and nothing is placed: the original was verified absent before any
+retry. A buy re-priced lower keeps its amount and fills at less than was
+approved, because nothing is allowed to grow after the checks.
+`venue_minimums` is the one reading of a market's floor, step and minimum cost,
+shared by the minimum gate and the retry.
+
+**Four pins moved with the contract.** Two Tier C drives counted two gate
+calls and count one now. The envelope suite counted two stamped calls and
+counts one. The gate-order pin moves the minimum gate and the ceiling after the
+tick grid. The venue-symbol baseline's minimum-gate row went from 2 to 1, and
+it gained a row for the retry's grid read.
+
+Twenty-three mutations, each killed on the first round. One guard was deleted
+before the round: the retry's `_cut <= 0` check. Driven against the pinned
+ccxt, an amount under the grid step raises `InvalidOrder` rather than answering
+zero, so the `except` above it already covers that case.
+(`tests/test_a_resting_limit_is_sized_at_its_own_price.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -15954,7 +17651,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 246 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 258 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -16766,9 +18463,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **457 of 1148** reach for source text through `source_scan`, `code_only`
+Driven, **469 of 1170** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 457 is a FLOOR and the honest shape is
+source scan that rule does not see, so 469 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

@@ -450,6 +450,7 @@ def test_a_close_off_a_stated_entry_carries_no_suffix():
 
 def _drift(order):
     ex = LiveExecutor.__new__(LiveExecutor)
+    ex.user_id = None  # the fallback's cap reading asks whose account this is
     ex._standard_leverage = lambda symbol: 5
     ex._venue = get_venue("bitget")
     ex._positions = {}
@@ -460,7 +461,10 @@ def _drift(order):
     ex._reattempt_post_fill_sl = AsyncMock(return_value=("SL1", "TP1", None))
     ex._guard_fill_leverage = AsyncMock(return_value=None)
     pos = LivePosition(trade_id="T", symbol="ETH/USDT", direction="LONG",
-                       entry_price=140.0, quantity=10.0, cost_usd=280.0,
+                       # 1 ETH: $28 of margin at 5x, inside the flat per-trade bound
+                       # the fallback asks at the market price (10 ETH was $280,
+                       # a size the bot's own caps would never have approved).
+                       entry_price=140.0, quantity=1.0, cost_usd=28.0,
                        stop_loss=137.0, take_profit=150.0, leverage=5,
                        status="pending_fill", limit_order_id="OID1", order_type="limit")
     ex._positions["T"] = pos
@@ -475,7 +479,7 @@ def _drift(order):
 
 
 def test_the_drift_fallback_marks_an_unstated_fill_as_an_estimate():
-    pos, msg, audits = _drift({"average": None, "price": None, "filled": 10.0})
+    pos, msg, audits = _drift({"average": None, "price": None, "filled": 1.0})
     assert pos.entry_price == 141.0
     assert getattr(pos, "entry_source", None) == ENTRY_ESTIMATED
     assert "Market fill: ~$141.0000 (ESTIMATED from the pre-order ticker" in (msg or "")
@@ -483,7 +487,7 @@ def test_the_drift_fallback_marks_an_unstated_fill_as_an_estimate():
 
 
 def test_the_drift_fallback_records_a_stated_fill_as_the_orders():
-    pos, msg, audits = _drift({"average": 141.3, "filled": 10.0})
+    pos, msg, audits = _drift({"average": 141.3, "filled": 1.0})
     assert (pos.entry_price, pos.entry_source) == (141.3, "order")
     assert "Market fill: $141.3000" in (msg or "") and "ESTIMATED" not in (msg or "")
     assert not [a for a in audits if a.get("action") == "fill_price_estimated"]

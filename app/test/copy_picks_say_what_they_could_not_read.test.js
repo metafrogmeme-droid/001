@@ -43,7 +43,9 @@ test.before(async () => {
   ({ pool } = require('../db'));
   origExecute = pool.execute.bind(pool);
   pool.execute = async (sql, params) => {
-    if (failSignals && /FROM signals WHERE status/.test(sql)) throw new Error('ER_LOCK_WAIT_TIMEOUT');
+    // Keyed on the TABLE, not one spelling of the query: the first draft keyed
+    // on `WHERE status`, and changing the filter silently stopped the throw.
+    if (failSignals && /FROM signals\b/.test(sql)) throw new Error('ER_LOCK_WAIT_TIMEOUT');
     if (failFollows && /FROM copy_subscriptions WHERE user_id/.test(sql) && /SELECT agent_id/.test(sql)) {
       throw new Error('ER_CON_COUNT_ERROR');
     }
@@ -52,9 +54,9 @@ test.before(async () => {
   await origExecute(
     `INSERT INTO signals (signal_key, symbol, direction, confidence, score, pattern,
        regime, entry_price, stop_loss, take_profit, rr, thesis, status, pnl,
-       created_at, resolved_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ['n1', 'SOL/USDT', 'LONG', 0.5, 0.5, 'x', 'TREND_UP', 100, 95, 110, 2, '', 'OPEN',
-     null, new Date().toISOString(), null]);
+       created_at, resolved_at, expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ['n1', 'SOL/USDT', 'LONG', 0.5, 0.5, 'x', 'TREND_UP', 100, 95, 110, 2, '', 'NEW',
+     null, new Date().toISOString(), null, new Date(Date.now() + 5 * 60 * 1000).toISOString()]);
   const app = express();
   app.use(express.json());
   app.use('/api/auth', require('../auth').router);

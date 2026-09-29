@@ -156,7 +156,7 @@ def _build_signal_sync_payloads(ideas: list, regime_fn) -> list[dict]:
     opposed to the manual Telegram /scan path's separate lightweight scanner)
     can be verified without driving a full scan cycle.
     """
-    from bot.utils.website_sync import build_signal_payload
+    from bot.utils.website_sync import build_signal_payload, signal_expires_at
 
     return [
         build_signal_payload(
@@ -165,6 +165,7 @@ def _build_signal_sync_payloads(ideas: list, regime_fn) -> list[dict]:
             regime=regime_fn(idea.asset),
             status="NEW",
             created_at=idea.timestamp.isoformat(),
+            expires_at=signal_expires_at(idea.timestamp),
         )
         for idea in ideas
     ]
@@ -1435,6 +1436,47 @@ class RuneClawEngine:
             return SimpleNamespace(open_positions=rc.open_count)
         return recheck_engine.book_snapshot()
 
+    def _own_account_order_authority(self, user_id, trade_id: str, idea, size_usd,
+                                     executor):
+        """The person's ENFORCE-mode Authority Envelope asked about THIS order,
+        or None when the order is not one an envelope bounds.
+
+        Asked on the live execute path for an order executing on a person's
+        OWN account: the executor is not the shared operator one (IDENTITY
+        decides -- an operator who linked their own keys trades on their own
+        executor, and an enforce envelope bound for that id is asked like
+        anyone's; an auto confirm and an unattended one resolve to the shared
+        executor by `_executor_for`'s first rule, so no clause about the
+        caller is needed here and none is written) and the person has an
+        envelope bound in enforce mode. A store that cannot say whether one is
+        bound REFUSES, by the exception's class: in doubt, deny, which is the
+        envelope's own rule. `size_usd` is the final margin, and the venue is
+        the executor's own, else the person's active venue. The one call site
+        sits past the paper return and past the no-executor refusal, so
+        neither is guarded again here.
+        """
+        if executor is self.live_executor:
+            return None
+        from bot.guardian.order_authority import OrderAuthorization, authorize_order
+        try:
+            from bot.guardian.user_authority_store import get_user_authority_store
+            enforcing = get_user_authority_store().is_enforcing(user_id)
+        except Exception as exc:
+            return OrderAuthorization(
+                False, [f"the Authority Envelope store could not be read ({type(exc).__name__})"],
+                False)
+        if enforcing is not True:
+            return None
+        venue = str(getattr(getattr(executor, "_venue", None), "id", "") or "")
+        if not venue:
+            try:
+                from bot.core.exchange_credentials import get_credential_store
+                venue = str(get_credential_store().get_venue(user_id) or "")
+            except Exception:
+                venue = ""
+        return authorize_order(str(user_id), trade_id, idea, margin=size_usd,
+                               executor=executor, venue=venue)
+
     def _per_user_margin_cap(self, user_id) -> Optional[float]:
         """Operator-set max margin (USD) for THIS user's live trade, or None.
 
@@ -1442,7 +1484,14 @@ class RuneClawEngine:
         operator/admin trade the operator account under the global micro caps.
         Tighten-only: the caller folds it into the existing position cap with a
         min(), so it can only REDUCE the size the risk engine already sized and
-        capped. None (no cap set) → no change. Fail-open: a store hiccup → None.
+        capped. None (no cap set) → no change.
+
+        FAIL-CLOSED: a store that cannot answer RAISES, and the confirm-time
+        re-check that asks first refuses the trade with it. This read
+        `except Exception: return None` -- "a store hiccup → None", a cap that
+        vanished at DEBUG -- and a user store that failed to load answers
+        exactly that way for every cap the file held, under the open live
+        policy that ships on. No cap the operator set is read as no cap set.
         """
         if not getattr(CONFIG, "per_user_live_enabled", False):
             return None
@@ -1451,11 +1500,7 @@ class RuneClawEngine:
         store = getattr(self, "_user_store", None)
         if store is None:
             return None
-        try:
-            cap = store.max_margin(user_id)
-        except Exception as exc:
-            logger.debug("Per-user margin cap lookup failed for %s: %s", user_id, exc)
-            return None
+        cap = store.max_margin(user_id)
         return cap if (cap is not None and cap > 0) else None
 
     def _outcome_regime(self, symbol: str) -> str:
@@ -3087,7 +3132,13 @@ class RuneClawEngine:
                 if store.live_trading_revoked(user_id):
                     return False, "live trading revoked for this account"
             except Exception as exc:
-                return False, f"live access check failed: {exc}"
+                # The CLASS, never the text, in the sentence a person reads:
+                # a store that failed to load is refused here, by name, under
+                # the one policy where "not revoked" would have been a live
+                # order (the open policy is the shipped default).
+                return False, ("your live-access record could not be read "
+                               f"({type(exc).__name__}) — refusing rather than "
+                               "reading an unreadable store as permission")
             return True, "linked keys (live open to key holders)"
         try:
             if not store.can_trade_live(user_id):
@@ -5915,6 +5966,14 @@ class RuneClawEngine:
         # TTL: expire stale pending ideas
         self._expire_pending_ideas()
 
+        # What became of the signals this bot published: throttled, bounded,
+        # and under the quiet cap, because it is bookkeeping and never a trade.
+        try:
+            await self._with_maintenance_cap(
+                self._resolve_signal_outcomes(), "signal outcomes")
+        except Exception as _so_exc:  # noqa: BLE001 -- never costs the tick
+            logger.debug("Signal outcomes skipped: %s", type(_so_exc).__name__)
+
         # C2-26 FIX: Skip scanning while the ENGINE's own ideas await
         # confirmation. A concurrent confirm_trade call while mid-scan creates
         # a race on shared _pending_ideas state.
@@ -6091,30 +6150,7 @@ class RuneClawEngine:
         # manual Telegram /scan (a different, simpler scanner) — it never saw
         # what the autonomous engine actually generates and trades on.
         if _synced_ideas:
-            try:
-                from bot.utils.website_sync import sync_signals_in_background
-                sync_signals_in_background(
-                    _build_signal_sync_payloads(_synced_ideas, self._outcome_regime))
-            except Exception as _sig_sync_exc:
-                logger.debug("Signal stream sync skipped: %s", _sig_sync_exc)
-            # Public mind-stream: the thesis behind each fresh idea (capped —
-            # a wide cycle shouldn't flood the public feed).
-            try:
-                from bot.core.agent_feed import FEED
-                for _fi in _synced_ideas[:5]:
-                    _fdir = str(getattr(_fi.direction, "value", _fi.direction))
-                    FEED.emit(
-                        "thesis",
-                        f"{_fdir} {_fi.asset} — confidence {_fi.confidence:.0%}",
-                        body=str(getattr(_fi, "reasoning", "") or "")[:300],
-                        symbol=_fi.asset,
-                        data={"direction": _fdir,
-                              "confidence": round(float(_fi.confidence), 3),
-                              "entry": float(_fi.entry_price or 0),
-                              "sl": float(_fi.stop_loss or 0),
-                              "tp": float(_fi.take_profit or 0)})
-            except Exception as _feed_exc:
-                logger.debug("Agent feed thesis events skipped: %s", _feed_exc)
+            self._publish_engine_ideas(_synced_ideas)
 
         from bot.config import RUNTIME
         self._adapt_auto_confirm_threshold()
@@ -6247,6 +6283,68 @@ class RuneClawEngine:
         )
         if _is_connectivity_error(exc):
             self.health.set_exchange_status(False)
+
+    #: How often the published signals are walked against their candles.
+    _SIGNAL_OUTCOME_EVERY_S = 900.0
+
+    async def _resolve_signal_outcomes(self, now_ms: Optional[int] = None) -> int:
+        """Walk the published signals that are still pending and say what each
+        did (`bot.core.signal_outcomes`); re-send each one whose word changed.
+
+        Both signal producers pushed ``status: NEW`` and nothing ever pushed a
+        second row, so every signal stayed NEW and the stats panel's promise
+        that outcomes appear "once signals hit target or stop" had no path.
+        Throttled to one pass per ``_SIGNAL_OUTCOME_EVERY_S`` and bounded to the
+        ledger's oldest-checked rows, reading candles through `_cached_ohlcv`,
+        the engine's one hygiened read. A row whose re-send did not land stays
+        unsynced and is sent again on the next pass. Returns how many landed.
+        """
+        from bot.core import signal_outcomes as so
+        from bot.utils.website_sync import sync_signals
+
+        mono = time.monotonic()
+        last = getattr(self, "_signal_outcome_pass_at", None)
+        if last is not None and mono - last < self._SIGNAL_OUTCOME_EVERY_S:
+            return 0
+        self._signal_outcome_pass_at = mono
+        items = await asyncio.to_thread(so.rows_due)
+        if items is None:
+            logger.warning("Signal outcomes: the ledger could not be read; nothing walked")
+            return 0
+        landed = 0
+        for key, entry in items:
+            if entry.get("status") in so.PENDING:
+                row = entry.get("row") or {}
+                market = so.market_for(row.get("symbol"))
+                if market is None:
+                    res = so.Resolution(so.UNSCORED, "the symbol names no market")
+                else:
+                    try:
+                        ex = await (self.scanner._get_futures_exchange() if ":" in market
+                                    else self.scanner._get_exchange())
+                        bars = await self._cached_ohlcv(
+                            ex, market, so.TIMEFRAME, limit=so.FETCH_LIMIT, ttl=600)
+                    except Exception as exc:  # noqa: BLE001 -- asked again next pass
+                        logger.debug("Signal outcome candles for %s not read: %s",
+                                     market, type(exc).__name__)
+                        continue
+                    res = so.resolve(row, bars or [],
+                                     now_ms if now_ms is not None else int(time.time() * 1000),
+                                     getattr(CONFIG.limit_orders, "expire_seconds", None))
+                changed = await asyncio.to_thread(
+                    so.apply, key, res,
+                    now_ms if now_ms is not None else int(time.time() * 1000))
+                if changed is None:
+                    continue
+                entry = changed
+            try:
+                ok = await asyncio.to_thread(sync_signals, [so.outcome_row(entry)])
+            except Exception as exc:  # noqa: BLE001 -- sent again next pass
+                logger.debug("Signal outcome re-send failed: %s", type(exc).__name__)
+                ok = False
+            if ok and await asyncio.to_thread(so.mark_synced, key):
+                landed += 1
+        return landed
 
     async def _cached_ohlcv(self, exchange, symbol, timeframe, limit=100, ttl=120):
         """Fetch OHLCV with a simple TTL cache to avoid refetching within `ttl` seconds.
@@ -8585,11 +8683,49 @@ class RuneClawEngine:
                     + " — new live entries are halted until the credentials are "
                     "fixed. Open positions are still monitored.")
 
+        # THE AUTHORITY ENVELOPE IS ASKED HERE, AT THE BOUNDARY EVERY DOOR
+        # CROSSES. A person binds an envelope on the website ("only majors,
+        # max $500 a trade, $2,000 a day, only on bitget") and three surfaces
+        # say it "caps and authorizes every live order"; it was asked at the
+        # web confirm door and nowhere else. Driven: with per-user live on
+        # and an enforce envelope bound (BTC only, $50 a trade), a $500 SOL
+        # ticket confirmed on TELEGRAM executed on the person's own account
+        # and the day's ledger recorded nothing. The ask sits after every
+        # other refusal and right before the order, on the FINAL size, so the
+        # web door's earlier ask on the typed margin is a floor-safe pre-ask
+        # (its 403 carries the reasons) and this is the exact one. Not asked
+        # for the operator's shared executor, an auto confirm, or a person
+        # with no enforce-mode envelope (stated in `order_authority`).
+        _authority = self._own_account_order_authority(
+            user_id, trade_id, idea, size_usd, executor)
+        if _authority is not None and not _authority.ok:
+            self._pending_pyramid.pop(trade_id, None)
+            self._transition(AgentState.IDLE, f"authority refused {trade_id}")
+            audit(trade_log,
+                  f"Live execution REFUSED by the Authority Envelope: {trade_id}",
+                  action="order_authority", result="DENY",
+                  data={"trade_id": trade_id, "user_id": str(user_id),
+                        "reasons": list(_authority.reasons)})
+            return ("Trade REJECTED by your Authority Envelope: "
+                    + "; ".join(str(r) for r in _authority.reasons)
+                    + ". Nothing was placed.")
+
         result = await executor.execute(
             idea, size_usd,
             order_type=idea.order_type,
             atr_value=stored_atr,
         )
+
+        # A REFUSED order's notional comes back off the 24h ledger -- only the
+        # spend THIS ask recorded (the web door's own pre-ask releases its
+        # own), and never for an UNVERIFIED outcome: the venue may hold that
+        # order, and a spend released for an order that filled is the loose
+        # direction.
+        if _authority is not None and _authority.recorded:
+            from bot.core.confirm_result import outcome_unverified, placed_nothing
+            from bot.guardian.order_authority import release_order_spend
+            if not outcome_unverified(result) and placed_nothing(result):
+                release_order_spend(str(user_id), trade_id)
 
         # Only record the trade if a LIVE position actually resulted.
         # Audit F-1: classification is centralized in live_executor next to the
@@ -9128,6 +9264,46 @@ class RuneClawEngine:
                           action="live_smart_exit", result="ERROR")
         except Exception as exc:
             system_log.debug("Live smart-exit evaluation failed: %s", exc)
+
+    def _publish_engine_ideas(self, ideas: list) -> None:
+        """Publish the engine's scan ideas as calls, once per call.
+
+        An idea lapses untaken after PENDING_IDEA_TTL, and the next scan reads
+        the same closed candles and the same cached thesis and emits the same
+        setup under a new id. Each of those was published as a new call: a new
+        ledger row scored on its own, a new website row, a new copy push, a new
+        public thesis event. `publish_signals` records a row as a call only
+        when the engine has no PENDING call on that market in that direction,
+        and says which call each other row re-offers; the idea carries that key
+        (`repeat_of`), so the public surfaces say the call once. The idea
+        itself stays in the pending book and its private alert is unchanged:
+        it is a live offer with a live button.
+        """
+        reoffers: dict = {}
+        try:
+            # Recorded as well as pushed, so the engine can say later what
+            # became of each one (signal_outcomes).
+            from bot.core.signal_outcomes import ENGINE
+            from bot.core.signal_outcomes import publish_signals as _publish_signals
+            reoffers = _publish_signals(
+                _build_signal_sync_payloads(ideas, self._outcome_regime), producer=ENGINE)
+        except Exception as _sig_sync_exc:
+            logger.debug("Signal stream sync skipped: %s", type(_sig_sync_exc).__name__)
+        calls = []
+        for idea in ideas:
+            call = reoffers.get(idea.id)
+            if call is not None:
+                idea.repeat_of = call
+            else:
+                calls.append(idea)
+        # Public mind-stream: each fresh CALL's thesis (capped at five), at the
+        # one reading its signal-stream row publishes (`thesis_event`).
+        try:
+            from bot.core.agent_feed import FEED, thesis_event
+            for _fi in calls[:5]:
+                FEED.emit("thesis", **thesis_event(_fi))
+        except Exception as _feed_exc:
+            logger.debug("Agent feed thesis events skipped: %s", type(_feed_exc).__name__)
 
     def _register_engine_idea(self, idea: TradeIdea) -> None:
         """Put one of the ENGINE's own scan ideas into the pending book.

@@ -328,9 +328,19 @@ def _live_idea(entry, source):
 
 
 @pytest.fixture(autouse=True)
-def _post_only_on(monkeypatch):
+def _post_only_on():
+    """`post_only` ON for every drive here. The config is frozen, so this is
+    a write outside monkeypatch's bookkeeping -- and the first draft never
+    handed it back, which left `post_only=True` on every test after this
+    file for the rest of the session (the shape CLAUDE.md records for the
+    gateway secret). Restored in a finally."""
     assert CONFIG.limit_orders.enabled is True, "the premise: limit orders are on"
+    old = CONFIG.limit_orders.post_only
     object.__setattr__(CONFIG.limit_orders, "post_only", True)
+    try:
+        yield
+    finally:
+        object.__setattr__(CONFIG.limit_orders, "post_only", old)
 
 
 class TestATypedLimitIsSentGtcAtThePriceTyped:
@@ -352,3 +362,18 @@ class TestATypedLimitIsSentGtcAtThePriceTyped:
         sent = _place(tmp_path, _live_idea(3990.0, "scan_skill"), 4000.0)
         assert sent["price"] == 3990.0
         assert sent["params"].get("timeInForce") == "post_only"
+
+
+def test_the_fixture_hands_post_only_back():
+    """Driven as the generator pytest drives, through its finally; a restore
+    written without one is skipped by `gen.close()`, which is the leak."""
+    before = CONFIG.limit_orders.post_only
+    object.__setattr__(CONFIG.limit_orders, "post_only", False)
+    try:
+        gen = _post_only_on.__wrapped__()
+        next(gen)
+        assert CONFIG.limit_orders.post_only is True
+        gen.close()
+        assert CONFIG.limit_orders.post_only is False, "the fixture must hand back what it found"
+    finally:
+        object.__setattr__(CONFIG.limit_orders, "post_only", before)

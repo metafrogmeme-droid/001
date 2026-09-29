@@ -628,7 +628,7 @@ live order.
 
 Above `HIGH_CONVICTION_MIN_CONFIDENCE`, every trade takes
 `HIGH_CONVICTION_MARGIN_USD` of margin instead of the usual
-`risk_budget / stop_distance_pct`. It is a TARGET: every existing ceiling still
+`risk_budget / (stop_distance_pct × leverage)`. It is a TARGET: every existing ceiling still
 reduces it and none can be bypassed.
 
 **Do it in two steps.** Notional is margin x leverage, so changing both at once

@@ -56,7 +56,6 @@ from bot.warroom.warroom_bot import render_risk as wr_risk
 
 if TYPE_CHECKING:
     from bot.core.engine import RuneClawEngine
-    from bot.core.signal_tracker import SignalTracker
     from bot.marketing.channel_forwarder import ChannelForwarder
     from bot.skills.skill_registry import SkillRegistry
 
@@ -168,7 +167,6 @@ class PortfolioCommands:
         engine: RuneClawEngine
         registry: SkillRegistry
         forwarder: ChannelForwarder
-        signal_tracker: SignalTracker
         _WEB_LINK_HINT: str
 
         async def _send(self, update: Update, text: str,
@@ -1503,6 +1501,17 @@ class PortfolioCommands:
 
     @guard("scan")
     async def _cmd_signals(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """Show per-pair signal stats using SignalTracker."""
-        text = self.signal_tracker.format_for_telegram()
-        await self._send(update, text)
+        """What the published calls did, per pair, from the outcome ledger.
+
+        It read ``SignalTracker``, which nothing recorded into, so it answered
+        "No signals recorded yet" whatever had been published. The ledger the
+        engine resolves on hourly candles is the record, and an unreadable one
+        is said, never shown as an empty history.
+        """
+        import asyncio
+
+        from bot.core.signal_outcomes import ledger_summary
+        from bot.formatters.signal_history_card import render
+
+        summary = await asyncio.to_thread(ledger_summary)
+        await self._send(update, render(summary))

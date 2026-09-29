@@ -464,11 +464,14 @@ def test_execute_calls_every_gate_in_the_order_the_money_path_requires():
         "await self._book_wall_gate(",
         "self._size_or_block(",
         "self._pre_trade_slippage_gate(",
-        "self._exchange_minimum_gate(",
-        "self._notional_boundary_gate(",
         # Slice 2: the order-placement core, in the order the money path runs.
         "await self._recalculate_limit_entry(",
         "self._round_limit_price_to_tick(",
+        # The size checks run once the entry tier and the tick grid have
+        # decided the order's size and price, at the price it fills at.
+        "order_fill_price(",
+        "self._exchange_minimum_gate(",
+        "self._notional_boundary_gate(",
         "await self._submit_entry_order(",
         "await self._post_fill_slippage_guard(",
         "await self._leverage_overshoot_guard(",

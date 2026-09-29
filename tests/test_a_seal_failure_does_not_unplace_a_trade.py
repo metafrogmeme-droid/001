@@ -279,7 +279,8 @@ class TestARefusalStaysARefusal:
         engine, idea = _engine(tmp_path)
         engine.audit_chain.append = _full_disk
         engine._simulate_paper_fill = AsyncMock(return_value="✅ [PAPER] filled")
-        engine._user_store = SimpleNamespace(sim_opt_in=lambda _uid: True)
+        engine._user_store = SimpleNamespace(sim_opt_in=lambda _uid: True,
+                                             max_margin=lambda _uid: None)
         was = CONFIG.paper_sim_opt_in_enabled
         # CONFIG is frozen; this is the one door, restored in the finally.
         object.__setattr__(CONFIG, "paper_sim_opt_in_enabled", True)

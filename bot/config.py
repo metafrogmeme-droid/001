@@ -278,20 +278,40 @@ def _env_switch(key: str, default: bool = False) -> bool:
     return default
 
 
+# EVERY NUMERIC VALUE THAT COULD NOT BE READ, with why and the default that is
+# in force instead: ``(key, reason, default)``. `_env_float` used to answer a
+# value that would not parse with the default and nothing else -- so
+# `MAX_POSITION_PCT=13%`, a typo in a risk limit, ran 13.0 with nothing said
+# anywhere, on 236 knob reads. The warning below is said at import, which is a
+# line in a container log nobody reads; this list is what the boot preflight
+# (`boot_health.env_preflight`) prints on EVERY boot, because a warning that
+# fires once is not a surface.
+ENV_UNREAD: list[tuple[str, str, float]] = []
+
+
+def _note_env_unread(key: str, reason: str, default: float) -> None:
+    import logging as _logging
+    # The key and the reason, never the raw text: a numeric knob's value is
+    # the operator's own, and a value that did not parse is whatever was typed.
+    _logging.getLogger(__name__).warning(
+        "Env var %s is %s — using default %r (the boot preflight will say so)",
+        key, reason, default,
+    )
+    ENV_UNREAD.append((key, reason, default))
+
+
 def _env_float(key: str, default: float = 0.0) -> float:
     try:
         val = float(_env(key, str(default)))
     except ValueError:
+        _note_env_unread(key, "not a number", default)
         return default
     # Reject inf/nan: float() parses them without error, but a non-finite risk
     # limit silently disables guards (every `x > nan` / `x < nan` is False), so
     # fail back to the safe default instead.
     import math as _math
     if not _math.isfinite(val):
-        import logging as _logging
-        _logging.getLogger(__name__).warning(
-            "Env var %s=%r is not finite — using default %r", key, val, default,
-        )
+        _note_env_unread(key, "not finite", default)
         return default
     return val
 
@@ -2186,6 +2206,15 @@ class LimitOrderConfig:
     default_order_type: str = _env("DEFAULT_ORDER_TYPE", "limit")
     # Max seconds to wait for a limit order fill before cancelling
     expire_seconds: int = int(_env_float("LIMIT_ORDER_EXPIRE_SEC", 14400))  # 4 hours
+    # A HAND-TYPED ticket rests on its own clock. The expiry above and the
+    # drift cancel below are the engine's freshness rules for its OWN ideas
+    # (an analysis goes stale; a level the market ran away from is not the
+    # setup it was). A person's limit is theirs: the drift rule never cancels
+    # it -- a limit under the market IS waiting for the pullback -- and this
+    # is the backstop that stops a forgotten ticket holding cap room and a
+    # stale stop for ever. Past it the ticket is cancelled and the person told
+    # which clock ran out. Decided 2026-09-28 (delegated).
+    manual_expire_seconds: int = int(_env_float("MANUAL_LIMIT_EXPIRE_SEC", 86400))  # 24 hours
     # Check interval for pending limit orders (seconds)
     check_interval_seconds: int = int(_env_float("LIMIT_CHECK_INTERVAL_SEC", 30))
     # Use POST_ONLY time-in-force to guarantee maker-only (rejects if would fill)

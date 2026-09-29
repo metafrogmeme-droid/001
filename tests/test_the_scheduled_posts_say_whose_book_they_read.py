@@ -488,7 +488,11 @@ class TestTheDrawdownWarningFires:
         assert a[0].audience == "admin"
         risk._last_live_equity = 940.0                       # 6.0 of 7.0 = 86%
         b = m._check_drawdown_tiers()
-        assert len(b) == 1 and "85%" in b[0].title and b[0].severity == "CRITICAL"
+        # The header names the MEASURED fraction (86%), and the tier that
+        # fired is the 85 one: the label used to say "85%" for anything past
+        # it, including 123%.
+        assert len(b) == 1 and "86%" in b[0].title and b[0].severity == "CRITICAL"
+        assert b[0].dedup_key == "dd_tier_85"
         m._enabled_chats = {OPERATOR, WATCHER}
         m._admin_fn = lambda c: c == OPERATOR
         got: list = []

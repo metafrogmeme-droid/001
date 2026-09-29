@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 import bot.core.engine as eng_mod
 from bot.config import CONFIG
 from bot.core.engine import RuneClawEngine, _build_signal_sync_payloads
+from bot.utils.models import Direction, TradeIdea
 
 UTC = timezone.utc
 
@@ -201,10 +202,29 @@ class TestTickWiresSignalStreamSync:
         import inspect
         src = inspect.getsource(RuneClawEngine._tick)
         assert "_synced_ideas.append(idea)" in src
-        assert "sync_signals_in_background(" in src
-        assert "_build_signal_sync_payloads(_synced_ideas, self._outcome_regime)" in src
-        # Fail-open: the push is wrapped so a sync failure can't break the tick.
-        assert "logger.debug(\"Signal stream sync skipped: %s\", _sig_sync_exc)" in src
+        # Through the engine's publish step, which goes through the one door
+        # both producers use (records each row before pushing it, so its
+        # outcome can be walked later: bot/core/signal_outcomes.py). The push
+        # itself is still sync_signals_in_background, driven in the outcome
+        # suite, and the once-per-call rule in its own suite.
+        assert "self._publish_engine_ideas(_synced_ideas)" in src
+
+    def test_a_failed_publish_never_breaks_the_tick(self, monkeypatch):
+        # Fail-open, driven: the publish raising is logged and swallowed, and
+        # the thesis events for the calls still go out.
+        import bot.core.agent_feed as af
+        import bot.core.signal_outcomes as so
+
+        def boom(*a, **k):
+            raise RuntimeError("down")
+        emitted = []
+        monkeypatch.setattr(so, "publish_signals", boom)
+        monkeypatch.setattr(af.FEED, "emit", lambda kind, **kw: emitted.append(kind))
+        idea = TradeIdea(asset="BTC/USDT", direction=Direction.LONG, entry_price=100.0,
+                         stop_loss=95.0, take_profit=110.0, confidence=0.7, reasoning="r")
+        stub = types.SimpleNamespace(_outcome_regime=lambda s: "")
+        RuneClawEngine._publish_engine_ideas(stub, [idea])
+        assert emitted == ["thesis"] and idea.repeat_of is None
 
 
 def test_live_unavailable_equity_syncs_none_not_paper(monkeypatch):

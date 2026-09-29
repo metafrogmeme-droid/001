@@ -497,6 +497,7 @@ async def _run_backtest(args: argparse.Namespace) -> None:
         initial_balance=args.balance,
         commission_pct=args.commission,
         slippage_pct=args.slippage,
+        leverage=args.leverage,
         fill_mode=args.fill_mode,
         breaker_reset_bars=args.breaker_reset_bars,
         use_llm=args.use_llm,
@@ -621,6 +622,12 @@ Examples:
                                   "Overrides --symbol; real data only.")
     trade_group.add_argument("--timeframe", type=str, default="1h", help="Candle timeframe (default: 1h)")
     trade_group.add_argument("--balance", type=float, default=10000.0, help="Starting balance (default: 10000)")
+    trade_group.add_argument("--leverage", type=int, default=None,
+                             help="Leverage every fill is opened at (default: 1 on a plain run; "
+                                  "under --honest, the leverage live places at -- DEFAULT_LEVERAGE "
+                                  "under the MAX_LEVERAGE ceiling, 5x today -- lowered per fill by "
+                                  "the idea's margin-risk cap). Pass it explicitly to measure "
+                                  "another.")
     trade_group.add_argument("--commission", type=float, default=None,
                              help="Commission %% (default: 0.1%%; under --honest, the live-modeled "
                                   "taker rate, CONFIG.risk.taker_fee_pct, currently 0.06%%)")
@@ -720,8 +727,22 @@ def _apply_honest_fidelity(args: argparse.Namespace) -> None:
         if getattr(args, "commission", None) is None:
             from bot.config import CONFIG as _CFG
             args.commission = _CFG.risk.taker_fee_pct
+        # And the LEVERAGE: live commits the gate's figure as margin at the
+        # operator standard (DEFAULT_LEVERAGE under the MAX_LEVERAGE ceiling),
+        # and the record filled it at 1x from the day the benchmark existed,
+        # measuring a bot risking a fifth of what live risks per trade. The
+        # honest run fills at the standard unless the operator passed
+        # --leverage explicitly. The configured default, never the runtime
+        # /leverage override: a benchmark is a reproducible measurement and
+        # the override is a state file.
+        if getattr(args, "leverage", None) is None:
+            from bot.config import CONFIG as _CFG2
+            from bot.core.leverage import operator_standard
+            args.leverage = int(operator_standard(_CFG2.exchange, None).leverage)
     if getattr(args, "commission", None) is None:
         args.commission = 0.1
+    if getattr(args, "leverage", None) is None:
+        args.leverage = 1
 
 
 def main() -> None:
@@ -929,7 +950,8 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
     config = BacktestConfig(
         symbol=symbols[0], timeframe=args.timeframe,
         initial_balance=args.balance, commission_pct=args.commission,
-        slippage_pct=args.slippage, fill_mode=args.fill_mode,
+        slippage_pct=args.slippage, leverage=args.leverage,
+        fill_mode=args.fill_mode,
         breaker_reset_bars=args.breaker_reset_bars,
         use_llm=args.use_llm, use_recorded_llm=args.use_recorded_llm,
         use_recorded_order_flow=args.use_recorded_order_flow,
@@ -1057,6 +1079,9 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
                 "commission_pct": config.commission_pct,
                 "slippage_pct": config.slippage_pct,
                 "fill_mode": config.fill_mode,
+                # The leverage every fill was opened at. A record that does
+                # not say is the 1x this key was added beside.
+                "leverage": config.leverage,
                 "folds": [{k: v for k, v in f.items() if not k.startswith("_")}
                           for f in folds],
             })
@@ -1099,7 +1124,8 @@ async def _run_walk_forward(args: argparse.Namespace) -> None:
     from bot.backtest.walk_forward import run_walk_forward
     config = BacktestConfig(
         symbol=args.symbol, timeframe=args.timeframe, initial_balance=args.balance,
-        commission_pct=args.commission, slippage_pct=args.slippage, use_llm=args.use_llm,
+        commission_pct=args.commission, slippage_pct=args.slippage,
+        leverage=args.leverage, use_llm=args.use_llm,
         use_recorded_llm=args.use_recorded_llm,
         use_recorded_order_flow=args.use_recorded_order_flow,
         recorded_order_flow_path=args.of_snapshot_path,
@@ -1113,7 +1139,8 @@ async def _run_walk_forward(args: argparse.Namespace) -> None:
 
     base = {"symbol": args.symbol, "timeframe": args.timeframe,
             "initial_balance": args.balance, "commission_pct": args.commission,
-            "slippage_pct": args.slippage, "use_llm": args.use_llm,
+            "slippage_pct": args.slippage, "leverage": args.leverage,
+            "use_llm": args.use_llm,
             "use_recorded_llm": args.use_recorded_llm,
             "use_recorded_order_flow": args.use_recorded_order_flow,
             "recorded_order_flow_path": args.of_snapshot_path}

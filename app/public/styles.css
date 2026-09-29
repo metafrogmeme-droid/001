@@ -1932,8 +1932,12 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
    value for every outcome — so `.sc-none` below is a real, sized, readable
    state and not a hidden element. The chart it replaced failed by setting
    display:none, which a reader cannot tell from a chart nobody offered. */
-.sc-slot { margin-top: var(--s2); min-height: 72px; }
-.sc-slot[aria-busy="true"] .skel--sc { height: 72px; margin: 0; }
+.sc-slot { margin-top: var(--s2); min-height: 120px; }
+.sc-slot[aria-busy="true"] .skel--sc { height: 120px; margin: 0; }
+/* The chart itself: a TradingView chart (RCTVChart) when the library loaded,
+   the SVG when it did not. Both are the height the slot reserves, so the row
+   does not jump whichever one arrives. */
+.sc-slot .sc-tv, .sc-slot .sc { height: 120px; }
 /* On a phone the signal chart gets the row's full width (see the collapse
    block above), and the height goes with it: the SVG is `width="100%"
    height="72" preserveAspectRatio="none"`, so this scales the same candles
@@ -1951,9 +1955,9 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
      The min-height was deleted once as an equivalent mutant — on the evidence
      of a mutation that could not reach it, because the skeleton rule covers
      the loading state and only a FAILED read exposes this one. */
-  .sc-slot { min-height: 96px; }
-  .sc-slot .sc { height: 96px; }
-  .sc-slot[aria-busy="true"] .skel--sc { height: 96px; }
+  .sc-slot { min-height: 140px; }
+  .sc-slot .sc, .sc-slot .sc-tv { height: 140px; }
+  .sc-slot[aria-busy="true"] .skel--sc { height: 140px; }
 }
 .sc { overflow: visible; }
 /* Colour is a claim, so it is spent only on things that were measured: the
@@ -1970,11 +1974,42 @@ input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
 /* The honest empty state: it occupies the slot and names the failure. */
 .sc-none {
   display: flex; align-items: center; justify-content: center;
-  min-height: 72px; padding: var(--s2);
+  min-height: 120px; padding: var(--s2);
   border: 1px dashed var(--border); border-radius: var(--r2);
   color: var(--text-3); font-size: var(--fs-xs); text-align: center;
 }
 @media (prefers-reduced-motion: reduce) { .sc-slot .skel--sc { animation: none; } }
+@media (max-width: 639px) { .sc-none { min-height: 140px; } }
+
+/* ── TradingView charts (RCTVChart, app/public/js/tv-chart.js) ─────────────
+   Every candle chart on the site is a TradingView Lightweight Chart: the
+   Markets chart, the signal rows, the symbol modal, the pattern minis and the
+   Arena. The pane fills its host; the host carries the height. The legend is
+   the TradingView-style top-left line (symbol · timeframe · structure), kept
+   OFF the candles' hit area. */
+.tvc { position: relative; overflow: hidden; }
+.tvc-pane { position: absolute; inset: 0; }
+/* The library lays its chart out as a <table>. A chart inside a table row
+   inherits that table's rules -- `.tbl td` padding and borders, and on a phone
+   `.tbl--collapse td { display: flex }` with a data-label ::before -- which
+   wrapped the price axis BELOW the pane and cut its labels off. The library's
+   own cells are handed back to the browser's defaults; the library's inline
+   styles still apply, since a stylesheet rule never outranks them. A reverted
+   cell is a table cell again, so the collapsed row's `::before` label (empty on
+   the library's cells, which carry no data-label) takes no room and needs no
+   rule of its own. The doubled
+   class outranks `.tbl tbody tr:hover` (0,2,2). Reverting also drops the
+   library's `cellspacing="0"` (a presentational hint sits in the author origin),
+   so the UA's 2px spacing and 1px cell padding are set back to zero here, or the
+   time axis overhangs the chart's box by 4px and the price axis overlaps the
+   pane by 6px. */
+.tvc .tvc-pane.tvc-pane :is(table, tbody, tr, td, th) { all: revert; border-spacing: 0; padding: 0; }
+.tvc-legend {
+  position: absolute; top: 6px; left: 8px; z-index: 3; pointer-events: none;
+  font: 600 11px/1.3 var(--font-data); color: var(--text-2);
+  background: rgba(0,0,0,.45); padding: 2px 6px; border-radius: 4px;
+  max-width: calc(100% - 90px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* ── What works: win rate against sample size ─────────────────────────────
    Rendered by RCWinRate (app/public/js/winrate-bar.js). Two claims live in

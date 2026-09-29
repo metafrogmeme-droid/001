@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -192,13 +192,14 @@ class TestTheIntendedLeverage:
         assert ex._guard_fill_leverage.await_args.args[3] == expected
         assert pos.cost_usd == 0.0
 
-    @pytest.mark.parametrize("origin,expected", [("adopted", 0), ("reclaimed", 7)])
-    def test_the_drift_fallback_guard_reads_it(self, origin, expected):
-        """The third fill guard, driven the way the partial-fill suite drives
-        the fallback: a market order for the remainder, then the guard."""
+    def _drift(self, origin, qty):
+        """The third fill guard's door, driven the way the partial-fill suite
+        drives the fallback: a market order for the remainder, then the guard."""
         ex = LiveExecutor.__new__(LiveExecutor)
+        ex.user_id = None  # the fallback's cap reading asks whose account this is
         ex._standard_leverage = lambda symbol: 7
         pos = self._pos(origin, 0)
+        pos.quantity = qty
         pos.limit_order_id = "OID1"
         ex._positions = {"T": pos}
         # The real venue, as the partial-fill case above uses. A stand-in that
@@ -213,7 +214,29 @@ class TestTheIntendedLeverage:
         exchange = MagicMock()
         exchange.cancel_order = AsyncMock()
         exchange.fetch_order = AsyncMock(return_value={"status": "canceled", "filled": 0.0})
-        exchange.create_order = AsyncMock(return_value={"average": 141.0, "filled": 10.0})
-        asyncio.run(ex._execute_drift_market_fallback(exchange, "T", pos, 141.0))
-        assert ex._guard_fill_leverage.await_args.args[3] == expected
+        exchange.create_order = AsyncMock(return_value={"average": 141.0, "filled": qty})
+        with patch.object(le, "audit", lambda *a, **k: None), \
+             patch.object(le, "trading_halted", lambda: False):
+            msg = asyncio.run(ex._execute_drift_market_fallback(exchange, "T", pos, 141.0))
+        return ex, pos, exchange, msg
+
+    def test_the_drift_fallback_guard_reads_a_reclaimed_orders_standard(self):
+        """1 SOL at $141 is $20.14 of margin at the standard 7x, inside the
+        caps the fallback asks at the market price; the guard is then handed
+        the standard, as the partial-fill guard is."""
+        ex, pos, exchange, _ = self._drift("reclaimed", 1.0)
+        exchange.create_order.assert_awaited_once()
+        assert ex._guard_fill_leverage.await_args.args[3] == 7
         assert pos.cost_usd == 0.0
+
+    def test_an_adopted_orders_drift_is_not_chased(self):
+        """Nothing approved an adopted order's leverage, so the margin its
+        chase would place cannot be measured against any cap: the fallback
+        refuses by name and the guard is never reached. The partial-fill
+        guard still reads 0 for it (the case above), because a fill that
+        already landed is the venue's fact and not this bot's choice."""
+        ex, pos, exchange, msg = self._drift("adopted", 1.0)
+        exchange.create_order.assert_not_awaited()
+        ex._guard_fill_leverage.assert_not_awaited()
+        assert "REFUSED" in msg and "leverage on record is unread" in msg
+        assert pos.status == "pending_fill" and pos.cost_usd == 0.0

@@ -82,7 +82,7 @@
    * different thing from a feed that works, and a chart drawn from the half
    * that happened to be numeric is a partial total presented as a whole one.
    */
-  function parseCandles(rows) {
+  function parseCandles(rows, maxBars) {
     var out = [], dropped = 0;
     if (!rows || typeof rows.length !== 'number') return { candles: [], dropped: 0 };
     for (var i = 0; i < rows.length; i++) {
@@ -94,7 +94,10 @@
       out.push({ t: t, o: o, h: h, l: l, c: c });
     }
     out.sort(function (a, b) { return a.t - b.t; });
-    return { candles: out.slice(-MAX_BARS), dropped: dropped };
+    // A row's mini chart shows the last MAX_BARS; a full-page chart (the live
+    // chart a Telegram signal links to) asks for more.
+    var cap = maxBars > 0 ? maxBars : MAX_BARS;
+    return { candles: out.slice(-cap), dropped: dropped };
   }
 
   /**
@@ -122,39 +125,9 @@
    */
   function buildSignalChart(rows, geo, opts) {
     opts = opts || {};
-    geo = geo || {};
-    var parsed = parseCandles(rows);
-    var cs = parsed.candles;
-
-    if (!rows || !rows.length) return { ok: false, reason: REASONS.NO_CANDLES, dropped: 0 };
-    if (!cs.length) return { ok: false, reason: REASONS.UNREADABLE, dropped: parsed.dropped };
-    if (cs.length < MIN_BARS) return { ok: false, reason: REASONS.TOO_FEW, dropped: parsed.dropped };
-
-    var lo = Infinity, hi = -Infinity, i;
-    for (i = 0; i < cs.length; i++) {
-      if (cs[i].l < lo) lo = cs[i].l;
-      if (cs[i].h > hi) hi = cs[i].h;
-    }
-
-    // Levels join the axis so a stop below every candle is still visible rather
-    // than clipped off the bottom — but ONLY the ones that exist. A missing
-    // `entry` used to arrive as 0 and drag the whole axis to zero, flattening
-    // every candle into a line at the top of the chart.
-    var levels = [];
-    var e = num(geo.entry), sl = num(geo.stop), tp = num(geo.target);
-    if (e !== null) levels.push({ v: e, cls: 'entry', label: 'entry' });
-    if (sl !== null) levels.push({ v: sl, cls: 'stop', label: 'stop' });
-    if (tp !== null) levels.push({ v: tp, cls: 'target', label: 'target' });
-    for (i = 0; i < levels.length; i++) {
-      if (levels[i].v < lo) lo = levels[i].v;
-      if (levels[i].v > hi) hi = levels[i].v;
-    }
-
-    // A zero span is the flat-market trap. `(hi - lo) || 1` is the shape this
-    // repo bans: it invents a one-unit axis and paints a market that never
-    // moved as an ordinary chart. Say so instead.
-    var span = hi - lo;
-    if (!(span > 0)) return { ok: false, reason: REASONS.FLAT, dropped: parsed.dropped };
+    var R = readSignal(rows, geo);
+    if (!R.ok) return { ok: false, reason: R.reason, dropped: R.dropped };
+    var cs = R.candles, levels = R.levels, lo = R.lo, hi = R.hi, span = hi - lo, i;
 
     var innerW = W - 2 * PAD, innerH = H - 2 * PAD;
     var step = innerW / cs.length;
@@ -184,12 +157,11 @@
         + '" width="' + f(bw) + '" height="' + f(hgt) + '"/>');
     }
 
-    var mark = cs[cs.length - 1].c;
+    var mark = R.mark;
     parts.push('<line class="sc-mark" x1="' + PAD + '" x2="' + (W - PAD)
       + '" y1="' + f(y(mark)) + '" y2="' + f(y(mark)) + '"/>');
 
-    var prog = progress({ entry: e, stop: sl, target: tp }, mark);
-    var aria = opts.ariaLabel || buildAriaLabel(opts.label, cs, { entry: e, stop: sl, target: tp }, mark, prog);
+    var aria = opts.ariaLabel || buildAriaLabel(opts.label, cs, R.geo, mark, R.progress);
 
     var svg = '<svg class="sc" viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H
       + '" preserveAspectRatio="none" role="img" aria-label="' + esc(aria)
@@ -199,10 +171,105 @@
       ok: true,
       svg: svg,
       bars: cs.length,
-      dropped: parsed.dropped,
+      dropped: R.dropped,
       mark: mark,
-      progress: prog,
+      progress: R.progress,
       levels: levels.length,
+    };
+  }
+
+  /**
+   * The reading both renderers draw: the candles, the levels that exist, and
+   * every reason there is no chart. One function, so the SVG and the
+   * TradingView chart cannot disagree about whether a signal HAS a chart --
+   * the flat-market trap, a level at 0, and a half-parsed feed are decided
+   * here and nowhere else.
+   */
+  function readSignal(rows, geo, maxBars) {
+    geo = geo || {};
+    var parsed = parseCandles(rows, maxBars);
+    var cs = parsed.candles;
+
+    if (!rows || !rows.length) return { ok: false, reason: REASONS.NO_CANDLES, dropped: 0 };
+    if (!cs.length) return { ok: false, reason: REASONS.UNREADABLE, dropped: parsed.dropped };
+    if (cs.length < MIN_BARS) return { ok: false, reason: REASONS.TOO_FEW, dropped: parsed.dropped };
+
+    var lo = Infinity, hi = -Infinity, i;
+    for (i = 0; i < cs.length; i++) {
+      if (cs[i].l < lo) lo = cs[i].l;
+      if (cs[i].h > hi) hi = cs[i].h;
+    }
+
+    // Levels join the axis so a stop below every candle is still visible rather
+    // than clipped off the bottom — but ONLY the ones that exist. A missing
+    // `entry` used to arrive as 0 and drag the whole axis to zero, flattening
+    // every candle into a line at the top of the chart.
+    var levels = [];
+    var e = num(geo.entry), sl = num(geo.stop), tp = num(geo.target);
+    if (e !== null) levels.push({ v: e, cls: 'entry', label: 'entry' });
+    if (sl !== null) levels.push({ v: sl, cls: 'stop', label: 'stop' });
+    if (tp !== null) levels.push({ v: tp, cls: 'target', label: 'target' });
+    for (i = 0; i < levels.length; i++) {
+      if (levels[i].v < lo) lo = levels[i].v;
+      if (levels[i].v > hi) hi = levels[i].v;
+    }
+
+    // A zero span is the flat-market trap. `(hi - lo) || 1` is the shape this
+    // repo bans: it invents a one-unit axis and paints a market that never
+    // moved as an ordinary chart. Say so instead.
+    if (!(hi - lo > 0)) return { ok: false, reason: REASONS.FLAT, dropped: parsed.dropped };
+
+    var mark = cs[cs.length - 1].c;
+    var g = { entry: e, stop: sl, target: tp };
+    return {
+      ok: true, candles: cs, dropped: parsed.dropped, levels: levels,
+      lo: lo, hi: hi, mark: mark, geo: g, progress: progress(g, mark),
+    };
+  }
+
+  /** The TradingView renderer (tv-chart.js), in the browser or under node. */
+  function tvModule() {
+    if (typeof self !== 'undefined' && self.RCTVChart) return self.RCTVChart;
+    if (typeof module === 'object' && module.exports && typeof require === 'function') {
+      try { return require('./tv-chart.js'); } catch (e) { return null; }
+    }
+    return null;
+  }
+
+  /** The colour each level means, fixed. Colour is a claim, so the entry
+   *  stays neutral: an entry line says nothing about winning. */
+  var LEVEL_COLOR = { entry: '#8f99ab', stop: '#e5484d', target: '#2fbf71' };
+
+  /**
+   * The same reading as a TradingView spec (RCTVChart.mount draws it).
+   *
+   * Returns `{ok: false, reason}` for exactly the inputs buildSignalChart
+   * refuses, so the placeholder a reader sees does not depend on which
+   * renderer loaded.
+   */
+  function tvSpec(rows, geo, opts) {
+    opts = opts || {};
+    var R = readSignal(rows, geo, opts.maxBars);
+    if (!R.ok) return { ok: false, reason: R.reason, dropped: R.dropped };
+    // The renderer's own bar reading (seconds, ascending, one bar per
+    // timestamp). This function carried a second copy of it, and a mutation
+    // that let a repeated timestamp through the renderer's copy changed no
+    // verdict, because every signal chart went through this one instead.
+    var bars = tvModule().toBars(R.candles);
+    var lines = R.levels.map(function (L) {
+      return { price: L.v, color: LEVEL_COLOR[L.cls], title: L.label, style: L.cls === 'entry' ? 'solid' : 'dashed' };
+    });
+    return {
+      ok: true,
+      bars: bars,
+      lines: lines,
+      // Every level the signal states must be on the axis: a stop below
+      // every candle is still the stop.
+      autoscale: R.levels.map(function (L) { return L.v; }),
+      aria: opts.ariaLabel || buildAriaLabel(opts.label, R.candles, R.geo, R.mark, R.progress),
+      mark: R.mark,
+      progress: R.progress,
+      dropped: R.dropped,
     };
   }
 
@@ -249,8 +316,40 @@
       + '" data-sc-reason="' + esc(reason) + '">' + esc(messageFor(reason)) + '</div>';
   }
 
+  /**
+   * Draw a signal's chart into its slot: TradingView when the library loaded,
+   * the SVG when it did not, the placeholder when there is no chart to draw.
+   * Every surface that shows a signal's chart asks this, so no surface keeps
+   * a private choice of renderer -- the dashboard row and the embed widget
+   * used to each build the SVG themselves.
+   */
+  function render(el, rows, geo, opts) {
+    opts = opts || {};
+    if (!el) return { ok: false, reason: 'no_host' };
+    var TV = typeof self !== 'undefined' ? self.RCTVChart : null;
+    if (TV) TV.release(el.firstElementChild || el);
+    if (TV && self.LightweightCharts) {
+      var spec = tvSpec(rows, geo, opts);
+      if (!spec.ok) {
+        el.innerHTML = placeholderHtml(spec.reason);
+        return spec;
+      }
+      el.innerHTML = '<div class="sc-tv"></div>';
+      var h = TV.mount(el.firstElementChild, spec, { compact: true, timeAxis: opts.timeAxis,
+        attributionLogo: opts.attributionLogo });
+      if (h.ok) return { ok: true, tv: true, bars: spec.bars.length, progress: spec.progress };
+    }
+    var r = buildSignalChart(rows, geo, opts);
+    el.innerHTML = r.ok ? r.svg : placeholderHtml(r.reason);
+    return r;
+  }
+
   return {
     buildSignalChart: buildSignalChart,
+    tvSpec: tvSpec,
+    render: render,
+    readSignal: readSignal,
+    LEVEL_COLOR: LEVEL_COLOR,
     parseCandles: parseCandles,
     progress: progress,
     buildAriaLabel: buildAriaLabel,

@@ -54,7 +54,13 @@ def needs_charts(fn):
 def test_indicators_are_sane():
     df = cr.compute_chart_indicators(_candles())
     assert {"Open", "High", "Low", "Close", "Volume", "EMA_9", "EMA_21", "RSI"} <= set(df.columns)
-    assert df["RSI"].between(0, 100).all()
+    # The warm-up bars have no RSI: Wilder's average needs `length` changes, and
+    # the chart used to draw them as a flat 50, a reading nobody took. After
+    # the warm-up every value is a real one.
+    rsi = df["RSI"]
+    assert rsi.iloc[:14].isna().all()
+    assert rsi.iloc[14:].notna().all()
+    assert rsi.dropna().between(0, 100).all()
     last = df.iloc[-1]
     # EMA9 (faster) tracks price more closely than EMA21
     assert abs(last["EMA_9"] - last["Close"]) <= abs(last["EMA_21"] - last["Close"]) + 1e-9
@@ -316,3 +322,15 @@ async def test_send_idea_chart_draws_levels_and_sends():
     sent = await cr.send_idea_chart(FakeBot(), 42, _candles(), idea)
     assert sent is True
     assert "BTC" in captured["caption"] and "LONG" in captured["caption"]
+
+
+@needs_charts
+def test_a_rally_with_no_loss_reads_100_and_a_flat_window_reads_nothing():
+    # `avg_gain / avg_loss` over a window with no losing bar divides by zero.
+    # The old fill turned that into 50 (neutral) on the strongest rally there
+    # is; a window that did not move at all has no RSI either way.
+    import pandas as pd
+    up = cr._wilder_rsi(pd.Series([float(i) for i in range(1, 40)]), 14)
+    assert up.iloc[-1] == 100.0
+    flat = cr._wilder_rsi(pd.Series([5.0] * 40), 14)
+    assert flat.isna().all()

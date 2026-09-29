@@ -58,10 +58,15 @@ async function fetchToday() {
       'SELECT COUNT(*) AS n FROM signals WHERE created_at >= ?', [dayStart]);
     const [rows] = await pool.execute(
       'SELECT pnl FROM signals WHERE resolved_at >= ?', [dayStart]);
+    // A signal that expired, or ended on an ambiguous bar, has a resolution
+    // time and no R. Counted as resolved beside its wins it would read as a
+    // loss, so the day counts the calls that reached their target or stop.
+    const scored = rows.filter((r) => r.pnl !== null && r.pnl !== undefined
+      && Number.isFinite(Number(r.pnl)));
     parts.signals = {
       created_today: Number(c[0] && c[0].n) || 0,
-      resolved_today: rows.length,
-      wins_today: rows.filter((r) => Number(r.pnl) > 0).length,
+      resolved_today: scored.length,
+      wins_today: scored.filter((r) => Number(r.pnl) > 0).length,
     };
   } catch (e) { /* quiet tape */ }
   try {

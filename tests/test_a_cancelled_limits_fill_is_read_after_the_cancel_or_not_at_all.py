@@ -51,10 +51,18 @@ def _no_sleep(monkeypatch):
 def limit_cfg(monkeypatch):
     """A 4h expiry, drift cancel at 2% with the market fallback OFF, so a
     drifted limit is cancelled rather than re-sent as a market order."""
-    cfg = dataclasses.replace(CONFIG.limit_orders, expire_seconds=14400,
+    old = CONFIG.limit_orders
+    cfg = dataclasses.replace(old, expire_seconds=14400,
                               price_drift_cancel_pct=2.0, drift_market_fallback=False)
+    # The config is frozen, so this write sits outside monkeypatch's
+    # bookkeeping; the first draft never handed the object back, and every
+    # test after this file ran with the market fallback OFF (the leak probe
+    # named it). Restored in a finally.
     object.__setattr__(CONFIG, "limit_orders", cfg)
-    yield cfg
+    try:
+        yield cfg
+    finally:
+        object.__setattr__(CONFIG, "limit_orders", old)
 
 
 class _Venue:
@@ -224,3 +232,16 @@ def test_the_two_cancel_paths_share_one_reading_of_an_unread_fill():
     src2 = code_only(inspect.getsource(LiveExecutor._check_pending_limit))
     assert "using pre-cancel snapshot" not in src2, "the stale-snapshot fallback is back"
     assert 'result="FILL_UNREAD"' in src2
+
+
+def test_the_fixture_hands_the_limit_config_back():
+    """The fixture writes a frozen config outside monkeypatch's bookkeeping,
+    so its restore is asserted rather than assumed: driven as the generator
+    pytest drives, through its finally. `gen.close()` throws GeneratorExit at
+    the yield, which is exactly what skips a restore written without one."""
+    before = CONFIG.limit_orders
+    gen = limit_cfg.__wrapped__(None)
+    next(gen)
+    assert CONFIG.limit_orders is not before
+    gen.close()
+    assert CONFIG.limit_orders is before

@@ -1080,7 +1080,7 @@ router.post('/flight', async (req, res) => {
  * POST /api/bot/sync/signals
  * Body: { signals: [{ signal_key, symbol, direction, confidence, score, pattern,
  *         regime, entry_price, stop_loss, take_profit, rr, thesis, status, pnl,
- *         created_at, resolved_at }] }
+ *         created_at, resolved_at, expires_at }] }
  *
  * Append/UPSERT to the global signal stream. signal_key is the stable per-signal
  * id from the bot, so re-syncing the same signal updates its outcome (status/pnl)
@@ -1118,12 +1118,18 @@ router.post('/signals', async (req, res) => {
         created_at: s.created_at ? new Date(s.created_at) : new Date(),
       };
       const receipt = sealCall(fixed);
+      // When the signal stops being live, as the bot states it (its idea
+      // TTL). Stored beside the seal, never inside it: it is a display
+      // window, not a decision fact. A value that does not parse is no
+      // window, and a row with none is never read as live.
+      const exp = s.expires_at ? new Date(s.expires_at) : null;
+      const expiresAt = exp && Number.isFinite(exp.getTime()) ? exp : null;
       await pool.execute(
         `INSERT INTO signals
            (signal_key, symbol, direction, confidence, score, pattern, regime,
             entry_price, stop_loss, take_profit, rr, thesis, status, pnl,
-            created_at, resolved_at, seal, seal_payload, sealed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            created_at, resolved_at, seal, seal_payload, sealed_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            status = VALUES(status), pnl = VALUES(pnl),
            resolved_at = VALUES(resolved_at)`,
@@ -1147,6 +1153,7 @@ router.post('/signals', async (req, res) => {
           receipt.seal,
           receipt.seal_payload,
           new Date(),
+          expiresAt,
         ]
       );
       upserted++;

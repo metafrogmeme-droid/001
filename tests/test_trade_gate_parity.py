@@ -25,6 +25,7 @@ every surface to the helper.
 """
 from __future__ import annotations
 
+import re
 from types import SimpleNamespace as NS
 
 import pytest
@@ -130,13 +131,30 @@ class TestItMatchesTheGateItDescribes:
             )
 
     def test_no_other_refusal_hides_in_the_gate(self):
-        # Counting `return "Trade REJECTED` inside the window: a new one means
-        # a new refusal reason that no surface reports.
+        """Every refusal inside the window is one of the gate's own or a NAMED
+        per-order one, and each is counted: a new one means a new refusal
+        reason that no surface reports.
+
+        The Authority Envelope's refusal sits in this window ON PURPOSE (the
+        envelope chapter: asked after every other refusal and right before the
+        order) and is NOT a gate condition. It depends on the ORDER -- its
+        notional, its symbol, its venue -- so no status surface can report it
+        as "entries halted", and `entry_gate` deliberately does not. It is
+        named here rather than folded into a count, so a fourth refusal of
+        either kind still fails; the first draft counted `return ("Trade
+        REJECTED` == 1 and refused the envelope slice on a test none of its
+        suites ran.
+        """
         src = code_only(open("bot/core/engine.py", encoding="utf-8").read())
         i = src.index("_user_breaker = False")
         j = src.index("result = await executor.execute(", i)
-        assert src[i:j].count('return "Trade REJECTED') == 1
-        assert src[i:j].count('return ("Trade REJECTED') == 1
+        refusals = re.findall(r'return \(?"Trade REJECTED[^"]*"', src[i:j])
+        gate = [r for r in refusals if "Authority Envelope" not in r]
+        per_order = [r for r in refusals if "Authority Envelope" in r]
+        # The kill-switch halt and the venue-auth halt: the gate's own.
+        assert len(gate) == 2, gate
+        # The envelope's, once, per order, named above.
+        assert len(per_order) == 1, per_order
 
 
 class TestUnknownIsNotRoundedToEither:

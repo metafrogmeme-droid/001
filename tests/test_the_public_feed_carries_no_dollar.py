@@ -197,17 +197,32 @@ def test_no_emit_site_spells_a_dollar_in_its_title():
     dispatch) and a title is decided by the literal text around its
     placeholders. No producer puts a PRICE in a title, so a `$` in one is an
     amount; the receiver refuses it too, and this says so at the source. A
-    call that spreads its fields (`FEED.emit("trade_close", **ev)`) is the
-    close event, which the drives above measure."""
+    call that spreads its fields has no title this scan can read, so each one
+    is NAMED here and its builder is driven: the close event by the drives
+    above, the thesis event by the one below."""
     sites = list(_emit_calls())
     assert len(sites) >= 7, f"the walk found too few emit sites: {sites}"
-    spread = [str(p) for p, c in sites if any(k.arg is None for k in c.keywords)]
-    assert spread == ["bot/core/engine.py"], spread
+    spread = sorted((str(p), c.args[0].value if c.args and isinstance(c.args[0], ast.Constant) else None)
+                    for p, c in sites if any(k.arg is None for k in c.keywords))
+    assert spread == [("bot/core/engine.py", "thesis"), ("bot/core/engine.py", "trade_close")], spread
     for path, call in sites:
         if len(call.args) < 2:
             continue
         for part in _literal_parts(call.args[1]):
             assert "$" not in part, f"{path}:{call.lineno} title spells a dollar: {part!r}"
+
+
+def test_the_thesis_event_title_carries_no_dollar():
+    """The spread thesis emit's title comes from `thesis_event`; its levels
+    are prices and go to `data`, never the title."""
+    from bot.core.agent_feed import thesis_event
+
+    idea = SimpleNamespace(direction="LONG", asset="BTC/USDT", reasoning="r",
+                           entry_price=63000.0, stop_loss=62000.0, take_profit=66000.0,
+                           confidence=0.7, blended_confidence_raw=0.7)
+    ev = thesis_event(idea)
+    assert "$" not in ev["title"]
+    assert ev["data"]["entry"] == 63000.0
 
 
 def test_the_close_event_rounds_but_never_invents():

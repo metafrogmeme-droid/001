@@ -410,10 +410,40 @@ def sync_scan_in_background(scan_payload: dict) -> None:
     t.start()
 
 
+def signal_expires_at(created, ttl_s=None) -> str:
+    """When a published signal stops being live, as ISO-8601 UTC, or "".
+
+    A signal is live while the bot would still take it: its creation plus the
+    bot's own ``PENDING_IDEA_TTL``, the time an idea stays confirmable before
+    the tick's sweep drops it. The PRODUCER states the window because the
+    website cannot read the bot's config, and a second copy of that number on
+    the website would be a second answer about when a signal is stale.
+
+    Nothing wrote an outcome back to a signal row, and the copy readers
+    selected ``status = 'OPEN'``, a status no producer ever wrote, so the
+    follow feature could never show or push a pick. They select on this
+    instead. A creation time that cannot be read, or a TTL that is not a
+    positive number, answers "" -- a row that states no window is never live,
+    which is the closed direction.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    if not isinstance(created, datetime):
+        return ""
+    if ttl_s is None:
+        from bot.config import CONFIG
+        ttl_s = getattr(CONFIG, "pending_idea_ttl", None)
+    if isinstance(ttl_s, bool) or not isinstance(ttl_s, (int, float)) or not ttl_s > 0:
+        return ""
+    when = created if created.tzinfo is not None else created.replace(tzinfo=UTC)
+    return (when.astimezone(UTC) + timedelta(seconds=float(ttl_s))).isoformat()
+
+
 def build_signal_payload(signal_key: str, idea, *, score: float = 0.0,
                          regime: str = "", status: str = "NEW",
                          pnl: Optional[float] = None,
-                         created_at: str = "", resolved_at: str = "") -> dict:
+                         created_at: str = "", resolved_at: str = "",
+                         expires_at: str = "") -> dict:
     """Shape one signal-stream row from a TradeIdea-like object (dict or model).
 
     ``signal_key`` is a STABLE per-signal id so re-syncing the same signal updates
@@ -478,6 +508,7 @@ def build_signal_payload(signal_key: str, idea, *, score: float = 0.0,
         "pnl": pnl,
         "created_at": created_at or "",
         "resolved_at": resolved_at or "",
+        "expires_at": expires_at or "",
     }
 
 

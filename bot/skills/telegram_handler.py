@@ -859,7 +859,6 @@ def _operator_exc_detail(exc: BaseException, *, limit: int = 240) -> str:
 
 
 from bot.core.engine import RuneClawEngine
-from bot.core.signal_tracker import SignalTracker
 from bot.nlp.skill_memory import (button_reply_memory, button_turn_text,
                                   card_shown_memory, command_reply_memory,
                                   command_turn_text, not_run_memory,
@@ -1059,7 +1058,6 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # user at a command that does not exist.
         self._known_commands: list = []
         self._last_pane: dict[int, str] = {}
-        self.signal_tracker = SignalTracker()
         self.users = UserStore()
         # Seed admin from .env TELEGRAM_CHAT_ID
         self.users.seed_admin(CONFIG.telegram.chat_id)
@@ -2600,10 +2598,9 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             try:
                 _d = getattr(getattr(idea, "direction", None), "value",
                              getattr(idea, "direction", "?"))
-                _conf = getattr(idea, "confidence", None)
-                _conf_txt = (f", confidence {_conf:.0%}"
-                             if isinstance(_conf, (int, float))
-                             and not isinstance(_conf, bool) else "")
+                # The one reading the idea's cards show; a stamp says it was
+                # not measured rather than handing the model a 100%.
+                _conf_txt = f", confidence {displayed_confidence(idea).pct()}"
                 _entry_raw = getattr(idea, "entry_price", _MISSING)
                 if _entry_raw is _MISSING:
                     _entry_txt = ""
@@ -4903,8 +4900,16 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         if str(tg_id).startswith("web:"):
             return False
         # An explicit revoke outranks every path below, including a user who
-        # brings their own keys.
-        if self.users.live_trading_revoked(tg_id):
+        # brings their own keys. A revoke that cannot be READ (the store
+        # failed to load) is refused too, by the exception's class: under the
+        # open policy this gate falls through to "has own keys", so an
+        # unreadable store answering False here would be a live order.
+        try:
+            if self.users.live_trading_revoked(tg_id):
+                return False
+        except Exception as exc:
+            system_log.warning("Live gate: the revoke record for %s could not be read "
+                               "(%s) — refusing", tg_id, type(exc).__name__)
             return False
 
         if not getattr(CONFIG, "live_open_to_key_holders", False):

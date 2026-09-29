@@ -53,6 +53,7 @@ from bot.core.signal_confidence import displayed_confidence
 from bot.core.position_telemetry import format_rr
 from bot.core.signal_levels import printed_rr
 from bot.llm import failure_cause as _fc
+from bot.formatters import breaker_card
 from bot.formatters.rich_cards import (
     _fmt_price,
     analyze_budget_line,
@@ -428,7 +429,12 @@ class ProactiveMonitor:
 
         # State tracking for change detection
         self._last_regime: dict[str, str] = {}    # symbol -> last known regime
-        self._last_cb_state: bool = False          # last circuit breaker state
+        # The last circuit-breaker state this monitor SAW. None until the
+        # first pass: a breaker found open then was tripped before this
+        # process started, and the card says so rather than announcing a
+        # fresh trip at boot time (it did, "Triggered At: <boot>", on every
+        # restart with the breaker persisted open).
+        self._last_cb_state: Optional[bool] = None
         self._last_state: str = ""                 # last engine FSM state
         # Insertion-ORDERED (dict, not set) so the oldest really is the one
         # evicted — see _remember_once. Membership tests are unchanged.
@@ -1655,57 +1661,58 @@ class ProactiveMonitor:
         ))
         return alerts
 
+    def _enforced_drawdown_reading(self) -> tuple:
+        """``(dd, source, limit)``: the drawdown the breaker gates on, for the
+        trip card and the tier card alike. In LIVE mode a ``paper`` source is
+        not that reading -- after a restart no live equity has been read yet
+        and `drawdown_status()` falls back to the paper snapshot -- so the
+        figure is unread and the source says why (``paper_in_live``); the
+        tier check already refused it and the trip card printed it."""
+        from bot.formatters.drawdown_card import enforced_drawdown
+        dd, source, limit = enforced_drawdown(self.engine.risk.drawdown_status())
+        if source == "paper" and CONFIG.is_live():
+            return None, "paper_in_live", limit
+        return dd, source, limit
+
     def _check_circuit_breaker(self) -> list[Alert]:
-        """Alert on circuit breaker state changes."""
+        """Alert on circuit breaker state changes.
+
+        The card reads what the gate READ (`bot/formatters/breaker_card.py`
+        records the card it replaced): the enforced drawdown with its source
+        and limit, the SIGNED daily P&L with its basis, the operator's book
+        or "unread", and the trip's own recorded time. `_last_cb_state`
+        starts as None: a breaker found open on the first pass was tripped
+        before this process started.
+        """
         alerts = []
         cb_active = self.engine.risk.circuit_breaker_active
 
         if cb_active and not self._last_cb_state:
-            # Gather live context for the alert. Read the REAL trip cause and the
-            # live accumulators — the old code read non-existent attrs
-            # (risk.current_drawdown_pct / risk.daily_pnl) and the empty PAPER
-            # portfolios, so a live trip always showed "Drawdown N/A, Daily P&L
-            # N/A, Open Positions 0" even with real positions (operator report:
-            # "message is not correct").
-            cause = getattr(self.engine.risk, 'circuit_trip_cause', '') or 'unknown'
-            _dl = getattr(self.engine.risk, 'last_known_daily_loss_pct', None)
-            daily_pnl_str = f"-{_dl:.2f}% (of equity)" if _dl else "N/A"
-            # Drawdown reason is shown via the cause line; the exact live % isn't
-            # separately retained, so present it only when it IS the cause.
-            drawdown_str = "see cause" if cause == "drawdown" else "N/A"
-            # Live open-position count (operator account), not the paper books.
-            positions_count = 0
+            restored = self._last_cb_state is None
+            risk = self.engine.risk
+            cause = getattr(risk, 'circuit_trip_cause', '') or 'unknown'
             try:
-                ex = getattr(self.engine, 'live_executor', None)
-                if ex is not None:
-                    positions_count = len(getattr(ex, 'open_positions', []) or [])
+                drawdown = self._enforced_drawdown_reading()
             except Exception:
-                pass
-            ts = datetime.now(UTC).strftime("%H:%M:%S UTC")
-
+                drawdown = (None, None, None)
+            try:
+                daily = risk.last_daily_pnl_reading()
+            except Exception:
+                daily = (None, "")
+            # The operator's book, positions and resting orders apart, or
+            # None for a book nobody read -- never a count of 0 for it.
+            book = self._operator_book_rows()
+            counts = None if book is None else (len(book[0]), len(book[1]))
+            title, body = breaker_card.trip_card(
+                cause=cause, drawdown=drawdown, daily=daily, book=counts,
+                tripped_at=getattr(risk, "circuit_trip_at", None),
+                noticed_at=time.time(), restored=restored)
             alerts.append(Alert(
                 alert_type="CIRCUIT_BREAKER",
                 severity="CRITICAL",
-                title="Circuit Breaker TRIPPED",
-                body=(
-                    "\U0001f6a8 <b>CIRCUIT BREAKER TRIPPED</b>\n"
-                    "────────────────\n"
-                    "The risk engine has <b>halted all new entries</b>.\n\n"
-                    f"- Reason: <code>{cause}</code>\n"
-                    f"- Drawdown: <code>{drawdown_str}</code>\n"
-                    f"- Daily loss: <code>{daily_pnl_str}</code>\n"
-                    f"- Open Positions: <code>{positions_count}</code>\n"
-                    f"- Triggered At: <code>{ts}</code>\n\n"
-                    "If the reason looks wrong (e.g. a stale drawdown after an "
-                    "auth blip), <code>/resume</code> re-seeds the high-water "
-                    "mark and clears it.\n\n"
-                    "\U0001f6e1 Open positions are still monitored for SL/TP.\n"
-                    "────────────────\n"
-                    "\U0001f449 /status — review engine state\n"
-                    "\U0001f449 /positions — inspect open trades\n"
-                    "\U0001f449 /reset — clear after review"
-                ),
-                dedup_key="cb_tripped",
+                title=title,
+                body=body,
+                dedup_key="cb_open_at_boot" if restored else "cb_tripped",
             ))
         elif not cb_active and self._last_cb_state:
             ts = datetime.now(UTC).strftime("%H:%M:%S UTC")
@@ -1752,38 +1759,32 @@ class ProactiveMonitor:
         """
         alerts: list[Alert] = []
         try:
-            from bot.formatters.drawdown_card import (
-                drawdown_source_note,
-                enforced_drawdown,
-            )
-            dd, source, limit = enforced_drawdown(
-                self.engine.risk.drawdown_status())
+            dd, source, limit = self._enforced_drawdown_reading()
             if dd is None or limit is None:
                 return alerts
-            if source == "paper" and CONFIG.is_live():
-                return alerts
             frac = float(dd) / limit
-            tier = 85 if frac >= 0.85 else (75 if frac >= 0.75 else (50 if frac >= 0.50 else 0))
+            tier = breaker_card.drawdown_tier(frac)
             if tier > self._last_dd_tier and tier > 0:
-                sev = "CRITICAL" if tier >= 85 else "WARNING"
-                alerts.append(Alert(
-                    alert_type="DRAWDOWN_TIER", severity=sev,
-                    # The operator's own account's drawdown: the engine's
-                    # breaker, read off the operator's risk engine.
-                    audience="admin",
-                    title=f"Drawdown {tier}% of limit",
-                    body=(
-                        f"⚠️ <b>DRAWDOWN AT {tier}% OF LIMIT</b>\n"
-                        "────────────────\n"
-                        f"- Current drawdown: <code>{float(dd):.2f}%</code>"
-                        f"{_html.escape(drawdown_source_note(source))}\n"
-                        f"- Circuit-breaker limit: <code>{limit:.2f}%</code>\n\n"
-                        "The risk engine halts all entries at 100% of the limit.\n"
-                        "Consider reducing size or reviewing open risk now.\n"
-                        "────────────────\n"
-                        "\U0001f449 /status — review engine state\n"
-                        "\U0001f449 /positions — inspect open trades"),
-                    dedup_key=f"dd_tier_{tier}"))
+                # Past the limit the breaker has tripped (the trip card is the
+                # card, and `tier_card` answers None) or trips on the next
+                # entry evaluation. Read on its own, so an unreadable breaker
+                # gets the louder sentence rather than no card.
+                try:
+                    breaker_open = bool(self.engine.risk.circuit_breaker_active)
+                except Exception:
+                    breaker_open = False
+                card = breaker_card.tier_card(
+                    frac=frac, dd=float(dd), source=source, limit=float(limit),
+                    breaker_open=breaker_open)
+                if card is not None:
+                    title, body, sev = card
+                    alerts.append(Alert(
+                        alert_type="DRAWDOWN_TIER", severity=sev,
+                        # The operator's own account's drawdown: the engine's
+                        # breaker, read off the operator's risk engine.
+                        audience="admin",
+                        title=title, body=body,
+                        dedup_key=f"dd_tier_{tier}"))
             # Re-arm tiers once we drop below them (frac fell).
             self._last_dd_tier = tier
         except Exception as exc:
@@ -3609,13 +3610,38 @@ class ProactiveMonitor:
                     # the operator's to take. With no operator chat configured
                     # there is nobody to tag, so no button and no sentence.
                     buttons, door = _signal_buttons(idea)
-                    alerts.append(Alert(
-                        alert_type="TRADE_SIGNAL",
+                    # A RE-OFFER IS THE OPERATOR'S, AND SAYS WHAT IT IS. The
+                    # engine re-reads the same setup when its pending idea
+                    # lapses untaken, and the publish step stamps the new idea
+                    # with the call it repeats (`repeat_of`). Every watching
+                    # chat has already been sent that call; the one reader a
+                    # re-offer is news to is the operator, whose Take-it on the
+                    # earlier card points at an idea that has expired. So it
+                    # is built with the admin audience, and the heading says
+                    # it is the same call. A new call keeps the fan-out it
+                    # has always had. Two constructors with CONSTANT
+                    # audiences, because the audience ratchet reads the
+                    # keyword by AST and scores an expression as "all".
+                    _repeat = getattr(idea, "repeat_of", None)
+                    reoffer = isinstance(_repeat, str) and bool(_repeat)
+                    heading = (
+                        f"\U0001f501 <b>SIGNAL RE-OFFERED — {idea.asset}</b>\n"
+                        if reoffer else
+                        f"\U0001f514 <b>NEW SIGNAL — {idea.asset}</b>\n")
+                    reoffer_line = (
+                        "\u2139\ufe0f The same call as one already sent: its "
+                        "idea lapsed untaken and the engine read the same "
+                        "setup again. This card carries the live button. "
+                        "Watching chats are not sent it again.\n"
+                        if reoffer else "")
+                    signal_fields = dict(
                         severity="INFO",
                         title=f"Signal: {idea.asset}",
                         body=(
-                            f"\U0001f514 <b>NEW SIGNAL — {idea.asset}</b>\n"
-                            "────────────────\n"
+                            heading
+                            + "────────────────\n"
+                            + reoffer_line
+                            +
                             f"- Direction: {d}\n"
                             f"- Confidence: <code>{_conf_read.pct()}</code>\n"
                             # The repo's adaptive formatter: `:,.2f` printed a
@@ -3634,7 +3660,13 @@ class ProactiveMonitor:
                         dedup_key=key,
                         idea=idea,
                         buttons=buttons,
-                    ))
+                    )
+                    if reoffer:
+                        alerts.append(Alert(alert_type="TRADE_SIGNAL",
+                                            audience="admin", **signal_fields))
+                    else:
+                        alerts.append(Alert(alert_type="TRADE_SIGNAL",
+                                            **signal_fields))
         except Exception as exc:
             logger.debug("_check_trade_signals error: %s", exc)
         return alerts

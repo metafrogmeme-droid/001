@@ -381,6 +381,29 @@ TOUCH_PERSIST_SECONDS = 300
 log = logging.getLogger("runeclaw.user_store")
 
 
+class StoreWriteHeld(RuntimeError):
+    """A change that is IN FORCE in memory and NOT on disk.
+
+    `set_live_trading`, `set_max_margin` and `set_sim_opt_in` change the map
+    and then write the whole file. When the write raises -- a full disk, a
+    permission -- the map already holds the change, so for THIS process the
+    user is revoked / capped / paused (or granted / uncapped / live). A
+    restart forgets it and nothing re-applies it. Reading the raise as
+    "nothing happened" is wrong in the loosening direction for a grant and
+    for `/paper off`, so the callers say what is in force and what is not.
+
+    Carries the exception's CLASS and never its text: an OSError names the
+    path, and this reaches an operator's chat.
+    """
+
+    def __init__(self, what: str, exc: BaseException) -> None:
+        self.what = what
+        self.detail = type(exc).__name__
+        super().__init__(
+            f"{what} -- HELD IN MEMORY, NOT SAVED: users.json could not be "
+            f"written ({self.detail}); a restart forgets it")
+
+
 class UserStore:
     """JSON-file backed user database with roles and tiers."""
 
@@ -483,7 +506,9 @@ class UserStore:
                 "users.json unreadable (%s) — REFUSING to write this store "
                 "until it is repaired, so a registration cannot overwrite the "
                 "real user list with an empty file.%s Users will appear "
-                "unregistered until this is resolved.",
+                "unregistered until this is resolved, and every live-permission "
+                "read (revoke, per-trade cap) REFUSES rather than answering "
+                "from an empty map.",
                 exc.__class__.__name__, _kept)
 
     def _save(self) -> None:
@@ -499,6 +524,24 @@ class UserStore:
                          "load, so writing would destroy the real user list")
             return
         atomic_write_json(self._path, self._users, indent=2, default=str)
+
+    def _save_or_hold(self, what: str, action: str) -> None:
+        """Save, or audit HELD and raise `StoreWriteHeld` -- the change stays.
+
+        The map is already changed when this runs, and it is left changed:
+        undoing it would put a revoke back to "live" because the disk was
+        full, which is the wrong direction; keeping it means this process
+        honours the decision and the next successful save of ANY kind
+        (the map is written whole) persists it. The audit names the class.
+        """
+        try:
+            self._save()
+        except OSError as exc:
+            audit(system_log,
+                  f"{what} -- HELD IN MEMORY, NOT SAVED: users.json could not "
+                  f"be written ({type(exc).__name__})",
+                  action=action, result="HELD")
+            raise StoreWriteHeld(what, exc) from exc
 
     # ── Public API ─────────────────────────────────────────────
 
@@ -917,11 +960,34 @@ class UserStore:
         DEFAULT, so that test called every trader revoked and would have banned
         the entire user base the moment live opened. A default and a decision
         are different facts and the store has to record them separately.
+
+        A store that FAILED TO LOAD raises rather than answering: its map is
+        empty, so every user reads as never revoked, and under the open live
+        policy (the shipped default) "not revoked" plus linked keys is a live
+        order. Driven, a corrupt `users.json` placed a $500 ticket for a user
+        whose revoke and per-trade cap were in the file that did not read.
+        Every caller already maps an exception to a refusal, which is the
+        erasure path's own rule one method down.
         """
+        self._refuse_permission_read("live_trading_revoked")
         user = self.get(telegram_id)
         if not user:
             return False
         return bool(user.get("live_revoked_at"))
+
+    def _refuse_permission_read(self, question: str) -> None:
+        """A permission read off a store that failed to load is not a reading.
+
+        `_users` is `{}` after a failed load and the writers already refuse;
+        a READER answering from that map answers the most permissive value
+        it has -- "not revoked", "no cap" -- for every person the file holds.
+        Raised, never logged and swallowed, because the money path's callers
+        (`per_user_live_eligibility`, `_per_user_margin_cap`,
+        `_can_trade_live`) each read an exception as a refusal."""
+        if getattr(self, "_load_failed", False):
+            raise RuntimeError(
+                f"users.json failed to load; {question} cannot be read "
+                "(a store that could not be read is not a permissive one)")
 
     def set_live_trading(self, telegram_id: int | str, enabled: bool) -> bool:
         """Grant or revoke live trading permission for a user."""
@@ -937,15 +1003,18 @@ class UserStore:
                 self._users[key].pop("live_revoked_at", None)
             else:
                 self._users[key]["live_revoked_at"] = datetime.now(UTC).isoformat()
-            self._save()
-            audit(system_log,
-                  f"Live trading {'enabled' if enabled else 'disabled'} for user {key}",
-                  action="live_trading_permission", result="OK")
+            what = f"Live trading {'enabled' if enabled else 'disabled'} for user {key}"
+            self._save_or_hold(what, "live_trading_permission")
+            audit(system_log, what, action="live_trading_permission", result="OK")
             return True
 
     def max_margin(self, telegram_id: int | str) -> Optional[float]:
         """Operator-set max margin (USD) a user may commit to a single live trade,
-        or None if unset. Used by the engine to tighten the per-user position cap."""
+        or None if unset. Used by the engine to tighten the per-user position cap.
+
+        Raises on a store that failed to load: `None` is "no cap was set", and
+        nobody read the file to say so (`_refuse_permission_read`)."""
+        self._refuse_permission_read("max_margin")
         user = self.get(telegram_id)
         if not user:
             return None
@@ -969,11 +1038,10 @@ class UserStore:
                 self._users[key].pop("max_margin_usd", None)
             else:
                 self._users[key]["max_margin_usd"] = float(usd)
-            self._save()
-            audit(system_log,
-                  f"Max margin {'cleared' if usd is None else f'set to ${usd:.2f}'} "
-                  f"for user {key}",
-                  action="user_max_margin", result="OK")
+            what = (f"Max margin {'cleared' if usd is None else f'set to ${usd:.2f}'} "
+                    f"for user {key}")
+            self._save_or_hold(what, "user_max_margin")
+            audit(system_log, what, action="user_max_margin", result="OK")
             return True
 
     def anomaly_prefs(self, telegram_id: int | str) -> dict:
@@ -1056,10 +1124,9 @@ class UserStore:
             if key not in self._users:
                 return False
             self._users[key]["sim_opt_in"] = enabled
-            self._save()
-            audit(system_log,
-                  f"Paper sim mode {'enabled' if enabled else 'disabled'} for user {key}",
-                  action="sim_opt_in", result="OK")
+            what = f"Paper sim mode {'enabled' if enabled else 'disabled'} for user {key}"
+            self._save_or_hold(what, "sim_opt_in")
+            audit(system_log, what, action="sim_opt_in", result="OK")
             return True
 
     # ── Tier management ────────────────────────────────────────

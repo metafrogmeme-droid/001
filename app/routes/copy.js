@@ -107,16 +107,19 @@ router.get('/picks', async (req, res) => {
     const following = await followingIds(req.user.user_id);
     if (!following.length) return res.json({ agents: [], note: '' });
 
-    // Live actionable signals (OPEN, newest first) + the agent catalogue.
-    // `null` is a stream that could not be read. It was `[]`, so every
-    // followed agent printed "no live signal matches" off a failed query: a
-    // confident negative about the market assembled from no read at all.
+    // Live actionable signals (newest first) + the agent catalogue. LIVE is
+    // the window the bot stated for each signal (`expires_at`, its idea TTL).
+    // This used to select `status = 'OPEN'`, a status no producer ever wrote,
+    // so every follower read "no live signal matches" off a filter no row
+    // could satisfy. `null` is a stream that could not be read. It was `[]`,
+    // so every followed agent printed "no live signal matches" off a failed
+    // query: a confident negative about the market assembled from no read.
     let signals = null;
     try {
       const [rows] = await pool.execute(
         `SELECT signal_key, symbol, direction, confidence, score, pattern, regime,
                 entry_price, stop_loss, take_profit, rr, thesis, created_at
-         FROM signals WHERE status = ? ORDER BY created_at DESC LIMIT 100`, ['OPEN']);
+         FROM signals WHERE expires_at > ? ORDER BY created_at DESC LIMIT 100`, [new Date()]);
       signals = rows;
     } catch (e) {
       console.error('Copy picks: signals unreadable:', e.message);

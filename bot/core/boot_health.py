@@ -70,15 +70,22 @@ def missing_env(names: Iterable[str], env: Mapping[str, str]) -> list[str]:
     return [n for n in names if not str(env.get(n, "")).strip()]
 
 
-def env_preflight(env: Mapping[str, str]) -> dict[str, list[str]]:
+def env_preflight(env: Mapping[str, str],
+                  unread: Iterable[tuple[str, str, float]] = ()) -> dict[str, list[str]]:
     """Classify the environment once, loudly. Returns
-    ``{"critical": [...], "important": [...]}`` — the missing names in each tier.
+    ``{"critical": [...], "important": [...], "unread": [...]}`` — the missing
+    names in each tier, and every numeric value that did not parse
+    (``config.ENV_UNREAD``: key, reason, the default in force), rendered as
+    one sentence each so the report says which default the bot is running.
 
     Pure: the caller decides whether a missing critical var is fatal (telegram
-    mode) or merely logged (other modes), and does the logging."""
+    mode) or merely logged (other modes), and does the logging. ``unread`` is
+    handed in rather than imported, so this module stays a leaf."""
     return {
         "critical": missing_env(CRITICAL_ENV, env),
         "important": missing_env(IMPORTANT_ENV, env),
+        "unread": [f"{key} is {reason}; the default {default!r} is in force"
+                   for key, reason, default in unread],
     }
 
 
@@ -86,7 +93,8 @@ def format_preflight(report: Mapping[str, list[str]]) -> str:
     """One human line summarizing a preflight report, for a boot log."""
     crit = report.get("critical") or []
     imp = report.get("important") or []
-    if not crit and not imp:
+    unread = report.get("unread") or []
+    if not crit and not imp and not unread:
         return "env preflight: all critical and important secrets present."
     parts = []
     if crit:
@@ -96,6 +104,11 @@ def format_preflight(report: Mapping[str, list[str]]) -> str:
         parts.append("missing important (a web surface will be degraded): "
                      + "; ".join(f"{n} — {IMPORTANT_ENV_EFFECT.get(n, 'a web surface breaks')}"
                                  for n in imp))
+    if unread:
+        # Said on every boot, not once at import: a value that did not parse
+        # is the default until somebody fixes the .env, and the operator who
+        # needs to know is the one reading this boot's log.
+        parts.append("values that could not be read: " + "; ".join(unread))
     return "env preflight — " + " | ".join(parts)
 
 

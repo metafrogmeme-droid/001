@@ -62,6 +62,8 @@ question, which is the shape this repository keeps finding in maps and gates.
 
 from __future__ import annotations
 
+import math
+import os
 from dataclasses import dataclass
 from typing import Any, NamedTuple, Optional
 
@@ -309,6 +311,47 @@ def bounds_verdict(size_usd: float, bounds: SizeBounds, exposure: Any) -> Bounds
             f"the ${bounds.total_usd:,.2f} total margin limit "
             f"({bounds.why})"), total)
     return BoundsVerdict("ok", None, total)
+
+
+PER_USER_CAP_DEFAULT_USD = 100.0
+
+
+class PerUserCap(NamedTuple):
+    """`PER_USER_MAX_FUNDS_USD`, read: ``usd`` is the cap (None when disabled
+    or unread), ``disabled`` is the documented ``0``, and ``unread`` names why
+    a value could not be read -- and a cap that cannot be read is not the
+    default. Driven on the unfixed reader, ``'20 usd'``, ``'$20'``, ``'nan'``,
+    ``'-5'`` and ``'inf'`` each let a $60 order through on a linked account
+    the operator had capped at $20: a typo read as the default $100, NaN and a
+    negative failed ``> 0`` and disabled the cap, and infinity was a cap of
+    infinity. The runbook tells an operator to SET this one, so a typo in it
+    is the ordinary way it stops binding."""
+    usd: Optional[float]
+    disabled: bool
+    unread: Optional[str]
+
+
+def per_user_funds_cap(env: Any = None) -> PerUserCap:
+    """The linked-account max-funds cap, read once from ``env`` (the process
+    environment when None -- an explicit ``{}`` is an empty environment, never
+    the process's). Unset or empty is the default; ``0`` disables, which
+    `.env.example` documents; anything that is not a finite non-negative
+    number is unread, with the reason and never the value."""
+    source = os.environ if env is None else env
+    raw = source.get("PER_USER_MAX_FUNDS_USD")
+    if raw is None or str(raw).strip() == "":
+        return PerUserCap(PER_USER_CAP_DEFAULT_USD, False, None)
+    try:
+        value = float(str(raw).strip())
+    except ValueError:
+        return PerUserCap(None, False, "not a number")
+    if not math.isfinite(value):
+        return PerUserCap(None, False, "not finite")
+    if value < 0:
+        return PerUserCap(None, False, "negative")
+    if value == 0:
+        return PerUserCap(None, True, None)
+    return PerUserCap(value, False, None)
 
 
 class ReserveRead(NamedTuple):

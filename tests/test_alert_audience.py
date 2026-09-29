@@ -172,6 +172,13 @@ ADMIN_ONLY = {
 BY_BOOK = {"SL_PROXIMITY", "TP_PROXIMITY", "TIME_STOP_WARN",
            "TIME_STOP_CLOSE", "NEWS_STANDDOWN"}
 
+#: Built with BOTH audiences for a different reason: a CALL has two readers.
+#: A new call goes to every watching chat, the product's fan-out. A re-offer of
+#: a call those chats have already been sent (`TradeIdea.repeat_of`) is news to
+#: the operator alone, whose Take-it on the earlier card points at an expired
+#: idea, so it is built "admin". See `ProactiveMonitor._check_trade_signals`.
+BY_CALL = {"TRADE_SIGNAL"}
+
 
 def _alert_audiences() -> dict:
     """{alert_type: {audience, ...}} read off the Alert() constructors by AST.
@@ -239,6 +246,18 @@ def test_the_by_book_alerts_are_built_both_ways():
     got = _alert_audiences()
     for t in BY_BOOK:
         assert got.get(t) == {"admin", "all"}, (t, got.get(t))
+
+
+def test_every_type_built_both_ways_says_why():
+    """Two-way, like the admin-only set above. A type that gains a second
+    audience without being listed is somebody splitting an audience without
+    writing down why, and a listed type that loses one is a split that
+    silently collapsed, which is how a re-offer went back to every watcher."""
+    got = _alert_audiences()
+    both = {t for t, a in got.items() if a == {"admin", "all"}}
+    assert both == BY_BOOK | BY_CALL, (
+        f"split without a reason: {sorted(both - BY_BOOK - BY_CALL)}\n"
+        f"no longer split: {sorted((BY_BOOK | BY_CALL) - both)}")
 
 
 def test_the_naked_position_card_still_reaches_whoever_holds_it():

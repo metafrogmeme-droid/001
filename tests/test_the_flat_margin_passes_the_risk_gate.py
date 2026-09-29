@@ -81,10 +81,15 @@ def _flat(check, size=None):
 
 
 def test_a_small_account_keeps_the_gates_cap(tmp_path, flat_margin):
-    """The case that was driven: $200 of equity, a 13% cap of $26."""
+    """The case that was driven: $200 of equity, a 13% cap of $26. Under the
+    loss-at-stop rule (2026-09-28) the gate's own base at a 3% stop and 5x is
+    $26.67, halved by the governor to $13.33 -- under the cap -- and the flat
+    margin ($100 halved to $50) is still bounded by the cap's $26: the ceiling
+    after the base is the cap whatever the base came to."""
     check = _check(tmp_path, 200.0, gov=0.5)
-    assert check.position_size_usd == pytest.approx(26.0)
-    assert _flat(check) == pytest.approx(26.0), "not $100: the cap had bound"
+    assert check.position_size_usd == pytest.approx(13.33, abs=0.01)
+    assert check.base_ceiling_usd == pytest.approx(26.0)
+    assert _flat(check) == pytest.approx(26.0), "not $100: the cap bounds it"
 
 
 def test_a_large_account_still_gets_the_flat_margin(tmp_path, flat_margin):

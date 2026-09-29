@@ -308,8 +308,10 @@ class TestTheSizeHalf:
         at_asia = eng.evaluate(
             _idea(**idea), atr=2.0, as_of=datetime(2026, 9, 22, 4, 0, tzinfo=UTC),
         ).position_size_usd
-        assert at_london == pytest.approx(1_000.0)
-        assert at_asia == pytest.approx(750.0)
+        # 2% budget over a 20% stop at the 5x standard: $200 at London, and
+        # the Asian session's x0.75 on top of it.
+        assert at_london == pytest.approx(200.0)
+        assert at_asia == pytest.approx(150.0)
 
     def test_off_is_byte_identical_and_the_shadow_says_what_it_would_have_done(
             self, monkeypatch, risk_audits):
@@ -341,16 +343,19 @@ class TestTheSizeHalf:
         assert any(p.startswith("quality ladder rung B x0.75") for p in check.size_path)
 
     def test_the_pre_cap_half_applies_when_the_cap_does_not_bind(self, monkeypatch):
-        """A 20% stop sizes fixed-fractional at 10% of equity, under the 13%
-        cap -- so here the PRE-CAP multiply is the one that decides, and a
-        ladder that tightened only the cap would change nothing."""
+        """A 20% stop sizes fixed-fractional at 2% of equity -- the 2% budget
+        over a 20% stop at the 5x standard, the loss-at-stop reading -- under
+        the 13% cap; so here the PRE-CAP multiply is the one that decides, and
+        a ladder that tightened only the cap would change nothing. (It read
+        $1,000, 10% of equity, while the base was a notional divided by the
+        stop alone.)"""
         eng = _engine()
         off = eng.evaluate(_idea(stop=80.0, tp=160.0), atr=2.0).position_size_usd
-        assert off == pytest.approx(1_000.0), "the fixture must sit under the cap"
+        assert off == pytest.approx(200.0), "the fixture must sit under the cap"
         monkeypatch.setattr(rem, "CONFIG", _cfg(size=True, lev=True))
         check = eng.evaluate(_idea(stop=80.0, tp=160.0), atr=2.0)
-        assert check.position_size_usd == pytest.approx(750.0)
-        assert check.size_basis.startswith("quality ladder rung B x0.75 decided $750.00")
+        assert check.position_size_usd == pytest.approx(150.0)
+        assert check.size_basis.startswith("quality ladder rung B x0.75 decided $150.00")
 
     def test_the_top_rung_keeps_full_size_and_says_so(self, monkeypatch, risk_audits):
         eng = _engine()
@@ -480,7 +485,7 @@ class TestTheTrace:
     def test_the_check_carries_which_step_decided_the_figure(self):
         check = _engine().evaluate(_idea(), atr=2.0)
         assert check.size_basis.startswith("notional cap 13% of $10,000.00 equity decided $1,300.00")
-        assert check.size_path[0].startswith("fixed-fractional (swing risk 2% / stop 3.00%)")
+        assert check.size_path[0].startswith("fixed-fractional (swing risk 2% / stop 3.00% at 5x)")
         assert check.size_path[-1].startswith("notional cap")
 
     def test_a_step_that_changed_nothing_is_not_recorded(self):

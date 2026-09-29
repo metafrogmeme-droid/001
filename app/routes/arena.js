@@ -143,7 +143,7 @@ async function loadPositions(userId) {
 // Returns the refreshed { positions, balance } after any opens.
 const followLib = require('../lib/arena_follow');
 const streaks = require('../lib/arena_streaks');
-async function sweepFollows(userId, positions, marks) {
+async function sweepFollows(userId, positions, marks, marksFresh) {
   const [fr] = await pool.execute('SELECT user_id, enabled, margin, leverage, last_signal_id FROM arena_follows WHERE user_id = ?', [userId]);
   const follow = fr[0];
   if (!follow || !Number(follow.enabled)) return { follow: follow || null, positions };
@@ -154,12 +154,13 @@ async function sweepFollows(userId, positions, marks) {
   // the in-memory shim accepted it and kept every test green. The shim now
   // throws on `LIMIT ?` exactly like production does.
   const [sigs] = await pool.execute(
-    'SELECT id, symbol, direction, stop_loss, take_profit FROM signals WHERE id > ? ORDER BY id ASC LIMIT 5',
+    'SELECT id, symbol, direction, stop_loss, take_profit, status, created_at FROM signals WHERE id > ? ORDER BY id ASC LIMIT 5',
     [Number(follow.last_signal_id) || 0]);
   if (!sigs.length) return { follow, positions };
   const acct = await loadAccount(userId);
   const plan = followLib.planFollows({ signals: sigs, positions, balance: acct.balance,
-    prefs: { margin: follow.margin, leverage: follow.leverage }, marks });
+    prefs: { margin: follow.margin, leverage: follow.leverage }, marks,
+    marksFresh: marksFresh !== false, now: new Date() });
   let bal = acct.balance;
   // A LIVE season's rule variants bind followed opens too — the cursor has
   // already advanced, so a non-compliant signal is skipped, never replayed.
@@ -260,13 +261,15 @@ router.get('/account', authMiddleware, async (req, res) => {
     // sweepFollows opens them, sealing the entry price into a Provable-Calls
     // receipt. Those are fills, and a fill may never be priced off a stale
     // mark. Past FILL_MAX_AGE_MS they get nothing and both steps no-op —
-    // settleLiquidations skips a position without a mark, and planFollows
-    // skips a signal with reason 'no_mark'. The work simply happens on the
-    // next load, with a live price, instead of being written at a wrong one.
-    const fillMarks = tick.ageMs <= FILL_MAX_AGE_MS ? marks : {};
+    // settleLiquidations skips a position without a mark, and planFollows is
+    // told the marks were not read and mirrors nothing, leaving its cursor
+    // where it was. The work simply happens on the next load, with a live
+    // price, instead of being written at a wrong one.
+    const fillable = tick.ageMs <= FILL_MAX_AGE_MS;
+    const fillMarks = fillable ? marks : {};
     let positions = await loadPositions(userId);
     positions = await settleLiquidations(userId, positions, fillMarks);
-    const swept = await sweepFollows(userId, positions, fillMarks);
+    const swept = await sweepFollows(userId, positions, fillMarks, fillable);
     positions = swept.positions;
     // Re-read the balance — the sweep may have opened signal positions.
     const fresh = await loadAccount(userId);
@@ -514,7 +517,7 @@ router.get('/signals', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.user_id;
     const [sigs] = await pool.execute(
-      'SELECT id, symbol, direction, entry_price, stop_loss, take_profit, confidence, pattern, created_at FROM signals ORDER BY id DESC LIMIT 12');
+      'SELECT id, symbol, direction, entry_price, stop_loss, take_profit, confidence, pattern, status, created_at FROM signals ORDER BY id DESC LIMIT 12');
     // A mark is nice-to-have here, not required: the list must still render
     // when upstream is slow, and the open route re-checks the price anyway.
     let marks = {};
@@ -550,9 +553,9 @@ router.post('/open-signal', authMiddleware, tradeLimit, async (req, res) => {
     }
     const [srows] = Number.isInteger(signalId) && signalId > 0
       ? await pool.execute(
-        'SELECT id, signal_key, symbol, direction, confidence, regime, entry_price, stop_loss, take_profit, created_at FROM signals WHERE id = ?', [signalId])
+        'SELECT id, signal_key, symbol, direction, confidence, regime, entry_price, stop_loss, take_profit, status, created_at FROM signals WHERE id = ?', [signalId])
       : await pool.execute(
-        'SELECT id, signal_key, symbol, direction, confidence, regime, entry_price, stop_loss, take_profit, created_at FROM signals WHERE signal_key = ?', [signalKey]);
+        'SELECT id, signal_key, symbol, direction, confidence, regime, entry_price, stop_loss, take_profit, status, created_at FROM signals WHERE signal_key = ?', [signalKey]);
     const sig = srows[0];
     if (!sig) return res.status(404).json({ error: 'That signal no longer exists' });
     // Signals arrive in whatever shape the bot speaks — 'BTC/USDT:USDT',
@@ -907,13 +910,29 @@ router.post('/follow', authMiddleware, tradeLimit, async (req, res) => {
     const v = followLib.validateFollow(req.body);
     if (!v.ok) return res.status(400).json({ error: v.error, code: v.code });
     await loadAccount(userId);   // ensure the paper account exists
-    // Start strictly from now: the newest existing signal id.
+    // Start strictly from now: the newest existing signal id. The cursor is
+    // an id, so the newest is read by id -- by created_at, a row pushed late
+    // with an older timestamp sits above the cursor and is mirrored.
+    //
+    // An EMPTY stream starts at 0, and that is a reading. A read that FAILED
+    // is not: starting at 0 there would mirror the whole stream from its
+    // first row, five calls per account read, on the one switch whose promise
+    // is that it never back-fills. So ENABLING refuses and changes nothing.
+    // Disabling needs no cursor -- re-enabling reads the stream again -- and
+    // a switch that cannot be turned OFF over a failed read is worse than one
+    // that cannot be turned on.
     let lastId = 0;
     try {
       const [latest] = await pool.execute(
-        'SELECT id, symbol, direction FROM signals ORDER BY created_at DESC LIMIT 1');
+        'SELECT id, symbol, direction FROM signals ORDER BY id DESC LIMIT 1');
       lastId = latest[0] ? Number(latest[0].id) || 0 : 0;
-    } catch (e) { /* empty stream — start at 0 */ }
+    } catch (e) {
+      console.error('Arena follow: the signal stream could not be read:', e && e.name);
+      if (v.data.enabled) {
+        return res.status(503).json({ code: 'stream_unread',
+          error: 'The signal stream could not be read, so there is no way to start from the next signal. Nothing was changed — try again shortly.' });
+      }
+    }
     // arena_follows.user_id is the PRIMARY KEY, so a bare INSERT fails with a
     // duplicate-key error the SECOND time anyone toggles this — every 500 the
     // user has ever seen here. It looked fine locally only because the

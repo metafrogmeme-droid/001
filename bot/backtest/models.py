@@ -33,6 +33,17 @@ class BacktestConfig(BaseModel):
     market_is_perp: Optional[bool] = None
     max_position_pct: float = 2.0          # matches live risk config
     max_open_positions: int = 5
+    # The leverage every backtest fill is opened at. The gate's size is a
+    # MARGIN everywhere a position is opened: the live executor places
+    # `size_usd * leverage / price` contracts and the engine's practice fill
+    # opens the paper book at CONFIG.exchange.default_leverage (5x), both
+    # lowered by the idea's margin-risk cap. The backtest opened at
+    # PortfolioTracker's default of 1 -- size as the whole notional -- so the
+    # frozen record measures a bot risking a fifth of what live risks per
+    # trade. The default STAYS 1 so the record on file reproduces line for
+    # line; `--leverage 5` is the arm that measures what live places, and
+    # docs/FROZEN_BENCHMARK.md records both. A fill below 1x is no fill.
+    leverage: int = Field(default=1, ge=1)
     # Extra minimum-confidence entry gate applied ON TOP of the analyzer's
     # per-strategy floors. 0.0 = no extra gate (the default — entries are governed
     # by the analyzer/risk thresholds, unchanged). The walk-forward optimizer

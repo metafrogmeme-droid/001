@@ -307,24 +307,17 @@
       s += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="#e6b03c" stroke-width="1.2" stroke-dasharray="5 3" opacity=".85"/>';
     }
     // Engine FVG zones — unfilled gaps as tinted bands (filled drawn fainter).
-    (opts.fvgs || []).slice(0, 4).forEach(function (g) {
-      var top = Number(g.top), bot = Number(g.bottom);
-      if (!(top > 0) || !(bot > 0) || top < lo || bot > hi) return;
-      var bull = String(g.kind || '').indexOf('bear') < 0;
-      s += '<rect x="' + PAD + '" y="' + Y(top).toFixed(1) + '" width="' + iw + '" height="'
-        + Math.max(1, Y(bot) - Y(top)).toFixed(1) + '" fill="' + (bull ? 'rgba(47,191,113,' : 'rgba(224,82,82,')
-        + (g.filled ? '.05' : '.10') + ')"/>';
+    windowFvgs(opts.fvgs, lo, hi).forEach(function (g) {
+      s += '<rect x="' + PAD + '" y="' + Y(g.top).toFixed(1) + '" width="' + iw + '" height="'
+        + Math.max(1, Y(g.bottom) - Y(g.top)).toFixed(1) + '" fill="' + g.color + '"/>';
     });
     // Engine S/R levels — top 5 by score inside the window, labeled by kind.
-    var lv = (opts.levels || []).filter(function (l) {
-      var p = Number(l.price); return p > lo && p < hi;
-    }).sort(function (a, b) { return (Number(b.score) || 0) - (Number(a.score) || 0); }).slice(0, 5);
-    lv.forEach(function (l) {
-      var y = Y(Number(l.price)).toFixed(1);
+    windowLevels(opts.levels, lo, hi).forEach(function (l) {
+      var y = Y(l.price).toFixed(1);
       s += '<line x1="' + PAD + '" y1="' + y + '" x2="' + (PAD + iw) + '" y2="' + y
         + '" stroke="rgba(120,150,220,.5)" stroke-width="1" stroke-dasharray="8 5"/>';
       s += '<text x="' + (PAD + 2) + '" y="' + (Number(y) - 2) + '" font-size="8.5" font-family="monospace" fill="rgba(120,150,220,.8)">'
-        + String(l.kind || '').replace(/[^a-z0-9_]/gi, '') + '</text>';
+        + l.label + '</text>';
     });
     // Swing levels (structure context)
     if (st && st.swings) {
@@ -385,6 +378,168 @@
   }
 
 
+  /**
+   * The engine's S/R levels a chart draws: the top five by score INSIDE the
+   * window, each with its sanitised kind as the label. One selection, so the
+   * SVG and the TradingView chart draw the same levels -- the TradingView
+   * reader carried a second copy of this until the JS honesty ratchet counted
+   * its `|| 0` twice. A level with no readable score ranks last.
+   */
+  function windowLevels(levels, lo, hi) {
+    return (levels || []).filter(function (l) {
+      var p = Number(l.price); return p > lo && p < hi;
+    }).sort(function (a, b) { return (Number(b.score) || 0) - (Number(a.score) || 0); }).slice(0, 5)
+      .map(function (l) {
+        return { price: Number(l.price), label: String(l.kind || '').replace(/[^a-z0-9_]/gi, '') };
+      });
+  }
+
+  /** The engine's FVG zones a chart draws: the first four with both edges
+   *  readable and inside the window, filled gaps fainter. One selection.
+   *  The cap applies to what is DRAWN: capping the input first let a zone
+   *  outside the window take one of the four slots and hide one inside it. */
+  function windowFvgs(fvgs, lo, hi) {
+    var out = [];
+    (fvgs || []).forEach(function (g) {
+      var top = Number(g.top), bot = Number(g.bottom);
+      if (out.length >= 4 || !(top > 0) || !(bot > 0) || top < lo || bot > hi) return;
+      var bull = String(g.kind || '').indexOf('bear') < 0;
+      out.push({ top: top, bottom: bot,
+        color: (bull ? 'rgba(47,191,113,' : 'rgba(224,82,82,') + (g.filled ? '.05)' : '.10)') });
+    });
+    return out;
+  }
+
+  /**
+   * The same chart as a TradingView spec (RCTVChart.mount draws it).
+   *
+   * One reading of svgChart's options, element for element, so a surface does
+   * not show a different chart depending on which renderer loaded:
+   * session VWAP (line + band), the engine's FVG zones and top-5 S/R levels
+   * INSIDE the window, the last two swing highs and lows, the position's own
+   * geometry with what reaching each level does to the position, Elliott wave
+   * labels at the bars where they printed, and the structure read.
+   *
+   * Two things differ on purpose. The structure tag says it could not be read for a
+   * window whose swings the detector could not find, where the SVG printed
+   * the constructor's default, "RANGING" -- the neutral verdict over the one
+   * read that never happened. And the tag is a legend line above the pane
+   * rather than text drawn over the candles, where it collided with the
+   * target line.
+   */
+  function tvSpec(candles, opts) {
+    opts = opts || {};
+    if (!candles || candles.length < 5) return { ok: false, reason: 'too_few' };
+    var TV = (typeof window !== 'undefined' && window.RCTVChart)
+      || (typeof require === 'function' ? require('./tv-chart.js') : null);
+    var bars = TV.toBars(candles);
+    var byIndex = function (i) { return Math.floor(Number(candles[i].t) / 1000); };
+    var vw = opts.vwap === false ? null : vwap(candles);
+    var st = opts.structure === false ? null : structure(candles);
+    var lo = Infinity, hi = -Infinity, i;
+    for (i = 0; i < candles.length; i++) {
+      if (candles[i].l < lo) lo = candles[i].l;
+      if (candles[i].h > hi) hi = candles[i].h;
+    }
+    if (!(hi > lo)) return { ok: false, reason: 'flat' };
+    // The position's levels join the axis when they sit near the price
+    // action -- the SVG's rule, so a far-away liquidation price does not
+    // squash the candles flat.
+    var span0 = hi - lo, autoscale = [];
+    ['entry', 'exit', 'sl', 'tp', 'liq'].forEach(function (k) {
+      var p = Number(opts[k]);
+      if (p > 0 && p > lo - span0 * 0.6 && p < hi + span0 * 0.6) {
+        autoscale.push(p);
+        if (p < lo) lo = p;
+        if (p > hi) hi = p;
+      }
+    });
+    var lines = [], overlays = [], bands = [], markers = [];
+    if (vw) {
+      var pts = [];
+      for (i = 0; i < vw.series.length; i++) {
+        pts.push({ time: Math.floor(Number(vw.series[i].t) / 1000), value: vw.series[i].v });
+      }
+      overlays.push({ points: pts, color: '#e6b03c', style: 'dashed', width: 1 });
+      bands.push({ top: vw.upper1, bottom: vw.lower1, color: 'rgba(230,176,60,.07)' });
+    }
+    windowFvgs(opts.fvgs, lo, hi).forEach(function (g) {
+      bands.push({ top: g.top, bottom: g.bottom, color: g.color });
+    });
+    windowLevels(opts.levels, lo, hi).forEach(function (l) {
+      lines.push({ price: l.price, color: 'rgba(120,150,220,.65)', style: 'dashed', title: l.label });
+    });
+    if (st && st.swings) {
+      var lastT = byIndex(candles.length - 1);
+      var seg = function (sw, color) {
+        if (!sw || !(sw.i >= 0) || sw.i >= candles.length) return;
+        var t0 = byIndex(sw.i);
+        if (!(t0 < lastT)) return;
+        overlays.push({ points: [{ time: t0, value: sw.p }, { time: lastT, value: sw.p }], color: color, style: 'dotted', width: 1 });
+      };
+      st.swings.highs.slice(-2).forEach(function (sw) { seg(sw, 'rgba(224,82,82,.55)'); });
+      st.swings.lows.slice(-2).forEach(function (sw) { seg(sw, 'rgba(47,191,113,.55)'); });
+    }
+    function level(price, color, style, label, moveOf) {
+      var p = Number(price);
+      if (!(p > 0) || p < lo || p > hi) return;
+      var mv = moveOf ? levelMove(opts.entry, p, opts.direction, opts.leverage) : null;
+      lines.push({ price: p, color: color, style: style, width: 1, title: label + (mv ? ' ' + mv.text : '') });
+    }
+    level(opts.entry, '#e6b03c', 'solid', 'entry');
+    level(opts.exit, '#3fb6ff', 'solid', 'exit', true);
+    level(opts.tp, '#2fbf71', 'dashed', 'tp', true);
+    level(opts.sl, '#e05252', 'dashed', 'sl', true);
+    level(opts.liq, '#aa3333', 'dotted', 'liq', true);
+    matchWaveBars(candles, opts.waves || []).forEach(function (w) {
+      var b = candles[w.i];
+      var nearHigh = Math.abs(b.h - w.price) <= Math.abs(b.l - w.price);
+      markers.push({ time: byIndex(w.i), position: nearHigh ? 'aboveBar' : 'belowBar',
+        color: '#e6b03c', shape: 'circle', text: w.label });
+    });
+    var legend = [];
+    if (opts.title) legend.push(opts.title);
+    if (st) {
+      // The chart-read chips' own sentence for the same fact, one key.
+      if (!st.measured) legend.push(T('dd.cr_st_unread', 'structure unreadable — no swings found'));
+      else {
+        var tag = st.structure.toUpperCase();
+        if (st.bos) tag += ' · BOS' + (st.bos_dir > 0 ? '↑' : '↓');
+        if (st.choch) tag += ' · CHoCH' + (st.choch_dir > 0 ? '↑' : '↓');
+        legend.push(tag);
+      }
+    }
+    return {
+      ok: true, bars: bars, lines: lines, overlays: overlays, bands: bands, markers: markers,
+      autoscale: autoscale, legend: legend.join(' · '),
+      aria: T('aria.price_chart_levels', 'Price chart with position levels'),
+    };
+  }
+
+  /**
+   * Draw the chart into `host`: TradingView when the library loaded, the SVG
+   * when it did not. Every caller asks this, so no surface keeps a private
+   * choice of renderer.
+   */
+  function drawInto(host, candles, opts) {
+    if (!host) return { ok: false, reason: 'no_host' };
+    opts = opts || {};
+    var TV = typeof window !== 'undefined' ? window.RCTVChart : null;
+    if (TV && window.LightweightCharts) {
+      var spec = tvSpec(candles, opts);
+      if (spec.ok) {
+        host.style.height = (opts.height || 260) + 'px';
+        var h = TV.mount(host, spec, { pageScroll: true });
+        if (h.ok) return h;
+      }
+    }
+    if (TV) TV.release(host);
+    host.style.height = '';
+    host.innerHTML = svgChart(candles, opts);
+    return { ok: !!host.innerHTML, svg: true };
+  }
+
+
   // What reaching a level does to the position, as a percentage.
   //
   // Two numbers live here and only one of them is usually the one asked for.
@@ -424,7 +579,7 @@
     };
   }
 
-  var api = { parseCandles: parseCandles, vwap: vwap, structure: structure, findSwings: findSwings, zigzagSwings: zigzagSwings, atrOf: atrOf, svgChart: svgChart, levelMove: levelMove, elliottWavePoints: elliottWavePoints, matchWaveBars: matchWaveBars };
+  var api = { parseCandles: parseCandles, vwap: vwap, structure: structure, findSwings: findSwings, zigzagSwings: zigzagSwings, atrOf: atrOf, svgChart: svgChart, tvSpec: tvSpec, drawInto: drawInto, windowLevels: windowLevels, windowFvgs: windowFvgs, levelMove: levelMove, elliottWavePoints: elliottWavePoints, matchWaveBars: matchWaveBars };
   if (typeof window !== 'undefined') window.RCChartRead = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();

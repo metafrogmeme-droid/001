@@ -292,5 +292,7 @@
   "tx_off": "⏱ Este bot não roda saídas por tempo: as posições fecham no stop ou no alvo.",
   "tx_practice": "⏱ Nenhuma saída por tempo roda numa posição de treino: ela fecha no stop ou no alvo.",
   "tx_untracked": "⏱ Sem saídas por tempo: o bot não tem registro desta posição, então nenhuma roda nela.",
-  "tx_more": "Saídas por tempo de mais {n}: abra cada uma em /positions."
+  "tx_more": "Saídas por tempo de mais {n}: abra cada uma em /positions.",
+  "grant_live_held": "<b>TRADING AO VIVO CONCEDIDO — NÃO SALVO</b>\n\n- Usuário: <code>{id}</code>\n- A concessão vale só para este processo do bot: não foi possível gravar <code>users.json</code> ({cls}).\n- Um reinício a esquece e nada a reaplica. Repare o disco e execute <code>/grant_live {id}</code> de novo — ou desfaça agora com <code>/revoke_live {id}</code>.",
+  "revoke_live_held": "<b>TRADING AO VIVO REVOGADO — NÃO SALVO</b>\n\n- Usuário: <code>{id}</code>\n- A revogação vale só para este processo do bot: não foi possível gravar <code>users.json</code> ({cls}).\n- Um reinício a esquece: este usuário poderá operar ao vivo de novo após o próximo reinício, a menos que <code>/revoke_live {id}</code> seja executado de novo quando o disco voltar a ser gravável."
 }

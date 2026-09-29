@@ -116,8 +116,11 @@
       if (!sym) { el.innerHTML = SC.placeholderHtml(SC.REASONS.UNREADABLE); return; }
       fetchCandles(sym).then(function (rows) {
         if (!el.isConnected) return;
-        var out = SC.buildSignalChart(rows, geo, { label: label });
-        el.innerHTML = out.ok ? out.svg : SC.placeholderHtml(out.reason);
+        // RCSignalChart.render: the site's TradingView chart when the library
+        // loaded, the SVG when it did not, the named placeholder otherwise.
+        // The board's CSP refuses the library's injected logo style, so the
+        // attribution is the footer link instead.
+        SC.render(el, rows, geo, { label: label, timeAxis: false, attributionLogo: false });
       }).catch(function () {
         if (!el.isConnected) return;
         // The slot keeps its space and says what happened. It does not vanish,
@@ -153,7 +156,8 @@
         }
         root.innerHTML = '<div class="e-list">' + sigs.map(rowHtml).join('') + '</div>'
           + '<p class="e-src">Live from RUNECLAW · '
-          + '<a href="/#signals" target="_blank" rel="noopener">every signal, taken or not</a></p>';
+          + '<a href="/#signals" target="_blank" rel="noopener">every signal, taken or not</a>'
+          + ' · charts by <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView</a></p>';
         drawCharts();
       })
       .catch(function () {

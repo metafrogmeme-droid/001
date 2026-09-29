@@ -292,5 +292,7 @@
   "tx_off": "⏱ Deze bot draait geen tijdsexits: posities sluiten op hun stop of doel.",
   "tx_practice": "⏱ Op een oefenpositie lopen geen tijdsexits: die sluit op haar stop of doel.",
   "tx_untracked": "⏱ Geen tijdsexits: de bot heeft geen gegevens van deze positie, dus er loopt er geen.",
-  "tx_more": "Tijdsexits voor nog {n}: open ze in /positions."
+  "tx_more": "Tijdsexits voor nog {n}: open ze in /positions.",
+  "grant_live_held": "<b>LIVE TRADEN TOEGESTAAN — NIET OPGESLAGEN</b>\n\n- Gebruiker: <code>{id}</code>\n- De toestemming geldt alleen voor dit botproces: <code>users.json</code> kon niet worden geschreven ({cls}).\n- Een herstart vergeet hem en niets past hem opnieuw toe. Repareer de schijf en voer <code>/grant_live {id}</code> opnieuw uit — of maak hem nu ongedaan met <code>/revoke_live {id}</code>.",
+  "revoke_live_held": "<b>LIVE TRADEN INGETROKKEN — NIET OPGESLAGEN</b>\n\n- Gebruiker: <code>{id}</code>\n- De intrekking geldt alleen voor dit botproces: <code>users.json</code> kon niet worden geschreven ({cls}).\n- Een herstart vergeet hem: deze gebruiker kan na de volgende herstart weer live traden, tenzij <code>/revoke_live {id}</code> opnieuw wordt uitgevoerd zodra de schijf weer beschrijfbaar is."
 }

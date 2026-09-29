@@ -463,9 +463,15 @@ class MemoryDB {
       // params: signal_key, symbol, direction, confidence, score, pattern,
       // regime, entry_price, stop_loss, take_profit, rr, thesis, status, pnl,
       // created_at, resolved_at. ON DUPLICATE KEY updates status/pnl/resolved_at.
-      const cols = ['signal_key','symbol','direction','confidence','score','pattern',
-        'regime','entry_price','stop_loss','take_profit','rr','thesis','status','pnl',
-        'created_at','resolved_at','seal','seal_payload','sealed_at'];
+      // Columns are read off the statement's own list, not a positional
+      // table: a writer that names a column the table grew later (expires_at)
+      // must land in that column whatever else it names.
+      const named = sql.match(/INSERT\s+INTO\s+signals\s*\(([^)]*)\)/i);
+      const cols = named
+        ? named[1].split(',').map(c => c.trim().toLowerCase())
+        : ['signal_key','symbol','direction','confidence','score','pattern',
+          'regime','entry_price','stop_loss','take_profit','rr','thesis','status','pnl',
+          'created_at','resolved_at','seal','seal_payload','sealed_at','expires_at'];
       const row = {}; cols.forEach((k, i) => { row[k] = params[i]; });
       const existing = this.signals.find(s => s.signal_key === row.signal_key);
       if (existing) {
@@ -491,11 +497,21 @@ class MemoryDB {
       }).length;
       return [[{ n }], []];
     }
+    if (cmd.includes('FROM SIGNALS') && cmd.includes('GROUP BY STATUS')) {
+      // How many signals carry each outcome word (routes/signals.js).
+      const counts = new Map();
+      for (const s of this.signals) {
+        const w = s.status == null ? null : s.status;
+        counts.set(w, (counts.get(w) || 0) + 1);
+      }
+      return [[...counts].map(([status, n]) => ({ status, n })), []];
+    }
     if (cmd.includes('FROM SIGNALS') && cmd.includes('COUNT(*)')) {
       const resolved = this.signals.filter(s => s.pnl !== null && s.pnl !== undefined);
       const wins = resolved.filter(s => Number(s.pnl) > 0).length;
-      const net_pnl = resolved.reduce((a, s) => a + (Number(s.pnl) || 0), 0);
-      return [[{ resolved: resolved.length, wins, net_pnl }], []];
+      const losses = resolved.filter(s => Number(s.pnl) < 0).length;
+      const net = resolved.reduce((a, s) => a + (Number(s.pnl) || 0), 0);
+      return [[{ resolved: resolved.length, wins, losses, net_pnl: net, net_r: net }], []];
     }
 
     if (cmd.includes('FROM SIGNALS') && cmd.includes('SIGNAL_KEY = ?')) {
@@ -530,6 +546,20 @@ class MemoryDB {
       const rows = this.signals.filter(s => Number(s.id) === id);
       return [rows.map(r => ({ ...r })), []];
     }
+    if (cmd.includes('FROM SIGNALS') && cmd.includes('EXPIRES_AT >')) {
+      // Live signals: the window the bot stated (WHERE expires_at > ?). A row
+      // with no expiry never passes a > comparison in MySQL, and does not
+      // here. The catch-all below IGNORES the WHERE, which is how a filter
+      // on a status nobody wrote read as working in every copy test.
+      const now = new Date(params[0]).getTime();
+      const m = cmd.match(/LIMIT\s+(\d+)/);
+      const lim = m ? Number(m[1]) : 100;
+      const rows = this.signals
+        .filter(s => s.expires_at != null && new Date(s.expires_at).getTime() > now)
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .slice(0, lim);
+      return [rows.map(r => ({ ...r })), []];
+    }
     if (cmd.includes('FROM SIGNALS') && cmd.includes('ID >')) {
       // Practice-follow sweep: WHERE id > ? ORDER BY id ASC LIMIT 5. The
       // limit comes from the inline SQL — reading it from the last param
@@ -542,6 +572,17 @@ class MemoryDB {
       return [rows.map(r => ({ ...r })), []];
     }
 
+    if (cmd.includes('FROM SIGNALS') && cmd.includes('ORDER BY ID DESC')) {
+      // Newest by ID (the Arena picker, the practice-follow start). MySQL
+      // orders by the column the statement names; the catch-all below sorts
+      // by created_at, which is a different answer for a row pushed late.
+      const inline = cmd.match(/LIMIT\s+(\d+)/);
+      const limit = inline ? Number(inline[1]) : 50;
+      const rows = [...this.signals]
+        .sort((a, b) => Number(b.id) - Number(a.id))
+        .slice(0, limit);
+      return [rows.map(r => ({ ...r })), []];
+    }
     if (cmd.includes('FROM SIGNALS')) {
       // Filters are ignored in the mock; newest-first up to the LIMIT. An
       // INLINE `LIMIT 12` wins over the last param — reading the last param
@@ -2633,8 +2674,10 @@ async function migrate() {
         seal VARCHAR(64) DEFAULT NULL,
         seal_payload TEXT DEFAULT NULL,
         sealed_at TIMESTAMP NULL DEFAULT NULL,
+        expires_at TIMESTAMP NULL DEFAULT NULL,
         INDEX idx_created (created_at),
-        INDEX idx_symbol (symbol)
+        INDEX idx_symbol (symbol),
+        INDEX idx_expires (expires_at)
       )
     `);
     // Provable Calls columns for pre-existing installs (fresh installs get
@@ -2643,6 +2686,10 @@ async function migrate() {
       'ALTER TABLE signals ADD COLUMN seal VARCHAR(64) DEFAULT NULL',
       'ALTER TABLE signals ADD COLUMN seal_payload TEXT DEFAULT NULL',
       'ALTER TABLE signals ADD COLUMN sealed_at TIMESTAMP NULL DEFAULT NULL',
+      // When the signal stops being live, stated by the bot (its idea TTL).
+      // The copy readers select on it; nothing ever wrote the 'OPEN' status
+      // they used to select on.
+      'ALTER TABLE signals ADD COLUMN expires_at TIMESTAMP NULL DEFAULT NULL',
     ]) {
       try { await pool.execute(ddl); } catch (e) { /* exists */ }
     }

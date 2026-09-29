@@ -10,7 +10,9 @@ F-03 FIX: CORS restricted to configured origin (not wildcard).
 
 from __future__ import annotations
 
+import asyncio
 import hmac
+import logging
 import os
 import pathlib
 from datetime import datetime, timezone
@@ -189,15 +191,20 @@ async def handle_positions(request: web.Request) -> web.Response:
 
 async def handle_signals(request: web.Request) -> web.Response:
     engine = request.app["engine"]
+    # The published calls per pair, from the outcome ledger /signals reads. It
+    # read `engine.signal_tracker`, which the engine does not have, so this
+    # answered an empty list forever. `signals_read` is False for a ledger that
+    # could not be read, which an empty list on its own could not say.
+    from bot.core.signal_outcomes import ledger_summary
     signals = []
+    summary = None
     try:
-        tracker = getattr(engine, "signal_tracker", None)
-        if tracker:
-            all_stats = tracker.get_all_pair_stats()
-            for symbol, stats in all_stats.items():
-                signals.append({"symbol": symbol, **stats})
-    except Exception:
-        pass
+        summary = await asyncio.to_thread(ledger_summary)
+    except Exception as exc:  # noqa: BLE001 -- reported as unread below
+        logging.getLogger(__name__).warning(
+            "signal ledger summary failed: %s", type(exc).__name__)
+    for symbol, stats in ((summary or {}).get("pairs") or {}).items():
+        signals.append({"symbol": symbol, **stats})
 
     # Also include recent trade history
     trades = []
@@ -208,7 +215,8 @@ async def handle_signals(request: web.Request) -> web.Response:
     except Exception:
         pass
 
-    return web.json_response({"signals": signals, "trades": trades})
+    return web.json_response({"signals": signals, "signals_read": summary is not None,
+                              "trades": trades})
 
 
 # ── Analytics (equity curve / performance) ───────────────────

@@ -60,7 +60,7 @@ MANIFEST = {"dataset_hash": HASH, "timeframe": "1h"}
 def _args(**over):
     base = dict(
         symbols=",".join(SYMS), timeframe="1h", balance=10_000.0, commission=0.06,
-        slippage=0.05, fill_mode="next_open", breaker_reset_bars=0, use_llm=False,
+        slippage=0.05, leverage=1, fill_mode="next_open", breaker_reset_bars=0, use_llm=False,
         use_recorded_llm=False, use_recorded_order_flow=False, of_snapshot_path="",
         dataset=None, limit=720, walk_forward=0, output=None, strict_data=False,
         last_bars=0, honest=False, confidence_threshold=0.0, volume_spike_min=None,

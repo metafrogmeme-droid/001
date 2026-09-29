@@ -202,7 +202,7 @@ async def test_a_halt_at_the_last_mile_refuses_before_any_order(ex, audits, monk
     monkeypatch.setattr(le, "trading_halted", lambda: True)
     create = AsyncMock(return_value={"id": "never"})
     monkeypatch.setattr(ex, "_create_order_idempotent", create)
-    blk, order, limit, ac = await ex._submit_entry_order(*_submit_args(ex, FakeExchange()))
+    blk, order, limit, ac, _ = await ex._submit_entry_order(*_submit_args(ex, FakeExchange()))
     assert blk and "No exposure was opened" in blk
     assert order is None
     create.assert_not_awaited()
@@ -215,7 +215,7 @@ async def test_an_oversized_market_order_is_blocked_rather_than_faked_as_split(e
     monkeypatch.setattr(le, "trading_halted", lambda: False)
     create = AsyncMock(return_value={"id": "never"})
     monkeypatch.setattr(ex, "_create_order_idempotent", create)
-    blk, order, _, _ = await ex._submit_entry_order(*_submit_args(ex, FakeExchange(), size=100.0))
+    blk, order, _, _, _ = await ex._submit_entry_order(*_submit_args(ex, FakeExchange(), size=100.0))
     assert blk and "split threshold" in blk
     assert order is None
     create.assert_not_awaited()
@@ -228,7 +228,7 @@ async def test_a_market_order_is_submitted_once_with_the_sized_quantity(ex, audi
     monkeypatch.setattr(le, "trading_halted", lambda: False)
     create = AsyncMock(return_value={"id": "o1", "status": "closed"})
     monkeypatch.setattr(ex, "_create_order_idempotent", create)
-    blk, order, limit, ac = await ex._submit_entry_order(*_submit_args(ex, FakeExchange(), quantity=5.0))
+    blk, order, limit, ac, _ = await ex._submit_entry_order(*_submit_args(ex, FakeExchange(), quantity=5.0))
     assert blk is None and order == {"id": "o1", "status": "closed"}
     assert create.await_count == 1
     kw = create.await_args.kwargs
@@ -242,7 +242,7 @@ async def test_a_low_balance_warns_but_does_not_stop_the_order(ex, audits, monke
     monkeypatch.setattr(le, "CONFIG", _cfg())
     monkeypatch.setattr(le, "trading_halted", lambda: False)
     monkeypatch.setattr(ex, "_create_order_idempotent", AsyncMock(return_value={"id": "o1"}))
-    blk, order, _, _ = await ex._submit_entry_order(*_submit_args(ex, FakeExchange(balance_free=10.0), size=100.0))
+    blk, order, _, _, _ = await ex._submit_entry_order(*_submit_args(ex, FakeExchange(balance_free=10.0), size=100.0))
     assert blk is None and order["id"] == "o1"
     assert _by(audits, "live_execute")[0]["result"] == "BALANCE_WARN"
 
@@ -261,7 +261,7 @@ async def test_a_limit_entry_hands_back_the_perp_symbols_class(ex, audits, monke
     monkeypatch.setattr(le, "_classify_symbol", lambda s: "Metal" if s.endswith(":USDT") else "Crypto")
     create = AsyncMock(return_value={"id": "o1", "status": "open"})
     monkeypatch.setattr(ex, "_create_order_idempotent", create)
-    blk, order, limit, ac = await ex._submit_entry_order(
+    blk, order, limit, ac, _ = await ex._submit_entry_order(
         *_submit_args(ex, FakeExchange(), use_limit=True, limit_price=99.0, asset_class="Crypto"))
     assert blk is None
     assert ac == "Metal"
@@ -278,7 +278,8 @@ async def test_a_post_only_rejection_reuses_an_original_that_actually_landed(ex,
     monkeypatch.setattr(ex, "_create_order_idempotent", create)
     monkeypatch.setattr(ex, "_find_order_by_client_oid",
                         AsyncMock(return_value=({"id": "orig", "status": "open"}, True)))
-    blk, order, _, _ = await ex._submit_entry_order(*_submit_args(ex, FakeExchange(), use_limit=True, limit_price=99.0))
+    blk, order, _, _, _ = await ex._submit_entry_order(
+        *_submit_args(ex, FakeExchange(), use_limit=True, limit_price=99.0))
     assert blk is None and order["id"] == "orig"
     assert create.await_count == 1, "nothing was resubmitted"
 
@@ -304,7 +305,7 @@ async def test_a_verified_absence_widens_the_offset_and_resubmits_under_a_new_co
     monkeypatch.setattr(ex, "_create_order_idempotent", create)
     monkeypatch.setattr(ex, "_find_order_by_client_oid", AsyncMock(return_value=(None, True)))
     idea = _idea(sl=98.0, tp=104.0)
-    blk, order, limit, _ = await ex._submit_entry_order(
+    blk, order, limit, _, _ = await ex._submit_entry_order(
         *_submit_args(ex, FakeExchange(), use_limit=True, limit_price=99.5, atr=2.0, idea=idea))
     assert blk is None and order["id"] == "retry"
     assert create.await_count == 2
@@ -325,7 +326,8 @@ async def test_a_halt_during_the_retry_refuses_the_resubmission(ex, audits, monk
     create = AsyncMock(side_effect=RuntimeError("post only order failed"))
     monkeypatch.setattr(ex, "_create_order_idempotent", create)
     monkeypatch.setattr(ex, "_find_order_by_client_oid", AsyncMock(return_value=(None, True)))
-    blk, order, _, _ = await ex._submit_entry_order(*_submit_args(ex, FakeExchange(), use_limit=True, limit_price=99.5))
+    blk, order, _, _, _ = await ex._submit_entry_order(
+        *_submit_args(ex, FakeExchange(), use_limit=True, limit_price=99.5))
     assert blk and "halted while retrying" in blk
     assert order is None
     assert create.await_count == 1, "the rejected original never landed and nothing else was sent"

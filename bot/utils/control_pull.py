@@ -38,6 +38,7 @@ import logging
 from typing import Callable, Optional
 
 from bot.utils.credential_pull import _request, SYNC_SECRET  # reuse the channel
+from bot.utils.user_store import StoreWriteHeld
 
 log = logging.getLogger(__name__)
 
@@ -140,6 +141,14 @@ def process_pending_controls(rows, store,
             acks.append(ack)
             if on_change:
                 on_change(tg)
+        except StoreWriteHeld as exc:
+            # In force for this process, not on disk. The row is NOT acked
+            # as applied, so the website keeps it pending and the next pull
+            # applies it again -- which is what persists it once the disk
+            # is writable. `exc` carries the class, never a path.
+            log.warning("control pull: user %s: %s -- the row stays pending "
+                        "and is re-applied on the next pull", uid, exc)
+            acks.append({"user_id": uid, "ok": False, "error": "not persisted"})
         except Exception as exc:
             log.warning("control pull: failed row user=%s: %s", uid, exc)
             acks.append({"user_id": uid, "ok": False, "error": "processing error"})

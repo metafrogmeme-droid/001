@@ -1,7 +1,7 @@
 {
   "embed.css": {
-    "sha": "b5c4767b57d52d2c",
-    "v": 5
+    "sha": "878c429cbd87242e",
+    "v": 6
   },
   "js/agent-page.js": {
     "sha": "d368ad38000f60e0",
@@ -36,8 +36,8 @@
     "v": 1
   },
   "js/chartread.js": {
-    "sha": "4f63e87eb3bc7019",
-    "v": 6
+    "sha": "1ade4bf742b092a5",
+    "v": 7
   },
   "js/charts2d.js": {
     "sha": "80eb4148dded43a9",
@@ -60,8 +60,8 @@
     "v": 2
   },
   "js/dashboard.js": {
-    "v": 204,
-    "sha": "638888b6a7337526"
+    "v": 205,
+    "sha": "5048ed0ac13dd9e6"
   },
   "js/decision-court-model.js": {
     "v": 2,
@@ -92,8 +92,8 @@
     "v": 2
   },
   "js/embed-signals.js": {
-    "sha": "844ddbc9fd3c723c",
-    "v": 7
+    "sha": "e5032e3f09b5281a",
+    "v": 8
   },
   "js/engine-card-model.js": {
     "sha": "31ce3d8da2820312",
@@ -128,8 +128,8 @@
     "v": 1
   },
   "js/i18n-core.js": {
-    "v": 159,
-    "sha": "231d5cd42f4a49c0"
+    "v": 160,
+    "sha": "afb8809a679e2b25"
   },
   "js/icons.js": {
     "sha": "8d0275ac65342f24",
@@ -212,8 +212,8 @@
     "v": 2
   },
   "js/signal-chart.js": {
-    "sha": "f8c1ee6212b09d17",
-    "v": 1
+    "sha": "2e83ab4f03fab28f",
+    "v": 2
   },
   "js/solana_wallet.js": {
     "sha": "e5e508f502c0b3bb",
@@ -268,8 +268,8 @@
     "v": 1
   },
   "styles.css": {
-    "sha": "b53bce68f9678546",
-    "v": 49
+    "sha": "695e8a62b55f1c9a",
+    "v": 50
   },
   "vendor/lightweight-charts.standalone.production.js": {
     "sha": "c7dda807d662a95b",
@@ -285,6 +285,18 @@
   },
   "js/entry-cards-model.js": {
     "sha": "d1e7b4fdef7a0136",
+    "v": 1
+  },
+  "js/tv-chart.js": {
+    "sha": "35084df81d560864",
+    "v": 1
+  },
+  "js/embed-chart.js": {
+    "sha": "30bfbd7fcf31ac51",
+    "v": 1
+  },
+  "js/signal-status-model.js": {
+    "sha": "4323d7e984b716e8",
     "v": 1
   }
 }

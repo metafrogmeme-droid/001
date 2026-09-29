@@ -1508,3 +1508,91 @@ def test_the_handler_citations_are_the_functions_they_name():
     assert f"_can_trade_live (telegram_handler.py:{def_line('_can_trade_live')})" in doc
     assert (f"`_is_admin_id`\n  (`bot/skills/telegram_handler.py:{def_line('_is_admin_id')}`)"
             in doc)
+
+
+def test_the_x_share_citations_are_the_handlers_they_name():
+    """The map's X/Twitter paragraph cited the symbol-modal share at
+    `dashboard.js:2715-2723` and the journal close card's share at
+    `:4291-4318`. The first sat on the signal-stats panel and the second on an
+    allocation chart: a remap carried both faithfully, because neither line was
+    blank. Each is derived from the handler it names: the modal's `symShare`
+    button through the close of its onclick, and the journal's `.share-trade`
+    click handler through the close of its listener."""
+    doc = " ".join((ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8").split())
+    lines = (ROOT / "app" / "public" / "js" / "dashboard.js").read_text(
+        encoding="utf-8").splitlines()
+
+    def only(pred):
+        hits = [i + 1 for i, ln in enumerate(lines) if pred(ln)]
+        assert len(hits) == 1, hits
+        return hits[0]
+
+    def closes(start, text):
+        for i in range(start, len(lines)):
+            if lines[i] == text:
+                return i + 1
+        raise AssertionError(f"no {text!r} after {start}")
+
+    modal = only(lambda ln: "const shareBtn = document.getElementById('symShare');" in ln)
+    modal_end = closes(modal, "    };")
+    journal = only(lambda ln: "const btn = e.target.closest('.share-trade');" in ln) - 1
+    assert lines[journal - 1].strip() == "onView('click', async (e) => {"
+    journal_end = closes(journal, "    });")
+    assert f"symbol-modal decision picture (dashboard.js:{modal}-{modal_end})" in doc
+    assert f"/api/share/card (dashboard.js:{journal}-{journal_end})" in doc
+
+
+def test_the_arena_citations_are_the_lines_they_name():
+    """The map spells `app/routes/arena.js` as a bare `arena.js`, which is also
+    `app/lib/arena.js`, so no remap can move these: two files share the name
+    and a remap that guessed would carry a citation into the wrong one. Two of
+    them had already drifted -- `keys/agent` sat on a blank line, the season
+    trap on the lines below the call it names, and the key mint on the key
+    LIST's error handler. The page's own citations (`arena.html`) are held
+    here too, because no remap reads an .html file. Each is derived from what
+    its sentence names."""
+    doc = " ".join((ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8").split())
+    lines = (ROOT / "app" / "routes" / "arena.js").read_text(encoding="utf-8").splitlines()
+
+    def only(pred):
+        hits = [i + 1 for i, ln in enumerate(lines) if pred(ln)]
+        assert len(hits) == 1, hits
+        return hits[0]
+
+    def all_of(pred):
+        return [i + 1 for i, ln in enumerate(lines) if pred(ln)]
+
+    follow = only(lambda ln: ln.startswith("router.post('/follow'"))
+    sweep = only(lambda ln: ln.startswith("async function sweepFollows("))
+    sweep_end = next(i + 1 for i in range(sweep, len(lines)) if lines[i] == "}")
+    insert = next(i for i in range(sweep, sweep_end + 1)
+                  if "INSERT INTO arena_positions" in lines[i - 1])
+    rules = all_of(lambda ln: "checkSeasonRules(" in ln and "require('../lib/arena_seasons')" in ln)
+    season = only(lambda ln: ln.startswith("router.get('/season'"))
+    season_pick = next(i for i in range(season, season + 10) if "pickCurrentSeason(" in lines[i - 1])
+    admin = [only(lambda ln: ln.startswith("async function adminOnly(")),
+             only(lambda ln: ln.startswith("router.get('/seasons/all'")),
+             only(lambda ln: ln.startswith("router.delete('/seasons/:id'")),
+             only(lambda ln: ln.startswith("router.post('/season'"))]
+    keys_agent = only(lambda ln: ln.startswith("router.post('/keys/agent'"))
+
+    assert f"(arena.js:{follow}), toggled from the Follow control" in doc
+    assert f"sweepFollows (arena.js:{sweep}-{sweep_end}) then" in doc
+    assert f"(INSERT at arena.js:{insert})" in doc
+    assert len(rules) == 3, rules
+    assert f"at arena.js:{rules[0]}/{rules[1]}/{rules[2]})" in doc
+    m = re.search(r"in-window standings \(arena\.js:(\d+)-(\d+)\)", doc)
+    assert m and int(m.group(1)) == season and int(m.group(2)) > season_pick, m
+    assert f"pickCurrentSeason (:{season_pick})" in doc
+    assert f"(arena.js:{admin[0]}, :{admin[1]}, :{admin[2]}, :{admin[3]})" in doc
+    assert f"bind a key to it, arena.js:{keys_agent})" in doc
+    mint = only(lambda ln: ln.startswith("router.post('/keys',"))
+    badges = only(lambda ln: "computeArenaBadges(" in ln)
+    assert f"app/routes/arena.js:{mint}, max 5" in doc
+    assert f"(app/lib/arena_badges.js:18 → app/routes/arena.js:{badges})" in doc
+    page = (ROOT / "app" / "public" / "arena.html").read_text(encoding="utf-8").splitlines()
+    toggle = [i + 1 for i, ln in enumerate(page) if ln.strip() == "$('followBtn').textContent = following"]
+    panel = [i + 1 for i, ln in enumerate(page) if 'id="keysPanel"' in ln]
+    assert len(toggle) == 1 and len(panel) == 1, (toggle, panel)
+    assert f"the Follow control at arena.html:{toggle[0]}," in doc
+    assert f"Agent keys panel (arena.html:{panel[0]} →" in doc

@@ -61,7 +61,7 @@ def _harness():
     h.users = SimpleNamespace(get=lambda tg: user, register=lambda *a, **k: user, is_admin=lambda *a, **k: True,
                               is_authorized=lambda *a, **k: True, all=lambda: [], save=lambda: None,
                               list_users=lambda *a, **k: [], get_sol_wallet=lambda *a, **k: None)
-    for attr in ("registry", "signal_tracker", "intent_router", "conversations", "monitor", "forwarder"):
+    for attr in ("registry", "intent_router", "conversations", "monitor", "forwarder"):
         setattr(h, attr, _Boom())
     h._last_pane = {}
 

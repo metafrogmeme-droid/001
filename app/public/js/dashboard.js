@@ -1454,8 +1454,12 @@
       if (!sigs.length) return null;
       return sigs.map(s => {
         // Actionable signals get a one-tap Trade button (prefills the ticket
-        // with this signal's geometry) — same mechanism as the Signals stream.
-        const tradeable = s.pnl == null && s.entry_price && s.stop_loss && s.take_profit;
+        // with this signal's geometry) — same mechanism, and the same reading,
+        // as the Signals stream. It tested `s.pnl == null`, a field the public
+        // payload never carries, so every call offered Trade, a stopped-out
+        // one included. A missing model offers nothing.
+        const SSh = self.SignalStatusModel;
+        const tradeable = !!SSh && SSh.actionable(s) && s.entry_price && s.stop_loss && s.take_profit;
         const btn = tradeable
           ? `<button class="btn btn--sm btn--primary" data-ptrade='${esc(JSON.stringify({ d: s.direction, sy: s.symbol, e: s.entry_price, sl: s.stop_loss, tp: s.take_profit }))}'>Trade</button>`
           : '';
@@ -2112,13 +2116,33 @@
       saveUserProfile({ prefs: { chart_tf: document.getElementById('chartGran').value } });
     });
 
-    let tvChart = null, tvSeries = null, tvTimer = null;
+    let tvChart = null, tvSeries = null, tvTimer = null, tvSeq = 0;
     async function drawChart() {
       if (tvTimer) { clearInterval(tvTimer); tvTimer = null; }
+      // Every await below can outlive this draw: the symbol can change, and
+      // `every(20000, drawChart)` starts another. `tvChart` and `tvSeries`
+      // are shared, so a stale draw that finished its level fetch after a
+      // newer one had mounted drew ITS symbol's levels on the new chart --
+      // ETH's pdl/poc/swing at ~2,500 on a BTC chart at ~84,000, their axis
+      // labels stacked at the bottom edge -- and could install its own
+      // live-candle timer, appending the old symbol's bars to the new series.
+      // A draw that is no longer the latest touches nothing.
+      const seq = ++tvSeq;
+      const current = () => seq === tvSeq;
       const sym = symSel.value, gran = document.getElementById('chartGran').value;
       let rows = null;
+      // The fetch happens BEFORE renderPanel, so a draw that went stale while
+      // it waited returns without writing the panel. Inside the loader, a
+      // stale draw that resolved late re-wrote the chart host and blanked the
+      // newer draw's chart.
+      let candleRes = null, candleErr = null;
+      try {
+        candleRes = await fetchJSON(`/api/market/candles/${sym}?granularity=${gran}&limit=200`, { auth: false, timeoutMs: 12000 });
+      } catch (e) { candleErr = e; }
+      if (!current()) return;
       await renderPanel(C('chart'), async () => {
-        const r = await fetchJSON(`/api/market/candles/${sym}?granularity=${gran}&limit=200`, { auth: false, timeoutMs: 12000 });
+        if (candleErr) throw candleErr;
+        const r = candleRes;
         mustRead(r);
         rows = r.data?.data;
         if (!rows || !rows.length) return null;
@@ -2138,6 +2162,7 @@
       // The write is UNCONDITIONAL. It used to sit inside `if (rows &&
       // rows.length)`, so a failed read left the PREVIOUS symbol's verdict
       // on screen beside the new symbol's error panel.
+      if (!current()) return;
       paintChartRead('chartRead', rows, { venue: 'Bitget', gran: gran });
 
       const host = document.getElementById('tvChart');
@@ -2151,28 +2176,17 @@
         // strictly ascending times.
         .filter((c, i, arr) => i === 0 || c.time > arr[i - 1].time);
       if (!data.length) return;
-      const css = getComputedStyle(document.documentElement);
-      tvChart = LightweightCharts.createChart(host, {
-        layout: {
-          background: { type: 'solid', color: 'transparent' },
-          textColor: css.getPropertyValue('--text-3').trim() || '#8f99ab',
-          fontFamily: css.getPropertyValue('--font-data').trim() || 'monospace',
-        },
-        grid: {
-          vertLines: { color: 'rgba(49,57,80,.35)' },
-          horzLines: { color: 'rgba(49,57,80,.35)' },
-        },
-        rightPriceScale: { borderColor: 'rgba(49,57,80,.6)' },
-        timeScale: { borderColor: 'rgba(49,57,80,.6)', timeVisible: true, secondsVisible: false },
-        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-        autoSize: true,
-      });
-      tvSeries = tvChart.addCandlestickSeries({
-        upColor: '#2fbf71', downColor: '#e5484d',
-        wickUpColor: '#2fbf71', wickDownColor: '#e5484d',
-        borderVisible: false,
-      });
+      // The site's one chart style (RCTVChart), and an axis whose decimals
+      // follow the price: the library's default of 2 prints a sub-cent
+      // asset's whole axis as 0.00.
+      const TVC = window.RCTVChart;
+      const prec = TVC ? TVC.precisionFor(data[data.length - 1].close) : 2;
+      const fmt = { type: 'price', precision: prec, minMove: Math.pow(10, -prec) };
+      tvChart = LightweightCharts.createChart(host, TVC ? TVC.chartOptions(LightweightCharts, {}) : { autoSize: true });
+      tvSeries = tvChart.addCandlestickSeries(Object.assign({}, TVC ? TVC.CANDLE : {}, { priceFormat: fmt }));
       tvSeries.setData(data);
+      const mySeries = tvSeries;
+      const mine = () => current() && tvSeries === mySeries;
 
       // Indicator overlays computed from the same candles: EMA20/50 + VWAP.
       const emaLine = (period, color) => {
@@ -2182,7 +2196,7 @@
           ema = ema === null ? c.close : c.close * k + ema * (1 - k);
           return { time: c.time, value: ema };
         }).slice(period);
-        const s = tvChart.addLineSeries({ color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+        const s = tvChart.addLineSeries({ color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: fmt });
         s.setData(pts);
       };
       emaLine(20, 'rgba(63,182,255,.75)');
@@ -2196,7 +2210,7 @@
         return cumV > 0 ? { time: c.time, value: cumPV / cumV } : null;
       }).filter(Boolean);
       if (vwapPts.length) {
-        tvChart.addLineSeries({ color: 'rgba(185,197,214,.55)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
+        tvChart.addLineSeries({ color: 'rgba(185,197,214,.55)', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: fmt })
           .setData(vwapPts);
       }
 
@@ -2205,7 +2219,7 @@
         const pf = LOGGED_IN ? await getPortfolio() : null;
         const norm = s => String(s || '').replace(/[/:]/g, '').replace(/USDT.*$/, 'USDT');
         const pos = (pf?.open_positions || []).find(p => norm(p.symbol) === norm(sym));
-        if (pos && tvSeries) {
+        if (pos && mine()) {
           const line = (price, color, title) => price > 0 && tvSeries.createPriceLine({
             price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title,
           });
@@ -2225,16 +2239,18 @@
         const lvls = (ri.data?.levels || []).slice()
           .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0)).slice(0, 3);
         for (const l of lvls) {
-          if (!(Number(l.price) > 0) || !tvSeries) continue;
+          if (!(Number(l.price) > 0) || !mine()) continue;
           tvSeries.createPriceLine({ price: Number(l.price), color: 'rgba(120,150,220,.65)', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, title: String(l.kind || 'lvl') });
         }
       } catch (e) { /* level overlay is best-effort */ }
 
+      if (!mine()) return;
       tvChart.timeScale().fitContent();
 
       // Live updates: refresh the last candle while the chart stays mounted.
       if (tvTimer) clearInterval(tvTimer);
       tvTimer = setInterval(async () => {
+        if (!mine()) return;
         if (!document.getElementById('tvChart') || document.visibilityState !== 'visible') return;
         try {
           const r2 = await fetchJSON(`/api/market/candles/${sym}?granularity=${gran}&limit=2`, { auth: false, timeoutMs: 8000 });
@@ -2242,7 +2258,7 @@
             time: Math.floor(+c[0] / 1000), open: +c[1], high: +c[2], low: +c[3], close: +c[4],
           })).sort((a, b) => a.time - b.time).pop();
           const lastLoaded = data[data.length - 1];
-          if (last && tvSeries && last.time >= lastLoaded.time) tvSeries.update(last);
+          if (last && mine() && last.time >= lastLoaded.time) mySeries.update(last);
         } catch (e) { /* transient — next tick retries */ }
       }, 15000);
     }
@@ -2530,6 +2546,12 @@
     const r = await fetchJSON(
       `/api/market/candles/${encodeURIComponent(sym)}?granularity=${encodeURIComponent(gran)}&limit=${limit}`,
       { auth: false, timeoutMs: 10000 });
+    // A read that FAILED is not a read that answered no candles. This used to
+    // fold a 502 into `[]`, cache it for the TTL, and let the chart say "No
+    // price history returned for this symbol" -- a claim about the market
+    // from a request that never got an answer. It throws now, uncached, and
+    // both callers render the UNREADABLE placeholder from their catch.
+    if (!wasRead(r)) throw new Error('candles unreadable');
     const rows = (r && r.data && r.data.data) || [];
     _miniCandles.set(key, { ts: Date.now(), rows });
     return rows;
@@ -2588,14 +2610,16 @@
       // context makes both levels crowd the same pixel row.
       const rows = await _fetchMiniCandles(sym, { granularity: '1h', limit: 60, ttlMs: 25000 });
       if (!el.isConnected) return;
-      const r = SC.buildSignalChart(rows, geo, { label: label });
-      el.innerHTML = r.ok ? r.svg : SC.placeholderHtml(r.reason);
+      // RCSignalChart.render: a TradingView chart when the library loaded,
+      // the SVG when it did not, the named placeholder when there is no chart.
+      SC.render(el, rows, geo, { label: label });
     } catch (_) {
       if (!el.isConnected) return;
       // The slot KEEPS its space and says which failure this was. It does not
       // hide, and it does not paint a flat line at zero.
       el.innerHTML = SC.placeholderHtml(SC.REASONS.UNREADABLE);
     }
+    el.setAttribute('aria-busy', 'false');
   }
   // Lazily draw the mini-chart in every un-rendered .ds-mini as it scrolls into
   // view. Idempotent and re-run after each render that emits deep-scan cards;
@@ -2636,6 +2660,15 @@
     _fetchMiniCandles(sym).then((rows) => {
       if (!el.isConnected) return;
       if (!rows || !rows.length) return fail(SC && SC.REASONS.NO_CANDLES);
+      // A TradingView chart when the library loaded: the same swing high and
+      // low band, as the site's one chart style. The SVG stays as the
+      // fallback for a library that failed to load.
+      const TV = window.RCTVChart, CR = window.RCChartRead;
+      if (TV && CR && window.LightweightCharts) {
+        const spec = TV.miniSpec(CR.parseCandles(rows));
+        if (!spec.ok) return fail(SC && SC.REASONS.TOO_FEW);
+        if (TV.mount(el, spec, { compact: true, timeAxis: false }).ok) return;
+      }
       const svg = rows.length >= 3 ? miniCandleSvg(rows, { bias }) : '';
       if (svg) el.innerHTML = svg;
       else fail(SC && SC.REASONS.TOO_FEW);
@@ -2679,14 +2712,12 @@
     renderPanel(C('sstats'), async () => {
       const r = await fetchJSON('/api/signals/stats', { auth: false });
       mustRead(r);
-      const s = r.data;
-      if (!s || !s.resolved) return null;
-      return `<div class="stat-row">
-        <div class="stat"><div class="k">Resolved</div><div class="v">${s.resolved}</div></div>
-        <div class="stat"><div class="k">Win rate</div><div class="v">${s.win_rate != null ? fmt(s.win_rate, 1) + '%' : '—'}</div></div>
-        <div class="stat"><div class="k">Wins / Losses</div><div class="v">${s.wins} / ${s.losses}${s.flat ? ` <span class="muted small">/ ${s.flat} flat</span>` : ''}</div></div>
-      </div>`;
-    }, { empty: { icon: 'icon-radar', text: 'No resolved signals yet — outcomes appear once signals hit target or stop.' } });
+      // SignalStatusModel owns the words the bot's outcome walk writes; an
+      // absent model is a script that did not load, not a record of nothing.
+      const SS = self.SignalStatusModel;
+      if (!SS) throw new Error('signal-status-model.js did not load');
+      return SS.statsHtml(r.data, esc);
+    }, { empty: { icon: 'icon-radar', text: 'No resolved signals yet. Each signal is walked on hourly candles until it reaches its target or stop, is not filled within the bot\'s limit-order window, or runs a week with neither.' } });
 
     async function drawStream() {
       renderPanel(C('stream'), async () => {
@@ -2705,13 +2736,20 @@
               LOSS: ['chip--down', '✗ LOSS'],
               FLAT: ['', '= FLAT'],
             };
-            const oc = OUTCOME_CHIP[s.outcome];
+            // The bot's outcome walk writes one of eight words; the model
+            // reads them. An outcome label with no word it knows is an older
+            // server, which derived it from the R alone.
+            const SS = self.SignalStatusModel;
+            const st = SS ? SS.status(s) : null;
+            const oc = (!st || !st.known || st.word === 'NEW') ? OUTCOME_CHIP[s.outcome] : null;
             const status = oc
               ? `<span class="chip ${oc[0]}">${oc[1]}</span>`
-              : `<span class="chip">${esc(s.status || 'NEW')}</span>`;
+              : `<span class="chip ${st ? st.cls : ''}">${esc(st ? st.label : (s.status || 'NEW'))}</span>`;
             // UX-4: one-tap paper-trade — only for still-actionable signals
-            // (unresolved + full geometry). Resolved rows show nothing.
-            const canTrade = s.outcome == null && s.entry_price && s.stop_loss && s.take_profit;
+            // (pending + full geometry). A call that ended, or that a missing
+            // model cannot place, shows nothing.
+            const live = SS ? SS.actionable(s) : false;
+            const canTrade = live && s.entry_price && s.stop_loss && s.take_profit;
             const tradeBtn = canTrade
               ? `<button class="btn btn--sm" data-ptrade='${esc(JSON.stringify({ d: s.direction, sy: s.symbol, e: s.entry_price, sl: s.stop_loss, tp: s.take_profit }))}'>Trade</button>`
               : '';
@@ -2719,7 +2757,7 @@
             // link and no full geometry, only a signal the engine still
             // stands behind. Fills at the LIVE mark server-side; the toast
             // reports the drift and any exit the market already passed.
-            const arenaBtn = s.outcome == null && s.signal_key
+            const arenaBtn = live && s.signal_key
               ? `<button class="btn btn--ghost btn--sm" data-parena="${esc(s.signal_key)}" title="${esc(T('dd.arena_t', 'Open this call in your paper Arena account — filled at the live mark, never the signal price'))}">${esc(T('dd.b_arena', '🏟 Paper'))}</button>`
               : '';
             return `<tr>
@@ -2856,7 +2894,7 @@
     const base = dsBase(h.symbol);
     const mini = base.length >= 2
       ? `<div class="ds-mini" data-mini-sym="${esc(base + 'USDT')}" data-mini-bias="${bias}" aria-hidden="true"
-           style="height:64px;margin-top:var(--s2);border-radius:6px;overflow:hidden;background:rgba(63,182,255,.035);pointer-events:none"></div>
+           style="height:96px;margin-top:var(--s2);border-radius:6px;overflow:hidden;background:rgba(63,182,255,.035);pointer-events:none"></div>
          <div class="muted small" style="display:flex;justify-content:space-between;margin-top:4px;pointer-events:none">
            <span>4h · swing range</span><span style="color:${bias === 'bull' ? 'var(--up)' : bias === 'bear' ? 'var(--down)' : 'var(--text-3)'}">${top ? esc(top.name || '') : 'last price'}</span></div>`
       : '';
@@ -3294,7 +3332,9 @@
           for (const cp of (pd && pd.chart_patterns) || []) {
             if (/^Elliott/i.test(cp.name || '')) { ew = cp; break; }
           }
-          chartBox.innerHTML = window.RCChartRead.svgChart(parsed, Object.assign(
+          // RCChartRead.drawInto: a TradingView chart when the library
+          // loaded, the SVG it replaced when it did not.
+          window.RCChartRead.drawInto(chartBox, parsed, Object.assign(
             // leverage rides along so the level labels can show what reaching
             // them does to the POSITION, not only to the price. Absent on
             // signal rows, where nobody has sized the trade yet -- the label
@@ -3302,9 +3342,17 @@
             geo ? { entry: geo.e, sl: geo.sl, tp: geo.tp, direction: geo.d,
                     leverage: geo.l } : {},
             { width: Math.max(300, (chartBox.clientWidth || 0) - 4),
+              height: 300,
+              title: pair + ' · ' + (({ '15min': '15m' })[gran] || gran),
               levels: (ins && ins.data && ins.data.levels) || [],
               fvgs: (ins && ins.data && ins.data.fvgs) || [],
               waves: ew ? window.RCChartRead.elliottWavePoints(ew) : [] }));
+        } else if (chartBox) {
+          // Too few bars at THIS timeframe: the previous timeframe's chart
+          // must not stay on screen under the new timeframe's button.
+          if (window.RCTVChart) window.RCTVChart.release(chartBox);
+          chartBox.style.height = '';
+          chartBox.innerHTML = '';
         }
         // The SAME renderer the Markets view uses. `candlesAt` answers []
         // for a failed fetch, which the model reads as "the venue answered
@@ -10270,10 +10318,11 @@
           parts.push(T('dd.arena_view', 'See it in the Arena →'));
           toast(parts.join(' '));
         } else {
-          // The route names WHY (stale, already_open, limits) — translate the
+          // The route names WHY (stale, ended, already_open, limits) — translate the
           // coded refusals, pass the rest through as the server said it.
           const code = r?.data?.code;
           const coded = { stale: ['arena.sig_b_stale', 'Too old to open'],
+            ended: ['arena.sig_b_ended', 'Already over'],
             already_open: ['arena.sig_b_open', 'Already open'] }[code];
           toast(coded ? T(coded[0], coded[1])
             : (r?.data?.error || T('arena.sig_failed', 'Could not open that call — try again.')));
