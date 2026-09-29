@@ -6038,11 +6038,15 @@ whose whole claim is that the leg costs nothing.
 
 **IT IS AN INPUT, NEVER COMPUTED IN THE LADDER, because two runtimes run this
 ladder and the module must not pick a fee model.** `PARTIAL_TP_ENABLED` defaults
-True, so the backtest scales out through the same `check_partial_tp` — the live
-executor supplies the position's own entry leg and the backtest supplies its
-`commission_pct` pair, which is the division this file already records for fees
-(`bot/risk/portfolio.py` is injected with the backtest's rate *"so the simulated
-fee matches the run being compared"*). A test fails on `partial_tp` importing
+True, so the backtest scales out too — the live executor supplies the position's
+own entry leg and the backtest supplies its `commission_pct` pair, which is the
+division this file already records for fees (`bot/risk/portfolio.py` is injected
+with the backtest's rate *"so the simulated fee matches the run being
+compared"*). (Corrected 2026-09-29: this sentence said the backtest scales out
+"through the same `check_partial_tp`". It does not: it runs
+`_check_ladder_intrabar`, a bar-aware copy, which was handed the pair and built
+its own 0.1% lock anyway, so the fix below never reached the benchmark. The
+chapter on the backtest's sub-cent entries records it.) A test fails on `partial_tp` importing
 `trade_costs`, `commission_pct` or either fee field.
 
 **THE LIVE FIGURE IS SET ON EVERY PASS, ABOVE THE CHECK, AND THAT IS WHAT MAKES
@@ -17936,6 +17940,66 @@ matched twice, because the close's three lines are the static check's too, and
 were refused until re-anchored.
 (`tests/test_a_trail_stop_the_price_has_crossed_closes_the_position.py`.)
 
+**THE BACKTEST BOOKED A SUB-CENT FILL AT A DIFFERENT PRICE FROM THE ONE IT
+FILLED AT, AND ITS LADDER NEVER READ THE FEE MODEL IT WAS HANDED.** Two
+defects in `bot/backtest/engine.py`, one surface each.
+
+**`_execute_fill` rounded every entry to six decimal places.** Six places is an
+absolute grid, and a price is relative. A sub-cent asset sits on that grid at
+one or two significant digits, so its entry was booked at a different price
+from its fill, and it was sized off that price. Driven on a real
+`PortfolioTracker`:
+
+- a PEPE long filled at 0.0000114957 was booked at 0.000011, and an exit at
+  the fill price read **+$4.38 on $100** (the short mirror, -$4.52);
+- a long whose stop sat at 0.000011 was refused as a stop at its own entry and
+  counted as a risk rejection;
+- an entry of 4.9e-07 rounded to 0.0 and was refused as a zero price.
+
+Measured over the snapshots' closes, the rounding moves a price by a median
+of:
+
+- **PEPE**: 6.08% in `alts_1h`, 3.43% in `alts_1h_v2` and `corr_dense_1h`,
+  9.12% in `alts_1h_v3`;
+- **FLOKI**: 0.40% to 1.05%;
+- **SHIB**: 2.51% in `corr_dense_1h`.
+
+Four snapshots are affected. The three `majors_1h` snapshots hold no sub-cent
+asset, and the rounding changes nothing on them. The entry is booked unrounded
+now. The docs recorded the alts and correlation tables with it in place. They
+are not re-run here and stand as measurements of the code that produced them.
+
+**The ladder the backtest runs is a copy, and it never read the fee input.**
+The TP1 chapter made the live lock "breakeven after the round trip", read from
+`fee_round_trip_pct`. Its `_execute_fill` was taught to hand the backtest's
+state `2 x commission_pct`. The sentence in that chapter saying the backtest
+scales out "through the same `check_partial_tp`" was false:
+
+- the backtest runs `_check_ladder_intrabar`, a bar-aware copy of the live
+  ladder;
+- the copy built TP1's lock as `entry * 0.001` itself;
+- its TP2 lock was a second spelling of `_tp2_lock`.
+
+`--honest` turns this ladder on and charges a 0.12% round trip, so every
+"breakeven" stop-out in the frozen record lost 0.02% of notional, the defect
+that chapter was written to remove. The only pin over it asserted that the
+argument STRING appeared in the source. Both locks are the live functions now
+(`_tp1_lock`, `_tp2_lock`), proved by planting each and reading the backtest's
+stop back. The ladder's own suite had pinned the hard-coded 0.1% as the
+contract, through a helper that built its state with no fee input. That meant
+the fallback, `LEGACY_FEE_BUFFER_PCT`, was the only branch it drove. The helper
+passes the engine's round trip, and the pin is 0.2%. The majors record moves
+with the lock, and it is re-measured in the commit after this one, for the
+reason `code_sha` gives.
+
+**Ten mutations, each killed. The one that survived the first round was the
+assertion's tolerance.** Rounding the entry to twelve places passed a
+`pytest.approx(..., rel=1e-12)`, because `approx` also allows an ABSOLUTE
+1e-12, and at a price of 1e-05 that is a relative 1e-07. The two entry
+assertions set `abs=0`, and the mutation dies.
+(`tests/test_a_backtest_fill_keeps_a_sub_cent_entry.py`,
+`tests/test_the_backtest_ladder_locks_what_the_live_ladder_locks.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -19227,7 +19291,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **476 of 1181** reach for source text through `source_scan`, `code_only`
+Driven, **476 of 1183** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 476 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
