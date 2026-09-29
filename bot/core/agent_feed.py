@@ -194,7 +194,7 @@ def open_event(levels: dict[str, Any]) -> dict[str, Any]:
     No size and no confidence: the size is account money, and the confidence
     is the thesis event's, stated once for the signal.
     """
-    from bot.formatters.rich_cards import _fmt_price
+    from bot.formatters.price_text import fmt_price as _fmt_price
 
     entry = _fmt_price(levels.get("entry"))
     if levels.get("entry_estimated") and levels.get("entry") is not None:
