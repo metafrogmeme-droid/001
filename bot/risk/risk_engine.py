@@ -98,6 +98,7 @@ from bot.core.leverage import (
     tighten_leverage_cap,
 )
 from bot.core.signal_confidence import displayed_confidence
+from bot.core.signal_levels import stop_under_floor
 from bot.core.size_trace import note_size_step, reset_size_trace, size_basis, size_path
 from bot.risk import ladder_shadow
 from bot.risk.held_book import HeldRow, direction_word, margin_read
@@ -2487,7 +2488,7 @@ class RiskEngine:
             _stop_floor = CONFIG.analyzer.min_stop_distance_pct
             if _stop_floor > 0 and idea.entry_price > 0:
                 _stop_dist = abs(idea.entry_price - idea.stop_loss) / idea.entry_price
-                if _stop_dist < _stop_floor:
+                if stop_under_floor(idea.entry_price, idea.stop_loss, _stop_floor):
                     failed.append(
                         f"STOP_DISTANCE: {_stop_dist:.3%} < {_stop_floor:.2%} floor")
                 else:

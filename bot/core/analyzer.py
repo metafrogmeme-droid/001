@@ -30,7 +30,8 @@ from bot.compat import UTC
 from bot.llm import failure_cause as _fc
 from bot.risk.quality_ladder import confidence_on_record
 from bot.core.position_telemetry import price_on_record
-from bot.core.signal_levels import atr_on_record, record_atr, record_level
+from bot.core.signal_levels import (atr_on_record, record_atr,
+                                     record_idea_levels, record_level)
 from typing import Optional
 
 # AG-H1: Symbol validation regex — uppercase alphanumeric, optional /pair, optional :settle
@@ -2099,9 +2100,12 @@ class Analyzer:
         # entry. That produces a TradeIdea the directional-sanity validator
         # rejects (raising and aborting the whole analysis/backtest run). Skip
         # the degenerate idea instead — no trade is the safe outcome.
-        _r_entry = round(entry, price_decimals)
-        _r_sl = round(stop_loss, price_decimals)
-        _r_tp = round(take_profit, price_decimals)
+        # The levels are recorded in significant digits, and a stop the floor
+        # above widened stays at the floor as the risk gate reads it.
+        _r_entry, _r_sl, _r_tp = record_idea_levels(
+            entry, stop_loss, take_profit, is_long=direction == Direction.LONG,
+            floor=CONFIG.analyzer.min_stop_distance_pct,
+            min_places=price_decimals)
         _valid_long = direction == Direction.LONG and _r_sl < _r_entry < _r_tp
         _valid_short = direction == Direction.SHORT and _r_tp < _r_entry < _r_sl
         if _r_entry <= 0 or not (_valid_long or _valid_short):

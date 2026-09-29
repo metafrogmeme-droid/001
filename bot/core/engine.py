@@ -24,6 +24,7 @@ from bot.core.analyzer import Analyzer
 from bot.core.black_swan import BlackSwanDetector
 from bot.core.cost import CostTracker
 from bot.core.margin_clamp import clamp_to_free_margin
+from bot.core.signal_levels import record_idea_levels
 from bot.core.size_trace import note_size_step, size_basis
 from bot.core.system_health import SystemHealthMonitor
 from bot.core.adaptive_threshold import (
@@ -6649,11 +6650,12 @@ class RuneClawEngine:
                                       f"(SL: {idea.stop_loss:.4f} -> {refined_sl:.4f})",
                                       action="mtf_refine", result="REFINED")
 
+                                _re, _rs, _rt = record_idea_levels(
+                                    refined_entry, refined_sl, refined_tp,
+                                    is_long=True, floor=_floor, min_places=8)
                                 idea = idea.model_copy(update={
-                                    "entry_price": round(refined_entry, 8),
-                                    "stop_loss": round(refined_sl, 8),
-                                    "take_profit": round(refined_tp, 8),
-                                })
+                                    "entry_price": _re, "stop_loss": _rs,
+                                    "take_profit": _rt})
             else:
                 # For shorts, look for nearest resistance level above current price
                 resistance_candidates = []
@@ -6698,11 +6700,12 @@ class RuneClawEngine:
                                   f"(SL: {idea.stop_loss:.4f} -> {refined_sl:.4f})",
                                   action="mtf_refine", result="REFINED")
 
+                            _re, _rs, _rt = record_idea_levels(
+                                refined_entry, refined_sl, refined_tp,
+                                is_long=False, floor=_floor, min_places=8)
                             idea = idea.model_copy(update={
-                                "entry_price": round(refined_entry, 8),
-                                "stop_loss": round(refined_sl, 8),
-                                "take_profit": round(refined_tp, 8),
-                            })
+                                "entry_price": _re, "stop_loss": _rs,
+                                "take_profit": _rt})
         except Exception as exc:
             # Fail-open: return original idea if refinement fails
             logger.debug("MTF refinement failed for %s: %s", idea.asset, exc)
