@@ -52,6 +52,11 @@ def test_every_non_fill_reason_the_executor_writes_is_in_the_set():
     lifecycle = {w for w in written if w in {
         "canceled", "cancelled", "rejected", "expired", "price_drift",
         "stale_pending", "duplicate_fill_suppressed"}}
+    # Every `cancel_reason` is a lifecycle reason by construction: it names
+    # why a RESTING order was cancelled, and the cancel flow copies it into
+    # close_reason. Read off the writer rather than listed above, so a cancel
+    # reason added later (`entry_halted` was) cannot be booked as a flat trade.
+    lifecycle |= set(re.findall(r"\bcancel_reason\s*=\s*\"([a-z_]+)\"", src))
     assert lifecycle, "the writer scan found nothing — the pattern is stale"
     missing = lifecycle - SET
     assert not missing, f"the executor books these as never-filled and the set does not know them: {sorted(missing)}"

@@ -9625,6 +9625,74 @@ class RuneClawEngine:
                 or first.startswith("RECOVERED FILL:")
                 or PARTIAL_FILL_ADOPTED in first)
 
+    def _entry_halt_reason(self, executor) -> Optional[str]:
+        """Why new entries are refused on ``executor``'s account now, or None.
+
+        The monitor hands it to the executor so a resting order placed before
+        a /halt, a breaker trip or a governor pause is cancelled instead of
+        filling on an account that refuses new entries. The account is
+        decided by identity: the operator's executor asks for the empty id
+        whatever user id it carries, and a per-user executor for its own.
+
+        It reads the RAW fields the pre-execute gate reads (the kill switch,
+        each risk engine's ``trading_blocked_by``, the venue-auth flag in
+        live), and deliberately not ``trade_gate.entry_gate``, which reports
+        the same conditions for display: the parity guard forbids the money
+        path from asking the display helper, so that a display bug cannot
+        become a trading bug. A test drives the two over planted states and
+        requires them to agree on "blocked".
+
+        Only a POSITIVE reading cancels. A field that could not be read is
+        not a halt, and cancelling a person's order on a reading nobody took
+        would be a guess dressed as caution. The reasons carry no venue text:
+        they reach the owner's card.
+        """
+        uid = "" if executor is self.live_executor else str(
+            getattr(executor, "user_id", "") or "")
+        reasons: list[str] = []
+        try:
+            if self._halted:
+                reasons.append("kill switch engaged")
+        except Exception:
+            pass
+        try:
+            shared = self.risk
+        except Exception:
+            shared = None
+        try:
+            own = self.risk_for(uid)
+        except Exception:
+            own = None
+        # Both are read even when they are one engine: the reasons are
+        # deduplicated below, and the read has no side effect.
+        for risk in (shared, own):
+            if risk is None:
+                continue
+            try:
+                blocked_by = risk.trading_blocked_by
+            except Exception:
+                # The narrow flag answers less, but an open circuit is still
+                # a positive reading (the display gate falls back the same way).
+                try:
+                    if risk.circuit_breaker_active:
+                        reasons.append("circuit breaker open")
+                except Exception:
+                    pass
+                continue
+            if blocked_by:
+                reasons.append(str(blocked_by)[:120])
+        try:
+            auth_down = CONFIG.is_live() and not self.live_auth_healthy(uid)
+        except Exception:
+            auth_down = False
+        if auth_down:
+            reasons.append("venue auth marked down, a restart re-runs the check")
+        ordered: list[str] = []
+        for r in reasons:
+            if r not in ordered:
+                ordered.append(r)
+        return "; ".join(ordered) or None
+
     @staticmethod
     def _is_unfilled_order_message(msg: str) -> bool:
         """True when a position-monitor message reports a RESTING ORDER that
@@ -9724,7 +9792,8 @@ class RuneClawEngine:
             # this loops once over the operator — identical to before.
             for _ex in self._all_live_executors():
                 try:
-                    live_closed = await _ex.check_positions()
+                    live_closed = await _ex.check_positions(
+                        entry_halt=self._entry_halt_reason(_ex))
                     for msg in live_closed:
                         # Distinguish limit fills from actual closes. A
                         # "LIMIT → MARKET FALLBACK:" message is a position OPEN

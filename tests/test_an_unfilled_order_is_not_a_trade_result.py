@@ -58,6 +58,9 @@ EXECUTOR = ROOT / "bot" / "core" / "live_executor.py"
 
 EXPIRED = "LIMIT EXPIRED: LONG SOL/USDT — cancelled after 4.0h"
 DRIFT = "LIMIT CANCELLED (price drift): LONG SOL/USDT — market moved away"
+HALTED = ("LIMIT CANCELLED (new entries refused): LONG SOL/USDT — kill switch "
+          "engaged. The resting order was cancelled so it cannot open a "
+          "position while entries are refused. Nothing was placed.")
 VENUE_CANCEL = "LIMIT CANCELED: LONG SOL/USDT — order not filled"
 STALE = ("STALE PENDING CLOSED: LONG SOL/USDT -- stuck for 8.1h (hard timeout "
          "8.0h). Its final fill was NEVER READ: order_unreadable. Nothing is "
@@ -197,6 +200,7 @@ KINDS = {
         (f"LIMIT {s}: LONG SOL/USDT — order not filled", "unfilled")
         for s in ("CANCELED", "CANCELLED", "REJECTED", "EXPIRED")],
     "LIMIT CANCELLED (price drift): {} {} — market move": [(DRIFT, "unfilled")],
+    "LIMIT CANCELLED (new entries refused): {} {} — {}": [(HALTED, "unfilled")],
     "LIMIT EXPIRED: {} {} — cancelled after {}h": [(EXPIRED, "unfilled")],
     "LIMIT EXPIRED: {} {} — your ticket rested {}h, the": [
         ("LIMIT EXPIRED: LONG SOL/USDT — your ticket rested 24.1h", "unfilled")],
@@ -247,7 +251,8 @@ class TestTheCloseDoor:
     """The real `start_monitor` and the real forwarder, through the time-stop
     suite's harness: `w.bot.public()` is what reached the public channels."""
 
-    @pytest.mark.parametrize("msg", [EXPIRED, DRIFT, VENUE_CANCEL, STALE, REFUSED])
+    @pytest.mark.parametrize("msg", [EXPIRED, DRIFT, VENUE_CANCEL, STALE, REFUSED,
+                                     HALTED])
     def test_an_unfilled_order_is_never_published(self, operator_chat, msg):
         assert _close(msg).bot.public() == []
 

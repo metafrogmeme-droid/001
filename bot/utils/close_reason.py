@@ -75,7 +75,7 @@ def is_profit_locking_stop(
 # checks each is here — a writer and a reader that agree by construction.
 NON_FILL_CLOSE_REASONS = frozenset({
     "expired", "canceled", "cancelled", "rejected", "price_drift",
-    "stale_pending", "duplicate_fill_suppressed",
+    "stale_pending", "duplicate_fill_suppressed", "entry_halted",
 })
 
 

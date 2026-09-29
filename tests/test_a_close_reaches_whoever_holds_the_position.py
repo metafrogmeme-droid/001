@@ -72,7 +72,8 @@ class _Ex:
         self._closed_trades: list = []
         self.open_positions: list = []
 
-    async def check_positions(self):
+    async def check_positions(self, entry_halt=None):
+        self.entry_halt = entry_halt
         return list(self._checked)
 
     async def reconcile_positions(self):

@@ -17278,6 +17278,62 @@ agree for every prefix, so the first-line split matters only to the adoption
 marker. The test plants an expiry that quotes an adoption on a later line.
 (`tests/test_an_unfilled_order_is_not_a_trade_result.py`.)
 
+**A HALT STOPPED NEW CONFIRMS AND LEFT THE RESTING ORDERS ON THE VENUE, WHERE
+THEY FILLED.** The executor's own comment said so: *"Neither /halt nor any
+breaker cancels resting limits; only /emergency_stop does."* The drift market
+fallback was guarded against the halt; the resting order itself was not. It is
+an entry placed before the refusal, and the venue matches it with no further
+word from the bot. Driven with the kill switch engaged on the unfixed tree:
+the first monitor pass left the order resting, and when the venue filled it,
+the next pass booked "LIMIT FILLED", placed the stops and opened a position on
+an account somebody had stopped. The kill switch clears the pending IDEAS in
+memory; the ORDERS on the venue were never asked about. The same held for the
+circuit breaker, the loss-streak latch and the governor's pause, and since a
+typed ticket rests for 24h, the window was a day wide.
+
+**The monitor pass hands each book the entry gate's reading for its own
+account, and the order goes through the cancel an expiry takes.**
+`RuneClawEngine._entry_halt_reason(executor)` answers why new entries are
+refused on that account, or None; `check_positions(entry_halt=...)` hands it
+to every resting order, and `_check_pending_limit` asks it before the drift
+read, so neither the drift fallback nor the expiry sees the order. The cancel
+is confirmed, the final fill is read, and a partial fill is adopted with the
+idea's levels, because that part is already a position. The close reason is
+`entry_halted`, a non-fill in the one vocabulary, and the message is read as
+an unfilled order (headed "Order not filled", never published). A fill that
+beat the cancel is booked like any other, and its card says the order was
+resting from before the refusal.
+
+**Only a POSITIVE reading cancels.** A field that could not be read is not a
+halt: cancelling a person's order on a reading nobody took would be a guess
+dressed as caution. The account is decided by identity: the operator's
+executor asks for the empty id whatever user id it carries, and a per-user
+executor for its own. The reasons carry no venue text, because they reach the
+owner's card.
+
+**The first draft asked the display helper, and the parity guard refused
+it.** It called `trade_gate.entry_gate`, which is exactly the reading wanted,
+and `test_trade_gate_parity` forbids `trade_gate` anywhere in the engine: *"If
+the gate ever started ASKING it, a display bug would become a trading bug."*
+The reading reads the raw fields the pre-execute gate reads (the kill switch,
+each risk engine's `trading_blocked_by` with the narrow breaker flag as its
+fallback, the venue-auth flag in live), and a test drives it and `entry_gate`
+over planted states and requires them to agree on "blocked". Three more
+neighbours broke on stand-ins and anchors: the invalidated-executor suite's
+`check_positions` took no argument, the pending-order message table did not
+name the new cancel, and the drift pin was anchored on the old condition.
+
+**What it cannot do, stated.** The cancel runs on the next monitor pass, so an
+order can still fill in the minute between the halt and that pass; the card
+for such a fill says so. And it cancels only what the monitor tracks: an order
+placed by hand on the venue is not the bot's to cancel.
+
+Twenty-three mutations, each killed on the first round. Three of the tests they
+die on were written by planning the round, before it ran: an auth read that
+raises, a kill switch that cannot be read, and one cause on one engine said
+once. Without them, reading a failed read as a halt and saying a reason twice
+would have survived. (`tests/test_a_halt_cancels_a_resting_entry.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -17757,7 +17813,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 259 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 260 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -18569,9 +18625,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **471 of 1172** reach for source text through `source_scan`, `code_only`
+Driven, **472 of 1173** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 471 is a FLOOR and the honest shape is
+source scan that rule does not see, so 472 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
