@@ -1096,9 +1096,6 @@ class RuneClawEngine:
         from bot.core.smart_exits import HoldTimeAnalytics
         self.hold_analytics = HoldTimeAnalytics()
 
-        # VWAP cache for VWAP reversion exits
-        self._last_vwap: dict[str, float] = {}
-
         # Smart scan scheduling
         #
         # _last_scan_time IS READ BY TELEGRAM and was, until now, NEVER WRITTEN.
@@ -8875,11 +8872,6 @@ class RuneClawEngine:
             if _is_pyramid_add:
                 await self._pyramid_move_existing_sl_to_breakeven(
                     executor, idea.asset, trade_id)
-            # Cache VWAP at entry for VWAP reversion exit monitoring
-            if hasattr(idea, 'signal_type') and idea.signal_type == "vwap_reversion":
-                # Extract VWAP from the idea's signals_used/indicators (stored at analysis time)
-                entry_vwap = getattr(idea, '_entry_vwap', None) or idea.entry_price
-                self._last_vwap[idea.asset] = entry_vwap
 
         # EVERYTHING FROM HERE REPORTS WHAT HAPPENED, so it has to be told
         # which of the two happened. All of it sat at THIS indent — one level
@@ -9394,8 +9386,21 @@ class RuneClawEngine:
                 # reading, and the position cards ask it too.
                 if not thesis_recorded(pos):
                     continue
-                price = prices.get(pos.symbol) or 0
-                if price <= 0 or pos.entry_price <= 0:
+                # The mark the executor's own monitor pass read for this
+                # symbol a moment ago (`pass_mark`), the price its stop and
+                # target check just used; a fresh WS tick when it has none.
+                # The WS feed carries only the symbols somebody subscribed
+                # (BTC, ETH and SOL at start, and paper positions), so on WS
+                # alone every other live position had no price and skipped
+                # every rule below, which the time-exit line on its card says
+                # will close it.
+                price = None
+                _mark = getattr(executor, "pass_mark", None)
+                if callable(_mark):
+                    price = _mark(pos.symbol)
+                if not price:
+                    price = price_on_record(prices.get(pos.symbol))
+                if not price or pos.entry_price <= 0:
                     continue
 
                 hold_h = (datetime.now(UTC) - entered_at(pos)).total_seconds() / 3600.0
@@ -9443,8 +9448,12 @@ class RuneClawEngine:
                     if not should_exit:
                         should_exit, reason = should_volume_decay_exit(sig, candles_held, r_mult)
                 if not should_exit:
-                    vwap = self._last_vwap.get(pos.symbol, 0)
-                    if vwap > 0:
+                    # The VWAP THIS position's analysis read, recorded on it
+                    # when it opened and saved with its row. It lived in one
+                    # engine dict keyed by symbol: another account's confirm
+                    # on the symbol replaced it, and a restart emptied it.
+                    vwap = price_on_record(getattr(pos, "entry_vwap", None))
+                    if vwap is not None:
                         should_exit, reason = check_vwap_reversion_exit(
                             sig, price, vwap, pos.direction, pos.entry_price)
 
@@ -10107,7 +10116,22 @@ class RuneClawEngine:
         self._positions_monitored_tick = True
 
     async def _check_paper_positions(self, positions) -> None:
-        """Monitor paper portfolio positions for SL/TP hits."""
+        """Monitor paper portfolio positions for SL/TP hits.
+
+        IN LIVE MODE THE SHARED PAPER BOOK IS LEFT ALONE. Nothing writes it
+        there (a practice fill goes to the person's own book), so what it
+        holds is whatever paper trading left before the account went live.
+        Monitored against live prices, one of those closing fed the
+        operator's LIVE risk engine (loss streak, breaker, governor window),
+        paused the engine for every account, and pushed the paper book to the
+        website as the agent's record. Its positions stay as they are and
+        resume if the bot goes back to paper; practice books are monitored
+        as before.
+        """
+        _shared_live = CONFIG.is_live()
+        if _shared_live:
+            self._note_idle_paper_book(positions)
+            positions = []
         try:
             # Price every paper symbol: the shared portfolio's positions PLUS all
             # per-user (sim opt-in) portfolios, so opted-in paper positions are
@@ -10174,7 +10198,8 @@ class RuneClawEngine:
             pos_symbols = [p.asset for p in _priced_positions]
             self.ws_feed.subscribe(pos_symbols)
             # Mark-to-market: feed current prices so snapshot() reflects unrealized PnL
-            self.portfolio.mark_to_market(prices)
+            if not _shared_live:
+                self.portfolio.mark_to_market(prices)
             # Also update all per-user portfolios
             self.user_portfolios.mark_to_market_all(prices)
 
@@ -10218,8 +10243,8 @@ class RuneClawEngine:
 
             # ── Signal-type hold limit check ──
             try:
-                from bot.core.smart_exits import check_signal_hold_limit, check_vwap_reversion_exit
-                for pos in list(self.portfolio.open_positions):
+                from bot.core.smart_exits import check_signal_hold_limit
+                for pos in ([] if _shared_live else list(self.portfolio.open_positions)):
                     current_price = prices.get(pos.asset)
                     if not current_price or current_price <= 0:
                         continue
@@ -10249,25 +10274,14 @@ class RuneClawEngine:
                               action="signal_hold_exit", result="CLOSED")
                         self.portfolio.close_position(pos.trade_id, current_price)
                         continue
-
-                    # VWAP reversion exit (best-effort: skip if no VWAP available)
-                    vwap = self._last_vwap.get(pos.asset, 0)
-                    if vwap > 0:
-                        should_exit, reason = check_vwap_reversion_exit(
-                            signal_type=signal_type,
-                            current_price=current_price,
-                            vwap=vwap,
-                            direction=pos.direction.value,
-                            entry_price=pos.entry_price,
-                        )
-                        if should_exit:
-                            audit(trade_log, f"VWAP exit: {pos.asset} — {reason}",
-                                  action="vwap_exit", result="CLOSED")
-                            self.portfolio.close_position(pos.trade_id, current_price)
+                    # No VWAP-reversion exit here. It read the engine's VWAP
+                    # dict, which only LIVE confirms wrote, keyed by symbol; a
+                    # paper position (`TradeExecution`) has no field to carry
+                    # a VWAP of its own, so the rule can never apply to one.
             except Exception as exc:
                 system_log.debug("Signal hold check failed: %s", exc)
 
-            closed = self.portfolio.check_stops(prices)
+            closed = [] if _shared_live else self.portfolio.check_stops(prices)
             # The SHARED book's closes, taken before the practice ones join
             # the list below. Only these may pause the engine: a per-user
             # paper book is PRACTICE (its one writer is the sim opt-in fill),
@@ -10397,6 +10411,23 @@ class RuneClawEngine:
                 result="ERROR",
             )
             self._transition(AgentState.IDLE, f"monitor error: {exc}")
+
+    def _note_idle_paper_book(self, positions) -> None:
+        """Say once per process that live mode leaves the shared paper book's
+        positions alone, and which they are. Silent when it holds none."""
+        if not positions or getattr(self, "_idle_paper_book_noted", False):
+            return
+        self._idle_paper_book_noted = True
+        names = sorted({str(getattr(p, "asset", "?")) for p in positions})
+        audit(system_log,
+              f"LIVE mode: the shared paper book holds {len(positions)} "
+              f"position(s) from paper trading ({', '.join(names[:6])}"
+              f"{'...' if len(names) > 6 else ''}). They are not monitored or "
+              f"closed against live prices and feed nothing live; they resume "
+              f"if the bot returns to paper mode.",
+              action="paper_book_idle", result="LIVE_MODE",
+              level=logging.WARNING,
+              data={"count": len(positions), "symbols": names[:20]})
 
     @property
     def pending_ideas(self) -> list[TradeIdea]:

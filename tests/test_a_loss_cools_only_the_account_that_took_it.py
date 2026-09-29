@@ -287,13 +287,16 @@ class TestPracticeNeverTouchesLive:
         assert not _paused(real)
         assert real.state != AgentState.COOLING_DOWN
 
-    def test_a_shared_book_stop_out_still_pauses_it(self, monkeypatch):
-        # The shared book is the engine's own, and a restored position can
-        # still close there; its loss keeps the pause it always had. Its close
-        # callback mirrors the book to the website on a thread -- not this
-        # test's subject.
+    def test_a_shared_book_stop_out_still_pauses_it_in_paper_mode(self, monkeypatch):
+        # In PAPER mode the shared book is the engine's own, and its loss
+        # keeps the pause it always had. (In live mode nothing writes that
+        # book, and its leftover positions are not closed against live
+        # prices at all: `test_a_live_exit_reads_its_own_price_book_and_vwap`
+        # drives that.) Its close callback mirrors the book to the website on
+        # a thread -- not this test's subject.
         monkeypatch.setattr("bot.utils.website_sync.sync_in_background",
                             lambda *a, **k: None)
+        monkeypatch.setattr(type(engine_mod.CONFIG), "is_live", lambda self: False)
         real = RuneClawEngine()
         idea = TradeIdea(asset="BTC/USDT", direction=Direction.LONG,
                          entry_price=100.0, stop_loss=95.0, take_profit=120.0,

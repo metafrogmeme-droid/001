@@ -118,7 +118,9 @@ def test_every_caller_hands_it_the_entry():
                 kw = {k.arg for k in node.keywords}
                 calls.append((f"{path.relative_to(ROOT)}:{node.lineno}",
                               len(node.args) >= 5 or "entry_price" in kw))
-    assert len(calls) == 2, calls              # the live and the paper loop
+    # The live loop alone: the paper loop's branch read a VWAP only live
+    # confirms wrote, and a paper position has no field to carry its own.
+    assert len(calls) == 1, calls
     assert all(ok for _, ok in calls), calls
 
 
@@ -139,12 +141,11 @@ def _drive(price, entry=99.6):
         trade_id="TI-v1", symbol="SOL/USDT", direction="LONG", entry_price=entry,
         stop_loss=98.0, take_profit=102.0, status="open", signal_type="vwap_reversion",
         strategy_type="intraday", opened_at=datetime.now(UTC) - timedelta(seconds=60),
-        trailing_state={"initial_risk": entry - 98.0})
+        trailing_state={"initial_risk": entry - 98.0}, entry_vwap=VWAP)
     ex = _Executor(pos)
     eng = RuneClawEngine.__new__(RuneClawEngine)
     eng.ws_feed = SimpleNamespace(is_connected=lambda: True,
                                   get_prices=lambda max_age_sec=None: {"SOL/USDT": price})
-    eng._last_vwap = {"SOL/USDT": VWAP}
     eng._close_notify_callback = None
     eng.live_executor = ex
     with patch("bot.core.engine.CONFIG") as cfg:

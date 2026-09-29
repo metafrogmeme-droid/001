@@ -268,6 +268,32 @@ class OrderFlowSignal(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+def book_imbalance_read(sig: OrderFlowSignal,
+                        comps: Optional[list] = None) -> bool:
+    """Whether the book imbalance is a reading.
+
+    ``"book"`` in the components says the venue ANSWERED with a book, and that
+    is all the liquidity guard and the dominance rule need: an empty book is a
+    measured empty book, and they refuse it on its zero depth. An imbalance
+    needs depth on both sides. With either side empty there is no imbalance
+    to read, and the 0.0 the field keeps is not a balanced book, so it must not
+    vote, count toward the composite, or dilute the opposition veto."""
+    comps = sig.components_ok if comps is None else comps
+    return ("book" in comps and sig.bid_depth_usd > 0
+            and sig.ask_depth_usd > 0)
+
+
+def whale_flow_read(sig: OrderFlowSignal,
+                    comps: Optional[list] = None) -> bool:
+    """Whether the whale bias is a reading: a whale traded and its side was
+    read. A window where no trade reached the whale floor has no whale flow to
+    read, and the "neutral" the field keeps from its default is not a
+    measurement; whales that traded both sides evenly are, and stay neutral."""
+    comps = sig.components_ok if comps is None else comps
+    return ("trades" in comps
+            and (sig.whale_buy_usd + sig.whale_sell_usd) > 0)
+
+
 # ── Engine ───────────────────────────────────────────────────────────────
 
 class OrderFlowAnalyzer:
@@ -460,9 +486,12 @@ class OrderFlowAnalyzer:
             sig.notes.append(f"trades unavailable: {trades_result}")
         else:
             try:
-                self._fill_trade_metrics(sig, trades_result, symbol)
-                self._fill_whale_metrics(sig, trades_result)
-                ok.append("trades")
+                # A window with no trade whose side and size could be read is
+                # not a reading of flow: aggressor 0.5, CVD "flat" and whale
+                # "neutral" would all be the field defaults, voting as data.
+                if self._fill_trade_metrics(sig, trades_result, symbol):
+                    self._fill_whale_metrics(sig, trades_result)
+                    ok.append("trades")
             except Exception as exc:  # noqa: BLE001
                 sig.notes.append(f"trades processing error: {exc}")
 
@@ -588,10 +617,11 @@ class OrderFlowAnalyzer:
         sig.ask_depth_top_usd = round(ask_top, 2)
         sig.book_imbalance = round((bid_usd - ask_usd) / total, 4) if total > 0 else 0.0
 
-    def _fill_trade_metrics(self, sig: OrderFlowSignal, trades: list, symbol: str) -> None:
+    def _fill_trade_metrics(self, sig: OrderFlowSignal, trades: list, symbol: str) -> bool:
+        """Fill the trade-flow fields; True when the window was a reading."""
         if not trades:
             sig.notes.append("no recent trades")
-            return
+            return False
         # Chronological so uptick inference + CVD direction are correct
         trades = sorted(trades, key=lambda t: t.get("timestamp") or 0)
         buy_usd = 0.0
@@ -616,6 +646,12 @@ class OrderFlowAnalyzer:
             elif side == "sell":
                 sell_usd += cost
         total = buy_usd + sell_usd
+        if total <= 0:
+            # Trades came back, and none carried a side and a size this code
+            # could read. Recording a 0 delta, a 1.0 taker bar and a $0 spot
+            # volume would put three readings nobody took into the histories.
+            sig.notes.append("no trade with a readable side and size")
+            return False
         delta = buy_usd - sell_usd
         sig.buy_volume_usd = round(buy_usd, 2)
         sig.sell_volume_usd = round(sell_usd, 2)
@@ -694,6 +730,7 @@ class OrderFlowAnalyzer:
                         f"{tape['age_sec']}s fresh)")
             except Exception as _ws_exc:  # noqa: BLE001
                 sig.notes.append(f"ws cvd unavailable: {_ws_exc}")
+        return True
 
     @staticmethod
     def _cvd_trend(deltas: list[float]) -> str:
@@ -911,12 +948,13 @@ class OrderFlowAnalyzer:
         c = self.config
         contribs: list[tuple[float, float]] = []  # (value[-1,1], weight)
 
-        if "book" in ok:
+        if book_imbalance_read(sig, ok):
             contribs.append((float(np.clip(sig.book_imbalance, -1, 1)), c.w_book))
         if "trades" in ok:
             contribs.append(((sig.aggressor_ratio - 0.5) * 2.0, c.w_aggressor))
             trend_val = {"rising": 1.0, "falling": -1.0, "flat": 0.0}.get(sig.cvd_trend, 0.0)
             contribs.append((trend_val, c.w_cvd_trend))
+        if whale_flow_read(sig, ok):
             whale_val = {"accumulation": 1.0, "distribution": -1.0, "neutral": 0.0}.get(sig.whale_bias, 0.0)
             contribs.append((whale_val, c.w_whale))
         if sig.funding_rate is not None:
@@ -982,9 +1020,12 @@ class OrderFlowAnalyzer:
         labels: list[str] = []
         conf = max(0.0, min(1.0, sig.confidence))
         if conf == 0.0:
-            return [0.0], [0.1], ["of_neutral"]
+            # Nothing resolved, so there is nothing to vote. A 0.0 vote here
+            # would be a neutral reading nobody took, diluting every voter
+            # that did read something (the skip-missing rule).
+            return votes, weights, labels
 
-        if "book" in sig.components_ok:
+        if book_imbalance_read(sig):
             votes.append(float(np.clip(sig.book_imbalance, -1, 1)))
             weights.append(0.8 * conf)
             labels.append("of_book_imbalance")
@@ -992,6 +1033,7 @@ class OrderFlowAnalyzer:
             votes.append({"rising": 1.0, "falling": -1.0, "flat": 0.0}.get(sig.cvd_trend, 0.0))
             weights.append(0.9 * conf)
             labels.append("of_cvd_trend")
+        if whale_flow_read(sig):
             votes.append({"accumulation": 1.0, "distribution": -1.0, "neutral": 0.0}.get(sig.whale_bias, 0.0))
             weights.append(1.2 * conf)
             labels.append("of_whale_bias")

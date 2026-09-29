@@ -198,7 +198,6 @@ async def test_a_smart_exit_does_not_close_a_position_awaiting_reconcile():
     eng = RuneClawEngine.__new__(RuneClawEngine)
     eng.ws_feed = SimpleNamespace(is_connected=lambda: True,
                                   get_prices=lambda max_age_sec=None: {"BTC/USDT": 100.5})
-    eng._last_vwap = {}
     eng._close_notify_callback = None
     eng.live_executor = ex
     p = patch("bot.core.engine.CONFIG")

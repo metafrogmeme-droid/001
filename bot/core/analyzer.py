@@ -70,7 +70,7 @@ from bot.core.liquidity_sweep import detect_sweeps, sweep_to_confluence_votes
 from bot.core.supply_demand import detect_zones, zones_to_confluence
 from bot.core.smart_exits import detect_squeeze
 from bot.core.chart_patterns import scan_all_chart_patterns
-from bot.core.order_flow import OrderFlowAnalyzer
+from bot.core.order_flow import OrderFlowAnalyzer, book_imbalance_read
 from bot.utils.logger import audit, system_log, trade_log, scan_log
 from bot.utils.models import Direction, MarketSignal, TradeIdea
 
@@ -2205,9 +2205,10 @@ class Analyzer:
         except Exception:
             pass
 
-        # Store VWAP at entry for reversion exit tracking
-        if signal_type == "vwap_reversion" and indicators.get("vwap"):
-            idea._entry_vwap = indicators["vwap"]
+        # The VWAP this analysis read, for the reversion exit. On the idea's
+        # own field, so the executor records it on the position it opens.
+        if signal_type == "vwap_reversion":
+            idea.entry_vwap = price_on_record(indicators.get("vwap"))
 
         # ── Explainability Report ──
         try:
@@ -3067,7 +3068,10 @@ class Analyzer:
             return 0.0, 0.0, 0.0
         comps = getattr(order_flow, "components_ok", set()) or set()
         of_dir, n = 0.0, 0
-        if "book" in comps:
+        # An empty book is "book" in the components (the liquidity guard
+        # refuses it on its zero depth) and has no imbalance: its 0.0 would
+        # halve the opposition the other readings measured.
+        if book_imbalance_read(order_flow, list(comps)):
             _book_val = float(np.clip(getattr(order_flow, "book_imbalance", 0.0), -1, 1))
             if math.isfinite(_book_val):
                 of_dir += _book_val; n += 1

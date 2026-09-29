@@ -47,13 +47,12 @@ class _Executor:
         return f"CLOSED {trade_id}"
 
 
-def _engine(executor, prices, vwap=None):
+def _engine(executor, prices):
     eng = RuneClawEngine.__new__(RuneClawEngine)
     eng.ws_feed = SimpleNamespace(
         is_connected=lambda: True,
         get_prices=lambda max_age_sec=None: prices,
     )
-    eng._last_vwap = vwap or {}
     eng._close_notify_callback = None
     # The book under evaluation IS the operator's. The engine routes a smart
     # exit's note by whose book closed (`_announce_executor_message`), so a
@@ -138,10 +137,11 @@ class TestTriggers:
         pos = _pos(
             opened_at=datetime.now(UTC), signal_type="vwap_reversion",
             direction="LONG", entry_price=99.1, stop_loss=98.0,
+            entry_vwap=99.0,     # the VWAP this position's analysis read
         )
         ex = _Executor([pos])
         # Price >0.3% past the entry's side of VWAP → target reached → exit.
-        eng = _engine(ex, {"BTC/USDT": 100.2}, vwap={"BTC/USDT": 99.0})
+        eng = _engine(ex, {"BTC/USDT": 100.2})
         p, _ = _cfg()
         try:
             await eng._evaluate_live_smart_exits(ex)
