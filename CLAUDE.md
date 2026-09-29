@@ -18135,6 +18135,83 @@ answers a candle with a null field. The honesty ratchet fell 674 to 670 (the
 four `or 0` reads) and was re-recorded in the same commit.
 (`tests/test_a_null_candle_value_is_left_out_of_the_limit_levels.py`.)
 
+**AN EMPTY ORDER BOOK, AN EMPTY TRADE WINDOW AND A WINDOW WITH NO WHALE WERE
+EACH COUNTED AS A READING.** The order-flow snapshot appended a component
+whenever its fetch ANSWERED, and the fill helpers returned early on an empty
+answer, leaving the field defaults in place:
+
+- An empty book kept `book_imbalance` at 0.0 and counted as "book".
+- An empty trade window kept aggressor 0.5, CVD "flat" and whale "neutral",
+  and counted as "trades".
+- A window where no trade reached the whale floor kept whale "neutral" and
+  voted it at the heaviest order-flow weight.
+
+Each default voted 0.0 in the confluence scorer and counted toward the
+snapshot's confidence, which scales the weight of every order-flow vote. The
+book's 0.0 also went into the opposition the order-flow veto reads. Driven
+through the real `analyze()`: an empty book beside 40 sells read as
+opposition 0.5 at confidence 0.87 for a LONG. The one reading actually taken
+says opposition 1.0, over 39% of the evidence weight.
+
+**The veto does not fire in either case, and the fix does not make it.** The
+veto needs opposition of at least 0.7 AND confidence of at least 0.5. Before
+the fix, opposition was halved by a book nobody read. After it, confidence
+is honest and falls below the bar, because only the trade tape resolved.
+What changed is that both numbers are measurements. The penalty moved from
+0.065 to 0.059.
+
+**An empty book is still a book, for the guards.** "book" in the components
+still means the venue answered, because the liquidity guard is fail-OPEN on
+a missing book. It refuses an empty book only because that book has zero
+depth. Taking "book" away would have passed a market with no orders on it.
+`book_imbalance_read` is the reading, and the composite, the votes and the
+opposition all ask it: depth on both sides, or no imbalance. A one-sided
+book has no imbalance either. `whale_flow_read` asks whether a whale traded
+and its side was read. Whales that traded both sides evenly are still a
+measured neutral and still vote. Both readings key on model fields, so a
+recorded snapshot replayed in the backtest keeps its answer. A trade window
+with no trade of readable side and size records nothing in the histories.
+It used to add a 0 CVD delta, a 1.0 taker bar and a $0 spot volume. A
+snapshot with nothing resolved casts no vote; it used to cast a 0.0
+`of_neutral` vote.
+
+**The smart-money engine built on the snapshot had the same shape one layer
+up.** All four of its components counted as resolved whatever they read, so
+its confidence read 1.0 over composites made mostly of defaults.
+
+- The cascade and squeeze detectors answer (0.0, "none") for a funding rate
+  nobody read, which is also what a measured mild rate answers. Only the
+  second counts now.
+- The whale tracker answers None below three windows, for no whale traded,
+  and for no symbol. It records only windows whose trades were read (a whale
+  figure above zero counts as a read by itself).
+- Its consistency amplifier counted quiet windows as "not buying". So two
+  buy sessions among six quiet ones read as consistent SELLING, and a +0.2
+  bias came out amplified to +0.26. It now counts only sessions where a
+  whale traded.
+
+The composite keeps its fixed weights, so an unread component still
+contributes nothing. It was not renormalised: that would have turned one
+component's 0.8 into a full-strength composite, past the 0.3 bar of the
+direct blend bonus. The confidence carries the evidence instead. With funding
+unread, the confidence is 0.25 where it was 1.0. Three pins that asserted the
+old contract moved with it: `test_core`'s vote fixture now carries the depth
+and whale flow it names, and the tracker returns None where it returned 0.0.
+
+Twenty-five mutations, each killed. The three that survived the first round
+were fixtures. No book quoted one side at zero size; the fill helper fills
+both depths or neither, so nothing else separates `and` from `or`. No window
+of quiet reads came before a run of consistent buying. And no session tied
+its whale buys and sells.
+
+Filed, not changed: `_cvd_trend` with fewer than four windows reports one
+window's sign as a trend. That is the aggressor reading counted twice, and
+fixing it means a trend that can be unread. The OI warm-up is keyed by spot
+symbol while `analyze` reads the perp key, so it warms nothing for crypto.
+The sentiment voter reads the newest snapshot of any symbol; that is latent,
+armed by the ONCHAIN await.
+(`tests/test_an_empty_book_or_quiet_tape_is_not_an_order_flow_reading.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -19426,7 +19503,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **477 of 1186** reach for source text through `source_scan`, `code_only`
+Driven, **477 of 1187** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 477 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

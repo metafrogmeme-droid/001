@@ -20,6 +20,8 @@ from __future__ import annotations
 import threading
 from collections import deque
 from datetime import datetime
+from typing import Optional
+
 from bot.compat import UTC
 
 import numpy as np
@@ -170,21 +172,31 @@ class WhaleFlowTracker:
         self._whale_history: dict[str, deque] = {}  # symbol → (buy_usd, sell_usd) pairs
         self._history_len = history_len
 
-    def evaluate(self, sig: OrderFlowSignal) -> float:
-        """Returns whale_accumulation_score [-1, 1]."""
+    def evaluate(self, sig: OrderFlowSignal) -> Optional[float]:
+        """Returns whale_accumulation_score [-1, 1], or None when there is no
+        whale flow to read: no symbol, fewer than three read windows, or no
+        whale traded in any of them. None is not a neutral 0.0; the engine
+        counts only a reading as a resolved component."""
         # LB-7 FIX: Reject empty symbol to prevent cross-symbol history corruption.
         # All symbols sharing key "" would corrupt each other's whale tracking.
         symbol = sig.symbol
         if not symbol:
-            return 0.0
+            return None
 
         with self._lock:
             hist = self._whale_history.setdefault(
                 symbol, deque(maxlen=self._history_len))
-            hist.append((sig.whale_buy_usd, sig.whale_sell_usd))
+            # A window whose trades were never read carries whale figures of
+            # (0, 0) from the field defaults. It is not a session with no
+            # whales, so it is not recorded: it would count toward the three
+            # windows and toward the consistency below. A whale figure above
+            # zero is a read by itself.
+            if ("trades" in (sig.components_ok or [])
+                    or (sig.whale_buy_usd + sig.whale_sell_usd) > 0):
+                hist.append((sig.whale_buy_usd, sig.whale_sell_usd))
 
         if len(hist) < 3:
-            return 0.0
+            return None
 
         # Compute rolling whale bias
         total_buy = sum(h[0] for h in hist)
@@ -192,21 +204,26 @@ class WhaleFlowTracker:
         total = total_buy + total_sell
 
         if total <= 0:
-            return 0.0
+            return None
 
         # Net whale bias: positive = accumulation, negative = distribution
         bias = (total_buy - total_sell) / total
 
         # Check for stealth accumulation: consistent small-to-medium whale buys
-        # (more significant than one big whale buy)
+        # (more significant than one big whale buy). Consistency is over the
+        # sessions where a whale traded: a session with no whale is neither a
+        # buying nor a selling session, and counting it as "not buying" read
+        # one buy among nine quiet windows as consistent SELLING and amplified
+        # it.
         recent = list(hist)[-min(10, len(hist)):]
-        buy_sessions = sum(1 for b, s in recent if b > s)
-        consistency = buy_sessions / len(recent)
+        active = [(b, s) for b, s in recent if b + s > 0]
+        buy_share = sum(1 for b, s in active if b > s) / len(active)
+        sell_share = sum(1 for b, s in active if s > b) / len(active)
 
         # Consistency amplifier: 8/10 sessions with whale buying > selling is strong
-        if consistency > 0.7:
+        if buy_share > 0.7:
             bias *= 1.3
-        elif consistency < 0.3:
+        elif sell_share > 0.7:
             bias *= 1.3  # consistent selling is also strong
 
         return round(float(np.clip(bias, -1, 1)), 4)
@@ -245,12 +262,19 @@ class SmartMoneyEngine:
             score.institutional_bias = round(sig.smart_money_score, 4)
             resolved += 1
 
+        # 2 and 3 read the funding rate. With no funding read (a spot symbol,
+        # or a fetch that failed) both detectors answer (0.0, "none"), which
+        # is what a MEASURED mild rate answers too; only the second is a
+        # reading, so only it counts toward the confidence.
+        funding_read = sig.funding_rate is not None
+
         # 2. Liquidation cascade risk
         try:
             risk, direction = self.cascade.evaluate(sig)
             score.cascade_risk = risk
             score.cascade_direction = direction
-            resolved += 1
+            if funding_read:
+                resolved += 1
         except Exception:
             pass
 
@@ -261,15 +285,17 @@ class SmartMoneyEngine:
             score.squeeze_type = squeeze_type
             # Retail contrarian = inverse of crowd positioning
             score.retail_contrarian = squeeze_sig
-            resolved += 1
+            if funding_read:
+                resolved += 1
         except Exception:
             pass
 
         # 4. Whale flow
         try:
             whale_score = self.whales.evaluate(sig)
-            score.whale_accumulation = whale_score
-            resolved += 1
+            if whale_score is not None:
+                score.whale_accumulation = whale_score
+                resolved += 1
         except Exception:
             pass
 
@@ -358,7 +384,11 @@ class SmartMoneyEngine:
             parts.append(f"Funding squeeze setup: {score.squeeze_type.replace('_', ' ')}")
 
         if not parts:
-            parts.append("No significant smart money signals detected")
+            if score.components_resolved == 0:
+                # Nothing was read, so nothing was detected either way.
+                parts.append("No smart money component could be read")
+            else:
+                parts.append("No significant smart money signals detected")
 
         return ". ".join(parts) + "."
 
