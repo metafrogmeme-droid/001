@@ -817,7 +817,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 674 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 670 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -18058,6 +18058,83 @@ in every fold; that snapshot holds no sub-cent asset.
 (`tests/test_a_sub_cent_level_is_recorded_in_significant_digits.py`,
 `bot/core/signal_levels.py`.)
 
+**A STOP THE ANALYZER FLOORED TO THE MINIMUM DISTANCE WAS REFUSED FOR BEING
+UNDER IT, ABOUT HALF THE TIME.** The analyzer widens a too-tight stop to
+exactly `MIN_STOP_DISTANCE_PCT` (0.40%) of the entry, and main's floor at the
+risk gate (`69f63073`) refuses a stop whose distance is under that figure. Both
+read one number, so a floored stop should always pass. But the analyzer takes
+the floor off the unrounded entry, records the entry and the stop each rounded
+on its own, and the gate divides the recorded distance by the recorded entry.
+Float noise plus two roundings put the ratio a hair under 0.004 for about one
+floored stop in two. Driven on the frozen majors snapshot: the floor widened
+430 stops, the gate refused 202 of those ideas on STOP_DISTANCE, and 23 of them
+for that reason alone.
+
+**So the twelve trades the benchmark lost when the floor landed were noise, and
+the benchmark page said the opposite.** It called them "twelve ideas whose stop
+sat under it, refused by name". With the fix the record is 129 trades again,
+and every fold's count and win rate match the pre-floor record `0701fb0a`. On
+this snapshot the gate's floor never refused an analyzer idea whose stop was
+really under 0.40%: the analyzer had widened every such stop first, so the only
+refusals the gate could make there were rounding. The gate still does real
+work for a hand-typed ticket and for any producer that does not floor its own
+stops, and it refuses those by name.
+
+**`record_idea_levels` records the three levels together**
+(`bot/core/signal_levels.py`):
+
+- each level is `record_level`, as before;
+- if the stop sat at or beyond the floor before recording (within
+  `FLOOR_NOISE`, 1e-9 of it) and the recorded pair reads under it, the
+  recorded stop steps outward one recorded unit at a time, up to
+  `FLOOR_STEPS` (3), until the gate's predicate reads it at the floor;
+- a stop the producer placed under the floor is not stepped, and the gate
+  refuses it by name.
+
+`stop_under_floor` is the gate's own arithmetic, and the gate and the seam both
+ask it: two copies of that division disagree in the last bit, and at the floor
+the last bit is the verdict. The analyzer's degenerate-level guard and both
+branches of the engine's MTF entry refinement record through the seam. The
+refinement had its own `round(…, 8)`; driven over 200 magnitudes, it read 129
+of 400 refined stops under the floor, and now reads none. Two guards were
+deleted before the round, `floor > 0 and entry > 0` in the seam and
+`floor <= 0` in the predicate: neither could change an answer, because the
+predicate reads nothing under a floor of zero or less, or over an entry that is
+not a price. Both cases are tests.
+
+**Twenty-four mutations, each killed on the first round.** One is worth naming
+for what it proves about the guards rather than the code: a private copy of the
+predicate inside the seam dies only on the planted predicate, because a
+byte-identical copy agrees with every honest fixture. The analyzer's call is
+pinned by its keywords, a scan stated as one (`analyze` is a 1,400-line
+coroutine), and the side-inverted and floor-zero mutations die there. With the
+fix, a probe over the majors run counts 430 widened stops and no STOP_DISTANCE
+refusal. The record moves to 129 trades, 66/63, net −$1,440.41, PF 0.63, 1 of
+6 folds profitable, mean OOS −2.40%.
+(`tests/test_a_stop_at_the_floor_reads_at_the_floor.py`.)
+
+**THE EXECUTOR'S LIMIT WAS PRICED OFF A VWAP THAT READ A NULL HIGH AS ZERO.**
+When an engine idea's limit would cross the market at placement,
+`limit_entry.calculate_entry` re-prices it from a cluster of levels built off
+the last fifty 1h candles: the VWAP, EMA9 and EMA20, and the session range.
+The EMAs and the range skipped a null value; the VWAP read it as 0
+(`float(candle[2] or 0)`). Driven over thirty flat bars, one null high and one
+null low moved the VWAP from 100.00 to 97.78, took it out of the cluster, and
+the limit's quality tier fell from A to B. A null close moved it to 98.89.
+Two neighbours had the other half of the shape: a NaN passed the EMA's and the
+range's truthiness test as a price, and a window with no stated high raised on
+an empty `max()`.
+
+Every reader in the function takes the same values now: a price the row
+states (`price_on_record`) and a volume it states (`volume_on_record`). A bar
+the VWAP cannot price adds nothing, the way a bar with no volume already did,
+and a window that states no range is no session level. Ten mutations, each
+killed on the first round. The reach is narrow and stated: this runs only when
+an engine idea's limit crosses the market at placement, and only when the venue
+answers a candle with a null field. The honesty ratchet fell 674 to 670 (the
+four `or 0` reads) and was re-recorded in the same commit.
+(`tests/test_a_null_candle_value_is_left_out_of_the_limit_levels.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -19349,9 +19426,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **476 of 1184** reach for source text through `source_scan`, `code_only`
+Driven, **477 of 1186** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 476 is a FLOOR and the honest shape is
+source scan that rule does not see, so 477 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

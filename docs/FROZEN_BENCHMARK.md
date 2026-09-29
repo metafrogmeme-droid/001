@@ -284,6 +284,19 @@ DOGE and LTC. The alts and correlation snapshots, where the rounding moved a
 sub-cent asset's levels by several percent, are not re-run here, for the
 reason the paragraph above gives.
 
+**Re-recorded on 2026-09-29 at `b8c36630`, the commit that records a stop the
+analyzer floored to `MIN_STOP_DISTANCE_PCT` at the floor the risk gate reads.**
+129 pooled trades, 66/63, net −$1,440.41, PF 0.63, 1 of 6 folds profitable,
+mean OOS −2.40%, worst −4.58%, on the same `dataset_hash`. Every fold's trade
+count and win rate match the pre-floor record `0701fb0a`, so the twelve trades
+the record lost when main's floor landed (`69f63073`, 129 to 117) are back, and
+they were not stops under the floor. The analyzer had widened each of them to
+exactly 0.40%, and the gate read about half of those at 0.39999…% from float
+noise and rounding: counted over this run, the floor widened 430 stops and the
+gate refused 202 of those ideas on STOP_DISTANCE, 23 for that reason alone.
+With the fix it refuses none of them. The net moves from −$1,456.42 to
+−$1,440.41 and the profit factor from 0.61 to 0.63.
+
 `code_sha` names the commit the measurement was taken AT, which is why the
 artefact lands in the commit AFTER the one that changed the code: an artefact
 whose sha is the commit containing it cannot exist. `73740a1a` above set the
@@ -1330,7 +1343,10 @@ Three things the table separates. **At 1x the two sizings are one formula**
 -- a division by 1 -- and the rows are byte-identical, so the twelve trades
 the record lost (129 to 117) are main's stop-distance floor (`69f63073`,
 `MIN_STOP_DISTANCE_PCT` 0.40%, the gate's final authority since
-2026-09-28): twelve ideas whose stop sat under it, refused by name. **At 5x
+2026-09-28). This sentence used to call them ideas whose stop sat under the
+floor. They were not: each stop sat AT the floor and read a hair under it
+from rounding, and the `b8c36630` re-record above brings all twelve back.
+**At 5x
 the sizing rule is what moves the money**: under the old rule the base at a
 3% stop was 66% of equity and the cap took every trade to 13%, so the loss
 at the stop was `0.13 x 5 x 3%` = 1.95% of equity on a 2% budget and 3.9% at

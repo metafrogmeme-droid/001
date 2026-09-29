@@ -16,6 +16,9 @@ import math
 from dataclasses import dataclass, field
 from typing import Optional
 
+from bot.core.position_telemetry import price_on_record
+from bot.utils.candles import volume_on_record
+
 logger = logging.getLogger(__name__)
 
 
@@ -106,11 +109,15 @@ def _calculate_vwap(ohlcv: list) -> Optional[float]:
     for candle in ohlcv:
         if len(candle) < 6:
             continue
-        high = float(candle[2] or 0)
-        low = float(candle[3] or 0)
-        close = float(candle[4] or 0)
-        volume = float(candle[5] or 0)
-        if volume <= 0:
+        # A bar whose high, low or close is not on record adds nothing, the
+        # way a bar with no volume already did. This read a null high as a
+        # high of 0: one null high and one null low among thirty bars moved
+        # the VWAP from 100.00 to 97.78, and the limit it seeds with it.
+        high = price_on_record(candle[2])
+        low = price_on_record(candle[3])
+        close = price_on_record(candle[4])
+        volume = volume_on_record(candle[5])
+        if high is None or low is None or close is None or not volume:
             continue
         typical = (high + low + close) / 3.0
         total_pv += typical * volume
@@ -161,16 +168,24 @@ def calculate_entry(
 
     if ohlcv and len(ohlcv) >= 20:
         vwap = _calculate_vwap(ohlcv)
-        closes = [float(c[4]) for c in ohlcv if len(c) >= 5 and c[4]]
+        # Each reader takes only the values the row states: a NaN passed the
+        # old truthiness test and went into the EMA and the range as a price.
+        closes = [x for x in (price_on_record(c[4]) for c in ohlcv if len(c) >= 5)
+                  if x is not None]
         if len(closes) >= 20:
             ema9 = _calculate_ema(closes, 9)
             ema20 = _calculate_ema(closes, 20)
 
-        # Session high/low from candle data if not provided
+        # Session high/low from candle data if not provided. None when no bar
+        # in the window states one: that used to raise on an empty max().
         if session_high is None:
-            session_high = max(float(c[2]) for c in ohlcv[-24:] if len(c) >= 3 and c[2])
+            session_high = max((x for x in (price_on_record(c[2]) for c in ohlcv[-24:]
+                                            if len(c) >= 3) if x is not None),
+                               default=None)
         if session_low is None:
-            session_low = min(float(c[3]) for c in ohlcv[-24:] if len(c) >= 4 and c[3])
+            session_low = min((x for x in (price_on_record(c[3]) for c in ohlcv[-24:]
+                                           if len(c) >= 4) if x is not None),
+                              default=None)
 
     # ── Build level list ──────────────────────────────────────
     # For LONG: we want levels BELOW current price (pullback entries)

@@ -93,10 +93,76 @@ def record_level(value: Any, min_places: int = LEVEL_MIN_PLACES) -> float:
     those sites move only where eight places kept fewer than six digits.
     """
     v = float(value)
-    if v == 0.0 or not math.isfinite(v):
-        return round(v, min_places)
-    places = ATR_SIG_DIGITS - 1 - math.floor(math.log10(abs(v)))
-    return round(v, max(min_places, places))
+    return round(v, level_places(v, min_places))
+
+
+def level_places(value: float, min_places: int = LEVEL_MIN_PLACES) -> int:
+    """The decimal places `record_level` keeps for this value.
+
+    Separate so a caller that has to step a recorded level by one unit
+    steps it on the grid it was recorded on, never on a second grid.
+    """
+    if value == 0.0 or not math.isfinite(value):
+        return min_places
+    places = ATR_SIG_DIGITS - 1 - math.floor(math.log10(abs(value)))
+    return max(min_places, places)
+
+
+def stop_under_floor(entry: float, stop: float, floor: float) -> bool:
+    """Whether a stop sits closer to the entry than the floor allows.
+
+    The risk gate's `STOP_DISTANCE` reading, and the one a producer that
+    places a stop at the floor asks before handing the idea on. Two copies
+    of this arithmetic disagree in the last bit, and at the floor the last
+    bit is the verdict. An entry that is not a positive price is no reading,
+    and a floor of zero or less reads no distance under it by arithmetic.
+    """
+    if entry <= 0:
+        return False
+    return abs(entry - stop) / entry < floor
+
+
+#: Steps a recorded stop may take outward to read at the floor. Recording
+#: moves each of the two prices by at most half a unit, so one step clears
+#: the rounding, and a second covers the float noise of the division.
+FLOOR_STEPS = 3
+
+#: How far under the floor, as a fraction of it, a stop may read and still
+#: be one the producer placed AT the floor. Far above float noise (about
+#: 1e-16) and far below any stop a producer placed deliberately tighter.
+FLOOR_NOISE = 1e-9
+
+
+def record_idea_levels(entry: float, stop: float, take_profit: float, *,
+                       is_long: bool, floor: float,
+                       min_places: int = LEVEL_MIN_PLACES
+                       ) -> tuple[float, float, float]:
+    """An idea's entry, stop and target as they are recorded.
+
+    Each is `record_level`. A stop the producer placed at the floor
+    (MIN_STOP_DISTANCE_PCT) can then read under it: the analyzer widened
+    a stop to exactly `floor * entry`, the idea recorded both prices, and
+    the risk gate recomputes `|entry - stop| / entry`. Driven on the majors
+    snapshot, 202 of the 430 stops the analyzer widened read under the floor
+    at the gate, and 23 ideas were refused for that alone. So when the
+    unrecorded pair was at the floor and the recorded pair reads under it,
+    the recorded stop steps outward one recorded unit at a time, up to
+    `FLOOR_STEPS`. A stop the producer placed deliberately under the floor
+    is left where it is, for the gate to refuse by name.
+    """
+    e = record_level(entry, min_places)
+    s = record_level(stop, min_places)
+    t = record_level(take_profit, min_places)
+    # No floor, or no positive entry, reaches the loop and stops at its first
+    # question, because `stop_under_floor` reads nothing under either.
+    if abs(entry - stop) >= floor * entry * (1.0 - FLOOR_NOISE):
+        places = level_places(s, min_places)
+        unit = 10.0 ** -places
+        for _ in range(FLOOR_STEPS):
+            if not stop_under_floor(e, s, floor):
+                break
+            s = round(s - unit if is_long else s + unit, places)
+    return e, s, t
 
 
 def atr_on_record(value: Any) -> Optional[float]:
