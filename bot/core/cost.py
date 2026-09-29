@@ -167,6 +167,28 @@ class CostSummary:
         return round(self.llm_cost_usd / self.llm_calls, 6) if self.llm_calls > 0 else 0.0
 
 
+def chat_spend_usd(snap: CostSummary) -> float:
+    """Today's chat spend, for chat's share of the daily budget.
+
+    Chat books its calls under ``"chat"``. When that figure cannot be read (a
+    snapshot without the category, or a value that is not a finite number),
+    the answer is the TOTAL spend: every dollar may have been chat's, so chat
+    stops at its share of the total. That is the strict direction; the other
+    fallback, zero, would let chat spend the whole budget unseen.
+    """
+    import math
+
+    total = float(snap.llm_cost_usd)
+    by_cat = getattr(snap, "cost_by_category", None)
+    value = by_cat.get("chat") if isinstance(by_cat, dict) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return total
+    value = float(value)
+    if not math.isfinite(value) or value < 0:
+        return total
+    return value
+
+
 class CostTracker:
     """Session operating-cost ledger.  Separate from trade PnL by design.
 

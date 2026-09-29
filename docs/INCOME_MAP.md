@@ -120,12 +120,12 @@ adding /swap without a landing link fails on the sa…
 Swing is a first-class hold-duration class in the engine, not a label.
 analyzer.py:1157 classifies every idea's strategy_type, and
 CONFIG.strategy_types then gives swing its own geometry and lifecycle: SL 2.5
-ATR / TP 3.5 ATR (config.py:2292-2293), trailing ENABLED on the stage table
-every type shares (:2294), a 48h time-close with a 12h warn (:2297-2298), min
-confidence 0.50 (:2313), max risk 2% (:2319) — every one distinct from the scalp row
-above it. skill_registry.py:2022 reads those multipliers when it builds the
+ATR / TP 3.5 ATR (config.py:2299-2300), trailing ENABLED on the stage table
+every type shares (:2301), a 48h time-close with a 12h warn (:2304-2305), min
+confidence 0.50 (:2320), max risk 2% (:2326) — every one distinct from the scalp row
+above it. skill_registry.py:1996 reads those multipliers when it builds the
 SL/TP ladder. Doors: /swing (scan_commands.py:1046) dispatches pro_scan
-mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2844) —
+mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2818) —
 and renders a signal card whose Take/Limit buttons run the normal confirm-and-
 execute path; the router's scan_swing intent reaches the same skill through
 SCAN_DISPATCH; /fullscan accepts a `swing` argument.
@@ -136,8 +136,8 @@ to be treated as a swing, only pick the scan timeframe. Tier feature
 `premium_scan` nominally gates /swing at pro, though the whole $RCLAW gate is
 off by default.
 
-*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:2260 is a blank line
-between RunStrategySkill._list and _run_symbol_scan; :2223-2229 is the literal
+*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:2234 is a blank line
+between RunStrategySkill._list and _run_symbol_scan; :2197-2203 is the literal
 "safe scalper" preset dict inside RunStrategySkill.PRESETS. No line in
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1868-1871
@@ -148,15 +148,15 @@ every entry and every fill).
 **Scalping** — **shipped**
 
 Same first-class treatment as swing, tuned the other way: scalp SL 1.5 ATR /
-TP 2.0 ATR (config.py:2270-2271), trailing deliberately OFF (:2272), a 2h
-time-close with a 1h warn (:2279-2280), min confidence 0.65 (:2311), max risk
-1% (:2317); smart_exits.py:34 closes a scalp after 3 candles with under 0.5R
-of movement; config.py:1679 recomputes session VWAP on 15m candles
+TP 2.0 ATR (config.py:2277-2278), trailing deliberately OFF (:2279), a 2h
+time-close with a 1h warn (:2286-2287), min confidence 0.65 (:2318), max risk
+1% (:2324); smart_exits.py:34 closes a scalp after 3 candles with under 0.5R
+of movement; config.py:1686 recomputes session VWAP on 15m candles
 specifically so scalps read a real intraday anchor. Doors: /scalp
 (scan_commands.py:1012) dispatches pro_scan mode=scalp — 5m candles, top-3 by
-volume, tight zones (skill_registry.py:2828); the router's scan_scalp intent
+volume, tight zones (skill_registry.py:2802); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
-(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:2223) as a
+(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:2197) as a
 tighten-only veto on that user's own confirms (trading_commands.py:560); /run
 scalp and /fullscan scalp are the other two.
 
@@ -181,9 +181,9 @@ Autonomously: engine.py:6290-6348 confirms and executes any idea at or above
 RUNTIME.auto_confirm_threshold with no human tap.
 
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
-LIVE_TRADING_ENABLED defaults False (config.py:2493-2494), so a stock deploy
+LIVE_TRADING_ENABLED defaults False (config.py:2500-2501), so a stock deploy
 trades perps on paper until the operator runs /golive. A real order
-additionally needs _can_trade_live (telegram_handler.py:4903), which requires
+additionally needs _can_trade_live (telegram_handler.py:4918), which requires
 BOTH the env allowlist and the per-user store flag; web-only `web:<id>`
 identities are structurally paper-only and can never pass it. Venue coverage
 is Bitget (primary) with Bybit/Hyperliquid adapters; long/short perps only —
@@ -350,7 +350,7 @@ analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
 signal modules; RiskEngine (bot/risk/risk_engine.py:270) is the fail-closed pre-
 trade gate whose whole enforcing set /enforcing lists. engine.py:6290-6348
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
-(default 0.85, config.py:2553) with no human in the loop, adaptively moved by
+(default 0.85, config.py:2560) with no human in the loop, adaptively moved by
 realized win rate (engine.py:9606): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
@@ -358,14 +358,14 @@ suppressible in live mode. Operators tune it
 with /autoconfirm, halt it with /halt //pause //emergency_stop, and inspect it
 with /risk, /gates, /shadow, /enforcing, /parity. Users get four named
 strategy presets (Dip Sniper, Momentum Hunter, Safe Scalper, Full Scan —
-skill_registry.py:2208) runnable via /run, /momentum, /dip, and pinnable to
+skill_registry.py:2182) runnable via /run, /momentum, /dip, and pinnable to
 their own confirms as a tighten-only veto (/mystrategy →
 user_strategy_store.py:37, mirrored on the web at /api/bot-strategy). Research
 rails exist and are wired: /backtest, /walkforward, /optimize, and the browser
 Strategy Lab over frozen benchmark snapshots (bot/api/lab.py:46).
 
 *Gap.* On a stock deploy the loop runs on paper — SIMULATION_MODE defaults True
-(config.py:2493) — so "the bot trades for you" is live only after the operator
+(config.py:2500) — so "the bot trades for you" is live only after the operator
 runs /golive and the caller passes _can_trade_live. Users cannot author
 strategy CODE: the presets are a fixed four-row table plus threshold fields,
 and published community strategies are declarative rule configs, not
@@ -847,7 +847,7 @@ bot/skills/start_commands.py:578 (@guard("start"), which `pending` holds, so
 the free on-ramp stays reachable by a newcomer while the allowlist gate and the
 rate limit are no longer skipped — it carried NO gate at all until 2026-09-18),
 registered at
-telegram_handler.py:1012, with LONG/SHORT/PASS inline buttons whose taps land
+telegram_handler.py:1013, with LONG/SHORT/PASS inline buttons whose taps land
 in _handle_duel_callback at start_commands.py:596; the web page at
 app/server.js:477 driving the four authed routes at
 app/routes/duel.js:43/57/73/98; and the session-free public board and referral
@@ -1278,7 +1278,7 @@ whoever already has access, not an income stream a person can run.
 
 *The verifier refused part of this row.* Status PARTIAL survives (the research surfaces are real and I drove each
 door), but the tiering claim is false on every ordinary deploy. tier_gate is
-wired — check_user() is called from telegram_handler.py:1446/4560 and
+wired — check_user() is called from telegram_handler.py:1818/5579 and
 user_gateway.py:380 — and its FIRST line is `if not gate_enabled(): return
 True, "ok"` (tier_gate.py:821). gate_enabled() (line 365-371) requires BOTH
 `TOKEN_TIER_GATE_ENABLED` AND a configured mint. The module's line-1 docstring
@@ -1678,9 +1678,9 @@ in the map.
 
 *Where.* Dashboard Markets view panel #p-rwa/#c-rwa
 (app/public/js/dashboard.js:1373 jump-nav, :1432 panel, :1522 fetch) → GET
-/api/market/rwa (app/routes/market.js:169, auth:false, public); Telegram /rwa
+/api/market/rwa (app/routes/market.js:173, auth:false, public); Telegram /rwa
 (@guard("rwa"), bot/skills/market_commands.py:72, registered
-bot/skills/telegram_handler.py:1016, reads the web via
+bot/skills/telegram_handler.py:1017, reads the web via
 bot/utils/web_data_pull.py → /api/bot/sync/card/rwa, the card RENDERED);
 web chat intercept row 4
 'rwa' (app/routes/chat.js INTERCEPTS, says "a tokenized-asset sector
@@ -1696,7 +1696,7 @@ execution-adjacent /api/meme/swap/build and /memeplan; the read-only on-chain
 meme/AI snapshot with a safety read is a separate, wider door.
 
 *Where.* Dashboard Markets panel #c-meme → GET /api/market/meme
-(app/routes/market.js:193, public; dashboard.js:1632); web chat intercept
+(app/routes/market.js:197, public; dashboard.js:1632); web chat intercept
 'meme' (app/routes/chat.js); MCP get_meme_radar (app/routes/mcp.js:666);
 app/lib/meme.js.
 
@@ -1706,7 +1706,7 @@ On-chain flow radar (exchange flows / whale accumulation). Public panel plus a
 BYOK provider that votes in the analyzer.
 
 *Where.* Dashboard Markets panel #c-flow (jump-nav 'On-chain flow') → GET
-/api/market/onchain-flow (app/routes/market.js:217; dashboard.js:1662),
+/api/market/onchain-flow (app/routes/market.js:221; dashboard.js:1662),
 app/lib/onchain_flow.js; engine side bot/core/onchain.py (BYOK
 Glassnode/Arkham/Nansen) imported by bot/core/analyzer.py and
 bot/core/token_safety.py; bot/core/smart_money.py imported by analyzer.py.
@@ -1719,7 +1719,7 @@ account market-discovery surface.
 
 *Where.* Public page GET /strengthmap (app/server.js:676) →
 app/public/js/strengthmap.js:253 → GET /api/market/strengthmap?limit=240
-(app/routes/market.js:233), app/lib/strengthmap.js; linked from
+(app/routes/market.js:237), app/lib/strengthmap.js; linked from
 app/public/index.html:149 and explore.html:183. Also the dashboard Markets
 'Sector sweep' panel #p-radar3d (dashboard.js:1425).
 
@@ -1730,7 +1730,7 @@ session detection, stock-specific risk overrides, stock universe scan, sector
 rotation, index beta.
 
 *Where.* Telegram /stockscan (@guard("scan"),
-bot/skills/scan_commands.py:1294, registered telegram_handler.py:1232) and
+bot/skills/scan_commands.py:1244, registered telegram_handler.py:1233) and
 /mode stocks (universe switch, command_catalog.py:96);
 bot/core/stock_trading.py, also read by bot/core/engine.py:8587
 (get_market_session) and scan_commands.py:376.
@@ -1974,7 +1974,7 @@ only.
 
 *Where.* GET /api/sentry (app/routes/sentry.js, JWT → gateway /sentry,
 bot/web/user_gateway.py) → dashboard.js:4004 panel #c-sentry; public /sentinel
-page (server.js:463) and GET /api/market/sentinel (market.js:257); MCP
+page (server.js:463) and GET /api/market/sentinel (market.js:261); MCP
 get_systemic_risk (mcp.js:440).
 
 **Per-user watchlist**
@@ -2382,7 +2382,7 @@ half of the measurement that says where the measurement stops.
   out of the DB row keyed on `req.user.user_id` — never off the body, the
   query or a header — so the id the gateway admin-checks is the one the
   database holds for the JWT's own subject. `_is_admin_id`
-  (`bot/skills/telegram_handler.py:5002`) is server-side too: the user store's
+  (`bot/skills/telegram_handler.py:5017`) is server-side too: the user store's
   role, or `ADMIN_TELEGRAM_IDS`. An escalation needs a foreign `telegram_id`
   written onto your own row, which is the invariant
   `identity.foreignIdentityBlock` already documents and asserts.
@@ -2469,7 +2469,7 @@ half of the measurement that says where the measurement stops.
   **The macro_skills shape does not apply.** Walked by AST, the eight handlers
   make exactly THREE attribute probes between them, and all three name real
   attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:984`),
-  `CONFIG.deepscan_timeout_sec` (`bot/config.py:2742`, and three sibling call
+  `CONFIG.deepscan_timeout_sec` (`bot/config.py:2749`, and three sibling call
   sites read it with no `getattr` at all) and `engine.analyzer`
   (`bot/core/engine.py:701`). Every handler guards its own read and has an
   honest empty state; `/sweep` and its neighbours already carry the

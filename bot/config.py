@@ -1298,6 +1298,13 @@ class LLMConfig:
     # default that won't delay normal hourly-scan operation but caps real bursts.
     max_rpm: int = int(_env_float("LLM_MAX_RPM", 40))
     daily_budget_usd: float = _env_float("LLM_DAILY_BUDGET_USD", 1.0)  # fail to rules if exceeded
+    # Chat's share of that budget. Chat spend counts toward the total, and
+    # the trade-thesis guard reads the total, so without a cap a busy chat
+    # day spent the whole budget and moved the engine to the rule engine.
+    # Chat stops at this share; the rest is the engine's. 1.0 restores the
+    # old behaviour, where chat could spend all of it; 0.0 turns the model
+    # off for chat.
+    chat_budget_share: float = _env_float_bounded("LLM_CHAT_BUDGET_SHARE", 0.5, 0.0, 1.0)
     est_cost_per_analysis: float = _env_float("LLM_EST_COST_PER_ANALYSIS", 0.003)  # for backtest projection
     # Account cascading-fallback LLM calls against the daily budgets.
     # DEFAULT ON. This opened with a stale audit annotation asserting the

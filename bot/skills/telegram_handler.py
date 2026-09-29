@@ -33,6 +33,7 @@ from bot.utils.tg_retry import send_with_retry
 from bot.utils.leveraged_return import _leveraged_return_pct, position_leverage
 from bot.core.live_executor import entry_is_estimated, position_size_basis
 from bot.core.signal_confidence import displayed_confidence
+from bot.core.cost import chat_spend_usd
 from bot.core.limit_input import (consume_pending, limit_expired_text,
                                   read_pending, typed_limit_outside_levels)
 from bot.nlp.button_actions import action_label
@@ -2944,13 +2945,27 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # LLM call regardless of how much had already been spent that day,
         # from EVERY authorized user (chat uses the operator's single
         # configured key; per-user BYOK is opt-in and off by default).
+        #
+        # Chat also stops at its SHARE of the dollar budget. The trade-thesis
+        # guard compares the TOTAL spend against the whole budget, so a busy
+        # chat day used to spend it and move the engine to the rule engine.
         if hasattr(self.engine, 'cost'):
             snap = self.engine.cost.snapshot()
-            if (snap.llm_calls >= CONFIG.llm.daily_call_limit
-                    or snap.llm_cost_usd >= CONFIG.llm.daily_budget_usd):
+            _chat_cap = CONFIG.llm.daily_budget_usd * CONFIG.llm.chat_budget_share
+            _chat_spent = chat_spend_usd(snap)
+            if snap.llm_calls >= CONFIG.llm.daily_call_limit:
+                _bound = "daily call limit"
+            elif snap.llm_cost_usd >= CONFIG.llm.daily_budget_usd:
+                _bound = "daily dollar budget"
+            elif _chat_spent >= _chat_cap:
+                _bound = "chat's share of the dollar budget"
+            else:
+                _bound = ""
+            if _bound:
                 audit(system_log,
-                      f"Chat LLM budget exhausted (calls={snap.llm_calls}, "
-                      f"cost=${snap.llm_cost_usd:.4f})",
+                      f"Chat LLM budget exhausted: {_bound} (calls={snap.llm_calls}, "
+                      f"cost=${snap.llm_cost_usd:.4f}, chat=${_chat_spent:.4f} "
+                      f"of a ${_chat_cap:.4f} chat share)",
                       action="chat_llm_budget", result="EXHAUSTED")
                 return _chat_ret(_say(
                     _ui, "chat_budget_exhausted",
