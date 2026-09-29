@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from bot.core.signal_levels import record_level
 from bot.utils.models import Direction, TradeIdea
 
 # The re-analysed geometry, named rather than spelled inline at the call site.
@@ -49,8 +50,25 @@ def reanalyzed_idea(original: TradeIdea, new_price: float) -> Optional[TradeIdea
         asset=original.asset,
         direction=original.direction,
         entry_price=new_price,
-        stop_loss=round(new_price * ((1 - STOP_PCT) if is_long else (1 + STOP_PCT)), 6),
-        take_profit=round(new_price * ((1 + TARGET_PCT) if is_long else (1 - TARGET_PCT)), 6),
+        # Recorded in significant digits (`record_level`), never on a
+        # six-decimal grid: a sub-cent re-offer at 4.9e-07 got a stop of 0.0
+        # and a target of 1e-06, and one at 1.12e-05 a stop 1.8% away and a
+        # target 7.1% away, where the card says 3% and 6%.
+        stop_loss=record_level(new_price * ((1 - STOP_PCT) if is_long else (1 + STOP_PCT))),
+        take_profit=record_level(new_price * ((1 + TARGET_PCT) if is_long else (1 - TARGET_PCT))),
+        # WHAT KIND OF TRADE THIS IS, carried over. The price moved; the trade
+        # did not change character. Left to the model's defaults, a scalp on a
+        # volume spike came back a "swing" on "momentum_confluence": its time
+        # stop went from 2h to 48h, trailing turned on where scalp trailing is
+        # off, and its hold limit went from 1.5h to 8h/16h. `htf_trend` and
+        # `timeframe` are the same analysis's reading of the market, and
+        # `entry_vwap` is the VWAP a VWAP-reversion exit is measured from
+        # (without it that exit is skipped on the re-offer's position).
+        strategy_type=original.strategy_type,
+        signal_type=original.signal_type,
+        htf_trend=original.htf_trend,
+        timeframe=original.timeframe,
+        entry_vwap=original.entry_vwap,
         confidence=original.confidence,
         reasoning=(f"Rebuilt at the current price after the original entry "
                    f"drifted. Levels are flat {STOP_PCT:.0%}/{TARGET_PCT:.0%} "

@@ -1166,6 +1166,9 @@ def restore_provenance(pos: Any, pdata: dict) -> None:
     authorized = _num_or_none(pdata.get("authorized_notional_usd"))
     if authorized is not None:
         setattr(pos, "authorized_notional_usd", authorized)
+    vwap = placement_price(pdata.get("entry_vwap"))
+    if vwap is not None:
+        setattr(pos, "entry_vwap", vwap)
     if pdata.get("close_interrupted") is True:
         setattr(pos, "close_interrupted", True)
     filled = _datetime_or_none(pdata.get("filled_at"))
@@ -2201,6 +2204,9 @@ class LiveExecutor:
         # check_degradation reads the feed's true last-message age instead of the
         # coarse _ws_last_seen shadow clock. None in paper/tests → shadow clock.
         self._ws_feed: Optional[Any] = None
+        # The price each open symbol's ticker stated on the latest monitor
+        # pass, with the wall time it was read (`pass_mark`).
+        self._pass_marks: dict[str, tuple[float, float]] = {}
         # ONE VENUE, ONE BOOK. Rows stamped with another venue are refused on
         # load and written back untouched on save (a refusal must not destroy
         # them); rows with no stamp at all were written before the stamp
@@ -8197,6 +8203,13 @@ class LiveExecutor:
             _authorized = getattr(idea, "authorized_notional_usd", None)
             if _authorized is not None:
                 setattr(position, "authorized_notional_usd", _authorized)
+            # The VWAP this position's analysis read. The VWAP-reversion exit
+            # measures against it, and it belongs to THIS position: it used to
+            # sit in one engine dict keyed by symbol, which any other confirm on
+            # the symbol overwrote and a restart emptied.
+            _vwap = placement_price(getattr(idea, "entry_vwap", None))
+            if _vwap is not None:
+                setattr(position, "entry_vwap", _vwap)
             self._recent_local_opens[normalize_symbol(idea.asset)] = time.time()
 
             # F-07 FIX: persist after opening
@@ -10023,6 +10036,47 @@ class LiveExecutor:
                     "iterations": max_iter})
         return None
 
+    def _record_pass_marks(self, tickers: dict, now_sec: float) -> None:
+        """Keep the price each ticker stated on this pass, for `pass_mark`.
+
+        The pass reads one ticker per open symbol and used to throw them
+        away after its own stop and target check. A ticker that states no
+        price, or whose timestamp is older than LIVE_TICKER_MAX_AGE_SEC, is
+        kept as no mark: the stop check may run on a stale price for an
+        unprotected position, because a stale price is a better guardian than
+        none, but a rule that closes a position by choice must not act on one.
+        The whole map is replaced, so a symbol not read this pass has no mark.
+        """
+        max_age = CONFIG.execution.live_ticker_max_age_sec
+        marks: dict[str, tuple[float, float]] = {}
+        for sym, ticker in tickers.items():
+            if not isinstance(ticker, dict):
+                continue
+            px = price_on_record(ticker.get("last"))
+            if px is None or self._ticker_too_old(ticker, max_age, now_sec):
+                continue
+            marks[sym] = (px, now_sec)
+        self._pass_marks = marks
+
+    def pass_mark(self, symbol: str, now_sec: Optional[float] = None) -> Optional[float]:
+        """The price ``symbol``'s ticker stated on this executor's latest
+        monitor pass, or None: nothing read, a ticker that stated no price or
+        a stale one, or a pass older than LIVE_TICKER_MAX_AGE_SEC.
+
+        The engine's smart exits run right after the pass and read this, so
+        they decide on the price the stop and target check just used.
+        """
+        marks: dict[str, tuple[float, float]] = getattr(self, "_pass_marks", {})
+        entry = marks.get(symbol)
+        if entry is None:
+            return None
+        px, read_at = entry
+        now = time.time() if now_sec is None else now_sec
+        max_age = CONFIG.execution.live_ticker_max_age_sec
+        if max_age > 0 and now - read_at > max_age:
+            return None
+        return px
+
     @staticmethod
     def _ticker_too_old(ticker, max_age_sec: float, now_sec: float) -> bool:
         """True if the ticker's timestamp is older than ``max_age_sec`` — so its
@@ -10118,6 +10172,7 @@ class LiveExecutor:
             for sym in open_symbols:
                 if sym in tickers:
                     self._ticker_failure_count.pop(sym, None)
+            self._record_pass_marks(tickers, time.time())
 
             for trade_id, pos in list(self._positions.items()):
                 # ONE POSITION'S FAULT COSTS ONLY THAT POSITION. Without this,
@@ -15259,6 +15314,10 @@ class LiveExecutor:
                     # drift rule measures from (`resting_limit_drift`).
                     "placed_market_price": getattr(pos, "placed_market_price", None),
                     "authorized_notional_usd": getattr(pos, "authorized_notional_usd", None),
+                    # The VWAP this position's analysis read, which its
+                    # VWAP-reversion exit is measured from. Unsaved, a restart
+                    # left that exit with nothing to measure against.
+                    "entry_vwap": getattr(pos, "entry_vwap", None),
                     # When a limit entry FILLED (opened_at is when it was
                     # placed). Unsaved, a restart put every hold and time
                     # exit back on the placement clock.

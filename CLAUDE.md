@@ -817,7 +817,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 670 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 669 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -18212,6 +18212,101 @@ The sentiment voter reads the newest snapshot of any symbol; that is latent,
 armed by the ONCHAIN await.
 (`tests/test_an_empty_book_or_quiet_tape_is_not_an_order_flow_reading.py`.)
 
+**THE ENGINE'S SMART EXITS HAD A PRICE FOR THREE SYMBOLS.**
+`_evaluate_live_smart_exits` runs the rules a position card promises will
+close it: no progress, the signal's hold limit and twice it, volume decay,
+and VWAP reversion. It priced each live position off the WS feed alone. The
+feed carries what somebody subscribed: BTC, ETH and SOL at start, plus the
+paper positions. Driven with a live swing held 60h and flat, the BTC position
+was closed by its hold limit and the same position on PENDLE was left open,
+because the rules below the price check never ran. So for most of the book
+the time-exit line on its card named a close that nothing would make.
+
+The executor's own monitor pass runs just before and reads one ticker per open
+symbol for its stop and target check, then threw them away. It keeps them now:
+`_record_pass_marks` stores the price each ticker stated, with the time it was
+read, and `pass_mark(symbol)` hands it back. A ticker that states no price, or
+whose timestamp is older than `LIVE_TICKER_MAX_AGE_SEC`, leaves no mark. The
+stop check may still run on a stale price for an unprotected position (a stale
+guardian is better than none), but a rule that closes a position by choice
+must not act on one. A mark older than the same bound is not read, and the
+map is replaced on every pass, so a symbol not read this pass has none. The
+smart exits read the pass mark first and a fresh WS tick second, each through
+`price_on_record`. With neither, the position is skipped, as before.
+
+**IN LIVE MODE A STALE PAPER POSITION FED THE LIVE ENGINE.** Nothing writes
+the shared paper book in live mode; a practice fill goes to the person's own
+book. So what it holds is whatever paper trading left before the account went
+live. `_check_paper_positions` still checked it against live prices. Driven,
+one leftover ETH long stopped out and:
+
+- took the live loss streak from 0 to 1;
+- put a paper close in the live governor's window;
+- paused the engine for every account;
+- pushed the paper book to the website as the agent's record.
+
+In live mode the shared book is left alone now. It is not priced, marked,
+held against a limit or stopped out, and its symbols are not subscribed to
+the feed for it. That last point matters beyond the feed: the paper book's
+equity is what the drawdown reading falls back to before a live equity has
+been read. The positions stay as they are and resume if the bot returns to
+paper. The engine says once per process which positions they are, at
+WARNING (`paper_book_idle`). Practice books are monitored as before, and
+paper mode is unchanged. One test pinned the shared-book pause in live mode
+as the contract. It said *"a restored position can still close there"*,
+which is the defect. It drives paper mode now.
+
+**ONE VWAP PER SYMBOL, IN MEMORY.** The VWAP-reversion exit measured against
+`engine._last_vwap[symbol]`:
+
+- written at confirm time, so another account's confirm on the same symbol
+  replaced it;
+- emptied by a restart;
+- filled with the ENTRY PRICE when the analysis had recorded no VWAP.
+
+The last of those makes the exit measure a position against itself. The
+analyzer stamped the reading as `idea._entry_vwap`, a private attribute the
+model does not declare. It is `TradeIdea.entry_vwap` now. The executor records
+it on the position it opens and saves it with the row, and a saved value that
+is not a price restores as absent. The live exit reads the position's own
+field, and a position without one skips that exit.
+
+**The paper loop's VWAP exit is deleted, not converted.** It read the same
+dict, which only live confirms wrote. A paper position (`TradeExecution`) has
+no field for a VWAP and loading ignores the key, so once the dict was gone
+the branch could never fire. The mutation round said so: standing the entry
+in for the VWAP there changed no verdict.
+
+**A DRIFT RE-OFFER DROPPED WHAT KIND OF TRADE IT WAS.** `reanalyzed_idea`
+rebuilds an idea at the current price after its entry drifted, and left every
+other field to the model's defaults. A scalp on a volume spike came back as a
+swing on momentum:
+
+- its time stop went from 2h to 48h;
+- trailing turned on, where scalp trailing is off;
+- its hold limit went from 1.5h (3h hard) to 8h (16h hard).
+
+It carries the strategy and signal types, the higher-timeframe trend, the
+timeframe and the VWAP now. Its levels were also rounded to six decimal
+places, the grid the sub-cent chapter retired. A re-offer at 1.12e-05 got a
+stop 1.8% away and a target 7.1% away where the card says 3% and 6%, and one
+at 4.9e-07 got a stop of 0.0. They are recorded in significant digits now.
+
+**Twenty-nine mutations: twenty-five killed on the first round, three killed
+once the corpus had a case that could tell, and one retired with the deleted
+branch.** The three were fixtures:
+
+- The mark deciding over the WS tick was pinned on a 60h swing, which its hard
+  hold limit closes at any price. A two-minute VWAP reversion is decided by
+  the price alone.
+- A WS tick read without `price_on_record` changed nothing on the R rules,
+  which refuse a junk price by themselves. The VWAP rule does not: it read
+  -1.0 as 101% under VWAP and infinity as a reversion complete.
+- The paper hold loop walking the shared book in live mode was pinned on a
+  fresh position, which no hold limit reaches. A 20h one is, and a
+  paper-mode twin shows the fixture reaches the rule.
+(`tests/test_a_live_exit_reads_its_own_price_book_and_vwap.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -18691,7 +18786,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 263 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 264 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -19503,9 +19598,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **477 of 1187** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1188** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 477 is a FLOOR and the honest shape is
+source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
