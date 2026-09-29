@@ -31,7 +31,7 @@ INDEX = ROOT / "docs" / "lessons" / "INDEX.md"
 
 _HEADING = re.compile(r"^(#{2,3}) (.+?)\s*$")
 _LEAD = re.compile(r"^\*\*([^*]{12,}?)\*\*")
-_TEST = re.compile(r"(?<![\w/])((?:tests|app/test)/[\w./-]+\.(?:py|js))")
+_TEST = re.compile(r"(?<![\w/])((?:tests|app/test)/[\w./-]+\.(?:py|js))(?!\w)")
 
 
 def _is_lead(text: str) -> bool:

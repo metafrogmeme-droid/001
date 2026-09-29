@@ -74,11 +74,13 @@ named exceptions, each with a reason, and are two-way: a new site fails, and a
 listed site that no longer exists fails. Never widen a baseline to get green;
 fix the site or record it with a reason a reviewer can check.
 
-`tests/test_claude_md_accuracy.py` reads numbers and citations out of
-`docs/lessons/ENGINEERING_LOG.md` and `docs/INCOME_MAP.md` and compares them
-with the code. When you move code that the map cites by `path:line`, re-derive
-the citation from what its sentence names; a mechanical line shift preserves
-what a citation pointed at, right or wrong. The generated block in
+`tests/test_claude_md_accuracy.py` reads numbers out of
+`docs/lessons/ENGINEERING_LOG.md` and compares them with the code.
+`docs/INCOME_MAP.md` cites code by symbol, never by line
+(`path::Qualname`, or `path::Qualname#"marker"` for one line inside it), and
+`python3 scripts/cite.py --check docs/INCOME_MAP.md` fails on an anchor that
+does not resolve; a new `path:line` citation there fails a test. An anchor
+should name what its sentence names, which the check cannot judge. The generated block in
 `.env.example` is regenerated with `scripts/safety_flag_inventory.py
 --section`, and `docs/lessons/INDEX.md` with `scripts/lessons_index.py`.
 

@@ -109,3 +109,37 @@ def test_check_mode_reports_a_stale_index(tmp_path, monkeypatch):
     assert mod.main(["--check"]) == 1
     idx.write_text(mod.build(log.read_text(encoding="utf-8")), encoding="utf-8")
     assert mod.main(["--check"]) == 0
+
+
+def test_a_cited_json_file_is_not_indexed_as_a_js_file():
+    """The path pattern once had no end boundary, so `tests/x_baseline.json`
+    was indexed as `tests/x_baseline.js`, a file that does not exist."""
+    mod = _lessons_index()
+    planted = "\n".join([
+        "## S", "",
+        "**A CHAPTER THAT CITES A BASELINE.** It names",
+        "`tests/honesty_baseline.json`, `app/test/asset_versions.json` and",
+        "`tests/test_real.py`.", "",
+    ])
+    out = mod.build(planted)
+    assert "`tests/test_real.py`" in out
+    assert "honesty_baseline.js`" not in out
+    assert "asset_versions.js`" not in out
+
+
+def test_every_guard_the_index_names_exists():
+    text = INDEX.read_text(encoding="utf-8")
+    named = set(re.findall(r"`((?:tests|app/test)/[\w./-]+\.(?:py|js))`", text))
+    assert named, "the index names no guard tests; the pattern no longer matches it"
+    missing = sorted(p for p in named if not (ROOT / p).exists())
+    assert missing == sorted(NOT_A_FILE), (
+        "the index names a guard that does not exist (a renamed test, or a "
+        f"path the pattern misread): {sorted(set(missing) - set(NOT_A_FILE))}; "
+        f"stale exemptions: {sorted(set(NOT_A_FILE) - set(missing))}")
+
+
+#: Paths the log names that are not files, each with its reason.
+NOT_A_FILE = {
+    "tests/planted.py": "a synthetic nodeid the network-reach chapter quotes; "
+                        "that guard drives the containment with it on purpose",
+}

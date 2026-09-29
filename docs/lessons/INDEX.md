@@ -79,7 +79,7 @@ about to change before changing it.
 - L6620: A FAILED READ REACHED EVERY READER AS AN EMPTY UNIVERSE — `app/test/meme_safety_read_is_only_what_reported.test.js`
 - L6675: FOUR COPIES OF THE COERCION, AND THE LAST TWO WERE LITERALS IN A BROWSER
 - L6690: A SIZE NOBODY REPORTED CLEARS EVERY CAP THERE IS
-- L6699: THE ONE RULE THAT READ `None` CORRECTLY SAID IT BADLY — `app/test/asset_versions.js`, `app/test/collapsed_row_is_a_label_and_a_value.smoke.test.js`, `app/test/cross_yield_reports_what_it_was_told.test.js`, `tests/command_gates.py`, `tests/test_an_unreported_lockup_is_not_a_recallable_route.py`
+- L6699: THE ONE RULE THAT READ `None` CORRECTLY SAID IT BADLY — `app/test/collapsed_row_is_a_label_and_a_value.smoke.test.js`, `app/test/cross_yield_reports_what_it_was_told.test.js`, `tests/command_gates.py`, `tests/test_an_unreported_lockup_is_not_a_recallable_route.py`
 - L6847: `/funding` WAS THIS FILE'S OPENING EXAMPLE, WITH A REMEDY ATTACHED
 - L7001: AND THE COROLLARY SWEEP FOUND THE THIRD NOUN, HALF-BUILT
 - L7035: AND THE NORTH STAR'S OWN COUNT HAD ROTTED UNDER ITS OWN LIST — `tests/test_the_bot_can_say_what_it_does.py`, `tests/test_the_credential_writes_have_their_own_permission.py`, `tests/test_the_income_map_counts_its_own_list.py`, `tests/test_the_session_timeout_covers_what_it_claims.py`, `tests/test_the_tier_gate_is_asked_about_a_feature.py`
@@ -240,7 +240,7 @@ about to change before changing it.
 
 - L19344: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
 - L19545: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
-- L19572: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/honesty_baseline.js`, `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
+- L19572: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
 
 ### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 19806)
 
