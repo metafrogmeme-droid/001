@@ -1195,12 +1195,20 @@ def render_open_positions(positions: List[Dict[str, Any]], lang: str = "en") -> 
         strategy_type = p.get("strategy_type", "").upper()
         st_tag = f" [{strategy_type}]" if strategy_type else ""
 
+        # The MARK cell says whether the mark was read, and nothing else: a
+        # P&L missing its margin or leverage over a read mark printed
+        # "price unavailable" beside a price that was there.
+        _mark_read = current is not None and not p.get("price_unavailable")
+        _mark_cell = (_fmt_price(current) if _mark_read
+                      else f"<i>{t('price_unread', lang)}</i>")
         if _unread:
             _pnl_cell = f"{pnl_icon} {t('pnl_unknown', lang)}"
-            _mark_cell = f"<i>{t('price_unread', lang)}</i>"
+        elif pnl_usd_val is None:
+            # The percent is read and the dollars are not (no margin on
+            # record): a dash, where `{None:+,.2f}` raised.
+            _pnl_cell = f"{pnl_icon} {_pct(pnl)} (\u2014)"
         else:
             _pnl_cell = f"{pnl_icon} {_pct(pnl)} (${pnl_usd_val:+,.2f})"
-            _mark_cell = _fmt_price(current)
         lines.extend([
             f"{d_icon} <b>{pair}</b> {direction}{st_tag} | {_pnl_cell}",
             f"  {_fmt_price(entry)} -> {_mark_cell} | {size_str}{lev_str}{rr_str} | {hold_str}",

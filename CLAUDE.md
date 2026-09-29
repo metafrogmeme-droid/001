@@ -817,7 +817,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 683 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 679 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -17544,6 +17544,98 @@ operator's next fill is taken for a row the book already held. Two tests pin
 that now, and the mutation dies on both.
 (`tests/test_an_open_is_announced_when_the_position_opens.py`.)
 
+**THE /livepositions PICTURE CARD PRINTED FIGURES THE RECORD DOES NOT HOLD,
+AND /positions HAD THE SAME DEFECTS ONE COMMAND OVER, WITH TWO CRASHES.** The
+card's producer built its own dict inline. Driven before the fix:
+
+- `rr` read `getattr(p, "rr", 0)`, an attribute `LivePosition` does not have,
+  so every card printed `R:R 0.0x`: the worst ratio there is, on every
+  position.
+- `fees` was the literal `0.0` and the net was the gross, so the NET cell
+  repeated the gross beside `fees $0.00`.
+- An adopted position whose margin the venue never stated printed
+  `SIZE $0.00`, and its stop, which adoption records as `0.0`, was tagged
+  `bot-managed`: a stop the card vouches for and nothing will act on.
+- A mark nobody read printed as a price of `0`, with both distances `0.0%`.
+- A pending order whose mark could not be read raised on `None > 0` after the
+  positions picture had been sent, so the caller sent the text readout on top
+  of it.
+
+`live_position_card_data` is one reading, built from the helpers /positions
+already uses: `position_size_basis`, `position_leverage`, the leveraged P&L
+pair, `position_fee_estimate`, `live_rr` and `entered_at`. Every figure is
+None when it cannot be read, and the renderer prints its own word for each.
+`level_status` has three answers: on exchange, bot-managed, none on record.
+The pending row is `live_pending_order_row`, and the pending card has a `try`
+of its own. When it fails after the positions picture went out, one line says
+so and names /orders; when nothing went out, the text readout follows as
+before.
+
+**/positions, driven before the fix:**
+
+- An adopted position with no margin on record printed `$102.00` as its size.
+  That was `cost_usd if > 0 else notional` again, the two-meanings shape
+  `position_size_basis` retired. `open_book_return` then multiplied that
+  notional by the ROE and headed the card `+10.00% total`.
+- The row under that header said `price unavailable` over a mark that had been
+  read. The missing reading was the margin.
+- An entry of `0.0` raised `ZeroDivisionError` and ended the command before it
+  sent anything.
+- An adopted resting order, whose leverage adoption records as 0, raised in
+  `pending_order_card` on `{None:.0f}`.
+- The stop and target distances were measured from the entry whenever the mark
+  was unread.
+
+The size is the margin or None. The distances and the R:R come from the mark
+only. The entry and the mark are read through `price_on_record`. And the
+pending card prints `margin unread` and `leverage unread`.
+
+**A P&L that cannot be shown names the reading that is missing.**
+`pnl_unread_cause` answers the first one missing, in the order the arithmetic
+needs them: mark, entry, leverage, margin. Every card prints it in place of
+the figure. "price unavailable" over a read mark is a false cause, and so was
+the coverage note's "have no readable mark" for a row left out for want of a
+margin. `open_book_return` counts the two causes apart now, and the note names
+each. The orphan row's P&L is the venue's, so its cause is "P&L not stated".
+
+**Making the size honest found the third crash before it shipped.** The text
+card formatted the dollars as `{None:+,.2f}` once a percent was read and a
+margin was not. It prints a dash there now. The /orders card read
+`.get(k, 0)` and drew `CURRENT 0`, `TO FILL +0.00%` and `Qty 0.0000` for a
+read that failed. It omits the two cells and says `Qty: unread`.
+
+**One change was reverted as equivalent.** Giving `pending_order_card`'s stop
+tag the three-valued reading changed no output. The tag is printed only beside
+a stop distance, and a stop distance already requires a stop on record.
+
+**A guard anchored on the text the fix changed.** The abort chapter's
+`test_positions_really_CALLS_the_seam` found its owner by the literal
+`SL bot-managed`. The refusal line now prints the stop's own status, so the
+spelling moved while the property held. It is anchored on
+`placement was refused` now.
+
+**The type ratchet grew by three, from one function holding both branches.**
+The live branch's `pnl_pct_raw` and `pnl_pct` became Optional, and the paper
+branch below, in the same function, uses the same names for plain floats. So
+the paper arithmetic became two `operator` findings and one `assignment`. The
+live locals have names of their own now, and the ratchet improved by one.
+Honesty went 683 to 679: the orders card's `.get(k, 0)` reads and the card's
+`getattr(p, "rr", 0)`.
+
+**Forty-two mutations. Eight survived the first round, and seven of those
+were drives the slice had not written.** The /orders producer's rows were read
+by no test, so an unread amount and distance reaching its card as `0` changed
+nothing. The time-exit caption's marks were wired before this slice and never
+driven. The renderer was never handed junk, or a pending order with a mark and
+no price of its own. The paper row writes `current: 0` beside its unread flag,
+and nothing drove that shape. And an infinite mark: the fetch stores any
+`last > 0`, and the row read it as a mark for its unread flag and as no mark
+for everything else, so the card printed the entry as the current price. Each
+has a drive now and each mutation dies. The eighth was a check no input
+reaches: the coverage note refused a `bool` count, and no producer writes one.
+It is deleted.
+(`tests/test_the_livepositions_card_prints_what_the_record_holds.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -18835,7 +18927,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **474 of 1176** reach for source text through `source_scan`, `code_only`
+Driven, **474 of 1177** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 474 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

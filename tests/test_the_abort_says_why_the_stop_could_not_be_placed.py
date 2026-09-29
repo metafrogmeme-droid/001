@@ -283,11 +283,15 @@ class TestTheOtherThreeReadersAskTheSeam:
         # DERIVED, not named: the first draft asserted `_cmd_livepositions`
         # and the renderer is `_render_livepositions_cards`, so it accused
         # correct code. The owner is whichever function renders the line.
+        # Anchored on the REFUSAL sentence, which is the claim: its first
+        # anchor was the literal "SL bot-managed", and the line now reads the
+        # stop's own status (a stop with no price on record is not
+        # bot-managed), so the spelling moved while the property held.
         owners = [n for n in ast.walk(tree)
                   if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))
-                  and any("SL bot-managed" in ln
+                  and any("placement was refused" in ln
                           for ln in lines[n.lineno - 1:(n.end_lineno or n.lineno)])]
-        assert owners, "nothing renders the bot-managed stop line any more"
+        assert owners, "nothing renders the refused-stop line any more"
         owner = min(owners, key=lambda n: (n.end_lineno or 0) - n.lineno)
         calls = [n for n in ast.walk(owner)
                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)

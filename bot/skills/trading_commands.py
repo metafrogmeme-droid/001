@@ -168,6 +168,126 @@ def position_fee_estimate(pos: dict) -> dict:
             "total_fees": entry_fee + exit_fee, "funding_paid": funding_paid}
 
 
+def level_status(price: object, order_id: object) -> str:
+    """Where a stop or target is held: on the venue, by the bot, or nowhere.
+
+    "bot-managed" says the level exists and the bot will close at it, and both
+    position cards printed it for every level with no order id -- including a
+    stop the record does not hold at all, which an adopted position carries as
+    ``0.0``. That is a stop the card vouches for and nothing will act on.
+    """
+    if order_id:
+        return "on exchange"
+    if price_on_record(price) is not None:
+        return "bot-managed"
+    return "none on record"
+
+
+def pnl_unread_cause(entry: Optional[float], mark: Optional[float],
+                     leverage: Optional[float],
+                     margin: Optional[float]) -> Optional[str]:
+    """Which reading an open position's P&L is missing, or None when none is.
+
+    The cards printed "price unavailable" for every P&L they could not show,
+    including a position whose mark WAS read and whose margin the venue never
+    stated. The remedy differs by cause, so the sentence names it. The order
+    is the order the arithmetic needs them: a mark, an entry, a leverage for
+    the percent, and a margin for the dollars.
+    """
+    if mark is None:
+        return "price unavailable"
+    if entry is None:
+        return "entry unread"
+    if leverage is None:
+        return "leverage unread"
+    if margin is None:
+        return "margin unread"
+    return None
+
+
+def _hold_text(hold_h: Optional[float]) -> str:
+    """A hold time, or empty for an age nobody recorded (the card prints its dash)."""
+    if hold_h is None:
+        return ""
+    mins = int(hold_h * 60)
+    return f"{mins}m" if mins < 60 else f"{mins // 60}h {mins % 60}m"
+
+
+def live_position_card_data(pos: Any, mark: object, now: Any) -> dict:
+    """What the /livepositions picture card prints for one open position.
+
+    Built from the same readings /positions uses, because this card had its
+    own and they were placeholders: ``rr`` read an attribute ``LivePosition``
+    does not have (every card printed ``R:R 0.0x``), fees were the literal
+    ``0.0`` and the net was the gross, the size was ``0`` when the margin was
+    unread, and a stop the record holds was printed ``(0.0%)`` away whenever
+    the mark could not be read. Every figure here is None when it cannot be
+    read, and the renderer prints its own word for each.
+    """
+    from bot.core.live_executor import position_size_basis
+
+    margin, notional = position_size_basis(pos)
+    lev = position_leverage(getattr(pos, "leverage", None), margin, notional)
+    entry = price_on_record(getattr(pos, "entry_price", None))
+    cur = price_on_record(mark)
+    direction = getattr(pos, "direction", "LONG")
+    pnl_usd = pnl_pct = None
+    if entry is not None and cur is not None:
+        pnl_usd = _leveraged_pnl_usd(entry, cur, direction, margin, lev)
+        pnl_pct = _leveraged_return_pct(entry, cur, direction, lev)
+    opened = entered_at(pos)
+    hold_h = ((now - opened).total_seconds() / 3600
+              if opened is not None else None)
+    fees = position_fee_estimate({
+        "entry": entry, "current": cur,
+        "quantity": getattr(pos, "quantity", None),
+        "hold_hours": hold_h, "order_type": getattr(pos, "order_type", ""),
+        "notional_usd": notional,
+    })
+    total, funding = fees["total_fees"], fees["funding_paid"]
+    net = (None if pnl_usd is None or total is None or funding is None
+           else pnl_usd - total - funding)
+    sl = price_on_record(getattr(pos, "stop_loss", None))
+    tp = price_on_record(getattr(pos, "take_profit", None))
+    return {
+        "symbol": getattr(pos, "symbol", ""), "direction": direction,
+        "is_live": True, "entry": entry, "now": cur,
+        "pnl_pct": pnl_pct, "pnl_usd": pnl_usd, "net_pnl": net,
+        "fees": None if total is None or funding is None else total + funding,
+        "pnl_unread": pnl_unread_cause(entry, cur, lev, margin),
+        "size_usd": margin, "leverage": lev, "hold_time": _hold_text(hold_h),
+        "rr": live_rr(cur, sl, tp),
+        "sl": sl, "tp": tp,
+        "sl_pct": (abs(cur - sl) / cur * 100
+                   if cur is not None and sl is not None else None),
+        "tp_pct": (abs(tp - cur) / cur * 100
+                   if cur is not None and tp is not None else None),
+        "sl_status": level_status(sl, getattr(pos, "sl_order_id", None)),
+        "tp_status": level_status(tp, getattr(pos, "tp_order_id", None)),
+    }
+
+
+def live_pending_order_row(pos: Any, mark: object) -> dict:
+    """One row of the /livepositions pending-orders card.
+
+    A mark nobody read is None, never ``0.0``: the renderer compared the
+    ``None`` a failed ticker read answers with ``> 0`` and raised, which
+    discarded the positions picture already sent and sent the text readout
+    after it.
+    """
+    entry = price_on_record(getattr(pos, "entry_price", None))
+    cur = price_on_record(mark)
+    qty = price_on_record(getattr(pos, "quantity", None))
+    return {
+        "sym": getattr(pos, "symbol", ""),
+        "side": "BUY" if getattr(pos, "direction", "") == "LONG" else "SELL",
+        "price": entry, "current_price": cur, "amount": qty, "type": "limit",
+        "dist_pct": (abs(cur - entry) / entry * 100
+                     if cur is not None and entry is not None else None),
+        "oid": str(getattr(pos, "trade_id", "")),
+    }
+
+
 #: Telegram refuses a photo caption past 1024 characters and ``_send_photo``
 #: cuts at that bound; the margin keeps an escaped entity off the edge.
 _CAPTION_BUDGET = 1000
@@ -326,7 +446,15 @@ def pending_order_card(po: dict) -> str:
         f"\U0001f4cd <b>Limit Price:</b> <code>${limit_price:,.4f}</code>",
         f"\U0001f4b2 <b>Current:</b>    {fill_line}",
         "",
-        f"\U0001f4b0 <b>Size:</b> <code>${size_usd:,.2f}</code> margin | <b>{leverage:.0f}x</b> leverage",
+        # An adopted resting order records no margin and a leverage of 0,
+        # which the row builder publishes as None: `{None:.0f}` raised here and
+        # the pending loop has no try, so every order after it went unshown.
+        "\U0001f4b0 <b>Size:</b> "
+        + ("<i>margin unread</i>" if size_usd is None
+           else f"<code>${size_usd:,.2f}</code> margin")
+        + " | "
+        + ("<i>leverage unread</i>" if leverage is None
+           else f"<b>{leverage:.0f}x</b> leverage"),
     ]
     if quantity > 0:
         lines.append(f"   Qty: <code>{quantity:.4f}</code> contracts")
@@ -952,55 +1080,10 @@ class TradingCommands:
                 # we do not know the current price.
                 cur = await _last(p.symbol) if exchange else None
                 _marks[p.trade_id] = cur
-                # `lev` WAS `getattr(p, "leverage", 10) or 1`, which invents a
-                # leverage TWICE from one line: a missing attribute became 10x
-                # and a recorded 0 became 1x. The card prints that number as
-                # fact — "| 10x" — and multiplies the return by it, so a
-                # position nobody could size rendered a tenfold ROE beside a
-                # confident multiple. `position_leverage` derives it from the
-                # margin and the notional and answers None when it cannot.
-                _margin = getattr(p, "cost_usd", None)
-                _qty = getattr(p, "quantity", None)
-                _notional = (p.entry_price * _qty
-                             if p.entry_price > 0 and isinstance(_qty, (int, float))
-                             and _qty > 0 else None)
-                lev = position_leverage(getattr(p, "leverage", None), _margin, _notional)
-                cost = _margin if isinstance(_margin, (int, float)) and _margin > 0 else 0
-                # None means unreadable and the card renders "—". Omit, never
-                # invent: a fabricated 0.00% is worse than an absent one,
-                # because it looks like a measurement.
-                #
-                # THE GUARD BELOW COVERED THE PRICES AND NOT THE MARGIN. `cost`
-                # was `cost_usd or 0`, so an ORPHAN — the position whose margin
-                # the venue never reported — reached the helper and came back
-                # 0.0, printing $0.00 directly under the comment above
-                # forbidding exactly that.
-                pnl_usd = pnl_pct = None
-                if cur and cur > 0 and p.entry_price > 0 and lev is not None:
-                    pnl_usd = _leveraged_pnl_usd(
-                        p.entry_price, cur, p.direction, cost, lev)
-                    # Both from the same pair of helpers, so the percent cannot
-                    # be on one basis while the dollar is on another — the
-                    # whole reason this leaf exists.
-                    pnl_pct = _leveraged_return_pct(
-                        p.entry_price, cur, p.direction, lev)
-                hold = ""
-                if entered_at(p):
-                    mins = int((now - entered_at(p)).total_seconds() // 60)
-                    hold = f"{mins}m" if mins < 60 else f"{mins // 60}h {mins % 60}m"
-                sl_pct = (abs(cur - p.stop_loss) / cur * 100) if (cur and cur > 0 and p.stop_loss > 0) else 0
-                tp_pct = (abs(p.take_profit - cur) / cur * 100) if (cur and cur > 0 and p.take_profit > 0) else 0
-                png = render_position_card({
-                    "symbol": p.symbol, "direction": p.direction, "is_live": True,
-                    "entry": p.entry_price, "now": cur or 0,
-                    "pnl_pct": pnl_pct, "pnl_usd": pnl_usd, "net_pnl": pnl_usd,
-                    "fees": 0.0, "size_usd": cost, "leverage": lev, "hold_time": hold,
-                    "rr": getattr(p, "rr", 0) or 0,
-                    "sl": p.stop_loss, "tp": p.take_profit,
-                    "sl_pct": sl_pct, "tp_pct": tp_pct,
-                    "sl_status": "on exchange" if getattr(p, "sl_order_id", None) else "bot-managed",
-                    "tp_status": "on exchange" if getattr(p, "tp_order_id", None) else "bot-managed",
-                })
+                # One reading of what the card prints, the one /positions'
+                # figures come from; see `live_position_card_data` for what
+                # this loop used to hand the renderer instead.
+                png = render_position_card(live_position_card_data(p, cur, now))
                 if png:
                     pos_pngs.append(png)
             if pos_pngs:
@@ -1024,8 +1107,10 @@ class TradingCommands:
                         _safe = venue_reason(_why)
                         if _safe:
                             _sym_short = p.symbol.replace("/", "").replace(":USDT", "")
+                            _held = level_status(
+                                getattr(p, "stop_loss", None), None)
                             _why_lines.append(
-                                f"⚠️ {html.escape(_sym_short)} SL bot-managed — "
+                                f"⚠️ {html.escape(_sym_short)} SL {_held} — "
                                 f"placement was refused: <code>{_safe}</code>")
                 _cap = f"\U0001f4c8 <b>ACTIVE POSITIONS ({len(pos_pngs)})</b>"
                 if _why_lines:
@@ -1036,21 +1121,30 @@ class TradingCommands:
                     sent_any = True
 
             # ── Pending limit orders card ──
+            # Its own try: a failure here used to reach the outer handler,
+            # which answered False over a positions picture already sent, so
+            # the caller sent the text readout after it.
             if pending_pos:
-                order_rows = []
-                for p in pending_pos:
-                    cur = await _last(p.symbol) if exchange else 0.0
-                    dist = (abs(cur - p.entry_price) / p.entry_price * 100) if (cur > 0 and p.entry_price > 0) else 0
-                    order_rows.append({
-                        "sym": p.symbol, "side": "BUY" if p.direction == "LONG" else "SELL",
-                        "price": p.entry_price, "current_price": cur,
-                        "amount": getattr(p, "quantity", 0) or 0, "type": "limit",
-                        "dist_pct": dist, "oid": str(getattr(p, "trade_id", "")),
-                    })
-                opng = render_orders_card(order_rows, timestamp=f"{now.strftime('%H:%M')} UTC")
-                if opng and await self._send_photo(
-                        update, opng, f"⏳ <b>PENDING ORDERS ({len(order_rows)})</b>"):
-                    sent_any = True
+                try:
+                    order_rows = [
+                        live_pending_order_row(
+                            p, await _last(p.symbol) if exchange else None)
+                        for p in pending_pos]
+                    opng = render_orders_card(
+                        order_rows, timestamp=f"{now.strftime('%H:%M')} UTC")
+                    if opng and await self._send_photo(
+                            update, opng,
+                            f"⏳ <b>PENDING ORDERS ({len(order_rows)})</b>"):
+                        sent_any = True
+                except Exception as exc:
+                    system_log.warning(
+                        "livepositions pending-orders card failed: %s",
+                        type(exc).__name__)
+                    if sent_any:
+                        await self._send(
+                            update,
+                            f"⏳ {len(pending_pos)} pending order(s): the card "
+                            "could not be drawn. /orders lists them.")
 
             return sent_any
         except Exception as exc:
@@ -1657,11 +1751,14 @@ class TradingCommands:
             card_data = []
             for o in priced[:6]:
                 cur = reading.prices.get(o["sym"])
-                dist = ((cur - o["price"]) / cur * 100) if cur is not None and cur > 0 else 0
+                dist = ((cur - o["price"]) / cur * 100) if cur is not None and cur > 0 else None
+                # An unread mark or amount goes to the card as None: the card
+                # omits the one and prints "Qty: unread" for the other, where
+                # a 0 printed a measured "Qty: 0.0000".
                 card_data.append({
                     "sym": o["sym"], "side": o["side"], "price": o["price"],
-                    "current_price": cur if cur is not None else 0,
-                    "amount": o["amount"] if o["amount"] is not None else 0,
+                    "current_price": cur,
+                    "amount": o["amount"],
                     "ttl_str": o.get("ttl_str", ""), "oid": o["oid"],
                     "created": o.get("created", ""), "type": o["type"],
                     "dist_pct": dist,
@@ -1732,12 +1829,21 @@ class TradingCommands:
                     # from a real, measured, break-even position. Carry the
                     # gap instead of papering over it.
                     _price_read = prices.get(pos.symbol)
-                    last_price = (_price_read if _price_read is not None
-                                  else pos.entry_price)
-                    if pos.direction == "LONG":
-                        pnl_pct_raw = ((last_price - pos.entry_price) / pos.entry_price) * 100
-                    else:
-                        pnl_pct_raw = ((pos.entry_price - last_price) / pos.entry_price) * 100
+                    # The entry and the mark are READ, and every figure that
+                    # divides by one of them is None when it is not. An entry
+                    # adoption could not read is `0.0`, and dividing by it
+                    # raised ZeroDivisionError, which ended the command before
+                    # it sent anything.
+                    _entry_px = price_on_record(pos.entry_price)
+                    _mark_px = price_on_record(_price_read)
+                    last_price = (_mark_px if _mark_px is not None
+                                  else (_entry_px or 0.0))
+                    _move_pct = None
+                    if _entry_px is not None and _mark_px is not None:
+                        if pos.direction == "LONG":
+                            _move_pct = (_mark_px - _entry_px) / _entry_px * 100
+                        else:
+                            _move_pct = (_entry_px - _mark_px) / _entry_px * 100
                     from datetime import datetime, timezone
                     hold_h = (datetime.now(timezone.utc) - entered_at(pos)).total_seconds() / 3600
                     # MARGIN AND NOTIONAL, SEPARATELY. `cost_usd if > 0 else
@@ -1751,14 +1857,15 @@ class TradingCommands:
                     # is about. `position_leverage` answers None instead.
                     _margin = pos.cost_usd if pos.cost_usd > 0 else None
                     notional = last_price * pos.quantity
-                    cost = _margin if _margin is not None else notional
                     leverage = position_leverage(
                         getattr(pos, 'leverage', 0), _margin, notional)
-                    pnl_pct = pnl_pct_raw * leverage if leverage is not None else None
+                    _roe_pct = (_move_pct * leverage
+                               if _move_pct is not None and leverage is not None
+                               else None)
                     # Dollar P&L on the SAME (leveraged) basis as pnl_pct — the old
                     # (last-entry)*quantity understated it by the leverage multiple.
                     upnl_usd = _leveraged_pnl_usd(
-                        pos.entry_price, last_price, pos.direction,
+                        _entry_px or 0.0, _mark_px or 0.0, pos.direction,
                         _margin if _margin is not None else 0.0,
                         leverage if leverage is not None else 0.0)
                     # The LEVELS are three-valued too. `orphan_position_row`
@@ -1769,15 +1876,18 @@ class TradingCommands:
                     # answers about the same absence.
                     _sl_px = price_on_record(pos.stop_loss)
                     _tp_px = price_on_record(pos.take_profit)
-                    sl_dist = (abs(last_price - _sl_px) / last_price * 100
-                               if last_price and _sl_px is not None else None)
-                    tp_dist = (abs(_tp_px - last_price) / last_price * 100
-                               if last_price and _tp_px is not None else None)
-                    rr_live = live_rr(last_price, pos.stop_loss, pos.take_profit)
+                    # From the MARK, and None without one. These three were
+                    # measured from the entry when the mark was not read and
+                    # printed as distances from a price nobody read.
+                    sl_dist = (abs(_mark_px - _sl_px) / _mark_px * 100
+                               if _mark_px is not None and _sl_px is not None else None)
+                    tp_dist = (abs(_tp_px - _mark_px) / _mark_px * 100
+                               if _mark_px is not None and _tp_px is not None else None)
+                    rr_live = live_rr(_mark_px, pos.stop_loss, pos.take_profit)
                     # Everything downstream of the mark is None when the mark
                     # was never read. Absent renders as "unknown"; zero renders
                     # as a claim.
-                    _unread = _price_read is None
+                    _unread = _mark_px is None
 
                     def _r(v, n):
                         """round(), but an absence stays an absence.
@@ -1793,14 +1903,23 @@ class TradingCommands:
                         "direction": pos.direction,
                         "entry": round(pos.entry_price, 6),
                         "price_unavailable": _unread,
+                        # Which reading the P&L is missing, for the sentence
+                        # the cards print in its place.
+                        "pnl_unread": pnl_unread_cause(
+                            _entry_px, _mark_px, leverage, _margin),
                         "current": None if _unread else round(last_price, 6),
-                        "pnl_pct": None if _unread else _r(pnl_pct, 2),
+                        "pnl_pct": None if _unread else _r(_roe_pct, 2),
                         "pnl_usd": None if _unread else _r(upnl_usd, 4),
                         "sl": None if _sl_px is None else round(_sl_px, 6),
                         "tp": None if _tp_px is None else round(_tp_px, 6),
                         "sl_dist_pct": None if sl_dist is None else round(sl_dist, 2),
                         "tp_dist_pct": None if tp_dist is None else round(tp_dist, 2),
-                        "size_usd": round(cost, 2),
+                        # THE MARGIN OR NOTHING. This fell back to the
+                        # notional, so a position whose margin the venue never
+                        # stated printed its notional as its SIZE, and
+                        # `open_book_return` and the text card derived its
+                        # dollars as notional x ROE: leverage times too large.
+                        "size_usd": None if _margin is None else round(_margin, 2),
                         "notional_usd": round(notional, 2),
                         "leverage": _r(leverage, 2),
                         # Three-valued at the wire: `None` covers the
@@ -1935,7 +2054,8 @@ class TradingCommands:
                     # stopped it ever seeing one.
                     _mark = portfolio._last_prices.get(pos.asset)
                     _priced = _mark is not None and _mark > 0
-                    last_price = _mark if _priced else pos.entry_price
+                    last_price = (_mark if _mark is not None and _mark > 0
+                                  else pos.entry_price)
                     # Hoisted: the size basis below needs it whether or not the
                     # mark could be read, and a leverage is a property of the
                     # position rather than of our ability to price it.
@@ -2092,10 +2212,11 @@ class TradingCommands:
                                 or funding_paid is None)
                        else pnl_usd - total_fees - funding_paid)
 
-            sl_tag = "on exchange" if sl_order == "exchange" else "bot-managed"
-            tp_tag = "on exchange" if tp_order == "exchange" else "bot-managed"
+            sl_tag = level_status(sl, sl_order == "exchange")
+            tp_tag = level_status(tp, tp_order == "exchange")
 
             pos_card_data = {
+                "pnl_unread": pos.get("pnl_unread"),
                 "symbol": pair.replace("USDT", "/USDT") if "USDT" in pair else pair,
                 "direction": direction,
                 "is_live": CONFIG.is_live(),
@@ -2130,7 +2251,8 @@ class TradingCommands:
             # asserts it is losing, on the strength of a price we never got.
             pnl_emoji = ("⚪" if not _pnl_known
                          else "\U0001f7e2" if pnl_pct >= 0 else "\U0001f534")
-            _pnl_txt = ("price unavailable" if not _pnl_known
+            _pnl_txt = ((pos.get("pnl_unread") or "price unavailable")
+                        if not _pnl_known
                         else f"{pnl_pct:+.2f}% (${pnl_usd:+,.2f})")
             # Owner-tag the destructive Close callback (RC-AUD-004 style IDOR
             # guard) so only the user who owns this position can close it.

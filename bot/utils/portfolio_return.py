@@ -75,6 +75,12 @@ def open_book_return(positions: Iterable[Any]) -> dict:
     margin = 0.0
     measured = 0
     unmeasured = 0
+    # WHY a row was left out, because the note under the figure names a cause.
+    # It said "no readable mark" for every one, and a row whose mark WAS read
+    # and whose margin the venue never stated is left out for a different
+    # reason with a different remedy.
+    no_mark = 0
+    no_margin = 0
 
     for p in positions or ():
         try:
@@ -109,6 +115,10 @@ def open_book_return(positions: Iterable[Any]) -> dict:
         # contributes nothing to a shared one.
         if v is None or m is None or m <= 0:
             unmeasured += 1
+            if unavailable:
+                no_mark += 1
+            elif m is None or m <= 0:
+                no_margin += 1
             continue
 
         pnl += v
@@ -121,6 +131,8 @@ def open_book_return(positions: Iterable[Any]) -> dict:
         "margin_usd": round(margin, 2),
         "measured": measured,
         "unmeasured": unmeasured,
+        "no_mark": no_mark,
+        "no_margin": no_margin,
         "total": measured + unmeasured,
     }
 
@@ -140,6 +152,15 @@ def coverage_note(book: dict, *, html: bool = True) -> str:
         return ""
     if unmeasured <= 0 or total <= 0:
         return ""
-    body = (f"Covers {measured} of {total} positions — {unmeasured} have no "
-            f"readable mark and are counted neither way.")
+    # A book built before the causes were counted carries neither key, and is
+    # given the sentence that names no cause rather than a guessed one.
+    causes = []
+    for key, words in (("no_mark", "no readable mark"),
+                       ("no_margin", "no recorded margin")):
+        n = book.get(key)
+        if isinstance(n, int) and n > 0:
+            causes.append(f"{n} with {words}")
+    why = f" ({', '.join(causes)})" if causes else ""
+    body = (f"Covers {measured} of {total} positions — {unmeasured} could not "
+            f"be priced{why} and are counted neither way.")
     return f"\n<i>{body}</i>" if html else f"\n{body}"

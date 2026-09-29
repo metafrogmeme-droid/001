@@ -153,14 +153,17 @@ class TestTheTotalDoesNotAbsorbTheUnknown:
         assert "+100.0% total" in both
 
     def test_a_partial_total_discloses_what_it_omitted(self):
-        both = render_open_positions([_read(100.0, 50.0, 110.0), _unread(pair="ETHUSDT")])
+        rows = [_read(100.0, 50.0, 110.0), _unread(pair="ETHUSDT")]
+        both = render_open_positions(rows)
         # Asserted against the ONE place the sentence lives, not a retyped
         # copy of it. This test asserted the literal "excludes 1 position"
         # and went red when the disclosure moved into the shared helper —
-        # the card was correct throughout.
-        from bot.utils.portfolio_return import coverage_note
-        assert coverage_note({"measured": 1, "unmeasured": 1, "total": 2},
-                             html=False).strip() in both
+        # the card was correct throughout. The book is the rows' own, not a
+        # hand-built dict: the note names WHY a row was left out, and a dict
+        # that states no cause is a book no reader builds.
+        from bot.utils.portfolio_return import coverage_note, open_book_return
+        note = coverage_note(open_book_return(rows), html=False).strip()
+        assert note in both and "no readable mark" in note
 
     def test_a_complete_total_says_nothing_extra(self):
         # A caveat on every healthy card is how a real one gets skipped.

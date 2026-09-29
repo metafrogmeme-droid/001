@@ -159,6 +159,10 @@ def orphan_position_row(
         "entry": round(entry_price, 6) if entry_price else None,
         "current": round(last_price, 6) if last_price is not None else None,
         "price_unavailable": not mark_read,
+        # The P&L here is the venue's, not the mark's, so its absence has the
+        # venue's causes; "price unavailable" over a read mark is false.
+        "pnl_unread": ("P&L not stated" if unrealized is None
+                       else "margin unread" if pnl_pct is None else None),
         "pnl_pct": round(pnl_pct, 2) if pnl_pct is not None else None,
         "pnl_usd": round(unrealized, 4) if unrealized is not None else None,
         "sl": round(sl_price, 6) if sl_price is not None else None,
