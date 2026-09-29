@@ -236,17 +236,17 @@ about to change before changing it.
 
 ## Writing tests that scan source (line 18790)
 
-- L19221: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
-- L19422: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
-- L19449: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/honesty_baseline.js`, `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
+- L19232: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
+- L19433: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
+- L19460: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/honesty_baseline.js`, `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
 
-### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 19683)
-
-
-### A module nothing calls is indistinguishable from one that does not work (line 19755)
+### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 19694)
 
 
-## Deploying so a dead bot cannot look like a live one (line 19946)
+### A module nothing calls is indistinguishable from one that does not work (line 19766)
 
 
-## Operational docs (line 20103)
+## Deploying so a dead bot cannot look like a live one (line 19957)
+
+
+## Operational docs (line 20114)
