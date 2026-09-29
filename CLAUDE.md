@@ -62,8 +62,12 @@ commit**.
 | JS honesty shapes (`app/test/js_honesty_ratchet.test.js`) | `app/test/js_honesty_baseline.json` | `node app/test/update_js_honesty_baseline.js` |
 | test gate | `tests/known_failures.txt` | edit the file |
 
-A recorded total must equal the sum of its per-file counts. Many
-structural rules are also baselines of named exceptions, each with a reason,
+`python3 scripts/rerecord.py --all` re-records the first four in one step, and
+re-records nothing while any of them reports growth; `--check` reports without
+writing. No baseline stores a total: each gate sums its counts, and refuses a
+baseline that still stores one as CANNOT CHECK, because a clean git merge of
+two branches that each lowered a different count leaves a stored total wrong.
+Many structural rules are also baselines of named exceptions, each with a reason,
 and are two-way: a new site fails, and a listed site that no longer exists
 fails. Never widen a baseline to get green; fix the site or record it with a
 reason a reviewer can check.

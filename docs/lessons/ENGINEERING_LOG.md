@@ -8392,7 +8392,9 @@ so it was green. `test_claude_md_accuracy` compares the figure this file
 quotes with the recorded total, and those agreed, so the prose quoted a number
 the tree did not have. A recorded total is now required to equal the sum of
 its counts, in all three baselines.
-(`tests/test_a_baseline_total_is_the_sum_of_its_counts.py`.)
+(`tests/test_a_baseline_total_is_the_sum_of_its_counts.py`.) Superseded on
+2026-09-29: no baseline stores a total any more (the chapter headed "A TEST
+THAT TWO FIGURES AGREE IS NOT ONE FIGURE").
 
 **AND THE SAME REBASE MERGED TWO COPIES OF ONE GUARD, CLEANLY.** Main fixed
 the vision refusal itself while this branch was open, at a different offset in
@@ -18318,6 +18320,76 @@ branch.** The three were fixtures:
   paper-mode twin shows the fixture reaches the rule.
 (`tests/test_a_live_exit_reads_its_own_price_book_and_vwap.py`.)
 
+**A TEST THAT TWO FIGURES AGREE IS NOT ONE FIGURE.** The merge chapter above
+ended with the honesty, ruff and mypy baselines each required to store a
+total equal to the sum of their counts. That caught the 695-under-696 merge
+one run late and kept the field a clean merge gets wrong. No baseline stores
+a total now. Each gate sums its counts
+wherever it prints one (`scripts/ratchet_baseline.py`, the one reading),
+`--update` writes none, and a baseline that still stores one (an older branch
+that re-recorded and merged) is refused as CANNOT CHECK, exit 2, before the
+analyser runs. It is exit 2 and not 1 because the counts may be fine: it is
+not a verdict about the code. An agreeing total is refused too, because it is
+the same field one merge away from disagreeing.
+(`tests/test_a_baseline_total_is_the_sum_of_its_counts.py`.)
+
+**Re-recording is one command, and it refuses to bless a regression.**
+`scripts/rerecord.py --all` reads all four ratchets (ruff, mypy, honesty and
+the JS honesty shapes) before writing anything. While any of them reports
+growth it re-records nothing and exits 1. The growth reading is the gates'
+own (`ratchet_baseline.compare`, which the three gates print from too; for
+the JS ratchet, its own "no new honesty shapes" test), not a second copy.
+Three more rules keep it honest:
+
+- a Python ratchet records exactly the counts it compared, never a second
+  analyser run that could see a different tree;
+- every write is compared with the file it replaced, and a write that raised
+  any count, still stores a total, or failed is undone;
+- a ratchet that cannot be checked (a toolchain that is not the pinned one, a
+  baseline that does not read, another rule set) is left untouched and named,
+  exit 2, while the others are re-recorded.
+
+`--check` reads all four and writes nothing. Driven on 2026-09-29 against the
+base tree, `--check` read all four matched, with three baselines storing
+totals (1156, 500, 667), and exited 2. `--all` dropped the three totals and
+moved no count. (`tests/test_rerecord_never_blesses_a_regression.py`.)
+
+**A FILTER THAT MATCHES NOTHING IS ONE PASSING TEST.** The JS ratchet's
+verdicts are read from its own TAP output, by test name, and only from a
+top-level line. Driven: `node --test --test-name-pattern=zzznomatch
+app/test/js_honesty_ratchet.test.js` exits 0 and reports
+`ok 1 - app/test/js_honesty_ratchet.test.js` and `# pass 1`. An exit status
+reads that as a pass. A verdict whose name is absent, or is marked SKIP or
+TODO, is CANNOT CHECK here, and the three names are pinned against the JS
+test file.
+
+**A half-merged baseline used to be a regression.** Conflict markers are the
+shape a bad merge of these files takes, and `json.loads` raised out of all
+three gates' loaders as a traceback, exit 1. All three read it as
+CANNOT CHECK now, with a sentence saying the file has to be resolved before
+it can be compared or re-recorded.
+
+**Thirty-six mutations, each killed against the code that ships. The two
+that survived the first round were cases the corpus lacked.** The honesty
+gate reads a fingerprint off the baseline before anything else, so a JSON
+array there raised `AttributeError` once the object check was removed; no
+fixture planted a baseline that parses and is not an object. And reading
+nested TAP lines changed no verdict until a nested line carried a verdict's
+name. Both are planted now. One more was found by re-reading the diff, not by
+the round: `rerecord.py` first read "stores a total" as a stored value that
+is not None, so a baseline holding `"total": null`, which every gate refuses
+by the key, read as clean under `--check`. It reads the key now, and a
+planted null holds it.
+
+**Filed, not changed.** The JS honesty baseline still stores a total, and
+its test checks only that the total is a number, not that it equals the
+counts. That is the same merge hazard with no guard at all, left
+out of this change because the plan named the three Python baselines.
+`rerecord.py` does not refuse the JS total, and says so where it registers
+the ratchet.
+(`tests/test_a_baseline_total_is_the_sum_of_its_counts.py`,
+`tests/test_rerecord_never_blesses_a_regression.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -19609,7 +19681,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1192** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1193** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
