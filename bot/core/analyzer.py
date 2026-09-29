@@ -30,7 +30,7 @@ from bot.compat import UTC
 from bot.llm import failure_cause as _fc
 from bot.risk.quality_ladder import confidence_on_record
 from bot.core.position_telemetry import price_on_record
-from bot.core.signal_levels import atr_on_record, record_atr
+from bot.core.signal_levels import atr_on_record, record_atr, record_level
 from typing import Optional
 
 # AG-H1: Symbol validation regex — uppercase alphanumeric, optional /pair, optional :settle
@@ -306,7 +306,7 @@ def _apply_scalp_session_vwap(indicators: dict, strategy_type: str,
     tp = (highs + lows + closes) / 3.0
     sv = Analyzer._session_vwap(tp, volumes, times)
     if sv is not None and sv > 0:
-        indicators["vwap_session"] = round(float(sv), 6)
+        indicators["vwap_session"] = record_level(float(sv))
         indicators["vwap_session_tf"] = "15m"  # observability
 
 
@@ -337,10 +337,10 @@ def _apply_vwap_setup_anchoring(indicators: dict, strategy_type: str) -> None:
                 and val != _old_center):
             _dev = float(_old_u1) - float(_old_center)
             if _dev > 0:
-                indicators["vwap_upper_1"] = round(val + _dev, 6)
-                indicators["vwap_lower_1"] = round(val - _dev, 6)
-                indicators["vwap_upper_2"] = round(val + 2 * _dev, 6)
-                indicators["vwap_lower_2"] = round(val - 2 * _dev, 6)
+                indicators["vwap_upper_1"] = record_level(val + _dev)
+                indicators["vwap_lower_1"] = record_level(val - _dev)
+                indicators["vwap_upper_2"] = record_level(val + 2 * _dev)
+                indicators["vwap_lower_2"] = record_level(val - 2 * _dev)
         indicators["vwap"] = val
         indicators["vwap_anchor_kind"] = kind
 
@@ -1344,7 +1344,7 @@ class Analyzer:
         # SIGNAL QUALITY: multi-timeframe SMA50 trend alignment
         sma50 = float(np.mean(closes[-CONFIG.analyzer.sma_period:])) if len(closes) >= CONFIG.analyzer.sma_period else None
         if sma50 is not None:
-            indicators["sma50"] = round(sma50, 6)
+            indicators["sma50"] = record_level(sma50)
 
         thesis = await self._llm_thesis(signal, indicators, order_flow=order_flow, is_admin=is_admin, user_id=user_id, user_tier=user_tier, as_of=as_of, background=background)
 
@@ -1873,9 +1873,9 @@ class Analyzer:
             if limit_entry is None and order_type == "limit":
                 offset = 0.1 * atr
                 if direction == Direction.LONG:
-                    limit_entry = round(entry - offset, 8)
+                    limit_entry = record_level(entry - offset, 8)
                 else:
-                    limit_entry = round(entry + offset, 8)
+                    limit_entry = record_level(entry + offset, 8)
 
         # STRATEGY: adaptive ATR multipliers based on volatility regime.
         # SL/TP baselines come from CONFIG.strategy_types (per scalp/intraday/
@@ -2498,17 +2498,17 @@ class Analyzer:
         macd_line = ema12 - ema26
         signal_line = _ema(macd_line, 9)  # EMA of full MACD line, not truncated
         macd_histogram = macd_line - signal_line
-        results["macd"] = round(float(macd_line[-1]), 6)
-        results["macd_signal"] = round(float(signal_line[-1]), 6)
-        results["macd_histogram"] = round(float(macd_histogram[-1]), 6)
+        results["macd"] = record_level(float(macd_line[-1]))
+        results["macd_signal"] = record_level(float(signal_line[-1]))
+        results["macd_histogram"] = record_level(float(macd_histogram[-1]))
 
         # ── Bollinger Bands (20, 2) ──
         if len(closes) >= 20:
             sma20 = np.mean(closes[-20:])
             std20 = np.std(closes[-20:], ddof=0)
-            results["bb_upper"] = round(sma20 + 2 * std20, 6)
-            results["bb_lower"] = round(sma20 - 2 * std20, 6)
-            results["bb_mid"] = round(sma20, 6)
+            results["bb_upper"] = record_level(sma20 + 2 * std20)
+            results["bb_lower"] = record_level(sma20 - 2 * std20)
+            results["bb_mid"] = record_level(sma20)
             bb_width = (results["bb_upper"] - results["bb_lower"]) / sma20 if sma20 > 0 else 0
             results["bb_width"] = round(bb_width, 6)
             # %B: where price sits in the band (0=lower, 1=upper)
@@ -2557,15 +2557,15 @@ class Analyzer:
             cum_tp_vol = np.cumsum(typical_price * volumes)
             cum_vol = np.cumsum(volumes)
             vwap = cum_tp_vol[-1] / cum_vol[-1] if cum_vol[-1] > 0 else closes[-1]
-            results["vwap"] = round(float(vwap), 6)
+            results["vwap"] = record_level(float(vwap))
             # Preserve the full-window value even if session-anchoring overwrites
             # "vwap" below — setup-matched anchoring (position setups) reads it.
-            results["vwap_full"] = round(float(vwap), 6)
+            results["vwap_full"] = record_level(float(vwap))
 
             # Session-anchored VWAP (anchored to the current UTC day's first bar).
             session_vwap = Analyzer._session_vwap(typical_price, volumes, times)
             if session_vwap is not None:
-                results["vwap_session"] = round(float(session_vwap), 6)
+                results["vwap_session"] = record_level(float(session_vwap))
                 if getattr(CONFIG.analyzer, "vwap_session_anchored", False):
                     results["vwap"] = results["vwap_session"]
 
@@ -2576,7 +2576,7 @@ class Analyzer:
                     seg_vol = volumes[-anchor_len:]
                     cv = np.sum(seg_tp * seg_vol)
                     sv = np.sum(seg_vol)
-                    results[label] = round(float(cv / sv) if sv > 0 else float(closes[-1]), 6)
+                    results[label] = record_level(float(cv / sv) if sv > 0 else float(closes[-1]))
 
             # VWAP slope (gated): % change of the cumulative VWAP over the last
             # ~10 bars, so a directional bias can be dampened when it fights a
@@ -2598,7 +2598,7 @@ class Analyzer:
                     from bot.core.vwap import anchored_vwap_from_last_pivot
                     av = anchored_vwap_from_last_pivot(highs, lows, closes, volumes)
                     if av is not None and av > 0:
-                        results["vwap_anchored"] = round(float(av), 6)
+                        results["vwap_anchored"] = record_level(float(av))
                 except Exception:
                     pass
 
@@ -2695,9 +2695,9 @@ class Analyzer:
         if len(closes) >= 20 and "atr" in results:
             kc_mid = float(_ema(closes, 20)[-1])
             kc_atr = results["atr"]
-            results["kc_upper"] = round(kc_mid + 2 * kc_atr, 6)
-            results["kc_lower"] = round(kc_mid - 2 * kc_atr, 6)
-            results["kc_mid"] = round(kc_mid, 6)
+            results["kc_upper"] = record_level(kc_mid + 2 * kc_atr)
+            results["kc_lower"] = record_level(kc_mid - 2 * kc_atr)
+            results["kc_mid"] = record_level(kc_mid)
             # Squeeze: Bollinger inside Keltner = low volatility compression
             if "bb_upper" in results and "bb_lower" in results:
                 results["kc_squeeze"] = (results["bb_upper"] < results["kc_upper"] and
@@ -2719,8 +2719,8 @@ class Analyzer:
         if len(closes) >= 21:
             ema9 = float(_ema(closes, 9)[-1])
             ema21 = float(_ema(closes, 21)[-1])
-            results["ema_9"] = round(ema9, 6)
-            results["ema_21"] = round(ema21, 6)
+            results["ema_9"] = record_level(ema9)
+            results["ema_21"] = record_level(ema21)
             results["ema_ribbon_spread"] = round((ema9 - ema21) / ema21 * 100, 4) if ema21 > 0 else 0
             results["ema_ribbon_trend"] = "bullish" if ema9 > ema21 else "bearish"
 
@@ -2780,9 +2780,9 @@ class Analyzer:
             dc_high = float(np.max(highs[-(dc_period + 1):-1]))
             dc_low = float(np.min(lows[-(dc_period + 1):-1]))
             dc_mid = (dc_high + dc_low) / 2
-            results["dc_upper"] = round(dc_high, 6)
-            results["dc_lower"] = round(dc_low, 6)
-            results["dc_mid"] = round(dc_mid, 6)
+            results["dc_upper"] = record_level(dc_high)
+            results["dc_lower"] = record_level(dc_low)
+            results["dc_mid"] = record_level(dc_mid)
             results["dc_width"] = round((dc_high - dc_low) / dc_low * 100 if dc_low > 0 else 0, 4)
             # Breakout detection: close beyond the prior channel
             results["dc_breakout_high"] = float(closes[-1]) >= dc_high
@@ -2797,8 +2797,8 @@ class Analyzer:
             if dc55_period >= 40:
                 dc55_high = float(np.max(highs[-(dc55_period + 1):-1]))
                 dc55_low = float(np.min(lows[-(dc55_period + 1):-1]))
-                results["dc55_upper"] = round(dc55_high, 6)
-                results["dc55_lower"] = round(dc55_low, 6)
+                results["dc55_upper"] = record_level(dc55_high)
+                results["dc55_lower"] = record_level(dc55_low)
                 results["dc55_breakout_high"] = float(closes[-1]) >= dc55_high
                 results["dc55_breakout_low"] = float(closes[-1]) <= dc55_low
 
@@ -2849,15 +2849,15 @@ class Analyzer:
             typical_price = (highs + lows + closes) / 3
             _band_center = float(results["vwap"])
             vwap_dev = np.sqrt(np.mean((typical_price[-20:] - _band_center) ** 2))
-            results["vwap_upper_1"] = round(_band_center + vwap_dev, 6)
-            results["vwap_lower_1"] = round(_band_center - vwap_dev, 6)
-            results["vwap_upper_2"] = round(_band_center + 2 * vwap_dev, 6)
-            results["vwap_lower_2"] = round(_band_center - 2 * vwap_dev, 6)
+            results["vwap_upper_1"] = record_level(_band_center + vwap_dev)
+            results["vwap_lower_1"] = record_level(_band_center - vwap_dev)
+            results["vwap_upper_2"] = record_level(_band_center + 2 * vwap_dev)
+            results["vwap_lower_2"] = record_level(_band_center - 2 * vwap_dev)
 
         # ── Session Range (last 24 bars as session proxy) ──
         session_len = min(24, len(closes))
-        results["session_high"] = round(float(np.max(highs[-session_len:])), 6)
-        results["session_low"] = round(float(np.min(lows[-session_len:])), 6)
+        results["session_high"] = record_level(float(np.max(highs[-session_len:])))
+        results["session_low"] = record_level(float(np.min(lows[-session_len:])))
         results["session_range_pct"] = round(
             (results["session_high"] - results["session_low"]) / results["session_low"] * 100
             if results["session_low"] > 0 else 0, 4
@@ -4882,8 +4882,8 @@ class Analyzer:
             gap_pct = (price - vwap) / vwap * 100
             ranked.append({
                 "symbol": symbol,
-                "price": round(price, 6),
-                "vwap": round(vwap, 6),
+                "price": record_level(price),
+                "vwap": record_level(vwap),
                 "vwap_gap_pct": round(gap_pct, 2),
                 "book_bias": r.get("book_imbalance", 0),
                 "rsi": r.get("rsi", None),
@@ -4939,7 +4939,11 @@ class Analyzer:
 
         # Additional indicators for LLM context
         if "poc_price" in indicators and indicators["poc_price"] > 0:
-            parts.append(f"POC=${indicators['poc_price']:.4f}")
+            # Four decimals printed a sub-cent POC as $0.0000 in the model's
+            # evidence; below a cent the level keeps its significant digits.
+            _poc = indicators["poc_price"]
+            parts.append(f"POC=${_poc:.4f}" if _poc >= 0.01
+                         else f"POC=${record_level(_poc)}")
             parts.append(f"price_vs_poc={indicators.get('price_vs_poc', 'unknown')}")
         if indicators.get("kc_squeeze"):
             parts.append("squeeze=ACTIVE")
@@ -5330,14 +5334,14 @@ def _compute_fibonacci(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray) 
         levels = {r: swing_low + r * diff for r in (0.236, 0.382, 0.5, 0.618, 0.786)}
 
     fib_levels = {
-        "fib_swing_high": round(swing_high, 6),
-        "fib_swing_low": round(swing_low, 6),
+        "fib_swing_high": record_level(swing_high),
+        "fib_swing_low": record_level(swing_low),
         "fib_trend": trend,
-        "fib_236": round(levels[0.236], 6),
-        "fib_382": round(levels[0.382], 6),
-        "fib_500": round(levels[0.5], 6),
-        "fib_618": round(levels[0.618], 6),
-        "fib_786": round(levels[0.786], 6),
+        "fib_236": record_level(levels[0.236]),
+        "fib_382": record_level(levels[0.382]),
+        "fib_500": record_level(levels[0.5]),
+        "fib_618": record_level(levels[0.618]),
+        "fib_786": record_level(levels[0.786]),
     }
 
     # Zone = how deep price has retraced the dominant leg (0 = at the leg's

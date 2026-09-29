@@ -20,6 +20,8 @@ from typing import Optional
 
 import numpy as np
 
+from bot.core.signal_levels import record_level
+
 
 @dataclass
 class VolumeProfileResult:
@@ -174,9 +176,9 @@ def compute_volume_profile(
         desc_parts.append("OUTSIDE Value Area")
 
     return VolumeProfileResult(
-        poc=round(poc, 8),
-        vah=round(vah, 8),
-        val=round(val, 8),
+        poc=record_level(poc, 8),
+        vah=record_level(vah, 8),
+        val=record_level(val, 8),
         poc_volume=round(poc_volume, 2),
         total_volume=round(total_volume, 2),
         value_area_pct=round(actual_va_pct, 1),

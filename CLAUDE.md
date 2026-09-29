@@ -18001,6 +18001,60 @@ assertions set `abs=0`, and the mutation dies.
 (`tests/test_a_backtest_fill_keeps_a_sub_cent_entry.py`,
 `tests/test_the_backtest_ladder_locks_what_the_live_ladder_locks.py`.)
 
+**THE ANALYZER ROUNDED FORTY-TWO LEVELS TO SIX DECIMAL PLACES, THE ATR'S
+DEFECT FORTY-TWO TIMES OVER.** The SUI chapter fixed `round(atr, 6)` with `record_atr`,
+significant digits. Every other level the analyzer computes kept the old rule:
+the VWAP and its bands, EMA9 and EMA21, SMA50, the Bollinger, Keltner and
+Donchian channels, the fib ladder, the session range and MACD. BONK is in the
+scan universe, and PEPE, FLOKI and SHIB are in four of the frozen snapshots. Driven on one series and
+on the same series scaled by 1e-6, a price near 2e-05:
+
+- MACD, its signal line and its histogram read exactly 0.0, where the scaled
+  truth is 2.4e-07. The MACD voter and the Keltner squeeze's direction
+  abstained on every sub-cent asset.
+- EMA9 and EMA21 both read 1.9e-05, where they are 1.9075e-05 and 1.8752e-05.
+  The model's evidence line calls a tie "bearish" (`ema_9 > ema_21`), so the
+  ribbon read bearish over a rising ribbon.
+- Bollinger %B read 0.832 for a price above the upper band (1.06), because it
+  is computed from the rounded bands.
+- Every VWAP, fib and channel level sat on a 1e-06 grid, up to 3.9% from where
+  it was computed. Those levels are the fallback limit entry's candidates, the
+  SL/TP snap's extras and the VWAP classifier's band.
+
+The volume profile's POC and value area, and the analyzer's fallback limit
+entry, rounded to eight places. At a price near 1e-07, eight places keep one
+significant digit. The model's evidence printed the POC with four decimals,
+so it read `POC=$0.0000`.
+
+**One reading, and no reading of a price at or above 0.1 moves.**
+`record_level` keeps six decimal places or six significant digits, whichever
+keeps more. At or above 0.1 in magnitude it is byte-identical to
+`round(x, 6)`, and `min_places=8` keeps the two eight-place sites
+byte-identical where eight places were enough. It keeps the sign, which
+`round(-2.4e-07, 6)` did not (it answered `-0.0`). The analyzer, the
+multi-timeframe EMAs, the volume profile, the executor's last-resort tick
+rounding, the `/positions` rows and the dashboard pusher ask it. The model's
+POC line keeps four decimals above a cent. The two scale-free sites
+(`bb_width`, `vwap_slope_pct`) keep six places, named with their reasons.
+
+**The test is a property, not a list.** Every numeric indicator either scales
+with the price or does not move, on three seeds at 1e-06 and 1e-04. On the
+unfixed code it fails for every seed. A rule over the four files, and over
+the two converted functions in larger ones, refuses a `round(x, 6)` or
+`round(x, 8)` that is not a named scale-free figure.
+
+**Twenty-four mutations, each killed on the first round. Four die on the rule
+and on no drive, and that is stated rather than hidden.** SMA50 and the
+analyzer's fallback limit entry are computed inside `analyze()`, a
+1,400-line coroutine behind a thesis model, and the `/positions` rows inside
+a 400-line async handler. The invariance test drives `_compute_indicators`
+and reaches none of the three. The fourth was the dashboard pusher. Planning
+the round showed it was held by the rule alone, and it can be driven, so it
+is now: a stub portfolio holding a sub-cent position, whose snapshot rows
+keep the entry, the mark, the stop, the target and the closed trade's exit.
+(`tests/test_a_sub_cent_level_is_recorded_in_significant_digits.py`,
+`bot/core/signal_levels.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -19292,7 +19346,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **476 of 1183** reach for source text through `source_scan`, `code_only`
+Driven, **476 of 1184** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 476 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

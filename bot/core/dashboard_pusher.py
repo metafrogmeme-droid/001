@@ -17,6 +17,7 @@ from typing import Optional
 import aiohttp
 
 from bot.config import CONFIG
+from bot.core.signal_levels import record_level
 from bot.utils.paths import state_path
 
 log = logging.getLogger("runeclaw.dashboard_pusher")
@@ -101,14 +102,14 @@ class DashboardPusher:
                 positions.append({
                     "asset": pos.asset,
                     "direction": pos.direction.value,
-                    "entry": round(pos.entry_price, 6),
-                    "current": round(last_px, 6),
+                    "entry": record_level(pos.entry_price),
+                    "current": record_level(last_px),
                     "quantity": round(pos.quantity, 4),
                     "size_usd": round(sz, 2),
                     "pnl_pct": round(pnl_pct, 2),
                     "pnl_usd": round(sz * pnl_pct / 100, 2),
-                    "sl": round(pos.stop_loss, 6),
-                    "tp": round(pos.take_profit, 6),
+                    "sl": record_level(pos.stop_loss),
+                    "tp": record_level(pos.take_profit),
                     "opened_at": pos.opened_at.isoformat(),
                     "hold_hours": round(hold_h, 1),
                 })
@@ -119,8 +120,8 @@ class DashboardPusher:
                 recent_trades.append({
                     "asset": t.asset,
                     "direction": t.direction.value,
-                    "entry": round(t.entry_price, 6),
-                    "exit": round(t.exit_price, 6) if t.exit_price else None,
+                    "entry": record_level(t.entry_price),
+                    "exit": record_level(t.exit_price) if t.exit_price else None,
                     "quantity": round(t.quantity, 4),
                     "gross_pnl": round(t.gross_pnl, 2),
                     "commission": round(t.commission, 2),

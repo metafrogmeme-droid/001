@@ -62,6 +62,7 @@ from bot.core.leverage import (
     operator_standard,
 )
 from bot.core.size_trace import note_size_step, size_basis
+from bot.core.signal_levels import record_level
 from bot.core import bounds_shadow, size_bounds
 from bot.core.sltp_reason import REASON_MAX, refusal_suffix
 from bot.core.trade_costs import (
@@ -6687,7 +6688,7 @@ class LiveExecutor:
                 elif limit_price >= 0.01:
                     limit_price = round(limit_price, 4)
                 else:
-                    limit_price = round(limit_price, 6)
+                    limit_price = record_level(limit_price)
             logger.debug("Limit price fallback rounding: %s -> %s", _prec_price, limit_price)
 
         # Safety net: double-check tick alignment via market info fields

@@ -86,7 +86,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 
 Spot ORDER placement on a CEX does not exist and is refused by name: /buy and
 /sell both answer "Spot trading is disabled — RUNECLAW operates in futures-
-only mode" (trading_commands.py:1149, :1158), and a tree-wide grep finds no spot
+only mode" (trading_commands.py:1150, :1159), and a tree-wide grep finds no spot
 create_order in bot/ at all (venues.py:340 sets defaultType 'spot' only for
 market-data reads). What a user gets today is spot READING: /livebalance
 prices the caller's spot holdings on their linked venue; exposure/networth net
@@ -142,7 +142,7 @@ between RunStrategySkill._list and _run_symbol_scan; :2223-2229 is the literal
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1867-1870
 ("SL/TP baselines come from CONFIG.strategy_types"),
-bot/core/live_executor.py:764 (the per-strategy trailing switch, read for
+bot/core/live_executor.py:765 (the per-strategy trailing switch, read for
 every entry and every fill).
 
 **Scalping** — **shipped**
@@ -157,7 +157,7 @@ specifically so scalps read a real intraday anchor. Doors: /scalp
 volume, tight zones (skill_registry.py:2828); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
 (tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:2223) as a
-tighten-only veto on that user's own confirms (trading_commands.py:559); /run
+tighten-only veto on that user's own confirms (trading_commands.py:560); /run
 scalp and /fullscan scalp are the other two.
 
 *Gap.* Scalping is a strategy class of the same perp execution engine, not a separate
@@ -168,12 +168,12 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:6940 creates the entry order idempotently, :8623/:9174 attach
+live_executor.py:6941 creates the entry order idempotently, :8624/:9175 attach
 the exchange-side stop and take-profit, and every venue call carries
-productType USDT-FUTURES (:2546, :2562, :2690); venues.py:340 selects the swap
+productType USDT-FUTURES (:2547, :2563, :2691); venues.py:340 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
-(trading_commands.py:1219); signal cards from /analyze, /scan and the pro scans
+(trading_commands.py:1220); signal cards from /analyze, /scan and the pro scans
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:125).
@@ -330,7 +330,7 @@ community strategy and returns a "would-take" picks feed built by applying
 that agent's published gates to the live signal stream, surfaced in the
 dashboard Agents view. Users can also publish their own strategy CONFIGS to
 the marketplace (/api/strategies) and pin one to their own confirms
-(/mystrategy, trading_commands.py:559).
+(/mystrategy, trading_commands.py:560).
 
 *Gap.* No real-money copying anywhere, and no copying of another HUMAN's live trades.
 copy.js:11-17 states it: "follow is a bookmark + a personalised would-take
@@ -401,7 +401,7 @@ all.
 
 *Gap.* There is no way to ACQUIRE or hold a position as long-term capital. /buy and
 /sell are hard-disabled with 'Spot trading is disabled — RUNECLAW operates in
-futures-only mode' (trading_commands.py:1149, :1158); the engine, live_executor
+futures-only mode' (trading_commands.py:1150, :1159); the engine, live_executor
 and every confirm path place USDT-M perps only. app/lib/spot.js is read-only
 by its own header ('nothing in this module places orders') and its
 reachable consumers are the chat intercept at chat.js:101 and /spot on

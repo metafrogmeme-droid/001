@@ -58,6 +58,7 @@ from bot.core.position_telemetry import (
     price_on_record,
 )
 from bot.core.signal_confidence import displayed_confidence
+from bot.core.signal_levels import record_level
 from bot.core.sltp_reason import venue_reason
 from bot.core.time_exits import TimeExitPlan, position_time_exit_line, time_exit_line
 from bot.core.trade_costs import (
@@ -1893,17 +1894,17 @@ class TradingCommands:
                     positions_data.append({
                         "pair": pos.symbol.replace("/", "").replace(":USDT", ""),
                         "direction": pos.direction,
-                        "entry": round(pos.entry_price, 6),
+                        "entry": record_level(pos.entry_price),
                         "price_unavailable": _unread,
                         # Which reading the P&L is missing, for the sentence
                         # the cards print in its place.
                         "pnl_unread": pnl_unread_cause(
                             _entry_px, _mark_px, leverage, _margin),
-                        "current": None if _unread else round(last_price, 6),
+                        "current": None if _unread else record_level(last_price),
                         "pnl_pct": None if _unread else _r(_roe_pct, 2),
                         "pnl_usd": None if _unread else _r(upnl_usd, 4),
-                        "sl": None if _sl_px is None else round(_sl_px, 6),
-                        "tp": None if _tp_px is None else round(_tp_px, 6),
+                        "sl": None if _sl_px is None else record_level(_sl_px),
+                        "tp": None if _tp_px is None else record_level(_tp_px),
                         "sl_dist_pct": None if sl_dist is None else round(sl_dist, 2),
                         "tp_dist_pct": None if tp_dist is None else round(tp_dist, 2),
                         # THE MARGIN OR NOTHING. This fell back to the
@@ -2065,14 +2066,14 @@ class TradingCommands:
                     positions_data.append({
                         "pair": pos.asset.replace("/", ""),
                         "direction": pos.direction.value,
-                        "entry": round(pos.entry_price, 6),
+                        "entry": record_level(pos.entry_price),
                         # 0 rather than the entry price: the card renders an
                         # unreadable price as "—", and echoing the entry back as
                         # "NOW" would assert the market is sitting exactly there.
-                        "current": round(last_price, 6) if _priced else 0,
+                        "current": record_level(last_price) if _priced else 0,
                         "pnl_pct": round(pnl_pct, 2) if pnl_pct is not None else None,
-                        "sl": round(pos.stop_loss, 6),
-                        "tp": round(pos.take_profit, 6),
+                        "sl": record_level(pos.stop_loss),
+                        "tp": record_level(pos.take_profit),
                         # MARGIN, matching the live branch above, because both
                         # lists go to one `open_book_return` and its docstring
                         # says in as many words that `size_usd` is the margin
