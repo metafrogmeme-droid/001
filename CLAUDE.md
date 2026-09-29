@@ -17394,6 +17394,62 @@ its own parametrized row, because a price exactly at the stop or the target
 is the input that separates `<` from `<=`.
 (`tests/test_a_scan_cards_levels_are_placed_as_shown.py`.)
 
+**A PULLBACK LIMIT WAS "DRIFTED" ON THE FIRST PASS WITH THE MARKET STANDING
+STILL.** The drift rule cancels a resting limit once the market drifts 2% away,
+and for the engine's own idea with momentum behind it, markets the order
+instead. It measured drift as the limit's distance from the market. The
+analyzer places a pullback limit up to one ATR from the market on purpose
+(`_compute_limit_entry`), so on any asset whose ATR is over 2% of price the
+distance was over the band the moment the order rested. Driven with a 3% ATR:
+the analyzer's SOL LONG limit sat at 97.2 under a market at 100, and with the
+market not moving the next monitor pass cancelled it (no trend) or marketed it
+at 100 (a trend up). The second outcome turns a pullback entry into a buy at
+the price the analysis said to wait below.
+
+**Drift is the market's move since placement.** `limit_entry.resting_limit_drift`
+is the one reading. It measures the market's move since the order was placed,
+signed so that away from the limit is positive: up for a buy limit, down for a
+sell limit. A move toward the limit is not drift. The market at placement is
+recorded on the resting row (`placed_market_price`) by `execute` and by the
+recovery of an unverified submission, which uses the pre-order ticker. It is
+saved and restored, and a saved value that is not a positive price (a bool
+included, since JSON `true` is 1.0 to `float`) restores as absent. A row placed
+before the market was recorded is measured from the limit as before. Such a
+row has already been read under that rule on every pass since it was placed,
+so the ones still resting sit inside the band. The audit names the basis.
+
+**The backtest's resting limits had the same rule and ask the same reading
+now.** `_drain_pending_limits` measured drift from the limit and records the
+signal bar's close at placement now. The honest benchmark fills at the next
+open and places no resting limits, so the frozen record does not move. Two
+tests in `test_backtest_limit_fills_need_a_touch.py` pinned the old formula as
+the contract. One cancelled a limit the market had moved TOWARD: placed at 95
+under a close of 100, then "drifted" at 97.85. Its docstring cited the live
+line that computed the same thing. Both measure from the placement close now.
+
+**The confirm half: a limit idea skipped the staleness check entirely.** F-05
+refuses a MARKET idea the market has moved more than 2% from since analysis,
+measured from its entry, which for a market idea is the analysis price. It
+skipped every limit, because a limit's distance from its entry is the design.
+So an idea the market had run 4% from was placed at the old pullback level.
+The analyzer records the market it analysed at (`TradeIdea.market_at_signal`,
+taken before the limit shift rebinds `entry`). The confirm refuses a limit
+idea measured from that, in either direction, as the market rule reads it.
+Levels a person confirmed as shown or typed (`levels_as_shown`) are not
+refused, and neither is an idea that records no analysis market. A
+`not is_manual` clause beside `levels_as_shown` was deleted before the round:
+`manual` is one of the shown sources, so the clause could not decide anything.
+
+**Twenty-four mutations, each killed. The one that survived the first round
+was a fixture that measured nothing.** "A market fill records no placement"
+iterated the positions and asserted each had none, and the market drive
+aborted on its own slippage guard (idea at 3600, fill at 4000), so there were
+no positions and the loop asserted nothing. It drives the drift suite's
+filling venue now and requires one open position first. The analyzer stamp is
+held by a scan, stated as one: `analyze` is a 1,400-line coroutine behind a
+thesis model, and the claim is an order of three assignments.
+(`tests/test_a_resting_limit_drifts_only_when_the_market_moves.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -17873,7 +17929,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 260 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 261 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -18685,9 +18741,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **472 of 1174** reach for source text through `source_scan`, `code_only`
+Driven, **473 of 1175** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 472 is a FLOOR and the honest shape is
+source scan that rule does not see, so 473 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

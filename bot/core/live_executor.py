@@ -46,7 +46,7 @@ from bot.core.order_rules import (
     adjust_size_for_weekend, should_defer_tp_sl,
 )
 from bot.core.limit_entry import (calculate_entry, levels_as_shown, limit_crosses_market,
-                                  order_fill_price)
+                                  order_fill_price, placement_price, resting_limit_drift)
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import ccxt_margin_mode, get_venue
 from bot.core.close_lookup import (
@@ -1136,6 +1136,9 @@ def restore_provenance(pos: Any, pdata: dict) -> None:
         setattr(pos, "idea_source", str(idea_src))
     if pdata.get("entry_typed") is True:
         setattr(pos, "entry_typed", True)
+    placed = placement_price(pdata.get("placed_market_price"))
+    if placed is not None:
+        setattr(pos, "placed_market_price", placed)
     authorized = _num_or_none(pdata.get("authorized_notional_usd"))
     if authorized is not None:
         setattr(pos, "authorized_notional_usd", authorized)
@@ -4169,6 +4172,9 @@ class LiveExecutor:
                 order_type="limit", limit_order_id=order_id, atr_at_entry=atr,
                 strategy_type=strategy, signal_type=signal,
                 opened_at=opened_at, status="pending_fill")
+            _placed_mkt = price_on_record(_rec_num(rec, "pre_order_price"))
+            if _placed_mkt is not None:
+                setattr(pos, "placed_market_price", _placed_mkt)
             self._positions[trade_id] = pos
             self._save_positions()
             self._drop_unverified_submission(coid)
@@ -8156,6 +8162,12 @@ class LiveExecutor:
                 setattr(position, "idea_source", _idea_src)
             if getattr(idea, "entry_typed", None) is True:
                 setattr(position, "entry_typed", True)
+            # The market this limit was placed against: the drift rule measures
+            # the market's move from here, never the limit's own distance from
+            # it, which an engine pullback limit carries by design.
+            _placed_mkt = price_on_record(current_price) if is_pending_limit else None
+            if _placed_mkt is not None:
+                setattr(position, "placed_market_price", _placed_mkt)
             _authorized = getattr(idea, "authorized_notional_usd", None)
             if _authorized is not None:
                 setattr(position, "authorized_notional_usd", _authorized)
@@ -10995,8 +11007,17 @@ class LiveExecutor:
                     try:
                         ticker = await exchange.fetch_ticker(self._venue.order_symbol(pos.symbol))
                         cur_price = float(ticker.get("last", 0) or 0)
-                        if cur_price > 0:
-                            pct_away = abs(cur_price - pos.entry_price) / pos.entry_price * 100
+                        # The market's move AWAY from the limit since it was
+                        # placed. The limit's own distance from the market is
+                        # not drift: an engine pullback limit is placed up to
+                        # an ATR away on purpose, and reading that as drift
+                        # cancelled or marketed it on the first pass with the
+                        # market standing still (`resting_limit_drift`).
+                        _drift = resting_limit_drift(
+                            pos.direction, pos.entry_price, cur_price,
+                            getattr(pos, "placed_market_price", None))
+                        if _drift is not None:
+                            pct_away, _drift_basis = _drift
                             if pct_away > drift_pct:
                                 # Check if we should convert to market instead of cancelling
                                 should_market_fallback = False
@@ -11027,6 +11048,7 @@ class LiveExecutor:
                                           f"drifted {pct_away:.1f}% but momentum is strong and aligned",
                                           action="limit_drift_market_fallback", result="CONVERTING",
                                           data={"trade_id": trade_id, "pct_away": pct_away,
+                                                "basis": _drift_basis,
                                                 "limit_price": pos.entry_price,
                                                 "market_price": cur_price})
                                     fallback_msg = await self._execute_drift_market_fallback(
@@ -11038,11 +11060,14 @@ class LiveExecutor:
                                 else:
                                     cancel_reason = "price_drift"
                                     audit(trade_log,
-                                          f"Price drifted {pct_away:.1f}% from limit "
-                                          f"(threshold {drift_pct}%): {pos.symbol} "
+                                          (f"Market moved {pct_away:.1f}% away since the "
+                                           f"order was placed" if _drift_basis == "placement"
+                                           else f"Price drifted {pct_away:.1f}% from limit")
+                                          + f" (threshold {drift_pct}%): {pos.symbol} "
                                           f"limit=${pos.entry_price:,.4f} mkt=${cur_price:,.4f}",
                                           action="limit_drift_cancel", result="CANCELLING",
                                           data={"trade_id": trade_id, "pct_away": pct_away,
+                                                "basis": _drift_basis,
                                                 "limit_price": pos.entry_price,
                                                 "market_price": cur_price})
                     except Exception as drift_exc:
@@ -15176,6 +15201,9 @@ class LiveExecutor:
                     # An entry the person typed through the Limit button: the
                     # drift fallback must not chase it after a restart either.
                     "entry_typed": getattr(pos, "entry_typed", None) is True,
+                    # The market a resting limit was placed against, which the
+                    # drift rule measures from (`resting_limit_drift`).
+                    "placed_market_price": getattr(pos, "placed_market_price", None),
                     "authorized_notional_usd": getattr(pos, "authorized_notional_usd", None),
                     # When a limit entry FILLED (opened_at is when it was
                     # placed). Unsaved, a restart put every hold and time

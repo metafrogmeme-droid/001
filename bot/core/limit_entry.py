@@ -484,3 +484,50 @@ def levels_as_shown(obj: object) -> bool:
         if isinstance(src, str) and src:
             return src in LEVELS_AS_SHOWN_SOURCES
     return False
+
+
+def placement_price(value) -> Optional[float]:
+    """A price read off a resting row: a finite positive number, never a
+    bool (JSON ``true`` is 1.0 to ``float``), or None."""
+    if isinstance(value, bool):
+        return None
+    from bot.core.position_telemetry import price_on_record
+    return price_on_record(value)
+
+
+def resting_limit_drift(side: str, limit_price, current_price,
+                        placed_market=None) -> Optional[tuple[float, str]]:
+    """How far the market has moved AWAY from a resting limit, in percent,
+    and what it was measured from; None when the prices cannot be read.
+
+    The drift rule cancels (or, for the engine's own idea, chases) a resting
+    limit once "the market drifts X% away", and it used to measure that as
+    the limit's distance from the market. An engine pullback limit is placed
+    up to one ATR from the market ON PURPOSE, so on an asset whose ATR is
+    over the band the first monitor pass after placement read a drift that
+    had not happened. Driven: a SOL LONG limit at 97.2 with the market at 100
+    and not moving was cancelled on the next pass, or, with a trend up,
+    marketed at 100 -- the pullback entry turned into the price the analysis
+    said to wait below.
+
+    With the market at placement on record the drift is the MARKET's move
+    since then, signed so that away from the limit is positive: up for a buy
+    limit, which rests below the market, and down for a sell limit. A move
+    toward the limit is not drift; it is the fill coming. Basis
+    ``"placement"``.
+
+    A row placed before the market was recorded (or adopted from the venue)
+    has none, and is measured as it always was, from the limit (basis
+    ``"limit"``). Such a row has already been read under that rule on every
+    pass since it was placed, so the ones still resting sit inside the band.
+    """
+    cur = placement_price(current_price)
+    lim = placement_price(limit_price)
+    if cur is None or lim is None:
+        return None
+    placed = placement_price(placed_market)
+    word = str(getattr(side, "value", side) or "").upper()
+    if placed is not None and word in ("LONG", "BUY", "SHORT", "SELL"):
+        away = (cur - placed) if word in ("LONG", "BUY") else (placed - cur)
+        return away / placed * 100.0, "placement"
+    return abs(cur - lim) / lim * 100.0, "limit"

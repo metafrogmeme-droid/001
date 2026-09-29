@@ -42,7 +42,7 @@ from bot.core.exchange_sync import sync_portfolio_with_exchange, get_exchange_po
 from bot.core.limit_entry import levels_as_shown, limit_crosses_market
 from bot.core.market_scanner import MarketScanner, _classify_symbol
 from bot.core.order_flow import OrderFlowAnalyzer
-from bot.core.position_telemetry import entered_at
+from bot.core.position_telemetry import entered_at, price_on_record
 from bot.core.ws_feed import BitgetWSFeed
 from bot.compliance.compliance_engine import ComplianceEngine, Permission, default_demo_profile
 from bot.learning.orchestrator import LearningOrchestrator
@@ -7926,6 +7926,31 @@ class RuneClawEngine:
                     self._transition(AgentState.IDLE, f"price drift for {trade_id}")
                     return (f"Trade REJECTED: price drifted {drift_pct:.1f}% since analysis "
                             f"(${idea.entry_price:,.2f} → ${current_price:,.2f}). Re-analyze.")
+                # The same rule for a LIMIT idea, measured from the market the
+                # analysis was made at: a limit's entry is a level away from the
+                # market by design, so its distance from the entry says nothing
+                # about staleness. It used to skip limits altogether, so an idea
+                # the market had run 4% from was placed at the old pullback
+                # level. Levels a person confirmed as shown, or typed, are theirs.
+                _mas = price_on_record(getattr(idea, "market_at_signal", None))
+                if is_limit and _mas is not None and not levels_as_shown(idea):
+                    _since = abs(current_price - _mas) / _mas * 100
+                    if _since > max_drift:
+                        from bot.formatters.rich_cards import _fmt_price
+                        audit(trade_log,
+                              f"Market moved {_since:.2f}% since analysis, over the "
+                              f"{max_drift}% threshold (limit idea)",
+                              action="price_drift", result="REJECTED",
+                              data={"trade_id": trade_id, "asset": idea.asset,
+                                    "market_at_signal": _mas,
+                                    "current_price": current_price,
+                                    "drift_pct": round(_since, 2), "order_type": "limit"})
+                        self._pending_pyramid.pop(trade_id, None)
+                        self._transition(AgentState.IDLE, f"price drift for {trade_id}")
+                        return (f"Trade REJECTED: the market moved {_since:.1f}% since "
+                                f"analysis ({_fmt_price(_mas)} → {_fmt_price(current_price)}), "
+                                f"so the limit at {_fmt_price(idea.entry_price)} is a stale "
+                                f"level. Re-analyze.")
 
                 # ── Validate price hasn't already blown through SL ──
                 # If market price is already past the SL, the trade would be

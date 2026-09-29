@@ -118,7 +118,7 @@ adding /swap without a landing link fails on the sa…
 **Swing trading** — **shipped**
 
 Swing is a first-class hold-duration class in the engine, not a label.
-analyzer.py:1155 classifies every idea's strategy_type, and
+analyzer.py:1156 classifies every idea's strategy_type, and
 CONFIG.strategy_types then gives swing its own geometry and lifecycle: SL 2.5
 ATR / TP 3.5 ATR (config.py:2292-2293), trailing ENABLED on the stage table
 every type shares (:2294), a 48h time-close with a 12h warn (:2297-2298), min
@@ -140,7 +140,7 @@ off by default.
 between RunStrategySkill._list and _run_symbol_scan; :2223-2229 is the literal
 "safe scalper" preset dict inside RunStrategySkill.PRESETS. No line in
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
-for it in that file. The real readers are bot/core/analyzer.py:1866-1869
+for it in that file. The real readers are bot/core/analyzer.py:1867-1870
 ("SL/TP baselines come from CONFIG.strategy_types"),
 bot/core/live_executor.py:754 (the per-strategy trailing switch, read for
 every entry and every fill).
@@ -168,9 +168,9 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:6900 creates the entry order idempotently, :8586/:9077 attach
+live_executor.py:6906 creates the entry order idempotently, :8598/:9089 attach
 the exchange-side stop and take-profit, and every venue call carries
-productType USDT-FUTURES (:2520, :2536, :2664); venues.py:340 selects the swap
+productType USDT-FUTURES (:2523, :2539, :2667); venues.py:340 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
 (trading_commands.py:1131); signal cards from /analyze, /scan and the pro scans
@@ -260,7 +260,7 @@ PLACES NOTHING — a leg that could not be sized leaves the pair unsized
 rather than half-hedged, and the card says what the message did.
 app/lib/venue_router.js recommends the cheapest venue to hold a given
 side by funding cost. Funding also genuinely affects live trading —
-analyzer.py:1613 applies funding_cost_haircut to blended confidence, and
+analyzer.py:1614 applies funding_cost_haircut to blended confidence, and
 risk/funding_clock.py times settlements.
 
 *Gap.* Nothing opens, hedges, rolls or closes a funding position. The
@@ -351,7 +351,7 @@ signal modules; RiskEngine (bot/risk/risk_engine.py:269) is the fail-closed pre-
 trade gate whose whole enforcing set /enforcing lists. engine.py:6166-6224
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2553) with no human in the loop, adaptively moved by
-realized win rate (engine.py:9449): the paper book's in paper mode, both
+realized win rate (engine.py:9474): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
@@ -1732,7 +1732,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1294, registered telegram_handler.py:1232) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:8427
+bot/core/stock_trading.py, also read by bot/core/engine.py:8452
 (get_market_session) and scan_commands.py:376.
 
 **Price alerts and anomaly-alert scoping**
