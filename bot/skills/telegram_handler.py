@@ -1269,6 +1269,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("token", self._cmd_token),
             ("memeplan", self._cmd_memeplan),
             ("rwa", self._cmd_rwa),
+            ("etf", self._cmd_etf),
             # The website chat's own cards, rendered there and fetched here
             ("nft", self._cmd_nft),
             ("spot", self._cmd_spot),

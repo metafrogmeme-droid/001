@@ -312,6 +312,7 @@
   ["sec.prov_totals_anch", "{a} van die dagen verankerd op Base"],
   ["sec.prov_root_head", "Verzegeld op {day} · {n} calls vastgelegd in deze ene hash"],
   ["dp.radar3d", "Sectorsweep — live 3D-radar"],
+  ["dp.etf", "Stromen van Amerikaanse spot-crypto-ETF’s"],
   ["dp.rwa", "RWA- & on-chain-radar"],
   ["dp.airdrops", "Airdrop- & testnetradar"],
   ["dp.meme", "Meme- & AI-tokenradar"],

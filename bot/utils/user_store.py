@@ -130,7 +130,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "backtest", "walkforward", "journal", "costs", "run", "learn",
         "patterns", "proposals", "optimize", "mode", "playbook",
         "exposure", "networth", "research", "rwa", "token", "memeplan",
-        "nft", "spot", "airdrops",
+        "nft", "spot", "airdrops", "etf",
         "replay", "letter", "venue_router", "meme_radar", "wallet", "defi", "price_alert",
         # /mystrategy: a trader's own tighten-only confirm gate — it can only
         # REFUSE that trader's confirms, touches nothing shared, so it belongs
@@ -161,7 +161,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "backtest", "walkforward", "journal", "costs", "run", "learn",
         "patterns", "proposals", "optimize", "playbook",
         "exposure", "networth", "research", "rwa", "token", "memeplan",
-        "nft", "spot", "airdrops",
+        "nft", "spot", "airdrops", "etf",
         "replay", "letter", "venue_router", "meme_radar", "wallet", "defi", "price_alert",
         "mystrategy",
     },
@@ -170,7 +170,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "start", "help", "dashboard", "scan", "deepscan", "status", "connect", "risk", "enforcing",
         "portfolio", "macro", "journal", "costs", "learn", "patterns",
         "exposure", "networth", "research", "rwa", "token", "memeplan",
-        "nft", "spot", "airdrops",
+        "nft", "spot", "airdrops", "etf",
         "replay", "letter", "venue_router", "meme_radar", "wallet", "defi", "price_alert",
     },
     # "journal" STAYS here even though /journal moved to an operator group.

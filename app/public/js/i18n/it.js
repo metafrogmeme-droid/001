@@ -312,6 +312,7 @@
   ["sec.prov_totals_anch", "{a} di quei giorni ancorati su Base"],
   ["sec.prov_root_head", "Sigillato il {day} · {n} chiamate impegnate in questo unico hash"],
   ["dp.radar3d", "Scansione settoriale — radar 3D live"],
+  ["dp.etf", "Flussi degli ETF crypto spot USA"],
   ["dp.rwa", "Radar RWA e on-chain"],
   ["dp.airdrops", "Radar airdrop e testnet"],
   ["dp.meme", "Radar meme e token AI"],

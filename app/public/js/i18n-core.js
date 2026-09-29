@@ -354,6 +354,7 @@
     "sec.prov_totals_anch": { en: "{a} of those days anchored on Base" },
     "sec.prov_root_head": { en: "Sealed on {day} · {n} calls committed to this one hash" },
     "dp.radar3d": { en: "Sector sweep — live 3D radar" },
+    "dp.etf": { en: "US spot crypto ETF flows" },
     "dp.rwa": { en: "RWA & on-chain radar" },
     "dp.airdrops": { en: "Airdrop & testnet radar" },
     "dp.meme": { en: "Meme & AI-token radar" },
@@ -2153,7 +2154,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"440e638b","zh":"7a58d10e","pt":"f4595edf","fr":"9ddc2ecd","de":"8e8ecfb8","nl":"34068a8e","ja":"e510287a","ko":"99a6a499","ru":"7e3eac68","tr":"6b7a5f15","it":"9273b851","hi":"12671dc5","ar":"e2da9eeb"};
+  var CHUNKS = {"es":"addec03a","zh":"e9cd745c","pt":"2fee8926","fr":"104132fb","de":"3fc92204","nl":"33d77ec4","ja":"65c7d47d","ko":"9496828d","ru":"6711d409","tr":"6b31221f","it":"d1b93f0d","hi":"2e291bc8","ar":"9facc5fd"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

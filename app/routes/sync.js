@@ -1526,6 +1526,9 @@ const CHAT_CARDS = {
   venue_router: (tg, q) => require('../lib/venue_router').venueRouterChatCard(cardBase(q)),
   meme_radar: () => require('../lib/meme').memeChatCard(),
   rwa: () => require('../lib/rwa').rwaChatCard(),
+  // The US spot ETF flows: the card, and the payload it was built from as
+  // `data`, so Telegram's `/etf` draws its picture from the same figures.
+  etf_flows: () => require('../lib/etf_flows').etfChatCard(),
   wallet: async (tg, q) => {
     const userId = await webUserFor(tg);
     return userId == null ? UNLINKED : require('../lib/wallet').walletChatCard(userId, cardChain(q));
@@ -1560,7 +1563,11 @@ router.get('/card/:name', async (req, res) => {
       return res.json({ reply_html: null, intent: name, unlinked: true });
     }
     if (!card || typeof card.reply_html !== 'string') throw new Error('card renderer answered nothing');
-    res.json({ reply_html: card.reply_html, intent: name });
+    // A card may carry the payload it was rendered from, for a surface
+    // that draws it (the ETF flows picture). Only a plain object travels.
+    const data = card.data && typeof card.data === 'object' && !Array.isArray(card.data)
+      ? { data: card.data } : {};
+    res.json({ reply_html: card.reply_html, intent: name, ...data });
   } catch (err) {
     console.error(`Sync card ${name} error:`, err.stack || err.message);
     res.status(500).json({ error: 'Card unavailable' });

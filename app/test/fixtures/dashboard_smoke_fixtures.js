@@ -109,6 +109,21 @@ module.exports = [
     const c = 59000 + Math.round(400 * Math.sin(i / 3));
     return [String(1757800000000 + i * 3600000), String(c - 50), String(c + 120), String(c - 130), String(c), '10', '600000'];
   }) }],
+  // The ETF flows panel: built BY the reading (`buildEtfFlows`) over planted
+  // source rows, so this fixture is the route's own shape and cannot drift
+  // from it. One asset unanswered, one flat, one moving.
+  ['/api/market/etf-flows', (() => {
+    const f = (v) => ({ value: String(v), lastUpdateDate: '2026-09-28', status: '1' });
+    const days = ['2026-09-28', '2026-09-25', '2026-09-24', '2026-09-23', '2026-09-22', '2026-09-19'];
+    const hist = (flow) => days.map((date) => ({ date, totalNetInflow: flow, totalValueTraded: 1e9 }));
+    return require('../../lib/etf_flows').buildEtfFlows({
+      btc: { hist: hist(1.2e8), metrics: { totalNetAssets: f(1e11), totalTokenHoldings: f(1e6),
+        list: [{ ticker: 'IBIT', institute: 'BlackRock', dailyNetInflow: f(9e7) },
+          { ticker: 'FBTC', institute: 'Fidelity', dailyNetInflow: f(3e7) }] } },
+      eth: { hist: hist(0), metrics: { totalNetAssets: f(1e9), totalTokenHoldings: f(1e5), list: [] } },
+      sol: { hist: null, metrics: null },
+    }, Date.parse('2026-09-29T00:00:00Z'));
+  })()],
   ['/api/reputation', { score: null, grade: null, unrated: true,
     subscores: { performance: null, risk_discipline: null, cost_efficiency: null, consistency: null },
     metrics: { trades: 0, win_rate: null, profit_factor: null, expectancy_r: null, max_drawdown_pct: null, fee_drag_pct: null },

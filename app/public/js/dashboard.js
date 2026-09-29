@@ -120,6 +120,89 @@
     return v >= 0 ? 'up' : 'down';
   }
 
+  // ── the ETF flows panel: renderer start ─
+  // The body of the Markets panel, from the payload `app/lib/etf_flows.js`
+  // builds (the reading Telegram's /etf draws as a picture). Module scope so
+  // a test can drive it. It computes nothing the payload does not hold: an
+  // absent figure is an em dash with no colour, a measured zero flow is
+  // muted rather than green, and an asset the source did not answer for is
+  // named rather than drawn as a flow of zero.
+  function etfUsd(v) {
+    const n = (v == null || typeof v === 'boolean' || (typeof v === 'string' && !v.trim())) ? null : Number(v);
+    if (n == null || !isFinite(n)) return '\u2014';
+    const a = Math.abs(n);
+    const s = n > 0 ? '+' : n < 0 ? '-' : '';
+    if (a >= 1e9) return `${s}$${(a / 1e9).toFixed(2)}B`;
+    if (a >= 1e6) return `${s}$${(a / 1e6).toFixed(1)}M`;
+    if (a >= 1e3) return `${s}$${(a / 1e3).toFixed(1)}K`;
+    return `${s}$${a.toFixed(0)}`;
+  }
+  function etfClass(v) {
+    const n = (v == null || typeof v === 'boolean' || (typeof v === 'string' && !v.trim())) ? null : Number(v);
+    if (n == null || !isFinite(n) || n === 0) return 'muted';
+    return n > 0 ? 'up' : 'down';
+  }
+  function etfCoins(v, sym) {
+    const n = (v == null || typeof v === 'boolean' || (typeof v === 'string' && !v.trim())) ? null : Number(v);
+    if (n == null || !isFinite(n)) return '\u2014';
+    const a = Math.abs(n);
+    const digits = a >= 100 ? 0 : a >= 1 ? 1 : 3;
+    return `\u2248 ${n > 0 ? '+' : n < 0 ? '-' : ''}${a.toLocaleString('en-US', { maximumFractionDigits: digits })} ${esc(sym)}`;
+  }
+  const ETF_UNREAD = { unavailable: 'the source did not answer', no_rows: 'the source listed no days' };
+  function etfPanelHtml(d) {
+    const total = d.total || {};
+    const inTotal = Array.isArray(total.assets_in_total) ? total.assets_in_total : [];
+    const head = `<p class="small">Net flow ${esc(d.window_start || '\u2014')} \u2013 ${esc(d.as_of || '\u2014')}:
+        <b class="num ${etfClass(total.net_flow_usd)}">${etfUsd(total.net_flow_usd)}</b>${inTotal.length ? ` across ${inTotal.map(esc).join(', ')}` : ''}.
+        <span class="muted">Daily net creations and redemptions of the US spot ETFs, summed over the trading days read.</span></p>`;
+    const rows = (d.assets || []).map((a) => {
+      if (!a || a.read !== true) {
+        return `<tr><td><b>${esc(a && a.symbol)}</b></td><td class="muted" colspan="4">not read \u2014 ${ETF_UNREAD[a && a.reason] || 'unreadable'}</td></tr>`;
+      }
+      const w = a.week || {};
+      const days = (w.days_read != null && w.days_listed != null) ? `${w.days_read} of ${w.days_listed}` : '\u2014';
+      const stale = a.latest_date !== d.as_of
+        ? ` <span class="muted small">(last reported ${esc(a.latest_date)}, not in the total)</span>` : '';
+      return `<tr><td><b>${esc(a.symbol)}</b>${stale}</td>
+        <td class="num r ${etfClass(w.net_flow_usd)}">${etfUsd(w.net_flow_usd)}</td>
+        <td class="num r muted">${etfCoins(w.coins, a.symbol)}</td>
+        <td class="num r">${days}</td>
+        <td class="num r ${etfClass(a.latest_day_flow_usd)}">${etfUsd(a.latest_day_flow_usd)}</td></tr>`;
+    }).join('');
+    const table = `<div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>Asset</th><th class="r">Week net</th><th class="r">\u2248 Coins</th><th class="r">Days read</th><th class="r">Last day</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`;
+    const btc = (d.assets || []).find((a) => a && a.key === 'btc' && a.read === true);
+    let prov = '';
+    if (btc && Array.isArray(btc.providers) && btc.providers.length) {
+      const moved = btc.providers.filter((p) => p && p.net_flow_usd != null && Number(p.net_flow_usd) !== 0);
+      const flat = btc.providers.filter((p) => p && Number(p.net_flow_usd) === 0 && p.net_flow_usd != null && p.funds_read === p.funds).length;
+      const unread = btc.providers.filter((p) => p && p.funds_read < p.funds).length;
+      const chips = moved.slice(0, 6).map((p) =>
+        `<span class="chip">${esc(p.provider)} <b class="num ${etfClass(p.net_flow_usd)}">${etfUsd(p.net_flow_usd)}</b></span>`).join(' ');
+      const notes = [flat ? `${flat} of ${btc.providers.length} providers reported no flow` : '',
+        unread ? `${unread} not read for this day` : ''].filter(Boolean).join(' \u00b7 ');
+      prov = `<h3 class="small" style="margin:var(--s3) 0 var(--s1);letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)">BTC funds on ${esc(btc.funds_date || '\u2014')}</h3>
+        <div class="row" style="gap:6px;flex-wrap:wrap">${chips || '<span class="muted small">No provider reported a flow on this day.</span>'}</div>
+        ${notes ? `<p class="muted small" style="margin-top:var(--s1)">${notes}</p>` : ''}`;
+    }
+    const t = d.takeaway;
+    let take = '';
+    if (t && t.days_of_issuance != null && isFinite(Number(t.days_of_issuance))) {
+      const days = Number(t.days_of_issuance);
+      const span = days >= 10 ? days.toFixed(0) : days.toFixed(1);
+      const amount = etfCoins(t.coins, t.symbol || 'BTC').replace(/^\u2248 [+-]/, '\u2248 ');
+      take = `<p class="small" style="margin-top:var(--s3)">${t.direction === 'inflow' ? 'Net buying' : 'Net selling'} of ${amount}
+        is about <b>${span} days</b> of newly mined bitcoin <span class="muted">(derived: ${esc(t.issuance_per_day)} BTC a day since the 2024 halving)</span>.</p>`;
+    }
+    const src = d.source || {};
+    const foot = `<p class="muted small" style="margin-top:var(--s2)">Source: ${src.url ? `<a href="${esc(src.url)}" target="_blank" rel="noopener">${esc(src.name)}</a>` : esc(src.name || '\u2014')}.
+        Coin amounts are estimates at the funds' net-asset-implied price on the latest day. Market data only \u2014 nothing here trades.</p>`;
+    return head + table + prov + take + foot;
+  }
+  // ── the ETF flows panel: renderer end ─
+
   // The meme radar's per-row risk detail. "no extra flags" is a MEASUREMENT
   // and must not be said over a signal the feed did not report: the row's
   // `unread` list names those. Module scope, not nested in the loader, so the
@@ -1775,6 +1858,10 @@
           <span class="badge" style="margin-left:auto" title="Market intelligence from live venue tickers — the radar never trades">read-only</span></h2>
           <div id="c-rwa"><div class="skel"></div><div class="skel"></div></div>
         </section>
+        <section class="panel" id="p-etf"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-coin"></use></svg><span data-i18n="dp.etf">US spot crypto ETF flows</span>
+          <span class="badge" style="margin-left:auto" title="Daily net creations and redemptions of the US spot Bitcoin, Ether and Solana ETFs, from SoSoValue. Market data only; nothing here trades.">read-only</span></h2>
+          <div id="c-etf"><div class="skel"></div><div class="skel"></div></div>
+        </section>
         <section class="panel" id="p-airdrops"><h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-sparkle"></use></svg><span data-i18n="dp.airdrops">Airdrop &amp; testnet radar</span>
           <span class="badge" style="margin-left:auto" title="Curated campaigns with guided checklists — you perform and sign every step yourself. RUNECLAW never automates participation or farms with multiple wallets.">guided-only</span></h2>
           <div id="c-airdrops"><div class="skel"></div><div class="skel"></div></div>
@@ -1931,6 +2018,20 @@
         </table></div>`).join('');
       return head + cats;
     }, { timeoutMs: 14000, empty: { icon: 'icon-coin', text: 'The RWA radar lights up when live tickers are reachable.' } });
+
+    // US spot crypto ETF flows (app/lib/etf_flows.js, the reading Telegram's
+    // /etf draws too). A read that reached no asset is the route's 502 and
+    // this panel's failure state; a 200 that names no asset read throws too,
+    // because an empty table there would read as "no flows".
+    renderPanel(C('etf'), async () => {
+      const r = await fetchJSON('/api/market/etf-flows', { auth: false, timeoutMs: 15000 });
+      mustRead(r);
+      const d = r.data;
+      if (!d || !d.total || !Array.isArray(d.assets) || !d.total.assets_read) {
+        throw new Error('ETF flows payload unreadable');
+      }
+      return etfPanelHtml(d);
+    }, { timeoutMs: 17000 });
 
     // Airdrop & testnet radar — curated campaigns, guided checklists, and
     // (when logged in) honest wallet-readiness hints. Never automated.

@@ -1302,9 +1302,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 106 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 107 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 97 of the 106 reach the tool-less chat model and 9
+typed as the card prints them, 98 of the 107 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -17795,6 +17795,96 @@ read it as an order path that never asks. It is excluded beside `_place_sl_tp`
 for the same reason: a missing stop must still be placed while trading is
 halted. No suite in that slice ran `guard_lint`.
 
+**US SPOT CRYPTO ETF FLOWS: ONE READING, A PANEL, A PICTURE, AND NOTHING IN
+IT IS A ZERO THE SOURCE DID NOT STATE.** Asked for on 2026-09-29 with an
+example infographic: the week's net flows into the US spot ETFs, by asset and
+by provider, on the website and as a picture on Telegram. The example's
+branding is not copied; the picture names its source. Farside answers 403 to
+a script and CoinGlass needs a key, so the source is SoSoValue's keyless open
+API: a daily history per asset (BTC, ETH, SOL; the other names it lists come
+back empty) and the latest day's metrics, where every field carries its own
+date and a status.
+
+**`app/lib/etf_flows.js` is the one reading**, and three surfaces render it:
+the Markets panel (`GET /api/market/etf-flows`), the web chat card, and
+Telegram's `/etf`, which fetches the card route. The route now forwards the
+payload a card was built from as `data` (a plain object only, never a list),
+so the picture draws the same figures rather than a second reading of the
+source. What the reading refuses, each driven:
+
+- a day listed with no readable flow is left out of the week's sum and
+  counted as unread, never added as zero;
+- a metrics field whose status is not the source's `'1'` is unread;
+- an asset reported on an earlier day than the others is named, and is not
+  summed into a total for a different week;
+- the coin estimate needs the funds' net assets and holdings stated for the
+  same day, and is marked approximate on every surface;
+- a fund whose flow is dated another day is unread for that day, and a
+  provider whose funds were only partly read says so;
+- the takeaway ("about N days of newly mined bitcoin") is labelled derived,
+  with its constant (450 BTC a day since the 2024 halving) printed beside it,
+  and a week whose coin estimate is a measured zero has none;
+- a read that reached no asset THROWS: the route answers 502, the card route
+  500, the panel its failure state and `/etf` the transport's sentence, never
+  "no flows".
+
+The providers are the latest day only, and each surface says so: the source's
+per-fund figures are current metrics, and a weekly provider breakdown would
+need a per-fund history it does not publish. `prior_week` was computed and
+read by no surface, so it is deleted: a field nobody reads is one the next
+reader trusts because it is there. ETF flows in dollars are public market
+facts, like volume, so they are fine on the public route.
+
+**The picture's formatter was a second copy that rounded differently.**
+`render_etf_card` draws the payload and computes nothing, but it formats
+figures, and Python's format rounds an exact tie to even where the website's
+`toFixed` and `maximumFractionDigits` round it up: -3.25 coins printed
+`≈ -3.2 BTC` on the picture and `≈ -3.3 BTC` on the panel, and a 12.5-day
+takeaway `12` against `13`. `_fixed` rounds the exact binary value half-up,
+and a test runs the real JS formatters and the Python ones over one table
+(ties, absences, junk) and requires them equal. The panel carries a third
+copy, because the browser cannot load the server lib; a Node test holds it to
+the lib over the same kind of table, and on its first run found the panel
+reading a blank string as a measured `≈ 0 BTC` where the lib reads it as
+absent.
+
+**Two gates found the rest before the full run.** The Chromium smoke put the
+new panel in its failure state, because the generic stub carries no `total`
+and the loader correctly throws over it; the fixture is now built by
+`buildEtfFlows` over planted rows, so it cannot drift from the route's shape.
+And the JS honesty ratchet counted the provider sum's `?? 0`, which started a
+running sum inside a guard; it is written without the shape.
+
+**The caption is the card's first two lines and its source line**, because
+the picture carries the rest and Telegram caps a caption at 1024 characters;
+the caption is what the transcript records. A picture that could not be drawn
+or that Telegram refused sends the text card instead, and the exception's
+class, never its text, is logged. `/etf` is guarded under its own permission,
+held by trader, paper and viewer.
+
+**A new command is five tables, and the slice's own suites saw three.** The
+catalogue, the guard baseline and the role table each had a test in this
+slice; the gate-spelling baseline (`command_gate_baseline.txt`), the card-name
+pin, the twelve catalogue locales and the catalogue drive's count did not, and
+each failed only when every suite that reads those tables was run. They are
+recorded in this commit. That is the run to make before a full preflight when a
+slice adds a command.
+
+**Thirty-six mutations, each killed; four survived the first round and all
+four were cases no fixture planted**: a week whose coin estimate is exactly
+zero, the source's own refusal code (driven through `fetch` itself, since
+every other test injects a fetcher), a renderer handing the route a list as
+its data, and an unread asset on the picture that also got a bar.
+**And the citation check for this slice found three map citations that were
+wrong before it.** The map's funding paragraph cited `/funding`, `/fundingscan`
+and `/arb` at lines 74, 149 and 241 of `market_commands.py`, for handlers at
+201, 265 and 240, and called `/funding` ungated beside its `@guard("status")`.
+None sat on a blank line, and the remap carried all three faithfully. They are
+derived from the handlers now, and the gate from the decorator
+(`test_the_funding_citations_are_the_handlers_they_name`).
+(`app/test/etf_flows_reads_what_the_source_stated.test.js`,
+`tests/test_the_etf_flows_picture_draws_the_websites_figures.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -19086,9 +19176,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **474 of 1179** reach for source text through `source_scan`, `code_only`
+Driven, **475 of 1180** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 474 is a FLOOR and the honest shape is
+source scan that rule does not see, so 475 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

@@ -312,6 +312,7 @@
   ["sec.prov_totals_anch", "{a} desses dias ancorados na Base"],
   ["sec.prov_root_head", "Selado em {day} · {n} chamadas comprometidas neste único hash"],
   ["dp.radar3d", "Varredura setorial — radar 3D ao vivo"],
+  ["dp.etf", "Fluxos dos ETFs cripto à vista dos EUA"],
   ["dp.rwa", "Radar RWA e on-chain"],
   ["dp.airdrops", "Radar de airdrops e testnets"],
   ["dp.meme", "Radar de memes e tokens de IA"],

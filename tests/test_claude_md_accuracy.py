@@ -1510,6 +1510,29 @@ def test_the_handler_citations_are_the_functions_they_name():
             in doc)
 
 
+def test_the_funding_citations_are_the_handlers_they_name():
+    """The map's funding paragraph cited `/funding` at `market_commands.py:74`
+    for a handler at 201, `/fundingscan` at `:149` for one at 265, and `/arb`
+    at `:241` for one at 240, and called `/funding` ungated beside a
+    `@guard("status")`. None landed on a blank line, so the probe could not
+    see them, and a remap carried all three. Each is derived from the handler
+    it names, and the gate from the handler's own decorator."""
+    doc = " ".join((ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8").split())
+    src = (ROOT / "bot" / "skills" / "market_commands.py").read_text(encoding="utf-8").splitlines()
+
+    def def_line(name):
+        hits = [i + 1 for i, ln in enumerate(src) if ln.startswith(f"    async def {name}(")]
+        assert len(hits) == 1, hits
+        return hits[0]
+
+    funding = def_line("_cmd_funding")
+    assert src[funding - 2].strip() == '@guard("status")'
+    assert (f"/funding (market_commands.py:{funding}, guarded under `status`)" in doc)
+    assert f"/fundingscan (:{def_line('_cmd_fundingscan')}) does" in doc
+    assert f"/arb (:{def_line('_cmd_arb')}) runs" in doc
+    assert "ungated) shows one perp" not in doc
+
+
 def test_the_x_share_citations_are_the_handlers_they_name():
     """The map's X/Twitter paragraph cited the symbol-modal share at
     `dashboard.js:2715-2723` and the journal close card's share at

@@ -176,6 +176,18 @@ router.get('/rwa', async (req, res) => {
   }
 });
 
+// GET /api/market/etf-flows — US spot crypto ETF net flows (SoSoValue, daily;
+// public market facts). A read that reached no asset is a 502, never "no flows".
+router.get('/etf-flows', async (req, res) => {
+  try {
+    const flows = await require('../lib/etf_flows').getEtfFlows();
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.json(flows);
+  } catch (err) {
+    res.status(502).json({ error: 'ETF flows unavailable' });
+  }
+});
+
 // GET /api/market/meme — Meme & AI-agent token radar (read-only DEXScreener
 // intelligence with an explicit per-token safety read; never trades/launches).
 router.get('/meme', async (req, res) => {

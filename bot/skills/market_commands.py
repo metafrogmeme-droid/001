@@ -59,6 +59,9 @@ class MarketCommands:
         async def _send(self, update: Update, text: str,
                         reply_markup=None, edit: bool = False) -> None: ...
 
+        async def _send_photo(self, update: Update, png: bytes, caption: str,
+                              reply_markup=None) -> bool: ...
+
         async def _guard(self, update: Update, command: str = "", ctx=None) -> bool: ...
 
         def _is_admin(self, update: Update) -> bool: ...
@@ -93,6 +96,39 @@ class MarketCommands:
         payload = await _aio.to_thread(fetch_web_card, "rwa")
         text = web_card_text(payload)
         return text if text else self._link_hint(surface)
+
+    @guard("etf")
+    async def _cmd_etf(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/etf — the week's US spot crypto ETF flows, drawn as a picture.
+
+        The figures are the website's (`app/lib/etf_flows.js`), fetched over
+        the card route with the payload they were built from; the picture
+        draws that payload and computes nothing. With no picture (Pillow
+        missing, a payload it cannot draw, a send Telegram refused) the text
+        card follows, so the reading still arrives. A channel that did not
+        answer gets the transport's own sentence, never a card of zeros.
+        """
+        import asyncio as _aio
+
+        from bot.formatters.etf_card import render_etf_card
+        from bot.utils.web_data_pull import fetch_web_card, web_card_text
+        payload = await _aio.to_thread(fetch_web_card, "etf_flows")
+        text = web_card_text(payload)
+        if not text:
+            await self._send(update, self._link_hint("telegram"))
+            return
+        data = payload.get("data") if isinstance(payload, dict) else None
+        png = b""
+        try:
+            png = await _aio.to_thread(render_etf_card, data)
+        except Exception as exc:
+            system_log.warning("ETF flows picture could not be drawn (%s)", type(exc).__name__)
+        if png:
+            lines = [ln for ln in text.split("\n") if ln.strip()]
+            caption = "\n".join(lines[:2] + lines[-1:]) if len(lines) > 3 else text
+            if await self._send_photo(update, png, caption):
+                return
+        await self._send(update, text)
 
     # ── The website chat's own cards, as commands ─────────────────────────
     # /nft, /spot and /airdrops render the SAME card the website's chat
