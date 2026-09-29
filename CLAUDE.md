@@ -817,7 +817,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 674 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 670 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -18113,6 +18113,28 @@ refusal. The record moves to 129 trades, 66/63, net −$1,440.41, PF 0.63, 1 of
 6 folds profitable, mean OOS −2.40%.
 (`tests/test_a_stop_at_the_floor_reads_at_the_floor.py`.)
 
+**THE EXECUTOR'S LIMIT WAS PRICED OFF A VWAP THAT READ A NULL HIGH AS ZERO.**
+When an engine idea's limit would cross the market at placement,
+`limit_entry.calculate_entry` re-prices it from a cluster of levels built off
+the last fifty 1h candles: the VWAP, EMA9 and EMA20, and the session range.
+The EMAs and the range skipped a null value; the VWAP read it as 0
+(`float(candle[2] or 0)`). Driven over thirty flat bars, one null high and one
+null low moved the VWAP from 100.00 to 97.78, took it out of the cluster, and
+the limit's quality tier fell from A to B. A null close moved it to 98.89.
+Two neighbours had the other half of the shape: a NaN passed the EMA's and the
+range's truthiness test as a price, and a window with no stated high raised on
+an empty `max()`.
+
+Every reader in the function takes the same values now: a price the row
+states (`price_on_record`) and a volume it states (`volume_on_record`). A bar
+the VWAP cannot price adds nothing, the way a bar with no volume already did,
+and a window that states no range is no session level. Ten mutations, each
+killed on the first round. The reach is narrow and stated: this runs only when
+an engine idea's limit crosses the market at placement, and only when the venue
+answers a candle with a null field. The honesty ratchet fell 674 to 670 (the
+four `or 0` reads) and was re-recorded in the same commit.
+(`tests/test_a_null_candle_value_is_left_out_of_the_limit_levels.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -19404,7 +19426,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **477 of 1185** reach for source text through `source_scan`, `code_only`
+Driven, **477 of 1186** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 477 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
