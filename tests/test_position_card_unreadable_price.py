@@ -133,19 +133,57 @@ def _handler_src() -> str:
 
 
 def test_a_failed_ticker_returns_none_not_zero():
+    # The card's read is the executor's `last_price` now (the venue's own
+    # spelling), which answers None for a ticker that states no price and
+    # RAISES for a read that failed; `_last` turns the raise into None.
+    # These used to pin the inline `px > 0` spelling it replaced.
     src = _handler_src()
     block = src[src.index("async def _last(sym):"):]
     block = block[:block.index("now = datetime.now")]
-    assert "return px if px > 0 else None" in block
+    assert "return await executor.last_price(sym)" in block
     assert "except Exception:\n                    return None" in block
     assert "return 0.0" not in block, "0.0 is a price; None is the absence of one"
 
 
+@pytest.mark.parametrize("last", [None, 0, 0.0, -1.0, float("nan"), "n/a"])
+def test_a_ticker_that_states_no_price_is_none(last):
+    import asyncio
+    from types import SimpleNamespace
+
+    from bot.core.live_executor import LiveExecutor
+
+    class _X:
+        async def fetch_ticker(self, sym):
+            return {"last": last}
+
+    ex = LiveExecutor.__new__(LiveExecutor)
+    ex._venue = SimpleNamespace(order_symbol=lambda s: s + ":USDT")
+
+    async def _get():
+        return _X()
+    ex._get_exchange = _get
+    assert asyncio.run(ex.last_price("SOL/USDT")) is None
+
+
 def test_no_exchange_client_is_the_same_fact_as_a_failed_ticker():
+    # Not knowing the price because there is no client, and not knowing it
+    # because the fetch failed, are the same thing to the reader: both reach
+    # `_last` as a raise from `last_price` and both answer None.
+    import asyncio
+    from types import SimpleNamespace
+
+    from bot.core.live_executor import LiveExecutor
+
+    ex = LiveExecutor.__new__(LiveExecutor)
+    ex._venue = SimpleNamespace(order_symbol=lambda s: s)
+
+    async def _none():
+        raise RuntimeError("no exchange client")
+    ex._get_exchange = _none
+    with pytest.raises(RuntimeError):
+        asyncio.run(ex.last_price("SOL/USDT"))
     src = _handler_src()
-    assert "cur = await _last(p.symbol) if exchange else None" in src, (
-        "not knowing the price because there is no client, and not knowing it "
-        "because the fetch failed, are the same thing to the reader")
+    assert "cur = await _last(p.symbol)" in src
 
 
 def _live(cur):

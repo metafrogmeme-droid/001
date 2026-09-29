@@ -27,7 +27,8 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from bot.core.live_executor import LivePosition
+from bot.core.live_executor import LiveExecutor, LivePosition
+from bot.core.venues import get_venue
 from bot.formatters import signal_card as sc
 from bot.skills import trading_commands as tc
 from bot.skills.trading_commands import (
@@ -210,8 +211,10 @@ class TestTheRenderers:
 class _Ticker:
     def __init__(self, marks):
         self.marks = marks
+        self.asked: list = []
 
     async def fetch_ticker(self, sym):
+        self.asked.append(sym)
         m = self.marks.get(sym)
         if m is None:
             raise RuntimeError("ticker down")
@@ -219,6 +222,13 @@ class _Ticker:
 
 
 class _Exec:
+    """Reads its marks through the REAL `last_price` on a Bitget venue, so the
+    ticker is asked in the perp spelling (`SOL/USDT:USDT`) and the marks are
+    keyed by it: a card that read the recorded `SOL/USDT` gets nothing."""
+
+    _venue = get_venue("bitget")
+    last_price = LiveExecutor.last_price
+
     def __init__(self, marks):
         self._ex = _Ticker(marks)
 
@@ -256,7 +266,7 @@ class TestTheHandler:
         planted = {"planted": True}
         monkeypatch.setattr(tc, "live_position_card_data",
                             lambda p, cur, now: planted)
-        r, sent, seen = self._run([_pos()], [], {"SOL/USDT": 102.0}, monkeypatch)
+        r, sent, seen = self._run([_pos()], [], {"SOL/USDT:USDT": 102.0}, monkeypatch)
         assert r is True and seen == [planted]
 
     def test_the_mark_the_card_reads_is_the_one_fetched(self, monkeypatch):
@@ -264,7 +274,7 @@ class TestTheHandler:
         monkeypatch.setattr(tc, "live_position_card_data",
                             lambda p, cur, now: (got.append(cur), {})[1])
         self._run([_pos(), _pos("C", symbol="ETH/USDT")], [],
-                  {"SOL/USDT": 102.0}, monkeypatch)
+                  {"SOL/USDT:USDT": 102.0}, monkeypatch)
         assert got == [102.0, None]
 
     def test_the_time_exit_line_is_handed_the_marks_it_read(self, monkeypatch):
@@ -277,13 +287,13 @@ class TestTheHandler:
             return cap
         monkeypatch.setattr(tc, "_caption_with_time_exits", _cap)
         self._run([_pos(), _pos("C", symbol="ETH/USDT")], [],
-                  {"SOL/USDT": 102.0}, monkeypatch)
+                  {"SOL/USDT:USDT": 102.0}, monkeypatch)
         assert got == [{"A": 102.0, "C": None}]
 
     def test_a_pending_order_with_an_unread_mark_does_not_resend(self, monkeypatch):
         r, sent, _ = self._run([_pos()], [_pos("D", symbol="ETH/USDT",
                                                 status="pending_fill")],
-                               {"SOL/USDT": 102.0}, monkeypatch)
+                               {"SOL/USDT:USDT": 102.0}, monkeypatch)
         assert r is True
         assert len(sent["photos"]) == 2
         assert sent["texts"] == []
@@ -293,7 +303,7 @@ class TestTheHandler:
             raise RuntimeError("draw failed")
         monkeypatch.setattr(sc, "render_orders_card", _raise)
         r, sent, _ = self._run([_pos()], [_pos("D", status="pending_fill")],
-                               {"SOL/USDT": 102.0}, monkeypatch)
+                               {"SOL/USDT:USDT": 102.0}, monkeypatch)
         assert r is True
         assert len(sent["photos"]) == 1
         assert len(sent["texts"]) == 1
@@ -305,12 +315,12 @@ class TestTheHandler:
             raise RuntimeError("draw failed")
         monkeypatch.setattr(sc, "render_orders_card", _raise)
         r, sent, _ = self._run([], [_pos("D", status="pending_fill")],
-                               {"SOL/USDT": 102.0}, monkeypatch)
+                               {"SOL/USDT:USDT": 102.0}, monkeypatch)
         assert r is False and sent["texts"] == []
 
     def test_the_refusal_line_does_not_call_a_missing_stop_bot_managed(
             self, monkeypatch):
-        r, sent, _ = self._run([_adopted()], [], {"SOL/USDT": 102.0},
+        r, sent, _ = self._run([_adopted()], [], {"SOL/USDT:USDT": 102.0},
                                monkeypatch)
         cap = sent["photos"][0]
         assert "SL none on record" in cap
@@ -318,7 +328,7 @@ class TestTheHandler:
 
     def test_a_stop_the_bot_holds_keeps_its_word(self, monkeypatch):
         r, sent, _ = self._run([_pos(sl_order_id=None)], [],
-                               {"SOL/USDT": 102.0}, monkeypatch)
+                               {"SOL/USDT:USDT": 102.0}, monkeypatch)
         assert "SL bot-managed" in sent["photos"][0]
 
 
@@ -334,8 +344,8 @@ class TestThePositionsCommand:
         monkeypatch.setattr(sc, "render_position_card",
                             lambda d: (cards.append(d), b"PNG")[1])
         h = object.__new__(th.TelegramHandler)
-        ex = NS(open_positions=positions,
-                _get_exchange=_Exec(marks)._get_exchange)
+        ex = _Exec(marks)
+        ex.open_positions = positions
         h.engine = NS(user_portfolios={}, position_watch=lambda: None,
                       pending_ideas=[])
         h._get_tg_id = lambda update: 7
@@ -360,20 +370,20 @@ class TestThePositionsCommand:
     def test_a_margin_nobody_stated_is_not_printed_as_the_notional(
             self, monkeypatch):
         p = _pos(cost_usd=0.0, leverage=5)
-        cards, out = self._drive([p], {"SOL/USDT": 102.0}, monkeypatch)
+        cards, out = self._drive([p], {"SOL/USDT:USDT": 102.0}, monkeypatch)
         assert cards and cards[0]["size_usd"] is None
         # notional 102 x ROE 10% would have been printed as $10.20
         assert "$+10.20" not in out
 
     def test_a_stop_the_record_does_not_hold_is_not_bot_managed(
             self, monkeypatch):
-        cards, _ = self._drive([_adopted()], {"SOL/USDT": 102.0}, monkeypatch)
+        cards, _ = self._drive([_adopted()], {"SOL/USDT:USDT": 102.0}, monkeypatch)
         assert cards[0]["sl_status"] == "none on record"
 
     def test_an_adopted_resting_order_is_listed(self, monkeypatch):
         rest = _pos("R", status="pending_fill", cost_usd=0.0, leverage=0,
                     sl_order_id=None)
-        cards, out = self._drive([rest], {"SOL/USDT": 102.0}, monkeypatch)
+        cards, out = self._drive([rest], {"SOL/USDT:USDT": 102.0}, monkeypatch)
         assert "PENDING ORDERS (1)" in out
         assert "margin unread" in out and "leverage unread" in out
 
@@ -386,10 +396,12 @@ class TestTheOrdersCommand:
     def test_an_unread_amount_and_mark_reach_the_card_as_none(self, monkeypatch):
         from bot.skills import telegram_handler as th
         rows = []
+        sources: list = []
         monkeypatch.setattr(sc, "render_orders_card",
-                            lambda r, timestamp="": (rows.extend(r), b"PNG")[1])
+                            lambda r, timestamp="", source="": (
+                                rows.extend(r), sources.append(source), b"PNG")[2])
         reading = NS(unavailable=None, state="read", notes=[], read_at=NOW,
-                     error_kind=None, prices={"SOL/USDT": None},
+                     error_kind=None, prices={"SOL/USDT": None}, source="Bitget",
                      orders=[{"sym": "SOL/USDT", "side": "BUY", "price": 100.0,
                               "amount": None, "oid": "o1", "type": "limit"}])
 
@@ -418,6 +430,8 @@ class TestTheOrdersCommand:
         asyncio.run(h._cmd_orders(update, None))
         assert rows and rows[0]["amount"] is None
         assert rows[0]["current_price"] is None and rows[0]["dist_pct"] is None
+        # The picture names the venue the reading named.
+        assert sources == ["Bitget"]
 
 
 class TestThePendingOrderCard:
@@ -440,7 +454,7 @@ class TestThePositionsRowReadsEntryAndMark:
     def test_an_unread_entry_does_not_end_the_command(self, monkeypatch):
         p = _pos("E", entry_price=0.0, cost_usd=0.0, leverage=0,
                  stop_loss=0.0, take_profit=0.0, sl_order_id=None)
-        cards, out = self._drive([p], {"SOL/USDT": 102.0}, monkeypatch)
+        cards, out = self._drive([p], {"SOL/USDT:USDT": 102.0}, monkeypatch)
         assert "OPEN POSITIONS (1)" in out
         assert "entry unread" in out
         assert cards[0]["pnl_pct"] is None
@@ -456,18 +470,18 @@ class TestThePositionsRowReadsEntryAndMark:
         """The fetch stores any `last > 0`, which an infinity passes. The row
         read it as a mark for the unread flag and as no mark for everything
         else, so the card printed the ENTRY as the current price."""
-        cards, out = self._drive([_pos()], {"SOL/USDT": float("inf")},
+        cards, out = self._drive([_pos()], {"SOL/USDT:USDT": float("inf")},
                                  monkeypatch)
         assert cards[0]["now"] is None
         assert "price unavailable" in out
 
     def test_a_read_mark_measures_from_the_mark(self, monkeypatch):
-        cards, _ = self._drive([_pos()], {"SOL/USDT": 100.0}, monkeypatch)
+        cards, _ = self._drive([_pos()], {"SOL/USDT:USDT": 100.0}, monkeypatch)
         assert cards[0]["sl_pct"] == pytest.approx(5.0)
         assert cards[0]["rr"] == pytest.approx(2.0)
 
     def test_the_row_names_a_margin_nobody_stated(self, monkeypatch):
-        cards, out = self._drive([_pos(cost_usd=0.0)], {"SOL/USDT": 102.0},
+        cards, out = self._drive([_pos(cost_usd=0.0)], {"SOL/USDT:USDT": 102.0},
                                  monkeypatch)
         assert "margin unread" in out
         assert "price unavailable" not in out

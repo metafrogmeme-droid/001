@@ -170,10 +170,15 @@ def _tap(role, *, can_live, is_admin, live, owner_tag=UID, paper_sink=None,
         get_exchange=lambda: _exchange_coro(),
     )
 
-    async def _exchange_coro():
+    async def _exchange_coro(category="Crypto"):
         return _Exchange()
 
     h.engine.get_exchange = _exchange_coro
+    # The paper close reads the perp through the engine's one reading.
+    from types import MethodType
+
+    from bot.core.engine import RuneClawEngine
+    h.engine.market_price = MethodType(RuneClawEngine.market_price, h.engine)
     h.users = _Users()
     h._limiter = SimpleNamespace(allow=lambda uid: True)
     h._check_auth = lambda update: True

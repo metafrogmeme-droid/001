@@ -1416,7 +1416,8 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
 # ORDERS CARD — styled PNG for open/pending orders display
 # ═══════════════════════════════════════════════════════════════════
 
-def render_orders_card(orders: list[Dict[str, Any]], timestamp: str = "") -> bytes:
+def render_orders_card(orders: list[Dict[str, Any]], timestamp: str = "",
+                       source: str = "") -> bytes:
     """Render open orders as a styled PNG card.
 
     Args:
@@ -1424,6 +1425,9 @@ def render_orders_card(orders: list[Dict[str, Any]], timestamp: str = "") -> byt
             sym, side, price, current_price, amount, ttl_str, oid, created,
             type ("limit"|"stop"|"take_profit"), dist_pct
         timestamp: UTC time string
+        source: the venue the orders rest on (`open_orders.order_source`).
+            No footer is drawn when no caller names one: the footer used to
+            read "Bitget USDT-M Futures" for an order on any venue.
 
     Returns:
         PNG bytes
@@ -1594,7 +1598,8 @@ def render_orders_card(orders: list[Dict[str, Any]], timestamp: str = "") -> byt
 
     # Footer
     footer_y = y + n * ROW_H + 4
-    draw.text((PAD, footer_y), "Bitget USDT-M Futures", fill=_DIM, font=f_small)
+    if source:
+        draw.text((PAD, footer_y), f"Source: {source}", fill=_DIM, font=f_small)
 
     draw.rectangle([0, H - 3, W, H], fill=_PURPLE)
     wm_w = draw.textlength("RUNECLAW", font=f_small)

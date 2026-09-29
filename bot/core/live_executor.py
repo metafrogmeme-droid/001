@@ -3097,6 +3097,21 @@ class LiveExecutor:
             self._hedge_mode = False
             self._is_uta = False
 
+    async def last_price(self, symbol: str) -> Optional[float]:
+        """The last price of ``symbol``'s market on this executor's venue.
+
+        Asked in the VENUE'S spelling. A position records ``BTC/USDT``; with
+        UTA markets loaded that is Bitget's SPOT market, and on Hyperliquid it
+        names no market at all. The position cards read it raw, so a Bitget
+        card priced a perp position off the spot book and a Hyperliquid card
+        had no mark for any position. A ticker that states no price is None
+        (`price_on_record`), never 0. A read that fails raises: what an
+        unread mark means is the caller's to say.
+        """
+        exchange = await self._get_exchange()
+        ticker = await exchange.fetch_ticker(self._venue.order_symbol(symbol))
+        return price_on_record(ticker.get("last") if isinstance(ticker, dict) else None)
+
     async def _venue_market_price(self, exchange: ccxt.Exchange,
                                   symbol: str) -> Optional[float]:
         """Reference price for venues whose market orders need one

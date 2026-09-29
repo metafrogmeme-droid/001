@@ -44,6 +44,7 @@ from telegram.ext import ContextTypes
 from bot.config import CONFIG
 from bot.core.open_orders import (
     open_orders_for,
+    order_source,
     reconcile_open_orders,
     render_open_orders_html,
     resolve_desync_orders,
@@ -767,21 +768,17 @@ class TradingCommands:
         if await self._render_livepositions_cards(update, filled_pos, pending_pos, executor):
             return
 
-        # Fetch current prices for all relevant symbols
+        # Current prices, in the venue's own spelling (`last_price`). A mark
+        # that could not be read is None, which every row below prints as
+        # unread; the recorded spelling read the SPOT book on Bitget and no
+        # market at all on Hyperliquid.
         current_prices: dict = {}
-        all_pos = filled_pos + pending_pos
-        if all_pos:
-            try:
-                exchange = await executor._get_exchange()
-                for p in all_pos:
-                    if p.symbol not in current_prices:
-                        try:
-                            tk = await exchange.fetch_ticker(p.symbol)
-                            current_prices[p.symbol] = float(tk.get("last") or 0)
-                        except Exception:
-                            current_prices[p.symbol] = 0
-            except Exception:
-                pass
+        for p in filled_pos + pending_pos:
+            if p.symbol not in current_prices:
+                try:
+                    current_prices[p.symbol] = await executor.last_price(p.symbol)
+                except Exception:
+                    current_prices[p.symbol] = None
 
         # Best-effort: liquidation price + margin mode per symbol (read-only,
         # one guarded fetch — never blocks the card if it fails).
@@ -881,7 +878,8 @@ class TradingCommands:
                 cost = _margin if isinstance(_margin, (int, float)) and _margin > 0 else 0
 
                 # Calculate uPnL
-                cur = current_prices.get(p.symbol, 0)
+                _mark = current_prices.get(p.symbol)
+                cur = _mark if _mark is not None else 0.0  # read as `cur > 0` below
                 upnl_str = ""
                 pnl_pct_str = ""
                 # AND THE DOLLAR HERE WAS UNLEVERAGED WHILE THE PERCENT WAS NOT.
@@ -981,7 +979,8 @@ class TradingCommands:
                 cost = _margin if isinstance(_margin, (int, float)) and _margin > 0 else 0
 
                 # Distance to fill
-                cur = current_prices.get(p.symbol, 0)
+                _mark = current_prices.get(p.symbol)
+                cur = _mark if _mark is not None else 0.0  # read as `cur > 0` below
                 dist_str = ""
                 if cur > 0 and p.entry_price > 0:
                     dist_pct = abs(cur - p.entry_price) / p.entry_price * 100
@@ -1048,24 +1047,18 @@ class TradingCommands:
             from bot.formatters.signal_card import render_orders_card, render_position_card
             from bot.skills.chart_renderer import _composite_pngs
 
-            exchange = None
-            try:
-                exchange = await executor._get_exchange()
-            except Exception:
-                pass
-
             async def _last(sym):
                 """Current price, or None when we could not read it.
 
                 None, not 0.0. A zero here used to flow into the position
                 card as pnl_pct=0.0, which renders "+0.00%" beside a green
                 stripe — a position that may be well underwater presented as
-                exactly break-even, in an image, about real money.
+                exactly break-even, in an image, about real money. Read in
+                the venue's own spelling (`last_price`): the recorded one is
+                Bitget's SPOT book and names nothing on Hyperliquid.
                 """
                 try:
-                    tk = await exchange.fetch_ticker(sym)
-                    px = float(tk.get("last") or 0)
-                    return px if px > 0 else None
+                    return await executor.last_price(sym)
                 except Exception:
                     return None
 
@@ -1077,8 +1070,8 @@ class TradingCommands:
             _marks: dict = {}
             for p in filled_pos:
                 # No exchange client is the same fact as a failed ticker:
-                # we do not know the current price.
-                cur = await _last(p.symbol) if exchange else None
+                # we do not know the current price (`_last` answers None).
+                cur = await _last(p.symbol)
                 _marks[p.trade_id] = cur
                 # One reading of what the card prints, the one /positions'
                 # figures come from; see `live_position_card_data` for what
@@ -1128,10 +1121,11 @@ class TradingCommands:
                 try:
                     order_rows = [
                         live_pending_order_row(
-                            p, await _last(p.symbol) if exchange else None)
+                            p, await _last(p.symbol))
                         for p in pending_pos]
                     opng = render_orders_card(
-                        order_rows, timestamp=f"{now.strftime('%H:%M')} UTC")
+                        order_rows, timestamp=f"{now.strftime('%H:%M')} UTC",
+                        source=order_source(executor))
                     if opng and await self._send_photo(
                             update, opng,
                             f"⏳ <b>PENDING ORDERS ({len(order_rows)})</b>"):
@@ -1764,7 +1758,8 @@ class TradingCommands:
                     "dist_pct": dist,
                 })
             now_str = reading.read_at.strftime('%H:%M UTC')
-            card_png = render_orders_card(card_data, timestamp=now_str) if card_data else None
+            card_png = (render_orders_card(card_data, timestamp=now_str, source=reading.source)
+                        if card_data else None)
             if card_png:
                 import io as _io
                 buf = _io.BytesIO(card_png)
@@ -1804,20 +1799,17 @@ class TradingCommands:
             executor = self._caller_executor(update)
             live_positions = executor.open_positions if executor else []
             if live_positions:
+                # Marks in the venue's own spelling (`last_price`); a mark
+                # that could not be read is simply absent from the map.
                 prices: dict[str, float] = {}
-                try:
-                    exchange = await executor._get_exchange()
-                    for p in live_positions:
-                        if p.symbol not in prices:
-                            try:
-                                tk = await exchange.fetch_ticker(p.symbol)
-                                last = float(tk.get("last") or 0)
-                                if last > 0:
-                                    prices[p.symbol] = last
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
+                for p in live_positions:
+                    if p.symbol not in prices:
+                        try:
+                            last = await executor.last_price(p.symbol)
+                        except Exception:
+                            last = None
+                        if last is not None:
+                            prices[p.symbol] = last
 
                 for pos in live_positions:
                     # A failed ticker fetch used to fall back to the ENTRY

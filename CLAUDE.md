@@ -817,7 +817,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 679 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 674 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -17724,6 +17724,77 @@ that slice's runs included the gate. The formatter lives in
 `bot/formatters/price_text.py` now, which imports nothing, and `rich_cards`
 re-exports it.
 
+**A POSITION CARD PRICED A PERP OFF THE SPOT BOOK, AND THE CONFIRM JUDGED A
+PERP ORDER THE SAME WAY.** The Bitget read-back chapter moved the executor's
+own reads onto the perp. The cards were outside it: `/livepositions` (picture
+and text), the pending-order row and `/positions` each took the executor's
+exchange and called `fetch_ticker(p.symbol)`, the recorded `BTC/USDT`. Driven
+on a UTA client, a BTC perp held at 60,050 was priced at **59,000**, asked as
+`category=SPOT`. On Hyperliquid `BTC/USDT` is not a market at all, so every
+mark on every card was unread. `LiveExecutor.last_price` is the one reading:
+the venue's spelling, `price_on_record` on the answer (None, never 0), and a
+read that fails raises for the card to say so.
+
+**The confirm's drift check read the same wrong book.** `_confirm_trade_inner`
+asked the scanner's plain Bitget client, which has spot and swap markets
+loaded, for `idea.asset`, so the drift, past-stop and R:R re-checks measured a
+perp order against the spot price. Driven, a long whose stop sat between the
+two books (spot 59,000, stop 59,500, perp 60,050) was refused as already below
+its stop while the perp it would trade was above it. `engine.market_price`
+reads Bitget's perp spelling, and the two buttons that priced off the same
+read ask it too: the paper Close button and
+the drift re-analyze. Stated rather than hidden: on an executor for another
+venue this is still Bitget's perp, the market the analysis read; the executor
+reads its own venue again when it places.
+
+**A TICKER THAT STATED NO PRICE PLACED THE ORDER.** The check read
+`float(ticker.get("last") or 0)` and ran only `if current_price > 0`, so a
+ticker answering `last: None` skipped all three checks. Driven:
+`🟢 LIVE LONG BTC/USDT opened`, execute awaited once. H-08's comment on the
+`except` says the check fails closed when the exchange is unreachable, and it
+did; a read that answered with nothing was the open door beside it. That is
+refused now, audited `price_unread`, with the pyramid flag dropped and the
+engine idle, as every sibling refusal in the block does. The failed read's
+audit printed the exception's text; it prints the class.
+
+**The rule that checks this class was three files short.**
+`tests/venue_symbol_reads.py` walked the executor and `/orders` only, so the
+cards, the confirm and the buttons were never read. It walks them now. The
+widening found four more rows, each baselined with its reason: two
+account-wide `fetch_my_trades(None)` reads that name no market, and the
+untracked close in the callback handler, which acts on a row the venue
+returned, in that row's own spelling.
+
+**And the orders picture named Bitget for every venue.** Its footer was the
+literal `Bitget USDT-M Futures`, so a Bybit or Hyperliquid resting limit was
+labelled a Bitget order. `open_orders.order_source` is the one reading (the
+venue's display name, or "the exchange"), `/orders` and the pending card both
+hand it to the picture, and no footer is drawn when nobody names a venue.
+
+**Twenty-five mutations, each killed. The one that survived the first round
+was a fixture that could not tell.** The unread-price refusal's test asserted
+the engine was idle, and it starts idle: nothing in the confirm moves the
+state before the drift check, so deleting the transition changed nothing.
+The test plants the state a mid-cycle tick leaves (`ANALYZING`) now. Eight
+neighbouring tests broke on stand-ins that spelled the old read: the card
+suite keyed its marks on the recorded spelling, two Close-button drives
+stubbed an exchange with no category, and one pin read the old call. The
+neighbouring run found two more pins, in the card suite that first made an
+unread mark None: both spelled the inline `px > 0` read this replaced. They
+drive `last_price` now, over a ticker that states no price and an exchange
+that cannot be built. The honesty ratchet fell 679 to 674 and the type
+ratchet's `union-attr` 128 to 127, both re-recorded in this commit.
+(`tests/test_a_mark_is_read_on_the_market_the_position_trades.py`.)
+
+**And the full gate refused the retry slice below it, on guard
+reachability.** The kill-switch rule requires every order path in the
+executor to consult the switch, and names the paths that REDUCE exposure as
+exclusions. The retry slice split the classic stop placement out as
+`_place_classic_trigger`, which sends one reduce-only SL/TP leg, and the rule
+read it as an order path that never asks. It is excluded beside `_place_sl_tp`
+for the same reason: a missing stop must still be placed while trading is
+halted. No suite in that slice ran `guard_lint`.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -19015,7 +19086,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **474 of 1178** reach for source text through `source_scan`, `code_only`
+Driven, **474 of 1179** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 474 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

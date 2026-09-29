@@ -1191,6 +1191,23 @@ class RuneClawEngine:
         """Public accessor for the futures exchange instance."""
         return await self.scanner._get_futures_exchange()
 
+    async def market_price(self, asset: str) -> Optional[float]:
+        """The last price of the perp an order on ``asset`` is placed on.
+
+        TRADE_MODE accepts "futures" and nothing else, so an order is always
+        the perp. The scanner's clients are Bitget clients with spot and swap
+        markets loaded, and asked for the recorded ``BTC/USDT`` they answer
+        with the SPOT book, so the spelling is Bitget's perp mapping. On an
+        executor for another venue this is still Bitget's perp, the market
+        the analysis read; the executor reads its own venue again when it
+        places. None when the ticker states no price; raises when the read
+        failed.
+        """
+        from bot.core.venues import get_venue
+        exchange = await self.get_exchange(_classify_symbol(asset))
+        ticker = await exchange.fetch_ticker(get_venue("bitget").order_symbol(asset))
+        return price_on_record(ticker.get("last") if isinstance(ticker, dict) else None)
+
     # -- Live equity cache --
 
     # _live_balance_cache, _live_balance_cache_ts, and _LIVE_BALANCE_TTL
@@ -8015,11 +8032,20 @@ class RuneClawEngine:
                       action="synthetic_atr_from_sl", result="OK")
 
         try:
-            idea_category = _classify_symbol(idea.asset)
-            exchange = await self.get_exchange(idea_category)
-            ticker = await exchange.fetch_ticker(idea.asset)
-            current_price = float(ticker.get("last") or 0)
-            if current_price > 0 and idea.entry_price > 0:
+            # The PERP's price, the market this order is placed on
+            # (`market_price`); the recorded spelling asked the spot book. A
+            # ticker that states no price REFUSES, like a read that failed:
+            # it used to skip the drift, past-stop and R:R checks and place.
+            _read = await self.market_price(idea.asset)
+            if _read is None:
+                audit(trade_log, "Price drift check: the ticker stated no price (rejecting)",
+                      action="price_drift", result="REJECTED",
+                      data={"trade_id": trade_id, "asset": idea.asset, "reason": "price_unread"})
+                self._pending_pyramid.pop(trade_id, None)
+                self._transition(AgentState.IDLE, f"price unread for {trade_id}")
+                return "Trade REJECTED: unable to verify current price. Try again."
+            current_price = _read
+            if idea.entry_price > 0:
                 drift_pct = abs(current_price - idea.entry_price) / idea.entry_price * 100
                 max_drift = 2.0  # reject if price moved more than 2%
                 is_limit = getattr(idea, 'order_type', '') == 'limit'
@@ -8095,7 +8121,7 @@ class RuneClawEngine:
                                     f"R:R no longer favorable — re-analyze.")
         except Exception as exc:
             # H-08 FIX: fail-closed — reject if exchange is unreachable
-            audit(trade_log, f"Price drift check failed (rejecting): {exc}",
+            audit(trade_log, f"Price drift check failed (rejecting): {type(exc).__name__}",
                   action="price_drift", result="REJECTED")
             self._pending_pyramid.pop(trade_id, None)
             self._transition(AgentState.IDLE, f"price drift check failed for {trade_id}")

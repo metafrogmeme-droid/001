@@ -1475,9 +1475,9 @@ class CallbackHandler:
                     if pos.asset.replace("/", "").replace(":USDT", "") == pair:
                         close_price = None
                         try:
-                            exchange = await self.engine.get_exchange()
-                            ticker = await exchange.fetch_ticker(pos.asset)
-                            close_price = paper_close_price(ticker)
+                            # The perp's price, the market the practice book
+                            # is marked on; the recorded spelling asked spot.
+                            close_price = await self.engine.market_price(pos.asset)
                         except Exception as e:
                             system_log.warning("Close position error for %s: %s", pair, e)
                         if close_price is None:
@@ -1707,9 +1707,12 @@ class CallbackHandler:
                         await self._send(update,
                             f"\u26a0\ufe0f <b>Price moved — auto re-analyzing {original_idea.asset}...</b>")
                         exchange = await self.engine.scanner._get_exchange()
-                        ticker = await exchange.fetch_ticker(original_idea.asset)
-                        new_price = float(ticker.get("last", 0))
-                        new_idea = reanalyzed_idea(original_idea, new_price)
+                        # The perp's price (`market_price`), the reading the
+                        # confirm's drift check just refused on; a ticker that
+                        # states none offers nothing rather than a price of 0.
+                        new_price = await self.engine.market_price(original_idea.asset)
+                        new_idea = (reanalyzed_idea(original_idea, new_price)
+                                    if new_price is not None else None)
                         if new_idea is not None:
                             ohlcv = drop_forming_candle(
                                 await exchange.fetch_ohlcv(original_idea.asset, "4h", limit=30),
