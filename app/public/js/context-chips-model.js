@@ -148,6 +148,32 @@
    *   notes   [{key, vars}]                     visible lines under the row
    *   at      ISO string of the stamp that was read, or null
    */
+  /**
+   * The BTC regime, as a reading. `gate` is the BTC anchor price and the only
+   * evidence in the payload that BTC was read at all: the producer seeds
+   * `{label: 'NEUTRAL', gate: 0}` and writes `gate` only inside `if btc:`, so
+   * without a positive anchor the label is the constructor's default. A read
+   * NEUTRAL is a measurement and renders; a default NEUTRAL is not.
+   *
+   * The context row and the Engine view's regime panel both read this, so
+   * the two cannot disagree about one regime. The panel used to print the
+   * default as a measured NEUTRAL beside a BTC anchor of $0.
+   *
+   * @param {object|null} scan
+   * @returns {{read: true, vKey, cls, label, anchor}|{read: false, whyKey, anchor: null}}
+   */
+  function regimeReading(scan) {
+    const s = obj(scan);
+    const reg = s === null ? null : obj(s.regime);
+    const label = reg === null ? null : str(reg.label);
+    const anchor = reg === null ? null : num(reg.gate);
+    if (reg === null || label === null) return { read: false, whyKey: 'dd.ctx_w_regime', anchor: null };
+    if (anchor === null || anchor <= 0) return { read: false, whyKey: 'dd.ctx_w_regime_default', anchor: null };
+    const hit = REGIME[label.toUpperCase()];
+    if (!hit) return { read: false, whyKey: 'dd.ctx_w_regime_word', anchor: null };
+    return { read: true, vKey: hit[0], cls: hit[1], label: label.toUpperCase(), anchor };
+  }
+
   function contextChips(scan, nowMs, engineChipState) {
     const s = obj(scan);
     if (s === null) return null;
@@ -193,21 +219,13 @@
       miss('venue', 'dd.ctx_w_venue');
     }
 
-    // ── REGIME ── `gate` is the BTC anchor price and the only evidence in the
-    // payload that BTC was read at all. Without it the label is the
-    // constructor's default. A read NEUTRAL is a measurement and renders.
-    const reg = obj(s.regime);
-    const label = reg === null ? null : str(reg.label);
-    const anchor = reg === null ? null : num(reg.gate);
-    if (reg === null || label === null) {
-      miss('regime', 'dd.ctx_w_regime');
-    } else if (anchor === null || anchor <= 0) {
-      miss('regime', 'dd.ctx_w_regime_default');
-    } else if (!REGIME[label.toUpperCase()]) {
-      miss('regime', 'dd.ctx_w_regime_word');
+    // ── REGIME ── one reading (`regimeReading`), shared with the Engine
+    // view's regime panel.
+    const rr = regimeReading(s);
+    if (!rr.read) {
+      miss('regime', rr.whyKey);
     } else {
-      const [vKey, cls] = REGIME[label.toUpperCase()];
-      chips.push({ subject: 'regime', kKey: 'dd.ctx_regime', vKey, v: W[vKey], cls });
+      chips.push({ subject: 'regime', kKey: 'dd.ctx_regime', vKey: rr.vKey, v: W[rr.vKey], cls: rr.cls });
     }
 
     // ── MACRO ── the producer's three flags each name a condition the state
@@ -274,5 +292,5 @@
     return { chips, unread, omitted, notes, at };
   }
 
-  return { contextChips, stamp, W, KEYS };
+  return { contextChips, regimeReading, stamp, W, KEYS };
 }));

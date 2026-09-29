@@ -48,8 +48,8 @@
     "v": 36
   },
   "js/context-chips-model.js": {
-    "sha": "e89e7947af99dd26",
-    "v": 1
+    "sha": "32218025d6c7a84e",
+    "v": 2
   },
   "js/copilot-review-model.js": {
     "sha": "74ac67a7822e9904",
@@ -60,8 +60,8 @@
     "v": 2
   },
   "js/dashboard.js": {
-    "v": 206,
-    "sha": "7d5769af90293148"
+    "v": 207,
+    "sha": "e2e110e6c904607a"
   },
   "js/decision-court-model.js": {
     "v": 2,

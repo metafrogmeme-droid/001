@@ -19209,6 +19209,17 @@ this box can see. The model spells it into ISO before parsing, and an
 unparseable stamp names the tick as not reported rather than falling through
 the topbar model's NaN age to "ENGINE OFFLINE".
 
+**AND THE ENGINE VIEW'S REGIME PANEL PRINTED THE SEED THE CONTEXT ROW HAD
+LEARNT TO REFUSE.** The row reads a zero `gate` as "BTC was not read" and
+leaves the regime out with that reason. The Engine view's regime panel, one
+view over, read the same payload itself: `reg.label` as the chip and
+`fmtPrice(reg.gate)` as "BTC anchor", so every cycle summary push (which
+carries the seed `{label: 'NEUTRAL', gate: 0}`) painted a measured NEUTRAL
+beside an anchor of $0. `ContextChipsModel.regimeReading` is the one
+reading now, the row and the panel both ask it, and the panel says NOT
+REPORTED with the row's own reason. A regime word the page does not know is
+named and not coloured. (`app/test/engine_regime_panel_reads_the_one_regime.test.js`.)
+
 **The website could not reach the backstop, and the number it could reach
 has the same name.** Nothing under `app/` carried the live drawdown, the halt
 threshold, the slot cap or the gate state, and every `drawdown` the website
