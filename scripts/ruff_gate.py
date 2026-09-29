@@ -109,10 +109,22 @@ def counts_from_output(text: str) -> Counter:
 
 
 def current_counts() -> Counter:
-    """Per-rule counts from the DECLARED config -- no --select override."""
-    proc = subprocess.run(
-        ["ruff", "check", ".", "--output-format=concise", "--no-fix"],
-        capture_output=True, text=True, cwd=ROOT)
+    """Per-rule counts from the DECLARED config -- no --select override.
+
+    A ruff that cannot be started at all (not on PATH) is CANNOT CHECK, exit 2.
+    It used to escape as a ``FileNotFoundError`` traceback, exit 1, which is
+    this gate's "the code grew" -- and ``check_version`` does not stop it
+    first, because a version it cannot read is only a warning there.
+    """
+    try:
+        proc = subprocess.run(
+            ["ruff", "check", ".", "--output-format=concise", "--no-fix"],
+            capture_output=True, text=True, cwd=ROOT)
+    except OSError as exc:
+        print(f"CANNOT CHECK: ruff could not be run ({type(exc).__name__}); "
+              "no count was read, so this says nothing about whether the code "
+              "grew. Put the pinned ruff on PATH.", file=sys.stderr)
+        raise SystemExit(2) from None
     # ruff exits 1 when it finds anything, which is the normal case here.
     if proc.returncode not in (0, 1):
         print(f"ruff failed to run (exit {proc.returncode}):\n{proc.stderr}",

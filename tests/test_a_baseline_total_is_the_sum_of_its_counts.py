@@ -15,8 +15,13 @@ it did not remove the field a merge gets wrong. Now no baseline stores a total:
   * ``--update`` writes no total;
   * a baseline that still stores one -- an older branch re-recorded and
     merged -- is refused as CANNOT CHECK (exit 2), with a sentence saying to
-    re-record, before any analyser runs. Exit 2 and not 1, because it is not a
-    verdict on the code: the counts may be fine.
+    re-record. ruff and mypy refuse it before their analyser runs; the honesty
+    gate scans first (its ``--list`` and ``--update`` need the hits) and
+    refuses it before comparing. Exit 2 and not 1, because it is not a verdict
+    on the code: the counts may be fine;
+  * the mypy baseline stores no file count either, the same kind of aggregate;
+  * an analyser that cannot be started is CANNOT CHECK too, not a traceback
+    (exit 1, "grew").
 
 Every claim is DRIVEN through each gate's own ``main`` on a planted baseline;
 the analyser is substituted, as ``test_lint_type_ratchets`` does and for the
@@ -124,7 +129,7 @@ def test_no_real_baseline_stores_a_total(name, depth):
     assert rb.derived_total(record, depth) == rb.summed(record["counts"], depth) > 0
 
 
-# ── a stored total is refused, before the analyser, as CANNOT CHECK ───────
+# ── a stored total is refused as CANNOT CHECK (ruff, mypy: before analysing) ─
 
 @pytest.mark.parametrize("gate", PLANTERS)
 def test_a_planted_baseline_with_a_total_is_refused(gate, monkeypatch, tmp_path,
@@ -156,18 +161,108 @@ def test_a_total_that_even_agrees_is_refused(gate, monkeypatch, tmp_path, capsys
 
 # ── a baseline without one is summed ─────────────────────────────────────────
 
+#: Today's counts, one below the baseline's in one place: the two totals
+#: differ, so a gate that printed today's total on its ``baseline:`` line
+#: fails here. (A fixture where they are equal could not tell them apart.)
+TODAY = {"ruff": {"E501": 3, "F401": 3}, "mypy": {"E501": 3, "F401": 3},
+         "honesty": {"or-zero-coerce": {"a.py": 3, "b.py": 1},
+                     "get-default-zero": {"a.py": 690}}}
+
+
+def _line(out: str, prefix: str) -> str:
+    return next(line for line in out.splitlines() if line.startswith(prefix))
+
+
 @pytest.mark.parametrize("gate", PLANTERS)
 def test_a_baseline_without_a_total_is_summed(gate, monkeypatch, tmp_path, capsys):
-    counts = _counts_for(gate)
-    g = PLANTERS[gate](monkeypatch, tmp_path, {"counts": counts}, counts)[0]
-    assert _run(g) == 0, capsys.readouterr()
+    g = PLANTERS[gate](monkeypatch, tmp_path, {"counts": _counts_for(gate)},
+                       TODAY[gate])[0]
+    assert _run(g) == 1, "an improvement not yet re-recorded fails the gate"
     out = capsys.readouterr().out
-    want = 695 if gate == "honesty" else 7
-    baseline_line = next(line for line in out.splitlines()
-                         if line.startswith("baseline:"))
-    assert f" {want} " in f"{baseline_line} ", (
+    base, now = (695, 694) if gate == "honesty" else (7, 6)
+    baseline_line = _line(out, "baseline:")
+    assert baseline_line.split()[1] == str(base), (
         f"{gate} printed {baseline_line!r}; the baseline's total is the sum "
-        f"of its counts, {want}")
+        f"of ITS counts, {base}, not today's {now}")
+    today_line = _line(out, {"ruff": "ruff", "mypy": "mypy",
+                             "honesty": "honesty"}[gate])
+    assert f" {now} " in today_line, today_line
+
+
+# ── each gate names the direction a count moved ─────────────────────────────
+#
+# Growth and an unrecorded improvement both exit 1, so the exit status cannot
+# tell them apart: a gate that swapped the two would tell a developer that new
+# findings are an improvement to re-record. The header and the moved line are
+# the verdict, and both are read here, in both directions.
+
+GROWN = {"ruff": {"E501": 5, "F401": 3}, "mypy": {"E501": 5, "F401": 3},
+         "honesty": {"or-zero-coerce": {"a.py": 3, "b.py": 2},
+                     "get-default-zero": {"a.py": 691}}}
+MOVED = {"grew": {"flat": "E501: 4 -> 5  (+1)", "honesty": "b.py: 1 -> 2  (+1)"},
+         "improved": {"flat": "E501: 4 -> 3  (-1)",
+                      "honesty": "get-default-zero       a.py: 691 -> 690  (-1)"}}
+
+
+@pytest.mark.parametrize("direction", ["grew", "improved"])
+@pytest.mark.parametrize("gate", PLANTERS)
+def test_each_gate_names_the_direction_a_count_moved(gate, direction, monkeypatch,
+                                                     tmp_path, capsys):
+    today = GROWN[gate] if direction == "grew" else TODAY[gate]
+    g = PLANTERS[gate](monkeypatch, tmp_path, {"counts": _counts_for(gate)},
+                       today)[0]
+    assert _run(g) == 1
+    out = capsys.readouterr().out
+    says_new = any(line.startswith("NEW ") for line in out.splitlines())
+    says_improved = "These improved; re-record the baseline" in out
+    if direction == "grew":
+        assert says_new and not says_improved, out
+    else:
+        assert says_improved and not says_new, out
+    moved = MOVED[direction]["honesty" if gate == "honesty" else "flat"]
+    assert any(line.strip().endswith(moved) for line in out.splitlines()), out
+
+
+# ── the mypy baseline stores no file count, the same kind of aggregate ──────
+
+def test_the_mypy_baseline_stores_no_file_count(monkeypatch, tmp_path, capsys):
+    """Not derivable from per-class counts, and it merges wrong the way a total
+    does: two branches that each re-record ``files`` 84 -> 83 merge cleanly
+    into 83 where the tree has 82. A stored one is neither printed nor
+    written."""
+    real = json.loads((ROOT / "tests" / "mypy_baseline.json")
+                      .read_text(encoding="utf-8"))
+    assert "files" not in real, "tests/mypy_baseline.json stores a file count"
+    g, path = _plant_mypy(monkeypatch, tmp_path,
+                          {"files": 8383, "counts": FLAT}, FLAT)
+    assert _run(g) == 0
+    assert _line(capsys.readouterr().out, "baseline:").split() == [
+        "baseline:", "7", "errors"]
+    monkeypatch.setattr(sys, "argv", ["mypy_gate.py", "--update"])
+    assert _run(g) == 0
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert "files" not in written and written["counts"] == FLAT
+
+
+# ── an analyser that cannot be started is CANNOT CHECK, not "grew" ──────────
+
+@pytest.mark.parametrize("gate", ["ruff", "mypy"])
+def test_an_analyser_that_is_not_installed_is_cannot_check(gate, monkeypatch,
+                                                           tmp_path, capsys):
+    """Driven with the real version check and the real analyser call on an
+    empty PATH. The version check reads no version and only warns, so the
+    analyser call is what meets the missing binary."""
+    g = _gate(f"{gate}_gate")
+    path = tmp_path / f"{gate}_baseline.json"
+    path.write_text(json.dumps({"counts": FLAT}))
+    empty = tmp_path / "bin"
+    empty.mkdir()
+    monkeypatch.setattr(g, "BASELINE", path)
+    monkeypatch.setenv("PATH", str(empty))
+    monkeypatch.setattr(sys, "argv", [f"{gate}_gate.py"])
+    assert _run(g) == 2
+    err = capsys.readouterr().err
+    assert f"CANNOT CHECK: {gate} could not be run (FileNotFoundError)" in err, err
 
 
 def test_the_merge_that_found_it_sums_to_what_its_counts_say():

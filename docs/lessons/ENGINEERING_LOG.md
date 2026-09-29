@@ -18327,9 +18327,11 @@ one run late and kept the field a clean merge gets wrong. No baseline stores
 a total now. Each gate sums its counts
 wherever it prints one (`scripts/ratchet_baseline.py`, the one reading),
 `--update` writes none, and a baseline that still stores one (an older branch
-that re-recorded and merged) is refused as CANNOT CHECK, exit 2, before the
-analyser runs. It is exit 2 and not 1 because the counts may be fine: it is
-not a verdict about the code. An agreeing total is refused too, because it is
+that re-recorded and merged) is refused as CANNOT CHECK, exit 2. The ruff and
+mypy gates refuse it before their analyser runs; the honesty gate scans first
+(its `--list` and `--update` need the hits) and refuses it before comparing.
+It is exit 2 and not 1 because the counts may be fine: it is not a verdict
+about the code. An agreeing total is refused too, because it is
 the same field one merge away from disagreeing.
 (`tests/test_a_baseline_total_is_the_sum_of_its_counts.py`.)
 
@@ -18381,12 +18383,50 @@ is not None, so a baseline holding `"total": null`, which every gate refuses
 by the key, read as clean under `--check`. It reads the key now, and a
 planted null holds it.
 
-**Filed, not changed.** The JS honesty baseline still stores a total, and
-its test checks only that the total is a number, not that it equals the
-counts. That is the same merge hazard with no guard at all, left
-out of this change because the plan named the three Python baselines.
-`rerecord.py` does not refuse the JS total, and says so where it registers
-the ratchet.
+**Filed, not changed.** The JS honesty baseline still stores a total. Its
+test checked only that the total was a number, and this change first deleted
+the one sentence in CLAUDE.md that ruled on it (a recorded total must equal
+the sum of its counts) while writing "no baseline stores a total" over a table
+that lists it. The review caught both. CLAUDE.md now names the three Python
+baselines, and the JS test requires its total to equal the sum of its counts:
+the first cure, which sees a bad merge one run late. Dropping the JS total is
+still filed, because the plan named the three Python baselines. `rerecord.py`
+does not refuse the JS total, and says so where it registers the ratchet.
+(`tests/test_a_baseline_total_is_the_sum_of_its_counts.py`,
+`tests/test_rerecord_never_blesses_a_regression.py`,
+`app/test/js_honesty_ratchet.test.js`.)
+
+**The review of this change found five more, each a claim one surface over.**
+
+- *A missing analyser was a regression.* With no `ruff` on PATH,
+  `check_version` cannot read a version, which is only a warning, and
+  `current_counts` then raised `FileNotFoundError`: a traceback, exit 1, which
+  both the gate and `rerecord.py` define as "grew". `rerecord.py` never read
+  the other three ratchets. Both gates now answer CANNOT CHECK, exit 2, when
+  their analyser cannot be started, and `rerecord.py` reads any exception
+  from a ratchet as CANNOT CHECK, named by class, and reads the rest.
+- *A header asserted a negative over a ratchet nobody read.* `--all` printed
+  "re-recording (nothing grew):" above a ratchet it could not check. Growth
+  there is unknown, not absent; the header now says nothing that was read
+  grew, and names what was not read.
+- *The mypy baseline stored a second aggregate.* `"files"` is not derivable
+  from per-class counts and merges wrong the same way (two branches each
+  84 -> 83 merge cleanly into 83 where the tree has 82), and the gate printed
+  it beside the derived total. It is no longer stored or printed; today's file
+  count is printed from today's run.
+- *Prose said the refusal comes "before the analyser runs".* True for ruff
+  and mypy, false for honesty, which scans first. Corrected above and in the
+  test module.
+- *A symmetric fixture could not tell two totals apart.* The test that a
+  baseline's total is summed handed each gate today's counts equal to the
+  baseline's, so a gate printing today's total on its `baseline:` line
+  passed. Swapping `grew, shrank` in the ruff or mypy gate also survived,
+  because growth and improvement both exit 1 and nothing read which header
+  was printed. The fixture is asymmetric now, and each gate is driven both
+  ways and must name the direction.
+
+Thirteen mutations (each fix reverted, and the reviewer's two survivors in
+all three gates), each killed by the test named for it.
 (`tests/test_a_baseline_total_is_the_sum_of_its_counts.py`,
 `tests/test_rerecord_never_blesses_a_regression.py`.)
 

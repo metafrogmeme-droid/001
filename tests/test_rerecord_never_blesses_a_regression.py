@@ -138,6 +138,76 @@ def test_what_cannot_be_checked_is_left_untouched_and_the_rest_re_recorded(
     assert "bad: NOT re-recorded -- could not be checked" in out, out
 
 
+def test_the_header_says_nothing_about_a_ratchet_it_did_not_read(tmp_path,
+                                                                 capsys):
+    """Growth in a ratchet that could not be read is unknown, not absent. The
+    header used to read "nothing grew" above one."""
+    unreadable = _planted(tmp_path, "bad", {"E501": True}, {"E501": 1})
+    improved = _planted(tmp_path, "good", {"E501": 5}, {"E501": 3})
+    assert rr.rerecord_all([unreadable, improved]) == 2
+    assert capsys.readouterr().out.splitlines()[0] == (
+        "re-recording what could be read (nothing that was read grew; "
+        "not read, so not known: bad):")
+    # And the other arm: every ratchet read, none grew.
+    again = _planted(tmp_path, "again", {"E501": 5}, {"E501": 3})
+    assert rr.rerecord_all([again]) == 0
+    assert capsys.readouterr().out.splitlines()[0] == "re-recording (nothing grew):"
+
+
+def test_a_reading_that_raises_is_not_checkable_and_the_rest_are_read(
+        tmp_path, capsys):
+    """An exception out of one ratchet's reading used to escape as a
+    traceback: exit 1, which the table defines as "a ratchet GREW", and the
+    ratchets after it were never read."""
+    path = tmp_path / "broken.json"
+    path.write_text(json.dumps({"counts": {"E501": 5}}))
+    before = path.read_bytes()
+
+    def measure():
+        raise RuntimeError("a message that is not ours to print")
+
+    def never(_payload):
+        raise AssertionError("an unread ratchet was written")
+
+    broken = rr.Ratchet("broken", path, 1, write=never, read=lambda:
+                        rr._python_reading("broken", measure, path, 1))
+    matched = _planted(tmp_path, "same", {"E501": 5}, {"E501": 5})
+    assert rr.check([broken, matched]) == 2
+    assert "reading it raised RuntimeError" in capsys.readouterr().out
+
+    improved = _planted(tmp_path, "good", {"E501": 5}, {"E501": 3})
+    assert rr.rerecord_all([broken, improved]) == 2
+    assert path.read_bytes() == before
+    assert _counts(improved) == {"E501": 3}
+    out = capsys.readouterr().out
+    assert ("broken: NOT re-recorded -- could not be checked: reading it "
+            "raised RuntimeError") in out, out
+    assert "not ours to print" not in out
+
+
+def test_a_missing_analyser_is_not_checkable_and_the_rest_are_read(
+        tmp_path, monkeypatch, capsys):
+    """Driven through the real registry's ruff reader, with the real version
+    check and the real analyser call, on a PATH that holds no ruff."""
+    g = importlib.import_module("ruff_gate")
+    path = tmp_path / "ruff_baseline.json"
+    path.write_text(json.dumps({"counts": {"E501": 5}}))
+    before = path.read_bytes()
+    empty = tmp_path / "bin"
+    empty.mkdir()
+    monkeypatch.setattr(g, "BASELINE", path)
+    monkeypatch.setenv("PATH", str(empty))
+    ruff = next(r for r in rr.ratchets() if r.name == "ruff")
+    improved = _planted(tmp_path, "good", {"E501": 5}, {"E501": 3})
+
+    assert rr.rerecord_all([ruff, improved]) == 2
+    assert path.read_bytes() == before
+    assert _counts(improved) == {"E501": 3}
+    out = capsys.readouterr().out
+    assert "ruff: NOT re-recorded -- could not be checked" in out, out
+    assert "not read, so not known: ruff" in out, out
+
+
 def test_a_record_the_ratchet_refuses_is_not_checkable(tmp_path):
     r = _planted(tmp_path, "honesty", {"E501": 5}, {"E501": 3},
                  check_record=lambda _r: "recorded by a different rule set")
@@ -212,6 +282,15 @@ def test_check_reports_and_writes_nothing(tmp_path, capsys, base, now, total, wa
     assert rr.check([r]) == want
     assert r.baseline.read_bytes() == before
     assert "nothing written" in capsys.readouterr().out
+
+
+def test_check_prints_todays_total_and_the_baselines_apart(tmp_path, capsys):
+    """Asymmetric on purpose: equal totals could not tell the two apart."""
+    r = _planted(tmp_path, "ruff", {"E501": 5, "F401": 2}, {"E501": 3, "F401": 2})
+    assert rr.check([r]) == 1
+    line = next(line for line in capsys.readouterr().out.splitlines()
+                if line.split()[:1] == ["ruff"])
+    assert line.split() == ["ruff", "improved", "5", "(baseline", "7)"], line
 
 
 def test_check_names_a_stored_total(tmp_path, capsys):

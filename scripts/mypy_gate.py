@@ -77,7 +77,8 @@ exists and why the growth message names the environment as a suspect.
 
 The baseline stores no total: it is summed from the counts wherever it is
 printed, and a baseline that still stores one is refused as CANNOT CHECK
-(``scripts/ratchet_baseline.py`` says why).
+(``scripts/ratchet_baseline.py`` says why). It stores no file count either,
+for the same reason (``record`` says why).
 
 USAGE
 -----
@@ -119,7 +120,19 @@ def check_version(tool: str) -> None:
     toolchain.require_comparable(tool)
 
 def current_counts() -> tuple[Counter, int]:
-    proc = subprocess.run(["mypy", TARGET], capture_output=True, text=True, cwd=ROOT)
+    """Per-class counts, and the file count today's run reports.
+
+    A mypy that cannot be started at all is CANNOT CHECK, exit 2, not the
+    ``FileNotFoundError`` traceback (exit 1, "the code grew") it used to be.
+    """
+    try:
+        proc = subprocess.run(["mypy", TARGET], capture_output=True, text=True,
+                              cwd=ROOT)
+    except OSError as exc:
+        print(f"CANNOT CHECK: mypy could not be run ({type(exc).__name__}); "
+              "no count was read, so this says nothing about whether the code "
+              "grew. Put the pinned mypy on PATH.", file=sys.stderr)
+        raise SystemExit(2) from None
     if proc.returncode not in (0, 1):
         print(f"mypy failed to run (exit {proc.returncode}):\n"
               f"{proc.stdout[-2000:]}{proc.stderr[-2000:]}", file=sys.stderr)
@@ -136,18 +149,27 @@ def current_counts() -> tuple[Counter, int]:
     return counts, files
 
 
-def record(counts: Counter, files: int) -> None:
-    """Write the baseline: the counts, and no total (it is always derived)."""
+def record(counts: Counter) -> None:
+    """Write the baseline: the counts, and no aggregate over them.
+
+    Neither a total (it is summed from the counts) nor a file count. The file
+    count is not derivable from per-class counts, and it is the same kind of
+    stored aggregate a total is: two branches that each lowered a different
+    class and each re-recorded ``files`` 84 -> 83 merge cleanly into 83 where
+    the tree has 82. Nothing compares it, so nothing would have noticed; the
+    gate printed it beside the derived total. Today's file count is printed
+    from today's run, which is a measurement.
+    """
     BASELINE.write_text(json.dumps({
         "_comment": "Per-error-class mypy counts over the whole bot/ tree. "
                     "A RATCHET: a class may only go DOWN. This is NOT the "
                     "strict per-module gate in ci.yml, which fails on any "
                     "error at all for the money modules. The total is the sum "
-                    "of the counts and is never stored. Regenerate with "
+                    "of the counts and is never stored, and neither is a file "
+                    "count. Regenerate with "
                     "scripts/mypy_gate.py --update (or scripts/rerecord.py "
                     "--all), and only alongside the commit that actually "
                     "lowered it.",
-        "files": files,
         "counts": dict(sorted(counts.items())),
     }, indent=2) + "\n", encoding="utf-8")
 
@@ -157,7 +179,7 @@ def main() -> int:
 
     if "--update" in sys.argv:
         counts, files = current_counts()
-        record(counts, files)
+        record(counts)
         print(f"Baseline updated: {sum(counts.values())} errors in {files} "
               f"files, {len(counts)} classes")
         return 0
@@ -180,8 +202,10 @@ def main() -> int:
     grew, shrank = compare(counts, baseline["counts"])
 
     print(f"mypy {TARGET}: {total} errors in {files} files, {len(counts)} classes")
-    print(f"baseline:    {base_total} errors in "
-          f"{baseline.get('files')} files")
+    # The baseline's line carries no file count: a stored one is an aggregate
+    # a clean merge gets wrong (see `record`), and one left in an older file is
+    # neither read nor printed.
+    print(f"baseline:    {base_total} errors")
 
     if grew:
         print("\nNEW type errors -- this gate fails on growth, not on the backlog:")

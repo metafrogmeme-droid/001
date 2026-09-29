@@ -217,38 +217,38 @@ about to change before changing it.
 - L18272: ONE VWAP PER SYMBOL, IN MEMORY
 - L18293: A DRIFT RE-OFFER DROPPED WHAT KIND OF TRADE IT WAS — `tests/test_a_live_exit_reads_its_own_price_book_and_vwap.py`
 - L18323: A TEST THAT TWO FIGURES AGREE IS NOT ONE FIGURE — `tests/test_a_baseline_total_is_the_sum_of_its_counts.py`, `tests/test_rerecord_never_blesses_a_regression.py`
-- L18357: A FILTER THAT MATCHES NOTHING IS ONE PASSING TEST — `app/test/js_honesty_ratchet.test.js`, `tests/test_a_baseline_total_is_the_sum_of_its_counts.py`, `tests/test_rerecord_never_blesses_a_regression.py`
+- L18359: A FILTER THAT MATCHES NOTHING IS ONE PASSING TEST — `app/test/js_honesty_ratchet.test.js`, `tests/test_a_baseline_total_is_the_sum_of_its_counts.py`, `tests/test_rerecord_never_blesses_a_regression.py`
 
-## Public-surface rules (line 18393)
+## Public-surface rules (line 18433)
 
-- L18401: THE GUARD ASKED WHICH FILES ARE PUBLIC AND THE ANSWER IS PER ROUTE — `tests/command_gates.py`
-- L18415: THE FIX REACHED THE VERDICT AND NOT THE ROWS BESIDE IT — `tests/test_the_public_report_carries_no_dollar.py`
-- L18441: A HANDLER-BOUNDED SCAN WAS THE OBVIOUS FIX AND IS WORSE
-- L18493: AND A GUARD HAD PINNED THE HALF-FIX AS THE CONTRACT
-- L18519: A MARKER IS THE DEFINITION, AND FIVE PIECES OF PROSE DESCRIBED IT WRONG
-- L18590: THE SCRUBBER'S UNIT WAS A LINE AND THE CARD'S UNIT IS A FIELD
-- L18628: THREE ABORT CARDS ANNOUNCED A FLATTEN AND NAMED NO CAUSE
-- L18745: THE ALLOWANCE X-RAY PRINTED ✅ OVER GRANTS IT NEVER READ, THREE WAYS — `app/test/allowance_xray_says_what_it_read.test.js`, `app/test/signed_in_is_not_the_operator.test.js`
+- L18441: THE GUARD ASKED WHICH FILES ARE PUBLIC AND THE ANSWER IS PER ROUTE — `tests/command_gates.py`
+- L18455: THE FIX REACHED THE VERDICT AND NOT THE ROWS BESIDE IT — `tests/test_the_public_report_carries_no_dollar.py`
+- L18481: A HANDLER-BOUNDED SCAN WAS THE OBVIOUS FIX AND IS WORSE
+- L18533: AND A GUARD HAD PINNED THE HALF-FIX AS THE CONTRACT
+- L18559: A MARKER IS THE DEFINITION, AND FIVE PIECES OF PROSE DESCRIBED IT WRONG
+- L18630: THE SCRUBBER'S UNIT WAS A LINE AND THE CARD'S UNIT IS A FIELD
+- L18668: THREE ABORT CARDS ANNOUNCED A FLATTEN AND NAMED NO CAUSE
+- L18785: THE ALLOWANCE X-RAY PRINTED ✅ OVER GRANTS IT NEVER READ, THREE WAYS — `app/test/allowance_xray_says_what_it_read.test.js`, `app/test/signed_in_is_not_the_operator.test.js`
 
-## A URL is a surface, and a slash in a path segment does not survive a hop (line 18768)
-
-
-## Verifying a deploy (line 18817)
+## A URL is a surface, and a slash in a path segment does not survive a hop (line 18808)
 
 
-## Writing tests that scan source (line 18862)
-
-- L19293: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
-- L19494: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
-- L19521: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/honesty_baseline.js`, `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
-
-### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 19755)
+## Verifying a deploy (line 18857)
 
 
-### A module nothing calls is indistinguishable from one that does not work (line 19827)
+## Writing tests that scan source (line 18902)
+
+- L19333: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
+- L19534: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
+- L19561: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/honesty_baseline.js`, `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
+
+### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 19795)
 
 
-## Deploying so a dead bot cannot look like a live one (line 20018)
+### A module nothing calls is indistinguishable from one that does not work (line 19867)
 
 
-## Operational docs (line 20175)
+## Deploying so a dead bot cannot look like a live one (line 20058)
+
+
+## Operational docs (line 20215)

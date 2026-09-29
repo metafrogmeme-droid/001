@@ -24,9 +24,10 @@ ratchet records is exactly the counts that were just compared -- never a second
 analyser run that could see a different tree. Every write is then checked
 against the file it replaced, and a write that raised a count is undone.
 
-A ratchet that could not be read -- a toolchain that is not the pinned one, a
-baseline that does not parse, a rule set the honesty baseline was not recorded
-under -- is left untouched and named (exit 2); its counts are not comparable,
+A ratchet that could not be read -- a toolchain that is not the pinned one, an
+analyser that cannot be started, a baseline that does not parse, a rule set
+the honesty baseline was not recorded under, or any exception out of its
+reading -- is left untouched and named (exit 2); its counts are not comparable,
 so re-recording it would be the blessing this command exists to refuse. The
 others are still re-recorded. A baseline that only STORES A TOTAL is not one
 of those: its counts are read and compared like any other, and re-recording is
@@ -85,7 +86,8 @@ class Ratchet:
     read: Callable[[], Reading]
     write: Callable[[Any], None]
     #: False only for the JS baseline, which is out of this change's scope and
-    #: still records a total the ratchet does not compare.
+    #: still records a total (its own test requires it to equal the sum of its
+    #: counts; nothing here refuses or drops it).
     derives_total: bool = True
 
 
@@ -154,12 +156,12 @@ def _mypy() -> Ratchet:
 
     def measure():
         g.check_version("mypy")
-        counts, files = g.current_counts()
-        return counts, (counts, files)
+        counts, _files = g.current_counts()
+        return counts, counts
 
     return Ratchet("mypy", g.BASELINE, 1,
                    read=lambda: _python_reading("mypy", measure, g.BASELINE, 1),
-                   write=lambda payload: g.record(*payload))
+                   write=lambda counts: g.record(counts))
 
 
 def _honesty() -> Ratchet:
@@ -256,6 +258,21 @@ def ratchets() -> list[Ratchet]:
     return [_ruff(), _mypy(), _honesty(), _js()]
 
 
+def read_one(ratchet: Ratchet) -> Reading:
+    """One ratchet's reading. Anything its reading raises is CANNOT CHECK.
+
+    An exception out of a reading is still a reading that did not happen.
+    Escaping as a traceback it exited 1, which is "a ratchet GREW" in the
+    table above, and the ratchets after it were never read. Named by class,
+    not message: the message is not ours to print.
+    """
+    try:
+        return ratchet.read()
+    except Exception as exc:
+        return Reading(ratchet.name, CANNOT_CHECK, detail="reading it raised "
+                       f"{type(exc).__name__}, so no count was read")
+
+
 # ── reporting ────────────────────────────────────────────────────────────────
 
 def _key(path: tuple) -> str:
@@ -285,7 +302,7 @@ def describe(r: Reading) -> list[str]:
 # ── the two modes ────────────────────────────────────────────────────────────
 
 def check(rs: list[Ratchet]) -> int:
-    readings = [r.read() for r in rs]
+    readings = [read_one(r) for r in rs]
     print("ratchets (nothing written):")
     for rd in readings:
         print("\n".join(describe(rd)))
@@ -332,7 +349,7 @@ def _write(ratchet: Ratchet, reading: Reading) -> tuple[bool, list[str]]:
 
 
 def rerecord_all(rs: list[Ratchet]) -> int:
-    readings = [r.read() for r in rs]
+    readings = [read_one(r) for r in rs]
     grown = [rd for rd in readings if rd.state == GREW]
     if grown:
         print("REFUSED: a ratchet grew, and re-recording would bless the "
@@ -340,7 +357,14 @@ def rerecord_all(rs: list[Ratchet]) -> int:
         for rd in readings:
             print("\n".join(describe(rd)))
         return 1
-    print("re-recording (nothing grew):")
+    unread = [rd.gate for rd in readings if rd.state == CANNOT_CHECK]
+    if unread:
+        # Growth in a ratchet that was not read is unknown, not absent: the
+        # header says what was read, and names what was not.
+        print("re-recording what could be read (nothing that was read grew; "
+              f"not read, so not known: {', '.join(unread)}):")
+    else:
+        print("re-recording (nothing grew):")
     failed = skipped = False
     for ratchet, rd in zip(rs, readings):
         if rd.state == CANNOT_CHECK:

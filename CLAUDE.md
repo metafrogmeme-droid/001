@@ -64,13 +64,15 @@ commit**.
 
 `python3 scripts/rerecord.py --all` re-records the first four in one step, and
 re-records nothing while any of them reports growth; `--check` reports without
-writing. No baseline stores a total: each gate sums its counts, and refuses a
-baseline that still stores one as CANNOT CHECK, because a clean git merge of
-two branches that each lowered a different count leaves a stored total wrong.
-Many structural rules are also baselines of named exceptions, each with a reason,
-and are two-way: a new site fails, and a listed site that no longer exists
-fails. Never widen a baseline to get green; fix the site or record it with a
-reason a reviewer can check.
+writing. The ruff, mypy and honesty baselines store no total: each gate sums
+its counts, and refuses a baseline that still stores one as CANNOT CHECK,
+because a clean git merge of two branches that each lowered a different count
+leaves a stored total wrong. The JS honesty baseline still stores one, and it
+must equal the sum of its counts (its ratchet test checks that, which catches
+a bad merge only after it lands). Many structural rules are also baselines of
+named exceptions, each with a reason, and are two-way: a new site fails, and a
+listed site that no longer exists fails. Never widen a baseline to get green;
+fix the site or record it with a reason a reviewer can check.
 
 `tests/test_claude_md_accuracy.py` reads numbers and citations out of
 `docs/lessons/ENGINEERING_LOG.md` and `docs/INCOME_MAP.md` and compares them
