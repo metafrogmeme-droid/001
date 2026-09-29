@@ -198,7 +198,7 @@ def test_claude_md_quotes_the_real_count():
     """
     import re
 
-    doc = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    doc = (ROOT / "docs" / "lessons" / "ENGINEERING_LOG.md").read_text(encoding="utf-8")
     m = re.search(r"\*\*(\d+)\*\* of (\d+) registered skills", doc)
     assert m, "the registered-skills count sentence is gone from CLAUDE.md"
     claimed_dark, claimed_total = int(m.group(1)), int(m.group(2))

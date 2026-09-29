@@ -25,7 +25,9 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-DOC = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+# The chapters this file pins moved from CLAUDE.md to the engineering log on
+# 2026-09-29 (tests/test_the_agent_guide_stays_lean.py holds the split).
+DOC = (ROOT / "docs" / "lessons" / "ENGINEERING_LOG.md").read_text(encoding="utf-8")
 
 
 # ── every path it names exists ────────────────────────────────────────────

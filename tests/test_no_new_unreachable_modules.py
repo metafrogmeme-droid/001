@@ -345,7 +345,7 @@ def test_claude_md_states_the_real_count():
     that confidently states a stale one is the same defect as a panel printing
     a stale figure.
     """
-    text = (REPO / "CLAUDE.md").read_text(encoding="utf-8")
+    text = (REPO / "docs" / "lessons" / "ENGINEERING_LOG.md").read_text(encoding="utf-8")
     m = re.search(r"`tests/unreachable_baseline\.txt`[^)]*?\*\*(\d+)\*\* modules", text)
     assert m, "CLAUDE.md no longer states the baseline size — restore it or drop the claim"
     assert int(m.group(1)) == len(_baseline()), (
