@@ -237,9 +237,9 @@ class TestBacktestPnLWaterfall(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestSmartMoneyEmptySymbol(unittest.TestCase):
-    """LB-7: Empty symbol should return 0, not corrupt whale history."""
+    """LB-7: an empty symbol is no reading, and does not corrupt whale history."""
 
-    def test_empty_symbol_returns_zero(self):
+    def test_empty_symbol_is_no_reading(self):
         from bot.core.smart_money import WhaleFlowTracker
         from bot.core.order_flow import OrderFlowSignal
 
@@ -250,7 +250,9 @@ class TestSmartMoneyEmptySymbol(unittest.TestCase):
             whale_sell_usd=50000,
         )
         result = tracker.evaluate(sig)
-        self.assertEqual(result, 0.0)
+        # No symbol is no reading (None), and nothing is recorded under "".
+        self.assertIsNone(result)
+        self.assertNotIn("", tracker._whale_history)
 
     def test_different_symbols_separate_histories(self):
         from bot.core.smart_money import WhaleFlowTracker

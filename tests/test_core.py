@@ -1879,8 +1879,15 @@ class TestAuditFixes:
         signal = OrderFlowSignal(
             symbol="BTC/USDT",
             book_imbalance=0.4,
+            # The imbalance and the whale bias are readings only with the
+            # depth and the whale flow they were measured from (an empty book
+            # and a window with no whale are not readings).
+            bid_depth_usd=7_000.0,
+            ask_depth_usd=3_000.0,
             cvd_trend="rising",
             whale_bias="accumulation",
+            whale_buy_usd=80_000.0,
+            whale_sell_usd=20_000.0,
             funding_rate=-0.001,
             smart_money_score=0.65,
             confidence=0.8,
@@ -2827,7 +2834,8 @@ class TestSmartMoney:
         tracker = WhaleFlowTracker()
         sig = self._make_of_signal(whale_buy_usd=50000, whale_sell_usd=10000)
         score = tracker.evaluate(sig)
-        assert score == 0.0, "Should return 0 with insufficient history"
+        # Fewer than three windows is no reading, not a neutral 0.0.
+        assert score is None, "Should return None with insufficient history"
 
     def test_whale_tracker_accumulation(self):
         from bot.core.smart_money import WhaleFlowTracker
