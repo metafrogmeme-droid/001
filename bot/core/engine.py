@@ -39,7 +39,7 @@ from bot.core.live_executor import LiveExecutor, committed_margin, display_symbo
 from bot.core import live_executor as _live_executor_mod
 from bot.core import size_bounds
 from bot.core.exchange_sync import sync_portfolio_with_exchange, get_exchange_position_count, invalidate_position_count_cache
-from bot.core.limit_entry import limit_crosses_market
+from bot.core.limit_entry import levels_as_shown, limit_crosses_market
 from bot.core.market_scanner import MarketScanner, _classify_symbol
 from bot.core.order_flow import OrderFlowAnalyzer
 from bot.core.position_telemetry import entered_at
@@ -7984,19 +7984,26 @@ class RuneClawEngine:
         # $2,965. A typed ticket passes through as typed (the executor sends
         # it GTC, never post-only), and the crossing is audited rather than
         # acted on. `limit_crosses_market` is the one reading of "crosses".
+        # A scan card's idea is the same case: its ✅ says it "places the entry
+        # shown, as a limit order, with its stop and target", and so is an
+        # entry the person typed through the Limit button. `levels_as_shown`
+        # is the one reading of whose levels these are.
         _crosses = bool(idea.order_type == "limit" and current_price > 0
                         and limit_crosses_market(idea.direction.value,
                                                  idea.entry_price, current_price))
-        if _crosses and is_manual:
+        _as_shown = levels_as_shown(idea)
+        if _crosses and _as_shown:
             audit(trade_log,
-                  f"Typed limit ${idea.entry_price:,.4f} is at or through the market "
-                  f"${current_price:,.4f}: placed AS TYPED, fills at the market up to "
-                  f"that price",
+                  f"Limit ${idea.entry_price:,.4f} ({getattr(idea, 'source', '')}) is at "
+                  f"or through the market ${current_price:,.4f}: placed AS SHOWN, fills "
+                  f"at the market up to that price",
                   action="manual_limit_as_typed", result="CROSSES_MARKET",
                   data={"trade_id": trade_id, "entry": idea.entry_price,
-                        "current_price": current_price})
+                        "current_price": current_price,
+                        "source": getattr(idea, "source", None),
+                        "entry_typed": getattr(idea, "entry_typed", None) is True})
         if idea.order_type == "limit" and current_price > 0 and stored_atr and stored_atr > 0:
-            _needs_recalc = _crosses and not is_manual
+            _needs_recalc = _crosses and not _as_shown
 
             if _needs_recalc:
                 # Use 0.5*ATR offset (not 0.1) so the limit is far enough from

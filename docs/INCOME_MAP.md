@@ -142,7 +142,7 @@ between RunStrategySkill._list and _run_symbol_scan; :2223-2229 is the literal
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are bot/core/analyzer.py:1866-1869
 ("SL/TP baselines come from CONFIG.strategy_types"),
-bot/core/live_executor.py:753 (the per-strategy trailing switch, read for
+bot/core/live_executor.py:754 (the per-strategy trailing switch, read for
 every entry and every fill).
 
 **Scalping** — **shipped**
@@ -168,9 +168,9 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:6890 creates the entry order idempotently, :8574/:9065 attach
+live_executor.py:6900 creates the entry order idempotently, :8586/:9077 attach
 the exchange-side stop and take-profit, and every venue call carries
-productType USDT-FUTURES (:2517, :2533, :2661); venues.py:340 selects the swap
+productType USDT-FUTURES (:2520, :2536, :2664); venues.py:340 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
 (trading_commands.py:1131); signal cards from /analyze, /scan and the pro scans
@@ -183,7 +183,7 @@ RUNTIME.auto_confirm_threshold with no human tap.
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
 LIVE_TRADING_ENABLED defaults False (config.py:2493-2494), so a stock deploy
 trades perps on paper until the operator runs /golive. A real order
-additionally needs _can_trade_live (telegram_handler.py:4885), which requires
+additionally needs _can_trade_live (telegram_handler.py:4902), which requires
 BOTH the env allowlist and the per-user store flag; web-only `web:<id>`
 identities are structurally paper-only and can never pass it. Venue coverage
 is Bitget (primary) with Bybit/Hyperliquid adapters; long/short perps only —
@@ -351,7 +351,7 @@ signal modules; RiskEngine (bot/risk/risk_engine.py:269) is the fail-closed pre-
 trade gate whose whole enforcing set /enforcing lists. engine.py:6166-6224
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2553) with no human in the loop, adaptively moved by
-realized win rate (engine.py:9442): the paper book's in paper mode, both
+realized win rate (engine.py:9449): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
@@ -1732,7 +1732,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1294, registered telegram_handler.py:1232) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:8420
+bot/core/stock_trading.py, also read by bot/core/engine.py:8427
 (get_market_session) and scan_commands.py:376.
 
 **Price alerts and anomaly-alert scoping**
@@ -2382,7 +2382,7 @@ half of the measurement that says where the measurement stops.
   out of the DB row keyed on `req.user.user_id` — never off the body, the
   query or a header — so the id the gateway admin-checks is the one the
   database holds for the JWT's own subject. `_is_admin_id`
-  (`bot/skills/telegram_handler.py:4984`) is server-side too: the user store's
+  (`bot/skills/telegram_handler.py:5001`) is server-side too: the user store's
   role, or `ADMIN_TELEGRAM_IDS`. An escalation needs a foreign `telegram_id`
   written onto your own row, which is the invariant
   `identity.foreignIdentityBlock` already documents and asserts.

@@ -226,6 +226,39 @@ def limit_prompt_text(
     )
 
 
+def typed_limit_outside_levels(idea: Any, price: float) -> str | None:
+    """Refuse a typed limit price that does not sit between the idea's own
+    stop and target, or None when it does.
+
+    The Limit button replaces the entry of an idea whose stop and target
+    stay as they were, by plain assignment, which the model's directional
+    check never sees. Driven, a LONG with its stop at 95 took a typed 94:
+    the order rests at 94, fills there, and the stop at 95 is ABOVE the fill,
+    so the venue will not place it and the post-fill guard flattens the
+    position for a round trip of fees. A price at or beyond the target is
+    no entry into this setup either. The pending prompt stays armed, so the
+    person can type another price.
+    """
+    raw_dir = getattr(idea, "direction", None)
+    direction = str(getattr(raw_dir, "value", raw_dir) or "").upper()
+    if direction not in ("LONG", "SHORT"):
+        return ("\u26a0\ufe0f This setup's direction could not be read, so no "
+                "limit price can be checked against it. Nothing was placed.")
+    sl = float(idea.stop_loss)
+    tp = float(idea.take_profit)
+    if direction == "LONG":
+        if sl < price < tp:
+            return None
+        side = f"above its stop {_price(sl)} and below its target {_price(tp)}"
+    else:
+        if tp < price < sl:
+            return None
+        side = f"below its stop {_price(sl)} and above its target {_price(tp)}"
+    return (f"\u26a0\ufe0f <b>{_price(price)} is outside this setup.</b> A "
+            f"{direction} limit must sit {side}. Nothing was placed. Type another "
+            f"price or <code>cancel</code>.")
+
+
 def limit_unarmed_text(lang: str) -> str:
     """What to say INSTEAD of the prompt when nothing was armed.
 

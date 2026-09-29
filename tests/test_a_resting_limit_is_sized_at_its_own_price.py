@@ -245,7 +245,7 @@ class TestAnEngineLimit:
     def test_a_re_priced_engine_short_is_sized_at_the_price_it_rests_at(self, tmp_path):
         tier = EntryResult(limit_price=4040.0, tier="A", confluence_count=3, size_multiplier=1.0)
         venue = _Recording(_market(amount_step=0.0001, amount_min=0.0001), PRICE)
-        idea = _typed(Direction.SHORT, 3990.0, source="scan_skill")    # crosses: re-priced
+        idea = _typed(Direction.SHORT, 3990.0, source="unknown")    # crosses: re-priced
         result, orders, _, _ = _run(venue, idea, 20.0, tmp_path, atr=40.0, tier=tier)
         assert result == "<sent>", result
         (o,) = orders
@@ -260,7 +260,7 @@ class TestAnEngineLimit:
         venue = _Recording(_market(amount_step=0.0001, amount_min=0.0001), PRICE,
                            answer={"id": "o-retry", "status": "open", "filled": 0},
                            post_only_first=True)
-        idea = _typed(Direction.SHORT, 4040.0, source="scan_skill")    # rests: kept
+        idea = _typed(Direction.SHORT, 4040.0, source="unknown")    # rests: kept
         result, orders, audits, ex = _run(venue, idea, 20.0, tmp_path, atr=80.0)
         (o,) = orders
         assert o["price"] == 4080.0
@@ -275,7 +275,7 @@ class TestAnEngineLimit:
     def test_a_retry_whose_kept_notional_is_under_the_minimum_places_nothing(self, tmp_path):
         venue = _Recording(_market(amount_step=0.0001, amount_min=0.0247), PRICE,
                            answer={"id": "never", "status": "open"}, post_only_first=True)
-        idea = _typed(Direction.SHORT, 4040.0, source="scan_skill")
+        idea = _typed(Direction.SHORT, 4040.0, source="unknown")
         result, orders, audits, ex = _run(venue, idea, 20.0, tmp_path, atr=80.0)
         assert orders == [], orders
         assert result.startswith("BLOCKED:") and "Nothing was placed" in result, result

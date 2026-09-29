@@ -440,3 +440,47 @@ def order_fill_price(side: str, limit_price, current_price: float) -> float:
     if limit_crosses_market(side, limit_price, current_price) is False:
         return float(limit_price)
     return float(current_price)
+
+
+#: Producers whose limit LEVELS a person saw and confirmed as they stand. A
+#: hand-typed ticket's levels are the person's own, and a scan card's ✅ says,
+#: in the card's own words, that it "places the entry shown, as a limit order,
+#: with its stop and target".
+LEVELS_AS_SHOWN_SOURCES = frozenset({"manual", "scan_skill"})
+
+
+def levels_as_shown(obj: object) -> bool:
+    """Are this idea's (or this resting row's) entry, stop and target the ones
+    a person confirmed AS SHOWN, so nothing may move them?
+
+    True for a hand-typed ticket and a scan card's idea (their ``source``, or
+    ``idea_source`` on the position the executor built from one), and for an
+    idea whose ENTRY the person typed through the Limit button
+    (``entry_typed``), whatever produced the rest of it.
+
+    Three sites move a limit's levels, and each exempted only ``manual``:
+    the engine's confirm-time re-price, the executor's confluence re-price
+    (which can also turn the limit into a market order), and the drift
+    fallback that chases a resting limit at the market with its stop and
+    target shifted by the same percentage. Driven, a scan card showing
+    99.4 / 95 / 106 with the market at 99.3 was handed to the executor as
+    98.3 / 93.9 / 104.9, under a card that promised the entry shown.
+
+    What this reading does NOT decide, stated: the clock a resting order
+    rests on, and whether drift may CANCEL it. A hand-typed ticket rests on
+    its own clock and is never drift-read (``limit_expiry_seconds``); a scan
+    card's idea is the engine's analysis, rests on the engine's clock, and a
+    level the market ran away from may still be cancelled. Cancelling places
+    nothing; moving the levels places an order nobody confirmed.
+
+    A value that is not a string, or ``entry_typed`` that is not literally
+    True, reads as not shown: a stand-in answering every attribute truthily
+    has confirmed nothing.
+    """
+    if getattr(obj, "entry_typed", None) is True:
+        return True
+    for name in ("idea_source", "source"):
+        src = getattr(obj, name, None)
+        if isinstance(src, str) and src:
+            return src in LEVELS_AS_SHOWN_SOURCES
+    return False

@@ -418,8 +418,9 @@ async def test_a_turn_that_places_a_trade_says_so_in_the_transcript(bot):
                                                 "pair": "SOL/USDT",
                                                 "direction": "long",
                                                 "timestamp": time.time()}}
-    bot.engine._pending_ideas = {"t1": SimpleNamespace(entry_price=70.0,
-                                                       order_type="market")}
+    bot.engine._pending_ideas = {"t1": SimpleNamespace(entry_price=70.0, order_type="market",
+                                                       direction="LONG", stop_loss=65.0,
+                                                       take_profit=80.0)}
     bot.engine.confirm_trade = AsyncMock(return_value="✅ FILLED SOL/USDT at $71.00")
     await bot._handle_message(_update(OPERATOR, "71.0"), None)
     bot.engine.confirm_trade.assert_awaited()

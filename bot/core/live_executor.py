@@ -45,7 +45,8 @@ from bot.core.order_rules import (
     is_market_open, is_weekend_queued, adjust_sl_for_gap_risk,
     adjust_size_for_weekend, should_defer_tp_sl,
 )
-from bot.core.limit_entry import calculate_entry, limit_crosses_market, order_fill_price
+from bot.core.limit_entry import (calculate_entry, levels_as_shown, limit_crosses_market,
+                                  order_fill_price)
 from bot.core.market_scanner import _classify_symbol
 from bot.core.venues import ccxt_margin_mode, get_venue
 from bot.core.close_lookup import (
@@ -1133,6 +1134,8 @@ def restore_provenance(pos: Any, pdata: dict) -> None:
     idea_src = pdata.get("idea_source")
     if idea_src:
         setattr(pos, "idea_source", str(idea_src))
+    if pdata.get("entry_typed") is True:
+        setattr(pos, "entry_typed", True)
     authorized = _num_or_none(pdata.get("authorized_notional_usd"))
     if authorized is not None:
         setattr(pos, "authorized_notional_usd", authorized)
@@ -6480,15 +6483,20 @@ class LiveExecutor:
         # crosses the market is sent GTC, never post-only (see
         # _submit_entry_order), so the venue fills it at the market up to the
         # price the person named -- which is what that order means.
-        if use_limit and limit_price and getattr(idea, "source", "") == "manual":
+        # A scan card's ✅ promises the entry shown with its stop and target,
+        # and an entry typed through the Limit button is the person's too:
+        # `levels_as_shown` is the one reading, and the engine's confirm asks
+        # it for the same reason.
+        if use_limit and limit_price and levels_as_shown(idea):
             if current_price > 0 and limit_crosses_market(side, limit_price, current_price):
                 audit(trade_log,
-                      f"Typed limit ${limit_price:,.4f} crosses the market "
-                      f"${current_price:,.4f} for {symbol}: sent as typed, fills at "
-                      f"the market up to that price",
+                      f"Limit ${limit_price:,.4f} ({getattr(idea, 'source', '')}) crosses "
+                      f"the market ${current_price:,.4f} for {symbol}: sent as shown, "
+                      f"fills at the market up to that price",
                       action="manual_limit_as_typed", result="CROSSES_MARKET",
                       data={"symbol": symbol, "limit_price": limit_price,
-                            "market_price": current_price})
+                            "market_price": current_price,
+                            "source": getattr(idea, "source", None)})
             return use_limit, limit_price, size_usd, quantity
 
         # ── LIMIT ORDER PRICE VALIDATION ──
@@ -6766,12 +6774,14 @@ class LiveExecutor:
                 if asset_class in ("Metal", "Commodity", "Stock", "Pre-IPO"):
                     # GTC: stays live through session close/reopen
                     futures_params.update(self._venue.gtc_params())
-                elif getattr(idea, "source", "") == "manual":
+                elif levels_as_shown(idea):
                     # A hand-typed limit is the person's price cap and is
                     # never post-only: post-only REJECTS the order the moment
                     # the market reaches the price it names, and the retry
                     # below would then re-price the levels the person typed.
                     # GTC fills it at the market up to that price, or rests.
+                    # A scan card's shown entry and a Limit-button entry are
+                    # the same case (`levels_as_shown`).
                     futures_params.update(self._venue.gtc_params())
                 elif CONFIG.limit_orders.post_only:
                     # POST_ONLY: maker-only, rejects if would fill as taker
@@ -8144,6 +8154,8 @@ class LiveExecutor:
             _idea_src = str(getattr(idea, "source", "") or "")
             if _idea_src:
                 setattr(position, "idea_source", _idea_src)
+            if getattr(idea, "entry_typed", None) is True:
+                setattr(position, "entry_typed", True)
             _authorized = getattr(idea, "authorized_notional_usd", None)
             if _authorized is not None:
                 setattr(position, "authorized_notional_usd", _authorized)
@@ -10988,7 +11000,23 @@ class LiveExecutor:
                             if pct_away > drift_pct:
                                 # Check if we should convert to market instead of cancelling
                                 should_market_fallback = False
-                                if CONFIG.limit_orders.drift_market_fallback:
+                                # A scan card's shown levels, or an entry the
+                                # person typed, may be CANCELLED here as a
+                                # setup the market ran away from, and never
+                                # chased: the fallback fills at the market and
+                                # shifts the stop and target, which is an
+                                # order nobody confirmed.
+                                _as_shown = levels_as_shown(pos)
+                                if _as_shown:
+                                    audit(trade_log,
+                                          f"Drift on {pos.symbol} ({pct_away:.1f}%): levels "
+                                          f"were confirmed as shown, cancelled and not "
+                                          f"chased to the market",
+                                          action="limit_drift_market_fallback",
+                                          result="NOT_CHASED",
+                                          data={"trade_id": trade_id,
+                                                "source": getattr(pos, "idea_source", None)})
+                                elif CONFIG.limit_orders.drift_market_fallback:
                                     should_market_fallback = await self._check_drift_market_fallback(
                                         exchange, pos, cur_price)
 
@@ -11483,7 +11511,9 @@ class LiveExecutor:
         Between the cancel and the market order it refuses, by name, a chase
         the caps or the envelope would not have approved at the market price
         (`_drift_fallback_size_refusal`); the caller never reaches it for a
-        hand-typed ticket, which the drift cancels and never chases.
+        hand-typed ticket, which the drift never reads, nor for a scan card's
+        shown levels or a typed entry (`levels_as_shown`), which the drift
+        cancels and never chases.
         """
         try:
             # 1. Cancel the existing limit order
@@ -15143,6 +15173,9 @@ class LiveExecutor:
                     # up to 5% past the typed price, and forgot the notional
                     # the envelope authorized for it. Absent on an older row.
                     "idea_source": getattr(pos, "idea_source", None),
+                    # An entry the person typed through the Limit button: the
+                    # drift fallback must not chase it after a restart either.
+                    "entry_typed": getattr(pos, "entry_typed", None) is True,
                     "authorized_notional_usd": getattr(pos, "authorized_notional_usd", None),
                     # When a limit entry FILLED (opened_at is when it was
                     # placed). Unsaved, a restart put every hold and time

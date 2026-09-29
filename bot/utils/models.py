@@ -149,6 +149,11 @@ class TradeIdea(BaseModel):
     # call once. None for every idea that is a call, and for every producer
     # that publishes no call at all.
     repeat_of: Optional[str] = None
+    # True when the person TYPED this idea's entry through the Limit button,
+    # which rewrites the entry of an idea some producer built. The levels are
+    # then theirs as they stand (`limit_entry.levels_as_shown`), and nothing
+    # re-prices them. False for every other producer.
+    entry_typed: bool = False
 
     @property
     def risk_reward_ratio(self) -> float:

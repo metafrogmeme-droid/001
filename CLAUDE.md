@@ -3406,7 +3406,7 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Fifty-two call sites across the two entry points today, one on
+never happened. Fifty-three call sites across the two entry points today, one on
 every branch that answers — the stance card, the paywall refusal, the scan card,
 orders, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall
@@ -17334,6 +17334,66 @@ raises, a kill switch that cannot be read, and one cause on one engine said
 once. Without them, reading a failed read as a halt and saying a reason twice
 would have survived. (`tests/test_a_halt_cancels_a_resting_entry.py`.)
 
+**A SCAN CARD'S ✅ SAYS IT "PLACES THE ENTRY SHOWN, AS A LIMIT ORDER, WITH ITS
+STOP AND TARGET", AND FOUR SITES MOVED THE LEVELS AFTER THE TAP.** The
+scan-button chapter above made the ✅ register the row's own levels, and the
+typed-ticket chapter made a hand-typed limit reach the venue as typed. The
+second fix keyed every site on `source == "manual"`, so a scan card's idea
+took the engine's treatment:
+
+- the confirm re-priced a limit at or through the market to current minus
+  half an ATR, with the stop and target shifted by the same amount;
+- the executor's confluence re-price could do the same, or turn the limit into
+  a MARKET order on a Tier D;
+- the limit went out post-only, which the venue refuses once the market
+  reaches it, and the retry then re-priced it;
+- the drift fallback chased a resting limit at the market with its stop and
+  target shifted by the drift.
+
+Driven through the real confirm, a card showing SOL LONG 99.4 / stop 95 /
+target 106, with the market at 99.3, reached the executor as 98.3 / 93.9 /
+104.9. The Limit button had the same shape one door over: it replaces an
+idea's entry with the price the person typed and confirms, and the typed entry
+of an engine idea took the engine's re-price.
+
+**`levels_as_shown` is the one reading, asked at all four sites.** It answers
+True for a hand-typed ticket and a scan card's idea (`source`, or
+`idea_source` on the resting row the executor built), and for any idea whose
+entry was typed through the Limit button (`TradeIdea.entry_typed`, stamped on
+the position and saved with it, so a restart does not bring the chase back).
+A source that is not a string, and a stamp that is not literally True, read as
+not shown. What it deliberately does not decide is stated in the leaf: the
+clock a resting order rests on, and whether drift may CANCEL it. A scan
+card's idea is the engine's analysis and rests on the engine's four hours, and
+a level the market ran away from may still be cancelled, audited
+`NOT_CHASED`. Cancelling places nothing; moving the levels places an order
+nobody confirmed.
+
+**And the Limit button took a price outside the setup.** The assignment
+bypasses the model's own directional check, so a LONG with its stop at 95
+took a typed 94. The order rests there, fills there, and the stop at 95 is
+above the fill, so the venue will not place it and the post-fill guard
+flattens the position for a round trip of fees. `typed_limit_outside_levels`
+refuses a price that does not sit strictly between the idea's stop and
+target, names both, says nothing was placed, and leaves the prompt armed for
+another price. A direction it cannot read is refused before the levels are
+read.
+
+**Three suites had pinned the defect as the contract.** The typed-ticket and
+resting-limit suites used `source="scan_skill"` to mean "the engine's own
+idea", so every assertion that the engine re-prices its own limit was an
+assertion that a scan card's levels are moved. Those fixtures say `unknown`
+now, the analyzer's own source. The transcript suite's pending idea carried no
+direction, stop or target, which the refusal reads.
+
+**Twenty-one mutations, each killed on the first round, none refused.** The
+leaf's string check died only after a case was added before the round ran: a
+source that is a list holding `"scan_skill"`, which `in` against a frozenset
+would raise on rather than refuse. Each boundary of the price range died on
+its own parametrized row, because a price exactly at the stop or the target
+is the input that separates `<` from `<=`.
+(`tests/test_a_scan_cards_levels_are_placed_as_shown.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -18625,7 +18685,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **472 of 1173** reach for source text through `source_scan`, `code_only`
+Driven, **472 of 1174** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 472 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
