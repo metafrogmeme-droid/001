@@ -32,13 +32,29 @@ positions with no margin on record. Every field is a reading, `absent` or
 ## How to run it
 
 On the bot box, as the user the bot runs as, from the checkout it runs from
-(the `WorkingDirectory` of `scripts/systemd/runeclaw-bot.service`), so it reads
-the same `.env`, `data/` and `logs/`:
+(the `WorkingDirectory` of `scripts/systemd/runeclaw-bot.service`), with the
+interpreter the bot runs with (the unit's `ExecStart` interpreter, or
+`.venv/bin/python` where the box has one, which the launcher prefers), so it
+reads the same code, `.env`, `data/` and `logs/`:
 
 ```bash
-python3 scripts/production_readout.py --markdown > /tmp/d0-readout.md
-python3 scripts/production_readout.py --json > /tmp/d0-readout.json
+"$PY" scripts/production_readout.py --markdown > /tmp/d0-readout.md
+"$PY" scripts/production_readout.py --json > /tmp/d0-readout.json
 ```
+
+where `$PY` is that interpreter. A `python3` without the bot's dependencies
+cannot import `bot.config`, and every flag then reads `unreadable` with the
+exception class; that is a failed run, not a reading.
+
+The script must be the copy inside that checkout. `bot.config` reads the
+`.env` beside its own package and resolves every value with its own code, so
+run from another clone with `--root` pointed at the bot's checkout it would
+state the clone's settings as the bot's. It refuses to: the ledgers and logs
+are read from `--root` and every flag reads `unreadable (--root is not the
+checkout this script imports bot.config from)`. Until the branch that adds the
+script is deployed there, put a copy at `scripts/production_readout.py` in the
+bot's checkout for the run and remove it afterwards (the strategy hash covers
+`bot/` only, so the copy does not change it).
 
 Paste `/tmp/d0-readout.md` under the appendix heading below, set the date it was
 run, and commit. It reads the environment the shell hands it plus `.env`; the
@@ -48,8 +64,13 @@ supervisor's environment would not be seen, and the `Source` column says
 
 ## What it cannot read, stated
 
-- The monitor-pass gap: this build records none (plan item D3 adds it). The
-  readout reports tick-timeout and monitor-stall audit counts as the proxy.
+- The monitor-pass gap: this build records none (plan item D3 adds it), and
+  nothing it does record stands in for one. The readout counts the tick-timeout
+  audits and the `monitor_liveness` audit, which watches the proactive ALERT
+  monitor's heartbeat, not the position monitor's passes.
+- Closed trades older than the executor's cap: it keeps the newest 500 rows
+  of a closed record, so a record at the cap is a floor and its first date is
+  the oldest row kept. The readout says so on the row.
 - A runtime override in the running process (`/golive`, `/leverage`, the
   adaptive auto-confirm threshold): it reads configuration, not process memory.
 - Logs older than what rotation kept (10 MB x 5 per channel).

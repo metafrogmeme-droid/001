@@ -29,6 +29,12 @@ It also never imports ``bot.core.live_executor`` or anything that imports
 ``bot.utils.logger``: that module creates ``logs/`` and opens four log files
 for append at import.
 
+ONE CHECKOUT. ``bot.config`` reads the ``.env`` beside its own package and
+resolves every value with its own code, so the flags are the bot's only when
+the ``bot`` this script imports is the one in ``--root``. When it is not, the
+config is not imported at all (its ``.env`` would leak into the paths read
+below) and every flag says unreadable, why, and how to get a reading.
+
 THREE VALUES, NEVER TWO. Every field is a reading (``"state": "read"``),
 ``"absent"`` (the file is not there, with why) or ``"unreadable"`` (it is
 there and could not be read, with the exception's class). A file this could
@@ -39,6 +45,7 @@ is never "no budget-exhausted audits".
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import logging
 import math
@@ -98,7 +105,8 @@ FLAGS: tuple[tuple[str, str, str], ...] = (
     ("MICRO_MAX_OPEN_POSITIONS", "execution.max_live_open_positions", "positions"),
     ("LLM_DAILY_BUDGET_USD", "llm.daily_budget_usd", "USD per UTC day, chat and thesis together"),
     ("LLM_CHAT_BUDGET_SHARE", "llm.chat_budget_share", "share of the daily budget chat may spend"),
-    ("LLM_DAILY_LIMIT", "llm.daily_call_limit", "thesis model calls per UTC day"),
+    ("LLM_DAILY_LIMIT", "llm.daily_call_limit",
+     "model calls per UTC day: thesis stops at its own count, chat at every call's"),
     ("PER_USER_LIVE_ENABLED", "per_user_live_enabled", "switch"),
     ("WEB_LIVE_TRADING_ENABLED", _WEB_LIVE, "switch"),
     ("LIVE_OPEN_TO_KEY_HOLDERS", "live_open_to_key_holders", "switch"),
@@ -342,6 +350,14 @@ def llm_rule_share(calibration: dict) -> dict:
 
 # ── Closed trades ──────────────────────────────────────────────────────────
 
+#: The executor keeps only the newest ``_MAX_CLOSED_TRADES`` rows of a closed
+#: record and trims the rest on every save and load. ``live_executor`` cannot
+#: be imported here (see the module docstring), so a test pins this to it. A
+#: file at the cap may have lost older closes: its count is a floor and its
+#: first date is only the oldest row the cap kept.
+CLOSED_TRADES_CAP = 500
+
+
 def price_basis(row: dict) -> str:
     """How one closed record's exit was priced, from the record's own fields.
 
@@ -383,11 +399,14 @@ def read_closed_trades(path: Path, shown: str, last: int = RECENT_CLOSES) -> tup
     for r in rows:
         span.add(_parse_time(r.get("closed_at")))
     ledger = _read(path=shown, rows=len(rows), bad_rows=len(data) - len(rows),
-                   dates=span.reading(len(rows)))
+                   dates=span.reading(len(rows)), cap=CLOSED_TRADES_CAP,
+                   rows_are_a_floor=len(data) >= CLOSED_TRADES_CAP)
     try:
         from bot.backtest.parity import cause_sentence, inferred_causes, partition
         parts = partition(rows)
-    except Exception as exc:  # noqa: BLE001 -- a reader that raised is unreadable
+    # parity imports bot.config, so a config that refuses to start raises
+    # SystemExit HERE too; its text names the refused value and is not printed.
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 -- a reader that raised is unreadable
         ledger["kinds"] = _unreadable(exc)
         return ledger, _unreadable(exc)
     ledger["kinds"] = _read(counts={k: len(v) for k, v in parts.items()})
@@ -427,7 +446,7 @@ def read_per_user_closed(state_dir: Path) -> dict:
         paths += found
     if not paths:
         return _absent("no per-user or per-venue closed-trade file found")
-    rows = 0
+    rows = at_cap = 0
     failed: Counter[str] = Counter()
     for p in paths:
         field, data = _load_json(p, "")
@@ -438,8 +457,15 @@ def read_per_user_closed(state_dir: Path) -> dict:
             failed["not a list of rows"] += 1
             continue
         rows += sum(1 for r in data if isinstance(r, dict))
+        if len(data) >= CLOSED_TRADES_CAP:
+            at_cap += 1
+    if sum(failed.values()) == len(paths):
+        # Nothing was read, so there is no row count at all, not a count of 0.
+        return _unreadable("no per-user or per-venue closed-trade file could be read",
+                           files=len(paths), files_unreadable=_sorted_counts(failed))
     return _read(files=len(paths), files_unreadable=_sorted_counts(failed),
-                 rows=rows, rows_are_a_floor=bool(failed))
+                 files_at_cap=at_cap, cap=CLOSED_TRADES_CAP,
+                 rows=rows, rows_are_a_floor=bool(failed) or bool(at_cap))
 
 
 # ── Positions with unread margin ───────────────────────────────────────────
@@ -518,12 +544,14 @@ BUDGET_AUDITS: tuple[tuple[str, str], ...] = (
     ("chat_budget", "Chat LLM budget exhausted"),
 )
 
-#: Tick-health audit rows, by (action, result): the nearest thing to a
-#: monitor-pass gap this build records. The gap itself is not recorded.
+#: Tick-health audit rows, by (action, result). None of them is a
+#: monitor-pass gap, which this build does not record: ``monitor_liveness``
+#: is the engine's watchdog on the PROACTIVE ALERT monitor's heartbeat (the
+#: read-only loop that sends alerts), not on the position monitor's passes.
 TICK_AUDITS: tuple[tuple[str, str, str], ...] = (
     ("tick_phase_timeout", "tick_phase", "TIMEOUT"),
     ("tick_hard_timeout", "tick", "HARD_TIMEOUT"),
-    ("monitor_loop_stalled", "monitor_liveness", "CRITICAL"),
+    ("alert_monitor_stalled", "monitor_liveness", "CRITICAL"),
 )
 
 _LOG_NAME = re.compile(r"^(?!audit_chain)[\w.-]+\.jsonl(\.\d+)?$")
@@ -603,7 +631,9 @@ def read_eligibility_state(root: Path) -> dict:
     try:
         from bot.core.live_eligibility import read_eligibility
         got = read_eligibility(root=root)
-    except Exception as exc:  # noqa: BLE001 -- the reader never raises; its import can
+    # The reader never raises; its import can, SystemExit included should
+    # anything it imports come to import a config that refuses to start.
+    except (Exception, SystemExit) as exc:  # noqa: BLE001
         return _unreadable(exc)
     return _read(verdict=got.state, reason=got.reason,
                  strategy_hash_prefix=(got.strategy_hash[:12] or None), stage=got.stage)
@@ -627,30 +657,37 @@ def _shown(root: Path, p: Path) -> str:
 
 
 def build_readout(root: Path, config_module: Any, env: Optional[Mapping[str, str]] = None,
-                  *, now: Optional[datetime] = None, last: int = RECENT_CLOSES) -> dict:
+                  *, now: Optional[datetime] = None, last: int = RECENT_CLOSES,
+                  config_field: Optional[dict] = None) -> dict:
     """The readout as one JSON-able dict. Reads files under ``root``; writes
-    nothing. ``config_module`` is ``bot.config`` (or None when it could not
-    be imported, and every flag says so)."""
+    nothing. ``config_module`` is ``bot.config``, or None when it was not
+    imported, and then ``config_field`` says why (the exception's class, or
+    the reason it was not asked) and every flag carries that why."""
     root = Path(root)
     env = dict(os.environ) if env is None else dict(env)
     state_dir = _anchored(root, env.get("RUNECLAW_STATE_DIR"), "data")
-    learning = root / "data" / "learning"
+    # Not ``learning``: the unreachable-method sweep reads scripts/ too, and a
+    # local of that name makes the engine's ``self.learning`` receiver ambiguous.
+    learning_dir = root / "data" / "learning"
     of_path = _anchored(root, env.get("OF_SNAPSHOT_PATH"), "data/learning/order_flow_snapshots.jsonl")
 
     if config_module is None:
-        flags = {name: _unreadable("bot.config could not be imported", unit=unit) for name, _, unit in FLAGS}
-        env_unread = _unreadable("bot.config could not be imported")
+        config = dict(config_field or _unreadable("bot.config was not imported"))
+        why = {k: config[k] for k in ("error", "reason") if k in config}
+        flags = {name: {"state": UNREADABLE, **why, "unit": unit} for name, _, unit in FLAGS}
+        env_unread = {"state": UNREADABLE, **why}
     else:
+        config = _read()
         flags = read_flags(config_module, env)
         env_unread = env_unread_record(config_module)
 
     calibration = scan_jsonl(
-        learning / "llm_calibration.jsonl", _shown(root, learning / "llm_calibration.jsonl"), "ts",
+        learning_dir / "llm_calibration.jsonl", _shown(root, learning_dir / "llm_calibration.jsonl"), "ts",
         {"by_source_family": lambda r: source_family(r.get("llm_source")),
          "by_source": lambda r: _word(r.get("llm_source"))})
     order_flow = scan_jsonl(of_path, _shown(root, of_path), "ts")
     decisions = scan_jsonl(
-        learning / "decision_memory.jsonl", _shown(root, learning / "decision_memory.jsonl"),
+        learning_dir / "decision_memory.jsonl", _shown(root, learning_dir / "decision_memory.jsonl"),
         "timestamp_utc",
         {"by_decision_type": lambda r: decision_type(r.get("decision")),
          "by_source": lambda r: _word(r.get("source"))})
@@ -661,6 +698,7 @@ def build_readout(root: Path, config_module: Any, env: Optional[Mapping[str, str
         "readout": "production_readout",
         "schema": 1,
         "generated_at": (now or datetime.now(timezone.utc)).isoformat(),
+        "config": config,
         "flags": flags,
         "env_unread": env_unread,
         "ledgers": {
@@ -713,8 +751,16 @@ def render_markdown(r: dict) -> str:
     out = [f"## Appendix: production readout, {r['generated_at'][:16].replace('T', ' ')} UTC", "",
            "Produced by `scripts/production_readout.py` (read-only). Every figure it could not "
            "read says `absent` or `unreadable`; none is a zero standing in for an absence.", "",
-           "### Flags, caps and budgets (as `bot.config` resolves them)", "",
-           "| Setting | Value in force | Unit | Source |", "|---|---|---|---|"]
+           "### Flags, caps and budgets (as `bot.config` resolves them)", ""]
+    cfg = r["config"]
+    if cfg["state"] != READ:
+        out += [f"- `bot.config` was not read: {_state_text(cfg)}. Every flag below is unreadable "
+                "for that reason. The checkout's `.env` may not have been loaded either, so a "
+                "`RUNECLAW_STATE_DIR` or `OF_SNAPSHOT_PATH` set only there was not seen and the "
+                "ledger paths below may not be the bot's.", ""]
+        if cfg.get("remedy"):
+            out += [f"- {cfg['remedy']}", ""]
+    out += ["| Setting | Value in force | Unit | Source |", "|---|---|---|---|"]
     for name, f in r["flags"].items():
         if f["state"] != READ:
             out.append(f"| `{name}` | {_state_text(f)} | {f.get('unit', '')} | - |")
@@ -741,7 +787,12 @@ def render_markdown(r: dict) -> str:
             continue
         extra = led["bad_lines"] if "bad_lines" in led else led["bad_rows"]
         rows = f"{led['rows']}" + (f" (+{extra} unreadable row(s), not counted)" if extra else "")
-        out.append(f"| {label} | `{led['path']}` | {rows} | {_dates_text(led['dates'])} |")
+        dates = _dates_text(led["dates"])
+        if led.get("rows_are_a_floor"):
+            rows += f" (at the executor's cap of {led['cap']}: a floor)"
+            if led["dates"]["state"] == READ:
+                dates += " (the first is the oldest row the cap kept)"
+        out.append(f"| {label} | `{led['path']}` | {rows} | {dates} |")
     out.append("")
     dec = r["ledgers"]["decision_memory"]
     if dec["state"] == READ:
@@ -754,12 +805,18 @@ def render_markdown(r: dict) -> str:
                    + (_counts_text(kinds["counts"]) if kinds["state"] == READ else _state_text(kinds)))
     pu = r["ledgers"]["closed_trades_per_user"]
     if pu["state"] != READ:
-        out.append(f"- per-user / per-venue closed-trade files: {_state_text(pu)}")
+        line = f"- per-user / per-venue closed-trade files: {_state_text(pu)}"
+        if pu.get("files_unreadable"):
+            line += f" ({pu['files']} found; {_counts_text(pu['files_unreadable'])})"
+        out.append(line)
     else:
         line = f"- per-user / per-venue closed-trade files: {pu['files']} found, {pu['rows']} row(s) read"
         if pu["files_unreadable"]:
             line += (f"; unreadable: {_counts_text(pu['files_unreadable'])}, so the row count "
                      f"is a floor")
+        if pu["files_at_cap"]:
+            line += (f"; {pu['files_at_cap']} file(s) at the executor's cap of {pu['cap']} rows, "
+                     f"which trims older closes, so the row count is a floor")
         out.append(line)
 
     out += ["", "### LLM vs RULE_ENGINE share (llm_calibration rows)", ""]
@@ -835,11 +892,38 @@ def render_markdown(r: dict) -> str:
 
 # ── Entry point ────────────────────────────────────────────────────────────
 
-def import_config_without_vault() -> Any:
-    """``bot.config`` with the secrets vault's self-heal replaced by a no-op,
-    so the import writes nothing. None when the config cannot be imported (a
-    setting it refuses to start with raises SystemExit, whose text names the
-    value and is not printed)."""
+def foreign_settings(root: Path) -> Optional[dict]:
+    """None when the ``bot`` package this process would import is the one in
+    ``root``; otherwise the field that says the flags cannot be read here.
+
+    Asked of the import system before anything is imported: ``bot.config``
+    loads the ``.env`` beside its own package, into this process's
+    environment, and the state paths below are read from that environment."""
+    try:
+        spec = importlib.util.find_spec("bot")
+        places = list((spec.submodule_search_locations or []) if spec else [])
+        if places and Path(places[0]).resolve().parent == Path(root).resolve():
+            return None
+    except (Exception, SystemExit) as exc:  # noqa: BLE001
+        return _unreadable(exc)
+    if not places:
+        return _unreadable("no bot package is importable from where this script sits")
+    return _unreadable(
+        "--root is not the checkout this script imports bot.config from",
+        remedy="bot.config reads the .env and resolves every value with the code of the checkout "
+               "it is imported from, so from here it would state this script's checkout's "
+               "settings as the bot's. Run the script from inside the bot's own checkout.")
+
+
+def import_config_without_vault(root: Path) -> tuple[Any, dict]:
+    """``(bot.config, its field)``, or ``(None, why not)``. Why not is the
+    exception's class (a setting the config refuses to start with raises
+    SystemExit, whose text names the value and is not printed), or that the
+    config here is not ``root``'s, in which case this does not import it.
+
+    The vault's self-heal is replaced by a no-op FIRST, whatever follows: a
+    reader below (parity, for the closed record) imports ``bot.config`` too,
+    and that import must write nothing either."""
     try:
         import bot.core.secrets_vault as vault
 
@@ -849,11 +933,14 @@ def import_config_without_vault() -> Any:
         vault.seed_and_restore = _no_seed  # type: ignore[assignment]
     except Exception:  # noqa: BLE001 -- config guards its own vault import too
         pass
+    foreign = foreign_settings(root)
+    if foreign is not None:
+        return None, foreign
     try:
         import bot.config as config_module
-    except (Exception, SystemExit):  # noqa: BLE001
-        return None
-    return config_module
+    except (Exception, SystemExit) as exc:  # noqa: BLE001
+        return None, _unreadable(exc)
+    return config_module, _read()
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -862,7 +949,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     fmt.add_argument("--json", action="store_true", help="print the readout as JSON")
     fmt.add_argument("--markdown", action="store_true", help="print the ADR appendix (the default)")
     parser.add_argument("--root", default=str(_REPO),
-                        help="the checkout the bot runs from (default: this one)")
+                        help="where the ledgers, logs, positions and eligibility are read (default: "
+                             "this script's checkout). The flags are read only when it is this "
+                             "checkout: bot.config reads its own checkout's .env and code.")
     parser.add_argument("--last", type=int, default=RECENT_CLOSES,
                         help="how many recent filled closes the venue-priced share reads")
     args = parser.parse_args(argv)
@@ -870,8 +959,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     # is a write into the checkout this promises to leave as it found it. Set
     # here, not at import, so a test that loads this module keeps its own.
     sys.dont_write_bytecode = True
-    config_module = import_config_without_vault()
-    readout = build_readout(Path(args.root), config_module, os.environ, last=args.last)
+    root = Path(args.root)
+    config_module, config_field = import_config_without_vault(root)
+    readout = build_readout(root, config_module, os.environ, last=args.last,
+                            config_field=config_field)
     if args.json:
         sys.stdout.write(json.dumps(readout, indent=2, default=str) + "\n")
     else:

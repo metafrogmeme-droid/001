@@ -10,9 +10,12 @@ So every field is driven on a planted checkout that holds each state at
 once: a ledger that reads, one that is not there, and one that is there and
 will not open. The flags are driven through a real `bot.config` import in a
 child process, because what matters is the value the bot resolves (an
-unparseable number is the default in force, with ENV_UNREAD's reason), and
-the same child proves the readout wrote nothing, not even the secrets vault
-that importing `bot.config` seeds.
+unparseable number is the default in force, with ENV_UNREAD's reason). The
+child runs inside a planted CHECKOUT, holding its own copy of `bot/`, the
+script and a `.env`, because on the bot box the checkout the readout reads
+is the one it imports from: the snapshot around the child then covers the
+bytecode an import could leave beside `bot/` and the secrets vault that
+importing `bot.config` seeds.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ import importlib.util
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -255,8 +259,67 @@ def test_per_user_closed_records_are_counted_in_aggregate_and_never_named(plante
     (data / "venue" / "bybit" / "closed_trades_43.json").write_text("[{", encoding="utf-8")
     pu = _build(planted)["ledgers"]["closed_trades_per_user"]
     assert pu == {"state": "read", "files": 2, "files_unreadable": {"JSONDecodeError": 1},
-                  "rows": 3, "rows_are_a_floor": True}
+                  "files_at_cap": 0, "cap": pr.CLOSED_TRADES_CAP, "rows": 3, "rows_are_a_floor": True}
     assert "42" not in json.dumps(pu) and "43" not in json.dumps(pu)
+
+
+def test_per_user_closed_records_none_of_which_would_read_are_no_row_count(tmp_path):
+    """Two files found, neither read: that is not a reading of 0 rows."""
+    (tmp_path / "closed_trades_42.json").write_text("[{", encoding="utf-8")
+    (tmp_path / "closed_trades_43.json").write_text("{}", encoding="utf-8")
+    pu = pr.read_per_user_closed(tmp_path)
+    assert pu == {"state": "unreadable",
+                  "reason": "no per-user or per-venue closed-trade file could be read",
+                  "files": 2, "files_unreadable": {"JSONDecodeError": 1, "not a list of rows": 1}}
+    assert "rows" not in pu
+    # one that reads, even an empty list, is a reading again
+    (tmp_path / "closed_trades_44.json").write_text("[]", encoding="utf-8")
+    pu = pr.read_per_user_closed(tmp_path)
+    assert (pu["state"], pu["rows"], pu["rows_are_a_floor"]) == ("read", 0, True)
+
+
+# ── the executor's cap on a closed record ───────────────────────────────────
+
+def test_the_cap_the_readout_names_is_the_executors():
+    from bot.core.live_executor import _MAX_CLOSED_TRADES
+
+    assert pr.CLOSED_TRADES_CAP == _MAX_CLOSED_TRADES
+
+
+def _dated_rows(n: int) -> list[dict]:
+    from datetime import datetime, timedelta, timezone
+
+    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    return [{"trade_id": f"T{i}", "closed_at": (t0 + timedelta(hours=i)).isoformat(),
+             "close_reason": "TP HIT (exchange)", "close_price": 1.0,
+             "fill_source": "bitget_position_history"} for i in range(n)]
+
+
+@pytest.mark.parametrize("n", [pr.CLOSED_TRADES_CAP - 1, pr.CLOSED_TRADES_CAP])
+def test_a_closed_record_at_the_cap_is_a_floor_and_one_below_it_is_whole(tmp_path, n):
+    """The executor keeps the newest 500 rows. A file holding 500 may have
+    lost older closes, so its count is a floor and its first date is the
+    oldest row kept; a file of 499 was never trimmed."""
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "closed_trades.json").write_text(json.dumps(_dated_rows(n)), encoding="utf-8")
+    (tmp_path / "data" / "closed_trades_42.json").write_text(json.dumps(_dated_rows(n)),
+                                                             encoding="utf-8")
+    r = _build(tmp_path)
+    closed, pu = r["ledgers"]["closed_trades"], r["ledgers"]["closed_trades_per_user"]
+    at_cap = n >= pr.CLOSED_TRADES_CAP
+    assert (closed["rows"], closed["rows_are_a_floor"]) == (n, at_cap)
+    assert (pu["files_at_cap"], pu["rows_are_a_floor"]) == (int(at_cap), at_cap)
+
+    md = pr.render_markdown(r)
+    row = next(ln for ln in md.splitlines() if ln.startswith("| closed trades (operator) |"))
+    per_user = next(ln for ln in md.splitlines() if ln.startswith("- per-user / per-venue"))
+    if at_cap:
+        assert f"| {n} (at the executor's cap of {n}: a floor) |" in row
+        assert "(the first is the oldest row the cap kept)" in row
+        assert "1 file(s) at the executor's cap of 500 rows" in per_user
+    else:
+        assert row.split("|")[3].strip() == str(n)
+        assert "cap" not in row and "cap" not in per_user
 
 
 # ── positions with unread margin ────────────────────────────────────────────
@@ -304,7 +367,7 @@ def test_the_budget_audits_are_counted_across_rotations_and_the_audit_chain_is_n
     assert logs["files"] == ["system.jsonl.1", "trade.jsonl"]
     counts = {k: v["count"] for k, v in logs["audits"].items()}
     assert counts == {"thesis_dollar_budget": 2, "thesis_call_limit": 1, "chat_budget": 1,
-                      "tick_phase_timeout": 0, "tick_hard_timeout": 1, "monitor_loop_stalled": 0}
+                      "tick_phase_timeout": 0, "tick_hard_timeout": 1, "alert_monitor_stalled": 0}
     assert logs["audits"]["thesis_dollar_budget"]["dates"]["first"].startswith("2026-09-20T01:00")
     assert logs["audits"]["tick_phase_timeout"]["dates"]["state"] == "absent"
     assert logs["candidate_lines_unparsed"] == 1
@@ -394,26 +457,45 @@ def _tree(root: Path) -> dict:
             for p in sorted(root.rglob("*"))}
 
 
-def _run(root: Path, *args: str, **env: str):
+@pytest.fixture
+def checkout(planted):
+    """The planted state inside a checkout of its own: a copy of `bot/` and of
+    the script, and no `__pycache__` anywhere, so a byte the child writes
+    beside the modules it imports shows in the snapshot."""
+    shutil.copytree(ROOT / "bot", planted / "bot",
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    (planted / "scripts").mkdir()
+    shutil.copy2(SCRIPT, planted / "scripts" / SCRIPT.name)
+    return planted
+
+
+def _run(root: Path, *args: str, script: Path | None = None, **env: str):
+    """The readout in a child, run as the operator runs it: the copy inside
+    ``root``, from ``root``. ``script`` runs another copy with ``--root``."""
     base = {k: v for k, v in os.environ.items()
             if not k.startswith(("AUTO_CONFIRM", "MICRO_MAX", "LLM_", "PER_USER", "WEB_LIVE",
-                                 "LIVE_", "PAPER_", "RUNECLAW_", "SECRETS_VAULT", "OF_"))}
+                                 "LIVE_", "PAPER_", "RUNECLAW_", "SECRETS_VAULT", "OF_",
+                                 "TRADE_MODE", "PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX"))}
     base.update(RUNECLAW_ENV_INHERIT="1", RUNECLAW_STATE_DIR=str(root / "data"),
                 SECRETS_VAULT_ENABLED="true", TELEGRAM_BOT_TOKEN=_SECRET,
                 BITGET_API_SECRET=_SECRET, **env)
-    return subprocess.run([sys.executable, str(SCRIPT), "--root", str(root), *args],
+    argv = [str(root / "scripts" / SCRIPT.name)] if script is None else [str(script), "--root", str(root)]
+    return subprocess.run([sys.executable, *argv, *args],
                           capture_output=True, text=True, timeout=120, cwd=str(root), env=base)
 
 
-def test_the_flags_are_what_the_bot_resolves_and_nothing_is_written(planted):
-    before = _tree(planted)
-    proc = _run(planted, "--json",
+def test_the_flags_are_what_the_bot_resolves_and_nothing_is_written(checkout):
+    before = _tree(checkout)
+    proc = _run(checkout, "--json",
                 AUTO_CONFIRM_THRESHOLD="0.9x", MICRO_MAX_POSITION_USD="40",
                 AUTO_CONFIRM_LIVE_ENABLED="false", PER_USER_LIVE_ENABLED="maybe",
                 LIVE_OPEN_TO_KEY_HOLDERS="0", WEB_LIVE_TRADING_ENABLED="on")
     assert proc.returncode == 0, proc.stderr[-2000:]
     assert _SECRET not in proc.stdout and _SECRET not in proc.stderr
-    assert _tree(planted) == before, "the readout wrote into the checkout it read"
+    # `bot/` is in the snapshot: no bytecode beside the modules it imported,
+    # and no vault file under the checkout the config was imported from.
+    assert _tree(checkout) == before, "the readout wrote into the checkout it read"
+    assert json.loads(proc.stdout)["config"] == {"state": "read"}
 
     flags = json.loads(proc.stdout)["flags"]
     th = flags["AUTO_CONFIRM_THRESHOLD"]
@@ -430,17 +512,93 @@ def test_the_flags_are_what_the_bot_resolves_and_nothing_is_written(planted):
     assert flags["WEB_LIVE_TRADING_ENABLED"]["value"] is True
 
 
+def test_the_call_limits_unit_names_every_call_it_stops():
+    """LLM_DAILY_LIMIT stops chat once every model call of the day, thesis
+    and chat together, reaches it; a unit that said "thesis calls" would
+    tell the operator chat is not bound by it."""
+    from bot.core.cost import CostSummary, chat_budget_bound
+
+    llm = SimpleNamespace(daily_call_limit=3, daily_budget_usd=1.0, chat_budget_share=0.5)
+    assert chat_budget_bound(CostSummary(llm_calls=2), llm) == ""
+    assert chat_budget_bound(CostSummary(llm_calls=3), llm) == "daily call limit"
+    unit = {name: unit for name, _, unit in pr.FLAGS}["LLM_DAILY_LIMIT"]
+    assert "chat" in unit and "thesis" in unit
+
+
 def test_a_flag_nobody_set_says_it_is_the_code_default(planted):
     flags = _build(planted, {"MICRO_MAX_POSITION_USD": "40"})["flags"]
     assert flags["MICRO_MAX_OPEN_POSITIONS"]["source"] == "code default"
     assert flags["MICRO_MAX_POSITION_USD"]["source"] == "environment"
 
 
-def test_the_markdown_says_absent_and_unreadable_in_words(planted):
-    before = _tree(planted)
-    proc = _run(planted, AUTO_CONFIRM_THRESHOLD="high")
+def test_the_flags_are_the_checkouts_own_env_and_another_checkout_is_not_read_as_it(checkout):
+    """`bot.config` loads the `.env` beside its own package. Run from the
+    bot's checkout, that `.env` decides the flags. Run from another copy with
+    `--root` at the bot's checkout, the config it would import is the other
+    copy's, so the readout imports none and prints no flag as a reading:
+    printing the other copy's defaults as the bot's would say auto-confirm is
+    on for a checkout whose `.env` turns it off."""
+    (checkout / ".env").write_text("AUTO_CONFIRM_LIVE_ENABLED=false\nAUTO_CONFIRM_THRESHOLD=1.0\n",
+                                   encoding="utf-8")
+    before = _tree(checkout)
+
+    own = _run(checkout, "--json")
+    assert own.returncode == 0, own.stderr[-2000:]
+    flags = json.loads(own.stdout)["flags"]
+    assert flags["AUTO_CONFIRM_LIVE_ENABLED"]["value"] is False
+    assert flags["AUTO_CONFIRM_THRESHOLD"]["value"] == 1.0
+    assert _tree(checkout) == before
+
+    other = _run(checkout, "--json", script=SCRIPT)
+    assert other.returncode == 0, other.stderr[-2000:]
+    r = json.loads(other.stdout)
+    assert r["config"]["state"] == "unreadable"
+    assert "--root" in r["config"]["reason"] and "bot's own checkout" in r["config"]["remedy"]
+    assert {f["state"] for f in r["flags"].values()} == {"unreadable"}
+    assert r["flags"]["AUTO_CONFIRM_LIVE_ENABLED"]["reason"] == r["config"]["reason"]
+    assert r["env_unread"]["state"] == "unreadable"
+    # the ledgers are still read from --root
+    assert r["ledgers"]["closed_trades"]["rows"] == 6
+    assert _tree(checkout) == before
+
+    md = _run(checkout, script=SCRIPT).stdout
+    assert "- `bot.config` was not read: unreadable (--root is not the checkout" in md
+    assert "Run the script from inside the bot's own checkout." in md
+    assert "| `AUTO_CONFIRM_LIVE_ENABLED` | unreadable (--root is not the checkout" in md
+
+
+def test_a_config_that_refuses_to_start_is_unreadable_everywhere_and_never_quoted(checkout):
+    """A setting `bot.config` refuses to start with raises SystemExit, and so
+    does every later import of a reader that imports the config (parity, for
+    the closed record). The readout still prints, names the class, and never
+    the refusal's text, which quotes the value."""
+    before = _tree(checkout)
+    proc = _run(checkout, "--json", TRADE_MODE="spot")
     assert proc.returncode == 0, proc.stderr[-2000:]
-    assert _tree(planted) == before
+    assert "'spot'" not in proc.stdout and "'spot'" not in proc.stderr
+    r = json.loads(proc.stdout)
+    assert r["config"] == {"state": "unreadable", "error": "SystemExit"}
+    assert r["flags"]["AUTO_CONFIRM_LIVE_ENABLED"] == {"state": "unreadable", "error": "SystemExit",
+                                                       "unit": "switch"}
+    assert {f.get("error") for f in r["flags"].values()} == {"SystemExit"}
+    assert r["env_unread"] == {"state": "unreadable", "error": "SystemExit"}
+    closed = r["ledgers"]["closed_trades"]
+    assert (closed["state"], closed["rows"]) == ("read", 6)
+    assert closed["kinds"] == {"state": "unreadable", "error": "SystemExit"}
+    assert r["venue_priced_closes"] == {"state": "unreadable", "error": "SystemExit"}
+    assert r["positions"]["state"] == "read"
+    assert _tree(checkout) == before
+
+    md = _run(checkout, TRADE_MODE="spot").stdout
+    assert "- `bot.config` was not read: unreadable (SystemExit)." in md
+    assert "`RUNECLAW_STATE_DIR` or `OF_SNAPSHOT_PATH` set only there was not seen" in md
+
+
+def test_the_markdown_says_absent_and_unreadable_in_words(checkout):
+    before = _tree(checkout)
+    proc = _run(checkout, AUTO_CONFIRM_THRESHOLD="high")
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    assert _tree(checkout) == before
     md = proc.stdout
     assert "| `AUTO_CONFIRM_THRESHOLD` | 0.85 |" in md
     assert "`AUTO_CONFIRM_THRESHOLD` (not a number; default 0.85)" in md
