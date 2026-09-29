@@ -2205,9 +2205,10 @@ class Analyzer:
         except Exception:
             pass
 
-        # Store VWAP at entry for reversion exit tracking
-        if signal_type == "vwap_reversion" and indicators.get("vwap"):
-            idea._entry_vwap = indicators["vwap"]
+        # The VWAP this analysis read, for the reversion exit. On the idea's
+        # own field, so the executor records it on the position it opens.
+        if signal_type == "vwap_reversion":
+            idea.entry_vwap = price_on_record(indicators.get("vwap"))
 
         # ── Explainability Report ──
         try:

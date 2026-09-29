@@ -159,6 +159,14 @@ class TradeIdea(BaseModel):
     # a level away from it, and the drift since the analysis has to be measured
     # from this. None for every producer that does not record it.
     market_at_signal: Optional[float] = None
+    # The VWAP the analysis read, for a VWAP-reversion idea. The executor
+    # records it on the position the idea opens (and saves it with the row),
+    # because the VWAP-reversion exit is measured against the VWAP of THIS
+    # position's analysis. It used to live in one engine dict keyed by symbol,
+    # which any other confirm on the same symbol overwrote and a restart
+    # emptied. None when the analysis read no VWAP, and then that exit is
+    # skipped: no VWAP is ever stood in by the entry price.
+    entry_vwap: Optional[float] = None
 
     @property
     def risk_reward_ratio(self) -> float:

@@ -184,7 +184,6 @@ def _smart_exit_closes(pos, mark):
     eng = RuneClawEngine.__new__(RuneClawEngine)
     eng.ws_feed = SimpleNamespace(is_connected=lambda: True,
                                   get_prices=lambda max_age_sec=None: {pos.symbol: mark})
-    eng._last_vwap = {}
 
     async def _announce(*_a):
         return None
