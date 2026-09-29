@@ -6304,22 +6304,24 @@ class RuneClawEngine:
         # field. An operator who writes a minimal `.env`, or who follows this
         # file's own admin auto-trade policy ("set 0.85 AND enable live
         # auto-confirm"), gets the other configuration.
+        #
+        # In LIVE mode the flag is the second line. The first is an
+        # eligibility record for the running strategy
+        # (`bot/core/live_eligibility.py`), asked at the Lock-5 mint that every
+        # non-human live confirm crosses, and asked here too so a tick with no
+        # record does not run the confirm pipeline only to be denied at the end.
         auto_threshold = RUNTIME.auto_confirm_threshold
         # `value >= threshold` makes 1.0 mean "needs a perfect score", not
         # "off" -- and a blend that scored exactly 1.0 would auto-execute
         # through a switch the operator had turned off. The sentinel is
         # checked, not compared against.
         auto_ideas = self._auto_confirm_batch(auto_threshold)
-        if auto_ideas and CONFIG.is_live() and not CONFIG.auto_confirm_live_enabled:
-            for tid, tidea in auto_ideas:
-                audit(trade_log,
-                      f"Auto-confirm SUPPRESSED in live mode for {tidea.asset} "
-                      f"(conf={tidea.confidence:.2f}) — human confirmation required. "
-                      f"Set AUTO_CONFIRM_LIVE_ENABLED=true to allow live auto-execution.",
-                      action="auto_confirm", result="SUPPRESSED_LIVE",
-                      data={"trade_id": tid, "confidence": tidea.confidence,
-                            "threshold": auto_threshold})
-            auto_ideas = []
+        if auto_ideas and CONFIG.is_live():
+            _auto_refusal = self._autonomous_live_refusal()
+            if _auto_refusal is not None:
+                self._suppress_autonomous_live(auto_ideas, _auto_refusal,
+                                               auto_threshold)
+                auto_ideas = []
         for tid, tidea in auto_ideas:
             # Entry-timing gate (auto path only): DEFER an autonomous entry whose
             # sub-degree hasn't confirmed the turn yet (scoped to
@@ -8393,15 +8395,21 @@ class RuneClawEngine:
         # The Telegram /confirm flow is the human approval gate — reaching
         # this point means the operator already tapped "Confirm".
         approval_token = None
+        # Why a non-human live confirm is not minted a token, or None. Bound
+        # above the branch because the denial below reads it on every path.
+        _auto_refusal: Optional[str] = None
         if CONFIG.is_live():
             human = self._human_confirmed(user_id)
             # Audit F-8: only mint the Lock 5 human-approval token for a REAL
             # human confirmation. For non-human callers (user_id "" / "auto" —
-            # e.g. auto-confirm or a skill dispatch) require the explicit
-            # AUTO_CONFIRM_LIVE_ENABLED opt-in; otherwise leave the token
-            # unminted so compliance Lock 5 fails CLOSED and the live trade is
-            # denied rather than executed with no human approval at all.
-            if human or CONFIG.auto_confirm_live_enabled:
+            # e.g. auto-confirm, the /forcescan loop or a skill dispatch)
+            # require the explicit AUTO_CONFIRM_LIVE_ENABLED opt-in AND an
+            # eligibility record for the running strategy; otherwise leave the
+            # token unminted so compliance Lock 5 fails CLOSED and the live
+            # trade is denied rather than executed with no human approval.
+            if not human:
+                _auto_refusal = self._autonomous_live_refusal()
+            if human or _auto_refusal is None:
                 approval_token = self.compliance.issue_approval_token(
                     trade_id, self.compliance_profile.subject_id,
                 )
@@ -8410,14 +8418,15 @@ class RuneClawEngine:
                     system_log.warning(
                         "AUTO-MINT APPROVAL TOKEN (RC-AUD-018): engine minted the "
                         "Lock 5 token for UNATTENDED trade %s (user_id=%r) under "
-                        "AUTO_CONFIRM_LIVE_ENABLED — no human callback occurred.",
+                        "AUTO_CONFIRM_LIVE_ENABLED and an eligibility record — no "
+                        "human callback occurred.",
                         trade_id, user_id,
                     )
             else:
                 system_log.warning(
-                    "Lock 5 NOT minted for non-human confirm of %s (user_id=%r) "
-                    "and AUTO_CONFIRM_LIVE_ENABLED is off — live execution will be "
-                    "denied (audit F-8).", trade_id, user_id,
+                    "Lock 5 NOT minted for non-human confirm of %s (user_id=%r): "
+                    "%s — live execution will be denied (audit F-8).",
+                    trade_id, user_id, _auto_refusal,
                 )
 
         compliance_decision = self.compliance.authorize(
@@ -8438,9 +8447,15 @@ class RuneClawEngine:
                 "trade_id": trade_id, "asset": idea.asset,
                 "reasons": compliance_decision.reasons,
                 "locks_failed": compliance_decision.locks_failed,
+                "autonomous_refusal": _auto_refusal,
             }, actor=self.compliance_profile.subject_id))
             self._pending_pyramid.pop(trade_id, None)
             self._transition(AgentState.IDLE, f"compliance denied {trade_id}")
+            if _auto_refusal is not None:
+                # Lock 5's own sentence ("no human approval token") names the
+                # symptom; this names the cause, which is what the operator acts on.
+                return (f"Execution denied: this live order had no human confirm, "
+                        f"and {_auto_refusal}.{seal_note}")
             return f"Execution denied: {compliance_decision.reasons[-1] if compliance_decision.reasons else 'compliance check failed'}{seal_note}"
 
         # ── Per-user PAPER (sim) opt-in ──────────────────────────────────────
@@ -9244,6 +9259,13 @@ class RuneClawEngine:
         auto_confirmed = 0
         _disabled = auto_confirm_is_disabled(auto_threshold)
         _force_engine_ids = self._engine_pending_ids()
+        # The same refusal the tick reads, asked before the loop so a live
+        # /forcescan with no eligibility record runs no confirm pipeline. The
+        # Lock-5 mint refuses these confirms on its own; this only saves the
+        # work and records why.
+        _force_refusal = (self._autonomous_live_refusal()
+                          if CONFIG.is_live() and not _disabled else None)
+        _force_suppressed: list = []
         for tid, tidea in list(self._pending_ideas.items()):
             # The engine's own ideas only, as on the tick path.
             if tid not in _force_engine_ids:
@@ -9256,6 +9278,9 @@ class RuneClawEngine:
                 # operator presses to LOOK would execute a caller's untapped
                 # ticket on the operator's own account.
                 if self._auto_confirm_suppressed(tid, tidea):
+                    continue
+                if _force_refusal is not None:
+                    _force_suppressed.append((tid, tidea))
                     continue
                 _et_ok, _et_why = self._pending_timing.get(tid, (True, ""))
                 if not _et_ok:
@@ -9275,6 +9300,9 @@ class RuneClawEngine:
                             pass
                 except Exception:
                     pass
+        if _force_suppressed and _force_refusal is not None:
+            self._suppress_autonomous_live(_force_suppressed, _force_refusal,
+                                           auto_threshold)
 
         self._transition(AgentState.IDLE, "force scan complete")
 
@@ -9650,6 +9678,37 @@ class RuneClawEngine:
                 RUNTIME.auto_confirm_threshold = new_thresh
         except Exception:
             pass  # fail-open
+
+    @staticmethod
+    def _autonomous_live_refusal() -> Optional[str]:
+        """Why a live order with no human confirm may not be placed, or None.
+
+        The flag first, then the eligibility record for the running strategy
+        (`bot/core/live_eligibility.py`). Every state but `eligible` refuses,
+        and so does a reading that raises. The caller decides it is in live
+        mode; this reads nothing about the mode.
+        """
+        if not CONFIG.auto_confirm_live_enabled:
+            return "AUTO_CONFIRM_LIVE_ENABLED is off"
+        try:
+            from bot.core.live_eligibility import read_eligibility
+            elig = read_eligibility()
+        except Exception as exc:  # noqa: BLE001 -- a failed read refuses
+            return f"the eligibility record could not be read ({type(exc).__name__})"
+        return None if elig.eligible else elig.reason
+
+    @staticmethod
+    def _suppress_autonomous_live(ideas, why: str, threshold: float) -> None:
+        """Audit each idea a live auto-confirm will not place, and why."""
+        for tid, tidea in ideas:
+            audit(trade_log,
+                  f"Auto-confirm SUPPRESSED in live mode for "
+                  f"{getattr(tidea, 'asset', '?')}: {why}. The Confirm button "
+                  f"on its card is the door.",
+                  action="auto_confirm", result="SUPPRESSED_LIVE",
+                  data={"trade_id": tid,
+                        "confidence": getattr(tidea, "confidence", None),
+                        "threshold": threshold, "why": why})
 
     def _auto_confirm_batch(self, auto_threshold: float) -> list:
         """The (trade_id, idea) pairs this tick may auto-confirm.

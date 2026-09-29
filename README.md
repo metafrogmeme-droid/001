@@ -299,6 +299,9 @@ A closed-loop backstop on top of the pre-trade checks (gated `LIVE_PERFORMANCE_G
 > (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`). Both are off in the
 > shipped `.env.example` and on in the code default when no `.env` is present.
 > `AUTO_CONFIRM_THRESHOLD=1.0`, or `/autoconfirm off`, disables it outright.
+> In LIVE mode an order with no human confirm also needs an eligibility record
+> for the running strategy (`benchmark/eligibility/`), and none ships, so the
+> live step stays human-confirmed until a reviewed commit adds one.
 
 ### Runtime Services
 
