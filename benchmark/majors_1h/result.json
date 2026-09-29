@@ -1,7 +1,7 @@
 {
   "mode": "portfolio_walk_forward",
-  "recorded_at": "2026-09-28T17:33:22+00:00",
-  "code_sha": "afec9d2a7deadd379831ef124a04334cccdf4e46",
+  "recorded_at": "2026-09-29T08:46:03+00:00",
+  "code_sha": "cbbf934802c9c1d8c7d47c52882a3a81488eeedc",
   "dataset": "benchmark/majors_1h",
   "honest": true,
   "folds_requested": 6,
@@ -15,12 +15,12 @@
     "wins": 58,
     "losses": 59,
     "flat": 0,
-    "net_usd": -1456.39,
-    "gross_win_usd": 2322.37,
-    "gross_loss_usd": 3778.76,
+    "net_usd": -1456.38,
+    "gross_win_usd": 2322.36,
+    "gross_loss_usd": 3778.74,
     "win_rate": 0.49572649572649574,
-    "pf": 0.61458520784596,
-    "mean_net_usd": -12.44777777777778
+    "pf": 0.6145858143190588,
+    "mean_net_usd": -12.44769230769231
   },
   "data_source": "frozen_snapshot:8dbe73514ce8d2aeecd767a193c005cd1a179221bdce5df2cbe4ded2886bde36",
   "universe": {
@@ -68,7 +68,7 @@
       "per_symbol": {
         "ADA/USDT:USDT": {
           "trades": 3,
-          "net_pnl": 136.78,
+          "net_pnl": 136.76,
           "win_rate": 0.6667
         },
         "AVAX/USDT:USDT": {
@@ -88,7 +88,7 @@
         },
         "DOGE/USDT:USDT": {
           "trades": 3,
-          "net_pnl": 0.03,
+          "net_pnl": 0.05,
           "win_rate": 0.6667
         },
         "ETH/USDT:USDT": {
@@ -151,7 +151,7 @@
         },
         "DOGE/USDT:USDT": {
           "trades": 1,
-          "net_pnl": -0.12,
+          "net_pnl": -0.11,
           "win_rate": 0.0
         },
         "ETH/USDT:USDT": {
@@ -194,7 +194,7 @@
       "per_symbol": {
         "ADA/USDT:USDT": {
           "trades": 3,
-          "net_pnl": 236.38,
+          "net_pnl": 236.37,
           "win_rate": 1.0
         },
         "AVAX/USDT:USDT": {
@@ -320,7 +320,7 @@
       "per_symbol": {
         "ADA/USDT:USDT": {
           "trades": 3,
-          "net_pnl": -57.43,
+          "net_pnl": -57.42,
           "win_rate": 0.3333
         },
         "AVAX/USDT:USDT": {
@@ -340,7 +340,7 @@
         },
         "DOGE/USDT:USDT": {
           "trades": 5,
-          "net_pnl": -79.2,
+          "net_pnl": -79.18,
           "win_rate": 0.6
         },
         "ETH/USDT:USDT": {
@@ -403,7 +403,7 @@
         },
         "DOGE/USDT:USDT": {
           "trades": 3,
-          "net_pnl": -134.68,
+          "net_pnl": -134.7,
           "win_rate": 0.0
         },
         "ETH/USDT:USDT": {

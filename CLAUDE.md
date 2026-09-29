@@ -17988,9 +17988,10 @@ argument STRING appeared in the source. Both locks are the live functions now
 stop back. The ladder's own suite had pinned the hard-coded 0.1% as the
 contract, through a helper that built its state with no fee input. That meant
 the fallback, `LEGACY_FEE_BUFFER_PCT`, was the only branch it drove. The helper
-passes the engine's round trip, and the pin is 0.2%. The majors record moves
-with the lock, and it is re-measured in the commit after this one, for the
-reason `code_sha` gives.
+passes the engine's round trip, and the pin is 0.2%. The majors record was
+re-measured in the commit after this one, for the reason `code_sha` gives, and
+moved by one cent (net −$1,456.38): that snapshot holds no sub-cent asset, and
+its TP1 fired twice in the whole run.
 
 **Ten mutations, each killed. The one that survived the first round was the
 assertion's tolerance.** Rounding the entry to twelve places passed a
