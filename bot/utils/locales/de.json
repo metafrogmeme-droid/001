@@ -223,6 +223,7 @@
   "trade_executed_fail": "<b>Trade ist nicht durchgegangen</b>",
   "trade_executed_ok": "<b>Trade ausgeführt!</b>",
   "trade_outcome_unverified": "<b>Orderergebnis unbestätigt</b> — nichts verbucht, nichts erneut gesendet",
+  "trade_order_resting": "<b>Order platziert — wartet, noch nicht ausgeführt</b>",
   "trade_expired": "Trade abgelaufen (nicht rechtzeitig bestätigt)",
   "trade_expired_rescan": "<b>Trade abgelaufen.</b> Starte einen neuen Scan.",
   "trade_help": "<b>Manueller Trade</b>\n\nFormat:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1748 tp 1610 margin 250</code>\n\n• <code>buy/long</code> = LONG\n• <code>sell/short</code> = SHORT\n• <code>margin</code> = optionale feste Margin in USD",

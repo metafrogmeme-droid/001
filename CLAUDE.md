@@ -17450,6 +17450,100 @@ held by a scan, stated as one: `analyze` is a 1,400-line coroutine behind a
 thesis model, and the claim is an order of three assignments.
 (`tests/test_a_resting_limit_drifts_only_when_the_market_moves.py`.)
 
+**A RESTING LIMIT WAS ANNOUNCED AS OPENED THE MOMENT IT WAS PLACED, AND THE
+FILL THAT OPENED IT WAS ANNOUNCED NOWHERE PUBLIC.** On a confirm that placed
+anything, the engine emitted the public feed's `trade_open` event ("Opened
+LONG SOL/USDT", which the website pushes to every subscriber's phone), the
+Confirm button posted TRADE OPENED to the public channels, and the website
+sync sent the executor's rows as held positions. A limit order that went to
+rest on the book did all three at placement. Driven through the real confirm
+with a resting order:
+
+    feed:    ('trade_open', 'Opened LONG BTC/USDT', 'Entry $59,600.0000 · SL $58,400.0000 · TP $63,200.0000')
+    channel: TRADE OPENED  Entry $60,000.00  Stop Loss $58,800.00  Take Profit $63,600.00
+    sync:    the pending_fill row posted as a position
+
+The channel post carried the IDEA's levels, which the executor had re-priced
+and moved its stop and target from. When the order later filled, the monitor
+sent the watching chats a card and nothing else, so the public record's first
+word about the trade was its TRADE CLOSED. The same was true of every
+auto-confirmed engine trade: only the Telegram Confirm button posted TRADE
+OPENED, while every operator close was posted.
+
+**One announcer, run where the row is open.**
+`RuneClawEngine._announce_agent_open` emits the feed event, posts to the
+channel (through `set_public_open_callback`, which the alerts monitor wires to
+the forwarder) and syncs the website. The confirm calls it after `execute`, so
+an order that filled there is announced at once. The monitor pass calls
+`_announce_new_agent_opens`, which announces every operator row that is open
+and was not open when the engine first looked at that book, so a resting
+limit is announced on the pass it fills. That is read off the book's state,
+not off the message: the pending check, the drift fallback, a partial fill
+adopted at a cancel and a submission recovered by client id all open a row,
+and a list of those four is the shape where the fifth is missed. A row is
+announced once, checked and marked with no await between, because the confirm
+and a monitor pass can both reach it.
+
+**The seed is per book and is taken before anything can open a row.** The
+first look at an executor records its open rows, so a restart does not
+announce the book it found, and neither does a `/venue` switch, whose new
+executor loads that venue's saved book. The confirm seeds before `execute`,
+and the monitor at the top of its live pass, before the self-heal and the
+leverage sync. A seed taken after `execute` would hold the row the order had
+just opened, and it would never be announced.
+
+**What is announced is the agent's own open, off the row.**
+`agent_feed.opened_levels` answers for a row whose status is `open` and whose
+origin is `executed`, with the row's entry, stop and target, each through
+`price_on_record` (a level the row does not state is None, not a stop at
+zero), and the executor's marker for an estimated entry. An adopted or
+reclaimed row is synced and not announced. A person's book is never
+announced; the operator's book is decided by identity. The event carries no
+size and no confidence: the size is account money, and the confidence is the
+thesis event's, stated once for the signal. The website sync sends only
+`open` rows now; `open_positions` lists resting orders too, and the website
+priced one as a held position.
+
+**This is a decision as well as a fix, and it is stated.** Every open on the
+operator's book is posted now, whichever door placed it. Before, only the
+Telegram Confirm button posted, so auto-confirmed engine trades were posted
+closed and never opened. Opens now mirror closes, which were always posted
+for every operator trade. A person's own book is still never posted.
+
+**The door said "Trade executed!" over an order that was only resting.**
+`execute` answers a resting limit with `RESTING_ANSWER` (`⏳ PENDING FILL`), a
+constant now, and `confirm_result.left_resting` reads it. The Confirm button
+answers it with `trade_order_resting` ("Order placed — resting, not filled
+yet"), in fourteen languages. The door no longer posts anything publicly, and
+`held_on_operator_book`, which decided that post, is deleted with its tests.
+
+**The survey's other claim did not reproduce.** It said the placement card
+printed the idea's pre-re-price levels. It does not: `execute` works on a copy
+of the idea whose levels the re-price moved, and the card, the row and the
+resting answer all read that copy. The public post and the feed were the
+surfaces that read the original.
+
+**Neighbours the change reached, and none of them was the code's.** The
+transcript suite's `_HookEngine` stand-in had no `set_public_open_callback`,
+so `start_monitor` raised in eleven tests. When it raised, `_started` never
+reached its restore, and the Telegram config it patched leaked into
+`test_core`'s auth tests, which failed in the same run. That is a harness
+fragility worth knowing and not a regression. My own `_Book` stand-in lacked
+`closed_trades_read_failed`, so the sync raised inside its own `try` and was
+swallowed at debug. One fixture of mine was wrong before the code was:
+`_fmt_price` prints two decimals above $100. The no-dollar guard names every
+emit that spreads its fields, so `trade_open` joined its list with a drive of
+`open_event`'s title.
+
+**Thirty mutations, twenty-nine killed on the first round.** The survivor was
+the operator-book identity check in `_announce_agent_open`. My person's-book
+test passed without it, because the seed taken inside the call already held
+the row it was asked about. The check's real cost is elsewhere: without it,
+an attempt on a person's book replaces the operator's seed, and the
+operator's next fill is taken for a row the book already held. Two tests pin
+that now, and the mutation dies on both.
+(`tests/test_an_open_is_announced_when_the_position_opens.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -17929,7 +18023,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 261 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 263 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -18741,9 +18835,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **473 of 1175** reach for source text through `source_scan`, `code_only`
+Driven, **474 of 1176** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 473 is a FLOOR and the honest shape is
+source scan that rule does not see, so 474 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

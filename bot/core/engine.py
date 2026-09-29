@@ -916,6 +916,11 @@ class RuneClawEngine:
         # `(owner, kind, msg, close_slot)` for a PER-USER executor's close,
         # fill and sync messages -- see `_announce_executor_message`.
         self._owner_notify_callback: Optional[Callable] = None
+        # `(levels)` for the public channel's TRADE OPENED post, and the ids of
+        # the operator rows already announced as open -- see
+        # `_announce_agent_open`.
+        self._public_open_callback: Optional[Callable] = None
+        self._agent_open_seen: Optional[tuple[Any, set[str]]] = None
         self._pending_ideas: dict[str, TradeIdea] = {}
         # A hand-typed ticket's margin, keyed by its idea id, for as long as
         # the idea is pending (`_drop_pending_idea` takes both off together).
@@ -1831,7 +1836,11 @@ class RuneClawEngine:
             d["close_reason"] = pos.close_reason
             return d
 
-        positions = [_open_dict(p) for p in executor.open_positions]
+        # Positions only. `open_positions` lists resting limit orders too, and
+        # the website published one as a held position -- an entry nothing
+        # had filled at, with a P&L measured from it.
+        positions = [_open_dict(p) for p in executor.open_positions
+                     if getattr(p, "status", None) == "open"]
         closed = [_closed_dict(p) for p in executor.closed_positions[-50:]]
         # Truthful equity: in LIVE mode with an empty balance cache this must
         # send None (website renders "unavailable"), never the paper baseline
@@ -4036,6 +4045,106 @@ class RuneClawEngine:
         """Register `cb(owner, kind, msg, close_slot)` for a per-user book's
         close, fill and sync messages. See `_announce_executor_message`."""
         self._owner_notify_callback = cb
+
+    def set_public_open_callback(self, cb: Callable) -> None:
+        """Register `cb(levels)` for the public channel's TRADE OPENED post.
+        See `_announce_agent_open`."""
+        self._public_open_callback = cb
+
+    def _agent_open_ids(self, executor) -> set[str]:
+        """The operator rows already open or announced, seeded once per book.
+
+        The first ask about an executor takes the rows that are open now: a
+        restart must not announce every position the book held before it, and
+        neither must a `/venue` switch, whose new executor loads that venue's
+        own saved book. Both callers ask BEFORE the call that can open a row
+        (the confirm before `execute`, the monitor at the top of its live
+        pass), so a row that opens after the seed is not in it.
+        """
+        held: Optional[tuple[Any, set[str]]] = getattr(self, "_agent_open_seen", None)
+        if held is not None and held[0] is executor:
+            return held[1]
+        positions = getattr(executor, "_positions", None)
+        rows = positions.items() if isinstance(positions, dict) else ()
+        seen = {tid for tid, p in rows if getattr(p, "status", None) == "open"}
+        self._agent_open_seen = (executor, seen)
+        return seen
+
+    async def _announce_agent_open(self, executor, trade_id: str) -> bool:
+        """Announce the operator's position `trade_id` as opened, once.
+
+        This is the one place an agent open is published: the public feed's
+        ``trade_open`` event (which the website pushes to subscribers'
+        phones), the channel's TRADE OPENED post and the website sync. It runs
+        when the ROW is open -- at confirm for an order that filled there, and
+        on the monitor pass after a resting limit fills. Before, all three
+        fired at CONFIRM for any order that placed, a resting limit included,
+        off the idea's levels rather than the order's; the fill that later
+        opened the position was announced nowhere public, and a TRADE CLOSED
+        was the channel's first word about a trade auto-confirm had opened.
+
+        The operator's book only, by identity: a person's own account is
+        private. The row must be the agent's own (`agent_feed.opened_levels`);
+        an adopted one is synced and not announced. Answers whether it
+        announced.
+        """
+        if executor is None or executor is not getattr(self, "live_executor", None):
+            return False
+        positions = getattr(executor, "_positions", None)
+        pos = positions.get(trade_id) if isinstance(positions, dict) else None
+        if pos is None or getattr(pos, "status", None) != "open":
+            return False
+        seen = self._agent_open_ids(executor)
+        # Checked and marked with no await between: the confirm and a monitor
+        # pass can both reach one row, and it is announced once.
+        if trade_id in seen:
+            return False
+        seen.add(trade_id)
+        try:
+            self._sync_live_state_to_website()
+        except Exception as exc:
+            logger.debug("Live website sync skipped: %s", type(exc).__name__)
+        from bot.core.agent_feed import FEED, open_event, opened_levels
+
+        levels = opened_levels(pos)
+        if levels is None:
+            return False
+        try:
+            FEED.emit("trade_open", **open_event(levels))
+        except Exception as exc:
+            logger.debug("Agent feed open event skipped: %s", type(exc).__name__)
+        cb = getattr(self, "_public_open_callback", None)
+        if cb is not None:
+            try:
+                await cb(levels)
+            except Exception as exc:
+                logger.debug("Public open post skipped: %s", type(exc).__name__)
+        return True
+
+    async def _announce_new_agent_opens(self, executor) -> int:
+        """Announce every operator row that opened since the seed.
+
+        Read off the book's STATE, not off the message that reported it: a
+        resting limit can be filled by the pending check, the drift fallback,
+        a partial fill adopted at a cancel or a submission recovered by client
+        id, and a list of those four is the shape where the fifth is missed.
+        Ids no longer on the book are dropped from the record.
+        """
+        if executor is None or executor is not getattr(self, "live_executor", None):
+            return 0
+        positions = getattr(executor, "_positions", None)
+        if not isinstance(positions, dict):
+            return 0
+        seen = self._agent_open_ids(executor)
+        announced = 0
+        for tid, pos in list(positions.items()):
+            if getattr(pos, "status", None) != "open" or tid in seen:
+                continue
+            if await self._announce_agent_open(executor, tid):
+                announced += 1
+            seen.add(tid)
+        seen.intersection_update(positions.keys())
+        return announced
 
     async def _announce_executor_message(self, executor, kind: str, msg: str) -> None:
         """Hand one executor's message to whoever holds that book.
@@ -8672,6 +8781,10 @@ class RuneClawEngine:
                     + "; ".join(str(r) for r in _authority.reasons)
                     + ". Nothing was placed.")
 
+        # Seeded BEFORE the order, so a row this execute opens is not taken
+        # for one the book already held (`_agent_open_ids`).
+        if executor is getattr(self, "live_executor", None):
+            self._agent_open_ids(executor)
         result = await executor.execute(
             idea, size_usd,
             order_type=idea.order_type,
@@ -8720,32 +8833,13 @@ class RuneClawEngine:
             # C-05 FIX: only remove idea and ATR after successful execution
             self._drop_pending_idea(trade_id)
             self._pending_atr.pop(trade_id, None)
-            # Public mind-stream: operator-account opens only (per-user
-            # executors are private). No sizes on the public feed.
+            # An OPEN is announced where the row is open: here for an order
+            # that filled at confirm, on the monitor pass for a resting limit
+            # that fills later (`_announce_agent_open`). Operator's book only.
             try:
-                from bot.core.agent_feed import FEED
-                if executor is getattr(self, "live_executor", None):
-                    _fdir = idea.direction.value
-                    FEED.emit(
-                        "trade_open",
-                        f"Opened {_fdir} {idea.asset}",
-                        body=(f"Entry ${idea.entry_price:,.4f} · "
-                              f"SL ${idea.stop_loss:,.4f} · "
-                              f"TP ${idea.take_profit:,.4f}"),
-                        symbol=idea.asset, severity="success",
-                        data={"direction": _fdir,
-                              "confidence": round(float(idea.confidence), 3)})
-            except Exception as _feed_exc:
-                logger.debug("Agent feed open event skipped: %s", _feed_exc)
-            # Push the new live position to the website immediately. Before
-            # this, live state only synced on CLOSE — an open position sat
-            # invisible on the web dashboard (while Telegram showed it) until
-            # the trade finished.
-            try:
-                if executor is getattr(self, "live_executor", None):
-                    self._sync_live_state_to_website()
-            except Exception as _sync_exc:
-                logger.debug("Live website sync skipped: %s", _sync_exc)
+                await self._announce_agent_open(executor, trade_id)
+            except Exception as _open_exc:
+                logger.debug("Agent open announcement skipped: %s", type(_open_exc).__name__)
             # Pyramid add filled — NOW move the existing position's SL to breakeven
             # (deferred from before execute() so a blocked/failed add never leaves
             # the existing winner sitting at breakeven with no rollback).
@@ -9790,6 +9884,9 @@ class RuneClawEngine:
 
         # Also check live positions if in live mode
         if CONFIG.is_live():
+            # Before anything below can open a row (`_agent_open_ids`).
+            if getattr(self, "live_executor", None) is not None:
+                self._agent_open_ids(self.live_executor)
             # An executor dropped by a /connect, a /disconnect or a website
             # control change is rebuilt before the loops below walk them.
             self._rebind_invalidated_executors()
@@ -9909,6 +10006,13 @@ class RuneClawEngine:
                 except Exception as exc:
                     audit(system_log, f"Live position monitor error: {exc}",
                           action="live_monitor", result="ERROR")
+
+                # A resting limit that filled on this pass (by whichever of
+                # the executor's paths) is announced now, off the row.
+                try:
+                    await self._announce_new_agent_opens(_ex)
+                except Exception as exc:
+                    logger.debug("Agent open announcements skipped: %s", type(exc).__name__)
 
                 # F-14 FIX: Reconcile tracked positions with exchange
                 # Detects positions closed by exchange-side SL/TP triggers

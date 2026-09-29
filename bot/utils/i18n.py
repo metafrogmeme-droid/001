@@ -935,6 +935,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "<b>Order outcome unverified</b> — nothing recorded, nothing re-sent",
         "zh": "<b>訂單結果未確認</b> — 未記錄任何倉位，也未重新發送",
     },
+    "trade_order_resting": {
+        "en": "<b>Order placed — resting, not filled yet</b>",
+        "zh": "<b>訂單已掛出 — 等待成交，尚未成交</b>",
+    },
     "trade_executed_fail": {"en": "<b>Trade didn't go through</b>", "zh": "<b>交易未成功</b>"},
 
     # ── Admin commands (en byte-identical; emoji/separators stay in code) ──

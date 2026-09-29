@@ -223,6 +223,7 @@
   "trade_executed_fail": "<b>Сделка не прошла</b>",
   "trade_executed_ok": "<b>Сделка исполнена!</b>",
   "trade_outcome_unverified": "<b>Результат ордера не подтверждён</b> — ничего не записано, ничего не отправлено повторно",
+  "trade_order_resting": "<b>Ордер выставлен — ожидает, ещё не исполнен</b>",
   "trade_expired": "Сделка истекла (не подтверждена вовремя)",
   "trade_expired_rescan": "<b>Сделка истекла.</b> Запустите новое сканирование.",
   "trade_help": "<b>Ручная сделка</b>\n\nФормат:\n<code>/trade buy SOL 71.42 sl 70.05 tp 76.42</code>\n<code>/trade short ETH 1721 sl 1748 tp 1610 margin 250</code>\n\n• <code>buy/long</code> = ЛОНГ\n• <code>sell/short</code> = ШОРТ\n• <code>margin</code> = необязательная фиксированная маржа в USD",

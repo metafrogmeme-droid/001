@@ -1748,7 +1748,7 @@ class CallbackHandler:
             # writes without "REJECTED" -- the chosen-strategy refusal, the
             # duplicate skip, paper-disabled, the practice cooldown -- and
             # each was announced "✅ executed" and posted publicly.
-            from bot.core.confirm_result import held_on_operator_book, outcome_unverified, placed_nothing
+            from bot.core.confirm_result import left_resting, outcome_unverified, placed_nothing
             if outcome_unverified(result):
                 # THE THIRD OUTCOME: the venue confirmed the order neither
                 # way. Not "\u2705 executed" (nothing is on the book and the
@@ -1757,18 +1757,15 @@ class CallbackHandler:
                 # answer itself says what the executor recorded and what the
                 # next positions pass does about it.
                 msg = f"\u26a0\ufe0f {t('trade_outcome_unverified', self._lang(update))}\n\n{result}"
+            elif left_resting(result):
+                # A limit order placed to REST: not a trade yet, and "Trade
+                # executed!" over it was a claim about a fill nobody had.
+                msg = f"\u23f3 {t('trade_order_resting', self._lang(update))}\n\n{result}"
             elif not placed_nothing(result):
+                # No public post from here: the agent's open is announced by
+                # the engine when the operator's row is open, at confirm or on
+                # the pass the limit fills (`_announce_agent_open`).
                 msg = f"\u2705 {t('trade_executed_ok', self._lang(update))}\n\n{result}"
-                # The public channels carry the AGENT's book, so the post is
-                # made when the operator's executor now holds this trade -- a
-                # measurement, which a person's own account, a practice fill
-                # and any refusal all fail whatever the answer's wording. It is
-                # LIVE by construction: nothing else lands on that book.
-                if confirming_idea is not None and held_on_operator_book(self.engine, trade_id):
-                    try:
-                        await self.forwarder.post_trade_opened(confirming_idea, mode="LIVE")
-                    except Exception:
-                        pass
             else:
                 msg = f"\u274c {t('trade_executed_fail', self._lang(update))}\n\n{result}"
             # Try edit first (works for text messages), fall back to new message

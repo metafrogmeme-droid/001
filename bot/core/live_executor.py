@@ -383,6 +383,16 @@ def sltp_payload_variants(pos_side: str,
     return unique
 
 
+#: The words `execute` answers a limit order that is resting on the book
+#: with. Placed and not filled: not a position, and not a refusal either.
+RESTING_ANSWER = "⏳ PENDING FILL"
+
+
+def execution_left_resting(result: str) -> bool:
+    """True when execute()'s answer is a limit order left resting, unfilled."""
+    return isinstance(result, str) and RESTING_ANSWER in result
+
+
 def execution_indicates_failure(result: str) -> bool:
     """True when execute()'s result string means NO live position resulted.
 
@@ -8220,7 +8230,7 @@ class LiveExecutor:
                     f"- SL: <code>${idea.stop_loss:,.4f}</code>\n"
                     f"- TP: <code>${idea.take_profit:,.4f}</code>\n"
                     f"- Order: <code>{order_id}</code>\n"
-                    f"- Status: ⏳ PENDING FILL\n"
+                    f"- Status: {RESTING_ANSWER}\n"
                     f"{rests_line}"
                     f"- Mode: 🔥 Live {mode_label}"
                 )
