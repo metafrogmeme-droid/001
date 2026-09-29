@@ -28,9 +28,16 @@ Grammar::
     marker  := '"' text-without-'"' '"'  |  "'" text-without-"'" "'"
              |  word ("." word)*
 
+An anchor is written on ONE line. A reflow that breaks one (inside its code
+span, or before a marker) is refused rather than read up to the break: the
+part after the break would never be checked.
+
 ``path`` is the repo-relative path, never a bare basename: two files share
 ``arena.js``, ``engine.py`` and ``chat.js``, and an anchor that had to guess
-would carry a citation into the other one. An anchor with no path before its
+would carry a citation into the other one. A path with no extension is read
+as one when it holds a ``/`` or names a file (``Dockerfile::#"..."``), so a
+dropped extension is refused by name; a bare word before ``::`` that names no
+file (a Rust ``module::item``) is prose. An anchor with no path before its
 ``::`` CONTINUES the last anchor in the same paragraph, the convention the
 map already used for a bare ``:1159`` after ``trading_commands.py:1150``.
 
@@ -51,9 +58,12 @@ Resolution is exact or it is an error, never a guess:
   strings, comments, template text and regex literals, and reads a
   template's ``${...}`` as code. A name is one declared by
   ``function``/``class``/``const``/``let``/``var`` on exactly one line of the
-  file and not inside a function body (a binding inside a function, a route
-  handler or a function-valued binding is a local, not something a document
-  can name); a route is ``<object>.<method>('<path>'`` on exactly one line;
+  file and not inside a function body. A ``function`` or ``class`` declared
+  inside a function (or a function-valued binding) is ``outer.inner``, as a
+  Python nested def is. Anything else declared in a body -- a
+  ``const``/``let``/``var``, or any declaration inside a route handler or a
+  method -- is a local, not something a document can name. A route is
+  ``<object>.<method>('<path>'`` on exactly one line;
   ``Outer.member`` is a property or method declared at the first nesting
   level of ``Outer``'s braces. A range is the declaration line to the line
   that closes its brackets; a symbol whose brackets do not close cleanly has
@@ -70,18 +80,24 @@ Usage::
 
 ``--check`` exits 1 listing every anchor that does not resolve (a missing
 file, a missing symbol, an ambiguous symbol, a marker that is not inside the
-symbol or names several lines), every ``path:line`` citation into a ``.py``
-or ``.js`` file (code is cited by anchor, never by line), and every other
-line citation that no longer lands on a real, non-blank line. It exits 2 when a document could not be read:
-could not check is neither a pass nor a failure (the vocabulary
-``scripts/ruff_gate.py`` documents).
+symbol or names several lines, an anchor split across a line, an anchor
+written with one colon), every ``path:line`` citation into a ``.py`` or
+``.js`` file (code is cited by anchor, never by line), and every other line
+citation that no longer lands on a real, non-blank line. It exits 2 when a
+document could not be read or decoded: could not check is neither a pass nor
+a failure (the vocabulary ``scripts/ruff_gate.py`` documents).
 
 ``--codemod`` rewrites ``path:line`` citations into ``.py`` and ``.js`` files
 as anchors: the innermost symbol enclosing the cited line, plus a short
 unique marker from that line when it is a statement inside the symbol rather
 than its declaration. A citation it cannot convert confidently (a path that
 names several files, a blank line, a line with no unique marker) is left
-exactly as written and reported. It preserves what a citation POINTED AT,
+as written and reported. One is rewritten: a bare ``:N`` it cannot convert
+whose head it DID convert is given its path (``pkg/mod.py:7``), because it
+would otherwise sit after an anchor rather than a line citation; the report
+says so. A paragraph that mentions one of several same-named files in full
+does not choose between them: the mention may be about something else. It
+preserves what a citation POINTED AT,
 right or wrong, so every conversion still needs a reader who knows what the
 sentence names.
 """
@@ -95,7 +111,7 @@ import sys
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, Iterator, Optional
+from typing import Iterator, Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -116,14 +132,21 @@ CITABLE_SUFFIXES = SYMBOL_SUFFIXES + (
 )
 
 _PATH = r"(?:[\w.-]+/)*[\w.-]+\.[A-Za-z0-9]+"
+#: An anchor's path may lack an extension (``Dockerfile``); `_is_anchor`
+#: decides whether a bare word before ``::`` is a path or prose.
+_APATH = r"(?:[\w.-]+/)*[\w.-]+"
 _NAME = r"[A-Za-z_$][\w$]*"
 _QUAL = rf"{_NAME}(?:\.{_NAME})*"
 _ROUTE = r"(?:get|post|put|patch|delete|all|use)\('[^'\s]*'\)"
 _MARK = (r"#(?:\"(?P<qmark>[^\"\n]+)\"|'(?P<smark>[^'\n]+)'"
          r"|(?P<mark>\w+(?:\.\w+)*))")
 ANCHOR_RE = re.compile(
-    rf"(?:(?P<path>{_PATH})|(?<![\w/.:-]))::"
+    rf"(?:(?P<path>{_APATH})|(?<![\w/.:-]))::"
     rf"(?:(?P<route>{_ROUTE})|(?P<qual>{_QUAL}))?(?:{_MARK})?")
+#: An anchor written with one colon: ``path.py:Symbol`` or ``path:#"marker"``.
+#: No other reader sees it as a citation, so without this it passes silently.
+ONE_COLON_RE = re.compile(
+    rf"(?<![\w/.:-])(?P<path>{_APATH}):(?:(?P<name>[A-Za-z_$][\w$]*)|#[\"'])")
 #: A ``path:N`` (or ``path:N-M``) head, and a bare ``:N`` continuation.
 LINE_CITE_RE = re.compile(
     rf"(?:(?P<path>{_PATH})|(?<![\w.:#-])):(?P<a>\d+)(?:-(?P<b>\d+))?(?!\w|:\d)")
@@ -159,6 +182,7 @@ class Anchor:
     offset: int = 0          # where it starts in the text it was found in
     end: int = 0             # where it ends
     explicit: bool = True    # False: a continuation, path taken from context
+    problem: Optional[str] = None   # the text around it says it was cut short
 
     def __str__(self) -> str:
         return render_anchor(self.path, self.symbol, self.marker)
@@ -402,11 +426,34 @@ def _js_end(scan: list[tuple[bool, int]], head: int) -> Optional[int]:
     return None
 
 
+def _js_is_container(lines: tuple[str, ...], s: Symbol) -> bool:
+    """A class, or a binding to an object literal, whose members can be named."""
+    return (s.kind in ("class", "bind") and s.end is not None and s.end > s.head
+            and (s.kind == "class" or lines[s.head - 1].rstrip().endswith("{")))
+
+
+def _js_members(lines: tuple[str, ...], scan: list[tuple[bool, int]],
+                container: Symbol) -> Iterator[tuple[int, "re.Match[str]"]]:
+    """(line, match) for each member declared at the first nesting level of
+    `container`'s braces."""
+    assert container.end is not None
+    depth = scan[container.head - 1][1]
+    for j in range(container.head + 1, container.end):
+        if depth == 1 and scan[j - 1][0]:
+            mm = _JS_MEMBER.match(lines[j - 1])
+            if mm and mm.group("name") not in _JS_KEYWORDS:
+                yield j, mm
+        depth += scan[j - 1][1]
+
+
+_JS_FN_VALUE = re.compile(r"=>|\bfunction\b")
+
+
 @lru_cache(maxsize=None)
 def _js_symbols(path: str) -> dict[str, list[Symbol]]:
     lines = _lines(path)
     scan = _js_scan(lines)
-    index: dict[str, list[Symbol]] = {}
+    decls: list[Symbol] = []
     for i, ln in enumerate(lines, 1):
         if not scan[i - 1][0]:
             continue                     # inside a comment or a template
@@ -414,48 +461,72 @@ def _js_symbols(path: str) -> dict[str, list[Symbol]]:
         if m:
             name = m.group("fn") or m.group("cls") or m.group("bind")
             kind = "class" if m.group("cls") else ("bind" if m.group("bind") else "def")
-            index.setdefault(name, []).append(
-                Symbol(name, i, i, _js_end(scan, i), kind))
+            decls.append(Symbol(name, i, i, _js_end(scan, i), kind))
             continue
         r = _JS_ROUTE.match(ln)
         if r:
             q = f"{r.group('method')}('{r.group('route')}')"
-            index.setdefault(q, []).append(Symbol(q, i, i, _js_end(scan, i), "route"))
-    # A binding inside a function body is a local, not a symbol: `const rows`
-    # in one handler is not something a document can name, and a local that
-    # happens to be unique today stops being unique with the next handler.
-    # Function-like ranges: declared functions, routes, and bindings whose
-    # value is a function expression.
-    fn_ranges = [(s.head, s.end) for found in index.values() for s in found
-                 if s.end is not None and s.end > s.head and (
-                     s.kind in ("def", "route")
-                     or (s.kind == "bind" and re.search(
-                         r"=>|\bfunction\b", lines[s.head - 1])))]
-    for name in list(index):
-        kept = [s for s in index[name] if not (
-            s.kind == "bind" and any(a < s.head <= b for a, b in fn_ranges))]
-        if kept:
-            index[name] = kept
+            decls.append(Symbol(q, i, i, _js_end(scan, i), "route"))
+    # Function bodies: declared functions, routes, bindings whose value is a
+    # function expression, and the methods of classes and object literals.
+    bodies = [s for s in decls if s.end is not None and s.end > s.head and (
+        s.kind in ("def", "route")
+        or (s.kind == "bind" and _JS_FN_VALUE.search(lines[s.head - 1])))]
+    for c in decls:
+        if _js_is_container(lines, c):
+            for j, mm in _js_members(lines, scan, c):
+                end = _js_end(scan, j)
+                if end is not None and end > j and (
+                        mm.group("prop") is None or _JS_FN_VALUE.search(lines[j - 1])):
+                    bodies.append(Symbol(mm.group("name"), j, j, end, "method"))
+
+    def enclosing(s: Symbol) -> Optional[Symbol]:
+        """The innermost function body `s` is declared in."""
+        inside = [(b.end - b.head, b) for b in bodies
+                  if b.end is not None and b.head < s.head <= b.end]
+        return min(inside, key=lambda t: t[0])[1] if inside else None
+
+    quals: dict[int, Optional[str]] = {}
+
+    def qual_of(s: Symbol) -> Optional[str]:
+        """What a document calls `s`, or None for a local it cannot name.
+
+        A `function` or `class` inside a function (or a function-valued
+        binding) is `outer.inner`, as a Python nested def is: naming it by its
+        bare name would hide the nesting, and the next same-named helper in
+        another function would make the anchor ambiguous. A binding in any
+        body, and anything declared inside a route handler or a method, is a
+        local: `const rows` in one handler is not something a document can
+        name. A route is named by its path wherever it is registered.
+        """
+        if s.head in quals:
+            return quals[s.head]
+        quals[s.head] = None             # ranges nest strictly; no cycle, but be safe
+        outer = enclosing(s)
+        q: Optional[str]
+        if s.kind == "route" or outer is None:
+            q = s.qual
+        elif s.kind in ("def", "class") and outer.kind in ("def", "bind"):
+            parent = qual_of(outer)
+            q = None if parent is None else f"{parent}.{s.qual}"
         else:
-            del index[name]
-    # Members: direct children of a class or of an object-literal binding.
+            q = None
+        quals[s.head] = q
+        return q
+
+    index: dict[str, list[Symbol]] = {}
+    for s in decls:
+        named = qual_of(s)
+        if named is not None:
+            index.setdefault(named, []).append(Symbol(named, s.start, s.head, s.end, s.kind))
+    # Members: direct children of a class or of an object-literal binding
+    # that a document can name unambiguously.
     for name, found in list(index.items()):
-        if len(found) != 1:
+        if len(found) != 1 or not _js_is_container(lines, found[0]):
             continue
-        sym = found[0]
-        if sym.kind not in ("class", "bind") or sym.end is None or sym.end == sym.head:
-            continue
-        if sym.kind == "bind" and not lines[sym.head - 1].rstrip().endswith("{"):
-            continue
-        depth = scan[sym.head - 1][1]
-        for j in range(sym.head + 1, sym.end):
-            if depth == 1 and scan[j - 1][0]:
-                mm = _JS_MEMBER.match(lines[j - 1])
-                if mm and mm.group("name") not in _JS_KEYWORDS:
-                    q = f"{name}.{mm.group('name')}"
-                    index.setdefault(q, []).append(
-                        Symbol(q, j, j, _js_end(scan, j), "member"))
-            depth += scan[j - 1][1]
+        for j, mm in _js_members(lines, scan, found[0]):
+            q = f"{name}.{mm.group('name')}"
+            index.setdefault(q, []).append(Symbol(q, j, j, _js_end(scan, j), "member"))
     return index
 
 
@@ -496,11 +567,14 @@ def resolve(anchor: "Anchor | str") -> Resolution:
         if len(found) != 1 or found[0].offset != 0 or found[0].end != len(anchor):
             raise CiteError(f"{anchor!r} is not one anchor")
         anchor = found[0]
+    if anchor.problem:
+        raise CiteError(f"{anchor}: {anchor.problem}")
     path = anchor.path
     if not path:
         raise CiteError(f"{anchor}: continues no anchor in its paragraph")
     if not (ROOT / path).is_file():
-        cands = resolve_cited_path(path)
+        cands = resolve_cited_path(path) or [
+            f for f in _tracked() if f.startswith(path + ".") and "/" not in f[len(path):]]
         hint = (f"; did you mean {cands[0]}?" if len(cands) == 1 else "")
         raise CiteError(f"{path}: no such file (an anchor takes the "
                         f"repo-relative path){hint}")
@@ -534,6 +608,50 @@ def paragraphs(text: str) -> Iterator[tuple[int, str]]:
         yield m.start(), m.group(0)
 
 
+def _is_anchor(m: "re.Match[str]") -> bool:
+    """Whether an `ANCHOR_RE` match is an anchor rather than prose.
+
+    A path with a ``/`` or an extension is one (a missing file is then refused
+    by name), and so is a bare word that names a file (``Dockerfile``). A bare
+    word that names nothing is a language path such as Rust's
+    ``layout_tests::borsh_offsets``, which a document may quote.
+    """
+    p = m.group("path")
+    if p is None or "/" in p or re.search(r"\.[A-Za-z0-9]+$", p):
+        return True
+    return (ROOT / p).is_file()
+
+
+def _anchor_matches(para: str) -> Iterator["re.Match[str]"]:
+    return (m for m in ANCHOR_RE.finditer(para) if _is_anchor(m))
+
+
+def _cut_short(para: str, m: "re.Match[str]") -> Optional[str]:
+    """Why the text right after an anchor says the anchor was cut short.
+
+    The reader stops where the grammar stops, so an anchor broken by a line
+    break (a reflowed code span) or by a marker that does not close on its
+    line would otherwise resolve as whatever came before the break, and the
+    rest of it -- the method after a wrapped ``.``, the marker text -- would
+    never be checked.
+    """
+    rest = para[m.end():]
+    if rest.startswith("#"):
+        return ("its marker does not close before a line break; a marker is a "
+                "quoted string or a dotted word, on the anchor's own line")
+    closed = bool(m.group("qmark") or m.group("smark") or m.group("route"))
+    after = rest.lstrip(" \t")
+    broken = "it is split across a line break; write an anchor on one line"
+    if _in_code_span(para, m.start()):
+        if rest.startswith(".") or (after.startswith("\n") and not closed):
+            return broken
+    elif after.startswith("\n"):
+        nxt = after[1:].lstrip(" \t")
+        if nxt.startswith(('#"', "#'")) or re.match(r"\.[A-Za-z_$]", nxt):
+            return broken
+    return None
+
+
 def find_anchors(text: str) -> Iterator[Anchor]:
     """Every anchor in `text`, continuations resolved to their paragraph's file.
 
@@ -542,13 +660,14 @@ def find_anchors(text: str) -> Iterator[Anchor]:
     """
     for base, para in paragraphs(text):
         last = ""
-        for m in ANCHOR_RE.finditer(para):
+        for m in _anchor_matches(para):
             explicit = bool(m.group("path"))
             if explicit:
                 last = m.group("path")
             marker = m.group("qmark") or m.group("smark") or m.group("mark")
             yield Anchor(m.group("path") or last, m.group("route") or m.group("qual"),
-                         marker, base + m.start(), base + m.end(), explicit)
+                         marker, base + m.start(), base + m.end(), explicit,
+                         _cut_short(para, m))
 
 
 @dataclass(frozen=True)
@@ -573,7 +692,7 @@ def line_citations(text: str) -> Iterator[LineCite]:
     for base, para in paragraphs(text):
         events: list[tuple[int, str, object]] = []
         anchor_spans = []
-        for a in ANCHOR_RE.finditer(para):
+        for a in _anchor_matches(para):
             anchor_spans.append((a.start(), a.end()))
             if a.group("path"):
                 events.append((a.start(), "head", a.group("path")))
@@ -642,12 +761,25 @@ def code_line_citations(text: str) -> list[LineCite]:
 def check_text(text: str, name: str = "<text>") -> list[str]:
     """Every problem with the citations in `text`, as sentences."""
     errors: list[str] = []
+    spans = []
     for a in find_anchors(text):
+        spans.append((a.offset, a.end))
         where = f"{name}:{_line_of(text, a.offset)}"
         try:
             resolve(a)
         except CiteError as exc:
             errors.append(f"{where}: {exc}")
+    for m in ONE_COLON_RE.finditer(text):
+        if any(s <= m.start() < e for s, e in spans):
+            continue            # inside an anchor's own marker text
+        path = m.group("path")
+        named = m.group("name")
+        if named is not None and not path.endswith(SYMBOL_SUFFIXES):
+            continue            # `Note:Text`, `config.json:key`: not a symbol file
+        if named is None and not ("/" in path or "." in path or (ROOT / path).is_file()):
+            continue
+        errors.append(f"{name}:{_line_of(text, m.start())}: {m.group(0)} has one colon; "
+                      f"an anchor is {path}::{named or ''}")
     flat = " ".join(text.split())
     for c in line_citations(text):
         where = f"{name}:{_line_of(text, c.offset)}"
@@ -682,14 +814,6 @@ def check_text(text: str, name: str = "<text>") -> list[str]:
             # A retraction may cite a blank line on purpose; its own sentence
             # says so, and that sentence -- not the number -- is the exclusion.
             errors.append(f"{where}: {c.path}:{c.first} is a blank line")
-    return errors
-
-
-def check_files(paths: Iterable[Path]) -> list[str]:
-    errors: list[str] = []
-    for p in paths:
-        rel = p.relative_to(ROOT).as_posix() if p.is_absolute() else str(p)
-        errors.extend(check_text(p.read_text(encoding="utf-8"), rel))
     return errors
 
 
@@ -783,15 +907,17 @@ def convert_one(path_written: str, a: int, b: int,
                 context_paths: list[str]) -> tuple[Optional[tuple[str, str, Optional[str]]], str]:
     """((path, symbol, marker) or None, note) for one cited line range."""
     cands = resolve_cited_path(path_written)
-    if len(cands) > 1:
-        # The paragraph may name the file in full elsewhere; that is the
-        # document saying which one, not a guess.
-        named = [c for c in cands if c in context_paths]
-        if len(named) == 1:
-            cands = named
     if len(cands) != 1:
+        # A paragraph that names one of them in full elsewhere is NOT the
+        # document saying which one: the mention may be about something else
+        # ("the lib (app/lib/arena.js) ...; the route is arena.js:2"). The
+        # reader who knows what the sentence names picks; this only says so.
+        named = [c for c in cands if c in context_paths]
+        hint = (f" (the paragraph also names {', '.join(named)}, which does not "
+                f"say which one this citation meant)" if named else "")
         return None, (f"{path_written} names "
-                      f"{'no file' if not cands else 'several files: ' + ', '.join(cands)}")
+                      f"{'no file' if not cands else 'several files: ' + ', '.join(cands)}"
+                      f"{hint}")
     path = cands[0]
     if not path.endswith(SYMBOL_SUFFIXES):
         return None, "not a .py/.js file"
@@ -956,6 +1082,14 @@ def _docs(args: list[str]) -> list[Path]:
     return [ROOT / a for a in args] if args else [ROOT / d for d in DEFAULT_DOCS]
 
 
+def _doc_name(p: Path) -> str:
+    """A document's name in a report: repo-relative, or as given when outside."""
+    try:
+        return p.relative_to(ROOT).as_posix()
+    except ValueError:
+        return str(p)
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     ap.add_argument("items", nargs="*",
@@ -969,15 +1103,19 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if args.check or args.codemod:
         paths = _docs(args.items)
-        try:
-            texts = {p: p.read_text(encoding="utf-8") for p in paths}
-        except OSError as exc:
-            print(f"CANNOT CHECK: {type(exc).__name__}: {exc}")
-            return 2
+        texts: dict[Path, str] = {}
+        for p in paths:
+            try:
+                texts[p] = p.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                # A document that cannot be read or decoded was not checked;
+                # a traceback would exit 1, which says a citation is wrong.
+                print(f"CANNOT CHECK {_doc_name(p)}: {type(exc).__name__}")
+                return 2
         if args.check:
             errors: list[str] = []
             for p, text in texts.items():
-                errors.extend(check_text(text, p.relative_to(ROOT).as_posix()))
+                errors.extend(check_text(text, _doc_name(p)))
             for e in errors:
                 print(e)
             if not errors:
@@ -987,7 +1125,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         left = 0
         for p, text in texts.items():
             new, report = codemod_text(text)
-            rel = p.relative_to(ROOT).as_posix()
+            rel = _doc_name(p)
             for c in report:
                 if c.replacement is None:
                     left += 1

@@ -123,8 +123,10 @@ CONFIG.strategy_types then gives swing its own geometry and lifecycle: SL 2.5
 ATR / TP 3.5 ATR (`bot/config.py::StrategyTypeConfig.swing_sl_atr_mult`, `::StrategyTypeConfig.swing_tp_atr_mult`), trailing ENABLED on the stage table
 every type shares (`::StrategyTypeConfig.swing_trailing_enabled`), a 48h time-close with a 12h warn (`::StrategyTypeConfig.swing_time_close_hours`, `::StrategyTypeConfig.swing_time_warn_hours`), min
 confidence 0.50 (`::StrategyTypeConfig.swing_min_confidence`), max risk 2% (`::StrategyTypeConfig.swing_max_risk_pct`) — every one distinct from the scalp row
-above it. bot/skills/skill_registry.py reads those multipliers when it builds the
-SL/TP ladder. Doors: /swing (`bot/skills/scan_commands.py::ScanCommands._cmd_swing`) dispatches pro_scan
+above it. The analyzer reads those multipliers when it sets each idea's stop
+and target (`bot/core/analyzer.py::Analyzer.analyze#"sl_mult = st_cfg.get_sl_mult(strategy_type)"`), and the
+executor reads the trailing switch for every entry and every fill
+(`bot/core/live_executor.py::trail_starts_for`). Doors: /swing (`bot/skills/scan_commands.py::ScanCommands._cmd_swing`) dispatches pro_scan
 mode=swing — 4h candles, top-5 movers, wide SL/TP (`bot/skills/skill_registry.py::ProScanSkill.MODE_CFG#'"swing": {'`) —
 and renders a signal card whose Take/Limit buttons run the normal confirm-and-
 execute path; the router's scan_swing intent reaches the same skill through
@@ -136,14 +138,18 @@ to be treated as a swing, only pick the scan timeframe. Tier feature
 `premium_scan` nominally gates /swing at pro, though the whole $RCLAW gate is
 off by default.
 
-*The verifier refused part of this row.* Neither line the row cited does that. One was a blank line
-between RunStrategySkill._list and _run_symbol_scan; the other is the literal
-"safe scalper" preset dict inside RunStrategySkill.PRESETS (`bot/skills/skill_registry.py::RunStrategySkill.PRESETS#'"safe scalper"'`). No line in
+*The verifier refused part of this row.* The row used to say that
+bot/skills/skill_registry.py reads those multipliers when it builds the SL/TP
+ladder, and no line it cited for that does. The verifier found a blank line
+between RunStrategySkill._list and _run_symbol_scan and the literal "safe
+scalper" preset dict inside RunStrategySkill.PRESETS (`bot/skills/skill_registry.py::RunStrategySkill.PRESETS#'"safe scalper"'`);
+by the time the map moved to anchors the row cited a line inside
+TradePostmortemSkill.execute instead. No line in
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
 for it in that file. The real readers are `bot/core/analyzer.py::Analyzer.analyze#"SL/TP baselines come from CONFIG.strategy_types"`
 ("SL/TP baselines come from CONFIG.strategy_types"),
 `bot/core/live_executor.py::trail_starts_for#"CONFIG.strategy_types.get_trailing_enabled"` (the per-strategy trailing switch, read for
-every entry and every fill).
+every entry and every fill), and the row now names them.
 
 **Scalping** — **shipped**
 
@@ -954,7 +960,7 @@ wallet, art generated and stored fully on-chain). The server signs an EIP-712
 MintVoucher bound to the caller's linked wallet and returns the exact
 mint(bytes) calldata plus chain/RPC/explorer (`app/lib/nft.js::buildMintPlan`); it
 never signs or sends the transaction. The browser flow is fully wired:
-`app/public/js/dashboard.js::drawWalletLink#"fetchJSON('/api/nft/mint-plan')"` fetches the plan, `::drawWalletLink#"runeBlock = p.minted_token_id"` renders the button, `::renderAccount#"method: 'eth_sendTransaction'"`
+`app/public/js/dashboard.js::renderAccount.drawWalletLink#"fetchJSON('/api/nft/mint-plan')"` fetches the plan, `::renderAccount.drawWalletLink#"runeBlock = p.minted_token_id"` renders the button, `::renderAccount#"method: 'eth_sendTransaction'"`
 switches the wallet's chain and calls eth_sendTransaction from the USER's own
 wallet with their own gas. /rune (`app/public/rune.html::#"fetch('/api/nft/stats')"`) reads GET /api/nft/stats for
 a minted count.
@@ -966,7 +972,7 @@ documentation (`app/docs/GOLIVE_RUNBOOK.md::#"= the deployed address"`, `::#"= t
 returns null (`app/lib/nft.js::contractAddress`), buildMintPlan returns {ready:false,
 not_ready_reasons:[…'contract not deployed yet'…]} (`app/lib/nft.js::buildMintPlan#"contract not deployed yet"`),
 the dashboard renders NO mint button at all (the runeBlock is built only `if
-(p && p.ready)`, `app/public/js/dashboard.js::drawWalletLink#"if (p && p.ready)"`), and /rune prints "The forge is cold — the
+(p && p.ready)`, `app/public/js/dashboard.js::renderAccount.drawWalletLink#"if (p && p.ready)"`), and /rune prints "The forge is cold — the
 collection is not deployed yet" (`app/public/rune.html::#"The forge is cold"`). Deployment is a manual `forge
 create` by the operator. Scope gap even once lit: this is ONE free, one-per-
 wallet, permanently SOULBOUND badge (transferFrom/safeTransferFrom revert,
@@ -1166,7 +1172,7 @@ private encrypted context.
 
 Community plumbing is real and reachable, and all of it is free. Squads are
 the referral graph made visible on the Duel board (one recruit makes you a
-captain — the 'Connector' tier at `app/auth.js::REFERRAL_TIERS#"perk: 'Your invite"` is the one tier marked
+captain — the 'Connector' tier at `app/auth.js::REFERRAL_TIERS#"name: 'Connector'"` is the one tier marked
 state:'live'). Copy-follow, the strategy marketplace, the Arena, the public
 leaderboard and the operator's Telegram broadcast channel all exist. An
 ACCESS-TIER mechanism also exists: basic/pro/elite plans, a 5-question/day
@@ -1261,7 +1267,7 @@ RUNECLAW genuinely produces research: a cited per-symbol dossier (/research,
 which fetches the web app's research card over HTTP via
 web_data_pull.fetch_research — `bot/skills/scan_commands.py::ScanCommands.research_card_text#"to_thread(fetch_research"`), the contract-
 detective dossier that composes token_safety + deployer_history and leads with
-what it could NOT read (/token → `bot/core/token_research.py::default_sources`), the Daily
+what it could NOT read (/token → `bot/core/token_research.py::investigate`), the Daily
 Alpha card, the weekly Agent Letter, the hourly intelligence reports, and the
 sealed Proof-of-PnL statement. A tiering MECHANISM exists too:
 `bot/token/tier_gate.py::_DEFAULT_FEATURE_MIN_TIER` puts deepscan/patterns/analyze_asset/quant_analyze
@@ -1310,7 +1316,7 @@ Studio view, picks one of five one-tap starters (ERC-20, ERC-721, Escrow,
 Multisig, Vesting) or types a free-text spec, and gets back a Solidity DRAFT
 plus heuristic security flags, with Copy and Download .sol buttons. Free
 accounts spend from the same 5/day chat quota; paid tiers are unmetered
-(`bot/web/user_gateway.py::handle_contract_studio#"_is_admin = _is_admin_id"`). A Compile button posts the draft to solc for
+(`bot/web/user_gateway.py::handle_contract_studio#"chat_quota.consume(tg_id, _tier)"`). A Compile button posts the draft to solc for
 bytecode+ABI+diagnostics, and a testnet Deploy bar appears once bytecode
 exists.
 
@@ -1562,7 +1568,8 @@ referral graph, served at GET /api/public/duel/squads
 (`app/routes/public_duel.js::get('/squads')`) and rendered on /duel (`app/public/duel.html::#"get('/api/public/duel/squads')"`).
 Everything else you could call income is explicitly declared not in force —
 "Fee credits" and "A share of protocol revenue" each print `requires: Would
-ride on the $RCLAW token, which does not exist yet` (`app/auth.js::REFERRAL_TIERS#"name: 'Ambassador'"`), and the
+ride on the $RCLAW token, which does not exist yet` (`app/auth.js::REFERRAL_TIERS#"perk: 'Fee credits.'"`,
+`::REFERRAL_TIERS#"perk: 'A share of protocol revenue.'"`), and the
 code comment at `app/auth.js::#"endpoint still grants nothing"` states plainly that `referralTier` has one caller
 and NOTHING in the tree gates a feature on a referral count. There is also NO
 affiliate relationship with any third-party platform: the dApp directory
@@ -1758,7 +1765,7 @@ own recorded signal history. This is the evidence surface a person uses before
 deciding to follow the engine at all.
 
 *Where.* Web chat intercept row 2 'replay' (app/routes/chat.js); GET
-/api/replay?stake=&days= (app/routes/replay.js; `app/public/js/dashboard.js::runReplayPanel#"/api/replay?stake="` and `::renderHub#"renderPanel(C('hubreplay')"`
+/api/replay?stake=&days= (app/routes/replay.js; `app/public/js/dashboard.js::renderPortfolio.runReplayPanel#"/api/replay?stake="` and `::renderHub#"renderPanel(C('hubreplay')"`
 for the Agent Hub tile #c-hubreplay); app/lib/replay.js; MCP run_what_if
 (`app/routes/mcp.js::TOOLS.run_what_if`).
 

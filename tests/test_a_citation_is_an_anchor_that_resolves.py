@@ -247,3 +247,137 @@ def test_a_converted_citation_inside_a_code_span_is_not_wrapped_again(tree):
     new, _ = cite.codemod_text(text)
     assert new == "Read `LIMIT (pkg/mod.py::LIMIT)` first.\n"
 
+
+
+# ── what the reader must not skip ───────────────────────────────────────────
+
+def test_an_anchor_split_across_a_line_is_refused_not_read_short(tree):
+    """A reflowed paragraph can break an anchor inside its code span. The
+    reader stopped at the break and resolved what came before it, so a marker
+    that names nothing, or the method after a wrapped `.`, was never read and
+    the check passed an anchor it had not checked."""
+    split = [
+        '`pkg/mod.py::Engine.tick#"total +=\nNO SUCH LINE"`',   # quoted marker
+        "`pkg/mod.py::Engine.\ntock`",                            # after a dot
+        "`pkg/mod.py::Engine.tick#functools.\nno_such`",          # dotted marker
+        "`pkg/mod.py::Engine.ti\nck`",                            # mid-name
+        'pkg/mod.py::Engine.tick\n#"NO SUCH LINE" in prose',       # no code span
+    ]
+    for text in split:
+        errors = cite.check_text(text + "\n", "MAP.md")
+        assert len(errors) == 1 and "line break" in errors[0], (text, errors)
+    # The same anchors on one line are read whole: the good ones resolve and
+    # the bad ones are refused for what they say.
+    assert cite.check_text('`pkg/mod.py::Engine.tick#"total += LIMIT"`\n', "MAP.md") == []
+    assert cite.check_text("`pkg/mod.py::Engine.tick`\n", "MAP.md") == []
+    assert cite.check_text("`pkg/mod.py::Engine.tock`\n", "MAP.md") == [
+        "MAP.md:1: pkg/mod.py::Engine.tock: no such symbol"]
+    # A quoted marker is closed by its quote, so a line break after it cuts
+    # nothing, and a sentence may end on an anchor outside a code span.
+    assert cite.check_text('`pkg/mod.py::Engine.tick#"total += LIMIT"\n`\n', "MAP.md") == []
+    assert cite.check_text("It is pkg/mod.py::Engine.\nThe next sentence.\n", "MAP.md") == []
+
+
+def test_an_anchor_with_no_extension_or_one_colon_is_refused_not_skipped(tree):
+    """The reader required a `.ext` and two colons, so these were not anchors
+    at all: the check printed nothing and exited 0."""
+    (tree / "Dockerfile").write_text("FROM python:3.12\nRUN true\n", encoding="utf-8")
+    (tree / "pkg" / "mod").mkdir()      # a directory beside the file, not a file
+    errs = cite.check_text("`pkg/mod::Engine.tick`\n", "MAP.md")
+    assert len(errs) == 1 and "no such file" in errs[0] and "pkg/mod.py" in errs[0], errs
+    errs = cite.check_text("`pkg/mod.py:Engine.tick`\n", "MAP.md")
+    assert len(errs) == 1 and "one colon" in errs[0], errs
+    errs = cite.check_text('`Dockerfile::#"NO SUCH LINE"`\n', "MAP.md")
+    assert errs == ['MAP.md:1: Dockerfile::#"NO SUCH LINE": marker "NO SUCH LINE" is not in it']
+    # Both arms: the real line of an extensionless file resolves, and a
+    # language path (a Rust `module::item`) is prose, not an anchor.
+    assert cite.check_text('`Dockerfile::#"RUN true"`\n', "MAP.md") == []
+    assert _at('Dockerfile::#"RUN true"') == (2, 2)
+    assert cite.check_text("`layout_tests::borsh_offsets_match`\n", "MAP.md") == []
+
+
+NESTED_JS = '''function outer() {
+  const localBind = 1;
+  function localFn() {
+    return localBind;
+  }
+  class Inner {
+    run() { return 2; }
+  }
+  return localFn() + new Inner().run();
+}
+
+router.get('/x', (req, res) => {
+  function inRoute() { return 3; }
+  res.json({ n: inRoute() });
+});
+
+class Top {
+  step() {
+    function inMethod() { return 4; }
+    return inMethod();
+  }
+}
+'''
+
+
+def test_a_js_function_declared_inside_a_function_is_named_through_it(tree):
+    """A nested `function` resolved as though it were top-level, so the anchor
+    hid the nesting and a second nested function of the same name elsewhere
+    would make it ambiguous. It is `outer.inner`, as a Python nested def is."""
+    (tree / "web" / "nest.js").write_text(NESTED_JS, encoding="utf-8")
+    assert _at("web/nest.js::outer.localFn") == (3, 5)
+    assert _at("web/nest.js::outer.Inner") == (6, 8)
+    assert _at("web/nest.js::outer.Inner.run") == (7, 7)
+    assert _at("web/nest.js::outer") == (1, 10)
+    assert _at("web/nest.js::Top.step") == (18, 21)
+    # A binding in a body, and anything declared inside a route handler or a
+    # method, is a local.
+    for name in ("localFn", "Inner", "localBind", "outer.localBind", "inRoute",
+                 "inMethod", "step.inMethod", "Top.step.inMethod"):
+        with pytest.raises(cite.CiteError, match="no such symbol"):
+            cite.resolve(f"web/nest.js::{name}")
+
+
+def test_a_document_that_cannot_be_decoded_is_could_not_check(tree, tmp_path_factory):
+    """Exit 2 is for a document that could not be read, and a document that is
+    not UTF-8 could not be read: it raised, and a traceback exits 1, the code
+    for "a citation is wrong". A document outside the repo is still checked."""
+    (tree / "docs" / "LATIN1.md").write_bytes("caf\xe9 `pkg/mod.py::LIMIT`\n".encode("latin-1"))
+    assert cite.main(["--check", "docs/LATIN1.md"]) == 2
+    elsewhere = tmp_path_factory.mktemp("elsewhere")
+    (elsewhere / "GOOD.md").write_text("`pkg/mod.py::LIMIT`\n", encoding="utf-8")
+    (elsewhere / "BAD.md").write_text("`pkg/mod.py::LIMITS`\n", encoding="utf-8")
+    assert cite.main(["--check", str(elsewhere / "GOOD.md")]) == 0
+    assert cite.main(["--check", str(elsewhere / "BAD.md")]) == 1
+
+
+def test_the_codemod_does_not_pick_between_two_files_by_a_nearby_mention(tree):
+    """Two files are named arena.js. A paragraph that mentions one of them in
+    full says nothing about which one a bare `arena.js:N` meant; picking the
+    mentioned one is the guess an anchor exists to remove."""
+    for d in ("lib", "routes"):
+        (tree / "app" / d).mkdir(parents=True)
+    (tree / "app" / "lib" / "arena.js").write_text(
+        "function libOnly() {\n  return 1;\n}\n", encoding="utf-8")
+    (tree / "app" / "routes" / "arena.js").write_text(
+        "function routeOnly() {\n  return 2;\n}\n", encoding="utf-8")
+    text = "The lib (app/lib/arena.js) scores badges; the follow route is arena.js:2.\n"
+    new, report = cite.codemod_text(text)
+    assert new == text
+    left = [c for c in report if c.replacement is None]
+    assert len(left) == 1 and "several files" in left[0].note, report
+    assert "app/lib/arena.js" in left[0].note and "app/routes/arena.js" in left[0].note
+    # Both arms: a citation that names its file in full is converted.
+    new, _ = cite.codemod_text("The route is app/routes/arena.js:2.\n")
+    assert new == 'The route is `app/routes/arena.js::routeOnly#"return 2;"`.\n'
+
+
+def test_a_bare_continuation_left_as_written_is_given_its_path(tree):
+    """The one rewrite of a citation the codemod could not convert: a bare
+    `:N` whose head became an anchor would otherwise continue an anchor, so it
+    is written with its path, and the report says so."""
+    new, report = cite.codemod_text("The class (pkg/mod.py:9) and its gap at :7.\n")
+    assert new == "The class (`pkg/mod.py::Engine`) and its gap at pkg/mod.py:7.\n"
+    left = [c for c in report if c.replacement is None]
+    assert len(left) == 1 and left[0].note.endswith("(now written with its path, pkg/mod.py)")
