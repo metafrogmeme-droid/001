@@ -1,18 +1,18 @@
 """
-Deep-scan patterns card + real-ATR setup numbers.
+Deep-scan patterns card.
 
-Two changes are pinned here:
-  1. render_patterns_card() turns the deep-scan pattern observations (per-symbol
-     chart + candle patterns) into a PNG, mirroring the text readout — so the
-     scan can be shown as an image like every other scan.
-  2. DeepScanSkill now derives a TRUE-RANGE ATR from the OHLCV it already
-     fetches, instead of a flat price*0.02 placeholder. The placeholder made
-     every setup show an identical ~4.4%/6.6% stop/target; a real per-symbol
-     ATR makes those numbers reflect actual volatility.
+render_patterns_card() turns the deep-scan pattern observations (per-symbol
+chart + candle patterns) into a PNG, mirroring the text readout — so the scan
+can be shown as an image like every other scan.
+
+This file also pinned `_true_range_atr`, the ATR the deep scan computed for
+its stop/target setups. Those setups are gone: a deep scan decides no
+direction, so it has no trade to draw (see
+`tests/test_the_deepscan_push_publishes_only_what_it_read.py`), and a helper
+with no caller is a claim that something still needs it.
 """
 
 from bot.formatters.signal_card import render_patterns_card
-from bot.skills.skill_registry import _true_range_atr
 
 
 _HITS = [
@@ -76,29 +76,3 @@ class TestPatternsCard:
         }]
         assert _is_png(render_patterns_card(hits))
 
-
-class TestTrueRangeAtr:
-    def test_constant_range(self):
-        # high-low = 20 every bar, no gaps -> ATR = 20.
-        assert _true_range_atr([110] * 30, [90] * 30, [100] * 30) == 20.0
-
-    def test_gap_uses_close_to_high(self):
-        # prev close 100, then high 130 / low 120 -> TR = max(10, 30, 20) = 30.
-        assert _true_range_atr([100, 130], [100, 120], [100, 125], period=14) == 30.0
-
-    def test_flat_series_returns_zero(self):
-        # No movement -> 0.0 so the caller applies its own fallback.
-        assert _true_range_atr([100] * 30, [100] * 30, [100] * 30) == 0.0
-
-    def test_too_short_returns_zero(self):
-        assert _true_range_atr([100], [100], [100]) == 0.0
-
-    def test_distinct_symbols_get_distinct_atr(self):
-        # The whole point of the fix: volatility differs by symbol, so the ATR
-        # is NOT a fixed fraction of price.
-        calm = _true_range_atr([101] * 30, [99] * 30, [100] * 30)    # range 2
-        wild = _true_range_atr([120] * 30, [80] * 30, [100] * 30)    # range 40
-        assert wild > calm
-        # And neither equals the old flat 2%-of-price placeholder (100*0.02=2)
-        # for the wild one.
-        assert wild != 2.0
