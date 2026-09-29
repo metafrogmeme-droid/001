@@ -17885,6 +17885,57 @@ derived from the handlers now, and the gate from the decorator
 (`app/test/etf_flows_reads_what_the_source_stated.test.js`,
 `tests/test_the_etf_flows_picture_draws_the_websites_figures.py`.)
 
+**A TRAIL STOP THE PRICE HAS ALREADY CROSSED WAS SENT TO THE VENUE ON EVERY
+TICK, REFUSED EVERY TIME, AND NEVER ACTED ON.** The live trail computes its
+stop, asks the venue to move the resting one there, and advances the record
+only when the venue accepts. That is right, and it left one case open. Once
+the move at the peak did not land, the next tick computed the same stop from
+the same best price, and by then the price was below it. Driven through the
+real `check_positions`, a long from 100 with its stop at 98 at prices 106.5,
+104.0 and 103.2:
+
+- the trail proposed 105.5 on every tick;
+- the venue was asked for it three times;
+- the stop stayed 98 and the position stayed open.
+
+The trail had stopped working, and the only trace was a WARNING per tick
+saying the update failed. The wave ratchet reaches the same state without a
+failed move. It reads confirmed pivots off closed candles, and a pivot the
+price has already broken proposes a stop above the price the first time it is
+read. The backtest closes this case at the next bar's open (`min(sl, open)`
+for a long), so the benchmark was measuring an exit that live never made.
+
+**A stop the price has crossed has been hit.** `stop_rests` is the one reading
+of whether a stop can rest at a price: below it for a long, above it for a
+short. At the price counts as crossed, the rule the static check already uses
+(`price <= sl`). The partial-TP ladder asked the same question with its own
+comparison, and asks this reading now. When the trail's stop does not rest,
+the position is closed at market through the normal close path. The label is
+`stop_exit_label`'s, the same one the static check writes. The audit reads
+`trailing_sl: CROSSED` at WARNING, and nothing is sent to the venue. The check
+runs before `TRAILING_MIN_SL_UPDATE_PCT`. That gate keeps small moves from
+spamming the venue, and it does not decide whether the price has crossed the
+trail. The staleness guard still runs first, so a frozen price on a position
+the venue still protects moves nothing.
+
+**The other choice was waiting, and it was refused on arithmetic.** The ladder
+waits when a lock is behind the price. For a trail, waiting means riding the
+original stop, so a trail locking +2R becomes a -1R loss if the price keeps
+going. Preventing that is the only reason the trail exists.
+
+**Fifteen mutations: fourteen killed and one equivalent. The one that
+survived a round was a test gap.** Nothing read what the monitor pass returns, so
+dropping the close message changed no verdict. The drive reads it now. The
+equivalent mutant labels the close from the old stop instead of the new one.
+The trail reports itself active on every tick whose stop moved, under all
+three rules, and an active trail's label is TRAILING SL HIT whatever the
+level. That property is driven over a price path for every rule and
+direction, so the day a rule moves the stop while inactive, the label starts
+depending on which stop it was handed, and the test fails. Two anchors
+matched twice, because the close's three lines are the static check's too, and
+were refused until re-anchored.
+(`tests/test_a_trail_stop_the_price_has_crossed_closes_the_position.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -19176,9 +19227,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **475 of 1180** reach for source text through `source_scan`, `code_only`
+Driven, **476 of 1181** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 475 is a FLOOR and the honest shape is
+source scan that rule does not see, so 476 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
