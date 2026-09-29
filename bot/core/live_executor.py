@@ -1947,8 +1947,9 @@ class CloseFlight:
 #
 # Consequence, all defaults: a resting limit order placed before a `/halt` or an
 # automatic breaker trip would still convert to a market BUY on drift, opening
-# NEW exposure on a halted account. Neither /halt nor any breaker cancels resting
-# limits; only /emergency_stop does.
+# NEW exposure on a halted account. Neither /halt nor any breaker cancelled resting
+# limits then; the monitor pass does now, on its next pass (`entry_halt` in
+# `check_positions`), and this check still guards the fallback between passes.
 #
 # Wired once, module-level, because there are four LiveExecutor() construction
 # sites. A per-instance callback would be forgotten at the fifth — the exact
@@ -3525,18 +3526,32 @@ class LiveExecutor:
         if open_count >= MICRO_MAX_OPEN_POSITIONS:
             return f"Already {open_count} open positions (max {MICRO_MAX_OPEN_POSITIONS})"
 
-        # DUPLICATE SYMBOL GUARD: block opening a second position on the same symbol
+        # DUPLICATE SYMBOL GUARD: block opening a second position on the same
+        # symbol, and a second order beside one still RESTING there. The guard
+        # counted `open` rows only, so a resting limit let a second order
+        # through, and when both filled the book held two records the
+        # duplicate merge folds into one every five minutes, leaving the other
+        # quantity on the venue with nothing tracking it. The engine's confirm
+        # check covered a resting row except for a pyramid-flagged idea, which
+        # skipped it by design.
         if symbol:
             norm = normalize_symbol(symbol)
             for p in self._positions.values():
-                if p.status != "open":
+                if p.status not in ("open", "pending_fill"):
                     continue
                 p_norm = normalize_symbol(p.symbol)
-                if p_norm == norm:
+                if p_norm != norm:
+                    continue
+                if p.status == "pending_fill":
                     return (
-                        f"Already have an open {p.direction} position on {p.symbol} "
-                        f"(trade {p.trade_id}). Close it first or wait for SL/TP."
+                        f"An order on {p.symbol} is still resting (trade "
+                        f"{p.trade_id}). A second order is not placed beside it: "
+                        "cancel it first or wait for it to fill."
                     )
+                return (
+                    f"Already have an open {p.direction} position on {p.symbol} "
+                    f"(trade {p.trade_id}). Close it first or wait for SL/TP."
+                )
 
         return None
 
@@ -9960,7 +9975,7 @@ class LiveExecutor:
         except Exception as exc:
             trade_log.error("could not mark %s unprotected: %s", pos.symbol, exc)
 
-    async def check_positions(self) -> list[str]:
+    async def check_positions(self, entry_halt: Optional[str] = None) -> list[str]:
         """Check open positions against current prices. Returns list of close/update messages.
 
         Handles:
@@ -9968,6 +9983,12 @@ class LiveExecutor:
         2. Trailing stop updates → tighten SL when price moves favorably
         3. Pending limit order fills → transition to open position
         4. Pending limit order expiry → cancel stale limit orders
+
+        ``entry_halt`` is why new entries are refused on THIS account right
+        now, or None: the entry gate's own reading, which the engine hands in
+        because the executor cannot see the risk engines. A resting order is
+        an entry placed before the refusal, and the venue fills it with no
+        further word from the bot, so under a halt it is cancelled.
         """
         if not self._positions and not self._unverified_submissions:
             return []
@@ -10018,7 +10039,8 @@ class LiveExecutor:
                 try:
                     # ── Handle pending limit orders ──
                     if pos.status == "pending_fill":
-                        msg = await self._check_pending_limit(exchange, trade_id, pos)
+                        msg = await self._check_pending_limit(
+                            exchange, trade_id, pos, entry_halt=entry_halt)
                         if msg:
                             closed_messages.append(msg)
                         continue
@@ -10677,10 +10699,16 @@ class LiveExecutor:
         return sl_id, tp_id, None
 
     async def _check_pending_limit(self, exchange: "ccxt.Exchange",
-                                    trade_id: str, pos: LivePosition) -> Optional[str]:
+                                    trade_id: str, pos: LivePosition,
+                                    entry_halt: Optional[str] = None) -> Optional[str]:
         """Check if a pending limit order has been filled or should be cancelled.
 
         Returns a message string if status changed, else None.
+
+        ``entry_halt`` (see `check_positions`) cancels a resting order through
+        the same cancel flow as an expiry: the cancel is confirmed, the final
+        fill is read, and a partial fill is adopted with this idea's levels,
+        because that part is already a position on the venue.
         """
         # ── HARD TIMEOUT: stale pending_fill safety net ──
         # A pending_fill row that has sat for 2x the normal expiry (8h by
@@ -10882,9 +10910,16 @@ class LiveExecutor:
                     # closes, or returns an URGENT message). Never fires for
                     # sl=0 (no stop intended).
                     sl_tp_warn = "\n⚠️ STOP-LOSS not placed — position unprotected (monitoring active)!"
+                # Filled before a cancel could reach it: the position exists
+                # and is managed like any other, and the card says the order
+                # was resting from before the refusal rather than placed under it.
+                halt_note = (f"\nNew entries are refused ({entry_halt}); this order was "
+                             "already resting and the venue filled it before the "
+                             "cancel." if entry_halt else "")
                 return (
                     f"LIMIT FILLED: {pos.direction} {pos.symbol} [{st_label}]\n"
                     f"Fill: ${fill_price:,.4f} | Qty: {filled_qty:.6f}{protection}{sl_tp_warn}"
+                    f"{halt_note}"
                 )
 
             elif order_status in ("canceled", "cancelled", "rejected", "expired"):
@@ -10919,6 +10954,17 @@ class LiveExecutor:
                 age_sec = (datetime.now(UTC) - pos.opened_at).total_seconds()
                 cancel_reason = None
 
+                # ── NEW ENTRIES REFUSED ──
+                # A resting order is an entry placed before the refusal. /halt,
+                # the circuit breaker, the loss-streak latch and the governor's
+                # pause all refuse a new confirm, and every one of them left
+                # the order resting, so the venue filled it and this function
+                # booked "LIMIT FILLED" on an account somebody had stopped.
+                # Asked first, so the drift fallback (which would market it)
+                # and the expiry never see the order.
+                if entry_halt:
+                    cancel_reason = "entry_halted"
+
                 # ── PRICE DRIFT CANCEL (from Getclaw) ──
                 # If price has moved >X% away from the limit, the setup is stale.
                 # No point waiting for a fill that's unlikely to come.
@@ -10933,7 +10979,7 @@ class LiveExecutor:
                 # now it does not read it at all, and the typed clock below is
                 # the one thing that ends a resting typed ticket.
                 drift_pct = CONFIG.limit_orders.price_drift_cancel_pct
-                if drift_pct > 0 and pos.entry_price > 0 and not _typed:
+                if not cancel_reason and drift_pct > 0 and pos.entry_price > 0 and not _typed:
                     try:
                         ticker = await exchange.fetch_ticker(self._venue.order_symbol(pos.symbol))
                         cur_price = float(ticker.get("last", 0) or 0)
@@ -11067,6 +11113,16 @@ class LiveExecutor:
                     self._save_positions()
                     self._append_closed_trade(pos)
 
+                    if cancel_reason == "entry_halted":
+                        audit(trade_log,
+                              f"Limit order CANCELLED (new entries refused): {pos.symbol}",
+                              action="limit_halt_cancel", result="CANCELLED",
+                              data={"trade_id": trade_id, "age_sec": age_sec,
+                                    "typed": _typed, "refused_by": entry_halt})
+                        return (f"LIMIT CANCELLED (new entries refused): {pos.direction} "
+                                f"{pos.symbol} — {entry_halt}. The resting order was "
+                                "cancelled so it cannot open a position while entries "
+                                "are refused. Nothing was placed.")
                     if cancel_reason == "price_drift":
                         audit(trade_log, f"Limit order CANCELLED (price drift): {pos.symbol}",
                               action="limit_drift_cancel", result="CANCELLED",

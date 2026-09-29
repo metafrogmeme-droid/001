@@ -168,16 +168,16 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:6875 creates the entry order idempotently, :8559/:9050 attach
+live_executor.py:6890 creates the entry order idempotently, :8574/:9065 attach
 the exchange-side stop and take-profit, and every venue call carries
-productType USDT-FUTURES (:2516, :2532, :2660); venues.py:340 selects the swap
+productType USDT-FUTURES (:2517, :2533, :2661); venues.py:340 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
 (trading_commands.py:1131); signal cards from /analyze, /scan and the pro scans
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
 /confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:125).
-Autonomously: engine.py:6159-6217 confirms and executes any idea at or above
+Autonomously: engine.py:6166-6224 confirms and executes any idea at or above
 RUNTIME.auto_confirm_threshold with no human tap.
 
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
@@ -280,9 +280,9 @@ decision after shadow evidence, not a card.
 **Basis trades** — partial
 
 Basis is COMPUTED and read, never traded. bot/core/basis.py's BasisAnalyzer is
-constructed at engine.py:708 and fetched in `_analyze_signal`'s context gather
-(engine.py:7096) — its
-result is handed to analyzer.analyze at :7265 as `basis` CONTEXT that votes on
+constructed at engine.py:715 and fetched in `_analyze_signal`'s context gather
+(engine.py:7103) — its
+result is handed to analyzer.analyze at :7272 as `basis` CONTEXT that votes on
 nothing. Its own docstring (basis.py:16-30) records that it had no caller
 outside tests until recently and that a fabricated `basis_pct * 365`
 "annualized" field was removed rather than propagated. On the web,
@@ -348,10 +348,10 @@ The whole product is an algo bot and every layer is reachable. bot/main.py:587
 starts engine.run(), the scan→analyze→risk→execute FSM; market_scanner feeds
 analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
 signal modules; RiskEngine (bot/risk/risk_engine.py:269) is the fail-closed pre-
-trade gate whose whole enforcing set /enforcing lists. engine.py:6159-6217
+trade gate whose whole enforcing set /enforcing lists. engine.py:6166-6224
 auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, config.py:2553) with no human in the loop, adaptively moved by
-realized win rate (engine.py:9359): the paper book's in paper mode, both
+realized win rate (engine.py:9442): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
@@ -1212,7 +1212,7 @@ attribution of revenue (there is no revenue), and no third-party affiliate
 integration: app/lib/venue_links.js:17 builds plain
 Bitget/Bybit/BingX/OKX/Hyperliquid/DexScreener deep links with no referral
 parameter on any of them. One concrete hole: the Telegram close-card share
-button is constructed with no ref_code (alerts_monitor.py:443-445 passes only
+button is constructed with no ref_code (alerts_monitor.py:450-452 passes only
 the bot username), so `invite_link` falls through to the bare
 `https://t.me/<bot>` and that share is unattributable.
 
@@ -1432,7 +1432,7 @@ size/exposure/loss caps, symbol allow/deny, regime, horizon
 (app/lib/user_strategies.js:18-33) — saves it, publishes it to the community
 marketplace, and ARMS it on their own bot: the web projects its signal-
 checkable rules, the bot re-validates and stores the snapshot
-(bot/core/user_strategy_store.py:134-174), and bot/core/engine.py:7900-7949
+(bot/core/user_strategy_store.py:134-174), and bot/core/engine.py:7830-7879
 evaluates it on every confirm and refuses the trade when it fails. Followers
 of a published strategy get its would-take picks (app/routes/copy.js:105). (2)
 Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
@@ -1580,7 +1580,7 @@ its own self-referral check — the bot store never mints a referral_code,
 nothing syncs it to the MySQL users table the count is computed from, and
 there is no Telegram command to see your own invite link (command_catalog's
 `share` is the private-notes command). (3) The close-card share button passes
-only close_data and the bot username (alerts_monitor.py:443-444), so invite_link()
+only close_data and the bot username (alerts_monitor.py:450-451), so invite_link()
 is called with ref_code=None and the shared link is a bare t.me/<bot> with no
 attribution.
 
@@ -1732,7 +1732,7 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 bot/skills/scan_commands.py:1294, registered telegram_handler.py:1232) and
 /mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:8490
+bot/core/stock_trading.py, also read by bot/core/engine.py:8420
 (get_market_session) and scan_commands.py:376.
 
 **Price alerts and anomaly-alert scoping**
@@ -2468,10 +2468,10 @@ half of the measurement that says where the measurement stops.
 
   **The macro_skills shape does not apply.** Walked by AST, the eight handlers
   make exactly THREE attribute probes between them, and all three name real
-  attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:971`),
+  attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:978`),
   `CONFIG.deepscan_timeout_sec` (`bot/config.py:2742`, and three sibling call
   sites read it with no `getattr` at all) and `engine.analyzer`
-  (`bot/core/engine.py:693`). Every handler guards its own read and has an
+  (`bot/core/engine.py:700`). Every handler guards its own read and has an
   honest empty state; `/sweep` and its neighbours already carry the
   forming-candle hygiene the shared cache slice added.
 

@@ -52,7 +52,9 @@ def live(monkeypatch):
                         lambda: _store())
     visits: list = []
 
-    async def _check(self):
+    async def _check(self, entry_halt=None):
+        # The monitor hands each book the entry gate's reading for its
+        # account, so a resting entry is cancelled under a halt.
         visits.append(self.user_id)
         return []
 

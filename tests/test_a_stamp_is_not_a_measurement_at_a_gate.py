@@ -229,8 +229,7 @@ class TestThePyramidGateNeedsAMeasuredConfidence:
     @staticmethod
     def _gate(idea):
         """The gate's own condition, read out of `engine.py` rather than
-        restated: the method is 200 lines behind an engine, a scanner and a
-        venue, and the claim is which QUANTITY the comparison reads."""
+        restated: the claim is which QUANTITY the comparison reads."""
         return not displayed_confidence(idea).clears(0.70)
 
     def test_a_hand_typed_ticket_does_not_pyramid(self):
@@ -253,7 +252,9 @@ class TestThePyramidGateNeedsAMeasuredConfidence:
         reading rather than two."""
         from bot.core.engine import RuneClawEngine
 
-        _gate_call(RuneClawEngine._analyze_signal, "0.7")
+        # The gate lives in the same-symbol seam since the live book stopped
+        # offering adds; it is the paper book's add rule there.
+        _gate_call(RuneClawEngine._same_symbol_verdict, "0.7")
 
     def test_the_skip_audit_names_which_absence_it_was(self):
         """A stamp and an unreadable figure are different facts, and the
@@ -264,7 +265,7 @@ class TestThePyramidGateNeedsAMeasuredConfidence:
         skip line had lost it."""
         from bot.core.engine import RuneClawEngine
 
-        _call_naming(RuneClawEngine._analyze_signal,
+        _call_naming(RuneClawEngine._same_symbol_verdict,
                      "Pyramid skipped: confidence", "_pyr_conf.basis")
 
 

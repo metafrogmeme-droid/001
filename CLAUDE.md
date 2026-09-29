@@ -17172,6 +17172,168 @@ ccxt, an amount under the grid step raises `InvalidOrder` rather than answering
 zero, so the `except` above it already covers that case.
 (`tests/test_a_resting_limit_is_sized_at_its_own_price.py`.)
 
+**A PYRAMID ADD WAS APPROVED BESIDE A RESTING ORDER, AND THE EXECUTOR LET IT
+THROUGH.** The engine's same-symbol guard read `live_executor.open_positions`,
+which lists open AND `pending_fill` rows, and measured a same-direction add's
+"1R in profit" from the row's entry price. For a resting limit that is a price
+nothing has filled at. Driven through the guard: a BTC long limit resting at 95
+with its stop at 93, the market at 97, read "1.00R profit", and the add was
+approved at a measured confidence of 0.80. A pyramid-flagged idea skips
+confirm's duplicate check by design, and the executor's own same-symbol guard
+counted `open` rows only, so a second order went out beside the resting one.
+Driven, the preflight refused a second order beside an open row and returned
+nothing beside a resting one. If both fill, the book holds two records on one
+symbol and direction, and `dedupe_duplicate_positions`, which runs every five
+minutes in live mode, closes the newer one locally with no exchange action. The
+venue then holds both quantities and the book tracks one.
+
+**Two more came out of the same guard.** In live mode it fell back to the
+shared PAPER book whenever the live book held nothing on the symbol. Nothing in
+this build writes that book, so what it holds in live mode is a paper position
+restored from before the account went live. Driven, a stale paper SHORT refused
+a live LONG as a "flip". And a same-direction add on an OPEN live position was
+approved and offered, although the executor holds one position per symbol and
+refuses a second whatever the engine decided. The idea reached watching chats
+with a Take-it the executor would refuse, and auto-confirm retried it every tick
+until it lapsed. The comment above the confirm path's half-size step already
+said the executor blocks a same-symbol add; nothing upstream asked.
+
+**The guard is a seam now, and live mode reads the live book and nothing
+else.** `_same_symbol_verdict` answers `clear`, `pyramid` or `skip`, and audits
+its own skips by name. In live mode:
+
+- a resting order on the symbol skips the idea (`resting_order_on_symbol`),
+  whichever side the idea is on;
+- two rows on the symbol are still the maximum;
+- the opposite side is still a blocked flip;
+- the same side is skipped (`pyramid_live_one_per_symbol`), because no add
+  offered there can be placed.
+
+Paper mode keeps its add rules. The executor's preflight refuses a new entry
+beside a resting row as well, in its own sentence, so the last line holds
+whatever sets the pyramid flag. The flip audit printed `Direction.SHORT` for a
+paper position's enum; `_direction_word` reads every spelling.
+
+**Recorded, not changed.** The paper add rule measures 1R from the position's
+current stop, which after a breakeven move is a fraction of the entry-time
+risk. It is unreachable: nothing in this build writes the shared paper book.
+Confirm's pyramid bypass stays, and nothing in live mode sets the flag now. And
+a `duplicate_merged` row is closed with P&L 0.0 under a reason
+`NON_FILL_CLOSE_REASONS` does not know, so while it is in memory
+`closed_positions` lists it as a measured break-even trade. It is not saved, so
+a restart drops it. Filed with the vocabulary it would change.
+
+Two pins in the stamp suite read the add gate's confidence bar inside
+`_analyze_signal`; the gate lives in the seam now, so they read it there, and
+what they pin still holds in the paper branch. Seventeen mutations, each
+killed on the first round, none refused.
+(`tests/test_a_second_order_is_not_placed_beside_a_resting_one.py`.)
+
+**AND CONFIRM'S DUPLICATE CHECK READ THE OPERATOR'S BOOK FOR EVERY CALLER.**
+`confirm_trade` suppresses a confirm when the symbol already holds an open or
+resting order, and it read `self.live_executor` whoever was confirming. Under
+per-user live a linked trader places on their own executor
+(`_executor_for(user_id)`), so a trader whose own account was flat was refused
+with *"already have an open/pending order for it"* because the OPERATOR held
+BTC. The trader's idea was dropped with it. Driven through the real wrapper,
+the confirm now reaches the placement and the idea stays pending. The check
+reads the book `_executor_for` resolves, which is the account the placement
+below takes. A resolution that raises or answers nothing keeps the operator's
+book, which is what the check always read. Three mutations, each killed.
+
+**A LIMIT THAT NEVER FILLED WAS PUBLISHED AS A TRADE RESULT, AND SOMETIMES AS
+AN EARLIER ONE.** When a resting order ends, the executor's pending-order paths
+hand the engine a message: expired, cancelled on drift, cancelled or rejected
+by the venue, force-closed with its fill unread, or a market fallback refused
+after a drift cancel. The engine knew three kinds (fill, sync, close) and
+routed all of these as closes. Driven through the real close door and the real
+forwarder:
+
+- the operator's card was headed "⚪ Closed" over an order that never became a
+  position, and the transcript recorded TRADE_CLOSED;
+- the chain audited "Live position auto-closed";
+- every one went to the public channels as "TRADE CLOSED ... #TradeResult";
+- with an earlier close of the same symbol in the last-close slot, the card
+  and the public post were THAT close. A SOL limit expiring an hour after a
+  SOL take-profit re-published "🟢 SOLUSDT LONG closed (TP HIT)" as a new win.
+  The card guard matches the slot by symbol, and nothing told it the message
+  was not a close.
+
+The partial-fill adoption was the opposite mistake. "LIMIT EXPIRED —
+PARTIAL FILL ADOPTED as OPEN" opens a position, and its first line begins like
+a message that opens nothing, so it was routed as a close too.
+
+`order_state.unfilled_order_heading` is the one reading: an icon and a heading
+for each message that ended an order without a position, None for everything
+else, the adoption included. The engine audits those as UNFILLED. The close
+door heads them for what they are ("Order not filled", "Order fill not read",
+"Market fallback refused"), records ORDER_NOT_FILLED, wears no card and never
+publishes them. `_is_fill_message` reads the adoption as a fill. A walk takes
+every message the pending-order paths return and requires each to be read as
+exactly one kind, so a message added later cannot fall to "close" by default.
+
+Fourteen mutations, each killed. The one that survived the first round was a
+test that could not tell: `startswith` on the whole text and on the first line
+agree for every prefix, so the first-line split matters only to the adoption
+marker. The test plants an expiry that quotes an adoption on a later line.
+(`tests/test_an_unfilled_order_is_not_a_trade_result.py`.)
+
+**A HALT STOPPED NEW CONFIRMS AND LEFT THE RESTING ORDERS ON THE VENUE, WHERE
+THEY FILLED.** The executor's own comment said so: *"Neither /halt nor any
+breaker cancels resting limits; only /emergency_stop does."* The drift market
+fallback was guarded against the halt; the resting order itself was not. It is
+an entry placed before the refusal, and the venue matches it with no further
+word from the bot. Driven with the kill switch engaged on the unfixed tree:
+the first monitor pass left the order resting, and when the venue filled it,
+the next pass booked "LIMIT FILLED", placed the stops and opened a position on
+an account somebody had stopped. The kill switch clears the pending IDEAS in
+memory; the ORDERS on the venue were never asked about. The same held for the
+circuit breaker, the loss-streak latch and the governor's pause, and since a
+typed ticket rests for 24h, the window was a day wide.
+
+**The monitor pass hands each book the entry gate's reading for its own
+account, and the order goes through the cancel an expiry takes.**
+`RuneClawEngine._entry_halt_reason(executor)` answers why new entries are
+refused on that account, or None; `check_positions(entry_halt=...)` hands it
+to every resting order, and `_check_pending_limit` asks it before the drift
+read, so neither the drift fallback nor the expiry sees the order. The cancel
+is confirmed, the final fill is read, and a partial fill is adopted with the
+idea's levels, because that part is already a position. The close reason is
+`entry_halted`, a non-fill in the one vocabulary, and the message is read as
+an unfilled order (headed "Order not filled", never published). A fill that
+beat the cancel is booked like any other, and its card says the order was
+resting from before the refusal.
+
+**Only a POSITIVE reading cancels.** A field that could not be read is not a
+halt: cancelling a person's order on a reading nobody took would be a guess
+dressed as caution. The account is decided by identity: the operator's
+executor asks for the empty id whatever user id it carries, and a per-user
+executor for its own. The reasons carry no venue text, because they reach the
+owner's card.
+
+**The first draft asked the display helper, and the parity guard refused
+it.** It called `trade_gate.entry_gate`, which is exactly the reading wanted,
+and `test_trade_gate_parity` forbids `trade_gate` anywhere in the engine: *"If
+the gate ever started ASKING it, a display bug would become a trading bug."*
+The reading reads the raw fields the pre-execute gate reads (the kill switch,
+each risk engine's `trading_blocked_by` with the narrow breaker flag as its
+fallback, the venue-auth flag in live), and a test drives it and `entry_gate`
+over planted states and requires them to agree on "blocked". Three more
+neighbours broke on stand-ins and anchors: the invalidated-executor suite's
+`check_positions` took no argument, the pending-order message table did not
+name the new cancel, and the drift pin was anchored on the old condition.
+
+**What it cannot do, stated.** The cancel runs on the next monitor pass, so an
+order can still fill in the minute between the halt and that pass; the card
+for such a fill says so. And it cancels only what the monitor tracks: an order
+placed by hand on the venue is not the bot's to cancel.
+
+Twenty-three mutations, each killed on the first round. Three of the tests they
+die on were written by planning the round, before it ran: an auth read that
+raises, a kill switch that cannot be read, and one cause on one engine said
+once. Without them, reading a failed read as a halt and saying a reason twice
+would have survived. (`tests/test_a_halt_cancels_a_resting_entry.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -17651,7 +17813,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 258 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 260 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -18463,9 +18625,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **469 of 1170** reach for source text through `source_scan`, `code_only`
+Driven, **472 of 1173** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 469 is a FLOOR and the honest shape is
+source scan that rule does not see, so 472 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

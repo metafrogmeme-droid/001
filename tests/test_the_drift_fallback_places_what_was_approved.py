@@ -381,7 +381,7 @@ class TestATypedTicketIsNeverChased:
         untyped row, so the momentum read is never reached for a ticket."""
         src = code_only(inspect.getsource(LiveExecutor._check_pending_limit))
         typed = src.index('_typed = getattr(pos, "idea_source", None) == "manual"')
-        drift = src.index("if drift_pct > 0 and pos.entry_price > 0 and not _typed:")
+        drift = src.index("drift_pct > 0 and pos.entry_price > 0 and not _typed:")
         momentum = src.index("await self._check_drift_market_fallback(")
         assert typed < drift < momentum
 

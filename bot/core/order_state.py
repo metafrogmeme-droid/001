@@ -134,6 +134,49 @@ def close_did_not_happen(msg) -> bool:
     return any(k in text for k in CLOSE_KEPT_OPEN_MARKERS + KEPT_OPEN_HEADINGS)
 
 
+#: The marker the partial-fill adoption writes into its first line. That
+#: message OPENS a position (the filled part of a resting order, adopted with
+#: this idea's stop and target), and it begins "LIMIT EXPIRED —" or "LIMIT
+#: CANCELED —" like the messages below that open nothing, so the marker is
+#: read before them.
+PARTIAL_FILL_ADOPTED = "PARTIAL FILL ADOPTED as OPEN"
+
+#: The executor's messages for a RESTING ORDER that ended without this message
+#: opening a position, keyed by how the first line begins, each with the
+#: heading and icon its card wears. They reach the close door because the
+#: owner must read them, and none of them is a close: the order never became
+#: a position (expired, cancelled on drift or by the venue, rejected), its
+#: final fill was never read, or the market fallback after a drift cancel was
+#: refused. `tests/test_an_unfilled_order_is_not_a_trade_result.py` walks
+#: every message the pending-order paths return and requires each to be read
+#: as exactly one kind, so a new message cannot fall to "close" by default.
+UNFILLED_ORDER_HEADINGS = (
+    ("LIMIT EXPIRED", "\u23f9\ufe0f", "Order not filled"),
+    ("LIMIT CANCELLED", "\u23f9\ufe0f", "Order not filled"),
+    ("LIMIT CANCELED", "\u23f9\ufe0f", "Order not filled"),
+    ("LIMIT REJECTED", "\u23f9\ufe0f", "Order not filled"),
+    ("STALE PENDING CLOSED", "\u26a0\ufe0f", "Order fill not read"),
+    ("\u26d4 Limit order for", "\u26d4", "Market fallback refused"),
+)
+
+
+def unfilled_order_heading(msg) -> Optional[tuple]:
+    """``(icon, heading)`` when ``msg`` reports a resting order that ended
+    without opening a position, else None.
+
+    None for a partial-fill adoption, which opened one. The first line is the
+    one read: a message quoting another message further down is not that
+    message.
+    """
+    first = (msg if isinstance(msg, str) else "").split("\n", 1)[0]
+    if PARTIAL_FILL_ADOPTED in first:
+        return None
+    for prefix, icon, heading in UNFILLED_ORDER_HEADINGS:
+        if first.startswith(prefix):
+            return icon, heading
+    return None
+
+
 def close_card_is_wrong(msg) -> bool:
     """True when a rendered close card would misdescribe this message.
 
@@ -147,7 +190,8 @@ def close_card_is_wrong(msg) -> bool:
     text = msg if isinstance(msg, str) else ""
     return (close_did_not_happen(text)
             or "ENTRY ABORTED" in text
-            or CLOSE_CARD_NOT_RENDERED in text)
+            or CLOSE_CARD_NOT_RENDERED in text
+            or unfilled_order_heading(text) is not None)
 
 
 def flatten_outcome(close_msg) -> str:
