@@ -5493,20 +5493,16 @@ class LiveExecutor:
                     # Retry the SL once if it did not land (transient venue errors).
                     if sl_id is None:
                         try:
-                            retry_sl, retry_tp = await self._place_sl_tp(
+                            # Only what is missing (`_protect_legs`), so a
+                            # target the first attempt placed is not doubled.
+                            sl_id, tp_id = await self._protect_legs(
                                 exchange, raw_sym, direction, lp.quantity,
-                                lp.stop_loss, lp.take_profit,
-                            )
-                            if retry_sl or retry_tp:
-                                # See _place_entry_stops: name what this call
-                                # placed, not the id its own cleanup cancelled.
-                                sl_id = retry_sl
-                                tp_id = retry_tp
+                                lp.stop_loss, lp.take_profit, sl_id, tp_id)
                         except Exception as exc:
                             _place_exc = exc
                             logger.warning(
                                 "ADOPTED position: safety SL retry raised for %s: %s",
-                                raw_sym, exc)
+                                raw_sym, type(exc).__name__)
 
                     if sl_id:
                         lp.sl_order_id = sl_id
@@ -7487,26 +7483,17 @@ class LiveExecutor:
                       f"SL placement failed for {idea.asset} — retrying once",
                       action="sl_retry", result="RETRY",
                       data={"trade_id": idea.id, "symbol": idea.asset})
+                # The retry places only what is missing (`_protect_legs`): on
+                # the classic path the stop alone, beside the target the first
+                # attempt placed. Re-placing the pair put a second full-size
+                # target beside the first whenever the stop was refused again.
                 try:
-                    retry_sl, retry_tp = await self._place_sl_tp(
-                        exchange, idea.asset, idea.direction,
-                        filled_qty, idea.stop_loss, idea.take_profit
-                    )
-                    if retry_sl or retry_tp:
-                        # Same rule as the post-fill ladder: _place_sl_tp
-                        # cancels the resting plan orders it can find before
-                        # it places, so the first attempt's TP is most likely
-                        # gone. Name what THIS call placed; keeping the older
-                        # id left the record naming a dead TP beside a live
-                        # SL, which the periodic check (it fires on an EMPTY
-                        # id) then never refreshed. The cleanup is
-                        # best-effort, so an un-cancelled first TP can survive
-                        # as an orphan — that is what the post-close sweep is
-                        # for, and it is the lesser of the two.
-                        sl_id = retry_sl
-                        tp_id = retry_tp
+                    sl_id, tp_id = await self._protect_legs(
+                        exchange, idea.asset, idea.direction, filled_qty,
+                        idea.stop_loss, idea.take_profit, sl_id, tp_id)
                 except Exception as _sl_exc:
-                    logger.warning("SL retry raised for %s: %s", idea.asset, _sl_exc)
+                    logger.warning("SL retry raised for %s: %s",
+                                   idea.asset, type(_sl_exc).__name__)
                 if sl_id is None:
                     position.sl_order_id = None
                     position.tp_order_id = tp_id
@@ -8624,7 +8611,6 @@ class LiveExecutor:
         """
         sl_id = None
         tp_id = None
-        close_side = "sell" if direction == Direction.LONG else "buy"
 
         # Side-sanity: never post a wrong-side (inverted) SL/TP — it would fail to
         # protect or fill instantly. Refuse both and leave the position to the
@@ -8754,73 +8740,13 @@ class LiveExecutor:
             # Bitget classic sends tradeSide=close + reduceOnly + productType;
             # Hyperliquid sends reduceOnly and distinguishes tp/sl trigger kind)
 
-            # Audit fix #21: round trigger prices onto the symbol's tick grid —
-            # previously only the v3 path applied precision and the classic path
-            # sent raw floats (venue may reject or silently round them). The
-            # grid is the market the stop is placed ON: the recorded symbol is
-            # the spot form, whose tick is Bybit's spot tick and on Hyperliquid
-            # no market at all (the rounding then silently did nothing).
-            _order_sym = self._venue.order_symbol(symbol)
-            _sl_r = self._round_price_to_market(exchange, _order_sym, stop_loss)
-            _tp_r = self._round_price_to_market(exchange, _order_sym, take_profit)
-            if _sl_r is not None:
-                try:
-                    stop_loss = float(_sl_r)
-                except (TypeError, ValueError):
-                    pass
-            if _tp_r is not None:
-                try:
-                    take_profit = float(_tp_r)
-                except (TypeError, ValueError):
-                    pass
-
-            # Some venues (Hyperliquid) require a reference price on
-            # trigger-market orders to bound slippage; the trigger level
-            # itself is the natural bound.
-            _needs_px = self._venue.market_order_needs_price
-
-            # Stop-loss
-            try:
-                sl_order = await exchange.create_order(
-                    symbol=_order_sym,
-                    type="market",
-                    side=close_side,
-                    amount=quantity,
-                    price=stop_loss if _needs_px else None,
-                    params=self._venue.trigger_params("sl", stop_loss),
-                )
-                sl_id = sl_order.get("id")
-                if sl_id:
-                    self._clear_sltp_error(symbol)
-                audit(trade_log, f"SL order placed: {sl_id}",
-                      action="sl_order", result="OK",
-                      data={"symbol": symbol, "trigger": stop_loss, "futures": True})
-            except Exception as exc:
-                logger.warning("SL order failed for %s: %s", symbol, exc)
-                self._note_sltp_error(symbol, str(exc))
-                audit(trade_log, f"SL order not placed: {exc}",
-                      action="sl_order", result="SKIP",
-                      data={"symbol": symbol, "reason": str(exc)[:200]})
-
-            # Take-profit
-            try:
-                tp_order = await exchange.create_order(
-                    symbol=_order_sym,
-                    type="market",
-                    side=close_side,
-                    amount=quantity,
-                    price=take_profit if _needs_px else None,
-                    params=self._venue.trigger_params("tp", take_profit),
-                )
-                tp_id = tp_order.get("id")
-                audit(trade_log, f"TP order placed: {tp_id}",
-                      action="tp_order", result="OK",
-                      data={"symbol": symbol, "trigger": take_profit, "futures": True})
-            except Exception as exc:
-                logger.warning("TP order failed for %s: %s", symbol, exc)
-                audit(trade_log, f"TP order not placed: {exc}",
-                      action="tp_order", result="SKIP",
-                      data={"symbol": symbol, "reason": str(exc)[:200]})
+            # One leg at a time, through the one helper the retry's single-leg
+            # re-place also asks, so the two cannot differ about the grid, the
+            # params or what a refusal records.
+            sl_id = await self._place_classic_trigger(
+                exchange, symbol, "sl", direction, quantity, stop_loss)
+            tp_id = await self._place_classic_trigger(
+                exchange, symbol, "tp", direction, quantity, take_profit)
 
         # The old stops go only once a new stop is resting: with no new stop
         # the old ones are the position's only protection.
@@ -8828,6 +8754,127 @@ class LiveExecutor:
             await self._cancel_replaced_plans(exchange, ccxt_sym, symbol, to_cancel,
                                               keep={sl_id, tp_id}, side=_protects)
         return sl_id, tp_id
+
+    async def _place_classic_trigger(
+        self, exchange: ccxt.Exchange, symbol: str, kind: str,
+        direction: Direction, quantity: float, level: float,
+    ) -> Optional[str]:
+        """Place ONE ccxt trigger order on the classic path: ``kind`` is "sl"
+        or "tp". Returns its id, or None when the venue refused it (logged and
+        audited here, as the placer always did).
+
+        Params come from the venue dialect: Bitget classic sends
+        tradeSide=close + reduceOnly + productType, Hyperliquid sends
+        reduceOnly and names the trigger kind. A refused STOP records its
+        reason for the readers of `_last_sltp_reason` (the unprotected alert,
+        /positions, the abort cards, the breach-by-rejection close); a refused
+        target never did, and does not now.
+        """
+        close_side = "sell" if direction == Direction.LONG else "buy"
+        # Audit fix #21: round the trigger onto the symbol's tick grid. The
+        # grid is the market the order is placed ON: the recorded symbol is
+        # the spot form, whose tick is Bybit's spot tick and on Hyperliquid no
+        # market at all (the rounding then silently did nothing).
+        order_sym = self._venue.order_symbol(symbol)
+        rounded = self._round_price_to_market(exchange, order_sym, level)
+        if rounded is not None:
+            try:
+                level = float(rounded)
+            except (TypeError, ValueError):
+                pass
+        # Some venues (Hyperliquid) require a reference price on trigger-market
+        # orders to bound slippage; the trigger level is the natural bound.
+        needs_px = self._venue.market_order_needs_price
+        name = kind.upper()
+        try:
+            order = await exchange.create_order(
+                symbol=order_sym,
+                type="market",
+                side=close_side,
+                amount=quantity,
+                price=level if needs_px else None,
+                params=self._venue.trigger_params(kind, level),
+            )
+            oid: Optional[str] = order.get("id")
+            if kind == "sl" and oid:
+                self._clear_sltp_error(symbol)
+            audit(trade_log, f"{name} order placed: {oid}",
+                  action=f"{kind}_order", result="OK",
+                  data={"symbol": symbol, "trigger": level, "futures": True})
+            return oid
+        except Exception as exc:
+            logger.warning("%s order failed for %s: %s", name, symbol, exc)
+            if kind == "sl":
+                self._note_sltp_error(symbol, str(exc))
+            audit(trade_log, f"{name} order not placed: {exc}",
+                  action=f"{kind}_order", result="SKIP",
+                  data={"symbol": symbol, "reason": str(exc)[:200]})
+            return None
+
+    async def _protect_legs(
+        self, exchange: ccxt.Exchange, symbol: str, direction: Direction,
+        quantity: float, stop_loss: float, take_profit: float,
+        sl_held: Optional[str], tp_held: Optional[str],
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Place whichever protective leg is missing and answer the ids that
+        name the position's stop and target afterwards.
+
+        ``sl_held``/``tp_held`` are the ids already resting (falsy = none). On
+        the classic path, with one leg held and the other missing, only the
+        missing leg is placed. Re-placing both replaced a WORKING stop every
+        pass while the target was refused, and while a stop was refused it
+        put a fresh full-size target beside the held one every pass: driven,
+        four targets resting after three passes. A v3 (UTA) order carries both
+        legs, so there, and while the account type is still unresolved, the
+        pair goes through `_place_sl_tp`, and so does a position holding
+        neither leg.
+
+        The pair's answer is read by the placer's own contract. It cancels
+        this side's resting plan orders only once a NEW stop rests, so a
+        placed stop means the held ids are gone (or, where a cancel was
+        refused, a reduce-only duplicate) and both answers stand, a refused
+        target being None, which the periodic retry reads as missing. No stop
+        placed means nothing was cancelled: the held ids still rest, and a
+        target is taken only where none was held. The rule this replaced was
+        `if sl_id and not pos.sl_order_id`, which kept the CANCELLED stop's id
+        beside an untracked live one, and kept a target the sweep had just
+        cancelled.
+
+        A held stop is never answered as absent, whatever the venue said.
+        """
+        classic = (not self._venue.supports_native_triggers) or self._is_uta is False
+        if (classic and bool(sl_held) != bool(tp_held)
+                and self._sltp_side_error(direction, stop_loss, take_profit) is None):
+            if sl_held:
+                tp_id = await self._place_classic_trigger(
+                    exchange, symbol, "tp", direction, quantity, take_profit)
+                return sl_held, tp_id
+            sl_id = await self._place_classic_trigger(
+                exchange, symbol, "sl", direction, quantity, stop_loss)
+            return sl_id, tp_held
+        sl_id, tp_id = await self._place_sl_tp(
+            exchange, symbol, direction, quantity, stop_loss, take_profit)
+        if sl_id:
+            return sl_id, tp_id
+        return sl_held, (tp_held or tp_id)
+
+    async def _place_missing_sltp(
+        self, exchange: ccxt.Exchange, pos, *, quantity: Optional[float] = None,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """`_protect_legs` for a position record: place what it is missing and
+        write what now names its legs back onto it. Returns the ids placed by
+        THIS call (None for a leg that was held or refused), for the caller's
+        audit line."""
+        direction = Direction.LONG if pos.direction == "LONG" else Direction.SHORT
+        qty = pos.quantity if quantity is None else quantity
+        held_sl, held_tp = pos.sl_order_id, pos.tp_order_id
+        sl_id, tp_id = await self._protect_legs(
+            exchange, pos.symbol, direction, qty, pos.stop_loss, pos.take_profit,
+            held_sl, held_tp)
+        pos.sl_order_id = sl_id
+        pos.tp_order_id = tp_id
+        return ((sl_id if sl_id and sl_id != held_sl else None),
+                (tp_id if tp_id and tp_id != held_tp else None))
 
     async def _cancel_replaced_plans(self, exchange, ccxt_sym: str, symbol: str,
                                      rows: list[dict], *, keep: set,
@@ -9886,20 +9933,12 @@ class LiveExecutor:
             return None
         max_iter = max(1, CONFIG.execution.unprotected_guard_max_iterations)
         interval = max(0.1, CONFIG.execution.unprotected_guard_interval_s)
-        direction = Direction.LONG if pos.direction == "LONG" else Direction.SHORT
 
         for i in range(max_iter):
             # 1. The real fix: get the exchange stop on so the venue protects it.
             if not pos.sl_order_id and pos.stop_loss > 0:
                 try:
-                    sl_id, tp_id = await self._place_sl_tp(
-                        exchange, pos.symbol, direction,
-                        pos.quantity, pos.stop_loss, pos.take_profit,
-                    )
-                    if sl_id and not pos.sl_order_id:
-                        pos.sl_order_id = sl_id
-                    if tp_id and not pos.tp_order_id:
-                        pos.tp_order_id = tp_id
+                    await self._place_missing_sltp(exchange, pos)
                     if pos.sl_order_id:
                         self._save_positions()
                         audit(trade_log,
@@ -9973,15 +10012,21 @@ class LiveExecutor:
         except Exception:
             return False
 
-    def _mark_stop_absent(self, pos, trade_id: str, *, had_stop: bool,
-                          why: str = "") -> None:
+    def _mark_stop_absent(self, pos) -> None:
         """Record that this position has NO exchange stop.
 
-        Called only where an existing stop was cancelled and its replacement
-        did not land. Nulls the id so nothing downstream reads a dead order as
-        protection, sets the `unprotected` marker the alarm surfaces read, and
-        says so at a level an operator sees — the failure used to be a single
-        `logger.debug` line.
+        Called by the periodic retry for a record that named no stop and still
+        names none after the retry. Nulls the id and sets the `unprotected`
+        marker the alarm surfaces read; the throttled UNPROTECTED escalation
+        below says so at a level an operator sees.
+
+        It used to be called for a record that DID name a stop, with an audit
+        reading "the existing one was cancelled and the replacement was
+        refused". The placer cancels a resting stop only once its replacement
+        rests, so that stop was still on the venue: the record was cleared
+        over a live stop, and a 25588-family refusal of the new one then
+        closed the position at market beside it. A recorded stop is never
+        cleared here now.
 
         Never raises: this runs inside the position loop and a bookkeeping
         fault must not cost the rest of the tick.
@@ -9990,24 +10035,9 @@ class LiveExecutor:
             pos.sl_order_id = ""
             setattr(pos, "unprotected", True)
             self._save_positions()
-            if not had_stop:
-                # It never had an exchange stop, so nothing was lost here. The
-                # throttled UNPROTECTED escalation below already covers the
-                # standing state; repeating it every tick would bury the one
-                # event that IS news.
-                return
-            audit(trade_log,
-                  f"{pos.symbol} has NO exchange stop: the existing one was "
-                  f"cancelled and the replacement was refused"
-                  + (f" ({why})" if why else "")
-                  + " — local SL monitoring is now the only protection",
-                  action="sltp_retry", result="STOP_ABSENT",
-                  level=logging.WARNING,
-                  data={"trade_id": trade_id, "symbol": pos.symbol,
-                        "had_exchange_stop": had_stop,
-                        "stop_loss": pos.stop_loss})
         except Exception as exc:
-            trade_log.error("could not mark %s unprotected: %s", pos.symbol, exc)
+            trade_log.error("could not mark %s unprotected: %s",
+                            pos.symbol, type(exc).__name__)
 
     async def check_positions(self, entry_halt: Optional[str] = None) -> list[str]:
         """Check open positions against current prices. Returns list of close/update messages.
@@ -10157,15 +10187,7 @@ class LiveExecutor:
                         # but don't run local SL/TP monitoring until orders are confirmed.
                         if (not pos.sl_order_id or not pos.tp_order_id) and pos.stop_loss > 0 and pos.take_profit > 0:
                             try:
-                                direction = Direction.LONG if pos.direction == "LONG" else Direction.SHORT
-                                sl_id, tp_id = await self._place_sl_tp(
-                                    exchange, pos.symbol, direction,
-                                    pos.quantity, pos.stop_loss, pos.take_profit
-                                )
-                                if sl_id and not pos.sl_order_id:
-                                    pos.sl_order_id = sl_id
-                                if tp_id and not pos.tp_order_id:
-                                    pos.tp_order_id = tp_id
+                                sl_id, tp_id = await self._place_missing_sltp(exchange, pos)
                                 if sl_id or tp_id:
                                     self._save_positions()
                                     audit(trade_log,
@@ -10174,7 +10196,8 @@ class LiveExecutor:
                                           data={"trade_id": trade_id, "sl_id": sl_id, "tp_id": tp_id,
                                                 "age_secs": round(age_secs, 1)})
                             except Exception as exc:
-                                logger.debug("SL/TP grace placement failed for %s: %s", pos.symbol, exc)
+                                logger.debug("SL/TP grace placement failed for %s: %s",
+                                             pos.symbol, type(exc).__name__)
                         # Audit F-4: only skip local monitoring when an exchange stop
                         # is actually in place. A still-unprotected position (no
                         # sl_order_id) must be monitored locally NOW rather than left
@@ -10368,53 +10391,30 @@ class LiveExecutor:
                                            pos.symbol, _ptp_exc)
 
                     # ── Retry SL/TP placement if missing ──
+                    # Only the missing legs are placed, and the record takes
+                    # what now rests (`_place_missing_sltp`). A recorded stop
+                    # is never cleared here: the placer cancels one only once
+                    # its replacement rests.
                     if (not pos.sl_order_id or not pos.tp_order_id) and pos.stop_loss > 0 and pos.take_profit > 0:
                         try:
-                            direction = Direction.LONG if pos.direction == "LONG" else Direction.SHORT
-                            sl_id, tp_id = await self._place_sl_tp(
-                                exchange, pos.symbol, direction,
-                                pos.quantity, pos.stop_loss, pos.take_profit
-                            )
-                            _had_stop = bool(pos.sl_order_id)
+                            sl_id, tp_id = await self._place_missing_sltp(exchange, pos)
                             if sl_id or tp_id:
-                                # AUDIT-FIX: Only update missing order IDs to avoid
-                                # orphaning existing exchange orders
-                                if sl_id and not pos.sl_order_id:
-                                    pos.sl_order_id = sl_id
-                                if tp_id and not pos.tp_order_id:
-                                    pos.tp_order_id = tp_id
                                 self._save_positions()
                                 audit(trade_log,
                                       f"SL/TP retry succeeded: {pos.symbol} SL={pos.stop_loss:.4f} TP={pos.take_profit:.4f}",
                                       action="sltp_retry", result="PLACED",
-                                      data={"trade_id": trade_id, "sl_id": sl_id, "tp_id": tp_id})
-                            if not sl_id:
-                                # _place_sl_tp CANCELS every existing plan order
-                                # before it places, so reaching here means the
-                                # working stop is gone and its replacement was
-                                # refused. Leaving sl_order_id naming the
-                                # cancelled order made every downstream signal
-                                # read "protected": the grace skip trusts it
-                                # outright, the stale-ticker skip logs "exchange
-                                # stop still active", and the `unprotected`
-                                # alarm is CLEARED because clearing is gated on
-                                # this id being truthy. A cancelled stop that
-                                # could not be replaced is an ABSENT stop, and
-                                # the field has to say so.
-                                #
-                                # The static SL/TP check still closes on breach
-                                # once past grace, so this is not a naked
-                                # position — it is a position whose protection
-                                # is local-only, and the difference has to be
-                                # visible to the code and to the operator.
-                                self._mark_stop_absent(pos, trade_id,
-                                                       had_stop=_had_stop)
+                                      data={"trade_id": trade_id, "sl_id": sl_id, "tp_id": tp_id,
+                                            "sl_order_id": pos.sl_order_id,
+                                            "tp_order_id": pos.tp_order_id})
                         except Exception as exc:
-                            # The re-place raised AFTER the cancel, which is the
-                            # same outcome by a different door.
-                            self._mark_stop_absent(pos, trade_id,
-                                                   had_stop=bool(pos.sl_order_id),
-                                                   why=str(exc)[:120])
+                            logger.warning("SL/TP retry raised for %s: %s",
+                                           pos.symbol, type(exc).__name__)
+                        if not pos.sl_order_id:
+                            # It named no stop before the retry and names none
+                            # after it: the static SL/TP check still closes on
+                            # breach, so this is a position whose protection
+                            # is local-only, and the field has to say so.
+                            self._mark_stop_absent(pos)
 
                     # ── Breach-by-rejection: the venue just TOLD us the stop is hit ──
                     # When the retry above still could not place the stop and the
@@ -10609,22 +10609,24 @@ class LiveExecutor:
                   f"SL placement failed post-fill for {pos.symbol} — retrying once",
                   action="sl_retry", result="RETRY",
                   data={"trade_id": trade_id, "symbol": pos.symbol})
+            # The first attempt's answer goes onto the record before the
+            # retry, so the retry places only what is missing: on the classic
+            # path the stop alone, beside the target the first attempt placed.
+            # Re-placing the pair put a second full-size target beside the
+            # first whenever the stop was refused again, and the grace
+            # sub-loop below added one per pass. It also stamps the target on
+            # the position now: if the ladder has to close, close_position
+            # cancels the legs it finds there, and an unstamped id would leave
+            # a live trigger order orphaned on the exchange.
+            pos.sl_order_id = sl_id
+            pos.tp_order_id = tp_id
             try:
-                retry_sl, retry_tp = await self._place_sl_tp(
-                    exchange, pos.symbol, direction, qty,
-                    pos.stop_loss, pos.take_profit)
-                if retry_sl or retry_tp:
-                    # _place_sl_tp cancels every resting plan order before it
-                    # places, so the first attempt's TP is gone whether or
-                    # not the retry's own TP landed: name the retry's, never
-                    # the dead one. A record naming a dead TP beside a live
-                    # SL kept the periodic stop check (it fires on an EMPTY
-                    # id) from ever refreshing it, and the live TP the retry
-                    # placed went untracked.
-                    sl_id = retry_sl
-                    tp_id = retry_tp
+                await self._place_missing_sltp(exchange, pos, quantity=qty)
             except Exception as exc:
-                logger.warning("Post-fill SL retry raised for %s: %s", pos.symbol, exc)
+                logger.warning("Post-fill SL retry raised for %s: %s",
+                               pos.symbol, type(exc).__name__)
+            sl_id = pos.sl_order_id or None
+            tp_id = pos.tp_order_id or None
         if sl_id is None and pos.stop_loss > 0:
             # A stop was intended but didn't place after two attempts. Flag it,
             # then run the bounded grace sub-loop NOW (both callers execute on
@@ -10633,11 +10635,6 @@ class LiveExecutor:
             # on breach. (sl=0 means no stop was intended — never flagged and
             # never flattened, matching the rest of the executor.)
             setattr(pos, "unprotected", True)
-            # Stamp the TP leg onto the position NOW: if the ladder has to close,
-            # close_position cancels the legs it finds on the pos — an unstamped
-            # TP id would leave a live trigger order orphaned on the exchange.
-            if tp_id and not pos.tp_order_id:
-                pos.tp_order_id = tp_id
             audit(trade_log,
                   f"UNPROTECTED position {pos.symbol}: stop-loss not placed post-fill "
                   f"— running grace re-protection now",
@@ -12313,12 +12310,12 @@ class LiveExecutor:
         "protected" to the periodic re-place, the unprotected escalation, the
         grace skip, ``/positions`` and the web gateway alike. Keeping an id
         nobody could verify would answer ✅ over a position that may be naked,
-        with the self-heal standing down — the failure ``_mark_stop_absent``
-        was written for ("A cancelled stop that could not be replaced is an
-        ABSENT stop, and the field has to say so"). Clearing it is also the
-        idempotent direction: ``_place_sl_tp`` cancels every resting plan
-        order before it places, so re-placing over a stop that turned out to
-        be live replaces it rather than doubling it.
+        with the self-heal standing down: a stop absent from the venue has to
+        be absent from the record, which is what ``_mark_stop_absent`` says of
+        a position with none. Clearing it is also the idempotent direction:
+        ``_place_sl_tp`` cancels this side's resting plan orders once its new
+        stop rests, so re-placing over a stop that turned out to be live
+        replaces it rather than doubling it.
 
         A COMBINED id — one ``orderId`` naming both legs — is the v3
         strategy order and is cancelled in the strategy table, then read back
@@ -12579,17 +12576,11 @@ class LiveExecutor:
                         _sl_note = ""
                         if pos.stop_loss > 0 and not pos.sl_order_id:
                             try:
-                                _dir = Direction.LONG if pos.direction == "LONG" else Direction.SHORT
-                                _sl, _tp = await self._place_sl_tp(
-                                    exchange, pos.symbol, _dir, pos.quantity,
-                                    pos.stop_loss, pos.take_profit)
-                                if _sl:
-                                    pos.sl_order_id = _sl
-                                if _tp and not pos.tp_order_id:
-                                    pos.tp_order_id = _tp
+                                await self._place_missing_sltp(exchange, pos)
                             except Exception as _sl_exc:
                                 logger.warning("SL placement after fill-during-cancel "
-                                               "failed for %s: %s", pos.symbol, _sl_exc)
+                                               "failed for %s: %s", pos.symbol,
+                                               type(_sl_exc).__name__)
                             if not pos.sl_order_id:
                                 setattr(pos, "unprotected", True)
                                 _sl_note = ("\n⚠️ Stop-loss not yet placed — "
@@ -12683,18 +12674,11 @@ class LiveExecutor:
                             _sl_note = ""
                             if pos.stop_loss > 0 and not pos.sl_order_id:
                                 try:
-                                    _dir = Direction.LONG if pos.direction == "LONG" else Direction.SHORT
-                                    _sl, _tp = await self._place_sl_tp(
-                                        exchange, pos.symbol, _dir, pos.quantity,
-                                        pos.stop_loss, pos.take_profit)
-                                    if _sl:
-                                        pos.sl_order_id = _sl
-                                    if _tp and not pos.tp_order_id:
-                                        pos.tp_order_id = _tp
+                                    await self._place_missing_sltp(exchange, pos)
                                 except Exception as _sl_exc:
                                     logger.warning("SL placement after already-filled "
                                                    "cancel race failed for %s: %s",
-                                                   pos.symbol, _sl_exc)
+                                                   pos.symbol, type(_sl_exc).__name__)
                                 if not pos.sl_order_id:
                                     setattr(pos, "unprotected", True)
                                     _sl_note = ("\n⚠️ Stop-loss not yet placed — "
@@ -14984,7 +14968,7 @@ class LiveExecutor:
         `fetch_open_orders` — where the classic legs actually live — returned
         the position-attached ids alone, which on an account using plan orders
         is the empty set, and both legs were reported missing. The caller
-        re-places, `_place_sl_tp` cancels before it places, and a healthy pair
+        re-placed, `_place_sl_tp` then cancelled before it placed, and a healthy pair
         is torn down and rebuilt: the same naked window the v3 branch six lines
         up exists to prevent, through the door nobody checked.
 
@@ -15044,8 +15028,12 @@ class LiveExecutor:
         Called on startup and periodically. For each open position, re-places
         SL/TP only when the stops are CONFIRMED missing — empty stored ids, or
         a v3 combined id whose stop the exchange reports as absent. A healthy
-        v3 stop is left alone: _place_sl_tp cancels-then-places, so blindly
-        re-placing would open a naked window every cycle (audit HIGH).
+        stop is left alone: re-placing it every cycle is churn at best, and
+        when it was written the placer cancelled before it placed, so it
+        opened a naked window every cycle (audit HIGH). A leg confirmed gone
+        is cleared from the record and only the missing legs are placed
+        (`_place_missing_sltp`), so a working leg is never torn down to
+        replace its sibling.
         """
         open_pos = [p for p in self._positions.values() if p.status == "open"]
         if not open_pos:
@@ -15062,11 +15050,11 @@ class LiveExecutor:
                 continue  # No SL/TP levels to place
             elif pos.sl_order_id == pos.tp_order_id:
                 # v3 combined order: one id serves both legs. Do NOT blindly
-                # re-place — _place_sl_tp cancels-then-places, so re-placing a
-                # HEALTHY stop opens a naked window every self-heal cycle, and
-                # a failed re-place leaves the position unprotected where it
-                # was protected moments earlier (audit HIGH; the old "v3 is
-                # idempotent" comment was wrong — placement cancels first).
+                # re-place. When this was written the placer cancelled before
+                # it placed, so re-placing a HEALTHY stop opened a naked window
+                # every self-heal cycle (audit HIGH). It places first now, and
+                # a healthy stop is still left alone: nothing about it needs
+                # replacing.
                 # Verify against the exchange; re-place ONLY when the venue
                 # positively confirms no stop is attached. Present or
                 # unverifiable → trust the stored id and leave the live stop
@@ -15074,6 +15062,11 @@ class LiveExecutor:
                 _stop_live = await self._stop_live_on_exchange(pos)
                 if _stop_live is False:
                     needs_fix = True
+                    # Confirmed gone: the record stops naming it, so a
+                    # re-place that fails below leaves the periodic retry an
+                    # empty id to act on rather than a dead one to trust.
+                    pos.sl_order_id = None
+                    pos.tp_order_id = None
                     audit(trade_log,
                           f"v3 stop confirmed MISSING on exchange for {pos.symbol} "
                           f"— re-placing",
@@ -15084,32 +15077,30 @@ class LiveExecutor:
                 # IDs alone don't prove the legs are still live — a leg lost while
                 # offline (filled / cancelled on-venue) leaves the position
                 # half-protected. Verify each leg against the exchange and re-place
-                # the pair if either is gone (placement cancels survivors first).
+                # the leg that is gone; the one still resting is left alone.
                 live_ids = await self._live_protective_order_ids(pos)
                 if live_ids is not None:  # None = couldn't verify → trust stored IDs
                     sl_missing, tp_missing = self._missing_classic_legs(
                         pos.sl_order_id, pos.tp_order_id, live_ids)
                     if sl_missing or tp_missing:
                         needs_fix = True
+                        _was = (pos.sl_order_id, pos.tp_order_id)
                         audit(trade_log,
                               f"Classic SL/TP leg missing on exchange for {pos.symbol} "
                               f"(sl_missing={sl_missing} tp_missing={tp_missing}) — re-placing",
                               action="startup_sltp_verify", result="LEG_MISSING",
                               data={"trade_id": pos.trade_id, "symbol": pos.symbol,
-                                    "sl_order_id": pos.sl_order_id,
-                                    "tp_order_id": pos.tp_order_id})
+                                    "sl_order_id": _was[0], "tp_order_id": _was[1]})
+                        # Absent from a COMPLETE set is gone: the record stops
+                        # naming what is not there.
+                        if sl_missing:
+                            pos.sl_order_id = None
+                        if tp_missing:
+                            pos.tp_order_id = None
 
             if needs_fix and pos.stop_loss > 0 and pos.take_profit > 0:
-                direction = Direction.LONG if pos.direction == "LONG" else Direction.SHORT
                 try:
-                    sl_id, tp_id = await self._place_sl_tp(
-                        exchange, pos.symbol, direction,
-                        pos.quantity, pos.stop_loss, pos.take_profit
-                    )
-                    if sl_id:
-                        pos.sl_order_id = sl_id
-                    if tp_id:
-                        pos.tp_order_id = tp_id
+                    sl_id, tp_id = await self._place_missing_sltp(exchange, pos)
                     if sl_id or tp_id:
                         fixed += 1
                         audit(trade_log,
@@ -15122,7 +15113,8 @@ class LiveExecutor:
                             "SL/TP placement returned no IDs for %s — position may be UNPROTECTED",
                             pos.symbol)
                 except Exception as exc:
-                    logger.warning("Startup SL/TP fix failed for %s: %s", pos.symbol, exc)
+                    logger.warning("Startup SL/TP fix failed for %s: %s",
+                                   pos.symbol, type(exc).__name__)
 
         if fixed > 0:
             self._save_positions()

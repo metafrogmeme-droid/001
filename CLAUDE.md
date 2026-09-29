@@ -17636,6 +17636,94 @@ reaches: the coverage note refused a `bool` count, and no producer writes one.
 It is deleted.
 (`tests/test_the_livepositions_card_prints_what_the_record_holds.py`.)
 
+**THE SL/TP RETRY WAS WRITTEN FOR A PLACER THAT CANCELLED FIRST, AND THE
+PLACER PLACES FIRST NOW.** `_place_sl_tp` lists this side's resting plan
+orders, places the new pair, and cancels the listed rows only once a new stop
+rests. Every retry door still called it for the whole pair and recorded the
+answer by a rule written for the old order. The periodic retry used
+`if sl_id and not pos.sl_order_id`, and its failure branch, added by an earlier
+ghost-stop fix, cleared the record's stop with an audit reading "the existing
+one was cancelled and the replacement was refused". Driven on the base tree
+through the real `check_positions`, a classic Bitget long, stop 95, target 110:
+
+- **A missing target replaced a working stop.** The stop rested and the target
+  was missing. The retry placed a new stop, the placer swept the resting one,
+  and the record kept the swept id while the new stop rested untracked. With
+  the target refused, that happened on every pass.
+- **A refused re-place cleared a live stop.** The stop rested and the new one
+  was refused. The placer had cancelled nothing, and the retry recorded no stop
+  and marked the position unprotected. When the refusal was a 25588-family
+  answer, the breach-by-rejection branch then closed the position at market
+  beside its resting stop.
+- **A missing stop swept the resting target and the record kept its id.** The
+  new stop landed, the placer cancelled the old target, and the record still
+  named it. When the new target was placed too, it rested untracked.
+- **A refused stop added a full-size target every pass.** With the target
+  resting and the stop refused, nothing was cancelled and a new target was
+  placed each time: four targets resting after three passes.
+
+**`_protect_legs` is the one rule, and it places only what is missing.** On the
+classic path, with one leg held and the other missing, it places the missing
+leg alone through `_place_classic_trigger`, the single-leg helper the placer's
+own classic branch now calls, so the two cannot differ about the grid, the
+params or what a refusal records. A v3 order carries both legs, so the pair
+goes through the placer on a v3 account, while the account type is unresolved,
+for inverted levels, and for a position holding neither leg. The pair's answer
+is read by the placer's contract: a placed stop means the held ids were swept
+and both answers stand; no stop placed means nothing was cancelled, so the held
+stop still rests and a target is taken only where none was held. A held stop is
+never answered as absent. `_place_missing_sltp` writes the answer onto a
+position record and returns only what this call placed, for the caller's audit.
+
+**Nine doors ask it:** the periodic retry, the grace retry, the grace sub-loop,
+the post-fill ladder, the entry retry, the adoption retry, both cancel-race
+sites, and the startup fix. The startup fix clears a leg the venue confirmed
+gone before asking, so a lost target is placed beside the resting stop instead
+of the pair replacing it, and a v3 id confirmed gone no longer stays on the
+record when the re-place is refused. The periodic retry marks a position
+unprotected only when the record named no stop before and after the retry.
+The rule is a structural test: every direct caller of the placer is named with
+its reason, one call each, and each places a first protection on a record
+that holds none.
+
+**Four pins broke, and the mutation driver found the fourth.** The ghost-stop
+suite asserted the cleared stop as the contract; it is rewritten to the
+placer's order. The post-fill guard pinned `sl_id = retry_sl` three times, and
+a re-arm pin counted `_place_sl_tp(` at the cancel-race sites. The
+venue-routing pin spelled `trigger_params("sl"` inside the placer, which reads
+it through the helper now. None of the slice's own runs included that file:
+the driver refused its red baseline. Three suites' prose still said the
+placer cancels before it places.
+
+**Thirty-seven mutations. Eight survived the first round; seven were paths no
+suite in the tree drove, and each has a test now.** Rerun against all 51
+suites that call the placer, one died; the other seven still survived.
+
+- Nothing checked that a classic trigger closes the position it protects: a
+  reversed side survived. Nor that its level is rounded onto the market's tick
+  grid.
+- A refused stop's reason, which the unprotected alert and the abort cards
+  read, was pinned only as a count of call sites. So deleting the note and
+  clearing it on a placed target both survived.
+- The retry's own unprotected mark, and its save, were masked by the
+  escalation alert, which sets the same marker in memory. A test with the
+  alert throttled isolates them, and reads the saved row.
+- The record form reporting a held target as placed by this call survived; so
+  did keeping a swept target's id once a new stop landed, killed only outside
+  the round.
+
+All thirty-seven die now.
+(`tests/test_a_retry_places_only_the_missing_leg.py`.)
+
+**And the head carrying the four slices before this one failed the strict
+mypy gate.** `mypy bot/risk ... bot/core/live_executor.py` follows imports.
+The open-announcement slice gave `agent_feed`, which the executor imports, a
+lazy `from bot.formatters.rich_cards import _fmt_price`. So the gate walked
+into the card renderers and reported 25 old errors in four files. None of
+that slice's runs included the gate. The formatter lives in
+`bot/formatters/price_text.py` now, which imports nothing, and `rich_cards`
+re-exports it.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -18927,7 +19015,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **474 of 1177** reach for source text through `source_scan`, `code_only`
+Driven, **474 of 1178** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 474 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

@@ -384,9 +384,15 @@ def test_sl_tp_and_close_paths_are_venue_routed():
     import inspect
     from bot.core.live_executor import LiveExecutor
     for meth, needles in [
+        # The classic legs go through the one single-leg helper the retry
+        # also asks (`_place_classic_trigger`), so the placer names each leg
+        # to it and the helper is where the venue dialect is read.
         (LiveExecutor._place_sl_tp,
-         ["self._venue.trigger_params(\"sl\"", "self._venue.trigger_params(\"tp\"",
+         ["self._place_classic_trigger(", "\"sl\", direction", "\"tp\", direction",
           "self._fetch_plan_orders(", "self._cancel_replaced_plans("]),
+        (LiveExecutor._place_classic_trigger,
+         ["self._venue.trigger_params(kind, level)", "self._venue.order_symbol(symbol)",
+          "self._venue.market_order_needs_price"]),
         (LiveExecutor._fetch_plan_orders,
          ["self._venue.plan_order_queries()", "is_plan_order"]),
         (LiveExecutor._cancel_replaced_plans,

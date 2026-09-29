@@ -168,7 +168,7 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:6916 creates the entry order idempotently, :8608/:9099 attach
+live_executor.py:6912 creates the entry order idempotently, :8595/:9146 attach
 the exchange-side stop and take-profit, and every venue call carries
 productType USDT-FUTURES (:2533, :2549, :2677); venues.py:340 selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42

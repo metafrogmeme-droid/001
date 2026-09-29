@@ -8,8 +8,9 @@ was offline (filled / cancelled on-venue) left the position half-protected and
 was never re-placed.
 
 When CONFIG.execution.verify_classic_sltp_on_restart is ON, each distinct
-classic leg is verified against the exchange's live orders and the SL/TP pair is
-re-placed if either is gone (placement cancels survivors first).
+classic leg is verified against the exchange's live orders, a leg that is gone
+is cleared from the record, and only the missing legs are placed
+(`_place_missing_sltp`): the leg still resting is left alone.
 
 THIS FILE SAID "Default OFF keeps restart behaviour byte-identical" AND THE
 DEFAULT IS ON. `bot/config.py:1898` reads `_env_bool(..., True)` under a comment
@@ -102,8 +103,8 @@ class TestLiveProtectiveOrderIds:
         `fetch_open_orders` beside a working `fetch_positions` returned the
         position-attached ids alone, which on a plan-order account is the empty
         set: both legs reported missing, the pair re-placed, and `_place_sl_tp`
-        cancels before it places — the healthy pair torn down and rebuilt, with
-        a naked window in between. That is the audit-HIGH failure the v3 branch
+        then cancelled before it placed — the healthy pair torn down and
+        rebuilt, with a naked window in between. That is the audit-HIGH failure the v3 branch
         six lines up was written to prevent, reached through the other branch,
         under a flag that defaults ON (`bot/config.py`: "Default ON —
         recommended for live money").

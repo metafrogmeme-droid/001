@@ -275,8 +275,10 @@ async def test_grace_close_failed_string_escalates_to_flatten(tmp_path, monkeypa
 @pytest.mark.asyncio
 async def test_the_retry_hands_back_its_own_tp_not_the_first_attempts(tmp_path, monkeypatch):
     # The classic path places SL then TP in separate tries, so the first
-    # attempt can return (None, tp). The retry's _place_sl_tp cancels every
-    # resting plan order before it places — the first TP is GONE — and then
+    # attempt can return (None, tp). On a venue whose account type is not yet
+    # resolved the retry places the pair, and its sweep cancels this side's
+    # resting plan orders once the new stop rests — the first TP is GONE — and
+    # then
     # `if tp_id is None and retry_tp` kept the dead first id and dropped the
     # live retry TP: the record named a dead TP beside a live SL, the periodic
     # check (which fires on an EMPTY id) never refreshed it, and the TP the
@@ -303,19 +305,23 @@ async def test_a_retry_that_placed_nothing_leaves_the_first_tp_named(tmp_path, m
 
 @pytest.mark.asyncio
 async def test_the_other_two_retry_sites_hand_back_their_own_tp_too(tmp_path, monkeypatch):
-    """The same three lines live in `_place_entry_stops` (the primary market
-    entry) and in `adopt_exchange_positions`. Both call `_place_sl_tp` a
-    second time, whose cleanup cancels the first attempt's TP, and both kept
-    the dead first id — which is verbatim the failure the ladder's fix
-    describes. Asking which OTHER surface makes the same claim is the rule;
-    this pins all three."""
-    src = inspect.getsource(LiveExecutor)
-    body = code_only(src)
-    assert "if tp_id is None:\n" not in body.replace("\r\n", "\n"), (
-        "a retry site still keeps the first attempt's TP id over the retry's own")
-    # …and the three sites each name what the retry placed.
-    assert body.count("sl_id = retry_sl\n") + body.count("sl_id = retry_sl\r\n") >= 3
-    assert body.count("tp_id = retry_tp") >= 3
+    """The same retry lives in `_place_entry_stops` (the primary market entry)
+    and in `adopt_exchange_positions`. Each used to call `_place_sl_tp` a
+    second time and name what that call placed, and on the classic path that
+    put a second full-size target beside the first whenever the stop was
+    refused again. All three sites read the answer through one rule now,
+    `_protect_legs` (the ladder through `_place_missing_sltp`, its record
+    form), which places only what is missing and keeps what still rests.
+    Asking which OTHER surface makes the same claim is the rule; this pins all
+    three, and `tests/test_a_retry_places_only_the_missing_leg.py` drives it."""
+    body = code_only(inspect.getsource(LiveExecutor))
+    assert "retry_sl" not in body and "retry_tp" not in body, (
+        "a retry site names its own second-attempt ids again instead of "
+        "asking _protect_legs")
+    for meth in (LiveExecutor._place_entry_stops, LiveExecutor.adopt_exchange_positions):
+        assert "self._protect_legs(" in code_only(inspect.getsource(meth)), meth.__name__
+    assert "self._place_missing_sltp(" in code_only(
+        inspect.getsource(LiveExecutor._reattempt_post_fill_sl))
 
 
 @pytest.mark.asyncio

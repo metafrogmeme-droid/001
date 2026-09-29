@@ -36,11 +36,10 @@ all clear it. That is not a shrug at the third — it is the point of having it.
 Nothing in the tree reads `sl_order_id` three-valued: non-empty is a green
 tick to /positions, to the web gateway, to the unprotected escalation and to
 the periodic re-place, so an id nobody could verify would answer "protected"
-over a position that may be naked, with the self-heal standing down. The file
-says so 2,000 lines up, beside `_mark_stop_absent`: "A cancelled stop that
-could not be replaced is an ABSENT stop, and the field has to say so."
-Clearing is also idempotent — `_place_sl_tp` cancels what it finds before it
-places — so a stop that turns out to be live is replaced, not doubled.
+over a position that may be naked, with the self-heal standing down: a stop
+absent from the venue has to be absent from the record. Clearing is also
+idempotent — `_place_sl_tp` cancels this side's resting plan orders once its
+new stop rests — so a stop that turns out to be live is replaced, not doubled.
 """
 
 from __future__ import annotations
