@@ -219,7 +219,7 @@ class TestBothDocumentsSayWhichLeverageTheRecordWasMeasuredAt:
         assert "--leverage 5" in doc, "the arm that measures what live places is named"
 
     def test_claude_md_states_the_leverage_the_honest_record_fills_at(self):
-        text = (ROOT / "CLAUDE.md").read_text()
+        text = (ROOT / "docs" / "lessons" / "ENGINEERING_LOG.md").read_text()
         assert len(re.findall(r"frozen benchmark runs at 5x", text)) == 0
         honest = _honest_leverage()
         assert f"the frozen benchmark fills at {honest}x" in text

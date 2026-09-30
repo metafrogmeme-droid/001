@@ -1159,66 +1159,16 @@ class ScanCommands:
                          else CONFIG.deepscan_timeout_sec),
             )
             if result:
-                # Try to render a card image from structured hits
-                card_sent = False
-                try:
-                    hits = getattr(self.engine, '_last_deepscan_hits', None)
-                    if hits:
-                        from bot.formatters.signal_card import render_scan_results_card
-                        # Convert deepscan hits to scan card format
-                        setups = []
-                        for h in hits[:6]:
-                            price = h["price"]
-                            # Real ATR from the scan; fall back to 2% only if
-                            # the scan couldn't compute one.
-                            atr = h.get("atr") or price * 0.02
-                            direction = "LONG" if h.get("rsi", 50) < 50 or h.get("chg", 0) > 0 else "SHORT"
-                            if direction == "LONG":
-                                entry = round(price - atr * 0.3, 8)
-                                sl_val = round(price - atr * 2.5, 8)
-                                tp_val = round(price + atr * 3.0, 8)
-                            else:
-                                entry = round(price + atr * 0.3, 8)
-                                sl_val = round(price + atr * 2.5, 8)
-                                tp_val = round(price - atr * 3.0, 8)
-                            sl_dist = abs(entry - sl_val) / entry * 100 if entry > 0 else 0
-                            tp_dist = abs(tp_val - entry) / entry * 100 if entry > 0 else 0
-                            rr = tp_dist / sl_dist if sl_dist > 0 else 0
-                            setups.append({
-                                "sym": h["symbol"],
-                                "dir": direction,
-                                "price": price,
-                                "entry": entry,
-                                "sl": sl_val,
-                                "tp": tp_val,
-                                "rr": rr,
-                                "rsi": h.get("rsi", 0),
-                                "vol_ratio": 2.5 if h.get("vol_spike") else 1.0,
-                                # Pre-normalized relative to this scan's best
-                                # hit (see DeepScanSkill.execute) -- NOT a
-                                # fixed-divisor guess that saturates at 100%.
-                                "score": h.get("score_norm", 0.0),
-                            })
-                        now_str = datetime.now(UTC).strftime('%H:%M UTC')
-                        card_png = render_scan_results_card(
-                            setups, scan_label=f"DEEP SCAN {tf.upper()}",
-                            timestamp=now_str)
-                        if card_png:
-                            import io as _io
-                            buf = _io.BytesIO(card_png)
-                            buf.name = "deepscan.png"
-                            chat_id = str(update.effective_chat.id) if update.effective_chat else ""
-                            if chat_id:
-                                await update.get_bot().send_photo(
-                                    chat_id=int(chat_id), photo=buf,
-                                    caption=f"🔬 <b>RUNECLAW Deep Scan</b> — {tf.upper()} — {now_str}",
-                                    parse_mode="HTML")
-                                card_sent = True
-                except Exception as exc:
-                    system_log.warning("Deepscan card render failed: %s", exc)
-
-                # Render the pattern observations as a card too (mirrors the
-                # text patterns readout). Text is still sent below as a fallback.
+                # NO SETUPS PICTURE. A deep scan measures patterns and decides no
+                # direction, so it has no trade to draw. This block used to build
+                # one per hit anyway -- "LONG if RSI < 50 or the last bar closed up",
+                # a volume ratio of exactly 2.5 or 1.0, and entry, stop and target
+                # from an ATR that fell back to 2% of price -- and send it as a
+                # scan-results card with an R:R on it. The website push had the
+                # same rows; both are gone. The patterns picture below shows what
+                # the scan actually read.
+                # Render the pattern observations as a card (mirrors the text
+                # patterns readout). Text is still sent below as a fallback.
                 patterns_card_sent = False
                 try:
                     p_hits = getattr(self.engine, '_last_deepscan_hits', None)

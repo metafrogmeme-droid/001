@@ -26,6 +26,7 @@ chokepoint for a failed operator call).
 """
 from __future__ import annotations
 
+import html as _html
 from typing import TYPE_CHECKING, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -254,6 +255,46 @@ def _journal_gap_closes(engine, *, days: int = 7) -> int:
         return n
     except Exception:
         return 0
+
+
+def autoconfirm_placement_line(engine, *, is_live: bool) -> str:
+    """What happens to an idea that clears the auto-confirm bar.
+
+    The card used to say such ideas "auto-execute". In live mode an order with
+    no human tap is placed only when the flag is on AND an eligibility record
+    exists for the running strategy (`engine._autonomous_live_refusal`, the
+    reading the Lock-5 mint takes), and no record ships. In paper mode the
+    confirm places nothing at all: this bot places no paper trades of its own.
+    A reading that raises is said as one, never read as "placed".
+    """
+    if not is_live:
+        return ("Paper mode: this bot places no paper trades of its own, so an "
+                "auto-confirm places nothing.")
+    try:
+        why = engine._autonomous_live_refusal()
+    except Exception as exc:  # noqa: BLE001 -- a failed read is said, not passed
+        why = f"the live gate could not be read ({type(exc).__name__})"
+    if why is None:
+        return "Live: an idea that clears the bar is placed with no tap."
+    return (f"\u26d4 Live: no order is placed without a tap, because "
+            f"{_html.escape(str(why))}. The Confirm button on each card is "
+            f"the door.")
+
+
+def forcescan_withheld_line(result: dict) -> Optional[str]:
+    """The ideas a /forcescan held back from auto-confirm, and why.
+
+    None when none were: a permanent "withheld: 0" row is the one that trains
+    a reader to skip the line.
+    """
+    n = result.get("auto_withheld")
+    if not isinstance(n, int) or isinstance(n, bool) or n <= 0:
+        return None
+    why = result.get("auto_withheld_why")
+    reason = (f": {_html.escape(str(why))}" if isinstance(why, str) and why
+              else "")
+    return (f"\u26d4 Held back from auto-confirm: <b>{n}</b>{reason}. "
+            f"Each is still pending; its Confirm button is the door.")
 
 
 class EngineOpsCommands:
@@ -940,11 +981,17 @@ class EngineOpsCommands:
 
         if not args:
             # Show current state
-            threshold = CONFIG.auto_confirm_threshold
+            # RUNTIME, not CONFIG: `/autoconfirm 0.75` and the adaptive
+            # threshold both move RUNTIME, and the frozen CONFIG value is the
+            # boot default a card read back after either had changed it.
+            threshold = RUNTIME.auto_confirm_threshold
             if threshold >= 1.0:
                 status = "\U0001f534 <b>OFF</b> — all trades require manual confirmation"
             else:
-                status = f"\U0001f7e2 <b>ON</b> — trades with confidence \u2265 <b>{threshold*100:.0f}%</b> auto-execute"
+                status = (f"\U0001f7e2 <b>ON</b> — ideas with confidence \u2265 "
+                          f"<b>{threshold*100:.0f}%</b> are confirmed with no tap\n"
+                          + autoconfirm_placement_line(
+                              self.engine, is_live=CONFIG.is_live()))
             await self._send(update,
                 f"\U0001f916 <b>Auto-Confirm Status</b>\n\n"
                 f"{status}\n\n"
@@ -980,8 +1027,9 @@ class EngineOpsCommands:
             await self._send(update,
                 f"\U0001f916 <b>Auto-Confirm Updated</b>\n\n"
                 f"Threshold: <b>{new_threshold*100:.0f}%</b>\n"
-                f"Trades with confidence \u2265 {new_threshold*100:.0f}% will auto-execute.\n"
-                f"Lower confidence trades still require manual confirmation.")
+                f"Ideas with confidence \u2265 {new_threshold*100:.0f}% are confirmed with no tap.\n"
+                + autoconfirm_placement_line(self.engine, is_live=CONFIG.is_live())
+                + "\nLower confidence ideas still require manual confirmation.")
         except ValueError:
             await self._send(update,
                 "\u274c Invalid value. Use a number (0.50-1.00) or 'off'.\n"
@@ -1017,6 +1065,9 @@ class EngineOpsCommands:
         ]
         if result.get('cleared_pending', 0) > 0:
             lines.append(f"\U0001f9f9 Cleared old pending: <b>{result['cleared_pending']}</b>")
+        _withheld = forcescan_withheld_line(result)
+        if _withheld:
+            lines.append(_withheld)
 
         await self._send(update, "\n".join(lines))
 

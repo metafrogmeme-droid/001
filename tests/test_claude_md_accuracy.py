@@ -25,7 +25,9 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-DOC = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+# The chapters this file pins moved from CLAUDE.md to the engineering log on
+# 2026-09-29 (tests/test_the_agent_guide_stays_lean.py holds the split).
+DOC = (ROOT / "docs" / "lessons" / "ENGINEERING_LOG.md").read_text(encoding="utf-8")
 
 
 # ── every path it names exists ────────────────────────────────────────────
@@ -172,9 +174,15 @@ def test_the_honesty_backlog_it_quotes_is_the_real_one():
     assert m, "the honesty-ratchet backlog sentence is gone"
     baseline = json.loads((ROOT / "tests" / "honesty_baseline.json")
                           .read_text(encoding="utf-8"))
-    assert int(m.group(1).replace(",", "")) == baseline["total"], (
-        f"CLAUDE.md says {m.group(1)} baselined hits; the baseline records "
-        f"{baseline['total']}")
+    # The baseline stores no total; it is the sum of the counts, read through
+    # the gate's own reading so the two cannot answer differently.
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import honesty_gate
+    from ratchet_baseline import derived_total
+    total = derived_total(baseline, honesty_gate.DEPTH)
+    assert int(m.group(1).replace(",", "")) == total, (
+        f"the log says {m.group(1)} baselined hits; the baseline's counts "
+        f"sum to {total}")
 
 
 def test_the_shapes_it_says_are_uncovered_really_are():
@@ -821,193 +829,119 @@ def test_the_income_map_derivation_it_describes_is_the_real_one():
         "the doc says trader holds it; that is why /stake is not admin-only")
 
 
-def test_the_two_stale_citations_it_names_are_where_it_says():
-    """"line 199 is empty and the handler is at 297" / "six lines short".
-
-    Those two readings are the whole argument for refusing a resolvability
-    ratchet — a citation rots by pointing at the wrong line, not an impossible
-    one — so they are driven rather than remembered. Both are also the fix
-    this slice shipped, so a later edit that shifts either handler fails HERE
-    and sends the reader to re-measure the sentence rather than trust it.
-    """
-    def _lines(rel):
-        return (ROOT / rel).read_text(encoding="utf-8").split("\n")
-
-    def _defs(lines, name):
-        return [i for i, ln in enumerate(lines, 1)
-                if ln.lstrip().startswith((f"def {name}(", f"async def {name}("))]
-
-    stake = _lines("bot/skills/yield_commands.py")
-    assert len(stake) >= 199, "the stale citation stopped being in range"
-    assert not stake[198].strip(), repr(stake[198])
-    stake_def, = _defs(stake, "_cmd_stake")
-    assert stake[stake_def - 2].strip() == '@guard("stake")', repr(stake[stake_def - 2])
-
-    # EVERY citation into trading_commands.py is DERIVED, not restated. The
-    # stale /mystrategy line was 178 and its handler 184, and the fee slice
-    # inserted `pending_order_card` above both -- so a hard-coded
-    # 178-is-blank / handler-is-184 pin fails on any edit ABOVE the handler,
-    # which is the resolvability ratchet this section refuses in a new place
-    # (most firings on edits with no relation to the citation). What the map
-    # must do is cite the HANDLER's own `def`, the convention its `/stake`
-    # citation already sets.
-    #
-    # The four here are the four the map makes into that file, and deriving
-    # them is what found three MORE stale ones the blank-line probe cannot
-    # see, because each landed on a line that is not blank:
-    #
-    #   :744  ->  `return sent_any`, nine lines above `_cmd_buy`
-    #   :801  ->  the simulation toggle, SIX lines above `_cmd_trade` -- the
-    #             same "six lines short" shape the section records for
-    #             /mystrategy, a second instance nobody had measured
-    #   :375  ->  `@guard("mystrategy")`, one short of its own handler, which
-    #             the fee slice introduced while correcting :178
-    #
-    # That is exactly the case the section says a resolvability ratchet cannot
-    # reach and "needs a reader who knows what the citation MEANT". Deriving
-    # the handler is that reader, for the citations whose subject is a named
-    # command; it stays a reading job for the rest.
-    trading = _lines("bot/skills/trading_commands.py")
-    mystrat, = _defs(trading, "_cmd_mystrategy")
-    buy, = _defs(trading, "_cmd_buy")
-    sell, = _defs(trading, "_cmd_sell")
-    trade, = _defs(trading, "_cmd_trade")
-    assert trading[mystrat - 2].strip() == '@guard("mystrategy")', repr(trading[mystrat - 2])
-    # The buy/sell citation is the pair of refusals, so the sentence names
-    # both handlers and the REFUSAL has to still be inside each of them.
-    for first, nxt in ((buy, sell), (sell, trade)):
-        body = "\n".join(trading[first - 1:nxt - 1])
-        assert "Spot trading is disabled" in body, first
-
-    income = (ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8")
-    assert income.count(f"trading_commands.py:{mystrat}") == 2
-    assert income.count(f"trading_commands.py:{buy}, :{sell}") == 2
-    assert income.count(f"trading_commands.py:{trade}") == 1
-    assert f"yield_commands.py:{stake_def}" in income
-    assert "yield_commands.py:199" not in income
-
-    # The same derivation for `scan_commands.py`, and the reason is the same
-    # one found twice: a slice added module-level helpers above these
-    # handlers, one citation was re-pointed and five were not, so /swing
-    # cited `return False`, /scalp an unrelated send, /token a line inside
-    # `_cmd_research`, and the /research citation a string literal rather than
-    # the `fetch_research` call. None landed on a blank line, so the probe
-    # below could see none of them; each is derived from what its sentence
-    # names now, and the next insertion above them fails here.
-    scan = _lines("bot/skills/scan_commands.py")
-    swing, = _defs(scan, "_cmd_swing")
-    scalp, = _defs(scan, "_cmd_scalp")
-    token, = _defs(scan, "_cmd_token")
-    stockscan, = _defs(scan, "_cmd_stockscan")
-    assert scan[token - 2].strip() == '@guard("token")', repr(scan[token - 2])
-    fetch = [i + 1 for i, ln in enumerate(scan) if "fetch_research" in ln
-             and "_cmd_" not in ln]
-    session = [i + 1 for i, ln in enumerate(scan)
-               if "from bot.core.stock_trading import get_market_session" in ln]
-    handler = _lines("bot/skills/telegram_handler.py")
-    registered = [i + 1 for i, ln in enumerate(handler)
-                  if '("stockscan", self._cmd_stockscan)' in ln]
-    assert len(fetch) == 2 and fetch[1] == fetch[0] + 1, fetch
-    assert len(registered) == 1, registered
-    flat = re.sub(r"\s+", " ", income)
-    for cited in (f"/swing (scan_commands.py:{swing})",
-                  f"/scalp (scan_commands.py:{scalp})",
-                  f"web_data_pull.fetch_research — scan_commands.py:{fetch[0]}-{fetch[1]}",
-                  f"/token (scan_commands.py:{token}, @guard('token')",
-                  f"scan_commands.py:{stockscan}, registered "
-                  f"telegram_handler.py:{registered[0]})",
-                  f"(get_market_session) and scan_commands.py:{session[-1]}."):
-        assert flat.count(cited) == 1, cited
-
-    # And `live_executor.py`, the file every slice grows: its citations had
-    # drifted to `else:`, an unrelated `except`, and -- as BARE continuations
-    # (`:6423`) the blank-line probe's `path:line` pattern cannot see -- a
-    # blank line. Each is derived from what its sentence names.
+def _decorated(rel: str, cls: str, name: str) -> list[str]:
+    """The decorators on `cls.name` in `rel`, as source text."""
     import ast
-    ex_src = (ROOT / "bot" / "core" / "live_executor.py").read_text(encoding="utf-8")
-    ex_lines = ex_src.splitlines()
-    fns = {n.name: n for n in ast.walk(ast.parse(ex_src))
-           if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
-    submit = fns["_submit_entry_order"]
-    entry_call = next(i + 1 for i in range(submit.lineno - 1, submit.end_lineno)
-                      if "await self._create_order_idempotent(" in ex_lines[i])
-    trailing_read = next(i + 1 for i, ln in enumerate(ex_lines)
-                         if "CONFIG.strategy_types." in ln)
-    product = [i + 1 for i, ln in enumerate(ex_lines)
-               if '"productType": "USDT-FUTURES"' in ln][:3]
-    for cited in (
-            f"bot/core/live_executor.py:{trailing_read} (the per-strategy trailing "
-            f"switch, read for every entry and every fill)",
-            f"live_executor.py:{entry_call} creates the entry order idempotently, "
-            f":{fns['_place_sl_tp'].lineno}/:{fns['_place_sl_tp_v3'].lineno} attach",
-            "productType USDT-FUTURES (" + ", ".join(f":{n}" for n in product) + ")"):
-        assert flat.count(cited) == 1, cited
+    tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == cls:
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name == name:
+                    return [ast.unparse(d) for d in item.decorator_list]
+    raise AssertionError(f"{rel}: no {cls}.{name}")
 
-    # And `config.py`, whose rows the probe below could not even resolve: it
-    # tried bot/skills, bot/core, bot/risk and bot/web and never bot/, so every
-    # `config.py:` citation was skipped, and all nine had drifted ~50 lines
-    # onto limit-order and time-stop fields. The strategy-type rows land on a
-    # wrong NON-blank line, which no probe can see, so each is derived from
-    # the declaration its sentence names.
-    cfg_lines = (ROOT / "bot" / "config.py").read_text(encoding="utf-8").splitlines()
 
-    def decl(name: str) -> int:
-        hits = [i + 1 for i, ln in enumerate(cfg_lines)
-                if re.match(rf"\s+{name}:\s", ln)]
-        assert len(hits) == 1, (name, hits)
-        return hits[0]
+def _body(rel: str, cls: str, name: str) -> str:
+    import ast
+    src = (ROOT / rel).read_text(encoding="utf-8")
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, ast.ClassDef) and node.name == cls:
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name == name:
+                    return "\n".join(src.splitlines()[item.lineno - 1:item.end_lineno])
+    raise AssertionError(f"{rel}: no {cls}.{name}")
 
-    eng_lines = (ROOT / "bot" / "core" / "engine.py").read_text(encoding="utf-8").splitlines()
-    adaptive = next(i + 1 for i, ln in enumerate(eng_lines)
-                    if "Adaptive Confidence Threshold" in ln)
-    for row in ("swing", "scalp"):
-        # The swing row used to cite its trailing ATR multiplier as the trail
-        # distance; the default rule never reads it (the stage table decides),
-        # so both rows cite the trailing switch alone.
-        trail = ("ENABLED on the stage table every type shares" if row == "swing"
-                 else "deliberately OFF")
-        trail_ref = f"{decl(row + '_trailing_enabled')}"
-        cited = (f"(config.py:{decl(row + '_sl_atr_mult')}-{decl(row + '_tp_atr_mult')}), "
-                 f"trailing {trail} (:{trail_ref}), a ")
-        assert flat.count(cited) == 1, cited
-        tail = (f"(:{decl(row + '_time_close_hours')}-{decl(row + '_time_warn_hours')}), "
-                f"min confidence")
-        assert flat.count(tail) == 1, tail
-        for field in ("_min_confidence", "_max_risk_pct"):
-            assert f"(:{decl(row + field)})" in flat, (row, field)
-    for cited in (
-            f"LIVE_TRADING_ENABLED defaults False (config.py:"
-            f"{decl('simulation_mode')}-{decl('live_trading_enabled')})",
-            f"(default 0.85, config.py:{decl('auto_confirm_threshold')})",
-            f"realized win rate (engine.py:{adaptive})",
-            f"SIMULATION_MODE defaults True (config.py:{decl('simulation_mode')})",
-            f"`CONFIG.deepscan_timeout_sec` (`bot/config.py:{decl('deepscan_timeout_sec')}`"):
-        assert flat.count(cited) == 1, cited
 
-    # And no citation anywhere in the map lands on a blank line -- the one
-    # probe that found both of the originals. The ONE exception is a citation
-    # whose own sentence says it IS a blank line: the map's retraction of a
-    # stale citation has to name what it pointed at, which is the "a comment
-    # that quotes the string it forbids" shape. It is excluded by that
-    # SENTENCE rather than by its line number, so the exclusion cannot outlive
-    # the retraction -- and the probe was passing here only because the
-    # citation had rotted off its blank line onto a `return`.
-    _flat_income = " ".join(income.split())
-    for m in re.finditer(r"([\w/]+\.py):(\d+)", income):
-        rel, n = m.group(1), int(m.group(2))
-        if f"{rel}:{n} is a blank line" in _flat_income:
-            continue
-        path = ROOT / rel if (ROOT / rel).exists() else None
-        if path is None:
-            for base in ("bot/skills", "bot/core", "bot/risk", "bot/web", "bot"):
-                if (ROOT / base / rel).exists():
-                    path = ROOT / base / rel
-                    break
-        if path is None:
-            continue
-        lines = path.read_text(encoding="utf-8").split("\n")
-        if n <= len(lines):
-            assert lines[n - 1].strip(), f"{rel}:{n} is a blank line"
+def test_the_gates_and_refusals_the_map_names_are_the_handlers_own():
+    """What the map says about a command's GATE, checked against the handler.
+
+    These used to ride inside tests that re-derived the map's line numbers;
+    the numbers are anchors now (`scripts/cite.py --check` resolves them), and
+    what is left is the part that was never about a line: the permission a
+    sentence names is the decorator on the handler it names, and a refusal it
+    quotes is inside that handler's body.
+    """
+    income = " ".join((ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8").split())
+    trading, scan = "bot/skills/trading_commands.py", "bot/skills/scan_commands.py"
+    assert _decorated("bot/skills/yield_commands.py", "YieldCommands", "_cmd_stake") == [
+        "guard('stake')"]
+    assert _decorated(trading, "TradingCommands", "_cmd_mystrategy") == ["guard('mystrategy')"]
+    assert _decorated(scan, "ScanCommands", "_cmd_token") == ["guard('token')"]
+    assert "@guard('token')" in income
+    # The buy/sell citation is the pair of refusals, so the refusal has to
+    # still be inside each handler the sentence names.
+    for handler in ("_cmd_buy", "_cmd_sell"):
+        assert "Spot trading is disabled" in _body(trading, "TradingCommands", handler), handler
+    # /funding was once called ungated beside its own `@guard("status")`.
+    assert _decorated("bot/skills/market_commands.py", "MarketCommands", "_cmd_funding") == [
+        "guard('status')"]
+    assert re.search(r"/funding \([^)]*guarded under `status`\)", income), "/funding"
+    assert "ungated) shows one perp" not in income
+    # "enforced at" three sites: the anchors name three, so the code has three.
+    arena = (ROOT / "app" / "routes" / "arena.js").read_text(encoding="utf-8")
+    assert arena.count("require('../lib/arena_seasons').checkSeasonRules(") == 3
+
+
+def test_every_citation_in_the_income_map_resolves():
+    """ONE check for every citation the map makes: `scripts/cite.py --check`.
+
+    The map cited code as `path:line`, and a line number rots by pointing at
+    the WRONG line rather than an impossible one, so this file grew a test per
+    paragraph that re-derived each number from the code it named (the handler
+    `def`, the MCP tool definition, the route, the class line). Every one of
+    those citations is an anchor now (`path::Qualname[#marker]`), resolved
+    through the AST for Python and a conservative scanner for JS, and the
+    checker refuses a missing file, a missing or ambiguous symbol, a marker
+    that is not inside its symbol, and any `path:line` citation into code.
+    Driven through the command line, because that is what a reader runs.
+    """
+    r = subprocess.run([sys.executable, "scripts/cite.py", "--check"], cwd=ROOT,
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert r.stdout.startswith("ok: "), r.stdout
+
+
+#: A citation into code by line number, as the map used to spell one:
+#: `engine.py:123`, `engine.py:12-34`, `app/routes/arena.js:907/447`. A bare
+#: `:N` continuing one is refused by `scripts/cite.py --check` instead, which
+#: knows what path it continues.
+_CODE_LINE_CITATION = re.compile(r"[\w/.-]+\.(?:py|js|mjs|cjs):\d+")
+
+
+def _code_line_citations(text: str) -> list[str]:
+    return [m.group(0) for m in _CODE_LINE_CITATION.finditer(text)]
+
+
+def test_the_income_map_cites_no_code_by_line_number():
+    """The ratchet: a NEW `.py:<digits>` or `.js:<digits>` citation fails here.
+
+    The map is at zero, so the ratchet is a refusal. It reads the text with its
+    own pattern rather than through `scripts/cite.py`, so a blind spot in the
+    checker's citation reader cannot acquit a citation this can see.
+
+    Scoped to docs/INCOME_MAP.md on purpose. docs/lessons/ and the dated plan
+    (docs/IMPROVEMENT_PLAN_2026-09-29.md) are HISTORY: a line number there
+    records what a file said on the day it was written, and rewriting it would
+    falsify the record, so they are exempt.
+    """
+    income = (ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8")
+    assert _code_line_citations(income) == [], (
+        "cite code by anchor (path::Qualname[#marker]); see scripts/cite.py")
+
+
+def test_the_line_number_ratchet_sees_what_it_exists_to_refuse():
+    """Driven on planted text, because the real map is at zero and a rule no
+    input reaches is a claim that there is a check."""
+    planted = ("(bot/core/engine.py:123) and app/routes/arena.js:907/447, "
+               "engine.py:12-34, `x.mjs:5`")
+    assert _code_line_citations(planted) == [
+        "bot/core/engine.py:123", "app/routes/arena.js:907", "engine.py:12", "x.mjs:5"]
+    # An anchor, a time, a ratio and a non-code line citation are not code
+    # line citations.
+    assert _code_line_citations(
+        "`bot/core/engine.py::RuneClawEngine._tick` at 09:30, R:R 3:1, "
+        "docs/TOKEN_ROADMAP.md:27, `bot/x.py::f#\"a:1\"`") == []
+
 
 
 def _source_scan_adoption() -> tuple[int, int, int]:
@@ -1365,257 +1299,3 @@ def test_the_supervision_claims_are_the_units_own_settings(unit):
         "`systemctl status` reads active after 200 crashes on the strength of "
         "that line, and NRestarts being the number that separates them."
     )
-
-
-def _mcp_citation_errors(doc: str, mcp_lines: list[str]) -> list[str]:
-    """Every `mcp.js:N` citation, and each bare `:N` continuing it, must land
-    on the definition of a tool its own paragraph names before the citation.
-
-    Seven of the map's thirteen citations into `app/routes/mcp.js` had drifted
-    onto a database call, a neighbouring tool's description and a line inside
-    another tool's handler. None was blank, so the blank-line probe could not
-    see them, and a difflib remap carries a wrong target forward faithfully.
-    A tool citation names a tool, so the tool's definition is the answer.
-    """
-    errors = []
-    for para in re.split(r"\n\s*\n", doc):
-        flat = " ".join(para.split())
-        for mo in re.finditer(r"mcp\.js:(\d+)((?:,\s*:\d+)*)", flat):
-            nums = [int(mo.group(1))] + [int(n) for n in re.findall(r":(\d+)", mo.group(2))]
-            before = flat[:mo.start()]
-            for n in nums:
-                line = mcp_lines[n - 1] if 0 < n <= len(mcp_lines) else ""
-                d = re.fullmatch(r"  (\w+): \{", line)
-                if d is None:
-                    errors.append(f"mcp.js:{n} is not a tool definition: {line.strip()!r}")
-                elif d.group(1) not in before:
-                    errors.append(f"mcp.js:{n} defines {d.group(1)}, which the sentence does not name")
-    return errors
-
-
-def test_every_mcp_tool_citation_is_that_tools_definition():
-    doc = (ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8")
-    mcp = (ROOT / "app" / "routes" / "mcp.js").read_text(encoding="utf-8").splitlines()
-    assert "mcp.js:" in doc, "the map cites no MCP tool; this guard reads nothing"
-    assert _mcp_citation_errors(doc, mcp) == []
-
-
-def test_the_mcp_citation_rule_refuses_what_it_exists_to_refuse():
-    """Driven on a planted map, because the real one is correct and a rule no
-    input reaches is a claim that there is a check."""
-    mcp = ["// header", "  get_rwa_radar: {", "    description: 'x',",
-           "  get_meme_radar: {"]
-    ok = "MCP tool get_rwa_radar (mcp.js:2), then get_meme_radar (mcp.js:4)."
-    assert _mcp_citation_errors(ok, mcp) == []
-    # a line inside a tool, and a continuation on a non-definition
-    assert _mcp_citation_errors("get_rwa_radar (mcp.js:3)", mcp)
-    assert _mcp_citation_errors("get_rwa_radar (mcp.js:2, :3)", mcp)
-    # the right shape, the wrong tool
-    assert _mcp_citation_errors("MCP get_meme_radar (mcp.js:2)", mcp)
-    # named, but in another paragraph
-    assert _mcp_citation_errors("get_rwa_radar\n\n(mcp.js:2)", mcp)
-    # out of range reads as no definition, never as an index error
-    assert _mcp_citation_errors("get_rwa_radar (mcp.js:99)", mcp)
-
-
-def test_the_risk_engine_citation_is_the_class():
-    """The map cited `RiskEngine` at a line of the symbol-to-sector table
-    above it: twelve lines short, and on a non-blank line the probe cannot
-    see. A citation that names a class is that class's own line."""
-    doc = (ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8")
-    src = (ROOT / "bot" / "risk" / "risk_engine.py").read_text(encoding="utf-8")
-    line = next(i + 1 for i, ln in enumerate(src.splitlines())
-                if ln.startswith("class RiskEngine"))
-    assert doc.count(f"RiskEngine (bot/risk/risk_engine.py:{line})") == 1
-
-
-def test_the_basis_citations_are_the_lines_they_name():
-    """The map's three basis citations were re-derived once and drifted
-    again: the context gather sat one line short, on the market-cap fetch,
-    and the hand-off to `analyzer.analyze` 136 lines short, on a comment
-    about suppression. Neither line was blank, so the probe could not see
-    them. Each is derived from the code it names."""
-    doc = (ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8")
-    src = (ROOT / "bot" / "core" / "engine.py").read_text(encoding="utf-8")
-
-    def line_of(pred):
-        hits = [i + 1 for i, ln in enumerate(src.splitlines()) if pred(ln)]
-        assert len(hits) == 1, hits
-        return hits[0]
-
-    ctor = line_of(lambda ln: "self.basis = BasisAnalyzer(" in ln)
-    fetch = line_of(lambda ln: "self.basis.get_basis(signal.symbol)" in ln)
-    hand = line_of(lambda ln: "self.analyzer.analyze(" in ln
-                   and "basis=basis_ctx" in ln)
-    flat = " ".join(doc.split())
-    assert (f"constructed at engine.py:{ctor} and fetched in `_analyze_signal`'s "
-            f"context gather (engine.py:{fetch}) — its result is handed to "
-            f"analyzer.analyze at :{hand} as `basis`") in flat
-
-
-def test_the_pro_scan_and_preset_citations_are_the_lines_they_name():
-    """Four map citations into `skill_registry.py` sat on unrelated lines -- a
-    docstring, a macro-provider read, a `</pre>` append, a section comment --
-    under sentences naming /pro_scan's swing and scalp configurations, the
-    Safe Scalper preset and the preset table. None was blank, so the probe
-    could not see them, and a remap carried them faithfully. Each is derived
-    from what its sentence names."""
-    doc = " ".join((ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8").split())
-    src = (ROOT / "bot" / "skills" / "skill_registry.py").read_text(encoding="utf-8")
-    lines = src.splitlines()
-
-    def line_of(text, after=0):
-        hits = [i + 1 for i, ln in enumerate(lines) if i + 1 > after and ln.strip() == text]
-        assert hits, text
-        return hits[0]
-
-    mode_cfg = line_of("MODE_CFG: dict[str, dict] = {")
-    presets = line_of("PRESETS: dict[str, dict[str, Any]] = {")
-    scalper = line_of('"safe scalper": {', presets)
-    scalper_end = next(i + 1 for i in range(scalper, len(lines)) if lines[i].strip() == "},")
-    swing = line_of('"swing": {', mode_cfg)
-    scalp = line_of('"scalp": {', mode_cfg)
-    # The retraction paragraph names a blank line between two methods. That is
-    # a claim about the CURRENT tree, so it is derived too: a slice that grows
-    # `skill_registry.py` left `:2012` pointing at a `return` statement while
-    # the sentence still called it blank.
-    lst = line_of("def _list(cls) -> str:")
-    runsym = line_of('async def _run_symbol_scan(cls, engine: "RuneClawEngine", '
-                     'raw_symbol: str) -> str:')
-    blank = next(i + 1 for i in range(lst, runsym) if not lines[i].strip())
-    assert f"skill_registry.py:{blank} is a blank line" in doc
-    assert f"wide SL/TP (skill_registry.py:{swing})" in doc
-    assert f"tight zones (skill_registry.py:{scalp})" in doc
-    assert f"top-3 volume — skill_registry.py:{scalper})" in doc
-    assert f"Full Scan — skill_registry.py:{presets})" in doc
-    assert f':{scalper}-{scalper_end} is the literal "safe scalper" preset dict' in doc
-
-
-def test_the_handler_citations_are_the_functions_they_name():
-    """Two map citations into the Telegram handler pointed at unrelated lines:
-    `_can_trade_live` at a `_remember_routed` call and `_is_admin_id` at an
-    `if not delivered:`. Neither was blank, so the probe could not see them,
-    and a remap would have carried both to the same wrong lines."""
-    doc = (ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8")
-    src = (ROOT / "bot" / "skills" / "telegram_handler.py").read_text(encoding="utf-8")
-
-    def def_line(name):
-        hits = [i + 1 for i, ln in enumerate(src.splitlines())
-                if ln.startswith(f"    def {name}(")]
-        assert len(hits) == 1, hits
-        return hits[0]
-
-    assert f"_can_trade_live (telegram_handler.py:{def_line('_can_trade_live')})" in doc
-    assert (f"`_is_admin_id`\n  (`bot/skills/telegram_handler.py:{def_line('_is_admin_id')}`)"
-            in doc)
-
-
-def test_the_funding_citations_are_the_handlers_they_name():
-    """The map's funding paragraph cited `/funding` at `market_commands.py:74`
-    for a handler at 201, `/fundingscan` at `:149` for one at 265, and `/arb`
-    at `:241` for one at 240, and called `/funding` ungated beside a
-    `@guard("status")`. None landed on a blank line, so the probe could not
-    see them, and a remap carried all three. Each is derived from the handler
-    it names, and the gate from the handler's own decorator."""
-    doc = " ".join((ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8").split())
-    src = (ROOT / "bot" / "skills" / "market_commands.py").read_text(encoding="utf-8").splitlines()
-
-    def def_line(name):
-        hits = [i + 1 for i, ln in enumerate(src) if ln.startswith(f"    async def {name}(")]
-        assert len(hits) == 1, hits
-        return hits[0]
-
-    funding = def_line("_cmd_funding")
-    assert src[funding - 2].strip() == '@guard("status")'
-    assert (f"/funding (market_commands.py:{funding}, guarded under `status`)" in doc)
-    assert f"/fundingscan (:{def_line('_cmd_fundingscan')}) does" in doc
-    assert f"/arb (:{def_line('_cmd_arb')}) runs" in doc
-    assert "ungated) shows one perp" not in doc
-
-
-def test_the_x_share_citations_are_the_handlers_they_name():
-    """The map's X/Twitter paragraph cited the symbol-modal share at
-    `dashboard.js:2715-2723` and the journal close card's share at
-    `:4291-4318`. The first sat on the signal-stats panel and the second on an
-    allocation chart: a remap carried both faithfully, because neither line was
-    blank. Each is derived from the handler it names: the modal's `symShare`
-    button through the close of its onclick, and the journal's `.share-trade`
-    click handler through the close of its listener."""
-    doc = " ".join((ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8").split())
-    lines = (ROOT / "app" / "public" / "js" / "dashboard.js").read_text(
-        encoding="utf-8").splitlines()
-
-    def only(pred):
-        hits = [i + 1 for i, ln in enumerate(lines) if pred(ln)]
-        assert len(hits) == 1, hits
-        return hits[0]
-
-    def closes(start, text):
-        for i in range(start, len(lines)):
-            if lines[i] == text:
-                return i + 1
-        raise AssertionError(f"no {text!r} after {start}")
-
-    modal = only(lambda ln: "const shareBtn = document.getElementById('symShare');" in ln)
-    modal_end = closes(modal, "    };")
-    journal = only(lambda ln: "const btn = e.target.closest('.share-trade');" in ln) - 1
-    assert lines[journal - 1].strip() == "onView('click', async (e) => {"
-    journal_end = closes(journal, "    });")
-    assert f"symbol-modal decision picture (dashboard.js:{modal}-{modal_end})" in doc
-    assert f"/api/share/card (dashboard.js:{journal}-{journal_end})" in doc
-
-
-def test_the_arena_citations_are_the_lines_they_name():
-    """The map spells `app/routes/arena.js` as a bare `arena.js`, which is also
-    `app/lib/arena.js`, so no remap can move these: two files share the name
-    and a remap that guessed would carry a citation into the wrong one. Two of
-    them had already drifted -- `keys/agent` sat on a blank line, the season
-    trap on the lines below the call it names, and the key mint on the key
-    LIST's error handler. The page's own citations (`arena.html`) are held
-    here too, because no remap reads an .html file. Each is derived from what
-    its sentence names."""
-    doc = " ".join((ROOT / "docs" / "INCOME_MAP.md").read_text(encoding="utf-8").split())
-    lines = (ROOT / "app" / "routes" / "arena.js").read_text(encoding="utf-8").splitlines()
-
-    def only(pred):
-        hits = [i + 1 for i, ln in enumerate(lines) if pred(ln)]
-        assert len(hits) == 1, hits
-        return hits[0]
-
-    def all_of(pred):
-        return [i + 1 for i, ln in enumerate(lines) if pred(ln)]
-
-    follow = only(lambda ln: ln.startswith("router.post('/follow'"))
-    sweep = only(lambda ln: ln.startswith("async function sweepFollows("))
-    sweep_end = next(i + 1 for i in range(sweep, len(lines)) if lines[i] == "}")
-    insert = next(i for i in range(sweep, sweep_end + 1)
-                  if "INSERT INTO arena_positions" in lines[i - 1])
-    rules = all_of(lambda ln: "checkSeasonRules(" in ln and "require('../lib/arena_seasons')" in ln)
-    season = only(lambda ln: ln.startswith("router.get('/season'"))
-    season_pick = next(i for i in range(season, season + 10) if "pickCurrentSeason(" in lines[i - 1])
-    admin = [only(lambda ln: ln.startswith("async function adminOnly(")),
-             only(lambda ln: ln.startswith("router.get('/seasons/all'")),
-             only(lambda ln: ln.startswith("router.delete('/seasons/:id'")),
-             only(lambda ln: ln.startswith("router.post('/season'"))]
-    keys_agent = only(lambda ln: ln.startswith("router.post('/keys/agent'"))
-
-    assert f"(arena.js:{follow}), toggled from the Follow control" in doc
-    assert f"sweepFollows (arena.js:{sweep}-{sweep_end}) then" in doc
-    assert f"(INSERT at arena.js:{insert})" in doc
-    assert len(rules) == 3, rules
-    assert f"at arena.js:{rules[0]}/{rules[1]}/{rules[2]})" in doc
-    m = re.search(r"in-window standings \(arena\.js:(\d+)-(\d+)\)", doc)
-    assert m and int(m.group(1)) == season and int(m.group(2)) > season_pick, m
-    assert f"pickCurrentSeason (:{season_pick})" in doc
-    assert f"(arena.js:{admin[0]}, :{admin[1]}, :{admin[2]}, :{admin[3]})" in doc
-    assert f"bind a key to it, arena.js:{keys_agent})" in doc
-    mint = only(lambda ln: ln.startswith("router.post('/keys',"))
-    badges = only(lambda ln: "computeArenaBadges(" in ln)
-    assert f"app/routes/arena.js:{mint}, max 5" in doc
-    assert f"(app/lib/arena_badges.js:18 → app/routes/arena.js:{badges})" in doc
-    page = (ROOT / "app" / "public" / "arena.html").read_text(encoding="utf-8").splitlines()
-    toggle = [i + 1 for i, ln in enumerate(page) if ln.strip() == "$('followBtn').textContent = following"]
-    panel = [i + 1 for i, ln in enumerate(page) if 'id="keysPanel"' in ln]
-    assert len(toggle) == 1 and len(panel) == 1, (toggle, panel)
-    assert f"the Follow control at arena.html:{toggle[0]}," in doc
-    assert f"Agent keys panel (arena.html:{panel[0]} →" in doc

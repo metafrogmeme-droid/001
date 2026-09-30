@@ -47,10 +47,15 @@ point), and a reflowing sweep would bury real changes in diff noise.
 So the ratchet holds the line and each category gets cleared on purpose, by
 someone who has read it -- which is what lowering a baseline number means.
 
+The baseline stores no total: it is summed from the counts wherever it is
+printed, and a baseline that still stores one is refused as CANNOT CHECK
+(``scripts/ratchet_baseline.py`` says why).
+
 USAGE
 -----
     python3 scripts/ruff_gate.py             # gate (CI)
     python3 scripts/ruff_gate.py --update    # re-record, deliberately
+    python3 scripts/rerecord.py --all        # every ratchet at once
 """
 from __future__ import annotations
 
@@ -62,6 +67,7 @@ from collections import Counter
 from pathlib import Path
 
 import toolchain
+from ratchet_baseline import BaselineUnreadable, compare, derived_total, read_record
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "tests" / "ruff_baseline.json"
@@ -103,10 +109,22 @@ def counts_from_output(text: str) -> Counter:
 
 
 def current_counts() -> Counter:
-    """Per-rule counts from the DECLARED config -- no --select override."""
-    proc = subprocess.run(
-        ["ruff", "check", ".", "--output-format=concise", "--no-fix"],
-        capture_output=True, text=True, cwd=ROOT)
+    """Per-rule counts from the DECLARED config -- no --select override.
+
+    A ruff that cannot be started at all (not on PATH) is CANNOT CHECK, exit 2.
+    It used to escape as a ``FileNotFoundError`` traceback, exit 1, which is
+    this gate's "the code grew" -- and ``check_version`` does not stop it
+    first, because a version it cannot read is only a warning there.
+    """
+    try:
+        proc = subprocess.run(
+            ["ruff", "check", ".", "--output-format=concise", "--no-fix"],
+            capture_output=True, text=True, cwd=ROOT)
+    except OSError as exc:
+        print(f"CANNOT CHECK: ruff could not be run ({type(exc).__name__}); "
+              "no count was read, so this says nothing about whether the code "
+              "grew. Put the pinned ruff on PATH.", file=sys.stderr)
+        raise SystemExit(2) from None
     # ruff exits 1 when it finds anything, which is the normal case here.
     if proc.returncode not in (0, 1):
         print(f"ruff failed to run (exit {proc.returncode}):\n{proc.stderr}",
@@ -120,41 +138,54 @@ def _load_baseline() -> dict:
         print(f"No {BASELINE}. Create it with: python3 scripts/ruff_gate.py --update",
               file=sys.stderr)
         raise SystemExit(2)
-    return json.loads(BASELINE.read_text(encoding="utf-8"))
+    try:
+        return read_record(BASELINE)
+    except BaselineUnreadable as exc:
+        print(f"CANNOT CHECK: {BASELINE.name}: {exc}", file=sys.stderr)
+        raise SystemExit(2) from None
+
+
+def record(counts: Counter) -> None:
+    """Write the baseline: the counts, and no total (it is always derived)."""
+    BASELINE.write_text(json.dumps({
+        "_comment": "Per-rule ruff counts under the config declared in "
+                    "pyproject.toml. A RATCHET: a rule may only go DOWN. The "
+                    "total is the sum of the counts and is never stored. "
+                    "Regenerate with scripts/ruff_gate.py --update (or "
+                    "scripts/rerecord.py --all), and only alongside the "
+                    "commit that actually lowered it.",
+        "counts": dict(sorted(counts.items())),
+    }, indent=2) + "\n", encoding="utf-8")
 
 
 def main() -> int:
     check_version("ruff")
-    counts = current_counts()
-    total = sum(counts.values())
 
     if "--update" in sys.argv:
-        BASELINE.write_text(json.dumps({
-            "_comment": "Per-rule ruff counts under the config declared in "
-                        "pyproject.toml. A RATCHET: a rule may only go DOWN. "
-                        "Regenerate with scripts/ruff_gate.py --update, and "
-                        "only alongside the commit that actually lowered it.",
-            "total": total,
-            "counts": dict(sorted(counts.items())),
-        }, indent=2) + "\n", encoding="utf-8")
-        print(f"Baseline updated: {total} findings across {len(counts)} rules")
+        counts = current_counts()
+        record(counts)
+        print(f"Baseline updated: {sum(counts.values())} findings across "
+              f"{len(counts)} rules")
         return 0
 
     baseline = _load_baseline()
-    base_counts = baseline.get("counts", {})
-
-    grew = {r: (n, base_counts.get(r, 0))
-            for r, n in counts.items() if n > base_counts.get(r, 0)}
-    shrank = {r: (n, base_counts[r])
-              for r, n in ((r, counts.get(r, 0)) for r in base_counts)
-              if n < base_counts[r]}
+    try:
+        base_total = derived_total(baseline)
+    except BaselineUnreadable as exc:
+        # Exit 2, not 1: the baseline cannot be compared against, which says
+        # nothing about whether the code grew. Checked before ruff runs.
+        print(f"CANNOT CHECK: {BASELINE.name}: {exc}", file=sys.stderr)
+        return 2
+    counts = current_counts()
+    total = sum(counts.values())
+    grew, shrank = compare(counts, baseline["counts"])
 
     print(f"ruff (declared config): {total} findings across {len(counts)} rules")
-    print(f"baseline:               {baseline.get('total')} findings")
+    print(f"baseline:               {base_total} findings")
 
     if grew:
         print("\nNEW lint findings -- this gate fails on growth, not on the backlog:")
-        for rule, (now, was) in sorted(grew.items()):
+        for (rule,), was, now in grew:
             print(f"  {rule}: {was} -> {now}  (+{now - was})")
         print("\nFix them, or if the increase is deliberate, re-record with")
         print("  python3 scripts/ruff_gate.py --update")
@@ -165,7 +196,7 @@ def main() -> int:
         # above reality stops meaning anything, exactly as a stale
         # known_failures.txt entry does.
         print("\nThese improved; re-record the baseline in this commit:")
-        for rule, (now, was) in sorted(shrank.items()):
+        for (rule,), was, now in shrank:
             print(f"  {rule}: {was} -> {now}  (-{was - now})")
         print("\n  python3 scripts/ruff_gate.py --update")
         return 1

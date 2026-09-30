@@ -70,11 +70,14 @@ def test_the_gate_and_its_baseline_both_exist(name, script, baseline):
     assert baseline.exists(), f"{baseline} is gone -- {name} has nothing to compare to"
     data = json.loads(baseline.read_text(encoding="utf-8"))
     assert data.get("counts"), f"{baseline} records no per-rule counts"
-    assert isinstance(data.get("total"), int), f"{baseline} has no integer total"
-    assert data["total"] == sum(data["counts"].values()), (
-        f"{baseline}: total {data['total']} != sum of counts "
-        f"{sum(data['counts'].values())} -- it was hand-edited rather than "
-        f"regenerated, so it no longer describes any real run")
+    # No stored total: the gate sums the counts, and refuses a baseline that
+    # still stores one (tests/test_a_baseline_total_is_the_sum_of_its_counts.py).
+    assert "total" not in data, (
+        f"{baseline} stores a total, which the gate refuses as CANNOT CHECK; "
+        f"re-record with python3 scripts/rerecord.py --all")
+    assert all(isinstance(v, int) and not isinstance(v, bool)
+               for v in data["counts"].values()), (
+        f"{baseline} holds a count that is not a whole number")
 
 
 def _load_gate(script: Path):

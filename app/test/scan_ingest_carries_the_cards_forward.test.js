@@ -227,3 +227,43 @@ test('the ingest applies no freshness bound of its own', async () => {
   assert.equal(/TTL|Date\.now\(\) -/.test(block), false,
     'a second freshness answer in the ingest');
 });
+
+test('after a website restart, a summary push carries the SAVED scan forward', async () => {
+  // A fresh process: `latestScan` is empty and the last scan is in the DB.
+  const saved = {
+    entry_cards: [{ symbol: 'SOL/USDT', direction: 'LONG' }],
+    symbols: { 'SOL/USDT': { price: 150 } },
+    entry_cards_read: { considered: 1, cards: 1 },
+    scan_at: '2026-09-29T10:00:00.000Z',
+  };
+  const writes = [];
+  const pool = {
+    execute: async (sql, args) => {
+      if (/FROM users WHERE id/.test(sql)) return [[{ plan: 'admin' }]];
+      if (/SELECT scan_json/.test(sql)) return [[{ scan_json: JSON.stringify(saved) }]];
+      if (/REPLACE INTO scan_cache/.test(sql)) writes.push(JSON.parse(args[0]));
+      return [[]];
+    },
+  };
+  const dbPath = require.resolve(path.join(APP, 'db.js'));
+  require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { pool } };
+  delete require.cache[require.resolve(path.join(APP, 'routes', 'sync.js'))];
+  const router = require(path.join(APP, 'routes', 'sync.js'));
+  const app = express();
+  app.use(express.json());
+  app.use('/api/bot/sync', router);
+  const server = http.createServer(app);
+  await new Promise((res) => server.listen(0, '127.0.0.1', res));
+  try {
+    const port = server.address().port;
+    const r = await request(port, 'POST', '/api/bot/sync/scan', {
+      body: { regime: { label: 'NEUTRAL', gate: 0 }, circuit_breaker: {} }, secret: SECRET,
+    });
+    assert.equal(r.status, 200);
+    assert.equal(writes.length, 1);
+    assert.deepEqual(writes[0].entry_cards, saved.entry_cards,
+      'the first summary after a restart replaced the saved cards');
+    assert.deepEqual(writes[0].symbols, saved.symbols);
+    assert.equal(writes[0].scan_at, saved.scan_at, 'the cards keep their scan age');
+  } finally { server.close(); }
+});

@@ -23,6 +23,7 @@
   "cancel": "Annuler",
   "cannot_revoke_self": "Vous ne pouvez pas vous révoquer vous-même.",
   "chat_budget_exhausted": "J'ai épuisé le budget IA du jour. Réessayez demain, ou utilisez une commande précise comme /scan ou /positions.",
+  "chat_share_exhausted": "Le chat a épuisé sa part du budget IA du jour. Réessayez demain, ou utilisez une commande précise comme /scan ou /positions. Le reste revient à l'analyse des trades.",
   "chat_deadline": "J'ai cessé d'attendre avant qu'un modèle ne réponde : c'est un délai dépassé de mon côté, pas une réponse, et rien n'a été analysé. Réessayez dans un instant, ou utilisez une commande précise comme /scan ou /positions.",
   "chat_empty_completions": "Le modèle a répondu mais n'a rien renvoyé : tous les fournisseurs sont revenus vides, ce qui indique un problème de modèle ou de prompt plutôt que de connexion. Votre clé et votre endpoint sont bons. Essayez /llmstatus pour la dernière erreur, ou une commande précise comme /scan ou /positions.",
   "chat_no_model_admin": "Le modèle IA en direct n'est pas encore connecté : lancez /setllm pour ajouter un fournisseur. En attendant, je peux répondre aux bases : ce qu'est RUNECLAW, comment il gère le risque, le levier, les balayages de liquidité et les exchanges pris en charge.",

@@ -371,11 +371,16 @@ class TestLivePolicyFailClosed:
     def test_lock5_not_minted_for_nonhuman_without_optin(self):
         # F-8: the mint is gated on a human confirmation OR the explicit
         # auto-confirm-live opt-in; otherwise the token is left unminted.
+        # The opt-in is read through `_autonomous_live_refusal`, which also
+        # asks for an eligibility record; the drives are in
+        # test_an_autonomous_live_order_needs_an_eligibility_record.py.
         import inspect
         from bot.core.engine import RuneClawEngine
         src = inspect.getsource(RuneClawEngine.confirm_trade) + inspect.getsource(RuneClawEngine._confirm_trade_inner)
-        assert "if human or CONFIG.auto_confirm_live_enabled:" in src
+        assert "if human or _auto_refusal is None:" in src
         assert "Lock 5 NOT minted" in src
+        assert "CONFIG.auto_confirm_live_enabled" in inspect.getsource(
+            RuneClawEngine._autonomous_live_refusal)
 
     def test_critique_fails_closed_in_live(self):
         # F-13: a critique exception in LIVE mode rejects rather than proceeding.

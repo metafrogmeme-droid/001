@@ -175,6 +175,14 @@ confidence floor whenever the account is even slightly underwater, blocking
 legitimate entries — it fails the red-team position-flood scenarios). Enable them
 in `.env` only if you specifically want that behaviour.
 
+**Superseded in part (2026-09-29).** The flag is no longer enough on its own.
+A live order that no human confirmed is placed only when the flag is on AND
+`benchmark/eligibility/<strategy_hash>.json` holds a record for the running
+strategy saying it survives (`bot/core/live_eligibility.py`, read at the
+compliance Lock-5 mint). No record ships, so every deployment refuses autonomous
+live orders until a reviewed commit adds one; the flag is the second line. See
+`benchmark/eligibility/README.md`.
+
 **Security note:** the RC-AUD-002 live gate is unchanged — real-money auto-execution
 still flows through the explicit `auto_confirm_live_enabled` check in
 `engine._tick`; only its default flipped, by deliberate operator choice. To

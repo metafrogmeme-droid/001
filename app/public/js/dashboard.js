@@ -5319,15 +5319,40 @@
     const scan = await getScan(45000, scanRead);
     const OFFLINE = { icon: 'icon-offline', text: 'Engine telemetry arrives when the bot pushes its next scan. Market data stays live meanwhile.' };
 
+    // The regime is the context row's ONE reading (ContextChipsModel.
+    // regimeReading): the producer seeds {label: 'NEUTRAL', gate: 0} and only
+    // a positive BTC anchor says BTC was read, so this panel used to print
+    // the seed as a measured NEUTRAL beside a BTC anchor of $0.
     renderPanel(C('eregime'), async () => {
-      const reg = scan?.regime;
-      if (!reg) return null;
-      const cls = reg.label === 'BULLISH' ? 'chip--up' : reg.label === 'BEARISH' ? 'chip--down' : '';
-      return `<div class="row" style="justify-content:space-between">
-        <span class="chip ${cls}" style="font-size:var(--fs-sm);padding:6px 14px">${reg.label === 'BULLISH' ? '▲' : reg.label === 'BEARISH' ? '▼' : '◆'} ${esc(reg.label)}</span>
-        <div class="stat right"><div class="k">BTC anchor</div><div class="v">${fmtPrice(reg.gate)}</div></div>
+      if (!scan?.regime) return null;
+      const CX = self.ContextChipsModel;
+      if (!CX) throw new Error('context model unavailable');
+      const rr = CX.regimeReading(scan);
+      const keyCall = scan?.key_call ? `<div class="mt-3 small" style="color:var(--text-2)">${sanitizeBotHtml(scan.key_call)}</div>` : '';
+      if (!rr.read) {
+        const why = {
+          'dd.ctx_w_regime': T('dd.ctx_w_regime', 'the scan carried no regime.'),
+          'dd.ctx_w_regime_default': T('dd.ctx_w_regime_default', 'BTC was not read, so the regime is the scan’s default rather than a reading.'),
+          'dd.ctx_w_regime_word': T('dd.ctx_w_regime_word', 'the scan carried a regime word this page does not know.'),
+        }[rr.whyKey] || '';
+        return `<div class="row" style="justify-content:space-between">
+        <span class="chip" style="font-size:var(--fs-sm);padding:6px 14px">◆ ${esc(T('dd.ctx_unread', 'NOT REPORTED'))}</span>
+        <div class="stat right"><div class="k">BTC anchor</div><div class="v">—</div></div>
       </div>
-      ${scan?.key_call ? `<div class="mt-3 small" style="color:var(--text-2)">${sanitizeBotHtml(scan.key_call)}</div>` : ''}`;
+      <div class="mt-2 small muted">${esc(why)}</div>
+      ${keyCall}`;
+      }
+      const word = {
+        'dd.ctx_reg_bull': T('dd.ctx_reg_bull', 'BULLISH'),
+        'dd.ctx_reg_bear': T('dd.ctx_reg_bear', 'BEARISH'),
+        'dd.ctx_reg_neutral': T('dd.ctx_reg_neutral', 'NEUTRAL'),
+      }[rr.vKey] || rr.label;
+      const icon = rr.label === 'BULLISH' ? '▲' : rr.label === 'BEARISH' ? '▼' : '◆';
+      return `<div class="row" style="justify-content:space-between">
+        <span class="chip ${rr.cls}" style="font-size:var(--fs-sm);padding:6px 14px">${icon} ${esc(word)}</span>
+        <div class="stat right"><div class="k">BTC anchor</div><div class="v">${fmtPrice(rr.anchor)}</div></div>
+      </div>
+      ${keyCall}`;
     }, { empty: OFFLINE });
 
     // `active` is three-valued from the bot: true (a positive blocker), false

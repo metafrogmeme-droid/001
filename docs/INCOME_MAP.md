@@ -86,21 +86,21 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 
 Spot ORDER placement on a CEX does not exist and is refused by name: /buy and
 /sell both answer "Spot trading is disabled — RUNECLAW operates in futures-
-only mode" (trading_commands.py:1150, :1159), and a tree-wide grep finds no spot
-create_order in bot/ at all (venues.py:340 sets defaultType 'spot' only for
+only mode" (`bot/skills/trading_commands.py::TradingCommands._cmd_buy`, `::TradingCommands._cmd_sell`), and a tree-wide grep finds no spot
+create_order in bot/ at all (`bot/core/venues.py::BitgetVenue.create_exchange#'"defaultType":'` sets defaultType 'spot' only for
 market-data reads). What a user gets today is spot READING: /livebalance
 prices the caller's spot holdings on their linked venue; exposure/networth net
 wallet spot against perps; app/lib/spot.js pulls Bitget/Bybit/BingX spot
 tickers and the spot/perp basis, reachable through the web chat 'spot'
-intercept (chat.js:97) and through /spot on Telegram, which renders the SAME
+intercept (`app/routes/chat.js::INTERCEPTS#"['spot',"`) and through /spot on Telegram, which renders the SAME
 card over the bot-secret sync channel (market_commands.py) — the /api/spot/*
 routes it also backs have no browser caller. One genuine spot EXECUTION path exists and it is on-chain, not CEX:
-bot/core/meme_swap.py:175 builds an unsigned Jupiter (Solana DEX) swap that
-the user signs in their own wallet at /swap (swap-page.js:181). It is double-
+`bot/core/meme_swap.py::build_swap` builds an unsigned Jupiter (Solana DEX) swap that
+the user signs in their own wallet at /swap (`app/public/js/swap-page.js::doSign#".signAndSend(build.unsigned_transaction)"`). It is double-
 gated off: build_swap refuses unless the /memeplan plan came back allowed,
-which needs MEME_TRADING_ENABLED (default OFF, meme_executor.py:8-9), and
+which needs MEME_TRADING_ENABLED (default OFF, `bot/core/meme_executor.py::__doc__#"MEME_TRADING_ENABLED"`), and
 `signable` is False unless MEME_EXECUTION_NETWORK=mainnet, which
-.env.example:893 ships as `simulate`.
+`.env.example::#"MEME_EXECUTION_NETWORK=simulate"` ships as `simulate`.
 
 *Gap.* No CEX spot order path of any kind — not disabled-by-flag but absent, and
 deliberately so. The one spot-swap door is Solana DEX only, single-leg, no
@@ -118,14 +118,16 @@ adding /swap without a landing link fails on the sa…
 **Swing trading** — **shipped**
 
 Swing is a first-class hold-duration class in the engine, not a label.
-analyzer.py:1157 classifies every idea's strategy_type, and
+`bot/core/analyzer.py::Analyzer.analyze#"strategy_type = self._classify_strategy_type("` classifies every idea's strategy_type, and
 CONFIG.strategy_types then gives swing its own geometry and lifecycle: SL 2.5
-ATR / TP 3.5 ATR (config.py:2292-2293), trailing ENABLED on the stage table
-every type shares (:2294), a 48h time-close with a 12h warn (:2297-2298), min
-confidence 0.50 (:2313), max risk 2% (:2319) — every one distinct from the scalp row
-above it. skill_registry.py:2022 reads those multipliers when it builds the
-SL/TP ladder. Doors: /swing (scan_commands.py:1046) dispatches pro_scan
-mode=swing — 4h candles, top-5 movers, wide SL/TP (skill_registry.py:2844) —
+ATR / TP 3.5 ATR (`bot/config.py::StrategyTypeConfig.swing_sl_atr_mult`, `::StrategyTypeConfig.swing_tp_atr_mult`), trailing ENABLED on the stage table
+every type shares (`::StrategyTypeConfig.swing_trailing_enabled`), a 48h time-close with a 12h warn (`::StrategyTypeConfig.swing_time_close_hours`, `::StrategyTypeConfig.swing_time_warn_hours`), min
+confidence 0.50 (`::StrategyTypeConfig.swing_min_confidence`), max risk 2% (`::StrategyTypeConfig.swing_max_risk_pct`) — every one distinct from the scalp row
+above it. The analyzer reads those multipliers when it sets each idea's stop
+and target (`bot/core/analyzer.py::Analyzer.analyze#"sl_mult = st_cfg.get_sl_mult(strategy_type)"`), and the
+executor reads the trailing switch for every entry and every fill
+(`bot/core/live_executor.py::trail_starts_for`). Doors: /swing (`bot/skills/scan_commands.py::ScanCommands._cmd_swing`) dispatches pro_scan
+mode=swing — 4h candles, top-5 movers, wide SL/TP (`bot/skills/skill_registry.py::ProScanSkill.MODE_CFG#'"swing": {'`) —
 and renders a signal card whose Take/Limit buttons run the normal confirm-and-
 execute path; the router's scan_swing intent reaches the same skill through
 SCAN_DISPATCH; /fullscan accepts a `swing` argument.
@@ -136,28 +138,32 @@ to be treated as a swing, only pick the scan timeframe. Tier feature
 `premium_scan` nominally gates /swing at pro, though the whole $RCLAW gate is
 off by default.
 
-*The verifier refused part of this row.* Neither line does that. bot/skills/skill_registry.py:2260 is a blank line
-between RunStrategySkill._list and _run_symbol_scan; :2223-2229 is the literal
-"safe scalper" preset dict inside RunStrategySkill.PRESETS. No line in
+*The verifier refused part of this row.* The row used to say that
+bot/skills/skill_registry.py reads those multipliers when it builds the SL/TP
+ladder, and no line it cited for that does. The verifier found a blank line
+between RunStrategySkill._list and _run_symbol_scan and the literal "safe
+scalper" preset dict inside RunStrategySkill.PRESETS (`bot/skills/skill_registry.py::RunStrategySkill.PRESETS#'"safe scalper"'`);
+by the time the map moved to anchors the row cited a line inside
+TradePostmortemSkill.execute instead. No line in
 skill_registry.py reads CONFIG.strategy_types at all — grep returns zero hits
-for it in that file. The real readers are bot/core/analyzer.py:1868-1871
+for it in that file. The real readers are `bot/core/analyzer.py::Analyzer.analyze#"SL/TP baselines come from CONFIG.strategy_types"`
 ("SL/TP baselines come from CONFIG.strategy_types"),
-bot/core/live_executor.py:765 (the per-strategy trailing switch, read for
-every entry and every fill).
+`bot/core/live_executor.py::trail_starts_for#"CONFIG.strategy_types.get_trailing_enabled"` (the per-strategy trailing switch, read for
+every entry and every fill), and the row now names them.
 
 **Scalping** — **shipped**
 
 Same first-class treatment as swing, tuned the other way: scalp SL 1.5 ATR /
-TP 2.0 ATR (config.py:2270-2271), trailing deliberately OFF (:2272), a 2h
-time-close with a 1h warn (:2279-2280), min confidence 0.65 (:2311), max risk
-1% (:2317); smart_exits.py:34 closes a scalp after 3 candles with under 0.5R
-of movement; config.py:1679 recomputes session VWAP on 15m candles
+TP 2.0 ATR (`bot/config.py::StrategyTypeConfig.scalp_sl_atr_mult`, `::StrategyTypeConfig.scalp_tp_atr_mult`), trailing deliberately OFF (`::StrategyTypeConfig.scalp_trailing_enabled`), a 2h
+time-close with a 1h warn (`::StrategyTypeConfig.scalp_time_close_hours`, `::StrategyTypeConfig.scalp_time_warn_hours`), min confidence 0.65 (`::StrategyTypeConfig.scalp_min_confidence`), max risk
+1% (`::StrategyTypeConfig.scalp_max_risk_pct`); `bot/core/smart_exits.py::TimeExitConfig.scalp_candles` closes a scalp after 3 candles with under 0.5R
+of movement; `bot/config.py::AnalyzerConfig.scalp_session_vwap_enabled` recomputes session VWAP on 15m candles
 specifically so scalps read a real intraday anchor. Doors: /scalp
-(scan_commands.py:1012) dispatches pro_scan mode=scalp — 5m candles, top-3 by
-volume, tight zones (skill_registry.py:2828); the router's scan_scalp intent
+(`bot/skills/scan_commands.py::ScanCommands._cmd_scalp`) dispatches pro_scan mode=scalp — 5m candles, top-3 by
+volume, tight zones (`bot/skills/skill_registry.py::ProScanSkill.MODE_CFG#'"scalp": {'`); the router's scan_scalp intent
 reaches the same skill; /mystrategy scalp pins the "Safe Scalper" preset
-(tight SL 1.5 ATR, conf >= 75%, top-3 volume — skill_registry.py:2223) as a
-tighten-only veto on that user's own confirms (trading_commands.py:560); /run
+(tight SL 1.5 ATR, conf >= 75%, top-3 volume — `bot/skills/skill_registry.py::RunStrategySkill.PRESETS#'"safe scalper"'`) as a
+tighten-only veto on that user's own confirms (`bot/skills/trading_commands.py::TradingCommands._cmd_mystrategy`); /run
 scalp and /fullscan scalp are the other two.
 
 *Gap.* Scalping is a strategy class of the same perp execution engine, not a separate
@@ -168,22 +174,25 @@ classification is the analyzer's decision, not the user's.
 **Perp futures** — **shipped**
 
 This is the product. USDT-M perpetuals are placed for real through ccxt:
-live_executor.py:6947 creates the entry order idempotently, :8637/:9188 attach
+`bot/core/live_executor.py::LiveExecutor._submit_entry_order` creates the entry order idempotently, `::LiveExecutor._place_sl_tp`/`::LiveExecutor._place_sl_tp_v3` attach
 the exchange-side stop and take-profit, and every venue call carries
-productType USDT-FUTURES (:2553, :2569, :2697); venues.py:340 selects the swap
+productType USDT-FUTURES (`::LiveExecutor._ensure_leverage` sends it on each of its leverage calls); `bot/core/venues.py::BitgetVenue.create_exchange#'"defaultType":'` selects the swap
 market. Doors on Telegram: /trade parses `buy SOL 71.42 sl 70.05 tp 76.42
 margin 250` into a Confirm card that places nothing until tapped
-(trading_commands.py:1220); signal cards from /analyze, /scan and the pro scans
+(`bot/skills/trading_commands.py::TradingCommands._cmd_trade`); signal cards from /analyze, /scan and the pro scans
 carry Take/Limit buttons; /positions, /livepositions, /orders read the book;
 /leverage and /venues configure it. On the web: POST /api/trade/propose then
-/confirm, 2FA-stepped-up, re-running the engine risk gate (webtrade.js:125).
-Autonomously: engine.py:6290-6348 confirms and executes any idea at or above
-RUNTIME.auto_confirm_threshold with no human tap.
+/confirm, 2FA-stepped-up, re-running the engine risk gate (`app/routes/webtrade.js::post('/confirm')`).
+Autonomously: `bot/core/engine.py::RuneClawEngine._tick#"auto_threshold = RUNTIME.auto_confirm_threshold"` confirms any engine idea at or above
+RUNTIME.auto_confirm_threshold with no human tap, and the confirm places a live
+order only when benchmark/eligibility/ holds a record for the running strategy
+(bot/core/live_eligibility.py). None ships, so today nothing is placed without a
+tap; in paper mode the confirm places nothing either (the bot is live-only).
 
 *Gap.* Live is operator-gated and off by default — SIMULATION_MODE defaults True and
-LIVE_TRADING_ENABLED defaults False (config.py:2493-2494), so a stock deploy
+LIVE_TRADING_ENABLED defaults False (`bot/config.py::AppConfig.simulation_mode`, `::AppConfig.live_trading_enabled`), so a stock deploy
 trades perps on paper until the operator runs /golive. A real order
-additionally needs _can_trade_live (telegram_handler.py:4903), which requires
+additionally needs _can_trade_live (`bot/skills/telegram_handler.py::TelegramHandler._can_trade_live`), which requires
 BOTH the env allowlist and the per-user store flag; web-only `web:<id>`
 identities are structurally paper-only and can never pass it. Venue coverage
 is Bitget (primary) with Bybit/Hyperliquid adapters; long/short perps only —
@@ -231,14 +240,14 @@ took, and whether something off the record changed it after.
 **Funding rate farming** — partial
 
 A complete MEASUREMENT layer and an explicitly paper P&L tracker, with no
-capture. /funding (market_commands.py:237, guarded under `status`) shows one perp's 8h rate
+capture. /funding (`bot/skills/market_commands.py::MarketCommands._cmd_funding`, guarded under `status`) shows one perp's 8h rate
 and annualized rate across Bitget/Bybit/Hyperliquid with the cross-venue
-spread and a crowding read. /fundingscan (:301) does the same for many coins
+spread and a crowding read. /fundingscan (`::MarketCommands._cmd_fundingscan`) does the same for many coins
 at once, widest spread first, and names the delta-neutral direction. /arb
-(:276) runs bot/core/arb_tracker.py, which accrues hypothetical carry on a
+(`::MarketCommands._cmd_arb`) runs bot/core/arb_tracker.py, which accrues hypothetical carry on a
 FIXED $1,000 delta-neutral notional over recorded hourly spread snapshots,
 prints the fee reality check (0.24% of notional for four taker legs,
-arb_tracker.py:50) and a VERDICT over the record — `arb_verdict`, four
+`bot/core/arb_tracker.py::ROUND_TRIP_FEE_PCT`) and a VERDICT over the record — `arb_verdict`, four
 outcomes: survives fees (the whole 95% interval on the per-entry net carry
 above zero, past floors of 10 closed entries and 72h held), does not survive
 fees (the whole interval below zero), record too thin (a floor unmet, or an
@@ -260,15 +269,15 @@ PLACES NOTHING — a leg that could not be sized leaves the pair unsized
 rather than half-hedged, and the card says what the message did.
 app/lib/venue_router.js recommends the cheapest venue to hold a given
 side by funding cost. Funding also genuinely affects live trading —
-analyzer.py:1615 applies funding_cost_haircut to blended confidence, and
+`bot/core/analyzer.py::Analyzer.analyze#"_hair = funding_cost_haircut("` applies funding_cost_haircut to blended confidence, and
 risk/funding_clock.py times settlements.
 
 *Gap.* Nothing opens, hedges, rolls or closes a funding position. The
 proposal card is the last reading before an execution path, and there is no
 flag, button or executor for one yet — deliberately: a flag read by nothing
 and a button leading to "not built" are both doors painted on a wall.
-arb_tracker.py:16 states it outright: "Strictly paper: nothing here places,
-sizes, or even proposes an order," and venue_router.js:3 says it "never
+`bot/core/arb_tracker.py::__doc__#"Strictly paper"` states it outright: "Strictly paper: nothing here places,
+sizes, or even proposes an order," and `app/lib/venue_router.js::#"It never places, routes, or"` says it "never
 places, routes, or re-routes an order — auto-routing is a separate operator-
 gated decision that does not exist in this codebase." No per-leg margin
 management and no automated entry at a spread threshold. The verdict is the
@@ -280,21 +289,21 @@ decision after shadow evidence, not a card.
 **Basis trades** — partial
 
 Basis is COMPUTED and read, never traded. bot/core/basis.py's BasisAnalyzer is
-constructed at engine.py:716 and fetched in `_analyze_signal`'s context gather
-(engine.py:7229) — its
-result is handed to analyzer.analyze at :7398 as `basis` CONTEXT that votes on
-nothing. Its own docstring (basis.py:16-30) records that it had no caller
+constructed at `bot/core/engine.py::RuneClawEngine.__init__#"self.basis = BasisAnalyzer("` and fetched in `_analyze_signal`'s context gather
+(`::RuneClawEngine._analyze_signal#"self.basis.get_basis(signal.symbol)"`) — its
+result is handed to analyzer.analyze at `::RuneClawEngine._analyze_signal#"basis=basis_ctx"` as `basis` CONTEXT that votes on
+nothing. Its own docstring (`bot/core/basis.py::__doc__#"had no caller outside tests"`) records that it had no caller
 outside tests until recently and that a fabricated `basis_pct * 365`
 "annualized" field was removed rather than propagated. On the web,
 app/lib/spot.js exposes getSpotPerpBasis (route /api/spot/basis,
-routes/spot.js:11 — no browser caller; the reachable doors are the chat 'spot'
-intercept at chat.js:97 and /spot on Telegram, the same card), and app/lib/dex.js renders a DEX↔CEX basis
+`app/routes/spot.js::get('/basis')` — no browser caller; the reachable doors are the chat 'spot'
+intercept at `app/routes/chat.js::INTERCEPTS#"['spot',"` and /spot on Telegram, the same card), and app/lib/dex.js renders a DEX↔CEX basis
 (Hyperliquid mids vs this venue's perp price, as delta_bps) into the Markets
 view's c-dex panel.
 
 *Gap.* No basis position exists as an object anywhere — no cash-and-carry leg
 pairing, no spot leg (there is no spot execution at all), no roll, no
-convergence tracking, no P&L. dex.js:1-10 states the boundary: "Public info
+convergence tracking, no P&L. `app/lib/dex.js::#"Public info API only"` states the boundary: "Public info
 API only (no keys, no account, no orders) — non-custodial DEX execution
 remains design-only pending operator + legal review."
 
@@ -303,13 +312,13 @@ remains design-only pending operator + legal review."
 A read-only price comparison, and it says so in its own header. app/lib/dex.js
 fetches Hyperliquid `allMids` and puts them beside this venue's perp tickers
 for eight majors, emitting a per-base delta in basis points (buildCompare,
-dex.js:46); it is served at GET /api/market/dex and rendered in the dashboard
-Markets view's c-dex panel. venue_router.js:26 folds that DEX basis into the
+`app/lib/dex.js::buildCompare`); it is served at GET /api/market/dex and rendered in the dashboard
+Markets view's c-dex panel. `app/lib/venue_router.js::buildRouterTable` folds that DEX basis into the
 cheapest-venue-to-hold read alongside the cross-venue funding scan.
 
-*Gap.* Read-only by explicit decision: dex.js:1-10 — "Public info API only (no keys,
+*Gap.* Read-only by explicit decision: `app/lib/dex.js::#"Public info API only"` — "Public info API only (no keys,
 no account, no orders) — non-custodial DEX execution remains design-only
-pending operator + legal review" — and venue_router.js:3-7 — "It never places,
+pending operator + legal review" — and `app/lib/venue_router.js::#"It never places, routes, or"` — "It never places,
 routes, or re-routes an order." There is no DEX order execution (the only on-
 chain swap builder, meme_swap.py, is a single-leg Solana buy behind two
 default-off flags, not an arb leg), no inventory or rebalancing model, no
@@ -319,10 +328,10 @@ arb with a paper tracker is the funding one.
 **Copy trading** — partial
 
 Two real doors, both paper. (1) Arena practice-follow: POST /api/arena/follow
-(arena.js:907), toggled from the Follow control at arena.html:1328, stores
-enabled/margin/leverage; sweepFollows (arena.js:146-201) then AUTOMATICALLY
+(`app/routes/arena.js::post('/follow')`), toggled from the Follow control at `app/public/arena.html::#"$('followBtn').addEventListener('click'"`, stores
+enabled/margin/leverage; sweepFollows (`app/routes/arena.js::sweepFollows`) then AUTOMATICALLY
 opens each new engine signal as a position in the caller's virtual 10,000
-vUSDT Arena account (INSERT at arena.js:189), inheriting the signal's own stop
+vUSDT Arena account (INSERT at `::sweepFollows#"INSERT INTO arena_positions"`), inheriting the signal's own stop
 and target when they are still valid against the live fill. That is genuine
 automatic mirroring — of the house engine, in virtual money. (2) Strategy-
 agent follow: /api/copy (copy.js) follows a published engine agent or a
@@ -330,10 +339,10 @@ community strategy and returns a "would-take" picks feed built by applying
 that agent's published gates to the live signal stream, surfaced in the
 dashboard Agents view. Users can also publish their own strategy CONFIGS to
 the marketplace (/api/strategies) and pin one to their own confirms
-(/mystrategy, trading_commands.py:560).
+(/mystrategy, `bot/skills/trading_commands.py::TradingCommands._cmd_mystrategy`).
 
 *Gap.* No real-money copying anywhere, and no copying of another HUMAN's live trades.
-copy.js:11-17 states it: "follow is a bookmark + a personalised would-take
+`app/routes/copy.js::#'"follow" is a bookmark'` states it: "follow is a bookmark + a personalised would-take
 feed. It moves NO funds and places NO trades — copying is user-initiated and
 paper-only via the normal trade ticket." The Arena auto-follow mirrors the
 engine's own signals, not a leader's fills, into virtual vUSDT; it is a lazy
@@ -344,28 +353,29 @@ execution on a real venue.
 
 **Algo/bot trading** — **shipped**
 
-The whole product is an algo bot and every layer is reachable. bot/main.py:587
+The whole product is an algo bot and every layer is reachable. `bot/main.py::run_telegram._run_all`
 starts engine.run(), the scan→analyze→risk→execute FSM; market_scanner feeds
 analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
-signal modules; RiskEngine (bot/risk/risk_engine.py:270) is the fail-closed pre-
-trade gate whose whole enforcing set /enforcing lists. engine.py:6290-6348
-auto-confirms and EXECUTES any idea at or above RUNTIME.auto_confirm_threshold
-(default 0.85, config.py:2553) with no human in the loop, adaptively moved by
-realized win rate (engine.py:9606): the paper book's in paper mode, both
+signal modules; RiskEngine (`bot/risk/risk_engine.py::RiskEngine`) is the fail-closed pre-
+trade gate whose whole enforcing set /enforcing lists. `bot/core/engine.py::RuneClawEngine._tick#"auto_threshold = RUNTIME.auto_confirm_threshold"`
+auto-confirms any idea at or above RUNTIME.auto_confirm_threshold
+(default 0.85, `bot/config.py::AppConfig.auto_confirm_threshold`) with no human in the loop, and places it live only
+under an eligibility record for the running strategy (none ships), adaptively moved by
+realized win rate (`bot/core/engine.py::RuneClawEngine._adapt_auto_confirm_threshold`): the paper book's in paper mode, both
 directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
 with /autoconfirm, halt it with /halt //pause //emergency_stop, and inspect it
 with /risk, /gates, /shadow, /enforcing, /parity. Users get four named
 strategy presets (Dip Sniper, Momentum Hunter, Safe Scalper, Full Scan —
-skill_registry.py:2208) runnable via /run, /momentum, /dip, and pinnable to
+`bot/skills/skill_registry.py::RunStrategySkill.PRESETS`) runnable via /run, /momentum, /dip, and pinnable to
 their own confirms as a tighten-only veto (/mystrategy →
-user_strategy_store.py:37, mirrored on the web at /api/bot-strategy). Research
+`bot/core/user_strategy_store.py::set_pref`, mirrored on the web at /api/bot-strategy). Research
 rails exist and are wired: /backtest, /walkforward, /optimize, and the browser
-Strategy Lab over frozen benchmark snapshots (bot/api/lab.py:46).
+Strategy Lab over frozen benchmark snapshots (`bot/api/lab.py::_bench_dir`).
 
 *Gap.* On a stock deploy the loop runs on paper — SIMULATION_MODE defaults True
-(config.py:2493) — so "the bot trades for you" is live only after the operator
+(`bot/config.py::AppConfig.simulation_mode`) — so "the bot trades for you" is live only after the operator
 runs /golive and the caller passes _can_trade_live. Users cannot author
 strategy CODE: the presets are a fixed four-row table plus threshold fields,
 and published community strategies are declarative rule configs, not
@@ -389,25 +399,25 @@ elite) nominally gate behind $RCLAW, though that gate is off by default.
 READ-ONLY tracking of what you already hold, and it is genuinely wired on both
 surfaces. /livebalance fetches the caller's own linked-venue futures balance
 AND enumerates spot holdings, pricing each against a live ticker
-(account_commands.py:843; an unread holdings list is None, never [], so
+(`bot/skills/account_commands.py::AccountCommands._cmd_livebalance`; an unread holdings list is None, never [], so
 'nothing held' and 'nothing read' stay apart). /networth and /holdings
 aggregate CEX venues plus SIWE-linked wallet chains, one row per source, with
-an explicit error row for any source that would not read (holdings.js:1 header
+an explicit error row for any source that would not read (`app/lib/holdings.js::#"shows an explicit error row"` header
 states the rule). /exposure nets perp positions against on-chain spot.
 /classpf buckets realized performance by asset class. The tax report splits
 realized round-trips at the conventional 365-day short/long-term line
-(tax.js:21, :91) — the only place in the tree that models a holding period at
+(`app/lib/tax.js::LONG_TERM_DAYS`, `::classifyDisposal#"term = holdingDays"`) — the only place in the tree that models a holding period at
 all.
 
 *Gap.* There is no way to ACQUIRE or hold a position as long-term capital. /buy and
 /sell are hard-disabled with 'Spot trading is disabled — RUNECLAW operates in
-futures-only mode' (trading_commands.py:1150, :1159); the engine, live_executor
+futures-only mode' (`bot/skills/trading_commands.py::TradingCommands._cmd_buy`, `::TradingCommands._cmd_sell`); the engine, live_executor
 and every confirm path place USDT-M perps only. app/lib/spot.js is read-only
 by its own header ('nothing in this module places orders') and its
-reachable consumers are the chat intercept at chat.js:101 and /spot on
+reachable consumers are the chat intercept at `app/routes/chat.js::INTERCEPTS#"['spot',"` and /spot on
 Telegram, which fetches that intercept's own card — the /api/spot/*
 routes have no caller in the tree. There is no cost-basis lot ledger:
-tax.js:5-9 says so outright ('There is no spot-lot ledger to match across, so
+`app/lib/tax.js::#"There is no spot-lot ledger"` says so outright ('There is no spot-lot ledger to match across, so
 forcing FIFO cost-basis matching onto already-matched round-trips would
 MISREPRESENT the data'), so the long-term split is computed over bot-booked
 perp round-trips, not over held assets. No DCA, no accumulation schedule, no
@@ -440,7 +450,7 @@ panel c-idleyield, and the 'idleyield' chat intercept); and (b) a POSITION
 read of their Lido stETH mainnet balance via /api/defi, priced at the ETH
 ticker with the approximation stated. Telegram's /yield and /idleyield are the
 same reads for the OPERATOR account and are gated `_is_admin` at
-yield_commands.py:58 and :142. Lido/Rocket Pool/ether.fi also appear in the
+`bot/skills/yield_commands.py::YieldCommands._cmd_yield#"if not self._is_admin(update):"` and `::YieldCommands._cmd_idleyield#"if not self._is_admin(update):"`. Lido/Rocket Pool/ether.fi also appear in the
 /api/dapps directory as outbound deep-links to their own sites.
 
 *Gap.* Nothing stakes. There is no staking action on any surface — no delegation, no
@@ -449,14 +459,14 @@ NATIVE staking is absent entirely: no validator delegation, no Solana stake
 accounts, no ETH solo staking, and no non-Lido/RocketPool LST. The
 rclaw_staking Anchor program (devnet) is not a counterexample — I grepped its
 four instruction names and every transaction sender is a test harness;
-bot/token/tier_gate.py:438 only READS StakeAccount bytes via
+`bot/token/tier_gate.py::staked_of` only READS StakeAccount bytes via
 getProgramAccounts, so a user cannot stake $RCLAW from Telegram, the web, or
 any CLI in the repo. The only staking-shaped EXECUTION in the product is
 Bitget Earn CEX savings, stables-only, on the Bitget account a trader linked
 with /connect (see the stablecoin row).
 
 *The verifier refused part of this row.* partial stands for the liquid-staking READ (that half I confirmed end to end),
-but two of the seven listed doors are not doors. (1) tier_gate.py:438 is
+but two of the seven listed doors are not doors. (1) `bot/token/tier_gate.py::staked_of` is
 `staked_of`, a read of $RCLAW stake for TIER GATING inside a module whose
 first line is "DRAFT, feature-flagged OFF by default"
 (TOKEN_TIER_GATE_ENABLED, RCLAW_MINT, RCLAW_STAKING_PROGRAM all unset by
@@ -482,7 +492,7 @@ calculation and no rate-differential alerting is ever computed.
 `availableBorrowsBase` is a headroom dollar figure, not a price of credit.
 There is also no borrowing or repaying action: defi.js's own header says no
 signing surface exists behind that router. Morpho, Compound and Spark are
-directory links only (app/lib/dapps.js:30-33). Only Aave v3 is read; only four
+directory links only (`app/lib/dapps.js::DAPPS#"// Lending"`). Only Aave v3 is read; only four
 assets have a supply rate.
 
 **LP provision** — partial
@@ -593,21 +603,21 @@ A real, reachable READ-ONLY radar. Five hand-curated campaigns (curated_at
 a human checklist and the official link. Logged in, GET /api/airdrops/me adds
 eligibility HINTS computed from the caller's own SIWE-linked wallet — per
 chain, 'already holds funds, gas is covered' vs 'no readable funds, you would
-need to bridge first' (app/lib/airdrops.js:139) — and the module's own
+need to bridge first' (`app/lib/airdrops.js::eligibilityHints`) — and the module's own
 docstring is explicit that a hint is a fact about the wallet, never a claim of
 qualification. Operators can swap the catalog without a deploy via
 AIRDROP_CATALOG_PATH, and a broken file falls through to the seed rather than
-blanking the radar (app/lib/airdrops.js:122-131). Five doors render it; the
+blanking the radar (`app/lib/airdrops.js::loadCatalog`). Five doors render it; the
 chat reply restates the anti-sybil line itself, and /airdrops on Telegram is
 that same chat card, fetched rendered over the bot-secret sync channel
 (market_commands.py), so the line reaches Telegram verbatim.
 
 *Gap.* The farming half does not exist and is a stated product line, not an omission:
-app/lib/airdrops.js:10-17 refuses automated participation, transaction
+`app/lib/airdrops.js::#"What this is deliberately NOT"` refuses automated participation, transaction
 signing, wallet generation, multi-wallet orchestration and activity generated
-solely to qualify; ANTI_SYBIL_NOTE (:161) ships that refusal to every caller.
+solely to qualify; ANTI_SYBIL_NOTE (`::ANTI_SYBIL_NOTE`) ships that refusal to every caller.
 There is no endpoint that performs, signs or schedules any step
-(app/routes/airdrops.js:8-10). Nothing tracks which steps a user has
+(`app/routes/airdrops.js::#"Guided-only by design"`). Nothing tracks which steps a user has
 completed, nothing reads an allocation or a claim, and the catalog is a static
 snapshot the card tells you to re-verify on the official link. The Telegram
 door, /airdrops, is the web card and nothing more: a caller whose Telegram
@@ -617,45 +627,45 @@ anybody else the public radar — never a guessed wallet.
 **Testnet/mainnet grinding** — partial
 
 The same radar carries both halves. Two testnet campaigns — monad-testnet
-(:37) and megaeth-testnet (:55) — with checklists that say to verify the URL
+(`app/lib/airdrops.js::SEED_CATALOG#"key: 'monad-testnet'"`) and megaeth-testnet (`::SEED_CATALOG#"key: 'megaeth-testnet'"`) — with checklists that say to verify the URL
 on verified socials, claim from the OFFICIAL faucet ('never pay for testnet
 tokens'), use the network genuinely and keep to one wallet. Two mainnet-
-activity entries — base-onchain (:72, 'gas-only') and arbitrum-open (:108) —
+activity entries — base-onchain (`::SEED_CATALOG#"key: 'base-onchain'"`, 'gas-only') and arbitrum-open (`::SEED_CATALOG#"key: 'arbitrum-open'"`) —
 whose steps point at the governance forum and say to use protocols you'd use
 anyway. A 'testnet' chain key short-circuits the wallet hint to 'free faucet
-funds; your linked wallet works as-is' (:143-145), and the panel has a
-dedicated 'testnet' status chip (dashboard.js:1596-1606).
+funds; your linked wallet works as-is' (`::eligibilityHints#"if (chainKey === 'testnet')"`), and the panel has a
+dedicated 'testnet' status chip (`app/public/js/dashboard.js::renderMarkets#"testnet:   ['chip--info'"`).
 
 *Gap.* Informational only, and deliberately. Nothing calls a faucet, submits a
 transaction, or measures on-chain activity on any testnet; the wallet hint
 reads BALANCES on mainnet chains and nothing at all on testnets. No record of
 which steps a user performed, no streak/progress over a campaign, no re-check.
-Every entry's notes line says an airdrop is not promised (:52, :68, :86). Same
+Every entry's notes line says an airdrop is not promised (`app/lib/airdrops.js::SEED_CATALOG#"notes: 'No airdrop is promised. Genuine"`, `::SEED_CATALOG#"notes: 'No airdrop is promised.',"`, `::SEED_CATALOG#"notes: 'Base has never promised"`). Same
 absence of any Telegram or bot-side door.
 
 *The verifier refused part of this row.* partial stands on the catalog content, but one cited door is a DEAD BRANCH. No
 shipped campaign has status 'testnet'. SEED_CATALOG's five statuses are live,
-live, expected, points, live (airdrops.js:41, :59, :76, :92, :112); both
-testnet campaigns (monad-testnet :37, megaeth-testnet :55) carry status 'live'
+live, expected, points, live (the `status` of each entry in `app/lib/airdrops.js::SEED_CATALOG`); both
+testnet campaigns (monad-testnet `::SEED_CATALOG#"key: 'monad-testnet'"`, megaeth-testnet `::SEED_CATALOG#"key: 'megaeth-testnet'"`) carry status 'live'
 and express testnet-ness through chains:['testnet'], not status. So
 statusChip's 'testnet' row — along with 'active', 'claim', 'confirmed',
 'snapshot' …
 
 **Points programs** — nothing serves this ⟲ — the verifier overturned *partial*
 
-One curated entry: hyperliquid-ecosystem (:88), status 'points', costs
+One curated entry: hyperliquid-ecosystem (`app/lib/airdrops.js::SEED_CATALOG#"key: 'hyperliquid-ecosystem'"`), status 'points', costs
 'capital', effort 'medium', whose steps are 'research each HyperEVM app's
 points program on its official docs', 'deploy only capital whose loss you can
 absorb — points never justify bad risk' and 'track your positions in the
 Portfolio view like any other exposure', with a note that the base HYPE
 airdrop already happened. The dashboard renders a distinct blue 'points' chip
-for that status (dashboard.js:1602), so a points-farming campaign is visually
+for that status (`app/public/js/dashboard.js::renderMarkets#"points:    ['chip--info'"`), so a points-farming campaign is visually
 separated from a live claim and from a taken snapshot.
 
 *Gap.* Thin, and it reads other people's programs rather than running one. No points
 BALANCE is fetched, stored or displayed for any program — I grepped the
 lib/route/panel layer and the only per-user read on this path is wallet funds-
-by-chain (app/lib/airdrops.js:139). No accrual estimate, no snapshot tracking,
+by-chain (`app/lib/airdrops.js::eligibilityHints`). No accrual estimate, no snapshot tracking,
 no per-app breakdown, no notification when a program changes. RUNECLAW runs no
 points program of its own: the nearest thing is the $RCLAW tier gate, which
 maps an on-chain STAKE (not points) to a feature tier, is OFF by default
@@ -667,26 +677,26 @@ on.
 chip does render, but the product measures, tracks and stores ZERO points of
 any kind. A whole-tree grep across app/lib, app/routes and bot/ for points
 state returns exactly two hits, both the same literal: the docstring listing
-the allowed status vocabulary (airdrops.js:31) and the one entry that uses it
-(airdrops.js:92). There is no points balance, no per-program tracker, no po…
+the allowed status vocabulary (`app/lib/airdrops.js::#"status ('live'"`) and the one entry that uses it
+(`::SEED_CATALOG#"status: 'points'"`). There is no points balance, no per-program tracker, no po…
 
 **Referral loops** — partial
 
 The loop itself is wired end to end on BOTH surfaces. An 8-char random, non-
-enumerable code is minted and back-filled (auth.js:405, :901); registration
+enumerable code is minted and back-filled (`app/auth.js::genReferralCode`, `::get('/referrals')#"code = genReferralCode();"`); registration
 with a valid ?ref= credits users.referred_by, refusing self-referral
-(auth.js:588-602); the Account panel shows the link, a live 'N joined' count
-and three share buttons (dashboard.js:5416-5464); an anonymous ?ref= landing
+(`app/auth.js::post('/register')#"if (referrerId && referrerId !== userId)"`); the Account panel shows the link, a live 'N joined' count
+and three share buttons (`app/public/js/dashboard.js::renderAccount#"renderPanel(C('ainvite')"`); an anonymous ?ref= landing
 resolves the referrer's public handle only, 404s unknown codes and is rate-
-limited and cached (public_invite.js:25). Telegram is covered too: /start
+limited and cached (`app/routes/public_invite.js::get('/:code')`). Telegram is covered too: /start
 parses the ref_ payload and writes it write-once, refusing self-referral
-(start_commands.py:139-142 → user_store.py:702). And one perk is genuinely
+(`bot/skills/start_commands.py::StartCommands._cmd_start#"_ref = parse_start_payload("` → `bot/utils/user_store.py::UserStore.record_referrer`). And one perk is genuinely
 backed — app/lib/duel_squads.js builds Daily Duel SQUADS out of exactly this
-referral graph, served by GET /api/public/duel/squads (public_duel.js:101) and
+referral graph, served by GET /api/public/duel/squads (`app/routes/public_duel.js::get('/squads')`) and
 rendered on /duel.
 
 *Gap.* It pays nothing, and the code says so in its own comments. Of the five
-REFERRAL_TIERS (auth.js:435-452), only Starter and Connector carry state
+REFERRAL_TIERS (`app/auth.js::REFERRAL_TIERS`), only Starter and Connector carry state
 'live'; Advocate/Ambassador/Legend are state 'planned' with a `requires` line
 saying so — 'nothing in the product is weighted by referrals today', and fee
 credits and revenue share 'would ride on the $RCLAW token, which does not
@@ -700,23 +710,23 @@ computed or paid anywhere.
 *The verifier refused part of this row.* partial stands for the WEB surface only. On Telegram the loop is redemption-
 only, and what it redeems is read by nothing. Three independent checks: (1)
 record_referrer writes record['referred_by'] into the JSON user store
-(user_store.py:723) and a whole-tree grep for readers of that key returns only
-the writer's own guard at user_store.py:719 and four assertions in
+(`bot/utils/user_store.py::UserStore.record_referrer#'record["referred_by"] = code'`) and a whole-tree grep for readers of that key returns only
+the writer's own guard at `bot/utils/user_store.py::UserStore.record_referrer#'record.get("referred_by")'` and four assertions in
 tests/test_share_invite.py — zero non-test readers, which is this repo's own
 unreachable-mod…
 
 **Loyalty/quest platforms** — partial
 
 RUNECLAW ships its OWN quest/loyalty layer and it is reachable, not
-scaffolding. The Command Deck (routes/command.js, authMiddleware at :24,
-mounted server.js:436, page server.js:476, linked from /arena, /duel, /learn,
+scaffolding. The Command Deck (routes/command.js, authMiddleware at `app/routes/command.js::#"router.use(authMiddleware)"`,
+mounted `app/server.js::use('/api/command')`, page `app/server.js::get('/command')`, linked from /arena, /duel, /learn,
 /rune, /explore, index.html and the palette) renders on one screen: a paper-
-Arena close streak with a grace rule (arena_streaks.js:25), three weekly
-quests rotated deterministically by ISO week from QUEST_POOL (:47, :80), exit
-discipline, a diary streak (achievements.js:18), lesson progress, the daily
+Arena close streak with a grace rule (`app/lib/arena_streaks.js::computeStreak`), three weekly
+quests rotated deterministically by ISO week from QUEST_POOL (`::QUEST_POOL`, `::weeklyQuests`), exit
+discipline, a diary streak (`app/lib/achievements.js::diaryStreak`), lesson progress, the daily
 rune and ten achievement glyphs. The honesty posture is unusually strong:
 achievements are pure predicates recomputed from records on every read, never
-grant tables (achievements.js:1-11), so the deck 'can never show a trophy the
+grant tables (`app/lib/achievements.js::#"never by grant tables"`), so the deck 'can never show a trophy the
 records don't back', and the route's header pins that no balance, equity or
 dollar rides the payload. Alongside it the Daily Duel (a daily pick with a
 90-day record) and /learn (lessons + a per-day trading diary) are real
@@ -729,18 +739,18 @@ anywhere off-platform. (2) Internally it pays NOTHING: quests, streaks, glyphs
 and duel marks are counts and facts only, with no token, credit, fee discount
 or payout attached, and the quests are computed over PAPER arena closes. The
 one badge that would be an on-chain loyalty asset — the free, one-per-wallet,
-permanently soulbound RuneOfEntry ERC-721 (contracts/rune/RuneOfEntry.sol:27)
+permanently soulbound RuneOfEntry ERC-721 (`contracts/rune/RuneOfEntry.sol::#"contract RuneOfEntry {"`)
 — is NOT DEPLOYED: NFT_CONTRACT_ADDRESS appears nowhere (not even in
-.env.example), so nft.js:89 returns null and buildMintPlan answers ready:false
+.env.example), so `app/lib/nft.js::contractAddress` returns null and buildMintPlan answers ready:false
 with the reason 'NFT_CONTRACT_ADDRESS is not set (contract not deployed yet)'
-(nft.js:165), and the deck's rune read answers null.
+(`app/lib/nft.js::buildMintPlan#"NFT_CONTRACT_ADDRESS is not set"`), and the deck's rune read answers null.
 
 *The verifier refused part of this row.* partial, but ONLY for RUNECLAW's own in-product engagement layer; coverage of
 the loyalty/quest-PLATFORM meta is zero. A whole-tree grep for galxe, layer3,
 zealy, quest3, crew3, guild.xyz and taskon returns ZERO hits in any .js, .py,
 .html or .md — the product neither integrates with, tracks, nor mentions a
 single external quest platform. Everything the row cites is verified reachable
-and I confirm it (routes/command.js authMiddleware :25, mounted server.j…
+and I confirm it (routes/command.js authMiddleware `app/routes/command.js::#"router.use(authMiddleware)"`, mounted server.j…
 
 
 ### Attention Economy
@@ -758,14 +768,14 @@ and I confirm it (routes/command.js authMiddleware :25, mounted server.j…
 
 A referral/invite program and share tooling, not campaigns. A signed-in web
 user gets a personal invite code and a count of who signed up on it
-(app/auth.js:896, rendered in the Account view's c-ainvite panel at
-dashboard.js:4704), can share a dollar-free PNG close card (/api/share/card),
+(`app/auth.js::get('/referrals')`, rendered in the Account view's c-ainvite panel at
+`app/public/js/dashboard.js::renderAccount#"renderPanel(C('ainvite')"`), can share a dollar-free PNG close card (/api/share/card),
 and a visitor arriving on /api/public/invite/:code is credited to the
 referrer. On Telegram the operator — or, as I read the body, any Telegram
 group admin/creator of the chat it is run in — can push text to the marketing
-channels with /broadcast (access_commands.py:371) and manage those channels
+channels with /broadcast (`bot/skills/access_commands.py::AccessCommands._cmd_broadcast`) and manage those channels
 with /channel. Exactly one referral perk is real and I verified it:
-app/lib/duel_squads.js:5,92 builds Daily Duel squads out of users.referred_by,
+`app/lib/duel_squads.js::buildSquads` builds Daily Duel squads out of users.referred_by,
 so one recruit really does put you both on a squad.
 
 *Gap.* There is no campaign anywhere: no brief, no sponsor, no submission, no content
@@ -773,43 +783,43 @@ tracking, no creator leaderboard and no payout. The reward half of the
 referral ladder is explicitly dead, and the code says so itself — three of the
 five REFERRAL_TIERS rows are state:'planned' with a `requires` line reading
 'Not in force yet' or 'Would ride on the $RCLAW token, which does not exist
-yet' (app/auth.js:443-452), and the comment above the table states 'This
+yet' (`app/auth.js::REFERRAL_TIERS#"requires: 'Not"`), and the comment above the table states 'This
 endpoint still grants nothing: referralTier has one caller, right below, and
-nothing in the tree gates a feature on a referral count' (app/auth.js:433). I
+nothing in the tree gates a feature on a referral count' (`app/auth.js::#"endpoint still grants nothing"`). I
 checked that claim: referralTier's only non-test caller is the endpoint that
 prints it. Do not read this row as creator-campaign coverage.
 
 *The verifier refused part of this row.* none. Every door listed exists and is reachable, and not one of them is a
 campaign — the row's own evidence sentence concedes it ('A referral/invite
 program and share tooling, not campaigns') and the status contradicts that
-sentence. Verified: (1) GET /api/auth/referrals (app/auth.js:896,
-authMiddleware, mounted server.js:327) returns a code + count, rendered in the
+sentence. Verified: (1) GET /api/auth/referrals (`app/auth.js::get('/referrals')`,
+authMiddleware, mounted `app/server.js::use('/api/auth')`) returns a code + count, rendered in the
 Account view's c-ainvite panel (dashboard.html panel p-ainvite at
-dashboard.js:4704, loader…
+`app/public/js/dashboard.js::renderAccount#"renderPanel(C('ainvite')"`, loader…
 
 **Reputation-based rewards** — partial
 
 The SCORING half is shipped and genuinely reachable. A signed-in web user sees
 an outcome-based reputation score, grade, four sub-scores and honest red flags
-computed only from their realized closed trades (app/routes/reputation.js:22,
-mounted at app/server.js:440, fetched by the Reputation view at
-dashboard.js:6040; the scorer is app/lib/reputation.js:70 and abstains with
+computed only from their realized closed trades (`app/routes/reputation.js::get('/')`,
+mounted at `app/server.js::use('/api/reputation')`, fetched by the Reputation view at
+`app/public/js/dashboard.js::renderReputation#"fetchJSON('/api/reputation')"`; the scorer is `app/lib/reputation.js::computeReputation` and abstains with
 unrated/null rather than a zero). Wallet-native on-chain badges are earned
-from what an address verifiably holds (app/lib/badges.js:26 → the Worlds view
-panel at dashboard.js:5842). Arena badges are earned from closed paper trades
-(app/lib/arena_badges.js:18 → app/routes/arena.js:314). The Command Deck
+from what an address verifiably holds (`app/lib/badges.js::computeBadges` → the Worlds view
+panel at `app/public/js/dashboard.js::renderWorlds#"const el = C('w3badges')"`). Arena badges are earned from closed paper trades
+(`app/lib/arena_badges.js::computeArenaBadges` → `app/routes/arena.js::get('/account')#"badges: require"`). The Command Deck
 grants achievement glyphs 'by arithmetic, never by grant tables'
-(app/lib/achievements.js, app/routes/command.js:129). Public standing exists
-on the leaderboard/track-record boards, and bot/proofofpnl/erc8004.py:52 binds
+(app/lib/achievements.js, `app/routes/command.js::get('/')#"achievements: computeAchievements"`). Public standing exists
+on the leaderboard/track-record boards, and `bot/proofofpnl/erc8004.py::reputation_from_statement` binds
 a fills-derived reputation block into a signed ERC-8004 identity card (which
 refuses to attach any reputation to an unpublished statement, and whose
-publisher is PROOFOFPNL_PUBLISH_ENABLED=0 by default at .env.example:626).
+publisher is PROOFOFPNL_PUBLISH_ENABLED=0 by default at `.env.example::#"PROOFOFPNL_PUBLISH_ENABLED=0"`).
 
 *Gap.* Nothing REWARDS any of it, and I checked rather than assumed:
 computeReputation's only non-test caller in the tree is the route that prints
-it (app/routes/reputation.js:49), no permission, tier, fee, limit or feature
+it (`app/routes/reputation.js::get('/')#"res.json({ ...computeReputation"`), no permission, tier, fee, limit or feature
 anywhere reads a reputation score, badge or achievement, and
-app/lib/achievements.js:9 states the posture outright — 'No dollar ever
+`app/lib/achievements.js::#"No dollar ever unlocks"` states the posture outright — 'No dollar ever
 unlocks anything, no scarcity is manufactured, nothing is for sale.' The one
 tier system that does gate features ($RCLAW tier_gate) keys on an on-chain
 STAKE, not reputation, and is inert by default. The only reputation-shaped
@@ -820,9 +830,9 @@ exist. So: reputation is measured and displayed today; it buys nothing.
 *The verifier refused part of this row.* partial — STATUS STANDS for the scoring half, but two of the listed doors do
 not serve this row and the 'rewards' half is recognition-only. Verified
 shipped and reachable: GET /api/reputation (app/routes/reputation.js,
-authMiddleware, mounted app/server.js:440) is fetched by a real nav view —
-dashboard.js:47 registers { id:'reputation' }, dashboard.js:8915 maps it to
-renderReputation, which fetches at dashboard.js:6040 and abstains with
+authMiddleware, mounted `app/server.js::use('/api/reputation')`) is fetched by a real nav view —
+`app/public/js/dashboard.js::VIEWS#"{ id: 'reputation"` registers { id:'reputation' }, `app/public/js/dashboard.js::RENDER#"reputation: renderReputation"` maps it to
+renderReputation, which fetches at `app/public/js/dashboard.js::renderReputation#"fetchJSON('/api/reputation')"` and abstains with
 'Unrated' rather th…
 
 
@@ -842,27 +852,27 @@ A complete, reachable, publicly-ranked forecasting contest — the Daily Duel �
 with ZERO prize and ZERO stake. Three rounds a UTC day, each a symbol plus the
 agent's hidden stance; the player calls LONG/SHORT/PASS and is scored over a
 24h horizon measured from their own call, beating the agent scoring double
-(app/lib/duel.js:5-8, :41-44). Doors, opened and read: Telegram /duel at
-bot/skills/start_commands.py:578 (@guard("start"), which `pending` holds, so
+(`app/lib/duel.js::#"Three rounds a UTC day"`, `::ROUNDS_PER_DAY`, `::HORIZON_HOURS`). Doors, opened and read: Telegram /duel at
+`bot/skills/start_commands.py::StartCommands._cmd_duel` (@guard("start"), which `pending` holds, so
 the free on-ramp stays reachable by a newcomer while the allowlist gate and the
 rate limit are no longer skipped — it carried NO gate at all until 2026-09-18),
 registered at
-telegram_handler.py:1012, with LONG/SHORT/PASS inline buttons whose taps land
-in _handle_duel_callback at start_commands.py:596; the web page at
-app/server.js:477 driving the four authed routes at
-app/routes/duel.js:43/57/73/98; and the session-free public board and referral
-'squads' board at app/routes/public_duel.js:3 (mounted app/server.js:370),
+`bot/skills/telegram_handler.py::TelegramHandler.build_app#'("duel", self._cmd_duel)'`, with LONG/SHORT/PASS inline buttons whose taps land
+in _handle_duel_callback at `bot/skills/start_commands.py::StartCommands._handle_duel_callback`; the web page at
+`app/server.js::get('/duel')` driving the four authed routes at
+`app/routes/duel.js::get('/today')`, `::post('/pick')`, `::get('/me')`, `::get('/season')`; and the session-free public board and referral
+'squads' board at `app/routes/public_duel.js::#"Daily Duel — the PUBLIC board"` (mounted `app/server.js::use('/api/public/duel')`),
 ranked per calendar-month season. Scoring is one pure module both surfaces
 share (app/lib/duel.js), accuracy is null-not-zero when nothing resolved and
-unresolved rounds are excluded from the denominator (app/lib/duel.js:184-196),
-settlement runs lazily in batches on read (duel_service.js:117), and every
-pick is cryptographically SEALED at the moment it is made (duel_service.js:195
--> callseal.sealDuelPick, kind 'duel_pick' in docs/PROVABLE_CALLS_SPEC.md:97)
+unresolved rounds are excluded from the denominator (`app/lib/duel.js::accuracy`),
+settlement runs lazily in batches on read (`app/lib/duel_service.js::settleDue`), and every
+pick is cryptographically SEALED at the moment it is made (`app/lib/duel_service.js::placePick#"const receipt = sealDuelPick("`
+-> callseal.sealDuelPick, kind 'duel_pick' in `docs/PROVABLE_CALLS_SPEC.md::#'"kind":"duel_pick"'`)
 so it rides into the day's Merkle root — a forecast committed before its
 outcome is known and re-derivable by a third party.
 
 *Gap.* Income. There is no entry fee, no prize pool, no payout and no token reward
-attached to a duel result — the §4 rule at app/routes/duel.js:16 forbids any
+attached to a duel result — the §4 rule at `app/routes/duel.js::#"§4: virtual throughout"` forbids any
 currency amount on the surface — so this is a reputation/streak game, not an
 earning leaf. Also missing for a real forecasting tournament: no proper
 scoring rule (accuracy percent, marks and streaks only; no Brier or log score,
@@ -907,26 +917,26 @@ by nobo…
 **Flipping** — partial
 
 READ-ONLY market intelligence only. The web chat intercept at
-app/routes/chat.js:99 calls opensea.maybeHandleNftChat, which returns the top
+`app/routes/chat.js::INTERCEPTS#"['nft',"` calls opensea.maybeHandleNftChat, which returns the top
 collections ranked by REAL seven-day traded volume with floor price and owner
-counts (app/lib/opensea.js:60-99), and the same lib backs GET /api/nft/radar
-and GET /api/nft/wallet/:address (app/routes/nft.js:47-55). The Worlds view
-mirrors the caller's own NFT holdings (app/routes/web3.js:37-58), and
-networth.js:118-133 lists collectibles as CONTEXT and deliberately never sums
+counts (`app/lib/opensea.js::getNftRadar`), and the same lib backs GET /api/nft/radar
+and GET /api/nft/wallet/:address (`app/routes/nft.js::get('/radar')`, `::get('/wallet/:address')`). The Worlds view
+mirrors the caller's own NFT holdings (`app/routes/web3.js::get('/collectibles')`), and
+`app/lib/networth.js::buildNetWorth#"// NFT collectibles"` lists collectibles as CONTEXT and deliberately never sums
 their floor into the total. The dApps directory links out to
-OpenSea/Blur/Magic Eden on their own sites (app/lib/dapps.js:47-49) — a link,
+OpenSea/Blur/Magic Eden on their own sites (`app/lib/dapps.js::DAPPS#"{ id: 'opensea"`) — a link,
 not a capability.
 
 *Gap.* There is NO execution half anywhere in the tree: no listing, bid, offer,
 fulfilment, sweep, or NFT transfer path on any surface. opensea.js's own
 header states the scope — "No marketplace machinery — no listings, no offers,
-no fulfillment, no minting, no wallet credentials" (app/lib/opensea.js:5-9) —
+no fulfillment, no minting, no wallet credentials" (`app/lib/opensea.js::#"No marketplace machinery"`) —
 and its radar payload carries "RUNECLAW never lists, bids, mints or trades
-NFTs" (app/lib/opensea.js:88). Both HTTP routes (/radar, /wallet/:address)
+NFTs" (`app/lib/opensea.js::getNftRadar#"never lists, bids, mints or trades NFTs"`). Both HTTP routes (/radar, /wallet/:address)
 have no browser caller anywhere in the repo; the chat intercept and /nft on
 Telegram — the same card, fetched rendered over the sync channel — are the UI
 doors. And the whole surface is inert on a stock deploy: OPENSEA_API_KEY is
-commented out at .env.example:763 and set nowhere, so configured() is false
+commented out at `.env.example::#"# OPENSEA_API_KEY="` and set nowhere, so configured() is false
 and every reader honestly answers available:false / not_configured rather than
 a fabricated radar. The Telegram door, /nft, renders that same honest card
 (market_commands.py fetches the web intercept's own rendering), so an
@@ -934,39 +944,39 @@ unconfigured key reads 'unavailable' on both surfaces rather than as a radar
 on one and silence on the other.
 
 *The verifier refused part of this row.* The STATUS is right and the read-only framing is right — I drove every path:
-the intercept table is dispatched in a loop (app/routes/chat.js:208-213), the
-nft row is chat.js:99, opensea.CHAT_RE/maybeHandleNftChat are
-opensea.js:125-141, /api/nft is mounted at server.js:434,
-/api/web3/collectibles is web3.js:37-58 and the Worlds view consumes it at
-dashboard.js:5856-5889, networth.js:118-133 lists collectibles and never sums
-a floor, dapps.js:47-49 is three…
+the intercept table is dispatched in a loop (`app/routes/chat.js::chatTurn#"for (const [name, fn] of INTERCEPTS)"`), the
+nft row is `app/routes/chat.js::INTERCEPTS#"['nft',"`, opensea.CHAT_RE/maybeHandleNftChat are
+`app/lib/opensea.js::CHAT_RE`/`::maybeHandleNftChat`, /api/nft is mounted at `app/server.js::use('/api/nft')`,
+/api/web3/collectibles is `app/routes/web3.js::get('/collectibles')` and the Worlds view consumes it at
+`app/public/js/dashboard.js::renderWorlds#"fetchJSON('/api/web3/collectibles')"`, `app/lib/networth.js::buildNetWorth#"// NFT collectibles"` lists collectibles and never sums
+a floor, `app/lib/dapps.js::DAPPS#"{ id: 'opensea'"` is three…
 
 **Minting** — partial
 
 One complete, genuinely end-to-end mint path is BUILT for a single collection
 — the Rune of Entry soulbound signup badge. The contract exists and is tested
-(contracts/rune/RuneOfEntry.sol:57 mint(bytes), free/non-payable, one per
+(`contracts/rune/RuneOfEntry.sol::#"function mint(bytes calldata sig)"` mint(bytes), free/non-payable, one per
 wallet, art generated and stored fully on-chain). The server signs an EIP-712
 MintVoucher bound to the caller's linked wallet and returns the exact
-mint(bytes) calldata plus chain/RPC/explorer (app/lib/nft.js:158-206); it
+mint(bytes) calldata plus chain/RPC/explorer (`app/lib/nft.js::buildMintPlan`); it
 never signs or sends the transaction. The browser flow is fully wired:
-dashboard.js:4901 fetches the plan, :4910 renders the button, :5084-5128
+`app/public/js/dashboard.js::renderAccount.drawWalletLink#"fetchJSON('/api/nft/mint-plan')"` fetches the plan, `::renderAccount.drawWalletLink#"runeBlock = p.minted_token_id"` renders the button, `::renderAccount#"method: 'eth_sendTransaction'"`
 switches the wallet's chain and calls eth_sendTransaction from the USER's own
-wallet with their own gas. /rune (rune.html:107) reads GET /api/nft/stats for
+wallet with their own gas. /rune (`app/public/rune.html::#"fetch('/api/nft/stats')"`) reads GET /api/nft/stats for
 a minted count.
 
 *Gap.* NOT DEPLOYED AND NOT CONFIGURED, so today nobody can mint.
 NFT_CONTRACT_ADDRESS and NFT_VOUCHER_KEY appear nowhere in the tree except
-documentation (app/docs/GOLIVE_RUNBOOK.md:48-49,
-contracts/rune/README.md:40,50); there is no .env. contractAddress() therefore
-returns null (app/lib/nft.js:89-92), buildMintPlan returns {ready:false,
-not_ready_reasons:[…'contract not deployed yet'…]} (app/lib/nft.js:163-173),
+documentation (`app/docs/GOLIVE_RUNBOOK.md::#"= the deployed address"`, `::#"= the voucher private key"`,
+`contracts/rune/README.md::#"the *private key* later becomes"`, `::#"Record the deployed address"`); there is no .env. contractAddress() therefore
+returns null (`app/lib/nft.js::contractAddress`), buildMintPlan returns {ready:false,
+not_ready_reasons:[…'contract not deployed yet'…]} (`app/lib/nft.js::buildMintPlan#"contract not deployed yet"`),
 the dashboard renders NO mint button at all (the runeBlock is built only `if
-(p && p.ready)`, dashboard.js:4905), and /rune prints "The forge is cold — the
-collection is not deployed yet" (rune.html:111). Deployment is a manual `forge
+(p && p.ready)`, `app/public/js/dashboard.js::renderAccount.drawWalletLink#"if (p && p.ready)"`), and /rune prints "The forge is cold — the
+collection is not deployed yet" (`app/public/rune.html::#"The forge is cold"`). Deployment is a manual `forge
 create` by the operator. Scope gap even once lit: this is ONE free, one-per-
 wallet, permanently SOULBOUND badge (transferFrom/safeTransferFrom revert,
-RuneOfEntry.sol:96-98; ERC-5192 locked() is always true, :104-105) — a signup
+`contracts/rune/RuneOfEntry.sol::#"function transferFrom("`; ERC-5192 locked() is always true, `::#"ERC-5192: permanently locked"`) — a signup
 badge, not mint-for-profit income, and there is no mint calendar, allowlist
 tracker, or third-party mint door anywhere.
 
@@ -974,8 +984,8 @@ tracker, or third-party mint door anywhere.
 default". Every cited line exists and the wiring is real, but the door does
 not render on any deployment the repo describes: buildMintPlan returns
 {ready:false, not_ready_reasons:[…]} unless BOTH NFT_CONTRACT_ADDRESS and
-NFT_VOUCHER_KEY are set (app/lib/nft.js:87-98, 155-170), and NEITHER variable
-appears in .env.example at all — audit/env_diff.md:277-278 lists both as env
+NFT_VOUCHER_KEY are set (`app/lib/nft.js::contractAddress`, `::voucherWallet`, `::buildMintPlan`), and NEITHER variable
+appears in .env.example at all — `audit/env_diff.md::#"NFT_CONTRACT_ADDRESS"` and `::#"NFT_VOUCHER_KEY"` list both as env
 vars …
 
 **Collection creation** — partial
@@ -984,35 +994,35 @@ A signed-in web user can DRAFT and COMPILE an NFT collection contract. The
 Contract Studio view ships an explicit 'ERC-721 NFT' starter template whose
 spec text is "an ERC-721 NFT collection with a fixed max supply, a per-wallet
 mint limit, an owner-set mint price, and metadata baseURI — using OpenZeppelin
-ERC721 + Ownable" (dashboard.js:7250). It posts to /api/contract/studio
-(dashboard.js:7423 → app/routes/contract.js:37 → gateway
-handle_contract_studio, user_gateway.py:1435), which is gated by _guard_user
-(:1454) — any authorized web caller, NOT admin-only, with a free daily draft
+ERC721 + Ownable" (`app/public/js/dashboard.js::renderContractStudio#'data-tpl="an ERC-721 NFT collection'`). It posts to /api/contract/studio
+(`app/public/js/dashboard.js::renderContractStudio#"fetchJSON('/api/contract/studio'"` → `app/routes/contract.js::post('/studio')` → gateway
+handle_contract_studio, `bot/web/user_gateway.py::handle_contract_studio`), which is gated by _guard_user
+(`::handle_contract_studio#"err = _guard_user"`) — any authorized web caller, NOT admin-only, with a free daily draft
 quota — and returns a Solidity draft plus heuristic security flags.
-/api/contract/compile (dashboard.js:7382 → contract.js:71 →
-handle_contract_compile, user_gateway.py:1552) is likewise _guard_user (:1574)
+/api/contract/compile (`app/public/js/dashboard.js::renderContractStudio#"fetchJSON('/api/contract/compile'"` → `app/routes/contract.js::post('/compile')` →
+handle_contract_compile, `bot/web/user_gateway.py::handle_contract_compile`) is likewise _guard_user (`::handle_contract_compile#"err = _guard_user"`)
 and runs real solc off the event loop, reporting whether the collection
 actually builds.
 
 *Gap.* The draft is where it stops for an ordinary user — nothing lets them DEPLOY a
-collection. POST /api/web3/deploy (dashboard.js:7347) reaches
-handle_contract_deploy (user_gateway.py:1594), which returns 403 'contract
-deploy is admin-only' for every non-admin (:1609-1610), is TESTNET-ONLY with
+collection. POST /api/web3/deploy (`app/public/js/dashboard.js::renderContractStudio#"fetchJSON('/api/web3/deploy'"`) reaches
+handle_contract_deploy (`bot/web/user_gateway.py::handle_contract_deploy`), which returns 403 'contract
+deploy is admin-only' for every non-admin (`::handle_contract_deploy#"if not _is_admin_id"`), is TESTNET-ONLY with
 mainnet refused regardless of any flag, must pass an enforcing Authority
 Envelope, and is inert until the operator supplies WEB3_SIGNER_PRIVATE_KEY and
 installs eth-account (which CI does not). So a user gets source code they must
 take elsewhere to ship. The output is also explicitly a DRAFT with flags,
 never an audit — the audit disclaimer travels with every response
-(user_gateway.py:1544). No metadata hosting, no art pipeline, no
+(`bot/web/user_gateway.py::handle_contract_studio#'"disclaimer": AUDIT_DISCLAIMER'`). No metadata hosting, no art pipeline, no
 allowlist/Merkle tooling, no mint-page generator, and no royalty configuration
 accompanies it.
 
 *The verifier refused part of this row.* The DRAFT half is upheld exactly as described — I confirmed the 'ERC-721 NFT'
-template string at dashboard.js:7250, the #studio view is in VIEWS
-(dashboard.js:54) and RENDER (dashboard.js:10249), the POST reaches
-handle_contract_studio (contract.js:37 → user_gateway.py:1435), and
+template string at `app/public/js/dashboard.js::renderContractStudio#'data-tpl="an ERC-721 NFT collection'`, the #studio view is in VIEWS
+(`app/public/js/dashboard.js::VIEWS#"{ id: 'studio'"`) and RENDER (`app/public/js/dashboard.js::RENDER#"studio: renderContractStudio"`), the POST reaches
+handle_contract_studio (`app/routes/contract.js::post('/studio')` → `bot/web/user_gateway.py::handle_contract_studio`), and
 _guard_user with NO command argument means any signed-in web caller (auto-
-provisioned paper user, user_gateway.py:399-419) — not admin-only, metered by
+provisioned paper user, `bot/web/user_gateway.py::_guard_user`) — not admin-only, metered by
 chat_quota (user_gateway.py:…
 
 
@@ -1030,36 +1040,36 @@ chat_quota (user_gateway.py:…
 Read-only market intelligence next to the flip, and nothing that flips. (1) A
 web-chat intercept answers 'nft radar'/'opensea'/'floor price' with the top
 collections by real 7-day volume, each row carrying floor price in ETH, 7d
-volume and owner count (chat.js:99 → opensea.js:127, radar built at
-opensea.js:59-96). (2) The dashboard Worlds view (dashboard.js:5765, fetches
-/api/web3/collectibles at :5846 → web3.js:38) splits the caller's SIWE-linked
+volume and owner count (`app/routes/chat.js::INTERCEPTS#"['nft',"` → `app/lib/opensea.js::maybeHandleNftChat`, radar built at
+`::getNftRadar`). (2) The dashboard Worlds view (`app/public/js/dashboard.js::renderWorlds`, fetches
+/api/web3/collectibles at `::renderWorlds#"fetchJSON('/api/web3/collectibles')"` → `app/routes/web3.js::get('/collectibles')`) splits the caller's SIWE-linked
 wallet's NFTs into metaverse holdings via a curated slug map — The Sandbox,
 Decentraland, Otherside, Voxels, Somnium Space, typed land / name / wearable —
 and renders each world as an 'Enter →' deep-link into the official world
-(worlds.js:19-38, classifyWorlds :55). (3) GET /api/nft/radar (nft.js:47) and
-GET /api/nft/wallet/:address (nft.js:51) are mounted and anonymously reachable
+(`app/lib/worlds.js::WORLDS`, classifyWorlds `::classifyWorlds`). (3) GET /api/nft/radar (`app/routes/nft.js::get('/radar')`) and
+GET /api/nft/wallet/:address (`::get('/wallet/:address')`) are mounted and anonymously reachable
 but have no caller anywhere in the repo — raw HTTP only. Scope is stated and
 enforced at the source: 'READ-ONLY. ... No marketplace machinery — no
 listings, no offers, no fulfillment, no minting, no wallet credentials'
-(opensea.js:4-12), and the radar's own disclaimer says 'RUNECLAW never lists,
+(`app/lib/opensea.js::#"No marketplace machinery"`), and the radar's own disclaimer says 'RUNECLAW never lists,
 bids, mints or trades NFTs'.
 
 *Gap.* No acquisition or disposal path of any kind — nothing lists, bids, buys,
 sells, mints or transfers, and OpenSea's trade-executing agent skills are
-deliberately not used (opensea.js:7-11). No cost basis, no holding P&L, no
+deliberately not used (`app/lib/opensea.js::#"agent skills bundle"`). No cost basis, no holding P&L, no
 rarity or valuation model, no sweep/snipe/alert on floor movement; the Worlds
 view prints counts and links with NO price at all. Nothing farms an in-game
 asset or currency: no game is integrated, only the metaverse COLLECTION slugs
 are recognised. And the whole surface is inert until the operator sets
-OPENSEA_API_KEY — commented out at .env.example:763 — in which case every door
+OPENSEA_API_KEY — commented out at `.env.example::#"# OPENSEA_API_KEY="` — in which case every door
 honestly answers available:false rather than an empty radar.
 
 *The verifier refused part of this row.* Still partial, but the door list is wrong in both directions. (1) EVERY door
-the row names is DARK on a stock deploy: opensea.js:30 `configured()` reads
-OPENSEA_API_KEY, .env.example ships it COMMENTED OUT (line 744), and with it
-unset getNftRadar returns NOT_CONFIGURED (opensea.js:52-57) — the chat
+the row names is DARK on a stock deploy: `app/lib/opensea.js::configured` `configured()` reads
+OPENSEA_API_KEY, .env.example ships it COMMENTED OUT (`.env.example::#"# OPENSEA_API_KEY="`), and with it
+unset getNftRadar returns NOT_CONFIGURED (`app/lib/opensea.js::NOT_CONFIGURED`) — the chat
 intercept then replies '🖼 NFT radar — unavailable: the operator has not
-configured an OpenSea API key yet' (opensea.js:130-134),
+configured an OpenSea API key yet' (`app/lib/opensea.js::nftChatCard#"configured an OpenSea API key yet"`),
 /api/web3/collectibles returns…
 
 **Tournament/esports prizes** — partial
@@ -1068,34 +1078,34 @@ The COMPETITION half ships and is genuinely reachable on both surfaces; the
 PRIZE half does not exist anywhere. Arena seasons are real operator-authored
 time windows over the paper book — 'a NAMED TIME WINDOW over the existing
 Arena, never a reset', ranking percent return from trades closed inside the
-window (arena_seasons.js:3-11), with rule variants a live season enforces
-server-side (max leverage 1-20, majors only: arena_seasons.js:63-86, enforced
-at arena.js:174/447/590). GET /api/arena/season is public and returns status
-plus in-window standings (arena.js:993-1017), with the wrong-season trap
-already fixed by pickCurrentSeason (:996). Alongside it: an opt-in
+window (`app/lib/arena_seasons.js::#"NAMED TIME WINDOW"`), with rule variants a live season enforces
+server-side (max leverage 1-20, majors only: `app/lib/arena_seasons.js::validateSeason`, enforced
+at `app/routes/arena.js::sweepFollows#"checkSeasonRules("`, `::openForUser#"checkSeasonRules("` and `::post('/open-signal')#"checkSeasonRules("`). GET /api/arena/season is public and returns status
+plus in-window standings (`app/routes/arena.js::get('/season')`), with the wrong-season trap
+already fixed by pickCurrentSeason (`::get('/season')#"pickCurrentSeason("`). Alongside it: an opt-in
 anonymous ranked leaderboard showing handle, return %, trade count and win
-rate and never a dollar (leaderboard.js:1-20), the Daily Duel with a 90-day
-record and referral 'squads' board (duel.js:3-17, duel_squads.js), and the
+rate and never a dollar (`app/routes/leaderboard.js::#"Leaderboard — opt-in, anonymous handles"`), the Daily Duel with a 90-day
+record and referral 'squads' board (`app/routes/duel.js::#"Daily Duel — /api/duel"`, `app/lib/duel_service.js::RECORD_WINDOW_DAYS`, `app/lib/duel_squads.js::buildSquads`), and the
 Command Deck's streaks/weekly quests/achievement glyphs. Telegram doors: /duel
-(start_commands.py:578, @guard("start")), /leaderboard (:623) and /arena (:650).
+(`bot/skills/start_commands.py::StartCommands._cmd_duel`, @guard("start")), /leaderboard (`::StartCommands._cmd_leaderboard`) and /arena (`::StartCommands._cmd_arena`).
 
 *Gap.* No prize, purse, payout, entry fee, wager or token/NFT award exists in any of
 it — grep for prize/reward/payout across arena.js, arena_seasons.js,
 arena.js's engine, leaderboard.js, duel*.js and achievements.js returns only
 'reward:risk' ratio text; the single use of the word 'prize' in the tree is
-bot/formatters/board_cards.py:72 naming a promo prize footer as the
+`bot/formatters/board_cards.py::#"promo footer naming a prize"` naming a promo prize footer as the
 HYPOTHETICAL future leak its dollar guard exists to catch. Rank, glyph and
 streak are the entire reward. Season creation and deletion are adminOnly and
-API-only with no UI (arena.js:1080, :1104, :1158, :1187), so a user cannot
+API-only with no UI (`app/routes/arena.js::adminOnly`, `::get('/seasons/all')`, `::delete('/seasons/:id')`, `::post('/season')`), so a user cannot
 host a tournament; there is no bracket, no team registration, no
 entry/settlement of stakes, and no esports data or integration of any kind.
 
 *The verifier refused part of this row.* The STATUS is upheld — I drove the citations and the tournament half is real
-and reachable, the prize half is zero (board_cards.py:66-72 even names 'a
+and reachable, the prize half is zero (`bot/formatters/board_cards.py::#"promo footer naming a prize"` even names 'a
 promo footer naming a prize' as the plausible FUTURE leak this surface guards
 against). Three corrections to the row as written. (1) '/squads' IS NOT A
-DOOR. app/server.js serves exactly /command:476, /duel:477, /leaderboard:501
-and /arena:514 — there is no /squads route anywhere. Squads is a SECTION
+DOOR. app/server.js serves exactly /command (`app/server.js::get('/command')`), /duel (`::get('/duel')`), /leaderboard (`::get('/leaderboard')`)
+and /arena (`::get('/arena')`) — there is no /squads route anywhere. Squads is a SECTION
 inside …
 
 
@@ -1119,15 +1129,15 @@ An outbound SHARE rail, nothing more. Three places build a real
 caller's own ?ref= link), the public trader-record page and the sealed-call
 receipt page. Two more share paths use `navigator.share` (the OS sheet, which
 can hand off to X if the app is installed) with a Telegram fallback — the
-symbol-modal decision picture (dashboard.js:3488-3508) and the journal close
+symbol-modal decision picture (`app/public/js/dashboard.js::openSymbol#"const shareBtn = document.getElementById('symShare')"`) and the journal close
 card, which first fetches a server-rendered percent-only PNG from
-/api/share/card (dashboard.js:5132-5172). ~20 public pages carry twitter:card
+/api/share/card (`app/public/js/dashboard.js::renderPortfolio#"e.target.closest('.share-trade')"`). ~20 public pages carry twitter:card
 + og meta so a shared link unfurls, and four pages are SSR-injected with live
 values for the unfurl. Separately, X is an OAuth IDENTITY provider:
-app/lib/oauth2.js:58 requests scope `tweet.read users.read` but the only call
+`app/lib/oauth2.js::PROVIDERS.x` requests scope `tweet.read users.read` but the only call
 made with the token is profileUrl `users/me` (parseProfile reads id + avatar),
 and the provider is advertised only when both env vars are set —
-.env.example:578 ships them commented out.
+`.env.example::#"# X_CLIENT_ID="` ships them commented out.
 
 *Gap.* Nothing posts to X, schedules a post, reads a timeline or mentions, or
 measures a single impression/follower. There is no per-user X account
@@ -1147,7 +1157,7 @@ chat intercept and an MCP tool. It is honest about thin data (unpriced closes
 leave the series rather than zeroing it) and the public recomposition strips
 dollars. /api/learn/letter is a second, learner-scoped weekly letter.
 
-*Gap.* It is the OPERATOR's letter about the OPERATOR's book — app/lib/letter.js:18
+*Gap.* It is the OPERATOR's letter about the OPERATOR's book — `app/lib/letter.js::OPERATOR_USER_ID`
 pins every query to `OPERATOR_USER_ID`; there is no per-user letter and no way
 for a user to author, edit, schedule or send one. There is no distribution
 list and no email send: app/lib/mailer.js is transactional only (its two
@@ -1162,21 +1172,21 @@ private encrypted context.
 
 Community plumbing is real and reachable, and all of it is free. Squads are
 the referral graph made visible on the Duel board (one recruit makes you a
-captain — the 'Connector' tier at app/auth.js:437 is the one tier marked
+captain — the 'Connector' tier at `app/auth.js::REFERRAL_TIERS#"name: 'Connector'"` is the one tier marked
 state:'live'). Copy-follow, the strategy marketplace, the Arena, the public
 leaderboard and the operator's Telegram broadcast channel all exist. An
 ACCESS-TIER mechanism also exists: basic/pro/elite plans, a 5-question/day
-free chat quota with pro/elite/admin exempt (bot/web/chat_quota.py:43), and a
+free chat quota with pro/elite/admin exempt (`bot/web/chat_quota.py::_EXEMPT_TIERS`), and a
 per-feature tier map in bot/token/tier_gate.py.
 
 *Gap.* There is no payment rail anywhere in the tree — no Stripe, no checkout, no
-billing, no invoice, no x402 pricing block (app/test/tool8257.test.js:50
+billing, no invoice, no x402 pricing block (`app/test/tool8257.test.js::#"assert.ok(!('pricing' in m"`
 asserts the manifest has none). The plan card is STATIC and says so: "Tiers
 are granted by the operator through the Telegram bot… online checkout is
-coming later" (dashboard.js:5345). The $RCLAW tier gate that would enforce a
+coming later" (`app/public/js/dashboard.js::renderAccount#"online checkout is coming later"`). The $RCLAW tier gate that would enforce a
 paid tier is wired at four call sites but INERT — gate_enabled() needs
 TOKEN_TIER_GATE_ENABLED and RCLAW_MINT, neither of which is set anywhere, and
-docs/TOKEN_ROADMAP.md:27 says "No token exists. No sale has run." Most
+`docs/TOKEN_ROADMAP.md::#"No token exists"` says "No token exists. No sale has run." Most
 importantly for this leaf: a USER cannot run a community here at all —
 /channel and /broadcast are gated to a bot admin or a Telegram group
 admin/creator, there is no user-created group, no members list, no dues, no
@@ -1193,40 +1203,40 @@ operator through …
 **Affiliate deals** — partial
 
 The ATTRIBUTION half of an affiliate program is shipped and reachable end to
-end: every account gets a random 8-char referral code (auth.js:405), a ?ref=
+end: every account gets a random 8-char referral code (`app/auth.js::genReferralCode`), a ?ref=
 signup is credited to the referrer with self-referral guarded
-(auth.js:588-602), GET /api/auth/referrals returns the link plus the count of
-people who joined on it (auth.js:896-916), the invite panel renders the link
+(`app/auth.js::post('/register')#"if (referrerId && referrerId !== userId)"`), GET /api/auth/referrals returns the link plus the count of
+people who joined on it (`app/auth.js::get('/referrals')`), the invite panel renders the link
 with one-tap Telegram/X/Warpcast shares, /api/public/invite/:code personalises
 the landing while revealing only an already-public handle, and Telegram /start
 parses a `ref_<code>` deep-link payload on first contact
-(start_commands.py:139). Referrals also do one real thing: they build your
+(`bot/skills/start_commands.py::StartCommands._cmd_start#"_ref = parse_start_payload("`). Referrals also do one real thing: they build your
 Duel squad.
 
-*Gap.* It pays nothing, and the code says so in as many words — app/auth.js:433-434:
+*Gap.* It pays nothing, and the code says so in as many words — `app/auth.js::#"endpoint still grants nothing"`:
 "This endpoint still grants nothing: `referralTier` has one caller, right
 below, and nothing in the tree gates a feature on a referral count." Three of
 the five tiers are state:'planned', two of them explicitly contingent on a
 token that does not exist. There is no commission, no payout ledger, no
 attribution of revenue (there is no revenue), and no third-party affiliate
-integration: app/lib/venue_links.js:17 builds plain
+integration: `app/lib/venue_links.js::venuesFor` builds plain
 Bitget/Bybit/BingX/OKX/Hyperliquid/DexScreener deep links with no referral
 parameter on any of them. One concrete hole: the Telegram close-card share
-button is constructed with no ref_code (alerts_monitor.py:450-452 passes only
+button is constructed with no ref_code (`bot/skills/alerts_monitor.py::AlertsMonitor.start_monitor._deliver_close#"_btn = close_share_button("` passes only
 the bot username), so `invite_link` falls through to the bare
 `https://t.me/<bot>` and that share is unattributable.
 
 *The verifier refused part of this row.* Status PARTIAL survives — I drove the whole attribution chain and every link
-of it is real: genReferralCode() at auth.js:406-408, credit-on-register with
-self-referral guarded at auth.js:591-606, GET /api/auth/referrals returning
-code+count at auth.js:896-916, the invite panel's Telegram/X/Warpcast buttons
-at dashboard.js:5457-5461, GET /api/public/invite/:code, the Telegram
+of it is real: genReferralCode() at `app/auth.js::genReferralCode`, credit-on-register with
+self-referral guarded at `app/auth.js::post('/register')#"if (referrerId && referrerId !== userId)"`, GET /api/auth/referrals returning
+code+count at `app/auth.js::get('/referrals')`, the invite panel's Telegram/X/Warpcast buttons
+at `app/public/js/dashboard.js::renderAccount#"Share on Warpcast"`, GET /api/public/invite/:code, the Telegram
 `ref_<code>` deep link parsed on FIRST CONTACT ONLY at
-start_commands.py:139-142 v…
+`bot/skills/start_commands.py::StartCommands._cmd_start#"_ref = parse_start_payload("` v…
 
 **Ambassador roles** — nothing serves this ⟲ — the verifier overturned *partial*
 
-Exactly one thing: a named rung on the referral ladder. app/auth.js:444-446 is
+Exactly one thing: a named rung on the referral ladder. `app/auth.js::REFERRAL_TIERS#"name: 'Ambassador'"` is
 the whole of it — `{ at: 10, name: 'Ambassador', state: 'planned', perk: 'Fee
 credits.', requires: 'Would ride on the $RCLAW token, which does not exist yet
 — no token has launched and no sale has run.' }`. It is computed from a real
@@ -1255,32 +1265,32 @@ REFERRAL_TIERS …
 
 RUNECLAW genuinely produces research: a cited per-symbol dossier (/research,
 which fetches the web app's research card over HTTP via
-web_data_pull.fetch_research — scan_commands.py:181-182), the contract-
+web_data_pull.fetch_research — `bot/skills/scan_commands.py::ScanCommands.research_card_text#"to_thread(fetch_research"`), the contract-
 detective dossier that composes token_safety + deployer_history and leads with
-what it could NOT read (/token → bot/core/token_research.py:74), the Daily
+what it could NOT read (/token → `bot/core/token_research.py::investigate`), the Daily
 Alpha card, the weekly Agent Letter, the hourly intelligence reports, and the
 sealed Proof-of-PnL statement. A tiering MECHANISM exists too:
-bot/token/tier_gate.py:92 puts deepscan/patterns/analyze_asset/quant_analyze
+`bot/token/tier_gate.py::_DEFAULT_FEATURE_MIN_TIER` puts deepscan/patterns/analyze_asset/quant_analyze
 behind `pro` and run_backtest/walk_forward/optimize/learning behind `elite`,
 and a 5/day free chat quota fences the free tier.
 
 *Gap.* Nothing here is sold, and nothing lets a user sell. There is no checkout,
 subscription or payment anywhere in the tree; store tiers are set only by
 admin /set_tier, and the $RCLAW gate that would enforce a paid tier is OFF by
-default (tier_gate.py:365 — TOKEN_TIER_GATE_ENABLED and RCLAW_MINT are both
+default (`bot/token/tier_gate.py::gate_enabled` — TOKEN_TIER_GATE_ENABLED and RCLAW_MINT are both
 unset, so check_user returns (True,'ok') for everyone and no tier gate blocks
 anything today). A user cannot author, price, paywall, version or distribute a
 research report: the only user-authoring surface is a strategy CONFIG
-published free to the marketplace (user_strategies.js:4), and the one report-
+published free to the marketplace (`app/routes/user_strategies.js::#"Building/publishing a strategy"`), and the one report-
 generating door that costs money to run — cited live web research — is admin-
 only. The research that exists is the product's own output delivered to
 whoever already has access, not an income stream a person can run.
 
 *The verifier refused part of this row.* Status PARTIAL survives (the research surfaces are real and I drove each
 door), but the tiering claim is false on every ordinary deploy. tier_gate is
-wired — check_user() is called from telegram_handler.py:1446/4560 and
-user_gateway.py:380 — and its FIRST line is `if not gate_enabled(): return
-True, "ok"` (tier_gate.py:821). gate_enabled() (line 365-371) requires BOTH
+wired — check_user() is called from `bot/skills/telegram_handler.py::TelegramHandler._pane_gate_blocks#"allowed, reason"`, `::TelegramHandler._token_gate_blocks#"tier_gate.check_user("` and
+`bot/web/user_gateway.py::_web_skill_denied#"allowed, reason"` — and its FIRST line is `if not gate_enabled(): return
+True, "ok"` (`bot/token/tier_gate.py::check_user#"if not gate_enabled"`). gate_enabled() (`bot/token/tier_gate.py::gate_enabled`) requires BOTH
 `TOKEN_TIER_GATE_ENABLED` AND a configured mint. The module's line-1 docstring
 reads '$RC…
 
@@ -1301,60 +1311,60 @@ reads '$RC…
 
 A real, reachable Solidity drafting tool. Any logged-in web user (a website
 signup auto-provisions as a paper trader and clears _guard_user at
-user_gateway.py:1454 — no role permission, no $RCLAW tier) opens the Contract
+`bot/web/user_gateway.py::handle_contract_studio#"err = _guard_user"` — no role permission, no $RCLAW tier) opens the Contract
 Studio view, picks one of five one-tap starters (ERC-20, ERC-721, Escrow,
 Multisig, Vesting) or types a free-text spec, and gets back a Solidity DRAFT
 plus heuristic security flags, with Copy and Download .sol buttons. Free
 accounts spend from the same 5/day chat quota; paid tiers are unmetered
-(user_gateway.py:1458-1486). A Compile button posts the draft to solc for
+(`bot/web/user_gateway.py::handle_contract_studio#"chat_quota.consume(tg_id, _tier)"`). A Compile button posts the draft to solc for
 bytecode+ABI+diagnostics, and a testnet Deploy bar appears once bytecode
 exists.
 
 *Gap.* Two of the three stages are inert or closed on a stock deploy, and the client
 half of freelancing does not exist at all. COMPILE: compile_source lazily
 imports solcx and returns available=False / error='compiler_unavailable' when
-it is absent (contract_studio.py:196-199) — neither solcx nor py-solc-x
+it is absent (`bot/core/contract_studio.py::compile_source#"import solcx"`) — neither solcx nor py-solc-x
 appears in requirements.lock or requirements-ci.txt, so compile answers
 'compiler not available' unless the operator installs the toolchain. DEPLOY:
 handle_contract_deploy is admin-only by _is_admin_id
-(user_gateway.py:1594-1610), testnet-only with mainnet refused regardless of
+(`bot/web/user_gateway.py::handle_contract_deploy`), testnet-only with mainnet refused regardless of
 flag, needs an enforcing Authority Envelope, and needs eth-account, which is
 also in neither requirements file. There is no Telegram door (grep of
 bot/skills for contract_studio / contract/studio returns nothing — web only).
 And nothing in the tree serves the freelance side of this leaf: no client
 intake, no scope/quote, no deliverable handoff, no invoicing and no payment
-rails — app/test/interop_design.test.js:34 structurally asserts that no
+rails — `app/test/interop_design.test.js::#"test('design-only"` structurally asserts that no
 x402/X-PAYMENT/facilitator/payTo/402 machinery exists in any app/routes file,
-and the plan card says 'online checkout is coming later' (dashboard.js:5345).
+and the plan card says 'online checkout is coming later' (`app/public/js/dashboard.js::renderAccount#"online checkout is coming later"`).
 This is a tool a smart-contract dev could use on their own work; it is not a
 way to be paid for that work.
 
 **Audits/security** — partial
 
 Genuinely wired, human-reachable security-REVIEW tooling, on three surfaces.
-Telegram: /token (scan_commands.py:191, @guard('token') — trader/paper/viewer)
+Telegram: /token (`bot/skills/scan_commands.py::ScanCommands._cmd_token`, @guard('token') — trader/paper/viewer)
 runs token_research.investigate() and composes token_safety (what the contract
 can do to holders) with deployer_history/taint/fates into one dossier that
-leads with what it could NOT read; /xray (guardian_commands.py:430) decodes
+leads with what it could NOT read; /xray (`bot/skills/guardian_commands.py::GuardianCommands._cmd_xray`) decodes
 calldata into plain-English actions before signing; /approvals
-(guardian_commands.py:370) is the allowance X-ray. Web: /firewall
-(server.js:465) is a pure local paste scanner for prompt-injection, seed-
+(`bot/skills/guardian_commands.py::GuardianCommands._cmd_approvals`) is the allowance X-ray. Web: /firewall
+(`app/server.js::get('/firewall')`) is a pure local paste scanner for prompt-injection, seed-
 phrase lures, drain language, hidden/bidi/homoglyph characters, poisoned
-addresses — no network, nothing leaves the page; /approvals (server.js:475)
+addresses — no network, nothing leaves the page; /approvals (`app/server.js::get('/approvals')`)
 enumerates token approvals and emits revoke plans the owner signs themselves.
-Contract Studio runs scan_security_flags (contract_studio.py:115) — a
+Contract Studio runs scan_security_flags (`bot/core/contract_studio.py::scan_security_flags`) — a
 deterministic Solidity rule set (tx.origin auth, selfdestruct, delegatecall,
 unchecked low-level call, block.timestamp, …) over the model's own output. MCP
 exposes scan_transaction, xray_transaction and scan_token_safety to external
-agents (mcp.js:116, :167, :792).
+agents (`app/routes/mcp.js::TOOLS.scan_transaction`, `::TOOLS.xray_transaction`, `::TOOLS.scan_token_safety`).
 
 *Gap.* Every one of these is a FLAG, never a verdict, and the code says so at the
-boundary: AUDIT_DISCLAIMER (contract_studio.py:29) — 'Heuristic flags only …
+boundary: AUDIT_DISCLAIMER (`bot/core/contract_studio.py::AUDIT_DISCLAIMER`) — 'Heuristic flags only …
 Get a professional audit before deploying to mainnet' — travels with every
 Studio response, scan_token_safety's own description says '"no flags" means
 the checks found nothing, not that the token is safe', and the marketing site
 states flatly that 'No security audit of this codebase exists'
-(site/src/routes/risk.tsx:180) with MUST_NOT_CLAIM forbidding the claim. So
+(`site/src/routes/risk.tsx::#"No security audit of this codebase exists"`) with MUST_NOT_CLAIM forbidding the claim. So
 the product deliberately refuses to produce the thing an audit engagement
 sells. Beyond that, nothing serves the service side: there is no
 client/engagement record, no findings report a third party can be handed, no
@@ -1382,28 +1392,28 @@ in the Contract Studio — five starter templates (ERC-20, ERC-721, Escrow,
 Multisig, Vesting) or free text — read the heuristic security flags that come
 back with it, compile it (solc bytecode + ABI + diagnostics), and copy or
 download the .sol. The drafting and compile gateway handlers are _guard_user,
-not admin: bot/web/user_gateway.py:1454 and :1574 (the _is_admin read at :1458
+not admin: `bot/web/user_gateway.py::handle_contract_studio#"err = _guard_user"` and `::handle_contract_compile#"err = _guard_user"` (the _is_admin read at `::handle_contract_studio#"_is_admin = _is_admin_id"`
 only picks the LLM tier).
 
 *Gap.* Nobody but the operator can ship the thing they drafted. POST /contract/deploy
-is `if not _is_admin_id(...): 403` (bot/web/user_gateway.py:1609), testnet-
+is `if not _is_admin_id(...): 403` (`bot/web/user_gateway.py::handle_contract_deploy#"if not _is_admin_id"`), testnet-
 only with mainnet hard-refused, and inert until the operator installs eth-
 account and supplies WEB3_SIGNER_PRIVATE_KEY behind an enforcing envelope.
 Compile itself depends on an operator-installed py-solc-x that is in neither
 requirements.lock nor requirements-ci.txt — compile_source returns
 available:false with 'compiler_unavailable' otherwise
-(bot/core/contract_studio.py:168-198). The /dapps view is a curated directory
+(`bot/core/contract_studio.py::compile_source`). The /dapps view is a curated directory
 of OTHER people's apps, and the repo's own protocols (programs/rclaw_staking,
 devnet, no client; contracts/rune/RuneOfEntry.sol, NFT_CONTRACT_ADDRESS unset)
 are RUNECLAW's, with no user deploy door.
 
 *The verifier refused part of this row.* partial — STATUS UNCHANGED, but the claim must be narrowed to drafting. The
-draft half is genuinely shipped and reachable (nav id 'studio' dashboard.js:54
-→ renderContractStudio dashboard.js:7235, registered dashboard.js:10249; POST
-/api/contract/studio app/routes/contract.js:37 → gateway handler
-user_gateway.py:1435 gated by _guard_user at :1454, route registered
-user_gateway.py:5220; five template buttons, flags, Copy and Download .sol at
-dashboard.js:708…
+draft half is genuinely shipped and reachable (nav id 'studio' `app/public/js/dashboard.js::VIEWS#"{ id: 'studio'"`
+→ renderContractStudio `app/public/js/dashboard.js::renderContractStudio`, registered `::RENDER#"studio: renderContractStudio"`; POST
+/api/contract/studio `app/routes/contract.js::post('/studio')` → gateway handler
+`bot/web/user_gateway.py::handle_contract_studio` gated by _guard_user at `::handle_contract_studio#"err = _guard_user"`, route registered
+`bot/web/user_gateway.py::build_gateway#'app.router.add_post("/contract/studio'`; five template buttons, flags, Copy and Download .sol at
+`app/public/js/dashboard.js::renderContractStudio#'id="cs-download"'`…
 
 **Trading/analytics tools** — partial
 
@@ -1413,7 +1423,7 @@ ERC-8257 invoke endpoint, and the public REST list printed on
 developers.html), and can frame its signal and Arena cards inside their own
 site — /embed is the one carve-out from the site-wide frame-ancestors 'none',
 GET-only, cookie-less and actionless by construction
-(app/routes/embed.js:1-34). A logged-in user can also run a bounded backtest
+(`app/routes/embed.js::#"Embeddable surfaces"`). A logged-in user can also run a bounded backtest
 in the Lab against frozen benchmark snapshots.
 
 *Gap.* No surface in the product builds a tool: no custom panels, no saved queries,
@@ -1421,7 +1431,7 @@ no scripting, and no webhooks at all (a grep for 'webhook' across app/routes,
 app/lib and bot/web returns nothing). Every builder-facing endpoint is read-
 only by design, and the Lab takes a fixed clamped parameter set — dataset,
 whitelisted symbols, bars, confidence, volume_spike_min, regime_filter,
-rsi_max (bot/api/lab.py:147-181) — not arbitrary strategy code. Nothing hosts,
+rsi_max (`bot/api/lab.py::lab_run`) — not arbitrary strategy code. Nothing hosts,
 prices or distributes what you build.
 
 **Bots** — partial
@@ -1429,12 +1439,12 @@ prices or distributes what you build.
 Two real, end-to-end doors. (1) A member composes a strategy out of the
 engine's own rule vocabulary — direction, min confidence, min R:R, percent
 size/exposure/loss caps, symbol allow/deny, regime, horizon
-(app/lib/user_strategies.js:18-33) — saves it, publishes it to the community
+(`app/lib/user_strategies.js::PCT_TYPES`, `::LIST_TYPES`, `::DIRECTIONS`, `::REGIMES`, `::HORIZONS`) — saves it, publishes it to the community
 marketplace, and ARMS it on their own bot: the web projects its signal-
 checkable rules, the bot re-validates and stores the snapshot
-(bot/core/user_strategy_store.py:134-174), and bot/core/engine.py:7956-8005
+(`bot/core/user_strategy_store.py::set_custom`), and `bot/core/engine.py::RuneClawEngine._confirm_trade_inner#"strategy_gate.check_custom("`
 evaluates it on every confirm and refuses the trade when it fails. Followers
-of a published strategy get its would-take picks (app/routes/copy.js:105). (2)
+of a published strategy get its would-take picks (`app/routes/copy.js::get('/picks')`). (2)
 Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
 /mcp to open and close paper positions ranked on the public board.
 
@@ -1442,40 +1452,40 @@ Anyone can mint an rcarena_ key from the Arena page and point their OWN bot at
 strategy is a tighten-only VETO over signals the operator's engine generated —
 it originates no entries, and the community snapshot keeps only five gate
 kinds (confidence_threshold, symbols, blocked_symbols, direction,
-regime_filter; user_strategy_store.py:150-168), silently dropping the rest.
+regime_filter; `bot/core/user_strategy_store.py::set_custom`), silently dropping the rest.
 The Arena key is structurally paper-only: 'it reaches the paper Arena and
 nothing else… there is no code path from one of these keys to a live order, an
 exchange credential, a wallet, or another user's row'
-(app/lib/arena_keys.js:9-19). No code or scripting anywhere, no hosting, and
+(`app/lib/arena_keys.js::#"IT REACHES THE PAPER ARENA AND NOTHING ELSE"`). No code or scripting anywhere, no hosting, and
 no fee, revenue share or payout for a published strategy or a followed agent.
 
 **AI x crypto tooling** — **shipped**
 
 A builder of an AI agent can use RUNECLAW today with no operator involvement.
-Point any MCP client at POST /mcp (mounted app/server.js:415, unauthenticated,
+Point any MCP client at POST /mcp (mounted `app/server.js::use('/mcp')`, unauthenticated,
 per-IP limited) and get 31 read tools. The ones carrying `computesOnInput` run
 over input the caller supplies rather than over RUNECLAW's data —
 scan_transaction (prompt-injection/drain/approval/address-poisoning flags),
 xray_transaction (calldata decoded to the known selector set, UNKNOWN outside
-it), compile_intent, stress_portfolio, plan_escape (app/routes/mcp.js:116,
-:167, :225, :252, :303) — the 'safety checks for YOUR agent'
-developers.html:55 advertises. The MARKER is the list, here as everywhere: this
+it), compile_intent, stress_portfolio, plan_escape (`app/routes/mcp.js::TOOLS.scan_transaction`,
+`::TOOLS.xray_transaction`, `::TOOLS.compile_intent`, `::TOOLS.stress_portfolio`, `::TOOLS.plan_escape`) — the 'safety checks for YOUR agent'
+`app/public/developers.html::#'data-i18n="dv.guardian_h"'` advertises. The MARKER is the list, here as everywhere: this
 paragraph named four of the five and cited four of the five lines, because
 xray_transaction joined the family and no prose moved. Mint an rcarena_
-key yourself from the Arena page's Agent keys panel (arena.html:367 →
-app/routes/arena.js:1243, max 5, revocable, shown once) and the three arena_*
+key yourself from the Arena page's Agent keys panel (`app/public/arena.html::#'id="keysPanel"'` →
+`app/routes/arena.js::post('/keys')`, max 5, revocable, shown once) and the three arena_*
 write tools let that agent paper-trade and be ranked. The manifest and invoke
 endpoint are served for on-chain discovery, and /api/llm lets a user plug
 their own model key in.
 
 *Gap.* Consumption only, and unmonetizable by design: the ERC-8257 manifest
 deliberately carries no pricing block and no access predicate, with per-call
-charging (x402) stated as design-only (app/lib/tool8257.js:16-22). The agent-
-IDENTITY half has no UI — POST /api/agents (claim a slug, app/server.js:363)
-and POST /api/arena/keys/agent (bind a key to it, arena.js:1283) are mounted
+charging (x402) stated as design-only (`app/lib/tool8257.js::#"FREE + OPEN"`). The agent-
+IDENTITY half has no UI — POST /api/agents (claim a slug, `app/server.js::use('/api/agents')`)
+and POST /api/arena/keys/agent (bind a key to it, `app/routes/arena.js::post('/keys/agent')`) are mounted
 and authed but referenced by nothing in app/public; the only thing naming the
 claim door is an error string, 'Claim it first at POST /api/agents'
-(app/lib/arena_keys.js:155), which is this repo's own card-names-a-door-with-
+(`app/lib/arena_keys.js::bindAgent#"Claim it first at POST /api/agents"`), which is this repo's own card-names-a-door-with-
 nothing-behind-it shape. Every write an outside agent can make is paper money.
 
 
@@ -1492,22 +1502,22 @@ nothing-behind-it shape. Every write an outside agent can make is paper money.
 
 A referral ladder is genuinely shipped and reachable, and one of its five
 rungs is literally named 'Ambassador' — but that rung grants nothing and says
-so. The door: GET /api/auth/referrals (app/auth.js:896, authMiddleware)
+so. The door: GET /api/auth/referrals (`app/auth.js::get('/referrals')`, authMiddleware)
 returns the caller's invite code, the count of accounts that signed up on it,
 and a tier; the dashboard Account view renders it into #c-ainvite (panel
-declared app/public/js/dashboard.js:4704, fetched :5404, tier painted :5430
+declared `app/public/js/dashboard.js::renderAccount#'id="c-ainvite"'`, fetched `::renderAccount#"renderPanel(C('ainvite')"`, tier painted `::renderAccount#"M.referralTierState(r.data)"`
 through the pure app/public/js/referral-tier-model.js). What is LIVE on that
-ladder is one rung: 'Connector' at 1 invite (app/auth.js:438, state 'live'),
+ladder is one rung: 'Connector' at 1 invite (`app/auth.js::REFERRAL_TIERS#"name: 'Connector'"`, state 'live'),
 whose perk is real — app/lib/duel_squads.js builds Daily Duel squads out of
 exactly the users.referred_by graph. 'Ambassador' at 10 invites
-(app/auth.js:445) is state:'planned', perk 'Fee credits', with requires:
+(`app/auth.js::REFERRAL_TIERS#"name: 'Ambassador'"`) is state:'planned', perk 'Fee credits', with requires:
 'Would ride on the $RCLAW token, which does not exist yet — no token has
-launched and no sale has run.' The comment above the table (app/auth.js:433)
+launched and no sale has run.' The comment above the table (`app/auth.js::#"endpoint still grants nothing"`)
 states the whole ladder's limit plainly: 'This endpoint still grants nothing:
 referralTier has one caller, right below, and nothing in the tree gates a
 feature on a referral count.' There is NO moderator program at all; the
 closest adjacent fact is that /broadcast and /channel
-(bot/skills/access_commands.py:291, :371) accept a Telegram GROUP admin or
+(`bot/skills/access_commands.py::AccessCommands._cmd_channel`, `::AccessCommands._cmd_broadcast`) accept a Telegram GROUP admin or
 creator of the chat they are run in, which is Telegram's own moderation status
 being honoured, not a role RUNECLAW confers or rewards.
 
@@ -1518,7 +1528,7 @@ caveat in WORDS, pinned by app/test/referral_tier_honesty.test.js). There is
 no ambassador application, enrolment, quota, content requirement or reporting
 surface, and no moderator role, mod tooling or mod compensation anywhere in
 the tree. Two of the five rungs ('Ambassador', 'Legend') depend on a token
-that docs/TOKEN_ROADMAP.md:27 says does not exist.
+that `docs/TOKEN_ROADMAP.md::#"No token exists"` says does not exist.
 
 *The verifier refused part of this row.* none — the doors exist and are reachable, but what they serve is a
 referral/invite loop, not an ambassador or moderator program; the rung
@@ -1540,26 +1550,27 @@ data
 RUNECLAW runs its OWN referral program and the signup-attribution half is
 genuinely wired end to end — but it is a status/social program, not an income
 one, and nothing pays out. Driven through the code: the landing page reads
-?ref= (app/public/index.html:1219), personalises the page by asking GET
+?ref= (`app/public/index.html::#"get('ref')"`), personalises the page by asking GET
 /api/public/invite/:code for the referrer's public handle only
-(app/routes/public_invite.js:35 — unknown codes 404, no account enumeration),
-and posts the code with the signup (index.html:1289). app/auth.js:592-602
+(`app/routes/public_invite.js::get('/:code')#"'SELECT id, leaderboard_handle"` — unknown codes 404, no account enumeration),
+and posts the code with the signup (`app/public/index.html::#"password:pass,ref:REF"`). `app/auth.js::post('/register')#"await pool.execute('UPDATE users SET referral_code"`
 mints the new user's own 8-char code and writes users.referred_by when the
 code resolves to someone else (self-referral and unknown codes ignored). GET
-/api/auth/referrals (app/auth.js:896) returns {code, count, tier, next}, back-
+/api/auth/referrals (`app/auth.js::get('/referrals')`) returns {code, count, tier, next}, back-
 filling a code for older accounts, and the Account view's c-ainvite panel
-(dashboard.js:5416) renders the link, three share buttons and the ladder. The
-tier ladder is honest by construction: REFERRAL_TIERS (auth.js:435-452)
+(`app/public/js/dashboard.js::renderAccount#"renderPanel(C('ainvite')"`) renders the link, three share buttons and the ladder. The
+tier ladder is honest by construction: REFERRAL_TIERS (`app/auth.js::REFERRAL_TIERS`)
 carries a per-perk `state`, referralTier() returns NULL rather than "Starter"
-for an unreadable count (auth.js:463), and referral-tier-model.js:71 omits the
+for an unreadable count (`app/auth.js::referralTier`), and `app/public/js/referral-tier-model.js::referralTierState` omits the
 whole block when there is nothing honest to say. THE ONE PERK THAT IS REAL is
-the Daily Duel squad: app/lib/duel_squads.js:83 buildSquads reads exactly this
+the Daily Duel squad: `app/lib/duel_squads.js::buildSquads` buildSquads reads exactly this
 referral graph, served at GET /api/public/duel/squads
-(app/routes/public_duel.js:101) and rendered on /duel (duel.html:254).
+(`app/routes/public_duel.js::get('/squads')`) and rendered on /duel (`app/public/duel.html::#"get('/api/public/duel/squads')"`).
 Everything else you could call income is explicitly declared not in force —
 "Fee credits" and "A share of protocol revenue" each print `requires: Would
-ride on the $RCLAW token, which does not exist yet` (auth.js:445-451), and the
-code comment at auth.js:432 states plainly that `referralTier` has one caller
+ride on the $RCLAW token, which does not exist yet` (`app/auth.js::REFERRAL_TIERS#"perk: 'Fee credits.'"`,
+`::REFERRAL_TIERS#"perk: 'A share of protocol revenue.'"`), and the
+code comment at `app/auth.js::#"endpoint still grants nothing"` states plainly that `referralTier` has one caller
 and NOTHING in the tree gates a feature on a referral count. There is also NO
 affiliate relationship with any third-party platform: the dApp directory
 (app/lib/dapps.js) and venue links carry no partner params, and the strategy
@@ -1569,27 +1580,27 @@ marketplace (app/routes/user_strategies.js) and copy-follow
 *Gap.* No money. There is no commission, rebate, payout, credit or balance anywhere
 in the referral path — the entire program is a count, a chip and a squad row.
 Three concrete holes beyond that: (1) OAuth/Telegram/X signups are NOT
-credited — upsertSocialUser (app/auth.js:1122) inserts the user with no
+credited — the OAuth upsert (`app/auth.js::findOrCreateOAuthUser#"INSERT INTO users"`) inserts the user with no
 referral read, and rc_ref is consumed only by the email/password register
-(index.html:1289-1291), so the localStorage persistence whose own comment says
+(`app/public/index.html::#"localStorage.removeItem('rc_ref')"`), so the localStorage persistence whose own comment says
 it exists "so it survives an OAuth round-trip" reaches no OAuth path. (2) The
 Telegram half is a dead end: /start records an attribution into the bot's JSON
-store (start_commands.py:139-142 → user_store.record_referrer at :642), and
+store (`bot/skills/start_commands.py::StartCommands._cmd_start#"_ref = parse_start_payload("` → user_store.record_referrer at `bot/utils/user_store.py::UserStore.record_referrer`), and
 grepping bot/ for readers of `referred_by` finds NONE outside that write and
 its own self-referral check — the bot store never mints a referral_code,
 nothing syncs it to the MySQL users table the count is computed from, and
 there is no Telegram command to see your own invite link (command_catalog's
 `share` is the private-notes command). (3) The close-card share button passes
-only close_data and the bot username (alerts_monitor.py:450-451), so invite_link()
+only close_data and the bot username (`bot/skills/alerts_monitor.py::AlertsMonitor.start_monitor._deliver_close#"_btn = close_share_button("`), so invite_link()
 is called with ref_code=None and the shared link is a bare t.me/<bot> with no
 attribution.
 
 *The verifier refused part of this row.* Still partial for the WEB email/password program, but two of the named doors
 do not lead where the row says. (1) THE TELEGRAM ref_ DEEP LINK HAS NO
 PRODUCER AND NO READER. The receiver is real and reachable —
-start_commands.py:139-142 calls parse_start_payload(ctx.args[0]) on first
+`bot/skills/start_commands.py::StartCommands._cmd_start#"_ref = parse_start_payload("` calls parse_start_payload(ctx.args[0]) on first
 contact and writes users.record_referrer — but nothing in the product ever
-mints such a link. invite_link(bot_username, ref_code) (share_invite.py:118)
+mints such a link. invite_link(bot_username, ref_code) (`bot/formatters/share_invite.py::invite_link`)
 is called from exactly on…
 
 
@@ -1609,27 +1620,27 @@ Read-only validator-yield DISCOVERY, nothing more. The idle-asset optimizer
 fetches live ETH liquid-staking APYs for Lido (stETH) and Rocket Pool (rETH)
 from DefiLlama and ranks them against custodial CEX Earn rates, deliberately
 preferring the non-custodial option and stating the tradeoff
-(bot/core/idle_yield_feeds.py:52-56, curated allowlist; MIN_TVL_USD floor; a
+(`bot/core/idle_yield_feeds.py::_CURATED#'{"project": "lido'`, curated allowlist; MIN_TVL_USD floor; a
 failed fetch yields NO option, never a fabricated APY). Two doors reach it:
 GET /api/idleyield (app/routes/idleyield.js, authMiddleware — any signed-in
-web user, mounted app/server.js:387) via gateway POST /idleyield
-(bot/web/user_gateway.py:3506, which calls fetch_noncustodial_options at
-:3472), and Telegram /idleyield, which is ADMIN-ONLY by an inline _is_admin
-check (bot/skills/yield_commands.py:142). Separately, an existing stETH
-position is MIRRORED read-only from the mainnet contract (app/lib/defi.js:36
-LIDO_STETH, :103 readLido) through GET /api/defi and the c-defi panel. The
+web user, mounted `app/server.js::use('/api/idleyield')`) via gateway POST /idleyield
+(`bot/web/user_gateway.py::handle_idle_yield`, which calls fetch_noncustodial_options at
+`::_noncustodial_options_cached#"opts = fetch_noncustodial_options"`), and Telegram /idleyield, which is ADMIN-ONLY by an inline _is_admin
+check (`bot/skills/yield_commands.py::YieldCommands._cmd_idleyield#"if not self._is_admin(update):"`). Separately, an existing stETH
+position is MIRRORED read-only from the mainnet contract (`app/lib/defi.js::LIDO_STETH`
+LIDO_STETH, `::readLido` readLido) through GET /api/defi and the c-defi panel. The
 route header states the boundary in its own words: "Read-only —
-recommendation, not execution" (app/routes/idleyield.js:4), and /idleyield's
+recommendation, not execution" (`app/routes/idleyield.js::#"Read-only — recommendation, not execution"`), and /idleyield's
 docstring says "it recommends, it never moves a cent".
 
 *Gap.* No staking, delegating, or validator operation exists on any surface. Nothing
 in the tree builds, signs or sends a Lido/Rocket Pool deposit, an ETH beacon
 deposit, or a Solana delegateStake — I grepped for the definitions and counted
 callers, and the only execution path named /stake or /unstake is BITGET CEX
-flexible/fixed Earn (bot/skills/yield_commands.py:297 _cmd_stake, @guard("stake")
+flexible/fixed Earn (`bot/skills/yield_commands.py::YieldCommands._cmd_stake` _cmd_stake, @guard("stake")
 — trader and admin, acting on the CALLER's own linked account;
 money moves solely on the confirm callback at
-bot/skills/callback_handler.py:571 execute_stake/execute_unstake against
+`bot/skills/callback_handler.py::CallbackHandler._handle_callback#"from bot.core.yield_radar import execute_stake, execute_unstake"` against
 bot/core/yield_radar.py). That is a custodial exchange savings product, not
 validator income. Two naming traps that must not be read as coverage: (1)
 programs/rclaw_staking is NOT validator staking — its own header calls it "a
@@ -1677,14 +1688,14 @@ doors, none named by any of the fifteen agents. This is the single largest gap
 in the map.
 
 *Where.* Dashboard Markets view panel #p-rwa/#c-rwa
-(app/public/js/dashboard.js:1373 jump-nav, :1432 panel, :1522 fetch) → GET
-/api/market/rwa (app/routes/market.js:169, auth:false, public); Telegram /rwa
-(@guard("rwa"), bot/skills/market_commands.py:72, registered
-bot/skills/telegram_handler.py:1016, reads the web via
+(`app/public/js/dashboard.js::MARKET_JUMPS#"['rwa', 'RWA']"` jump-nav, `::renderMarkets#'id="p-rwa"'` panel, `::renderMarkets#"renderPanel(C('rwa')"` fetch) → GET
+/api/market/rwa (`app/routes/market.js::get('/rwa')`, auth:false, public); Telegram /rwa
+(@guard("rwa"), `bot/skills/market_commands.py::MarketCommands._cmd_rwa`, registered
+`bot/skills/telegram_handler.py::TelegramHandler.build_app#'("rwa", self._cmd_rwa)'`, reads the web via
 bot/utils/web_data_pull.py → /api/bot/sync/card/rwa, the card RENDERED);
 web chat intercept row 4
 'rwa' (app/routes/chat.js INTERCEPTS, says "a tokenized-asset sector
-snapshot"); MCP tool get_rwa_radar (app/routes/mcp.js:658); implementation
+snapshot"); MCP tool get_rwa_radar (`app/routes/mcp.js::TOOLS.get_rwa_radar`); implementation
 app/lib/rwa.js; operator studies scripts/research/rwa_funding.py and
 rwa_session_gap.py (both have __main__ guards and LEFT
 tests/unreachable_baseline.txt).
@@ -1696,8 +1707,8 @@ execution-adjacent /api/meme/swap/build and /memeplan; the read-only on-chain
 meme/AI snapshot with a safety read is a separate, wider door.
 
 *Where.* Dashboard Markets panel #c-meme → GET /api/market/meme
-(app/routes/market.js:193, public; dashboard.js:1632); web chat intercept
-'meme' (app/routes/chat.js); MCP get_meme_radar (app/routes/mcp.js:666);
+(`app/routes/market.js::get('/meme')`, public; `app/public/js/dashboard.js::renderMarkets#"fetchJSON('/api/market/meme'"`); web chat intercept
+'meme' (app/routes/chat.js); MCP get_meme_radar (`app/routes/mcp.js::TOOLS.get_meme_radar`);
 app/lib/meme.js.
 
 **On-chain flow radar (exchange flows / whale accumulation)**
@@ -1706,7 +1717,7 @@ On-chain flow radar (exchange flows / whale accumulation). Public panel plus a
 BYOK provider that votes in the analyzer.
 
 *Where.* Dashboard Markets panel #c-flow (jump-nav 'On-chain flow') → GET
-/api/market/onchain-flow (app/routes/market.js:217; dashboard.js:1662),
+/api/market/onchain-flow (`app/routes/market.js::get('/onchain-flow')`; `app/public/js/dashboard.js::renderMarkets#"fetchJSON('/api/market/onchain-flow'"`),
 app/lib/onchain_flow.js; engine side bot/core/onchain.py (BYOK
 Glassnode/Arkham/Nansen) imported by bot/core/analyzer.py and
 bot/core/token_safety.py; bot/core/smart_money.py imported by analyzer.py.
@@ -1717,11 +1728,11 @@ bot/core/token_safety.py; bot/core/smart_money.py imported by analyzer.py.
 (price, 24h change, volume, funding, OI) plotted as a star map. A public, no-
 account market-discovery surface.
 
-*Where.* Public page GET /strengthmap (app/server.js:676) →
-app/public/js/strengthmap.js:253 → GET /api/market/strengthmap?limit=240
-(app/routes/market.js:233), app/lib/strengthmap.js; linked from
-app/public/index.html:149 and explore.html:183. Also the dashboard Markets
-'Sector sweep' panel #p-radar3d (dashboard.js:1425).
+*Where.* Public page GET /strengthmap (`app/server.js::get('/strengthmap')`) →
+`app/public/js/strengthmap.js::loadData#"fetch('/api/market/strengthmap?limit=240'"` → GET /api/market/strengthmap?limit=240
+(`app/routes/market.js::get('/strengthmap')`), app/lib/strengthmap.js; linked from
+app/public/index.html (its nav, its menu and its footer) and `app/public/explore.html::#'data-i18n="sec.strength_cta"'`. Also the dashboard Markets
+'Sector sweep' panel #p-radar3d (`app/public/js/dashboard.js::renderMarkets#'id="p-radar3d"'`).
 
 **Tokenized US STOCK perpetuals**
 
@@ -1730,10 +1741,10 @@ session detection, stock-specific risk overrides, stock universe scan, sector
 rotation, index beta.
 
 *Where.* Telegram /stockscan (@guard("scan"),
-bot/skills/scan_commands.py:1294, registered telegram_handler.py:1232) and
-/mode stocks (universe switch, command_catalog.py:96);
-bot/core/stock_trading.py, also read by bot/core/engine.py:8587
-(get_market_session) and scan_commands.py:376.
+`bot/skills/scan_commands.py::ScanCommands._cmd_stockscan`, registered `bot/skills/telegram_handler.py::TelegramHandler.build_app#'("stockscan", self'`) and
+/mode stocks (universe switch, `bot/skills/command_catalog.py::GROUPS#'("mode", "switch universe'`);
+bot/core/stock_trading.py, also read by `bot/core/engine.py::RuneClawEngine._confirm_trade_inner#"_sess = get_market_session"`
+(get_market_session) and `bot/skills/scan_commands.py::ScanCommands._cmd_mode#"from bot.core.stock_trading"`.
 
 **Price alerts and anomaly-alert scoping**
 
@@ -1743,7 +1754,7 @@ anomaly scope ('held' vs 'all') and a rate floor.
 
 *Where.* Web chat intercept row 1 'alerts' (app/routes/chat.js, first in the
 table); GET/POST /api/alerts and DELETE /api/alerts/:id (app/routes/alerts.js;
-dashboard.js:726, :758, :774, :7633); app/lib/alerts.js; Telegram /watch and
+`app/public/js/dashboard.js::renderFeed#'id="p-tripwires"'`, `::loadAlertList#"fetchJSON('/api/alerts')"`, `::wireAlertsPanel#"fetchJSON('/api/alerts', {"`, `::renderHub#"fetchJSON('/api/alerts', { timeoutMs: 8000 })"`); app/lib/alerts.js; Telegram /watch and
 /alerts (registered telegram_handler.py), bot/core/anomaly_scope.py +
 black_swan.py + proactive_monitor.py.
 
@@ -1754,9 +1765,9 @@ own recorded signal history. This is the evidence surface a person uses before
 deciding to follow the engine at all.
 
 *Where.* Web chat intercept row 2 'replay' (app/routes/chat.js); GET
-/api/replay?stake=&days= (app/routes/replay.js; dashboard.js:4181 and :7679
+/api/replay?stake=&days= (app/routes/replay.js; `app/public/js/dashboard.js::renderPortfolio.runReplayPanel#"/api/replay?stake="` and `::renderHub#"renderPanel(C('hubreplay')"`
 for the Agent Hub tile #c-hubreplay); app/lib/replay.js; MCP run_what_if
-(app/routes/mcp.js:725).
+(`app/routes/mcp.js::TOOLS.run_what_if`).
 
 **Trade co-pilot**
 
@@ -1900,7 +1911,7 @@ than manufactured from a multiple.
 setup the strategy would take (`confirmed` AND a verdict of `ok` — recording a
 rejected one would measure a strategy nobody proposed) and scores what is
 pending from the bars it already fetched; `/pocshadow` prints the verdict.
-bot/core/poc_retest_record.py:161 `score_setup` walks the bars after the retest
+`bot/core/poc_retest_record.py::score_setup` `score_setup` walks the bars after the retest
 and answers one of six outcomes. R is `net_reward_risk`'s unit, whose
 denominator is the fee-inclusive stopped-out loss, so a stop is exactly -1.0R
 and the target pays the arm-time net R. The verdict is `mean_r_interval` with
@@ -1947,10 +1958,10 @@ dashboard Agents view; there is an unauthenticated directory with per-agent
 SEO pages, a side-by-side compare page with each column's evidence class
 declared, and a claimed-identity board.
 
-*Where.* GET /agents (app/server.js:665), GET /agents/:slug with server-
-injected per-agent SEO (server.js:764, app/lib/agent_seo.js,
-app/public/strategy.html), GET /agents/compare (server.js:669,
-public/compare.html), GET /a claimed agents (server.js:655); backed by
+*Where.* GET /agents (`app/server.js::get('/agents')`), GET /agents/:slug with server-
+injected per-agent SEO (`app/server.js::get('/agents/:slug')`, app/lib/agent_seo.js,
+app/public/strategy.html), GET /agents/compare (`app/server.js::get('/agents/compare')`,
+public/compare.html), GET /a claimed agents (`app/server.js::get('/a')`); backed by
 app/lib/agent_catalogue.js → bot gateway /public/strategies →
 RunStrategySkill.PRESETS, and by committed scorecards
 benchmark/scorecards/{dip-sniper,full-scan,momentum-hunter,safe-scalper}.json
@@ -1963,7 +1974,7 @@ split, venue/chain HHI, largest single counterparty, settlement-issuer
 concentration, computed off the caller's own holdings fan-out.
 
 *Where.* GET /api/counterparty (app/routes/counterparty.js, JWT) →
-dashboard.js:5920 → panels #c-cphead, #c-cpbuckets, #c-cpflags, #c-cpissuers;
+`app/public/js/dashboard.js::renderCounterparty#"fetchJSON('/api/counterparty')"` → panels #c-cphead, #c-cpbuckets, #c-cpflags, #c-cpissuers;
 app/lib/counterparty.js reusing buildHoldings.
 
 **Risk Sentry**
@@ -1973,9 +1984,9 @@ Risk Sentry — a proactive read-only watch over the caller's standing book
 only.
 
 *Where.* GET /api/sentry (app/routes/sentry.js, JWT → gateway /sentry,
-bot/web/user_gateway.py) → dashboard.js:4004 panel #c-sentry; public /sentinel
-page (server.js:463) and GET /api/market/sentinel (market.js:257); MCP
-get_systemic_risk (mcp.js:440).
+bot/web/user_gateway.py) → `app/public/js/dashboard.js::renderPortfolio#"fetchJSON('/api/sentry'"` panel #c-sentry; public /sentinel
+page (`app/server.js::get('/sentinel')`) and GET /api/market/sentinel (`app/routes/market.js::get('/sentinel')`); MCP
+get_systemic_risk (`app/routes/mcp.js::TOOLS.get_systemic_risk`).
 
 **Per-user watchlist**
 
@@ -1984,7 +1995,7 @@ Per-user watchlist — starred symbols that EXTEND the engine's pattern pushes
 changes what the bot tells you, not just what the page shows.
 
 *Where.* GET /api/watchlist and POST /api/watchlist/toggle
-(app/routes/watchlist.js, JWT; dashboard.js:2630 and :2828, panel #c-watch);
+(app/routes/watchlist.js, JWT; `app/public/js/dashboard.js::getWatchlist#"fetchJSON('/api/watchlist'"` and `::openSymbol#"fetchJSON('/api/watchlist/toggle'"`, panel #c-watch);
 app/lib/pattern_watch.js.
 
 **News radar with bring-your-own paid news key, and the personal-ingest direction**
@@ -2009,11 +2020,11 @@ The EXECUTION half of the cross-chain yield planner. The agents listed
 path beneath it: a triple-gated execution preview and then a real first-leg
 signed transfer.
 
-*Where.* POST /api/web3/cross-plan (app/routes/web3_execute.js:100 → gateway
-/cross/plan; dashboard.js:8728, panel #c-crossyield section 'Worth moving? —
+*Where.* POST /api/web3/cross-plan (`app/routes/web3_execute.js::post('/cross-plan')` → gateway
+/cross/plan; `app/public/js/dashboard.js::mountYieldPlanPreview#"fetchJSON('/api/web3/cross-plan'"`, panel #c-crossyield section 'Worth moving? —
 cross-chain yield planner'); POST /api/web3/sign, POST /api/web3/sign/prepare,
-GET /api/web3/sign/status (web3_execute.js:52/178/155; dashboard.js:8788,
-:8836, :8863) → gateway /web3/sign*, bot/web/user_gateway.py. ADMIN-ONLY and
+GET /api/web3/sign/status (`app/routes/web3_execute.js::post('/sign')`, `::post('/sign/prepare')`, `::get('/sign/status')`; `app/public/js/dashboard.js::mountTestnetSigner#"fetchJSON('/api/web3/sign',"`, `::mountTestnetSigner#"fetchJSON('/api/web3/sign/prepare'"`, `::mountTestnetSigner#"fetchJSON('/api/web3/sign/status'"`
+) → gateway /web3/sign*, bot/web/user_gateway.py. ADMIN-ONLY and
 TESTNET-ONLY by the routes' own headers.
 
 **$RCLAW staking program and the tier gate that reads it**
@@ -2026,7 +2037,7 @@ facing door is wallet linking for staked-tier access.
 *Where.* programs/rclaw_staking/src/lib.rs (+ tests/solvency.rs, attack.rs);
 bot/token/tier_gate.py, tier_weight.py, solana_verify.py; Telegram /linkwallet
 ("link a Solana wallet (read-only) for $RCLAW tier access",
-command_catalog.py:44); app/lib/solana_verify.js. CAVEAT:
+`bot/skills/command_catalog.py::GROUPS#'("linkwallet",'`); app/lib/solana_verify.js. CAVEAT:
 programs/rclaw_staking/README.md opens with "⚠️ UNAUDITED / DO NOT DEPLOY" and
 CLAUDE.md records the $RCLAW gate as OFF by default — so this is a built and
 READ capability, not a live staking yield.
@@ -2054,12 +2065,12 @@ frame), and there is a framable authenticated Mini App that opens Arena
 positions.
 
 *Where.* POST /api/farcaster/nonce and /api/farcaster/signin
-(app/routes/farcaster_auth.js, app/lib/siwf.js; mounted server.js:396); GET
+(app/routes/farcaster_auth.js, app/lib/siwf.js; mounted `app/server.js::use('/api/farcaster')`); GET
 /miniapp/arena — "sign in with Farcaster and trade the season"
-(app/routes/miniapp.js:119, mounted server.js:400, client /js/miniapp-arena.js
+(`app/routes/miniapp.js::get('/arena')`, mounted `app/server.js::use('/miniapp')`, client /js/miniapp-arena.js
 + embed-arena-view.js); GET /.well-known/farcaster.json
-(app/routes/discovery.js:86, app/lib/farcaster_manifest.js); launchable embed
-cards in app/routes/embed.js:147/:178; GET /api/frame/* call receipt cards
+(`app/routes/discovery.js::get('/.well-known/farcaster.json')`, app/lib/farcaster_manifest.js); launchable embed
+cards in `app/routes/embed.js::get('/signals')#"farcaster_manifest').embedTags("`/`::get('/arena')#"farcaster_manifest').embedTags("`; GET /api/frame/* call receipt cards
 (app/routes/frame.js).
 
 **The rest of the scan/analysis command family**
@@ -2070,7 +2081,7 @@ same two leaves and were not counted, including /quant, which CLAUDE.md
 records as only just wired.
 
 *Where.* All registered in bot/skills/telegram_handler.py and catalogued in
-bot/skills/command_catalog.py:88-97: /intraday (15m), /patterns, /squeeze,
+`bot/skills/command_catalog.py::GROUPS`: /intraday (15m), /patterns, /squeeze,
 /sweep, /zones, /session, /mode, plus /quant (@guard("analyze"),
 bot/skills/quant_skill.py, skill quant_analyze — it LEFT
 tests/unreachable_skills_baseline.txt). Web counterparts: GET /api/patterns/*
@@ -2083,7 +2094,7 @@ Trading-cost / fee-reduction surface — a costs breakdown command and a
 documented lever inventory whose largest item is an off-code account setting
 (~20% off every fill), with maker-preferred limit entry in the engine.
 
-*Where.* Telegram /costs (command_catalog.py:124, registered in
+*Where.* Telegram /costs (`bot/skills/command_catalog.py::GROUPS#'("costs",'`, registered in
 telegram_handler.py); docs/FEE_REDUCTION.md (BGB discount runbook);
 bot/core/limit_entry.py, bot/core/cost.py, bot/core/slippage.py, maker-
 preference flags in bot/config.py and bot/core/venues.py; dashboard
@@ -2126,7 +2137,7 @@ half of the measurement that says where the measurement stops.
 
   **The surface is safe because the document is wrong about it**, which is what
   settled the wiring question with evidence rather than taste. `POST /mcp` is
-  mounted with no auth (`app/server.js:415`; `routes/mcp.js` says so in its own
+  mounted with no auth (`app/server.js::use('/mcp')`; `routes/mcp.js` says so in its own
   comments), and driven, `runeclaw_portfolio` renders six dollar figures and
   `runeclaw_risk` two — the OPERATOR's book, because `call_tool` takes one
   shared bearer token and passes no caller identity to any skill. Mounting the
@@ -2342,7 +2353,7 @@ half of the measurement that says where the measurement stops.
 
   The default is OFF, and **doubly** so: `gate_enabled()` is
   `_env_bool("TOKEN_TIER_GATE_ENABLED") and bool(mint_address())`
-  (`tier_gate.py:365`), so an unset flag and an unconfigured mint each keep it
+  (`bot/token/tier_gate.py::gate_enabled`), so an unset flag and an unconfigured mint each keep it
   inert on their own.
 
   The memcmp offsets are machine-checked from BOTH sides, which is more than
@@ -2353,7 +2364,7 @@ half of the measurement that says where the measurement stops.
   `offset_of!` would prove nothing about what a client reads off the chain —
   and that test runs in the `Staking program (cargo)` CI job. The Python
   mirror is not trusted to match by prose either:
-  `tests/test_token_tier_gate.py:711` parses `pub const NAME: usize = N;`
+  `tests/test_token_tier_gate.py::_rust_layout_constants` parses `pub const NAME: usize = N;`
   straight out of `lib.rs` and compares each one, under a comment recording
   that the README used to claim the offsets were 'machine-checked on both'
   when only one side was — *"This is the missing half."* Derived by hand
@@ -2363,11 +2374,11 @@ half of the measurement that says where the measurement stops.
 
 - ANSWERED, and the chain was driven rather than read. The web3 sign /
   cross-plan / deploy rows said ADMIN-ONLY off the route files' own header
-  comments (`app/routes/web3_execute.js:52, :93, :124`), and a comment that
+  comments (`app/routes/web3_execute.js::#"POST /api/web3/sign — WEB3-LIVE-EXEC"`, `::#"POST /api/web3/cross-plan — CROSS-2"`, `::#"POST /api/web3/deploy — Contract Studio"`), and a comment that
   misdescribes which half of a gate is off is a failure mode this repo has
   recorded before. All three re-checks exist and refuse:
-  `handle_web3_sign` (`bot/web/user_gateway.py:4903`), `handle_cross_plan`
-  (`:1724`) and `handle_contract_deploy` (`:1609`) each `403` a non-admin —
+  `handle_web3_sign` (`bot/web/user_gateway.py::handle_web3_sign#"if not _is_admin_id"`), `handle_cross_plan`
+  (`::handle_cross_plan#"if not _is_admin_id"`) and `handle_contract_deploy` (`::handle_contract_deploy#"if not _is_admin_id"`) each `403` a non-admin —
   and the last of those is why the check had to be driven rather than
   grepped, because a search for `handle_web3_deploy`, the name the route
   suggests, matches nothing.
@@ -2376,13 +2387,13 @@ half of the measurement that says where the measurement stops.
   that is where the answer is worth keeping: the gateway re-checks admin
   against a `telegram_id` **read out of the request body**, which the web
   layer supplies. Read end to end, nothing on that path is caller-chosen:
-  `authMiddleware` (`app/auth.js:212`) sets `req.user` only from a
+  `authMiddleware` (`app/auth.js::authMiddleware`) sets `req.user` only from a
   `jwt.verify`'d token that also passes a revocation check, and
-  `resolveBotIdentity` (`app/lib/identity.js:18`) then reads the telegram id
+  `resolveBotIdentity` (`app/lib/identity.js::resolveBotIdentity`) then reads the telegram id
   out of the DB row keyed on `req.user.user_id` — never off the body, the
   query or a header — so the id the gateway admin-checks is the one the
   database holds for the JWT's own subject. `_is_admin_id`
-  (`bot/skills/telegram_handler.py:5002`) is server-side too: the user store's
+  (`bot/skills/telegram_handler.py::TelegramHandler._is_admin_id`) is server-side too: the user store's
   role, or `ADMIN_TELEGRAM_IDS`. An escalation needs a foreign `telegram_id`
   written onto your own row, which is the invariant
   `identity.foreignIdentityBlock` already documents and asserts.
@@ -2405,15 +2416,15 @@ half of the measurement that says where the measurement stops.
   definition, not the name you remember' arriving from the other direction,
   since it was the baseline that named a dict KEY as though it were a method.
   It is a literal at its single construction site
-  (`bot/core/meme_executor.py:135`, `"would_execute": False,  # planner only —
+  (`bot/core/meme_executor.py::plan_swap#'"would_execute'`, `"would_execute": False,  # planner only —
   never signs here`), and nothing anywhere computes it.
 
   What the baseline does not say is that there is a **fail-closed consumer**:
   `meme_swap.build_swap` refuses outright on `plan.get("would_execute") is not
-  False` (`bot/core/meme_swap.py:178`), driven by
-  `tests/test_meme_swap.py:132`. So the claim is not merely 'the planner never
+  False` (`bot/core/meme_swap.py::build_swap#'if plan.get("would_execute'`), driven by
+  `tests/test_meme_swap.py::test_a_plan_claiming_it_would_execute_is_refused`. So the claim is not merely 'the planner never
   sets it' — a plan that DID claim it would execute is refused by the builder
-  one layer down. `bot/web/user_gateway.py:1854` forwards the planner's own
+  one layer down. `bot/web/user_gateway.py::handle_meme_swap_build#'"would_execute'` forwards the planner's own
   value to the web and manufactures nothing.
 
 - ANSWERED, and what driving it found was one route over. /miniapp/arena
@@ -2468,10 +2479,10 @@ half of the measurement that says where the measurement stops.
 
   **The macro_skills shape does not apply.** Walked by AST, the eight handlers
   make exactly THREE attribute probes between them, and all three name real
-  attributes: `engine._last_scan_signals` (set at `bot/core/engine.py:984`),
-  `CONFIG.deepscan_timeout_sec` (`bot/config.py:2742`, and three sibling call
+  attributes: `engine._last_scan_signals` (set at `bot/core/engine.py::RuneClawEngine.__init__#"self._last_scan_signals"`),
+  `CONFIG.deepscan_timeout_sec` (`bot/config.py::AppConfig.deepscan_timeout_sec`, and three sibling call
   sites read it with no `getattr` at all) and `engine.analyzer`
-  (`bot/core/engine.py:701`). Every handler guards its own read and has an
+  (`bot/core/engine.py::RuneClawEngine.__init__#"self.analyzer ="`). Every handler guards its own read and has an
   honest empty state; `/sweep` and its neighbours already carry the
   forming-candle hygiene the shared cache slice added.
 

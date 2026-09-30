@@ -167,6 +167,52 @@ class CostSummary:
         return round(self.llm_cost_usd / self.llm_calls, 6) if self.llm_calls > 0 else 0.0
 
 
+#: The bound chat reaches when its own spend meets its share of the daily
+#: dollar budget (`LLM_CHAT_BUDGET_SHARE`). A word of its own because the
+#: refusal a person reads is different: the rest of the budget is the engine's.
+CHAT_SHARE_BOUND = "chat's share of the dollar budget"
+
+
+def chat_spend_usd(snap: CostSummary) -> float:
+    """Today's chat spend, for chat's share of the daily budget.
+
+    Chat books its calls under ``"chat"``. When that figure cannot be read (a
+    snapshot without the category, or a value that is not a finite number),
+    the answer is the TOTAL spend: every dollar may have been chat's, so chat
+    stops at its share of the total. That is the strict direction; the other
+    fallback, zero, would let chat spend the whole budget unseen.
+    """
+    import math
+
+    total = float(snap.llm_cost_usd)
+    by_cat = getattr(snap, "cost_by_category", None)
+    value = by_cat.get("chat") if isinstance(by_cat, dict) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return total
+    value = float(value)
+    if not math.isfinite(value) or value < 0:
+        return total
+    return value
+
+
+def chat_budget_bound(snap: CostSummary, llm_cfg) -> str:
+    """Which daily bound chat has reached, or "" when none.
+
+    One reading for every chat model call: the reply in `_llm_chat` and the
+    rolling-note fold in `_summarize_if_due`, which used to call the chat
+    model with no check at all and book nothing, so "chat stops at its share"
+    was false of the calls made after every reply. `llm_cfg` is the caller's
+    `CONFIG.llm`, handed in so this module reads no global.
+    """
+    if snap.llm_calls >= llm_cfg.daily_call_limit:
+        return "daily call limit"
+    if snap.llm_cost_usd >= llm_cfg.daily_budget_usd:
+        return "daily dollar budget"
+    if chat_spend_usd(snap) >= llm_cfg.daily_budget_usd * llm_cfg.chat_budget_share:
+        return CHAT_SHARE_BOUND
+    return ""
+
+
 class CostTracker:
     """Session operating-cost ledger.  Separate from trade PnL by design.
 

@@ -1298,6 +1298,13 @@ class LLMConfig:
     # default that won't delay normal hourly-scan operation but caps real bursts.
     max_rpm: int = int(_env_float("LLM_MAX_RPM", 40))
     daily_budget_usd: float = _env_float("LLM_DAILY_BUDGET_USD", 1.0)  # fail to rules if exceeded
+    # Chat's share of that budget. Chat spend counts toward the total, and
+    # the trade-thesis guard reads the total, so without a cap a busy chat
+    # day spent the whole budget and moved the engine to the rule engine.
+    # Chat stops at this share; the rest is the engine's. 1.0 restores the
+    # old behaviour, where chat could spend all of it; 0.0 turns the model
+    # off for chat.
+    chat_budget_share: float = _env_float_bounded("LLM_CHAT_BUDGET_SHARE", 0.5, 0.0, 1.0)
     est_cost_per_analysis: float = _env_float("LLM_EST_COST_PER_ANALYSIS", 0.003)  # for backtest projection
     # Account cascading-fallback LLM calls against the daily budgets.
     # DEFAULT ON. This opened with a stale audit annotation asserting the
@@ -2553,7 +2560,10 @@ class AppConfig:
     auto_confirm_threshold: float = _env_float("AUTO_CONFIRM_THRESHOLD", 0.85)
     # Allow auto-confirm to place LIVE (real-money) orders with no human press.
     # OPERATOR-ACTIVATED default ON. Set AUTO_CONFIRM_LIVE_ENABLED=0 to require a
-    # human tap for every live trade (the fail-closed posture).
+    # human tap for every live trade (the fail-closed posture). This is the
+    # second line: an order with no human press is placed only when an
+    # eligibility record for the running strategy also exists
+    # (bot/core/live_eligibility.py), and none ships.
     auto_confirm_live_enabled: bool = _env_bool("AUTO_CONFIRM_LIVE_ENABLED", True)
     # Gate auto-confirm on CALIBRATED confidence (OPERATOR-ACTIVATED default ON).
     # When ON AND a fitted confidence calibrator exists, the auto-confirm threshold

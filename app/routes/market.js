@@ -124,12 +124,18 @@ router.get('/candles/:symbol', async (req, res) => {
       '1d': '1D', '1w': '1W',
     };
     const bg = BITGET_GRAN[gran.toLowerCase()] || gran;
-    const limit = Math.min(parseInt(req.query.limit) || 24, 200);
+    // Clamped at both ends: every negative value used to be a cache key of
+    // its own and an upstream fetch of its own, in a cache that never evicts.
+    const limit = Math.max(1, Math.min(parseInt(req.query.limit) || 24, 200));
     // Optional ms-epoch window (trade replay theater fetches the candles
     // around a recorded trade). Validated numeric; Bitget ignores unknowns.
     const startTime = /^\d{10,16}$/.test(String(req.query.startTime || '')) ? `&startTime=${req.query.startTime}` : '';
     const endTime = /^\d{10,16}$/.test(String(req.query.endTime || '')) ? `&endTime=${req.query.endTime}` : '';
-    const data = await cached(`candles_${sym}_${bg}_${startTime}_${endTime}`, 15000, () =>
+    // The key names every parameter the fetch sends. Without `limit` in it, the
+    // Markets chart's 2-bar live poll and its 200-bar redraw shared one entry,
+    // so whichever landed first answered both for 15s and the chart shrank to
+    // 2 candles.
+    const data = await cached(`candles_${sym}_${bg}_${limit}_${startTime}_${endTime}`, 15000, () =>
       fetchJSON(`https://api.bitget.com/api/v2/mix/market/candles?symbol=${sym}&productType=USDT-FUTURES&granularity=${bg}&limit=${limit}${startTime}${endTime}`)
     )();
     relayBitget(res, data);
