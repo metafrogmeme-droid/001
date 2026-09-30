@@ -240,33 +240,35 @@ def test_what_the_model_reads_back_never_carries_a_record_marker(case):
                                      "not_offered": _rows}.get(case, _rows)),
               "whynot": _Skill(_rows)}
     h = _tool_handler(skills)
+    from bot.nlp.tool_reading import prose_of
     if case == "not_offered":
         out = _run(chat_tools.run_tool(h, "u1", "scan_market", {}, set()))
-        assert out.startswith("UNAVAILABLE")
+        assert prose_of(out).startswith("UNAVAILABLE")
     elif case == "no_such_tool":
         out = _run(chat_tools.run_tool(_tool_handler({}), "u1", "scan_market", {},
                                        {"scan_market"}))
-        assert out.startswith("UNAVAILABLE")
+        assert prose_of(out).startswith("UNAVAILABLE")
     elif case == "not_run":
         out = _run(chat_tools.run_tool(h, "u1", "whynot", {"symbol": "../etc"},
                                        {"whynot"}))
-        assert out.startswith("NOT RUN")
+        assert prose_of(out).startswith("NOT RUN")
     else:
         out = _run(chat_tools.run_tool(h, "u1", "scan_market", {}, {"scan_market"},
                                        timeout=1.0))
+        prose = prose_of(out)
         row = h.conversations.rows[-1][2]
         assert row.startswith("[scan_market] "), "the STORE keeps the marker"
         assert find_fabricated_marker(row) == 0
         if case == "read":
-            assert out == "BTC +4.1%"
+            assert prose == "BTC +4.1%"
         elif case == "truncated":
-            assert out.startswith(
+            assert prose.startswith(
                 f"(TRUNCATED — first {MEMORY_CAP} of {MEMORY_CAP * 2} characters; "
                 "the rest is not recorded):\n" + "z" * 10)
         elif case == "no_output":
-            assert out.startswith("NO OUTPUT")
+            assert prose.startswith("NO OUTPUT")
         elif case == "timed_out":
-            assert out.startswith("TIMED OUT after 1s") and "Nothing was measured" in out
+            assert prose.startswith("TIMED OUT after 1s") and "Nothing was measured" in prose
             assert row.startswith("[scan_market] TIMED OUT after 1s")
     assert find_fabricated_marker(out) is None, out
     assert "[scan_market]" not in out and "[whynot]" not in out

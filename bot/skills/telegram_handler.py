@@ -3194,7 +3194,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                           action="chat_fallback", result="OK")
 
                 return _chat_ret(answer.strip(), cfg, return_meta,
-                                 tool_events=_tool_events)
+                                 tool_events=_tool_events, is_admin=is_admin)
 
             except asyncio.TimeoutError:
                 last_error = f"timeout ({cfg.provider.value})"
@@ -4730,6 +4730,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         else:
             # Premium tactical header for substantive responses
             _final = f"\u2694\ufe0f <b>RUNECLAW</b>\n{'─' * 16}\n\n{formatted}"
+        from bot.nlp.grounding import telegram_read_from_html
+        _final += telegram_read_from_html(_meta)
         # The streamed message becomes the answer in place; if that edit
         # cannot land (too long, rate-limited, deleted) the answer goes out
         # as a fresh message, as it always did.

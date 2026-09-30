@@ -976,7 +976,8 @@ class TelegramStream:
             return "failed"
 
 
-def _chat_ret(text: str, cfg, return_meta: bool, tool_events=None):
+def _chat_ret(text: str, cfg, return_meta: bool, tool_events=None,
+              is_admin: bool = False):
     """Shape _llm_chat's return: plain string (default, every existing caller),
     or (string, meta) when the caller wants model transparency (the web
     gateway shows which model answered). Module-level — several test suites
@@ -1038,16 +1039,53 @@ def _chat_ret(text: str, cfg, return_meta: bool, tool_events=None):
     except Exception as exc:  # never let a display fix break a reply
         logger.debug("risk:reward correction skipped: %s", exc)
 
+    # Shadow grounding. Figures with a unit are checked against this turn's
+    # tool results. The rate is recorded per model. The reply is annotated
+    # only once that rate is already below the line; until then the words
+    # the model wrote are what the user sees.
+    try:
+        from bot.nlp.grounding import (
+            annotation_on,
+            check_reply,
+            note,
+            rate,
+            unverified_note,
+        )
+        results = [str(e.get("result") or "") for e in (tool_events or [])
+                   if isinstance(e, dict)]
+        if tool_events:
+            checked, unverified = check_reply(text, results)
+            model = getattr(cfg, "model", "") or ""
+            if checked and model:
+                note(model, checked, len(unverified))
+                audit(system_log,
+                      f"Chat grounding {model}: "
+                      f"{len(unverified)} of {checked} unverified",
+                      action="chat_grounding", result="SHADOW",
+                      data={"model": model, "checked": checked,
+                            "unverified": len(unverified),
+                            "rate": rate(model)})
+            if (unverified and model
+                    and annotation_on(model, bool(is_admin))):
+                text = text.rstrip() + "\n\n" + unverified_note(unverified)
+    except Exception as exc:  # never let a display fix break a reply
+        logger.debug("grounding check skipped: %s", exc)
+
     if not return_meta:
         return text
     meta = ({"provider": cfg.provider.value, "model": cfg.model}
             if cfg is not None else {})
     # What ran on the way to this answer, for the surface to show and the
-    # store to keep. Name and outcome only — the arguments are already in
-    # the audit log and the result is already in the conversation memory.
+    # store to keep. Name and outcome only — the result stays out of the
+    # payload a browser receives. The footer is the same sentence both
+    # surfaces render.
     if meta and tool_events:
+        from bot.nlp.grounding import tools_footer
         meta["tools"] = [{"name": str(e.get("name", "")),
                           "ok": bool(e.get("ok")),
                           "ms": int(e.get("ms", 0) or 0)}
-                         for e in tool_events]
+                         for e in tool_events if isinstance(e, dict)]
+        footer = tools_footer(tool_events)
+        if footer:
+            meta["read_from"] = footer
     return text, meta

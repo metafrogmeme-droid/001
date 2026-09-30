@@ -408,16 +408,18 @@ async def run_tool(handler, user_id: str, name: str, args: dict,
     if name not in offered or name not in _BY_NAME:
         audit(system_log, f"Chat tool refused: {name!r} not offered",
               action="chat_tool", result="REFUSED", data={"tool": name})
-        return ("UNAVAILABLE — that tool is not offered in this conversation, "
-                "so nothing ran and nothing was measured.")
+        return _handed(name, "unread",
+                       "UNAVAILABLE — that tool is not offered in this conversation, "
+                       "so nothing ran and nothing was measured.")
     registry = getattr(handler, "registry", None)
     skill = registry.get(name) if registry is not None else None
     if skill is None:
-        return ("UNAVAILABLE — this bot has no such tool wired up, so it was "
-                "never run. Nothing was measured.")
+        return _handed(name, "unread",
+                       "UNAVAILABLE — this bot has no such tool wired up, so it was "
+                       "never run. Nothing was measured.")
     kwargs, problem = _kwargs_for(name, args or {})
     if problem:
-        return f"NOT RUN — {problem}"
+        return _handed(name, "unread", f"NOT RUN — {problem}")
     conversations = getattr(handler, "conversations", None)
     try:
         from bot.core import user_memory_store as _user_memory
@@ -438,7 +440,7 @@ async def run_tool(handler, user_id: str, name: str, args: dict,
         audit(system_log, f"Chat tool timed out: {name}",
               action="chat_tool", result="TIMEOUT",
               data={"tool": name, "ms": int((time.monotonic() - t0) * 1000)})
-        return text
+        return _handed(name, "unread", text)
     except Exception as exc:
         _remember(conversations, user_id, skill_failure_memory(name),
                   {"skill": name, "surface": surface, "via": "tool_call",
@@ -459,9 +461,22 @@ async def run_tool(handler, user_id: str, name: str, args: dict,
     # Hand the model the plain-text body the store recorded (tags to spaces,
     # entities unescaped, truncation announced) minus the memory prefix.
     _prefix, _, body = record.partition("\n")
-    if body and "TRUNCATED" not in _prefix:
-        return body
-    return _for_the_model(record)
+    prose = body if body and "TRUNCATED" not in _prefix else _for_the_model(record)
+    # A tool that ran and returned no card measured nothing. That is absent,
+    # not a zero and not a failed read.
+    state = "absent" if prose.startswith("NO OUTPUT") else "read"
+    return _handed(name, state, prose)
+
+
+def _handed(name: str, read_state: str, prose: str) -> str:
+    """The card, under a reading line the model and the grounding check share.
+
+    The store keeps the ``[name]`` record it already wrote. This is only what
+    the model is handed, so a later turn and this turn do not disagree about
+    which words were measured.
+    """
+    from bot.nlp.tool_reading import render_reading
+    return render_reading(name, read_state, prose)
 
 
 def _for_the_model(record: str) -> str:

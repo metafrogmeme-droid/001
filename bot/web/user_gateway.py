@@ -1211,6 +1211,7 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
                               "model": (meta or {}).get("model", ""),
                               "provider": (meta or {}).get("provider", ""),
                               "tools": (meta or {}).get("tools", []),
+                              "read_from": (meta or {}).get("read_from", ""),
                               "quota": _quota})
 
 

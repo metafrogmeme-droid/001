@@ -43,9 +43,13 @@
     "sha": "80eb4148dded43a9",
     "v": 1
   },
+  "js/chat-caption.js": {
+    "sha": "8c79f05320d03c22",
+    "v": 1
+  },
   "js/chat.js": {
-    "sha": "c81c22188ad27908",
-    "v": 36
+    "sha": "302edf651aa02b4f",
+    "v": 37
   },
   "js/context-chips-model.js": {
     "sha": "32218025d6c7a84e",

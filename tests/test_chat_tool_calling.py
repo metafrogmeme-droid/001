@@ -205,7 +205,9 @@ def test_openai_loop_runs_the_tool_and_feeds_the_result_back():
     # Both rounds were offered tools; both rounds' usage is summed.
     assert "tools" in client.requests[0] and "tools" in client.requests[1]
     assert usage == {"in": 20, "out": 10, "calls": 2}
-    assert events == [{"name": "get_portfolio", "args": {}, "ok": True, "ms": events[0]["ms"]}]
+    assert events == [{"name": "get_portfolio", "args": {}, "ok": True,
+                       "ms": events[0]["ms"],
+                       "result": "0 open positions, equity $10,000"}]
 
 
 def test_openai_loop_parses_json_arguments():
@@ -332,6 +334,37 @@ def test_a_plain_answer_needs_no_second_call():
     assert len(client.requests) == 1
 
 
+def test_two_tools_in_one_round_run_together_and_return_in_ask_order():
+    """Sequential awaits would keep the in-flight count at 1. The second
+    result is ready first; the model still sees them in the order it asked."""
+    client = _OaiClient([
+        _oai_response(tool_calls=[
+            _oai_tool_call("c1", "get_portfolio", "{}"),
+            _oai_tool_call("c2", "whynot", "{}"),
+        ]),
+        _oai_response(content="both"),
+    ])
+    inflight = {"n": 0, "max": 0}
+
+    async def executor(name, args):
+        inflight["n"] += 1
+        inflight["max"] = max(inflight["max"], inflight["n"])
+        if name == "get_portfolio":
+            await asyncio.sleep(0.05)
+        inflight["n"] -= 1
+        return name + "-body"
+
+    events = []
+    out = _run(llm_complete_with_tools(
+        client, _cfg(), "s", "q", TOOLS, executor, events_out=events))
+    assert out == "both"
+    assert inflight["max"] == 2
+    msgs = client.requests[1]["messages"]
+    assert [m["content"] for m in msgs if m["role"] == "tool"] == [
+        "get_portfolio-body", "whynot-body"]
+    assert [e["name"] for e in events] == ["get_portfolio", "whynot"]
+
+
 # ── 2b. the loop: Anthropic shape ───────────────────────────────────────────
 
 class _AUsage:
@@ -436,7 +469,11 @@ def test_run_tool_records_what_the_tool_said():
 
     h = _handler({"get_portfolio": _Skill(portfolio)})
     out = _run(chat_tools.run_tool(h, "u1", "get_portfolio", {}, {"get_portfolio"}))
-    assert out == "Equity $10,000 & 0 open"
+    from bot.nlp.tool_reading import parse_reading, prose_of
+    reading = parse_reading(out)
+    assert reading["read_state"] == "read" and reading["source"] == "get_portfolio"
+    assert reading["value"] is None, "the card is not a second numeric reading"
+    assert prose_of(out) == "Equity $10,000 & 0 open"
     uid, role, content, meta = h.conversations.rows[-1]
     assert (uid, role) == ("u1", "assistant")
     assert content.startswith("[get_portfolio] result:")
@@ -452,7 +489,8 @@ def test_run_tool_refuses_a_name_that_was_not_offered():
 
     h = _handler({"costs": _Skill(costs)})
     out = _run(chat_tools.run_tool(h, "u1", "costs", {}, offered={"get_portfolio"}))
-    assert out.startswith("UNAVAILABLE")
+    from bot.nlp.tool_reading import prose_of
+    assert prose_of(out).startswith("UNAVAILABLE")
     assert ran == [] and h.conversations.rows == []
 
 
@@ -467,7 +505,8 @@ def test_run_tool_normalises_and_validates_the_symbol():
     _run(chat_tools.run_tool(h, "u1", "whynot", {"symbol": "btc"}, {"whynot"}))
     assert seen[-1]["symbol"] == "BTC/USDT"
     out = _run(chat_tools.run_tool(h, "u1", "whynot", {"symbol": "../etc"}, {"whynot"}))
-    assert out.startswith("NOT RUN")
+    from bot.nlp.tool_reading import prose_of
+    assert prose_of(out).startswith("NOT RUN")
     assert len(seen) == 1, "an invalid symbol must not reach the skill"
 
 
@@ -477,7 +516,9 @@ def test_run_tool_requires_a_symbol_where_the_skill_does():
 
     h = _handler({"check_event_risk": _Skill(ev)})
     out = _run(chat_tools.run_tool(h, "u1", "check_event_risk", {}, {"check_event_risk"}))
-    assert out.startswith("NOT RUN") and "symbol" in out
+    from bot.nlp.tool_reading import prose_of
+    prose = prose_of(out)
+    assert prose.startswith("NOT RUN") and "symbol" in prose
 
 
 def test_run_tool_timeout_is_recorded_as_a_timeout():
@@ -487,7 +528,9 @@ def test_run_tool_timeout_is_recorded_as_a_timeout():
 
     h = _handler({"scan_market": _Skill(slow)})
     out = _run(chat_tools.run_tool(h, "u1", "scan_market", {}, {"scan_market"}, timeout=1.0))
-    assert "TIMED OUT" in out
+    from bot.nlp.tool_reading import parse_reading, prose_of
+    assert parse_reading(out)["read_state"] == "unread"
+    assert "TIMED OUT" in prose_of(out)
     assert "TIMED OUT" in h.conversations.rows[-1][2]
     assert h.conversations.rows[-1][3]["timed_out"] is True
 
