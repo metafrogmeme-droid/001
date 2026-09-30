@@ -179,7 +179,7 @@ The staking job's own comment records the deploy constraint: the Solana 1.18.26 
 | `./.audit-baseline.json` (Anchor workspace) | 2026-09-30 | critical 0, high 6, moderate 8, low 0. Ids include 1103747, 1113686, 1119440, 1119441, 1164823, 1164824, 1164825. brace-expansion 2.1.7 dropped 1130589 and 1130736 | says 6 high, and still names brace-expansion in the parenthetical |
 | `app/.audit-baseline.json` | 2026-09-02 | all zeros | says `app/` carries 1 low |
 | `site/.audit-baseline.json` | 2026-08-27 | all zeros | agrees (clean) |
-| `token/.audit-baseline.json` | 2026-09-04 | critical 0, high 12, moderate 14, low 11 (37). The id list in the file is shorter than 37 because one id can cover more than one severity row | agrees with "0 critical and 12 high (37 total)". An older sentence that said 1 critical and 15 high does not match this file |
+| `token/.audit-baseline.json` | 2026-09-04 | critical 0, high 12, moderate 14, low 11 (37). The id list in the file is shorter than 37 because one id can cover more than one severity row. `token/package.json` overrides axios to 1.20.0, which is outside the ranges published 2026-09-30 (`< 1.20.0`); the recorded floor did not move | agrees with "0 critical and 12 high (37 total)". An older sentence that said 1 critical and 15 high does not match this file |
 | `contracts/rune/.audit-baseline.json` | 2026-08-27 | critical 0, high 1, moderate 0, low 1. Ids 1109537, 1120654 | agrees |
 | `.cargo-audit-baseline.json` | 2026-08-18 | 9 advisories | says eight |
 
@@ -190,7 +190,7 @@ Shipped RustSec rows (reachable through non-dev dependencies of the staking prog
 
 The other seven rows in that baseline are marked test-harness only (`ring`, `quinn-proto`, `rustls-webpki`, `h2`). The CI comment's "six test-harness only" is one short of the file (seven harness plus two shipped).
 
-Clearing the two shipped RustSec rows is described in CI as a Solana major bump. Token's 12 high / 37 total is the backlog `docs/TOKEN_ROADMAP.md` requires cleared before a deployment that holds value. The CI comment attributes nearly all of that backlog to the Wormhole SDK.
+Clearing the two shipped RustSec rows is described in CI as a Solana major bump. Token's 12 high / 37 total is the backlog `docs/TOKEN_ROADMAP.md` requires cleared before a deployment that holds value. axios is pinned at 1.20.0, so the advisories published 2026-09-30 are not part of that backlog. The CI comment attributes nearly all of that backlog to the Wormhole SDK.
 
 ## Phases
 
@@ -267,7 +267,7 @@ These stay draft and devnet. They are not a 2026 production phase for the tradin
 |---|---|
 | Staking SBF build | Solana 1.18.26 / cargo 1.75 / lockfile v3. A casual `cargo update` can go green on the host and fail `cargo-build-sbf`. |
 | Two shipped RustSec rows | ed25519-dalek and curve25519-dalek. CI describes the fix as a Solana major. |
-| Token npm ratchet | 12 high, 37 total, largely the Wormhole SDK. Cleared before any deploy that holds value. |
+| Token npm ratchet | 12 high, 37 total, largely the Wormhole SDK. axios is pinned at 1.20.0. Cleared before any deploy that holds value. |
 | `contracts/rune` | 1 high and 1 low in its baseline. Compile and test only; no network in CI. |
 | Anchor 0.30.1 / Solana 1.18.26 | No newer target was registry-checked for this plan. A program upgrade is its own slice, with a new installer SHA256 written into `ci.yml` at the same time as the version. |
 
