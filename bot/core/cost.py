@@ -220,9 +220,12 @@ def chat_call_count(snap: CostSummary) -> int:
     if accounted != total:
         return total
     chat = by.get("chat", 0)
-    if isinstance(chat, bool) or not isinstance(chat, int) or chat < 0:
-        return total
-    return chat
+    # The positive arm is what mypy can narrow. `dict.get` is Any, and the
+    # complementary test (`bool or not int`) leaves the return as Any, which
+    # the whole-tree ratchet counts as no-any-return.
+    if isinstance(chat, int) and not isinstance(chat, bool) and chat >= 0:
+        return chat
+    return total
 
 
 def non_chat_spend_usd(snap: CostSummary) -> Optional[float]:
