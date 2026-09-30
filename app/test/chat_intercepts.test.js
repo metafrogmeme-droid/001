@@ -249,10 +249,14 @@ test('a refused or failed memory write never touches the reply', async () => {
 
 test('a reply without html records nothing', async () => {
   reset();
-  answers.alerts = { pending_trade: { trade_id: 'x' } };
+  // Replay is the first row. A hit with no reply_html must not be written
+  // into conversation memory, and must not be handed to the model.
+  answers.replay = { pending_trade: { trade_id: 'x' } };
   const token = await newUser();
-  const r = await req('POST', '/api/chat', { token, body: { text: 'tell me when' } });
+  const r = await req('POST', '/api/chat', { token, body: { text: 'what if' } });
   assert.equal(r.status, 200);
+  assert.equal(r.data.pending_trade.trade_id, 'x');
   await flush();
   assert.ok(!posted.some((p) => p.path === '/chat/record'));
+  assert.ok(!posted.some((p) => p.path === '/chat'));
 });

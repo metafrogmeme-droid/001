@@ -189,7 +189,7 @@ async function chatTurn(req, res, { stream = false } = {}) {
     }
     if (!text && !images) return res.status(400).json({ error: 'text or image required' });
     if (text.length > MAX_TEXT_LEN) return res.status(400).json({ error: 'Message too long' });
-    // An image message skips the local text-intercepts (alerts/replay/etc.) and
+    // An image message skips the local text-intercepts (replay and the rest) and
     // goes straight to the bot's vision-capable chat path.
     if (images) {
       const ident = await resolveBotIdentity(req);

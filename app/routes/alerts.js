@@ -1,8 +1,9 @@
 /**
  * Custom agent alerts — REST surface for the dashboard panel.
  *
- * The chat path ("tell me when…") shares the same lib/alerts.js store ops,
- * so both surfaces enforce the same validation and per-user cap. JWT-authed;
+ * Website chat does not arm one itself. The bot's price_alert card calls
+ * the same lib/alerts.js store, so chat and this panel share the validation
+ * and the per-user cap. JWT-authed;
  * every operation is scoped to the caller's own rows. Notification-only —
  * nothing here can touch a trade.
  */
