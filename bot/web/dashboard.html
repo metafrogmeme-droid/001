@@ -530,6 +530,7 @@ body::after {
                is spent on. An operator's own chat can route elsewhere. -->
           <div class="stat-label" style="margin-bottom:6px;">LLM Tier Routing <span style="opacity:.6;">(engine)</span></div>
           <div id="tierRows"></div>
+          <div id="groundingLine" class="tier-note" style="margin-top:6px;opacity:.75;">figures: not measured</div>
         </div>
         <div class="stats-row">
           <div class="stat-card"><div class="stat-label">LLM Calls</div><div class="stat-value" id="cCalls">0</div></div>
@@ -799,7 +800,7 @@ function modeBadgeView(eng) {
   return { text: 'MODE UNKNOWN', badgeClass: 'badge-unknown', dotClass: 'dot-amber' };
 }
 
-function updateEngine(eng, tiers, cost) {
+function updateEngine(eng, tiers, cost, grounding) {
   // State badge
   const s = (eng && eng.state) || 'IDLE';
   $('stateBadge').textContent = s.toUpperCase();
@@ -846,6 +847,10 @@ function updateEngine(eng, tiers, cost) {
       '<span class="tier-note">could not be read — this is not "no tiers"</span>' +
       '</div>';
   }
+  const g = $('groundingLine');
+  // A missing line is "not measured". It is not a 0% unverified rate.
+  if (g) g.textContent = (typeof grounding === 'string' && grounding)
+    ? grounding : 'figures: not measured';
 
   // Cost
   //
@@ -929,7 +934,7 @@ async function fetchAll() {
     updatePositions(pos.positions);
     updateTrades(sig.trades);
     updateRisk(state.risk);
-    updateEngine(state.engine, state.llm_tiers, state.cost);
+    updateEngine(state.engine, state.llm_tiers, state.cost, state.chat_grounding);
   } catch (e) {
     $('connStatus').textContent = 'Disconnected';
     $('connStatus').style.color = 'var(--red)';

@@ -844,12 +844,9 @@
           // get_portfolio is a different kind of answer from one that recalled
           // the portfolio, and the reader should be able to tell which they
           // got. A tool that failed is marked, not hidden.
-          const tools = Array.isArray(r.data.tools) ? r.data.tools : [];
-          if (tools.length) {
-            const names = tools.map((t) => (t && t.name ? String(t.name) : '') + (t && t.ok === false ? '✗' : ''))
-              .filter(Boolean).join(', ');
-            if (names) cap.textContent += ' · ' + T('dd.ct_read', 'read') + ': ' + names;
-          }
+          const readFrom = (window.RCChatCaption && r.data)
+            ? window.RCChatCaption.readFromCaption(r.data) : '';
+          if (readFrom) cap.textContent += ' · ' + readFrom;
           bubble.appendChild(cap);
         }
         // Free-tier meter: show how many free questions remain so the limit is

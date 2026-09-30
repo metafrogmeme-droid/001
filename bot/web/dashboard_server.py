@@ -159,6 +159,14 @@ async def handle_state(request: web.Request) -> web.Response:
         # the previous poll's routing on screen, which reads as current.
         data["llm_tiers"] = None
 
+    # Chat figure check, per model. None means this process has not measured
+    # one — the panel says "not measured", which is not a 0% unverified rate.
+    try:
+        from bot.nlp.grounding import public_line, snapshot
+        data["chat_grounding"] = public_line(snapshot())
+    except Exception:
+        data["chat_grounding"] = None
+
     # Cost
     try:
         cost_snap = engine.cost.snapshot()
