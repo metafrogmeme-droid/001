@@ -513,14 +513,19 @@ def test_the_flags_are_what_the_bot_resolves_and_nothing_is_written(checkout):
 
 
 def test_the_call_limits_unit_names_every_call_it_stops():
-    """LLM_DAILY_LIMIT stops chat once every model call of the day, thesis
-    and chat together, reaches it; a unit that said "thesis calls" would
-    tell the operator chat is not bound by it."""
+    """LLM_DAILY_LIMIT stops thesis on the analyzer's own count, and stops
+    chat on chat's count when the category split accounts for every call.
+    A snapshot whose split does not add up still stops chat on the total:
+    every call may have been chat's. A unit that named only thesis would
+    hide that."""
     from bot.core.cost import CostSummary, chat_budget_bound
 
     llm = SimpleNamespace(daily_call_limit=3, daily_budget_usd=1.0, chat_budget_share=0.5)
     assert chat_budget_bound(CostSummary(llm_calls=2), llm) == ""
     assert chat_budget_bound(CostSummary(llm_calls=3), llm) == "daily call limit"
+    balanced = CostSummary(llm_calls=3, llm_cost_usd=0.0)
+    balanced.calls_by_category = {"thesis": 3, "chat": 0}
+    assert chat_budget_bound(balanced, llm) == ""
     unit = {name: unit for name, _, unit in pr.FLAGS}["LLM_DAILY_LIMIT"]
     assert "chat" in unit and "thesis" in unit
 

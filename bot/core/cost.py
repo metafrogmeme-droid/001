@@ -171,6 +171,10 @@ class CostSummary:
 #: dollar budget (`LLM_CHAT_BUDGET_SHARE`). A word of its own because the
 #: refusal a person reads is different: the rest of the budget is the engine's.
 CHAT_SHARE_BOUND = "chat's share of the dollar budget"
+#: Chat's own dollar cap (`LLM_DAILY_BUDGET_CHAT_USD`), when the operator set
+#: one. Distinct from the share: the thesis side is not "the rest of the same
+#: budget", it has its own cap.
+CHAT_OWN_BOUND = "chat's own dollar budget"
 
 
 def chat_spend_usd(snap: CostSummary) -> float:
@@ -195,6 +199,77 @@ def chat_spend_usd(snap: CostSummary) -> float:
     return value
 
 
+def chat_call_count(snap: CostSummary) -> int:
+    """How many of today's calls count against chat's call limit.
+
+    When ``calls_by_category`` adds up to ``llm_calls``, chat's own count is
+    the reading: thesis calls must not refuse chat. A split that does not add
+    up is not that reading — every call may have been chat's — so the total
+    is what stops chat. A measured zero inside a split that does add up is
+    zero.
+    """
+    total = int(snap.llm_calls)
+    by = getattr(snap, "calls_by_category", None)
+    if not isinstance(by, dict):
+        return total
+    accounted = 0
+    for value in by.values():
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return total
+        accounted += value
+    if accounted != total:
+        return total
+    chat = by.get("chat", 0)
+    if isinstance(chat, bool) or not isinstance(chat, int) or chat < 0:
+        return total
+    return chat
+
+
+def non_chat_spend_usd(snap: CostSummary) -> Optional[float]:
+    """Dollars that are not chat's, or None when that split cannot be read.
+
+    None is not zero. A missing or non-numeric chat figure, or a chat figure
+    larger than the total, means the non-chat amount is unknown.
+    """
+    import math
+
+    try:
+        total = float(snap.llm_cost_usd)
+    except (TypeError, ValueError):
+        return None
+    if isinstance(snap.llm_cost_usd, bool) or not math.isfinite(total) or total < 0:
+        return None
+    by = getattr(snap, "cost_by_category", None)
+    if not isinstance(by, dict) or "chat" not in by:
+        return None
+    chat = by.get("chat")
+    if isinstance(chat, bool) or not isinstance(chat, (int, float)):
+        return None
+    chat = float(chat)
+    if not math.isfinite(chat) or chat < 0 or chat > total + 1e-9:
+        return None
+    return total - chat
+
+
+def thesis_dollar_exhausted(snap: CostSummary, llm_cfg) -> bool:
+    """Whether trade analysis should fall back to the rule engine on dollars.
+
+    With ``thesis_budget_usd`` unset, this is the combined total against
+    ``daily_budget_usd`` — the behaviour an install keeps until it sets the
+    cap. With the cap set, only non-chat spend counts, so a chat day on its
+    own cap cannot move analysis onto rules. An unreadable non-chat split
+    compares the total against the thesis cap: every dollar may have been
+    analysis.
+    """
+    cap = getattr(llm_cfg, "thesis_budget_usd", None)
+    if cap is None:
+        return float(snap.llm_cost_usd) >= float(llm_cfg.daily_budget_usd)
+    spent = non_chat_spend_usd(snap)
+    if spent is None:
+        return float(snap.llm_cost_usd) >= float(cap)
+    return spent >= float(cap)
+
+
 def chat_budget_bound(snap: CostSummary, llm_cfg) -> str:
     """Which daily bound chat has reached, or "" when none.
 
@@ -203,9 +278,17 @@ def chat_budget_bound(snap: CostSummary, llm_cfg) -> str:
     model with no check at all and book nothing, so "chat stops at its share"
     was false of the calls made after every reply. `llm_cfg` is the caller's
     `CONFIG.llm`, handed in so this module reads no global.
+
+    ``chat_budget_usd`` set replaces the share and the combined dollar total
+    for chat. Unset keeps both, so an existing install does not change.
     """
-    if snap.llm_calls >= llm_cfg.daily_call_limit:
+    if chat_call_count(snap) >= llm_cfg.daily_call_limit:
         return "daily call limit"
+    own = getattr(llm_cfg, "chat_budget_usd", None)
+    if own is not None:
+        if chat_spend_usd(snap) >= float(own):
+            return CHAT_OWN_BOUND
+        return ""
     if snap.llm_cost_usd >= llm_cfg.daily_budget_usd:
         return "daily dollar budget"
     if chat_spend_usd(snap) >= llm_cfg.daily_budget_usd * llm_cfg.chat_budget_share:

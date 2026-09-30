@@ -456,11 +456,18 @@ class LLMCommands:
         # as one of them; this block is the rendering it never reached.
         engine_block = ""
         try:
-            from bot.formatters.llm_tier_card import TierRow, render_engine_uses
+            from bot.core.proactive_monitor import latest_llm_probes
+            from bot.formatters.llm_tier_card import (
+                TierRow,
+                apply_probe_readings,
+                render_engine_uses,
+            )
             from bot.llm.provider import tier_report
+            _rows = apply_probe_readings(
+                tier_report(BYOK.get_active_config(env_config), is_admin=True),
+                latest_llm_probes())
             engine_block = "\n\n" + render_engine_uses(
-                [TierRow(**_row) for _row in
-                 tier_report(BYOK.get_active_config(env_config), is_admin=True)])
+                [TierRow(**_row) for _row in _rows])
         except Exception:
             engine_block = ""
         # Runtime tier overrides (/settier) — the routing that actually
@@ -555,15 +562,23 @@ class LLMCommands:
         for its key fingerprints, so the two operator cards answered the same
         question differently and neither said which it meant.
         """
-        from bot.formatters.llm_tier_card import TierRow, render_tier_card
+        from bot.core.proactive_monitor import latest_llm_probes
+        from bot.formatters.llm_tier_card import (
+            TierRow,
+            apply_probe_readings,
+            render_tier_card,
+        )
         from bot.llm.provider import tier_report, unbound_tier_env
 
         # `tier_report` is shared with the web dashboard's routing panel. The
         # two surfaces had already drifted — this one resolved as non-admin
         # while /api/state serialised a module constant — so collecting the
-        # facts once is the point, not a tidy-up.
+        # facts once is the point, not a tidy-up. The probe is the same
+        # published reading the dashboard attaches.
+        rows = apply_probe_readings(
+            tier_report(active_cfg, is_admin=True), latest_llm_probes())
         return render_tier_card(
-            [TierRow(**row) for row in tier_report(active_cfg, is_admin=True)],
+            [TierRow(**row) for row in rows],
             unbound_env=unbound_tier_env(),
             title=t('llm_tiers_title', lang),
         )

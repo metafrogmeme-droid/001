@@ -501,3 +501,43 @@ def test_the_title_is_not_double_escaped(clean_env, primary):
 
     h = TelegramHandler.__new__(TelegramHandler)
     assert "&lt;b&gt;" not in h._llm_tier_card(primary, "en")
+
+
+def test_scan_and_chat_probes_are_named_apart():
+    from bot.formatters.llm_tier_card import apply_probe_readings
+
+    rows = apply_probe_readings([
+        _row(tier="scan", provider="runeclaw", model="v14-real-14b",
+             source="env", key_state="key", env_value="runeclaw").__dict__,
+        _row(tier="chat", provider="ollama", model="runeclaw-chat8b",
+             source="env", key_state="keyless_remote", env_value="ollama").__dict__,
+        _row(tier="learning", provider="runeclaw", model="v14-real-14b",
+             source="env", key_state="key", env_value="runeclaw",
+             called=False).__dict__,
+    ], {
+        "https://llm.example/v1": {"state": "ok", "tiers": ["scan"], "detail": ""},
+        "https://chat.example/v1": {
+            "state": "forbidden", "tiers": ["chat"],
+            "detail": "Set OLLAMA_API_KEY and restart.",
+        },
+    })
+    out = render_tier_card([TierRow(**row) for row in rows])
+    assert "reachable, configured model is served" in out
+    assert "key refused" in out
+    assert "OLLAMA_API_KEY" in out
+    assert "not probed yet" in out
+    assert "Pinned, no caller" in out
+    assert "✅" not in out.split("CHAT")[1].split("LEARNING")[0]
+
+
+def test_learning_has_no_caller():
+    """The tier is reported. Nothing asks it. The card's `called` flag and
+    the call sites are one fact."""
+    from bot.llm.provider import CALLED_TIERS, LLMTier
+    from tests.source_scan import code_only
+
+    assert LLMTier.LEARNING not in CALLED_TIERS
+    needle = "resolve_tier_config(LLMTier.LEARNING"
+    for path in (ROOT / "bot").rglob("*.py"):
+        text = code_only(path.read_text(encoding="utf-8"))
+        assert needle not in text.replace(" ", ""), path

@@ -29,6 +29,7 @@ from pathlib import Path
 from bot.compat import UTC
 from bot.llm import failure_cause as _fc
 from bot.risk.quality_ladder import confidence_on_record
+from bot.core.cost import thesis_dollar_exhausted
 from bot.core.position_telemetry import price_on_record
 from bot.core.signal_levels import (atr_on_record, record_atr,
                                      record_idea_levels, record_level)
@@ -4124,11 +4125,13 @@ class Analyzer:
             result["source"] = "RULE_ENGINE_BUDGET"
             return result
 
-        # Dollar budget guard: fall back to rules when daily spend exceeded
+        # Dollar budget guard: fall back to rules when the thesis cap is
+        # exceeded. With LLM_DAILY_BUDGET_THESIS_USD unset this is still the
+        # combined total. With it set, chat's dollars are not the thesis's.
         if self._cost is not None:
             snap = self._cost.snapshot()
-            if snap.llm_cost_usd >= CONFIG.llm.daily_budget_usd:
-                audit(trade_log, f"LLM daily dollar budget exhausted (${snap.llm_cost_usd:.4f} >= ${CONFIG.llm.daily_budget_usd}), using rules",
+            if thesis_dollar_exhausted(snap, CONFIG.llm):
+                audit(trade_log, f"LLM daily dollar budget exhausted (${snap.llm_cost_usd:.4f}, thesis cap {CONFIG.llm.thesis_budget_usd}), using rules",
                       action="analyze", result="LLM_BUDGET_USD")
                 result = self._rule_based_thesis(signal, indicators)
                 if result is None:

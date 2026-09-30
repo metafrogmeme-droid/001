@@ -826,13 +826,17 @@ function updateEngine(eng, tiers, cost) {
       // without this.
       const src = SOURCE_LABEL[t && t.source] || '';
       const key = KEY_LABEL[t && t.key_state] || '';
+      const probe = PROBE_LABEL[t && t.probe_state] || '';
       const dropped = t && t.env_value && t.source !== 'env';
+      const unused = t && t.called === false ? 'pinned, no caller' : '';
       html += '<div class="tier-row' + (dropped ? ' tier-warn' : '') + '">' +
         '<span class="tier-name">' + esc(name) + '</span>' +
         '<span class="tier-provider">' + esc(t && t.provider ? t.provider : '--') + '</span>' +
         '<span class="tier-model">' + esc(t && t.model ? t.model : '--') + '</span>' +
         '<span class="tier-note">' + esc(dropped ? '⚠ ' + t.env_var + ' not applied' : src) +
-        (key ? ' · ' + esc(key) : '') + '</span>' +
+        (key ? ' · ' + esc(key) : '') +
+        (probe ? ' · ' + esc(probe) : '') +
+        (unused ? ' · ' + esc(unused) : '') + '</span>' +
         '</div>';
     }
     el.innerHTML = html;
@@ -891,6 +895,15 @@ const KEY_LABEL = {
   'keyless_local': 'keyless, local',
   'keyless_remote': '⚠ no key, remote endpoint',
   'missing': '⚠ no key',
+};
+
+const PROBE_LABEL = {
+  'ok': 'probe: reachable, model served',
+  'model_missing': 'probe: model not served',
+  'forbidden': 'probe: key refused',
+  'unreachable': 'probe: no answer',
+  'error': 'probe: unexpected status',
+  'unprobed': 'probe: not probed yet',
 };
 
 // ── Fetch Loop ─────────────────────────────────────────────

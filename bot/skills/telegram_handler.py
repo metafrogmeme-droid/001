@@ -33,7 +33,9 @@ from bot.utils.tg_retry import send_with_retry
 from bot.utils.leveraged_return import _leveraged_return_pct, position_leverage
 from bot.core.live_executor import entry_is_estimated, position_size_basis
 from bot.core.signal_confidence import displayed_confidence
-from bot.core.cost import CHAT_SHARE_BOUND, chat_budget_bound, chat_spend_usd
+from bot.core.cost import (
+    CHAT_OWN_BOUND, CHAT_SHARE_BOUND, chat_budget_bound, chat_spend_usd,
+)
 from bot.core.limit_input import (consume_pending, limit_expired_text,
                                   read_pending, typed_limit_outside_levels)
 from bot.nlp.button_actions import action_label
@@ -2946,12 +2948,15 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # from EVERY authorized user (chat uses the operator's single
         # configured key; per-user BYOK is opt-in and off by default).
         #
-        # Chat also stops at its SHARE of the dollar budget. The trade-thesis
-        # guard compares the TOTAL spend against the whole budget, so a busy
-        # chat day used to spend it and move the engine to the rule engine.
+        # Chat also stops at its SHARE of the dollar budget, unless
+        # LLM_DAILY_BUDGET_CHAT_USD is set, in which case that cap is chat's
+        # and the thesis cap is separate. With neither cap set, the thesis
+        # guard still reads the combined total.
         if hasattr(self.engine, 'cost'):
             snap = self.engine.cost.snapshot()
-            _chat_cap = CONFIG.llm.daily_budget_usd * CONFIG.llm.chat_budget_share
+            _own = CONFIG.llm.chat_budget_usd
+            _chat_cap = (_own if _own is not None
+                         else CONFIG.llm.daily_budget_usd * CONFIG.llm.chat_budget_share)
             _chat_spent = chat_spend_usd(snap)
             _bound = chat_budget_bound(snap, CONFIG.llm)
             if _bound:
@@ -2969,6 +2974,13 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                         "Chat has used its share of today's AI budget — try "
                         "again tomorrow, or use a specific command like /scan "
                         "or /positions. Trade analysis keeps the rest."),
+                        None, return_meta)
+                if _bound == CHAT_OWN_BOUND:
+                    return _chat_ret(_say(
+                        _ui, "chat_own_budget_exhausted",
+                        "Chat has used its own dollar budget for today — try "
+                        "again tomorrow, or use a specific command like /scan "
+                        "or /positions. Trade analysis is on a separate cap."),
                         None, return_meta)
                 return _chat_ret(_say(
                     _ui, "chat_budget_exhausted",

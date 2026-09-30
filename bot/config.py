@@ -334,6 +334,27 @@ def _env_float_opt(key: str) -> Optional[float]:
         return None
 
 
+def _env_budget_opt(key: str) -> Optional[float]:
+    """An optional dollar cap. Unset stays None, which means "use the shared
+    budget". A value that is not a finite number at least zero is not a cap
+    of zero — zero would turn the tier off — so it is recorded as unread and
+    the shared budget stays in force.
+    """
+    raw = os.getenv(key, "").strip()
+    if not raw:
+        return None
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        _note_env_unread(key, "not a number", 0.0)
+        return None
+    import math as _math
+    if not _math.isfinite(val) or val < 0:
+        _note_env_unread(key, "not a finite number at least zero", 0.0)
+        return None
+    return val
+
+
 def _env_float_bounded(key: str, default: float, min_val: float, max_val: float) -> float:
     """Read an env-var float and clamp it to [min_val, max_val]."""
     val = _env_float(key, default)
@@ -1305,6 +1326,12 @@ class LLMConfig:
     # old behaviour, where chat could spend all of it; 0.0 turns the model
     # off for chat.
     chat_budget_share: float = _env_float_bounded("LLM_CHAT_BUDGET_SHARE", 0.5, 0.0, 1.0)
+    # Absolute caps. None means unset: chat still stops at `chat_budget_share`
+    # of `daily_budget_usd`, and the thesis guard still reads the combined
+    # total. Set either one to give that side its own dollar cap. In-house
+    # models book zero dollars, so these bind hosted fallbacks.
+    chat_budget_usd: Optional[float] = _env_budget_opt("LLM_DAILY_BUDGET_CHAT_USD")
+    thesis_budget_usd: Optional[float] = _env_budget_opt("LLM_DAILY_BUDGET_THESIS_USD")
     est_cost_per_analysis: float = _env_float("LLM_EST_COST_PER_ANALYSIS", 0.003)  # for backtest projection
     # Account cascading-fallback LLM calls against the daily budgets.
     # DEFAULT ON. This opened with a stale audit annotation asserting the

@@ -116,6 +116,18 @@ test('a tier on a default is not painted as a fault', () => {
     'an ordinary unpinned tier was flagged');
 });
 
+test('scan and chat probes are different readings', () => {
+  const t = {
+    scan: { ...TIERS.scan, probe_state: 'ok' },
+    chat: { ...TIERS.chat, probe_state: 'forbidden' },
+    learning: { ...TIERS.learning, called: false },
+  };
+  const rows = render({}, t, {}).tierRows.innerHTML;
+  assert.match(rows, /probe: reachable, model served/);
+  assert.match(rows, /probe: key refused/);
+  assert.match(rows, /pinned, no caller/);
+});
+
 test('a keyless remote endpoint is flagged rather than left blank', () => {
   const t = { scan: { ...TIERS.scan, key_state: 'keyless_remote' } };
   assert.match(render({}, t, {}).tierRows.innerHTML, /no key, remote endpoint/);

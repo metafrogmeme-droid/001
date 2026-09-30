@@ -113,6 +113,40 @@ def tier_model_env(tier: str) -> str:
     return f"LLM_TIER_{str(tier or '').upper()}_MODEL"
 
 
+#: Last probe per self-hosted base URL, published by the monitor and read by
+#: the tier card and the dashboard. Empty until the first probe. A copy, so a
+#: renderer cannot mutate the monitor's record.
+_LATEST_LLM_PROBES: dict[str, dict] = {}
+
+
+def latest_llm_probes() -> dict[str, dict]:
+    """The probes the monitor has published. Empty is "none yet", not a failure."""
+    return {url: dict(probe) for url, probe in _LATEST_LLM_PROBES.items()}
+
+
+def _publish_llm_probes(probes: dict[str, dict]) -> None:
+    global _LATEST_LLM_PROBES
+    _LATEST_LLM_PROBES = {url: dict(probe) for url, probe in probes.items()}
+
+
+def classify_model_list(served: list[str] | None,
+                        wanted: list[tuple[str, str]]) -> tuple[str, str, str]:
+    """`(state, missing_model, missing_tier)` for a `/models` body.
+
+    `served is None` means the list could not be read. That is not evidence
+    the model is absent, so the state stays `ok`. An empty list is the same
+    shape the probe already treated as "nothing to contradict the name":
+    only a non-empty list that lacks a wanted model is `model_missing`.
+    `wanted` is `(tier, model)` pairs.
+    """
+    if not served or not wanted:
+        return "ok", "", ""
+    for tier, model in wanted:
+        if not any(ProactiveMonitor._same_model(model, s) for s in served):
+            return "model_missing", model, tier
+    return "ok", "", ""
+
+
 # ── Alert types ───────────────────────────────────────────────────────
 
 @dataclass
@@ -1973,21 +2007,45 @@ class ProactiveMonitor:
             return name if ":" in name.rsplit("/", 1)[-1] else name + ":latest"
         return bool(want) and tagged(want) == tagged(served)
 
-    def _llm_origin(self) -> tuple[str, str, str]:
-        """(base_url, api_key, tier_name) for a self-hosted tier, else ("","","").
+    def _llm_origins(self) -> list[tuple[str, str, tuple[str, ...], str]]:
+        """Distinct `(base_url, api_key, tiers, key_env)` for self-hosted pins.
 
-        Cheap and network-free: reads the same env the resolver reads. Returns
-        the FIRST self-hosted tier found — one probe covers them all, since in
-        practice they share one endpoint.
+        SCAN on `runeclaw` and CHAT on `ollama` are two endpoints. Tiers that
+        share a URL share one request. A pin with no base URL is not an
+        origin: there is nothing to ask.
         """
+        groups: dict[str, dict] = {}
+        order: list[str] = []
         for t in self._LLM_TIERS:
             prov = (os.environ.get(f"LLM_TIER_{t}_PROVIDER") or "").strip().lower()
-            if prov in self._SELF_HOSTED:
-                env = "RUNECLAW_LLM" if prov == "runeclaw" else "OLLAMA"
-                url = (os.environ.get(f"{env}_BASE_URL") or "").strip()
-                key = (os.environ.get(f"{env}_API_KEY") or "").strip()
-                return url, key, t.lower()
-        return "", "", ""
+            if prov not in self._SELF_HOSTED:
+                continue
+            env = "RUNECLAW_LLM" if prov == "runeclaw" else "OLLAMA"
+            url = (os.environ.get(f"{env}_BASE_URL") or "").strip()
+            if not url:
+                continue
+            if url not in groups:
+                groups[url] = {
+                    "key": (os.environ.get(f"{env}_API_KEY") or "").strip(),
+                    "tiers": [],
+                    "key_env": f"{env}_API_KEY",
+                }
+                order.append(url)
+            groups[url]["tiers"].append(t.lower())
+        return [(url, groups[url]["key"], tuple(groups[url]["tiers"]),
+                 groups[url]["key_env"]) for url in order]
+
+    def _llm_origin(self) -> tuple[str, str, str]:
+        """The first self-hosted origin, else ("","","").
+
+        Kept for callers that ask "is anything self-hosted". The probe itself
+        walks `_llm_origins`, because two base URLs are two endpoints.
+        """
+        origins = self._llm_origins()
+        if not origins:
+            return "", "", ""
+        url, key, tiers, _key_env = origins[0]
+        return url, key, tiers[0]
 
     async def _probe_llm_endpoint(self) -> None:
         """Ask the self-hosted model endpoint whether it is still there.
@@ -2012,9 +2070,11 @@ class ProactiveMonitor:
         slow interval, and only when a tier is actually pinned to a self-hosted
         provider — operators on hosted APIs get no probe and no noise.
         """
-        url, key, tier = self._llm_origin()
-        if not url:
+        origins = self._llm_origins()
+        if not origins:
             self._llm_probe = None      # nothing to claim about
+            self._llm_probes = {}
+            _publish_llm_probes({})
             return
         every = float(getattr(CONFIG.monitoring, "llm_probe_interval_s", 300.0) or 300.0)
         now = time.monotonic()
@@ -2022,9 +2082,29 @@ class ProactiveMonitor:
             return
         self._llm_probe_at = now
 
-        want = (os.environ.get(tier_model_env(tier)) or "").strip()
-        result: dict = {"state": "unreachable", "status": None, "tier": tier,
-                        "model": want, "host": _host_of(url)}
+        previous = getattr(self, "_llm_probes", None) or {}
+        probes: dict[str, dict] = {}
+        for url, key, tiers, key_env in origins:
+            probes[url] = await self._fetch_llm_probe(
+                url, key, tiers, key_env, previous.get(url) or {})
+        self._llm_probes = probes
+        self._llm_probe = next(iter(probes.values()), None)
+        _publish_llm_probes(probes)
+
+    async def _fetch_llm_probe(self, url: str, key: str, tiers: tuple[str, ...],
+                               key_env: str, prev: dict) -> dict:
+        """One bounded GET of `{url}/models`, with the credential this tier sends."""
+        wanted = []
+        for tier in tiers:
+            name = (os.environ.get(tier_model_env(tier)) or "").strip()
+            if name:
+                wanted.append((tier, name))
+        primary = tiers[0] if tiers else "?"
+        result: dict = {
+            "state": "unreachable", "status": None, "tier": primary,
+            "tiers": list(tiers), "model": wanted[0][1] if wanted else "",
+            "host": _host_of(url), "detail": "",
+        }
         try:
             import aiohttp
             timeout = aiohttp.ClientTimeout(total=10)
@@ -2034,51 +2114,76 @@ class ProactiveMonitor:
                     result["status"] = resp.status
                     if resp.status in (401, 403):
                         result["state"] = "forbidden"
+                        result["detail"] = f"Set {key_env} and restart."
                     elif resp.status == 200:
                         result["state"] = "ok"
-                        if want:
-                            try:
-                                body = await resp.json()
-                                served = {str(m.get("id", "")) for m in (body.get("data") or [])}
-                                if served and not any(
-                                        self._same_model(want, s) for s in served):
-                                    result["state"] = "model_missing"
-                                    # BOTH numbers, because the list is CUT.
-                                    # Six of thirteen tags, alphabetical, read
-                                    # as the endpoint's whole store on
-                                    # 2026-09-11 and sent a morning chasing a
-                                    # second model registry that did not exist.
-                                    result["served"] = sorted(served)[:6]
-                                    result["served_total"] = len(served)
-                            except Exception:
-                                pass   # unreadable list is not evidence of absence
+                        served: list[str] | None
+                        try:
+                            body = await resp.json()
+                            served = [str(m.get("id", "")) for m in (body.get("data") or [])]
+                        except Exception:
+                            served = None  # unreadable list is not evidence of absence
+                        state, missing, missing_tier = classify_model_list(served, wanted)
+                        result["state"] = state
+                        if state == "model_missing" and served is not None:
+                            result["tier"] = missing_tier or primary
+                            result["model"] = missing
+                            result["served"] = sorted(served)[:6]
+                            result["served_total"] = len(served)
+                            result["detail"] = (
+                                f"Set {tier_model_env(missing_tier)}. "
+                                f"{missing} is not served there.")
                     else:
                         result["state"] = "error"
         except Exception as exc:
             result["state"] = "unreachable"
             logger.debug("llm endpoint probe failed: %s", exc)
 
-        prev = self._llm_probe or {}
         fails = int(prev.get("consecutive_failures") or 0)
         result["consecutive_failures"] = 0 if result["state"] == "ok" else fails + 1
-        self._llm_probe = result
+        return result
 
     def _check_llm_endpoint(self) -> list[Alert]:
-        """Page when the self-hosted model has been unreachable twice running.
+        """Page when a self-hosted model has been unreachable twice running.
 
-        The host is named, never the key — a probe result is a message to a
-        person, and /readyz answers with a coarse reason for the same reason.
+        One alert per host. Two base URLs are two endpoints, and a fault on
+        chat must not be swallowed because scan was already reported.
         """
-        p = self._llm_probe
-        if not p:
+        probes = self._probes_for_alerts()
+        if not probes:
             return []
+        by_host = getattr(self, "_llm_alerted_by_host", None)
+        if not isinstance(by_host, dict):
+            by_host = {}
+            self._llm_alerted_by_host = by_host
+        if len(probes) == 1:
+            host = str(probes[0].get("host") or "the configured URL")
+            legacy = getattr(self, "_llm_alerted_state", "") or ""
+            if host not in by_host and legacy:
+                by_host[host] = str(legacy)
+        alerts: list[Alert] = []
+        for probe in probes:
+            alerts.extend(self._check_one_llm_probe(probe, by_host))
+        return alerts
+
+    def _probes_for_alerts(self) -> list[dict]:
+        probes = getattr(self, "_llm_probes", None)
+        if isinstance(probes, dict) and probes:
+            return list(probes.values())
+        one = getattr(self, "_llm_probe", None)
+        return [one] if isinstance(one, dict) else []
+
+    def _check_one_llm_probe(self, p: dict, by_host: dict) -> list[Alert]:
+        """Page for one probe result. The host is named, never the key."""
         fails = int(p.get("consecutive_failures") or 0)
         state = str(p.get("state") or "")
         tier = str(p.get("tier") or "?")
         host = str(p.get("host") or "the configured URL")
+        alerted = by_host.get(host, "")
 
         if state == "ok":
-            if self._llm_alerted_state and self._llm_alerted_state != "ok":
+            if alerted and alerted != "ok":
+                by_host[host] = "ok"
                 self._llm_alerted_state = "ok"
                 return [Alert(
                     alert_type="STATE_CHANGE", severity="INFO",
@@ -2086,13 +2191,14 @@ class ProactiveMonitor:
                     body=("\u2705 <b>IN-HOUSE MODEL BACK</b>\n"
                           f"The self-hosted endpoint at <code>{host}</code> is "
                           "answering again. Routed tiers are using it once more."),
-                    dedup_key="llm_endpoint_recovered")]
+                    dedup_key=f"llm_endpoint_recovered:{host}")]
             return []
 
         if fails < self.LLM_PROBE_ALERT_AT:
             return []
-        if self._llm_alerted_state == state:
+        if alerted == state:
             return []          # same fault, already said; dedup handles repeats
+        by_host[host] = state
         self._llm_alerted_state = state
 
         if state == "model_missing":
@@ -2168,7 +2274,7 @@ class ProactiveMonitor:
                   "tier pays the failed round trip before the fallback "
                   "one. If scans are running slow, that is a candidate "
                   "\u2014 not a verdict."),
-            dedup_key="llm_endpoint_down")]
+            dedup_key=f"llm_endpoint_down:{host}")]
 
     def _check_public_gateway(self) -> list[Alert]:
         """Page when the WEBSITE can no longer reach this bot, and say which

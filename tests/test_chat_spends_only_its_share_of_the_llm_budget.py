@@ -163,17 +163,19 @@ def test_a_chat_day_leaves_the_engine_the_rest_of_the_budget(monkeypatch):
     assert snap.llm_cost_usd < th_mod.CONFIG.llm.daily_budget_usd
 
 
-def test_the_analyzers_dollar_guard_reads_the_total():
+def test_the_analyzers_dollar_guard_asks_the_shared_reading():
     """A SCAN, stated as one: `_llm_thesis` sits behind a model client, the
     semantic cache, the adaptive-frequency gate and the tiered pipeline. The
-    claim is that its dollar guard compares the TOTAL spend against the whole
-    budget, so the share chat leaves is the engine's."""
+    claim is that its dollar guard is `thesis_dollar_exhausted`, whose unset
+    cap still compares the total, and whose set cap ignores chat."""
     tree = ast.parse((ROOT / "bot" / "core" / "analyzer.py").read_text(encoding="utf-8"))
     fns = [n for n in ast.walk(tree)
            if isinstance(n, ast.AsyncFunctionDef) and n.name == "_llm_thesis"]
     assert len(fns) == 1
+    calls = [ast.unparse(n) for n in ast.walk(fns[0]) if isinstance(n, ast.Call)]
+    assert any("thesis_dollar_exhausted(snap, CONFIG.llm)" in c for c in calls), calls
     compares = [ast.unparse(n) for n in ast.walk(fns[0]) if isinstance(n, ast.Compare)]
-    assert "snap.llm_cost_usd >= CONFIG.llm.daily_budget_usd" in compares, compares
+    assert "snap.llm_cost_usd >= CONFIG.llm.daily_budget_usd" not in compares
 
 
 class TestTheChatSpendReading:
@@ -334,3 +336,53 @@ class TestTheBound:
         s = CostSummary(llm_cost_usd=1.0, llm_calls=1)
         s.cost_by_category["chat"] = 1.0
         assert chat_budget_bound(s, self._cfg()) == "daily dollar budget"
+
+
+def test_chat_over_its_own_cap_leaves_the_thesis_on_the_model():
+    """The combined total is spent, and it was all chat. With a thesis cap
+    set, analysis still has its own dollars."""
+    from bot.core.cost import thesis_dollar_exhausted
+
+    snap = CostSummary(llm_cost_usd=5.0)
+    snap.cost_by_category["chat"] = 5.0
+    snap.cost_by_category["thesis"] = 0.0
+    capped = SimpleNamespace(daily_budget_usd=1.0, thesis_budget_usd=1.0)
+    unset = SimpleNamespace(daily_budget_usd=1.0, thesis_budget_usd=None)
+    assert snap.llm_cost_usd >= capped.daily_budget_usd
+    assert thesis_dollar_exhausted(snap, capped) is False
+    assert thesis_dollar_exhausted(snap, unset) is True
+
+
+def test_an_unreadable_split_does_not_treat_chat_spend_as_zero(monkeypatch):
+    """Chat's figure missing means every dollar may be the thesis's."""
+    from bot.core.cost import thesis_dollar_exhausted
+
+    snap = CostSummary(llm_cost_usd=2.0)
+    snap.cost_by_category = {}
+    cfg = SimpleNamespace(daily_budget_usd=10.0, thesis_budget_usd=1.0)
+    assert thesis_dollar_exhausted(snap, cfg) is True
+
+
+def test_thesis_calls_do_not_refuse_chat(monkeypatch):
+    _budget(monkeypatch, calls=2)
+    cost = CostTracker()
+    cost.record_llm(_MODEL, prompt_tokens=1, completion_tokens=0, category="thesis")
+    cost.record_llm(_MODEL, prompt_tokens=1, completion_tokens=0, category="thesis")
+    assert cost.snapshot().llm_calls == 2
+    _, asked = _ask(monkeypatch, cost)
+    assert asked
+
+
+def test_an_own_chat_cap_refuses_chat_and_names_it(monkeypatch):
+    monkeypatch.setattr(th_mod, "CONFIG", replace(th_mod.CONFIG, llm=replace(
+        th_mod.CONFIG.llm, api_key="", daily_call_limit=500,
+        daily_budget_usd=1.0, chat_budget_share=0.5, chat_budget_usd=0.40,
+        thesis_budget_usd=None)))
+    cost = CostTracker()
+    # Under the 0.50 share, over the 0.40 own cap. The share path would
+    # still ask the model.
+    _spend(cost, 0.45, "chat")
+    answer, asked = _ask(monkeypatch, cost)
+    assert not asked
+    assert "own dollar budget" in answer
+    assert "separate cap" in answer

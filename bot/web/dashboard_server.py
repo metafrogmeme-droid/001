@@ -139,6 +139,8 @@ async def handle_state(request: web.Request) -> web.Response:
     # Shares `tier_report` with the Telegram card so the two cannot drift back
     # apart — they already had.
     try:
+        from bot.core.proactive_monitor import latest_llm_probes
+        from bot.formatters.llm_tier_card import apply_probe_readings
         from bot.llm.provider import BYOK, LLMConfig, LLMProvider, tier_report
         from bot.config import CONFIG as _CFG
         _env_cfg = LLMConfig(
@@ -148,9 +150,9 @@ async def handle_state(request: web.Request) -> web.Response:
             base_url=_CFG.llm.base_url,
         )
         _as_admin = bool(getattr(_CFG.analyzer, "engine_analysis_as_admin", True))
-        data["llm_tiers"] = {r["tier"]: r for r in
-                             tier_report(BYOK.get_active_config(_env_cfg),
-                                         is_admin=_as_admin)}
+        data["llm_tiers"] = {r["tier"]: r for r in apply_probe_readings(
+            tier_report(BYOK.get_active_config(_env_cfg), is_admin=_as_admin),
+            latest_llm_probes())}
     except Exception:
         # NOT {}. An empty mapping is a readable answer meaning "no tiers", and
         # the panel rendered it as one — or, worse, skipped the update and left
