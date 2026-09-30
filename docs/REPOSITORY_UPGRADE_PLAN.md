@@ -176,7 +176,7 @@ The staking job's own comment records the deploy constraint: the Solana 1.18.26 
 
 | Baseline | Recorded | Counts in the file | Comment in `ci.yml` |
 |---|---|---|---|
-| `./.audit-baseline.json` (Anchor workspace) | 2026-09-09 | critical 0, high 7, moderate 8, low 0. Ids include 1103747, 1113686, 1119440, 1119441, 1130589, 1130736, 1164823, 1164824, 1164825 | says 6 high |
+| `./.audit-baseline.json` (Anchor workspace) | 2026-09-30 | critical 0, high 6, moderate 8, low 0. Ids include 1103747, 1113686, 1119440, 1119441, 1164823, 1164824, 1164825. brace-expansion 2.1.7 dropped 1130589 and 1130736 | says 6 high, and still names brace-expansion in the parenthetical |
 | `app/.audit-baseline.json` | 2026-09-02 | all zeros | says `app/` carries 1 low |
 | `site/.audit-baseline.json` | 2026-08-27 | all zeros | agrees (clean) |
 | `token/.audit-baseline.json` | 2026-09-04 | critical 0, high 12, moderate 14, low 11 (37). The id list in the file is shorter than 37 because one id can cover more than one severity row | agrees with "0 critical and 12 high (37 total)". An older sentence that said 1 critical and 15 high does not match this file |

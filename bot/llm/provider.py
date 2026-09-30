@@ -653,6 +653,13 @@ def tier_env_ignored_reason(tier: "LLMTier", primary_config: "LLMConfig") -> str
     return "reason unknown"
 
 
+#: Tiers a live call actually resolves. LEARNING is pinned and reported, and
+#: nothing in the bot asks `resolve_tier_config(LLMTier.LEARNING)`. The card
+#: says so. Adding a caller means adding the tier here in the same change —
+#: a test scans for the call.
+CALLED_TIERS = frozenset({LLMTier.SCAN, LLMTier.THESIS, LLMTier.CHAT})
+
+
 def tier_report(primary_config: "LLMConfig", *,
                 is_admin: bool = True) -> list[dict]:
     """Per-tier facts for every surface that reports routing to an operator.
@@ -694,6 +701,7 @@ def tier_report(primary_config: "LLMConfig", *,
             # Read from the canonical map so a card can name the exact
             # variable to set. There is one of these maps and this is it.
             "key_env": _PROVIDER_KEY_ENV.get(cfg.provider, ""),
+            "called": tier in CALLED_TIERS,
         })
     return rows
 

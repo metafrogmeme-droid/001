@@ -87,7 +87,10 @@ class TestBudgetGuard:
         monkeypatch.setenv("GEMINI_API_KEY", "test-key")
         monkeypatch.setattr(th_mod, "CONFIG", _budget_config(daily_call_limit=1))
         cost = CostTracker()
-        cost.record_llm(model="claude-haiku-4-5-20251001", prompt_tokens=10, completion_tokens=10)
+        # A categorized call is a complete split. Only a chat call spends
+        # chat's own count; a thesis or "other" call must not refuse chat.
+        cost.record_llm(model="claude-haiku-4-5-20251001", prompt_tokens=10,
+                        completion_tokens=10, category="chat")
         assert cost.snapshot().llm_calls == 1
 
         create_client_mock = AsyncMock()

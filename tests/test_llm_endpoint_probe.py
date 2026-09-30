@@ -164,6 +164,67 @@ def test_a_runeclaw_tier_yields_its_url_and_key(monkeypatch):
     assert url.endswith("/v1") and key == "k" * 32 and tier == "chat"
 
 
+def test_two_base_urls_are_two_origins(monkeypatch):
+    """SCAN on runeclaw and CHAT on ollama are not one endpoint."""
+    m = _mon()
+    for t in ("SCAN", "THESIS", "LEARNING", "CHAT"):
+        monkeypatch.delenv(f"LLM_TIER_{t}_PROVIDER", raising=False)
+    monkeypatch.setenv("LLM_TIER_SCAN_PROVIDER", "runeclaw")
+    monkeypatch.setenv("LLM_TIER_THESIS_PROVIDER", "runeclaw")
+    monkeypatch.setenv("LLM_TIER_CHAT_PROVIDER", "ollama")
+    monkeypatch.setenv("RUNECLAW_LLM_BASE_URL", "https://llm.example/v1")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "https://chat.example/v1")
+    origins = m._llm_origins()
+    assert [o[0] for o in origins] == [
+        "https://llm.example/v1", "https://chat.example/v1"]
+    assert origins[0][2] == ("scan", "thesis")
+    assert origins[1][2] == ("chat",)
+    assert origins[1][3] == "OLLAMA_API_KEY"
+    assert m._llm_origin()[2] == "scan"
+
+
+def test_tiers_on_one_url_share_one_probe(monkeypatch):
+    m = _mon()
+    for t in ("SCAN", "THESIS", "LEARNING", "CHAT"):
+        monkeypatch.delenv(f"LLM_TIER_{t}_PROVIDER", raising=False)
+        monkeypatch.setenv(f"LLM_TIER_{t}_PROVIDER", "runeclaw")
+    monkeypatch.setenv("RUNECLAW_LLM_BASE_URL", "https://llm.example/v1")
+    origins = m._llm_origins()
+    assert len(origins) == 1
+    assert origins[0][2] == ("scan", "thesis", "learning", "chat")
+
+
+def test_classify_model_list_names_a_missing_model_and_not_an_unreadable_one():
+    from bot.core.proactive_monitor import classify_model_list
+
+    assert classify_model_list(
+        ["v14-real-14b:latest"], [("scan", "v14-real-14b")])[0] == "ok"
+    state, model, tier = classify_model_list(
+        ["other:latest"], [("chat", "runeclaw-chat8b")])
+    assert (state, model, tier) == ("model_missing", "runeclaw-chat8b", "chat")
+    assert classify_model_list(None, [("scan", "v14-real-14b")])[0] == "ok"
+    assert classify_model_list([], [("scan", "v14-real-14b")])[0] == "ok"
+
+
+def test_two_hosts_page_as_two_faults():
+    m = _mon()
+    m._llm_probes = {
+        "https://llm.example/v1": {
+            "state": "unreachable", "tier": "scan", "host": "llm.example",
+            "consecutive_failures": 2,
+        },
+        "https://chat.example/v1": {
+            "state": "forbidden", "tier": "chat", "host": "chat.example",
+            "status": 401, "consecutive_failures": 2,
+        },
+    }
+    alerts = m._check_llm_endpoint()
+    assert len(alerts) == 2
+    bodies = " ".join(a.body for a in alerts)
+    assert "llm.example" in bodies and "chat.example" in bodies
+    assert m._check_llm_endpoint() == []
+
+
 def test_ollama_counts_as_self_hosted_too(monkeypatch):
     m = _mon()
     for t in ("SCAN", "THESIS", "LEARNING", "CHAT"):

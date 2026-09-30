@@ -88,6 +88,62 @@ class TierRow:
     #: The env var that carries this provider's key, so a `keyless_remote`
     #: tier can name its own remedy instead of a generic one.
     key_env: str = ""
+    #: Last self-hosted probe for this tier. "" means this row has no probe
+    #: reading attached (a hosted provider, or a caller that did not ask).
+    #: It is not a claim that the endpoint is healthy.
+    probe_state: str = ""
+    #: One short remedy or observation from that probe. Escaped on the way out.
+    probe_detail: str = ""
+    #: False when the tier is in the routing table and nothing asks it.
+    #: None means the caller did not say, and the card stays silent.
+    called: bool | None = None
+
+
+#: Probe states, in words. No pass mark: a reachable endpoint is not a
+#: credential, and the routing icon above already spent the ticks.
+_PROBE_TEXT = {
+    "ok": "reachable, configured model is served",
+    "model_missing": "reachable, configured model is not served",
+    "forbidden": "reachable, key refused",
+    "unreachable": "no answer from the endpoint",
+    "error": "endpoint answered with an unexpected status",
+    "unprobed": "not probed yet",
+}
+
+_SELF_HOSTED_PROVIDERS = frozenset({"runeclaw", "ollama"})
+
+
+def apply_probe_readings(rows: Sequence[dict], probes: dict | None) -> list[dict]:
+    """Copy `rows` with each self-hosted tier's latest probe attached.
+
+    `probes` is None when the reading itself failed: the rows stay as they
+    were, and the card does not say "not probed yet", which would be a claim
+    about a check that did not run. An empty mapping is a real reading that
+    no probe has been published, so a self-hosted tier says so.
+    """
+    if probes is None:
+        return [dict(row) for row in rows]
+    by_tier: dict[str, dict] = {}
+    for probe in probes.values():
+        if not isinstance(probe, dict):
+            continue
+        for tier in probe.get("tiers") or ():
+            by_tier[str(tier).lower()] = probe
+    out: list[dict] = []
+    for row in rows:
+        copied = dict(row)
+        if str(copied.get("provider") or "") not in _SELF_HOSTED_PROVIDERS:
+            out.append(copied)
+            continue
+        probe = by_tier.get(str(copied.get("tier") or "").lower())
+        if not isinstance(probe, dict):
+            copied["probe_state"] = "unprobed"
+            copied["probe_detail"] = ""
+        else:
+            copied["probe_state"] = str(probe.get("state") or "unprobed")
+            copied["probe_detail"] = str(probe.get("detail") or "")
+        out.append(copied)
+    return out
 
 
 def _icon_and_note(row: TierRow) -> tuple[str, str]:
@@ -187,6 +243,14 @@ def render_tier_card(rows: Sequence[TierRow], *,
             out.append(f"  <i>If that endpoint wants a key, set <code>"
                        f"{html.escape(row.key_env or 'the provider key env var')}"
                        f"</code> and restart.</i>")
+        if row.called is False:
+            out.append("- <i>Pinned, no caller — nothing in the bot asks "
+                       "this tier.</i>")
+        if row.probe_state:
+            phrase = _PROBE_TEXT.get(row.probe_state, "probe state unknown")
+            out.append(f"- Probe: {html.escape(phrase)}")
+            if row.probe_detail:
+                out.append(f"  <i>{html.escape(row.probe_detail)}</i>")
         out.append("")
 
     unbound = sorted(unbound_env)
@@ -282,6 +346,11 @@ def render_engine_uses(rows: Sequence[TierRow]) -> str:
             bits.append(src)
         if row.env_value and row.source != "env":
             bits.append("<b>override not applied</b>")
+        if row.called is False:
+            bits.append("pinned, no caller")
+        if row.probe_state:
+            bits.append("probe: " + _PROBE_TEXT.get(
+                row.probe_state, "probe state unknown"))
         out.append(f"{icon} <code>{html.escape(row.tier.upper())}</code> → "
                    + " · ".join(bits))
     return "\n".join(out)
