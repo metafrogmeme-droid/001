@@ -34,11 +34,10 @@ WEB_CARDS: tuple[str, ...] = ("nft", "spot", "airdrops", "replay", "letter",
                               "venue_router", "meme_radar", "wallet", "defi", "alerts",
                               "rwa", "etf_flows")
 
-#: The one argument each of three cards takes — the intercept's own capture
-#: group, as a query parameter (`bot/nlp/web_card_args.py` reads it from the
-#: words). A card not listed takes none; a name not listed for a card raises
-#: at the call, because a seam handing a card an argument it does not take is
-#: a programming error and not a value to drop quietly.
+#: Query arguments a card accepts. A card not listed takes none; a name not
+#: listed for a card raises at the call, because a seam handing a card an
+#: argument it does not take is a programming error and not a value to drop
+#: quietly. `channel` is the alert card's surface: omitted stays Telegram.
 WEB_CARD_PARAMS: dict[str, tuple[str, ...]] = {
     "replay": ("stake",), "venue_router": ("base",), "wallet": ("chain",),
     # The alert card's argument is the SENTENCE: the website's own parser reads
