@@ -282,9 +282,9 @@ async def _seam_defi(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
 
 async def _seam_price_alert(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
                            text: str = "") -> str:
-    # The Python path sees an alert ask only when the Node intercept's own
-    # regex missed the phrasing; the website's parser then reads the words
-    # again through this seam and answers in its own sentences.
+    # The website chat no longer answers this itself. Both doors render the
+    # alert engine's own card; surface="web" keeps the push sentence and the
+    # markup the browser already shows.
     return await tg_handler.price_alert_card_text(tg_id, text or "my alerts", surface="web")
 
 
@@ -656,13 +656,10 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
         fw_verdict = engine.firewall_scan(text, source="web", user_id=tg_id)
         if fw_verdict and fw_verdict.get("risk") == "high" \
                 and bool(getattr(CONFIG.risk, "guardian_firewall_block_high", False)):
-            _cats = ", ".join(fw_verdict.get("categories", [])[:3]) or "manipulation"
+            from bot.nlp.chat_turn import firewall_block_notice
             return web.json_response({
-                "reply_html": (
-                    "🛡️ <b>Blocked by the Guardian firewall.</b><br><br>"
-                    "That message looked like a prompt-injection / unsafe-action "
-                    f"attempt (<i>{_html.escape(_cats)}</i>), so I won't act on it. "
-                    "Rephrase what you actually want and I'll help."),
+                "reply_html": firewall_block_notice(
+                    fw_verdict.get("categories"), newlines=False),
                 "intent": "firewall_blocked"})
     except Exception:
         pass
@@ -897,9 +894,12 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             from bot.skills.telegram_handler import _chat_tools_for
             _tools = {t.name for t in
                       _chat_tools_for(tg_handler, tg_id, "web", False)}
+            from bot.nlp.chat_turn import shared_door_sentences
             _card = capability_answer(_can, surface="web", role=_role,
                                       withheld=_withheld, tools=_tools,
-                                      extras=_client_capabilities(body))
+                                      extras=[*_client_capabilities(body),
+                                              *shared_door_sentences(
+                                                  tg_handler.users, tg_id)])
             # The MARKER, not the card: every line of it is derived from the
             # model's own tool catalogue, which it already holds in full.
             # Telegram records the same thing for the same reason.

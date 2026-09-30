@@ -86,7 +86,7 @@ def _bot(tmp_path):
 class TestThePull:
     def test_the_card_is_named_and_takes_the_sentence(self):
         assert "alerts" in WEB_CARDS
-        assert WEB_CARD_PARAMS["alerts"] == ("text",)
+        assert WEB_CARD_PARAMS["alerts"] == ("text", "channel")
 
     def test_the_sentence_travels_whole_and_a_wrong_argument_raises(self, monkeypatch):
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
@@ -148,8 +148,17 @@ class TestTheSeam:
         monkeypatch.setattr(wdp, "fetch_web_card",
                             lambda name, tg="", **kw: seen.append((name, tg, kw)) or dict(CARD))
         assert _seam(_host(), "770001", SENTENCE) == web_card_text(CARD)
-        assert _seam(_host(), "770001", "my alerts", surface="web") == web_card_text(CARD)
-        assert seen == [("alerts", "770001", {"text": SENTENCE}), ("alerts", "770001", {"text": "my alerts"})]
+        assert _seam(_host(), "770001", "my alerts", surface="web") == CARD["reply_html"]
+        assert seen == [("alerts", "770001", {"text": SENTENCE}),
+                        ("alerts", "770001", {"text": "my alerts", "channel": "web"})]
+
+    def test_the_website_keeps_its_markup_and_telegram_does_not(self, monkeypatch):
+        marked = {"reply_html": "one<br>two <span class=\"muted\">x</span>", "intent": "alerts"}
+        monkeypatch.setattr(wdp, "fetch_web_card", lambda name, tg="", **kw: dict(marked))
+        assert _seam(_host(), "770001", "my alerts", surface="web") == marked["reply_html"]
+        telegram = _seam(_host(), "770001", "my alerts")
+        assert "<br>" not in telegram and "<span" not in telegram
+        assert "one\ntwo x" == telegram
 
     @pytest.mark.parametrize("surface", ["telegram", "web"])
     def test_an_unlinked_caller_is_told_nothing_was_armed(self, monkeypatch, surface):

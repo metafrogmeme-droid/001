@@ -521,15 +521,16 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     for name in under:
         assert f"`{name}`" in DOC, name
 
-    # "all fifteen rows of that table" — the web client's intercepts, counted
-    # in the JS file rather than restated here.
-    assert "fifteen rows of that table" in flat
+    # "all fourteen rows of that table" — the web client's intercepts, counted
+    # in the JS file rather than restated here. Fifteen until price alerts
+    # left the table for the shared price_alert door.
+    assert "fourteen rows of that table" in flat
     js = (pathlib.Path(__file__).resolve().parent.parent
           / "app" / "routes" / "chat.js").read_text()
     block = js[js.index("const INTERCEPTS = ["):]
     block = block[:block.index("\n];")]
     rows = re.findall(r"^\s*\['([a-z]+)',", block, re.M)
-    assert len(rows) == 15, rows
+    assert len(rows) == 14, rows
 
 
 def test_the_url_shape_it_names_is_the_shape_both_routes_send():

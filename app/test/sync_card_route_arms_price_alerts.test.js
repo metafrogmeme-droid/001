@@ -108,6 +108,18 @@ test('arming: the route answers the intercept\'s own card for the same words, in
   assert.doesNotMatch(tg.reply_html, /Enable push notifications/);
 });
 
+test('channel=web is the website\'s own push sentence, and any other channel stays Telegram\'s', async () => {
+  const words = 'tell me when SOL rises above 400';
+  const web = await card(`?telegram_id=${TG}&channel=web&text=${encodeURIComponent(words)}`);
+  assert.equal(web.status, 200);
+  assert.match(web.data.reply_html, /push notification/);
+  assert.doesNotMatch(web.data.reply_html, /message you here/);
+  const other = await card(`?telegram_id=${TG}&channel=sms&text=${encodeURIComponent('tell me when SOL rises above 500')}`);
+  assert.equal(other.status, 200);
+  assert.match(other.data.reply_html, /message you here the moment it trips/);
+  assert.doesNotMatch(other.data.reply_html, /push notification/);
+});
+
 test('listing: no words is the list, byte for byte the intercept\'s, with the web app named as the place to manage them', async () => {
   const r = await card(`?telegram_id=${TG}&text=${encodeURIComponent('my alerts')}`);
   assert.equal(r.status, 200);

@@ -43,7 +43,7 @@ WEB_CARD_PARAMS: dict[str, tuple[str, ...]] = {
     "replay": ("stake",), "venue_router": ("base",), "wallet": ("chain",),
     # The alert card's argument is the SENTENCE: the website's own parser reads
     # "tell me when BTC drops below 100k", so the words travel whole.
-    "alerts": ("text",),
+    "alerts": ("text", "channel"),
 }
 
 #: How long each argument may be on the wire. A stake, an asset or a chain is

@@ -181,7 +181,8 @@ class PortfolioCommands:
 
         async def _web_card_text(self, name: str, surface: str,
                                  telegram_id: str = "", params: Optional[dict] = None,
-                                 unlinked: Optional[str] = None) -> str: ...
+                                 unlinked: Optional[str] = None,
+                                 keep_markup: bool = False) -> str: ...
 
         @staticmethod
         def _unlinked_hint(surface: str = "telegram") -> str: ...

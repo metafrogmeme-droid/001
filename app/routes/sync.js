@@ -1543,16 +1543,16 @@ const CHAT_CARDS = {
     const userId = await webUserFor(tg);
     return userId == null ? UNLINKED : require('../lib/defi').defiChatCard(userId);
   },
-  // The website's price-alert intercept for a linked Telegram caller: arms,
-  // lists, or says "didn't catch the condition" in the intercept's own
-  // sentences, with the delivery sentence in Telegram's words. A sentence
-  // that is no alert at all gets the same help card the intercept gives an
-  // unparsed one, never an empty answer.
+  // The website's price-alert parser, for both doors. `channel=web` is the
+  // push sentence the website chat used to render itself; anything else,
+  // including a missing channel, stays Telegram's sentence — the default
+  // this route has always sent, so an older bot keeps that wording.
   alerts: async (tg, q) => {
     const userId = await webUserFor(tg);
     if (userId == null) return UNLINKED;
     const alerts = require('../lib/alerts');
-    const card = await alerts.maybeHandleAlertChat(userId, cardText(q), { channel: 'telegram' });
+    const channel = String(q.channel || '') === 'web' ? 'web' : 'telegram';
+    const card = await alerts.maybeHandleAlertChat(userId, cardText(q), { channel });
     return card || alerts.alertHelpCard();
   },
 };

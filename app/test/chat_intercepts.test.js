@@ -41,7 +41,6 @@ function intercept(name, fnName, withIdent = false) {
     },
   };
 }
-stub('lib/alerts', intercept('alerts', 'maybeHandleAlertChat'));
 stub('lib/replay', intercept('replay', 'maybeHandleReplayChat'));
 stub('lib/letter', intercept('letter', 'maybeHandleLetterChat'));
 stub('lib/rwa', intercept('rwa', 'maybeHandleRwaChat'));
@@ -132,9 +131,11 @@ function reset() {
 
 test('the routing table is the documented order', () => {
   assert.deepEqual(chat.INTERCEPTS.map(([n]) => n), [
-    'alerts', 'replay', 'letter', 'rwa', 'airdrops', 'venues', 'meme', 'nft',
+    'replay', 'letter', 'rwa', 'airdrops', 'venues', 'meme', 'nft',
     'spot', 'wallet', 'defi', 'exposure', 'research', 'networth', 'idleyield',
   ]);
+  assert.equal(chat.INTERCEPTS.some(([n]) => n === 'alerts'), false,
+    'price alerts are the shared price_alert door, not a private intercept');
 });
 
 test('every row says what it does, in words a person reads', () => {
@@ -182,7 +183,10 @@ test('a miss consults every intercept in order, then the model', async () => {
   // The two identity-bound intercepts gate on their own pattern first, so a
   // sentence matching neither never consults them (and never resolves the
   // identity for them).
-  assert.deepEqual(calls, chat.INTERCEPTS.map(([n]) => n).slice(0, 13));
+  // networth and idleyield gate on their own pattern before they consult
+  // the library, so a sentence matching neither never calls them.
+  assert.deepEqual(calls, chat.INTERCEPTS.map(([n]) => n)
+    .filter((n) => n !== 'networth' && n !== 'idleyield'));
   await flush();
   assert.deepEqual(posted.map((p) => p.path), ['/chat']);
 });
@@ -195,7 +199,8 @@ test('the first hit answers and nothing below it runs', async () => {
   const r = await req('POST', '/api/chat', { token, body: { text: 'rwa radar' } });
   assert.equal(r.status, 200);
   assert.equal(r.data.reply_html, '<b>RWA radar</b> 3 sectors');
-  assert.deepEqual(calls, ['alerts', 'replay', 'letter', 'rwa']);
+  const upToRwa = chat.INTERCEPTS.map(([n]) => n);
+  assert.deepEqual(calls, upToRwa.slice(0, upToRwa.indexOf('rwa') + 1));
 });
 
 // ── memory ──────────────────────────────────────────────────────────────────

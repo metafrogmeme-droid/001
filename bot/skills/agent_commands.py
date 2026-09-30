@@ -70,7 +70,8 @@ class AgentCommands:
 
         async def _web_card_text(self, name: str, surface: str,
                                  telegram_id: str = "", params: Optional[dict] = None,
-                                 unlinked: Optional[str] = None) -> str: ...
+                                 unlinked: Optional[str] = None,
+                                 keep_markup: bool = False) -> str: ...
 
     _STANCE_BLURB = {
         "defensive": ("🛡 <b>Defensive</b> — smaller sizing bias, stricter "
@@ -196,9 +197,15 @@ class AgentCommands:
                                    surface: str = "telegram") -> str:
         """The website's alert intercept, answered for THIS caller's linked web
         account in Telegram's delivery words; both surfaces."""
-        return await self._web_card_text("alerts", surface=surface,
-                                         telegram_id=str(user_id or ""), params={"text": text},
-                                         unlinked=self._unlinked_alert_hint(surface))
+        params = {"text": text}
+        if surface == "web":
+            # The alert engine's own delivery sentence. Telegram is the
+            # route's default; the website asks for its push wording.
+            params["channel"] = "web"
+        return await self._web_card_text(
+            "alerts", surface=surface, telegram_id=str(user_id or ""),
+            params=params, unlinked=self._unlinked_alert_hint(surface),
+            keep_markup=(surface == "web"))
 
     @staticmethod
     def _unlinked_alert_hint(surface: str = "telegram") -> str:
