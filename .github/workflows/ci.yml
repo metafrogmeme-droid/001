@@ -182,6 +182,11 @@ jobs:
       - name: SAST — bandit (high severity, high confidence)
         run: bandit -r bot/ api_bridge.py dashboard_api.py scripts/ --severity-level high --confidence-level high -q
 
+      # Cassettes only. A live call needs the pinned chat endpoint and is
+      # `scripts/chat_eval.py --live`, which this job does not run.
+      - name: Chat eval — score cassettes
+        run: python3 scripts/chat_eval.py
+
       - name: Tests — baseline-diff regression gate (+ coverage floor)
         run: python3 scripts/ci_test_gate.py
 
