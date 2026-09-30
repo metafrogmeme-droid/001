@@ -2163,7 +2163,7 @@ class ProactiveMonitor:
                 by_host[host] = str(legacy)
         alerts: list[Alert] = []
         for probe in probes:
-            alerts.extend(self._check_one_llm_probe(probe, by_host))
+            alerts.extend(self._alerts_for_one_llm_probe(probe, by_host))
         return alerts
 
     def _probes_for_alerts(self) -> list[dict]:
@@ -2173,7 +2173,7 @@ class ProactiveMonitor:
         one = getattr(self, "_llm_probe", None)
         return [one] if isinstance(one, dict) else []
 
-    def _check_one_llm_probe(self, p: dict, by_host: dict) -> list[Alert]:
+    def _alerts_for_one_llm_probe(self, p: dict, by_host: dict) -> list[Alert]:
         """Page for one probe result. The host is named, never the key."""
         fails = int(p.get("consecutive_failures") or 0)
         state = str(p.get("state") or "")
