@@ -1788,9 +1788,11 @@ async def llm_complete_with_tools(
     with ``parameters`` a JSON-schema object. This function renders them into
     the OpenAI ``function`` shape or the Anthropic ``input_schema`` shape,
     runs the request/execute/append loop for up to ``max_rounds`` tool rounds,
-    and returns the model's final text. The final round is always made WITHOUT
-    tools on offer, so a model that keeps asking is made to answer with what it
-    has rather than looping until the deadline.
+    and returns the model's final text. Independent calls in one round run
+    concurrently; their results go back in the order the model asked. The
+    round cap is unchanged. The final round is always made WITHOUT tools on
+    offer, so a model that keeps asking is made to answer with what it has
+    rather than looping until the deadline.
 
     ``tool_executor(name, args) -> str`` is the caller's — this module knows
     nothing about skills, permissions or memory. It decides WHICH names exist;
@@ -1799,9 +1801,10 @@ async def llm_complete_with_tools(
     broken tool cannot take the whole reply down, and the model is told
     plainly that nothing was measured rather than handed a blank to fill.
 
-    ``events_out`` collects ``{"name", "args", "ok", "ms"}`` per call so the
-    caller can show, and record, what actually ran. ``usage_out`` sums the
-    measured tokens across every round (see ``llm_complete``).
+    ``events_out`` collects ``{"name", "args", "ok", "ms", "result"}`` per
+    call, in the order the model asked, so the caller can show what ran and
+    check figures against the result. ``usage_out`` sums the measured tokens
+    across every round (see ``llm_complete``).
 
     The whole loop runs under ``config.timeout_seconds``, the same ceiling
     ``llm_complete`` applies to one call — a tool turn is one attempt in the
@@ -1815,29 +1818,47 @@ async def llm_complete_with_tools(
     offered = {t["name"]: t for t in tools}
     max_rounds = max(0, int(max_rounds))
 
-    async def _run(name: str, raw_args) -> str:
-        ev = {"name": str(name), "args": {}, "ok": False, "ms": 0}
+    async def _run(name: str, raw_args) -> tuple[str, dict]:
+        ev: dict = {"name": str(name), "args": {}, "ok": False, "ms": 0,
+                    "result": ""}
         t0 = _time.monotonic()
+        text = _TOOL_RAISED
         try:
             if name not in offered:
-                return _TOOL_NOT_OFFERED
-            args = _parse_tool_args(raw_args)
-            if args is None:
-                return _TOOL_BAD_ARGS
-            ev["args"] = args
-            await _emit(on_tool, str(name), "start", None)
-            try:
-                out = await tool_executor(name, args)
-            except Exception:
-                return _TOOL_RAISED
-            ev["ok"] = True
-            return _bound_tool_result(str(out) if out is not None else "")
+                text = _TOOL_NOT_OFFERED
+            else:
+                args = _parse_tool_args(raw_args)
+                if args is None:
+                    text = _TOOL_BAD_ARGS
+                else:
+                    ev["args"] = args
+                    await _emit(on_tool, str(name), "start", None)
+                    try:
+                        out = await tool_executor(name, args)
+                    except Exception:
+                        text = _TOOL_RAISED
+                    else:
+                        ev["ok"] = True
+                        text = _bound_tool_result(
+                            str(out) if out is not None else "")
+            return text, ev
         finally:
+            ev["result"] = text
             ev["ms"] = int((_time.monotonic() - t0) * 1000)
-            if events_out is not None:
-                events_out.append(ev)
             if name in offered and ev["args"] is not None:
                 await _emit(on_tool, str(name), "done", bool(ev["ok"]))
+
+    async def _run_all(items: list[tuple[str, object]]) -> list[str]:
+        """One round, concurrent. Results stay in the order the model asked."""
+        if not items:
+            return []
+        pairs = await asyncio.gather(*(_run(n, a) for n, a in items))
+        texts: list[str] = []
+        for text, ev in pairs:
+            if events_out is not None:
+                events_out.append(ev)
+            texts.append(text)
+        return texts
 
     async def _openai_loop() -> str:
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
@@ -1880,8 +1901,9 @@ async def llm_complete_with_tools(
                                  "arguments": c.function.arguments or "{}"},
                 } for c in calls],
             })
-            for c in calls:
-                result = await _run(c.function.name, c.function.arguments)
+            texts = await _run_all([
+                (c.function.name, c.function.arguments) for c in calls])
+            for c, result in zip(calls, texts):
                 messages.append({"role": "tool", "tool_call_id": c.id,
                                  "content": result})
 
@@ -1950,13 +1972,13 @@ async def llm_complete_with_tools(
             # assistant turn, server-tool blocks included, which is what keeps
             # a web_search round intact across the loop.
             messages.append({"role": "assistant", "content": content})
-            results = []
-            for b in uses:
-                result = await _run(getattr(b, "name", ""),
-                                    dict(getattr(b, "input", None) or {}))
-                results.append({"type": "tool_result",
-                                "tool_use_id": getattr(b, "id", ""),
-                                "content": result})
+            texts = await _run_all([
+                (getattr(b, "name", ""), dict(getattr(b, "input", None) or {}))
+                for b in uses])
+            results = [{"type": "tool_result",
+                        "tool_use_id": getattr(b, "id", ""),
+                        "content": result}
+                       for b, result in zip(uses, texts)]
             messages.append({"role": "user", "content": results})
 
     loop = _anthropic_loop if sdk == "anthropic" else _openai_loop
