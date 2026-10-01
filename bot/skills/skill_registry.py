@@ -42,6 +42,7 @@ from bot.formatters.thesis_text import provenance_tag, split_counter_case, thesi
 
 from bot.config import CONFIG, TRADFI_PERPETUALS
 from bot.core.engine import RuneClawEngine
+from bot.core.strategy_gate import signal_clears_volume_min
 from bot.utils.logger import audit, system_log
 from bot.utils.candles import ohlc_on_record, volume_on_record as _vol_on_record
 
@@ -2313,8 +2314,8 @@ class RunStrategySkill(BaseSkill):
             signals = [s for s in signals if s.symbol in set(cfg["symbols"])]
 
         if cfg["volume_spike_min"] is not None:
-            signals = [s for s in signals if getattr(s, "volume_spike_ratio", 0) >= cfg["volume_spike_min"]
-                       or getattr(s, "volume_spike", False)]
+            signals = [s for s in signals
+                       if signal_clears_volume_min(s, cfg["volume_spike_min"])]
 
         if not signals:
             return f"{cfg['icon']} <b>{cfg['label']}</b>\n\n<i>No signals matched filters</i>"

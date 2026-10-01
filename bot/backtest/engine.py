@@ -24,6 +24,7 @@ from bot.core.analyzer import Analyzer
 from bot.core.leverage import apply_margin_risk_cap
 from bot.core.limit_entry import resting_limit_drift
 from bot.core.partial_tp import _tp1_lock, _tp2_lock
+from bot.core.strategy_gate import signal_clears_volume_min
 from bot.risk.risk_engine import RiskEngine
 from bot.risk.portfolio import PortfolioTracker
 from bot.utils.logger import audit, system_log, trade_log
@@ -238,8 +239,8 @@ class BacktestEngine:
         agent backtests with its REAL entry semantics (see BacktestConfig):
 
           * ``volume_spike_min`` — require the bar's volume/rolling-avg ratio
-            ``>=`` this, OR the boolean spike flag (matches the live
-            ``volume_spike_ratio >= min or volume_spike`` filter).
+            ``>=`` this. The 2× boolean spike flag is not a pass of a higher
+            minimum (the live ``/run`` filter uses the same reading).
           * ``regime_filter`` — only enter when the analyzer's per-symbol regime
             equals this (case-insensitive), e.g. ``TREND_DOWN`` / ``TREND_UP``.
           * ``rsi_max`` — a LONG enters only when RSI(14) over the window is
@@ -254,10 +255,8 @@ class BacktestEngine:
         if vmin is None and not regime_want and rsi_max is None:
             return False  # common path: no preset gates configured
 
-        if vmin is not None:
-            ratio = float(getattr(signal, "volume_spike_ratio", 0.0) or 0.0)
-            if ratio < float(vmin) and not getattr(signal, "volume_spike", False):
-                return True
+        if vmin is not None and not signal_clears_volume_min(signal, vmin):
+            return True
 
         if regime_want:
             try:

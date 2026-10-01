@@ -54,8 +54,9 @@ class BacktestConfig(BaseModel):
     # default OFF (None/"") — an unset gate is a strict no-op, so existing runs
     # stay byte-identical. When set they mirror the live RunStrategySkill preset
     # filters so a NAMED agent backtests with its real entry semantics:
-    #   volume_spike_min — require the bar's volume/rolling-avg ratio >= this
-    #     (or the boolean spike flag), matching "momentum hunter" (vol spike > 3x).
+    #   volume_spike_min — require the bar's volume/rolling-avg ratio >= this.
+    #     The 2× boolean spike flag does not pass a higher minimum. "momentum
+    #     hunter" is vol spike > 3x.
     #   regime_filter — only enter when the analyzer's per-symbol regime equals
     #     this (e.g. "TREND_DOWN" for "dip sniper", "TREND_UP" for momentum).
     #   rsi_max — a LONG enters only when RSI(14) over the window is <= this

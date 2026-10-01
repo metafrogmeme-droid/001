@@ -68,12 +68,28 @@ def test_defaults_are_a_strict_no_op():
 
 def test_volume_spike_gate_filters_below_min():
     eng = _engine(volume_spike_min=3.0)
-    # Below the 3x ratio and no boolean spike -> rejected.
+    # Below the 3x ratio -> rejected, even when the 2x boolean flag is set.
     assert eng._rejected_by_preset_gate(_Idea(), _sig(spike_ratio=2.0), []) is True
-    # At/above the ratio -> passes.
+    assert eng._rejected_by_preset_gate(
+        _Idea(), _sig(spike_ratio=2.759, spike=True), []) is True
+    # At/above the ratio -> passes. The flag is not what passes it.
     assert eng._rejected_by_preset_gate(_Idea(), _sig(spike_ratio=3.5), []) is False
-    # The boolean spike flag also satisfies the gate (mirrors live OR semantics).
-    assert eng._rejected_by_preset_gate(_Idea(), _sig(spike_ratio=0.0, spike=True), []) is False
+    assert eng._rejected_by_preset_gate(
+        _Idea(), _sig(spike_ratio=3.0, spike=False), []) is False
+
+
+def test_the_live_run_filter_uses_the_same_volume_reading():
+    from bot.core.strategy_gate import signal_clears_volume_min
+    assert signal_clears_volume_min(_sig(spike_ratio=2.759, spike=True), 3.0) is False
+    assert signal_clears_volume_min(_sig(spike_ratio=3.0, spike=False), 3.0) is True
+
+    class _Unread:
+        volume_spike = True
+        volume_spike_ratio = None
+
+    assert signal_clears_volume_min(_Unread(), 3.0) is False
+    eng = _engine(volume_spike_min=3.0)
+    assert eng._rejected_by_preset_gate(_Idea(), _Unread(), []) is True
 
 
 def test_regime_gate_requires_matching_regime():
