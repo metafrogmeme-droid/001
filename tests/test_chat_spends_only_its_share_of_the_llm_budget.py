@@ -41,7 +41,8 @@ def _spend(cost: CostTracker, usd: float, category: str) -> None:
 
 
 class _Conversations:
-    def get_recent_as_llm_messages(self, user_id, limit=8):
+    def get_recent_as_llm_messages(self, user_id, limit=8, drop_trailing_user=False,
+                                   token_budget=None):
         return []
 
 

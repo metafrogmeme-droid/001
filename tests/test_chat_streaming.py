@@ -225,7 +225,8 @@ def test_anthropic_stream_runs_tools_between_rounds():
 # ── 2. _llm_chat emits events ───────────────────────────────────────────────
 
 class _Conversations:
-    def get_recent_as_llm_messages(self, user_id, limit=8, drop_trailing_user=False):
+    def get_recent_as_llm_messages(self, user_id, limit=8, drop_trailing_user=False,
+                                   token_budget=None):
         return []
 
     def append(self, *a, **kw):

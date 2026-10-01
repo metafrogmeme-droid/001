@@ -1665,7 +1665,7 @@ unl…
 ## Capabilities this map has no leaf for
 
 The critic re-read the tree after the fifteen classifiers finished and found
-capabilities none of them had named. The list is TWENTY-TWO now, and it was
+capabilities none of them had named. The list is twenty-three now, and it was
 written down as a smaller number in three places while growing under them —
 slices kept shipping capabilities the map still has no leaf for (the trade
 co-pilot, trade costs, why a stop could not be placed, the POC-retest setup)
