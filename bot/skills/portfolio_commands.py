@@ -341,9 +341,16 @@ class PortfolioCommands:
         figure travels at twelve significant digits: ``:g`` keeps six, which
         sent ``12345.67`` as ``12345.7`` and ``999999.99`` as a round million
         — the caller's own number, printed back on the card as a different
-        one — while twelve round-trips anything a human types."""
-        return await self._web_card_text("replay", surface=surface,
-                                         params={"stake": (f"{stake:.12g}" if stake is not None else None)})
+        one — while twelve round-trips anything a human types.
+
+        ``surface="web"`` keeps the card's own markup. Telegram's tag strip
+        turns ``<br>`` into a newline a browser collapses, which is right on
+        Telegram and wrong on the page that used to render this card itself.
+        """
+        return await self._web_card_text(
+            "replay", surface=surface,
+            params={"stake": (f"{stake:.12g}" if stake is not None else None)},
+            keep_markup=(surface == "web"))
 
     @guard("letter")
     async def _cmd_letter(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

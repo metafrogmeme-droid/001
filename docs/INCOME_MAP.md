@@ -1763,10 +1763,13 @@ black_swan.py + proactive_monitor.py.
 **Signal replay**
 
 Signal replay — "what if I'd taken every signal with $1k?" run over the web's
-own recorded signal history. This is the evidence surface a person uses before
-deciding to follow the engine at all.
+own recorded signal history. Asking from chat is the shared `replay` door on
+both surfaces, not a website intercept of its own. The portfolio panel and
+/api/replay still serve the replay while the bot process is down. This is the
+evidence surface a person uses before deciding to follow the engine at all.
 
-*Where.* Web chat intercept row 1 'replay' (app/routes/chat.js); GET
+*Where.* Shared chat door `replay` (`bot/web/user_gateway.py::_WEB_SEAM#"replay"`,
+`bot/skills/portfolio_commands.py::PortfolioCommands.replay_card_text`); GET
 /api/replay?stake=&days= (app/routes/replay.js; `app/public/js/dashboard.js::renderPortfolio.runReplayPanel#"/api/replay?stake="` and `::renderHub#"renderPanel(C('hubreplay')"`
 for the Agent Hub tile #c-hubreplay); app/lib/replay.js; MCP run_what_if
 (`app/routes/mcp.js::TOOLS.run_what_if`).

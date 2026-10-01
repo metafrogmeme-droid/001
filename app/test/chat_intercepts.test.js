@@ -2,7 +2,7 @@
 /**
  * The web chat's local intercepts: order, first-hit-wins, and MEMORY.
  *
- * routes/chat.js answers a dozen shapes of question without a bot round-trip.
+ * routes/chat.js answers eleven shapes of question without a bot round-trip.
  * Until now each answered and vanished — the bot's conversation store, which
  * both surfaces read history from, never heard the question or the answer,
  * so a follow-up two turns later reached a model that had never seen the
@@ -41,7 +41,6 @@ function intercept(name, fnName, withIdent = false) {
     },
   };
 }
-stub('lib/replay', intercept('replay', 'maybeHandleReplayChat'));
 stub('lib/rwa', intercept('rwa', 'maybeHandleRwaChat'));
 stub('lib/airdrops', intercept('airdrops', 'maybeHandleAirdropChat'));
 stub('lib/venue_router', intercept('venues', 'maybeHandleVenueRouterChat'));
@@ -129,8 +128,8 @@ function reset() {
 
 test('the routing table is the documented order', () => {
   assert.deepEqual(chat.INTERCEPTS.map(([n]) => n), [
-    'replay', 'rwa', 'airdrops', 'venues', 'meme', 'nft',
-    'spot', 'defi', 'exposure', 'research', 'networth', 'idleyield',
+    'rwa', 'airdrops', 'venues', 'meme', 'nft', 'spot',
+    'defi', 'exposure', 'research', 'networth', 'idleyield',
   ]);
   assert.equal(chat.INTERCEPTS.some(([n]) => n === 'alerts'), false,
     'price alerts are the shared price_alert door, not a private intercept');
@@ -138,6 +137,8 @@ test('the routing table is the documented order', () => {
     'the weekly letter is the shared letter door, not a private intercept');
   assert.equal(chat.INTERCEPTS.some(([n]) => n === 'wallet'), false,
     'the wallet mirror is the shared wallet door, not a private intercept');
+  assert.equal(chat.INTERCEPTS.some(([n]) => n === 'replay'), false,
+    'the what-if replay is the shared replay door, not a private intercept');
 });
 
 test('every row says what it does, in words a person reads', () => {
@@ -251,11 +252,11 @@ test('a refused or failed memory write never touches the reply', async () => {
 
 test('a reply without html records nothing', async () => {
   reset();
-  // Replay is the first row. A hit with no reply_html must not be written
+  // RWA is the first row. A hit with no reply_html must not be written
   // into conversation memory, and must not be handed to the model.
-  answers.replay = { pending_trade: { trade_id: 'x' } };
+  answers.rwa = { pending_trade: { trade_id: 'x' } };
   const token = await newUser();
-  const r = await req('POST', '/api/chat', { token, body: { text: 'what if' } });
+  const r = await req('POST', '/api/chat', { token, body: { text: 'rwa radar' } });
   assert.equal(r.status, 200);
   assert.equal(r.data.pending_trade.trade_id, 'x');
   await flush();

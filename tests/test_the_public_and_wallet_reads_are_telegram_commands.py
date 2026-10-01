@@ -200,6 +200,10 @@ class TestTheSeams:
         h = _host()
         assert _seam("replay", h, 500.0) == web_card_text(CARD)
         assert _seam("replay", h) == web_card_text(CARD)
+        # The website keeps the card's own breaks. Telegram's strip turns
+        # <br> into a newline a browser collapses.
+        assert _seam("replay", h, 500.0, surface="web") == CARD["reply_html"]
+        assert "<br>" in _seam("replay", h, surface="web")
         assert _seam("letter", h) == web_card_text(CARD)
         # The website keeps the card's own breaks. Telegram's strip turns
         # <br> into a newline a browser collapses.
@@ -216,6 +220,7 @@ class TestTheSeams:
         assert "<br>" in _seam("wallet", h, "770001", surface="web")
         assert _seam("defi", h, "770001") == web_card_text(CARD)
         assert seen == [("replay", "", {"stake": "500"}), ("replay", "", {"stake": None}),
+                        ("replay", "", {"stake": "500"}), ("replay", "", {"stake": None}),
                         ("letter", "", {}), ("letter", "", {}), ("letter", "", {}),
                         ("venue_router", "", {"base": "BTC"}),
                         ("venue_router", "", {"base": ""}), ("meme_radar", "", {}),

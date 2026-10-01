@@ -16,7 +16,6 @@ const { rateLimit, userKey } = require('../lib/rate_limit');
 const { resolveBotIdentity } = require('../lib/identity');
 const gateway = require('../lib/gateway');
 const { loadProfile } = require('./profile');
-const { maybeHandleReplayChat } = require('../lib/replay');
 const { maybeHandleRwaChat } = require('../lib/rwa');
 const { maybeHandleDefiChat } = require('../lib/defi');
 const { maybeHandleNetWorthChat } = require('../lib/networth');
@@ -74,9 +73,10 @@ const INTERCEPTS = [
   // shared price_alert seam, which arms the same engine. The engine and
   // /api/alerts still run here, so an alert that is already armed is still
   // evaluated while the bot process is down.
-  // "what if I'd taken every signal with $1k?" — replayed from the web's
-  // own recorded trade history, no bot round-trip needed.
-  ['replay', (uid, text) => maybeHandleReplayChat(uid, text), 'a replay of what every past signal would have made you'],
+  // The what-if replay left this table. Both doors route "replay every
+  // signal" to the shared replay seam, which fetches this process's own
+  // card. The portfolio panel and /api/replay still run here, so the replay
+  // is still readable while the bot process is down.
   // The weekly letter left this table. Both doors route "this week's letter"
   // to the shared letter seam, which fetches this process's own card. The
   // press and /api/letter still run here, so the panel still has the letter
