@@ -158,6 +158,9 @@ def test_committed_public_metrics_project_the_measured_runner():
             assert card["metrics"][key] == projected[key], path.name
         assert card["dataset_hash"] == manifest_hash
         assert card["metrics"]["total_trades"] == len(card["trades"])
+        if path.name == "safe-scalper.json":
+            # The runner applies 1.5 / 2.0, so the card must not say otherwise.
+            assert card["unmodeled"] == []
         sha = card["code_sha"]
         assert re.fullmatch(r"[0-9a-f]{40}", sha), sha
         assert _git("cat-file", "-t", sha) == "commit"
