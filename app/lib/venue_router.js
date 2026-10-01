@@ -100,15 +100,19 @@ async function getVenueRouter() {
 
 const { esc } = require('./esc');
 
-// ── Chat intercept ───────────────────────────────────────────────────────────
-
-const CHAT_RE = /\b(?:best|cheapest)\s+(?:venue|exchange)(?:\s+(?:for|to)\s+(?:be\s+)?(long|short)?\s*\$?([a-z0-9]{2,10}))?|venue router\b/i;
+// ── The one card ─────────────────────────────────────────────────────────────
+//
+// ONE renderer. Both chat doors fetch this card over
+// `/api/bot/sync/card/venue_router`. Website chat does not match the
+// sentence itself. `wantBase` narrows to one asset ('' for the top five).
+// Public funding: no account in it.
 
 /**
- * The venue router as the chat card — ONE renderer for both surfaces; the
- * bot's /venue_router fetches it over the sync channel
- * (`GET /api/bot/sync/card/venue_router?base=BTC`). Public: no account in it.
- * `wantBase` narrows to one asset ('' for the top five).
+ * The venue router as the chat card — ONE renderer for both surfaces. The
+ * bot's /venue_router command and the website's shared door both fetch this
+ * card over the sync channel (`GET /api/bot/sync/card/venue_router?base=BTC`).
+ * Public: no account in it. `wantBase` narrows to one asset ('' for the top
+ * five).
  */
 async function venueRouterChatCard(wantBase) {
   try {
@@ -141,15 +145,6 @@ async function venueRouterChatCard(wantBase) {
   }
 }
 
-/** The asset a routing ask names ("best venue for BTC"), '' for none. */
-function baseFromMatch(m) {
-  return ((m && m[2]) || '').toUpperCase().replace(/USDT$/, '');
-}
-
-async function maybeHandleVenueRouterChat(userId, text) {
-  const m = String(text || '').match(CHAT_RE);
-  if (!m) return null;
-  return venueRouterChatCard(baseFromMatch(m));
-}
-
-module.exports = { CHAT_RE, buildRouterTable, buildRouter, getVenueRouter, maybeHandleVenueRouterChat, venueRouterChatCard };
+module.exports = {
+  buildRouterTable, buildRouter, getVenueRouter, venueRouterChatCard,
+};

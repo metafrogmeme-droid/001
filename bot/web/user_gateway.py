@@ -255,10 +255,11 @@ async def _seam_airdrops(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict
     return await tg_handler.airdrops_card_text(tg_id, surface="web")
 
 
-# The six cards below read their one argument from the WORDS with the
-# intercept's own reader (`bot/nlp/web_card_args.py`): the router's rules
-# carry no kwargs for them, and the Node intercept's regex is what decided
-# the argument on the surface these phrasings came from.
+# The six cards below read their one argument from the WORDS
+# (`bot/nlp/web_card_args.py`): the router's rules carry no kwargs for
+# them. Replay, wallet and the venue router no longer have a Node
+# intercept; the reader is the one copy of the capture those intercepts
+# used to hold.
 async def _seam_replay(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
                        text: str = "") -> str:
     # The website chat no longer answers this itself. Both doors render the
@@ -278,6 +279,11 @@ async def _seam_letter(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
 
 async def _seam_venue_router(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
                              text: str = "") -> str:
+    # The website chat no longer answers this itself. Both doors render the
+    # funding-cost card; surface="web" keeps the markup the browser already
+    # shows. The asset is the one the sentence names; an unnamed asset is
+    # the top five. The table is public funding, for every caller.
+    # web:<user_id> is not a second book.
     return await tg_handler.venue_router_card_text(venue_base(text), surface="web")
 
 
@@ -315,8 +321,8 @@ async def _seam_price_alert(tg_handler: "TelegramHandler", tg_id: str, kwargs: d
 #: `status` keeps its own branch above: it predates the table and three
 #: guards index that branch's literal. nft and spot are still answered first
 #: by a Node intercept for a web caller — this path sees the phrasings those
-#: intercepts miss. Airdrops left that table: both doors render this seam,
-#: the caller's own card rather than a door notice.
+#: intercepts miss. Airdrops and the venue router left that table: both
+#: doors render this seam rather than a door notice.
 _WEB_SEAM = {
     "networth": _seam_networth,
     "rwa": _seam_rwa,
@@ -965,13 +971,13 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
         # Net worth and research the website still answers from its own Node
         # intercepts before a turn reaches this process, so for a web caller
         # those two see only the phrasings the intercepts miss ("how much am
-        # i worth", "can you research SOL for me"). RWA and the airdrop radar
-        # left that table: both doors render this seam. The branch answers
-        # every `_WEB_SEAM` intent with the same card Telegram's routed
-        # branch renders, under the same gate, recorded the same way — never
-        # by a model with no such tool. `_WEB_SEAM` is the table the
-        # reachability ratchet asks, so a fourth entry is a branch without
-        # anybody writing one.
+        # i worth", "can you research SOL for me"). RWA, the airdrop radar and
+        # the venue router left that table: both doors render this seam.
+        # The branch answers every `_WEB_SEAM` intent with the same card
+        # Telegram's routed branch renders, under the same gate, recorded
+        # the same way — never by a model with no such tool. `_WEB_SEAM`
+        # is the table the reachability ratchet asks, so a fourth entry is
+        # a branch without anybody writing one.
         if intent.skill in _WEB_SEAM:
             denied = _web_skill_denied(tg_handler, tg_id, intent.skill)
             if denied is not None:
