@@ -257,6 +257,9 @@ async def _seam_replay(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
 
 async def _seam_letter(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
                        text: str = "") -> str:
+    # The website chat no longer answers this itself. Both doors render the
+    # letter press's own card; surface="web" keeps the markup the browser
+    # already shows. The card is the public letter, for every caller.
     return await tg_handler.letter_card_text(surface="web")
 
 

@@ -706,22 +706,18 @@ function startLetterSweep(intervalMs = 3_600_000) {
   if (sweepTimer.unref) sweepTimer.unref();
 }
 
-// ── Chat intercept ───────────────────────────────────────────────────────────
-
-const CHAT_RE = /\b(?:(?:this |last )?week'?s letter|weekly (?:agent )?letter|agent letter)\b/i;
-
 /**
  * The last completed week's letter as the chat card — ONE renderer for both
- * surfaces; the bot's /letter fetches it over the sync channel
- * (`GET /api/bot/sync/card/letter`). The operator agent's week, for every
- * reader; a week whose record could not be read says so inside the letter.
+ * surfaces; both doors fetch it over the sync channel
+ * (`GET /api/bot/sync/card/letter`). The public letter, for every reader;
+ * a week whose record could not be read says so inside the letter.
  */
-// THE PUBLIC LETTER, FOR EVERY CALLER. This card answers the web chat's
-// intercept and Telegram's /letter (through the card route), and neither knows
-// whether the caller is the operator. It used to serve the stored letter, which
-// is the operator's account in dollars, to anyone who typed "this week's
-// letter". The operator reads the private one on the dashboard panel, which
-// does know who is asking (`routes/letter.js`).
+// THE PUBLIC LETTER, FOR EVERY CALLER. This card is what Telegram's /letter
+// and the website chat both fetch, and neither knows whether the caller is
+// the operator. It used to serve the stored letter, which is the operator's
+// account in dollars, to anyone who typed "this week's letter". The operator
+// reads the private one on the dashboard panel, which does know who is asking
+// (`routes/letter.js`).
 async function letterChatCard() {
   try {
     const letter = await getPublicLetter(lastCompletedWeek().key);
@@ -738,12 +734,7 @@ async function letterChatCard() {
   }
 }
 
-async function maybeHandleLetterChat(userId, text) {
-  if (!CHAT_RE.test(String(text || ''))) return null;
-  return letterChatCard();
-}
-
-module.exports = { CHAT_RE,
+module.exports = {
   // Exported for the read-state contract: `reads` is the difference
   // between a quiet week and an unreadable one, and asserting it through
   // getLetter alone would couple those tests to persistence.
@@ -759,5 +750,5 @@ module.exports = { CHAT_RE,
   listLetters,
   sweepLetters,
   startLetterSweep,
-  maybeHandleLetterChat, letterChatCard,
+  letterChatCard,
 };

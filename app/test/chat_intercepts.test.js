@@ -42,7 +42,6 @@ function intercept(name, fnName, withIdent = false) {
   };
 }
 stub('lib/replay', intercept('replay', 'maybeHandleReplayChat'));
-stub('lib/letter', intercept('letter', 'maybeHandleLetterChat'));
 stub('lib/rwa', intercept('rwa', 'maybeHandleRwaChat'));
 stub('lib/airdrops', intercept('airdrops', 'maybeHandleAirdropChat'));
 stub('lib/venue_router', intercept('venues', 'maybeHandleVenueRouterChat'));
@@ -131,11 +130,13 @@ function reset() {
 
 test('the routing table is the documented order', () => {
   assert.deepEqual(chat.INTERCEPTS.map(([n]) => n), [
-    'replay', 'letter', 'rwa', 'airdrops', 'venues', 'meme', 'nft',
+    'replay', 'rwa', 'airdrops', 'venues', 'meme', 'nft',
     'spot', 'wallet', 'defi', 'exposure', 'research', 'networth', 'idleyield',
   ]);
   assert.equal(chat.INTERCEPTS.some(([n]) => n === 'alerts'), false,
     'price alerts are the shared price_alert door, not a private intercept');
+  assert.equal(chat.INTERCEPTS.some(([n]) => n === 'letter'), false,
+    'the weekly letter is the shared letter door, not a private intercept');
 });
 
 test('every row says what it does, in words a person reads', () => {

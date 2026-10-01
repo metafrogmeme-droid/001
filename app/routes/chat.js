@@ -17,7 +17,6 @@ const { resolveBotIdentity } = require('../lib/identity');
 const gateway = require('../lib/gateway');
 const { loadProfile } = require('./profile');
 const { maybeHandleReplayChat } = require('../lib/replay');
-const { maybeHandleLetterChat } = require('../lib/letter');
 const { maybeHandleRwaChat } = require('../lib/rwa');
 const { maybeHandleWalletChat } = require('../lib/wallet');
 const { maybeHandleDefiChat } = require('../lib/defi');
@@ -79,9 +78,10 @@ const INTERCEPTS = [
   // "what if I'd taken every signal with $1k?" — replayed from the web's
   // own recorded trade history, no bot round-trip needed.
   ['replay', (uid, text) => maybeHandleReplayChat(uid, text), 'a replay of what every past signal would have made you'],
-  // "show me this week's letter" — the weekly fund-style letter, composed
-  // from recorded data in the web DB.
-  ['letter', (uid, text) => maybeHandleLetterChat(uid, text), 'this week\'s fund-style letter, composed from the recorded data'],
+  // The weekly letter left this table. Both doors route "this week's letter"
+  // to the shared letter seam, which fetches this process's own card. The
+  // press and /api/letter still run here, so the panel still has the letter
+  // while the bot process is down.
   // "rwa radar" — read-only tokenized-asset sector snapshot from live tickers.
   ['rwa', (uid, text) => maybeHandleRwaChat(uid, text), 'a tokenized-asset sector snapshot'],
   // "airdrops" / "testnets" — curated guided-only radar; the reply itself
