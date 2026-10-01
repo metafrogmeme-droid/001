@@ -58,8 +58,9 @@ class BacktestConfig(BaseModel):
     #     (or the boolean spike flag), matching "momentum hunter" (vol spike > 3x).
     #   regime_filter — only enter when the analyzer's per-symbol regime equals
     #     this (e.g. "TREND_DOWN" for "dip sniper", "TREND_UP" for momentum).
-    #   rsi_max — only enter when RSI(14) over the window is <= this (oversold
-    #     dip entry, e.g. "dip sniper" RSI < 35).
+    #   rsi_max — a LONG enters only when RSI(14) over the window is <= this
+    #     (the capitulation dip, e.g. "dip sniper" RSI < 35). A SHORT is not
+    #     that dip, so the bound does not apply to it.
     volume_spike_min: Optional[float] = None
     regime_filter: str = ""
     rsi_max: Optional[float] = None

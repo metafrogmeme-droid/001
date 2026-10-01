@@ -28,9 +28,15 @@ def _cleanup_engines():
         _ENGINES.pop().cleanup()
 
 
+class _Side:
+    def __init__(self, value):
+        self.value = value
+
+
 class _Idea:
-    def __init__(self, confidence=0.9):
+    def __init__(self, confidence=0.9, direction="LONG"):
         self.confidence = confidence
+        self.direction = _Side(direction)
 
 
 class _Regime:
@@ -99,6 +105,15 @@ def test_rsi_gate_only_admits_oversold():
     assert eng._rejected_by_preset_gate(_Idea(), _sig(), rising) is True
     # Too few bars -> RSI unknown -> never reject on it.
     assert eng._rejected_by_preset_gate(_Idea(), _sig(), _window([100, 101, 102])) is False
+    # The bound is the long's capitulation print. A short is not rejected
+    # for a high RSI, and is not required to print RSI <= 35.
+    assert eng._rejected_by_preset_gate(
+        _Idea(direction="SHORT"), _sig(), rising) is False
+    assert eng._rejected_by_preset_gate(
+        _Idea(direction="SHORT"), _sig(), falling) is False
+    # An unreadable side is not a long, so it does not pass the bound.
+    assert eng._rejected_by_preset_gate(
+        _Idea(direction=""), _sig(), falling) is True
 
 
 def test_gates_compose_any_one_rejects():

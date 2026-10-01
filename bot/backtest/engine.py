@@ -242,8 +242,10 @@ class BacktestEngine:
             ``volume_spike_ratio >= min or volume_spike`` filter).
           * ``regime_filter`` — only enter when the analyzer's per-symbol regime
             equals this (case-insensitive), e.g. ``TREND_DOWN`` / ``TREND_UP``.
-          * ``rsi_max`` — only enter when RSI(14) over the window is ``<=`` this
-            (oversold-dip entry). Fewer than 15 bars => RSI unknown => no reject.
+          * ``rsi_max`` — a LONG enters only when RSI(14) over the window is
+            ``<=`` this (the capitulation dip). A SHORT is not a dip buy, so
+            the bound does not apply to it. An unreadable side is rejected.
+            Fewer than 15 bars => RSI unknown => no reject on the bound.
         """
         cfg = self.config
         vmin = getattr(cfg, "volume_spike_min", None)
@@ -267,15 +269,20 @@ class BacktestEngine:
                 return True
 
         if rsi_max is not None and len(window) >= 15:
-            try:
-                import numpy as _np
-                from bot.core.ta_utils import rsi_series
-                closes = _np.asarray([b.close for b in window], dtype=float)
-                rsi_now = float(rsi_series(closes)[-1])
-                if rsi_now > float(rsi_max):
+            side = getattr(getattr(idea, "direction", None), "value", None)
+            side = str(side).strip().upper() if side else ""
+            if side != "SHORT":
+                if side != "LONG":
                     return True
-            except Exception:
-                pass  # RSI unavailable -> don't reject on it
+                try:
+                    import numpy as _np
+                    from bot.core.ta_utils import rsi_series
+                    closes = _np.asarray([b.close for b in window], dtype=float)
+                    rsi_now = float(rsi_series(closes)[-1])
+                    if rsi_now > float(rsi_max):
+                        return True
+                except Exception:
+                    pass  # RSI unavailable -> don't reject on it
 
         return False
 
