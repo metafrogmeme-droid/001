@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from typing import Optional, Tuple, Union
 
+from bot.utils.models import Direction, TradeIdea
+
 # (direction, symbol, entry, sl, tp, margin_usd|None)
 ParsedManualTrade = Tuple[str, str, float, float, float, Optional[float]]
 
@@ -121,14 +123,14 @@ def normalize_order_type(order_type) -> str:
 
 
 def build_manual_idea(direction: str, symbol: str, entry: float,
-                      sl: float, tp: float, order_type: str = "limit"):
+                      sl: float, tp: float, order_type: str = "limit",
+                      origin: Optional[str] = None) -> TradeIdea:
     """Build the manual TradeIdea exactly as /trade does. Raises ValueError on
     model-level sanity failures (non-finite prices, wrong SL/TP side).
 
     order_type: 'limit' (default — rests at ``entry``) or 'market' (opens now
     at the current price). Both are already supported by the executor; the
     default keeps the historical limit-only behaviour."""
-    from bot.utils.models import TradeIdea, Direction
     pair = f"{symbol}/USDT:USDT"
     return TradeIdea(
         asset=pair,
@@ -141,6 +143,7 @@ def build_manual_idea(direction: str, symbol: str, entry: float,
         signals_used=["manual"],
         source="manual",
         order_type=normalize_order_type(order_type),
+        origin=origin,
     )
 
 

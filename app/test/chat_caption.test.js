@@ -25,7 +25,7 @@ test('both pages load the caption before chat.js', () => {
   for (const page of ['index.html', 'dashboard.html']) {
     const html = fs.readFileSync(path.join(__dirname, '..', 'public', page), 'utf8');
     const cap = html.indexOf('/js/chat-caption.js?v=1');
-    const chat = html.indexOf('/js/chat.js?v=37');
+    const chat = html.indexOf('/js/chat.js?v=38');
     assert.ok(cap > 0 && chat > cap, page);
   }
   const chatJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'chat.js'), 'utf8');

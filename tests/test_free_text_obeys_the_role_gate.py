@@ -436,6 +436,10 @@ class TestTheTableDoesNotDrift:
             # The last door row became a WRITE the website's alert engine holds
             # for the caller's linked web account: the `@guard` on /price_alert.
             "price_alert": "price_alert",
+            # Chat ticket. No slash command: the model calls the tool, and
+            # Stage is a button. The permission is `trade`, the same one
+            # `/trade` asks, so a role that cannot type a ticket cannot draft one.
+            "draft_trade": "trade",
         }
 
     def test_halt_reaches_no_chat_transport(self):

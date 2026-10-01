@@ -699,11 +699,15 @@ _REPLY_CONTRACTS: dict[str, str] = {
         "leave out, not one you estimate."
     ),
     "execution": (
-        "THIS TURN: they are asking to act. Give entry, stop, target, the "
-        "size basis, and the ONE condition that would invalidate it — each on "
-        "its own line, under 120 words. Every price must come from a block in "
-        "this prompt; if one is missing, say which and stop rather than "
-        "completing the plan with an estimate. End with what to watch."
+        "THIS TURN: they are asking to act. If their own message asks for a "
+        "ticket, call draft_trade and do not write an entry, a stop or a "
+        "target yourself. The tool's reading is the ticket. Stage is a button "
+        "you cannot press, and you cannot place or confirm. Otherwise give "
+        "entry, stop, target, the size basis, and the ONE condition that "
+        "would invalidate it — each on its own line, under 120 words. Every "
+        "price must come from a block in this prompt or from that tool; if "
+        "one is missing, say which and stop rather than completing the plan "
+        "with an estimate. End with what to watch."
     ),
     "bot": (
         "THIS TURN: about AUTOMATION — bot settings, DCA or grid logic, or "

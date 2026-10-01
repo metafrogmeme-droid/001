@@ -1,67 +1,71 @@
 {
   "embed.css": {
-    "sha": "878c429cbd87242e",
-    "v": 6
+    "v": 6,
+    "sha": "878c429cbd87242e"
   },
   "js/agent-page.js": {
-    "sha": "d368ad38000f60e0",
-    "v": 1
+    "v": 1,
+    "sha": "d368ad38000f60e0"
   },
   "js/ambient.js": {
-    "sha": "ef071afddd5042f6",
-    "v": 3
+    "v": 3,
+    "sha": "ef071afddd5042f6"
   },
   "js/anchor_cell.js": {
-    "sha": "4c0941f188bddaa5",
-    "v": 1
+    "v": 1,
+    "sha": "4c0941f188bddaa5"
   },
   "js/app.js": {
-    "sha": "7d42f545580f374e",
-    "v": 15
+    "v": 15,
+    "sha": "7d42f545580f374e"
+  },
+  "js/arb-carry-model.js": {
+    "v": 1,
+    "sha": "da03e9e1ddefd8c4"
   },
   "js/arena-risk-model.js": {
-    "sha": "77d4026436966cf1",
-    "v": 1
+    "v": 1,
+    "sha": "77d4026436966cf1"
   },
   "js/arena_engine.js": {
-    "sha": "f1fbdbc88b0fbf26",
-    "v": 1
+    "v": 1,
+    "sha": "f1fbdbc88b0fbf26"
   },
   "js/basis-note.js": {
-    "sha": "b5e9e3bec0ac5f5c",
-    "v": 1
+    "v": 1,
+    "sha": "b5e9e3bec0ac5f5c"
   },
   "js/chart-read-model.js": {
-    "sha": "3d516039e13a2765",
-    "v": 1
+    "v": 1,
+    "sha": "3d516039e13a2765"
   },
   "js/chartread.js": {
-    "sha": "1ade4bf742b092a5",
-    "v": 7
+    "v": 7,
+    "sha": "1ade4bf742b092a5"
   },
   "js/charts2d.js": {
-    "sha": "80eb4148dded43a9",
-    "v": 1
+    "v": 1,
+    "sha": "80eb4148dded43a9"
   },
   "js/chat-caption.js": {
-    "sha": "8c79f05320d03c22",
-    "v": 1
+    "v": 1,
+    "sha": "8c79f05320d03c22"
   },
   "js/chat.js": {
-    "sha": "302edf651aa02b4f",
-    "v": 37
+    "v": 38,
+    "sha": "544f1300f8b48cbf"
   },
   "js/context-chips-model.js": {
-    "sha": "32218025d6c7a84e",
-    "v": 2
+    "v": 2,
+    "sha": "32218025d6c7a84e"
   },
   "js/copilot-review-model.js": {
-    "sha": "74ac67a7822e9904",
-    "v": 3
+    "v": 3,
+    "sha": "74ac67a7822e9904"
   },
   "js/creds-gate-model.js": {
-    "sha": "062325eb3c39125a",
-    "v": 2
+    "v": 2,
+    "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
     "v": 207,
@@ -76,231 +80,227 @@
     "sha": "4f6c6c648d75dc55"
   },
   "js/duel.js": {
-    "sha": "5dbbfd3297612824",
-    "v": 1
+    "v": 1,
+    "sha": "5dbbfd3297612824"
   },
   "js/embed-arena-view.js": {
-    "sha": "263ddbb234b5a51d",
-    "v": 2
+    "v": 2,
+    "sha": "263ddbb234b5a51d"
   },
   "js/embed-arena.js": {
-    "sha": "3f9563476b68436c",
-    "v": 2
+    "v": 2,
+    "sha": "3f9563476b68436c"
+  },
+  "js/embed-chart.js": {
+    "v": 1,
+    "sha": "30bfbd7fcf31ac51"
   },
   "js/embed-read.js": {
-    "sha": "3d66a71d40da7fd8",
-    "v": 2
+    "v": 2,
+    "sha": "3d66a71d40da7fd8"
   },
   "js/embed-row.js": {
-    "sha": "747299db4fcd7754",
-    "v": 2
+    "v": 2,
+    "sha": "747299db4fcd7754"
   },
   "js/embed-signals.js": {
-    "sha": "e5032e3f09b5281a",
-    "v": 8
+    "v": 8,
+    "sha": "e5032e3f09b5281a"
   },
   "js/engine-card-model.js": {
-    "sha": "31ce3d8da2820312",
-    "v": 3
+    "v": 3,
+    "sha": "31ce3d8da2820312"
   },
   "js/engine-status-model.js": {
-    "sha": "d5bf6c25140efa4f",
-    "v": 1
+    "v": 1,
+    "sha": "d5bf6c25140efa4f"
+  },
+  "js/entry-cards-model.js": {
+    "v": 1,
+    "sha": "d1e7b4fdef7a0136"
   },
   "js/equity-theatre-model.js": {
-    "sha": "d76fe8d70e3259b1",
-    "v": 1
+    "v": 1,
+    "sha": "d76fe8d70e3259b1"
   },
   "js/escape-model.js": {
-    "sha": "5de9d612a36e126a",
-    "v": 2
+    "v": 2,
+    "sha": "5de9d612a36e126a"
   },
   "js/farcaster-ready.js": {
-    "sha": "698644e78976a6da",
-    "v": 3
+    "v": 3,
+    "sha": "698644e78976a6da"
   },
   "js/firewall-model.js": {
-    "sha": "be8d68160630f13d",
-    "v": 1
+    "v": 1,
+    "sha": "be8d68160630f13d"
   },
   "js/guardian-console.js": {
-    "sha": "6df23a41831248fd",
-    "v": 4
+    "v": 4,
+    "sha": "6df23a41831248fd"
   },
   "js/guardian-orbit.js": {
-    "sha": "c2dffd9f3305eabf",
-    "v": 1
+    "v": 1,
+    "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
     "v": 161,
     "sha": "ec583176ee616132"
   },
   "js/icons.js": {
-    "sha": "8d0275ac65342f24",
-    "v": 6
+    "v": 6,
+    "sha": "8d0275ac65342f24"
   },
   "js/instrument-row-model.js": {
-    "sha": "cd65ddb9c8ee7002",
-    "v": 1
+    "v": 1,
+    "sha": "cd65ddb9c8ee7002"
   },
   "js/intent-model.js": {
-    "sha": "d288c395a7e14720",
-    "v": 2
+    "v": 2,
+    "sha": "d288c395a7e14720"
   },
   "js/keccak256.js": {
-    "sha": "2203a64242fc07d5",
-    "v": 1
+    "v": 1,
+    "sha": "2203a64242fc07d5"
   },
   "js/learn-hall.js": {
-    "sha": "35f7ba011c75fae3",
-    "v": 1
+    "v": 1,
+    "sha": "35f7ba011c75fae3"
   },
   "js/mascot3d.js": {
-    "sha": "913fea490b4eec25",
-    "v": 5
+    "v": 5,
+    "sha": "913fea490b4eec25"
   },
   "js/metric-cluster-model.js": {
-    "sha": "df5a16034376c919",
-    "v": 1
+    "v": 1,
+    "sha": "df5a16034376c919"
   },
   "js/miniapp-arena.js": {
-    "sha": "e03fb9b5a2417f94",
-    "v": 1
+    "v": 1,
+    "sha": "e03fb9b5a2417f94"
   },
   "js/miniapp-view.js": {
-    "sha": "50ebb19d4a1813f7",
-    "v": 1
+    "v": 1,
+    "sha": "50ebb19d4a1813f7"
   },
   "js/mode-strip-model.js": {
-    "sha": "8523737307e06ee9",
-    "v": 1
+    "v": 1,
+    "sha": "8523737307e06ee9"
   },
   "js/palette.js": {
-    "sha": "09bd8620572d17f3",
-    "v": 1
+    "v": 1,
+    "sha": "09bd8620572d17f3"
   },
   "js/panel-error-model.js": {
-    "sha": "301378d481241821",
-    "v": 3
+    "v": 3,
+    "sha": "301378d481241821"
   },
   "js/radar3d.js": {
-    "sha": "bcb4a613a57ea9dc",
-    "v": 3
+    "v": 3,
+    "sha": "bcb4a613a57ea9dc"
   },
   "js/referral-tier-model.js": {
-    "sha": "6bd6bb863e2a31b5",
-    "v": 1
+    "v": 1,
+    "sha": "6bd6bb863e2a31b5"
   },
   "js/register-tool.js": {
-    "sha": "341d60f7ecaf7088",
-    "v": 1
+    "v": 1,
+    "sha": "341d60f7ecaf7088"
   },
   "js/reveal.js": {
-    "sha": "04b3822436eb04e1",
-    "v": 1
+    "v": 1,
+    "sha": "04b3822436eb04e1"
   },
   "js/risk-backstop-model.js": {
-    "sha": "6e482731fe53921c",
-    "v": 1
+    "v": 1,
+    "sha": "6e482731fe53921c"
   },
   "js/rune-card.js": {
-    "sha": "a9fef181eb7c9215",
-    "v": 1
+    "v": 1,
+    "sha": "a9fef181eb7c9215"
   },
   "js/sandbox.js": {
-    "sha": "550cc931fed16e08",
-    "v": 1
+    "v": 1,
+    "sha": "550cc931fed16e08"
   },
   "js/shadow-gate-row.js": {
-    "sha": "f3fcfd29d8415b0b",
-    "v": 2
+    "v": 2,
+    "sha": "f3fcfd29d8415b0b"
   },
   "js/signal-chart.js": {
-    "sha": "2e83ab4f03fab28f",
-    "v": 2
-  },
-  "js/solana_wallet.js": {
-    "sha": "e5e508f502c0b3bb",
-    "v": 2
-  },
-  "js/strengthmap.js": {
-    "sha": "bdc0a2b104d65974",
-    "v": 8
-  },
-  "js/stress-model.js": {
-    "sha": "5d27a0aa000d121b",
-    "v": 2
-  },
-  "js/swap-page.js": {
-    "sha": "bbff4870494d760f",
-    "v": 2
-  },
-  "js/swap-sign-model.js": {
-    "sha": "93a650c4329ff1f1",
-    "v": 2
-  },
-  "js/theater.js": {
-    "sha": "2d1bbf1c17554a79",
-    "v": 2
-  },
-  "js/thesis-model.js": {
-    "sha": "b9f6acd93b4feee5",
-    "v": 1
-  },
-  "js/trade-stats.js": {
-    "sha": "231f9b61328696f9",
-    "v": 1
-  },
-  "js/txray-model.js": {
-    "sha": "b0690b36b0422b9b",
-    "v": 1
-  },
-  "js/venue-picker-model.js": {
-    "sha": "761e89248a87aeb5",
-    "v": 2
-  },
-  "js/venue-rows.js": {
-    "sha": "89842fe2d768161f",
-    "v": 1
-  },
-  "js/wallet_picker.js": {
-    "sha": "6f0104bc8dc01e88",
-    "v": 1
-  },
-  "js/winrate-bar.js": {
-    "sha": "2e1bfea3c4b402b8",
-    "v": 1
-  },
-  "styles.css": {
-    "sha": "695e8a62b55f1c9a",
-    "v": 50
-  },
-  "vendor/lightweight-charts.standalone.production.js": {
-    "sha": "c7dda807d662a95b",
-    "v": 1
-  },
-  "js/arb-carry-model.js": {
-    "sha": "da03e9e1ddefd8c4",
-    "v": 1
-  },
-  "js/trade-confirm-model.js": {
-    "sha": "6213dbcd1c04683e",
-    "v": 2
-  },
-  "js/entry-cards-model.js": {
-    "sha": "d1e7b4fdef7a0136",
-    "v": 1
-  },
-  "js/tv-chart.js": {
-    "sha": "35084df81d560864",
-    "v": 1
-  },
-  "js/embed-chart.js": {
-    "sha": "30bfbd7fcf31ac51",
-    "v": 1
+    "v": 2,
+    "sha": "2e83ab4f03fab28f"
   },
   "js/signal-status-model.js": {
-    "sha": "4323d7e984b716e8",
-    "v": 1
+    "v": 1,
+    "sha": "4323d7e984b716e8"
+  },
+  "js/solana_wallet.js": {
+    "v": 2,
+    "sha": "e5e508f502c0b3bb"
+  },
+  "js/strengthmap.js": {
+    "v": 8,
+    "sha": "bdc0a2b104d65974"
+  },
+  "js/stress-model.js": {
+    "v": 2,
+    "sha": "5d27a0aa000d121b"
+  },
+  "js/swap-page.js": {
+    "v": 2,
+    "sha": "bbff4870494d760f"
+  },
+  "js/swap-sign-model.js": {
+    "v": 2,
+    "sha": "93a650c4329ff1f1"
+  },
+  "js/theater.js": {
+    "v": 2,
+    "sha": "2d1bbf1c17554a79"
+  },
+  "js/thesis-model.js": {
+    "v": 1,
+    "sha": "b9f6acd93b4feee5"
+  },
+  "js/trade-confirm-model.js": {
+    "v": 2,
+    "sha": "6213dbcd1c04683e"
+  },
+  "js/trade-stats.js": {
+    "v": 1,
+    "sha": "231f9b61328696f9"
+  },
+  "js/tv-chart.js": {
+    "v": 1,
+    "sha": "35084df81d560864"
+  },
+  "js/txray-model.js": {
+    "v": 1,
+    "sha": "b0690b36b0422b9b"
+  },
+  "js/venue-picker-model.js": {
+    "v": 2,
+    "sha": "761e89248a87aeb5"
+  },
+  "js/venue-rows.js": {
+    "v": 1,
+    "sha": "89842fe2d768161f"
+  },
+  "js/wallet_picker.js": {
+    "v": 1,
+    "sha": "6f0104bc8dc01e88"
+  },
+  "js/winrate-bar.js": {
+    "v": 1,
+    "sha": "2e1bfea3c4b402b8"
+  },
+  "styles.css": {
+    "v": 50,
+    "sha": "695e8a62b55f1c9a"
+  },
+  "vendor/lightweight-charts.standalone.production.js": {
+    "v": 1,
+    "sha": "c7dda807d662a95b"
   }
 }

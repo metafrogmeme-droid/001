@@ -1397,13 +1397,13 @@ second door.
 **Writing that module produced the same defect one layer down, and it was
 fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
 other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
-whole vocabulary plus every chat tool: **54 names including `halt`,
+whole vocabulary plus every chat tool: **55 names including `halt`,
 `close_position` and `emergency_stop`**, on the function whose entire job is
 deciding what the card may promise. (The figure is a live drive of what would
 fall through TODAY, not a note of what it was the day the branch was fixed,
 which is why it moves when the router gains an intent — it was 51 before the
 sweep's own timeframes got rules and 53 before `place_order`.) It answered MORE for an unrecognised
-surface than for the one it modelled best (telegram, 49), because the
+surface than for the one it modelled best (telegram, 50), because the
 unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
 names that are not skills at all. An unmeasured surface is neither "everything"
 nor "nothing": it raises. `public` and `api` are measured — `_chat_tools_for`
@@ -19732,7 +19732,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1197** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1198** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -19958,7 +19958,7 @@ the pending decision, so the backlog reached 9 of 30 registered skills
 (`tests/unreachable_skills_baseline.txt`, same two-way ratchet). Five of them
 were in `bot/skills/macro_skills.py`, each advertising a slash command —
 `/macro`, `/eventrisk`, `/compliance`, `/approve`, `/kill` — that no transport
-reached. The backlog is **5** of 32 registered skills now: `/eventrisk` and
+reached. The backlog is **5** of 33 registered skills now (`draft_trade` is registered and reached from chat, so it is not one of the five): `/eventrisk` and
 `/compliance` are wired, and the deciding question was never "can it run" but
 *who should be able to run it*. `/eventrisk` reuses `macro`, a permission
 trader and paper already hold;

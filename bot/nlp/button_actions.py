@@ -77,6 +77,7 @@ BUTTON_ACTIONS: tuple[str, ...] = (
     "setlimit:",
     "signal_watch_",
     "stance_keep",
+    "stg:",
     "strategy_mode",
     "yld:",
     "yldf:",
@@ -185,6 +186,10 @@ CALLBACK_PERMISSION: dict[str, str] = {
     # `callback_handler`'s `pos_close_` block, which mirrors the OPEN door's
     # H-18 authority.
     "pos_close_": "trade",
+    # Staging writes a pending idea. Placement is still ``confirm:``. ``trade``
+    # is the permission the web stage route asks, so a viewer holding a button
+    # cannot register one.
+    "stg:": "trade",
     "risk_emergency_stop": "halt",
     "risk_pause": "halt",
     "risk_safe_mode": "halt",

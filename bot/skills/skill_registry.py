@@ -4156,6 +4156,8 @@ def build_default_registry() -> SkillRegistry:
                 PlaybookSkill, DeepScanSkill):
         registry.register(cls())
     register_getclaw_wrapper(registry)
+    from bot.nlp.chat_draft import DraftTradeSkill
+    registry.register(DraftTradeSkill())
     # v2 upgrade: macro intelligence, compliance, audit, kill-switch
     for skill in build_v2_skills():
         registry.register(skill)
