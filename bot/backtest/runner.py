@@ -203,6 +203,42 @@ def _tail_bars(bars: list, args: argparse.Namespace) -> list:
     return bars[-n:] if n > 0 else bars
 
 
+def _num_or_none(v):
+    """A real number, or None. A bool is not a measurement, and missing is
+    not zero."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    return float(v) if isinstance(v, float) else v
+
+
+def _text_or_none(v):
+    if v is None:
+        return None
+    return str(v)
+
+
+def public_trade_breakdown(trades) -> list[dict]:
+    """Percent/ratio rows a public scorecard may keep.
+
+    Direction, regime, setup, signal type, exit reason, the position's own
+    ``pnl_pct``, confidence, and the entry bar's volume/average. Dollar
+    fields on the trade stay off this list.
+    """
+    rows: list[dict] = []
+    for t in trades or []:
+        rows.append({
+            "direction": _text_or_none(getattr(t, "direction", None)),
+            "regime": _text_or_none(getattr(t, "entry_regime", None)),
+            "setup": _text_or_none(getattr(t, "setup", None)),
+            "signal_type": _text_or_none(getattr(t, "signal_type", None)),
+            "exit_reason": _text_or_none(getattr(t, "exit_reason", None)),
+            "pnl_pct": _num_or_none(getattr(t, "pnl_pct", None)),
+            "confidence": _num_or_none(getattr(t, "confidence", None)),
+            "volume_spike_ratio": _num_or_none(getattr(t, "volume_spike_ratio", None)),
+        })
+    return rows
+
+
 def _curve_points(result, max_points: int = 300) -> list[dict]:
     """Downsampled [{t, equity}] from a result's equity curve — small enough
     to embed in the --output JSON that the web Strategy Lab renders."""
@@ -1115,7 +1151,10 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
             **result.model_dump(mode="json", exclude={"equity_curve", "trades"}),
             "per_symbol": pb.per_symbol,
             "universe": universe,
-            "equity_curve_points": _curve_points(result)})
+            "equity_curve_points": _curve_points(result),
+            # The public card's trade list. The full ``trades`` dump is
+            # excluded above because it carries dollar fields.
+            "trade_breakdown": public_trade_breakdown(result.trades)})
 
 
 async def _run_walk_forward(args: argparse.Namespace) -> None:

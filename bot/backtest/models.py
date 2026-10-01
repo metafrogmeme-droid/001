@@ -137,6 +137,9 @@ class BacktestTrade(BaseModel):
     entry_regime: str = ""                   # market regime at entry (attribution)
     setup: str = ""                          # strategy_type: scalp/intraday/swing/position
     signal_type: str = ""                    # momentum_confluence / vwap_reversion / ...
+    # Bar volume / rolling average at the entry signal. None when the bar
+    # did not carry a ratio — not 0, which is a real "no spike" reading.
+    volume_spike_ratio: Optional[float] = None
 
 
 class EquityPoint(BaseModel):

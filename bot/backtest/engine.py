@@ -138,6 +138,9 @@ class BacktestEngine:
 
         # Tracking
         self._trades: list[BacktestTrade] = []
+        # Entry-bar volume/average, keyed by idea id, so a close can record
+        # the ratio without a dollar field. Missing stays None.
+        self._volume_ratio_by_idea: dict[str, float | None] = {}
         self._equity_curve: list[EquityPoint] = []
         self._rr_values: list[float] = []  # realized R:R for each closed trade
         self._signals_generated = 0
@@ -275,6 +278,14 @@ class BacktestEngine:
                 pass  # RSI unavailable -> don't reject on it
 
         return False
+
+    def _remember_volume_ratio(self, idea, signal) -> None:
+        """Keep the entry bar's volume/average. A missing ratio stays None."""
+        raw = getattr(signal, "volume_spike_ratio", None)
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            self._volume_ratio_by_idea[getattr(idea, "id", "")] = None
+            return
+        self._volume_ratio_by_idea[idea.id] = float(raw)
 
     def _restore_learning_flags(self) -> None:
         """Give the operator's learning flags back. Idempotent — first call wins.
@@ -521,6 +532,7 @@ class BacktestEngine:
         if idea is None:
             self._ideas_rejected_confidence += 1
             return
+        self._remember_volume_ratio(idea, signal)
 
         # Per-run confidence gate. The walk-forward optimizer sweeps
         # config.confidence_threshold; honor it here as an explicit minimum so the
@@ -807,6 +819,7 @@ class BacktestEngine:
             "idea": idea,
             "risk_verdict": risk_check.verdict.value,
             "entry_regime": _entry_regime,
+            "volume_spike_ratio": self._volume_ratio_by_idea.get(idea.id),
             **trailing,
         }
 
@@ -1094,6 +1107,7 @@ class BacktestEngine:
             entry_regime=bt_meta.get("entry_regime", ""),
             setup=getattr(idea, "strategy_type", ""),
             signal_type=getattr(idea, "signal_type", ""),
+            volume_spike_ratio=bt_meta.get("volume_spike_ratio"),
         )
         self._trades.append(bt_trade)
 
@@ -1401,6 +1415,7 @@ class BacktestEngine:
             entry_regime=bt_meta.get("entry_regime", ""),
             setup=getattr(idea, "strategy_type", ""),
             signal_type=getattr(idea, "signal_type", ""),
+            volume_spike_ratio=bt_meta.get("volume_spike_ratio"),
         )
         self._trades.append(bt_trade)
 
