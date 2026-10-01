@@ -4,12 +4,20 @@
 For each real marketplace Strategy-Agent (``RunStrategySkill.PRESETS``) this runs
 the engine's HONEST frozen-benchmark backtester with that agent's real entry
 gates (confidence / symbols / volume-spike / regime / RSI — see Phase 2a) and
-writes a percent/ratio-only scorecard to ``benchmark/scorecards/<slug>.json``.
+writes a percent/ratio-only scorecard to ``benchmark/scorecards/<slug>.json``
+— the directory the catalogue reads. ``benchmark_root()`` resolves it; a path
+under ``data/`` is the symlink deploy does not commit.
 
 §4-safe by construction: only percent/ratio metrics are recorded — never a
 dollar figure. Every scorecard is stamped with the dataset name + ``dataset_hash``
-+ bar count + the exact gates, so anyone can re-run the identical backtest (in
-the web Strategy Lab or via ``python -m bot.backtest.runner``) and reproduce it.
++ bar count + the exact gates, plus ``code_sha`` and ``recorded_at`` the same
+way ``benchmark/majors_1h/result.json`` is stamped, so anyone can re-run the
+identical backtest (in the web Strategy Lab or via ``python -m bot.backtest.runner``)
+and reproduce it.
+
+The six public metrics are a projection of the runner JSON
+(``project_public_metrics``). A missing runner field stays missing — it is
+not written as zero.
 
 Usage:
     python -m scripts.gen_agent_scorecards            # default dataset/symbols
@@ -27,26 +35,95 @@ import re
 import subprocess
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
+
+from bot.backtest.benchmark_record import code_sha
+from bot.backtest.runner import public_trade_breakdown
+from bot.backtest.snapshot import benchmark_root, default_benchmark_dir
+from bot.compat import UTC
 
 REPO = Path(__file__).resolve().parents[1]
 
 # Percent/ratio metrics only — NEVER a dollar field (§4). These are the keys
-# copied verbatim from the backtester's result into the public scorecard.
+# copied from the backtester's result into the public scorecard.
 _METRIC_KEYS = (
     "total_return_pct", "profit_factor", "win_rate", "max_drawdown_pct",
     "sharpe_ratio", "sortino_ratio", "calmar_ratio", "total_trades",
 )
+
+# The six the public card paints. A projection of the runner JSON, not a
+# second arithmetic.
+PUBLIC_METRICS = (
+    "total_return_pct", "profit_factor", "win_rate",
+    "max_drawdown_pct", "sharpe_ratio", "total_trades",
+)
+
+# Exit-geometry knobs. Listed as unmodeled until ``_gate_args`` actually
+# passes them to the runner.
+_EXIT_KEYS = ("sl_atr_mult", "tp_atr_mult")
 
 
 def _slug(key: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", str(key).lower()).strip("-")
 
 
+def _scorecard_dir() -> Path:
+    """The catalogue's directory, anchored at the repo so a caller whose
+    cwd is not the repo root still writes the tree git can commit."""
+    root = benchmark_root()
+    if not root.is_absolute():
+        root = REPO / root
+    return root / "scorecards"
+
+
+def _as_number(v):
+    """A real number, or None. Missing, bool, and non-numeric stay None —
+    unreadable is not zero."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    return v
+
+
+def project_public_metrics(runner: dict) -> dict:
+    """The six public numbers, read off a runner JSON.
+
+    Floats are rounded to 4 decimal places, the scorecard's published
+    precision. An absent or non-numeric field is None, never 0.
+    """
+    out: dict = {}
+    for key in PUBLIC_METRICS:
+        v = _as_number(runner.get(key) if isinstance(runner, dict) else None)
+        if isinstance(v, float):
+            out[key] = round(v, 4)
+        else:
+            out[key] = v
+    return out
+
+
+def measured_metrics(runner: dict) -> dict:
+    """The runner's own metric block, percent/ratio only, unrounded beyond
+    what the runner already wrote. This is the source ``metrics`` projects."""
+    out: dict = {}
+    for key in _METRIC_KEYS:
+        v = _as_number(runner.get(key) if isinstance(runner, dict) else None)
+        out[key] = v
+    return out
+
+
+def project_metrics(runner: dict) -> dict:
+    """Every published metric, at the scorecard's 4-decimal precision."""
+    out: dict = {}
+    src = measured_metrics(runner)
+    for key, v in src.items():
+        out[key] = round(v, 4) if isinstance(v, float) else v
+    return out
+
+
 def _gate_args(cfg: dict) -> list[str]:
-    """Map a preset's real filters onto the runner's Phase-2a gate flags.
-    Only the gates the backtester faithfully models are emitted; ``sl_atr_mult`` /
-    ``tp_atr_mult`` are recorded as 'unmodeled' by the caller, not applied."""
+    """Map a preset's real filters onto the runner's flags.
+    Exit multiples are emitted because the runner applies them. A multiple
+    this does not emit stays in ``unmodeled``."""
     args: list[str] = []
     if cfg.get("confidence_threshold") is not None:
         args += ["--confidence-threshold", str(cfg["confidence_threshold"])]
@@ -60,7 +137,45 @@ def _gate_args(cfg: dict) -> list[str]:
         args += ["--rsi-min", str(cfg["rsi_min"])]
     if cfg.get("direction"):
         args += ["--direction", str(cfg["direction"])]
+    if cfg.get("sl_atr_mult") is not None:
+        args += ["--sl-atr-mult", str(cfg["sl_atr_mult"])]
+    if cfg.get("tp_atr_mult") is not None:
+        args += ["--tp-atr-mult", str(cfg["tp_atr_mult"])]
     return args
+
+
+def _unmodeled(cfg: dict) -> list[str]:
+    """Exit multiples the runner was not asked to apply. A multiple that
+    ``_gate_args`` emits is in the number; one it does not emit stays named."""
+    emitted = set(_gate_args(cfg))
+    out: list[str] = []
+    if cfg.get("sl_atr_mult") is not None and "--sl-atr-mult" not in emitted:
+        out.append("sl_atr_mult")
+    if cfg.get("tp_atr_mult") is not None and "--tp-atr-mult" not in emitted:
+        out.append("tp_atr_mult")
+    return out
+
+
+def _breakdown_rows(runner: dict) -> list[dict]:
+    """The runner's percent-only trade list. A missing list is not an empty
+    book — the caller refuses to publish."""
+    rows = runner.get("trade_breakdown") if isinstance(runner, dict) else None
+    if not isinstance(rows, list):
+        raise ValueError("runner JSON has no trade_breakdown")
+    # Re-project through the one breakdown function so a runner that stuffed
+    # a dollar key into a row cannot land it on the card.
+    class _Row:
+        def __init__(self, raw: dict):
+            self.direction = raw.get("direction")
+            self.entry_regime = raw.get("regime", raw.get("entry_regime"))
+            self.setup = raw.get("setup")
+            self.signal_type = raw.get("signal_type")
+            self.exit_reason = raw.get("exit_reason")
+            self.pnl_pct = raw.get("pnl_pct")
+            self.confidence = raw.get("confidence")
+            self.volume_spike_ratio = raw.get("volume_spike_ratio")
+
+    return public_trade_breakdown(_Row(r) if isinstance(r, dict) else r for r in rows)
 
 
 def scorecard_gates(cfg: dict) -> dict:
@@ -76,6 +191,42 @@ def scorecard_gates(cfg: dict) -> dict:
     }
 
 
+def build_card(*, preset_key: str, cfg: dict, runner: dict, dataset_name: str,
+               dataset_hash: str, symbols: list[str], last_bars: int,
+               code_sha_value: str | None, recorded_at: str) -> dict:
+    """One scorecard. Metrics are ``project_metrics(runner)`` and nothing else."""
+    rows = _breakdown_rows(runner)
+    n = _as_number(runner.get("total_trades"))
+    if isinstance(n, int) and len(rows) != n:
+        raise ValueError(
+            f"{preset_key}: trade_breakdown has {len(rows)} rows, "
+            f"runner total_trades is {n}")
+    measured = measured_metrics(runner)
+    return {
+        "format": "runeclaw.agent.scorecard.v1",
+        "agent_id": _slug(preset_key),
+        "preset": preset_key,
+        "dataset": dataset_name,
+        "dataset_hash": dataset_hash,
+        "symbols": list(symbols),
+        "bars": last_bars,
+        "gates": scorecard_gates(cfg),
+        "unmodeled": _unmodeled(cfg),
+        # The runner's own figures. ``metrics`` is the projection of this
+        # block; editing one percent without the other fails the check.
+        "measured": measured,
+        "metrics": project_metrics(runner),
+        "trades": rows,
+        "engine": "runeclaw.backtest",
+        "honest": True,
+        "recorded_at": recorded_at,
+        "code_sha": code_sha_value,
+        "note": ("Design backtest on FROZEN benchmark data — percent/ratio "
+                 "only, never a dollar figure. Re-run the identical backtest "
+                 "in the Strategy Lab to reproduce."),
+    }
+
+
 def _run_one(preset_key: str, cfg: dict, dataset: str, symbols: str,
              last_bars: int) -> dict:
     with tempfile.NamedTemporaryFile("r", suffix=".json", delete=False) as tf:
@@ -86,10 +237,10 @@ def _run_one(preset_key: str, cfg: dict, dataset: str, symbols: str,
         "--last-bars", str(last_bars), "--honest", "--strict-data",
         "-o", out_path,
     ] + _gate_args(cfg)
-    print(f"  [{preset_key}] {' '.join(cmd[4:])}")
-    subprocess.run(cmd, check=True, cwd=str(REPO),
-                   stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
-                   timeout=590)
+    print(f"  [{preset_key}] {' '.join(cmd[4:])}", flush=True)
+    proc = subprocess.run(cmd, cwd=str(REPO), timeout=1800)
+    if proc.returncode != 0:
+        raise SystemExit(f"runner failed for {preset_key} (exit {proc.returncode})")
     with open(out_path) as fh:
         res = json.load(fh)
     Path(out_path).unlink(missing_ok=True)
@@ -97,62 +248,44 @@ def _run_one(preset_key: str, cfg: dict, dataset: str, symbols: str,
 
 
 def generate(dataset: str, symbols: str, last_bars: int) -> list[str]:
-    from bot.backtest.snapshot import benchmark_root, load_manifest_multi
+    from bot.backtest.snapshot import load_manifest_multi
     from bot.skills.skill_registry import RunStrategySkill
 
     man = load_manifest_multi(dataset)
     dataset_hash = man.get("dataset_hash", "")
+    if not dataset_hash:
+        raise SystemExit(f"manifest for {dataset} has no dataset_hash")
     dataset_name = Path(dataset).name
     sym_list = [s.strip() for s in symbols.split(",") if s.strip()]
+    stamped_at = datetime.now(UTC).isoformat(timespec="seconds")
+    stamped_sha = code_sha()
 
     # The catalogue reads benchmark/scorecards (the committable tree). Writing
     # under data/benchmark lands on the runtime symlink and the Agents tab
     # keeps serving the previous file.
-    root = benchmark_root()
-    if not root.is_absolute():
-        root = REPO / root
-    out_dir = root / "scorecards"
+    out_dir = _scorecard_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
     for key, cfg in RunStrategySkill.PRESETS.items():
         res = _run_one(key, cfg, dataset, symbols, last_bars)
-        metrics = {}
-        for mk in _METRIC_KEYS:
-            v = res.get(mk)
-            metrics[mk] = round(v, 4) if isinstance(v, (int, float)) else v
-        # Exit-geometry knobs the backtester doesn't model per-run are disclosed,
-        # never silently dropped (honest scoping — see Phase 2a).
-        unmodeled = [k for k in ("sl_atr_mult", "tp_atr_mult")
-                     if cfg.get(k) is not None]
-        card = {
-            "format": "runeclaw.agent.scorecard.v1",
-            "agent_id": _slug(key),
-            "preset": key,
-            "dataset": dataset_name,
-            "dataset_hash": dataset_hash,
-            "symbols": sym_list,
-            "bars": last_bars,
-            "gates": scorecard_gates(cfg),
-            "unmodeled": unmodeled,
-            "metrics": metrics,
-            "engine": "runeclaw.backtest",
-            "honest": True,
-            "note": ("Design backtest on FROZEN benchmark data — percent/ratio "
-                     "only, never a dollar figure. Re-run the identical backtest "
-                     "in the Strategy Lab to reproduce."),
-        }
+        card = build_card(
+            preset_key=key, cfg=cfg, runner=res,
+            dataset_name=dataset_name, dataset_hash=dataset_hash,
+            symbols=sym_list, last_bars=last_bars,
+            code_sha_value=stamped_sha, recorded_at=stamped_at,
+        )
         path = out_dir / f"{card['agent_id']}.json"
         path.write_text(json.dumps(card, indent=2, sort_keys=True) + "\n")
         written.append(str(path.relative_to(REPO)))
         m = card["metrics"]
         print(f"    -> {path.name}: ret {m.get('total_return_pct')}% "
-              f"PF {m.get('profit_factor')} trades {m.get('total_trades')}")
+              f"PF {m.get('profit_factor')} trades {m.get('total_trades')}",
+              flush=True)
     return written
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    from bot.backtest.snapshot import default_benchmark_dir
     ap.add_argument("--dataset", default=default_benchmark_dir())
     ap.add_argument("--symbols",
                     default="BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT")

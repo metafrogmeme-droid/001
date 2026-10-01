@@ -203,6 +203,42 @@ def _tail_bars(bars: list, args: argparse.Namespace) -> list:
     return bars[-n:] if n > 0 else bars
 
 
+def _num_or_none(v):
+    """A real number, or None. A bool is not a measurement, and missing is
+    not zero."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    return float(v) if isinstance(v, float) else v
+
+
+def _text_or_none(v):
+    if v is None:
+        return None
+    return str(v)
+
+
+def public_trade_breakdown(trades) -> list[dict]:
+    """Percent/ratio rows a public scorecard may keep.
+
+    Direction, regime, setup, signal type, exit reason, the position's own
+    ``pnl_pct``, confidence, and the entry bar's volume/average. Dollar
+    fields on the trade stay off this list.
+    """
+    rows: list[dict] = []
+    for t in trades or []:
+        rows.append({
+            "direction": _text_or_none(getattr(t, "direction", None)),
+            "regime": _text_or_none(getattr(t, "entry_regime", None)),
+            "setup": _text_or_none(getattr(t, "setup", None)),
+            "signal_type": _text_or_none(getattr(t, "signal_type", None)),
+            "exit_reason": _text_or_none(getattr(t, "exit_reason", None)),
+            "pnl_pct": _num_or_none(getattr(t, "pnl_pct", None)),
+            "confidence": _num_or_none(getattr(t, "confidence", None)),
+            "volume_spike_ratio": _num_or_none(getattr(t, "volume_spike_ratio", None)),
+        })
+    return rows
+
+
 def _curve_points(result, max_points: int = 300) -> list[dict]:
     """Downsampled [{t, equity}] from a result's equity curve — small enough
     to embed in the --output JSON that the web Strategy Lab renders."""
@@ -306,6 +342,8 @@ def _preset_gate_kwargs(args: argparse.Namespace) -> dict:
         "rsi_max": getattr(args, "rsi_max", None),
         "rsi_min": getattr(args, "rsi_min", None),
         "direction": getattr(args, "direction", "") or "",
+        "sl_atr_mult": getattr(args, "sl_atr_mult", None),
+        "tp_atr_mult": getattr(args, "tp_atr_mult", None),
     }
 
 
@@ -644,18 +682,25 @@ Examples:
     # filters on frozen data. All default OFF (unset = no-op), so a normal run
     # is unchanged. See BacktestConfig / _rejected_by_preset_gate.
     trade_group.add_argument("--volume-spike-min", type=float, default=None,
-                             help="Only enter when the bar's volume/rolling-avg ratio >= this "
-                                  "(or the spike flag). Mirrors 'momentum hunter' (vol spike > 3x).")
+                             help="Only enter when the bar's volume/rolling-avg ratio >= this. "
+                                  "The 2x boolean spike flag does not pass a higher minimum.")
     trade_group.add_argument("--regime-filter", type=str, default="",
                              help="Only enter when the analyzer's per-symbol regime equals this "
                                   "(e.g. TREND_DOWN for 'dip sniper', TREND_UP for momentum).")
     trade_group.add_argument("--rsi-max", type=float, default=None,
-                             help="Only enter when RSI(14) over the window is <= this.")
+                             help="A LONG enters only when RSI(14) is <= this "
+                                  "(the dip). A short is not filtered by it.")
     trade_group.add_argument("--rsi-min", type=float, default=None,
                              help="Only enter when RSI(14) over the window is >= this. "
                                   "Dip Sniper stands aside while RSI is still at capitulation.")
     trade_group.add_argument("--direction", type=str, default="",
                              help="long_only or short_only. Empty admits either side.")
+    trade_group.add_argument("--sl-atr-mult", type=float, default=None,
+                             help="Replace the idea's stop with this many ATRs from entry. "
+                                  "Unset leaves the analyzer's stop.")
+    trade_group.add_argument("--tp-atr-mult", type=float, default=None,
+                             help="Replace the idea's target with this many ATRs from entry. "
+                                  "Unset leaves the analyzer's target.")
     trade_group.add_argument("--fill-mode", choices=("close", "next_open"), default="close",
                              help="Entry fill convention: same-bar close (legacy, optimistic) "
                                   "or next-bar open (conservative; audit fix #15). Run both "
@@ -1121,7 +1166,10 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
             **result.model_dump(mode="json", exclude={"equity_curve", "trades"}),
             "per_symbol": pb.per_symbol,
             "universe": universe,
-            "equity_curve_points": _curve_points(result)})
+            "equity_curve_points": _curve_points(result),
+            # The public card's trade list. The full ``trades`` dump is
+            # excluded above because it carries dollar fields.
+            "trade_breakdown": public_trade_breakdown(result.trades)})
 
 
 async def _run_walk_forward(args: argparse.Namespace) -> None:

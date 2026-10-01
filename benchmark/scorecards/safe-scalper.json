@@ -1,6 +1,7 @@
 {
   "agent_id": "safe-scalper",
   "bars": 1500,
+  "code_sha": "baecea5b4d7168996c65d8645cfc410d3043f3c0",
   "dataset": "majors_1h",
   "dataset_hash": "8dbe73514ce8d2aeecd767a193c005cd1a179221bdce5df2cbe4ded2886bde36",
   "engine": "runeclaw.backtest",
@@ -15,25 +16,45 @@
     "volume_spike_min": null
   },
   "honest": true,
+  "measured": {
+    "calmar_ratio": -5.97,
+    "max_drawdown_pct": 0.18,
+    "profit_factor": 0.0,
+    "sharpe_ratio": -11.41,
+    "sortino_ratio": 0.0,
+    "total_return_pct": -0.18,
+    "total_trades": 1,
+    "win_rate": 0.0
+  },
   "metrics": {
-    "calmar_ratio": 21.71,
-    "max_drawdown_pct": 1.0,
-    "profit_factor": 4.68,
-    "sharpe_ratio": 2.29,
-    "sortino_ratio": 2.29,
-    "total_return_pct": 3.72,
-    "total_trades": 8,
-    "win_rate": 0.625
+    "calmar_ratio": -5.97,
+    "max_drawdown_pct": 0.18,
+    "profit_factor": 0.0,
+    "sharpe_ratio": -11.41,
+    "sortino_ratio": 0.0,
+    "total_return_pct": -0.18,
+    "total_trades": 1,
+    "win_rate": 0.0
   },
   "note": "Design backtest on FROZEN benchmark data \u2014 percent/ratio only, never a dollar figure. Re-run the identical backtest in the Strategy Lab to reproduce.",
   "preset": "safe scalper",
+  "recorded_at": "2026-10-01T16:18:03+00:00",
   "symbols": [
     "BTC/USDT:USDT",
     "ETH/USDT:USDT",
     "SOL/USDT:USDT"
   ],
-  "unmodeled": [
-    "sl_atr_mult",
-    "tp_atr_mult"
-  ]
+  "trades": [
+    {
+      "confidence": 0.85,
+      "direction": "SHORT",
+      "exit_reason": "TIME_STOP",
+      "pnl_pct": -0.34,
+      "regime": "EXPANSION",
+      "setup": "scalp",
+      "signal_type": "momentum_confluence",
+      "volume_spike_ratio": 2.133
+    }
+  ],
+  "unmodeled": []
 }

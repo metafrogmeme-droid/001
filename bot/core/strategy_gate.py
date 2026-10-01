@@ -33,6 +33,24 @@ def _base(sym: str) -> str:
     return s
 
 
+def volume_ratio_clears(ratio: Any, minimum: Any) -> bool:
+    """True only when the measured volume/average is at least ``minimum``.
+
+    The 2× boolean spike flag is not this ratio. An unreadable ratio does
+    not clear a 3× gate, and a missing minimum is not a pass.
+    """
+    if isinstance(ratio, bool) or not isinstance(ratio, (int, float)):
+        return False
+    if isinstance(minimum, bool) or not isinstance(minimum, (int, float)):
+        return False
+    return float(ratio) >= float(minimum)
+
+
+def signal_clears_volume_min(signal: Any, minimum: Any) -> bool:
+    """The scan filter and the backtest gate share this reading."""
+    return volume_ratio_clears(getattr(signal, "volume_spike_ratio", None), minimum)
+
+
 def resolve_key(raw, presets, aliases) -> Optional[str]:
     """slug ('dip-sniper') | alias ('dip') | key ('dip sniper') → canonical
     preset key, or None. The web and Telegram surfaces speak different

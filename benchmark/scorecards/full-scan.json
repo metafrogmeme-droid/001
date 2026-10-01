@@ -1,6 +1,7 @@
 {
   "agent_id": "full-scan",
   "bars": 1500,
+  "code_sha": "baecea5b4d7168996c65d8645cfc410d3043f3c0",
   "dataset": "majors_1h",
   "dataset_hash": "8dbe73514ce8d2aeecd767a193c005cd1a179221bdce5df2cbe4ded2886bde36",
   "engine": "runeclaw.backtest",
@@ -15,6 +16,16 @@
     "volume_spike_min": null
   },
   "honest": true,
+  "measured": {
+    "calmar_ratio": -5.58,
+    "max_drawdown_pct": 5.48,
+    "profit_factor": 0.19,
+    "sharpe_ratio": -5.39,
+    "sortino_ratio": -1.4,
+    "total_return_pct": -5.24,
+    "total_trades": 14,
+    "win_rate": 0.4286
+  },
   "metrics": {
     "calmar_ratio": -5.58,
     "max_drawdown_pct": 5.48,
@@ -27,10 +38,153 @@
   },
   "note": "Design backtest on FROZEN benchmark data \u2014 percent/ratio only, never a dollar figure. Re-run the identical backtest in the Strategy Lab to reproduce.",
   "preset": "full scan",
+  "recorded_at": "2026-10-01T16:18:03+00:00",
   "symbols": [
     "BTC/USDT:USDT",
     "ETH/USDT:USDT",
     "SOL/USDT:USDT"
+  ],
+  "trades": [
+    {
+      "confidence": 0.64,
+      "direction": "LONG",
+      "exit_reason": "TP1",
+      "pnl_pct": 1.78,
+      "regime": "RANGE",
+      "setup": "swing",
+      "signal_type": "volume_spike",
+      "volume_spike_ratio": 3.032
+    },
+    {
+      "confidence": 0.64,
+      "direction": "LONG",
+      "exit_reason": "TP2",
+      "pnl_pct": 2.99,
+      "regime": "RANGE",
+      "setup": "swing",
+      "signal_type": "volume_spike",
+      "volume_spike_ratio": 3.032
+    },
+    {
+      "confidence": 0.79,
+      "direction": "SHORT",
+      "exit_reason": "SL",
+      "pnl_pct": -1.74,
+      "regime": "TREND_DOWN",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "volume_spike_ratio": 1.206
+    },
+    {
+      "confidence": 0.64,
+      "direction": "LONG",
+      "exit_reason": "TRAILING_SL",
+      "pnl_pct": 2.72,
+      "regime": "RANGE",
+      "setup": "swing",
+      "signal_type": "volume_spike",
+      "volume_spike_ratio": 3.032
+    },
+    {
+      "confidence": 0.65,
+      "direction": "LONG",
+      "exit_reason": "SL",
+      "pnl_pct": -0.9,
+      "regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "volume_spike_ratio": 0.385
+    },
+    {
+      "confidence": 0.65,
+      "direction": "LONG",
+      "exit_reason": "SL",
+      "pnl_pct": 0.14,
+      "regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "momentum_confluence",
+      "volume_spike_ratio": 1.149
+    },
+    {
+      "confidence": 0.71,
+      "direction": "LONG",
+      "exit_reason": "SL",
+      "pnl_pct": -0.73,
+      "regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "volume_spike_ratio": 0.445
+    },
+    {
+      "confidence": 0.81,
+      "direction": "LONG",
+      "exit_reason": "SL",
+      "pnl_pct": 0.1,
+      "regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "volume_spike",
+      "volume_spike_ratio": 3.654
+    },
+    {
+      "confidence": 0.76,
+      "direction": "LONG",
+      "exit_reason": "SL",
+      "pnl_pct": 0.36,
+      "regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "momentum_confluence",
+      "volume_spike_ratio": 0.474
+    },
+    {
+      "confidence": 0.65,
+      "direction": "LONG",
+      "exit_reason": "SL",
+      "pnl_pct": -1.13,
+      "regime": "RANGE",
+      "setup": "swing",
+      "signal_type": "momentum_confluence",
+      "volume_spike_ratio": 0.497
+    },
+    {
+      "confidence": 0.87,
+      "direction": "SHORT",
+      "exit_reason": "SL",
+      "pnl_pct": 0.27,
+      "regime": "EXPANSION",
+      "setup": "swing",
+      "signal_type": "momentum_confluence",
+      "volume_spike_ratio": 0.551
+    },
+    {
+      "confidence": 0.7,
+      "direction": "SHORT",
+      "exit_reason": "SL",
+      "pnl_pct": -1.39,
+      "regime": "TREND_DOWN",
+      "setup": "swing",
+      "signal_type": "momentum_confluence",
+      "volume_spike_ratio": 2.197
+    },
+    {
+      "confidence": 0.69,
+      "direction": "SHORT",
+      "exit_reason": "SL",
+      "pnl_pct": -1.67,
+      "regime": "TREND_DOWN",
+      "setup": "swing",
+      "signal_type": "momentum_confluence",
+      "volume_spike_ratio": 1.237
+    },
+    {
+      "confidence": 0.7,
+      "direction": "SHORT",
+      "exit_reason": "SL",
+      "pnl_pct": -2.63,
+      "regime": "TREND_DOWN",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "volume_spike_ratio": 0.835
+    }
   ],
   "unmodeled": []
 }

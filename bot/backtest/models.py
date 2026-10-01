@@ -54,11 +54,14 @@ class BacktestConfig(BaseModel):
     # default OFF (None/"") — an unset gate is a strict no-op, so existing runs
     # stay byte-identical. When set they mirror the live RunStrategySkill preset
     # filters so a NAMED agent backtests with its real entry semantics:
-    #   volume_spike_min — require the bar's volume/rolling-avg ratio >= this
-    #     (or the boolean spike flag), matching "momentum hunter" (vol spike > 3x).
+    #   volume_spike_min — require the bar's volume/rolling-avg ratio >= this.
+    #     The 2× boolean spike flag does not pass a higher minimum. "momentum
+    #     hunter" is vol spike > 3x.
     #   regime_filter — only enter when the analyzer's per-symbol regime equals
     #     this (e.g. "TREND_DOWN" for "dip sniper", "TREND_UP" for momentum).
-    #   rsi_max — only enter when RSI(14) over the window is <= this.
+    #   rsi_max — a LONG enters only when RSI(14) over the window is <= this
+    #     (the capitulation dip). A SHORT is not that dip, so the bound does
+    #     not apply to it.
     #   rsi_min — only enter when RSI(14) is >= this. Dip Sniper uses it so a
     #     downtrend short stands aside while RSI is still at capitulation
     #     (the oversold print that bounces into the stop).
@@ -70,6 +73,12 @@ class BacktestConfig(BaseModel):
     rsi_max: Optional[float] = None
     rsi_min: Optional[float] = None
     direction: str = ""
+    # Exit geometry a named preset states in ATR multiples. None leaves the
+    # analyzer's own stop and target. Set, they replace those levels from
+    # the backtest window's ATR before the risk gate sees the idea, so the
+    # number includes the multiple. An unreadable ATR does not invent one.
+    sl_atr_mult: Optional[float] = None
+    tp_atr_mult: Optional[float] = None
     # Entry fill convention (audit fix #15). "close" = fill at the same bar's
     # close that generated the signal (legacy; optimistic — assumes you can
     # transact at the closing print). "next_open" = queue the approved idea and
@@ -144,6 +153,9 @@ class BacktestTrade(BaseModel):
     entry_regime: str = ""                   # market regime at entry (attribution)
     setup: str = ""                          # strategy_type: scalp/intraday/swing/position
     signal_type: str = ""                    # momentum_confluence / vwap_reversion / ...
+    # Bar volume / rolling average at the entry signal. None when the bar
+    # did not carry a ratio — not 0, which is a real "no spike" reading.
+    volume_spike_ratio: Optional[float] = None
 
 
 class EquityPoint(BaseModel):

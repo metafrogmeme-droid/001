@@ -24,6 +24,7 @@ from bot.core.analyzer import Analyzer
 from bot.core.leverage import apply_margin_risk_cap
 from bot.core.limit_entry import resting_limit_drift
 from bot.core.partial_tp import _tp1_lock, _tp2_lock
+from bot.core.strategy_gate import signal_clears_volume_min
 from bot.risk.risk_engine import RiskEngine
 from bot.risk.portfolio import PortfolioTracker
 from bot.utils.logger import audit, system_log, trade_log
@@ -146,6 +147,12 @@ class BacktestEngine:
 
         # Tracking
         self._trades: list[BacktestTrade] = []
+        # Entry-bar volume/average, keyed by idea id, so a close can record
+        # the ratio without a dollar field. Missing stays None.
+        self._volume_ratio_by_idea: dict[str, float | None] = {}
+        # ATR the preset exit multiples were applied with, keyed by idea id,
+        # so the trail reads that ATR instead of backing it out of the stop.
+        self._preset_atr_by_idea: dict[str, float] = {}
         self._equity_curve: list[EquityPoint] = []
         self._rr_values: list[float] = []  # realized R:R for each closed trade
         self._signals_generated = 0
@@ -243,11 +250,13 @@ class BacktestEngine:
         agent backtests with its REAL entry semantics (see BacktestConfig):
 
           * ``volume_spike_min`` — require the bar's volume/rolling-avg ratio
-            ``>=`` this, OR the boolean spike flag (matches the live
-            ``volume_spike_ratio >= min or volume_spike`` filter).
+            ``>=`` this. The 2× boolean spike flag is not a pass of a higher
+            minimum (the live ``/run`` filter uses the same reading).
           * ``regime_filter`` — only enter when the analyzer's per-symbol regime
             equals this (case-insensitive), e.g. ``TREND_DOWN`` / ``TREND_UP``.
-          * ``rsi_max`` — only enter when RSI(14) over the window is ``<=`` this.
+          * ``rsi_max`` — a LONG enters only when RSI(14) over the window is
+            ``<=`` this (the capitulation dip). A SHORT is not a dip buy, so
+            the bound does not apply to it. An unreadable side is rejected.
           * ``rsi_min`` — only enter when that RSI is ``>=`` this. A short at
             or under the dip line is the capitulation print; the stop is where
             the bounce fills.
@@ -274,10 +283,8 @@ class BacktestEngine:
             if got != want:
                 return True
 
-        if vmin is not None:
-            ratio = float(getattr(signal, "volume_spike_ratio", 0.0) or 0.0)
-            if ratio < float(vmin) and not getattr(signal, "volume_spike", False):
-                return True
+        if vmin is not None and not signal_clears_volume_min(signal, vmin):
+            return True
 
         if regime_want:
             try:
@@ -289,19 +296,70 @@ class BacktestEngine:
                 return True
 
         if (rsi_max is not None or rsi_min is not None) and len(window) >= 15:
-            try:
-                import numpy as _np
-                from bot.core.ta_utils import rsi_series
-                closes = _np.asarray([b.close for b in window], dtype=float)
-                rsi_now = float(rsi_series(closes)[-1])
-                if rsi_max is not None and rsi_now > float(rsi_max):
-                    return True
-                if rsi_min is not None and rsi_now < float(rsi_min):
-                    return True
-            except Exception:
-                pass  # RSI unavailable -> don't reject on it
+            side = getattr(getattr(idea, "direction", None), "value", None)
+            side = str(side).strip().upper() if side else ""
+            # rsi_max is the long's capitulation ceiling. A short is not that
+            # dip, so the ceiling does not apply. An unreadable side is not a long.
+            apply_max = rsi_max is not None and side != "SHORT"
+            if apply_max and side != "LONG":
+                return True
+            if apply_max or rsi_min is not None:
+                try:
+                    import numpy as _np
+                    from bot.core.ta_utils import rsi_series
+                    closes = _np.asarray([b.close for b in window], dtype=float)
+                    rsi_now = float(rsi_series(closes)[-1])
+                    # `apply_max` already means rsi_max is set, but mypy does not
+                    # carry that across the bool. The same-expression check is
+                    # the narrowing; it does not treat a missing ceiling as 0.
+                    if apply_max and rsi_max is not None and rsi_now > float(rsi_max):
+                        return True
+                    if rsi_min is not None and rsi_now < float(rsi_min):
+                        return True
+                except Exception:
+                    pass  # RSI unavailable -> don't reject on it
 
         return False
+
+    def _remember_volume_ratio(self, idea, signal) -> None:
+        """Keep the entry bar's volume/average. A missing ratio stays None."""
+        raw = getattr(signal, "volume_spike_ratio", None)
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            self._volume_ratio_by_idea[getattr(idea, "id", "")] = None
+            return
+        self._volume_ratio_by_idea[idea.id] = float(raw)
+
+    def _apply_preset_exits(self, idea, atr_value):
+        """Replace stop and target with the preset's ATR multiples.
+
+        Returns the idea unchanged when neither multiple is set, or None
+        when a multiple is set and the ATR cannot be read. None is a
+        rejection: the fill must not proceed on the analyzer's levels.
+        """
+        sl_m = getattr(self.config, "sl_atr_mult", None)
+        tp_m = getattr(self.config, "tp_atr_mult", None)
+        if sl_m is None and tp_m is None:
+            return idea
+        if isinstance(atr_value, bool) or not isinstance(atr_value, (int, float)):
+            return None
+        atr = float(atr_value)
+        if atr <= 0 or atr != atr or atr == float("inf"):
+            return None
+        entry = float(idea.entry_price)
+        long = idea.direction == Direction.LONG
+        updates: dict = {}
+        if sl_m is not None:
+            dist = float(sl_m) * atr
+            updates["stop_loss"] = entry - dist if long else entry + dist
+        if tp_m is not None:
+            dist = float(tp_m) * atr
+            updates["take_profit"] = entry + dist if long else entry - dist
+        try:
+            revised = idea.model_copy(update=updates)
+        except Exception:
+            return None
+        self._preset_atr_by_idea[idea.id] = atr
+        return revised
 
     def _restore_learning_flags(self) -> None:
         """Give the operator's learning flags back. Idempotent — first call wins.
@@ -548,6 +606,7 @@ class BacktestEngine:
         if idea is None:
             self._ideas_rejected_confidence += 1
             return
+        self._remember_volume_ratio(idea, signal)
 
         # Per-run confidence gate. The walk-forward optimizer sweeps
         # config.confidence_threshold; honor it here as an explicit minimum so the
@@ -579,6 +638,15 @@ class BacktestEngine:
                 tr = max(h - l, abs(h - pc), abs(l - pc))
                 true_ranges.append(tr)
             atr_value = sum(true_ranges) / len(true_ranges)
+
+        # A preset that names its own ATR stop and target replaces the
+        # analyzer's levels before the risk gate sizes the idea. No multiples
+        # configured is the idea unchanged. An unreadable ATR is a rejection,
+        # not a fill at the analyzer's stop while the card claims the multiple.
+        idea = self._apply_preset_exits(idea, atr_value)
+        if idea is None:
+            self._ideas_rejected_preset += 1
+            return
 
         # 4b. Risk gate (same as live). BT-H2: pass bar time for session sizing.
         # Regime-aware sizing (gated, same bridge as live): set the analyzer's
@@ -813,9 +881,16 @@ class BacktestEngine:
 
         # STRATEGY: trailing stop after 1R profit -- use shared utility
         initial_risk = abs(idea.entry_price - idea.stop_loss)
-        # M2 fix: read sl_mult from config instead of hardcoding
-        sl_mult = CONFIG.analyzer.sl_atr_mult_default
-        canonical_atr = initial_risk / sl_mult if initial_risk > 0 else idea.entry_price * 0.02
+        # M2 fix: read sl_mult from config instead of hardcoding.
+        # A preset that replaced the stop with its own ATR multiple stores
+        # that ATR; backing it out of the new stop with the default multiple
+        # would hand the trail a different ATR than the stop was built from.
+        preset_atr = self._preset_atr_by_idea.get(idea.id)
+        if preset_atr is not None:
+            canonical_atr = preset_atr
+        else:
+            sl_mult = CONFIG.analyzer.sl_atr_mult_default
+            canonical_atr = initial_risk / sl_mult if initial_risk > 0 else idea.entry_price * 0.02
         trailing = make_trailing_state(adjusted_entry, idea.direction.value, initial_risk, canonical_atr)
         trailing["entry_price"] = adjusted_entry
         # Capture the entry regime for P&L attribution (which regimes actually
@@ -834,6 +909,7 @@ class BacktestEngine:
             "idea": idea,
             "risk_verdict": risk_check.verdict.value,
             "entry_regime": _entry_regime,
+            "volume_spike_ratio": self._volume_ratio_by_idea.get(idea.id),
             **trailing,
         }
 
@@ -1121,6 +1197,7 @@ class BacktestEngine:
             entry_regime=bt_meta.get("entry_regime", ""),
             setup=getattr(idea, "strategy_type", ""),
             signal_type=getattr(idea, "signal_type", ""),
+            volume_spike_ratio=bt_meta.get("volume_spike_ratio"),
         )
         self._trades.append(bt_trade)
 
@@ -1428,6 +1505,7 @@ class BacktestEngine:
             entry_regime=bt_meta.get("entry_regime", ""),
             setup=getattr(idea, "strategy_type", ""),
             signal_type=getattr(idea, "signal_type", ""),
+            volume_spike_ratio=bt_meta.get("volume_spike_ratio"),
         )
         self._trades.append(bt_trade)
 
