@@ -3,7 +3,8 @@
  * The Agent Letter: ISO-week math, deterministic composition from recorded
  * data (honest empty states, losing weeks read like losing weeks), lazy
  * once-per-week generation with a single push announcement, the REST
- * surface, and the chat intercept.
+ * surface. Website chat does not compose the letter itself: those words
+ * wait for the shared letter door. The panel's own route still serves it.
  */
 process.env.JWT_SECRET = 'j'.repeat(64);
 delete process.env.DATABASE_URL;
@@ -200,16 +201,23 @@ test('REST: latest + archive + specific week; anonymous rejected', async () => {
   assert.equal(missing.status, 404);
 });
 
-test('chat: "this week\'s letter" returns the letter; other text proxies', async () => {
+// The weekly letter from chat is the shared letter door, so these words
+// reach the bot. This file leaves the gateway unconfigured, which is the
+// down bot: the reply is 503 and nothing here was composed for the turn.
+// The panel's own route still serves the letter.
+
+test('chat: "this week\'s letter" waits for the bot; the panel route still serves', async () => {
   const token = await newUser();
   const r = await req('POST', '/api/chat', {
     token, body: { text: "show me this week's letter" },
   });
-  assert.equal(r.status, 200);
-  assert.equal(r.data.intent, 'letter');
-  assert.match(r.data.reply_html, /The Agent Letter — \d{4}-W\d{2}/);
-  assert.match(r.data.reply_html, /Looking ahead/);
+  assert.equal(r.status, 503);
+  assert.equal(r.data.intent, undefined);
+
+  const latest = await req('GET', '/api/letter/latest', { token });
+  assert.equal(latest.status, 200);
+  assert.match(latest.data.letter.week_key, /^\d{4}-W\d{2}$/);
 
   const other = await req('POST', '/api/chat', { token, body: { text: 'read me a poem' } });
-  assert.equal(other.status, 503);   // unconfigured bot proxy
+  assert.equal(other.status, 503);
 });

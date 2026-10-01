@@ -29,8 +29,9 @@ STAGES: tuple[str, ...] = (
 
 #: Website intercepts that now ride the shared door. The command
 #: catalogue's own sentence is what the capability card says, so the
-#: card and ``/price_alert`` cannot describe two different things.
-SHARED_DOORS: tuple[str, ...] = ("price_alert",)
+#: card and the slash command cannot describe two different things.
+#: Order is the order each family left the Node table.
+SHARED_DOORS: tuple[str, ...] = ("price_alert", "letter")
 
 
 def firewall_block_notice(categories: object, *, newlines: bool) -> str:

@@ -160,7 +160,7 @@ test('replay: the route answers the intercept\'s card for the same stake, defaul
 });
 
 test('letter: the last completed week, the same card', async () => {
-  const web = await letter.maybeHandleLetterChat(1, "this week's letter");
+  const web = await letter.letterChatCard();
   const r = await card('/api/bot/sync/card/letter');
   assert.equal(r.status, 200);
   assert.deepEqual(r.data, { reply_html: web.reply_html, intent: 'letter' });

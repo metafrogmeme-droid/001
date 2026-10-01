@@ -354,8 +354,14 @@ class PortfolioCommands:
         await self._send(update, await self.letter_card_text())
 
     async def letter_card_text(self, *, surface: str = "telegram") -> str:
-        """The weekly letter card — the website's own rendering, both surfaces."""
-        return await self._web_card_text("letter", surface=surface)
+        """The weekly letter card — the website's own rendering, both surfaces.
+
+        ``surface="web"`` keeps the card's own markup. Telegram's tag strip
+        turns ``<br>`` into a newline a browser collapses, which is right on
+        Telegram and wrong on the page that used to render this card itself.
+        """
+        return await self._web_card_text(
+            "letter", surface=surface, keep_markup=(surface == "web"))
 
     @guard("wallet")
     async def _cmd_wallet(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE,
