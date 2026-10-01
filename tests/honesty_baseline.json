@@ -53,7 +53,7 @@
       "scripts/live_deep_analysis.py": 3
     },
     "getattr-default-zero": {
-      "bot/backtest/engine.py": 3,
+      "bot/backtest/engine.py": 2,
       "bot/backtest/runner.py": 5,
       "bot/backtest/walk_forward.py": 4,
       "bot/core/analyzer.py": 7,
@@ -70,7 +70,7 @@
       "bot/skills/chart_renderer.py": 3,
       "bot/skills/scan_commands.py": 2,
       "bot/skills/scan_skill.py": 4,
-      "bot/skills/skill_registry.py": 4,
+      "bot/skills/skill_registry.py": 3,
       "bot/skills/trading_commands.py": 2,
       "bot/web/dashboard_server.py": 1,
       "bot/web/user_gateway.py": 9
@@ -91,7 +91,7 @@
       "bot/skills/portfolio_commands.py": 1
     },
     "or-zero-coerce": {
-      "bot/backtest/engine.py": 4,
+      "bot/backtest/engine.py": 3,
       "bot/backtest/runner.py": 2,
       "bot/backtest/scorecard.py": 2,
       "bot/backtest/walk_forward.py": 6,
