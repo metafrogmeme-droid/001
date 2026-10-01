@@ -309,7 +309,10 @@ class BacktestEngine:
                     from bot.core.ta_utils import rsi_series
                     closes = _np.asarray([b.close for b in window], dtype=float)
                     rsi_now = float(rsi_series(closes)[-1])
-                    if apply_max and rsi_now > float(rsi_max):
+                    # `apply_max` already means rsi_max is set, but mypy does not
+                    # carry that across the bool. The same-expression check is
+                    # the narrowing; it does not treat a missing ceiling as 0.
+                    if apply_max and rsi_max is not None and rsi_now > float(rsi_max):
                         return True
                     if rsi_min is not None and rsi_now < float(rsi_min):
                         return True
