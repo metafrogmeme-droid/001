@@ -38,8 +38,15 @@ test('§4: the page renders percent/ratio only — no dollar figure', () => {
   // no money formatter. (A regex end-anchor like {0,63}$ is fine.)
   assert.ok(!/\$\s*[0-9{]|'\$'|"\$"|fmtMoney|toLocaleString/.test(html),
     'strategy page must not render a dollar figure');
-  // the scorecard tiles are the verified percent/ratio metrics
-  assert.match(html, /total_return_pct/);
+  // The six tiles are painted by agent-scorecard.js, which this page loads.
+  // The field names live there so the dashboard and this page share one reading.
+  assert.match(html, /agent-scorecard\.js/);
+  assert.match(html, /AgentScorecard\.readings/);
+  const reading = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'agent-scorecard.js'), 'utf8');
+  assert.match(reading, /total_return_pct/);
+  assert.match(reading, /profit_factor/);
+  assert.match(reading, /max_drawdown_pct/);
+  assert.match(reading, /sharpe_ratio/);
   assert.match(html, /Frozen backtest/);
 });
 

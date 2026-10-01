@@ -28,10 +28,10 @@
   .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: var(--s3) 0 0; }
   .chip { display: inline-flex; align-items: center; font-size: var(--fs-xs); padding: 3px 10px; border-radius: 999px; font-family: var(--font-data); background: var(--surface-2); color: var(--text-2); border: 1px solid var(--line-2); }
   .sc { border-top: 1px solid var(--line); margin-top: var(--s4); padding-top: var(--s4); }
-  .sc-grid { display: flex; gap: var(--s4); flex-wrap: wrap; }
-  .sc-tile { min-width: 84px; }
+  .sc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s2) var(--s3); align-items: start; }
+  .sc-tile { min-width: 0; }
   .sc-tile .k { font-size: 10px; text-transform: uppercase; letter-spacing: .03em; color: var(--text-3); }
-  .sc-tile .v { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: var(--fs-lg); font-weight: 600; }
+  .sc-tile .v { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: var(--fs-lg); font-weight: 600; white-space: nowrap; }
   .v.up { color: var(--up); } .v.down { color: var(--down); }
   .prov { font-size: 10px; color: var(--text-3); margin: var(--s2) 0 0; }
   .lowchip { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 999px; background: var(--warn-dim); color: var(--warn); margin-top: 6px; }
@@ -53,15 +53,22 @@
   <div id="sa-root"><div class="empty" data-i18n="st.loading">Loading strategy agent…</div></div>
 </div>
 
+<script src="/js/agent-scorecard.js?v=1"></script>
 <script>
 (function () {
   var esc = function (s) {
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   };
-  var pct = function (v) { return v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%'; };
-  var num = function (v, d) { return v == null ? '—' : Number(v).toFixed(d == null ? 2 : d); };
-  var cls = function (v) { return v == null ? '' : (Number(v) >= 0 ? 'up' : 'down'); };
+  // Same contract as app.js pnlClass, in this page's up/down tokens. This
+  // page does not load app.js. Empty string and NaN are unreadable, not 0 —
+  // Number('') is 0, and 0 would paint a missing ratio green.
+  var cls = function (v) {
+    if (v == null || (typeof v === 'string' && String(v).trim() === '')) return '';
+    var n = Number(v);
+    if (!isFinite(n)) return '';
+    return n >= 0 ? 'up' : 'down';
+  };
   var root = document.getElementById('sa-root');
 
   // Slug is the last path segment of /agents/<slug>.
@@ -114,31 +121,31 @@
       + '<p class="prov">A member-authored config — intent rules, not a verified backtest. No dollar figures, no performance claims.</p></div>';
   }
 
+  // ── strategy scorecard renderer ──
   function scoreBlock(sc) {
     if (!sc || !sc.metrics) {
       return '<div class="sc"><p class="prov">Verified backtest pending — run it in the '
         + '<a href="/dashboard#lab">Lab</a>.</p></div>';
     }
-    var m = sc.metrics;
-    var tiles = [
-      ['Return', pct(m.total_return_pct), cls(m.total_return_pct)],
-      ['Profit factor', num(m.profit_factor), cls((m.profit_factor || 1) - 1)],
-      ['Win rate', m.win_rate == null ? '—' : (m.win_rate * 100).toFixed(0) + '%', ''],
-      ['Max DD', m.max_drawdown_pct == null ? '—' : Number(m.max_drawdown_pct).toFixed(2) + '%', 'down'],
-      ['Sharpe', num(m.sharpe_ratio), ''],
-      ['Trades', m.total_trades == null ? '—' : String(m.total_trades), ''],
-    ];
-    var grid = tiles.map(function (t) {
-      return '<div class="sc-tile"><div class="k">' + esc(t[0]) + '</div>'
-        + '<div class="v ' + t[2] + '">' + esc(t[1]) + '</div></div>';
+    if (!window.AgentScorecard) {
+      return '<div class="sc"><p class="prov">The scorecard could not be painted.'
+        + ' This is not a pending backtest.</p></div>';
+    }
+    // `cls` is this page's colour helper (up/down). The shared reading only
+    // chooses which number it sees; it does not invent a second palette.
+    var read = window.AgentScorecard.readings(sc.metrics, cls);
+    var grid = read.cells.map(function (c) {
+      return '<div class="sc-tile" data-metric="' + esc(c.key) + '"><div class="k">' + esc(c.label) + '</div>'
+        + '<div class="v ' + (c.cls || '') + '" data-metric-value>' + esc(c.text) + '</div></div>';
     }).join('');
-    var low = (m.total_trades != null && m.total_trades < 10)
-      ? '<div class="lowchip">low sample · ' + m.total_trades + ' trades</div>' : '';
+    var low = read.lowSample !== null
+      ? '<div class="lowchip">low sample · ' + read.lowSample + ' trades</div>' : '';
     var prov = 'Frozen backtest · ' + esc(sc.dataset || '') + ' · ' + (sc.bars || '?') + ' bars'
       + (sc.dataset_hash ? ' · #' + esc(sc.dataset_hash) : '');
     return '<div class="sc"><div class="sc-grid">' + grid + '</div>' + low
       + '<p class="prov">' + prov + '</p></div>';
   }
+  // ── strategy scorecard renderer end ──
 
   // ── Live paper record — forward-only, sealed-at-open, copiers' record ──
   function fillT(tpl, map) {
