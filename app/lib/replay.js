@@ -117,15 +117,6 @@ async function runReplay({ stake = 1000, days = 0, symbol = '' } = {}) {
   return computeReplay(trades, stake);
 }
 
-// ── Chat intercept ───────────────────────────────────────────────────────────
-
-// "what if I'd taken every signal with $1k?", "what if i traded every signal
-// with 500", "replay every trade with $2k".
-const CHAT_RE = new RegExp(
-  '^(?:what\\s+if\\s+i(?:\'?d| had)?\\s+(?:taken|took|traded|mirrored|copied)|replay)\\s+'
-  + '(?:every|all|each)\\s+(?:signal|trade|position)s?'
-  + '(?:.*?\\$?([\\d][\\d,]*\\.?\\d*)\\s*(k|m)?)?', 'i');
-
 const { esc } = require('./esc');
 
 function fmtMoney(v) {
@@ -134,11 +125,10 @@ function fmtMoney(v) {
 }
 
 /**
- * The what-if replay as the chat card — ONE renderer for both surfaces. The
- * web intercept below answers with it, and the bot's /replay command fetches
- * this same card over the sync channel (`GET /api/bot/sync/card/replay`).
- * The record replayed is the operator agent's, for every reader; the stake
- * is the caller's. Never throws.
+ * The what-if replay as the chat card — ONE renderer for both surfaces. Both
+ * doors fetch this card over the sync channel
+ * (`GET /api/bot/sync/card/replay?stake=…`). The record replayed is the
+ * operator agent's, for every reader; the stake is the caller's. Never throws.
  */
 async function replayChatCard(stake) {
   try {
@@ -170,25 +160,4 @@ async function replayChatCard(stake) {
   }
 }
 
-/** The stake a what-if ask names ("$1k", "500", "2m"), or the default. */
-function stakeFromMatch(m) {
-  let stake = 1000;
-  if (m && m[1]) {
-    stake = parseFloat(m[1].replace(/,/g, ''));
-    if ((m[2] || '').toLowerCase() === 'k') stake *= 1e3;
-    if ((m[2] || '').toLowerCase() === 'm') stake *= 1e6;
-  }
-  return stake;
-}
-
-/**
- * If `text` is a what-if ask, run the replay and return a chat-shaped reply;
- * otherwise null. Never throws.
- */
-async function maybeHandleReplayChat(userId, text) {
-  const m = String(text || '').trim().match(CHAT_RE);
-  if (!m) return null;
-  return replayChatCard(stakeFromMatch(m));
-}
-
-module.exports = { CHAT_RE, computeReplay, runReplay, maybeHandleReplayChat, replayChatCard };
+module.exports = { computeReplay, runReplay, replayChatCard };

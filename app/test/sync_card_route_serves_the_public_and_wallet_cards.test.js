@@ -145,13 +145,13 @@ async function card(path) {
   return r;
 }
 
-test('replay: the route answers the intercept\'s card for the same stake, default and junk included', async () => {
-  const web = await replay.maybeHandleReplayChat(1, 'replay every signal with $500');
+test('replay: the route answers the card for the same stake, default and junk included', async () => {
+  const web = await replay.replayChatCard(500);
   let r = await card('/api/bot/sync/card/replay?stake=500');
   assert.equal(r.status, 200);
   assert.deepEqual(r.data, { reply_html: web.reply_html, intent: 'replay' });
   assert.match(r.data.reply_html, /\$500 on every agent trade/);
-  const dflt = await replay.maybeHandleReplayChat(1, 'replay every signal');
+  const dflt = await replay.replayChatCard();
   for (const q of ['', '?stake=abc', '?stake=-5', '?stake=0']) {
     r = await card('/api/bot/sync/card/replay' + q);
     assert.equal(r.data.reply_html, dflt.reply_html, q || 'no stake');

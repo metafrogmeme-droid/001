@@ -252,6 +252,10 @@ async def _seam_airdrops(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict
 # the argument on the surface these phrasings came from.
 async def _seam_replay(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
                        text: str = "") -> str:
+    # The website chat no longer answers this itself. Both doors render the
+    # what-if card; surface="web" keeps the markup the browser already shows.
+    # The record is the operator agent's, for every caller; the stake is the
+    # one the sentence names. web:<user_id> is not a second book.
     return await tg_handler.replay_card_text(replay_stake(text), surface="web")
 
 

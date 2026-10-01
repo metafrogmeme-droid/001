@@ -446,8 +446,24 @@ def test_the_shared_wallet_door_is_named_when_the_role_holds_it(monkeypatch):
     would actually let through."""
     from bot.nlp.chat_turn import SHARED_DOORS
     from bot.skills.command_catalog import all_entries
-    assert SHARED_DOORS == ("price_alert", "letter", "wallet")
+    assert "wallet" in SHARED_DOORS
     sentence = all_entries()["wallet"][2]
+    ug, h, _asked, _ids = _web(monkeypatch)
+    _resp, body = _turn(ug, h, "what can you do")
+    assert sentence in body["reply_html"]
+    ug, h, _asked, _ids = _web(monkeypatch, denial="role")
+    _resp, body = _turn(ug, h, "what can you do")
+    assert sentence not in body["reply_html"]
+
+
+def test_the_shared_replay_door_is_named_when_the_role_holds_it(monkeypatch):
+    """The website no longer intercepts "replay every signal". The card still
+    names the door, from the command catalogue, and only for a caller the
+    gate would actually let through."""
+    from bot.nlp.chat_turn import SHARED_DOORS
+    from bot.skills.command_catalog import all_entries
+    assert SHARED_DOORS == ("price_alert", "letter", "wallet", "replay")
+    sentence = all_entries()["replay"][2]
     ug, h, _asked, _ids = _web(monkeypatch)
     _resp, body = _turn(ug, h, "what can you do")
     assert sentence in body["reply_html"]

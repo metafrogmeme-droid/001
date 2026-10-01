@@ -1,8 +1,9 @@
 'use strict';
 /**
  * Personal what-if replay: pure stake-scaling math over the agent's real
- * recorded closed trades, window/symbol filters, the chat intercept, and
- * the authed REST surface. Always labelled hypothetical.
+ * recorded closed trades, window/symbol filters, and the authed REST
+ * surface. Website chat does not render the replay itself: those words
+ * wait for the shared replay door. Always labelled hypothetical.
  */
 process.env.JWT_SECRET = 'j'.repeat(64);
 delete process.env.DATABASE_URL;
@@ -156,30 +157,42 @@ test('REST: authed replay with stake scaling; unauthenticated rejected', async (
   assert.equal(r.data.fixed.net_pnl_usd, 50);
 });
 
-// ── Chat intercept ───────────────────────────────────────────────────────────
+// The what-if replay from chat is the shared replay door, so these words
+// reach the bot. This file leaves the gateway unconfigured, which is the
+// down bot: the reply is 503 and nothing here was composed for the turn.
+// The REST route still serves the replay.
 
-test('chat: "what if I\'d taken every signal with $1k?" replies with the replay', async () => {
+test('chat: "what if I\'d taken every signal" waits for the bot; the REST route still serves', async () => {
   const token = await newUser();
-  const r = await req('POST', '/api/chat', {
+  const waiting = await req('POST', '/api/chat', {
     token, body: { text: "What if I'd taken every signal with $1k?" },
   });
-  assert.equal(r.status, 200);
-  assert.equal(r.data.intent, 'replay');
-  assert.match(r.data.reply_html, /What-if replay/);
-  assert.match(r.data.reply_html, /\$1,000 on every agent trade/);
-  assert.match(r.data.reply_html, /Net: <b>\$100<\/b>/);
-  assert.match(r.data.reply_html, /Hypothetical/i);
-});
+  assert.equal(waiting.status, 503);
+  assert.equal(waiting.data.intent, undefined);
 
-test('chat: stake variants parse; non-replay text proxies onward', async () => {
-  const token = await newUser();
-  const r = await req('POST', '/api/chat', {
+  const half = await req('POST', '/api/chat', {
     token, body: { text: 'what if i traded every signal with $500' },
   });
-  assert.equal(r.data.intent, 'replay');
-  assert.match(r.data.reply_html, /\$500 on every agent trade/);
-  assert.match(r.data.reply_html, /Net: <b>\$50<\/b>/);
+  assert.equal(half.status, 503);
+  assert.equal(half.data.intent, undefined);
+
+  const card = await replay.replayChatCard(1000);
+  assert.equal(card.intent, 'replay');
+  assert.match(card.reply_html, /What-if replay/);
+  assert.match(card.reply_html, /\$1,000 on every agent trade/);
+  assert.match(card.reply_html, /Net: <b>\$100<\/b>/);
+  assert.match(card.reply_html, /Hypothetical/i);
+
+  const smaller = await replay.replayChatCard(500);
+  assert.match(smaller.reply_html, /\$500 on every agent trade/);
+  assert.match(smaller.reply_html, /Net: <b>\$50<\/b>/);
+
+  const book = await req('GET', '/api/replay?stake=500', { token });
+  assert.equal(book.status, 200);
+  assert.equal(book.data.hypothetical, true);
+  assert.equal(book.data.trades, 3);
+  assert.equal(book.data.fixed.net_pnl_usd, 50);
 
   const other = await req('POST', '/api/chat', { token, body: { text: 'what if BTC dumps?' } });
-  assert.equal(other.status, 503);   // falls through to the (unconfigured) bot proxy
+  assert.equal(other.status, 503);
 });
