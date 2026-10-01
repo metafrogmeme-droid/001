@@ -2,17 +2,27 @@
 
 The six numbers a card paints are read off the runner's own fields by
 ``project_public_metrics``. A missing field stays missing. A hand-edited
-percent does not match that projection.
+percent does not match that projection. The committed cards are that
+projection of the runner that wrote them, pinned to the manifest hash and
+to the commit the run was measured at.
 """
 from __future__ import annotations
 
 import json
+import re
+import subprocess
+from pathlib import Path
 
 from bot.backtest.runner import public_trade_breakdown
 from scripts.gen_agent_scorecards import (
+    PUBLIC_METRICS,
     build_card,
     project_public_metrics,
 )
+
+_REPO = Path(__file__).resolve().parents[1]
+_CARDS = _REPO / "benchmark" / "scorecards"
+_MANIFEST = _REPO / "benchmark" / "majors_1h" / "manifest.json"
 
 
 def _runner(**over):
@@ -126,6 +136,49 @@ def test_breakdown_drops_dollar_fields_and_keeps_a_missing_ratio():
         "pnl_pct": -0.4, "confidence": 0.72, "volume_spike_ratio": None,
     }]
     assert "pnl_usd" not in rows[0]
+
+
+def _git(*args: str) -> str:
+    return subprocess.check_output(["git", *args], cwd=_REPO, text=True).strip()
+
+
+def _committed_cards():
+    paths = sorted(_CARDS.glob("*.json"))
+    assert paths, "no committed scorecards"
+    return paths
+
+
+def test_committed_public_metrics_project_the_measured_runner():
+    manifest_hash = json.loads(_MANIFEST.read_text())["dataset_hash"]
+    head = _git("rev-parse", "HEAD")
+    for path in _committed_cards():
+        card = json.loads(path.read_text())
+        projected = project_public_metrics(card["measured"])
+        for key in PUBLIC_METRICS:
+            assert card["metrics"][key] == projected[key], path.name
+        assert card["dataset_hash"] == manifest_hash
+        assert card["metrics"]["total_trades"] == len(card["trades"])
+        sha = card["code_sha"]
+        assert re.fullmatch(r"[0-9a-f]{40}", sha), sha
+        assert _git("cat-file", "-t", sha) == "commit"
+        # Generated at the current HEAD (the json is not committed yet) or
+        # at the parent of the commit that wrote this file (the code the
+        # run measured).
+        last = _git("log", "-1", "--format=%H", "--", str(path.relative_to(_REPO)))
+        produced = _git("rev-parse", f"{last}^")
+        assert sha == head or sha == produced, (path.name, sha, head, produced)
+        assert re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00", card["recorded_at"])
+
+
+def test_a_hand_edited_committed_percent_fails():
+    path = _CARDS / "dip-sniper.json"
+    card = json.loads(path.read_text())
+    assert card["metrics"]["total_return_pct"] == project_public_metrics(
+        card["measured"])["total_return_pct"]
+    card["metrics"]["total_return_pct"] = 12.34
+    assert card["metrics"]["total_return_pct"] != project_public_metrics(
+        card["measured"])["total_return_pct"]
 
 
 def test_safe_scalper_exits_stay_unmodeled_until_the_runner_is_given_them():

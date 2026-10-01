@@ -1,6 +1,7 @@
 {
   "agent_id": "momentum-hunter",
   "bars": 1500,
+  "code_sha": "48d075532d9e3756b98594730d2948d5422a24d8",
   "dataset": "majors_1h",
   "dataset_hash": "8dbe73514ce8d2aeecd767a193c005cd1a179221bdce5df2cbe4ded2886bde36",
   "engine": "runeclaw.backtest",
@@ -13,22 +14,65 @@
     "volume_spike_min": 3.0
   },
   "honest": true,
-  "metrics": {
-    "calmar_ratio": -5.89,
-    "max_drawdown_pct": 0.22,
+  "measured": {
+    "calmar_ratio": -5.82,
+    "max_drawdown_pct": 1.11,
     "profit_factor": 0.0,
-    "sharpe_ratio": -14.96,
-    "sortino_ratio": -2.04,
-    "total_return_pct": -0.22,
+    "sharpe_ratio": -5.92,
+    "sortino_ratio": -0.81,
+    "total_return_pct": -1.11,
+    "total_trades": 3,
+    "win_rate": 0.0
+  },
+  "metrics": {
+    "calmar_ratio": -5.82,
+    "max_drawdown_pct": 1.11,
+    "profit_factor": 0.0,
+    "sharpe_ratio": -5.92,
+    "sortino_ratio": -0.81,
+    "total_return_pct": -1.11,
     "total_trades": 3,
     "win_rate": 0.0
   },
   "note": "Design backtest on FROZEN benchmark data \u2014 percent/ratio only, never a dollar figure. Re-run the identical backtest in the Strategy Lab to reproduce.",
   "preset": "momentum hunter",
+  "recorded_at": "2026-10-01T13:25:06+00:00",
   "symbols": [
     "BTC/USDT:USDT",
     "ETH/USDT:USDT",
     "SOL/USDT:USDT"
+  ],
+  "trades": [
+    {
+      "confidence": 0.81,
+      "direction": "LONG",
+      "exit_reason": "SL",
+      "pnl_pct": 0.1,
+      "regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "volume_spike",
+      "volume_spike_ratio": 3.654
+    },
+    {
+      "confidence": 0.7,
+      "direction": "LONG",
+      "exit_reason": "SL",
+      "pnl_pct": -1.08,
+      "regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "momentum_confluence",
+      "volume_spike_ratio": 3.51
+    },
+    {
+      "confidence": 0.62,
+      "direction": "SHORT",
+      "exit_reason": "SL",
+      "pnl_pct": -1.1,
+      "regime": "TREND_UP",
+      "setup": "swing",
+      "signal_type": "volume_spike",
+      "volume_spike_ratio": 2.759
+    }
   ],
   "unmodeled": []
 }

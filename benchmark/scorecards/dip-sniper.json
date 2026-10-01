@@ -1,6 +1,7 @@
 {
   "agent_id": "dip-sniper",
   "bars": 1500,
+  "code_sha": "48d075532d9e3756b98594730d2948d5422a24d8",
   "dataset": "majors_1h",
   "dataset_hash": "8dbe73514ce8d2aeecd767a193c005cd1a179221bdce5df2cbe4ded2886bde36",
   "engine": "runeclaw.backtest",
@@ -13,22 +14,75 @@
     "volume_spike_min": null
   },
   "honest": true,
+  "measured": {
+    "calmar_ratio": -2.12,
+    "max_drawdown_pct": 2.3,
+    "profit_factor": 0.57,
+    "sharpe_ratio": -0.76,
+    "sortino_ratio": -0.21,
+    "total_return_pct": -0.84,
+    "total_trades": 4,
+    "win_rate": 0.5
+  },
   "metrics": {
-    "calmar_ratio": -0.74,
-    "max_drawdown_pct": 0.87,
-    "profit_factor": 0.91,
-    "sharpe_ratio": -1.59,
-    "sortino_ratio": -0.7,
-    "total_return_pct": -0.11,
-    "total_trades": 19,
-    "win_rate": 0.4737
+    "calmar_ratio": -2.12,
+    "max_drawdown_pct": 2.3,
+    "profit_factor": 0.57,
+    "sharpe_ratio": -0.76,
+    "sortino_ratio": -0.21,
+    "total_return_pct": -0.84,
+    "total_trades": 4,
+    "win_rate": 0.5
   },
   "note": "Design backtest on FROZEN benchmark data \u2014 percent/ratio only, never a dollar figure. Re-run the identical backtest in the Strategy Lab to reproduce.",
   "preset": "dip sniper",
+  "recorded_at": "2026-10-01T13:25:06+00:00",
   "symbols": [
     "BTC/USDT:USDT",
     "ETH/USDT:USDT",
     "SOL/USDT:USDT"
+  ],
+  "trades": [
+    {
+      "confidence": 0.79,
+      "direction": "SHORT",
+      "exit_reason": "SL",
+      "pnl_pct": -1.74,
+      "regime": "TREND_DOWN",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "volume_spike_ratio": 1.206
+    },
+    {
+      "confidence": 0.76,
+      "direction": "SHORT",
+      "exit_reason": "SL",
+      "pnl_pct": 0.14,
+      "regime": "TREND_DOWN",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "volume_spike_ratio": 0.436
+    },
+    {
+      "confidence": 0.72,
+      "direction": "SHORT",
+      "exit_reason": "SL",
+      "pnl_pct": 1.81,
+      "regime": "TREND_DOWN",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "volume_spike_ratio": 1.503
+    },
+    {
+      "confidence": 0.83,
+      "direction": "SHORT",
+      "exit_reason": "SL",
+      "pnl_pct": -1.0,
+      "regime": "TREND_DOWN",
+      "setup": "swing",
+      "signal_type": "regime_trend",
+      "volume_spike_ratio": 0.381
+    }
   ],
   "unmodeled": []
 }
