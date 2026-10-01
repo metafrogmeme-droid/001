@@ -217,6 +217,10 @@ async def _seam_networth(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict
 
 async def _seam_rwa(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
                     text: str = "") -> str:
+    # The website chat no longer answers this itself. Both doors render the
+    # RWA radar's own card; surface="web" keeps the markup the browser
+    # already shows. The radar is public venue tickers, for every caller.
+    # web:<user_id> is not a second book.
     return await tg_handler.rwa_card_text(surface="web")
 
 
@@ -953,14 +957,15 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             return web.json_response({"reply_html": _card, "intent": "status"})
 
         # ── net worth / RWA / research → the seams the commands render ──
-        # Three reads the website answers from its own Node intercepts before
-        # any turn reaches this process, so for a web caller these branches
-        # see only the phrasings those intercepts miss ("how much am i
-        # worth", "can you research SOL for me"). They exist so that residue
-        # is answered by the same reading Telegram's routed branch renders,
-        # under the same gate, recorded the same way — never by a model with
-        # no such tool. `_WEB_SEAM` is the table the reachability ratchet
-        # asks, so a fourth entry is a branch without anybody writing one.
+        # Net worth and research the website still answers from its own Node
+        # intercepts before a turn reaches this process, so for a web caller
+        # those two see only the phrasings the intercepts miss ("how much am
+        # i worth", "can you research SOL for me"). RWA left that table: both
+        # doors render this seam. The branch answers every `_WEB_SEAM` intent
+        # with the same card Telegram's routed branch renders, under the same
+        # gate, recorded the same way — never by a model with no such tool.
+        # `_WEB_SEAM` is the table the reachability ratchet asks, so a fourth
+        # entry is a branch without anybody writing one.
         if intent.skill in _WEB_SEAM:
             denied = _web_skill_denied(tg_handler, tg_id, intent.skill)
             if denied is not None:

@@ -5,6 +5,8 @@
  * regex did NOT match — the ask fell through to the bot LLM, which honestly
  * told the user it has no radar access. Every radar chip's exact ask phrase
  * must be answered by its own web-side intercept, never the LLM fallback.
+ * "rwa radar" is the exception: both doors route it to the shared rwa seam,
+ * which fetches the same card.
  */
 process.env.JWT_SECRET = 'j'.repeat(64);
 delete process.env.DATABASE_URL;
@@ -16,12 +18,9 @@ const path = require('node:path');
 
 test('every radar chip ask phrase is claimed by its intercept regex', async () => {
   // Chip phrases as wired in dashboard.js (pinned there by meme_panel.test.js).
+  // "rwa radar" left this contract. Both doors route it to the shared rwa
+  // seam, which fetches rwaChatCard. The other chips still answer here.
   const CONTRACT = [
-    ['rwa radar', require('../lib/rwa'), 'maybeHandleRwaChat', () =>
-      require('../lib/rwa').setTickerFetcher(async () => ({
-        ONDO: null, BTCUSDT: { price: 100000, change: 1, volume: 1e9 },
-        ONDOUSDT: { price: 1, change: 2, volume: 1e7 },
-      }))],
     ['airdrop radar', require('../lib/airdrops'), 'maybeHandleAirdropChat', null],
     ['meme radar', require('../lib/meme'), 'maybeHandleMemeChat', () =>
       require('../lib/meme').setPairFetcher(async () => ([{
@@ -52,7 +51,6 @@ test('every radar chip ask phrase is claimed by its intercept regex', async () =
       `chip ask "${phrase}" must be answered by ${fn}, not the LLM fallback`);
   }
   require('../lib/meme').setPairFetcher(null);
-  require('../lib/rwa').setTickerFetcher(null);
   require('../lib/opensea').setOpenSeaFetcher(null);
   require('../lib/spot').setSpotFetcher(null);
 });
