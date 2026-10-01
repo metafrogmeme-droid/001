@@ -55,22 +55,22 @@ def _scorecard_dir() -> str:
 # deliberately small — the substance (how it trades) is derived, not authored.
 _META: dict[str, dict[str, str]] = {
     "dip sniper": {
-        "tagline": "Buys capitulation — oversold dips inside a downtrend, only "
-                   "when conviction is high.",
-        "regime": "Downtrends / mean-reversion",
+        "tagline": "Shorts a downtrend only once RSI has lifted off capitulation. "
+                   "It does not sell the oversold print.",
+        "regime": "Downtrends",
         "risk": "balanced",
         "horizon": "swing",
     },
     "momentum hunter": {
-        "tagline": "Rides strength — jumps on volume-backed breakouts while the "
-                   "trend is up.",
-        "regime": "Uptrends / momentum",
+        "tagline": "Longs a volume spike of 3× or more. It does not wait for an "
+                   "uptrend label, and it does not short the spike.",
+        "regime": "Volume bursts",
         "risk": "aggressive",
         "horizon": "intraday",
     },
     "safe scalper": {
-        "tagline": "Small, tight, frequent — the most liquid pairs with a hard "
-                   "1.5-ATR stop and a high conviction bar.",
+        "tagline": "The most liquid pairs, a high conviction bar, and no entry "
+                   "while RSI is still at capitulation.",
         "regime": "Any / liquidity-led",
         "risk": "tight",
         "horizon": "scalp",
@@ -113,6 +113,15 @@ def _how_it_trades(cfg: dict[str, Any]) -> str:
     rsi = cfg.get("rsi_threshold")
     if rsi is not None:
         parts.append(f"RSI below {rsi}")
+    rsi_min = cfg.get("rsi_min")
+    if rsi_min is not None:
+        parts.append(f"RSI at or above {rsi_min:g}" if isinstance(rsi_min, float)
+                     else f"RSI at or above {rsi_min}")
+    side = cfg.get("direction")
+    if side == "long_only":
+        parts.append("long only")
+    elif side == "short_only":
+        parts.append("short only")
     vspike = cfg.get("volume_spike_min")
     if vspike is not None:
         parts.append(f"a volume spike over {vspike:g}×")

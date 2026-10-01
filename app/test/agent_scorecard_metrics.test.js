@@ -159,6 +159,9 @@ function cardFrom(file) {
 function loss(cls) {
   assert.match(cls, /\bneg\b/, 'expected a loss colour, got "' + cls + '"');
 }
+function gain(cls) {
+  assert.match(cls, /\bpos\b/, 'expected a gain colour, got "' + cls + '"');
+}
 function neutral(cls) {
   assert.doesNotMatch(cls, /\bneg\b/);
   assert.doesNotMatch(cls, /\bpos\b/);
@@ -177,20 +180,22 @@ test('Dip Sniper keeps the frozen figures, in a 3-column grid, caption outside',
   const sh = cell(parsed, 'Sharpe');
   const tr = cell(parsed, 'Trades');
 
-  assert.equal(ret.text, '-0.11%');
-  assert.equal(pf.text, '0.91');
-  assert.equal(wr.text, '47%');
-  assert.equal(dd.text, '0.87%');
-  assert.equal(sh.text, '-1.59');
-  assert.equal(tr.text, '19');
+  assert.equal(ret.text, '+2.32%');
+  assert.equal(pf.text, '1.45');
+  assert.equal(wr.text, '58%');
+  assert.equal(dd.text, '2.75%');
+  assert.equal(sh.text, '0.84');
+  assert.equal(tr.text, '12');
 
-  loss(ret.cls);
-  loss(pf.cls);
+  gain(ret.cls);
+  gain(pf.cls);
   neutral(wr.cls);
   neutral(dd.cls);
-  loss(sh.cls);
+  gain(sh.cls);
   neutral(tr.cls);
-  // A negative Sharpe must carry the same loss class as a sub-1 profit factor.
+  // On this card both readings are gains, so they share a class. A negative
+  // Sharpe sharing the loss class of a sub-1 profit factor is the synthetic
+  // case below — these frozen figures no longer show that pair.
   assert.equal(sh.cls, pf.cls);
   // Label above the number. Inline spans let a value run into the next column
   // once a card is narrower than the phone screenshot.
@@ -209,24 +214,23 @@ test('Dip Sniper keeps the frozen figures, in a 3-column grid, caption outside',
   assert.ok(!html.includes('$'), 'public card rendered a dollar');
 });
 
-test('Momentum Hunter: a profit factor of 0 is a loss, and the row still grids', () => {
+test('Momentum Hunter grids the frozen figures, and a thin sample stays marked', () => {
   const html = scoreBlock(cardFrom('momentum-hunter.json'));
   const parsed = cells(html);
   const pf = cell(parsed, 'Profit factor');
   const sh = cell(parsed, 'Sharpe');
   const dd = cell(parsed, 'Max DD');
-  assert.equal(cell(parsed, 'Return').text, '-0.22%');
-  assert.equal(pf.text, '0.00');
-  loss(pf.cls);
-  assert.equal(cell(parsed, 'Win rate').text, '0%');
+  assert.equal(cell(parsed, 'Return').text, '+0.45%');
+  assert.equal(pf.text, '1.80');
+  gain(pf.cls);
+  assert.equal(cell(parsed, 'Win rate').text, '60%');
   neutral(cell(parsed, 'Win rate').cls);
-  assert.equal(dd.text, '0.22%');
+  assert.equal(dd.text, '0.57%');
   neutral(dd.cls);
-  assert.equal(sh.text, '-14.96');
+  assert.equal(sh.text, '-0.49');
   loss(sh.cls);
-  assert.equal(sh.cls, pf.cls);
-  assert.equal(cell(parsed, 'Trades').text, '3');
-  assert.match(html, /low sample · 3 trades/);
+  assert.equal(cell(parsed, 'Trades').text, '5');
+  assert.match(html, /low sample · 5 trades/);
   assert.doesNotMatch(parsed.grid, /leader/);
 });
 
@@ -262,6 +266,21 @@ test('a gain is green, break-even profit factor follows pnlClass, drawdown stays
   assert.equal(cell(ep, 'Max DD').text, '0.00%');
   neutral(cell(ep, 'Max DD').cls);
   assert.equal(cell(ep, 'Return').text, '+0.00%');
+
+  // A measured profit factor of 0 is a loss. `|| 1` used to treat it as
+  // missing and paint break-even. A negative Sharpe takes that same class.
+  // Drawdown stays a magnitude.
+  const zeroPf = scoreBlock({
+    metrics: { total_return_pct: -0.22, profit_factor: 0, win_rate: 0,
+      max_drawdown_pct: 0.22, sharpe_ratio: -1.59, total_trades: 3 },
+  });
+  const zp = cells(zeroPf);
+  assert.equal(cell(zp, 'Profit factor').text, '0.00');
+  loss(cell(zp, 'Profit factor').cls);
+  loss(cell(zp, 'Sharpe').cls);
+  assert.equal(cell(zp, 'Sharpe').cls, cell(zp, 'Profit factor').cls);
+  neutral(cell(zp, 'Max DD').cls);
+  assert.match(zeroPf, /low sample · 3 trades/);
 });
 
 test('unreadable metrics are dashes, never a zero and never a colour', () => {
@@ -304,25 +323,25 @@ function stratCell(html, key) {
 
 test('the public strategy page uses the same reading and a 3-column grid', () => {
   const html = strategyBlock(cardFrom('dip-sniper.json'));
-  assert.equal(stratCell(html, 'return').text, '-0.11%');
-  assert.equal(stratCell(html, 'return').cls, 'down');
-  assert.equal(stratCell(html, 'profit-factor').text, '0.91');
-  assert.equal(stratCell(html, 'profit-factor').cls, 'down');
-  assert.equal(stratCell(html, 'win-rate').text, '47%');
+  assert.equal(stratCell(html, 'return').text, '+2.32%');
+  assert.equal(stratCell(html, 'return').cls, 'up');
+  assert.equal(stratCell(html, 'profit-factor').text, '1.45');
+  assert.equal(stratCell(html, 'profit-factor').cls, 'up');
+  assert.equal(stratCell(html, 'win-rate').text, '58%');
   assert.equal(stratCell(html, 'win-rate').cls, '');
-  assert.equal(stratCell(html, 'max-dd').text, '0.87%');
+  assert.equal(stratCell(html, 'max-dd').text, '2.75%');
   assert.equal(stratCell(html, 'max-dd').cls, '');
-  assert.equal(stratCell(html, 'sharpe').text, '-1.59');
-  assert.equal(stratCell(html, 'sharpe').cls, 'down');
+  assert.equal(stratCell(html, 'sharpe').text, '0.84');
+  assert.equal(stratCell(html, 'sharpe').cls, 'up');
   assert.equal(stratCell(html, 'sharpe').cls, stratCell(html, 'profit-factor').cls);
-  assert.equal(stratCell(html, 'trades').text, '19');
+  assert.equal(stratCell(html, 'trades').text, '12');
 
   const mom = strategyBlock(cardFrom('momentum-hunter.json'));
-  assert.equal(stratCell(mom, 'profit-factor').text, '0.00');
-  assert.equal(stratCell(mom, 'profit-factor').cls, 'down');
+  assert.equal(stratCell(mom, 'profit-factor').text, '1.80');
+  assert.equal(stratCell(mom, 'profit-factor').cls, 'up');
   assert.equal(stratCell(mom, 'sharpe').cls, 'down');
   assert.equal(stratCell(mom, 'max-dd').cls, '');
-  assert.match(mom, /low sample · 3 trades/);
+  assert.match(mom, /low sample · 5 trades/);
 
   const unread = strategyBlock({
     metrics: { profit_factor: '', sharpe_ratio: null, max_drawdown_pct: NaN,

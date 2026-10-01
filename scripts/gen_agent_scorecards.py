@@ -30,7 +30,6 @@ import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-OUT_DIR = REPO / "data" / "benchmark" / "scorecards"
 
 # Percent/ratio metrics only — NEVER a dollar field (§4). These are the keys
 # copied verbatim from the backtester's result into the public scorecard.
@@ -57,7 +56,24 @@ def _gate_args(cfg: dict) -> list[str]:
         args += ["--regime-filter", str(cfg["regime"])]
     if cfg.get("rsi_threshold") is not None:
         args += ["--rsi-max", str(cfg["rsi_threshold"])]
+    if cfg.get("rsi_min") is not None:
+        args += ["--rsi-min", str(cfg["rsi_min"])]
+    if cfg.get("direction"):
+        args += ["--direction", str(cfg["direction"])]
     return args
+
+
+def scorecard_gates(cfg: dict) -> dict:
+    """The gate block written onto a scorecard. One reading of the preset."""
+    return {
+        "confidence_threshold": cfg.get("confidence_threshold"),
+        "volume_spike_min": cfg.get("volume_spike_min"),
+        "regime_filter": cfg.get("regime") or None,
+        "rsi_max": cfg.get("rsi_threshold"),
+        "rsi_min": cfg.get("rsi_min"),
+        "direction": cfg.get("direction"),
+        "symbols": cfg.get("symbols"),
+    }
 
 
 def _run_one(preset_key: str, cfg: dict, dataset: str, symbols: str,
@@ -81,15 +97,22 @@ def _run_one(preset_key: str, cfg: dict, dataset: str, symbols: str,
 
 
 def generate(dataset: str, symbols: str, last_bars: int) -> list[str]:
+    from bot.backtest.snapshot import benchmark_root, load_manifest_multi
     from bot.skills.skill_registry import RunStrategySkill
-    from bot.backtest import snapshot as _snap
 
-    man = _snap.load_manifest_multi(dataset)
+    man = load_manifest_multi(dataset)
     dataset_hash = man.get("dataset_hash", "")
     dataset_name = Path(dataset).name
     sym_list = [s.strip() for s in symbols.split(",") if s.strip()]
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    # The catalogue reads benchmark/scorecards (the committable tree). Writing
+    # under data/benchmark lands on the runtime symlink and the Agents tab
+    # keeps serving the previous file.
+    root = benchmark_root()
+    if not root.is_absolute():
+        root = REPO / root
+    out_dir = root / "scorecards"
+    out_dir.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
     for key, cfg in RunStrategySkill.PRESETS.items():
         res = _run_one(key, cfg, dataset, symbols, last_bars)
@@ -109,13 +132,7 @@ def generate(dataset: str, symbols: str, last_bars: int) -> list[str]:
             "dataset_hash": dataset_hash,
             "symbols": sym_list,
             "bars": last_bars,
-            "gates": {
-                "confidence_threshold": cfg.get("confidence_threshold"),
-                "volume_spike_min": cfg.get("volume_spike_min"),
-                "regime_filter": cfg.get("regime") or None,
-                "rsi_max": cfg.get("rsi_threshold"),
-                "symbols": cfg.get("symbols"),
-            },
+            "gates": scorecard_gates(cfg),
             "unmodeled": unmodeled,
             "metrics": metrics,
             "engine": "runeclaw.backtest",
@@ -124,7 +141,7 @@ def generate(dataset: str, symbols: str, last_bars: int) -> list[str]:
                      "only, never a dollar figure. Re-run the identical backtest "
                      "in the Strategy Lab to reproduce."),
         }
-        path = OUT_DIR / f"{card['agent_id']}.json"
+        path = out_dir / f"{card['agent_id']}.json"
         path.write_text(json.dumps(card, indent=2, sort_keys=True) + "\n")
         written.append(str(path.relative_to(REPO)))
         m = card["metrics"]

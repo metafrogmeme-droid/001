@@ -58,6 +58,8 @@ def test_defaults_are_a_strict_no_op():
     assert eng.config.volume_spike_min is None
     assert eng.config.regime_filter == ""
     assert eng.config.rsi_max is None
+    assert eng.config.rsi_min is None
+    assert eng.config.direction == ""
 
 
 def test_volume_spike_gate_filters_below_min():
@@ -101,6 +103,30 @@ def test_rsi_gate_only_admits_oversold():
     assert eng._rejected_by_preset_gate(_Idea(), _sig(), _window([100, 101, 102])) is False
 
 
+def test_rsi_min_stands_aside_at_capitulation():
+    # The dip rule: RSI at or above the floor passes; below it is the bounce.
+    eng = _engine(rsi_min=35.0)
+    falling = _window(list(np.linspace(100, 60, 30)))
+    assert eng._rejected_by_preset_gate(_Idea(), _sig(), falling) is True
+    rising = _window(list(np.linspace(60, 100, 30)))
+    assert eng._rejected_by_preset_gate(_Idea(), _sig(), rising) is False
+
+
+def test_direction_gate_rejects_the_other_side_and_an_unknown_spelling():
+    long_eng = _engine(direction="long_only")
+    assert long_eng._rejected_by_preset_gate(_IdeaDir("SHORT"), _sig(), []) is True
+    assert long_eng._rejected_by_preset_gate(_IdeaDir("LONG"), _sig(), []) is False
+    # A spelling the gate does not know is a refusal, not both sides.
+    bad = _engine(direction="both")
+    assert bad._rejected_by_preset_gate(_IdeaDir("LONG"), _sig(), []) is True
+
+
+class _IdeaDir:
+    def __init__(self, direction, confidence=0.9):
+        self.confidence = confidence
+        self.direction = _Regime(direction)  # .value, same shape as Direction
+
+
 def test_gates_compose_any_one_rejects():
     # Momentum-hunter-like: volume spike + TREND_UP. A TREND_DOWN bar is rejected
     # even if the volume passes, because the regime gate also applies.
@@ -119,7 +145,10 @@ def test_runner_preset_gate_kwargs_default_off():
     assert kw["volume_spike_min"] is None
     assert kw["regime_filter"] == ""
     assert kw["rsi_max"] is None
+    assert kw["rsi_min"] is None
+    assert kw["direction"] == ""
     assert kw["confidence_threshold"] == 0.0
     # And they map onto the config as no-ops.
     cfg = BacktestConfig(symbol="BTC/USDT", **kw)
     assert cfg.volume_spike_min is None and cfg.regime_filter == "" and cfg.rsi_max is None
+    assert cfg.rsi_min is None and cfg.direction == ""

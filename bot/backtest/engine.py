@@ -57,6 +57,14 @@ def _env_bool(key: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _preset_direction(raw: str) -> str:
+    """``long_only`` / ``LONG`` → ``LONG``. Empty is not a side. An unknown
+    spelling returns ``""`` so the gate fails closed instead of admitting both."""
+    key = str(raw or "").strip().lower().replace("-", "_")
+    return {"long_only": "LONG", "long": "LONG",
+            "short_only": "SHORT", "short": "SHORT"}.get(key, "")
+
+
 class BacktestEngine:
     """
     Event-driven backtesting engine.
@@ -239,15 +247,32 @@ class BacktestEngine:
             ``volume_spike_ratio >= min or volume_spike`` filter).
           * ``regime_filter`` — only enter when the analyzer's per-symbol regime
             equals this (case-insensitive), e.g. ``TREND_DOWN`` / ``TREND_UP``.
-          * ``rsi_max`` — only enter when RSI(14) over the window is ``<=`` this
-            (oversold-dip entry). Fewer than 15 bars => RSI unknown => no reject.
+          * ``rsi_max`` — only enter when RSI(14) over the window is ``<=`` this.
+          * ``rsi_min`` — only enter when that RSI is ``>=`` this. A short at
+            or under the dip line is the capitulation print; the stop is where
+            the bounce fills.
+          * ``direction`` — ``long_only`` / ``short_only``. Empty admits either
+            side. An unknown spelling rejects: a rule that cannot be read does
+            not mean both sides.
+            Fewer than 15 bars => RSI unknown => no reject on an RSI bound.
         """
         cfg = self.config
         vmin = getattr(cfg, "volume_spike_min", None)
         regime_want = (getattr(cfg, "regime_filter", "") or "").strip().upper()
         rsi_max = getattr(cfg, "rsi_max", None)
-        if vmin is None and not regime_want and rsi_max is None:
+        rsi_min = getattr(cfg, "rsi_min", None)
+        direction_raw = (getattr(cfg, "direction", "") or "").strip()
+        if (vmin is None and not regime_want and rsi_max is None
+                and rsi_min is None and not direction_raw):
             return False  # common path: no preset gates configured
+
+        if direction_raw:
+            want = _preset_direction(direction_raw)
+            if not want:
+                return True
+            got = (getattr(getattr(idea, "direction", None), "value", "") or "").upper()
+            if got != want:
+                return True
 
         if vmin is not None:
             ratio = float(getattr(signal, "volume_spike_ratio", 0.0) or 0.0)
@@ -263,13 +288,15 @@ class BacktestEngine:
             if reg_val != regime_want:
                 return True
 
-        if rsi_max is not None and len(window) >= 15:
+        if (rsi_max is not None or rsi_min is not None) and len(window) >= 15:
             try:
                 import numpy as _np
                 from bot.core.ta_utils import rsi_series
                 closes = _np.asarray([b.close for b in window], dtype=float)
                 rsi_now = float(rsi_series(closes)[-1])
-                if rsi_now > float(rsi_max):
+                if rsi_max is not None and rsi_now > float(rsi_max):
+                    return True
+                if rsi_min is not None and rsi_now < float(rsi_min):
                     return True
             except Exception:
                 pass  # RSI unavailable -> don't reject on it

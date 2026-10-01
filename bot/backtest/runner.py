@@ -304,6 +304,8 @@ def _preset_gate_kwargs(args: argparse.Namespace) -> dict:
         "volume_spike_min": getattr(args, "volume_spike_min", None),
         "regime_filter": getattr(args, "regime_filter", "") or "",
         "rsi_max": getattr(args, "rsi_max", None),
+        "rsi_min": getattr(args, "rsi_min", None),
+        "direction": getattr(args, "direction", "") or "",
     }
 
 
@@ -648,8 +650,12 @@ Examples:
                              help="Only enter when the analyzer's per-symbol regime equals this "
                                   "(e.g. TREND_DOWN for 'dip sniper', TREND_UP for momentum).")
     trade_group.add_argument("--rsi-max", type=float, default=None,
-                             help="Only enter when RSI(14) over the window is <= this "
-                                  "(oversold-dip entry, e.g. 'dip sniper' RSI < 35).")
+                             help="Only enter when RSI(14) over the window is <= this.")
+    trade_group.add_argument("--rsi-min", type=float, default=None,
+                             help="Only enter when RSI(14) over the window is >= this. "
+                                  "Dip Sniper stands aside while RSI is still at capitulation.")
+    trade_group.add_argument("--direction", type=str, default="",
+                             help="long_only or short_only. Empty admits either side.")
     trade_group.add_argument("--fill-mode", choices=("close", "next_open"), default="close",
                              help="Entry fill convention: same-bar close (legacy, optimistic) "
                                   "or next-bar open (conservative; audit fix #15). Run both "

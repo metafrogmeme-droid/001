@@ -88,16 +88,46 @@ def test_catalog_scorecard_is_failsoft(monkeypatch):
 
 def test_generator_gate_args_map_preset_filters():
     from scripts.gen_agent_scorecards import _gate_args
-    # Dip sniper: confidence + regime + rsi gates.
+    # Dip sniper: confidence + downtrend + RSI floor + short only.
+    # The old ceiling (--rsi-max 35) kept the capitulation shorts.
     dip = _gate_args(RunStrategySkill.PRESETS["dip sniper"])
     assert "--confidence-threshold" in dip and "--regime-filter" in dip
-    assert "--rsi-max" in dip and "TREND_DOWN" in dip
-    # Momentum hunter: volume-spike + regime, NO confidence gate.
+    assert "--rsi-min" in dip and "35" in dip and "TREND_DOWN" in dip
+    assert "--rsi-max" not in dip and "--direction" in dip and "short_only" in dip
+    # Momentum hunter: the 3x spike, long only. No uptrend label, no confidence gate.
     mom = _gate_args(RunStrategySkill.PRESETS["momentum hunter"])
     assert "--volume-spike-min" in mom and "3.0" in mom
-    assert "--confidence-threshold" not in mom
+    assert "--direction" in mom and "long_only" in mom
+    assert "--confidence-threshold" not in mom and "--regime-filter" not in mom
+    # Safe scalper stands aside under RSI 35 and keeps its conviction floor.
+    scalp = _gate_args(RunStrategySkill.PRESETS["safe scalper"])
+    assert "--rsi-min" in scalp and "--confidence-threshold" in scalp
     # Full scan: no gates at all.
     assert _gate_args(RunStrategySkill.PRESETS["full scan"]) == []
+
+
+def test_committed_scorecards_are_the_rerun_of_these_rules():
+    """The six stats on the Agents card are this preset, on this frozen window.
+
+    Restoring the old rule (Dip Sniper's RSI ceiling of 35, Momentum Hunter's
+    TREND_UP filter, Safe Scalper with no RSI floor) changes the rerun, so it
+    no longer matches the committed card.
+    """
+    from scripts.gen_agent_scorecards import _METRIC_KEYS, _run_one, scorecard_gates
+
+    dataset = os.path.join(_REPO, "benchmark", "majors_1h")
+    symbols = "BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT"
+    for key, cfg in RunStrategySkill.PRESETS.items():
+        slug = sc._slug(key)
+        with open(os.path.join(_SC_DIR, f"{slug}.json"), encoding="utf-8") as fh:
+            card = json.loads(fh.read())
+        assert card["gates"] == scorecard_gates(cfg), slug
+        res = _run_one(key, cfg, dataset, symbols, 1500)
+        got = {}
+        for mk in _METRIC_KEYS:
+            v = res.get(mk)
+            got[mk] = round(v, 4) if isinstance(v, (int, float)) else v
+        assert got == card["metrics"], (slug, got, card["metrics"])
 
 
 def test_lab_run_request_accepts_preset_gates():
@@ -110,3 +140,4 @@ def test_lab_run_request_accepts_preset_gates():
     plain = LabRunRequest(dataset="majors_1h")
     assert plain.volume_spike_min is None and plain.regime_filter == ""
     assert plain.rsi_max is None
+    assert plain.rsi_min is None and plain.direction == ""

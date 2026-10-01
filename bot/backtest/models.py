@@ -58,11 +58,18 @@ class BacktestConfig(BaseModel):
     #     (or the boolean spike flag), matching "momentum hunter" (vol spike > 3x).
     #   regime_filter — only enter when the analyzer's per-symbol regime equals
     #     this (e.g. "TREND_DOWN" for "dip sniper", "TREND_UP" for momentum).
-    #   rsi_max — only enter when RSI(14) over the window is <= this (oversold
-    #     dip entry, e.g. "dip sniper" RSI < 35).
+    #   rsi_max — only enter when RSI(14) over the window is <= this.
+    #   rsi_min — only enter when RSI(14) is >= this. Dip Sniper uses it so a
+    #     downtrend short stands aside while RSI is still at capitulation
+    #     (the oversold print that bounces into the stop).
+    #   direction — "long_only" / "short_only" (also "LONG" / "SHORT"). Empty
+    #     admits either side. Momentum Hunter is long_only: a short during the
+    #     spike is the fade the preset does not take.
     volume_spike_min: Optional[float] = None
     regime_filter: str = ""
     rsi_max: Optional[float] = None
+    rsi_min: Optional[float] = None
+    direction: str = ""
     # Entry fill convention (audit fix #15). "close" = fill at the same bar's
     # close that generated the signal (legacy; optimistic — assumes you can
     # transact at the closing print). "next_open" = queue the approved idea and

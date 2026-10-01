@@ -2182,30 +2182,40 @@ class RunStrategySkill(BaseSkill):
     PRESETS: dict[str, dict[str, Any]] = {
         "dip sniper": {
             "label": "Dip Sniper", "icon": "\U0001f3af",
-            "desc": "All pairs \u2022 RSI &lt; 35 \u2022 TREND_DOWN \u2022 conf \u2265 70%",
-            "symbols": None, "rsi_threshold": 35,
+            "desc": "All pairs \u2022 TREND_DOWN \u2022 RSI \u2265 35 \u2022 short only \u2022 conf \u2265 70%",
+            # RSI at or above 35, not below it. The old ceiling kept only the
+            # oversold shorts, and every one of those stopped out: selling
+            # capitulation is the bounce. The short waits until RSI has lifted.
+            "symbols": None, "rsi_threshold": None, "rsi_min": 35,
             "regime": "TREND_DOWN", "confidence_threshold": 0.70,
+            "direction": "short_only",
             "volume_spike_min": None, "sl_atr_mult": None, "tp_atr_mult": None,
         },
         "momentum hunter": {
             "label": "Momentum Hunter", "icon": "\U0001f680",
-            "desc": "All pairs \u2022 vol spike &gt; 3x \u2022 TREND_UP",
-            "symbols": None, "rsi_threshold": None, "regime": "TREND_UP",
-            "confidence_threshold": None, "volume_spike_min": 3.0,
+            "desc": "All pairs \u2022 vol spike &gt; 3x \u2022 long only",
+            # No TREND_UP filter. That label arrives after the move is already
+            # a trend, so the spike it kept was the late one — and one of the
+            # three fills was a short against the spike. Long the spike itself.
+            "symbols": None, "rsi_threshold": None, "rsi_min": None,
+            "regime": None, "confidence_threshold": None,
+            "direction": "long_only", "volume_spike_min": 3.0,
             "sl_atr_mult": None, "tp_atr_mult": None,
         },
         "safe scalper": {
             "label": "Safe Scalper", "icon": "\u26a1",
-            "desc": "Top 3 vol \u2022 tight SL 1.5 ATR \u2022 conf \u2265 75%",
-            "symbols": "top3_volume", "rsi_threshold": None, "regime": None,
-            "confidence_threshold": 0.75, "volume_spike_min": None,
+            "desc": "Top 3 vol \u2022 RSI \u2265 35 \u2022 tight SL 1.5 ATR \u2022 conf \u2265 75%",
+            "symbols": "top3_volume", "rsi_threshold": None, "rsi_min": 35,
+            "regime": None, "confidence_threshold": 0.75,
+            "direction": None, "volume_spike_min": None,
             "sl_atr_mult": 1.5, "tp_atr_mult": 2.0,
         },
         "full scan": {
             "label": "Full Scan", "icon": "\U0001f50d",
             "desc": "All defaults \u2022 standard pipeline",
-            "symbols": None, "rsi_threshold": None, "regime": None,
-            "confidence_threshold": None, "volume_spike_min": None,
+            "symbols": None, "rsi_threshold": None, "rsi_min": None,
+            "regime": None, "confidence_threshold": None,
+            "direction": None, "volume_spike_min": None,
             "sl_atr_mult": None, "tp_atr_mult": None,
         },
     }
@@ -2333,6 +2343,22 @@ class RunStrategySkill(BaseSkill):
             if ct:
                 _pc = displayed_confidence(idea)
                 if not _pc.clears(ct):
+                    continue
+            # Same side and regime the frozen scorecard gates on. RSI still
+            # needs the candle window, which this scan does not hold; the
+            # backtest gate is where rsi_min binds.
+            _side = str(cfg.get("direction") or "").strip().lower().replace("-", "_")
+            if _side in ("long_only", "long", "short_only", "short"):
+                _need = "LONG" if _side.startswith("long") else "SHORT"
+                if idea.direction.value != _need:
+                    continue
+            _regime_want = str(cfg.get("regime") or "").strip().upper()
+            if _regime_want:
+                _regimes = getattr(getattr(engine, "analyzer", None),
+                                   "_current_regimes", None) or {}
+                _reg = _regimes.get(getattr(sig, "symbol", None))
+                _reg_val = (getattr(_reg, "value", "") or "").upper()
+                if _reg_val != _regime_want:
                     continue
             engine._pending_ideas[idea.id] = idea
             ideas += 1
