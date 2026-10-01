@@ -60,11 +60,19 @@ class BacktestConfig(BaseModel):
     #   regime_filter — only enter when the analyzer's per-symbol regime equals
     #     this (e.g. "TREND_DOWN" for "dip sniper", "TREND_UP" for momentum).
     #   rsi_max — a LONG enters only when RSI(14) over the window is <= this
-    #     (the capitulation dip, e.g. "dip sniper" RSI < 35). A SHORT is not
-    #     that dip, so the bound does not apply to it.
+    #     (the capitulation dip). A SHORT is not that dip, so the bound does
+    #     not apply to it.
+    #   rsi_min — only enter when RSI(14) is >= this. Dip Sniper uses it so a
+    #     downtrend short stands aside while RSI is still at capitulation
+    #     (the oversold print that bounces into the stop).
+    #   direction — "long_only" / "short_only" (also "LONG" / "SHORT"). Empty
+    #     admits either side. Momentum Hunter is long_only: a short during the
+    #     spike is the fade the preset does not take.
     volume_spike_min: Optional[float] = None
     regime_filter: str = ""
     rsi_max: Optional[float] = None
+    rsi_min: Optional[float] = None
+    direction: str = ""
     # Exit geometry a named preset states in ATR multiples. None leaves the
     # analyzer's own stop and target. Set, they replace those levels from
     # the backtest window's ATR before the risk gate sees the idea, so the

@@ -230,16 +230,25 @@ class MarketCommands:
         funding cost, from the hourly cross-venue scan (read-only; nothing is
         routed). The card is `venue_router_card_text`, the seam the routed
         "best venue for BTC" renders on both surfaces; ``base`` is how the
-        free-text branch hands the asset in."""
+        free-text branch hands the asset in. Website chat no longer answers
+        the sentence itself."""
         args = getattr(ctx, "args", None) or []
         want = str(base or (args[0] if args else "")).strip()
         await self._send(update, await self.venue_router_card_text(want))
 
     async def venue_router_card_text(self, base: str = "", *, surface: str = "telegram") -> str:
-        """The venue-router card — the website's own rendering, both surfaces;
-        ``base`` narrows it to one asset, '' is the top five."""
-        return await self._web_card_text("venue_router", surface=surface,
-                                         params={"base": base or ""})
+        """The venue-router card — the website's own rendering, both surfaces.
+
+        ``base`` narrows it to one asset, '' is the top five. An unnamed
+        asset is that top five, never a guessed default written here.
+
+        ``surface="web"`` keeps the card's own markup. Telegram's tag strip
+        turns ``<br>`` into a newline a browser collapses, which is right on
+        Telegram and wrong on the page that used to render this card itself.
+        """
+        return await self._web_card_text(
+            "venue_router", surface=surface, params={"base": base or ""},
+            keep_markup=(surface == "web"))
 
     @guard("meme_radar")
     async def _cmd_meme_radar(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

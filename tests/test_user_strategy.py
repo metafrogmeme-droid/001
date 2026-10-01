@@ -72,7 +72,8 @@ def test_gate_confidence_floor_refuses_with_numbers():
 def test_gate_states_scan_only_gates_instead_of_claiming_them():
     v = strategy_gate.check_confirm(
         "dip sniper", RunStrategySkill.PRESETS["dip sniper"], "BTC/USDT:USDT", 0.9)
-    assert "rsi_threshold" in v["scan_only"] and "regime" in v["scan_only"]
+    assert "rsi_min" in v["scan_only"] and "regime" in v["scan_only"]
+    assert "direction" in v["scan_only"]
     v2 = strategy_gate.check_confirm(
         "safe scalper", RunStrategySkill.PRESETS["safe scalper"], "ETHUSDT", 0.9)
     assert "symbols:top3_volume" in v2["scan_only"]
@@ -124,9 +125,9 @@ def test_describe_gates_matches_the_veto_split():
     from bot.core.strategy_gate import describe_gates
     confirm, scan = describe_gates(RunStrategySkill.PRESETS["dip sniper"])
     assert confirm == ["confidence>=70%"]
-    assert "rsi_threshold" in scan and "regime" in scan
+    assert "rsi_min" in scan and "regime" in scan and "direction" in scan
     confirm2, scan2 = describe_gates(RunStrategySkill.PRESETS["safe scalper"])
-    assert "symbols:top3_volume" in scan2
+    assert "symbols:top3_volume" in scan2 and "rsi_min" in scan2
     assert confirm2 == ["confidence>=75%"]
 
 

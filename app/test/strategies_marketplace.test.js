@@ -140,6 +140,8 @@ test('the primary CTA becomes "Reproduce in Lab" when a scorecard exists', () =>
   assert.match(dash, /volume_spike_min: sc\.gates\.volume_spike_min/);
   assert.match(dash, /regime_filter: sc\.gates\.regime_filter/);
   assert.match(dash, /rsi_max: sc\.gates\.rsi_max/);
+  assert.match(dash, /rsi_min: sc\.gates\.rsi_min/);
+  assert.match(dash, /direction: sc\.gates\.direction/);
   // The Lab auto-runs the stashed body through the shared submit path.
   assert.match(dash, /if \(_labReproduce\)/);
   assert.match(dash, /submitLabRun\(rep\.body/);
@@ -150,6 +152,8 @@ test('the Lab route forwards the preset gate params to the bridge', () => {
   assert.match(lab, /body\.volume_spike_min = parseFloat/);
   assert.match(lab, /body\.regime_filter = String\(b\.regime_filter\)/);
   assert.match(lab, /body\.rsi_max = parseFloat/);
+  assert.match(lab, /body\.rsi_min = parseFloat/);
+  assert.match(lab, /body\.direction = String\(b\.direction\)/);
 });
 
 test('the Lab bridge validates + clamps the preset gates', () => {
@@ -158,6 +162,7 @@ test('the Lab bridge validates + clamps the preset gates', () => {
   assert.match(lab, /volume_spike_min: Optional\[float\] = None/);
   assert.match(lab, /regime_filter: str = ""/);
   assert.match(lab, /rsi_max: Optional\[float\] = None/);
+  assert.match(lab, /rsi_min: Optional\[float\] = None/);
   assert.match(lab, /"--volume-spike-min"/);
   assert.match(lab, /"--regime-filter"/);
   assert.match(lab, /"--rsi-max"/);

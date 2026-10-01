@@ -88,9 +88,12 @@ const INTERCEPTS = [
   // to the shared airdrops seam, which fetches this process's own card
   // for the caller the turn names. The Hub panel and /api/airdrops still
   // run here, so the radar is still readable while the bot process is down.
+  // The venue router left this table. Both doors route "best venue for
+  // BTC" to the shared venue_router seam, which fetches this process's
+  // own card. The asset the sentence names narrows it; an unnamed asset
+  // is the top five. The Markets panel and /api/market/venue-router still
+  // run here, so the read is still available while the bot process is down.
 
-  // "best venue for BTC" — funding-cost venue read; recommendations only.
-  ['venues', (uid, text) => require('../lib/venue_router').maybeHandleVenueRouterChat(uid, text), 'which venue is cheapest to hold a position on, by funding cost'],
   // "meme radar" / "dexscreener" — read-only on-chain meme/AI-token snapshot
   // with an explicit safety read. Never trades or launches.
   ['meme', (uid, text) => require('../lib/meme').maybeHandleMemeChat(uid, text), 'an on-chain meme and AI-token snapshot with a safety read'],

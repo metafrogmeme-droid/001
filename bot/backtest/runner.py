@@ -340,6 +340,8 @@ def _preset_gate_kwargs(args: argparse.Namespace) -> dict:
         "volume_spike_min": getattr(args, "volume_spike_min", None),
         "regime_filter": getattr(args, "regime_filter", "") or "",
         "rsi_max": getattr(args, "rsi_max", None),
+        "rsi_min": getattr(args, "rsi_min", None),
+        "direction": getattr(args, "direction", "") or "",
         "sl_atr_mult": getattr(args, "sl_atr_mult", None),
         "tp_atr_mult": getattr(args, "tp_atr_mult", None),
     }
@@ -688,6 +690,11 @@ Examples:
     trade_group.add_argument("--rsi-max", type=float, default=None,
                              help="A LONG enters only when RSI(14) is <= this "
                                   "(the dip). A short is not filtered by it.")
+    trade_group.add_argument("--rsi-min", type=float, default=None,
+                             help="Only enter when RSI(14) over the window is >= this. "
+                                  "Dip Sniper stands aside while RSI is still at capitulation.")
+    trade_group.add_argument("--direction", type=str, default="",
+                             help="long_only or short_only. Empty admits either side.")
     trade_group.add_argument("--sl-atr-mult", type=float, default=None,
                              help="Replace the idea's stop with this many ATRs from entry. "
                                   "Unset leaves the analyzer's stop.")

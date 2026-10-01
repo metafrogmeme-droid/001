@@ -133,6 +133,10 @@ def _gate_args(cfg: dict) -> list[str]:
         args += ["--regime-filter", str(cfg["regime"])]
     if cfg.get("rsi_threshold") is not None:
         args += ["--rsi-max", str(cfg["rsi_threshold"])]
+    if cfg.get("rsi_min") is not None:
+        args += ["--rsi-min", str(cfg["rsi_min"])]
+    if cfg.get("direction"):
+        args += ["--direction", str(cfg["direction"])]
     if cfg.get("sl_atr_mult") is not None:
         args += ["--sl-atr-mult", str(cfg["sl_atr_mult"])]
     if cfg.get("tp_atr_mult") is not None:
@@ -174,6 +178,19 @@ def _breakdown_rows(runner: dict) -> list[dict]:
     return public_trade_breakdown(_Row(r) if isinstance(r, dict) else r for r in rows)
 
 
+def scorecard_gates(cfg: dict) -> dict:
+    """The gate block written onto a scorecard. One reading of the preset."""
+    return {
+        "confidence_threshold": cfg.get("confidence_threshold"),
+        "volume_spike_min": cfg.get("volume_spike_min"),
+        "regime_filter": cfg.get("regime") or None,
+        "rsi_max": cfg.get("rsi_threshold"),
+        "rsi_min": cfg.get("rsi_min"),
+        "direction": cfg.get("direction"),
+        "symbols": cfg.get("symbols"),
+    }
+
+
 def build_card(*, preset_key: str, cfg: dict, runner: dict, dataset_name: str,
                dataset_hash: str, symbols: list[str], last_bars: int,
                code_sha_value: str | None, recorded_at: str) -> dict:
@@ -193,13 +210,7 @@ def build_card(*, preset_key: str, cfg: dict, runner: dict, dataset_name: str,
         "dataset_hash": dataset_hash,
         "symbols": list(symbols),
         "bars": last_bars,
-        "gates": {
-            "confidence_threshold": cfg.get("confidence_threshold"),
-            "volume_spike_min": cfg.get("volume_spike_min"),
-            "regime_filter": cfg.get("regime") or None,
-            "rsi_max": cfg.get("rsi_threshold"),
-            "symbols": cfg.get("symbols"),
-        },
+        "gates": scorecard_gates(cfg),
         "unmodeled": _unmodeled(cfg),
         # The runner's own figures. ``metrics`` is the projection of this
         # block; editing one percent without the other fails the check.
@@ -237,10 +248,10 @@ def _run_one(preset_key: str, cfg: dict, dataset: str, symbols: str,
 
 
 def generate(dataset: str, symbols: str, last_bars: int) -> list[str]:
+    from bot.backtest.snapshot import load_manifest_multi
     from bot.skills.skill_registry import RunStrategySkill
-    from bot.backtest import snapshot as _snap
 
-    man = _snap.load_manifest_multi(dataset)
+    man = load_manifest_multi(dataset)
     dataset_hash = man.get("dataset_hash", "")
     if not dataset_hash:
         raise SystemExit(f"manifest for {dataset} has no dataset_hash")
@@ -249,6 +260,9 @@ def generate(dataset: str, symbols: str, last_bars: int) -> list[str]:
     stamped_at = datetime.now(UTC).isoformat(timespec="seconds")
     stamped_sha = code_sha()
 
+    # The catalogue reads benchmark/scorecards (the committable tree). Writing
+    # under data/benchmark lands on the runtime symlink and the Agents tab
+    # keeps serving the previous file.
     out_dir = _scorecard_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[str] = []

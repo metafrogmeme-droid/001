@@ -167,12 +167,12 @@ test('letter: the last completed week, the same card', async () => {
   assert.match(r.data.reply_html, /The Agent Letter/);
 });
 
-test('venue router: the top five, or one asset, the way the intercept narrows', async () => {
-  const all = await venueRouter.maybeHandleVenueRouterChat(1, 'venue router');
+test('venue router: the top five, or one asset, the way the card narrows', async () => {
+  const all = await venueRouter.venueRouterChatCard('');
   let r = await card('/api/bot/sync/card/venue_router');
   assert.equal(r.status, 200);
   assert.deepEqual(r.data, { reply_html: all.reply_html, intent: 'venue_router' });
-  const btc = await venueRouter.maybeHandleVenueRouterChat(1, 'best venue for BTC');
+  const btc = await venueRouter.venueRouterChatCard('BTC');
   r = await card('/api/bot/sync/card/venue_router?base=btc');
   assert.equal(r.data.reply_html, btc.reply_html);
   assert.match(r.data.reply_html, /<b>BTC<\/b>: long on <b>bingx<\/b>/);

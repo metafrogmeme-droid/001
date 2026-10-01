@@ -7538,6 +7538,63 @@
     });
   }
 
+  // ── agent scorecard: six readings, one grid ──────────────────────────
+  // The numbers come from AgentScorecard (one reading). This function only
+  // places them: a 3-column grid, and the drawdown's book caption OUTSIDE
+  // any cell. The caption used to live inside the Max DD cell, and on a
+  // phone the flex row wrapped the Sharpe and Trades labels beside the
+  // drawdown value.
+  function scoreBlock(sc) {
+    if (!sc || !sc.metrics) {
+      return '<p class="small muted" style="margin:0">Verified backtest pending'
+        + ' — run it in the <a href="#lab">Lab</a>.</p>';
+    }
+    // A missing painter is not "backtest pending", and it is not a row of
+    // zeros. The card around this slot still renders.
+    if (!window.AgentScorecard) {
+      return '<p class="small muted" style="margin:0">The scorecard could not be painted.'
+        + ' This is not a pending backtest.</p>';
+    }
+    const read = window.AgentScorecard.readings(sc.metrics, pnlClass);
+    const by = {};
+    read.cells.forEach((c) => { by[c.key] = c; });
+    const tiles = [
+      ['Return', by.return.text, by.return.cls],
+      ['Profit factor', by['profit-factor'].text, by['profit-factor'].cls],
+      ['Win rate', by['win-rate'].text, by['win-rate'].cls],
+      ['Max DD', by['max-dd'].text, by['max-dd'].cls, ddLabel('copyLeader')],
+      ['Sharpe', by.sharpe.text, by.sharpe.cls],
+      ['Trades', by.trades.text, by.trades.cls],
+    ];
+    const books = [];
+    const grid = tiles.map(([k, v, cls, note]) => {
+      if (note) books.push(note);
+      return '<div class="agent-metric" data-metric="' + esc(k) + '" style="min-width:0">'
+        + '<span class="muted agent-metric-k" style="display:block;font-size:10px;'
+        + 'text-transform:uppercase;letter-spacing:.03em">' + esc(k) + '</span>'
+        + '<span class="num ' + (cls || '') + '" data-metric-value style="display:block;'
+        + 'font-size:var(--fs-md);font-weight:600;white-space:nowrap">'
+        + esc(String(v)) + '</span></div>';
+    }).join('');
+    const book = books.length
+      ? '<div class="agent-metrics-caption" style="margin-top:4px">' + books.join('') + '</div>'
+      : '';
+    const low = read.lowSample !== null
+      ? '<div class="chip chip--warn" style="font-size:10px;margin-top:4px">low sample · '
+        + read.lowSample + ' trades</div>' : '';
+    const bars = sc.bars == null ? '?' : esc(String(sc.bars));
+    const prov = 'Frozen backtest · ' + esc(sc.dataset || '') + ' · ' + bars + ' bars'
+      + (sc.dataset_hash ? ' · #' + esc(sc.dataset_hash) : '');
+    const unmodeled = (sc.unmodeled && sc.unmodeled.length)
+      ? ' · exit mults not modeled (' + sc.unmodeled.map(esc).join(', ') + ')' : '';
+    const gridStyle = 'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));'
+      + 'gap:10px 12px;align-items:start';
+    return '<div class="agent-metrics" style="' + gridStyle + '">' + grid + '</div>'
+      + book + low
+      + '<p class="muted" style="font-size:10px;margin:4px 0 0">' + prov + unmodeled + '</p>';
+  }
+  // ── agent scorecard: renderer end ────────────────────────────────────
+
   /* ═══════ Strategy Agents (marketplace — public, read-only, §4-safe) ═══════ */
   // A browsable catalogue of the engine's named strategy agents. Every card is
   // a REAL engine preset served by /api/public/strategies (relayed from the bot
@@ -7599,35 +7656,6 @@
         } catch (_) { /* keep the last known list */ }
       }
       const note = (r.data && r.data.note) || '';
-      // Verified frozen-benchmark scorecard block (percent/ratio only, §4). Low
-      // trade counts are flagged so a sparse PF isn't read as a real edge.
-      const scPct = v => (v == null ? '—' : `${v >= 0 ? '+' : ''}${(+v).toFixed(2)}%`);
-      const scNum = (v, d = 2) => (v == null ? '—' : (+v).toFixed(d));
-      function scoreBlock(sc) {
-        if (!sc || !sc.metrics) {
-          return `<p class="small muted" style="margin:0">Verified backtest pending — run it in the <a href="#lab">Lab</a>.</p>`;
-        }
-        const m = sc.metrics;
-        const tiles = [
-          ['Return', scPct(m.total_return_pct), pnlClass(m.total_return_pct)],
-          ['Profit factor', scNum(m.profit_factor), pnlClass((m.profit_factor || 1) - 1)],
-          ['Win rate', m.win_rate == null ? '—' : `${(m.win_rate * 100).toFixed(0)}%`, ''],
-          ['Max DD', m.max_drawdown_pct == null ? '—' : `${(+m.max_drawdown_pct).toFixed(2)}%`, 'neg', ddLabel('copyLeader')],
-          ['Sharpe', scNum(m.sharpe_ratio), ''],
-          ['Trades', m.total_trades == null ? '—' : String(m.total_trades), ''],
-        ];
-        const grid = tiles.map(([k, v, cls, note]) => `
-          <div style="min-width:70px"><div class="muted" style="font-size:10px;text-transform:uppercase;letter-spacing:.03em">${k}</div>
-            <div class="num ${cls || ''}" style="font-size:var(--fs-md);font-weight:600">${v}</div>`
-          + (note ? `<div>${note}</div>` : '') + `</div>`).join('');
-        const low = (m.total_trades != null && m.total_trades < 10)
-          ? `<div class="chip chip--warn" style="font-size:10px;margin-top:4px">low sample · ${m.total_trades} trades</div>` : '';
-        const prov = `Frozen backtest · ${esc(sc.dataset || '')} · ${sc.bars || '?'} bars${sc.dataset_hash ? ` · #${esc(sc.dataset_hash)}` : ''}`;
-        const unmodeled = (sc.unmodeled && sc.unmodeled.length)
-          ? ` · exit mults not modeled (${sc.unmodeled.map(esc).join(', ')})` : '';
-        return `<div class="row" style="gap:var(--s3);flex-wrap:wrap">${grid}</div>${low}
-          <p class="muted" style="font-size:10px;margin:4px 0 0">${prov}${unmodeled}</p>`;
-      }
       const cards = agents.map(a => {
         const border = _riskBorder[a.risk] || 'var(--gold-bright)';
         const chips = [
@@ -8135,6 +8163,8 @@
               volume_spike_min: sc.gates.volume_spike_min,
               regime_filter: sc.gates.regime_filter || '',
               rsi_max: sc.gates.rsi_max,
+              rsi_min: sc.gates.rsi_min,
+              direction: sc.gates.direction || '',
             },
           };
         }
@@ -8394,6 +8424,8 @@
                 volume_spike_min: csc.gates.volume_spike_min,
                 regime_filter: csc.gates.regime_filter || '',
                 rsi_max: csc.gates.rsi_max,
+                rsi_min: csc.gates.rsi_min,
+                direction: csc.gates.direction || '',
               },
             };
           }
