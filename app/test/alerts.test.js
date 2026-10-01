@@ -2,8 +2,9 @@
 /**
  * Custom agent alerts ("tell me when…" tripwires): plain-English parsing,
  * validated creation with a per-user cap, strict per-user isolation,
- * one-shot engine evaluation against tickers, TARGETED push delivery, and
- * the chat intercept that arms alerts without a bot round-trip.
+ * one-shot engine evaluation against tickers, and TARGETED push delivery.
+ * Website chat does not arm one itself: "tell me when…" waits for the bot.
+ * GET/POST /api/alerts and the evaluator still run in this process.
  */
 process.env.JWT_SECRET = 'j'.repeat(64);
 delete process.env.DATABASE_URL;
@@ -223,40 +224,40 @@ test('engine: 24h-change alerts evaluate against the change field', async () => 
   assert.match(pushes[0].body, /above 5\.0%/);
 });
 
-// ── Chat intercept ───────────────────────────────────────────────────────────
+// ── Chat falls through ───────────────────────────────────────────────────────
+// Arming from chat is the shared price_alert door, so these words reach the
+// bot. This file leaves the gateway unconfigured, which is the down bot: the
+// reply is 503 and nothing here was armed. The panel's own route still arms.
 
-test('chat: "tell me when…" arms an alert without the bot', async () => {
+test('chat: "tell me when…" does not arm locally while the bot is down', async () => {
   const token = await newUser();
   const r = await req('POST', '/api/chat', {
     token, body: { text: 'tell me when BTC drops below $90k' },
   });
-  assert.equal(r.status, 200);
-  assert.equal(r.data.intent, 'alert_create');
-  assert.match(r.data.reply_html, /Alert armed/);
-  assert.match(r.data.reply_html, /BTC price below \$90,000/);
-  assert.match(r.data.reply_html, /now \$98,000/);
-  // No push subscription yet → the reply nudges the user to enable push.
-  assert.match(r.data.reply_html, /push notifications/i);
+  assert.equal(r.status, 503);
 
   const l = await req('GET', '/api/alerts', { token });
-  assert.equal(l.data.alerts.length, 1);
-  assert.equal(l.data.alerts[0].active, true);
+  assert.equal(l.data.alerts.length, 0);
 });
 
-test('chat: "my alerts" lists them; unparsed asks get guidance', async () => {
+test('chat: "my alerts" also waits for the bot; the panel route still lists', async () => {
   const token = await newUser();
-  await req('POST', '/api/chat', {
-    token, body: { text: 'alert me if eth rises above 3k' },
+  const created = await req('POST', '/api/alerts', {
+    token, body: { symbol: 'ETH', metric: 'price', op: '>', threshold: 3000 },
   });
-  const list = await req('POST', '/api/chat', { token, body: { text: 'my alerts' } });
-  assert.equal(list.data.intent, 'alert_list');
-  assert.match(list.data.reply_html, /ETH price above \$3,000/);
-  assert.match(list.data.reply_html, /armed/);
+  assert.equal(created.status, 200);
 
+  const list = await req('POST', '/api/chat', { token, body: { text: 'my alerts' } });
+  assert.equal(list.status, 503);
   const help = await req('POST', '/api/chat', {
     token, body: { text: 'tell me when eth looks spicy' },
   });
-  assert.equal(help.data.intent, 'alert_help');
+  assert.equal(help.status, 503);
+
+  const l = await req('GET', '/api/alerts', { token });
+  assert.equal(l.data.alerts.length, 1);
+  assert.equal(l.data.alerts[0].symbol, 'ETHUSDT');
+  assert.equal(l.data.alerts[0].active, true);
 });
 
 test('chat: non-alert text still routes to the bot proxy (unconfigured → 503)', async () => {

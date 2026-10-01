@@ -1693,7 +1693,7 @@ in the map.
 (@guard("rwa"), `bot/skills/market_commands.py::MarketCommands._cmd_rwa`, registered
 `bot/skills/telegram_handler.py::TelegramHandler.build_app#'("rwa", self._cmd_rwa)'`, reads the web via
 bot/utils/web_data_pull.py → /api/bot/sync/card/rwa, the card RENDERED);
-web chat intercept row 4
+web chat intercept row 3
 'rwa' (app/routes/chat.js INTERCEPTS, says "a tokenized-asset sector
 snapshot"); MCP tool get_rwa_radar (`app/routes/mcp.js::TOOLS.get_rwa_radar`); implementation
 app/lib/rwa.js; operator studies scripts/research/rwa_funding.py and
@@ -1749,11 +1749,13 @@ bot/core/stock_trading.py, also read by `bot/core/engine.py::RuneClawEngine._con
 **Price alerts and anomaly-alert scoping**
 
 Price alerts and anomaly-alert scoping — user-set price triggers evaluated in
-the WEB app (they work while the bot process is down), plus per-operator
-anomaly scope ('held' vs 'all') and a rate floor.
+the WEB app (an alert that is already armed is still evaluated while the bot
+process is down), plus per-operator anomaly scope ('held' vs 'all') and a
+rate floor. Arming one from chat is the shared `price_alert` door on both
+surfaces, not a website intercept of its own.
 
-*Where.* Web chat intercept row 1 'alerts' (app/routes/chat.js, first in the
-table); GET/POST /api/alerts and DELETE /api/alerts/:id (app/routes/alerts.js;
+*Where.* Shared chat door `price_alert` (`bot/web/user_gateway.py::_WEB_SEAM#"price_alert"`,
+`bot/skills/agent_commands.py::AgentCommands.price_alert_card_text`); GET/POST /api/alerts and DELETE /api/alerts/:id (app/routes/alerts.js;
 `app/public/js/dashboard.js::renderFeed#'id="p-tripwires"'`, `::loadAlertList#"fetchJSON('/api/alerts')"`, `::wireAlertsPanel#"fetchJSON('/api/alerts', {"`, `::renderHub#"fetchJSON('/api/alerts', { timeoutMs: 8000 })"`); app/lib/alerts.js; Telegram /watch and
 /alerts (registered telegram_handler.py), bot/core/anomaly_scope.py +
 black_swan.py + proactive_monitor.py.
@@ -1764,7 +1766,7 @@ Signal replay — "what if I'd taken every signal with $1k?" run over the web's
 own recorded signal history. This is the evidence surface a person uses before
 deciding to follow the engine at all.
 
-*Where.* Web chat intercept row 2 'replay' (app/routes/chat.js); GET
+*Where.* Web chat intercept row 1 'replay' (app/routes/chat.js); GET
 /api/replay?stake=&days= (app/routes/replay.js; `app/public/js/dashboard.js::renderPortfolio.runReplayPanel#"/api/replay?stake="` and `::renderHub#"renderPanel(C('hubreplay')"`
 for the Agent Hub tile #c-hubreplay); app/lib/replay.js; MCP run_what_if
 (`app/routes/mcp.js::TOOLS.run_what_if`).

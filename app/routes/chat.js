@@ -16,7 +16,6 @@ const { rateLimit, userKey } = require('../lib/rate_limit');
 const { resolveBotIdentity } = require('../lib/identity');
 const gateway = require('../lib/gateway');
 const { loadProfile } = require('./profile');
-const { maybeHandleAlertChat } = require('../lib/alerts');
 const { maybeHandleReplayChat } = require('../lib/replay');
 const { maybeHandleLetterChat } = require('../lib/letter');
 const { maybeHandleRwaChat } = require('../lib/rwa');
@@ -73,10 +72,10 @@ const STREAM_TIMEOUT_MS = 75000;
  * build on.
  */
 const INTERCEPTS = [
-  // "tell me when BTC drops below 100k" — alerts live in the WEB app (the
-  // push channel is here), so handle them before the bot proxy. Evaluated
-  // against public tickers; works even while the bot process is down.
-  ['alerts', (uid, text) => maybeHandleAlertChat(uid, text), 'a price alert you set here — "tell me when BTC drops below 100k"'],
+  // Price alerts left this table. Both doors route "tell me when…" to the
+  // shared price_alert seam, which arms the same engine. The engine and
+  // /api/alerts still run here, so an alert that is already armed is still
+  // evaluated while the bot process is down.
   // "what if I'd taken every signal with $1k?" — replayed from the web's
   // own recorded trade history, no bot round-trip needed.
   ['replay', (uid, text) => maybeHandleReplayChat(uid, text), 'a replay of what every past signal would have made you'],
@@ -190,7 +189,7 @@ async function chatTurn(req, res, { stream = false } = {}) {
     }
     if (!text && !images) return res.status(400).json({ error: 'text or image required' });
     if (text.length > MAX_TEXT_LEN) return res.status(400).json({ error: 'Message too long' });
-    // An image message skips the local text-intercepts (alerts/replay/etc.) and
+    // An image message skips the local text-intercepts (replay and the rest) and
     // goes straight to the bot's vision-capable chat path.
     if (images) {
       const ident = await resolveBotIdentity(req);

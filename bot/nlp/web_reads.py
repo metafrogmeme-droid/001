@@ -1,18 +1,18 @@
 """The reads the website's chat answers from its own intercepts and Telegram
 does not — and the door each one is given, on both surfaces.
 
-`app/routes/chat.js` answers fifteen shapes of question before any bot
-round-trip. Thirteen have a Telegram command that renders the same reading
-and are routed to it (`networth`, `rwa`, `research`, and — since the
-website's own cards became fetchable — `nft`, `spot`, `airdrops`, `replay`,
-`letter`, `venue_router`, `meme_radar`, `wallet`, `defi`, and `price_alert`
-→ `/price_alert`, a WRITE the website's alert engine holds and delivers here
-too since the bot polls its trips; it collides by NAME with `/alerts`, the
-anomaly-alert scope, which is why the command is not called that); the
-idle-yield read is the website's optimiser over the wallet the caller signed
-in with, while `/idleyield` here is the OPERATOR's exchange account under the
-same word. This table holds that one door. The fifteenth, `exposure`, is
-neither: the
+`app/routes/chat.js` answers fourteen shapes of question before any bot
+round-trip. Twelve have a Telegram command that renders the same reading
+and are routed to it (`networth`, `rwa`, `research`, `nft`, `spot`,
+`airdrops`, `replay`, `letter`, `venue_router`, `meme_radar`, `wallet`,
+`defi`). Price alerts are not among the fourteen: both doors route them to
+`/price_alert`, a WRITE the website's alert engine holds and delivers on
+Telegram too since the bot polls its trips; the command is not called
+`/alerts` because that name is the anomaly-alert scope. The idle-yield read
+is the website's optimiser over the wallet the caller signed in with, while
+`/idleyield` here is the OPERATOR's exchange account under the same word.
+This table holds that one door. `exposure` is neither a command in that
+twelve nor this door: the
 website answers "my exposure" with its cross-venue netting card, which
 `/exposure` renders here by name, while the WORDS stay the risk engine's on
 Telegram — a pinned routing from the corpus work (beside "whats my

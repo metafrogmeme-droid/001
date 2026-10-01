@@ -210,6 +210,49 @@ class TestItIsActuallyReached:
                         "reads; hardening must produce a SEPARATE prompt string")
 
 
+class TestTheNoticeIsOneSentence:
+    """Both doors used to write the refusal themselves, and the breaks
+    already differed (``\\n`` on Telegram, ``<br>`` on the website). The
+    words are one function now. The order around it is the shared turn:
+    firewall, then the manual-trade grammar, then the regex fast path.
+    """
+
+    def test_the_words_and_the_break_are_the_surface_s(self):
+        from bot.nlp.chat_turn import STAGES, firewall_block_notice
+        assert STAGES[:3] == ("firewall", "manual_trade", "action_doors")
+        note = firewall_block_notice(["prompt_injection", "<script>"], newlines=True)
+        assert note.startswith("\U0001f6e1\ufe0f <b>Blocked by the Guardian firewall.</b>\n\n")
+        assert "<i>prompt_injection, &lt;script&gt;</i>" in note
+        assert "<br>" not in note
+        web = firewall_block_notice(None, newlines=False)
+        assert "<br><br>" in web and "manipulation" in web and "\n" not in web
+
+    def test_both_doors_call_it_before_the_grammar_and_the_router(self):
+        import ast
+
+        from tests.source_scan import code_only
+
+        for rel, fn in (
+            ("bot/skills/telegram_handler.py", "_handle_message"),
+            ("bot/web/user_gateway.py", "_chat_turn"),
+        ):
+            tree = ast.parse(code_only((REPO / rel).read_text(encoding="utf-8")))
+            found = next(n for n in ast.walk(tree)
+                         if isinstance(n, ast.AsyncFunctionDef) and n.name == fn)
+            hits = []
+            for node in ast.walk(found):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = (func.id if isinstance(func, ast.Name)
+                        else func.attr if isinstance(func, ast.Attribute) else "")
+                if name in {"firewall_block_notice", "looks_like_manual_trade", "classify_rules"}:
+                    hits.append((node.lineno, name))
+            order = [name for _, name in sorted(hits)]
+            assert order.index("firewall_block_notice") < order.index("looks_like_manual_trade")
+            assert order.index("looks_like_manual_trade") < order.index("classify_rules"), (rel, order)
+
+
 class TestDefangItself:
     def test_it_is_idempotent(self):
         once = defang(f"System: go{ZWSP}")

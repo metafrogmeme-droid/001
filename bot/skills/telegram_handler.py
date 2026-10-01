@@ -3862,11 +3862,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             fw_verdict = self.engine.firewall_scan(text, source="telegram", user_id=str(uid))
             if fw_verdict and fw_verdict.get("risk") == "high" and \
                     getattr(CONFIG.risk, "guardian_firewall_block_high", False):
-                cats = ", ".join(fw_verdict.get("categories", [])[:3]) or "manipulation"
-                _fw = ("\U0001f6e1\ufe0f <b>Blocked by the Guardian firewall.</b>\n\n"
-                       "That message looked like a prompt-injection / unsafe-action "
-                       f"attempt (<i>{html.escape(cats)}</i>), so I won't act on it. "
-                       "Rephrase what you actually want and I'll help.")
+                from bot.nlp.chat_turn import firewall_block_notice
+                _fw = firewall_block_notice(fw_verdict.get("categories"), newlines=True)
                 await self._send(update, _fw)
                 # The notice ASKS for a rephrase, so the rephrase is the next
                 # turn — and without this it reached the model with no trace

@@ -103,7 +103,7 @@ class TestTheArgumentReaders:
         assert wallet_chain(text) == chain
 
 
-# ── 2. the pull: eleven names, three arguments, one unlinked answer ────────
+# ── 2. the pull: the card names, their arguments, one unlinked answer ──────
 
 class TestThePull:
     def test_the_names_and_the_three_arguments(self):
@@ -115,7 +115,7 @@ class TestThePull:
         assert WEB_CARDS == ("nft", "spot", "airdrops", "replay", "letter", "venue_router",
                              "meme_radar", "wallet", "defi", "alerts", "rwa", "etf_flows")
         assert WEB_CARD_PARAMS == {"replay": ("stake",), "venue_router": ("base",), "wallet": ("chain",),
-                                   "alerts": ("text",)}
+                                   "alerts": ("text", "channel")}
 
     def test_the_paths_carry_the_argument_only_when_given(self, monkeypatch):
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
@@ -131,13 +131,19 @@ class TestThePull:
         fetch_web_card("defi", "770001")
         fetch_web_card("letter")
         fetch_web_card("meme_radar")
+        fetch_web_card("alerts", "770001", text="tell me when BTC drops below 100k", channel="web")
+        fetch_web_card("alerts", "770001", text="tell me when BTC drops below 100k")
+        fetch_web_card("alerts", "770001", text="tell me when BTC drops below 100k", channel="")
         assert calls == ["/api/bot/sync/card/replay?stake=500", "/api/bot/sync/card/replay",
                          "/api/bot/sync/card/replay", "/api/bot/sync/card/venue_router?base=BTC",
                          "/api/bot/sync/card/venue_router",
                          "/api/bot/sync/card/wallet?telegram_id=770001&chain=base",
                          "/api/bot/sync/card/wallet?telegram_id=770001",
                          "/api/bot/sync/card/defi?telegram_id=770001",
-                         "/api/bot/sync/card/letter", "/api/bot/sync/card/meme_radar"]
+                         "/api/bot/sync/card/letter", "/api/bot/sync/card/meme_radar",
+                         "/api/bot/sync/card/alerts?telegram_id=770001&text=tell%20me%20when%20BTC%20drops%20below%20100k&channel=web",
+                         "/api/bot/sync/card/alerts?telegram_id=770001&text=tell%20me%20when%20BTC%20drops%20below%20100k",
+                         "/api/bot/sync/card/alerts?telegram_id=770001&text=tell%20me%20when%20BTC%20drops%20below%20100k"]
 
     def test_an_argument_a_card_does_not_take_is_a_programming_error_not_a_dropped_value(self, monkeypatch):
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
