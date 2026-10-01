@@ -5,7 +5,8 @@
  * Pins: wallet reads are strictly read-only mirrors (fake provider — the
  * module only ever calls getBalance/balanceOf), pricing via venue tickers
  * with stables pinned, no-wallet and unpriced honesty, the DEX↔CEX basis
- * math, and both chat intercepts.
+ * math. Website chat does not render the wallet itself: those words wait
+ * for the shared wallet door. The portfolio route and the card still serve.
  */
 process.env.JWT_SECRET = 'j'.repeat(64);
 process.env.WEB3_CHAINS = 'ethereum';   // single-chain FakeProvider — see multichain test
@@ -172,21 +173,39 @@ test('GET /api/market/dex is public and carries the comparison', async () => {
   assert.ok(r.data.rows.length >= 3);
 });
 
-// ── Chat intercepts ──────────────────────────────────────────────────────────
+// The wallet mirror from chat is the shared wallet door, so these words
+// reach the bot. This file leaves the gateway unconfigured, which is the
+// down bot: the reply is 503 and nothing here was composed for the turn.
+// The portfolio route and the card renderer still serve the caller's book.
 
-test('chat: "my wallet" — nudge when unlinked, mirror when linked', async () => {
+test('chat: "my wallet" waits for the bot; the card and the portfolio route still serve', async () => {
   const { token } = await newUser();
-  const nudge = await req('POST', '/api/chat', { token, body: { text: 'show my wallet balance' } });
-  assert.equal(nudge.data.intent, 'wallet');
-  assert.match(nudge.data.reply_html, /Sign-In with Ethereum/);
+  const me = await req('GET', '/api/auth/me', { token });
+  const uid = me.data.id ?? me.data.user_id;
+  const waiting = await req('POST', '/api/chat', { token, body: { text: 'show my wallet balance' } });
+  assert.equal(waiting.status, 503);
+  assert.equal(waiting.data.intent, undefined);
+
+  const nudge = await wallet.walletChatCard(uid, null);
+  assert.equal(nudge.intent, 'wallet');
+  assert.match(nudge.reply_html, /Sign-In with Ethereum/);
 
   await linkWallet(token);
-  const r = await req('POST', '/api/chat', { token, body: { text: 'my wallet' } });
-  assert.equal(r.data.intent, 'wallet');
-  assert.match(r.data.reply_html, /0xabab…abab/);
-  assert.match(r.data.reply_html, /\$3,750/);
-  assert.match(r.data.reply_html, /can never move them/);
+  const again = await req('POST', '/api/chat', { token, body: { text: 'my wallet' } });
+  assert.equal(again.status, 503);
+  assert.equal(again.data.intent, undefined);
+
+  const card = await wallet.walletChatCard(uid, null);
+  assert.equal(card.intent, 'wallet');
+  assert.match(card.reply_html, /0xabab…abab/);
+  assert.match(card.reply_html, /\$3,750/);
+  assert.match(card.reply_html, /can never move them/);
+
+  const book = await req('GET', '/api/wallet/portfolio', { token });
+  assert.equal(book.status, 200);
+  assert.equal(book.data.linked, true);
+  assert.equal(book.data.total_usd, 3750);
 
   const other = await req('POST', '/api/chat', { token, body: { text: 'good morning' } });
-  assert.equal(other.status, 503);   // unconfigured bot proxy
+  assert.equal(other.status, 503);
 });

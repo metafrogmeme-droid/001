@@ -18,7 +18,6 @@ const gateway = require('../lib/gateway');
 const { loadProfile } = require('./profile');
 const { maybeHandleReplayChat } = require('../lib/replay');
 const { maybeHandleRwaChat } = require('../lib/rwa');
-const { maybeHandleWalletChat } = require('../lib/wallet');
 const { maybeHandleDefiChat } = require('../lib/defi');
 const { maybeHandleNetWorthChat } = require('../lib/networth');
 const { maybeHandleIdleYieldChat } = require('../lib/idle_yield');
@@ -98,8 +97,10 @@ const INTERCEPTS = [
   ['nft', (uid, text) => require('../lib/opensea').maybeHandleNftChat(uid, text), "an NFT collection's floor price and volume"],
   // "spot market" — read-only spot pairs + spot/perp basis. Never orders.
   ['spot', (uid, text) => require('../lib/spot').maybeHandleSpotChat(uid, text), 'spot pairs and the spot/perp basis'],
-  // "my wallet" — read-only mirror of the caller's SIWE-linked wallet.
-  ['wallet', (uid, text) => maybeHandleWalletChat(uid, text), 'a read of the wallet you signed in with'],
+  // The wallet mirror left this table. Both doors route "my wallet" to the
+  // shared wallet seam, which fetches this process's own card for the caller
+  // the turn names. The panel and /api/wallet/portfolio still run here, so
+  // the mirror is still readable while the bot process is down.
   // "my defi positions" / "health factor" — Aave/Lido/Uniswap read straight
   // from protocol contracts, with liquidation-risk warnings.
   ['defi', (uid, text) => maybeHandleDefiChat(uid, text), 'your Aave, Lido and Uniswap positions, with liquidation risk'],

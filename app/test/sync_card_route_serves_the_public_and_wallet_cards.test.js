@@ -207,24 +207,24 @@ test('wallet and defi: unlinked is a fact, never a guessed wallet; linked is the
   // Linked to a web account that has no wallet: the renderer's own sentence.
   let r = await card('/api/bot/sync/card/wallet?telegram_id=880001');
   assert.equal(r.status, 200);
-  assert.equal(r.data.reply_html, (await wallet.maybeHandleWalletChat(reg.user_id, 'my wallet')).reply_html);
+  assert.equal(r.data.reply_html, (await wallet.walletChatCard(reg.user_id, null)).reply_html);
   assert.match(r.data.reply_html, /No wallet is linked to your account yet/);
   r = await card('/api/bot/sync/card/defi?telegram_id=880001');
   assert.match(r.data.reply_html, /No wallet is linked yet/);
   // With a wallet: the mirror, the chain filter, and the unreadable chain in
   // <i>, never a <span> Telegram would refuse.
   await pool.execute('UPDATE users SET wallet_address = ? WHERE id = ?', ['0x' + 'ab'.repeat(20), reg.user_id]);
-  const own = await wallet.maybeHandleWalletChat(reg.user_id, 'my wallet');
+  const own = await wallet.walletChatCard(reg.user_id, null);
   r = await card('/api/bot/sync/card/wallet?telegram_id=880001');
   assert.deepEqual(r.data, { reply_html: own.reply_html, intent: 'wallet' });
   assert.match(r.data.reply_html, /<b>ETH<\/b> 2 — \$5,000/);
   assert.match(r.data.reply_html, /<i>Arbitrum unreadable right now \(RPC\)\.<\/i>/);
   assert.doesNotMatch(r.data.reply_html, /<span/);
-  const onBase = await wallet.maybeHandleWalletChat(reg.user_id, 'my wallet on base');
+  const onBase = await wallet.walletChatCard(reg.user_id, 'base');
   r = await card('/api/bot/sync/card/wallet?telegram_id=880001&chain=base');
   assert.equal(r.data.reply_html, onBase.reply_html);
   assert.match(r.data.reply_html, /no balances found on Base/);
-  const nowhere = await wallet.maybeHandleWalletChat(reg.user_id, 'my wallet on mars');
+  const nowhere = await wallet.walletChatCard(reg.user_id, 'mars');
   r = await card('/api/bot/sync/card/wallet?telegram_id=880001&chain=mars');
   assert.equal(r.data.reply_html, nowhere.reply_html);
   assert.match(r.data.reply_html, /I don't mirror <b>mars<\/b> yet/);
@@ -240,7 +240,7 @@ test('the identity the website hands the bot for a web-only account maps to that
   // wallet card. One mapper for the router's per-person reads now.
   const reg = await register('cards5web@test.io');
   await pool.execute('UPDATE users SET wallet_address = ? WHERE id = ?', ['0x' + 'cd'.repeat(20), reg.user_id]);
-  const own = await wallet.maybeHandleWalletChat(reg.user_id, 'my wallet');
+  const own = await wallet.walletChatCard(reg.user_id, null);
   let r = await card(`/api/bot/sync/card/wallet?telegram_id=web:${reg.user_id}`);
   assert.deepEqual(r.data, { reply_html: own.reply_html, intent: 'wallet' });
   assert.match(r.data.reply_html, /<b>ETH<\/b> 2 — \$5,000/);

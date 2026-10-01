@@ -1,7 +1,7 @@
 """The reads only the website's chat answers meet a DOOR on Telegram, and
 "replay" stops running a backtest.
 
-`app/routes/chat.js` answers thirteen shapes of question from its own
+`app/routes/chat.js` answers twelve shapes of question from its own
 intercepts. Six had nothing on Telegram (replay, letter, airdrops, nft,
 spot, defi) and three share a word with a Telegram command that does
 something else (/alerts is the anomaly-alert scope, /venues picks the venues
@@ -198,7 +198,7 @@ def test_every_row_names_a_real_intercept_and_a_real_library():
         assert (REPO / "app" / "lib" / f"{r.lib}.js").exists(), r.lib
     raw = json.loads((REPO / "bot" / "nlp" / "web_reads.json").read_text())
     assert set(raw) == set(WEB_READS) and len(WEB_READS) == 1
-    assert not {"airdrops", "nft", "spot", "replay", "letter", "defi",
+    assert not {"airdrops", "nft", "spot", "replay", "letter", "wallet", "defi",
                 "venue_router", "meme_radar", "price_alert"} & set(WEB_READS), "commands now, not doors"
 
 

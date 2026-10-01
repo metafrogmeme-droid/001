@@ -275,6 +275,10 @@ async def _seam_meme_radar(tg_handler: "TelegramHandler", tg_id: str, kwargs: di
 
 async def _seam_wallet(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
                        text: str = "") -> str:
+    # The website chat no longer answers this itself. Both doors render the
+    # wallet mirror's own card for THIS caller; surface="web" keeps the
+    # markup the browser already shows. web:<user_id> is that caller, never
+    # the operator's book.
     return await tg_handler.wallet_card_text(tg_id, wallet_chain(text), surface="web")
 
 

@@ -1,8 +1,9 @@
 'use strict';
 /**
  * Multi-chain wallet mirror: per-chain reads with independent fail-soft,
- * combined totals, the flattened compatibility shape, chain filtering in
- * chat, and the WEB3_CHAINS trim. Strictly read-only throughout.
+ * combined totals, the flattened compatibility shape, chain filtering on
+ * the card both doors fetch, and the WEB3_CHAINS trim. Strictly read-only
+ * throughout. Website chat does not render the card itself.
  */
 process.env.JWT_SECRET = 'j'.repeat(64);
 delete process.env.DATABASE_URL;
@@ -112,9 +113,9 @@ test('avalanche: the entry matches what the C-Chain itself answered at inclusion
   }
 });
 
-test('chat: multi-chain breakdown with the down chain named', async (t) => {
+test('card: multi-chain breakdown with the down chain named', async (t) => {
   const [rows] = await pool.execute('SELECT * FROM users WHERE email = ?', ['mc@example.com']);
-  const r = await wallet.maybeHandleWalletChat(rows[0].id, 'show my wallet please');
+  const r = await wallet.walletChatCard(rows[0].id, null);
   assert.equal(r.intent, 'wallet');
   assert.match(r.reply_html, /Ethereum/);
   assert.match(r.reply_html, /Base/);
@@ -123,14 +124,14 @@ test('chat: multi-chain breakdown with the down chain named', async (t) => {
   assert.match(r.reply_html, /never move them/);
 });
 
-test('chat: "my wallet on base" filters to that chain; unknown chain honest', async () => {
+test('card: a chain filter keeps that chain; an unknown chain is said', async () => {
   const [rows] = await pool.execute('SELECT * FROM users WHERE email = ?', ['mc@example.com']);
-  const r = await wallet.maybeHandleWalletChat(rows[0].id, 'my wallet on base');
+  const r = await wallet.walletChatCard(rows[0].id, 'base');
   assert.match(r.reply_html, /Base/);
   assert.ok(!/Ethereum/.test(r.reply_html), 'other chains filtered out');
   assert.match(r.reply_html, /\$250/);
 
-  const un = await wallet.maybeHandleWalletChat(rows[0].id, 'my wallet on fantom');
+  const un = await wallet.walletChatCard(rows[0].id, 'fantom');
   assert.match(un.reply_html, /don't mirror/);
   assert.match(un.reply_html, /Ethereum, Base, Arbitrum, Optimism, BNB Chain, Avalanche, Polygon/);
 });
