@@ -174,6 +174,25 @@ CHAT_TOOLS: tuple[ChatTool, ...] = (
     ChatTool(
         "compliance_status",
         "Restricted jurisdictions and a summary of the consent ledger."),
+    ChatTool(
+        "draft_trade",
+        "Compute a ticket (entry, stop, target, net reward:risk) from the "
+        "cached price and ATR. It registers nothing and places nothing. Call "
+        "it only when the user's own message in this turn asks for a ticket. "
+        "Do not write those prices yourself. Stage is a button, not a tool.",
+        _schema({
+            "symbol": _SYMBOL_PARAM,
+            "direction": {
+                "type": "string",
+                "description": "LONG or SHORT.",
+                "enum": ["LONG", "SHORT"],
+            },
+            "strategy": {
+                "type": "string",
+                "description": "scalp, intraday, swing, or position. Omit for intraday.",
+                "enum": ["scalp", "intraday", "swing", "position"],
+            },
+        }, ("symbol", "direction"))),
 )
 
 #: name -> tool, for O(1) lookup at execution time.
@@ -379,6 +398,19 @@ def _kwargs_for(name: str, args: dict) -> tuple[dict, Optional[str]]:
             out["count"] = max(1, min(20, int(args["count"])))
         except (TypeError, ValueError):
             pass
+    if "direction" in props:
+        raw = str(args.get("direction") or "").strip().upper()
+        if raw in ("BUY", "LONG"):
+            out["direction"] = "LONG"
+        elif raw in ("SELL", "SHORT"):
+            out["direction"] = "SHORT"
+        elif "direction" in required:
+            return {}, "This tool needs a direction, LONG or SHORT."
+    if "strategy" in props and args.get("strategy") not in (None, ""):
+        kind = str(args.get("strategy") or "").strip().lower()
+        if kind not in ("scalp", "intraday", "swing", "position"):
+            return {}, "That is not a strategy type I can price a ticket for."
+        out["strategy"] = kind
     if "trade_id" in props and args.get("trade_id") not in (None, ""):
         from bot.core.trade_postmortem import valid_trade_id
         tid = valid_trade_id(args.get("trade_id"))
@@ -390,7 +422,7 @@ def _kwargs_for(name: str, args: dict) -> tuple[dict, Optional[str]]:
 
 async def run_tool(handler, user_id: str, name: str, args: dict,
                    offered: set[str], surface: str = "telegram",
-                   timeout: float = 12.0) -> str:
+                   timeout: float = 12.0, user_text: str = "") -> str:
     """Execute one tool call on the caller's behalf and return what the model
     should read.
 
@@ -411,6 +443,15 @@ async def run_tool(handler, user_id: str, name: str, args: dict,
         return _handed(name, "unread",
                        "UNAVAILABLE — that tool is not offered in this conversation, "
                        "so nothing ran and nothing was measured.")
+    if name == "draft_trade":
+        from bot.nlp.chat_draft import user_asks_for_ticket
+        if not user_asks_for_ticket(user_text):
+            prose = ("No ticket. This turn's message did not ask for one, "
+                     "so nothing was computed and nothing was registered.")
+            conversations = getattr(handler, "conversations", None)
+            _remember(conversations, user_id, skill_result_memory(name, prose),
+                      {"skill": name, "surface": surface, "via": "tool_call"})
+            return _handed(name, "absent", prose)
     registry = getattr(handler, "registry", None)
     skill = registry.get(name) if registry is not None else None
     if skill is None:
@@ -420,6 +461,8 @@ async def run_tool(handler, user_id: str, name: str, args: dict,
     kwargs, problem = _kwargs_for(name, args or {})
     if problem:
         return _handed(name, "unread", f"NOT RUN — {problem}")
+    if name == "draft_trade":
+        kwargs["user_text"] = user_text
     conversations = getattr(handler, "conversations", None)
     try:
         from bot.core import user_memory_store as _user_memory
@@ -451,7 +494,12 @@ async def run_tool(handler, user_id: str, name: str, args: dict,
         # The exception text stays in the log: memory feeds the model and the
         # model writes to a user, and a driver message can carry a host.
         raise RuntimeError("tool failed") from None
-    record = skill_result_memory(name, result)
+    remembered = result
+    read_state = None
+    if name == "draft_trade":
+        from bot.nlp.chat_draft import split_tagged
+        read_state, remembered = split_tagged(str(result))
+    record = skill_result_memory(name, remembered)
     _remember(conversations, user_id, record,
               {"skill": name, "surface": surface, "via": "tool_call"})
     audit(system_log, f"Chat tool ran: {name}",
@@ -463,9 +511,11 @@ async def run_tool(handler, user_id: str, name: str, args: dict,
     _prefix, _, body = record.partition("\n")
     prose = body if body and "TRUNCATED" not in _prefix else _for_the_model(record)
     # A tool that ran and returned no card measured nothing. That is absent,
-    # not a zero and not a failed read.
-    state = "absent" if prose.startswith("NO OUTPUT") else "read"
-    return _handed(name, state, prose)
+    # not a zero and not a failed read. draft_trade names its own state: an
+    # unread price is unread, and a turn that did not ask is absent.
+    if read_state is None:
+        read_state = "absent" if prose.startswith("NO OUTPUT") else "read"
+    return _handed(name, read_state, prose)
 
 
 def _handed(name: str, read_state: str, prose: str) -> str:

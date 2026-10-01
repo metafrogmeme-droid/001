@@ -1169,6 +1169,7 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
         # `intent` was classified above and carried the turn's shape; the
         # prompt that names its vocabulary reads it now.
         reply_mode=getattr(intent, "reply_mode", ""),
+        ask_text=text,
         **({"on_event": on_event} if on_event is not None else {}))
     # `meta` is empty exactly when NO MODEL ANSWERED — `_chat_ret` builds it
     # from `cfg`, which is None on the FAQ short-circuit and on every failure
@@ -1207,12 +1208,17 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             _asyncio.create_task(_fold(tg_id, _is_admin))
     except Exception:
         pass
-    return web.json_response({"reply_html": answer, "intent": "chat",
-                              "model": (meta or {}).get("model", ""),
-                              "provider": (meta or {}).get("provider", ""),
-                              "tools": (meta or {}).get("tools", []),
-                              "read_from": (meta or {}).get("read_from", ""),
-                              "quota": _quota})
+    from bot.nlp.chat_draft import offer as _offer_draft
+    _draft = _offer_draft(tg_id)
+    _body = {"reply_html": answer, "intent": "chat",
+             "model": (meta or {}).get("model", ""),
+             "provider": (meta or {}).get("provider", ""),
+             "tools": (meta or {}).get("tools", []),
+             "read_from": (meta or {}).get("read_from", ""),
+             "quota": _quota}
+    if _draft:
+        _body["chat_draft"] = _draft
+    return web.json_response(_body)
 
 
 async def handle_chat_record(request: web.Request) -> web.Response:
@@ -2383,6 +2389,42 @@ async def handle_trade_propose(request: web.Request) -> web.Response:
         text = f"{direction} {symbol} {entry} sl {sl} tp {tp}{margin_txt}"
     return await _propose_from_text(request.app, tg_handler, engine, tg_id, text,
                                     name=name, order_type=order_type)
+
+
+async def handle_trade_stage(request: web.Request) -> web.Response:
+    """Register a chat draft and return the existing confirm card.
+
+    The body carries the draft id only. Levels stay where the tool put them.
+    Confirm is still the next door, and this handler does not call it.
+    """
+    engine = request.app["engine"]
+    tg_handler = request.app["tg_handler"]
+    body = await _json_body(request)
+    tg_id = str(body.get("telegram_id") or "").strip()
+    draft_id = str(body.get("draft_id") or "").strip()
+    if not tg_id or not draft_id:
+        return web.json_response({"error": "telegram_id and draft_id required"},
+                                 status=400)
+    err = _guard_user(tg_handler, tg_id, command="trade")
+    if err is not None:
+        return cast(web.Response, err)
+    from bot.nlp.chat_draft import stage_draft
+    staged = stage_draft(engine, draft_id, tg_id)
+    if isinstance(staged, str):
+        return web.json_response({"error": "no_draft", "detail": staged},
+                                 status=404)
+    _remember_proposer(request.app, staged.id, tg_id)
+    from bot.core.copilot_context import review_ticket
+    symbol = staged.asset.split("/")[0]
+    direction = staged.direction.value if hasattr(staged.direction, "value") else str(staged.direction)
+    rev = await review_ticket(engine, tg_id, {
+        "direction": direction, "symbol": symbol,
+        "entry": staged.entry_price, "sl": staged.stop_loss,
+        "tp": staged.take_profit, "margin": None,
+        "order_type": getattr(staged, "order_type", None)})
+    return web.json_response(
+        {"pending_trade": _idea_payload(request.app, tg_handler, tg_id, staged,
+                                        None, copilot=rev)})
 
 
 async def handle_trade_confirm(request: web.Request) -> web.Response:
@@ -5280,6 +5322,7 @@ def build_gateway(engine, tg_handler) -> web.Application:
     app.router.add_post("/authority/revoke", handle_authority_revoke)
     app.router.add_post("/meme/swap/build", handle_meme_swap_build)
     app.router.add_post("/trade/propose", handle_trade_propose)
+    app.router.add_post("/trade/stage", handle_trade_stage)
     app.router.add_post("/trade/confirm", handle_trade_confirm)
     app.router.add_get("/trade/live_mode", handle_trade_live_mode)
     app.router.add_post("/trade/cancel", handle_trade_cancel)

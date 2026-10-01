@@ -320,6 +320,46 @@ class TestTheProposalCarriesIt:
         assert r.status == 200
         assert d["pending_trade"]["copilot"] == PLANTED
 
+    async def test_staging_a_chat_draft_carries_the_review_and_not_the_clients_prices(
+            self, secret, monkeypatch):
+        # The levels live on the draft. A body that also names prices is the
+        # client trying to substitute them, and the card must review the
+        # ticket the tool computed.
+        from bot.nlp import chat_draft
+        chat_draft.clear_drafts()
+        monkeypatch.setattr(chat_draft, "market_for", lambda _e, _s: {
+            "read_state": "read", "price": 100.0, "atr": 2.0, "as_of": 1})
+        tag, _prose = chat_draft.draft_ticket(object(), "u1", "SOL", "LONG")
+        assert tag == "READ"
+        card = chat_draft.offer("u1")
+        fake = _answering(PLANTED)
+        monkeypatch.setattr(cc, "review_ticket", fake)
+        engine = _Engine()
+        try:
+            async with _gateway(engine) as c:
+                r = await c.post("/trade/stage", headers=HDRS, json={
+                    "telegram_id": "u1",
+                    "draft_id": card["id"],
+                    "entry": 1, "sl": 2, "tp": 3, "symbol": "DOGE",
+                })
+                d = await r.json()
+            assert r.status == 200, d
+            assert d["pending_trade"]["copilot"] == PLANTED
+            assert len(fake.calls) == 1
+            uid, trade = fake.calls[0]
+            assert uid == "u1"
+            assert trade["symbol"] == "SOL"
+            assert trade["entry"] == card["entry"]
+            assert trade["sl"] == card["sl"]
+            assert trade["tp"] == card["tp"]
+            assert trade["order_type"] == "limit"
+            assert trade["margin"] is None
+            idea = next(iter(engine._pending_ideas.values()))
+            assert idea.source == "manual"
+            assert idea.origin == "chat_draft"
+        finally:
+            chat_draft.clear_drafts()
+
     async def test_a_review_the_bot_could_not_produce_is_null_not_absent(
             self, secret, monkeypatch):
         # The KEY is always there on this build. Absent means an older bot;

@@ -47,6 +47,8 @@ function startMockGateway() {
           res.end(JSON.stringify({ messages: [] }));
         } else if (req.url === '/gateway/trade/propose') {
           res.end(JSON.stringify({ pending_trade: { trade_id: 'TI-test1234', mode: 'PAPER' } }));
+        } else if (req.url === '/gateway/trade/stage') {
+          res.end(JSON.stringify({ pending_trade: { trade_id: 'TI-staged1', mode: 'PAPER' } }));
         } else if (req.url.startsWith('/gateway/trade/live_mode')) {
           // Authoritative live-capability the confirm route consults to decide
           // whether a 2FA step-up is required. Flipped per-test via mockLiveAllowed.
@@ -188,6 +190,23 @@ test('WEB-VISION: a bad media type is filtered out; no image forwarded', async (
   assert.ok(chatCall, 'gateway /chat was called');
   // The invalid image is dropped, so no images key is forwarded.
   assert.strictEqual(chatCall.body.images, undefined);
+});
+
+test('trade stage forwards the draft id and not the client prices', async () => {
+  seen.length = 0;
+  const r = await request('POST', '/api/trade/stage', {
+    token: signUnlinked,
+    body: { draft_id: 'CD-abc12345', entry: 1, sl: 2, tp: 3, symbol: 'SOL' },
+  });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.data.pending_trade.trade_id, 'TI-staged1');
+  const body = seen[0].body;
+  assert.match(body.telegram_id, /^web:\d+$/);
+  assert.strictEqual(body.draft_id, 'CD-abc12345');
+  assert.strictEqual(body.entry, undefined);
+  assert.strictEqual(body.sl, undefined);
+  assert.strictEqual(body.tp, undefined);
+  assert.strictEqual(body.symbol, undefined);
 });
 
 test('unlinked trade propose forwards web:<uid> identity', async () => {

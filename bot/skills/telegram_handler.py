@@ -2638,7 +2638,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                         images: list = None,
                         surface: str = "telegram",
                         reply_mode: str = "",
-                        on_event=None):
+                        on_event=None,
+                        ask_text: str = ""):
         """Send a free-text question to the LLM with multi-turn context.
 
         ``on_event(dict)`` — optional, sync or async — receives the turn as it
@@ -3079,11 +3080,12 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                                  cfg.timeout_seconds - 3.0))
 
                     async def _run_tool(name, args, _uid=user_id,
-                                        _names=_tool_names, _tl=_tool_left):
+                                        _names=_tool_names, _tl=_tool_left,
+                                        _ask=ask_text):
                         from bot.nlp import chat_tools as _chat_tools
                         return await _chat_tools.run_tool(
                             self, _uid, name, args, offered=_names,
-                            surface=surface, timeout=_tl)
+                            surface=surface, timeout=_tl, user_text=_ask)
 
                     answer = await llm_complete_with_tools(
                         client, cfg, _sp, question,
@@ -4689,7 +4691,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             _prompt_text, user_id=tg_id, user_name=user_name,
             is_admin=_is_admin_caller, reply_lang=_reply_lang, return_meta=True,
             reply_mode=getattr(intent, "reply_mode", ""),
-            on_event=_stream.on_event if _stream is not None else None)
+            on_event=_stream.on_event if _stream is not None else None,
+            ask_text=text)
         # `_meta` is empty exactly when NO MODEL ANSWERED (the FAQ short-
         # circuit and every failure return). The web path refunds on that;
         # this one charged for the apology until it did the same.
@@ -4732,7 +4735,23 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # The streamed message becomes the answer in place; if that edit
         # cannot land (too long, rate-limited, deleted) the answer goes out
         # as a fresh message, as it always did.
+        from bot.nlp.chat_draft import offer as _offer_draft
+        _draft = _offer_draft(tg_id)
+        _draft_kb = None
+        if _draft:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            _draft_kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "Stage this ticket",
+                    callback_data=f"stg:{_draft['id']}:{tg_id}"),
+            ]])
         if _stream is not None and await _stream.finish(_final):
+            if _draft_kb is not None:
+                await self._send(
+                    update,
+                    "Stage this ticket to open the confirm card. "
+                    "Nothing is registered until you do.",
+                    reply_markup=_draft_kb)
             return
         if _stream is not None:
             # The provisional message could not become the answer, so it
@@ -4745,7 +4764,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 system_log.warning(
                     "streamed provisional text could not be retracted for %s",
                     tg_id)
-        await self._send(update, _final)
+        await self._send(update, _final, reply_markup=_draft_kb)
 
     # ── Auth helpers ──────────────────────────────────────────
 

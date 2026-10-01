@@ -1625,6 +1625,50 @@ class CallbackHandler:
             await self._send(update, said, edit=True)
             return
 
+        if data.startswith("stg:"):
+            parts = data.split(":")
+            draft_id = parts[1] if len(parts) > 1 else ""
+            expected_uid = parts[2] if len(parts) > 2 else None
+            caller_uid = str(update.effective_user.id) if update.effective_user else None
+            if not self._callback_owner_ok(caller_uid, expected_uid):
+                await self._send(update,
+                    "\U0001f512 <b>Access denied</b>\n\n"
+                    "Only the person who asked for this ticket can stage it.",
+                    edit=True)
+                return
+            owner = caller_uid or ""
+            from bot.nlp.chat_draft import stage_draft
+            staged = stage_draft(self.engine, draft_id, owner)
+            if isinstance(staged, str):
+                await self._send(update, staged, edit=True)
+                return
+            from bot.core.copilot_context import review_ticket
+            from bot.core.trade_copilot import review_card_html
+            direction = (staged.direction.value if hasattr(staged.direction, "value")
+                         else str(staged.direction))
+            symbol = staged.asset.split("/")[0]
+            rev = await review_ticket(self.engine, owner, {
+                "direction": direction, "symbol": symbol,
+                "entry": staged.entry_price, "sl": staged.stop_loss,
+                "tp": staged.take_profit, "margin": None,
+                "order_type": getattr(staged, "order_type", None)})
+            card = (
+                f"\U0001f4cb <b>Staged draft — {html.escape(symbol)} {html.escape(direction)}</b>\n"
+                f"Entry: <code>{staged.entry_price}</code>\n"
+                f"SL: <code>{staged.stop_loss}</code>\n"
+                f"TP: <code>{staged.take_profit}</code>\n"
+                f"{review_card_html(rev)}\n"
+                f"<i>Nothing is placed until you confirm.</i>"
+            )
+            kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton("\u2705 Confirm",
+                                     callback_data=f"confirm:{staged.id}:{owner}"),
+                InlineKeyboardButton("\u274c Cancel",
+                                     callback_data=f"reject:{staged.id}:{owner}"),
+            ]])
+            await self._send(update, card, reply_markup=kb, edit=True)
+            return
+
         if data.startswith("confirm:"):
             parts = data.split(":")
             trade_id = parts[1]

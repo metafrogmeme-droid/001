@@ -83,6 +83,29 @@ router.post('/propose', tradeLimit, async (req, res) => {
   }
 });
 
+// POST /api/trade/stage  body: { draft_id }
+// Levels stay on the bot. A client that also sends prices is ignored.
+router.post('/stage', tradeLimit, async (req, res) => {
+  try {
+    if (!gateway.isConfigured()) {
+      return res.status(503).json({ error: 'Web trading not configured' });
+    }
+    const draftId = String((req.body || {}).draft_id || '').trim();
+    if (!TRADE_ID_RE.test(draftId)) return res.status(400).json({ error: 'Invalid draft_id' });
+    const ident = await resolveBotIdentity(req);
+    secLog('WEB_TRADE_STAGE', req, `draft_id=${draftId}`);
+    const r = await gateway.postGateway('/trade/stage', {
+      telegram_id: ident.id,
+      name: String(ident.email || '').split('@')[0],
+      draft_id: draftId,
+    });
+    return gateway.relay(res, r);
+  } catch (err) {
+    console.error('Trade stage proxy error:', err.stack || err.message);
+    return res.status(502).json({ error: 'Trading unavailable' });
+  }
+});
+
 // POST /api/trade/confirm  body: { trade_id }
 router.post('/confirm', tradeLimit, async (req, res) => {
   try {

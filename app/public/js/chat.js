@@ -266,6 +266,38 @@
     body.appendChild(div);
     body.scrollTop = body.scrollHeight;
   }
+
+  // A draft is not a pending trade. Stage sends the id only; the bot still
+  // holds the levels. The answer is the existing confirm card.
+  function appendDraftCard(d) {
+    if (PUBLIC || !d || !d.id) return;
+    const div = document.createElement('div');
+    div.className = 'chat-card chat-draft';
+    const net = (d.net_rr == null) ? 'net R:R unread' : `net R:R ${fmt(d.net_rr)}`;
+    div.innerHTML = `
+      <div class="kv-row"><span>${esc(d.symbol)}/USDT ${esc(d.direction)}</span><b>${esc(net)}</b></div>
+      <div class="kv-row"><span>Entry · Stop · Target</span><b>$${fmt(d.entry, 4)} · $${fmt(d.sl, 4)} · $${fmt(d.tp, 4)}</b></div>
+      <button class="btn btn--primary btn--sm mt-3" type="button" style="width:100%">Stage this ticket</button>`;
+    const btn = div.querySelector('button');
+    btn.onclick = async () => {
+      btn.disabled = true;
+      btn.textContent = 'Staging\u2026';
+      const r = await fetchJSON('/api/trade/stage', {
+        method: 'POST',
+        body: { draft_id: d.id },
+        timeoutMs: 20000,
+      }).catch(() => ({ ok: false, data: null }));
+      if (!r.ok || !r.data || !r.data.pending_trade) {
+        appendMsg('bot', `<b>Nothing was staged.</b> ${esc((r.data && (r.data.detail || r.data.error)) || 'try again')}`);
+        btn.disabled = false;
+        btn.textContent = 'Stage this ticket';
+        return;
+      }
+      appendTradeCard(r.data.pending_trade);
+    };
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+  }
   // ── chat trade card end ─
 
   // "Trade this" — an analysis produced a concrete setup. One tap re-proposes
@@ -872,6 +904,7 @@
           bubble.appendChild(meter);
         }
         if (r.data.setup) appendSetupAction(r.data.setup);
+        if (r.data.chat_draft) appendDraftCard(r.data.chat_draft);
       }
     } catch (e) {
       typing.remove();

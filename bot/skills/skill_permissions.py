@@ -84,6 +84,11 @@ SKILL_PERMISSION: dict[str, str] = {
     # tool catalogue had nothing. Derived from the decorator, like every
     # entry above; the web set below picks it up by construction.
     "get_orders": "portfolio",
+    # `draft_trade` is the chat ticket. It registers nothing; Stage is a
+    # button that then uses the same door as /trade, so the permission is
+    # `trade`. There is no slash command and no router rule: the model calls
+    # the tool, and only when the user's own message asked.
+    "draft_trade": "trade",
     # `halt` IS the fact and it is deliberately in no transport's set. See
     # DANGEROUS_SKILLS.
     "halt": "halt",
@@ -138,6 +143,8 @@ SKILL_SAYS: dict[str, str] = {
     "trade_journal": "your most recent closed trades",
     "trade_postmortem": "a post-mortem of one of your closed trades, read from "
                         "the record",
+    "draft_trade": "a ticket you can stage yourself — nothing is registered "
+                   "until you press Stage",
     # `halt` is in SKILL_PERMISSION because that table is the FACT, and in no
     # transport's reachable set. It is named here for the same reason: the key
     # sets are pinned equal, and an exemption would be the hole.

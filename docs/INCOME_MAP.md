@@ -1795,6 +1795,13 @@ a manual trade:
     chat grammar branch; the review rides out on `pending_trade.copilot`.
   * POST /trade/copilot (handle_trade_copilot), the ticket form's Review
     button, which adds trade_copilot.human_readable for a non-browser caller.
+  * Chat Stage registers the ticket the tool computed
+    (`bot/nlp/chat_draft.py::stage_draft`) and then this same review.
+    Telegram
+    (`bot/skills/callback_handler.py::CallbackHandler._handle_callback#'startswith("stg:")'`)
+    and the web (`bot/web/user_gateway.py::handle_trade_stage`,
+    `app/routes/webtrade.js::post('/stage')`). The client sends the
+    draft id, not the levels, and this door does not confirm.
 
 Browser side: app/public/js/copilot-review-model.js renders the block, and the
 dashboard ticket, the dashboard confirm modal (openTradeModal) and the chat
@@ -1805,7 +1812,7 @@ The reward:risk it checks is NET OF THE FEES THE TICKET WILL PAY, through
 bot/core/trade_costs — one rule for the whole product: a rate is per LEG, a
 resting limit entry is MAKER, every live exit is TAKER (the stop and the
 take-profit are both placed as trigger market orders), and an unstated order
-type is taker. So `order_type` rides with the ticket from all three doors, and
+type is taker. So `order_type` rides with the ticket from each of these doors, and
 a ticket that clears the bar on price and fails it after fees is a flag rather
 than a note reading "Strong reward:risk". The levels row (`levels_line`) is
 stamped by the producer and printed by both renderers, because it used to be

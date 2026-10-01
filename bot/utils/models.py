@@ -167,6 +167,11 @@ class TradeIdea(BaseModel):
     # emptied. None when the analysis read no VWAP, and then that exit is
     # skipped: no VWAP is ever stood in by the entry price.
     entry_vwap: Optional[float] = None
+    # Where a hand-typed ticket came from, beside ``source="manual"``.
+    # None on /trade and the web propose route. ``chat_draft`` is a ticket
+    # the chat tool computed and the person staged with the button. The
+    # source stays ``manual`` so every manual-keyed site treats it as typed.
+    origin: Optional[str] = None
 
     @property
     def risk_reward_ratio(self) -> float:
