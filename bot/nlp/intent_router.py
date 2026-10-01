@@ -1700,6 +1700,11 @@ _rule(r"\b(what[- ]if replay|replay(?:ed|ing)? (?:every|all|each) (?:signal|trad
       "replay", explanation="What-if replay of every recorded agent trade (the website's card, /replay)")
 _rule(_EDU + r"\b((?:this |last )?week'?s letter|weekly (?:agent |fund )?letter|agent letter|fund letter)\b",
       "letter", explanation="The agent's weekly letter (the website's card, /letter)")
+# Airdrops left the website's intercept table. Both doors route these
+# words to /airdrops. An education question ("what are airdrops", "how do
+# airdrops work") is the model's on both surfaces, because the website no
+# longer intercepts it. "what are my airdrops" still names the caller's
+# own radar: the decline keeps a `my`/`our` question on this rule.
 _rule(_EDU + r"\b(airdrops?|testnets?(?: participation)?|airdrop radar|farm(?:ing)? airdrops?)\b",
       "airdrops", explanation="Airdrop and testnet radar (the website's card, /airdrops)")
 _rule(_EDU + r"\b(nft ?radar|nfts?\b.*\b(?:floor|trending|radar)|opensea|floor prices?)\b",

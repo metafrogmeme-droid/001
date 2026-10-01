@@ -4219,11 +4219,12 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 return
 
             # ── nft / spot / airdrops → the website's card, as a command ──
-            # Three of the website-only reads below became commands: each
-            # fetches the card the web intercept renders (one renderer, two
-            # surfaces) through the guarded command, and records the card
-            # the way the three above do. ABOVE the door notices, because a
-            # read that exists here must never be answered "ask the web app".
+            # nft and spot still have a Node intercept. Airdrops left that
+            # table: this command is the door on both surfaces. Each fetches
+            # the card (one renderer, two surfaces) through the guarded
+            # command, and records it the way the three above do. ABOVE the
+            # door notices, because a read that exists here must never be
+            # answered "ask the web app".
             if intent.skill == "nft":
                 await self._cmd_nft(update, ctx)
                 self._remember_routed(tg_id, text, intent.skill,

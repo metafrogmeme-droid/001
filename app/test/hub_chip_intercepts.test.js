@@ -5,8 +5,8 @@
  * regex did NOT match — the ask fell through to the bot LLM, which honestly
  * told the user it has no radar access. Every radar chip's exact ask phrase
  * must be answered by its own web-side intercept, never the LLM fallback.
- * "rwa radar" is the exception: both doors route it to the shared rwa seam,
- * which fetches the same card.
+ * "rwa radar" and "airdrop radar" are the exceptions: both doors route
+ * each to its shared seam, which fetches the same card.
  */
 process.env.JWT_SECRET = 'j'.repeat(64);
 delete process.env.DATABASE_URL;
@@ -18,10 +18,10 @@ const path = require('node:path');
 
 test('every radar chip ask phrase is claimed by its intercept regex', async () => {
   // Chip phrases as wired in dashboard.js (pinned there by meme_panel.test.js).
-  // "rwa radar" left this contract. Both doors route it to the shared rwa
-  // seam, which fetches rwaChatCard. The other chips still answer here.
+  // "rwa radar" and "airdrop radar" left this contract. Both doors route
+  // each to its shared seam, which fetches the card. The other chips still
+  // answer here.
   const CONTRACT = [
-    ['airdrop radar', require('../lib/airdrops'), 'maybeHandleAirdropChat', null],
     ['meme radar', require('../lib/meme'), 'maybeHandleMemeChat', () =>
       require('../lib/meme').setPairFetcher(async () => ([{
         chainId: 'base', dexId: 'uniswap',

@@ -1,9 +1,10 @@
 """Three of the website's chat intercepts, reached by the same words on Telegram.
 
-`app/routes/chat.js` answers ten phrasings from its own Node intercepts
+`app/routes/chat.js` answers nine phrasings from its own Node intercepts
 before a turn reaches the bot. Two of them (`networth`, `research`) have a
 Telegram command that renders the same reading. The RWA radar left that
-table: both doors route "rwa radar" to `/rwa`. Typed as WORDS on Telegram,
+table: both doors route "rwa radar" to `/rwa`. The airdrop radar left it
+too: both doors route "airdrop radar" to `/airdrops`. Typed as WORDS on Telegram,
 "my net worth" and "rwa radar" were GREETED by the social gate, "research
 SOL" reached a chat model with no dossier tool. They are routed intents on
 both surfaces now — the Telegram branch dispatches the guarded command (the

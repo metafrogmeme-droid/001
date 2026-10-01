@@ -139,10 +139,11 @@ class MarketCommands:
         await self._send(update, text)
 
     # ── The website chat's own cards, as commands ─────────────────────────
-    # /nft, /spot and /airdrops render the SAME card the website's chat
-    # intercept answers with — fetched rendered, never re-formatted here.
-    # Three of the nine reads only the website answered (`bot/nlp/web_reads`)
-    # were a door notice on Telegram; these three are the read itself now.
+    # /nft and /spot render the SAME card the website's chat intercept
+    # answers with. /airdrops left that table: both doors fetch this card.
+    # Fetched rendered, never re-formatted here. Three of the nine reads
+    # only the website answered (`bot/nlp/web_reads`) were a door notice on
+    # Telegram; these three are the read itself now.
 
     @guard("nft")
     async def _cmd_nft(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -178,12 +179,18 @@ class MarketCommands:
     async def airdrops_card_text(self, user_id: str, *, surface: str = "telegram") -> str:
         """The airdrop radar card — the website's own rendering, both surfaces.
 
-        ``user_id`` is the caller's Telegram id: the website adds THEIR
-        wallet-readiness hints when that id is linked to a web account, and
+        ``user_id`` is the caller the turn names: the website adds THEIR
+        wallet-readiness hints when that id maps to a web account, and
         answers the public radar otherwise. It is never a guess about whose
-        wallet to read."""
-        return await self._web_card_text("airdrops", surface=surface,
-                                         telegram_id=str(user_id or ""))
+        wallet to read. ``web:<user_id>`` is that caller, never the operator.
+
+        ``surface="web"`` keeps the card's own markup. Telegram's tag strip
+        turns ``<br>`` into a newline a browser collapses, which is right on
+        Telegram and wrong on the page that used to render this card itself.
+        """
+        return await self._web_card_text(
+            "airdrops", surface=surface, telegram_id=str(user_id or ""),
+            keep_markup=(surface == "web"))
 
     async def _web_card_text(self, name: str, surface: str,
                              telegram_id: str = "", params: Optional[dict] = None,

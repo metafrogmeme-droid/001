@@ -607,10 +607,15 @@ need to bridge first' (`app/lib/airdrops.js::eligibilityHints`) — and the modu
 docstring is explicit that a hint is a fact about the wallet, never a claim of
 qualification. Operators can swap the catalog without a deploy via
 AIRDROP_CATALOG_PATH, and a broken file falls through to the seed rather than
-blanking the radar (`app/lib/airdrops.js::loadCatalog`). Five doors render it; the
-chat reply restates the anti-sybil line itself, and /airdrops on Telegram is
-that same chat card, fetched rendered over the bot-secret sync channel
-(market_commands.py), so the line reaches Telegram verbatim.
+blanking the radar (`app/lib/airdrops.js::loadCatalog`). Five doors render it.
+Asking from chat is the shared `airdrops` door on both surfaces
+(`bot/web/user_gateway.py::_WEB_SEAM#"airdrops"`,
+`bot/skills/market_commands.py::MarketCommands.airdrops_card_text`), not a
+website intercept of its own. The Hub panel and /api/airdrops still serve the
+radar while the bot process is down. The card restates the anti-sybil line
+itself, and /airdrops on Telegram is that same card, fetched rendered over
+the bot-secret sync channel (market_commands.py), so the line reaches
+Telegram verbatim.
 
 *Gap.* The farming half does not exist and is a stated product line, not an omission:
 `app/lib/airdrops.js::#"What this is deliberately NOT"` refuses automated participation, transaction

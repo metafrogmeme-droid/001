@@ -877,6 +877,31 @@ async def test_public_chat_does_not_open_the_rwa_door(monkeypatch):
     assert handler.conversations.appended == []
 
 
+async def test_public_chat_does_not_open_the_airdrops_door(monkeypatch):
+    """Anonymous chat stays tool-free and history-free. "airdrop radar" is a
+    signed-in door onto the curated catalogue, and a mapped caller can see
+    their own wallet-readiness hints; here it is an ordinary question, with
+    no radar card and no account."""
+    monkeypatch.setattr(ug, "_GATEWAY_SECRET", SECRET)
+    handler = FakeHandler(users={})
+    engine = FakeEngine()
+    async with gateway_client(engine, handler) as c:
+        r = await c.post("/chat/public",
+                         json={"text": "airdrop radar"},
+                         headers=HDRS)
+        assert r.status == 200
+        data = await r.json()
+        assert data["intent"] == "chat"
+        assert data["reply_html"] == "llm answer"
+        assert "pending_trade" not in data
+        assert "One human, one wallet" not in data["reply_html"]
+    assert len(handler.llm_calls) == 1
+    assert handler.llm_calls[0][1] == ""
+    assert handler.llm_calls[0][3] is True
+    assert handler.users.register_calls == []
+    assert handler.conversations.appended == []
+
+
 async def test_public_chat_still_hands_ordinary_questions_to_the_model(monkeypatch):
     """The narrow claim: the capability branch above intercepts the capability
     ask and nothing else. A branch that swallowed every turn would satisfy
