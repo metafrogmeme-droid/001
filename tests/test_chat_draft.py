@@ -16,9 +16,9 @@ from bot.skills.manual_trade import build_manual_idea
 
 @pytest.fixture(autouse=True)
 def _empty_drafts():
-    chat_draft.clear_drafts()
+    chat_draft._clear_drafts()
     yield
-    chat_draft.clear_drafts()
+    chat_draft._clear_drafts()
 
 
 def test_the_ask_is_the_users_own_message():
@@ -185,6 +185,18 @@ def _stage_handler(engine, *, may_trade):
 
         def get(self, tid):
             return {"role": "trader" if may_trade else "viewer"}
+
+        def get_tier(self, tid):
+            return "free"
+
+        def is_admitted(self, tid):
+            return True
+
+        def permission_denial(self, tid, perm):
+            return None if may_trade else "role"
+
+        def register(self, *args, **kwargs):
+            return None
 
     h = TelegramHandler.__new__(TelegramHandler)
     h.engine = engine

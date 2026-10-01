@@ -4745,26 +4745,25 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     "Stage this ticket",
                     callback_data=f"stg:{_draft['id']}:{tg_id}"),
             ]])
-        if _stream is not None and await _stream.finish(_final):
-            if _draft_kb is not None:
-                await self._send(
-                    update,
-                    "Stage this ticket to open the confirm card. "
-                    "Nothing is registered until you do.",
-                    reply_markup=_draft_kb)
-            return
-        if _stream is not None:
-            # The provisional message could not become the answer, so it
-            # comes down BEFORE the checked answer goes out. What it showed
-            # was the model's raw output — before `_chat_ret` checked it for
-            # a fabricated tool result or a wrong risk:reward — with a caret
-            # on the end: the one reply on the screen nobody had checked,
-            # left directly above the one that was.
-            if await _stream.retract() == "failed":
-                system_log.warning(
-                    "streamed provisional text could not be retracted for %s",
-                    tg_id)
-        await self._send(update, _final, reply_markup=_draft_kb)
+        if not (_stream is not None and await _stream.finish(_final)):
+            if _stream is not None:
+                # The provisional message could not become the answer, so it
+                # comes down BEFORE the checked answer goes out. What it showed
+                # was the model's raw output — before `_chat_ret` checked it for
+                # a fabricated tool result or a wrong risk:reward — with a caret
+                # on the end: the one reply on the screen nobody had checked,
+                # left directly above the one that was.
+                if await _stream.retract() == "failed":
+                    system_log.warning(
+                        "streamed provisional text could not be retracted for %s",
+                        tg_id)
+            await self._send(update, _final)
+        if _draft_kb is not None:
+            await self._send(
+                update,
+                "Stage this ticket to open the confirm card. "
+                "Nothing is registered until you do.",
+                reply_markup=_draft_kb)
 
     # ── Auth helpers ──────────────────────────────────────────
 

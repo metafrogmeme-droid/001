@@ -87,7 +87,7 @@ class Draft:
 _DRAFTS: dict[str, Draft] = {}
 
 
-def clear_drafts() -> None:
+def _clear_drafts() -> None:
     _DRAFTS.clear()
 
 

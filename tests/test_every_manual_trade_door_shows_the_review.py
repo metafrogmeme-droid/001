@@ -326,7 +326,7 @@ class TestTheProposalCarriesIt:
         # client trying to substitute them, and the card must review the
         # ticket the tool computed.
         from bot.nlp import chat_draft
-        chat_draft.clear_drafts()
+        chat_draft._clear_drafts()
         monkeypatch.setattr(chat_draft, "market_for", lambda _e, _s: {
             "read_state": "read", "price": 100.0, "atr": 2.0, "as_of": 1})
         tag, _prose = chat_draft.draft_ticket(object(), "u1", "SOL", "LONG")
@@ -358,7 +358,7 @@ class TestTheProposalCarriesIt:
             assert idea.source == "manual"
             assert idea.origin == "chat_draft"
         finally:
-            chat_draft.clear_drafts()
+            chat_draft._clear_drafts()
 
     async def test_a_review_the_bot_could_not_produce_is_null_not_absent(
             self, secret, monkeypatch):
