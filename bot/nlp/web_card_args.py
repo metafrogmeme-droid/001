@@ -1,18 +1,16 @@
-"""The arguments three website cards take, read from the words the way the
-surfaces that still intercept read them.
+"""The arguments three website cards take, read from the words the way
+both doors agree to read them.
 
-The website's venue-router intercept carries one argument inside the
-sentence — an asset ("best venue for BTC") — captured by the intercept's
-own regex and handed to its renderer. The replay stake ("replay every
-signal with $1k") and the wallet chain ("my wallet on base") used to be
-captured the same way; both doors now read them here and hand them to
-`replay_card_text` and `wallet_card_text`. On Telegram the same sentence
-routes to the same card (`/replay`, `/venue_router`, `/wallet` fetch the
-website's rendering over the sync channel), so the argument has to be read
-the same way here, or the two surfaces answer one sentence with two
-readings. The venue reader mirrors `app/lib/venue_router.js`'s capture
-group, and the replay stake and wallet chain readers are the one copy of
-the groups the intercepts used to hold. The slash forms (`/replay 500`,
+The replay stake ("replay every signal with $1k"), the wallet chain
+("my wallet on base") and the venue asset ("best venue for BTC") used to
+be captured by a website intercept. Both doors now read them here and
+hand them to `replay_card_text`, `wallet_card_text` and
+`venue_router_card_text`. On Telegram the same sentence routes to the
+same card (`/replay`, `/venue_router`, `/wallet` fetch the website's
+rendering over the sync channel), so the argument has to be read the
+same way here, or the two surfaces answer one sentence with two
+readings. The readers are the one copy of the capture groups those
+intercepts used to hold. The slash forms (`/replay 500`,
 `/venue_router BTC`, `/wallet base`) read the same token through the same
 helpers, so a typed argument and a spoken one cannot drift either.
 

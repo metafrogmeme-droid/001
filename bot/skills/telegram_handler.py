@@ -4240,10 +4240,10 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 self._remember_routed(tg_id, text, intent.skill,
                                       card_shown_memory("airdrops"))
                 return
-            # Six more of the website's cards, the same way. The three that
-            # take an argument read it from the words with the intercept's
-            # own reader (`bot/nlp/web_card_args.py`), so "best venue for
-            # BTC" narrows here exactly as it does there.
+            # Replay, the wallet and the venue router take an argument read
+            # from the words (`bot/nlp/web_card_args.py`). The venue router
+            # left the Node intercept table: this command is the door on
+            # both surfaces, and "best venue for BTC" narrows here.
             if intent.skill == "replay":
                 await self._cmd_replay(update, ctx, stake=replay_stake(intent.raw_text))
                 self._remember_routed(tg_id, text, intent.skill,
