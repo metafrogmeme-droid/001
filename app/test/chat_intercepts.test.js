@@ -48,7 +48,6 @@ stub('lib/venue_router', intercept('venues', 'maybeHandleVenueRouterChat'));
 stub('lib/meme', intercept('meme', 'maybeHandleMemeChat'));
 stub('lib/opensea', intercept('nft', 'maybeHandleNftChat'));
 stub('lib/spot', intercept('spot', 'maybeHandleSpotChat'));
-stub('lib/wallet', intercept('wallet', 'maybeHandleWalletChat'));
 stub('lib/defi', intercept('defi', 'maybeHandleDefiChat'));
 stub('lib/exposure', intercept('exposure', 'maybeHandleExposureChat'));
 stub('lib/research', intercept('research', 'maybeHandleResearchChat'));
@@ -131,12 +130,14 @@ function reset() {
 test('the routing table is the documented order', () => {
   assert.deepEqual(chat.INTERCEPTS.map(([n]) => n), [
     'replay', 'rwa', 'airdrops', 'venues', 'meme', 'nft',
-    'spot', 'wallet', 'defi', 'exposure', 'research', 'networth', 'idleyield',
+    'spot', 'defi', 'exposure', 'research', 'networth', 'idleyield',
   ]);
   assert.equal(chat.INTERCEPTS.some(([n]) => n === 'alerts'), false,
     'price alerts are the shared price_alert door, not a private intercept');
   assert.equal(chat.INTERCEPTS.some(([n]) => n === 'letter'), false,
     'the weekly letter is the shared letter door, not a private intercept');
+  assert.equal(chat.INTERCEPTS.some(([n]) => n === 'wallet'), false,
+    'the wallet mirror is the shared wallet door, not a private intercept');
 });
 
 test('every row says what it does, in words a person reads', () => {
@@ -239,10 +240,10 @@ test('a refused or failed memory write never touches the reply', async () => {
   for (const mode of [500, 'throw']) {
     reset();
     recordStatus = mode;
-    answers.wallet = { reply_html: 'wallet mirror', intent: 'wallet' };
-    const r = await req('POST', '/api/chat', { token, body: { text: 'my wallet' } });
+    answers.defi = { reply_html: 'defi positions', intent: 'defi' };
+    const r = await req('POST', '/api/chat', { token, body: { text: 'my defi positions' } });
     assert.equal(r.status, 200, `mode ${mode}`);
-    assert.equal(r.data.reply_html, 'wallet mirror');
+    assert.equal(r.data.reply_html, 'defi positions');
     await flush();
     assert.ok(posted.some((p) => p.path === '/chat/record'), 'the write was attempted');
   }

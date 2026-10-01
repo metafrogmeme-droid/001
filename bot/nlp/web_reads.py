@@ -1,19 +1,21 @@
 """The reads the website's chat answers from its own intercepts and Telegram
 does not — and the door each one is given, on both surfaces.
 
-`app/routes/chat.js` answers thirteen shapes of question before any bot
-round-trip. Eleven have a Telegram command that renders the same reading
+`app/routes/chat.js` answers twelve shapes of question before any bot
+round-trip. Ten have a Telegram command that renders the same reading
 and are routed to it (`networth`, `rwa`, `research`, `nft`, `spot`,
-`airdrops`, `replay`, `venue_router`, `meme_radar`, `wallet`, `defi`).
-The weekly letter is not among the thirteen: both doors route it to
-`/letter`. Price alerts are not among them either: both doors route them to
+`airdrops`, `replay`, `venue_router`, `meme_radar`, `defi`).
+The wallet mirror is not among the twelve: both doors route it to
+`/wallet`, the caller's own linked wallet. The weekly letter is not
+among the twelve either: both doors route it to `/letter`. Price alerts
+are not among them either: both doors route them to
 `/price_alert`, a WRITE the website's alert engine holds and delivers on
 Telegram too since the bot polls its trips; the command is not called
 `/alerts` because that name is the anomaly-alert scope. The idle-yield read
 is the website's optimiser over the wallet the caller signed in with, while
 `/idleyield` here is the OPERATOR's exchange account under the same word.
 This table holds that one door. `exposure` is neither a command in that
-eleven nor this door: the
+ten nor this door: the
 website answers "my exposure" with its cross-venue netting card, which
 `/exposure` renders here by name, while the WORDS stay the risk engine's on
 Telegram — a pinned routing from the corpus work (beside "whats my

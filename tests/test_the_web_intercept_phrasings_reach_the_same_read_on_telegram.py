@@ -1,6 +1,6 @@
 """Three of the website's chat intercepts, reached by the same words on Telegram.
 
-`app/routes/chat.js` answers thirteen phrasings from its own Node intercepts
+`app/routes/chat.js` answers twelve phrasings from its own Node intercepts
 before a turn reaches the bot; three of them (`networth`, `rwa`, `research`)
 have a Telegram command that renders the same reading and, typed as WORDS on
 Telegram, reached nothing: "my net worth" and "rwa radar" were GREETED by the

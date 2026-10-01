@@ -317,12 +317,6 @@ async function walletAddressOf(userId) {
   return rows.length ? (rows[0].wallet_address || null) : null;
 }
 
-// ── Chat intercept ───────────────────────────────────────────────────────────
-
-// "my wallet", "wallet balance", … with an optional trailing chain filter:
-// "my wallet on base", "wallet holdings on arbitrum".
-const CHAT_RE = /\b(my wallet|wallet (?:balance|portfolio|holdings)|on[- ]chain (?:balance|portfolio|holdings))\b(?:\s+on\s+([a-z]+))?/i;
-
 const { esc } = require('./esc');
 
 function fmtUsd(v) {
@@ -331,14 +325,14 @@ function fmtUsd(v) {
 }
 
 /**
- * The wallet mirror as the chat card — ONE renderer for both surfaces; the
- * bot's /wallet fetches it over the sync channel
- * (`GET /api/bot/sync/card/wallet?telegram_id=…&chain=base`) for a caller
- * whose Telegram account is linked to a web account, and the route answers
- * `unlinked` for one it cannot map — never a guessed wallet. `chainFilter`
- * narrows to one chain (null for all). Every label and symbol interpolated
- * below is escaped, and the unreadable-chains line is `<i>`, not a `<span>`:
- * the card is forwarded to Telegram's HTML parser as-is.
+ * The wallet mirror as the chat card — ONE renderer for both surfaces; both
+ * doors fetch it over the sync channel
+ * (`GET /api/bot/sync/card/wallet?telegram_id=…&chain=base`) for the caller
+ * the turn names. A caller the route cannot map is `unlinked` — never a
+ * guessed wallet, and never somebody else's. `chainFilter` narrows to one
+ * chain (null for all). Every label and symbol interpolated below is
+ * escaped, and the unreadable-chains line is `<i>`, not a `<span>`: the
+ * card is forwarded to Telegram's HTML parser as-is.
  */
 async function walletChatCard(userId, chainFilter) {
   try {
@@ -395,12 +389,6 @@ async function walletChatCard(userId, chainFilter) {
   }
 }
 
-async function maybeHandleWalletChat(userId, text) {
-  const m = String(text || '').match(CHAT_RE);
-  if (!m) return null;
-  return walletChatCard(userId, m[2] ? String(m[2]).toLowerCase() : null);
-}
-
 module.exports = {
   TOKENS,
   CHAINS,
@@ -409,5 +397,5 @@ module.exports = {
   walletAddressOf,
   setProviderFactory,
   setTickerFetcher,
-  maybeHandleWalletChat, walletChatCard,
+  walletChatCard,
 };

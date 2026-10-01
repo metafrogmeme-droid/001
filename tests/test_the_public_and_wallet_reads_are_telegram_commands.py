@@ -12,10 +12,10 @@ and answers `unlinked` for an id it cannot map — a third fact beside "a card"
 and "the channel did not answer", with its own sentence on each transport,
 never a hedge and never a guessed wallet.
 
-Three of the cards take one argument the intercept reads out of the sentence
-— a stake, an asset, a chain — and `bot/nlp/web_card_args.py` reads it the
-same way here, so "best venue for BTC" narrows on Telegram exactly as it
-does on the website. And the forwarding boundary keeps only the tags
+Three of the cards take one argument read out of the sentence — a stake,
+an asset, a chain — and `bot/nlp/web_card_args.py` reads it the same way
+on both doors, so "my wallet on base" narrows on the website exactly as it
+does on Telegram. And the forwarding boundary keeps only the tags
 Telegram renders: a `<span>` on a website card arrives without the span
 rather than not at all.
 
@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import textwrap
 from types import MethodType
 from types import SimpleNamespace as NS
@@ -51,6 +52,7 @@ from bot.utils.web_data_pull import (
 from tests.test_a_halt_is_the_operators_own_sentence import bot as _halt_bot
 from tests.test_a_routed_answer_is_in_the_transcript import _store
 from tests.test_free_text_obeys_the_role_gate import OPERATOR, _update
+from tests.test_the_status_question_is_answered_by_the_status_card import _Engine
 from tests.test_the_web_intercept_phrasings_reach_the_same_read_on_telegram import (
     CALLER,
     _assistant,
@@ -208,12 +210,17 @@ class TestTheSeams:
         assert _seam("meme_radar", h) == web_card_text(CARD)
         assert _seam("wallet", h, "770001", "base") == web_card_text(CARD)
         assert _seam("wallet", h, "770001") == web_card_text(CARD)
+        # The website keeps the card's own breaks. Telegram's strip turns
+        # <br> into a newline a browser collapses.
+        assert _seam("wallet", h, "770001", surface="web") == CARD["reply_html"]
+        assert "<br>" in _seam("wallet", h, "770001", surface="web")
         assert _seam("defi", h, "770001") == web_card_text(CARD)
         assert seen == [("replay", "", {"stake": "500"}), ("replay", "", {"stake": None}),
                         ("letter", "", {}), ("letter", "", {}), ("letter", "", {}),
                         ("venue_router", "", {"base": "BTC"}),
                         ("venue_router", "", {"base": ""}), ("meme_radar", "", {}),
                         ("wallet", "770001", {"chain": "base"}), ("wallet", "770001", {"chain": ""}),
+                        ("wallet", "770001", {"chain": ""}), ("wallet", "770001", {"chain": ""}),
                         ("defi", "770001", {})]
 
     def test_a_stake_travels_as_the_number_the_caller_typed(self, monkeypatch):
@@ -460,6 +467,29 @@ class TestTheWeb:
         for other in CARDS:
             if other != intent:
                 assert getattr(h, f"{other}_card_text").await_count == 0, other
+
+    def test_a_web_only_caller_is_the_wallet_the_card_is_asked_for(self, monkeypatch):
+        """The id on the turn is the id the card is fetched for. web:<user_id>
+        is that caller; the operator's store stays empty."""
+        ug, h = _web(monkeypatch)
+        h.wallet_card_text = AsyncMock(return_value="<b>wallet</b> — the caller's")
+        who = "web:42"
+
+        async def _json():
+            return {"telegram_id": who, "text": "my wallet on base"}
+
+        req = NS(app={"tg_handler": h, "engine": _Engine(per_user=True)}, json=_json,
+                 headers={}, remote="1.2.3.4")
+        resp = asyncio.run(ug._chat_turn(req))
+        body = json.loads(resp.text)
+        assert resp.status == 200 and body["intent"] == "wallet"
+        assert h.wallet_card_text.await_args.args == (who, "base")
+        assert h.wallet_card_text.await_args.kwargs == {"surface": "web"}
+        assert body["reply_html"] == h.wallet_card_text.return_value
+        shown = [m.content for m in h.conversations.get_recent(who, limit=5)
+                 if m.role == "assistant"]
+        assert shown and "[wallet] result:" in shown[0]
+        assert h.conversations.get_recent(OPERATOR, limit=5) == []
 
     def test_the_gate_refuses_before_the_seam_and_records_not_run(self, monkeypatch):
         ug, h = _web(monkeypatch, role="pending", denial="role")

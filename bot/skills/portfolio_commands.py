@@ -318,7 +318,7 @@ class PortfolioCommands:
     # /replay and /letter are the operator agent's RECORD, rendered by the
     # website for every reader; /wallet and /defi are the CALLER's linked
     # on-chain wallet, which the website maps from their Telegram id. Each
-    # fetches the card the web intercept renders (one renderer, two
+    # fetches the card the website renders (one renderer, two
     # surfaces) through `_web_card_text`; nothing here re-formats a payload.
 
     @guard("replay")
@@ -379,9 +379,15 @@ class PortfolioCommands:
     async def wallet_card_text(self, user_id: str, chain: str = "", *,
                                surface: str = "telegram") -> str:
         """The wallet mirror card — the website's own rendering, both
-        surfaces, for THIS caller's linked wallet; ``chain`` narrows it."""
-        return await self._web_card_text("wallet", surface=surface,
-                                         telegram_id=str(user_id or ""), params={"chain": chain or ""})
+        surfaces, for THIS caller's linked wallet; ``chain`` narrows it.
+
+        ``surface="web"`` keeps the card's own markup. Telegram's tag strip
+        turns ``<br>`` into a newline a browser collapses, which is right on
+        Telegram and wrong on the page that used to render this card itself.
+        """
+        return await self._web_card_text(
+            "wallet", surface=surface, telegram_id=str(user_id or ""),
+            params={"chain": chain or ""}, keep_markup=(surface == "web"))
 
     @guard("defi")
     async def _cmd_defi(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

@@ -1,18 +1,20 @@
 """The arguments three website cards take, read from the words the way the
-intercepts read them.
+surfaces that still intercept read them.
 
-The website's replay, venue-router and wallet intercepts each carry one
-argument inside the sentence — a stake ("replay every signal with $1k"), an
-asset ("best venue for BTC"), a chain ("my wallet on base") — captured by the
-intercept's own regex and handed to its renderer. On Telegram the same
-sentence routes to the same card (`/replay`, `/venue_router`, `/wallet`
-fetch the website's rendering over the sync channel), so the argument has to
-be read the same way here, or the two surfaces answer one sentence with two
-readings. These three readers mirror `app/lib/replay.js`,
-`app/lib/venue_router.js` and `app/lib/wallet.js`'s capture groups; the slash
-forms (`/replay 500`, `/venue_router BTC`, `/wallet base`) read the same
-token through the same helpers, so a typed argument and a spoken one cannot
-drift either.
+The website's replay and venue-router intercepts each carry one argument
+inside the sentence — a stake ("replay every signal with $1k"), an asset
+("best venue for BTC") — captured by the intercept's own regex and handed
+to its renderer. The wallet chain ("my wallet on base") used to be captured
+the same way; both doors now read it here and hand it to `wallet_card_text`.
+On Telegram the same sentence routes to the same card (`/replay`,
+`/venue_router`, `/wallet` fetch the website's rendering over the sync
+channel), so the argument has to be read the same way here, or the two
+surfaces answer one sentence with two readings. The replay and venue
+readers mirror `app/lib/replay.js` and `app/lib/venue_router.js`'s capture
+groups, and the wallet chain reader is the one copy of the group the
+intercept used to hold. The slash forms (`/replay 500`, `/venue_router BTC`,
+`/wallet base`) read the same token through the same helpers, so a typed
+argument and a spoken one cannot drift either.
 
 None of them answers a default: an absent stake is None (the route defaults
 to the website's $1000), an absent asset is '' (the top five), an absent
