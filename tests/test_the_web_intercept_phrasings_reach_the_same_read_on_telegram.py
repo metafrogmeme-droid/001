@@ -1,20 +1,20 @@
 """Three of the website's chat intercepts, reached by the same words on Telegram.
 
-`app/routes/chat.js` answers eleven phrasings from its own Node intercepts
-before a turn reaches the bot; three of them (`networth`, `rwa`, `research`)
-have a Telegram command that renders the same reading and, typed as WORDS on
-Telegram, reached nothing: "my net worth" and "rwa radar" were GREETED by the
-social gate, "research SOL" reached a chat model with no dossier tool. They
-are routed intents on both surfaces now — the Telegram branch dispatches the
-guarded command (the guard IS the role gate), the web's Python path answers
-the phrasings the Node intercepts miss from the same seam under the same
-gate, and every branch records what it showed.
+`app/routes/chat.js` answers ten phrasings from its own Node intercepts
+before a turn reaches the bot. Two of them (`networth`, `research`) have a
+Telegram command that renders the same reading. The RWA radar left that
+table: both doors route "rwa radar" to `/rwa`. Typed as WORDS on Telegram,
+"my net worth" and "rwa radar" were GREETED by the social gate, "research
+SOL" reached a chat model with no dossier tool. They are routed intents on
+both surfaces now — the Telegram branch dispatches the guarded command (the
+guard IS the role gate), the web's Python path answers from the same seam
+under the same gate, and every branch records what it showed.
 
 Three decisions worth pinning because a rule does not carry them:
 `exposure` stays with `check_risk` (a pinned routing); `deep dive on <sym>`
 stays with the chart rules on Telegram, where the web's research intercept
 claims it as a dossier; and an education question ("what is rwa") is the
-model's on Telegram, where the web hands it the radar.
+model's on both surfaces, because the website no longer intercepts it.
 
 DRIVEN, not scanned: the router over a table with decoys; the Telegram
 handler through the store and through its guard; the web turn through
@@ -413,6 +413,11 @@ class TestTheOtherSeams:
         card = asyncio.run(TelegramHandler.rwa_card_text(h))
         assert "<b>RWA radar</b>" in card and "\n" in card
         assert "<span" not in card and "Sector: —" in card
+        # The website keeps the card's own breaks. Telegram's strip turns
+        # <br> into a newline a browser collapses.
+        web_card = asyncio.run(TelegramHandler.rwa_card_text(h, surface="web"))
+        assert "<br>" in web_card and "<b>RWA radar</b>" in web_card
+        assert "<span>—</span>" in web_card
         # A payload with no card string is an unanswered channel, never an
         # empty card — the rule `web_card_text` states.
         for junk in ({"nonsense": 1}, {"reply_html": None}, {"reply_html": "  "}):

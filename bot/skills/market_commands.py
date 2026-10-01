@@ -88,12 +88,20 @@ class MarketCommands:
         now, over the card route nine other website cards already use.
 
         The fetch runs off the event loop (blocking urllib). ``surface`` keys
-        only the sentence for a channel that did not answer: the Telegram one
-        names `/link`, which a web caller cannot run.
+        the sentence for a channel that did not answer: the Telegram one
+        names `/link`, which a web caller cannot run. ``surface="web"`` keeps
+        the card's own markup. Telegram's tag strip turns ``<br>`` into a
+        newline a browser collapses, which is right on Telegram and wrong on
+        the page that used to render this card itself.
         """
         import asyncio as _aio
         from bot.utils.web_data_pull import fetch_web_card, web_card_text
         payload = await _aio.to_thread(fetch_web_card, "rwa")
+        if surface == "web":
+            raw = payload.get("reply_html") if isinstance(payload, dict) else None
+            if isinstance(raw, str) and raw.strip():
+                return raw
+            return self._link_hint(surface)
         text = web_card_text(payload)
         return text if text else self._link_hint(surface)
 

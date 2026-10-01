@@ -1684,8 +1684,10 @@ was one.
 
 RWA (tokenized real-world-asset) sector radar — a curated, runtime-filtered
 universe of RWA platforms/chains/DeFi scored off live venue tickers. FIVE
-doors, none named by any of the fifteen agents. This is the single largest gap
-in the map.
+doors, none named by any of the fifteen agents. Asking from chat is the
+shared `rwa` door on both surfaces, not a website intercept of its own. The
+Markets panel and /api/market/rwa still serve the radar while the bot process
+is down. This is the single largest gap in the map.
 
 *Where.* Dashboard Markets view panel #p-rwa/#c-rwa
 (`app/public/js/dashboard.js::MARKET_JUMPS#"['rwa', 'RWA']"` jump-nav, `::renderMarkets#'id="p-rwa"'` panel, `::renderMarkets#"renderPanel(C('rwa')"` fetch) → GET
@@ -1693,9 +1695,8 @@ in the map.
 (@guard("rwa"), `bot/skills/market_commands.py::MarketCommands._cmd_rwa`, registered
 `bot/skills/telegram_handler.py::TelegramHandler.build_app#'("rwa", self._cmd_rwa)'`, reads the web via
 bot/utils/web_data_pull.py → /api/bot/sync/card/rwa, the card RENDERED);
-web chat intercept row 3
-'rwa' (app/routes/chat.js INTERCEPTS, says "a tokenized-asset sector
-snapshot"); MCP tool get_rwa_radar (`app/routes/mcp.js::TOOLS.get_rwa_radar`); implementation
+shared chat door `rwa` (`bot/web/user_gateway.py::_WEB_SEAM#"rwa"`,
+`bot/skills/market_commands.py::MarketCommands.rwa_card_text`); MCP tool get_rwa_radar (`app/routes/mcp.js::TOOLS.get_rwa_radar`); implementation
 app/lib/rwa.js; operator studies scripts/research/rwa_funding.py and
 rwa_session_gap.py (both have __main__ guards and LEFT
 tests/unreachable_baseline.txt).

@@ -217,21 +217,21 @@ test('the card says a read carried nothing, and never that the sector is unliste
   assert.match(unlisted, /among the 1 markets read/);
 });
 
-test('the intercept is a regex test in front of the one renderer', async () => {
+test('the renderer is the card, and this module no longer matches the sentence', async () => {
   rwa.setTickerFetcher(async () => mk([[P[0], 0.92, 6.0, 40e6]]));
   try {
-    assert.equal(await rwa.maybeHandleRwaChat(1, 'what is the weather'), null);
-    const hit = await rwa.maybeHandleRwaChat(1, 'rwa radar');
     const direct = await rwa.rwaChatCard();
-    assert.deepEqual(hit, direct, 'the intercept must add nothing of its own');
-    assert.ok(rwa.CHAT_RE.test('tokenized treasuries'));
+    assert.equal(direct.intent, 'rwa');
+    assert.match(direct.reply_html, /RWA radar/);
+    assert.equal(typeof rwa.maybeHandleRwaChat, 'undefined');
+    assert.equal(rwa.CHAT_RE, undefined);
   } finally { rwa.setTickerFetcher(null); }
 });
 
 test('a throwing ticker read is a refresh sentence, not a card', async () => {
   rwa.setTickerFetcher(async () => { throw new Error('tickers HTTP 503'); });
   try {
-    const r = await rwa.maybeHandleRwaChat(1, 'rwa radar');
+    const r = await rwa.rwaChatCard();
     assert.match(r.reply_html, /refreshing/);
     assert.ok(!/503/.test(r.reply_html), 'no driver text on a public surface');
   } finally { rwa.setTickerFetcher(null); }

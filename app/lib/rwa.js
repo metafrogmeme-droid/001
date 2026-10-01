@@ -240,7 +240,7 @@ async function getRadar() {
   return buildRadar(await fetchTickers());
 }
 
-// ── Chat intercept ───────────────────────────────────────────────────────────
+// ── The one card ─────────────────────────────────────────────────────────────
 //
 // ONE renderer. `bot/skills/telegram_handler._format_rwa` was a second copy of
 // this card, kept in step by hand — the shape CLAUDE.md records for maps and
@@ -250,10 +250,9 @@ async function getRadar() {
 // change. Driven, `/rwa` raised `TypeError` and the WHOLE card was gone for
 // any listed token the venue did not report a 24h change for. The cure
 // upstream was what crashed the reader downstream, so the reader is deleted:
-// Telegram fetches this card over `/api/bot/sync/card/rwa` and renders it,
-// the mechanism nine other website cards already use.
-
-const CHAT_RE = /\b(rwa|real[- ]world assets?|tokeni[sz]ed (assets?|treasuries))\b/i;
+// both chat doors fetch this card over `/api/bot/sync/card/rwa` and render
+// it, the mechanism the other website cards already use. Website chat does
+// not match the sentence itself.
 
 // `pct`, `fmtVol` and `cover` were written here and copied into `meme.js`
 // and `research.js`. One reading now: `card_nums.js` carries why.
@@ -271,7 +270,15 @@ const { pct, fmtVol, cover } = require('./card_nums');
  * published as the venue having delisted the entire sector.
  */
 async function rwaChatCard() {
-  const r = await getRadar();
+  let r;
+  try {
+    r = await getRadar();
+  } catch {
+    return {
+      reply_html: 'RWA radar is refreshing — try again in a moment.',
+      intent: 'rwa',
+    };
+  }
   const s = r.sector;
   if (!r.markets_read) {
     return {
@@ -311,17 +318,7 @@ async function rwaChatCard() {
   };
 }
 
-/** The web chat intercept: a regex test in front of the one renderer. */
-async function maybeHandleRwaChat(userId, text) {
-  if (!CHAT_RE.test(String(text || ''))) return null;
-  try {
-    return await rwaChatCard();
-  } catch (e) {
-    return { reply_html: 'RWA radar is refreshing — try again in a moment.', intent: 'rwa' };
-  }
-}
-
 module.exports = {
-  RWA_UNIVERSE, buildRadar, getRadar, setTickerFetcher, maybeHandleRwaChat,
-  rwaChatCard, CHAT_RE, weightedChange, sumVolume, rankByChange,
+  RWA_UNIVERSE, buildRadar, getRadar, setTickerFetcher,
+  rwaChatCard, weightedChange, sumVolume, rankByChange,
 };

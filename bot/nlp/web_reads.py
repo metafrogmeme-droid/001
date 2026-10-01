@@ -1,15 +1,17 @@
 """The reads the website's chat answers from its own intercepts and Telegram
 does not — and the door each one is given, on both surfaces.
 
-`app/routes/chat.js` answers eleven shapes of question before any bot
-round-trip. Nine have a Telegram command that renders the same reading
-and are routed to it (`networth`, `rwa`, `research`, `nft`, `spot`,
+`app/routes/chat.js` answers ten shapes of question before any bot
+round-trip. Eight have a Telegram command that renders the same reading
+and are routed to it (`networth`, `research`, `nft`, `spot`,
 `airdrops`, `venue_router`, `meme_radar`, `defi`).
-The what-if replay is not among the eleven: both doors route it to
+The tokenized-asset radar is not among the ten: both doors route it to
+`/rwa`, the venue's live tickers.
+The what-if replay is not among the ten: both doors route it to
 `/replay`, the operator agent's recorded trades at the caller's stake.
-The wallet mirror is not among the eleven: both doors route it to
+The wallet mirror is not among the ten: both doors route it to
 `/wallet`, the caller's own linked wallet. The weekly letter is not
-among the eleven either: both doors route it to `/letter`. Price alerts
+among the ten either: both doors route it to `/letter`. Price alerts
 are not among them either: both doors route them to
 `/price_alert`, a WRITE the website's alert engine holds and delivers on
 Telegram too since the bot polls its trips; the command is not called
@@ -17,7 +19,7 @@ Telegram too since the bot polls its trips; the command is not called
 is the website's optimiser over the wallet the caller signed in with, while
 `/idleyield` here is the OPERATOR's exchange account under the same word.
 This table holds that one door. `exposure` is neither a command in that
-nine nor this door: the
+eight nor this door: the
 website answers "my exposure" with its cross-venue netting card, which
 `/exposure` renders here by name, while the WORDS stay the risk engine's on
 Telegram — a pinned routing from the corpus work (beside "whats my

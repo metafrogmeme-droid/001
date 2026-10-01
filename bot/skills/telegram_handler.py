@@ -4189,10 +4189,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 return
 
             # ── net worth / RWA / research → the real commands ─────────
-            # Three reads the website answers from its own intercepts and
-            # Telegram rendered only as slash commands. Typed as WORDS, "my
-            # net worth" and "rwa radar" were GREETED by the social gate and
-            # "research SOL" reached a chat model with no dossier tool. Each
+            # Net worth and research the website still answers from its own
+            # intercepts. RWA left that table; this command is the door on
+            # both surfaces. Typed as WORDS, "my net worth" and "rwa radar"
+            # were GREETED by the social gate and "research SOL" reached a
+            # chat model with no dossier tool. Each
             # dispatches the guarded command that already renders the
             # reading — the guard is the role gate, so the branch must go
             # THROUGH the command and never to the seam directly — and

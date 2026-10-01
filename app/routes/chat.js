@@ -16,7 +16,6 @@ const { rateLimit, userKey } = require('../lib/rate_limit');
 const { resolveBotIdentity } = require('../lib/identity');
 const gateway = require('../lib/gateway');
 const { loadProfile } = require('./profile');
-const { maybeHandleRwaChat } = require('../lib/rwa');
 const { maybeHandleDefiChat } = require('../lib/defi');
 const { maybeHandleNetWorthChat } = require('../lib/networth');
 const { maybeHandleIdleYieldChat } = require('../lib/idle_yield');
@@ -81,8 +80,10 @@ const INTERCEPTS = [
   // to the shared letter seam, which fetches this process's own card. The
   // press and /api/letter still run here, so the panel still has the letter
   // while the bot process is down.
-  // "rwa radar" — read-only tokenized-asset sector snapshot from live tickers.
-  ['rwa', (uid, text) => maybeHandleRwaChat(uid, text), 'a tokenized-asset sector snapshot'],
+  // The tokenized-asset radar left this table. Both doors route "rwa
+  // radar" to the shared rwa seam, which fetches this process's own card.
+  // The Markets panel and /api/market/rwa still run here, so the radar is
+  // still readable while the bot process is down.
   // "airdrops" / "testnets" — curated guided-only radar; the reply itself
   // restates the anti-sybil line so chat can never be read as offering
   // automated farming.
@@ -190,8 +191,8 @@ async function chatTurn(req, res, { stream = false } = {}) {
     }
     if (!text && !images) return res.status(400).json({ error: 'text or image required' });
     if (text.length > MAX_TEXT_LEN) return res.status(400).json({ error: 'Message too long' });
-    // An image message skips the local text-intercepts (replay and the rest) and
-    // goes straight to the bot's vision-capable chat path.
+    // An image message skips the local text intercepts and goes straight
+    // to the bot's vision-capable chat path.
     if (images) {
       const ident = await resolveBotIdentity(req);
       const payload = {

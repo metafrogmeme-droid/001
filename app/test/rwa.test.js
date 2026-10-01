@@ -1,8 +1,9 @@
 'use strict';
 /**
  * RWA & on-chain radar: curated universe filtered to live listings,
- * volume-weighted sector math, the public endpoint, the chat intercept —
- * and the read-only guarantee stamped on every response.
+ * volume-weighted sector math, the public endpoint, and the read-only
+ * guarantee stamped on every response. Website chat does not render the
+ * radar itself: those words wait for the shared rwa door.
  */
 process.env.JWT_SECRET = 'j'.repeat(64);
 delete process.env.DATABASE_URL;
@@ -108,18 +109,25 @@ test('GET /api/market/rwa is public and carries the radar', async () => {
   assert.match(r.data.source, /public/);
 });
 
-test('chat: "rwa radar" answers with the sector read; unrelated text proxies', async () => {
+test('chat: "rwa radar" waits for the bot; the card and the public route still serve', async () => {
   const reg = await req('POST', '/api/auth/register', {
     body: { email: 'rwa1@example.com', password: 'longenough1' },
   });
   const token = reg.data.token;
-  const r = await req('POST', '/api/chat', { token, body: { text: 'show me the RWA radar' } });
-  assert.equal(r.status, 200);
-  assert.equal(r.data.intent, 'rwa');
-  assert.match(r.data.reply_html, /RWA radar/);
-  assert.match(r.data.reply_html, /ONDO \+5%/);
-  assert.match(r.data.reply_html, /never trades/i);
+  const waiting = await req('POST', '/api/chat', { token, body: { text: 'show me the RWA radar' } });
+  assert.equal(waiting.status, 503);
+  assert.equal(waiting.data.intent, undefined);
+
+  const card = await rwa.rwaChatCard();
+  assert.equal(card.intent, 'rwa');
+  assert.match(card.reply_html, /RWA radar/);
+  assert.match(card.reply_html, /ONDO \+5%/);
+  assert.match(card.reply_html, /never trades/i);
+
+  const panel = await req('GET', '/api/market/rwa');
+  assert.equal(panel.status, 200);
+  assert.equal(panel.data.sector.listed, 5);
 
   const other = await req('POST', '/api/chat', { token, body: { text: 'how is bitcoin?' } });
-  assert.equal(other.status, 503);   // unconfigured bot proxy
+  assert.equal(other.status, 503);
 });
