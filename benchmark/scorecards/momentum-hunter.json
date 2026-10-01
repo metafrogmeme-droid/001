@@ -1,7 +1,7 @@
 {
   "agent_id": "momentum-hunter",
   "bars": 1500,
-  "code_sha": "48d075532d9e3756b98594730d2948d5422a24d8",
+  "code_sha": "f885317c01654375c6af22bc9fc63fc59357e930",
   "dataset": "majors_1h",
   "dataset_hash": "8dbe73514ce8d2aeecd767a193c005cd1a179221bdce5df2cbe4ded2886bde36",
   "engine": "runeclaw.backtest",
@@ -36,7 +36,7 @@
   },
   "note": "Design backtest on FROZEN benchmark data \u2014 percent/ratio only, never a dollar figure. Re-run the identical backtest in the Strategy Lab to reproduce.",
   "preset": "momentum hunter",
-  "recorded_at": "2026-10-01T13:25:06+00:00",
+  "recorded_at": "2026-10-01T13:30:38+00:00",
   "symbols": [
     "BTC/USDT:USDT",
     "ETH/USDT:USDT",
