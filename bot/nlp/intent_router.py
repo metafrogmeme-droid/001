@@ -300,7 +300,7 @@ def _is_social_message(text: str) -> bool:
             # its rule first, and "turn off alerts" is pinned as small talk
             # by the halt suite's neighbour table.
             "defi", "aave", "nft", "nfts", "airdrop", "airdrops", "testnet",
-            "testnets", "meme", "memes", "spot", "letter", "replay",
+            "testnets", "meme", "memes", "degen", "spot", "letter", "replay",
             "opensea", "dexscreener", "wallet",
         }
         # …and the chart vocabulary the analysis rules read, by construction.
@@ -1751,7 +1751,11 @@ _rule(r"\b((?:best|cheapest) (?:venue|exchange)"
       r"(?: (?:for|to) (?:be )?(?:long|short)?\s*\$?[a-z0-9]{2,10})?"
       r"|venue router|cheapest funding)\b",
       "venue_router", explanation="Cheapest venue by funding cost (the website's card, /venue_router)")
-_rule(_EDU + r"\b(meme ?(?:radar|coins?|tokens?)|dexscreener|pump\.?fun|ai[- ]agent tokens?)\b",
+# The meme radar left the website's intercept table. Both doors route
+# these words to /meme_radar. An education question ("what is a meme
+# coin", "what is degen") is the model's on both surfaces, because the
+# website no longer intercepts it.
+_rule(_EDU + r"\b(meme ?(?:radar|coins?|tokens?)|dexscreener|degen|pump\.?fun|ai[- ]agent tokens?)\b",
       "meme_radar", explanation="Meme and AI-token snapshot (the website's card, /meme_radar)")
 
 # --- The book and the risk engine, before the chart ---

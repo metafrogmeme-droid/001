@@ -1,7 +1,7 @@
 """The reads only the website's chat answers meet a DOOR on Telegram, and
 "replay" stops running a backtest.
 
-`app/routes/chat.js` answers eight shapes of question from its own
+`app/routes/chat.js` answers seven shapes of question from its own
 intercepts. Six had nothing on Telegram (replay, letter, airdrops, nft,
 spot, defi) and three share a word with a Telegram command that does
 something else (/alerts is the anomaly-alert scope, /venues picks the venues
@@ -85,6 +85,7 @@ ROWS = [
     ("venue router", "venue_router"),
     ("meme radar", "meme_radar"),
     ("dexscreener", "meme_radar"),
+    ("degen", "meme_radar"),
     ("meme coins", "meme_radar"),
     ("ai agent tokens", "meme_radar"),
     # The second door: the website's idle-yield optimiser over the wallet the
@@ -182,7 +183,8 @@ def test_replay_no_longer_runs_a_backtest():
 def test_an_education_question_is_the_models_not_the_greeters():
     """"what is defi" is three words with no rule; without its noun in the
     social gate's vocabulary it was answered "hey!"."""
-    for text in ("what is defi", "what are airdrops", "how do nfts work", "what is a spot market"):
+    for text in ("what is defi", "what are airdrops", "how do nfts work",
+                 "what is a spot market", "what is degen", "what is a meme coin"):
         assert not _is_social_message(text), text
 
 

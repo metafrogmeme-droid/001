@@ -93,10 +93,12 @@ const INTERCEPTS = [
   // own card. The asset the sentence names narrows it; an unnamed asset
   // is the top five. The Markets panel and /api/market/venue-router still
   // run here, so the read is still available while the bot process is down.
+  // The meme radar left this table. Both doors route "meme radar" to the
+  // shared meme_radar seam, which fetches this process's own card. The
+  // feed is public DEXScreener data. The Markets panel and /api/market/meme
+  // still run here, so the radar is still readable while the bot process
+  // is down.
 
-  // "meme radar" / "dexscreener" — read-only on-chain meme/AI-token snapshot
-  // with an explicit safety read. Never trades or launches.
-  ['meme', (uid, text) => require('../lib/meme').maybeHandleMemeChat(uid, text), 'an on-chain meme and AI-token snapshot with a safety read'],
   // "nft radar" / "opensea" — read-only collection floor/volume snapshot.
   // Never lists, bids, mints or trades.
   ['nft', (uid, text) => require('../lib/opensea').maybeHandleNftChat(uid, text), "an NFT collection's floor price and volume"],

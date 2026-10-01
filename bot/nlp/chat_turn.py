@@ -33,6 +33,7 @@ STAGES: tuple[str, ...] = (
 #: Order is the order each family left the Node table.
 SHARED_DOORS: tuple[str, ...] = (
     "price_alert", "letter", "wallet", "replay", "rwa", "airdrops", "venue_router",
+    "meme_radar",
 )
 
 
