@@ -181,14 +181,18 @@ def test_a_hand_edited_committed_percent_fails():
         card["measured"])["total_return_pct"]
 
 
-def test_safe_scalper_exits_stay_unmodeled_until_the_runner_is_given_them():
+def test_safe_scalper_exits_are_applied_so_the_card_does_not_call_them_unmodeled():
+    from scripts.gen_agent_scorecards import _gate_args
     cfg = _cfg()
     cfg["sl_atr_mult"] = 1.5
     cfg["tp_atr_mult"] = 2.0
+    args = _gate_args(cfg)
+    assert "--sl-atr-mult" in args and "1.5" in args
+    assert "--tp-atr-mult" in args and "2.0" in args
     card = build_card(
         preset_key="safe scalper", cfg=cfg, runner=_runner(),
         dataset_name="majors_1h", dataset_hash="abc",
         symbols=["BTC/USDT:USDT"], last_bars=1500,
         code_sha_value="c" * 40, recorded_at="2026-10-01T00:00:00+00:00",
     )
-    assert card["unmodeled"] == ["sl_atr_mult", "tp_atr_mult"]
+    assert card["unmodeled"] == []

@@ -142,6 +142,9 @@ class BacktestEngine:
         # Entry-bar volume/average, keyed by idea id, so a close can record
         # the ratio without a dollar field. Missing stays None.
         self._volume_ratio_by_idea: dict[str, float | None] = {}
+        # ATR the preset exit multiples were applied with, keyed by idea id,
+        # so the trail reads that ATR instead of backing it out of the stop.
+        self._preset_atr_by_idea: dict[str, float] = {}
         self._equity_curve: list[EquityPoint] = []
         self._rr_values: list[float] = []  # realized R:R for each closed trade
         self._signals_generated = 0
@@ -292,6 +295,38 @@ class BacktestEngine:
             self._volume_ratio_by_idea[getattr(idea, "id", "")] = None
             return
         self._volume_ratio_by_idea[idea.id] = float(raw)
+
+    def _apply_preset_exits(self, idea, atr_value):
+        """Replace stop and target with the preset's ATR multiples.
+
+        Returns the idea unchanged when neither multiple is set, or None
+        when a multiple is set and the ATR cannot be read. None is a
+        rejection: the fill must not proceed on the analyzer's levels.
+        """
+        sl_m = getattr(self.config, "sl_atr_mult", None)
+        tp_m = getattr(self.config, "tp_atr_mult", None)
+        if sl_m is None and tp_m is None:
+            return idea
+        if isinstance(atr_value, bool) or not isinstance(atr_value, (int, float)):
+            return None
+        atr = float(atr_value)
+        if atr <= 0 or atr != atr or atr == float("inf"):
+            return None
+        entry = float(idea.entry_price)
+        long = idea.direction == Direction.LONG
+        updates: dict = {}
+        if sl_m is not None:
+            dist = float(sl_m) * atr
+            updates["stop_loss"] = entry - dist if long else entry + dist
+        if tp_m is not None:
+            dist = float(tp_m) * atr
+            updates["take_profit"] = entry + dist if long else entry - dist
+        try:
+            revised = idea.model_copy(update=updates)
+        except Exception:
+            return None
+        self._preset_atr_by_idea[idea.id] = atr
+        return revised
 
     def _restore_learning_flags(self) -> None:
         """Give the operator's learning flags back. Idempotent — first call wins.
@@ -571,6 +606,15 @@ class BacktestEngine:
                 true_ranges.append(tr)
             atr_value = sum(true_ranges) / len(true_ranges)
 
+        # A preset that names its own ATR stop and target replaces the
+        # analyzer's levels before the risk gate sizes the idea. No multiples
+        # configured is the idea unchanged. An unreadable ATR is a rejection,
+        # not a fill at the analyzer's stop while the card claims the multiple.
+        idea = self._apply_preset_exits(idea, atr_value)
+        if idea is None:
+            self._ideas_rejected_preset += 1
+            return
+
         # 4b. Risk gate (same as live). BT-H2: pass bar time for session sizing.
         # Regime-aware sizing (gated, same bridge as live): set the analyzer's
         # per-symbol regime so the per-regime multiplier applies, keeping backtest
@@ -804,9 +848,16 @@ class BacktestEngine:
 
         # STRATEGY: trailing stop after 1R profit -- use shared utility
         initial_risk = abs(idea.entry_price - idea.stop_loss)
-        # M2 fix: read sl_mult from config instead of hardcoding
-        sl_mult = CONFIG.analyzer.sl_atr_mult_default
-        canonical_atr = initial_risk / sl_mult if initial_risk > 0 else idea.entry_price * 0.02
+        # M2 fix: read sl_mult from config instead of hardcoding.
+        # A preset that replaced the stop with its own ATR multiple stores
+        # that ATR; backing it out of the new stop with the default multiple
+        # would hand the trail a different ATR than the stop was built from.
+        preset_atr = self._preset_atr_by_idea.get(idea.id)
+        if preset_atr is not None:
+            canonical_atr = preset_atr
+        else:
+            sl_mult = CONFIG.analyzer.sl_atr_mult_default
+            canonical_atr = initial_risk / sl_mult if initial_risk > 0 else idea.entry_price * 0.02
         trailing = make_trailing_state(adjusted_entry, idea.direction.value, initial_risk, canonical_atr)
         trailing["entry_price"] = adjusted_entry
         # Capture the entry regime for P&L attribution (which regimes actually

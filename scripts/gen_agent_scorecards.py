@@ -121,9 +121,9 @@ def project_metrics(runner: dict) -> dict:
 
 
 def _gate_args(cfg: dict) -> list[str]:
-    """Map a preset's real filters onto the runner's gate flags.
-    Only the gates the backtester faithfully models are emitted; ``sl_atr_mult`` /
-    ``tp_atr_mult`` are recorded as 'unmodeled' by the caller, not applied."""
+    """Map a preset's real filters onto the runner's flags.
+    Exit multiples are emitted because the runner applies them. A multiple
+    this does not emit stays in ``unmodeled``."""
     args: list[str] = []
     if cfg.get("confidence_threshold") is not None:
         args += ["--confidence-threshold", str(cfg["confidence_threshold"])]
@@ -133,6 +133,10 @@ def _gate_args(cfg: dict) -> list[str]:
         args += ["--regime-filter", str(cfg["regime"])]
     if cfg.get("rsi_threshold") is not None:
         args += ["--rsi-max", str(cfg["rsi_threshold"])]
+    if cfg.get("sl_atr_mult") is not None:
+        args += ["--sl-atr-mult", str(cfg["sl_atr_mult"])]
+    if cfg.get("tp_atr_mult") is not None:
+        args += ["--tp-atr-mult", str(cfg["tp_atr_mult"])]
     return args
 
 

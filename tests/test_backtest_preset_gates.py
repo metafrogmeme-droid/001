@@ -150,7 +150,36 @@ def test_runner_preset_gate_kwargs_default_off():
     assert kw["volume_spike_min"] is None
     assert kw["regime_filter"] == ""
     assert kw["rsi_max"] is None
+    assert kw["sl_atr_mult"] is None
+    assert kw["tp_atr_mult"] is None
     assert kw["confidence_threshold"] == 0.0
     # And they map onto the config as no-ops.
     cfg = BacktestConfig(symbol="BTC/USDT", **kw)
     assert cfg.volume_spike_min is None and cfg.regime_filter == "" and cfg.rsi_max is None
+    assert cfg.sl_atr_mult is None and cfg.tp_atr_mult is None
+
+
+def test_preset_atr_multiples_replace_the_analyzer_levels():
+    from bot.utils.models import Direction, TradeIdea
+    idea = TradeIdea(
+        id="t1", asset="BTC/USDT", direction=Direction.LONG,
+        entry_price=100.0, stop_loss=90.0, take_profit=130.0,
+        confidence=0.8, reasoning="x")
+    eng = _engine(sl_atr_mult=1.5, tp_atr_mult=2.0)
+    out = eng._apply_preset_exits(idea, 10.0)
+    assert out is not None
+    assert out.stop_loss == 85.0
+    assert out.take_profit == 120.0
+    assert eng._preset_atr_by_idea["t1"] == 10.0
+    # Unset multiples leave the analyzer's levels alone.
+    plain = _engine()
+    same = plain._apply_preset_exits(idea, 10.0)
+    assert same.stop_loss == 90.0 and same.take_profit == 130.0
+    # An unreadable ATR is not a fill at the analyzer's stop.
+    assert eng._apply_preset_exits(idea, None) is None
+    short = TradeIdea(
+        id="t2", asset="BTC/USDT", direction=Direction.SHORT,
+        entry_price=100.0, stop_loss=110.0, take_profit=80.0,
+        confidence=0.8, reasoning="x")
+    out_s = eng._apply_preset_exits(short, 10.0)
+    assert out_s.stop_loss == 115.0 and out_s.take_profit == 80.0

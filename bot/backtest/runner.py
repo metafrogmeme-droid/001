@@ -340,6 +340,8 @@ def _preset_gate_kwargs(args: argparse.Namespace) -> dict:
         "volume_spike_min": getattr(args, "volume_spike_min", None),
         "regime_filter": getattr(args, "regime_filter", "") or "",
         "rsi_max": getattr(args, "rsi_max", None),
+        "sl_atr_mult": getattr(args, "sl_atr_mult", None),
+        "tp_atr_mult": getattr(args, "tp_atr_mult", None),
     }
 
 
@@ -678,14 +680,20 @@ Examples:
     # filters on frozen data. All default OFF (unset = no-op), so a normal run
     # is unchanged. See BacktestConfig / _rejected_by_preset_gate.
     trade_group.add_argument("--volume-spike-min", type=float, default=None,
-                             help="Only enter when the bar's volume/rolling-avg ratio >= this "
-                                  "(or the spike flag). Mirrors 'momentum hunter' (vol spike > 3x).")
+                             help="Only enter when the bar's volume/rolling-avg ratio >= this. "
+                                  "The 2x boolean spike flag does not pass a higher minimum.")
     trade_group.add_argument("--regime-filter", type=str, default="",
                              help="Only enter when the analyzer's per-symbol regime equals this "
                                   "(e.g. TREND_DOWN for 'dip sniper', TREND_UP for momentum).")
     trade_group.add_argument("--rsi-max", type=float, default=None,
-                             help="Only enter when RSI(14) over the window is <= this "
-                                  "(oversold-dip entry, e.g. 'dip sniper' RSI < 35).")
+                             help="A LONG enters only when RSI(14) is <= this "
+                                  "(the dip). A short is not filtered by it.")
+    trade_group.add_argument("--sl-atr-mult", type=float, default=None,
+                             help="Replace the idea's stop with this many ATRs from entry. "
+                                  "Unset leaves the analyzer's stop.")
+    trade_group.add_argument("--tp-atr-mult", type=float, default=None,
+                             help="Replace the idea's target with this many ATRs from entry. "
+                                  "Unset leaves the analyzer's target.")
     trade_group.add_argument("--fill-mode", choices=("close", "next_open"), default="close",
                              help="Entry fill convention: same-bar close (legacy, optimistic) "
                                   "or next-bar open (conservative; audit fix #15). Run both "

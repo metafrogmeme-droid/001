@@ -65,6 +65,12 @@ class BacktestConfig(BaseModel):
     volume_spike_min: Optional[float] = None
     regime_filter: str = ""
     rsi_max: Optional[float] = None
+    # Exit geometry a named preset states in ATR multiples. None leaves the
+    # analyzer's own stop and target. Set, they replace those levels from
+    # the backtest window's ATR before the risk gate sees the idea, so the
+    # number includes the multiple. An unreadable ATR does not invent one.
+    sl_atr_mult: Optional[float] = None
+    tp_atr_mult: Optional[float] = None
     # Entry fill convention (audit fix #15). "close" = fill at the same bar's
     # close that generated the signal (legacy; optimistic — assumes you can
     # transact at the closing print). "next_open" = queue the approved idea and
