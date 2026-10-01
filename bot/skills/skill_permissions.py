@@ -184,12 +184,16 @@ WEB_ROUTED_PERMISSION: dict[str, str] = {
     "networth": "networth",
     "rwa": "rwa",
     "research": "research",
-    # The website chat's own cards, as commands: `_cmd_nft`, `_cmd_spot` and
-    # `_cmd_airdrops` render the card the web intercept answers with, each
-    # under a permission of its own name, held by trader, paper and viewer —
-    # public market facts and a curated catalogue, no account read in any.
+    # The website chat's own cards, as commands: `_cmd_nft` and `_cmd_spot`
+    # render the card the web intercept answers with, each under a
+    # permission of its own name, held by trader, paper and viewer —
+    # public market facts, no account read in either.
     "nft": "nft",
     "spot": "spot",
+    # Airdrops left the website's intercept table. Both doors render
+    # `airdrops_card_text` under a permission of its own name. The catalogue
+    # is public; wallet-readiness hints are the caller's own when the
+    # website can map them, never a guessed wallet.
     "airdrops": "airdrops",
     # Six more website cards as commands: the four public reads and the two
     # wallet reads, each under a permission of its own name, held by trader,

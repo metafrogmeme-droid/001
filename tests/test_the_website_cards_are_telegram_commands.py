@@ -169,6 +169,11 @@ class TestTheSeams:
         assert _seam("airdrops", h, "770001") == web_card_text(WEB_CARD)
         assert seen == [("nft", ""), ("spot", ""), ("airdrops", "770001")]
         assert "to_thread" in inspect.getsource(TelegramHandler._web_card_text)
+        # The website keeps the card's own breaks. Telegram's strip turns
+        # <br> into a newline a browser collapses.
+        web = _seam("airdrops", h, "770001", surface="web")
+        assert web == WEB_CARD["reply_html"] and "<br>" in web
+        assert _seam("airdrops", h, "770001") == web_card_text(WEB_CARD)
 
     def test_the_airdrops_seam_hands_over_the_callers_own_id_and_never_none(self, monkeypatch):
         seen = []
@@ -344,6 +349,25 @@ class TestTheWeb:
         for other in CARDS:
             if other != intent:
                 assert getattr(h, f"{other}_card_text").await_count == 0, other
+
+    def test_airdrop_radar_keeps_the_cards_markup_for_this_caller(self, monkeypatch):
+        """Both doors render the card. The website used to answer itself, so
+        the markup the browser already shows has to survive the hop, and the
+        id on the wire is the caller the turn names."""
+        seen = []
+        card = {"reply_html": "🪂 <b>Airdrop</b><br><i>One human, one wallet</i>",
+                "intent": "airdrops"}
+        monkeypatch.setattr(wdp, "fetch_web_card",
+                            lambda name, tg="", **kw: seen.append((name, tg)) or card)
+        ug, h = _web(monkeypatch)
+        h._link_hint = TelegramHandler._link_hint
+        h._web_card_text = MethodType(TelegramHandler._web_card_text, h)
+        h.airdrops_card_text = MethodType(TelegramHandler.airdrops_card_text, h)
+        resp, body = _turn(ug, h, "airdrop radar")
+        assert resp.status == 200 and body["intent"] == "airdrops"
+        assert body["reply_html"] == card["reply_html"] and "<br>" in body["reply_html"]
+        assert seen == [("airdrops", CALLER)]
+        assert "web app's chat" not in body["reply_html"]
 
     def test_the_gate_refuses_before_the_seam_and_records_not_run(self, monkeypatch):
         ug, h = _web(monkeypatch, role="pending", denial="role")

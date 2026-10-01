@@ -247,6 +247,11 @@ async def _seam_spot(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
 
 async def _seam_airdrops(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
                          text: str = "") -> str:
+    # The website chat no longer answers this itself. Both doors render the
+    # airdrop radar's own card for THIS caller; surface="web" keeps the
+    # markup the browser already shows. A caller the website cannot map gets
+    # the public radar, never somebody else's wallet. web:<user_id> is that
+    # caller, never the operator's book.
     return await tg_handler.airdrops_card_text(tg_id, surface="web")
 
 
@@ -308,10 +313,10 @@ async def _seam_price_alert(tg_handler: "TelegramHandler", tg_id: str, kwargs: d
 #: `WEB_ROUTED_PERMISSION` (the gate the branch goes through) and in the
 #: authorisation invariant's `ROUTED_INTENT_SEAM`; both equalities are pinned.
 #: `status` keeps its own branch above: it predates the table and three
-#: guards index that branch's literal. The last three are the website's own
-#: chat cards, which the Node intercepts answer first for a web caller — the
-#: Python path sees only the phrasings those intercepts miss, and answers
-#: them with the same card rather than a door notice pointing at this chat.
+#: guards index that branch's literal. nft and spot are still answered first
+#: by a Node intercept for a web caller — this path sees the phrasings those
+#: intercepts miss. Airdrops left that table: both doors render this seam,
+#: the caller's own card rather than a door notice.
 _WEB_SEAM = {
     "networth": _seam_networth,
     "rwa": _seam_rwa,
@@ -960,12 +965,13 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
         # Net worth and research the website still answers from its own Node
         # intercepts before a turn reaches this process, so for a web caller
         # those two see only the phrasings the intercepts miss ("how much am
-        # i worth", "can you research SOL for me"). RWA left that table: both
-        # doors render this seam. The branch answers every `_WEB_SEAM` intent
-        # with the same card Telegram's routed branch renders, under the same
-        # gate, recorded the same way — never by a model with no such tool.
-        # `_WEB_SEAM` is the table the reachability ratchet asks, so a fourth
-        # entry is a branch without anybody writing one.
+        # i worth", "can you research SOL for me"). RWA and the airdrop radar
+        # left that table: both doors render this seam. The branch answers
+        # every `_WEB_SEAM` intent with the same card Telegram's routed
+        # branch renders, under the same gate, recorded the same way — never
+        # by a model with no such tool. `_WEB_SEAM` is the table the
+        # reachability ratchet asks, so a fourth entry is a branch without
+        # anybody writing one.
         if intent.skill in _WEB_SEAM:
             denied = _web_skill_denied(tg_handler, tg_id, intent.skill)
             if denied is not None:

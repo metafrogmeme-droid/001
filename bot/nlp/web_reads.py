@@ -1,17 +1,21 @@
 """The reads the website's chat answers from its own intercepts and Telegram
 does not — and the door each one is given, on both surfaces.
 
-`app/routes/chat.js` answers ten shapes of question before any bot
-round-trip. Eight have a Telegram command that renders the same reading
+`app/routes/chat.js` answers nine shapes of question before any bot
+round-trip. Seven have a Telegram command that renders the same reading
 and are routed to it (`networth`, `research`, `nft`, `spot`,
-`airdrops`, `venue_router`, `meme_radar`, `defi`).
-The tokenized-asset radar is not among the ten: both doors route it to
+`venue_router`, `meme_radar`, `defi`).
+The airdrop and testnet radar is not among the nine: both doors route it
+to `/airdrops`, the curated guided-only catalogue. Wallet-readiness hints
+are the caller's own when the website can map them, and the public radar
+otherwise — never a guessed wallet.
+The tokenized-asset radar is not among the nine: both doors route it to
 `/rwa`, the venue's live tickers.
-The what-if replay is not among the ten: both doors route it to
+The what-if replay is not among the nine: both doors route it to
 `/replay`, the operator agent's recorded trades at the caller's stake.
-The wallet mirror is not among the ten: both doors route it to
+The wallet mirror is not among the nine: both doors route it to
 `/wallet`, the caller's own linked wallet. The weekly letter is not
-among the ten either: both doors route it to `/letter`. Price alerts
+among the nine either: both doors route it to `/letter`. Price alerts
 are not among them either: both doors route them to
 `/price_alert`, a WRITE the website's alert engine holds and delivers on
 Telegram too since the bot polls its trips; the command is not called
@@ -19,7 +23,7 @@ Telegram too since the bot polls its trips; the command is not called
 is the website's optimiser over the wallet the caller signed in with, while
 `/idleyield` here is the OPERATOR's exchange account under the same word.
 This table holds that one door. `exposure` is neither a command in that
-eight nor this door: the
+seven nor this door: the
 website answers "my exposure" with its cross-venue netting card, which
 `/exposure` renders here by name, while the WORDS stay the risk engine's on
 Telegram — a pinned routing from the corpus work (beside "whats my

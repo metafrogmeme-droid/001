@@ -10,6 +10,7 @@
 process.env.JWT_SECRET = 'j'.repeat(64);
 delete process.env.DATABASE_URL;
 delete process.env.AIRDROP_CATALOG_PATH;
+delete process.env.WEB_GATEWAY_SECRET;
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -98,36 +99,37 @@ test('operator catalog override loads; a broken file falls back to the seed', ()
   }
 });
 
-// ── Chat intercept ───────────────────────────────────────────────────────────
+// ── The one card ─────────────────────────────────────────────────────────────
 
-test('chat: "airdrops" gets the radar WITH the anti-sybil line; small talk does not', async () => {
-  const reply = await airdrops.maybeHandleAirdropChat(1, 'any good airdrops right now?');
-  assert.ok(reply && reply.intent === 'airdrops');
-  assert.match(reply.reply_html, /One human, one wallet/);
-  assert.equal(await airdrops.maybeHandleAirdropChat(1, 'how is BTC doing?'), null);
-});
-
-test('chat: even a "farm airdrops" ask is answered with the guided-only stance', async () => {
-  const reply = await airdrops.maybeHandleAirdropChat(1, 'can you farm airdrops for me?');
-  assert.ok(reply, 'the farming phrasing is intercepted, not ignored');
-  assert.match(reply.reply_html, /never do it|guided-only/i);
+test('the card carries the anti-sybil line, and this module no longer matches the sentence', async () => {
+  const card = await airdrops.airdropChatCard(null);
+  assert.equal(card.intent, 'airdrops');
+  assert.match(card.reply_html, /One human, one wallet/);
+  assert.match(card.reply_html, /never do it|guided-only/i);
+  assert.equal(typeof airdrops.maybeHandleAirdropChat, 'undefined');
+  assert.equal(airdrops.CHAT_RE, undefined);
 });
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 
 let server, base;
 
-function req(method, p, { token } = {}) {
+function req(method, p, { token, body } = {}) {
   return new Promise((resolve, reject) => {
+    const payload = body ? JSON.stringify(body) : null;
     const r = http.request(`${base}${p}`, {
       method,
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(payload ? { 'Content-Type': 'application/json' } : {}),
+      },
     }, (res) => {
       let d = '';
       res.on('data', c => d += c);
       res.on('end', () => resolve({ status: res.statusCode, data: d ? JSON.parse(d) : {} }));
     });
     r.on('error', reject);
+    if (payload) r.write(payload);
     r.end();
   });
 }
@@ -137,6 +139,7 @@ test.before(async () => {
   app.use(express.json());
   app.use('/api/auth', authModule.router);
   app.use('/api/airdrops', require('../routes/airdrops'));
+  app.use('/api/chat', require('../routes/chat'));
   await new Promise((res) => { server = app.listen(0, '127.0.0.1', res); });
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -167,4 +170,19 @@ test('GET /api/airdrops is public; /me needs auth and reads only the OWN wallet'
   // No wallet linked -> no hints, and the payload says so honestly.
   assert.equal(me.data.wallet_linked, false);
   assert.ok(me.data.campaigns.every(c => c.hints === null));
+});
+
+test('chat: "airdrop radar" waits for the bot; the public route still serves', async () => {
+  const reg = await req('POST', '/api/auth/register', {
+    body: { email: 'drop-chat@test.io', password: 'x'.repeat(12) },
+  });
+  const token = reg.data.token;
+  for (const text of ['airdrop radar', 'can you farm airdrops for me?', 'what are airdrops']) {
+    const waiting = await req('POST', '/api/chat', { token, body: { text } });
+    assert.equal(waiting.status, 503, text);
+    assert.equal(waiting.data.intent, undefined, text);
+  }
+  const pub = await req('GET', '/api/airdrops');
+  assert.equal(pub.status, 200);
+  assert.ok(pub.data.campaigns.length >= 3);
 });

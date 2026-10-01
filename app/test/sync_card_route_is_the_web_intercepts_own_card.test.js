@@ -1,9 +1,10 @@
 'use strict';
 /**
- * The bot's /nft, /spot and /airdrops commands render the website chat's own
- * cards — the same function the web intercept answers with, fetched over the
- * bot-secret sync channel — so `GET /api/bot/sync/card/:name` must answer
- * BYTE-FOR-BYTE what the intercept answers for the same reader, and nothing
+ * The bot's /nft, /spot and /airdrops commands render the website's own
+ * cards, fetched over the bot-secret sync channel. nft and spot are still
+ * what the web intercept answers with; airdrops left that table and both
+ * doors fetch this card. `GET /api/bot/sync/card/:name` must answer
+ * BYTE-FOR-BYTE what that renderer answers for the same reader, and nothing
  * for a name the whitelist does not carry.
  *
  * A second formatter in Python would be a second answer about one reading
@@ -146,7 +147,7 @@ test('airdrops: an unlinked telegram_id gets the public radar, and a linked one 
   await pool.execute('UPDATE users SET wallet_address = ? WHERE id = ?', ['0x' + 'ab'.repeat(20), reg.user_id]);
   airdrops.setWalletReader(async () => ({ chains: [] }));
   try {
-    const own = await airdrops.maybeHandleAirdropChat(reg.user_id, 'airdrop radar');
+    const own = await airdrops.airdropChatCard(reg.user_id);
     r = await req('/api/bot/sync/card/airdrops?telegram_id=770001', { botSecret: SECRET });
     assert.equal(r.status, 200);
     assert.equal(r.data.reply_html, own.reply_html);
@@ -185,13 +186,14 @@ test('a renderer that answers no card is a 500, never a 200 with nothing in it',
   }
 });
 
-test('the three intercepts still answer their own phrasings through the shared renderers', async () => {
+test('nft and spot still answer their own phrasings; airdrops is only the card', async () => {
   opensea.setOpenSeaFetcher(NFT_FETCHER);
   spot.setSpotFetcher(async () => SPOT_RAW);
   assert.equal(await opensea.maybeHandleNftChat(1, 'hello there'), null);
   assert.equal(await spot.maybeHandleSpotChat(1, 'hello there'), null);
-  assert.equal(await airdrops.maybeHandleAirdropChat(1, 'hello there'), null);
   assert.ok((await opensea.maybeHandleNftChat(1, 'nft radar')).reply_html.includes('NFT radar'));
   assert.ok((await spot.maybeHandleSpotChat(1, 'spot market')).reply_html.includes('Spot market'));
-  assert.equal((await airdrops.maybeHandleAirdropChat(1, 'airdrop radar')).intent, 'airdrops');
+  assert.equal(typeof airdrops.maybeHandleAirdropChat, 'undefined');
+  assert.equal(airdrops.CHAT_RE, undefined);
+  assert.equal((await airdrops.airdropChatCard(null)).intent, 'airdrops');
 });

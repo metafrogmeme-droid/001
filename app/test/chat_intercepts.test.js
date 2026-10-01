@@ -2,7 +2,7 @@
 /**
  * The web chat's local intercepts: order, first-hit-wins, and MEMORY.
  *
- * routes/chat.js answers ten shapes of question without a bot round-trip.
+ * routes/chat.js answers nine shapes of question without a bot round-trip.
  * Until now each answered and vanished — the bot's conversation store, which
  * both surfaces read history from, never heard the question or the answer,
  * so a follow-up two turns later reached a model that had never seen the
@@ -41,7 +41,6 @@ function intercept(name, fnName, withIdent = false) {
     },
   };
 }
-stub('lib/airdrops', intercept('airdrops', 'maybeHandleAirdropChat'));
 stub('lib/venue_router', intercept('venues', 'maybeHandleVenueRouterChat'));
 stub('lib/meme', intercept('meme', 'maybeHandleMemeChat'));
 stub('lib/opensea', intercept('nft', 'maybeHandleNftChat'));
@@ -127,7 +126,7 @@ function reset() {
 
 test('the routing table is the documented order', () => {
   assert.deepEqual(chat.INTERCEPTS.map(([n]) => n), [
-    'airdrops', 'venues', 'meme', 'nft', 'spot', 'defi',
+    'venues', 'meme', 'nft', 'spot', 'defi',
     'exposure', 'research', 'networth', 'idleyield',
   ]);
   assert.equal(chat.INTERCEPTS.some(([n]) => n === 'alerts'), false,
@@ -140,6 +139,8 @@ test('the routing table is the documented order', () => {
     'the what-if replay is the shared replay door, not a private intercept');
   assert.equal(chat.INTERCEPTS.some(([n]) => n === 'rwa'), false,
     'the tokenized-asset radar is the shared rwa door, not a private intercept');
+  assert.equal(chat.INTERCEPTS.some(([n]) => n === 'airdrops'), false,
+    'the airdrop radar is the shared airdrops door, not a private intercept');
 });
 
 test('every row says what it does, in words a person reads', () => {
@@ -197,14 +198,14 @@ test('a miss consults every intercept in order, then the model', async () => {
 
 test('the first hit answers and nothing below it runs', async () => {
   reset();
-  answers.airdrops = { reply_html: '<b>Airdrops</b> guided only', intent: 'airdrops' };
+  answers.venues = { reply_html: '<b>Venues</b> cheapest hold', intent: 'venues' };
   answers.defi = { reply_html: 'never', intent: 'defi' };
   const token = await newUser();
-  const r = await req('POST', '/api/chat', { token, body: { text: 'airdrop radar' } });
+  const r = await req('POST', '/api/chat', { token, body: { text: 'best venue for BTC' } });
   assert.equal(r.status, 200);
-  assert.equal(r.data.reply_html, '<b>Airdrops</b> guided only');
+  assert.equal(r.data.reply_html, '<b>Venues</b> cheapest hold');
   const upToFirst = chat.INTERCEPTS.map(([n]) => n);
-  assert.deepEqual(calls, upToFirst.slice(0, upToFirst.indexOf('airdrops') + 1));
+  assert.deepEqual(calls, upToFirst.slice(0, upToFirst.indexOf('venues') + 1));
 });
 
 // ── memory ──────────────────────────────────────────────────────────────────
@@ -253,11 +254,11 @@ test('a refused or failed memory write never touches the reply', async () => {
 
 test('a reply without html records nothing', async () => {
   reset();
-  // Airdrops is the first row. A hit with no reply_html must not be written
+  // Venues is the first row. A hit with no reply_html must not be written
   // into conversation memory, and must not be handed to the model.
-  answers.airdrops = { pending_trade: { trade_id: 'x' } };
+  answers.venues = { pending_trade: { trade_id: 'x' } };
   const token = await newUser();
-  const r = await req('POST', '/api/chat', { token, body: { text: 'airdrop radar' } });
+  const r = await req('POST', '/api/chat', { token, body: { text: 'best venue for BTC' } });
   assert.equal(r.status, 200);
   assert.equal(r.data.pending_trade.trade_id, 'x');
   await flush();

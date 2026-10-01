@@ -84,10 +84,11 @@ const INTERCEPTS = [
   // radar" to the shared rwa seam, which fetches this process's own card.
   // The Markets panel and /api/market/rwa still run here, so the radar is
   // still readable while the bot process is down.
-  // "airdrops" / "testnets" — curated guided-only radar; the reply itself
-  // restates the anti-sybil line so chat can never be read as offering
-  // automated farming.
-  ['airdrops', (uid, text) => require('../lib/airdrops').maybeHandleAirdropChat(uid, text), 'the airdrop and testnet radar — guided only, never farmed for you'],
+  // The airdrop radar left this table. Both doors route "airdrop radar"
+  // to the shared airdrops seam, which fetches this process's own card
+  // for the caller the turn names. The Hub panel and /api/airdrops still
+  // run here, so the radar is still readable while the bot process is down.
+
   // "best venue for BTC" — funding-cost venue read; recommendations only.
   ['venues', (uid, text) => require('../lib/venue_router').maybeHandleVenueRouterChat(uid, text), 'which venue is cheapest to hold a position on, by funding cost'],
   // "meme radar" / "dexscreener" — read-only on-chain meme/AI-token snapshot

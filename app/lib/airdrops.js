@@ -216,17 +216,19 @@ async function getUserAirdropRadar(userId) {
   return buildAirdropRadar(loadCatalog(), walletCtx);
 }
 
-// ── Chat intercept ───────────────────────────────────────────────────────────
-
-const CHAT_RE = /\b(airdrops?|testnets?( participation)?|airdrop radar|farm(ing)? airdrops?)\b/i;
+// ── The one card ─────────────────────────────────────────────────────────────
+//
+// ONE renderer. Both chat doors fetch this card over
+// `/api/bot/sync/card/airdrops`. Website chat does not match the sentence
+// itself. `userId` null is the public radar: a caller the website could not
+// map to a web account, never a guessed wallet. A signed-in caller gets
+// their own wallet-readiness hints.
 
 /**
- * The airdrop card — ONE renderer for both surfaces. The web intercept
- * answers with it for the signed-in user (wallet-readiness hints included);
- * the bot's /airdrops command fetches this same card over the sync channel
- * (`GET /api/bot/sync/card/airdrops`), with `userId` null for a caller whose
- * Telegram account is not linked to a web account — the public radar, no
- * hints, never a guessed wallet.
+ * The airdrop card — ONE renderer for both surfaces. The bot's /airdrops
+ * command and the website's shared door both fetch this card over the sync
+ * channel (`GET /api/bot/sync/card/airdrops`). `userId` null is a caller the
+ * website could not map — the public radar, no hints, never a guessed wallet.
  */
 async function airdropChatCard(userId) {
   try {
@@ -249,12 +251,7 @@ async function airdropChatCard(userId) {
   }
 }
 
-async function maybeHandleAirdropChat(userId, text) {
-  if (!CHAT_RE.test(String(text || ''))) return null;
-  return airdropChatCard(userId);
-}
-
-module.exports = { CHAT_RE,
+module.exports = {
   airdropChatCard,
   SEED_CATALOG,
   CURATED_AT,
@@ -264,5 +261,4 @@ module.exports = { CHAT_RE,
   getPublicAirdropRadar,
   getUserAirdropRadar,
   setWalletReader,
-  maybeHandleAirdropChat,
 };
