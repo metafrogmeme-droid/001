@@ -54,6 +54,10 @@ def test_how_it_trades_is_derived_from_real_config():
     how = dip["how"]
     if cfg.get("rsi_threshold") is not None:
         assert f"RSI below {cfg['rsi_threshold']}" in how
+    if cfg.get("rsi_min") is not None:
+        assert f"RSI at or above {cfg['rsi_min']}" in how
+    if cfg.get("direction") == "short_only":
+        assert "short only" in how
     if cfg.get("confidence_threshold") is not None:
         assert f"{round(cfg['confidence_threshold'] * 100)}%" in how
     # Safe Scalper trades the most-liquid pairs (top3_volume) — derived phrasing.

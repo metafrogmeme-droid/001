@@ -7,21 +7,23 @@
   "format": "runeclaw.agent.scorecard.v1",
   "gates": {
     "confidence_threshold": null,
-    "regime_filter": "TREND_UP",
+    "direction": "long_only",
+    "regime_filter": null,
     "rsi_max": null,
+    "rsi_min": null,
     "symbols": null,
     "volume_spike_min": 3.0
   },
   "honest": true,
   "metrics": {
-    "calmar_ratio": -5.89,
-    "max_drawdown_pct": 0.22,
-    "profit_factor": 0.0,
-    "sharpe_ratio": -14.96,
-    "sortino_ratio": -2.04,
-    "total_return_pct": -0.22,
-    "total_trades": 3,
-    "win_rate": 0.0
+    "calmar_ratio": 4.57,
+    "max_drawdown_pct": 0.57,
+    "profit_factor": 1.8,
+    "sharpe_ratio": -0.49,
+    "sortino_ratio": -0.1,
+    "total_return_pct": 0.45,
+    "total_trades": 5,
+    "win_rate": 0.6
   },
   "note": "Design backtest on FROZEN benchmark data \u2014 percent/ratio only, never a dollar figure. Re-run the identical backtest in the Strategy Lab to reproduce.",
   "preset": "momentum hunter",

@@ -82,6 +82,8 @@ router.post('/run', async (req, res) => {
   }
   if (b.regime_filter) body.regime_filter = String(b.regime_filter).slice(0, 20);
   if (b.rsi_max != null && b.rsi_max !== '') body.rsi_max = parseFloat(b.rsi_max);
+  if (b.rsi_min != null && b.rsi_min !== '') body.rsi_min = parseFloat(b.rsi_min);
+  if (b.direction) body.direction = String(b.direction).slice(0, 16);
   const r = await relay('POST', '/lab/run', body);
   res.status(r.status).json(r.data);
 });

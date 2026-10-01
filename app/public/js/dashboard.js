@@ -8135,6 +8135,8 @@
               volume_spike_min: sc.gates.volume_spike_min,
               regime_filter: sc.gates.regime_filter || '',
               rsi_max: sc.gates.rsi_max,
+              rsi_min: sc.gates.rsi_min,
+              direction: sc.gates.direction || '',
             },
           };
         }
@@ -8394,6 +8396,8 @@
                 volume_spike_min: csc.gates.volume_spike_min,
                 regime_filter: csc.gates.regime_filter || '',
                 rsi_max: csc.gates.rsi_max,
+                rsi_min: csc.gates.rsi_min,
+                direction: csc.gates.direction || '',
               },
             };
           }

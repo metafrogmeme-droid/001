@@ -98,6 +98,8 @@ class LabRunRequest(BaseModel):
     volume_spike_min: Optional[float] = None
     regime_filter: str = ""
     rsi_max: Optional[float] = None
+    rsi_min: Optional[float] = None
+    direction: str = ""
 
 
 def _datasets() -> dict[str, dict]:
@@ -178,6 +180,16 @@ async def lab_run(req: LabRunRequest):
         rmax = max(1.0, min(100.0, float(req.rsi_max)))
         gate_args += ["--rsi-max", str(rmax)]
         gate_params["rsi_max"] = rmax
+    if req.rsi_min is not None:
+        rmin = max(1.0, min(100.0, float(req.rsi_min)))
+        gate_args += ["--rsi-min", str(rmin)]
+        gate_params["rsi_min"] = rmin
+    direction = (req.direction or "").strip().lower().replace("-", "_")
+    if direction:
+        if direction not in ("long_only", "long", "short_only", "short"):
+            raise HTTPException(status_code=400, detail="Invalid direction.")
+        gate_args += ["--direction", direction]
+        gate_params["direction"] = direction
 
     job_id = uuid.uuid4().hex[:12]
     _OUT_DIR.mkdir(parents=True, exist_ok=True)
