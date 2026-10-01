@@ -28,18 +28,21 @@ import asyncio
 import inspect
 import json
 import re
+import time
 from types import SimpleNamespace
 
 import pytest
 
 import bot.skills.telegram_handler as th_mod
 from bot.llm.provider import BYOK, LLMConfig, LLMProvider
-from bot.nlp.conversation_store import ConversationStore, Message, UserContext, age_words, when_words
+from bot.nlp.chat_memory import MemoryNoteSkill, read_note
+from bot.nlp.conversation_store import ACTIVE_SECONDS, ConversationStore, Message, UserContext, age_words, when_words
 from bot.nlp.fabricated_tool_calls import find_fabricated_marker
 from bot.nlp.intent_router import AMBIGUOUS_TICKER_WORDS, mentioned_symbol
 from bot.nlp.sanitize import sanitize_history_for_llm
 from bot.skills.chat_runtime import _CHAT_NO_TOOLS_RULE, _CHAT_TOOLS_RULE
 from bot.skills.telegram_handler import TelegramHandler as H
+from bot.utils.json_store import StoreUnreadable
 from tests.source_scan import code_only
 
 NOW = 1_780_000_000.0
@@ -151,6 +154,8 @@ class TestTurnStamps:
     def test_the_chat_path_reads_history_through_the_stamping_reader(self):
         src = code_only(inspect.getsource(H._llm_chat))
         assert "get_recent_as_llm_messages(" in src
+        assert "token_budget=HISTORY_TOKEN_BUDGET" in src
+        assert "limit=9" not in src
 
 
 # ── the recall ──────────────────────────────────────────────────────────────
@@ -444,3 +449,190 @@ class TestTheRules:
 
     def test_the_note_writer_is_told_to_date_facts(self):
         assert "as of 2026-09-10 the user held ETH" in H._SUMMARY_SYSTEM_PROMPT
+
+
+# ── a token budget, and active users stay ──────────────────────────────────
+
+def _no_profile(monkeypatch, profile=None, unreadable=False):
+    def _get(uid):
+        if unreadable:
+            raise StoreUnreadable("data/user_profile.json", "permission")
+        return profile
+    monkeypatch.setattr("bot.core.user_profile_store.get", _get)
+    monkeypatch.setattr("bot.core.user_profile_store.set_profile",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("wrote")))
+
+
+def _age(store, user_id, seconds):
+    store._conversations[user_id][-1].timestamp = time.time() - seconds
+
+
+class TestTokenBudget:
+    def test_a_small_budget_keeps_the_newest_turns(self):
+        store = ConversationStore(max_messages_per_user=50)
+        for i in range(12):
+            store.append("u", "user", f"question {i} " + ("word " * 40))
+        out = store.get_recent_as_llm_messages("u", token_budget=30)
+        blob = "\n".join(m["content"] for m in out)
+        assert out and "question 11" in out[-1]["content"]
+        assert "question 0" not in blob
+        assert len(out) < 12
+
+    def test_an_unreadable_size_is_not_free(self):
+        store = ConversationStore()
+        store.append("u", "user", "OLD " * 80)
+        store.append("u", "user", "mid")
+        store.append("u", "user", "NEW")
+        store._conversations["u"][1].content = None
+        out = store.get_recent_as_llm_messages("u", token_budget=5000)
+        blob = "\n".join(m["content"] for m in out)
+        assert "NEW" in blob
+        assert "size could not be read" in blob
+        assert "OLD" not in blob
+
+    def test_a_budget_that_cannot_be_read_includes_nothing_earlier(self):
+        store = ConversationStore()
+        store.append("u", "user", "keep me out")
+        out = store.get_recent_as_llm_messages("u", token_budget=True)
+        assert out == [{"role": "user",
+                        "content": "[history budget could not be read, so earlier "
+                                   "turns were not included]"}]
+
+    def test_old_tool_cards_compress_and_the_store_keeps_the_card(self):
+        store = ConversationStore(max_messages_per_user=40)
+        padding = "\n".join("padding line without a label" for _ in range(30))
+        for i in range(6):
+            store.append("u", "user", f"q{i}")
+            store.append(
+                "u", "assistant",
+                f"[get_portfolio] result:\nEquity: {i}\nOpen: none{padding}",
+                metadata={"skill": "get_portfolio"})
+        stored = store.get_recent("u", limit=100)
+        assert "padding line without a label" in stored[1].content
+        out = store.get_recent_as_llm_messages("u", token_budget=6000, now=time.time())
+        compressed = [m["content"] for m in out if "card body omitted" in m["content"]]
+        verbatim = [m["content"] for m in out if "padding line without a label" in m["content"]]
+        assert compressed and "Equity: 0" in compressed[0]
+        assert verbatim
+        assert "padding line without a label" in stored[1].content
+
+    def test_an_active_user_stays_and_an_idle_one_leaves_memory_only(self, tmp_path):
+        path = tmp_path / "c.jsonl"
+        store = ConversationStore(max_users=2, persist_path=path)
+        store.append("idle", "user", "old hello")
+        store.append("active", "user", "still here")
+        store.set_summary("idle", "still the note", at=1_700_000_000.0)
+        _age(store, "idle", ACTIVE_SECONDS + 60)
+        store.append("new", "user", "just arrived")
+        assert store.message_count("idle") == 0
+        assert store.get_context("idle").summary == "still the note"
+        assert store.message_count("active") == 1
+        assert store.message_count("new") == 1
+        disk = path.read_text()
+        assert "old hello" in disk
+        assert store.clear_user("idle") is True
+        assert "old hello" not in path.read_text()
+
+    def test_a_turn_with_no_time_is_not_treated_as_idle(self):
+        store = ConversationStore(max_users=1)
+        store.append("undated", "user", "hello")
+        store._conversations["undated"][-1].timestamp = 0
+        store.append("other", "user", "hello")
+        assert store.message_count("undated") == 1
+        assert store.user_count() == 2
+
+
+class TestMemoryNote:
+    def test_a_missing_note_does_not_invent_a_watchlist(self, monkeypatch):
+        _no_profile(monkeypatch, profile=None)
+        store = ConversationStore()
+        store.append("u", "assistant", "nothing asked")
+        text = read_note(store, "u")
+        assert text.startswith("ABSENT\n")
+        assert text.count("ABSENT") == 4
+        assert "BTC" not in text
+        assert "watching" not in text.lower()
+
+    def test_an_unreadable_watchlist_is_not_an_empty_one(self, monkeypatch):
+        _no_profile(monkeypatch, unreadable=True)
+        store = ConversationStore()
+        store.set_summary("u", "asked about the stop", at=NOW)
+        text = read_note(store, "u")
+        assert text.startswith("UNREAD\n")
+        assert "asked about the stop" in text
+        assert "Watchlist: UNREADABLE" in text
+        assert "Watchlist: ABSENT" not in text
+
+    def test_the_three_readings_and_nobody_elses_note(self, monkeypatch):
+        _no_profile(monkeypatch, profile={"watchlist": ["BTC", "SOL"]})
+        store = ConversationStore()
+        store.set_summary("alice", "alice watches SOL", at=NOW)
+        store.set_summary("bob", "bob left a question", at=NOW)
+        store.append("bob", "user", "what about the stop")
+        text = read_note(store, "bob")
+        assert text.startswith("READ\n")
+        assert "bob left a question" in text
+        assert "alice" not in text
+        assert "BTC, SOL" in text
+        assert "what about the stop" in text
+        assert "not a holding" in text
+
+    def test_a_reply_closes_the_question(self, monkeypatch):
+        _no_profile(monkeypatch, profile=None)
+        store = ConversationStore()
+        store.append("u", "user", "what about the stop")
+        store.append("u", "assistant", "it is on the card")
+        text = read_note(store, "u")
+        assert "Open question: ABSENT" in text
+        assert "what about the stop" not in text
+
+    def test_reading_does_not_write_the_note(self, monkeypatch):
+        _no_profile(monkeypatch, profile={"watchlist": ["ETH"]})
+        store = ConversationStore()
+        store.set_summary("u", "keep me", at=NOW)
+        before = store.get_context("u").summary
+        text = asyncio.run(MemoryNoteSkill().execute(
+            None, user_id="u", conversations=store))
+        assert store.get_context("u").summary == before == "keep me"
+        assert "keep me" in text
+        assert "ETH" in text
+
+    def test_a_role_without_memory_is_not_offered_the_tool(self, monkeypatch):
+        from bot.nlp import chat_tools
+        monkeypatch.setattr("bot.token.tier_gate.check_user", lambda *a, **k: (True, "ok"))
+        users = SimpleNamespace(permission_denial=lambda uid, perm: None if perm == "portfolio" else "role")
+        names = {t.name for t in chat_tools.tools_for(users, "u")}
+        assert "memory_note" not in names
+        users = SimpleNamespace(permission_denial=lambda uid, perm: None if perm == "memory" else "role")
+        names = {t.name for t in chat_tools.tools_for(users, "u")}
+        assert "memory_note" in names
+
+    def test_the_offered_tool_reads_this_users_note(self, monkeypatch):
+        _no_profile(monkeypatch, profile=None)
+        from bot.nlp.chat_tools import run_tool
+        store = ConversationStore()
+        store.set_summary("u", "folded note", at=NOW)
+        handler = SimpleNamespace(
+            engine=None,
+            conversations=store,
+            registry=SimpleNamespace(
+                get=lambda name: MemoryNoteSkill() if name == "memory_note" else None),
+        )
+        text = asyncio.run(run_tool(
+            handler, "u", "memory_note", {}, offered={"memory_note"}))
+        assert "folded note" in text
+        assert '"read_state":"read"' in text
+        assert store.get_context("u").summary == "folded note"
+
+    def test_a_turn_that_is_not_offered_the_tool_reads_nothing(self, monkeypatch):
+        _no_profile(monkeypatch, profile={"watchlist": ["BTC"]})
+        from bot.nlp.chat_tools import run_tool
+        store = ConversationStore()
+        store.set_summary("u", "secret note", at=NOW)
+        handler = SimpleNamespace(
+            engine=None, conversations=store,
+            registry=SimpleNamespace(get=lambda n: None))
+        text = asyncio.run(run_tool(handler, "u", "memory_note", {}, offered=set()))
+        assert "secret note" not in text
+        assert "BTC" not in text
+        assert store.get_context("u").summary == "secret note"

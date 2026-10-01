@@ -89,6 +89,9 @@ SKILL_PERMISSION: dict[str, str] = {
     # `trade`. There is no slash command and no router rule: the model calls
     # the tool, and only when the user's own message asked.
     "draft_trade": "trade",
+    # The dated note the model can re-read. There is no slash command: the
+    # store already holds the summary, and this only reads it.
+    "memory_note": "memory",
     # `halt` IS the fact and it is deliberately in no transport's set. See
     # DANGEROUS_SKILLS.
     "halt": "halt",
@@ -145,6 +148,8 @@ SKILL_SAYS: dict[str, str] = {
                         "the record",
     "draft_trade": "a ticket you can stage yourself — nothing is registered "
                    "until you press Stage",
+    "memory_note": "the dated note from earlier in this chat, your saved "
+                   "watchlist, and a question still open",
     # `halt` is in SKILL_PERMISSION because that table is the FACT, and in no
     # transport's reachable set. It is named here for the same reason: the key
     # sets are pinned equal, and an exemption would be the hole.

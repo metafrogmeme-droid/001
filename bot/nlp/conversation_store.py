@@ -6,7 +6,8 @@ In-memory with optional JSONL persistence. Thread-safe.
 
 Design constraints:
   - Max messages per user (default 50) — older messages are pruned
-  - Max total users tracked (default 200) — LRU eviction
+  - Max users in memory (default 200) — idle users leave; an active user stays
+  - The model sees a token budget, not a fixed count of turns
   - Messages include role, content, timestamp
   - Conversation summarization for long histories
   - No secrets stored — only user text + assistant replies
@@ -33,6 +34,78 @@ logger = logging.getLogger(__name__)
 #: see — hours and days, when Monday's `[get_portfolio] result:` is read on
 #: Friday as the current book.
 FRESH_SECONDS = 60.0
+
+#: What the model is handed, in approximate tokens (four characters each).
+#: The stored log stays a message cap; this is the window that replaced the
+#: fixed nine-turn slice.
+HISTORY_TOKEN_BUDGET = 6000
+#: Turns at the live end of that window stay word for word. Older tool
+#: records are reduced to their labelled fields.
+VERBATIM_TAIL = 4
+#: Spoke within this window: active. The user cap evicts idle histories
+#: only. An unreadable timestamp is not idle.
+ACTIVE_SECONDS = 86400.0
+
+
+def _estimate_tokens(text) -> Optional[int]:
+    """Approximate tokens in ``text``, or None when the size cannot be read.
+
+    None is not zero. A caller that spends a budget must stop rather than
+    treat an unreadable turn as free.
+    """
+    if not isinstance(text, str):
+        return None
+    n = len(text)
+    if n == 0:
+        return 0
+    return (n + 3) // 4
+
+
+def _history_is_active(msgs: list[Message], now: float) -> bool:
+    """True when this in-memory history is still in use.
+
+    No turns: idle. A newest turn whose time cannot be read: active, because
+    "old" would be a claim the clock does not support.
+    """
+    if not msgs:
+        return False
+    latest = turn_time(msgs[-1].timestamp)
+    if latest is None:
+        return True
+    return (now - latest) < ACTIVE_SECONDS
+
+
+def _compress_tool_record(msg: Message) -> str:
+    """An old tool card reduced to its heading and short labelled fields.
+
+    The stored message is left as it was. This is only what the model is
+    handed for a turn outside the verbatim tail. A compression that does not
+    shrink the card is not applied.
+    """
+    text = msg.content if isinstance(msg.content, str) else ""
+    skill = str((msg.metadata or {}).get("skill") or "tool")
+    lines = text.splitlines()
+    head = lines[0].strip() if lines else ""
+    if not (head.startswith("[") and "]" in head):
+        head = f"[{skill}] result:"
+    fields: list[str] = []
+    for ln in lines[1:]:
+        s = ln.strip()
+        if not s or ":" not in s or len(s) > 160:
+            continue
+        fields.append(s)
+        if len(fields) >= 8:
+            break
+    if not fields:
+        fields.append("no structured fields on this record")
+    body = head + "\n" + "\n".join(fields)
+    if len(text) > len(body):
+        body += (
+            f"\n[card body omitted, {len(text) - len(body)} characters; "
+            "call the tool again for the current reading]")
+    if len(body) < len(text):
+        return body
+    return text
 
 
 def _line_owner(line: str):
@@ -276,7 +349,7 @@ class UserContext:
 
 
 class ConversationStore:
-    """Per-user conversation memory with LRU eviction.
+    """Per-user conversation memory. Idle users leave memory; active ones stay.
 
     Usage:
         store = ConversationStore()
@@ -350,9 +423,20 @@ class ConversationStore:
                     ctx.pending_summary = \
                         ctx.pending_summary[-self.PENDING_SUMMARY_MAX:]
 
-            # LRU eviction of oldest users
+            # Idle users leave memory when the cap is passed. An active
+            # user's history stays, so the count may sit above the cap while
+            # everyone left has spoken inside ACTIVE_SECONDS. Disk rows are
+            # not deleted here; clear_user still has to reach the file.
+            now = time.time()
             while len(self._conversations) > self._max_users:
-                self._conversations.popitem(last=False)
+                victim = None
+                for uid, rows in self._conversations.items():
+                    if not _history_is_active(rows, now):
+                        victim = uid
+                        break
+                if victim is None:
+                    break
+                self._conversations.pop(victim, None)
 
         if self._persist_path:
             self._persist_message(user_id, msg)
@@ -367,7 +451,8 @@ class ConversationStore:
     def get_recent_as_llm_messages(self, user_id: str,
                                     limit: Optional[int] = None,
                                     *, drop_trailing_user: bool = False,
-                                    now: Optional[float] = None
+                                    now: Optional[float] = None,
+                                    token_budget: Optional[int] = None
                                     ) -> list[dict]:
         """Recent turns as LLM `messages`, starting on a USER turn, each
         carrying its age when it is not fresh (`Message.age_stamp`).
@@ -390,12 +475,74 @@ class ConversationStore:
         `chat_fallback` audit lines. Dropping the leading assistant turn costs
         one message of context and keeps the good provider.
         """
+        if token_budget is not None:
+            return self._messages_within_budget(
+                user_id, token_budget, drop_trailing_user=drop_trailing_user,
+                now=now)
         msgs = [m.to_llm_message(now) for m in self.get_recent(user_id, limit)]
         if drop_trailing_user and msgs and msgs[-1].get("role") == "user":
             msgs = msgs[:-1]
         while msgs and msgs[0].get("role") != "user":
             msgs = msgs[1:]
         return msgs
+
+    def _messages_within_budget(self, user_id: str, token_budget: int, *,
+                                drop_trailing_user: bool,
+                                now: Optional[float]) -> list[dict]:
+        """Newest turns that fit ``token_budget``, oldest tool cards compressed.
+
+        A budget that is not a non-negative int is not "unlimited" and not
+        "empty": earlier turns are left out and the one line says why.
+        The newest turn is kept even when it alone exceeds the budget.
+        An unreadable size stops the walk. It is not counted as zero, so
+        turns older than it are not pulled in behind it.
+        """
+        if (isinstance(token_budget, bool) or not isinstance(token_budget, int)
+                or token_budget < 0):
+            return [{"role": "user",
+                     "content": "[history budget could not be read, so earlier "
+                                "turns were not included]"}]
+        with self._lock:
+            rows = list(self._conversations.get(user_id, []))
+        if drop_trailing_user and rows and rows[-1].role == "user":
+            rows = rows[:-1]
+        tail = max(0, len(rows) - VERBATIM_TAIL)
+        rendered: list[Message] = []
+        for i, msg in enumerate(rows):
+            if (i < tail and msg.is_tool_record()
+                    and isinstance(msg.content, str)):
+                rendered.append(Message(
+                    role=msg.role, content=_compress_tool_record(msg),
+                    timestamp=msg.timestamp, metadata=dict(msg.metadata or {})))
+            else:
+                rendered.append(msg)
+        chosen: list[dict] = []
+        used = 0
+        for msg in reversed(rendered):
+            if not isinstance(msg.content, str):
+                placeholder = {
+                    "role": msg.role if msg.role in ("user", "assistant") else "user",
+                    "content": "[a turn is on record whose size could not be read]",
+                }
+                cost = _estimate_tokens(placeholder["content"])
+                if cost is None:
+                    break
+                if not chosen or used + cost <= token_budget:
+                    chosen.append(placeholder)
+                    used += cost
+                break
+            llm = msg.to_llm_message(now)
+            cost = _estimate_tokens(llm.get("content"))
+            if cost is None:
+                break
+            if chosen and used + cost > token_budget:
+                break
+            chosen.append(llm)
+            used += cost
+        chosen.reverse()
+        while chosen and chosen[0].get("role") != "user":
+            chosen = chosen[1:]
+        return chosen
 
     def get_context(self, user_id: str) -> Optional[UserContext]:
         """Get accumulated user context."""

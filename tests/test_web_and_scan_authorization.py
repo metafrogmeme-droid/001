@@ -325,11 +325,12 @@ def test_no_web_skill_is_reachable_by_a_role_telegram_would_refuse(gateway):
         f"only {len(telegram)} skills resolved from telegram_handler.py — the "
         "parse broke and this test is comparing almost nothing")
 
-    # No slash command and no `dispatch("draft_trade")`. The tool and the
-    # Stage button both ask `trade`, the permission `/trade` is guarded with.
-    # The comparison is that permission's roles, written here so a second
-    # chat-only skill cannot arrive unnamed.
-    chat_only = {"draft_trade": "trade"}
+    # No slash command and no `dispatch` for either name. `draft_trade` asks
+    # `trade`, the permission `/trade` is guarded with. `memory_note` asks
+    # `memory`, held by trader, paper and viewer. The comparison is that
+    # permission's roles, written here so another chat-only skill cannot
+    # arrive unnamed.
+    chat_only = {"draft_trade": "trade", "memory_note": "memory"}
     assert set(chat_only) <= set(gateway._WEB_SKILL_PERMISSION)
     assert not (set(chat_only) & set(telegram)), (
         "a chat-only exemption names a skill Telegram already dispatches")

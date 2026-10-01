@@ -881,7 +881,8 @@ from bot.utils.user_store import (SELF_ADMISSION_BY,
 from bot.utils.i18n import (t, get_user_lang, get_user_lang_raw, set_user_lang,
                             chat_language_name, ui_lang, SUPPORTED_LANGS, DEFAULT_LANG)
 from bot.nlp.intent_router import IntentRouter
-from bot.nlp.conversation_store import ConversationStore, age_words, turn_time
+from bot.nlp.conversation_store import (
+    HISTORY_TOKEN_BUDGET, ConversationStore, age_words, turn_time)
 from bot.core.proactive_monitor import ProactiveMonitor
 from bot.marketing.channel_forwarder import ChannelForwarder
 from bot.formatters.rich_cards import (
@@ -2760,7 +2761,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 # history entry IS this question — and `llm_complete` appends
                 # `user_prompt` again. The model was receiving it twice.
                 history = self.conversations.get_recent_as_llm_messages(
-                    user_id, limit=9, drop_trailing_user=True)
+                    user_id, token_budget=HISTORY_TOKEN_BUDGET,
+                    drop_trailing_user=True)
                 # RC-AUD-014: sanitize replayed user turns. The stored history
                 # holds raw user text (stored unsanitized), so without this the
                 # conversation-memory replay path bypasses the call-site

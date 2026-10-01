@@ -4158,6 +4158,8 @@ def build_default_registry() -> SkillRegistry:
     register_getclaw_wrapper(registry)
     from bot.nlp.chat_draft import DraftTradeSkill
     registry.register(DraftTradeSkill())
+    from bot.nlp.chat_memory import MemoryNoteSkill
+    registry.register(MemoryNoteSkill())
     # v2 upgrade: macro intelligence, compliance, audit, kill-switch
     for skill in build_v2_skills():
         registry.register(skill)
