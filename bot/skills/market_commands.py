@@ -255,12 +255,20 @@ class MarketCommands:
         """/meme_radar — the on-chain meme and AI-token snapshot with its
         safety read (DEXScreener, read-only; nothing is bought and nothing is
         launched). The card is `meme_radar_card_text`, the seam the routed
-        "meme radar" renders on both surfaces."""
+        "meme radar" renders on both surfaces. Website chat no longer
+        answers the sentence itself."""
         await self._send(update, await self.meme_radar_card_text())
 
     async def meme_radar_card_text(self, *, surface: str = "telegram") -> str:
-        """The meme radar card — the website's own rendering, both surfaces."""
-        return await self._web_card_text("meme_radar", surface=surface)
+        """The meme radar card — the website's own rendering, both surfaces.
+
+        ``surface="web"`` keeps the card's own markup. Telegram's tag strip
+        turns ``<br>`` into a newline a browser collapses, which is right on
+        Telegram and wrong on the page that used to render this card itself.
+        The feed is public DEXScreener data, for every caller.
+        """
+        return await self._web_card_text(
+            "meme_radar", surface=surface, keep_markup=(surface == "web"))
 
     # `status`, matching /fundingscan and /arb — its own subject siblings,
     # which gate with the in-body spelling on the same permission. It was the

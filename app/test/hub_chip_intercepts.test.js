@@ -5,8 +5,8 @@
  * regex did NOT match — the ask fell through to the bot LLM, which honestly
  * told the user it has no radar access. Every radar chip's exact ask phrase
  * must be answered by its own web-side intercept, never the LLM fallback.
- * "rwa radar" and "airdrop radar" are the exceptions: both doors route
- * each to its shared seam, which fetches the same card.
+ * "rwa radar", "airdrop radar" and "meme radar" are the exceptions: both
+ * doors route each to its shared seam, which fetches the same card.
  */
 process.env.JWT_SECRET = 'j'.repeat(64);
 delete process.env.DATABASE_URL;
@@ -18,19 +18,10 @@ const path = require('node:path');
 
 test('every radar chip ask phrase is claimed by its intercept regex', async () => {
   // Chip phrases as wired in dashboard.js (pinned there by meme_panel.test.js).
-  // "rwa radar" and "airdrop radar" left this contract. Both doors route
-  // each to its shared seam, which fetches the card. The other chips still
-  // answer here.
+  // "rwa radar", "airdrop radar" and "meme radar" left this contract. Both
+  // doors route each to its shared seam, which fetches the card. The other
+  // chips still answer here.
   const CONTRACT = [
-    ['meme radar', require('../lib/meme'), 'maybeHandleMemeChat', () =>
-      require('../lib/meme').setPairFetcher(async () => ([{
-        chainId: 'base', dexId: 'uniswap',
-        baseToken: { symbol: 'FOO', name: 'Foo', address: '0x' + '11'.repeat(20) },
-        quoteToken: { symbol: 'WETH' }, priceUsd: '1', url: 'https://example.org',
-        liquidity: { usd: 500000 }, volume: { h24: 100000 },
-        priceChange: { h24: 2 }, pairCreatedAt: Date.now() - 30 * 86400000,
-        txns: { h24: { buys: 300, sells: 280 } },
-      }]))],
     ['nft radar', require('../lib/opensea'), 'maybeHandleNftChat', () =>
       require('../lib/opensea').setOpenSeaFetcher(async (p) =>
         p.startsWith('/collections?')
@@ -50,7 +41,6 @@ test('every radar chip ask phrase is claimed by its intercept regex', async () =
     assert.ok(reply && reply.reply_html,
       `chip ask "${phrase}" must be answered by ${fn}, not the LLM fallback`);
   }
-  require('../lib/meme').setPairFetcher(null);
   require('../lib/opensea').setOpenSeaFetcher(null);
   require('../lib/spot').setSpotFetcher(null);
 });

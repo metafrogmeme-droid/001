@@ -4260,6 +4260,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                                       card_shown_memory("venue_router"))
                 return
             if intent.skill == "meme_radar":
+                # Left the Node intercept table: this command is the door
+                # on both surfaces. The feed is public, for every caller.
                 await self._cmd_meme_radar(update, ctx)
                 self._remember_routed(tg_id, text, intent.skill,
                                       card_shown_memory("meme_radar"))

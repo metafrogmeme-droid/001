@@ -22,8 +22,9 @@ front so nothing hides behind a green number.
 
 - `GET /api/market/meme` — the radar JSON (30 s cache).
 - MCP `get_meme_radar` — same, machine-readable for other agents.
-- Chat: "meme radar", "dexscreener", "degen", "ai-agent tokens" → a read-only
-  snapshot with the safety framing.
+- Chat: both doors route "meme radar", "dexscreener", "degen" and
+  "ai-agent tokens" to `/meme_radar`, the same read-only card. The Markets
+  panel and /api/market/meme still serve the radar while the bot is down.
 
 ## Discipline (§4 hard lines)
 

@@ -1720,9 +1720,13 @@ execution-adjacent /api/meme/swap/build and /memeplan; the read-only on-chain
 meme/AI snapshot with a safety read is a separate, wider door.
 
 *Where.* Dashboard Markets panel #c-meme → GET /api/market/meme
-(`app/routes/market.js::get('/meme')`, public; `app/public/js/dashboard.js::renderMarkets#"fetchJSON('/api/market/meme'"`); web chat intercept
-'meme' (app/routes/chat.js); MCP get_meme_radar (`app/routes/mcp.js::TOOLS.get_meme_radar`);
-app/lib/meme.js.
+(`app/routes/market.js::get('/meme')`, public; `app/public/js/dashboard.js::renderMarkets#"fetchJSON('/api/market/meme'"`);
+MCP get_meme_radar (`app/routes/mcp.js::TOOLS.get_meme_radar`);
+app/lib/meme.js. Asking from chat is the shared `meme_radar` door on both
+surfaces (`bot/web/user_gateway.py::_WEB_SEAM#"meme_radar"`,
+`bot/skills/market_commands.py::MarketCommands.meme_radar_card_text`),
+not a website intercept of its own. The Markets panel and /api/market/meme
+still serve the radar while the bot process is down.
 
 **On-chain flow radar (exchange flows / whale accumulation)**
 

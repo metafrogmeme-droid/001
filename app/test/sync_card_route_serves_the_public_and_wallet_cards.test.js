@@ -186,12 +186,14 @@ test('venue router: the top five, or one asset, the way the card narrows', async
 });
 
 test('meme radar: the feed\'s token symbol is text, not markup, on both surfaces', async () => {
-  const web = await meme.maybeHandleMemeChat(1, 'meme radar');
+  const web = await meme.memeChatCard();
   const r = await card('/api/bot/sync/card/meme_radar');
   assert.equal(r.status, 200);
   assert.deepEqual(r.data, { reply_html: web.reply_html, intent: 'meme_radar' });
   assert.match(r.data.reply_html, /<b>&lt;b<\/b> \(Base\)/);
   assert.doesNotMatch(r.data.reply_html, /<b><b/);
+  assert.equal(typeof meme.maybeHandleMemeChat, 'undefined');
+  assert.equal(meme.CHAT_RE, undefined);
 });
 
 test('wallet and defi: unlinked is a fact, never a guessed wallet; linked is the caller\'s own card', async () => {

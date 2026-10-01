@@ -216,6 +216,10 @@ class TestTheSeams:
         assert _seam("venue_router", h, "BTC", surface="web") == CARD["reply_html"]
         assert "<br>" in _seam("venue_router", h, surface="web")
         assert _seam("meme_radar", h) == web_card_text(CARD)
+        # The website keeps the card's own breaks. Telegram's strip turns
+        # <br> into a newline a browser collapses.
+        assert _seam("meme_radar", h, surface="web") == CARD["reply_html"]
+        assert "<br>" in _seam("meme_radar", h, surface="web")
         assert _seam("wallet", h, "770001", "base") == web_card_text(CARD)
         assert _seam("wallet", h, "770001") == web_card_text(CARD)
         # The website keeps the card's own breaks. Telegram's strip turns
@@ -230,6 +234,8 @@ class TestTheSeams:
                         ("venue_router", "", {"base": ""}),
                         ("venue_router", "", {"base": "BTC"}),
                         ("venue_router", "", {"base": ""}),
+                        ("meme_radar", "", {}),
+                        ("meme_radar", "", {}),
                         ("meme_radar", "", {}),
                         ("wallet", "770001", {"chain": "base"}), ("wallet", "770001", {"chain": ""}),
                         ("wallet", "770001", {"chain": ""}), ("wallet", "770001", {"chain": ""}),
@@ -375,7 +381,7 @@ ROWS = [
     ("replay every signal with $1k", "replay"), ("what-if replay", "replay"),
     ("show me this week's letter", "letter"), ("weekly letter", "letter"),
     ("best venue for BTC", "venue_router"), ("venue router", "venue_router"),
-    ("meme radar", "meme_radar"), ("dexscreener", "meme_radar"),
+    ("meme radar", "meme_radar"), ("dexscreener", "meme_radar"), ("degen", "meme_radar"),
     ("my wallet", "wallet"), ("wallet balance", "wallet"), ("my wallet on base", "wallet"),
     ("on-chain holdings on arbitrum", "wallet"),
     ("my defi positions", "defi"), ("health factor", "defi"),
@@ -397,7 +403,8 @@ def test_the_neighbours_stay_where_they_were(text, stays):
 
 
 def test_a_bare_wallet_and_an_education_question_are_the_models_not_the_greeters():
-    for text in ("wallet", "what is a wallet", "what is defi"):
+    for text in ("wallet", "what is a wallet", "what is defi", "what is degen",
+                 "what is a meme coin"):
         i = IntentRouter().classify_rules(text)
         assert not (i is not None and i.matched and i.skill in CARDS), text
         assert not _is_social_message(text), text
@@ -462,6 +469,7 @@ class TestTheWeb:
         ("weekly letter", "letter", (), {"surface": "web"}),
         ("cheapest exchange to short eth", "venue_router", ("ETH",), {"surface": "web"}),
         ("dexscreener", "meme_radar", (), {"surface": "web"}),
+        ("degen", "meme_radar", (), {"surface": "web"}),
         ("wallet holdings on arbitrum", "wallet", (CALLER, "arbitrum"), {"surface": "web"}),
         ("health factor", "defi", (CALLER,), {"surface": "web"}),
     ])

@@ -2,10 +2,17 @@
 /**
  * Meme & AI-token radar (public/../lib/meme.js) — pure core: normalization,
  * the safety risk-read, dedupe, ranking, and aggregates. Network fetch is not
- * exercised (injectable + best-effort).
+ * exercised (injectable + best-effort). Website chat does not render the
+ * radar itself: those words wait for the shared meme_radar door.
  */
+process.env.JWT_SECRET = 'j'.repeat(64);
+delete process.env.DATABASE_URL;
+delete process.env.WEB_GATEWAY_SECRET;
+
 const test = require('node:test');
 const assert = require('node:assert');
+const http = require('node:http');
+const express = require('express');
 const meme = require('../lib/meme');
 
 const HOUR = 3_600_000;
@@ -68,4 +75,74 @@ test('buildRadar tolerates junk input', () => {
   const r = meme.buildRadar([null, {}, { priceUsd: 'x' }, 42], NOW);
   assert.equal(r.summary.tokens, 0);
   assert.deepEqual(r.tokens, []);
+});
+
+// ── The card, and the sentence the website no longer answers itself ────────
+
+let server, base;
+
+function req(method, p, { token, body } = {}) {
+  return new Promise((resolve, reject) => {
+    const payload = body ? JSON.stringify(body) : null;
+    const r = http.request(`${base}${p}`, {
+      method,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(payload ? { 'Content-Type': 'application/json' } : {}),
+      },
+    }, (res) => {
+      let d = '';
+      res.on('data', c => d += c);
+      res.on('end', () => resolve({ status: res.statusCode, data: d ? JSON.parse(d) : {} }));
+    });
+    r.on('error', reject);
+    if (payload) r.write(payload);
+    r.end();
+  });
+}
+
+test.before(async () => {
+  meme.setPairFetcher(async () => [pair({
+    baseToken: { address: 'MINT', name: 'Foo', symbol: 'FOO' },
+  })]);
+  const app = express();
+  app.use(express.json());
+  app.use('/api/auth', require('../auth').router);
+  app.use('/api/market', require('../routes/market'));
+  app.use('/api/chat', require('../routes/chat'));
+  await new Promise((res) => { server = app.listen(0, '127.0.0.1', res); });
+  base = `http://127.0.0.1:${server.address().port}`;
+});
+
+test.after(() => {
+  if (server) server.close();
+  meme.setPairFetcher(null);
+});
+
+test('the card names the radar, and this module no longer matches the sentence', async () => {
+  const card = await meme.memeChatCard();
+  assert.equal(card.intent, 'meme_radar');
+  assert.match(card.reply_html, /Meme &amp; AI-token radar/);
+  assert.match(card.reply_html, /never launches tokens/);
+  assert.equal(typeof meme.maybeHandleMemeChat, 'undefined');
+  assert.equal(meme.CHAT_RE, undefined);
+});
+
+test('chat: "meme radar" waits for the bot; the market route still serves', async () => {
+  const reg = await req('POST', '/api/auth/register', {
+    body: { email: 'meme-chat@test.io', password: 'x'.repeat(12) },
+  });
+  const token = reg.data.token;
+  for (const text of ['meme radar', 'dexscreener', 'degen', 'pump.fun', 'ai agent tokens']) {
+    const waiting = await req('POST', '/api/chat', { token, body: { text } });
+    assert.equal(waiting.status, 503, text);
+    assert.equal(waiting.data.intent, undefined, text);
+  }
+  const pub = await req('GET', '/api/market/meme');
+  assert.equal(pub.status, 200);
+  assert.equal(pub.data.read_only, true);
+  assert.equal(pub.data.summary.tokens, 1);
+  assert.equal(pub.data.tokens[0].symbol, 'FOO');
+  const other = await req('POST', '/api/chat', { token, body: { text: 'how is bitcoin?' } });
+  assert.equal(other.status, 503);
 });

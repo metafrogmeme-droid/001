@@ -267,12 +267,11 @@ async function getRadar() {
   return buildRadar(await fetchPairs(), Date.now());
 }
 
-// ── Chat intercept ──────────────────────────────────────────────────────────
-
-// Must cover the Hub one-tap chip's exact ask ("meme radar") — a chip whose
-// phrase misses this regex falls through to the bot LLM, which honestly
-// reports it has no radar access (live incident, 2026-07-20 screenshot).
-const CHAT_RE = /\b(meme ?(radar|coins?|tokens?)|dexscreener|degen|pump\.?fun|ai[- ]agent tokens?)\b/i;
+// ── The one card ─────────────────────────────────────────────────────────────
+//
+// ONE renderer. Both chat doors fetch this card over
+// `/api/bot/sync/card/meme_radar`. Website chat does not match the
+// sentence itself. Public: DEXScreener's feed, no account in it.
 
 const { esc } = require('./esc');
 // One volume rendering, one percent rendering and one sample caveat across
@@ -281,10 +280,11 @@ const { esc } = require('./esc');
 const { pct, fmtVol, cover } = require('./card_nums');
 
 /**
- * The meme radar as the chat card — ONE renderer for both surfaces; the bot's
- * /meme_radar fetches it over the sync channel
- * (`GET /api/bot/sync/card/meme_radar`). Public: DEXScreener's feed, no
- * account in it. Token symbols and chain labels are the FEED's text, so they
+ * The meme radar as the chat card — ONE renderer for both surfaces. The
+ * bot's /meme_radar command and the website's shared door both fetch this
+ * card over the sync channel (`GET /api/bot/sync/card/meme_radar`).
+ * Website chat does not match the sentence itself. Public: DEXScreener's
+ * feed, no account in it. Token symbols and chain labels are the FEED's text, so they
  * are escaped: a token named `<b` must not break the card on either surface.
  *
  * Three top-level answers, because three different things happen:
@@ -302,14 +302,14 @@ async function memeChatCard() {
       return {
         reply_html: 'The DEXScreener feed could not be read, so the meme radar '
           + 'has nothing to report. That is a failed read, not a quiet market.',
-        intent: 'meme',
+        intent: 'meme_radar',
       };
     }
     if (!r.summary.tokens) {
       return {
         reply_html: 'The DEXScreener feed answered and is carrying no trending '
           + 'on-chain pairs right now.',
-        intent: 'meme',
+        intent: 'meme_radar',
       };
     }
     const s = r.summary;
@@ -342,24 +342,19 @@ async function memeChatCard() {
         + partialNote
         + '<br><br><i>Memecoins are extremely high risk — most go to zero. This is '
         + 'intelligence with a safety read, not advice. The agent never launches tokens.</i>',
-      intent: 'meme',
+      intent: 'meme_radar',
     };
   } catch (e) {
     return {
       reply_html: 'The meme radar could not be read just now — that is a '
         + 'failed read, not a quiet market. Try again in a moment.',
-      intent: 'meme',
+      intent: 'meme_radar',
     };
   }
 }
 
-async function maybeHandleMemeChat(userId, text) {
-  if (!CHAT_RE.test(String(text || ''))) return null;
-  return memeChatCard();
-}
-
-module.exports = { CHAT_RE,
+module.exports = {
   CHAINS, RISK_SUBJECTS, riskRead, normalizePair, buildRadar,
   volumeTotal, byVolumeDesc,
-  getRadar, setPairFetcher, maybeHandleMemeChat, memeChatCard,
+  getRadar, setPairFetcher, memeChatCard,
 };

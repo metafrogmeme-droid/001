@@ -289,6 +289,10 @@ async def _seam_venue_router(tg_handler: "TelegramHandler", tg_id: str, kwargs: 
 
 async def _seam_meme_radar(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
                            text: str = "") -> str:
+    # The website chat no longer answers this itself. Both doors render the
+    # meme radar's own card; surface="web" keeps the markup the browser
+    # already shows. The feed is public DEXScreener data, for every caller.
+    # web:<user_id> is not a second book.
     return await tg_handler.meme_radar_card_text(surface="web")
 
 
@@ -321,8 +325,8 @@ async def _seam_price_alert(tg_handler: "TelegramHandler", tg_id: str, kwargs: d
 #: `status` keeps its own branch above: it predates the table and three
 #: guards index that branch's literal. nft and spot are still answered first
 #: by a Node intercept for a web caller — this path sees the phrasings those
-#: intercepts miss. Airdrops and the venue router left that table: both
-#: doors render this seam rather than a door notice.
+#: intercepts miss. Airdrops, the venue router and the meme radar left that
+#: table: both doors render this seam rather than a door notice.
 _WEB_SEAM = {
     "networth": _seam_networth,
     "rwa": _seam_rwa,
@@ -971,8 +975,9 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
         # Net worth and research the website still answers from its own Node
         # intercepts before a turn reaches this process, so for a web caller
         # those two see only the phrasings the intercepts miss ("how much am
-        # i worth", "can you research SOL for me"). RWA, the airdrop radar and
-        # the venue router left that table: both doors render this seam.
+        # i worth", "can you research SOL for me"). RWA, the airdrop radar, the
+        # venue router and the meme radar left that table: both doors render
+        # this seam.
         # The branch answers every `_WEB_SEAM` intent with the same card
         # Telegram's routed branch renders, under the same gate, recorded
         # the same way — never by a model with no such tool. `_WEB_SEAM`

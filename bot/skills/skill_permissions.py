@@ -206,6 +206,9 @@ WEB_ROUTED_PERMISSION: dict[str, str] = {
     # The table is public funding; the asset the sentence names narrows
     # it, and an unnamed asset is the top five.
     "venue_router": "venue_router",
+    # The meme radar left the website's intercept table. Both doors
+    # render `meme_radar_card_text` under a permission of its own name.
+    # The feed is public DEXScreener data; nothing is bought or launched.
     "meme_radar": "meme_radar",
     "wallet": "wallet",
     "price_alert": "price_alert",
