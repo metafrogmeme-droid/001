@@ -5,8 +5,9 @@
  * regex did NOT match — the ask fell through to the bot LLM, which honestly
  * told the user it has no radar access. Every radar chip's exact ask phrase
  * must be answered by its own web-side intercept, never the LLM fallback.
- * "rwa radar", "airdrop radar" and "meme radar" are the exceptions: both
- * doors route each to its shared seam, which fetches the same card.
+ * "rwa radar", "airdrop radar", "meme radar" and "nft radar" are the
+ * exceptions: both doors route each to its shared seam, which fetches the
+ * same card.
  */
 process.env.JWT_SECRET = 'j'.repeat(64);
 delete process.env.DATABASE_URL;
@@ -18,16 +19,10 @@ const path = require('node:path');
 
 test('every radar chip ask phrase is claimed by its intercept regex', async () => {
   // Chip phrases as wired in dashboard.js (pinned there by meme_panel.test.js).
-  // "rwa radar", "airdrop radar" and "meme radar" left this contract. Both
-  // doors route each to its shared seam, which fetches the card. The other
-  // chips still answer here.
+  // "rwa radar", "airdrop radar", "meme radar" and "nft radar" left this
+  // contract. Both doors route each to its shared seam, which fetches the
+  // card. The other chips still answer here.
   const CONTRACT = [
-    ['nft radar', require('../lib/opensea'), 'maybeHandleNftChat', () =>
-      require('../lib/opensea').setOpenSeaFetcher(async (p) =>
-        p.startsWith('/collections?')
-          ? { collections: [{ collection: 'foo', name: 'Foo' }] }
-          : { total: { floor_price: 1.2, num_owners: 10 },
-              intervals: [{ interval: 'seven_day', volume: 100 }] })],
     ['spot market', require('../lib/spot'), 'maybeHandleSpotChat', () => {
       require('../lib/spot').setSpotFetcher(async () => ({ data: [
         { symbol: 'BTCUSDT', lastPr: '100000', change24h: '0.01', usdtVolume: '1e9' }] }));
@@ -41,7 +36,6 @@ test('every radar chip ask phrase is claimed by its intercept regex', async () =
     assert.ok(reply && reply.reply_html,
       `chip ask "${phrase}" must be answered by ${fn}, not the LLM fallback`);
   }
-  require('../lib/opensea').setOpenSeaFetcher(null);
   require('../lib/spot').setSpotFetcher(null);
 });
 

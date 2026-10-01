@@ -139,8 +139,8 @@ class MarketCommands:
         await self._send(update, text)
 
     # ── The website chat's own cards, as commands ─────────────────────────
-    # /nft and /spot render the SAME card the website's chat intercept
-    # answers with. /airdrops left that table: both doors fetch this card.
+    # /spot still renders the card the website's chat intercept answers
+    # with. /nft and /airdrops left that table: both doors fetch the card.
     # Fetched rendered, never re-formatted here. Three of the nine reads
     # only the website answered (`bot/nlp/web_reads`) were a door notice on
     # Telegram; these three are the read itself now.
@@ -149,12 +149,20 @@ class MarketCommands:
     async def _cmd_nft(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/nft — top NFT collections by real 7-day volume, floor and volume
         (OpenSea, read-only). The card is `nft_card_text`, the seam the routed
-        "nft radar" renders on both surfaces."""
+        "nft radar" renders on both surfaces. Website chat no longer answers
+        the sentence itself."""
         await self._send(update, await self.nft_card_text())
 
     async def nft_card_text(self, *, surface: str = "telegram") -> str:
-        """The NFT radar card — the website's own rendering, both surfaces."""
-        return await self._web_card_text("nft", surface=surface)
+        """The NFT radar card — the website's own rendering, both surfaces.
+
+        ``surface="web"`` keeps the card's own markup. Telegram's tag strip
+        turns ``<br>`` into a newline a browser collapses, which is right on
+        Telegram and wrong on the page that used to render this card itself.
+        OpenSea collection stats are public, for every caller.
+        """
+        return await self._web_card_text(
+            "nft", surface=surface, keep_markup=(surface == "web"))
 
     @guard("spot")
     async def _cmd_spot(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

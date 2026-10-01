@@ -16,7 +16,9 @@ Telegram's HTML parser accepts.
 The routed intents keep their rules and move from the door table to the
 command table: on Telegram the branch dispatches the guarded command and
 records the card the way `rwa` does; on the web the Python path answers from
-the seam under the same gate, for the phrasings the Node intercept missed.
+the seam under the same gate. Spot's Node intercept still claims its
+phrasings first; nft and airdrops left that table, so both doors answer
+every phrasing here.
 
 Plant the payload, drive the command, the branch on both surfaces and the
 tables; read the words and the store.
@@ -171,6 +173,9 @@ class TestTheSeams:
         assert "to_thread" in inspect.getsource(TelegramHandler._web_card_text)
         # The website keeps the card's own breaks. Telegram's strip turns
         # <br> into a newline a browser collapses.
+        nft_web = _seam("nft", h, surface="web")
+        assert nft_web == WEB_CARD["reply_html"] and "<br>" in nft_web
+        assert _seam("nft", h) == web_card_text(WEB_CARD)
         web = _seam("airdrops", h, "770001", surface="web")
         assert web == WEB_CARD["reply_html"] and "<br>" in web
         assert _seam("airdrops", h, "770001") == web_card_text(WEB_CARD)
@@ -349,6 +354,22 @@ class TestTheWeb:
         for other in CARDS:
             if other != intent:
                 assert getattr(h, f"{other}_card_text").await_count == 0, other
+
+    def test_nft_radar_keeps_the_cards_markup(self, monkeypatch):
+        """Both doors render the card. The website used to answer itself, so
+        the markup the browser already shows has to survive the hop.
+        OpenSea stats are public, for every caller."""
+        card = {"reply_html": "🖼 <b>NFT radar</b><br>• <b>Apes</b>",
+                "intent": "nft"}
+        monkeypatch.setattr(wdp, "fetch_web_card", lambda name, tg="", **kw: card)
+        ug, h = _web(monkeypatch)
+        h._link_hint = TelegramHandler._link_hint
+        h._web_card_text = MethodType(TelegramHandler._web_card_text, h)
+        h.nft_card_text = MethodType(TelegramHandler.nft_card_text, h)
+        resp, body = _turn(ug, h, "nft radar")
+        assert resp.status == 200 and body["intent"] == "nft"
+        assert body["reply_html"] == card["reply_html"] and "<br>" in body["reply_html"]
+        assert "web app's chat" not in body["reply_html"]
 
     def test_airdrop_radar_keeps_the_cards_markup_for_this_caller(self, monkeypatch):
         """Both doors render the card. The website used to answer itself, so

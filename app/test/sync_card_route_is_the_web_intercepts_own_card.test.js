@@ -1,8 +1,8 @@
 'use strict';
 /**
  * The bot's /nft, /spot and /airdrops commands render the website's own
- * cards, fetched over the bot-secret sync channel. nft and spot are still
- * what the web intercept answers with; airdrops left that table and both
+ * cards, fetched over the bot-secret sync channel. Spot is still what the
+ * web intercept answers with; nft and airdrops left that table and both
  * doors fetch this card. `GET /api/bot/sync/card/:name` must answer
  * BYTE-FOR-BYTE what that renderer answers for the same reader, and nothing
  * for a name the whitelist does not carry.
@@ -100,9 +100,9 @@ test('every card needs the bot secret, and an unknown name is a 404 never a look
   }
 });
 
-test('nft: the route answers the intercept\'s own card, byte for byte, and names the intent', async () => {
+test('nft: the route answers the card, byte for byte, and names the intent', async () => {
   opensea.setOpenSeaFetcher(NFT_FETCHER);
-  const web = await opensea.maybeHandleNftChat(1, 'nft radar');
+  const web = await opensea.nftChatCard();
   const r = await req('/api/bot/sync/card/nft', { botSecret: SECRET });
   assert.equal(r.status, 200);
   assert.deepEqual(r.data, { reply_html: web.reply_html, intent: 'nft' });
@@ -112,7 +112,7 @@ test('nft: the route answers the intercept\'s own card, byte for byte, and names
 
 test('nft: an unconfigured OpenSea is the same honest card on both surfaces, not a 500', async () => {
   opensea.setOpenSeaFetcher(null);
-  const web = await opensea.maybeHandleNftChat(1, 'nft radar');
+  const web = await opensea.nftChatCard();
   const r = await req('/api/bot/sync/card/nft', { botSecret: SECRET });
   assert.equal(r.status, 200);
   assert.equal(r.data.reply_html, web.reply_html);
@@ -186,12 +186,14 @@ test('a renderer that answers no card is a 500, never a 200 with nothing in it',
   }
 });
 
-test('nft and spot still answer their own phrasings; airdrops is only the card', async () => {
+test('spot still answers its own phrasings; nft and airdrops are only the card', async () => {
   opensea.setOpenSeaFetcher(NFT_FETCHER);
   spot.setSpotFetcher(async () => SPOT_RAW);
-  assert.equal(await opensea.maybeHandleNftChat(1, 'hello there'), null);
+  assert.equal(typeof opensea.maybeHandleNftChat, 'undefined');
+  assert.equal(opensea.CHAT_RE, undefined);
+  assert.equal((await opensea.nftChatCard()).intent, 'nft');
+  assert.ok((await opensea.nftChatCard()).reply_html.includes('NFT radar'));
   assert.equal(await spot.maybeHandleSpotChat(1, 'hello there'), null);
-  assert.ok((await opensea.maybeHandleNftChat(1, 'nft radar')).reply_html.includes('NFT radar'));
   assert.ok((await spot.maybeHandleSpotChat(1, 'spot market')).reply_html.includes('Spot market'));
   assert.equal(typeof airdrops.maybeHandleAirdropChat, 'undefined');
   assert.equal(airdrops.CHAT_RE, undefined);

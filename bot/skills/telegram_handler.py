@@ -4219,13 +4219,15 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 return
 
             # ── nft / spot / airdrops → the website's card, as a command ──
-            # nft and spot still have a Node intercept. Airdrops left that
-            # table: this command is the door on both surfaces. Each fetches
-            # the card (one renderer, two surfaces) through the guarded
+            # Spot still has a Node intercept. The NFT radar and airdrops
+            # left that table: this command is the door on both surfaces. Each
+            # fetches the card (one renderer, two surfaces) through the guarded
             # command, and records it the way the three above do. ABOVE the
             # door notices, because a read that exists here must never be
             # answered "ask the web app".
             if intent.skill == "nft":
+                # Left the Node intercept table: this command is the door
+                # on both surfaces. OpenSea stats are public, for every caller.
                 await self._cmd_nft(update, ctx)
                 self._remember_routed(tg_id, text, intent.skill,
                                       card_shown_memory("nft"))

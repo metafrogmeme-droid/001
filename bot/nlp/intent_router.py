@@ -1707,6 +1707,10 @@ _rule(_EDU + r"\b((?:this |last )?week'?s letter|weekly (?:agent |fund )?letter|
 # own radar: the decline keeps a `my`/`our` question on this rule.
 _rule(_EDU + r"\b(airdrops?|testnets?(?: participation)?|airdrop radar|farm(?:ing)? airdrops?)\b",
       "airdrops", explanation="Airdrop and testnet radar (the website's card, /airdrops)")
+# The NFT radar left the website's intercept table. Both doors route
+# these words to /nft. An education question ("how do nfts work",
+# "what is opensea") is the model's on both surfaces, because the
+# website no longer intercepts it.
 _rule(_EDU + r"\b(nft ?radar|nfts?\b.*\b(?:floor|trending|radar)|opensea|floor prices?)\b",
       "nft", explanation="NFT floor and volume radar (the website's card, /nft)")
 _rule(_EDU + r"\b(spot (?:market|pairs?|radar)|spot vs\.? perps?|spot[ /]perp basis|spot basis)\b",
