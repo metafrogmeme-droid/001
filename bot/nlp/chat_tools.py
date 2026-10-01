@@ -193,6 +193,15 @@ CHAT_TOOLS: tuple[ChatTool, ...] = (
                 "enum": ["scalp", "intraday", "swing", "position"],
             },
         }, ("symbol", "direction"))),
+    ChatTool(
+        "memory_note",
+        "The dated note already kept for this user: what was folded from "
+        "older turns, the watchlist they saved, and a question that still "
+        "has no reply after it. Call it when they ask what you remember, "
+        "what they are watching, or what is still open. It writes nothing. "
+        "It is not their account, their positions, or a current price — a "
+        "line that is ABSENT was not on record, and a line that is "
+        "UNREADABLE was not read. Do not fill either with a guess."),
 )
 
 #: name -> tool, for O(1) lookup at execution time.
@@ -463,6 +472,8 @@ async def run_tool(handler, user_id: str, name: str, args: dict,
         return _handed(name, "unread", f"NOT RUN — {problem}")
     if name == "draft_trade":
         kwargs["user_text"] = user_text
+    if name == "memory_note":
+        kwargs["conversations"] = getattr(handler, "conversations", None)
     conversations = getattr(handler, "conversations", None)
     try:
         from bot.core import user_memory_store as _user_memory
@@ -496,7 +507,7 @@ async def run_tool(handler, user_id: str, name: str, args: dict,
         raise RuntimeError("tool failed") from None
     remembered = result
     read_state = None
-    if name == "draft_trade":
+    if name in ("draft_trade", "memory_note"):
         from bot.nlp.chat_draft import split_tagged
         read_state, remembered = split_tagged(str(result))
     record = skill_result_memory(name, remembered)

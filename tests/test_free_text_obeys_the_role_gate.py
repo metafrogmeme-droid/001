@@ -440,6 +440,10 @@ class TestTheTableDoesNotDrift:
             # Stage is a button. The permission is `trade`, the same one
             # `/trade` asks, so a role that cannot type a ticket cannot draft one.
             "draft_trade": "trade",
+            # Dated note. No slash command: the model reads the summary the
+            # store already keeps. The permission is `memory`, held by
+            # trader, paper and viewer — it is their own note.
+            "memory_note": "memory",
         }
 
     def test_halt_reaches_no_chat_transport(self):

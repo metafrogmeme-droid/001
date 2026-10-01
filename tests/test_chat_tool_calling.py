@@ -565,7 +565,8 @@ class _Conversations:
     def __init__(self):
         self.rows = []
 
-    def get_recent_as_llm_messages(self, user_id, limit=8, drop_trailing_user=False):
+    def get_recent_as_llm_messages(self, user_id, limit=8, drop_trailing_user=False,
+                                   token_budget=None):
         return []
 
     def append(self, uid, role, content, metadata=None):

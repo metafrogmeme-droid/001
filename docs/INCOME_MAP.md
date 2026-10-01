@@ -1665,7 +1665,7 @@ unl…
 ## Capabilities this map has no leaf for
 
 The critic re-read the tree after the fifteen classifiers finished and found
-capabilities none of them had named. The list is TWENTY-TWO now, and it was
+capabilities none of them had named. The list is twenty-three now, and it was
 written down as a smaller number in three places while growing under them —
 slices kept shipping capabilities the map still has no leaf for (the trade
 co-pilot, trade costs, why a stop could not be placed, the POC-retest setup)
@@ -1802,6 +1802,18 @@ a manual trade:
     and the web (`bot/web/user_gateway.py::handle_trade_stage`,
     `app/routes/webtrade.js::post('/stage')`). The client sends the
     draft id, not the levels, and this door does not confirm.
+
+**Chat memory**
+
+Signed-in chat hands the model a token budget of recent turns
+(`bot/nlp/conversation_store.py::ConversationStore.get_recent_as_llm_messages`)
+instead of a fixed nine-message slice. Older tool cards in that window are
+reduced to their labelled fields; the newest turns stay as stored. A user
+who spoke within the last day stays in memory when the user cap is passed.
+The dated note — the summary the store already folds, the watchlist the user
+saved, and a question with no reply yet — is one read
+(`bot/nlp/chat_memory.py::read_note`). It writes nothing. A line that is
+not on record stays absent, and a file that will not read stays unread.
 
 Browser side: app/public/js/copilot-review-model.js renders the block, and the
 dashboard ticket, the dashboard confirm modal (openTradeModal) and the chat

@@ -4611,16 +4611,16 @@ class TestConversationStore:
         assert msgs[0].content == "msg 5"  # oldest remaining
         assert msgs[4].content == "msg 9"  # newest
 
-    def test_lru_eviction(self):
-        """Oldest users are evicted when max_users is exceeded."""
+    def test_active_users_stay_past_the_cap(self):
+        """A user who just spoke is not evicted when max_users is exceeded."""
         from bot.nlp.conversation_store import ConversationStore
         store = ConversationStore(max_users=3)
         store.append("u1", "user", "hello")
         store.append("u2", "user", "hello")
         store.append("u3", "user", "hello")
-        store.append("u4", "user", "hello")  # should evict u1
-        assert store.user_count() == 3
-        assert store.message_count("u1") == 0  # evicted
+        store.append("u4", "user", "hello")
+        assert store.user_count() == 4
+        assert store.message_count("u1") == 1
         assert store.message_count("u4") == 1
 
     def test_llm_message_format(self):

@@ -120,7 +120,8 @@ IMG = [{"media_type": "image/jpeg", "data": "QUJD"}]
 
 
 class _Conversations:
-    def get_recent_as_llm_messages(self, user_id, limit=8, drop_trailing_user=False):
+    def get_recent_as_llm_messages(self, user_id, limit=8, drop_trailing_user=False,
+                                   token_budget=None):
         return []
 
     def append(self, *a, **k):
