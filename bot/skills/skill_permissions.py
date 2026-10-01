@@ -201,6 +201,10 @@ WEB_ROUTED_PERMISSION: dict[str, str] = {
     # and the wallet is the caller's own.
     "replay": "replay",
     "letter": "letter",
+    # The venue router left the website's intercept table. Both doors
+    # render `venue_router_card_text` under a permission of its own name.
+    # The table is public funding; the asset the sentence names narrows
+    # it, and an unnamed asset is the top five.
     "venue_router": "venue_router",
     "meme_radar": "meme_radar",
     "wallet": "wallet",

@@ -315,6 +315,13 @@ for eight majors, emitting a per-base delta in basis points (buildCompare,
 `app/lib/dex.js::buildCompare`); it is served at GET /api/market/dex and rendered in the dashboard
 Markets view's c-dex panel. `app/lib/venue_router.js::buildRouterTable` folds that DEX basis into the
 cheapest-venue-to-hold read alongside the cross-venue funding scan.
+Asking from chat is the shared `venue_router` door on both surfaces
+(`bot/web/user_gateway.py::_WEB_SEAM#"venue_router"`,
+`bot/skills/market_commands.py::MarketCommands.venue_router_card_text`),
+not a website intercept of its own. The asset the sentence names narrows
+the card; an unnamed asset is the top five. The Markets panel and
+/api/market/venue-router still serve the read while the bot process is
+down.
 
 *Gap.* Read-only by explicit decision: `app/lib/dex.js::#"Public info API only"` — "Public info API only (no keys,
 no account, no orders) — non-custodial DEX execution remains design-only

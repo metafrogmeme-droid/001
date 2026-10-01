@@ -1744,6 +1744,9 @@ _rule(r"^" + _EDU_DECLINE +
       r"|(?:show |list )?my (?:price )?alerts|(?:show|list) (?:active )?alerts)\b)",
       "price_alert",
       explanation="A price alert — armed on the website's alert engine, delivered here too (/price_alert)")
+# The venue router left the website's intercept table. Both doors route
+# these words to /venue_router. The asset the sentence names narrows the
+# card; an unnamed asset is the top five.
 _rule(r"\b((?:best|cheapest) (?:venue|exchange)"
       r"(?: (?:for|to) (?:be )?(?:long|short)?\s*\$?[a-z0-9]{2,10})?"
       r"|venue router|cheapest funding)\b",

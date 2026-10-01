@@ -5,6 +5,7 @@
  */
 process.env.JWT_SECRET = 'j'.repeat(64);
 delete process.env.DATABASE_URL;
+delete process.env.WEB_GATEWAY_SECRET;
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -73,7 +74,9 @@ test.before(async () => {
   require('../lib/dex').setMidsFetcher(async () => ({ BTC: '100050' }));
   const app = express();
   app.use(express.json());
+  app.use('/api/auth', require('../auth').router);
   app.use('/api/market', require('../routes/market'));
+  app.use('/api/chat', require('../routes/chat'));
   await new Promise((res) => { server = app.listen(0, '127.0.0.1', res); });
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -99,10 +102,47 @@ test('GET /api/market/venue-router serves the table from the cached scan', async
   assert.equal(r.data.rows[0].long_venue, 'bingx');
 });
 
-test('chat: "best venue for BTC" answers with the read + manual-first line', async () => {
-  const reply = await router.maybeHandleVenueRouterChat(1, 'best venue for BTC?');
-  assert.ok(reply && reply.intent === 'venue_router');
-  assert.match(reply.reply_html, /long on <b>bingx<\/b>/);
-  assert.match(reply.reply_html, /never auto-routes orders/);
-  assert.equal(await router.maybeHandleVenueRouterChat(1, 'hello there'), null);
+test('the card names the cheapest long and the manual-first line, and this module no longer matches the sentence', async () => {
+  const card = await router.venueRouterChatCard('BTC');
+  assert.equal(card.intent, 'venue_router');
+  assert.match(card.reply_html, /long on <b>bingx<\/b>/);
+  assert.match(card.reply_html, /never auto-routes orders/);
+  assert.equal(typeof router.maybeHandleVenueRouterChat, 'undefined');
+  assert.equal(router.CHAT_RE, undefined);
+});
+
+function req(method, p, { token, body } = {}) {
+  return new Promise((resolve, reject) => {
+    const payload = body ? JSON.stringify(body) : null;
+    const r = http.request(`${base}${p}`, {
+      method,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(payload ? { 'Content-Type': 'application/json' } : {}),
+      },
+    }, (res) => {
+      let d = '';
+      res.on('data', c => d += c);
+      res.on('end', () => resolve({ status: res.statusCode, data: d ? JSON.parse(d) : {} }));
+    });
+    r.on('error', reject);
+    if (payload) r.write(payload);
+    r.end();
+  });
+}
+
+test('chat: "best venue for BTC" waits for the bot; the market route still serves', async () => {
+  const reg = await req('POST', '/api/auth/register', {
+    body: { email: 'venue-chat@test.io', password: 'x'.repeat(12) },
+  });
+  const token = reg.data.token;
+  for (const text of ['best venue for BTC', 'venue router', 'cheapest exchange to short eth']) {
+    const waiting = await req('POST', '/api/chat', { token, body: { text } });
+    assert.equal(waiting.status, 503, text);
+    assert.equal(waiting.data.intent, undefined, text);
+  }
+  const pub = await req('GET', '/api/market/venue-router');
+  assert.equal(pub.status, 200);
+  assert.equal(pub.data.rows[0].base, 'BTC');
+  assert.equal(pub.data.rows[0].long_venue, 'bingx');
 });
