@@ -70,7 +70,8 @@ def describe_gates(preset: dict) -> tuple[list[str], list[str]]:
     exported so every surface states it identically and none can overclaim."""
     confirm: list[str] = []
     scan: list[str] = []
-    for g in ("rsi_threshold", "rsi_min", "regime", "volume_spike_min", "direction"):
+    for g in ("rsi_threshold", "rsi_min", "regime", "volume_spike_min", "direction",
+              "fast_period", "slow_period", "ma_timeframe"):
         if preset.get(g) is not None:
             scan.append(g)
     syms = preset.get("symbols")
@@ -160,7 +161,8 @@ def check_confirm(preset_key: str, preset: Optional[dict],
 
     enforced: list[str] = []
     scan_only: list[str] = []
-    for g in ("rsi_threshold", "rsi_min", "regime", "volume_spike_min", "direction"):
+    for g in ("rsi_threshold", "rsi_min", "regime", "volume_spike_min", "direction",
+              "fast_period", "slow_period", "ma_timeframe"):
         if preset.get(g) is not None:
             scan_only.append(g)
 

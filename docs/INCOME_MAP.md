@@ -378,8 +378,9 @@ directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
 with /autoconfirm, halt it with /halt //pause //emergency_stop, and inspect it
-with /risk, /gates, /shadow, /enforcing, /parity. Users get four named
-strategy presets (Dip Sniper, Momentum Hunter, Safe Scalper, Full Scan —
+with /risk, /gates, /shadow, /enforcing, /parity. Users get five named
+strategy presets (Dip Sniper, Momentum Hunter, Safe Scalper, Full Scan,
+ETH Moving-Average Trend —
 `bot/skills/skill_registry.py::RunStrategySkill.PRESETS`) runnable via /run, /momentum, /dip, and pinnable to
 their own confirms as a tighten-only veto (/mystrategy →
 `bot/core/user_strategy_store.py::set_pref`, mirrored on the web at /api/bot-strategy). Research
@@ -389,7 +390,7 @@ Strategy Lab over frozen benchmark snapshots (`bot/api/lab.py::_bench_dir`).
 *Gap.* On a stock deploy the loop runs on paper — SIMULATION_MODE defaults True
 (`bot/config.py::AppConfig.simulation_mode`) — so "the bot trades for you" is live only after the operator
 runs /golive and the caller passes _can_trade_live. Users cannot author
-strategy CODE: the presets are a fixed four-row table plus threshold fields,
+strategy CODE: the presets are that named table plus threshold fields,
 and published community strategies are declarative rule configs, not
 executable logic. Several tier features (backtest/walkforward/optimize at
 elite) nominally gate behind $RCLAW, though that gate is off by default.
@@ -2020,7 +2021,7 @@ app/public/strategy.html), GET /agents/compare (`app/server.js::get('/agents/com
 public/compare.html), GET /a claimed agents (`app/server.js::get('/a')`); backed by
 app/lib/agent_catalogue.js → bot gateway /public/strategies →
 RunStrategySkill.PRESETS, and by committed scorecards
-benchmark/scorecards/{dip-sniper,full-scan,momentum-hunter,safe-scalper}.json
+benchmark/scorecards/{dip-sniper,eth-ma-trend,full-scan,momentum-hunter,safe-scalper}.json
 produced by scripts/gen_agent_scorecards.py.
 
 **Counterparty & custody-concentration monitor**

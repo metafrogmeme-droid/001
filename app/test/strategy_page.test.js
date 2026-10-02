@@ -65,9 +65,11 @@ test('the primary CTA deep-links into the Lab to reproduce THIS agent', () => {
 test('the Lab honours the ?lab_agent= deep link from the public page', () => {
   const dash = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
   assert.match(dash, /URLSearchParams\(location\.search\)\.get\('lab_agent'\)/);
-  // it builds the reproduce body from the public catalogue and clears the param
+  // it builds the reproduce body from the public catalogue and clears the param.
+  // The object lives in labBodyFromScorecard; the deep link assigns that.
   assert.match(dash, /\/api\/public\/strategies/);
-  assert.match(dash, /_labReproduce\s*=\s*\{/);
+  assert.match(dash, /_labReproduce = labBodyFromScorecard\(ca\.name, csc\)/);
+  assert.match(dash, /function labBodyFromScorecard\(name, sc\) \{\s*return \{\s*_agent: name,/);
   assert.match(dash, /history\.replaceState\([^)]*'#lab'/);
 });
 

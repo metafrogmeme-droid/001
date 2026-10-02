@@ -8,6 +8,7 @@ and other core modules that need EMA, ADX, and Regime.
 from __future__ import annotations
 
 from enum import Enum
+from typing import Optional
 
 import numpy as np
 
@@ -36,6 +37,33 @@ def _ema(data: np.ndarray, period: int) -> np.ndarray:
     for i in range(1, len(data)):
         out[i] = alpha * data[i] + (1 - alpha) * out[i - 1]
     return out
+
+
+def sma_last(closes, period: int) -> Optional[float]:
+    """Simple average of the last ``period`` closes, or None.
+
+    A short window, a non-numeric close, or a non-finite close is None.
+    None is not zero and not a side. ``bool`` is not a period and not a close.
+    """
+    if isinstance(period, bool) or not isinstance(period, int) or period < 1:
+        return None
+    if closes is None:
+        return None
+    try:
+        seq = list(closes)
+    except TypeError:
+        return None
+    if len(seq) < period:
+        return None
+    total = 0.0
+    for raw in seq[-period:]:
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            return None
+        value = float(raw)
+        if value != value or value in (float("inf"), float("-inf")):
+            return None
+        total += value
+    return total / period
 
 
 def rsi_series(closes: np.ndarray, period: int = 14) -> np.ndarray:

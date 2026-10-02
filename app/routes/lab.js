@@ -84,6 +84,23 @@ router.post('/run', async (req, res) => {
   if (b.rsi_max != null && b.rsi_max !== '') body.rsi_max = parseFloat(b.rsi_max);
   if (b.rsi_min != null && b.rsi_min !== '') body.rsi_min = parseFloat(b.rsi_min);
   if (b.direction) body.direction = String(b.direction).slice(0, 16);
+  if (b.ma_fast != null && b.ma_fast !== '') body.ma_fast = parseInt(b.ma_fast, 10);
+  if (b.ma_slow != null && b.ma_slow !== '') body.ma_slow = parseInt(b.ma_slow, 10);
+  if (b.ma_timeframe) body.ma_timeframe = String(b.ma_timeframe).slice(0, 8);
+  if (b.ma_symbols) body.ma_symbols = String(b.ma_symbols).slice(0, 64);
+  if (b.ma_target_weight != null && b.ma_target_weight !== '') {
+    body.ma_target_weight = parseFloat(b.ma_target_weight);
+  }
+  if (b.ma_max_gross_leverage != null && b.ma_max_gross_leverage !== '') {
+    body.ma_max_gross_leverage = parseFloat(b.ma_max_gross_leverage);
+  }
+  if (b.ma_utilization != null && b.ma_utilization !== '') {
+    body.ma_utilization = parseFloat(b.ma_utilization);
+  }
+  if (b.leverage != null && b.leverage !== '') body.leverage = parseInt(b.leverage, 10);
+  if (b.signal_confidence != null && b.signal_confidence !== '') {
+    body.signal_confidence = parseFloat(b.signal_confidence);
+  }
   const r = await relay('POST', '/lab/run', body);
   res.status(r.status).json(r.data);
 });
