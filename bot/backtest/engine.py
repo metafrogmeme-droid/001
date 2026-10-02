@@ -571,7 +571,10 @@ class BacktestEngine:
             if _base(getattr(pos, "asset", "")) != base:
                 continue
             val = getattr(getattr(pos, "direction", None), "value", None)
-            if val in ("LONG", "SHORT"):
+            # getattr is Any. Returning it from a str annotation is a
+            # no-any-return even after the membership check, which does not
+            # narrow Any. isinstance makes the returned value a str.
+            if isinstance(val, str) and val in ("LONG", "SHORT"):
                 return val
         return None
 
