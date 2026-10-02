@@ -4285,6 +4285,15 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 self._remember_routed(tg_id, text, intent.skill,
                                       card_shown_memory("defi"))
                 return
+            if intent.skill == "exposure":
+                # Left the Node intercept table: this command is the door
+                # on both surfaces. The read is this caller's book, never
+                # the operator's. Nothing here resizes, hedges, or closes
+                # a position. Drawdown stays the risk engine.
+                await self._cmd_exposure(update, ctx)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("exposure"))
+                return
             if intent.skill == "price_alert":
                 # The website's alert engine holds the tripwire and the bot's
                 # poll delivers a trip here; the WORDS are the argument, read
@@ -5335,10 +5344,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
     #  performance, risk and record cards in bot/skills/portfolio_commands.py)
 
     # ── Web-parity commands: /networth /exposure /research /rwa ─────────────
-    # One brain, one implementation: exposure/research/rwa render the SAME
-    # payloads the web panels use (Node-side libs, fetched over the sync
-    # channel); net worth reuses the gateway's own read-only primitives.
-    # Formatters are static and pure for testability.
+    # One brain, one implementation: research renders the SAME payload the
+    # web panel uses (a Node-side lib, fetched over the sync channel);
+    # exposure and rwa fetch the card RENDERED, because a second formatter
+    # is a second answer; net worth reuses the gateway's own read-only
+    # primitives. Formatters that remain are static and pure for testability.
 
     @staticmethod
     def _web_html_to_tg(s: str) -> str:
@@ -5377,28 +5387,6 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         else:
             lines.append(f"🏦 {str(cex.get('venue', '')).capitalize()}: "
                          f"unavailable ({cex.get('detail') or 'venue error'})")
-        return "\n".join(lines)
-
-    @staticmethod
-    def _format_exposure(data: dict) -> str:
-        lines = ["⚖️ <b>Cross-venue exposure</b> — perps netted vs on-chain spot\n",
-                 f"Net <b>${float(data.get('net_total_usd') or 0):,.2f}</b> · "
-                 f"gross ${float(data.get('gross_total_usd') or 0):,.2f} · "
-                 f"cash ${float(data.get('cash_usd') or 0):,.2f}"]
-        assets = data.get("assets") or []
-        for r in assets[:8]:
-            flags = f"  ⚠️ {', '.join(r['flags'])}" if r.get("flags") else ""
-            lines.append(f"• <b>{r.get('base')}</b>: net "
-                         f"{float(r.get('net_usd') or 0):+,.2f} "
-                         f"(long {float(r.get('perp_long_usd') or 0):,.0f} / "
-                         f"short {float(r.get('perp_short_usd') or 0):,.0f} / "
-                         f"spot {float(r.get('spot_usd') or 0):,.0f}){flags}")
-        if not assets:
-            lines.append("No non-stable exposure found.")
-        for w in (data.get("warnings") or [])[:4]:
-            lines.append(f"⚠️ {w}")
-        lines.append("\n<i>Intelligence only — nothing here can resize or "
-                     "close a position.</i>")
         return "\n".join(lines)
 
     @staticmethod

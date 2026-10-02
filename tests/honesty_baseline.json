@@ -142,7 +142,6 @@
       "bot/skills/scan_skill.py": 21,
       "bot/skills/skill_registry.py": 3,
       "bot/skills/start_commands.py": 1,
-      "bot/skills/telegram_handler.py": 7,
       "bot/skills/trading_commands.py": 5,
       "bot/skills/yield_commands.py": 1,
       "bot/token/tier_gate.py": 2,

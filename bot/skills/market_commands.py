@@ -225,8 +225,20 @@ class MarketCommands:
         a newline the page collapses."""
         import asyncio as _aio
 
-        from bot.utils.web_data_pull import fetch_web_card, web_card_text, web_card_unlinked
-        payload = await _aio.to_thread(fetch_web_card, name, telegram_id, **(params or {}))
+        from bot.utils.web_data_pull import (
+            fetch_exposure,
+            fetch_web_card,
+            web_card_text,
+            web_card_unlinked,
+        )
+        # Exposure is the caller's own book, pulled through the same helper
+        # as wallet and DeFi. `fetch_exposure` is that card's client: the
+        # rendered card route, not a second formatter of the raw book.
+        if name == "exposure":
+            payload = await _aio.to_thread(fetch_exposure, telegram_id)
+        else:
+            payload = await _aio.to_thread(
+                fetch_web_card, name, telegram_id, **(params or {}))
         if web_card_unlinked(payload):
             return unlinked if unlinked is not None else self._unlinked_hint(surface)
         if keep_markup:

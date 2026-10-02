@@ -301,7 +301,7 @@ def _is_social_message(text: str) -> bool:
             # by the halt suite's neighbour table.
             "defi", "aave", "nft", "nfts", "airdrop", "airdrops", "testnet",
             "testnets", "meme", "memes", "degen", "spot", "letter", "replay",
-            "opensea", "dexscreener", "wallet",
+            "opensea", "dexscreener", "wallet", "overexposed",
         }
         # …and the chart vocabulary the analysis rules read, by construction.
         trading_words |= set(_ANALYSIS_WORDS)
@@ -1729,6 +1729,22 @@ _rule(_EDU + r"\b(spot (?:market|pairs?|radar)|spot vs\.? perps?|spot[ /]perp ba
 # withdraws, or manages a position.
 _rule(_EDU + r"\b((?:my )?defi(?: positions| status| health)?|aave(?: positions| health)?|health factor)\b",
       "defi", explanation="DeFi positions and liquidation risk (the website's card, /defi)")
+# Cross-venue exposure left the website's intercept table. Both doors
+# route these words to /exposure — the intercept's own pattern, so "my
+# exposure", "total exposure" and "am I overexposed" are the caller's
+# perps netted against their on-chain spot on both surfaces. Registered
+# ABOVE the risk-engine rules, which still own "whats my drawdown",
+# "am i exposed", "whats my max exposure" and "am I over my exposure"
+# (the limit, not the book). The intercept's `(my|total|current)
+# exposure` also matches inside "over my exposure"; the `(?<!over )`
+# keeps that limit question on the risk engine. An education question
+# ("what is exposure", "what is overexposed") is the model's, because
+# the website no longer intercepts it. Nothing here resizes, hedges,
+# or closes a position.
+_rule(_EDU + r"\b((?<!over )(?:my|total|current) exposure|exposure (?:across|check)|overexposed"
+      r"|doubled? (?:up|exposure)|how (?:exposed|leveraged) am i)\b",
+      "exposure",
+      explanation="Cross-venue exposure, perps netted against on-chain spot (the website's card, /exposure)")
 _rule(r"\b(?:my wallet|wallet (?:balance|portfolio|holdings)|on[- ]chain (?:balance|portfolio|holdings))\b",
       "wallet", explanation="The caller's linked on-chain wallet, mirrored (the website's card, /wallet)")
 # The idle-yield read is the website's too — its optimiser reads the wallet
@@ -2104,9 +2120,10 @@ _rule(_EDU + r"\b(portfolio|balance|equity|pnl|profit(?![-\s]factor)|loss"
 # --- Risk ---
 # RUNECLAW risk triggers
 # `my risk` is the caller's own book, and nothing claimed it. Driven,
-# `my risk level` and `my exposure` reach this card while bare `my risk` and
+# `my risk level` reaches this card while bare `my risk` and
 # `what is my risk` reached the model — the possessive-question family the
-# education slice closed, one rule short. The tail lookahead is the whole
+# education slice closed, one rule short. `my exposure` is the cross-venue
+# card, registered above. The tail lookahead is the whole
 # care: `my risk reward` is an R:R question this product prints no card for,
 # and a bare alternative would have taken it.
 #
@@ -2115,7 +2132,7 @@ _rule(_EDU + r"\b(portfolio|balance|equity|pnl|profit(?![-\s]factor)|loss"
 # changed, because `\bmy risk\b` is unanchored and already matches inside
 # both. An equivalent mutant is the round saying the code claims a check it
 # does not make, so the two extra spellings are gone rather than pinned.
-_rule(r"\b(risk check|check (my )?risk|am i (over)?exposed"
+_rule(r"\b(risk check|check (my )?risk|am i exposed"
       r"|my risk\b(?!\s*[/:-]?\s*(?:reward|rr|ratio)))\b",
       "check_risk", explanation="RUNECLAW risk check")
 # "risk" alone is too aggressive — require compound phrases

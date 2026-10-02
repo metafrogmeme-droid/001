@@ -927,6 +927,32 @@ async def test_public_chat_does_not_open_the_venue_router_door(monkeypatch):
     assert handler.conversations.appended == []
 
 
+async def test_public_chat_does_not_open_the_exposure_door(monkeypatch):
+    """Anonymous chat stays tool-free and history-free. "my exposure" is a
+    signed-in door onto the caller's own book; here it is an ordinary
+    question, with no exposure card, no dollars and no account. Nothing is
+    resized, hedged or closed."""
+    monkeypatch.setattr(ug, "_GATEWAY_SECRET", SECRET)
+    handler = FakeHandler(users={})
+    engine = FakeEngine()
+    async with gateway_client(engine, handler) as c:
+        r = await c.post("/chat/public",
+                         json={"text": "what's my total exposure?"},
+                         headers=HDRS)
+        assert r.status == 200
+        data = await r.json()
+        assert data["intent"] == "chat"
+        assert data["reply_html"] == "llm answer"
+        assert "pending_trade" not in data
+        assert "Your exposure" not in data["reply_html"]
+        assert "$" not in data["reply_html"]
+    assert len(handler.llm_calls) == 1
+    assert handler.llm_calls[0][1] == ""
+    assert handler.llm_calls[0][3] is True
+    assert handler.users.register_calls == []
+    assert handler.conversations.appended == []
+
+
 async def test_public_chat_does_not_open_the_defi_door(monkeypatch):
     """Anonymous chat stays tool-free and history-free. "my defi positions"
     is a signed-in door onto the caller's own Aave, Lido and Uniswap book;

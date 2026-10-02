@@ -223,6 +223,7 @@ ROUTED_INTENT_SEAM = {
     "meme_radar": "meme_radar_card_text",
     "wallet": "wallet_card_text",
     "defi": "defi_card_text",
+    "exposure": "exposure_card_text",
 }
 
 

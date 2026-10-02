@@ -16,12 +16,13 @@ that #1020 added so a corrected win rate cannot read as covering the whole
 total beside it.
 
 A mixin, not a leaf: every method reads `self.engine` and answers through
-`self._send`, `self._send_photo` or `self._send_error`. The three web-parity
-formatters (`_format_networth`, `_format_exposure`, `_format_research`)
-stay on the handler beside each other, and the two this group calls are
-declared below as host staticmethods. There were four: `_format_rwa` is
-gone, because the card `app/lib/rwa.js` renders is fetched rendered rather
-than formatted twice.
+`self._send`, `self._send_photo` or `self._send_error`. The two web-parity
+formatters that remain (`_format_networth`, `_format_research`) stay on the
+handler, and the one this group calls is declared below as a host
+staticmethod. `_format_exposure` is gone, the way `_format_rwa`
+went: the card `app/lib/exposure.js` renders is fetched rendered rather
+than formatted twice. `_format_exposure` used `or 0` on a missing total,
+which is a confident zero for a book that was not read.
 """
 from __future__ import annotations
 
@@ -194,9 +195,6 @@ class PortfolioCommands:
         @staticmethod
         def _format_networth(paper: Optional[dict], cex: dict,
                              surface: str = "telegram") -> str: ...
-
-        @staticmethod
-        def _format_exposure(data: dict) -> str: ...
 
     @guard("portfolio")
     async def _cmd_classpf(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -423,14 +421,27 @@ class PortfolioCommands:
     @guard("exposure")
     async def _cmd_exposure(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/exposure — net per-asset exposure across perps + on-chain spot,
-        the same netting the web Exposure panel shows."""
-        import asyncio as _aio
-        from bot.utils.web_data_pull import fetch_exposure
-        data = await _aio.to_thread(fetch_exposure, self._get_tg_id(update))
-        if not data or "assets" not in data:
-            await self._send(update, self._WEB_LINK_HINT)
-            return
-        await self._send(update, self._format_exposure(data))
+        the same netting the web Exposure panel shows. The card is
+        `exposure_card_text`, the seam the routed "my exposure" renders on
+        both surfaces. Website chat no longer answers the sentence itself.
+        The read is this caller's book. Nothing here resizes, hedges, or
+        closes a position."""
+        await self._send(update, await self.exposure_card_text(self._get_tg_id(update)))
+
+    async def exposure_card_text(self, user_id: str, *, surface: str = "telegram") -> str:
+        """The cross-venue exposure card — the website's own rendering, both
+        surfaces, for THIS caller's book.
+
+        ``surface="web"`` keeps the card's own markup. Telegram's tag strip
+        turns ``<br>`` into a newline a browser collapses, which is right on
+        Telegram and wrong on the page that used to render this card itself.
+        The read nets that caller's perps against their on-chain spot, never
+        the operator's book. Nothing here resizes, hedges, or closes a
+        position.
+        """
+        return await self._web_card_text(
+            "exposure", surface=surface, telegram_id=str(user_id or ""),
+            keep_markup=(surface == "web"))
 
     @guard("journal")
     async def _cmd_holdtime(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

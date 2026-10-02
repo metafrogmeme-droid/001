@@ -323,6 +323,16 @@ async def _seam_defi(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
     return await tg_handler.defi_card_text(tg_id, surface="web")
 
 
+async def _seam_exposure(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
+                         text: str = "") -> str:
+    # The website chat no longer answers this itself. Both doors render the
+    # cross-venue exposure card for THIS caller; surface="web" keeps the
+    # markup the browser already shows. The read nets that caller's perps
+    # against their on-chain spot, never the operator's book. Nothing here
+    # resizes, hedges, or closes a position.
+    return await tg_handler.exposure_card_text(tg_id, surface="web")
+
+
 async def _seam_price_alert(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
                            text: str = "") -> str:
     # The website chat no longer answers this itself. Both doors render the
@@ -337,9 +347,10 @@ async def _seam_price_alert(tg_handler: "TelegramHandler", tg_id: str, kwargs: d
 #: authorisation invariant's `ROUTED_INTENT_SEAM`; both equalities are pinned.
 #: `status` keeps its own branch above: it predates the table and three
 #: guards index that branch's literal. Airdrops, the venue router, the meme
-#: radar, the NFT radar, the spot market and DeFi left that table: both
-#: doors render this seam rather than a door notice. Net worth, research,
-#: exposure and idle yield are still answered first by a Node intercept.
+#: radar, the NFT radar, the spot market, DeFi and cross-venue exposure
+#: left that table: both doors render this seam rather than a door notice.
+#: Net worth, research and idle yield are still answered first by a Node
+#: intercept.
 _WEB_SEAM = {
     "networth": _seam_networth,
     "rwa": _seam_rwa,
@@ -354,6 +365,7 @@ _WEB_SEAM = {
     "wallet": _seam_wallet,
     "price_alert": _seam_price_alert,
     "defi": _seam_defi,
+    "exposure": _seam_exposure,
 }
 
 
@@ -989,8 +1001,8 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
         # intercepts before a turn reaches this process, so for a web caller
         # those two see only the phrasings the intercepts miss ("how much am
         # i worth", "can you research SOL for me"). RWA, the airdrop radar, the
-        # venue router, the meme radar, the NFT radar, the spot market and
-        # DeFi left that table: both doors render this seam.
+        # venue router, the meme radar, the NFT radar, the spot market, DeFi
+        # and cross-venue exposure left that table: both doors render this seam.
         # The branch answers every `_WEB_SEAM` intent with the same card
         # Telegram's routed branch renders, under the same gate, recorded
         # the same way — never by a model with no such tool. `_WEB_SEAM`

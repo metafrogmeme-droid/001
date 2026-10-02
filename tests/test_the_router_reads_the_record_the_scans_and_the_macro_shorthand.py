@@ -74,10 +74,16 @@ RECORD = [
     ("my biggest loser", "trade_journal"),
     ("hows my drawdown", "check_risk"),
     ("whats my max drawdown", "check_risk"),
-    ("whats my exposure", "check_risk"),
+    ("whats my exposure", "exposure"),
     ("how much can i lose before the bot halts", "check_risk"),
     ("am i close to the daily loss limit", "check_risk"),
-    ("am i overexposed", "check_risk"),
+    ("am i overexposed", "exposure"),
+    ("am i exposed", "check_risk"),
+    ("whats my max exposure", "check_risk"),
+    # The cassette's limit question contains "my exposure". That substring
+    # is the exposure card; the question is the risk engine's, with
+    # "whats my max exposure" and "am i exposed".
+    ("am i over my exposure", "check_risk"),
     ("review my last trade", "trade_postmortem"),
     ("break down my BTC loss", "trade_postmortem"),
     ("why did i lose so much on eth", "trade_postmortem"),

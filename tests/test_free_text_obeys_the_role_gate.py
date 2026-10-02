@@ -433,6 +433,10 @@ class TestTheTableDoesNotDrift:
             "meme_radar": "meme_radar",
             "wallet": "wallet",
             "defi": "defi",
+            # Cross-venue exposure left the website's intercept table. The
+            # string is the `@guard` on `_cmd_exposure`, which renders the
+            # same seam. The read is the caller's book.
+            "exposure": "exposure",
             # The last door row became a WRITE the website's alert engine holds
             # for the caller's linked web account: the `@guard` on /price_alert.
             "price_alert": "price_alert",

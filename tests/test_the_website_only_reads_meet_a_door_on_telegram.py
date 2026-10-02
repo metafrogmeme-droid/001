@@ -1,7 +1,7 @@
 """The reads only the website's chat answers meet a DOOR on Telegram, and
 "replay" stops running a backtest.
 
-`app/routes/chat.js` answers four shapes of question from its own
+`app/routes/chat.js` answers three shapes of question from its own
 intercepts. Six had nothing on Telegram (replay, letter, airdrops, nft,
 spot, defi) and three share a word with a Telegram command that does
 something else (/alerts is the anomaly-alert scope, /venues picks the venues
@@ -75,6 +75,10 @@ ROWS = [
     ("aave health", "defi"),
     ("health factor", "defi"),
     ("defi", "defi"),
+    ("my exposure", "exposure"),
+    ("what's my total exposure", "exposure"),
+    ("am I overexposed", "exposure"),
+    ("how exposed am i", "exposure"),
     ("tell me when BTC drops below 100k", "price_alert"),
     ("set an alert for eth at 3000", "price_alert"),
     ("alert me when sol hits 200", "price_alert"),
@@ -118,6 +122,12 @@ DECOYS = [
     ("replay the last week", "run_backtest"),
     ("anomaly alerts every 2h", "price_alert"),
     ("what is defi", "defi"),
+    ("what is exposure", "exposure"),
+    ("what is overexposed", "exposure"),
+    ("whats my drawdown", "exposure"),
+    ("am i exposed", "exposure"),
+    ("check my risk", "exposure"),
+    ("whats my max exposure", "exposure"),
     ("what are airdrops", "airdrops"),
     ("how do nfts work", "nft"),
     ("what is opensea", "nft"),
@@ -187,7 +197,8 @@ def test_an_education_question_is_the_models_not_the_greeters():
     social gate's vocabulary it was answered "hey!"."""
     for text in ("what is defi", "what are airdrops", "how do nfts work",
                  "what is opensea", "what is a floor price",
-                 "what is a spot market", "what is degen", "what is a meme coin"):
+                 "what is a spot market", "what is degen", "what is a meme coin",
+                 "what is exposure", "what is overexposed"):
         assert not _is_social_message(text), text
 
 
@@ -204,7 +215,8 @@ def test_every_row_names_a_real_intercept_and_a_real_library():
     raw = json.loads((REPO / "bot" / "nlp" / "web_reads.json").read_text())
     assert set(raw) == set(WEB_READS) and len(WEB_READS) == 1
     assert not {"airdrops", "nft", "spot", "replay", "letter", "wallet", "defi",
-                "venue_router", "meme_radar", "price_alert"} & set(WEB_READS), "commands now, not doors"
+                "exposure", "venue_router", "meme_radar", "price_alert"} & set(WEB_READS), (
+        "commands now, not doors")
 
 
 @pytest.mark.parametrize("intent", sorted(WEB_READS))

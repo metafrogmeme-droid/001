@@ -2,10 +2,9 @@
 
 One brain, one implementation: exposure/research/rwa are Node-side libs the
 web panels already use; the Telegram commands fetch the SAME payloads over the
-shared-secret sync channel (bot/utils/web_data_pull.py). /networth, /exposure
-and /research format the payload here; /rwa fetches the card RENDERED, because
-a second Python formatter of it raised on the honest `None` the radar
-publishes for an unreadable 24h change.
+shared-secret sync channel (bot/utils/web_data_pull.py). /networth and
+/research format a payload here; /exposure and /rwa fetch the card RENDERED,
+because a second Python formatter is a second answer.
 Net worth reuses the gateway's own read-only primitives. Commands degrade to a
 "link the web app" hint when the channel is unconfigured — never a crash.
 """
@@ -35,7 +34,10 @@ class TestWebDataPull:
         wdp.fetch_exposure("111")
         wdp.fetch_research("pendle/usdt")           # junk stripped, USDT dropped
         wdp.fetch_web_card("rwa")
-        assert calls == ["/api/bot/sync/exposure?telegram_id=111",
+        # Exposure left the raw `/api/bot/sync/exposure` payload. The command
+        # pulls the rendered card, the same route wallet and DeFi use, so a
+        # second Python formatter cannot drift from `app/lib/exposure.js`.
+        assert calls == ["/api/bot/sync/card/exposure?telegram_id=111",
                          "/api/bot/sync/research/PENDLE",
                          "/api/bot/sync/card/rwa"]
 
@@ -59,17 +61,18 @@ class TestFormatters:
         msg2 = TelegramHandler._format_networth(None, {"connected": False})
         assert "not connected" in msg2 and "no snapshot" in msg2
 
-    def test_exposure_rows_flags_and_warnings(self):
-        msg = TelegramHandler._format_exposure({
-            "net_total_usd": 900.0, "gross_total_usd": 1100.0, "cash_usd": 50.0,
-            "assets": [{"base": "ETH", "net_usd": 900.0, "perp_long_usd": 500.0,
-                        "perp_short_usd": 0.0, "spot_usd": 400.0,
-                        "flags": ["stacked_long"]}],
-            "warnings": ["ETH: you hold it on-chain AND are long the perp"],
-        })
-        assert "ETH" in msg and "stacked_long" in msg
-        assert "$900.00" in msg and "⚠️ ETH:" in msg
-        assert "nothing here can resize" in msg
+    def test_the_exposure_card_has_no_second_python_formatter(self):
+        """There is ONE renderer, and it is `app/lib/exposure.js`'s.
+
+        `_format_exposure` mirrored that card by hand and read a missing
+        total as zero (`or 0`). An unread book is not a flat one. The card
+        is fetched rendered now, so the claim worth pinning is that no
+        Python copy came back.
+        """
+        assert not hasattr(TelegramHandler, "_format_exposure")
+        src = code_only(inspect.getsource(TelegramHandler.exposure_card_text))
+        assert "_web_card_text" in src and '"exposure"' in src
+        assert "_format" not in src, "the card must not be re-formatted here"
 
     def test_research_strips_web_html_to_telegram_subset(self):
         msg = TelegramHandler._format_research({
@@ -121,6 +124,11 @@ def test_commands_fetch_off_the_event_loop():
     # slow website can never stall the Telegram event loop. /research and
     # /rwa fetch inside the seam their routed intents share, so the seam is
     # what is read.
-    for meth in ("_cmd_exposure", "research_card_text", "rwa_card_text"):
+    for meth in ("research_card_text", "rwa_card_text"):
         src = inspect.getsource(getattr(TelegramHandler, meth))
         assert "to_thread" in src, f"{meth} must not block the loop"
+    # /exposure fetches inside `_web_card_text`, the same helper the other
+    # rendered cards use. The command itself must not format a second copy.
+    exposure = inspect.getsource(TelegramHandler.exposure_card_text)
+    assert "_web_card_text" in exposure and "to_thread" not in exposure
+    assert "to_thread" in inspect.getsource(TelegramHandler._web_card_text)

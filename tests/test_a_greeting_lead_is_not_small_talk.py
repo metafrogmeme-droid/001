@@ -31,8 +31,8 @@ rule both. What the remainder is, the message is.
 AND ONE MISS WAS NOT THE LEAD'S. `hey what is my risk` still reached the
 model after the gate was fixed, because `what is my risk` does too, with no
 lead at all — a `check_risk` alternation gap, not a greeting one. `my risk
-level` and `my exposure` reach the card; bare `my risk` and `what is my risk`
-reached nothing. That is the possessive-question family the education slice
+level` reaches the risk card; `my exposure` is the cross-venue card. Bare
+`my risk` and `what is my risk` reached nothing. That is the possessive-question family the education slice
 closed, one rule short, so it is closed here with the decoy that makes it
 delicate: `my risk reward` is an R:R question this product prints no card
 for, and a bare `my risk` alternative would have taken it.
@@ -77,7 +77,8 @@ LED = [
     ("hey what is my defi health", "defi"),
     ("hey my wallet on base", "wallet"),
     ("hey what is my risk", "check_risk"),
-    ("hi am i overexposed", "check_risk"),
+    ("hi am i overexposed", "exposure"),
+    ("hi am i exposed", "check_risk"),
     # a chart request that NAMES its symbol
     ("hey analyze btc", "analyze_asset"),
     ("hi can you look at eth", "analyze_asset"),
@@ -155,7 +156,7 @@ def test_small_talk_is_still_small_talk(router, text):
 # ── the check_risk gap the lead was hiding ───────────────────────────────────
 
 RISK = ["my risk", "what is my risk", "whats my risk", "my risk level",
-        "my exposure", "check my risk", "am i overexposed", "risk check"]
+        "check my risk", "am i exposed", "risk check"]
 
 
 @pytest.mark.parametrize("text", RISK)
