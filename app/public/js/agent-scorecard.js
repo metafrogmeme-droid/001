@@ -79,5 +79,117 @@
     };
   }
 
-  return { finite: finite, readings: readings };
+  /** An integer count, or null. `true` and `1.5` and `''` are not counts. */
+  function count(v) {
+    return (typeof v === 'number' && Number.isInteger(v)) ? v : null;
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;',
+    }[c]));
+  }
+
+  /**
+   * Walk-forward folds. Absent, or a block that is not two integer counts,
+   * is unmeasured — not zero folds and not zero profitable.
+   * A measured 0 profitable is a real count.
+   */
+  function foldReading(folds) {
+    const empty = {
+      text: 'unmeasured', measured: false,
+      requested: null, run: null, profitable: null,
+    };
+    if (folds == null || typeof folds !== 'object') return empty;
+    const run = count(folds.run);
+    const profitable = count(folds.profitable);
+    if (run === null || profitable === null) return empty;
+    return {
+      text: `${profitable} of ${run} profitable`,
+      measured: true,
+      requested: count(folds.requested),
+      run: run,
+      profitable: profitable,
+    };
+  }
+
+  function foldHtml(folds) {
+    const read = foldReading(folds);
+    const state = read.measured ? 'measured' : 'unmeasured';
+    return '<span data-folds="' + state + '">Folds ' + esc(read.text) + '</span>';
+  }
+
+  function discoveryHtml(mark) {
+    if (mark !== 'discovery') return '';
+    return '<span class="chip" data-mark="discovery">discovery data</span>';
+  }
+
+  function tradesText(scorecard) {
+    const m = scorecard && scorecard.metrics;
+    const n = count(m && m.total_trades);
+    return n === null ? DASH : String(n);
+  }
+
+  /**
+   * `true` is an offer, `false` is withheld, anything else is absent.
+   * Absent is not a grant and it is not "profit factor below 1".
+   */
+  function followOffer(agent) {
+    if (!agent || typeof agent !== 'object') return 'absent';
+    if (agent.copy_follow === true) return 'offered';
+    if (agent.copy_follow === false) return 'withheld';
+    return 'absent';
+  }
+
+  function withheldText(reason) {
+    if (reason === 'below_one') {
+      return 'Not offered for follow. Profit factor is below 1, and no eligibility record says this preset survives.';
+    }
+    if (reason === 'no_verdict') {
+      return 'Not offered for follow. No measured verdict is on this preset.';
+    }
+    if (reason === 'eligibility_unreadable') {
+      return 'Not offered for follow. The eligibility record could not be read.';
+    }
+    return 'Not offered for follow.';
+  }
+
+  function followButtonHtml(agent, loggedIn, following) {
+    const offer = followOffer(agent);
+    if (offer === 'withheld') {
+      const reason = agent && agent.copy_follow_reason;
+      return '<span class="chip" data-follow="withheld">' + esc(withheldText(reason)) + '</span>';
+    }
+    if (offer !== 'offered' || !loggedIn) return '';
+    const id = agent && agent.id != null ? String(agent.id) : '';
+    const on = !!following;
+    return '<button class="btn btn--sm' + (on ? ' btn--ghost' : '')
+      + '" data-agentfollow="' + esc(id) + '" type="button">'
+      + (on ? '✓ Following' : '+ Follow') + '</button>';
+  }
+
+  function followLinkHtml(agent) {
+    const offer = followOffer(agent);
+    if (offer === 'offered') {
+      return '<a class="btn btn--sm" data-follow="offered" href="/dashboard#agents">Follow in the app</a>';
+    }
+    if (offer === 'withheld') {
+      const reason = agent && agent.copy_follow_reason;
+      return '<span class="chip" data-follow="withheld">' + esc(withheldText(reason)) + '</span>';
+    }
+    return '';
+  }
+
+  return {
+    finite: finite,
+    readings: readings,
+    count: count,
+    foldReading: foldReading,
+    foldHtml: foldHtml,
+    discoveryHtml: discoveryHtml,
+    tradesText: tradesText,
+    followOffer: followOffer,
+    followButtonHtml: followButtonHtml,
+    followLinkHtml: followLinkHtml,
+  };
 }));

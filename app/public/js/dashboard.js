@@ -7592,9 +7592,12 @@
       ? ' · exit mults not modeled (' + sc.unmodeled.map(esc).join(', ') + ')' : '';
     const gridStyle = 'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));'
       + 'gap:10px 12px;align-items:start';
+    const folds = window.AgentScorecard.foldHtml(sc.folds);
+    const mark = window.AgentScorecard.discoveryHtml(sc.data_mark);
     return '<div class="agent-metrics" style="' + gridStyle + '">' + grid + '</div>'
       + book + low
-      + '<p class="muted" style="font-size:10px;margin:4px 0 0">' + prov + unmodeled + '</p>';
+      + '<p class="muted" style="font-size:10px;margin:4px 0 0">' + prov + unmodeled + '</p>'
+      + '<p class="muted" style="font-size:10px;margin:4px 0 0">' + folds + ' ' + mark + '</p>';
   }
   // ── agent scorecard: renderer end ────────────────────────────────────
 
@@ -7709,7 +7712,7 @@
           <div style="border-top:1px solid rgba(128,128,128,.15);padding-top:var(--s2)">${scoreBlock(a.scorecard)}</div>
           <div class="row mt-2" style="gap:var(--s2);flex-wrap:wrap;margin-top:auto">
             ${labButton}
-            ${LOGGED_IN ? `<button class="btn btn--sm ${_agentFollows.has(a.id) ? 'btn--ghost' : ''}" data-agentfollow="${esc(a.id)}" type="button">${_agentFollows.has(a.id) ? '✓ Following' : '+ Follow'}</button>` : ''}
+            ${window.AgentScorecard ? window.AgentScorecard.followButtonHtml(a, LOGGED_IN, _agentFollows.has(a.id)) : ''}
             ${LOGGED_IN ? `<button class="btn btn--ghost btn--sm" data-botstrat="${esc(a.id)}" type="button">${_botStrat.slug === a.id ? '🤖 ✓ ' + esc(T('bs.on_bot', 'On your bot')) : '🤖 ' + esc(T('bs.run_b', 'Run on my bot'))}</button>` : ''}
             <button class="btn btn--ghost btn--sm" data-agentask="${esc(a.name)}" type="button">Ask the agent</button>
           </div>

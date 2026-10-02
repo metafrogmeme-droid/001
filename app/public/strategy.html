@@ -53,7 +53,7 @@
   <div id="sa-root"><div class="empty" data-i18n="st.loading">Loading strategy agent…</div></div>
 </div>
 
-<script src="/js/agent-scorecard.js?v=1"></script>
+<script src="/js/agent-scorecard.js?v=2"></script>
 <script>
 (function () {
   var esc = function (s) {
@@ -145,8 +145,11 @@
       ? '<div class="lowchip">low sample · ' + read.lowSample + ' trades</div>' : '';
     var prov = 'Frozen backtest · ' + esc(sc.dataset || '') + ' · ' + (sc.bars || '?') + ' bars'
       + (sc.dataset_hash ? ' · #' + esc(sc.dataset_hash) : '');
+    var folds = window.AgentScorecard.foldHtml(sc.folds);
+    var mark = window.AgentScorecard.discoveryHtml(sc.data_mark);
     return '<div class="sc"><div class="sc-grid">' + grid + '</div>' + low
-      + '<p class="prov">' + prov + '</p></div>';
+      + '<p class="prov">' + prov + '</p>'
+      + '<p class="prov">' + folds + ' ' + mark + '</p></div>';
   }
   // ── strategy scorecard renderer end ──
 
@@ -214,11 +217,11 @@
         // A preset whose exits are recorded and not applied has no backtest
         // to reproduce. The Lab door would claim a track record that is missing.
         : (a.scorecard && a.scorecard.omitted
-          ? '<a class="btn btn--sm" href="/dashboard#agents">Follow in the app</a>'
+          ? (window.AgentScorecard ? window.AgentScorecard.followLinkHtml(a) : '')
           // Deep-link straight into the Lab with THIS agent auto-running its exact
           // backtest — the page's "reproduce its numbers" promise, in one tap.
           : '<a class="btn btn--primary btn--sm" href="/dashboard?lab_agent=' + encodeURIComponent(a.id) + '#lab">Reproduce this backtest in the Lab</a>'
-            + '<a class="btn btn--sm" href="/dashboard#agents">Follow in the app</a>'))
+            + (window.AgentScorecard ? window.AgentScorecard.followLinkHtml(a) : '')))
       + '<button class="btn btn--sm" id="shareBtn" type="button">Share</button>'
       + '</div>'
       + '<p class="disc">' + (a.community

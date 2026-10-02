@@ -67,9 +67,19 @@ router.post('/follow', writeLimit, async (req, res) => {
     const community = await require('../lib/user_strategies').getPublicBySlug(agentId);
     if (!community) {
       const cat = await loadCatalogueChecked();
-      if (!cat.agents.some(a => String(a.id).toLowerCase() === agentId)) {
+      const agent = cat.agents.find(a => String(a.id).toLowerCase() === agentId);
+      if (!agent) {
         if (cat.readable) return res.status(404).json({ error: 'unknown_agent' });
         return res.status(503).json({ error: 'catalogue_unreadable' });
+      }
+      // The catalogue is the one reading. A missing flag is not a grant.
+      // Profit factor below 1 stays off this door until an eligibility
+      // artefact exists; a preset with no measured verdict is not offered.
+      if (agent.copy_follow !== true) {
+        const allowed = new Set(['below_one', 'no_verdict', 'eligibility_unreadable']);
+        const reason = allowed.has(agent.copy_follow_reason)
+          ? agent.copy_follow_reason : 'not_offered_for_follow';
+        return res.status(403).json({ error: 'not_offered_for_follow', reason });
       }
     }
     const uid = req.user.user_id;

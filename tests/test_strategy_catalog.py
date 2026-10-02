@@ -7,8 +7,16 @@ what the agent actually does), and the whole surface is §4-safe: strategy desig
 The public gateway route serves it with no auth.
 """
 import inspect
+import json
 
 from bot.core import strategy_catalog as sc
+from bot.core.live_eligibility import (
+    ELIGIBLE,
+    MISSING,
+    UNREADABLE,
+    read_eligibility,
+    record_path,
+)
 from bot.skills.skill_registry import RunStrategySkill
 
 
@@ -79,6 +87,88 @@ def test_catalog_fail_soft_on_bad_source(monkeypatch):
     import bot.skills.skill_registry as reg
     monkeypatch.delattr(reg.RunStrategySkill, "PRESETS", raising=False)
     assert sc.catalog() == []
+
+
+def test_copy_follow_shows_the_verdict_and_withholds_profit_factor_below_one(tmp_path, monkeypatch):
+    """Profit factor, trade count, folds, and a discovery mark are on the card.
+
+    A measured profit factor below 1 is not listed for copy/follow until an
+    eligibility artefact for that preset says it survives. A missing verdict
+    is not a profit factor of 0 and it is not an offer. The artefact is not
+    the running-strategy record the live gate reads.
+    """
+    cards = {c["id"]: c for c in sc.catalog()}
+    for aid in ("full-scan", "safe-scalper", "eth-ma-trend"):
+        card = cards[aid]
+        assert card["copy_follow"] is False
+        assert card["copy_follow_reason"] == "below_one"
+        score = card["scorecard"]
+        assert score["data_mark"] == "discovery"
+        assert score["folds"] is None
+        assert isinstance(score["metrics"]["total_trades"], int)
+        assert score["metrics"]["profit_factor"] < 1
+    for aid in ("dip-sniper", "momentum-hunter"):
+        card = cards[aid]
+        assert card["copy_follow"] is True
+        assert card["copy_follow_reason"] == "offered"
+        assert card["scorecard"]["data_mark"] == "discovery"
+        assert card["scorecard"]["folds"] is None
+        assert card["scorecard"]["metrics"]["profit_factor"] >= 1
+    for aid in ("daily-vol-rotation", "alt-sweep"):
+        assert cards[aid]["copy_follow"] is False
+        assert cards[aid]["copy_follow_reason"] == "no_verdict"
+
+    scored = {"metrics": {"profit_factor": 1, "total_trades": 0}, "data_mark": "discovery"}
+    assert sc.follow_listing(scored, MISSING) == (True, "offered")
+    below = {"metrics": {"profit_factor": 0.99, "total_trades": 4}, "data_mark": "discovery"}
+    assert sc.follow_listing(below, MISSING) == (False, "below_one")
+    zero = {"metrics": {"profit_factor": 0, "total_trades": 1}, "data_mark": "discovery"}
+    assert sc.follow_listing(zero, MISSING) == (False, "below_one")
+    assert sc.follow_listing(zero, ELIGIBLE) == (True, "offered")
+    assert sc.follow_listing(zero, UNREADABLE) == (False, "eligibility_unreadable")
+    unread = {"metrics": {"profit_factor": None, "total_trades": 4}, "data_mark": "discovery"}
+    assert sc.follow_listing(unread, MISSING) == (False, "no_verdict")
+    assert sc.follow_listing(None, ELIGIBLE) == (False, "no_verdict")
+    assert sc.follow_listing({"omitted": "No track record is published."}, ELIGIBLE) == (
+        False, "no_verdict")
+
+    monkeypatch.setattr(sc, "_ELIGIBILITY_ROOT", str(tmp_path))
+    body = {"schema": 1, "strategy_hash": "presets/full-scan",
+            "verdict": "survives", "stage": "minimum"}
+    path = record_path("presets/full-scan", tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(body))
+    again = {c["id"]: c for c in sc.catalog()}
+    assert again["full-scan"]["copy_follow"] is True
+    assert again["full-scan"]["copy_follow_reason"] == "offered"
+    assert again["safe-scalper"]["copy_follow"] is False
+    assert read_eligibility("a" * 64, tmp_path).state == MISSING
+
+
+def test_folds_pass_through_and_a_missing_block_is_not_zero(tmp_path, monkeypatch):
+    card = {
+        "dataset": "majors_1h", "dataset_hash": "abc", "honest": True,
+        "metrics": {
+            "profit_factor": 1.2, "total_trades": 3, "total_return_pct": 1,
+            "win_rate": 0.5, "max_drawdown_pct": 1, "sharpe_ratio": 0.1,
+        },
+        "folds": {"requested": 6, "run": 6, "profitable": 0},
+    }
+    directory = tmp_path / "scorecards"
+    directory.mkdir()
+    path = directory / "dip-sniper.json"
+    path.write_text(json.dumps(card))
+    monkeypatch.setattr(sc, "_SCORECARD_DIR", str(directory))
+    loaded = sc._load_scorecard("dip-sniper")
+    assert loaded["folds"] == {"requested": 6, "run": 6, "profitable": 0}
+    assert loaded["data_mark"] == "discovery"
+    assert loaded["metrics"]["profit_factor"] == 1.2
+    card["folds"] = {"run": "6", "profitable": True}
+    path.write_text(json.dumps(card))
+    assert sc._load_scorecard("dip-sniper")["folds"] is None
+    card.pop("folds")
+    path.write_text(json.dumps(card))
+    assert sc._load_scorecard("dip-sniper")["folds"] is None
 
 
 def test_public_gateway_route_is_registered_no_auth():

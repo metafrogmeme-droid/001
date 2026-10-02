@@ -24,7 +24,8 @@ const express = require('express');
 const { codeOnly } = require('./helpers/code_only');
 
 const CATALOG = [
-  { id: 'dip-sniper', name: 'Dip Sniper', icon: '🎯',
+  { id: 'dip-sniper', name: 'Dip Sniper', icon: '🎯', copy_follow: true,
+    copy_follow_reason: 'offered',
     scorecard: { gates: { confidence_threshold: 0.7, regime_filter: 'TREND_DOWN' } } },
 ];
 

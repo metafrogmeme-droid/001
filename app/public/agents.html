@@ -92,6 +92,7 @@
   <div id="ag-root"><div class="empty" data-i18n="ag.loading">Loading the agent catalogue…</div></div>
 </div>
 
+<script src="/js/agent-scorecard.js?v=2"></script>
 <script>
 (function () {
   var esc = function (s) {
@@ -195,14 +196,21 @@
         + '<div class="go">View strategy → <span style="color:var(--text-3)">· config-only, no dollars</span></div>'
         + cmpToggle(a.id) + '</a>';
     }
-    var sc = a.scorecard && a.scorecard.metrics;
-    var mx = (a.scorecard && a.scorecard.omitted)
-      ? '<div class="mx"><div class="k">' + esc(a.scorecard.omitted) + '</div></div>'
+    var cardSc = a.scorecard;
+    var sc = cardSc && cardSc.metrics;
+    var verdict = (sc && window.AgentScorecard)
+      ? '<div><div class="k">Trades</div><div class="v" data-trades>' + esc(AgentScorecard.tradesText(cardSc)) + '</div></div>'
+        + '<div><div class="k">Folds</div><div class="v">' + AgentScorecard.foldHtml(cardSc.folds) + '</div></div>'
+        + AgentScorecard.discoveryHtml(cardSc.data_mark)
+      : '';
+    var mx = (cardSc && cardSc.omitted)
+      ? '<div class="mx"><div class="k">' + esc(cardSc.omitted) + '</div></div>'
       : sc
       ? '<div class="mx"><div><div class="k">Return</div><div class="v ' + cls(sc.total_return_pct) + '">'
         + esc(pct(sc.total_return_pct)) + '</div></div>'
         + '<div><div class="k">Profit factor</div><div class="v">' + (sc.profit_factor == null ? '—' : Number(sc.profit_factor).toFixed(2)) + '</div></div>'
-        + '<div><div class="k">Win rate</div><div class="v">' + (sc.win_rate == null ? '—' : (sc.win_rate * 100).toFixed(0) + '%') + '</div></div></div>'
+        + '<div><div class="k">Win rate</div><div class="v">' + (sc.win_rate == null ? '—' : (sc.win_rate * 100).toFixed(0) + '%') + '</div></div>'
+        + verdict + '</div>'
       : '<div class="mx"><div class="k">Verified backtest pending — reproduce it in the Lab.</div></div>';
     return '<a class="ag-card" href="/agents/' + encodeURIComponent(a.id) + '">'
       + '<div class="h"><span class="emo">' + esc(a.icon || '🤖') + '</span>'
