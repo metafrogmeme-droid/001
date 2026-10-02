@@ -289,9 +289,9 @@ def _finite_number(v: Any) -> Optional[float]:
 
 def _count(v: Any) -> Optional[int]:
     """An integer count, or None. ``True`` and ``1.5`` are not counts. ``0`` is."""
-    if isinstance(v, bool) or not isinstance(v, int):
-        return None
-    return v
+    # Return inside the narrowed arm. ``isinstance(v, bool) or not isinstance``
+    # leaves ``v`` as Any, and returning Any is not an int.
+    return v if isinstance(v, int) and not isinstance(v, bool) else None
 
 
 def _data_mark(card: dict) -> Optional[str]:
@@ -402,7 +402,10 @@ def _load_scorecard(agent_id: str) -> Optional[dict]:
         return None
     if not isinstance(card, dict):
         return None
-    metrics = card.get("metrics") if isinstance(card.get("metrics"), dict) else {}
+    raw_metrics = card.get("metrics")
+    # Bind once so isinstance narrows. A second ``card.get`` stays ``Any | None``
+    # and ``.get`` on that union is not a dict read.
+    metrics = raw_metrics if isinstance(raw_metrics, dict) else {}
     return {
         "dataset": card.get("dataset", ""),
         "dataset_hash": (card.get("dataset_hash", "") or "")[:12],
