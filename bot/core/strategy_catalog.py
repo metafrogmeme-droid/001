@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from pathlib import Path
 from typing import Any, Optional
 
 # Committed, reproducible per-agent benchmark scorecards (generated offline by
@@ -38,6 +39,15 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__f
 # settable because a test points it at a nonexistent path to prove the loader
 # fails soft; replacing it with a bare function removed that seam.
 _SCORECARD_DIR = None
+
+# Tests point this at a temp tree. None reads benchmark/eligibility under
+# the repo root, the same place live eligibility records live. A preset
+# record is filed as presets/<slug>.json and is not the running-strategy
+# hash the live gate asks for.
+_ELIGIBILITY_ROOT: Optional[str] = None
+
+_PRESET_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+_VERDICT_MARKS = ("discovery", "prospective")
 
 
 def _scorecard_dir() -> str:
@@ -267,6 +277,119 @@ def _how_it_trades(cfg: dict[str, Any]) -> str:
     return text
 
 
+def _finite_number(v: Any) -> Optional[float]:
+    """A finite number, or None. ``bool`` is not a number. Infinity is not a ratio."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    value = float(v)
+    if value != value or value in (float("inf"), float("-inf")):
+        return None
+    return value
+
+
+def _count(v: Any) -> Optional[int]:
+    """An integer count, or None. ``True`` and ``1.5`` are not counts. ``0`` is."""
+    # Return inside the narrowed arm. ``isinstance(v, bool) or not isinstance``
+    # leaves ``v`` as Any, and returning Any is not an int.
+    return v if isinstance(v, int) and not isinstance(v, bool) else None
+
+
+def _data_mark(card: dict) -> Optional[str]:
+    """``discovery`` or ``prospective`` when the card says so.
+
+    Every scorecard the generator writes is a design backtest on frozen
+    data (``honest`` and a dataset name). That absence of an explicit mark
+    is the discovery mark, not an unknown study. A card that is neither
+    stays unmarked.
+    """
+    raw = card.get("data_mark")
+    if isinstance(raw, str) and raw in _VERDICT_MARKS:
+        return raw
+    dataset = card.get("dataset")
+    if card.get("honest") is True and isinstance(dataset, str) and dataset:
+        return "discovery"
+    return None
+
+
+def _folds(card: dict) -> Optional[dict]:
+    """Walk-forward counts, or None when the card does not carry them.
+
+    Both ``run`` and ``profitable`` have to be integers. A missing block
+    is not zero folds. A measured ``profitable`` of 0 is kept.
+    """
+    raw = card.get("folds")
+    if not isinstance(raw, dict):
+        return None
+    run = _count(raw.get("run"))
+    profitable = _count(raw.get("profitable"))
+    if run is None or profitable is None:
+        return None
+    return {
+        "requested": _count(raw.get("requested")),
+        "run": run,
+        "profitable": profitable,
+    }
+
+
+def follow_listing(scorecard: Optional[dict], eligibility_state: str) -> tuple[bool, str]:
+    """Whether this preset is listed for copy/follow, and why.
+
+    A complete verdict is a finite profit factor, an integer trade count,
+    and a discovery or prospective mark. Folds may be unmeasured; that
+    sentence is the fold reading, not a zero.
+
+    Profit factor below 1 is withheld unless ``eligibility_state`` is
+    ``eligible`` (an artefact for this preset says it survives). An
+    unreadable artefact is not "no record" and it is not a grant. A
+    missing verdict is not a profit factor of 0, and it is not an offer.
+    """
+    metrics = None
+    mark = None
+    if isinstance(scorecard, dict):
+        raw_metrics = scorecard.get("metrics")
+        if isinstance(raw_metrics, dict):
+            metrics = raw_metrics
+        raw_mark = scorecard.get("data_mark")
+        if isinstance(raw_mark, str):
+            mark = raw_mark
+    pf = _finite_number(metrics.get("profit_factor")) if metrics is not None else None
+    trades = _count(metrics.get("total_trades")) if metrics is not None else None
+    if pf is None or trades is None or mark not in _VERDICT_MARKS:
+        return False, "no_verdict"
+    if pf < 1:
+        from bot.core.live_eligibility import ELIGIBLE, UNREADABLE
+        if eligibility_state == ELIGIBLE:
+            return True, "offered"
+        if eligibility_state == UNREADABLE:
+            return False, "eligibility_unreadable"
+        return False, "below_one"
+    return True, "offered"
+
+
+def _profit_factor_below_one(scorecard: Optional[dict]) -> bool:
+    """True only for a finite measured profit factor below 1."""
+    if not isinstance(scorecard, dict):
+        return False
+    metrics = scorecard.get("metrics")
+    if not isinstance(metrics, dict):
+        return False
+    pf = _finite_number(metrics.get("profit_factor"))
+    return pf is not None and pf < 1
+
+
+def _preset_eligibility_state(agent_id: str) -> str:
+    """The preset's own eligibility artefact, not the running-strategy hash.
+
+    Filed at ``benchmark/eligibility/presets/<slug>.json``. The live gate
+    looks up the hash of ``bot/*.py`` and never opens this path.
+    """
+    from bot.core.live_eligibility import UNREADABLE, read_eligibility
+    if not isinstance(agent_id, str) or _PRESET_ID.fullmatch(agent_id) is None:
+        return UNREADABLE
+    root = Path(_ELIGIBILITY_ROOT) if isinstance(_ELIGIBILITY_ROOT, str) and _ELIGIBILITY_ROOT else None
+    return read_eligibility(f"presets/{agent_id}", root).state
+
+
 def _load_scorecard(agent_id: str) -> Optional[dict]:
     """The committed benchmark scorecard for this agent slug, or None. Public-safe
     by construction (the generator writes percent/ratio only); we still strip any
@@ -279,7 +402,10 @@ def _load_scorecard(agent_id: str) -> Optional[dict]:
         return None
     if not isinstance(card, dict):
         return None
-    metrics = card.get("metrics") or {}
+    raw_metrics = card.get("metrics")
+    # Bind once so isinstance narrows. A second ``card.get`` stays ``Any | None``
+    # and ``.get`` on that union is not a dict read.
+    metrics = raw_metrics if isinstance(raw_metrics, dict) else {}
     return {
         "dataset": card.get("dataset", ""),
         "dataset_hash": (card.get("dataset_hash", "") or "")[:12],
@@ -295,6 +421,8 @@ def _load_scorecard(agent_id: str) -> Optional[dict]:
             "sharpe_ratio": metrics.get("sharpe_ratio"),
             "total_trades": metrics.get("total_trades"),
         },
+        "folds": _folds(card),
+        "data_mark": _data_mark(card),
     }
 
 
@@ -325,6 +453,8 @@ def catalog() -> list[dict]:
         if score is None:
             from bot.core.vol_rotation import omitted_scorecard
             score = omitted_scorecard(cfg)
+        state = _preset_eligibility_state(aid) if _profit_factor_below_one(score) else "missing"
+        offered, reason = follow_listing(score, state)
         out.append({
             "id": aid,
             "name": cfg.get("label", key.title()),
@@ -340,6 +470,11 @@ def catalog() -> list[dict]:
             # None if not yet generated. Lets the marketplace card show verified
             # numbers with a one-tap "reproduce in the Lab".
             "scorecard": score,
+            # Copy/follow is a listing decision. Profit factor below 1 stays
+            # off the follow door until this preset has an eligibility artefact.
+            # A missing verdict is not offered either.
+            "copy_follow": offered,
+            "copy_follow_reason": reason,
         })
     return out
 

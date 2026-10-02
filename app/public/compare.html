@@ -53,6 +53,7 @@
   <p class="foot-note" data-i18n="cmp.foot">Engine metrics come from frozen, content-hashed benchmark backtests (reproduce them in the Lab). Live records are forward-only paper trades members copied, sealed at open. A missing number renders as “—”, never as zero.</p>
 </div>
 
+<script src="/js/agent-scorecard.js?v=2"></script>
 <script>
 (function () {
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -124,6 +125,13 @@
             : col.engine.scorecard && col.engine.scorecard.metrics
             ? '<span class="tier bt">🔬 ' + esc(T('cmp.t_backtest', 'Frozen backtest')) + '</span>'
             : '<span class="tier bt">🔬 ' + esc(T('cmp.t_pending', 'Backtest pending')) + '</span>');
+          var sc = col.engine.scorecard;
+          if (sc && sc.metrics && window.AgentScorecard) {
+            t.push('<span data-trades>Trades ' + esc(AgentScorecard.tradesText(sc)) + '</span>');
+            t.push(AgentScorecard.foldHtml(sc.folds));
+            var mark = AgentScorecard.discoveryHtml(sc.data_mark);
+            if (mark) t.push(mark);
+          }
         }
         if (col.comm) t.push('<span class="tier cf">🧩 ' + esc(T('cmp.t_config', 'Member config')) + '</span>');
         var rec = col.rec;

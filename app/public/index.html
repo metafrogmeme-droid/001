@@ -1125,6 +1125,12 @@
           + arrow(m.total_return_pct) + esc(pct(m.total_return_pct)) + '</span></div>'
           + '<div class="mkt-stat"><span class="k">Win rate</span><span class="v">' + (m.win_rate == null ? '—' : (m.win_rate * 100).toFixed(0) + '%') + '</span></div>'
           + '<div class="mkt-stat"><span class="k">PF</span><span class="v">' + (m.profit_factor == null ? '—' : Number(m.profit_factor).toFixed(2)) + '</span></div>'
+          + '<div class="mkt-stat"><span class="k">Trades</span><span class="v" data-trades>'
+          + esc(window.AgentScorecard ? AgentScorecard.tradesText(a.scorecard) : '—') + '</span></div>'
+          + '<div class="mkt-stat"><span class="k">Folds</span><span class="v">'
+          + (window.AgentScorecard ? AgentScorecard.foldHtml(a.scorecard && a.scorecard.folds) : '<span data-folds="unmeasured">Folds unmeasured</span>')
+          + '</span></div>'
+          + (window.AgentScorecard ? AgentScorecard.discoveryHtml(a.scorecard && a.scorecard.data_mark) : '')
           + '</div>' : '';
         return '<a class="feature mkt-card" href="/agents/' + encodeURIComponent(a.id) + '">'
           + '<div class="mkt-h"><span class="mkt-emo">'
@@ -2030,8 +2036,9 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
      download it at all, and (b) it's deferred to idle so it never competes with
      first paint / LCP. mascot3d self-mounts on import (autoMount at module end).
      The importmap in <head> is already parsed by the time this runs. -->
+<script src="/js/agent-scorecard.js?v=2"></script>
 <script>
-  (function () {
+(function () {
     try {
       if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
       var load = function () { import('/js/mascot3d.js?v=5').catch(function () {}); };

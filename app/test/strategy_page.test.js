@@ -53,7 +53,9 @@ test('§4: the page renders percent/ratio only — no dollar figure', () => {
 test('the page is read-only and shareable (no trade path; Web Share)', () => {
   assert.ok(!/trade\/confirm|\/api\/trade|live_executor|api_key/.test(html), 'no money-path on the public page');
   assert.match(html, /navigator\.share/);
-  assert.match(html, /Follow in the app/);
+  assert.match(html, /followLinkHtml/);
+  const painter = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'agent-scorecard.js'), 'utf8');
+  assert.match(painter, /Follow in the app/);
 });
 
 test('the primary CTA deep-links into the Lab to reproduce THIS agent', () => {

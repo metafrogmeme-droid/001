@@ -354,6 +354,71 @@ test('the public strategy page uses the same reading and a 3-column grid', () =>
   assert.doesNotMatch(unread, /class="v down"|class="v up"/);
   assert.match(unread, /—/);
 
+  assert.match(html, /data-folds="unmeasured"/);
+  assert.match(html, /Folds unmeasured/);
+  assert.doesNotMatch(html, /discovery data/);
+  assert.doesNotMatch(html, /0 of /);
+
+  const marked = strategyBlock({
+    dataset: 'majors_1h', bars: 1500, dataset_hash: 'abc',
+    data_mark: 'discovery',
+    folds: { requested: 6, run: 6, profitable: 0 },
+    metrics: {
+      total_return_pct: 1, profit_factor: 1.1, win_rate: 0.5,
+      max_drawdown_pct: 1, sharpe_ratio: 0.2, total_trades: 12,
+    },
+  });
+  assert.match(marked, /data-mark="discovery"/);
+  assert.match(marked, /discovery data/);
+  assert.match(marked, /data-folds="measured"/);
+  assert.match(marked, /Folds 0 of 6 profitable/);
+
+  const dashMarked = scoreBlock({
+    dataset: 'majors_1h', bars: 1500, dataset_hash: 'abc',
+    data_mark: 'discovery',
+    folds: { run: 6, profitable: 1 },
+    metrics: {
+      total_return_pct: -1, profit_factor: 0.19, win_rate: 0.4,
+      max_drawdown_pct: 2, sharpe_ratio: -0.2, total_trades: 14,
+    },
+  });
+  assert.match(dashMarked, /discovery data/);
+  assert.match(dashMarked, /Folds 1 of 6 profitable/);
+  const bareFolds = scoreBlock({
+    metrics: {
+      total_return_pct: 1, profit_factor: 1.1, win_rate: 0.5,
+      max_drawdown_pct: 1, sharpe_ratio: 0.2, total_trades: 12,
+    },
+  });
+  assert.match(bareFolds, /Folds unmeasured/);
+  assert.doesNotMatch(bareFolds, /discovery data/);
+  assert.doesNotMatch(bareFolds, /0 of /);
+
+  assert.equal(Score.foldReading(null).text, 'unmeasured');
+  assert.equal(Score.foldReading({ run: '6', profitable: 1 }).measured, false);
+  assert.equal(Score.foldReading({ run: 6, profitable: 0 }).text, '0 of 6 profitable');
+  assert.equal(Score.tradesText({ metrics: { total_trades: 0 } }), '0');
+  assert.equal(Score.tradesText({ metrics: { total_trades: null } }), '—');
+  assert.equal(Score.tradesText({ metrics: {} }), '—');
+
+  const below = { id: 'full-scan', copy_follow: false, copy_follow_reason: 'below_one' };
+  const offered = { id: 'dip-sniper', copy_follow: true, copy_follow_reason: 'offered' };
+  const absent = { id: 'alt-sweep' };
+  assert.equal(Score.followOffer(below), 'withheld');
+  assert.equal(Score.followOffer(offered), 'offered');
+  assert.equal(Score.followOffer(absent), 'absent');
+  assert.match(Score.followButtonHtml(below, true, false), /data-follow="withheld"/);
+  assert.doesNotMatch(Score.followButtonHtml(below, true, false), /data-agentfollow=/);
+  assert.match(Score.followButtonHtml(offered, true, false), /data-agentfollow="dip-sniper"/);
+  assert.match(Score.followButtonHtml(offered, true, true), /Following/);
+  assert.equal(Score.followButtonHtml(offered, false, false), '');
+  assert.equal(Score.followButtonHtml(absent, true, false), '');
+  assert.match(Score.followLinkHtml(offered), /Follow in the app/);
+  assert.match(Score.followLinkHtml(below), /data-follow="withheld"/);
+  assert.equal(Score.followLinkHtml(absent), '');
+  assert.equal(Score.discoveryHtml('prospective'), '');
+  assert.match(Score.discoveryHtml('discovery'), /discovery data/);
+
   assert.match(STRAT, /\.sc-grid \{ display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
   assert.doesNotMatch(STRAT, /\.sc-grid \{[^}]*flex-wrap/);
   const dashHtml = fs.readFileSync(path.join(APP, 'public', 'dashboard.html'), 'utf8');

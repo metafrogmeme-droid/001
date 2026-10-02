@@ -62,8 +62,13 @@ test('picksForAgent returns the matching subset, capped and labelled', () => {
 
 // ─── API (mock DB + JWT, gateway stubbed) ────────────────────────────────────
 const CATALOG = [
-  { id: 'dip-sniper', name: 'Dip Sniper', icon: '🎯', scorecard: { gates: { confidence_threshold: 0.7, regime_filter: 'TREND_DOWN' } } },
-  { id: 'momentum-hunter', name: 'Momentum Hunter', icon: '🚀', scorecard: { gates: { confidence_threshold: 0.6, regime_filter: 'TREND_UP' } } },
+  { id: 'dip-sniper', name: 'Dip Sniper', icon: '🎯', copy_follow: true, copy_follow_reason: 'offered',
+    scorecard: { gates: { confidence_threshold: 0.7, regime_filter: 'TREND_DOWN' } } },
+  { id: 'momentum-hunter', name: 'Momentum Hunter', icon: '🚀', copy_follow: true, copy_follow_reason: 'offered',
+    scorecard: { gates: { confidence_threshold: 0.6, regime_filter: 'TREND_UP' } } },
+  { id: 'full-scan', name: 'Full Scan', icon: '🤖', copy_follow: false, copy_follow_reason: 'below_one',
+    scorecard: { metrics: { profit_factor: 0.19, total_trades: 14 }, data_mark: 'discovery' } },
+  { id: 'alt-sweep', name: 'ALT Sweep', icon: '🌍' },
 ];
 
 let server, base, pool;
@@ -172,6 +177,26 @@ test('picks returns only the live signals each followed agent\'s gates would tak
   assert.ok(!allPicked.includes('SOL/USDT'));
 });
 
+test('a profit factor below 1 is not a follow, and a missing flag is not a grant', async () => {
+  const token = await tokenFor('copy-withheld@test.io');
+  let r = await req('POST', '/api/copy/follow', { token, body: { agent_id: 'full-scan' } });
+  assert.strictEqual(r.status, 403);
+  assert.strictEqual(r.data.error, 'not_offered_for_follow');
+  assert.strictEqual(r.data.reason, 'below_one');
+  r = await req('GET', '/api/copy', { token });
+  assert.deepStrictEqual(r.data.following, []);
+
+  r = await req('POST', '/api/copy/follow', { token, body: { agent_id: 'alt-sweep' } });
+  assert.strictEqual(r.status, 403);
+  assert.strictEqual(r.data.reason, 'not_offered_for_follow');
+  r = await req('GET', '/api/copy', { token });
+  assert.deepStrictEqual(r.data.following, []);
+
+  r = await req('POST', '/api/copy/follow', { token, body: { agent_id: 'dip-sniper' } });
+  assert.strictEqual(r.status, 200);
+  assert.deepStrictEqual(r.data.following, ['dip-sniper']);
+});
+
 test('picks is empty (not an error) when following nobody', async () => {
   const token = await tokenFor('copy3@test.io');
   const r = await req('GET', '/api/copy/picks', { token });
@@ -189,8 +214,11 @@ test('§4: follow/copy never moves funds and copying is user-initiated paper', (
   assert.ok(!/fmtMoney|toLocaleString|confirm|execute\(/.test(lib), 'matcher must be pure — no execution/formatting');
 
   const dash = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
+  const painter = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'agent-scorecard.js'), 'utf8');
   // Follow button + picks panel wired; copy reuses the standard paper prefill.
-  assert.match(dash, /data-agentfollow=/);
+  // The button markup lives in the one painter the dashboard calls.
+  assert.match(dash, /followButtonHtml/);
+  assert.match(painter, /data-agentfollow=/);
   assert.match(dash, /id="p-agentpicks"/);
   assert.match(dash, /loadAgentPicks\(\)/);
   assert.match(dash, /\/api\/copy\/picks/);
