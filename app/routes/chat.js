@@ -16,7 +16,6 @@ const { rateLimit, userKey } = require('../lib/rate_limit');
 const { resolveBotIdentity } = require('../lib/identity');
 const gateway = require('../lib/gateway');
 const { loadProfile } = require('./profile');
-const { maybeHandleDefiChat } = require('../lib/defi');
 const { maybeHandleNetWorthChat } = require('../lib/networth');
 const { maybeHandleIdleYieldChat } = require('../lib/idle_yield');
 const { maybeHandleExposureChat } = require('../lib/exposure');
@@ -112,9 +111,12 @@ const INTERCEPTS = [
   // shared wallet seam, which fetches this process's own card for the caller
   // the turn names. The panel and /api/wallet/portfolio still run here, so
   // the mirror is still readable while the bot process is down.
-  // "my defi positions" / "health factor" — Aave/Lido/Uniswap read straight
-  // from protocol contracts, with liquidation-risk warnings.
-  ['defi', (uid, text) => maybeHandleDefiChat(uid, text), 'your Aave, Lido and Uniswap positions, with liquidation risk'],
+  // DeFi positions left this table. Both doors route "my defi positions"
+  // to the shared defi seam, which fetches this process's own card for
+  // the caller the turn names. The read is that caller's linked wallet.
+  // Nothing here repays, withdraws, or manages a position. /api/defi still
+  // runs here, so the positions are still readable while the bot process
+  // is down.
   // "what's my total exposure?" — perp positions netted against wallet spot.
   ['exposure', (uid, text) => maybeHandleExposureChat(uid, text), 'your total exposure — perp positions netted against wallet spot'],
   // "research PENDLE" — evidence dossier from trusted local + live sources.

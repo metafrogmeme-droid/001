@@ -214,6 +214,10 @@ WEB_ROUTED_PERMISSION: dict[str, str] = {
     "meme_radar": "meme_radar",
     "wallet": "wallet",
     "price_alert": "price_alert",
+    # DeFi left the website's intercept table. Both doors render
+    # `defi_card_text` under a permission of its own name. The read is
+    # the caller's linked wallet; nothing here repays, withdraws, or
+    # manages a position.
     "defi": "defi",
 }
 

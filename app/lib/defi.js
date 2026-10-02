@@ -183,9 +183,12 @@ async function getDefiPositions(address) {
   return positions;
 }
 
-// ── Chat intercept ───────────────────────────────────────────────────────────
-
-const CHAT_RE = /\b(my )?(defi( positions| status| health)?|aave( positions| health)?|health factor)\b/i;
+// ── The one card ─────────────────────────────────────────────────────────────
+//
+// ONE renderer. Both chat doors fetch this card over
+// `/api/bot/sync/card/defi`. Website chat does not match the sentence
+// itself. The read is the caller's linked wallet, never somebody else's.
+// Nothing here repays, withdraws, or manages a position.
 
 const { esc } = require('./esc');
 
@@ -195,11 +198,13 @@ function fmtUsd(v) {
 }
 
 /**
- * The DeFi positions as the chat card — ONE renderer for both surfaces; the
- * bot's /defi fetches it over the sync channel
- * (`GET /api/bot/sync/card/defi?telegram_id=…`) for a linked caller, and the
- * route answers `unlinked` for one it cannot map. Labels and notes are
- * escaped because the card is forwarded to Telegram's HTML parser as-is.
+ * The DeFi positions card — ONE renderer for both surfaces. The bot's /defi
+ * command and the website's shared door both fetch this card over the sync
+ * channel (`GET /api/bot/sync/card/defi?telegram_id=…`). Website chat does
+ * not match the sentence itself. A caller the website cannot map is
+ * unlinked, never a guessed wallet. Nothing here repays, withdraws, or
+ * manages a position. Labels and notes are escaped because the card is
+ * forwarded to Telegram's HTML parser as-is.
  */
 async function defiChatCard(userId) {
   try {
@@ -248,16 +253,11 @@ async function defiChatCard(userId) {
   }
 }
 
-async function maybeHandleDefiChat(userId, text) {
-  if (!CHAT_RE.test(String(text || ''))) return null;
-  return defiChatCard(userId);
-}
-
-module.exports = { CHAT_RE,
+module.exports = {
   AAVE_POOLS,
   buildDefiPositions,
   getDefiPositions,
-  maybeHandleDefiChat, defiChatCard,
+  defiChatCard,
   setProviderFactory,
   setTickerFetcher,
 };

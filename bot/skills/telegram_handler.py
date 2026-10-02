@@ -4277,6 +4277,10 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                                       card_shown_memory("wallet"))
                 return
             if intent.skill == "defi":
+                # Left the Node intercept table: this command is the door
+                # on both surfaces. The read is this caller's linked wallet,
+                # never somebody else's. Nothing here repays, withdraws, or
+                # manages a position.
                 await self._cmd_defi(update, ctx)
                 self._remember_routed(tg_id, text, intent.skill,
                                       card_shown_memory("defi"))

@@ -230,7 +230,9 @@ test('wallet and defi: unlinked is a fact, never a guessed wallet; linked is the
   r = await card('/api/bot/sync/card/wallet?telegram_id=880001&chain=mars');
   assert.equal(r.data.reply_html, nowhere.reply_html);
   assert.match(r.data.reply_html, /I don't mirror <b>mars<\/b> yet/);
-  const positions = await defi.maybeHandleDefiChat(reg.user_id, 'my defi positions');
+  const positions = await defi.defiChatCard(reg.user_id);
+  assert.equal(typeof defi.maybeHandleDefiChat, 'undefined');
+  assert.equal(defi.CHAT_RE, undefined);
   r = await card('/api/bot/sync/card/defi?telegram_id=880001');
   assert.deepEqual(r.data, { reply_html: positions.reply_html, intent: 'defi' });
 });
@@ -246,7 +248,7 @@ test('the identity the website hands the bot for a web-only account maps to that
   let r = await card(`/api/bot/sync/card/wallet?telegram_id=web:${reg.user_id}`);
   assert.deepEqual(r.data, { reply_html: own.reply_html, intent: 'wallet' });
   assert.match(r.data.reply_html, /<b>ETH<\/b> 2 — \$5,000/);
-  const positions = await defi.maybeHandleDefiChat(reg.user_id, 'my defi positions');
+  const positions = await defi.defiChatCard(reg.user_id);
   r = await card(`/api/bot/sync/card/defi?telegram_id=web:${reg.user_id}`);
   assert.deepEqual(r.data, { reply_html: positions.reply_html, intent: 'defi' });
   // An identity that names no account, or is not one, is unlinked — never

@@ -315,6 +315,11 @@ async def _seam_wallet(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
 
 async def _seam_defi(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
                      text: str = "") -> str:
+    # The website chat no longer answers this itself. Both doors render the
+    # DeFi card for THIS caller; surface="web" keeps the markup the browser
+    # already shows. The read is that caller's linked wallet, never
+    # somebody else's and never the operator's book. Nothing here repays,
+    # withdraws, or manages a position.
     return await tg_handler.defi_card_text(tg_id, surface="web")
 
 
@@ -332,8 +337,8 @@ async def _seam_price_alert(tg_handler: "TelegramHandler", tg_id: str, kwargs: d
 #: authorisation invariant's `ROUTED_INTENT_SEAM`; both equalities are pinned.
 #: `status` keeps its own branch above: it predates the table and three
 #: guards index that branch's literal. Airdrops, the venue router, the meme
-#: radar, the NFT radar and the spot market left that table: both doors
-#: render this seam rather than a door notice. Net worth, research, DeFi,
+#: radar, the NFT radar, the spot market and DeFi left that table: both
+#: doors render this seam rather than a door notice. Net worth, research,
 #: exposure and idle yield are still answered first by a Node intercept.
 _WEB_SEAM = {
     "networth": _seam_networth,
@@ -984,8 +989,8 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
         # intercepts before a turn reaches this process, so for a web caller
         # those two see only the phrasings the intercepts miss ("how much am
         # i worth", "can you research SOL for me"). RWA, the airdrop radar, the
-        # venue router, the meme radar, the NFT radar and the spot market left
-        # that table: both doors render this seam.
+        # venue router, the meme radar, the NFT radar, the spot market and
+        # DeFi left that table: both doors render this seam.
         # The branch answers every `_WEB_SEAM` intent with the same card
         # Telegram's routed branch renders, under the same gate, recorded
         # the same way — never by a model with no such tool. `_WEB_SEAM`

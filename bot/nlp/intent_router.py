@@ -1722,6 +1722,11 @@ _rule(_EDU + r"\b(nft ?radar|nfts?\b.*\b(?:floor|trending|radar)|opensea|floor p
 # intercepts it. Nothing here places a spot order.
 _rule(_EDU + r"\b(spot (?:market|pairs?|radar)|spot vs\.? perps?|spot[ /]perp basis|spot basis)\b",
       "spot", explanation="Spot pairs and the spot/perp basis (the website's card, /spot)")
+# DeFi positions left the website's intercept table. Both doors route
+# these words to /defi. The read is the caller's linked wallet, never
+# somebody else's. An education question ("what is defi") is the model's,
+# because the website no longer intercepts it. Nothing here repays,
+# withdraws, or manages a position.
 _rule(_EDU + r"\b((?:my )?defi(?: positions| status| health)?|aave(?: positions| health)?|health factor)\b",
       "defi", explanation="DeFi positions and liquidation risk (the website's card, /defi)")
 _rule(r"\b(?:my wallet|wallet (?:balance|portfolio|holdings)|on[- ]chain (?:balance|portfolio|holdings))\b",

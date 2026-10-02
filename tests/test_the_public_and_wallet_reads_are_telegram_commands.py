@@ -227,6 +227,10 @@ class TestTheSeams:
         assert _seam("wallet", h, "770001", surface="web") == CARD["reply_html"]
         assert "<br>" in _seam("wallet", h, "770001", surface="web")
         assert _seam("defi", h, "770001") == web_card_text(CARD)
+        # The website keeps the card's own breaks. Telegram's strip turns
+        # <br> into a newline a browser collapses.
+        assert _seam("defi", h, "770001", surface="web") == CARD["reply_html"]
+        assert "<br>" in _seam("defi", h, "770001", surface="web")
         assert seen == [("replay", "", {"stake": "500"}), ("replay", "", {"stake": None}),
                         ("replay", "", {"stake": "500"}), ("replay", "", {"stake": None}),
                         ("letter", "", {}), ("letter", "", {}), ("letter", "", {}),
@@ -239,7 +243,8 @@ class TestTheSeams:
                         ("meme_radar", "", {}),
                         ("wallet", "770001", {"chain": "base"}), ("wallet", "770001", {"chain": ""}),
                         ("wallet", "770001", {"chain": ""}), ("wallet", "770001", {"chain": ""}),
-                        ("defi", "770001", {})]
+                        ("defi", "770001", {}),
+                        ("defi", "770001", {}), ("defi", "770001", {})]
 
     def test_a_stake_travels_as_the_number_the_caller_typed(self, monkeypatch):
         # The route reads the parameter with parseFloat, so the spelling only
@@ -509,6 +514,32 @@ class TestTheWeb:
         shown = [m.content for m in h.conversations.get_recent(who, limit=5)
                  if m.role == "assistant"]
         assert shown and "[wallet] result:" in shown[0]
+        assert h.conversations.get_recent(OPERATOR, limit=5) == []
+
+    def test_defi_positions_keep_the_cards_markup_for_this_caller(self, monkeypatch):
+        """Both doors render the card. The website used to answer itself, so
+        the markup the browser already shows has to survive the hop. The id
+        on the wire is the caller the turn names, never the operator's book.
+        Nothing here repays, withdraws, or manages a position."""
+        seen = []
+        card = {"reply_html": "🏦 <b>DeFi positions</b><br>Collateral <b>$5,000</b>",
+                "intent": "defi"}
+
+        def fetch(name, tg="", **kw):
+            seen.append((name, tg, kw))
+            return card
+
+        monkeypatch.setattr(wdp, "fetch_web_card", fetch)
+        ug, h = _web(monkeypatch)
+        h._link_hint = TelegramHandler._link_hint
+        h._unlinked_hint = TelegramHandler._unlinked_hint
+        h._web_card_text = MethodType(TelegramHandler._web_card_text, h)
+        h.defi_card_text = MethodType(TelegramHandler.defi_card_text, h)
+        resp, body = _turn(ug, h, "my defi positions")
+        assert resp.status == 200 and body["intent"] == "defi"
+        assert body["reply_html"] == card["reply_html"] and "<br>" in body["reply_html"]
+        assert "web app's chat" not in body["reply_html"]
+        assert seen == [("defi", CALLER, {})]
         assert h.conversations.get_recent(OPERATOR, limit=5) == []
 
     def test_the_gate_refuses_before_the_seam_and_records_not_run(self, monkeypatch):
