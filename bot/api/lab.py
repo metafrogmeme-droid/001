@@ -100,6 +100,16 @@ class LabRunRequest(BaseModel):
     rsi_max: Optional[float] = None
     rsi_min: Optional[float] = None
     direction: str = ""
+    # Closed-bar moving-average replay. All unset means the house pipeline.
+    ma_fast: Optional[int] = None
+    ma_slow: Optional[int] = None
+    ma_timeframe: str = ""
+    ma_symbols: str = ""
+    ma_target_weight: Optional[float] = None
+    ma_max_gross_leverage: Optional[float] = None
+    ma_utilization: Optional[float] = None
+    leverage: Optional[int] = None
+    signal_confidence: Optional[float] = None
 
 
 def _datasets() -> dict[str, dict]:
@@ -133,6 +143,63 @@ async def lab_meta():
     return {"datasets": _datasets(),
             "limits": {"max_symbols": 4, "last_bars": [200, 6000],
                        "timeout_sec": _TIMEOUT_SEC}}
+
+
+def _ma_gate_args(req: LabRunRequest) -> tuple[list[str], dict]:
+    """Runner flags for a moving-average replay. Both periods or neither.
+
+    An incomplete pair is refused. Dollar budgets are not accepted here.
+    """
+    fast, slow = req.ma_fast, req.ma_slow
+    if fast is None and slow is None and not (req.ma_timeframe or req.ma_symbols):
+        if (req.ma_target_weight is None and req.ma_max_gross_leverage is None
+                and req.ma_utilization is None and req.leverage is None
+                and req.signal_confidence is None):
+            return [], {}
+    if isinstance(fast, bool) or not isinstance(fast, int) or not 2 <= fast <= 500:
+        raise HTTPException(status_code=400, detail="Invalid ma_fast.")
+    if isinstance(slow, bool) or not isinstance(slow, int) or not 2 <= slow <= 500:
+        raise HTTPException(status_code=400, detail="Invalid ma_slow.")
+    if slow <= fast:
+        raise HTTPException(status_code=400, detail="ma_slow must be above ma_fast.")
+    args = ["--ma-fast", str(fast), "--ma-slow", str(slow)]
+    params: dict = {"ma_fast": fast, "ma_slow": slow}
+    tf = (req.ma_timeframe or "").strip()
+    if tf:
+        if not re.fullmatch(r"1h|4h", tf):
+            raise HTTPException(status_code=400, detail="Invalid ma_timeframe.")
+        args += ["--ma-timeframe", tf]
+        params["ma_timeframe"] = tf
+    universe = (req.ma_symbols or "").strip().upper()
+    if universe:
+        if not re.fullmatch(r"[A-Z0-9]+(,[A-Z0-9]+){0,7}", universe):
+            raise HTTPException(status_code=400, detail="Invalid ma_symbols.")
+        args += ["--ma-symbols", universe]
+        params["ma_symbols"] = universe
+    for name, flag, raw, lo, hi in (
+        ("ma_target_weight", "--ma-target-weight", req.ma_target_weight, 0.0, 1.0),
+        ("ma_max_gross_leverage", "--ma-max-gross-leverage", req.ma_max_gross_leverage, 0.0, 5.0),
+        ("ma_utilization", "--ma-utilization", req.ma_utilization, 0.0, 1.0),
+    ):
+        if raw is None:
+            continue
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not lo < float(raw) <= hi:
+            raise HTTPException(status_code=400, detail=f"Invalid {name}.")
+        value = float(raw)
+        args += [flag, str(value)]
+        params[name] = value
+    if req.leverage is not None:
+        if isinstance(req.leverage, bool) or not isinstance(req.leverage, int) or not 1 <= req.leverage <= 125:
+            raise HTTPException(status_code=400, detail="Invalid leverage.")
+        args += ["--leverage", str(req.leverage)]
+        params["leverage"] = req.leverage
+    if req.signal_confidence is not None:
+        conf = req.signal_confidence
+        if isinstance(conf, bool) or not isinstance(conf, (int, float)) or not 0.0 <= float(conf) <= 1.0:
+            raise HTTPException(status_code=400, detail="Invalid signal_confidence.")
+        args += ["--ma-signal-confidence", str(float(conf))]
+        params["signal_confidence"] = float(conf)
+    return args, params
 
 
 @lab_router.post("/lab/run")
@@ -190,6 +257,9 @@ async def lab_run(req: LabRunRequest):
             raise HTTPException(status_code=400, detail="Invalid direction.")
         gate_args += ["--direction", direction]
         gate_params["direction"] = direction
+    ma_args, ma_params = _ma_gate_args(req)
+    gate_args += ma_args
+    gate_params.update(ma_params)
 
     job_id = uuid.uuid4().hex[:12]
     _OUT_DIR.mkdir(parents=True, exist_ok=True)

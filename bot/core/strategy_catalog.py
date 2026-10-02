@@ -82,6 +82,13 @@ _META: dict[str, dict[str, str]] = {
         "risk": "balanced",
         "horizon": "adaptive",
     },
+    "eth ma trend": {
+        "tagline": "Follows ETHUSDT in the direction of a closed-bar 50/200 "
+                   "moving average, and reverses only when that relationship changes.",
+        "regime": "ETH trend",
+        "risk": "tight",
+        "horizon": "position",
+    },
 }
 
 _RISK_LABEL = {
@@ -103,10 +110,33 @@ def _how_it_trades(cfg: dict[str, Any]) -> str:
     sym = cfg.get("symbols")
     if sym == "top3_volume":
         parts.append("the 3 most-liquid pairs")
+    elif isinstance(sym, (list, tuple)):
+        parts.append("only " + ", ".join(str(s) for s in sym) if sym else "no market")
     elif sym:
         parts.append(str(sym))
     else:
         parts.append("all scanned pairs")
+    fast = cfg.get("fast_period")
+    slow = cfg.get("slow_period")
+    if (isinstance(fast, int) and not isinstance(fast, bool)
+            and isinstance(slow, int) and not isinstance(slow, bool)):
+        parts.append(
+            f"the closed-bar {fast}/{slow} simple moving-average direction, "
+            "reversing only when that relationship changes")
+    hours = cfg.get("schedule_hours")
+    if isinstance(hours, int) and not isinstance(hours, bool) and hours > 0:
+        parts.append(f"checked every {hours} hours")
+    gross = cfg.get("max_gross_leverage")
+    if isinstance(gross, (int, float)) and not isinstance(gross, bool):
+        parts.append(f"gross exposure at most {gross:g}\u00d7")
+    lev = cfg.get("leverage")
+    if isinstance(lev, (int, float)) and not isinstance(lev, bool):
+        parts.append(f"leverage {lev:g}\u00d7")
+    weight = cfg.get("target_weight")
+    util = cfg.get("utilization")
+    if (isinstance(weight, (int, float)) and not isinstance(weight, bool)
+            and isinstance(util, (int, float)) and not isinstance(util, bool)):
+        parts.append(f"target weight {weight:g} at utilization {util:g}")
     regime = cfg.get("regime")
     if regime:
         parts.append(f"only in {str(regime).replace('_', ' ').lower()}")
@@ -137,7 +167,18 @@ def _how_it_trades(cfg: dict[str, Any]) -> str:
         if tp is not None:
             bits.append(f"{tp:g}-ATR target")
         parts.append(" / ".join(bits))
-    return "Trades " + ", ".join(parts) + "."
+    text = "Trades " + ", ".join(parts) + "."
+    source_tf = cfg.get("ma_source_timeframe")
+    target_tf = cfg.get("ma_timeframe")
+    if (isinstance(fast, int) and not isinstance(fast, bool)
+            and isinstance(slow, int) and not isinstance(slow, bool)
+            and source_tf and target_tf and source_tf != target_tf):
+        text += (
+            f" The {fast}/{slow} average is read on closed {target_tf} bars "
+            f"resampled from {source_tf} bars; a trailing unfinished "
+            f"{target_tf} group is dropped. {source_tf} bars stay {source_tf} bars."
+        )
+    return text
 
 
 def _load_scorecard(agent_id: str) -> Optional[dict]:

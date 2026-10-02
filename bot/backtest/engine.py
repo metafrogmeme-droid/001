@@ -234,6 +234,9 @@ class BacktestEngine:
             and CONFIG.risk.symbol_loss_streak_enabled)
         self._symbol_loss_streaks: dict[str, int] = {}
         self._symbol_cooldown_until: dict[str, object] = {}
+        # Last closed target-bar open time the moving-average book acted on.
+        # One decision per closed bar. None until the first readable stamp.
+        self._last_ma_stamp: int | None = None
 
     @staticmethod
     def _below_confidence_gate(confidence: float, threshold: float) -> bool:
@@ -496,7 +499,10 @@ class BacktestEngine:
             self._check_stops_intrabar(current_bar)
 
             # --- Generate signal every scan_interval bars ---
-            if i % scan_interval == 0:
+            # A moving-average preset reads every primary bar so a closed
+            # coarser bar is seen on the hour it completes. Other presets
+            # keep the scan interval they already had.
+            if self._wants_signal_bar(i):
                 window = bars[max(0, i - lookback_size):i + 1]
                 await self._process_bar(current_bar, window, i)
 
@@ -534,10 +540,178 @@ class BacktestEngine:
 
     # ── Pipeline stages ──────────────────────────────────────────
 
+    def _ma_configured(self) -> bool:
+        """True only when this run's direction is a fast/slow average."""
+        fast = getattr(self.config, "ma_fast", None)
+        slow = getattr(self.config, "ma_slow", None)
+        if isinstance(fast, bool) or not isinstance(fast, int):
+            return False
+        if isinstance(slow, bool) or not isinstance(slow, int):
+            return False
+        return slow > fast > 0
+
+    def _wants_signal_bar(self, i: int) -> bool:
+        """Whether bar ``i`` is asked for a signal.
+
+        The moving-average book looks at every primary bar. Every other run
+        keeps ``scan_interval``.
+        """
+        if self._ma_configured():
+            return True
+        interval = self.config.scan_interval or 1
+        return i % interval == 0
+
+    def _ma_held_side(self, symbol: str) -> str | None:
+        from bot.core.strategy_gate import _base
+        base = _base(symbol)
+        for tid, pos in self.portfolio._positions.items():
+            meta = self._open_bt_positions.get(tid) or {}
+            if not meta.get("ma_flip"):
+                continue
+            if _base(getattr(pos, "asset", "")) != base:
+                continue
+            val = getattr(getattr(pos, "direction", None), "value", None)
+            if val in ("LONG", "SHORT"):
+                return val
+        return None
+
+    def _close_ma_book(self, bar: BacktestBar, reason: str) -> bool:
+        """Close this symbol's moving-average position. False if one remains."""
+        from bot.core.strategy_gate import _base
+        base = _base(bar.symbol)
+        ids = []
+        for tid, meta in self._open_bt_positions.items():
+            if not meta.get("ma_flip"):
+                continue
+            idea = meta.get("idea")
+            if _base(getattr(idea, "asset", "")) == base:
+                ids.append(tid)
+        for tid in ids:
+            self._close_position(tid, bar.close, bar, reason)
+            if tid in self._open_bt_positions:
+                return False
+        return True
+
+    def _open_ma_position(self, bar: BacktestBar, side: str) -> None:
+        """Open the relationship's side at this bar's close.
+
+        Size comes from the preset's weight, utilization, gross cap and
+        leverage. A missing input does not open. The stop and target exist
+        because a trade idea requires them; ``ma_flip`` is what keeps the
+        bar range from exiting on them.
+        """
+        from bot.core.ma_trend import ma_margin
+        from bot.utils.models import TradeIdea
+        cfg = self.config
+        margin = ma_margin(
+            self.portfolio.balance,
+            cfg.ma_target_weight,
+            cfg.ma_utilization,
+            cfg.ma_max_gross_leverage,
+            cfg.leverage,
+        )
+        if margin is None:
+            return
+        price = float(bar.close)
+        if price <= 0 or price != price:
+            return
+        slip = price * (self.config.slippage_pct / 100.0)
+        entry = price + slip if side == "LONG" else price - slip
+        if entry <= 0:
+            return
+        conf = cfg.ma_signal_confidence
+        if isinstance(conf, bool) or not isinstance(conf, (int, float)):
+            return
+        if conf != conf or conf < 0.0 or conf > 1.0:
+            return
+        if side == "LONG":
+            stop, target = entry * 0.5, entry * 1.5
+            direction = Direction.LONG
+        elif side == "SHORT":
+            stop, target = entry * 1.5, entry * 0.5
+            direction = Direction.SHORT
+        else:
+            return
+        idea = TradeIdea(
+            asset=bar.symbol,
+            direction=direction,
+            entry_price=entry,
+            stop_loss=stop,
+            take_profit=target,
+            confidence=float(conf),
+            reasoning=("Closed-bar moving-average direction; reverse only "
+                       "when the relationship changes."),
+            signals_used=["ma_trend"],
+            source="ma_trend",
+            strategy_type="position",
+            signal_type="ma_trend",
+            timeframe=cfg.ma_timeframe or cfg.timeframe,
+        )
+        try:
+            trade = self.portfolio.open_position(
+                idea, margin, leverage=int(cfg.leverage))
+        except ValueError:
+            return
+        self._open_bt_positions[idea.id] = {
+            "entry_time": bar.timestamp,
+            "adjusted_entry": entry,
+            "commission_entry": margin * (self.config.commission_pct / 100),
+            "slippage_entry": slip * trade.quantity,
+            "idea": idea,
+            "risk_verdict": "MA_RULE",
+            "entry_regime": "",
+            "volume_spike_ratio": None,
+            "ma_flip": True,
+        }
+
+    def _process_ma_bar(self, bar: BacktestBar, bar_index: int) -> None:
+        """One primary bar of a moving-average preset. No analyzer."""
+        from bot.core.ma_trend import closed_ohlcv, last_closed_open_ms, ma_trend_step, symbol_allowed
+        if not symbol_allowed(bar.symbol, self.config.ma_symbols):
+            return
+        raw = getattr(self, "_all_raw", None)
+        if not raw or bar_index < 0:
+            return
+        rows = closed_ohlcv(
+            raw[:bar_index + 1], self.config.timeframe, self.config.ma_timeframe)
+        if rows is None:
+            return
+        stamp = last_closed_open_ms(rows)
+        if stamp is None or stamp == self._last_ma_stamp:
+            return
+        self._last_ma_stamp = stamp
+        closes = []
+        for row in rows:
+            try:
+                closes.append(row[4])
+            except (TypeError, IndexError):
+                return
+        fast = self.config.ma_fast
+        slow = self.config.ma_slow
+        if isinstance(fast, bool) or not isinstance(fast, int):
+            return
+        if isinstance(slow, bool) or not isinstance(slow, int):
+            return
+        step = ma_trend_step(
+            closes, fast, slow, self._ma_held_side(bar.symbol))
+        action = step["action"]
+        side = step["side"]
+        if action in ("hold", "stand_aside") or side not in ("LONG", "SHORT"):
+            return
+        if action == "reverse" and not self._close_ma_book(bar, "MA_FLIP"):
+            return
+        if action == "enter" and self._ma_held_side(bar.symbol) is not None:
+            return
+        self._open_ma_position(bar, side)
+
     async def _process_bar(
         self, bar: BacktestBar, window: list[BacktestBar], bar_index: int
     ) -> None:
         """Run the perception → decision → risk pipeline on a single bar."""
+
+        if self._ma_configured():
+            self._process_ma_bar(bar, bar_index)
+            return
 
         # 1. Build a MarketSignal from bar context
         signal = self._bar_to_signal(bar, window)
@@ -967,6 +1141,11 @@ class BacktestEngine:
                 continue
 
             bt_meta = self._open_bt_positions[tid]
+
+            # This book exits when the moving-average relationship flips, or
+            # at the last bar. A wick through the idea's stop is not an exit.
+            if bt_meta.get("ma_flip"):
+                continue
 
             # Time-stop (gated; mirrors live). Count bars held, then if the
             # per-strategy time-close horizon is exceeded AND the position is not

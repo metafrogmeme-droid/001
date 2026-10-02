@@ -185,7 +185,7 @@ class PortfolioBacktester:
 
                 eng._check_stops_intrabar(bar)
 
-                if i % scan_interval == 0:
+                if eng._wants_signal_bar(i):
                     window = bars[max(0, i - lookback):i + 1]
                     await eng._process_bar(bar, window, i)
 

@@ -79,6 +79,23 @@ class BacktestConfig(BaseModel):
     # number includes the multiple. An unreadable ATR does not invent one.
     sl_atr_mult: Optional[float] = None
     tp_atr_mult: Optional[float] = None
+    # Closed-bar moving-average trend. All default OFF. When fast and slow are
+    # set, that preset's book is the relationship itself: long when the fast
+    # average is above the slow average, short when it is below, flat when
+    # either average cannot be read. A held side reverses only when the
+    # relationship changes. The house analyzer, its stops, and the risk gate
+    # do not size or exit this book. ``ma_timeframe`` empty means the run's
+    # own bars; a coarser value is resampled and a trailing unfinished group
+    # is dropped. ``ma_symbols`` empty allows no market.
+    ma_fast: Optional[int] = None
+    ma_slow: Optional[int] = None
+    ma_timeframe: str = ""
+    ma_symbols: str = ""
+    ma_target_weight: Optional[float] = None
+    ma_max_gross_leverage: Optional[float] = None
+    ma_utilization: Optional[float] = None
+    # The signal's stated confidence. Not an entry gate. None does not open.
+    ma_signal_confidence: Optional[float] = None
     # Entry fill convention (audit fix #15). "close" = fill at the same bar's
     # close that generated the signal (legacy; optimistic — assumes you can
     # transact at the closing print). "next_open" = queue the approved idea and

@@ -66,6 +66,9 @@ def test_defaults_are_a_strict_no_op():
     assert eng.config.rsi_max is None
     assert eng.config.rsi_min is None
     assert eng.config.direction == ""
+    assert eng.config.ma_fast is None
+    assert eng.config.ma_slow is None
+    assert eng._ma_configured() is False
 
 
 def test_volume_spike_gate_filters_below_min():

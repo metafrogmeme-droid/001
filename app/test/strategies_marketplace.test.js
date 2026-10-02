@@ -136,8 +136,12 @@ test('the primary CTA becomes "Reproduce in Lab" when a scorecard exists', () =>
   const dash = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
   assert.match(dash, /hasSc \? 'Reproduce in Lab' : 'Backtest in Lab'/);
   // The click handler stashes the EXACT scorecard gates for the Lab to re-run.
-  assert.match(dash, /_labReproduce = \{/);
+  assert.match(dash, /_labReproduce = labBodyFromScorecard\(/);
+  assert.match(dash, /function labBodyFromScorecard\(name, sc\)/);
   assert.match(dash, /volume_spike_min: sc\.gates\.volume_spike_min/);
+  assert.match(dash, /ma_fast: sc\.gates\.ma_fast/);
+  assert.match(dash, /ma_slow: sc\.gates\.ma_slow/);
+  assert.match(dash, /leverage: sc\.gates\.leverage/);
   assert.match(dash, /regime_filter: sc\.gates\.regime_filter/);
   assert.match(dash, /rsi_max: sc\.gates\.rsi_max/);
   assert.match(dash, /rsi_min: sc\.gates\.rsi_min/);
@@ -154,6 +158,9 @@ test('the Lab route forwards the preset gate params to the bridge', () => {
   assert.match(lab, /body\.rsi_max = parseFloat/);
   assert.match(lab, /body\.rsi_min = parseFloat/);
   assert.match(lab, /body\.direction = String\(b\.direction\)/);
+  assert.match(lab, /body\.ma_fast = parseInt/);
+  assert.match(lab, /body\.ma_slow = parseInt/);
+  assert.match(lab, /body\.leverage = parseInt/);
 });
 
 test('the Lab bridge validates + clamps the preset gates', () => {
@@ -166,6 +173,9 @@ test('the Lab bridge validates + clamps the preset gates', () => {
   assert.match(lab, /"--volume-spike-min"/);
   assert.match(lab, /"--regime-filter"/);
   assert.match(lab, /"--rsi-max"/);
+  assert.match(lab, /"--ma-fast"/);
+  assert.match(lab, /"--ma-slow"/);
+  assert.match(lab, /ma_slow must be above ma_fast/);
   // Regime is validated against an allowlist pattern before reaching the shell.
   assert.match(lab, /re\.fullmatch\(r"\[A-Z_\]\{1,20\}", regime\)/);
 });

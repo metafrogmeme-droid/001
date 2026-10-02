@@ -7604,6 +7604,32 @@
   // figure, never a fabricated return. Verified performance lives on the honest
   // Strategy Lab (frozen-data backtests) and the verifiable leaderboard.
   const _riskBorder = { tight: 'var(--up)', balanced: 'var(--gold-bright)', aggressive: 'var(--warn, #e0913a)' };
+  function labBodyFromScorecard(name, sc) {
+    return {
+      _agent: name,
+      body: {
+        dataset: sc.dataset,
+        symbols: sc.symbols || [],
+        last_bars: sc.bars || 1500,
+        confidence_threshold: sc.gates.confidence_threshold || 0,
+        volume_spike_min: sc.gates.volume_spike_min,
+        regime_filter: sc.gates.regime_filter || '',
+        rsi_max: sc.gates.rsi_max,
+        rsi_min: sc.gates.rsi_min,
+        direction: sc.gates.direction || '',
+        ma_fast: sc.gates.ma_fast,
+        ma_slow: sc.gates.ma_slow,
+        ma_timeframe: sc.gates.ma_timeframe || '',
+        ma_symbols: sc.gates.ma_symbols || '',
+        ma_target_weight: sc.gates.ma_target_weight,
+        ma_max_gross_leverage: sc.gates.ma_max_gross_leverage,
+        ma_utilization: sc.gates.ma_utilization,
+        leverage: sc.gates.leverage,
+        signal_confidence: sc.gates.signal_confidence,
+      },
+    };
+  }
+
   async function renderAgents() {
     const $ = id => document.getElementById(id);
     container.innerHTML = viewHead('Strategy Agents',
@@ -8153,20 +8179,7 @@
         const a = (agentCards || []).find(x => x.id === lab.dataset.agentlab);
         const sc = a && a.scorecard;
         if (sc && sc.gates && sc.dataset) {
-          _labReproduce = {
-            _agent: a.name,
-            body: {
-              dataset: sc.dataset,
-              symbols: sc.symbols || [],
-              last_bars: sc.bars || 1500,
-              confidence_threshold: sc.gates.confidence_threshold || 0,
-              volume_spike_min: sc.gates.volume_spike_min,
-              regime_filter: sc.gates.regime_filter || '',
-              rsi_max: sc.gates.rsi_max,
-              rsi_min: sc.gates.rsi_min,
-              direction: sc.gates.direction || '',
-            },
-          };
+          _labReproduce = labBodyFromScorecard(a.name, sc);
         }
         showView('lab');
         return;
@@ -8414,20 +8427,7 @@
             .find(x => String(x.id).toLowerCase() === _slug.toLowerCase());
           const csc = ca && ca.scorecard;
           if (csc && csc.gates && csc.dataset) {
-            _labReproduce = {
-              _agent: ca.name,
-              body: {
-                dataset: csc.dataset,
-                symbols: csc.symbols || [],
-                last_bars: csc.bars || 1500,
-                confidence_threshold: csc.gates.confidence_threshold || 0,
-                volume_spike_min: csc.gates.volume_spike_min,
-                regime_filter: csc.gates.regime_filter || '',
-                rsi_max: csc.gates.rsi_max,
-                rsi_min: csc.gates.rsi_min,
-                direction: csc.gates.direction || '',
-              },
-            };
+            _labReproduce = labBodyFromScorecard(ca.name, csc);
           }
           try { history.replaceState(null, '', location.pathname + '#lab'); } catch (e) { /* ignore */ }
         }

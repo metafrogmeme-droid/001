@@ -2219,10 +2219,32 @@ class RunStrategySkill(BaseSkill):
             "direction": None, "volume_spike_min": None,
             "sl_atr_mult": None, "tp_atr_mult": None,
         },
+        # Pixels of the source playbook: leverage 1× (the typed "10×" disagreed),
+        # margin budget and starting capital $10,000 (the typed budget was $1,000).
+        # Those dollar amounts stay on this dict. The public catalogue does not
+        # render them. signal_confidence is the signal's stated 0.7, not a gate.
+        "eth ma trend": {
+            "label": "ETH Moving-Average Trend", "icon": "\U0001f4c8",
+            "desc": ("ETHUSDT only \u2022 closed-bar 50/200 moving average \u2022 "
+                     "reverse only when the relationship changes \u2022 gross at most 1\u00d7"),
+            "symbols": ["ETHUSDT"],
+            "rsi_threshold": None, "rsi_min": None,
+            "regime": None, "confidence_threshold": None,
+            "direction": None, "volume_spike_min": None,
+            "sl_atr_mult": None, "tp_atr_mult": None,
+            "fast_period": 50, "slow_period": 200,
+            "target_weight": 1, "max_gross_leverage": 1,
+            "leverage": 1, "utilization": 1,
+            "margin_budget_usd": 10_000, "starting_capital_usd": 10_000,
+            "schedule_hours": 4, "ma_timeframe": "4h",
+            "ma_source_timeframe": "1h",
+            "signal_confidence": 0.7,
+        },
     }
     ALIASES: dict[str, str] = {
         "dip": "dip sniper", "momentum": "momentum hunter",
         "scalp": "safe scalper", "scan all": "full scan",
+        "ethma": "eth ma trend",
     }
 
     @classmethod
@@ -2312,6 +2334,17 @@ class RunStrategySkill(BaseSkill):
             engine._last_strategy_setups = []
         except Exception:
             pass
+
+        # The moving-average preset is a reading, not a scan of the house
+        # ideas. This command does not open, resize, or close a position.
+        from bot.core.ma_trend import preset_is_ma_trend
+        if preset_is_ma_trend(cfg):
+            from bot.core.strategy_catalog import _how_it_trades
+            return (
+                f"{cfg['icon']} <b>{cfg['label']}</b>\n"
+                f"{_how_it_trades(cfg)}\n"
+                "<i>No order is placed and no position is closed.</i>"
+            )
 
         signals = await engine.scanner.scan()
         if not signals:

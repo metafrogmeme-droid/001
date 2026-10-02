@@ -141,6 +141,27 @@ def _gate_args(cfg: dict) -> list[str]:
         args += ["--sl-atr-mult", str(cfg["sl_atr_mult"])]
     if cfg.get("tp_atr_mult") is not None:
         args += ["--tp-atr-mult", str(cfg["tp_atr_mult"])]
+    fast = cfg.get("fast_period")
+    slow = cfg.get("slow_period")
+    if (isinstance(fast, int) and not isinstance(fast, bool)
+            and isinstance(slow, int) and not isinstance(slow, bool)):
+        args += ["--ma-fast", str(fast), "--ma-slow", str(slow)]
+        if cfg.get("ma_timeframe"):
+            args += ["--ma-timeframe", str(cfg["ma_timeframe"])]
+        syms = cfg.get("symbols")
+        if isinstance(syms, (list, tuple)) and syms:
+            args += ["--ma-symbols", ",".join(str(s) for s in syms)]
+        for flag, key in (
+            ("--ma-target-weight", "target_weight"),
+            ("--ma-max-gross-leverage", "max_gross_leverage"),
+            ("--ma-utilization", "utilization"),
+            ("--leverage", "leverage"),
+            ("--ma-signal-confidence", "signal_confidence"),
+        ):
+            val = cfg.get(key)
+            if isinstance(val, bool) or not isinstance(val, (int, float)):
+                continue
+            args += [flag, str(val)]
     return args
 
 
@@ -179,8 +200,13 @@ def _breakdown_rows(runner: dict) -> list[dict]:
 
 
 def scorecard_gates(cfg: dict) -> dict:
-    """The gate block written onto a scorecard. One reading of the preset."""
-    return {
+    """The gate block written onto a scorecard. One reading of the preset.
+
+    Moving-average keys are added only when this preset has them, so the
+    other presets' gate blocks stay the shape already on their cards.
+    Dollar budgets are not gates.
+    """
+    gates = {
         "confidence_threshold": cfg.get("confidence_threshold"),
         "volume_spike_min": cfg.get("volume_spike_min"),
         "regime_filter": cfg.get("regime") or None,
@@ -189,6 +215,52 @@ def scorecard_gates(cfg: dict) -> dict:
         "direction": cfg.get("direction"),
         "symbols": cfg.get("symbols"),
     }
+    fast = cfg.get("fast_period")
+    slow = cfg.get("slow_period")
+    if (isinstance(fast, int) and not isinstance(fast, bool)
+            and isinstance(slow, int) and not isinstance(slow, bool)):
+        syms = cfg.get("symbols")
+        joined = ",".join(str(s) for s in syms) if isinstance(syms, (list, tuple)) else None
+        gates["ma_fast"] = fast
+        gates["ma_slow"] = slow
+        gates["ma_timeframe"] = cfg.get("ma_timeframe") or None
+        gates["ma_symbols"] = joined
+        gates["max_gross_leverage"] = cfg.get("max_gross_leverage")
+        gates["target_weight"] = cfg.get("target_weight")
+        gates["utilization"] = cfg.get("utilization")
+        gates["leverage"] = cfg.get("leverage")
+        gates["signal_confidence"] = cfg.get("signal_confidence")
+        gates["schedule_hours"] = cfg.get("schedule_hours")
+    return gates
+
+
+def scorecard_note(cfg: dict) -> str:
+    """The card's note. The moving-average sentence says which bars were read."""
+    note = ("Design backtest on FROZEN benchmark data — percent/ratio "
+            "only, never a dollar figure. Re-run the identical backtest "
+            "in the Strategy Lab to reproduce.")
+    fast = cfg.get("fast_period")
+    slow = cfg.get("slow_period")
+    if not (isinstance(fast, int) and not isinstance(fast, bool)
+            and isinstance(slow, int) and not isinstance(slow, bool)):
+        return note
+    target = cfg.get("ma_timeframe") or "the run timeframe"
+    source = cfg.get("ma_source_timeframe") or "the dataset"
+    note += (
+        f" Direction is the closed-bar {fast}/{slow} simple moving average, "
+        "and the position reverses only when that relationship changes. "
+        f"The average is read on closed {target} bars resampled from {source} "
+        f"bars; a trailing unfinished {target} group is dropped. "
+        f"The fill is that closed bar's close. "
+        "The house risk gate does not size or exit this book."
+    )
+    conf = cfg.get("signal_confidence")
+    if isinstance(conf, (int, float)) and not isinstance(conf, bool):
+        note += (
+            f" Each row's confidence is the signal's stated {conf}, "
+            "not a measured probability."
+        )
+    return note
 
 
 def build_card(*, preset_key: str, cfg: dict, runner: dict, dataset_name: str,
@@ -221,9 +293,7 @@ def build_card(*, preset_key: str, cfg: dict, runner: dict, dataset_name: str,
         "honest": True,
         "recorded_at": recorded_at,
         "code_sha": code_sha_value,
-        "note": ("Design backtest on FROZEN benchmark data — percent/ratio "
-                 "only, never a dollar figure. Re-run the identical backtest "
-                 "in the Strategy Lab to reproduce."),
+        "note": scorecard_note(cfg),
     }
 
 
@@ -247,7 +317,8 @@ def _run_one(preset_key: str, cfg: dict, dataset: str, symbols: str,
     return res
 
 
-def generate(dataset: str, symbols: str, last_bars: int) -> list[str]:
+def generate(dataset: str, symbols: str, last_bars: int,
+             preset: str = "") -> list[str]:
     from bot.backtest.snapshot import load_manifest_multi
     from bot.skills.skill_registry import RunStrategySkill
 
@@ -266,7 +337,10 @@ def generate(dataset: str, symbols: str, last_bars: int) -> list[str]:
     out_dir = _scorecard_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
+    want = preset.strip().lower().replace("-", " ")
     for key, cfg in RunStrategySkill.PRESETS.items():
+        if want and want not in (key, _slug(key).replace("-", " ")):
+            continue
         res = _run_one(key, cfg, dataset, symbols, last_bars)
         card = build_card(
             preset_key=key, cfg=cfg, runner=res,
@@ -281,6 +355,8 @@ def generate(dataset: str, symbols: str, last_bars: int) -> list[str]:
         print(f"    -> {path.name}: ret {m.get('total_return_pct')}% "
               f"PF {m.get('profit_factor')} trades {m.get('total_trades')}",
               flush=True)
+    if want and not written:
+        raise SystemExit(f"no preset matched {preset!r}")
     return written
 
 
@@ -290,10 +366,12 @@ def main() -> None:
     ap.add_argument("--symbols",
                     default="BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT")
     ap.add_argument("--last-bars", type=int, default=1500)
+    ap.add_argument("--preset", default="",
+                    help="Only this preset key or slug. Other scorecards are left as they are.")
     args = ap.parse_args()
     print(f"Generating agent scorecards on {args.dataset} "
           f"({args.symbols}, {args.last_bars} bars)…")
-    written = generate(args.dataset, args.symbols, args.last_bars)
+    written = generate(args.dataset, args.symbols, args.last_bars, preset=args.preset)
     print(f"\nWrote {len(written)} scorecards:\n  " + "\n  ".join(written))
 
 

@@ -344,6 +344,14 @@ def _preset_gate_kwargs(args: argparse.Namespace) -> dict:
         "direction": getattr(args, "direction", "") or "",
         "sl_atr_mult": getattr(args, "sl_atr_mult", None),
         "tp_atr_mult": getattr(args, "tp_atr_mult", None),
+        "ma_fast": getattr(args, "ma_fast", None),
+        "ma_slow": getattr(args, "ma_slow", None),
+        "ma_timeframe": getattr(args, "ma_timeframe", "") or "",
+        "ma_symbols": getattr(args, "ma_symbols", "") or "",
+        "ma_target_weight": getattr(args, "ma_target_weight", None),
+        "ma_max_gross_leverage": getattr(args, "ma_max_gross_leverage", None),
+        "ma_utilization": getattr(args, "ma_utilization", None),
+        "ma_signal_confidence": getattr(args, "ma_signal_confidence", None),
     }
 
 
@@ -701,6 +709,25 @@ Examples:
     trade_group.add_argument("--tp-atr-mult", type=float, default=None,
                              help="Replace the idea's target with this many ATRs from entry. "
                                   "Unset leaves the analyzer's target.")
+    trade_group.add_argument("--ma-fast", type=int, default=None,
+                             help="Closed-bar fast simple-moving-average period. "
+                                  "With --ma-slow, direction is that relationship.")
+    trade_group.add_argument("--ma-slow", type=int, default=None,
+                             help="Closed-bar slow simple-moving-average period.")
+    trade_group.add_argument("--ma-timeframe", type=str, default="",
+                             help="Bars the average is read on. Empty uses --timeframe. "
+                                  "A coarser value is resampled; a trailing unfinished "
+                                  "group is dropped.")
+    trade_group.add_argument("--ma-symbols", type=str, default="",
+                             help="Comma-separated universe. Empty allows no market.")
+    trade_group.add_argument("--ma-target-weight", type=float, default=None,
+                             help="Fraction of balance used as margin before the gross cap.")
+    trade_group.add_argument("--ma-max-gross-leverage", type=float, default=None,
+                             help="Cap on notional / balance. Distinct from --leverage.")
+    trade_group.add_argument("--ma-utilization", type=float, default=None,
+                             help="Scales the margin with the target weight.")
+    trade_group.add_argument("--ma-signal-confidence", type=float, default=None,
+                             help="Stated confidence stamped on the signal. Not a gate.")
     trade_group.add_argument("--fill-mode", choices=("close", "next_open"), default="close",
                              help="Entry fill convention: same-bar close (legacy, optimistic) "
                                   "or next-bar open (conservative; audit fix #15). Run both "
