@@ -151,6 +151,8 @@ def _gate_args(cfg: dict) -> list[str]:
         syms = cfg.get("symbols")
         if isinstance(syms, (list, tuple)) and syms:
             args += ["--ma-symbols", ",".join(str(s) for s in syms)]
+        from bot.core.strategy_catalog import _ma_book_can_size
+        sized = _ma_book_can_size(cfg)
         for flag, key in (
             ("--ma-target-weight", "target_weight"),
             ("--ma-max-gross-leverage", "max_gross_leverage"),
@@ -158,6 +160,11 @@ def _gate_args(cfg: dict) -> list[str]:
             ("--leverage", "leverage"),
             ("--ma-signal-confidence", "signal_confidence"),
         ):
+            # Leverage is the fill's leverage. The fill reads it only after
+            # the margin inputs produce a size. Without those, passing the
+            # flag would describe a leverage the book does not apply.
+            if key == "leverage" and not sized:
+                continue
             val = cfg.get(key)
             if isinstance(val, bool) or not isinstance(val, (int, float)):
                 continue
@@ -166,15 +173,52 @@ def _gate_args(cfg: dict) -> list[str]:
 
 
 def _unmodeled(cfg: dict) -> list[str]:
-    """Exit multiples the runner was not asked to apply. A multiple that
-    ``_gate_args`` emits is in the number; one it does not emit stays named."""
+    """Knobs the runner was not asked to apply.
+
+    An exit multiple ``_gate_args`` emits is in the number. A recorded trail,
+    scale-out, risk ratio, margin mode or position count has no runner flag,
+    so it stays named. Leverage stays named when the fill path cannot size,
+    because that is when ``_gate_args`` does not emit it.
+    """
+    from bot.core.strategy_catalog import UNAPPLIED_PRESET_KEYS
     emitted = set(_gate_args(cfg))
     out: list[str] = []
     if cfg.get("sl_atr_mult") is not None and "--sl-atr-mult" not in emitted:
         out.append("sl_atr_mult")
     if cfg.get("tp_atr_mult") is not None and "--tp-atr-mult" not in emitted:
         out.append("tp_atr_mult")
+    flag_for = {"leverage": "--leverage"}
+    for key in UNAPPLIED_PRESET_KEYS:
+        if cfg.get(key) is None:
+            continue
+        flag = flag_for.get(key)
+        if flag is not None and flag in emitted:
+            continue
+        out.append(key)
     return out
+
+
+def preset_universe_covered(cfg: dict, run_symbols: list[str]) -> bool:
+    """True when this run's markets are the preset's universe.
+
+    A preset with no explicit list, or the top-volume rule, is the house scan
+    the frozen window already scores. An explicit list is covered only when
+    every symbol is in the run. One overlapping name is not the book, and a
+    run that does not cover the list does not get a scorecard.
+    """
+    from bot.core.strategy_gate import _base
+    syms = cfg.get("symbols") if isinstance(cfg, dict) else None
+    if syms is None or syms == "top3_volume":
+        return True
+    if isinstance(syms, str):
+        return True
+    if not isinstance(syms, list | tuple) or not syms:
+        return False
+    run = {_base(s) for s in run_symbols if str(s).strip()}
+    need = {_base(s) for s in syms if str(s).strip()}
+    if not need:
+        return False
+    return need <= run
 
 
 def _breakdown_rows(runner: dict) -> list[dict]:
@@ -231,6 +275,9 @@ def scorecard_gates(cfg: dict) -> dict:
         gates["leverage"] = cfg.get("leverage")
         gates["signal_confidence"] = cfg.get("signal_confidence")
         gates["schedule_hours"] = cfg.get("schedule_hours")
+    # A knob the runner was not asked to apply is not a gate of the number.
+    for key in _unmodeled(cfg):
+        gates.pop(key, None)
     return gates
 
 
@@ -244,14 +291,25 @@ def scorecard_note(cfg: dict) -> str:
     if not (isinstance(fast, int) and not isinstance(fast, bool)
             and isinstance(slow, int) and not isinstance(slow, bool)):
         return note
-    target = cfg.get("ma_timeframe") or "the run timeframe"
-    source = cfg.get("ma_source_timeframe") or "the dataset"
     note += (
         f" Direction is the closed-bar {fast}/{slow} simple moving average, "
         "and the position reverses only when that relationship changes. "
-        f"The average is read on closed {target} bars resampled from {source} "
-        f"bars; a trailing unfinished {target} group is dropped. "
-        f"The fill is that closed bar's close. "
+    )
+    target_raw = cfg.get("ma_timeframe")
+    source_raw = cfg.get("ma_source_timeframe")
+    if (isinstance(target_raw, str) and target_raw.strip()
+            and isinstance(source_raw, str) and source_raw.strip()
+            and target_raw.strip() != source_raw.strip()):
+        target = target_raw.strip()
+        source = source_raw.strip()
+        note += (
+            f"The average is read on closed {target} bars resampled from {source} "
+            f"bars; a trailing unfinished {target} group is dropped. "
+        )
+    else:
+        note += "The average is read on the run's closed bars. "
+    note += (
+        "The fill is that closed bar's close. "
         "The house risk gate does not size or exit this book."
     )
     conf = cfg.get("signal_confidence")
@@ -259,6 +317,12 @@ def scorecard_note(cfg: dict) -> str:
         note += (
             f" Each row's confidence is the signal's stated {conf}, "
             "not a measured probability."
+        )
+    pending = _unmodeled(cfg)
+    if pending:
+        note += (
+            " Recorded and not applied: " + ", ".join(pending) + "."
+            " These knobs are not in the number."
         )
     return note
 
@@ -338,8 +402,14 @@ def generate(dataset: str, symbols: str, last_bars: int,
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
     want = preset.strip().lower().replace("-", " ")
+    matched = False
     for key, cfg in RunStrategySkill.PRESETS.items():
         if want and want not in (key, _slug(key).replace("-", " ")):
+            continue
+        matched = True
+        if not preset_universe_covered(cfg, sym_list):
+            print(f"  [{key}] omitted: this run's symbols are not its universe. "
+                  "No scorecard written.", flush=True)
             continue
         res = _run_one(key, cfg, dataset, symbols, last_bars)
         card = build_card(
@@ -356,6 +426,10 @@ def generate(dataset: str, symbols: str, last_bars: int,
               f"PF {m.get('profit_factor')} trades {m.get('total_trades')}",
               flush=True)
     if want and not written:
+        if matched:
+            raise SystemExit(
+                f"{preset!r} is a preset, and this run's symbols are not its "
+                "universe. No scorecard was written.")
         raise SystemExit(f"no preset matched {preset!r}")
     return written
 

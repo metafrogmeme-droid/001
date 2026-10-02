@@ -43,10 +43,18 @@ def _all_keys(obj):
     return out
 
 
-def test_a_scorecard_exists_for_every_preset():
+_WINDOW = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT"]
+
+
+def test_a_scorecard_exists_for_every_preset_the_frozen_window_covers():
+    from scripts.gen_agent_scorecards import preset_universe_covered
     files = {os.path.basename(p) for p in glob.glob(os.path.join(_SC_DIR, "*.json"))}
-    for key in RunStrategySkill.PRESETS:
-        assert f"{sc._slug(key)}.json" in files, f"missing scorecard for {key}"
+    for key, cfg in RunStrategySkill.PRESETS.items():
+        name = f"{sc._slug(key)}.json"
+        if preset_universe_covered(cfg, _WINDOW):
+            assert name in files, f"missing scorecard for {key}"
+        else:
+            assert name not in files, f"{key} must not publish this window"
 
 
 def test_scorecards_are_section4_safe_percent_ratio_only():
@@ -67,8 +75,14 @@ def test_scorecards_are_section4_safe_percent_ratio_only():
 
 
 def test_catalog_attaches_scorecard_with_provenance():
+    from scripts.gen_agent_scorecards import preset_universe_covered
+    by_slug = {sc._slug(key): cfg for key, cfg in RunStrategySkill.PRESETS.items()}
     for card in sc.catalog():
         s = card.get("scorecard")
+        cfg = by_slug[card["id"]]
+        if not preset_universe_covered(cfg, _WINDOW):
+            assert s is None, card["id"]
+            continue
         assert s is not None, f"{card['id']} has no scorecard attached"
         assert s["dataset"] and len(s["dataset_hash"]) == 12   # truncated for display
         m = s["metrics"]
@@ -113,12 +127,21 @@ def test_committed_scorecards_are_the_rerun_of_these_rules():
     TREND_UP filter, Safe Scalper with no RSI floor) changes the rerun, so it
     no longer matches the committed card.
     """
-    from scripts.gen_agent_scorecards import _METRIC_KEYS, _run_one, scorecard_gates
+    from scripts.gen_agent_scorecards import (
+        _METRIC_KEYS,
+        _run_one,
+        preset_universe_covered,
+        scorecard_gates,
+    )
 
     dataset = os.path.join(_REPO, "benchmark", "majors_1h")
     symbols = "BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT"
+    window = [s.strip() for s in symbols.split(",")]
     for key, cfg in RunStrategySkill.PRESETS.items():
         slug = sc._slug(key)
+        if not preset_universe_covered(cfg, window):
+            assert not os.path.exists(os.path.join(_SC_DIR, f"{slug}.json"))
+            continue
         with open(os.path.join(_SC_DIR, f"{slug}.json"), encoding="utf-8") as fh:
             card = json.loads(fh.read())
         assert card["gates"] == scorecard_gates(cfg), slug
