@@ -198,9 +198,15 @@ def test_each_registry_is_read_and_not_empty():
         ("express mounts", express_mounts()),
         ("express pages", express_pages()),
         ("gateway routes", gateway_routes()),
-        ("chat intercepts", chat_intercepts()),
     ):
         assert len(got) > 5, f"{name} read as {len(got)} entries — the reader is broken, not the tree"
+    # Five rows remain (defi, exposure, research, networth, idleyield). A
+    # floor of "> 5" called that reading broken the day the spot market left
+    # for the shared door. The set is the table, so a reader that returns
+    # nothing still fails, and a renamed row fails by name.
+    assert chat_intercepts() == {
+        "defi", "exposure", "research", "networth", "idleyield",
+    }, chat_intercepts()
 
 
 def test_a_mounted_routers_own_paths_are_read_through_all_three_bindings():
