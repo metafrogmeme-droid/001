@@ -44,6 +44,12 @@ from bot.core.limit_entry import levels_as_shown, limit_crosses_market
 from bot.core.market_scanner import MarketScanner, _classify_symbol
 from bot.core.order_flow import OrderFlowAnalyzer
 from bot.core.position_telemetry import entered_at, price_on_record
+from bot.core.practice_fill import (
+    PRACTICE_FILL,
+    close_trains_engine,
+    practice_book_refusal,
+    self_admitted_paper_caller,
+)
 from bot.core.ws_feed import BitgetWSFeed
 from bot.compliance.compliance_engine import ComplianceEngine, Permission, default_demo_profile
 from bot.learning.orchestrator import LearningOrchestrator
@@ -7839,7 +7845,23 @@ class RuneClawEngine:
         position is then monitored for SL/TP by the existing paper loop
         (``check_stops_all``). Never calls ``live_executor``.
         """
-        portfolio = self.user_portfolios.get(user_id)
+        _practice = self._self_admitted_practice(user_id)
+        try:
+            portfolio = self.user_portfolios.get(user_id)
+        except Exception as exc:
+            if _practice:
+                self._drop_pending_idea(trade_id)
+                self._transition(AgentState.IDLE, f"practice book unread {trade_id}")
+                return practice_book_refusal(exc)
+            raise
+        if portfolio is None:
+            if _practice:
+                self._drop_pending_idea(trade_id)
+                self._transition(AgentState.IDLE, f"practice book absent {trade_id}")
+                return practice_book_refusal(None)
+            self._drop_pending_idea(trade_id)
+            self._transition(AgentState.IDLE, f"paper fill error {trade_id}")
+            return "⚠️ [PAPER] Simulated fill failed: practice book absent"
         # The practice book's own post-loss wait, read off ITS ledger rather
         # than off the risk engine that ran the recheck: that engine gates
         # live entries, and a practice loss must never arm it. The idea stays
@@ -7865,10 +7887,14 @@ class RuneClawEngine:
         # card saying "leverage x0.80" beside "@ 5x" would be two answers.
         leverage = apply_margin_risk_cap(leverage, idea)
         try:
-            trade = portfolio.open_position(idea, size_usd, leverage=leverage)
+            trade = portfolio.open_position(
+                idea, size_usd, leverage=leverage,
+                fill_label=PRACTICE_FILL if _practice else "")
         except Exception as exc:
             self._drop_pending_idea(trade_id)
             self._transition(AgentState.IDLE, f"paper fill error {trade_id}")
+            if _practice and not isinstance(exc, ValueError):
+                return practice_book_refusal(exc)
             return f"⚠️ [PAPER] Simulated fill failed: {str(exc)[:160]}"
 
         self._drop_pending_idea(trade_id)
@@ -7879,7 +7905,8 @@ class RuneClawEngine:
         # outcome row carries. Fail-open. Tagged source="paper_decision" so paper-
         # sourced training data stays auditable/distinguishable from live.
         try:
-            if CONFIG.learning.learn_calibration_from_paper_enabled:
+            # A PRACTICE row does not train, even when paper calibration is on.
+            if (not _practice) and CONFIG.learning.learn_calibration_from_paper_enabled:
                 self.learning.log_decision(
                     symbol=idea.asset,
                     direction=idea.direction.value,
@@ -7921,10 +7948,19 @@ class RuneClawEngine:
             f"SL <code>${idea.stop_loss:,.4f}</code> | "
             f"TP <code>${idea.take_profit:,.4f}</code>\n"
             f"Size <code>${size_usd:,.2f}</code> @ {leverage}x  •  "
-            f"<i>practice mode — no real order placed</i>\n"
+            f"<i>{'PRACTICE — not the engine record. ' if _practice else ''}"
+            f"practice mode — no real order placed</i>\n"
             + (f"Sizing: <i>{html.escape(_basis)}</i>\n" if _basis else "")
             + f"Trade ID: <code>{trade.trade_id}</code>"
         )
+
+    def _self_admitted_practice(self, user_id: str) -> bool:
+        """Whether this confirm belongs on the caller's practice book.
+
+        Asks the same reading the Confirm doors ask. An unreadable store is
+        not paper, and this method does not place anything.
+        """
+        return self_admitted_paper_caller(getattr(self, "_user_store", None), user_id)
 
     async def confirm_trade(self, trade_id: str, user_id: str = "") -> str:
         """Serialize execution per symbol so concurrent/overlapping cycles can't
@@ -7943,8 +7979,12 @@ class RuneClawEngine:
         key = normalize_symbol(idea.asset)
         lock = self._symbol_entry_locks.setdefault(key, asyncio.Lock())
         async with lock:
+            # A self-admitted paper confirm never reads the live book. The
+            # operator holding the symbol is not this person's position, and
+            # the read below resolves an executor.
             if (CONFIG.is_live() and hasattr(self, "live_executor")
-                    and not self._pending_pyramid.get(trade_id)):
+                    and not self._pending_pyramid.get(trade_id)
+                    and not self._self_admitted_practice(user_id)):
                 # The book of the account THIS confirm places on. It read the
                 # operator's for every caller, so under per-user live a linked
                 # trader whose own account was flat was told "already have an
@@ -8517,14 +8557,18 @@ class RuneClawEngine:
                         f"and {_auto_refusal}.{seal_note}")
             return f"Execution denied: {compliance_decision.reasons[-1] if compliance_decision.reasons else 'compliance check failed'}{seal_note}"
 
-        # ── Per-user PAPER (sim) opt-in ──────────────────────────────────────
+        # ── Per-user PAPER (sim) opt-in, and a self-admitted paper confirm ──
         # A user who has opted into practice mode (and the feature is enabled)
         # has THEIR confirmed trade SIMULATED into their paper portfolio instead
-        # of sent to the exchange. This branch runs BEFORE the EXECUTING
-        # transition, live_executor.execute(), and the post-fill pyramid SL move
-        # (which mutates an exchange stop) — so a paper trade can NEVER place or
-        # modify a real order. Default OFF and per-user, so live users unaffected.
-        if (CONFIG.paper_sim_opt_in_enabled and user_id
+        # of sent to the exchange. A self-admitted paper account takes the same
+        # branch without that flag: their Confirm is practice, not a live order
+        # on the operator account (plan F8). This branch runs BEFORE the
+        # EXECUTING transition, live_executor.execute(), and the post-fill
+        # pyramid SL move (which mutates an exchange stop) — so a paper trade
+        # can NEVER place or modify a real order. The opt-in flag stays OFF,
+        # so a vouched trader is unaffected.
+        if self._self_admitted_practice(user_id) or (
+                CONFIG.paper_sim_opt_in_enabled and user_id
                 and self._user_store is not None
                 and self._user_store.sim_opt_in(user_id)):
             self._pending_pyramid.pop(trade_id, None)
@@ -10438,6 +10482,12 @@ class RuneClawEngine:
                         f"loss on {c.asset} (PnL=${c.pnl}), "
                         f"cooling down {CONFIG.risk.cooldown_after_loss_seconds}s",
                     )
+                # A PRACTICE close is this person's rehearsal. It is not the
+                # engine journal, the calibration sample, the refit counter,
+                # or the time-of-day and hold records. A missing label still
+                # trains: absence is not a practice measurement.
+                if not close_trains_engine(c):
+                    continue
                 # Record to trade journal
                 try:
                     self.journal.record_trade(

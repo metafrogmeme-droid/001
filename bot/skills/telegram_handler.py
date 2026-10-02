@@ -3955,18 +3955,22 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     f"\U0001f4b0 {t('limit_set_line', lang, pair=pair, direction=direction, old=f'${old_price:,.4f}', new=f'${custom_price:,.4f}')}\n\n"
                     f"\u2705 {t('confirmed_executing', lang)}")
 
-                # H-18 FIX: LIVE mode — check per-user live trading permission
+                # H-18 FIX: LIVE mode — check per-user live trading permission.
+                # Same exception as the Confirm button: a self-admitted paper
+                # account's typed limit is practice, not a live order.
                 if CONFIG.is_live() and not self._is_admin(update):
                     caller_uid_str = str(update.effective_user.id) if update.effective_user else ""
                     if not self._can_trade_live(caller_uid_str):
-                        await self._send(update,
-                            f"\U0001f512 {t(self._live_refusal_key(), self._lang(update))}")
-                        self._remember_routed(
-                            tg_id, text, "confirm_trade",
-                            not_run_memory("confirm_trade",
-                                           "this caller is not permitted to "
-                                           "trade live on this deployment"))
-                        return
+                        from bot.core.practice_fill import self_admitted_paper_caller
+                        if not self_admitted_paper_caller(self.users, caller_uid_str):
+                            await self._send(update,
+                                f"\U0001f512 {t(self._live_refusal_key(), self._lang(update))}")
+                            self._remember_routed(
+                                tg_id, text, "confirm_trade",
+                                not_run_memory("confirm_trade",
+                                               "this caller is not permitted to "
+                                               "trade live on this deployment"))
+                            return
 
                 result = await self.engine.confirm_trade(trade_id, user_id=caller_uid)
                 await self._send(update, result)

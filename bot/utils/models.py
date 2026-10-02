@@ -289,6 +289,11 @@ class TradeExecution(BaseModel):
     # a back-fill of a fact, not a guess. Every live trade this bot has ever
     # placed went to Bitget, and paper marks come from Bitget too.
     venue: str = "bitget"
+    # Self-admitted practice (plan F8). Empty on every other row: the
+    # operator's paper book, a vouched trader's /paper opt-in, and any row
+    # written before the label existed. Engine learners skip only the
+    # positive PRACTICE label. A missing label is not practice.
+    fill_label: str = ""
     opened_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     closed_at: Optional[datetime] = None
 

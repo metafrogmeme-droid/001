@@ -2530,7 +2530,12 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
     # a refusal below can release exactly that and nothing an earlier attempt
     # recorded.
     web_live_recorded: Optional[str] = None
-    if CONFIG.is_live() and _is_web_id(tg_id):
+    # A self-admitted paper account's confirm is practice. The live gates
+    # below stay in force for everyone else, including a web id whose store
+    # says admin.
+    from bot.core.practice_fill import self_admitted_paper_caller
+    _practice_caller = self_admitted_paper_caller(tg_handler.users, tg_id)
+    if CONFIG.is_live() and _is_web_id(tg_id) and not _practice_caller:
         dec = _web_live_decision(request.app, tg_handler, tg_id)
         if not dec.allowed:
             return web.json_response(
@@ -2565,7 +2570,10 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
         if recorded:
             web_live_recorded = trade_id
     # Live gate — same H-18 check as the Telegram confirm path (non-web ids).
-    elif CONFIG.is_live() and not _is_admin_id(tg_handler, tg_id):
+    # A paper account skips it and reaches confirm_trade, which opens a
+    # practice fill and does not call the executor.
+    elif (CONFIG.is_live() and not _practice_caller
+          and not _is_admin_id(tg_handler, tg_id)):
         if not tg_handler._can_trade_live(tg_id):
             return web.json_response({"error": "live_not_enabled"}, status=403)
     result = await engine.confirm_trade(trade_id, user_id=tg_id)
