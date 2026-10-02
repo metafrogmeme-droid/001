@@ -652,7 +652,13 @@ class TestOperatorWithOwnKeys:
         e = _engine(per_user=True, linked={"777": user_ex})
         e._LIVE_BALANCE_TTL = 30.0
         e.get_live_equity = AsyncMock(return_value={"total": 4242.42})
-        for name in ("get_user_live_equity", "_live_recheck_context"):
+        # A fresh per-user balance notes the venue-auth latch on the account
+        # the order runs on. Those methods live on the real engine; a stand-in
+        # that only bound the fetch treated the missing attribute as a failed
+        # read and answered unread.
+        for name in ("get_user_live_equity", "_live_recheck_context",
+                     "auth_account_id", "note_venue_auth_reading",
+                     "set_live_auth_status"):
             setattr(e, name, getattr(RuneClawEngine, name).__get__(e))
         return e, asyncio
 
