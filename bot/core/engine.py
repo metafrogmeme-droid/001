@@ -1233,6 +1233,9 @@ class RuneClawEngine:
             return self._live_balance_cache
         try:
             bal = await self.live_executor.fetch_balance()
+            # A fresh authenticated read, not the cache above. A cache filled
+            # before the boot preflight marked auth down is not a new check.
+            self.note_venue_auth_reading(bal)
             if "error" not in bal or bal.get("total", 0) > 0:
                 self._live_balance_cache = bal
                 self._live_balance_cache_ts = now
@@ -1384,6 +1387,8 @@ class RuneClawEngine:
             return cached
         try:
             bal = await ex.fetch_balance()
+            self.note_venue_auth_reading(
+                bal, user_id=self.auth_account_id(ex, user_id))
             if "error" not in bal or bal.get("total", 0) > 0:
                 self._user_live_balance_cache[key] = bal
                 self._user_live_balance_cache_ts[key] = now
@@ -2754,9 +2759,10 @@ class RuneClawEngine:
 
         When an account is marked NOT ok, new live ENTRIES on it are halted
         (``live_auth_healthy`` returns False and the pre-execute gate refuses to
-        open) — but open positions keep being monitored and closed. Set by the
-        boot credential preflight, the per-user auth sweep, and any live auth
-        failure observed during operation. Logs the transition loudly so a
+        open) — but open positions keep being monitored and closed. Set down by
+        the boot credential preflight and the per-user auth sweep. A later
+        positive balance read clears that latch (``note_venue_auth_reading``);
+        a failed read does not. Logs the transition loudly so a
         recovery/regression is visible."""
         key = str(user_id or "")
         prev = self._live_auth_ok.get(key, True)
@@ -2793,6 +2799,50 @@ class RuneClawEngine:
         Separating the two is the whole fix: see bot/core/live_readiness.py.
         """
         return str(user_id or "") in self._live_auth_ok
+
+    def auth_account_id(self, executor, user_id: str = "") -> str:
+        """The account key venue auth is stored under for this order.
+
+        The operator's executor is ``""``, whatever id the caller carried.
+        An unattended confirm passes ``user_id="auto"``. That string is not
+        an account: the preflight writes the operator flag under ``""``, and
+        ``live_auth_healthy("auto")`` reads a key nobody probes. An unprobed
+        key defaults to healthy, so the confirm placed the limit and the
+        next monitor pass cancelled it — "venue auth marked down" — on the
+        operator book.
+        """
+        if executor is getattr(self, "live_executor", None):
+            return ""
+        owned = getattr(executor, "user_id", None)
+        if isinstance(owned, str) and owned:
+            return owned
+        if isinstance(owned, int) and not isinstance(owned, bool):
+            return str(owned)
+        caller = "" if user_id is None else str(user_id)
+        if caller in ("", "auto"):
+            return ""
+        return caller
+
+    def note_venue_auth_reading(self, bal, user_id: str = "") -> None:
+        """Clear a venue-auth halt when THIS account's balance read succeeded.
+
+        The boot preflight is what marks an account down, and nothing in the
+        process used to clear that latch except another boot. A later
+        ``fetch_balance`` — the same authenticated call — could succeed, and
+        the drawdown card could quote live equity, while resting limits were
+        still cancelled as "venue auth marked down".
+
+        Only a dict with no error is a success. An error payload and a
+        non-dict return without writing: a failed read is not auth up, and
+        this method never marks an account down. A cache hit must not call
+        it; the caller passes the payload it just fetched.
+        """
+        if not isinstance(bal, dict) or bal.get("error"):
+            return
+        book = getattr(self, "_live_auth_ok", None)
+        if not isinstance(book, dict):
+            return
+        self.set_live_auth_status(True, user_id=str(user_id or ""))
 
     def invalidate_user_executor(self, user_id: str) -> None:
         """Drop any cached per-user executor (e.g. after /connect or /disconnect)
@@ -8793,12 +8843,17 @@ class RuneClawEngine:
         # authentication is known-broken (missing passphrase, Bitget 40006/40012)
         # — it could not place the protective stop, exactly the naked-position
         # failure mode. This blocks NEW entries only; open positions keep being
-        # monitored and closed. Cleared automatically when the next preflight /
-        # auth probe confirms auth is healthy again.
-        if CONFIG.is_live() and not self.live_auth_healthy(user_id):
+        # monitored and closed. The account is the one the order executes on:
+        # an unattended confirm is user_id "auto", and asking that key reads a
+        # flag nobody set. Cleared when a later positive balance read for this
+        # account succeeds. A failed read does not clear it.
+        _auth_id = self.auth_account_id(executor, user_id)
+        if CONFIG.is_live() and not self.live_auth_healthy(_auth_id):
             self._pending_pyramid.pop(trade_id, None)
             self._transition(AgentState.IDLE, f"auth-halt before execute {trade_id}")
-            _detail = self._live_auth_detail.get(str(user_id or ""), "")
+            _detail = self._live_auth_detail.get(_auth_id, "")
+            if not isinstance(_detail, str):
+                _detail = ""
             return ("Trade REJECTED: exchange authentication is failing"
                     + (f" ({_detail})" if _detail else "")
                     + " — new live entries are halted until the credentials are "
@@ -9884,8 +9939,7 @@ class RuneClawEngine:
         would be a guess dressed as caution. The reasons carry no venue text:
         they reach the owner's card.
         """
-        uid = "" if executor is self.live_executor else str(
-            getattr(executor, "user_id", "") or "")
+        uid = self.auth_account_id(executor)
         reasons: list[str] = []
         try:
             if self._halted:

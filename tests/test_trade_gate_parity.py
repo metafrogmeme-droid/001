@@ -92,7 +92,8 @@ class TestEveryConditionTheGateChecks:
 
     def test_the_auth_reason_carries_its_recovery_route(self):
         # A halt reported with no way to clear it is a dead end — which is
-        # exactly what the operator hit. The flag only resets on preflight.
+        # exactly what the operator hit. A restart re-runs the preflight; a
+        # later positive balance read clears the latch as well.
         g = entry_gate(_engine(auth_ok=False), live=True)
         assert "restart" in " ".join(g["reasons"])
 
@@ -123,7 +124,8 @@ class TestItMatchesTheGateItDescribes:
                      "self.risk.circuit_breaker_active",
                      "_user_breaker",
                      "self.risk_for(user_id).circuit_breaker_active",
-                     "self.live_auth_healthy(user_id)"):
+                     "self.auth_account_id(executor, user_id)",
+                     "self.live_auth_healthy(_auth_id)"):
             assert cond in gate, (
                 f"the pre-execute gate no longer reads {cond!r} — "
                 f"bot/core/trade_gate.py mirrors this list and must be "

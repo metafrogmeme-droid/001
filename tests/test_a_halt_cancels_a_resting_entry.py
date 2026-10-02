@@ -403,3 +403,75 @@ class TestTheMonitorPass:
         real._halted = False
         asyncio.run(real._check_open_positions())
         assert real.live_executor.entry_halt is None
+
+
+def _auth_shell():
+    """Operator book with venue auth marked down and a balance cache."""
+    eng = RuneClawEngine.__new__(RuneClawEngine)
+    eng._halted = False
+    eng.risk = _Risk()
+    eng.risk_for = lambda uid: eng.risk
+    eng._live_auth_ok = {}
+    eng._live_auth_detail = {}
+    eng._live_balance_cache = {}
+    eng._live_balance_cache_ts = 0.0
+    eng._LIVE_BALANCE_TTL = 30.0
+    eng._user_live_balance_cache = {}
+    eng._user_live_balance_cache_ts = {}
+    eng.live_executor = NS(user_id=None, fetch_balance=AsyncMock())
+    eng.set_live_auth_status(False, "40012 rejected")
+    return eng
+
+
+class TestVenueAuthCancelsOnlyWhileItIsDown:
+    """Both arms. A real auth-down still cancels the resting order and places
+    nothing. A balance the venue just authenticated does not cancel for
+    "venue auth marked down"."""
+
+    def test_a_failed_read_still_cancels_and_places_nothing(self, monkeypatch):
+        monkeypatch.setattr(type(engine_mod.CONFIG), "is_live", lambda self: True)
+        eng = _auth_shell()
+        eng.live_executor.fetch_balance = AsyncMock(return_value={
+            "error": "40012 rejected", "total": 0, "free": 0, "used": 0,
+            "holdings": []})
+        asyncio.run(eng.get_live_equity())
+        assert eng.live_auth_healthy("") is False
+        why = eng._entry_halt_reason(eng.live_executor)
+        assert why and "venue auth marked down" in why
+        pos = _resting()
+        _, venue, msg, _ = _pending(pos, [OPEN, CANCELLED], entry_halt=why)
+        assert venue.cancels == ["L1"]
+        assert pos.status == "closed" and pos.close_reason == "entry_halted"
+        assert msg.endswith("Nothing was placed.")
+        assert "venue auth marked down" in msg
+
+    def test_a_recovered_read_does_not_cancel_for_auth(self, monkeypatch):
+        monkeypatch.setattr(type(engine_mod.CONFIG), "is_live", lambda self: True)
+        eng = _auth_shell()
+        eng.live_executor.fetch_balance = AsyncMock(return_value={
+            "total": 388.33, "free": 120.0, "used": 0.0, "holdings": []})
+        bal = asyncio.run(eng.get_live_equity())
+        assert bal["total"] == 388.33
+        assert eng.live_auth_healthy("") is True
+        why = eng._entry_halt_reason(eng.live_executor)
+        assert not why or "venue auth" not in why
+        pos = _resting()
+        _, venue, msg, _ = _pending(pos, [OPEN], entry_halt=why)
+        assert venue.cancels == []
+        assert pos.status == "pending_fill"
+        assert msg is None
+
+    def test_auto_sees_the_operators_down_flag(self, monkeypatch):
+        """user_id "auto" is the operator's book. Asking live_auth_healthy
+        ("auto") used to read a key nobody probes and default to healthy, so
+        the limit was placed and the monitor cancelled it."""
+        monkeypatch.setattr(type(engine_mod.CONFIG), "is_live", lambda self: True)
+        eng = _auth_shell()
+        assert eng.auth_account_id(eng.live_executor, "auto") == ""
+        assert eng.live_auth_healthy(
+            eng.auth_account_id(eng.live_executor, "auto")) is False
+        from bot.core.trade_gate import entry_gate
+        eng._executor_for = lambda uid="": eng.live_executor
+        gate = entry_gate(eng, "auto", live=True, include_detail=False)
+        assert gate["blocked"]
+        assert any("venue auth marked down" in r for r in gate["reasons"])
