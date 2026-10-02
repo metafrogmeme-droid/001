@@ -1734,11 +1734,14 @@ _rule(_EDU + r"\b((?:my )?defi(?: positions| status| health)?|aave(?: positions|
 # exposure", "total exposure" and "am I overexposed" are the caller's
 # perps netted against their on-chain spot on both surfaces. Registered
 # ABOVE the risk-engine rules, which still own "whats my drawdown",
-# "am i exposed" and "whats my max exposure" (the limit, not the book).
-# An education question ("what is exposure", "what is overexposed") is
-# the model's, because the website no longer intercepts it. Nothing
-# here resizes, hedges, or closes a position.
-_rule(_EDU + r"\b((?:my|total|current) exposure|exposure (?:across|check)|overexposed"
+# "am i exposed", "whats my max exposure" and "am I over my exposure"
+# (the limit, not the book). The intercept's `(my|total|current)
+# exposure` also matches inside "over my exposure"; the `(?<!over )`
+# keeps that limit question on the risk engine. An education question
+# ("what is exposure", "what is overexposed") is the model's, because
+# the website no longer intercepts it. Nothing here resizes, hedges,
+# or closes a position.
+_rule(_EDU + r"\b((?<!over )(?:my|total|current) exposure|exposure (?:across|check)|overexposed"
       r"|doubled? (?:up|exposure)|how (?:exposed|leveraged) am i)\b",
       "exposure",
       explanation="Cross-venue exposure, perps netted against on-chain spot (the website's card, /exposure)")
