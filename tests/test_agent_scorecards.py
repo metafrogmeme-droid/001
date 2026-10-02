@@ -43,19 +43,27 @@ def _all_keys(obj):
     return out
 
 
-def test_a_scorecard_exists_for_every_published_preset():
-    from scripts.gen_agent_scorecards import publishes_scorecard
+_WINDOW = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT"]
+
+
+def test_a_scorecard_exists_for_every_preset_the_frozen_window_covers():
+    from scripts.gen_agent_scorecards import (
+        preset_universe_covered,
+        publishes_scorecard,
+    )
     files = {os.path.basename(p) for p in glob.glob(os.path.join(_SC_DIR, "*.json"))}
     published = []
     for key, cfg in RunStrategySkill.PRESETS.items():
         name = f"{sc._slug(key)}.json"
-        if publishes_scorecard(cfg):
+        if not publishes_scorecard(cfg):
+            assert name not in files, f"{key} must not publish a track record"
+            continue
+        if preset_universe_covered(cfg, _WINDOW):
             published.append(name)
             assert name in files, f"missing scorecard for {key}"
         else:
-            assert name not in files, f"{key} must not publish a track record"
+            assert name not in files, f"{key} must not publish this window"
     assert published
-    assert len(published) == len(RunStrategySkill.PRESETS) - 1
 
 
 def test_scorecards_are_section4_safe_percent_ratio_only():
@@ -76,14 +84,25 @@ def test_scorecards_are_section4_safe_percent_ratio_only():
 
 
 def test_catalog_attaches_scorecard_with_provenance():
+    from scripts.gen_agent_scorecards import (
+        preset_universe_covered,
+        publishes_scorecard,
+    )
+    by_slug = {sc._slug(key): cfg for key, cfg in RunStrategySkill.PRESETS.items()}
     for card in sc.catalog():
         s = card.get("scorecard")
-        assert s is not None, f"{card['id']} has no scorecard attached"
-        if s.get("omitted"):
+        cfg = by_slug[card["id"]]
+        if not publishes_scorecard(cfg):
+            assert isinstance(s, dict) and s.get("omitted"), card["id"]
             assert "recorded and not applied" in s["omitted"]
+            assert "backtest pending" not in s["omitted"].lower()
             assert "metrics" not in s
             assert "recorded and not applied" in card["how"]
             continue
+        if not preset_universe_covered(cfg, _WINDOW):
+            assert s is None, card["id"]
+            continue
+        assert s is not None, f"{card['id']} has no scorecard attached"
         assert s["dataset"] and len(s["dataset_hash"]) == 12   # truncated for display
         m = s["metrics"]
         for mk in ("total_return_pct", "profit_factor", "win_rate",
@@ -139,14 +158,17 @@ def test_committed_scorecards_are_the_rerun_of_these_rules():
     from scripts.gen_agent_scorecards import (
         _METRIC_KEYS,
         _run_one,
+        preset_universe_covered,
         publishes_scorecard,
         scorecard_gates,
     )
     dataset = os.path.join(_REPO, "benchmark", "majors_1h")
     symbols = "BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT"
+    window = [s.strip() for s in symbols.split(",")]
     for key, cfg in RunStrategySkill.PRESETS.items():
         slug = sc._slug(key)
-        if not publishes_scorecard(cfg):
+        if (not publishes_scorecard(cfg)
+                or not preset_universe_covered(cfg, window)):
             assert not os.path.exists(os.path.join(_SC_DIR, f"{slug}.json"))
             continue
         with open(os.path.join(_SC_DIR, f"{slug}.json"), encoding="utf-8") as fh:

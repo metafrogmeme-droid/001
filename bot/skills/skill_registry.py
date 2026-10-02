@@ -2262,18 +2262,62 @@ class RunStrategySkill(BaseSkill):
             "leverage": 5, "utilization": 0.95,
             "bar_timeframe": "1d", "bar_source_timeframe": "1h",
         },
+        # Direction reuses the one closed-bar reading (fast above slow is long,
+        # fast below slow is short, unreadable or equal is neither side, and a
+        # held side reverses only when that relationship changes). No schedule
+        # was given, so this preset names no bar size. The trail, the six
+        # scale-outs, the risk ratio, isolated margin and the position counts
+        # are recorded here; the book does not apply them.
+        "alt sweep": {
+            "label": "ALT Sweep", "icon": "\U0001f30d",
+            "desc": (
+                "15 alts \u2022 closed-bar 36/144 moving average \u2022 "
+                "long when fast is above slow, short when below, "
+                "neither when unreadable or equal \u2022 "
+                "a held side reverses only when the relationship changes \u2022 "
+                "leverage 5\u00d7, isolated margin, risk ratio 0.015, "
+                "at most 8 positions, minimum target 6, a 4% trail and a "
+                "six-stage scale-out are recorded and not applied"
+            ),
+            "symbols": [
+                "ADAUSDT", "VETUSDT", "ALGOUSDT", "HBARUSDT", "GRTUSDT",
+                "CHZUSDT", "SANDUSDT", "MANAUSDT", "GALAUSDT", "PYTHUSDT",
+                "CROUSDT", "ZILUSDT", "WIFUSDT", "IOTAUSDT", "XLMUSDT",
+            ],
+            "rsi_threshold": None, "rsi_min": None,
+            "regime": None, "confidence_threshold": None,
+            "direction": None, "volume_spike_min": None,
+            "sl_atr_mult": None, "tp_atr_mult": None,
+            "fast_period": 36, "slow_period": 144,
+            "trailing_stop_pct": 0.04,
+            "take_profit_ladder": [
+                {"trigger_pct": 0.05, "close_fraction": 0.20},
+                {"trigger_pct": 0.10, "close_fraction": 0.20},
+                {"trigger_pct": 0.15, "close_fraction": 0.15},
+                {"trigger_pct": 0.22, "close_fraction": 0.15},
+                {"trigger_pct": 0.30, "close_fraction": 0.10},
+                {"trigger_pct": 0.40, "close_fraction": 0.20},
+            ],
+            "risk_per_trade": 0.015,
+            "leverage": 5,
+            "margin_mode": "isolated",
+            "max_portfolio_positions": 8,
+            "minimum_target_positions": 6,
+        },
     }
     ALIASES: dict[str, str] = {
         "dip": "dip sniper", "momentum": "momentum hunter",
         "scalp": "safe scalper", "scan all": "full scan",
         "ethma": "eth ma trend",
         "volrotation": "daily vol rotation",
+        "altsweep": "alt sweep",
     }
 
     @classmethod
     def _resolve(cls, raw: str) -> str | None:
-        key = raw.strip().lower()
-        return key if key in cls.PRESETS else cls.ALIASES.get(key)
+        # The same spelling the web gate accepts: key, alias, or slug.
+        from bot.core.strategy_gate import resolve_key
+        return resolve_key(raw, cls.PRESETS, cls.ALIASES)
 
     @classmethod
     def _list(cls) -> str:

@@ -32,7 +32,7 @@ _SYMBOL_RE = re.compile(r"^[A-Z0-9]{1,10}$")
 #: for a caller it cannot map to a web account.
 WEB_CARDS: tuple[str, ...] = ("nft", "spot", "airdrops", "replay", "letter",
                               "venue_router", "meme_radar", "wallet", "defi", "alerts",
-                              "rwa", "etf_flows", "exposure")
+                              "rwa", "etf_flows", "exposure", "research")
 
 #: Query arguments a card accepts. A card not listed takes none; a name not
 #: listed for a card raises at the call, because a seam handing a card an
@@ -43,6 +43,9 @@ WEB_CARD_PARAMS: dict[str, tuple[str, ...]] = {
     # The alert card's argument is the SENTENCE: the website's own parser reads
     # "tell me when BTC drops below 100k", so the words travel whole.
     "alerts": ("text", "channel"),
+    # The dossier's argument is the symbol, a query parameter so `SOL/USDT`
+    # survives the hop. A path segment would not.
+    "research": ("symbol",),
 }
 
 #: How long each argument may be on the wire. A stake, an asset or a chain is
@@ -73,14 +76,23 @@ def fetch_exposure(telegram_id: str) -> dict | None:
 
 
 def fetch_research(symbol: str) -> dict | None:
-    """A research dossier for a base symbol (venue data + recorded history)."""
+    """The research dossier card for one base symbol.
+
+    The same rendered card the other public reads pull
+    (``GET /api/bot/sync/card/research?symbol=``), so Telegram does not
+    format a second copy of ``app/lib/research.js``. The symbol travels as
+    a query parameter: a slash in a path segment does not survive the hop.
+    None when the channel is unconfigured, the symbol is not a base, or
+    the fetch failed. Nothing here places, confirms, sizes, or closes a
+    trade.
+    """
     if not SYNC_SECRET:
         return None
-    base = str(symbol or "").upper().strip()
-    base = re.sub(r"[^A-Z0-9]", "", base).removesuffix("USDT")[:10]
+    raw = symbol if isinstance(symbol, str) else ""
+    base = re.sub(r"[^A-Z0-9]", "", raw.upper().strip()).removesuffix("USDT")[:10]
     if not _SYMBOL_RE.match(base):
         return None
-    return _request(f"/api/bot/sync/research/{base}")
+    return fetch_web_card("research", symbol=base)
 
 
 def fetch_web_card(name: str, telegram_id: str = "", **params: object) -> dict | None:
@@ -93,7 +105,8 @@ def fetch_web_card(name: str, telegram_id: str = "", **params: object) -> dict |
     airdrops card adds the caller's wallet-readiness hints when their
     Telegram account is linked to a web account and answers the public radar
     otherwise; the wallet, DeFi and exposure cards ARE the caller's own book
-    and answer `unlinked` instead. ``params`` are the card's own arguments
+    and answer `unlinked` instead. The research card is public and takes
+    the symbol the sentence names. ``params`` are the card's own arguments
     (`WEB_CARD_PARAMS`), sent when given and never defaulted here.
     None = channel unconfigured, name not a card, or the fetch failed — the
     command says which surface could not be read rather than inventing one.
@@ -152,7 +165,9 @@ def web_card_text(payload: object) -> Optional[str]:
 
     The website's cards join their lines with ``<br>``, which Telegram's HTML
     parser rejects (the whole message fails to send); ``<b>``, ``<i>`` and
-    ``<code>`` it renders as the browser does. Any other tag is dropped and
+    ``<code>`` it renders as the browser does, without attributes — a
+    ``class`` on ``<b>`` refuses the message the same way an unknown tag
+    does. Any other tag is dropped and
     its text kept (`_TELEGRAM_TAGS`), so a card that grows a ``<span>`` on
     the website arrives here without the span rather than not at all. A
     payload with no string ``reply_html`` — an error body, a proxy page parsed
@@ -165,7 +180,21 @@ def web_card_text(payload: object) -> Optional[str]:
     if not isinstance(html, str) or not html.strip():
         return None
     text = _BR_RE.sub("\n", html)
-    return _TAG_RE.sub(lambda m: m.group(0) if m.group(1).lower() in _TELEGRAM_TAGS else "", text)
+    return _TAG_RE.sub(_telegram_tag, text)
+
+
+def _telegram_tag(match: re.Match[str]) -> str:
+    """Keep ``b``, ``i`` and ``code``; drop every other tag and its attributes.
+
+    ``<b class="up">`` is still a ``b`` the website uses for colour. Telegram's
+    HTML parser refuses the attribute and then the whole message, so the tag
+    that arrives is the bare one. The text of a tag Telegram does not render
+    stays.
+    """
+    name = match.group(1).lower()
+    if name not in _TELEGRAM_TAGS:
+        return ""
+    return f"</{name}>" if match.group(0).startswith("</") else f"<{name}>"
 
 
 def fetch_onchain_flow() -> dict | None:

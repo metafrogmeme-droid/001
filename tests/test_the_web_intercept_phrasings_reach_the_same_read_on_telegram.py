@@ -1,15 +1,16 @@
-"""Three of the website's chat intercepts, reached by the same words on Telegram.
+"""Two of the website's chat intercepts, reached by the same words on Telegram.
 
-`app/routes/chat.js` answers three phrasings from its own Node intercepts
-before a turn reaches the bot. Two of them (`networth`, `research`) have a
-Telegram command that renders the same reading. The RWA radar left that
-table: both doors route "rwa radar" to `/rwa`. The airdrop radar left it
-too: both doors route "airdrop radar" to `/airdrops`. The venue router
-left it too: both doors route "best venue for BTC" to `/venue_router`.
-The meme radar left it too: both doors route "meme radar" to `/meme_radar`.
-The NFT radar left it too: both doors route "nft radar" to `/nft`.
-The spot market left it too: both doors route "spot market" to `/spot`.
-DeFi positions left it too: both doors route "my defi positions" to `/defi`.
+`app/routes/chat.js` answers two phrasings from its own Node intercepts
+before a turn reaches the bot. One of them (`networth`) has a Telegram
+command that renders the same reading. Research left that table: both
+doors route "research SOL" to `/research`. The RWA radar left it too:
+both doors route "rwa radar" to `/rwa`. The airdrop radar left it too:
+both doors route "airdrop radar" to `/airdrops`. The venue router left
+it too: both doors route "best venue for BTC" to `/venue_router`. The
+meme radar left it too: both doors route "meme radar" to `/meme_radar`.
+The NFT radar left it too: both doors route "nft radar" to `/nft`. The
+spot market left it too: both doors route "spot market" to `/spot`. DeFi
+positions left it too: both doors route "my defi positions" to `/defi`.
 Cross-venue exposure left it too: both doors route "my exposure" to
 `/exposure`. "whats my drawdown" stays the risk engine.
 Typed as WORDS on Telegram,
@@ -20,10 +21,11 @@ guard IS the role gate), the web's Python path answers from the same seam
 under the same gate, and every branch records what it showed.
 
 Two decisions worth pinning because a rule does not carry them:
-`deep dive on <sym>` stays with the chart rules on Telegram, where the
-web's research intercept claims it as a dossier; and an education question
-("what is rwa") is the model's on both surfaces, because the website no
-longer intercepts it.
+`deep dive on <sym>` stays the chart on both surfaces (the website used
+to claim it as a dossier; that intercept is gone, and this rule does not
+take it); and an education question ("what is rwa") is the model's on
+both surfaces, because the website no longer intercepts it. "research
+the docs" and "research report" stay the model.
 
 DRIVEN, not scanned: the router over a table with decoys; the Telegram
 handler through the store and through its guard; the web turn through
@@ -249,7 +251,8 @@ class TestTheWeb:
     @pytest.mark.parametrize("text, intent, seam, args, kwargs", [
         ("how much am i worth", "networth", "networth_card_text", (CALLER,), {"surface": "web"}),
         ("rwa radar", "rwa", "rwa_card_text", (), {"surface": "web"}),
-        ("can you research SOL for me", "research", "research_card_text", ("SOL/USDT",), {}),
+        ("can you research SOL for me", "research", "research_card_text", ("SOL/USDT",),
+         {"surface": "web"}),
     ])
     def test_the_seam_answers_and_the_result_is_recorded(self, monkeypatch, text, intent, seam, args, kwargs):
         ug, h = _web(monkeypatch)
@@ -439,14 +442,43 @@ class TestTheOtherSeams:
         asyncio.run(TelegramHandler.rwa_card_text(h))
         assert asked == ["rwa"]
 
-    def test_the_research_seam_reads_off_the_loop_and_names_no_command(self, monkeypatch):
+    def test_the_research_seam_fetches_the_rendered_card(self, monkeypatch):
+        """One renderer. The website keeps its markup; Telegram strips it.
+
+        A channel that did not answer is the link hint, never an empty
+        dossier. The symbol is handed to `fetch_research` whole; that
+        helper is what turns `SOL/USDT` into the base on the wire.
+        Nothing here places, confirms, sizes, or closes a trade.
+        """
         import bot.utils.web_data_pull as wdp
         asked = []
         monkeypatch.setattr(wdp, "fetch_research", lambda sym: asked.append(sym) or None)
-        h = NS(_format_research=TelegramHandler._format_research)
+        h = NS(_link_hint=TelegramHandler._link_hint,
+               _unlinked_hint=TelegramHandler._unlinked_hint)
+
+        async def _card(name, surface, telegram_id="", params=None,
+                        unlinked=None, keep_markup=False):
+            return await TelegramHandler._web_card_text(
+                h, name, surface, telegram_id=telegram_id, params=params,
+                unlinked=unlinked, keep_markup=keep_markup)
+
+        h._web_card_text = _card
         out = asyncio.run(TelegramHandler.research_card_text(h, "SOL/USDT"))
-        assert asked == ["SOL/USDT"] and "No dossier" in out and "/" not in out.replace("/USDT", "")
+        assert asked == ["SOL/USDT"]
+        assert out == TelegramHandler._WEB_LINK_HINT and "/link" in out
+        asked.clear()
+        web = asyncio.run(TelegramHandler.research_card_text(
+            h, "SOL/USDT", surface="web"))
+        assert "/link" not in web and "Nothing was read" in web
         monkeypatch.setattr(wdp, "fetch_research", lambda sym: {
-            "base": "SOL", "sections": [{"title": "Supply", "html": "x<br>y"}]})
-        out = asyncio.run(TelegramHandler.research_card_text(h, "SOL"))
-        assert "Research: SOL" in out and "Supply" in out
+            "reply_html": "🔬 <b>Research dossier — SOL</b><br>Market "
+                          '<b class="up">+4%</b><br><span>vol</span>',
+            "intent": "research"})
+        card = asyncio.run(TelegramHandler.research_card_text(h, "SOL"))
+        assert "Research dossier — SOL" in card and "\n" in card
+        assert "<span" not in card and "<br" not in card and "vol" in card
+        assert '<b class="up">' not in card and "<b>+4%</b>" in card
+        web_card = asyncio.run(TelegramHandler.research_card_text(
+            h, "SOL", surface="web"))
+        assert "<br>" in web_card and "<span>vol</span>" in web_card
+        assert '<b class="up">+4%</b>' in web_card

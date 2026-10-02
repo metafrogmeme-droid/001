@@ -12,8 +12,8 @@
  *
  * under a source label reading "public track record data" -- and the public
  * track record (/track) is percent, ratio and count only. The same dossier
- * reaches the web chat's research intercept and Telegram's /research through
- * the bot's sync route, so one lib line was five doors.
+ * reaches the shared research card and Telegram's /research through
+ * the bot's sync card route, so one lib line was five doors.
  *
  * The record is a W/L count and the profit factor now (a ratio; none over no
  * loss), and this drives every door with the same planted closes and asserts
@@ -163,10 +163,20 @@ test('the bot sync route (Telegram /research) carries no dollar figure', async (
   assertNoOperatorDollars('GET /api/bot/sync/research', trackText(r.data));
 });
 
-test('the web chat intercept carries no dollar figure', async () => {
-  const out = await research.maybeHandleResearchChat(null, 'research PENDLE');
-  assert.ok(out && out.reply_html, 'the intercept did not answer');
+test('the card both doors fetch carries no dollar figure', async () => {
+  const out = await research.researchChatCard('PENDLE');
+  assert.ok(out && out.reply_html, 'the card did not answer');
   const html = out.reply_html;
+  const via = await req('GET', '/api/bot/sync/card/research?symbol=PENDLE',
+    { botSecret: process.env.BOT_SYNC_SECRET });
+  assert.equal(via.status, 200);
+  assert.equal(via.data.reply_html, html);
+  assert.equal(via.data.intent, 'research');
+  const slashed = await req('GET',
+    '/api/bot/sync/card/research?symbol=' + encodeURIComponent('PENDLE/USDT'),
+    { botSecret: process.env.BOT_SYNC_SECRET });
+  assert.equal(slashed.status, 200);
+  assert.equal(slashed.data.reply_html, html);
   const i = html.indexOf(TITLE);
   assert.ok(i >= 0, html);
   const part = html.slice(i, html.indexOf('<br><br>', i));

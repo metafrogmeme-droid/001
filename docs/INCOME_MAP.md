@@ -378,9 +378,9 @@ directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
 with /autoconfirm, halt it with /halt //pause //emergency_stop, and inspect it
-with /risk, /gates, /shadow, /enforcing, /parity. Users get six named
+with /risk, /gates, /shadow, /enforcing, /parity. Users get seven named
 strategy presets (Dip Sniper, Momentum Hunter, Safe Scalper, Full Scan,
-ETH Moving-Average Trend, Daily Volatility Rotation —
+ETH Moving-Average Trend, Daily Volatility Rotation, ALT Sweep —
 `bot/skills/skill_registry.py::RunStrategySkill.PRESETS`) runnable via /run, /momentum, /dip, and pinnable to
 their own confirms as a tighten-only veto (/mystrategy →
 `bot/core/user_strategy_store.py::set_pref`, mirrored on the web at /api/bot-strategy). Research
@@ -1293,7 +1293,7 @@ REFERRAL_TIERS …
 
 RUNECLAW genuinely produces research: a cited per-symbol dossier (/research,
 which fetches the web app's research card over HTTP via
-web_data_pull.fetch_research — `bot/skills/scan_commands.py::ScanCommands.research_card_text#"to_thread(fetch_research"`), the contract-
+web_data_pull.fetch_research — `bot/skills/market_commands.py::MarketCommands._web_card_text#"to_thread(fetch_research, symbol"`), the seam both surfaces call (`bot/skills/scan_commands.py::ScanCommands.research_card_text`), the contract-
 detective dossier that composes token_safety + deployer_history and leads with
 what it could NOT read (/token → `bot/core/token_research.py::investigate`), the Daily
 Alpha card, the weekly Agent Letter, the hourly intelligence reports, and the
@@ -2026,6 +2026,9 @@ produced by scripts/gen_agent_scorecards.py. Daily Volatility Rotation is in
 that preset table and publishes no scorecard
 (`scripts/gen_agent_scorecards.py::publishes_scorecard`): its percent exits
 are recorded and not applied, and a majors 1h fill is not its daily book.
+ALT Sweep is one of those presets and has no file in that directory: its
+symbols are not the frozen majors window, and that window is not published
+as its track record.
 
 **Counterparty & custody-concentration monitor**
 

@@ -1,10 +1,10 @@
 """Telegram web-parity commands (/networth /exposure /research /rwa) — PR EE.
 
 One brain, one implementation: exposure/research/rwa are Node-side libs the
-web panels already use; the Telegram commands fetch the SAME payloads over the
-shared-secret sync channel (bot/utils/web_data_pull.py). /networth and
-/research format a payload here; /exposure and /rwa fetch the card RENDERED,
-because a second Python formatter is a second answer.
+web panels already use; the Telegram commands fetch the SAME cards over the
+shared-secret sync channel (bot/utils/web_data_pull.py). /networth formats a
+payload here; /exposure, /research and /rwa fetch the card RENDERED, because
+a second Python formatter is a second answer.
 Net worth reuses the gateway's own read-only primitives. Commands degrade to a
 "link the web app" hint when the channel is unconfigured — never a crash.
 """
@@ -37,8 +37,12 @@ class TestWebDataPull:
         # Exposure left the raw `/api/bot/sync/exposure` payload. The command
         # pulls the rendered card, the same route wallet and DeFi use, so a
         # second Python formatter cannot drift from `app/lib/exposure.js`.
+        # Research left the raw `/api/bot/sync/research/:symbol` payload.
+        # The command pulls the rendered card, so a second Python formatter
+        # cannot drift from `app/lib/research.js`. The symbol is a query
+        # parameter: `pendle/usdt` is the base PENDLE.
         assert calls == ["/api/bot/sync/card/exposure?telegram_id=111",
-                         "/api/bot/sync/research/PENDLE",
+                         "/api/bot/sync/card/research?symbol=PENDLE",
                          "/api/bot/sync/card/rwa"]
 
     def test_bad_symbol_never_reaches_the_wire(self, monkeypatch):
@@ -74,17 +78,17 @@ class TestFormatters:
         assert "_web_card_text" in src and '"exposure"' in src
         assert "_format" not in src, "the card must not be re-formatted here"
 
-    def test_research_strips_web_html_to_telegram_subset(self):
-        msg = TelegramHandler._format_research({
-            "base": "PENDLE",
-            "sections": [{"title": "Market",
-                          "html": "Price <b>$3.2</b><br><span data-x=1>vol up</span>"}],
-            "disclaimer": "Not financial advice.",
-        })
-        assert "Research: PENDLE" in msg
-        assert "<b>$3.2</b>" in msg and "vol up" in msg
-        assert "<span" not in msg and "<br" not in msg
-        assert "Not financial advice." in msg
+    def test_the_research_card_has_no_second_python_formatter(self):
+        """There is ONE renderer, and it is `app/lib/research.js`'s.
+
+        `_format_research` mirrored that card by hand. The card is fetched
+        rendered now, so the claim worth pinning is that no Python copy
+        came back. Nothing here places, confirms, sizes, or closes a trade.
+        """
+        assert not hasattr(TelegramHandler, "_format_research")
+        src = code_only(inspect.getsource(TelegramHandler.research_card_text))
+        assert "_web_card_text" in src and '"research"' in src
+        assert "_format" not in src, "the card must not be re-formatted here"
 
     def test_the_rwa_card_has_no_second_python_formatter(self):
         """There is ONE renderer, and it is `app/lib/rwa.js`'s.
@@ -124,11 +128,14 @@ def test_commands_fetch_off_the_event_loop():
     # slow website can never stall the Telegram event loop. /research and
     # /rwa fetch inside the seam their routed intents share, so the seam is
     # what is read.
-    for meth in ("research_card_text", "rwa_card_text"):
+    for meth in ("rwa_card_text",):
         src = inspect.getsource(getattr(TelegramHandler, meth))
         assert "to_thread" in src, f"{meth} must not block the loop"
-    # /exposure fetches inside `_web_card_text`, the same helper the other
-    # rendered cards use. The command itself must not format a second copy.
-    exposure = inspect.getsource(TelegramHandler.exposure_card_text)
-    assert "_web_card_text" in exposure and "to_thread" not in exposure
+    # /exposure and /research fetch inside `_web_card_text`, the same helper
+    # the other rendered cards use. The command itself must not format a
+    # second copy.
+    for meth in ("exposure_card_text", "research_card_text"):
+        src = inspect.getsource(getattr(TelegramHandler, meth))
+        assert "_web_card_text" in src and "to_thread" not in src, meth
     assert "to_thread" in inspect.getsource(TelegramHandler._web_card_text)
+    assert "fetch_research" in inspect.getsource(TelegramHandler._web_card_text)

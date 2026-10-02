@@ -226,13 +226,16 @@ async def _seam_rwa(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
 
 async def _seam_research(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
                          text: str = "") -> str:
-    # The routed block runs at confidence 1.0, where the needs-symbol rule has
-    # always found one; the sentence below is for the shape, not a case a
-    # drive has reached, and it names no command.
-    sym = str(kwargs.get("symbol") or "").strip()
+    # The website chat no longer answers this itself. Both doors render the
+    # dossier's own card; surface="web" keeps the markup the browser already
+    # shows. The symbol is the one the sentence names. Nothing here places,
+    # confirms, sizes, or closes a trade. The sentence below is for a routed
+    # ask that named no symbol, and it names no command.
+    raw = kwargs.get("symbol")
+    sym = raw.strip() if isinstance(raw, str) else ""
     if not sym:
         return "Which asset should I research? Name one ticker, e.g. research SOL."
-    return await tg_handler.research_card_text(sym)
+    return await tg_handler.research_card_text(sym, surface="web")
 
 
 async def _seam_nft(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
@@ -347,10 +350,10 @@ async def _seam_price_alert(tg_handler: "TelegramHandler", tg_id: str, kwargs: d
 #: authorisation invariant's `ROUTED_INTENT_SEAM`; both equalities are pinned.
 #: `status` keeps its own branch above: it predates the table and three
 #: guards index that branch's literal. Airdrops, the venue router, the meme
-#: radar, the NFT radar, the spot market, DeFi and cross-venue exposure
-#: left that table: both doors render this seam rather than a door notice.
-#: Net worth, research and idle yield are still answered first by a Node
-#: intercept.
+#: radar, the NFT radar, the spot market, DeFi, cross-venue exposure and
+#: the research dossier left that table: both doors render this seam
+#: rather than a door notice. Net worth and idle yield are still answered
+#: first by a Node intercept.
 _WEB_SEAM = {
     "networth": _seam_networth,
     "rwa": _seam_rwa,
@@ -997,12 +1000,12 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             return web.json_response({"reply_html": _card, "intent": "status"})
 
         # ── net worth / RWA / research → the seams the commands render ──
-        # Net worth and research the website still answers from its own Node
-        # intercepts before a turn reaches this process, so for a web caller
-        # those two see only the phrasings the intercepts miss ("how much am
-        # i worth", "can you research SOL for me"). RWA, the airdrop radar, the
-        # venue router, the meme radar, the NFT radar, the spot market, DeFi
-        # and cross-venue exposure left that table: both doors render this seam.
+        # Net worth the website still answers from its own Node intercept
+        # before a turn reaches this process, so for a web caller that one
+        # sees only the phrasings the intercept misses ("how much am i
+        # worth"). Research left that table, with RWA, the airdrop radar,
+        # the venue router, the meme radar, the NFT radar, the spot market,
+        # DeFi and cross-venue exposure: both doors render this seam.
         # The branch answers every `_WEB_SEAM` intent with the same card
         # Telegram's routed branch renders, under the same gate, recorded
         # the same way — never by a model with no such tool. `_WEB_SEAM`

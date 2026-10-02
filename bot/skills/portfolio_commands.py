@@ -16,13 +16,13 @@ that #1020 added so a corrected win rate cannot read as covering the whole
 total beside it.
 
 A mixin, not a leaf: every method reads `self.engine` and answers through
-`self._send`, `self._send_photo` or `self._send_error`. The two web-parity
-formatters that remain (`_format_networth`, `_format_research`) stay on the
-handler, and the one this group calls is declared below as a host
-staticmethod. `_format_exposure` is gone, the way `_format_rwa`
-went: the card `app/lib/exposure.js` renders is fetched rendered rather
-than formatted twice. `_format_exposure` used `or 0` on a missing total,
-which is a confident zero for a book that was not read.
+`self._send`, `self._send_photo` or `self._send_error`. The web-parity
+formatter that remains (`_format_networth`) stays on the handler and is
+declared below as a host staticmethod. `_format_exposure` and
+`_format_research` are gone, the way `_format_rwa` went: the card the
+website renders is fetched rendered rather than formatted twice.
+`_format_exposure` used `or 0` on a missing total, which is a confident
+zero for a book that was not read.
 """
 from __future__ import annotations
 
