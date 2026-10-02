@@ -118,6 +118,14 @@ class _Engine:
         return None
 
     _record_sweep_complete = RuneClawEngine._record_sweep_complete
+    # The scan lane and its heartbeat. `_phase` above closes the lane
+    # coroutine and returns the canned scan, so the lane does not run; the
+    # heartbeat task does, and the tick's finally has to be able to stop it.
+    _off_gateway_loop = RuneClawEngine._off_gateway_loop
+    _scan_heartbeat_while = RuneClawEngine._scan_heartbeat_while
+    _stamp_scan_heartbeat = RuneClawEngine._stamp_scan_heartbeat
+    _end_scan_batch = RuneClawEngine._end_scan_batch
+    _remember_gateway_scan = RuneClawEngine._remember_gateway_scan
     _expire_pending_ideas = RuneClawEngine._expire_pending_ideas
     _drop_pending_idea = RuneClawEngine._drop_pending_idea
     # The REAL auto-confirm selection, for the reason the monitor above is

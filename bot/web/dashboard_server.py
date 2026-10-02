@@ -15,6 +15,7 @@ import hmac
 import logging
 import os
 import pathlib
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -425,10 +426,23 @@ async def handle_health(request: web.Request) -> web.Response:
     # /gateway/health leaves open. Defaults to "unknown" rather than a
     # cheerful value — an older app object that never set it has not told us
     # the gateway is fine.
+    # The scan heartbeat. Missing is unknown, never a recent scan: an engine
+    # that has not stamped one has not told us it is scanning. A stamp inside
+    # the window is a batch that is still checking in. Older than the window
+    # is a scan that has stopped.
+    scan = "unknown"
+    try:
+        eng = request.app.get("engine")
+        from bot.core.scan_lane import SCAN_HEARTBEAT_FRESH_S, scan_heartbeat_state
+        stamp = getattr(eng, "_scan_heartbeat_mono", None) if eng is not None else None
+        scan = scan_heartbeat_state(stamp, time.monotonic(), SCAN_HEARTBEAT_FRESH_S)
+    except Exception:
+        scan = "unknown"
     return web.json_response({
         "status": "ok",
         "build": build_short(),
         "gateway": request.app.get("gateway_status", "unknown"),
+        "scan": scan,
         "timestamp": _ts(),
     })
 

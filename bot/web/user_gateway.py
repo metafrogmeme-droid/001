@@ -1119,6 +1119,27 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             # setup (analyze_asset registers one in engine._pending_ideas) can
             # be offered to the web as a one-tap "Trade this".
             ideas_before = set(getattr(engine, "_pending_ideas", {}) or {})
+            # A scan card while a batch is running. Do not take the scan
+            # lock and do not call the exchange: both wait out the batch,
+            # and the website cancels the request. The cache, or an honest
+            # "not ready". An idle lane falls through and scans.
+            if skill_name in ("scan_market", "pro_scan", "deepscan"):
+                from bot.core.scan_lane import gateway_scan_read
+                held = gateway_scan_read(engine)
+                if held is not None:
+                    _held_html = held.get("reply_html") if isinstance(held, dict) else ""
+                    if not isinstance(_held_html, str):
+                        _held_html = ""
+                    record_routed_turn(
+                        tg_handler.conversations, tg_id, text, intent.skill,
+                        skill_result_memory(skill_name, _held_html),
+                        surface="web", skill=skill_name)
+                    _held_reason = held.get("reason") if isinstance(held, dict) else None
+                    return web.json_response({
+                        "reply_html": _held_html,
+                        "intent": intent.skill,
+                        "scan_read": _held_reason if isinstance(_held_reason, str) else "not_ready",
+                    })
             try:
                 result = await skill.execute(engine, user_id=tg_id,
                                              **_routed_kwargs)

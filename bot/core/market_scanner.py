@@ -176,11 +176,35 @@ class MarketScanner:
         # Keyless clients for `/scan <venue>`, one per venue id — separate
         # from the active-venue client above on purpose (see venue_data_exchange).
         self._venue_clients: dict[str, ccxt.Exchange] = {}
+        # One ccxt client per (event loop, slot). The scan batch runs on a
+        # worker loop (bot/core/scan_lane.py) and the gateway stays on the
+        # engine loop. A client opened on one cannot serve the other, and
+        # sharing one client would put a website read behind the batch's
+        # rate limiter for as long as the batch takes.
+        self._loop_clients: dict[tuple[int, str], ccxt.Exchange] = {}
         # New-listing detection (bot/core/catalog_watch.py) — diffs the
         # futures catalog each scan against a persisted seen-set; the
         # proactive monitor drains and alerts.
         from bot.core.catalog_watch import CatalogWatch
         self._catalog_watch = CatalogWatch()
+
+    async def _client_on_this_loop(self, slot: str, factory):
+        """The client for ``slot`` on the loop that is running now.
+
+        Created on first use and never handed to another loop. ``factory``
+        is called with no arguments and returns a new ccxt client.
+        """
+        try:
+            lid = id(asyncio.get_running_loop())
+        except RuntimeError:
+            lid = 0
+        key = (lid, slot)
+        client = self._loop_clients.get(key)
+        if client is not None:
+            return client
+        client = factory()
+        self._loop_clients[key] = client
+        return client
 
     async def _get_exchange(self) -> ccxt.Exchange:
         """Spot exchange for crypto/stock scanning.
@@ -190,21 +214,27 @@ class MarketScanner:
         tests/test_data_loader_venue.py), so scanning must never opt into it
         even when order execution runs in demo mode.
         """
-        if self._exchange is None:
-            self._exchange = ccxt.bitget({
+        def _build():
+            return ccxt.bitget({
                 "aiohttp_trust_env": True,  # honor HTTPS_PROXY/CA env (no-op without proxy)
                 "timeout": CONFIG.market_data_timeout_ms,
                 "enableRateLimit": True,
             })
-        return self._exchange
+        client = await self._client_on_this_loop("spot", _build)
+        # The attribute is the client this process closes on shutdown when
+        # the scan lane was never started. It must not be replaced by a
+        # client that belongs to the other loop.
+        if self._exchange is None:
+            self._exchange = client
+        return client
 
     async def _get_futures_exchange(self) -> ccxt.Exchange:
         """Futures (swap) exchange for TradFi perpetuals scanning.
 
         Always production for the same reason as _get_exchange.
         """
-        if self._futures_exchange is None:
-            self._futures_exchange = ccxt.bitget({
+        def _build():
+            return ccxt.bitget({
                 "aiohttp_trust_env": True,  # honor HTTPS_PROXY/CA env (no-op without proxy)
                 "timeout": CONFIG.market_data_timeout_ms,
                 "enableRateLimit": True,
@@ -212,7 +242,10 @@ class MarketScanner:
                     "defaultType": "swap",
                 },
             })
-        return self._futures_exchange
+        client = await self._client_on_this_loop("futures", _build)
+        if self._futures_exchange is None:
+            self._futures_exchange = client
+        return client
 
     async def _get_venue_data_exchange(self) -> Optional[ccxt.Exchange]:
         """Public (keyless) market-data client for the ACTIVE trading venue
@@ -871,12 +904,49 @@ class MarketScanner:
                 for key in list(self._volume_history)[:excess]:
                     del self._volume_history[key]
 
+    async def close_this_loop(self) -> None:
+        """Close clients opened on the loop that is running now.
+
+        The scan lane calls this on its own loop. The gateway loop's
+        ``close`` calls it too, and then releases the venue clients, which
+        are not loop-keyed and must be closed from the loop that owns the
+        process shutdown.
+        """
+        try:
+            lid = id(asyncio.get_running_loop())
+        except RuntimeError:
+            lid = 0
+        for key, client in list(self._loop_clients.items()):
+            if key[0] != lid:
+                continue
+            self._loop_clients.pop(key, None)
+            try:
+                await client.close()
+            except Exception:
+                pass
+            if client is self._exchange:
+                self._exchange = None
+            if client is self._futures_exchange:
+                self._futures_exchange = None
+
     async def close(self) -> None:
-        if self._exchange:
-            await self._exchange.close()
+        """Close this loop's clients, then the venue clients.
+
+        A client left on ``_exchange`` by a caller that assigned it directly
+        (not through ``_client_on_this_loop``) is closed here too.
+        """
+        await self.close_this_loop()
+        if self._exchange is not None:
+            try:
+                await self._exchange.close()
+            except Exception:
+                pass
             self._exchange = None
-        if self._futures_exchange:
-            await self._futures_exchange.close()
+        if self._futures_exchange is not None:
+            try:
+                await self._futures_exchange.close()
+            except Exception:
+                pass
             self._futures_exchange = None
         for client in list(self._venue_clients.values()):
             try:

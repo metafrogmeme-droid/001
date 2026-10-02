@@ -60,6 +60,46 @@ test('stale scan + dead gateway: degraded, never rounded up to healthy', async (
   assert.equal(s.components.engine_scan.age_minutes, 90);
 });
 
+test('a working scan heartbeat stays fresh, and a stopped one goes stale', async () => {
+  status.setProbes(probes({
+    getScan: async () => ({
+      heartbeat_at: new Date(NOW - 60_000).toISOString(),
+      received_at: new Date(NOW - 90 * 60_000).toISOString(),
+    }),
+  }));
+  const working = await status.buildStatus(NOW);
+  assert.equal(working.components.engine_scan.state, 'fresh');
+  assert.equal(working.components.engine_scan.age_minutes, 1);
+
+  status.setProbes(probes({
+    getScan: async () => ({
+      heartbeat_at: new Date(NOW - 16 * 60_000).toISOString(),
+      received_at: new Date(NOW - 20 * 60_000).toISOString(),
+    }),
+  }));
+  const stopped = await status.buildStatus(NOW);
+  assert.equal(stopped.components.engine_scan.state, 'stale');
+  assert.equal(stopped.components.engine_scan.age_minutes, 16);
+});
+
+test('an unreadable heartbeat is not a recent scan', async () => {
+  status.setProbes(probes({
+    getScan: async () => ({
+      heartbeat_at: 'not a time',
+      received_at: new Date(NOW - 5 * 60_000).toISOString(),
+    }),
+  }));
+  const fell = await status.buildStatus(NOW);
+  assert.equal(fell.components.engine_scan.state, 'fresh');
+  assert.equal(fell.components.engine_scan.age_minutes, 5);
+
+  status.setProbes(probes({
+    getScan: async () => ({ heartbeat_at: 'not a time' }),
+  }));
+  const none = await status.buildStatus(NOW);
+  assert.equal(none.components.engine_scan.state, 'no_data');
+});
+
 test('missing data and throwing probes read no_data — not ok, not a crash', async () => {
   status.setProbes(probes({
     getScan: async () => null,

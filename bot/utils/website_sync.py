@@ -410,6 +410,43 @@ def sync_scan_in_background(scan_payload: dict) -> None:
     t.start()
 
 
+_heartbeat_lock = threading.Lock()
+_heartbeat_inflight = False
+
+
+def sync_scan_heartbeat() -> None:
+    """Tell the website the scan is still working, without a new scan body.
+
+    The status page ages ``received_at`` on the stored scan. A batch that
+    runs for many minutes used to leave that stamp at the previous push, so
+    a scan that was still working read as stale. This posts ``heartbeat:
+    true`` only — no cards, no balances — and the ingest updates
+    ``heartbeat_at`` without replacing the scan. No secret, no post: a
+    process that was never pointed at the website has nothing to tell.
+
+    One in flight. A cadence faster than the website answers must not pile
+    up threads, and a heartbeat is not worth the cold-start retry budget
+    the full scan push uses.
+    """
+    global _heartbeat_inflight
+    if not SYNC_SECRET or not WEBSITE_URL:
+        return
+
+    def _go() -> None:
+        global _heartbeat_inflight
+        try:
+            _post("/api/bot/sync/scan", {"heartbeat": True}, retries=0, timeout=5)
+        finally:
+            with _heartbeat_lock:
+                _heartbeat_inflight = False
+
+    with _heartbeat_lock:
+        if _heartbeat_inflight:
+            return
+        _heartbeat_inflight = True
+    threading.Thread(target=_go, name="scan-heartbeat", daemon=True).start()
+
+
 def signal_expires_at(created, ttl_s=None) -> str:
     """When a published signal stops being live, as ISO-8601 UTC, or "".
 
