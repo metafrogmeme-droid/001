@@ -89,7 +89,77 @@ _META: dict[str, dict[str, str]] = {
         "risk": "tight",
         "horizon": "position",
     },
+    "alt sweep": {
+        "tagline": "Follows fifteen alt markets in the direction of a closed-bar "
+                   "36/144 moving average, and reverses only when that relationship changes.",
+        "regime": "Alt trend",
+        "risk": "aggressive",
+        "horizon": "",
+    },
 }
+
+
+def _positive_number(value: Any) -> bool:
+    return (isinstance(value, int | float) and not isinstance(value, bool)
+            and value == value and value > 0)
+
+
+def _ma_book_can_size(cfg: dict[str, Any]) -> bool:
+    """True when the moving-average fill path has the margin inputs it reads.
+
+    That path sizes from target weight, utilization and a gross cap, then
+    applies leverage. A risk ratio is not those inputs, so it does not size.
+    """
+    return all(_positive_number(cfg.get(key)) for key in (
+        "target_weight", "utilization", "max_gross_leverage"))
+
+
+def _unapplied_clause(cfg: dict[str, Any]) -> str:
+    """Preset knobs this book records and does not apply. Empty when none."""
+    bits: list[str] = []
+    trail = cfg.get("trailing_stop_pct")
+    if (isinstance(trail, int | float) and not isinstance(trail, bool)
+            and trail == trail and trail > 0):
+        bits.append(f"a {trail * 100:g}% trailing stop")
+    ladder = cfg.get("take_profit_ladder")
+    if isinstance(ladder, list | tuple) and ladder:
+        bits.append(f"a {len(ladder)}-stage scale-out")
+    risk = cfg.get("risk_per_trade")
+    if _positive_number(risk):
+        bits.append(f"a risk ratio of {risk:g}")
+    leverage = cfg.get("leverage")
+    if _positive_number(leverage) and not _ma_book_can_size(cfg):
+        bits.append(f"leverage {leverage:g}\u00d7")
+    mode = cfg.get("margin_mode")
+    if isinstance(mode, str) and mode.strip():
+        bits.append(f"{mode.strip()} margin")
+    cap = cfg.get("max_portfolio_positions")
+    if isinstance(cap, int) and not isinstance(cap, bool) and cap > 0:
+        bits.append(f"at most {cap} positions")
+    floor_n = cfg.get("minimum_target_positions")
+    if isinstance(floor_n, int) and not isinstance(floor_n, bool) and floor_n > 0:
+        bits.append(f"a minimum target of {floor_n} positions")
+    if not bits:
+        return ""
+    joined = ", ".join(bits)
+    verb = "is" if len(bits) == 1 else "are"
+    return (
+        f" {joined} {verb} recorded on this preset and {verb} not applied."
+        " No frozen-benchmark scorecard is published for this universe."
+    )
+
+# Recorded on a preset and not asked of the runner, unless a key names a
+# flag ``_gate_args`` actually emits (leverage, and only when the fill path
+# can size). A scorecard lists these under ``unmodeled``.
+UNAPPLIED_PRESET_KEYS = (
+    "trailing_stop_pct",
+    "take_profit_ladder",
+    "risk_per_trade",
+    "margin_mode",
+    "max_portfolio_positions",
+    "minimum_target_positions",
+    "leverage",
+)
 
 _RISK_LABEL = {
     "tight": "🟢 Tight risk",
@@ -130,7 +200,11 @@ def _how_it_trades(cfg: dict[str, Any]) -> str:
     if isinstance(gross, (int, float)) and not isinstance(gross, bool):
         parts.append(f"gross exposure at most {gross:g}\u00d7")
     lev = cfg.get("leverage")
-    if isinstance(lev, (int, float)) and not isinstance(lev, bool):
+    # Leverage is stated as applied only when the fill path can reach it.
+    # A moving-average book reads it after the margin inputs; without those,
+    # the number stays on the preset and the unapplied clause names it.
+    if (isinstance(lev, (int, float)) and not isinstance(lev, bool)
+            and _ma_book_can_size(cfg)):
         parts.append(f"leverage {lev:g}\u00d7")
     weight = cfg.get("target_weight")
     util = cfg.get("utilization")
@@ -168,6 +242,7 @@ def _how_it_trades(cfg: dict[str, Any]) -> str:
             bits.append(f"{tp:g}-ATR target")
         parts.append(" / ".join(bits))
     text = "Trades " + ", ".join(parts) + "."
+    text += _unapplied_clause(cfg)
     source_tf = cfg.get("ma_source_timeframe")
     target_tf = cfg.get("ma_timeframe")
     if (isinstance(fast, int) and not isinstance(fast, bool)
