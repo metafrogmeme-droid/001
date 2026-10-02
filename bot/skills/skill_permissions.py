@@ -184,11 +184,13 @@ WEB_ROUTED_PERMISSION: dict[str, str] = {
     "networth": "networth",
     "rwa": "rwa",
     "research": "research",
-    # The website chat's own cards, as commands: `_cmd_nft` and `_cmd_spot`
-    # render the card the web intercept answers with, each under a
-    # permission of its own name, held by trader, paper and viewer —
-    # public market facts, no account read in either.
+    # The NFT radar left the website's intercept table. Both doors render
+    # `nft_card_text` under a permission of its own name. OpenSea
+    # collection stats are public; nothing is listed, bid, minted or traded.
     "nft": "nft",
+    # Spot still renders the card the web intercept answers with, under a
+    # permission of its own name, held by trader, paper and viewer —
+    # public market facts, no account read.
     "spot": "spot",
     # Airdrops left the website's intercept table. Both doors render
     # `airdrops_card_text` under a permission of its own name. The catalogue

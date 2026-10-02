@@ -98,10 +98,11 @@ const INTERCEPTS = [
   // feed is public DEXScreener data. The Markets panel and /api/market/meme
   // still run here, so the radar is still readable while the bot process
   // is down.
+  // The NFT radar left this table. Both doors route "nft radar" to the
+  // shared nft seam, which fetches this process's own card. OpenSea
+  // collection stats are public. /api/nft/radar still runs here, so the
+  // radar is still readable while the bot process is down.
 
-  // "nft radar" / "opensea" — read-only collection floor/volume snapshot.
-  // Never lists, bids, mints or trades.
-  ['nft', (uid, text) => require('../lib/opensea').maybeHandleNftChat(uid, text), "an NFT collection's floor price and volume"],
   // "spot market" — read-only spot pairs + spot/perp basis. Never orders.
   ['spot', (uid, text) => require('../lib/spot').maybeHandleSpotChat(uid, text), 'spot pairs and the spot/perp basis'],
   // The wallet mirror left this table. Both doors route "my wallet" to the

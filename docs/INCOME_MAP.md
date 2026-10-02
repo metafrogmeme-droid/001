@@ -928,10 +928,14 @@ by nobo…
 
 **Flipping** — partial
 
-READ-ONLY market intelligence only. The web chat intercept at
-`app/routes/chat.js::INTERCEPTS#"['nft',"` calls opensea.maybeHandleNftChat, which returns the top
-collections ranked by REAL seven-day traded volume with floor price and owner
-counts (`app/lib/opensea.js::getNftRadar`), and the same lib backs GET /api/nft/radar
+READ-ONLY market intelligence only. Asking from chat is the shared `nft` door
+on both surfaces (`bot/web/user_gateway.py::_WEB_SEAM#'"nft": _seam_nft'`,
+`bot/skills/market_commands.py::MarketCommands.nft_card_text`), which fetches
+the card `app/lib/opensea.js::nftChatCard` renders: the top collections ranked
+by REAL seven-day traded volume with floor price and owner counts
+(`app/lib/opensea.js::getNftRadar`). Website chat does not match the sentence
+itself. GET /api/nft/radar still serves the radar while the bot process is
+down, and the same lib backs GET /api/nft/radar
 and GET /api/nft/wallet/:address (`app/routes/nft.js::get('/radar')`, `::get('/wallet/:address')`). The Worlds view
 mirrors the caller's own NFT holdings (`app/routes/web3.js::get('/collectibles')`), and
 `app/lib/networth.js::buildNetWorth#"// NFT collectibles"` lists collectibles as CONTEXT and deliberately never sums
@@ -945,20 +949,22 @@ header states the scope — "No marketplace machinery — no listings, no offers
 no fulfillment, no minting, no wallet credentials" (`app/lib/opensea.js::#"No marketplace machinery"`) —
 and its radar payload carries "RUNECLAW never lists, bids, mints or trades
 NFTs" (`app/lib/opensea.js::getNftRadar#"never lists, bids, mints or trades NFTs"`). Both HTTP routes (/radar, /wallet/:address)
-have no browser caller anywhere in the repo; the chat intercept and /nft on
-Telegram — the same card, fetched rendered over the sync channel — are the UI
-doors. And the whole surface is inert on a stock deploy: OPENSEA_API_KEY is
+have no browser caller anywhere in the repo; both chat doors and /nft —
+the same card, fetched rendered over the sync channel — are the UI doors.
+GET /api/nft/radar still serves the read while the bot process is down.
+And the whole surface is inert on a stock deploy: OPENSEA_API_KEY is
 commented out at `.env.example::#"# OPENSEA_API_KEY="` and set nowhere, so configured() is false
 and every reader honestly answers available:false / not_configured rather than
 a fabricated radar. The Telegram door, /nft, renders that same honest card
-(market_commands.py fetches the web intercept's own rendering), so an
-unconfigured key reads 'unavailable' on both surfaces rather than as a radar
-on one and silence on the other.
+(`bot/skills/market_commands.py::MarketCommands.nft_card_text` fetches the
+card's own rendering), so an unconfigured key reads 'unavailable' on both
+surfaces rather than as a radar on one and silence on the other.
 
 *The verifier refused part of this row.* The STATUS is right and the read-only framing is right — I drove every path:
-the intercept table is dispatched in a loop (`app/routes/chat.js::chatTurn#"for (const [name, fn] of INTERCEPTS)"`), the
-nft row is `app/routes/chat.js::INTERCEPTS#"['nft',"`, opensea.CHAT_RE/maybeHandleNftChat are
-`app/lib/opensea.js::CHAT_RE`/`::maybeHandleNftChat`, /api/nft is mounted at `app/server.js::use('/api/nft')`,
+the intercept table is dispatched in a loop (`app/routes/chat.js::chatTurn#"for (const [name, fn] of INTERCEPTS)"`).
+Asking from chat is the shared nft door (`bot/web/user_gateway.py::_WEB_SEAM#'"nft": _seam_nft'`,
+`bot/skills/market_commands.py::MarketCommands.nft_card_text`); the card is
+`app/lib/opensea.js::nftChatCard`. /api/nft is mounted at `app/server.js::use('/api/nft')`,
 /api/web3/collectibles is `app/routes/web3.js::get('/collectibles')` and the Worlds view consumes it at
 `app/public/js/dashboard.js::renderWorlds#"fetchJSON('/api/web3/collectibles')"`, `app/lib/networth.js::buildNetWorth#"// NFT collectibles"` lists collectibles and never sums
 a floor, `app/lib/dapps.js::DAPPS#"{ id: 'opensea'"` is three…
@@ -1050,10 +1056,12 @@ chat_quota (user_gateway.py:…
 **Asset farming/flipping** — partial
 
 Read-only market intelligence next to the flip, and nothing that flips. (1) A
-web-chat intercept answers 'nft radar'/'opensea'/'floor price' with the top
-collections by real 7-day volume, each row carrying floor price in ETH, 7d
-volume and owner count (`app/routes/chat.js::INTERCEPTS#"['nft',"` → `app/lib/opensea.js::maybeHandleNftChat`, radar built at
-`::getNftRadar`). (2) The dashboard Worlds view (`app/public/js/dashboard.js::renderWorlds`, fetches
+Both chat doors answer 'nft radar', 'opensea' and 'floor price' through the
+shared nft door with the top collections by real 7-day volume, each row
+carrying floor price in ETH, 7d volume and owner count
+(`bot/web/user_gateway.py::_WEB_SEAM#'"nft": _seam_nft'` →
+`bot/skills/market_commands.py::MarketCommands.nft_card_text`, radar built at
+`app/lib/opensea.js::getNftRadar`). (2) The dashboard Worlds view (`app/public/js/dashboard.js::renderWorlds`, fetches
 /api/web3/collectibles at `::renderWorlds#"fetchJSON('/api/web3/collectibles')"` → `app/routes/web3.js::get('/collectibles')`) splits the caller's SIWE-linked
 wallet's NFTs into metaverse holdings via a curated slug map — The Sandbox,
 Decentraland, Otherside, Voxels, Somnium Space, typed land / name / wearable —
@@ -1079,8 +1087,8 @@ honestly answers available:false rather than an empty radar.
 *The verifier refused part of this row.* Still partial, but the door list is wrong in both directions. (1) EVERY door
 the row names is DARK on a stock deploy: `app/lib/opensea.js::configured` `configured()` reads
 OPENSEA_API_KEY, .env.example ships it COMMENTED OUT (`.env.example::#"# OPENSEA_API_KEY="`), and with it
-unset getNftRadar returns NOT_CONFIGURED (`app/lib/opensea.js::NOT_CONFIGURED`) — the chat
-intercept then replies '🖼 NFT radar — unavailable: the operator has not
+unset getNftRadar returns NOT_CONFIGURED (`app/lib/opensea.js::NOT_CONFIGURED`) — the
+card then replies '🖼 NFT radar — unavailable: the operator has not
 configured an OpenSea API key yet' (`app/lib/opensea.js::nftChatCard#"configured an OpenSea API key yet"`),
 /api/web3/collectibles returns…
 

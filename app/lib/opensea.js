@@ -123,34 +123,41 @@ async function getWalletNfts(address, chain = 'ethereum') {
   }
 }
 
-const CHAT_RE = /\b(nft ?radar|nfts?\b.*\b(floor|trending|radar)|opensea|floor price)\b/i;
+// ── The one card ─────────────────────────────────────────────────────────────
+//
+// ONE renderer. Both chat doors fetch this card over
+// `/api/bot/sync/card/nft`. Website chat does not match the sentence
+// itself. Public: OpenSea collection stats, no account in it.
 
 /**
- * The NFT radar as the chat card — ONE renderer for both surfaces. The web
- * intercept below answers with it, and the bot's /nft command fetches this
- * same card over the sync channel (`GET /api/bot/sync/card/nft`) rather than
- * carrying a second formatter in Python that would drift from this one.
+ * The NFT radar as the chat card — ONE renderer for both surfaces. The
+ * bot's /nft command and the website's shared door both fetch this card
+ * over the sync channel (`GET /api/bot/sync/card/nft`). Website chat does
+ * not match the sentence itself. Public: OpenSea collection stats, no
+ * account in it. Collection names are the feed's text, so they are
+ * escaped.
  */
 async function nftChatCard() {
   const radar = await getNftRadar();
   if (!radar.available) {
-    return { reply_html: '🖼 <b>NFT radar</b> — unavailable: '
-      + (radar.reason === 'not_configured'
-        ? 'the operator has not configured an OpenSea API key yet.'
-        : 'OpenSea is unreachable right now.') };
+    return {
+      reply_html: '🖼 <b>NFT radar</b> — unavailable: '
+        + (radar.reason === 'not_configured'
+          ? 'the operator has not configured an OpenSea API key yet.'
+          : 'OpenSea is unreachable right now.'),
+      intent: 'nft',
+    };
   }
   const rows = radar.entries.map(e =>
     `• <b>${esc(String(e.name).slice(0, 40))}</b> — floor ${e.floor_eth ?? '?'} ETH, `
     + `7d vol ${e.seven_day_volume != null ? Math.round(e.seven_day_volume) : '?'} ETH`);
-  return { reply_html: ['🖼 <b>NFT radar</b> — top collections by real 7-day volume:',
-    ...rows, `<i>${radar.disclaimer}</i>`].join('<br>') };
+  return {
+    reply_html: ['🖼 <b>NFT radar</b> — top collections by real 7-day volume:',
+      ...rows, `<i>${radar.disclaimer}</i>`].join('<br>'),
+    intent: 'nft',
+  };
 }
 
-async function maybeHandleNftChat(userId, text) {
-  if (!CHAT_RE.test(String(text || ''))) return null;
-  return nftChatCard();
-}
-
-module.exports = { CHAT_RE,
-  getNftRadar, getWalletNfts, maybeHandleNftChat, nftChatCard, setOpenSeaFetcher, CHAT_RE,
+module.exports = {
+  getNftRadar, getWalletNfts, nftChatCard, setOpenSeaFetcher,
 };

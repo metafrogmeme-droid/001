@@ -2,7 +2,7 @@
 /**
  * The web chat's local intercepts: order, first-hit-wins, and MEMORY.
  *
- * routes/chat.js answers seven shapes of question without a bot round-trip.
+ * routes/chat.js answers six shapes of question without a bot round-trip.
  * Until now each answered and vanished — the bot's conversation store, which
  * both surfaces read history from, never heard the question or the answer,
  * so a follow-up two turns later reached a model that had never seen the
@@ -41,7 +41,6 @@ function intercept(name, fnName, withIdent = false) {
     },
   };
 }
-stub('lib/opensea', intercept('nft', 'maybeHandleNftChat'));
 stub('lib/spot', intercept('spot', 'maybeHandleSpotChat'));
 stub('lib/defi', intercept('defi', 'maybeHandleDefiChat'));
 stub('lib/exposure', intercept('exposure', 'maybeHandleExposureChat'));
@@ -124,7 +123,7 @@ function reset() {
 
 test('the routing table is the documented order', () => {
   assert.deepEqual(chat.INTERCEPTS.map(([n]) => n), [
-    'nft', 'spot', 'defi',
+    'spot', 'defi',
     'exposure', 'research', 'networth', 'idleyield',
   ]);
   assert.equal(chat.INTERCEPTS.some(([n]) => n === 'alerts'), false,
@@ -143,6 +142,8 @@ test('the routing table is the documented order', () => {
     'the venue router is the shared venue_router door, not a private intercept');
   assert.equal(chat.INTERCEPTS.some(([n]) => n === 'meme'), false,
     'the meme radar is the shared meme_radar door, not a private intercept');
+  assert.equal(chat.INTERCEPTS.some(([n]) => n === 'nft'), false,
+    'the NFT radar is the shared nft door, not a private intercept');
 });
 
 test('every row says what it does, in words a person reads', () => {
@@ -200,14 +201,23 @@ test('a miss consults every intercept in order, then the model', async () => {
 
 test('the first hit answers and nothing below it runs', async () => {
   reset();
-  answers.nft = { reply_html: '<b>NFT</b> radar', intent: 'nft' };
+  answers.spot = { reply_html: '<b>Spot</b> market', intent: 'spot' };
   answers.defi = { reply_html: 'never', intent: 'defi' };
+  const token = await newUser();
+  const r = await req('POST', '/api/chat', { token, body: { text: 'spot market' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.reply_html, '<b>Spot</b> market');
+  const upToFirst = chat.INTERCEPTS.map(([n]) => n);
+  assert.deepEqual(calls, upToFirst.slice(0, upToFirst.indexOf('spot') + 1));
+});
+
+test('"nft radar" is not a local intercept', async () => {
+  reset();
   const token = await newUser();
   const r = await req('POST', '/api/chat', { token, body: { text: 'nft radar' } });
   assert.equal(r.status, 200);
-  assert.equal(r.data.reply_html, '<b>NFT</b> radar');
-  const upToFirst = chat.INTERCEPTS.map(([n]) => n);
-  assert.deepEqual(calls, upToFirst.slice(0, upToFirst.indexOf('nft') + 1));
+  assert.equal(r.data.reply_html, 'model answered');
+  assert.ok(!calls.includes('nft'));
 });
 
 test('"meme radar" is not a local intercept', async () => {
@@ -265,11 +275,11 @@ test('a refused or failed memory write never touches the reply', async () => {
 
 test('a reply without html records nothing', async () => {
   reset();
-  // NFT is the first row. A hit with no reply_html must not be written
+  // Spot is the first row. A hit with no reply_html must not be written
   // into conversation memory, and must not be handed to the model.
-  answers.nft = { pending_trade: { trade_id: 'x' } };
+  answers.spot = { pending_trade: { trade_id: 'x' } };
   const token = await newUser();
-  const r = await req('POST', '/api/chat', { token, body: { text: 'nft radar' } });
+  const r = await req('POST', '/api/chat', { token, body: { text: 'spot market' } });
   assert.equal(r.status, 200);
   assert.equal(r.data.pending_trade.trade_id, 'x');
   await flush();

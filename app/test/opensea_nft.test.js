@@ -8,11 +8,14 @@
 process.env.JWT_SECRET = 'j'.repeat(64);
 delete process.env.DATABASE_URL;
 delete process.env.OPENSEA_API_KEY;
+delete process.env.WEB_GATEWAY_SECRET;
 
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
+const http = require('node:http');
 const path = require('node:path');
+const express = require('express');
 const opensea = require('../lib/opensea');
 
 function fakeFetcher(p) {
@@ -64,12 +67,65 @@ test('wallet mirror: address validated, items mapped, read-only note', async () 
   opensea.setOpenSeaFetcher(null);
 });
 
-test('chat intercept answers "nft radar" and stays quiet otherwise', async () => {
+test('the card names the radar, and this module no longer matches the sentence', async () => {
   opensea.setOpenSeaFetcher(fakeFetcher);
-  const reply = await opensea.maybeHandleNftChat(1, 'nft radar');
-  assert.ok(reply && reply.reply_html.includes('NFT radar'));
-  assert.equal(await opensea.maybeHandleNftChat(1, 'hello there'), null);
+  const card = await opensea.nftChatCard();
+  assert.equal(card.intent, 'nft');
+  assert.ok(card.reply_html.includes('NFT radar'));
+  assert.match(card.reply_html, /never lists, bids, mints or trades/);
+  assert.equal(typeof opensea.maybeHandleNftChat, 'undefined');
+  assert.equal(opensea.CHAT_RE, undefined);
   opensea.setOpenSeaFetcher(null);
+});
+
+test('chat: "nft radar" waits for the bot; /api/nft/radar still serves', async () => {
+  opensea.setOpenSeaFetcher(fakeFetcher);
+  const app = express();
+  app.use(express.json());
+  app.use('/api/auth', require('../auth').router);
+  app.use('/api/nft', require('../routes/nft'));
+  app.use('/api/chat', require('../routes/chat'));
+  const server = await new Promise((res) => {
+    const s = app.listen(0, '127.0.0.1', () => res(s));
+  });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  function req(method, p, { token, body } = {}) {
+    return new Promise((resolve, reject) => {
+      const payload = body ? JSON.stringify(body) : null;
+      const r = http.request(`${base}${p}`, {
+        method,
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(payload ? { 'Content-Type': 'application/json' } : {}),
+        },
+      }, (res) => {
+        let d = '';
+        res.on('data', (c) => { d += c; });
+        res.on('end', () => resolve({ status: res.statusCode, data: d ? JSON.parse(d) : {} }));
+      });
+      r.on('error', reject);
+      if (payload) r.write(payload);
+      r.end();
+    });
+  }
+  try {
+    const reg = await req('POST', '/api/auth/register', {
+      body: { email: 'nft-chat@test.io', password: 'x'.repeat(12) },
+    });
+    const token = reg.data.token;
+    for (const text of ['nft radar', 'opensea', 'which nfts are trending', 'floor price of pudgy penguins']) {
+      const waiting = await req('POST', '/api/chat', { token, body: { text } });
+      assert.equal(waiting.status, 503, text);
+      assert.equal(waiting.data.intent, undefined, text);
+    }
+    const pub = await req('GET', '/api/nft/radar');
+    assert.equal(pub.status, 200);
+    assert.equal(pub.data.available, true);
+    assert.equal(pub.data.entries[0].slug, 'apes');
+  } finally {
+    server.close();
+    opensea.setOpenSeaFetcher(null);
+  }
 });
 
 test('HARD LINE: no marketplace machinery in the NFT surface', () => {

@@ -927,6 +927,31 @@ async def test_public_chat_does_not_open_the_venue_router_door(monkeypatch):
     assert handler.conversations.appended == []
 
 
+async def test_public_chat_does_not_open_the_nft_door(monkeypatch):
+    """Anonymous chat stays tool-free and history-free. "nft radar" is a
+    signed-in door onto the OpenSea snapshot; here it is an ordinary
+    question, with no radar card and no account."""
+    monkeypatch.setattr(ug, "_GATEWAY_SECRET", SECRET)
+    handler = FakeHandler(users={})
+    engine = FakeEngine()
+    async with gateway_client(engine, handler) as c:
+        r = await c.post("/chat/public",
+                         json={"text": "nft radar"},
+                         headers=HDRS)
+        assert r.status == 200
+        data = await r.json()
+        assert data["intent"] == "chat"
+        assert data["reply_html"] == "llm answer"
+        assert "pending_trade" not in data
+        assert "NFT radar" not in data["reply_html"]
+        assert "never lists" not in data["reply_html"]
+    assert len(handler.llm_calls) == 1
+    assert handler.llm_calls[0][1] == ""
+    assert handler.llm_calls[0][3] is True
+    assert handler.users.register_calls == []
+    assert handler.conversations.appended == []
+
+
 async def test_public_chat_does_not_open_the_meme_radar_door(monkeypatch):
     """Anonymous chat stays tool-free and history-free. "meme radar" is a
     signed-in door onto the DEXScreener snapshot; here it is an ordinary
