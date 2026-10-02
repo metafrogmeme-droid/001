@@ -32,7 +32,7 @@ _SYMBOL_RE = re.compile(r"^[A-Z0-9]{1,10}$")
 #: for a caller it cannot map to a web account.
 WEB_CARDS: tuple[str, ...] = ("nft", "spot", "airdrops", "replay", "letter",
                               "venue_router", "meme_radar", "wallet", "defi", "alerts",
-                              "rwa", "etf_flows")
+                              "rwa", "etf_flows", "exposure")
 
 #: Query arguments a card accepts. A card not listed takes none; a name not
 #: listed for a card raises at the call, because a seam handing a card an
@@ -88,8 +88,8 @@ def fetch_web_card(name: str, telegram_id: str = "", **params: object) -> dict |
     ``telegram_id`` is passed for the cards with a per-person half: the
     airdrops card adds the caller's wallet-readiness hints when their
     Telegram account is linked to a web account and answers the public radar
-    otherwise; the wallet and DeFi cards ARE the caller's wallet and answer
-    `unlinked` instead. ``params`` are the card's own arguments
+    otherwise; the wallet, DeFi and exposure cards ARE the caller's own book
+    and answer `unlinked` instead. ``params`` are the card's own arguments
     (`WEB_CARD_PARAMS`), sent when given and never defaulted here.
     None = channel unconfigured, name not a card, or the fetch failed — the
     command says which surface could not be read rather than inventing one.

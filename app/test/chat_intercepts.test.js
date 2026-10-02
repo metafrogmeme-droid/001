@@ -2,7 +2,7 @@
 /**
  * The web chat's local intercepts: order, first-hit-wins, and MEMORY.
  *
- * routes/chat.js answers four shapes of question without a bot round-trip.
+ * routes/chat.js answers three shapes of question without a bot round-trip.
  * Until now each answered and vanished — the bot's conversation store, which
  * both surfaces read history from, never heard the question or the answer,
  * so a follow-up two turns later reached a model that had never seen the
@@ -41,7 +41,6 @@ function intercept(name, fnName, withIdent = false) {
     },
   };
 }
-stub('lib/exposure', intercept('exposure', 'maybeHandleExposureChat'));
 stub('lib/research', intercept('research', 'maybeHandleResearchChat'));
 stub('lib/networth', intercept('networth', 'maybeHandleNetWorthChat', true));
 stub('lib/idle_yield', intercept('idleyield', 'maybeHandleIdleYieldChat', true));
@@ -121,7 +120,7 @@ function reset() {
 
 test('the routing table is the documented order', () => {
   assert.deepEqual(chat.INTERCEPTS.map(([n]) => n), [
-    'exposure', 'research', 'networth', 'idleyield',
+    'research', 'networth', 'idleyield',
   ]);
   assert.equal(chat.INTERCEPTS.some(([n]) => n === 'alerts'), false,
     'price alerts are the shared price_alert door, not a private intercept');
@@ -145,6 +144,8 @@ test('the routing table is the documented order', () => {
     'the spot market is the shared spot door, not a private intercept');
   assert.equal(chat.INTERCEPTS.some(([n]) => n === 'defi'), false,
     'DeFi positions are the shared defi door, not a private intercept');
+  assert.equal(chat.INTERCEPTS.some(([n]) => n === 'exposure'), false,
+    'cross-venue exposure is the shared exposure door, not a private intercept');
 });
 
 test('every row says what it does, in words a person reads', () => {
@@ -202,14 +203,14 @@ test('a miss consults every intercept in order, then the model', async () => {
 
 test('the first hit answers and nothing below it runs', async () => {
   reset();
-  answers.exposure = { reply_html: '<b>Exposure</b> netted', intent: 'exposure' };
-  answers.research = { reply_html: 'never', intent: 'research' };
+  answers.research = { reply_html: '<b>Research</b> dossier', intent: 'research' };
+  answers.networth = { reply_html: 'never', intent: 'networth' };
   const token = await newUser();
-  const r = await req('POST', '/api/chat', { token, body: { text: "what's my total exposure?" } });
+  const r = await req('POST', '/api/chat', { token, body: { text: 'research SOL' } });
   assert.equal(r.status, 200);
-  assert.equal(r.data.reply_html, '<b>Exposure</b> netted');
+  assert.equal(r.data.reply_html, '<b>Research</b> dossier');
   const upToFirst = chat.INTERCEPTS.map(([n]) => n);
-  assert.deepEqual(calls, upToFirst.slice(0, upToFirst.indexOf('exposure') + 1));
+  assert.deepEqual(calls, upToFirst.slice(0, upToFirst.indexOf('research') + 1));
 });
 
 test('"spot market" and "my defi positions" are not local intercepts', async () => {
@@ -224,6 +225,11 @@ test('"spot market" and "my defi positions" are not local intercepts', async () 
   assert.equal(r.status, 200);
   assert.equal(r.data.reply_html, 'model answered');
   assert.ok(!calls.includes('defi'));
+  reset();
+  r = await req('POST', '/api/chat', { token, body: { text: "what's my total exposure?" } });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.reply_html, 'model answered');
+  assert.ok(!calls.includes('exposure'));
 });
 
 test('"nft radar" is not a local intercept', async () => {
@@ -248,17 +254,17 @@ test('"meme radar" is not a local intercept', async () => {
 
 test('a hit is recorded into the shared conversation memory, as tool output', async () => {
   reset();
-  answers.exposure = { reply_html: '<b>Exposure</b> long $400 BTC', intent: 'exposure' };
+  answers.research = { reply_html: '<b>Research</b> dossier', intent: 'research' };
   const token = await newUser();
-  const r = await req('POST', '/api/chat', { token, body: { text: "what's my total exposure?" } });
+  const r = await req('POST', '/api/chat', { token, body: { text: 'research SOL' } });
   assert.equal(r.status, 200);
   await flush();
   const rec = posted.find((p) => p.path === '/chat/record');
   assert.ok(rec, 'the answer must reach /gateway/chat/record');
   assert.match(rec.body.telegram_id, /^web:\d+$/);
-  assert.equal(rec.body.text, "what's my total exposure?");
-  assert.equal(rec.body.reply, '<b>Exposure</b> long $400 BTC');
-  assert.equal(rec.body.intent, 'exposure');
+  assert.equal(rec.body.text, 'research SOL');
+  assert.equal(rec.body.reply, '<b>Research</b> dossier');
+  assert.equal(rec.body.intent, 'research');
   assert.ok(!posted.some((p) => p.path === '/chat'), 'a local hit never asks the model');
 });
 
@@ -279,10 +285,10 @@ test('a refused or failed memory write never touches the reply', async () => {
   for (const mode of [500, 'throw']) {
     reset();
     recordStatus = mode;
-    answers.exposure = { reply_html: 'exposure netted', intent: 'exposure' };
-    const r = await req('POST', '/api/chat', { token, body: { text: "what's my total exposure?" } });
+    answers.research = { reply_html: 'research dossier', intent: 'research' };
+    const r = await req('POST', '/api/chat', { token, body: { text: 'research SOL' } });
     assert.equal(r.status, 200, `mode ${mode}`);
-    assert.equal(r.data.reply_html, 'exposure netted');
+    assert.equal(r.data.reply_html, 'research dossier');
     await flush();
     assert.ok(posted.some((p) => p.path === '/chat/record'), 'the write was attempted');
   }
@@ -290,11 +296,11 @@ test('a refused or failed memory write never touches the reply', async () => {
 
 test('a reply without html records nothing', async () => {
   reset();
-  // Exposure is the first row. A hit with no reply_html must not be written
+  // Research is the first row. A hit with no reply_html must not be written
   // into conversation memory, and must not be handed to the model.
-  answers.exposure = { pending_trade: { trade_id: 'x' } };
+  answers.research = { pending_trade: { trade_id: 'x' } };
   const token = await newUser();
-  const r = await req('POST', '/api/chat', { token, body: { text: "what's my total exposure?" } });
+  const r = await req('POST', '/api/chat', { token, body: { text: 'research SOL' } });
   assert.equal(r.status, 200);
   assert.equal(r.data.pending_trade.trade_id, 'x');
   await flush();

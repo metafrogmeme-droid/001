@@ -61,7 +61,7 @@ from tests.test_the_web_intercept_phrasings_reach_the_same_read_on_telegram impo
 )
 from tests.test_web_and_scan_authorization import ROUTED_INTENT_SEAM
 
-CARDS = ("replay", "letter", "venue_router", "meme_radar", "wallet", "defi")
+CARDS = ("replay", "letter", "venue_router", "meme_radar", "wallet", "defi", "exposure")
 PUBLIC = ("replay", "letter", "venue_router", "meme_radar")
 PERSONAL = ("wallet", "defi")
 CARD = {"reply_html": "📽️ <b>What-if replay</b> — $1,000 on every agent trade<br>• Win rate: <b>50%</b><br>"
@@ -115,7 +115,8 @@ class TestThePull:
         # "etf_flows" is the twelfth: /etf draws its picture from the payload
         # the website's own panel reads, so the flows are read in one place.
         assert WEB_CARDS == ("nft", "spot", "airdrops", "replay", "letter", "venue_router",
-                             "meme_radar", "wallet", "defi", "alerts", "rwa", "etf_flows")
+                             "meme_radar", "wallet", "defi", "alerts", "rwa", "etf_flows",
+                             "exposure")
         assert WEB_CARD_PARAMS == {"replay": ("stake",), "venue_router": ("base",), "wallet": ("chain",),
                                    "alerts": ("text", "channel")}
 
@@ -231,6 +232,9 @@ class TestTheSeams:
         # <br> into a newline a browser collapses.
         assert _seam("defi", h, "770001", surface="web") == CARD["reply_html"]
         assert "<br>" in _seam("defi", h, "770001", surface="web")
+        assert _seam("exposure", h, "770001") == web_card_text(CARD)
+        assert _seam("exposure", h, "770001", surface="web") == CARD["reply_html"]
+        assert "<br>" in _seam("exposure", h, "770001", surface="web")
         assert seen == [("replay", "", {"stake": "500"}), ("replay", "", {"stake": None}),
                         ("replay", "", {"stake": "500"}), ("replay", "", {"stake": None}),
                         ("letter", "", {}), ("letter", "", {}), ("letter", "", {}),
@@ -244,7 +248,9 @@ class TestTheSeams:
                         ("wallet", "770001", {"chain": "base"}), ("wallet", "770001", {"chain": ""}),
                         ("wallet", "770001", {"chain": ""}), ("wallet", "770001", {"chain": ""}),
                         ("defi", "770001", {}),
-                        ("defi", "770001", {}), ("defi", "770001", {})]
+                        ("defi", "770001", {}), ("defi", "770001", {}),
+                        ("exposure", "770001", {}),
+                        ("exposure", "770001", {}), ("exposure", "770001", {})]
 
     def test_a_stake_travels_as_the_number_the_caller_typed(self, monkeypatch):
         # The route reads the parameter with parseFloat, so the spelling only
@@ -265,7 +271,7 @@ class TestTheSeams:
     def test_an_unlinked_caller_is_told_so_in_the_transports_words(self, monkeypatch, surface):
         monkeypatch.setattr(wdp, "fetch_web_card", lambda name, tg="", **kw: dict(UNLINKED, intent=name))
         h = _host()
-        for name, args in (("wallet", ("770001",)), ("defi", ("770001",))):
+        for name, args in (("wallet", ("770001",)), ("defi", ("770001",)), ("exposure", ("770001",))):
             out = _seam(name, h, *args, surface=surface)
             assert out == TelegramHandler._unlinked_hint(surface)
             assert "Nothing was read" in out
@@ -285,7 +291,7 @@ class TestTheSeams:
         monkeypatch.setattr(wdp, "fetch_web_card", lambda name, tg="", **kw: answer)
         h = _host()
         for name, args in (("replay", ()), ("letter", ()), ("venue_router", ()), ("meme_radar", ()),
-                           ("wallet", ("1",)), ("defi", ("1",))):
+                           ("wallet", ("1",)), ("defi", ("1",)), ("exposure", ("1",))):
             assert _seam(name, h, *args) == TelegramHandler._WEB_LINK_HINT
             assert _seam(name, h, *args, surface="web") == TelegramHandler._link_hint("web")
 
@@ -355,7 +361,7 @@ class TestTheTables:
             assert audience == "user", (name, audience)
         assert entries["venue_router"][0] == entries["meme_radar"][0] == "🌍 Market context"
         assert entries["replay"][0] == entries["letter"][0] == entries["wallet"][0] == entries["defi"][0] \
-            == "💼 Portfolio & record"
+            == entries["exposure"][0] == "💼 Portfolio & record"
 
     def test_the_roles_that_hold_exposure_hold_these(self):
         for role in ("trader", "paper", "viewer"):
@@ -390,6 +396,7 @@ ROWS = [
     ("my wallet", "wallet"), ("wallet balance", "wallet"), ("my wallet on base", "wallet"),
     ("on-chain holdings on arbitrum", "wallet"),
     ("my defi positions", "defi"), ("health factor", "defi"),
+    ("my exposure", "exposure"), ("what's my total exposure", "exposure"),
 ]
 
 
@@ -429,6 +436,7 @@ class TestTelegram:
         ("my wallet on base", "wallet", {"chain": "base"}),
         ("wallet balance", "wallet", {"chain": ""}),
         ("my defi positions", "defi", {}),
+        ("my exposure", "exposure", {}),
     ])
     async def test_the_branch_dispatches_the_command_with_its_argument_and_records(self, bot, text, name, kwargs):
         store = _store(bot)
@@ -477,6 +485,7 @@ class TestTheWeb:
         ("degen", "meme_radar", (), {"surface": "web"}),
         ("wallet holdings on arbitrum", "wallet", (CALLER, "arbitrum"), {"surface": "web"}),
         ("health factor", "defi", (CALLER,), {"surface": "web"}),
+        ("what's my total exposure?", "exposure", (CALLER,), {"surface": "web"}),
     ])
     def test_the_seam_answers_with_the_argument_and_the_result_is_recorded(
             self, monkeypatch, text, intent, args, kwargs):
@@ -540,6 +549,32 @@ class TestTheWeb:
         assert body["reply_html"] == card["reply_html"] and "<br>" in body["reply_html"]
         assert "web app's chat" not in body["reply_html"]
         assert seen == [("defi", CALLER, {})]
+        assert h.conversations.get_recent(OPERATOR, limit=5) == []
+
+    def test_exposure_keeps_the_cards_markup_for_this_caller(self, monkeypatch):
+        """Both doors render the card. The website used to answer itself, so
+        the markup the browser already shows has to survive the hop. The id
+        on the wire is the caller the turn names, never the operator's book.
+        Nothing here resizes, hedges, or closes a position."""
+        seen = []
+        card = {"reply_html": "🧭 <b>Your exposure</b><br>Net <b>$900</b>",
+                "intent": "exposure"}
+
+        def fetch(name, tg="", **kw):
+            seen.append((name, tg, kw))
+            return card
+
+        monkeypatch.setattr(wdp, "fetch_web_card", fetch)
+        ug, h = _web(monkeypatch)
+        h._link_hint = TelegramHandler._link_hint
+        h._unlinked_hint = TelegramHandler._unlinked_hint
+        h._web_card_text = MethodType(TelegramHandler._web_card_text, h)
+        h.exposure_card_text = MethodType(TelegramHandler.exposure_card_text, h)
+        resp, body = _turn(ug, h, "what's my total exposure?")
+        assert resp.status == 200 and body["intent"] == "exposure"
+        assert body["reply_html"] == card["reply_html"] and "<br>" in body["reply_html"]
+        assert "web app's chat" not in body["reply_html"]
+        assert seen == [("exposure", CALLER, {})]
         assert h.conversations.get_recent(OPERATOR, limit=5) == []
 
     def test_the_gate_refuses_before_the_seam_and_records_not_run(self, monkeypatch):

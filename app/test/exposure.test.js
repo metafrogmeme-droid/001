@@ -3,7 +3,8 @@
  * Cross-venue exposure intelligence: pure netting math (perp vs spot,
  * wrapped-asset mapping, stables-as-cash), risk-desk flags (stacked longs,
  * hedges, concentration), the authed endpoint over seeded positions +
- * wallet, and the chat intercept.
+ * wallet, and the card both doors fetch. Website chat no longer answers
+ * the sentence itself.
  */
 process.env.JWT_SECRET = 'j'.repeat(64);
 process.env.WEB3_CHAINS = 'ethereum';   // single-chain FakeProvider — see multichain test
@@ -169,27 +170,29 @@ test('REST: exposure over seeded open positions + linked wallet', async () => {
   assert.equal(anon.status, 401);
 });
 
-test('chat: "what\'s my total exposure?" answers with flags; empty book honest', async () => {
+test('the card both doors fetch reports the book; chat no longer answers the sentence', async () => {
   const token = await newUser();
-  const empty = await req('POST', '/api/chat', {
-    token, body: { text: "what's my total exposure?" } });
-  assert.equal(empty.data.intent, 'exposure');
-  assert.match(empty.data.reply_html, /No directional exposure/);
-
   const uid = await uidOf(token);
+  const empty = await exposure.exposureChatCard(uid);
+  assert.equal(empty.intent, 'exposure');
+  assert.match(empty.reply_html, /No directional exposure/);
+  assert.equal(typeof exposure.maybeHandleExposureChat, 'undefined');
+  assert.equal(exposure.CHAT_RE, undefined);
+
+  const missed = await req('POST', '/api/chat', {
+    token, body: { text: "what's my total exposure?" } });
+  assert.equal(missed.status, 503);
+
   await pool.execute(
     `INSERT INTO trades (user_id, symbol, direction, entry_price, size_usd, fees,
        status, pattern, stop_loss, take_profit)
      VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)`,
     [uid, 'SOL/USDT', 'SHORT', 150, 600, 1, null, 160, 130]);
-  const r = await req('POST', '/api/chat', { token, body: { text: 'am I overexposed?' } });
-  assert.equal(r.data.intent, 'exposure');
-  assert.match(r.data.reply_html, /SOL/);
-  assert.match(r.data.reply_html, /short \$600/);
-  assert.match(r.data.reply_html, /nothing here can resize/i);
-
-  const other = await req('POST', '/api/chat', { token, body: { text: 'hello!' } });
-  assert.equal(other.status, 503);   // unconfigured bot proxy
+  const r = await exposure.exposureChatCard(uid);
+  assert.equal(r.intent, 'exposure');
+  assert.match(r.reply_html, /SOL/);
+  assert.match(r.reply_html, /short \$600/);
+  assert.match(r.reply_html, /nothing here can resize/i);
 });
 
 /**
@@ -235,11 +238,11 @@ test('an unreadable trades query is not reported as a flat book', async () => {
   });
 });
 
-test('chat refuses to answer exposure it could not read', async () => {
+test('the card refuses to answer exposure it could not read', async () => {
   const token = await newUser();
   const uid = await uidOf(token);
   await withBrokenTrades(async () => {
-    const r = await exposure.maybeHandleExposureChat(uid, "am I overexposed?");
+    const r = await exposure.exposureChatCard(uid);
     assert.equal(r.intent, 'exposure');
     assert.ok(!/No directional exposure/.test(r.reply_html),
       'a failed read must never render as "no exposure"');
@@ -256,7 +259,7 @@ test('a genuinely empty book still answers plainly', async () => {
   const e = await exposure.buildExposure(uid);
   assert.equal(e.positions_read, true);
   assert.equal(e.open_positions, 0);
-  const r = await exposure.maybeHandleExposureChat(uid, "what's my total exposure?");
+  const r = await exposure.exposureChatCard(uid);
   assert.match(r.reply_html, /No directional exposure/);
 });
 
@@ -279,7 +282,7 @@ test('wallet_state separates "not linked" from "could not read"', async () => {
     assert.equal(broken.wallet_state, 'unreadable');
     assert.equal(broken.wallet_included, false,
       'the legacy boolean keeps its meaning: spot is not included');
-    const r = await exposure.maybeHandleExposureChat(uid, 'my exposure');
+    const r = await exposure.exposureChatCard(uid);
     assert.ok(!/no wallet linked/i.test(r.reply_html),
       'a wallet that IS linked must not be described as unlinked');
     assert.match(r.reply_html, /could not be read/i);
@@ -302,7 +305,7 @@ test('a perp-only view says the wallet is missing from it', async () => {
   const realPortfolio = wallet.getWalletPortfolio;
   wallet.getWalletPortfolio = async () => { throw new Error('502 upstream'); };
   try {
-    const r = await exposure.maybeHandleExposureChat(uid, 'how exposed am i');
+    const r = await exposure.exposureChatCard(uid);
     assert.match(r.reply_html, /Wallet not included/,
       'a partial total printed as a whole one is the defect this file exists for');
     assert.match(r.reply_html, /perps only/i);

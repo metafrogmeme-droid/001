@@ -179,8 +179,7 @@ WEB_ROUTED_PERMISSION: dict[str, str] = {
     # renders only as slash commands: routed intents on both surfaces now,
     # each under the permission on the `@guard` of the command that renders
     # the same seam (`networth_card_text`, `rwa_card_text`,
-    # `research_card_text`). `exposure` is deliberately NOT here: "whats my
-    # exposure" is `check_risk`'s, a pinned routing.
+    # `research_card_text`).
     "networth": "networth",
     "rwa": "rwa",
     "research": "research",
@@ -219,6 +218,12 @@ WEB_ROUTED_PERMISSION: dict[str, str] = {
     # the caller's linked wallet; nothing here repays, withdraws, or
     # manages a position.
     "defi": "defi",
+    # Cross-venue exposure left the website's intercept table. Both doors
+    # render `exposure_card_text` under a permission of its own name. The
+    # read is the caller's perps netted against their on-chain spot.
+    # "what's my drawdown" stays `check_risk`. Nothing here resizes,
+    # hedges, or closes a position.
+    "exposure": "exposure",
 }
 
 # Skills a chat transport must never `execute()` directly, whatever the

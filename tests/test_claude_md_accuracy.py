@@ -479,16 +479,16 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     # fail-open answer, which is now unreachable because the surface is
     # validated. It is measured by REMOVING the validation, not by trusting
     # the sentence: the whole claim is about what the old branch returned.
-    assert "56 names including `halt`" in flat
+    assert "57 names including `halt`" in flat
     old = set(routed_skill_names()) | {t.name for t in CHAT_TOOLS}
-    assert len(old) == 56, len(old)
+    assert len(old) == 57, len(old)
     assert {"halt", "close_position", "emergency_stop"} <= old
     # "...than the one it modelled best (telegram, 33)"
-    assert "(telegram, 51)" in flat
+    assert "(telegram, 52)" in flat
     tg = {dispatches_to(n) for n in routed_skill_names()}
     tg |= {t.name for t in CHAT_TOOLS}
     tg.discard("")
-    assert len(tg) == 51, len(tg)
+    assert len(tg) == 52, len(tg)
     # ...and the unmeasured surface now refuses rather than answering either.
     for bad in ("", "nonsense"):
         with pytest.raises(UnknownSurface):
@@ -521,7 +521,7 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     for name in under:
         assert f"`{name}`" in DOC, name
 
-    # "all four rows of that table" — the web client's intercepts, counted
+    # "all three rows of that table" — the web client's intercepts, counted
     # in the JS file rather than restated here. Fifteen until price alerts
     # left the table for the shared price_alert door; fourteen until the
     # weekly letter left for the shared letter door; thirteen until the
@@ -533,14 +533,15 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     # meme radar left for the shared meme_radar door; seven until the NFT
     # radar left for the shared nft door; six until the spot market left
     # for the shared spot door; five until DeFi positions left for the
-    # shared defi door.
-    assert "four rows of that table" in flat
+    # shared defi door; four until cross-venue exposure left for the
+    # shared exposure door.
+    assert "three rows of that table" in flat
     js = (pathlib.Path(__file__).resolve().parent.parent
           / "app" / "routes" / "chat.js").read_text()
     block = js[js.index("const INTERCEPTS = ["):]
     block = block[:block.index("\n];")]
     rows = re.findall(r"^\s*\['([a-z]+)',", block, re.M)
-    assert len(rows) == 4, rows
+    assert len(rows) == 3, rows
 
 
 def test_the_url_shape_it_names_is_the_shape_both_routes_send():

@@ -1,6 +1,6 @@
 """Three of the website's chat intercepts, reached by the same words on Telegram.
 
-`app/routes/chat.js` answers four phrasings from its own Node intercepts
+`app/routes/chat.js` answers three phrasings from its own Node intercepts
 before a turn reaches the bot. Two of them (`networth`, `research`) have a
 Telegram command that renders the same reading. The RWA radar left that
 table: both doors route "rwa radar" to `/rwa`. The airdrop radar left it
@@ -10,6 +10,8 @@ The meme radar left it too: both doors route "meme radar" to `/meme_radar`.
 The NFT radar left it too: both doors route "nft radar" to `/nft`.
 The spot market left it too: both doors route "spot market" to `/spot`.
 DeFi positions left it too: both doors route "my defi positions" to `/defi`.
+Cross-venue exposure left it too: both doors route "my exposure" to
+`/exposure`. "whats my drawdown" stays the risk engine.
 Typed as WORDS on Telegram,
 "my net worth" and "rwa radar" were GREETED by the social gate, "research
 SOL" reached a chat model with no dossier tool. They are routed intents on
@@ -17,11 +19,11 @@ both surfaces now — the Telegram branch dispatches the guarded command (the
 guard IS the role gate), the web's Python path answers from the same seam
 under the same gate, and every branch records what it showed.
 
-Three decisions worth pinning because a rule does not carry them:
-`exposure` stays with `check_risk` (a pinned routing); `deep dive on <sym>`
-stays with the chart rules on Telegram, where the web's research intercept
-claims it as a dossier; and an education question ("what is rwa") is the
-model's on both surfaces, because the website no longer intercepts it.
+Two decisions worth pinning because a rule does not carry them:
+`deep dive on <sym>` stays with the chart rules on Telegram, where the
+web's research intercept claims it as a dossier; and an education question
+("what is rwa") is the model's on both surfaces, because the website no
+longer intercepts it.
 
 DRIVEN, not scanned: the router over a table with decoys; the Telegram
 handler through the store and through its guard; the web turn through
@@ -96,8 +98,8 @@ DECOYS = [
 ]
 #: Neighbours that must not move: each is a pinned routing of its own.
 UNCHANGED = [
-    ("deep dive on sol", "analyze_asset"), ("whats my exposure", "check_risk"),
-    ("am i overexposed", "check_risk"), ("whats my equity", "get_portfolio"),
+    ("deep dive on sol", "analyze_asset"), ("am i exposed", "check_risk"),
+    ("whats my drawdown", "check_risk"), ("whats my equity", "get_portfolio"),
     ("balance", "get_portfolio"), ("show my balance", "get_portfolio"),
     ("my open orders", "get_orders"), ("hows btc doing", "analyze_asset"),
     ("scan the market", "scan_market"), ("status", "status"), ("help", "help"),
@@ -133,7 +135,7 @@ class TestTheRouter:
         # the price alert, a WRITE the website's alert engine holds.
         assert set(ug._WEB_SEAM) == {"networth", "rwa", "research", "nft", "spot", "airdrops",
                                      "replay", "letter", "venue_router", "meme_radar", "wallet", "defi",
-                                     "price_alert"}
+                                     "exposure", "price_alert"}
         assert set(WEB_ROUTED_PERMISSION) == set(ROUTED_INTENT_SEAM)
         assert set(ug._WEB_SEAM) == set(WEB_ROUTED_PERMISSION) - {"status"}
         # The permission is the @guard on the command that renders the seam.

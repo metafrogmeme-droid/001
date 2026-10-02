@@ -29,6 +29,7 @@ const venueRouter = require('../lib/venue_router');
 const meme = require('../lib/meme');
 const wallet = require('../lib/wallet');
 const defi = require('../lib/defi');
+const exposure = require('../lib/exposure');
 const dex = require('../lib/dex');
 
 const SECRET = process.env.BOT_SYNC_SECRET;
@@ -197,7 +198,7 @@ test('meme radar: the feed\'s token symbol is text, not markup, on both surfaces
 });
 
 test('wallet and defi: unlinked is a fact, never a guessed wallet; linked is the caller\'s own card', async () => {
-  for (const name of ['wallet', 'defi']) {
+  for (const name of ['wallet', 'defi', 'exposure']) {
     const r = await card(`/api/bot/sync/card/${name}?telegram_id=880001`);
     assert.equal(r.status, 200, name);
     assert.deepEqual(r.data, { reply_html: null, intent: name, unlinked: true });
@@ -235,6 +236,12 @@ test('wallet and defi: unlinked is a fact, never a guessed wallet; linked is the
   assert.equal(defi.CHAT_RE, undefined);
   r = await card('/api/bot/sync/card/defi?telegram_id=880001');
   assert.deepEqual(r.data, { reply_html: positions.reply_html, intent: 'defi' });
+  const book = await exposure.exposureChatCard(reg.user_id);
+  assert.equal(typeof exposure.maybeHandleExposureChat, 'undefined');
+  assert.equal(exposure.CHAT_RE, undefined);
+  r = await card('/api/bot/sync/card/exposure?telegram_id=880001');
+  assert.deepEqual(r.data, { reply_html: book.reply_html, intent: 'exposure' });
+  assert.match(r.data.reply_html, /Your exposure|No directional exposure/);
 });
 
 test('the identity the website hands the bot for a web-only account maps to that account, on every per-person read', async () => {
@@ -251,6 +258,9 @@ test('the identity the website hands the bot for a web-only account maps to that
   const positions = await defi.defiChatCard(reg.user_id);
   r = await card(`/api/bot/sync/card/defi?telegram_id=web:${reg.user_id}`);
   assert.deepEqual(r.data, { reply_html: positions.reply_html, intent: 'defi' });
+  const book = await exposure.exposureChatCard(reg.user_id);
+  r = await card(`/api/bot/sync/card/exposure?telegram_id=web:${reg.user_id}`);
+  assert.deepEqual(r.data, { reply_html: book.reply_html, intent: 'exposure' });
   // An identity that names no account, or is not one, is unlinked — never
   // somebody else's row.
   for (const id of ['web:999999', 'web:abc', 'web:', `web:${reg.user_id}x`, `web:-${reg.user_id}`]) {
@@ -276,7 +286,7 @@ test('the door that stays a door is not a card, and neither is the admin read', 
   // the route answers it now (sync_card_route_arms_price_alerts.test.js drives
   // that), so the door that stays a door is the idle-yield read alone, and
   // `price_alert` is the intent name nothing serves as a card.
-  for (const name of ['price_alert', 'idleyield', 'exposure']) {
+  for (const name of ['price_alert', 'idleyield']) {
     const r = await req(`/api/bot/sync/card/${name}`, { botSecret: SECRET });
     assert.equal(r.status, 404, name);
   }

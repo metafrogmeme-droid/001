@@ -209,7 +209,7 @@ def _bridge(monkeypatch, reply="ok", meta=None, chat_id="424242"):
 
 def test_the_bridge_chat_runs_as_the_operator(monkeypatch):
     api_bridge, seen = _bridge(monkeypatch)
-    out = _run(api_bridge.chat(api_bridge.ChatRequest(question="what is my exposure?", lang="es"),
+    out = _run(api_bridge.chat(api_bridge.ChatRequest(question="what is exposure?", lang="es"),
                                _token="t", _rl=None))
     assert out["reply_html"] == "ok" and out["answered_by"] == "model"
     assert out["model"] == "gemini-3.5-flash"

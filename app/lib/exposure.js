@@ -165,16 +165,27 @@ async function buildExposure(userId) {
   };
 }
 
-// ── Chat intercept ───────────────────────────────────────────────────────────
-
-const CHAT_RE = /\b((my|total|current) exposure|exposure (across|check)|overexposed|doubled? (up|exposure)|how (exposed|leveraged) am i)\b/i;
+// ── The one card ─────────────────────────────────────────────────────────────
+//
+// ONE renderer. Both chat doors fetch this card over
+// `/api/bot/sync/card/exposure`. Website chat does not match the sentence
+// itself. The read is this caller's book — open perps netted against that
+// caller's on-chain spot — never the operator's. Nothing here resizes,
+// hedges, or closes a position.
 
 function fmtUsd(v) {
   return '$' + Number(v || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
-async function maybeHandleExposureChat(userId, text) {
-  if (!CHAT_RE.test(String(text || ''))) return null;
+/**
+ * The cross-venue exposure card — ONE renderer for both surfaces. The bot's
+ * /exposure command and the website's shared door both fetch this card over
+ * the sync channel (`GET /api/bot/sync/card/exposure?telegram_id=…`). Website
+ * chat does not match the sentence itself. A caller the website cannot map
+ * is unlinked, never a guessed book. Nothing here resizes, hedges, or closes
+ * a position.
+ */
+async function exposureChatCard(userId) {
   try {
     const e = await buildExposure(userId);
 
@@ -240,4 +251,4 @@ async function maybeHandleExposureChat(userId, text) {
   }
 }
 
-module.exports = { computeExposure, buildExposure, maybeHandleExposureChat };
+module.exports = { computeExposure, buildExposure, exposureChatCard };

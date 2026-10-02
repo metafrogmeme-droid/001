@@ -18,7 +18,6 @@ const gateway = require('../lib/gateway');
 const { loadProfile } = require('./profile');
 const { maybeHandleNetWorthChat } = require('../lib/networth');
 const { maybeHandleIdleYieldChat } = require('../lib/idle_yield');
-const { maybeHandleExposureChat } = require('../lib/exposure');
 const { maybeHandleResearchChat } = require('../lib/research');
 
 const router = express.Router();
@@ -117,8 +116,13 @@ const INTERCEPTS = [
   // Nothing here repays, withdraws, or manages a position. /api/defi still
   // runs here, so the positions are still readable while the bot process
   // is down.
-  // "what's my total exposure?" — perp positions netted against wallet spot.
-  ['exposure', (uid, text) => maybeHandleExposureChat(uid, text), 'your total exposure — perp positions netted against wallet spot'],
+  // Cross-venue exposure left this table. Both doors route "my exposure"
+  // to the shared exposure seam, which fetches this process's own card for
+  // the caller the turn names. The read nets that caller's perp positions
+  // against their on-chain spot. Nothing here resizes, hedges, or closes a
+  // position. "what's my drawdown" stays the risk engine. /api/exposure
+  // still runs here, so the read is still available while the bot process
+  // is down.
   // "research PENDLE" — evidence dossier from trusted local + live sources.
   ['research', (uid, text) => maybeHandleResearchChat(uid, text), 'an evidence dossier on one token'],
   // "net worth" — everything the user holds, everywhere, read-only. Needs

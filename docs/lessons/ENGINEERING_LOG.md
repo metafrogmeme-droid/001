@@ -1397,13 +1397,14 @@ second door.
 **Writing that module produced the same defect one layer down, and it was
 fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
 other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
-whole vocabulary plus every chat tool: **56 names including `halt`,
+whole vocabulary plus every chat tool: **57 names including `halt`,
 `close_position` and `emergency_stop`**, on the function whose entire job is
 deciding what the card may promise. (The figure is a live drive of what would
 fall through TODAY, not a note of what it was the day the branch was fixed,
 which is why it moves when the router gains an intent — it was 51 before the
-sweep's own timeframes got rules and 53 before `place_order`.) It answered MORE for an unrecognised
-surface than for the one it modelled best (telegram, 51), because the
+sweep's own timeframes got rules, 53 before `place_order`, and 56 before
+cross-venue exposure became a routed intent.) It answered MORE for an unrecognised
+surface than for the one it modelled best (telegram, 52), because the
 unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
 names that are not skills at all. An unmeasured surface is neither "everything"
 nor "nothing": it raises. `public` and `api` are measured — `_chat_tools_for`
@@ -1581,7 +1582,7 @@ of the parameter its only supplier was the test written to guard it. The
 intercept table is in `app/routes/chat.js`, the card is Python, and the chat
 payload carried telegram_id/name/text/profile/lang and nothing else: a socket
 with no cable. So the card built to stop the bot OVERSTATING what it can do was
-understating it by all four rows of that table, on the one surface those
+understating it by all three rows of that table, on the one surface those
 rows exist for — and no ratchet here can see it, because the module is
 imported and the function is called. The table has a third column now (the
 sentence, beside the handler it describes), `client_capabilities` rides every
@@ -3417,7 +3418,7 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Fifty-three call sites across the two entry points today, one on
+never happened. Fifty-four call sites across the two entry points today, one on
 every branch that answers — the stance card, the paywall refusal, the scan card,
 orders, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall
