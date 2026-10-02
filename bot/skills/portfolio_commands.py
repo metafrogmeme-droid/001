@@ -16,13 +16,12 @@ that #1020 added so a corrected win rate cannot read as covering the whole
 total beside it.
 
 A mixin, not a leaf: every method reads `self.engine` and answers through
-`self._send`, `self._send_photo` or `self._send_error`. The web-parity
-formatter that remains (`_format_networth`) stays on the handler and is
-declared below as a host staticmethod. `_format_exposure` and
-`_format_research` are gone, the way `_format_rwa` went: the card the
-website renders is fetched rendered rather than formatted twice.
-`_format_exposure` used `or 0` on a missing total, which is a confident
-zero for a book that was not read.
+`self._send`, `self._send_photo` or `self._send_error`. `_format_networth`,
+`_format_exposure` and `_format_research` are gone, the way `_format_rwa`
+went: the card the website renders is fetched rendered rather than
+formatted twice. `_format_exposure` used `or 0` on a missing total, which
+is a confident zero for a book that was not read. `_format_networth`
+printed a second copy of the same book the website already rendered.
 """
 from __future__ import annotations
 
@@ -192,10 +191,6 @@ class PortfolioCommands:
 
         def _caller_executor(self, update: Update): ...
 
-        @staticmethod
-        def _format_networth(paper: Optional[dict], cex: dict,
-                             surface: str = "telegram") -> str: ...
-
     @guard("portfolio")
     async def _cmd_classpf(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Live performance bucketed by asset class (Crypto / Metal /
@@ -289,28 +284,31 @@ class PortfolioCommands:
 
     @guard("networth")
     async def _cmd_networth(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """/networth — the caller's own read-only cross-venue snapshot: paper
-        equity plus one balance fetch on their connected venue.
+        """/networth — the caller's own read-only book: the connected exchange
+        plus the on-chain wallet, paper labelled simulated and never added in.
 
-        The reading is `bot.core.networth_reading` — the one the web
-        gateway's net-worth endpoint serves, where this command used to carry
-        a second copy of it — and the card is `networth_card_text`, the seam
-        the routed "my net worth" renders on both surfaces."""
+        The card is `networth_card_text`, the seam the routed "my net worth"
+        renders on both surfaces. Website chat no longer answers the sentence
+        itself. Nothing here places, confirms, sizes, or closes."""
         await self._send(update,
                          await self.networth_card_text(self._get_tg_id(update)))
 
     async def networth_card_text(self, user_id: str, *,
                                  surface: str = "telegram") -> str:
-        """The net-worth card as text — the reading BOTH surfaces render.
+        """The net-worth card — the website's own rendering, both surfaces,
+        for THIS caller's book.
 
-        `surface` keys only the DOORS. A card that names a command is claiming
-        the command does something, and `/connect` is a door painted on a wall
-        for a web caller.
+        ``surface="web"`` keeps the card's own markup. Telegram's tag strip
+        turns ``<br>`` into a newline a browser collapses, which is right on
+        Telegram and wrong on the page that used to render this card itself.
+        The read is that caller's exchange plus their on-chain wallet, never
+        the operator's book. Paper is labelled simulated and never added in.
+        Nothing here places, confirms, sizes, or closes. Dollars stay on
+        this private card.
         """
-        from bot.core.networth_reading import networth_reading
-        reading = await networth_reading(self.engine, str(user_id))
-        return self._format_networth(reading["paper"], reading["cex"],
-                                     surface=surface)
+        return await self._web_card_text(
+            "networth", surface=surface, telegram_id=str(user_id or ""),
+            keep_markup=(surface == "web"))
 
     # ── The website chat's own cards, as commands ─────────────────────────
     # /replay and /letter are the operator agent's RECORD, rendered by the

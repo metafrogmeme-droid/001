@@ -1,9 +1,9 @@
-"""Two of the website's chat intercepts, reached by the same words on Telegram.
+"""One of the website's chat intercepts, reached by the same words on Telegram.
 
-`app/routes/chat.js` answers two phrasings from its own Node intercepts
-before a turn reaches the bot. One of them (`networth`) has a Telegram
-command that renders the same reading. Research left that table: both
-doors route "research SOL" to `/research`. The RWA radar left it too:
+`app/routes/chat.js` answers one phrasing from its own Node intercept
+before a turn reaches the bot (idle yield). Net worth left that table:
+both doors route "my net worth" to `/networth`. Research left it too:
+both doors route "research SOL" to `/research`. The RWA radar left it too:
 both doors route "rwa radar" to `/rwa`. The airdrop radar left it too:
 both doors route "airdrop radar" to `/airdrops`. The venue router left
 it too: both doors route "best venue for BTC" to `/venue_router`. The
@@ -101,7 +101,10 @@ DECOYS = [
 #: Neighbours that must not move: each is a pinned routing of its own.
 UNCHANGED = [
     ("deep dive on sol", "analyze_asset"), ("am i exposed", "check_risk"),
-    ("whats my drawdown", "check_risk"), ("whats my equity", "get_portfolio"),
+    ("whats my drawdown", "check_risk"), ("what's my drawdown", "check_risk"),
+    ("am I over my exposure", "check_risk"), ("check my risk", "check_risk"),
+    ("what's my max exposure", "check_risk"),
+    ("whats my equity", "get_portfolio"),
     ("balance", "get_portfolio"), ("show my balance", "get_portfolio"),
     ("my open orders", "get_orders"), ("hows btc doing", "analyze_asset"),
     ("scan the market", "scan_market"), ("status", "status"), ("help", "help"),
@@ -296,9 +299,7 @@ class TestTheWeb:
         assert "/link" not in TelegramHandler._link_hint("web")
         assert "/link" in TelegramHandler._link_hint("telegram")
         assert "Nothing was read" in TelegramHandler._link_hint("web")
-        card = TelegramHandler._format_networth(None, {"connected": False}, surface="web")
-        assert "/connect" not in card and "not connected" in card
-        assert "/connect" in TelegramHandler._format_networth(None, {"connected": False})
+        assert not hasattr(TelegramHandler, "_format_networth")
 
 
 # ── 4. the reading: four words, one copy ─────────────────────────────────────
@@ -335,47 +336,39 @@ class TestTheReading:
         r = _read(lambda: store)
         assert r["paper"] == {"equity_usd": 10140.0, "total_pnl": 140.0, "simulated": True}
         assert r["cex"]["connected"] is True and r["cex"]["equity_usd"] == 2500.5
-        card = TelegramHandler._format_networth(r["paper"], r["cex"])
-        assert "$10,140.00" in card and "Bitget" in card and "$2,500.50" in card
 
-    def test_no_venue_is_not_connected_and_names_the_door_only_on_telegram(self):
+    def test_no_venue_is_not_connected(self):
         store = NS(has=lambda uid: False)
         r = _read(lambda: store)
         assert r["cex"] == {"connected": False}
-        assert "not connected — /connect" in TelegramHandler._format_networth(r["paper"], r["cex"])
-        assert "/connect" not in TelegramHandler._format_networth(r["paper"], r["cex"], surface="web")
 
     def test_credentials_that_will_not_decrypt_and_a_venue_that_times_out_are_unavailable_with_their_reason(self):
         store = NS(has=lambda uid: True, get_venue=lambda uid: "bybit", get=lambda uid: None)
         r = _read(lambda: store)
         assert r["cex"]["connected"] is True and r["cex"]["equity_usd"] is None
-        assert "unavailable (credentials unreadable)" in TelegramHandler._format_networth(None, r["cex"])
+        assert r["cex"]["detail"] == "credentials unreadable"
         store = NS(has=lambda uid: True, get_venue=lambda uid: "bybit", get=lambda uid: {"k": "v"})
         r = _read(lambda: store, timeout=True)
         assert r["cex"]["equity_usd"] is None and r["cex"]["detail"] == "venue timeout"
-        assert "unavailable (venue timeout)" in TelegramHandler._format_networth(None, r["cex"])
 
-    def test_a_store_that_raises_is_could_not_be_read_never_not_connected(self):
+    def test_a_store_that_raises_is_a_fourth_word_never_not_connected(self):
         # THE fourth word. The command used to fold this into
-        # {"connected": False} and print "not connected — /connect to link
-        # one": a store nobody could ask, rendered as an account nobody linked,
-        # under a door that re-links it.
+        # {"connected": False} and the card printed "not connected — /connect":
+        # a store nobody could ask, rendered as an account nobody linked.
+        # The chat card is the website's now; this reading still keeps the
+        # two apart so that card can say which.
         def _boom():
             raise RuntimeError("keyring locked")
         r = _read(_boom)
         assert r["cex"] == {"connected": False, "error": "cex_unavailable"}
-        for surface in ("telegram", "web"):
-            card = TelegramHandler._format_networth(r["paper"], r["cex"], surface=surface)
-            assert "could not be read" in card, card
-            assert "not connected" not in card and "/connect" not in card, card
+        assert "error" in r["cex"]
 
-    def test_an_unreadable_paper_book_says_so(self):
+    def test_an_unreadable_paper_book_is_absent(self):
         store = NS(has=lambda uid: False)
         r = _read(lambda: store, paper_raises=True)
         assert r["paper"] is None
-        assert "no snapshot yet" in TelegramHandler._format_networth(r["paper"], r["cex"])
 
-    def test_the_endpoint_and_the_command_read_the_one_reading(self, monkeypatch):
+    def test_the_endpoint_reads_the_one_reading_and_the_card_does_not_format_another(self, monkeypatch):
         from bot.web import user_gateway as ug
         reading = {"paper": {"equity_usd": 1.0, "total_pnl": 0.0, "simulated": True},
                    "cex": {"connected": False, "error": "cex_unavailable"}}
@@ -391,11 +384,11 @@ class TestTheReading:
         body = json.loads(asyncio.run(ug.handle_networth(req)).text)
         assert body["paper"] == reading["paper"] and body["cex"] == reading["cex"]
         assert body["read_only"] is True and "updated_at" in body
-        h = NS(engine=NS(), _format_networth=TelegramHandler._format_networth)
-        card = asyncio.run(TelegramHandler.networth_card_text(h, "7", surface="web"))
-        assert "could not be read" in card
-        assert seen == ["7", "7"], "both surfaces asked the one reading"
-        # And neither carries its own copy of the fetch any more.
+        assert seen == ["7"], "the gateway endpoint is the one reading"
+        # The chat card fetches the website's rendering. It does not format
+        # a second copy, and it does not call the reading itself.
+        src = inspect.getsource(TelegramHandler.networth_card_text)
+        assert "_web_card_text" in src and "networth_reading" not in src
         for fn in (ug.handle_networth, TelegramHandler._cmd_networth, TelegramHandler.networth_card_text):
             assert "balance_snapshot(" not in inspect.getsource(fn), fn.__name__
 
@@ -482,3 +475,43 @@ class TestTheOtherSeams:
             h, "SOL", surface="web"))
         assert "<br>" in web_card and "<span>vol</span>" in web_card
         assert '<b class="up">+4%</b>' in web_card
+
+    def test_the_networth_seam_fetches_the_rendered_card(self, monkeypatch):
+        """One renderer. The website keeps its markup; Telegram strips it.
+
+        A channel that did not answer is the link hint, never an empty
+        book. The caller is handed to `fetch_networth` whole. Nothing
+        here places, confirms, sizes, or closes. Dollars stay on this
+        private card.
+        """
+        import bot.utils.web_data_pull as wdp
+        asked = []
+        monkeypatch.setattr(wdp, "fetch_networth", lambda tg: asked.append(tg) or None)
+        h = NS(_link_hint=TelegramHandler._link_hint,
+               _unlinked_hint=TelegramHandler._unlinked_hint)
+
+        async def _card(name, surface, telegram_id="", params=None,
+                        unlinked=None, keep_markup=False):
+            return await TelegramHandler._web_card_text(
+                h, name, surface, telegram_id=telegram_id, params=params,
+                unlinked=unlinked, keep_markup=keep_markup)
+
+        h._web_card_text = _card
+        out = asyncio.run(TelegramHandler.networth_card_text(h, "7"))
+        assert asked == ["7"]
+        assert out == TelegramHandler._WEB_LINK_HINT and "/link" in out
+        asked.clear()
+        web = asyncio.run(TelegramHandler.networth_card_text(h, "7", surface="web"))
+        assert "/link" not in web and "Nothing was read" in web
+        monkeypatch.setattr(wdp, "fetch_networth", lambda tg: {
+            "reply_html": "💼 <b>Net worth — everywhere</b><br>Real total: "
+                          '<b class="up">$1,200</b><br><span>wallet</span>',
+            "intent": "networth"})
+        card = asyncio.run(TelegramHandler.networth_card_text(h, "7"))
+        assert "Net worth — everywhere" in card and "\n" in card
+        assert "<span" not in card and "<br" not in card and "wallet" in card
+        assert '<b class="up">' not in card and "<b>$1,200</b>" in card
+        web_card = asyncio.run(TelegramHandler.networth_card_text(
+            h, "7", surface="web"))
+        assert "<br>" in web_card and "<span>wallet</span>" in web_card
+        assert '<b class="up">$1,200</b>' in web_card

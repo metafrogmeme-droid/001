@@ -1,12 +1,11 @@
 """Telegram web-parity commands (/networth /exposure /research /rwa) — PR EE.
 
-One brain, one implementation: exposure/research/rwa are Node-side libs the
-web panels already use; the Telegram commands fetch the SAME cards over the
-shared-secret sync channel (bot/utils/web_data_pull.py). /networth formats a
-payload here; /exposure, /research and /rwa fetch the card RENDERED, because
-a second Python formatter is a second answer.
-Net worth reuses the gateway's own read-only primitives. Commands degrade to a
-"link the web app" hint when the channel is unconfigured — never a crash.
+One brain, one implementation: networth/exposure/research/rwa are Node-side
+libs the web panels already use; the Telegram commands fetch the SAME cards
+over the shared-secret sync channel (bot/utils/web_data_pull.py). Each
+fetches the card RENDERED, because a second Python formatter is a second
+answer. Commands degrade to a "link the web app" hint when the channel is
+unconfigured — never a crash.
 """
 import inspect
 
@@ -21,6 +20,7 @@ class TestWebDataPull:
         monkeypatch.setattr(wdp, "SYNC_SECRET", "")
         assert wdp.fetch_exposure("111") is None
         assert wdp.fetch_research("BTC") is None
+        assert wdp.fetch_networth("111") is None
         # `fetch_rwa` is gone: the RWA card is fetched RENDERED over the card
         # route, because a second Python formatter of it raised on the honest
         # `None` the radar publishes for an unreadable 24h change.
@@ -33,6 +33,7 @@ class TestWebDataPull:
                             lambda path, body=None: calls.append(path) or {"ok": 1})
         wdp.fetch_exposure("111")
         wdp.fetch_research("pendle/usdt")           # junk stripped, USDT dropped
+        wdp.fetch_networth("111")
         wdp.fetch_web_card("rwa")
         # Exposure left the raw `/api/bot/sync/exposure` payload. The command
         # pulls the rendered card, the same route wallet and DeFi use, so a
@@ -43,6 +44,7 @@ class TestWebDataPull:
         # parameter: `pendle/usdt` is the base PENDLE.
         assert calls == ["/api/bot/sync/card/exposure?telegram_id=111",
                          "/api/bot/sync/card/research?symbol=PENDLE",
+                         "/api/bot/sync/card/networth?telegram_id=111",
                          "/api/bot/sync/card/rwa"]
 
     def test_bad_symbol_never_reaches_the_wire(self, monkeypatch):
@@ -57,13 +59,17 @@ class TestWebDataPull:
 # ── Formatters (pure) ────────────────────────────────────────────────────────
 
 class TestFormatters:
-    def test_networth_connected_and_not(self):
-        msg = TelegramHandler._format_networth(
-            {"equity_usd": 10140.0, "total_pnl": 140.0},
-            {"connected": True, "venue": "bitget", "equity_usd": 2500.5})
-        assert "$10,140.00" in msg and "Bitget" in msg and "$2,500.50" in msg
-        msg2 = TelegramHandler._format_networth(None, {"connected": False})
-        assert "not connected" in msg2 and "no snapshot" in msg2
+    def test_the_networth_card_has_no_second_python_formatter(self):
+        """There is ONE renderer, and it is `app/lib/networth.js`'s.
+
+        `_format_networth` mirrored that card by hand. The card is fetched
+        rendered now, so the claim worth pinning is that no Python copy
+        came back. Nothing here places, confirms, sizes, or closes.
+        """
+        assert not hasattr(TelegramHandler, "_format_networth")
+        src = code_only(inspect.getsource(TelegramHandler.networth_card_text))
+        assert "_web_card_text" in src and '"networth"' in src
+        assert "_format" not in src, "the card must not be re-formatted here"
 
     def test_the_exposure_card_has_no_second_python_formatter(self):
         """There is ONE renderer, and it is `app/lib/exposure.js`'s.
@@ -134,8 +140,9 @@ def test_commands_fetch_off_the_event_loop():
     # /exposure and /research fetch inside `_web_card_text`, the same helper
     # the other rendered cards use. The command itself must not format a
     # second copy.
-    for meth in ("exposure_card_text", "research_card_text"):
+    for meth in ("exposure_card_text", "research_card_text", "networth_card_text"):
         src = inspect.getsource(getattr(TelegramHandler, meth))
         assert "_web_card_text" in src and "to_thread" not in src, meth
     assert "to_thread" in inspect.getsource(TelegramHandler._web_card_text)
     assert "fetch_research" in inspect.getsource(TelegramHandler._web_card_text)
+    assert "fetch_networth" in inspect.getsource(TelegramHandler._web_card_text)

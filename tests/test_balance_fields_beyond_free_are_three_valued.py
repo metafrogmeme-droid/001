@@ -26,6 +26,7 @@ notices rather than the claim silently becoming true again.
 from __future__ import annotations
 
 import asyncio
+import inspect
 
 import ccxt
 import pytest
@@ -197,18 +198,20 @@ def test_a_balance_total_falls_back_to_free_plus_used():
         {"USDC": {"free": 1181.8, "used": 300.0}}, "USDC") == pytest.approx(1481.8)
 
 
-def test_the_networth_card_renders_an_unreadable_equity_as_unavailable():
+def test_the_networth_card_no_longer_formats_an_unreadable_equity_in_python():
     """The consumer, checked rather than assumed.
 
     RC-2026-015's second defect was an honest fix upstream becoming a
-    TypeError at a consumer nobody checked. This is that check.
+    TypeError at a consumer nobody checked. The chat card is the website's
+    renderer now (`app/lib/networth.js`), fetched rendered. A second Python
+    formatter is how that TypeError came back. The reading still publishes
+    ``equity_usd: None`` for an unreadable balance; the card test drives
+    that None as an em dash, never ``$0.00``.
     """
     from bot.skills.telegram_handler import TelegramHandler
-    out = TelegramHandler._format_networth(
-        None, {"connected": True, "venue": "hyperliquid", "ok": True,
-               "equity_usd": None, "detail": "no readable USDC balance"})
-    assert "unavailable" in out
-    assert "$0.00" not in out
+    assert not hasattr(TelegramHandler, "_format_networth")
+    src = inspect.getsource(TelegramHandler.networth_card_text)
+    assert "_web_card_text" in src and "float(" not in src
 
 
 # ── wiring: the seam exists AND the call site feeds it a reading ──────────

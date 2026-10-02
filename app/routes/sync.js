@@ -1471,7 +1471,7 @@ router.get('/rwa', async (req, res) => {
 /**
  * The website chat's own cards, for the Telegram commands that render them
  * (/nft /spot /airdrops /replay /letter /venue_router /meme_radar /wallet
- * /defi /exposure /research): ONE renderer per card — the same function the web intercept
+ * /defi /exposure /research /networth): ONE renderer per card — the same function the web intercept
  * answers with — so the two surfaces cannot drift, and Python carries no
  * second formatter. Whitelisted by name: an unknown name is a 404, never a
  * lookup on a prototype.
@@ -1479,9 +1479,9 @@ router.get('/rwa', async (req, res) => {
  * `telegram_id` is read only by the cards with a per-person half. The
  * airdrops card adds the caller's wallet-readiness hints WHEN their Telegram
  * account is linked to a web account and answers the public radar otherwise;
- * the wallet, DeFi and exposure cards ARE the caller's own book, so a caller
- * nobody could map gets `unlinked` (a fact the bot puts into its own words)
- * and never a guessed wallet. The research card is public and takes the
+ * the wallet, DeFi, exposure and net-worth cards ARE the caller's own book,
+ * so a caller nobody could map gets `unlinked` (a fact the bot puts into
+ * its own words) and never a guessed wallet. The research card is public and takes the
  * symbol the sentence names (`SOL/USDT` stays a query parameter; a slash
  * in a path segment does not survive the hop). The query parameters are
  * each one card's own argument: a stake for the replay, an asset for the
@@ -1560,6 +1560,16 @@ const CHAT_CARDS = {
     const raw = q.symbol;
     const symbol = typeof raw === 'string' ? raw : '';
     return require('../lib/research').researchChatCard(symbol);
+  },
+  // Net worth left the website's intercept table. Both doors fetch this
+  // card. The read is that caller's exchange plus their on-chain wallet;
+  // paper is labelled simulated and never added in. Nothing here places,
+  // confirms, sizes, or closes. Dollars stay on this private card.
+  networth: async (tg) => {
+    const userId = await webUserFor(tg);
+    return userId == null
+      ? UNLINKED
+      : require('../lib/networth').networthChatCard(tg, userId);
   },
   // The website's price-alert parser, for both doors. `channel=web` is the
   // push sentence the website chat used to render itself; anything else,

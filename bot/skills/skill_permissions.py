@@ -175,11 +175,13 @@ WEB_CHAT_SKILLS: frozenset[str] = frozenset(SKILL_PERMISSION) - {"halt", "trade_
 #: would remove the gate entirely.
 WEB_ROUTED_PERMISSION: dict[str, str] = {
     "status": "status",
-    # Net worth the website still answers from its own intercept. Research
-    # left that table: both doors render `research_card_text` under the
-    # permission on the `@guard` of `/research`. The symbol the sentence
-    # names is the one dossier. Nothing here places, confirms, sizes, or
-    # closes a trade. "deep dive on SOL" stays the chart.
+    # Net worth left the website's intercept table: both doors render
+    # `networth_card_text` under the permission on the `@guard` of
+    # `/networth`. The read is that caller's book. Nothing here places,
+    # confirms, sizes, or closes. "what's my drawdown" stays the risk
+    # engine. Research left that table too: both doors render
+    # `research_card_text`. The symbol the sentence names is the one
+    # dossier. "deep dive on SOL" stays the chart.
     "networth": "networth",
     "rwa": "rwa",
     "research": "research",

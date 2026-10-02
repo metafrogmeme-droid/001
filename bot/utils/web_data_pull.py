@@ -32,7 +32,7 @@ _SYMBOL_RE = re.compile(r"^[A-Z0-9]{1,10}$")
 #: for a caller it cannot map to a web account.
 WEB_CARDS: tuple[str, ...] = ("nft", "spot", "airdrops", "replay", "letter",
                               "venue_router", "meme_radar", "wallet", "defi", "alerts",
-                              "rwa", "etf_flows", "exposure", "research")
+                              "rwa", "etf_flows", "exposure", "research", "networth")
 
 #: Query arguments a card accepts. A card not listed takes none; a name not
 #: listed for a card raises at the call, because a seam handing a card an
@@ -95,6 +95,20 @@ def fetch_research(symbol: str) -> dict | None:
     return fetch_web_card("research", symbol=base)
 
 
+def fetch_networth(telegram_id: str) -> dict | None:
+    """The caller's net-worth card (exchange plus on-chain wallet).
+
+    The same rendered card the other per-person reads pull
+    (``GET /api/bot/sync/card/networth``), so Telegram does not format a
+    second copy of ``app/lib/networth.js``. None when the channel is
+    unconfigured or the fetch failed. A caller the website cannot map
+    comes back ``unlinked``, which is its own fact and not a failed fetch.
+    Paper is labelled simulated and never added in. Nothing here places,
+    confirms, sizes, or closes. Dollars stay on this private card.
+    """
+    return fetch_web_card("networth", telegram_id)
+
+
 def fetch_web_card(name: str, telegram_id: str = "", **params: object) -> dict | None:
     """One of the website chat's own cards (`WEB_CARDS`), as the website
     renders it: ``{"reply_html", "intent"}`` — or ``{"reply_html": None,
@@ -104,9 +118,10 @@ def fetch_web_card(name: str, telegram_id: str = "", **params: object) -> dict |
     ``telegram_id`` is passed for the cards with a per-person half: the
     airdrops card adds the caller's wallet-readiness hints when their
     Telegram account is linked to a web account and answers the public radar
-    otherwise; the wallet, DeFi and exposure cards ARE the caller's own book
-    and answer `unlinked` instead. The research card is public and takes
-    the symbol the sentence names. ``params`` are the card's own arguments
+    otherwise; the wallet, DeFi, exposure and net-worth cards ARE the
+    caller's own book and answer `unlinked` instead. The research card is
+    public and takes the symbol the sentence names. ``params`` are the
+    card's own arguments
     (`WEB_CARD_PARAMS`), sent when given and never defaulted here.
     None = channel unconfigured, name not a card, or the fetch failed — the
     command says which surface could not be read rather than inventing one.

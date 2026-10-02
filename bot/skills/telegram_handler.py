@@ -4189,15 +4189,15 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 return
 
             # ── net worth / RWA / research → the real commands ─────────
-            # Net worth the website still answers from its own intercept.
-            # Research and RWA left that table; this command is the door on
-            # both surfaces. Typed as WORDS, "my net worth" and "rwa radar"
-            # were GREETED by the social gate and "research SOL" reached a
-            # chat model with no dossier tool. Each
-            # dispatches the guarded command that already renders the
-            # reading — the guard is the role gate, so the branch must go
-            # THROUGH the command and never to the seam directly — and
-            # records the card the way status does.
+            # Net worth, research and RWA left the website's intercept
+            # table; this command is the door on both surfaces. Typed as
+            # WORDS, "my net worth" and "rwa radar" were GREETED by the
+            # social gate and "research SOL" reached a chat model with no
+            # dossier tool. Each dispatches the guarded command that
+            # already renders the reading — the guard is the role gate, so
+            # the branch must go THROUGH the command and never to the seam
+            # directly — and records the card the way status does.
+            # Nothing here places, confirms, sizes, or closes.
             if intent.skill == "networth":
                 await self._cmd_networth(update, ctx)
                 self._remember_routed(tg_id, text, intent.skill,
@@ -5346,42 +5346,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
     #  performance, risk and record cards in bot/skills/portfolio_commands.py)
 
     # ── Web-parity commands: /networth /exposure /research /rwa ─────────────
-    # One brain, one implementation: research, exposure and rwa fetch the
-    # card RENDERED, because a second formatter is a second answer; net
-    # worth reuses the gateway's own read-only primitives. The formatter
-    # that remains is static and pure for testability.
-
-    @staticmethod
-    def _format_networth(paper: Optional[dict], cex: dict,
-                         surface: str = "telegram") -> str:
-        lines = ["💰 <b>Net worth</b> — read-only, your own accounts\n"]
-        if paper:
-            lines.append(f"📄 Paper: <b>${paper['equity_usd']:,.2f}</b> "
-                         f"(PnL {paper['total_pnl']:+,.2f}, simulated)")
-        else:
-            lines.append("📄 Paper: no snapshot yet")
-        if cex.get("error"):
-            # The store itself could not be asked (`networth_reading`'s
-            # fourth word). NOT "not connected": an exchange nobody could ask
-            # is not an exchange nobody linked, and the /connect door under
-            # that sentence sends the caller to re-link an account they may
-            # have linked already.
-            lines.append("🏦 Exchange: could not be read just now — the "
-                         "credential store did not answer. That is not a "
-                         "missing link.")
-        elif not cex.get("connected"):
-            # `surface` keys only the door: /connect is a command a web
-            # caller cannot run.
-            lines.append("🏦 Exchange: not connected"
-                         + (" — /connect to link one" if surface == "telegram"
-                            else " on this account"))
-        elif cex.get("equity_usd") is not None:
-            lines.append(f"🏦 {str(cex.get('venue', '')).capitalize()}: "
-                         f"<b>${float(cex['equity_usd']):,.2f}</b>")
-        else:
-            lines.append(f"🏦 {str(cex.get('venue', '')).capitalize()}: "
-                         f"unavailable ({cex.get('detail') or 'venue error'})")
-        return "\n".join(lines)
+    # One brain, one implementation: net worth, research, exposure and rwa
+    # fetch the card RENDERED, because a second formatter is a second
+    # answer. The gateway's /networth endpoint still serves the JSON the
+    # website's card is built from; this process does not format a second
+    # copy of that card.
 
     _WEB_LINK_HINT = ("🔌 The web app isn't reachable (or your account isn't "
                       "linked). This view is served by the RUNECLAW web app — "

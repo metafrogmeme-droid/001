@@ -181,23 +181,34 @@ async function buildNetWorth(ident, userId) {
   };
 }
 
-// ── Chat intercept ───────────────────────────────────────────────────────────
-
-const CHAT_RE = /\b(net ?worth|total (balance|holdings|equity)( across| everywhere)?|balance across (all )?(exchanges|venues)|everything i (own|hold))\b/i;
+// ── The one card ─────────────────────────────────────────────────────────────
+//
+// ONE renderer. Both chat doors fetch this card over
+// `/api/bot/sync/card/networth`. Website chat does not match the sentence
+// itself. The read is this caller's book — the connected exchange plus the
+// on-chain wallet, paper labelled simulated and never added in — never the
+// operator's. Nothing here places, confirms, sizes, or closes. Dollars stay
+// on this private card. They are not a public figure.
 
 function fmtUsd(v) {
+  // null and undefined are unread. 0 is a measured empty balance.
   return v == null ? '—'
     : '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
 /**
- * Chat handler. Needs the resolved bot identity, which only the chat route
- * has — so unlike the other intercepts this one takes (ident, userId, text).
+ * The net-worth card — ONE renderer for both surfaces. The bot's /networth
+ * command and the website's shared door both fetch this card over the sync
+ * channel (`GET /api/bot/sync/card/networth?telegram_id=`). Website chat
+ * does not match the sentence itself. `telegramId` is the identity the bot
+ * keys the exchange read on (`web:<uid>` or a linked Telegram id);
+ * `userId` is the web account the wallet is linked to. A caller the website
+ * cannot map is unlinked, never a guessed book. Nothing here places,
+ * confirms, sizes, or closes. Dollars stay on this private card.
  */
-async function maybeHandleNetWorthChat(ident, userId, text) {
-  if (!CHAT_RE.test(String(text || ''))) return null;
+async function networthChatCard(telegramId, userId) {
   try {
-    const n = await buildNetWorth(ident, userId);
+    const n = await buildNetWorth({ id: String(telegramId || '') }, userId);
     const lines = [];
     const c = n.sections.cex;
     if (c && c.connected) {
@@ -230,4 +241,4 @@ async function maybeHandleNetWorthChat(ident, userId, text) {
   }
 }
 
-module.exports = { buildNetWorth, maybeHandleNetWorthChat };
+module.exports = { buildNetWorth, networthChatCard };

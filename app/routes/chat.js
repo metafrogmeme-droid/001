@@ -16,7 +16,6 @@ const { rateLimit, userKey } = require('../lib/rate_limit');
 const { resolveBotIdentity } = require('../lib/identity');
 const gateway = require('../lib/gateway');
 const { loadProfile } = require('./profile');
-const { maybeHandleNetWorthChat } = require('../lib/networth');
 const { maybeHandleIdleYieldChat } = require('../lib/idle_yield');
 
 const router = express.Router();
@@ -129,12 +128,15 @@ const INTERCEPTS = [
   // chart; "research the docs" and "research report" stay the model.
   // /api/research/:symbol still runs here, so the dossier is still
   // readable while the bot process is down.
-  // "net worth" — everything the user holds, everywhere, read-only. Needs
-  // the resolved bot identity, so its own cheap pattern decides first and
-  // the DB lookup only happens on a match.
-  ['networth', async (uid, text, ident) => (
-    /net ?worth|total (balance|holdings|equity)|balance across|everything i (own|hold)/i.test(text)
-      ? maybeHandleNetWorthChat(await ident(), uid, text) : null), 'your net worth across every account and chain you have linked'],
+  // Net worth left this table. Both doors route "my net worth" to the
+  // shared networth seam, which fetches this process's own card for the
+  // caller the turn names. The read is that caller's exchange plus their
+  // on-chain wallet; paper is labelled simulated and never added in.
+  // Nothing here places, confirms, sizes, or closes. "what's my drawdown",
+  // "am I over my exposure", "check my risk" and "what's my max exposure"
+  // stay the risk engine. Dollars stay on this private card. /api/networth
+  // still runs here, so the read is still available while the bot process
+  // is down.
   // "idle" / "best rate" / "earn more" — idle-asset yield optimizer.
   ['idleyield', async (uid, text, ident) => (
     /\bidle|earn more|best (rate|yield|apy)|put .* to work|stake my|where can i earn\b/i.test(text)
