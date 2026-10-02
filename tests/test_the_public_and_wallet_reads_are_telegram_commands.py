@@ -564,7 +564,15 @@ class TestTheWeb:
             seen.append((name, tg, kw))
             return card
 
+        pulled = []
+        real_exposure = wdp.fetch_exposure
+
+        def spy_exposure(tg):
+            pulled.append(tg)
+            return real_exposure(tg)
+
         monkeypatch.setattr(wdp, "fetch_web_card", fetch)
+        monkeypatch.setattr(wdp, "fetch_exposure", spy_exposure)
         ug, h = _web(monkeypatch)
         h._link_hint = TelegramHandler._link_hint
         h._unlinked_hint = TelegramHandler._unlinked_hint
@@ -575,6 +583,7 @@ class TestTheWeb:
         assert body["reply_html"] == card["reply_html"] and "<br>" in body["reply_html"]
         assert "web app's chat" not in body["reply_html"]
         assert seen == [("exposure", CALLER, {})]
+        assert pulled == [CALLER]
         assert h.conversations.get_recent(OPERATOR, limit=5) == []
 
     def test_the_gate_refuses_before_the_seam_and_records_not_run(self, monkeypatch):

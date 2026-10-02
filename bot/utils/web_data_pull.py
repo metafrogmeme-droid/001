@@ -61,11 +61,15 @@ _TELEGRAM_TAGS = frozenset({"b", "i", "code"})
 
 
 def fetch_exposure(telegram_id: str) -> dict | None:
-    """The caller's own cross-venue exposure (perp vs on-chain netting)."""
-    if not SYNC_SECRET or not telegram_id:
-        return None
-    tg = urllib.parse.quote(str(telegram_id)[:32])
-    return _request(f"/api/bot/sync/exposure?telegram_id={tg}")
+    """The caller's cross-venue exposure card (perps netted against on-chain spot).
+
+    The same rendered card the other per-person reads pull
+    (``GET /api/bot/sync/card/exposure``), so Telegram does not format a
+    second copy of ``app/lib/exposure.js``. None when the channel is
+    unconfigured or the fetch failed. A caller the website cannot map
+    comes back ``unlinked``, which is its own fact and not a failed fetch.
+    """
+    return fetch_web_card("exposure", telegram_id)
 
 
 def fetch_research(symbol: str) -> dict | None:

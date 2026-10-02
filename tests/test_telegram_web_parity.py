@@ -34,7 +34,10 @@ class TestWebDataPull:
         wdp.fetch_exposure("111")
         wdp.fetch_research("pendle/usdt")           # junk stripped, USDT dropped
         wdp.fetch_web_card("rwa")
-        assert calls == ["/api/bot/sync/exposure?telegram_id=111",
+        # Exposure left the raw `/api/bot/sync/exposure` payload. The command
+        # pulls the rendered card, the same route wallet and DeFi use, so a
+        # second Python formatter cannot drift from `app/lib/exposure.js`.
+        assert calls == ["/api/bot/sync/card/exposure?telegram_id=111",
                          "/api/bot/sync/research/PENDLE",
                          "/api/bot/sync/card/rwa"]
 
