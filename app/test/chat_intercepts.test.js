@@ -212,22 +212,18 @@ test('the first hit answers and nothing below it runs', async () => {
   assert.deepEqual(calls, upToFirst.slice(0, upToFirst.indexOf('exposure') + 1));
 });
 
-test('"my defi positions" is not a local intercept', async () => {
+test('"spot market" and "my defi positions" are not local intercepts', async () => {
   reset();
   const token = await newUser();
-  const r = await req('POST', '/api/chat', { token, body: { text: 'my defi positions' } });
-  assert.equal(r.status, 200);
-  assert.equal(r.data.reply_html, 'model answered');
-  assert.ok(!calls.includes('defi'));
-});
-
-test('"spot market" is not a local intercept', async () => {
-  reset();
-  const token = await newUser();
-  const r = await req('POST', '/api/chat', { token, body: { text: 'spot market' } });
+  let r = await req('POST', '/api/chat', { token, body: { text: 'spot market' } });
   assert.equal(r.status, 200);
   assert.equal(r.data.reply_html, 'model answered');
   assert.ok(!calls.includes('spot'));
+  reset();
+  r = await req('POST', '/api/chat', { token, body: { text: 'my defi positions' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.reply_html, 'model answered');
+  assert.ok(!calls.includes('defi'));
 });
 
 test('"nft radar" is not a local intercept', async () => {
