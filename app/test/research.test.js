@@ -2,7 +2,8 @@
 /**
  * Research dossiers: composed only from trusted sources with each section
  * naming its source, honest handling of unlisted coins and missing data,
- * the authed endpoint, and the chat intercept.
+ * the authed endpoint, and the card both doors fetch. Website chat no
+ * longer answers the sentence itself.
  */
 process.env.JWT_SECRET = 'j'.repeat(64);
 delete process.env.DATABASE_URL;
@@ -160,20 +161,30 @@ test('AI-4: live-web route is 401 anon, 503 when the gateway is unconfigured', a
   assert.equal(r.status, 503);
 });
 
-test('chat: "research PENDLE" returns the dossier; unlisted honest; other text proxies', async () => {
+test('the card both doors fetch is the dossier; chat no longer answers the sentence', async () => {
+  const card = await research.researchChatCard('PENDLE');
+  assert.equal(card.intent, 'research');
+  assert.match(card.reply_html, /Research dossier — PENDLE/);
+  assert.match(card.reply_html, /Market read/);
+  assert.match(card.reply_html, /Sources:/);
+  assert.match(card.reply_html, /Not financial advice/);
+  assert.equal(typeof research.maybeHandleResearchChat, 'undefined');
+  assert.equal(research.CHAT_RE, undefined);
+
+  const slashed = await research.researchChatCard('PENDLE/USDT');
+  assert.equal(slashed.reply_html, card.reply_html);
+
+  const un = await research.researchChatCard('NOTACOIN');
+  assert.equal(un.intent, 'research');
+  assert.match(un.reply_html, /isn't listed on/);
+
+  const nameless = await research.researchChatCard('');
+  assert.match(nameless.reply_html, /Name one ticker/);
+  assert.match(nameless.reply_html, /Nothing was read/);
+
   const token = await newUser();
-  const r = await req('POST', '/api/chat', { token, body: { text: 'research PENDLE' } });
-  assert.equal(r.data.intent, 'research');
-  assert.match(r.data.reply_html, /Research dossier — PENDLE/);
-  assert.match(r.data.reply_html, /Market read/);
-  assert.match(r.data.reply_html, /Sources:/);
-  assert.match(r.data.reply_html, /Not financial advice/);
-
-  const un = await req('POST', '/api/chat', { token, body: { text: 'research NOTACOIN' } });
-  assert.equal(un.data.intent, 'research');
-  assert.match(un.data.reply_html, /isn't listed on/);
-
-  // "research the market" (no clean symbol) must NOT be intercepted.
+  const missed = await req('POST', '/api/chat', { token, body: { text: 'research PENDLE' } });
+  assert.equal(missed.status, 503);
   const loose = await req('POST', '/api/chat', { token, body: { text: 'research the market please' } });
-  assert.equal(loose.status, 503);   // falls through to the (unconfigured) bot proxy
+  assert.equal(loose.status, 503);
 });

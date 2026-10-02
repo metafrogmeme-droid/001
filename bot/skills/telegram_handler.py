@@ -4189,8 +4189,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 return
 
             # ── net worth / RWA / research → the real commands ─────────
-            # Net worth and research the website still answers from its own
-            # intercepts. RWA left that table; this command is the door on
+            # Net worth the website still answers from its own intercept.
+            # Research and RWA left that table; this command is the door on
             # both surfaces. Typed as WORDS, "my net worth" and "rwa radar"
             # were GREETED by the social gate and "research SOL" reached a
             # chat model with no dossier tool. Each
@@ -4209,9 +4209,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                                       card_shown_memory("rwa"))
                 return
             if intent.skill == "research":
-                # The symbol rides in the intent's kwargs (a text message
-                # has no `ctx.args`); the command takes it by keyword so the
-                # guard still runs with the real context.
+                # Left the Node intercept table: this command is the door
+                # on both surfaces. The symbol rides in the intent's kwargs
+                # (a text message has no `ctx.args`); the command takes it
+                # by keyword so the guard still runs with the real context.
+                # Nothing here places, confirms, sizes, or closes a trade.
                 await self._cmd_research(
                     update, ctx, symbol=str(intent.kwargs.get("symbol") or ""))
                 self._remember_routed(tg_id, text, intent.skill,
@@ -5344,18 +5346,10 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
     #  performance, risk and record cards in bot/skills/portfolio_commands.py)
 
     # ── Web-parity commands: /networth /exposure /research /rwa ─────────────
-    # One brain, one implementation: research renders the SAME payload the
-    # web panel uses (a Node-side lib, fetched over the sync channel);
-    # exposure and rwa fetch the card RENDERED, because a second formatter
-    # is a second answer; net worth reuses the gateway's own read-only
-    # primitives. Formatters that remain are static and pure for testability.
-
-    @staticmethod
-    def _web_html_to_tg(s: str) -> str:
-        """Web panel HTML → Telegram-safe HTML: <br> to newline, keep only
-        <b>/<i>/<code>, drop everything else."""
-        s = re.sub(r"<br\s*/?>", "\n", str(s or ""), flags=re.I)
-        return re.sub(r"<(?!/?(?:b|i|code)>)[^>]*>", "", s)
+    # One brain, one implementation: research, exposure and rwa fetch the
+    # card RENDERED, because a second formatter is a second answer; net
+    # worth reuses the gateway's own read-only primitives. The formatter
+    # that remains is static and pure for testability.
 
     @staticmethod
     def _format_networth(paper: Optional[dict], cex: dict,
@@ -5388,18 +5382,6 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             lines.append(f"🏦 {str(cex.get('venue', '')).capitalize()}: "
                          f"unavailable ({cex.get('detail') or 'venue error'})")
         return "\n".join(lines)
-
-    @staticmethod
-    def _format_research(data: dict) -> str:
-        out = [f"🔬 <b>Research: {data.get('base')}</b> — live venue data + "
-               "recorded history\n"]
-        for s in (data.get("sections") or [])[:8]:
-            body = TelegramHandler._web_html_to_tg(
-                s.get("html") or s.get("body") or "")
-            out.append(f"<b>{s.get('title', '')}</b>\n{body}\n")
-        if data.get("disclaimer"):
-            out.append(f"<i>{data['disclaimer']}</i>")
-        return "\n".join(out)
 
     _WEB_LINK_HINT = ("🔌 The web app isn't reachable (or your account isn't "
                       "linked). This view is served by the RUNECLAW web app — "

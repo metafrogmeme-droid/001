@@ -227,6 +227,7 @@ class MarketCommands:
 
         from bot.utils.web_data_pull import (
             fetch_exposure,
+            fetch_research,
             fetch_web_card,
             web_card_text,
             web_card_unlinked,
@@ -234,8 +235,14 @@ class MarketCommands:
         # Exposure is the caller's own book, pulled through the same helper
         # as wallet and DeFi. `fetch_exposure` is that card's client: the
         # rendered card route, not a second formatter of the raw book.
+        # Research is the same shape for a public dossier: `fetch_research`
+        # is that card's client, and the symbol is the card's own argument.
         if name == "exposure":
             payload = await _aio.to_thread(fetch_exposure, telegram_id)
+        elif name == "research":
+            raw = params.get("symbol") if isinstance(params, dict) else None
+            symbol = raw if isinstance(raw, str) else ""
+            payload = await _aio.to_thread(fetch_research, symbol)
         else:
             payload = await _aio.to_thread(
                 fetch_web_card, name, telegram_id, **(params or {}))

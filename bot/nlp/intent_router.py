@@ -1636,19 +1636,20 @@ _EDU = r"^" + _EDU_DECLINE + r".*?"
 
 
 # --- The reads the website answers from its own intercepts ---
-# Net worth and research still have a Node intercept and a Telegram command
-# that renders the same reading (/networth, /research <sym>). RWA left the
-# website's intercept table: both doors route it to `/rwa`. Typed as WORDS,
-# "my net worth" and "rwa radar" were GREETED by the social gate, "research
-# SOL" reached a chat model with no dossier tool. An education question
-# ("what is rwa", "what are real world assets") is the model's on both
-# surfaces now, because the website no longer intercepts it. Registered
-# ABOVE the Portfolio keyword rule, which `total balance` and `total equity`
-# would otherwise feed.
+# Net worth still has a Node intercept and a Telegram command that renders
+# the same reading (/networth). Research left that table: both doors route
+# "research SOL" to `/research`. RWA left it too: both doors route it to
+# `/rwa`. Typed as WORDS, "my net worth" and "rwa radar" were GREETED by the
+# social gate, "research SOL" reached a chat model with no dossier tool. An
+# education question ("what is rwa", "what are real world assets") is the
+# model's on both surfaces now, because the website no longer intercepts it.
+# Registered ABOVE the Portfolio keyword rule, which `total balance` and
+# `total equity` would otherwise feed.
 #
-# `deep dive on <sym>` is NOT here: the web's research intercept claims it as
-# a dossier and Telegram's analysis rules read it as the chart, and that
-# divergence is recorded rather than resolved by this rule.
+# `deep dive on <sym>` is NOT here. It stays the chart on both surfaces
+# (`analyze_asset`). The website used to claim it as a dossier; that
+# intercept is gone, and widening this rule to take it would steal the
+# chart phrase. "research the docs" and "research report" stay the model.
 _rule(_EDU + r"\b(net\s?worth|networth|total (?:balance|holdings|equity)(?: across| everywhere)?"
       r"|balance across (?:all )?(?:exchanges|venues|accounts|everything)"
       r"|everything i (?:own|hold)|how much am i worth)\b",

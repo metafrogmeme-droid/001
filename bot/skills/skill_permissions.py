@@ -175,11 +175,11 @@ WEB_CHAT_SKILLS: frozenset[str] = frozenset(SKILL_PERMISSION) - {"halt", "trade_
 #: would remove the gate entirely.
 WEB_ROUTED_PERMISSION: dict[str, str] = {
     "status": "status",
-    # The three reads the website's own intercepts answer and Telegram
-    # renders only as slash commands: routed intents on both surfaces now,
-    # each under the permission on the `@guard` of the command that renders
-    # the same seam (`networth_card_text`, `rwa_card_text`,
-    # `research_card_text`).
+    # Net worth the website still answers from its own intercept. Research
+    # left that table: both doors render `research_card_text` under the
+    # permission on the `@guard` of `/research`. The symbol the sentence
+    # names is the one dossier. Nothing here places, confirms, sizes, or
+    # closes a trade. "deep dive on SOL" stays the chart.
     "networth": "networth",
     "rwa": "rwa",
     "research": "research",

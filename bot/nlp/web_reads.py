@@ -1,10 +1,17 @@
 """The reads the website's chat answers from its own intercepts and Telegram
 does not — and the door each one is given, on both surfaces.
 
-`app/routes/chat.js` answers three shapes of question before any bot
-round-trip. Two have a Telegram command that renders the same reading
-and are routed to it (`networth`, `research`).
-Cross-venue exposure is not among the three: both doors route "my
+`app/routes/chat.js` answers two shapes of question before any bot
+round-trip. One has a Telegram command that renders the same reading
+and is routed to it (`networth`).
+The research dossier is not among the two: both doors route "research
+SOL" to `/research`, the one symbol the sentence names. The card is
+public venue data plus the recorded history, for every caller.
+Nothing here places, confirms, sizes, or closes a trade. "deep dive
+on SOL" stays the chart; "research the docs" and "research report"
+stay the model. /api/research/:symbol still serves the dossier while
+the bot process is down.
+Cross-venue exposure is not among the two: both doors route "my
 exposure" to `/exposure`, the caller's perp positions netted against
 their on-chain spot. The read is that caller's book, never the
 operator's. Nothing here resizes, hedges, or closes a position.
@@ -12,41 +19,41 @@ operator's. Nothing here resizes, hedges, or closes a position.
 words the website's intercept used to claim are this card on both
 surfaces. /api/exposure still serves the read while the bot process
 is down.
-The DeFi positions are not among the three: both doors route "my defi
+The DeFi positions are not among the two: both doors route "my defi
 positions" to `/defi`, the caller's Aave, Lido and Uniswap positions
 with their liquidation risk. The read is that caller's linked wallet,
 never somebody else's and never the operator's book. Nothing here
 repays, withdraws, or manages a position. /api/defi still serves the
 read while the bot process is down.
-The spot market is not among the three: both doors route "spot market"
+The spot market is not among the two: both doors route "spot market"
 to `/spot`, the spot pairs and the spot/perp basis. Venue tickers are
 public, for every caller. Nothing here places a spot order.
 /api/spot/market and /api/spot/basis still serve the read while the bot
 process is down.
-The NFT radar is not among the three: both doors route "nft radar"
+The NFT radar is not among the two: both doors route "nft radar"
 to `/nft`, the OpenSea floor and volume snapshot. Collection stats are
 public, for every caller. /api/nft/radar still serves the radar while
 the bot process is down.
-The meme radar is not among the three: both doors route "meme radar"
+The meme radar is not among the two: both doors route "meme radar"
 to `/meme_radar`, the on-chain snapshot with its safety read. The feed
 is public DEXScreener data, for every caller. The Markets panel and
 /api/market/meme still serve the radar while the bot process is down.
-The venue router is not among the three: both doors route "best venue
+The venue router is not among the two: both doors route "best venue
 for BTC" to `/venue_router`, the funding-cost table. The asset the
 sentence names narrows the card; an unnamed asset is the top five.
 The Markets panel and /api/market/venue-router still serve the read
 while the bot process is down.
-The airdrop and testnet radar is not among the three: both doors route it
+The airdrop and testnet radar is not among the two: both doors route it
 to `/airdrops`, the curated guided-only catalogue. Wallet-readiness hints
 are the caller's own when the website can map them, and the public radar
 otherwise — never a guessed wallet.
-The tokenized-asset radar is not among the three: both doors route it to
+The tokenized-asset radar is not among the two: both doors route it to
 `/rwa`, the venue's live tickers.
-The what-if replay is not among the three: both doors route it to
+The what-if replay is not among the two: both doors route it to
 `/replay`, the operator agent's recorded trades at the caller's stake.
-The wallet mirror is not among the three: both doors route it to
+The wallet mirror is not among the two: both doors route it to
 `/wallet`, the caller's own linked wallet. The weekly letter is not
-among the three either: both doors route it to `/letter`. Price alerts
+among the two either: both doors route it to `/letter`. Price alerts
 are not among them either: both doors route them to
 `/price_alert`, a WRITE the website's alert engine holds and delivers on
 Telegram too since the bot polls its trips; the command is not called

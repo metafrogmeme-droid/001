@@ -116,9 +116,10 @@ class TestThePull:
         # the website's own panel reads, so the flows are read in one place.
         assert WEB_CARDS == ("nft", "spot", "airdrops", "replay", "letter", "venue_router",
                              "meme_radar", "wallet", "defi", "alerts", "rwa", "etf_flows",
-                             "exposure")
-        assert WEB_CARD_PARAMS == {"replay": ("stake",), "venue_router": ("base",), "wallet": ("chain",),
-                                   "alerts": ("text", "channel")}
+                             "exposure", "research")
+        assert WEB_CARD_PARAMS == {"replay": ("stake",), "venue_router": ("base",),
+                                   "wallet": ("chain",), "alerts": ("text", "channel"),
+                                   "research": ("symbol",)}
 
     def test_the_paths_carry_the_argument_only_when_given(self, monkeypatch):
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
