@@ -303,6 +303,10 @@ test('unreadable metrics are dashes, never a zero and never a colour', () => {
   assert.doesNotMatch(html, /low sample/);
   assert.match(scoreBlock(null), /Verified backtest pending/);
   assert.match(scoreBlock({}), /Verified backtest pending/);
+  const omitted = scoreBlock({ omitted: 'The 8% trailing stop is recorded and not applied.' });
+  assert.match(omitted, /recorded and not applied/);
+  assert.doesNotMatch(omitted, /Verified backtest pending/);
+  assert.doesNotMatch(omitted, /0\.00/);
   const bare = scoreBlock({ metrics: { profit_factor: 0.91, sharpe_ratio: -1.59 } });
   const ctx = { window: {}, pnlClass, esc, ddLabel, String, Number };
   const a = DASH.indexOf('  function scoreBlock(sc) {');

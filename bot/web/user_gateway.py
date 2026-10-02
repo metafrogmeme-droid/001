@@ -3464,9 +3464,10 @@ async def handle_strategies_public(request: web.Request) -> web.Response:
         "read_only": True,
         "public": True,
         "agents": strategy_catalog.catalog(),
-        "note": ("Every agent is a real engine strategy. Backtest any of them on "
-                 "frozen benchmark data in the Strategy Lab — results are "
-                 "percent/ratio only, never a claimed dollar return."),
+        "note": ("Every agent is a real engine strategy. A frozen backtest, "
+                 "where one is attached, is re-run in the Strategy Lab — "
+                 "percent/ratio only, never a claimed dollar return. An agent "
+                 "with no track record has none."),
     })
 
 

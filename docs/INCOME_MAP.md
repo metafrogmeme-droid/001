@@ -378,9 +378,9 @@ directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
 with /autoconfirm, halt it with /halt //pause //emergency_stop, and inspect it
-with /risk, /gates, /shadow, /enforcing, /parity. Users get six named
+with /risk, /gates, /shadow, /enforcing, /parity. Users get seven named
 strategy presets (Dip Sniper, Momentum Hunter, Safe Scalper, Full Scan,
-ETH Moving-Average Trend, ALT Sweep —
+ETH Moving-Average Trend, Daily Volatility Rotation, ALT Sweep —
 `bot/skills/skill_registry.py::RunStrategySkill.PRESETS`) runnable via /run, /momentum, /dip, and pinnable to
 their own confirms as a tighten-only veto (/mystrategy →
 `bot/core/user_strategy_store.py::set_pref`, mirrored on the web at /api/bot-strategy). Research
@@ -2022,9 +2022,13 @@ public/compare.html), GET /a claimed agents (`app/server.js::get('/a')`); backed
 app/lib/agent_catalogue.js → bot gateway /public/strategies →
 RunStrategySkill.PRESETS, and by committed scorecards
 benchmark/scorecards/{dip-sniper,eth-ma-trend,full-scan,momentum-hunter,safe-scalper}.json
-produced by scripts/gen_agent_scorecards.py. ALT Sweep is one of those presets
-and has no file in that directory: its symbols are not the frozen majors window,
-and that window is not published as its track record.
+produced by scripts/gen_agent_scorecards.py. Daily Volatility Rotation is in
+that preset table and publishes no scorecard
+(`scripts/gen_agent_scorecards.py::publishes_scorecard`): its percent exits
+are recorded and not applied, and a majors 1h fill is not its daily book.
+ALT Sweep is one of those presets and has no file in that directory: its
+symbols are not the frozen majors window, and that window is not published
+as its track record.
 
 **Counterparty & custody-concentration monitor**
 

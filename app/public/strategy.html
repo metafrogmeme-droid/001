@@ -123,6 +123,9 @@
 
   // ── strategy scorecard renderer ──
   function scoreBlock(sc) {
+    if (sc && typeof sc.omitted === 'string' && sc.omitted) {
+      return '<div class="sc"><p class="prov">' + esc(sc.omitted) + '</p></div>';
+    }
     if (!sc || !sc.metrics) {
       return '<div class="sc"><p class="prov">Verified backtest pending — run it in the '
         + '<a href="/dashboard#lab">Lab</a>.</p></div>';
@@ -208,10 +211,14 @@
         // A member config — no frozen backtest to reproduce. Fork it into your
         // own builder to customize and publish your version.
         ? '<a class="btn btn--primary btn--sm" href="/dashboard?fork=' + encodeURIComponent(a.id) + '#agents">⑂ Fork in the app</a>'
-        // Deep-link straight into the Lab with THIS agent auto-running its exact
-        // backtest — the page's "reproduce its numbers" promise, in one tap.
-        : '<a class="btn btn--primary btn--sm" href="/dashboard?lab_agent=' + encodeURIComponent(a.id) + '#lab">Reproduce this backtest in the Lab</a>'
-          + '<a class="btn btn--sm" href="/dashboard#agents">Follow in the app</a>')
+        // A preset whose exits are recorded and not applied has no backtest
+        // to reproduce. The Lab door would claim a track record that is missing.
+        : (a.scorecard && a.scorecard.omitted
+          ? '<a class="btn btn--sm" href="/dashboard#agents">Follow in the app</a>'
+          // Deep-link straight into the Lab with THIS agent auto-running its exact
+          // backtest — the page's "reproduce its numbers" promise, in one tap.
+          : '<a class="btn btn--primary btn--sm" href="/dashboard?lab_agent=' + encodeURIComponent(a.id) + '#lab">Reproduce this backtest in the Lab</a>'
+            + '<a class="btn btn--sm" href="/dashboard#agents">Follow in the app</a>'))
       + '<button class="btn btn--sm" id="shareBtn" type="button">Share</button>'
       + '</div>'
       + '<p class="disc">' + (a.community
@@ -219,10 +226,12 @@
           + 'never a dollar figure and never a performance claim. Verified backtests live in the '
           + '<a href="/dashboard#lab">Lab</a>; verified live ranks on the <a href="/leaderboard">leaderboard</a>. '
           + 'Nothing here is financial advice.'
-        : 'Every RUNECLAW agent is one of the engine\'s real strategies, backtested on '
-          + 'frozen, content-hashed benchmark data — percent and ratio only, never a dollar figure. '
-          + 'Reproduce the identical backtest yourself in the Lab, or watch verified live ranks on the '
-          + '<a href="/leaderboard">leaderboard</a>. Nothing here is financial advice.') + '</p>'
+        : (a.scorecard && a.scorecard.omitted
+          ? esc(a.scorecard.omitted) + ' Nothing here is financial advice.'
+          : 'Every RUNECLAW agent is one of the engine\'s real strategies, backtested on '
+            + 'frozen, content-hashed benchmark data — percent and ratio only, never a dollar figure. '
+            + 'Reproduce the identical backtest yourself in the Lab, or watch verified live ranks on the '
+            + '<a href="/leaderboard">leaderboard</a>. Nothing here is financial advice.')) + '</p>'
       + '</article>';
     var sb = document.getElementById('shareBtn');
     if (sb) sb.addEventListener('click', function () {

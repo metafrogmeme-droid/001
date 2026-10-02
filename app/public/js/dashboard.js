@@ -7545,6 +7545,9 @@
   // phone the flex row wrapped the Sharpe and Trades labels beside the
   // drawdown value.
   function scoreBlock(sc) {
+    if (sc && typeof sc.omitted === 'string' && sc.omitted) {
+      return '<p class="small muted" style="margin:0">' + esc(sc.omitted) + '</p>';
+    }
     if (!sc || !sc.metrics) {
       return '<p class="small muted" style="margin:0">Verified backtest pending'
         + ' — run it in the <a href="#lab">Lab</a>.</p>';
@@ -7690,6 +7693,9 @@
           a.horizon ? `<span class="chip" style="font-size:11px">${esc(a.horizon)}</span>` : '',
         ].filter(Boolean).join('');
         const hasSc = !!(a.scorecard && a.scorecard.metrics);
+        const omitted = !!(a.scorecard && a.scorecard.omitted);
+        const labButton = omitted ? ''
+          : `<button class="btn btn--primary btn--sm" data-agentlab="${esc(a.id)}" type="button">${hasSc ? 'Reproduce in Lab' : 'Backtest in Lab'}</button>`;
         return `<article class="panel" style="border-top:3px solid ${border};display:flex;flex-direction:column;gap:var(--s2)">
           <div class="row" style="gap:var(--s2);align-items:center">
             <span style="font-size:26px;line-height:1">${esc(a.icon || '🤖')}</span>
@@ -7702,7 +7708,7 @@
           ${a.followers ? `<div class="small" style="color:var(--text-3)">👥 ${esc(String(a.followers))} ${esc(T('mk.following_w', 'following'))}</div>` : ''}
           <div style="border-top:1px solid rgba(128,128,128,.15);padding-top:var(--s2)">${scoreBlock(a.scorecard)}</div>
           <div class="row mt-2" style="gap:var(--s2);flex-wrap:wrap;margin-top:auto">
-            <button class="btn btn--primary btn--sm" data-agentlab="${esc(a.id)}" type="button">${hasSc ? 'Reproduce in Lab' : 'Backtest in Lab'}</button>
+            ${labButton}
             ${LOGGED_IN ? `<button class="btn btn--sm ${_agentFollows.has(a.id) ? 'btn--ghost' : ''}" data-agentfollow="${esc(a.id)}" type="button">${_agentFollows.has(a.id) ? '✓ Following' : '+ Follow'}</button>` : ''}
             ${LOGGED_IN ? `<button class="btn btn--ghost btn--sm" data-botstrat="${esc(a.id)}" type="button">${_botStrat.slug === a.id ? '🤖 ✓ ' + esc(T('bs.on_bot', 'On your bot')) : '🤖 ' + esc(T('bs.run_b', 'Run on my bot'))}</button>` : ''}
             <button class="btn btn--ghost btn--sm" data-agentask="${esc(a.name)}" type="button">Ask the agent</button>
@@ -7711,7 +7717,7 @@
       }).join('');
       return `<div class="grid-cards" style="display:grid;gap:var(--s3);grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">${cards}</div>
         ${note ? `<p class="muted small mt-3">${esc(note)}</p>` : ''}
-        <p class="muted small mt-1">Every agent is one of the engine's real strategies, backtested on frozen, content-hashed benchmark data — percent/ratio only, never a dollar figure. Hit <b>Reproduce in Lab</b> to re-run the identical backtest yourself, or watch verified live ranks on the <a href="#leaderboard">leaderboard</a>.</p>`;
+        <p class="muted small mt-1">Every agent is one of the engine's real strategies. Where a frozen backtest is attached, it is percent and ratio only, never a dollar figure, and <b>Reproduce in Lab</b> re-runs that backtest. A card with no track record has none. Verified live ranks are on the <a href="#leaderboard">leaderboard</a>.</p>`;
     }, { timeoutMs: 18000, errorText: T('dd.err_agents', 'The agent catalogue is unavailable right now.') });
 
     // Live "would-take" picks for the agents this user follows. Paper-only: each

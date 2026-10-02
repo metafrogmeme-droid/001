@@ -2240,6 +2240,28 @@ class RunStrategySkill(BaseSkill):
             "ma_source_timeframe": "1h",
             "signal_confidence": 0.7,
         },
+        # Daily is the bar size: closed 1d groups resampled from 1h, 24 source
+        # bars to a day, trailing unfinished day dropped. Momentum 0.5 is the
+        # close-to-close ratio (a 50% rise), not 0.5%. The percent exits are
+        # recorded and not applied. Leverage and utilization do not size a fill.
+        "daily vol rotation": {
+            "label": "Daily Volatility Rotation", "icon": "\U0001f501",
+            "desc": ("BTC ETH SOL XRP ADA AVAX \u2022 closed daily bars from 1h \u2022 "
+                     "long only above the 50-bar average when the 20-bar momentum "
+                     "ratio is at least 0.5 \u2022 8% trail, 5% target and 4% stop "
+                     "recorded and not applied"),
+            "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT", "AVAXUSDT"],
+            "rsi_threshold": None, "rsi_min": None,
+            "regime": None, "confidence_threshold": None,
+            "direction": "long_only", "volume_spike_min": None,
+            "sl_atr_mult": None, "tp_atr_mult": None,
+            "momentum_period": 20, "atr_period": 20, "trend_period": 50,
+            "momentum_threshold": 0.5,
+            "trailing_stop_pct": 0.08, "take_profit_pct": 0.05,
+            "hard_stop_loss_pct": 0.04,
+            "leverage": 5, "utilization": 0.95,
+            "bar_timeframe": "1d", "bar_source_timeframe": "1h",
+        },
         # Direction reuses the one closed-bar reading (fast above slow is long,
         # fast below slow is short, unreadable or equal is neither side, and a
         # held side reverses only when that relationship changes). No schedule
@@ -2286,7 +2308,9 @@ class RunStrategySkill(BaseSkill):
     ALIASES: dict[str, str] = {
         "dip": "dip sniper", "momentum": "momentum hunter",
         "scalp": "safe scalper", "scan all": "full scan",
-        "ethma": "eth ma trend", "altsweep": "alt sweep",
+        "ethma": "eth ma trend",
+        "volrotation": "daily vol rotation",
+        "altsweep": "alt sweep",
     }
 
     @classmethod
@@ -2381,7 +2405,8 @@ class RunStrategySkill(BaseSkill):
         # The moving-average preset is a reading, not a scan of the house
         # ideas. This command does not open, resize, or close a position.
         from bot.core.ma_trend import preset_is_ma_trend
-        if preset_is_ma_trend(cfg):
+        from bot.core.vol_rotation import preset_is_vol_rotation
+        if preset_is_ma_trend(cfg) or preset_is_vol_rotation(cfg):
             from bot.core.strategy_catalog import _how_it_trades
             return (
                 f"{cfg['icon']} <b>{cfg['label']}</b>\n"

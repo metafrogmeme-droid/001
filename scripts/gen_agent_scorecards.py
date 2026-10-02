@@ -172,29 +172,57 @@ def _gate_args(cfg: dict) -> list[str]:
     return args
 
 
+# Percent exits the runner does not apply. The trail is an ATR stage table
+# and partial closes are R-multiples, so these stay named rather than filled.
+_PERCENT_EXIT_KEYS = ("trailing_stop_pct", "take_profit_pct", "hard_stop_loss_pct")
+
+
+def publishes_scorecard(cfg: dict) -> bool:
+    """Whether ``generate`` writes a frozen card for this preset.
+
+    Daily volatility rotation's exits are recorded and not applied, and its
+    bar size is daily. A majors 1h house run is not its track record, so the
+    file stays absent.
+    """
+    from bot.core.vol_rotation import publishes_scorecard as _publishes
+    return _publishes(cfg)
+
+
 def _unmodeled(cfg: dict) -> list[str]:
     """Knobs the runner was not asked to apply.
 
-    An exit multiple ``_gate_args`` emits is in the number. A recorded trail,
-    scale-out, risk ratio, margin mode or position count has no runner flag,
-    so it stays named. Leverage stays named when the fill path cannot size,
-    because that is when ``_gate_args`` does not emit it.
+    An exit multiple ``_gate_args`` emits is in the number. A percent trail,
+    target, or hard stop is never emitted. A recorded scale-out, risk ratio,
+    margin mode or position count has no runner flag, so it stays named.
+    Leverage stays named when the fill path cannot size, because that is when
+    ``_gate_args`` does not emit it. The daily rotation names leverage on the
+    card and does not publish a scorecard, so its unmodeled list is the three
+    percent exits only.
     """
     from bot.core.strategy_catalog import UNAPPLIED_PRESET_KEYS
+    from bot.core.vol_rotation import preset_is_vol_rotation
     emitted = set(_gate_args(cfg))
     out: list[str] = []
     if cfg.get("sl_atr_mult") is not None and "--sl-atr-mult" not in emitted:
         out.append("sl_atr_mult")
     if cfg.get("tp_atr_mult") is not None and "--tp-atr-mult" not in emitted:
         out.append("tp_atr_mult")
+    seen = set(out)
+    for key in _PERCENT_EXIT_KEYS:
+        if cfg.get(key) is not None and key not in seen:
+            out.append(key)
+            seen.add(key)
+    if preset_is_vol_rotation(cfg):
+        return out
     flag_for = {"leverage": "--leverage"}
     for key in UNAPPLIED_PRESET_KEYS:
-        if cfg.get(key) is None:
+        if cfg.get(key) is None or key in seen:
             continue
         flag = flag_for.get(key)
         if flag is not None and flag in emitted:
             continue
         out.append(key)
+        seen.add(key)
     return out
 
 
@@ -407,6 +435,13 @@ def generate(dataset: str, symbols: str, last_bars: int,
         if want and want not in (key, _slug(key).replace("-", " ")):
             continue
         matched = True
+        if not publishes_scorecard(cfg):
+            if want:
+                raise SystemExit(
+                    f"{key}: no scorecard is published. The percent exits are "
+                    "recorded and not applied, and a majors 1h run is not "
+                    "this daily book.")
+            continue
         if not preset_universe_covered(cfg, sym_list):
             print(f"  [{key}] omitted: this run's symbols are not its universe. "
                   "No scorecard written.", flush=True)
