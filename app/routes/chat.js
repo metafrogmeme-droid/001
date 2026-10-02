@@ -16,7 +16,6 @@ const { rateLimit, userKey } = require('../lib/rate_limit');
 const { resolveBotIdentity } = require('../lib/identity');
 const gateway = require('../lib/gateway');
 const { loadProfile } = require('./profile');
-const { maybeHandleIdleYieldChat } = require('../lib/idle_yield');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -36,13 +35,14 @@ const STREAM_TIMEOUT_MS = 75000;
 
 /**
  * The local text intercepts, IN ORDER. Each is `(userId, text, ident) ->
- * reply | null`, where `ident()` lazily resolves the bot identity for the
- * two that need it. The first non-null reply is the answer.
+ * reply | null`, where `ident()` lazily resolves the bot identity for a
+ * row that needs it. The first non-null reply is the answer. The table is
+ * empty.
  *
- * Why a table and not a column of `if`s: the order IS the routing — "idle"
- * is answered by the yield intercept only because nothing above it claimed
- * the sentence — and a table can be read by a test, which fourteen
- * consecutive early returns could not. None of the fourteen had one.
+ * Why a table and not a column of `if`s: the order IS the routing, and a
+ * table can be read by a test, which fourteen consecutive early returns
+ * could not. None of the fourteen had one. The table is empty: idle yield
+ * was the last row, and it left for the shared idleyield door.
  *
  * THE THIRD COLUMN IS WHAT THE CAPABILITY CARD SAYS. `capability_answer`
  * takes an `extras` list for exactly this — "capabilities a surface knows
@@ -137,10 +137,14 @@ const INTERCEPTS = [
   // stay the risk engine. Dollars stay on this private card. /api/networth
   // still runs here, so the read is still available while the bot process
   // is down.
-  // "idle" / "best rate" / "earn more" — idle-asset yield optimizer.
-  ['idleyield', async (uid, text, ident) => (
-    /\bidle|earn more|best (rate|yield|apy)|put .* to work|stake my|where can i earn\b/i.test(text)
-      ? maybeHandleIdleYieldChat(await ident(), uid, text) : null), 'where your idle assets could be earning more'],
+  // Idle yield left this table. Both doors route "my idle usdc" to the
+  // shared idleyield seam, which fetches this process's own card for the
+  // caller the turn names. The read is that caller's linked wallet, never
+  // the operator's exchange book — Telegram's /idleyield stays that admin
+  // scan. Nothing here places, confirms, sizes, or stakes. "stake my usdc"
+  // stays the stake door. Dollars stay on this private card. /api/idleyield
+  // still runs here, so the read is still available while the bot process
+  // is down.
 ];
 
 /**

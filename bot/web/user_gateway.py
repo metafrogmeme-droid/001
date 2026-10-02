@@ -332,6 +332,16 @@ async def _seam_defi(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
     return await tg_handler.defi_card_text(tg_id, surface="web")
 
 
+async def _seam_idleyield(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
+                          text: str = "") -> str:
+    # The website chat no longer answers this itself. Both doors render the
+    # idle-yield card for THIS caller; surface="web" keeps the markup the
+    # browser already shows. The read is that caller's linked wallet, never
+    # the operator's exchange book. Nothing here places, confirms, sizes,
+    # or stakes. Dollars stay on this private card.
+    return await tg_handler.idleyield_card_text(tg_id, surface="web")
+
+
 async def _seam_exposure(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
                          text: str = "") -> str:
     # The website chat no longer answers this itself. Both doors render the
@@ -357,9 +367,9 @@ async def _seam_price_alert(tg_handler: "TelegramHandler", tg_id: str, kwargs: d
 #: `status` keeps its own branch above: it predates the table and three
 #: guards index that branch's literal. Airdrops, the venue router, the meme
 #: radar, the NFT radar, the spot market, DeFi, cross-venue exposure, the
-#: research dossier and net worth left that table: both doors render this
-#: seam rather than a door notice. Idle yield is still answered first by
-#: a Node intercept.
+#: research dossier, net worth and idle yield left that table: both doors
+#: render this seam rather than a door notice. The Node intercept table
+#: is empty.
 _WEB_SEAM = {
     "networth": _seam_networth,
     "rwa": _seam_rwa,
@@ -375,6 +385,7 @@ _WEB_SEAM = {
     "price_alert": _seam_price_alert,
     "defi": _seam_defi,
     "exposure": _seam_exposure,
+    "idleyield": _seam_idleyield,
 }
 
 
@@ -1008,9 +1019,9 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
         # ── net worth / RWA / research → the seams the commands render ──
         # Net worth left the website's Node intercept, with research, RWA,
         # the airdrop radar, the venue router, the meme radar, the NFT
-        # radar, the spot market, DeFi and cross-venue exposure: both doors
-        # render this seam. "what's my drawdown" stays the risk engine.
-        # Nothing here places, confirms, sizes, or closes.
+        # radar, the spot market, DeFi, cross-venue exposure and idle
+        # yield: both doors render this seam. "what's my drawdown" stays
+        # the risk engine. Nothing here places, confirms, sizes, or closes.
         # The branch answers every `_WEB_SEAM` intent with the same card
         # Telegram's routed branch renders, under the same gate, recorded
         # the same way — never by a model with no such tool. `_WEB_SEAM`

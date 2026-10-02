@@ -224,6 +224,10 @@ ROUTED_INTENT_SEAM = {
     "wallet": "wallet_card_text",
     "defi": "defi_card_text",
     "exposure": "exposure_card_text",
+    # Idle yield left the website's intercept table. The chat door is
+    # `idleyield_card_text`. `/idleyield` stays the operator's exchange
+    # scan, so the walk finds the guarded door rather than that command.
+    "idleyield": "idleyield_card_text",
 }
 
 

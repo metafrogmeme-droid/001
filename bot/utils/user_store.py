@@ -132,6 +132,9 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "exposure", "networth", "research", "rwa", "token", "memeplan",
         "nft", "spot", "airdrops", "etf",
         "replay", "letter", "venue_router", "meme_radar", "wallet", "defi", "price_alert",
+        # Idle yield: the caller's linked wallet, read-only. Telegram's
+        # /idleyield stays the operator scan via its own _is_admin check.
+        "idleyield",
         # The caller's own dated chat note. It reads nothing shared.
         "memory",
         # /mystrategy: a trader's own tighten-only confirm gate — it can only
@@ -165,6 +168,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "exposure", "networth", "research", "rwa", "token", "memeplan",
         "nft", "spot", "airdrops", "etf",
         "replay", "letter", "venue_router", "meme_radar", "wallet", "defi", "price_alert",
+        "idleyield",
         "mystrategy", "memory",
     },
     "viewer": {
@@ -174,6 +178,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "exposure", "networth", "research", "rwa", "token", "memeplan",
         "nft", "spot", "airdrops", "etf",
         "replay", "letter", "venue_router", "meme_radar", "wallet", "defi", "price_alert",
+        "idleyield",
         "memory",
     },
     # "journal" STAYS here even though /journal moved to an operator group.

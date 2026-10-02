@@ -90,10 +90,9 @@ class TestThePull:
         monkeypatch.setattr(wdp, "_request", lambda *a, **k: pytest.fail("must not be called"))
         # "rwa" left this list: it is the tenth card on the route now, because
         # the Python formatter of it was a second copy that raised on the
-        # honest `None` the radar publishes. "idleyield" stays — that read is
-        # the caller's wallet on the web and the OPERATOR's account here, a
-        # recorded difference rather than a card.
-        for bad in ("nope", "../exposure", "", "__proto__", "price_alert", "idleyield"):
+        # honest `None` the radar publishes. Idle yield is a card now: both
+        # doors fetch it. The slash command stays the operator's scan.
+        for bad in ("nope", "../exposure", "", "__proto__", "price_alert"):
             assert fetch_web_card(bad) is None, bad
         assert WEB_CARDS[:3] == CARDS and set(CARDS) <= set(WEB_CARDS)
 

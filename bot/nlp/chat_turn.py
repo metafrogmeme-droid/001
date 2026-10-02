@@ -34,6 +34,7 @@ STAGES: tuple[str, ...] = (
 SHARED_DOORS: tuple[str, ...] = (
     "price_alert", "letter", "wallet", "replay", "rwa", "airdrops", "venue_router",
     "meme_radar", "nft", "spot", "defi", "exposure", "research", "networth",
+    "idleyield",
 )
 
 

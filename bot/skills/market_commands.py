@@ -227,6 +227,7 @@ class MarketCommands:
 
         from bot.utils.web_data_pull import (
             fetch_exposure,
+            fetch_idleyield,
             fetch_networth,
             fetch_research,
             fetch_web_card,
@@ -239,11 +240,15 @@ class MarketCommands:
         # Research is the same shape for a public dossier: `fetch_research`
         # is that card's client, and the symbol is the card's own argument.
         # Net worth is the same shape for the caller's own book:
-        # `fetch_networth` is that card's client.
+        # `fetch_networth` is that card's client. Idle yield is the same
+        # shape for the caller's linked wallet: `fetch_idleyield` is that
+        # card's client. Nothing here places, confirms, sizes, or stakes.
         if name == "exposure":
             payload = await _aio.to_thread(fetch_exposure, telegram_id)
         elif name == "networth":
             payload = await _aio.to_thread(fetch_networth, telegram_id)
+        elif name == "idleyield":
+            payload = await _aio.to_thread(fetch_idleyield, telegram_id)
         elif name == "research":
             raw = params.get("symbol") if isinstance(params, dict) else None
             symbol = raw if isinstance(raw, str) else ""

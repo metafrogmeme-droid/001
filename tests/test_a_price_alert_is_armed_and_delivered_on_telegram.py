@@ -223,9 +223,10 @@ class TestTheTables:
             assert "price_alert" in ROLE_PERMISSIONS[role], role
         assert "price_alert" in routed_skill_names()
 
-    def test_the_door_table_is_down_to_the_idle_yield_read(self):
-        assert set(WEB_READS) == {"idle_yield"}
+    def test_the_door_table_is_empty(self):
+        assert set(WEB_READS) == set()
         assert "price_alert" not in WEB_READS
+        assert "idleyield" not in WEB_READS
 
     def test_the_command_branch_sits_above_the_door_branch(self):
         src = textwrap.dedent(inspect.getsource(TelegramHandler._handle_message))

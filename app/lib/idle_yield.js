@@ -13,6 +13,7 @@
 
 const gateway = require('./gateway');
 const wallet = require('./wallet');
+const { esc } = require('./esc');
 
 // Aggregate a wallet portfolio's priced assets into optimizer holdings:
 // one {asset, usd_value} per symbol (summed across chains). Unpriced assets
@@ -73,37 +74,57 @@ async function buildIdleYield(ident, userId) {
   }
 }
 
-// ── Chat intercept ───────────────────────────────────────────────────────────
-
-const CHAT_RE = /\b(idle|earn more|best (rate|yield|apy)|put .* to work|stake my|where can i earn)\b/i;
+// ── The one card ─────────────────────────────────────────────────────────────
+//
+// ONE renderer. Both chat doors fetch this card over
+// `/api/bot/sync/card/idleyield`. Website chat does not match the sentence
+// itself. The read is this caller's linked wallet, never the operator's
+// exchange book (that scan stays `/idleyield`, admin-only). Nothing here
+// places, confirms, sizes, or stakes. Dollars stay on this private card.
 
 function fmtUsd(v) {
+  // null and undefined are unread. 0 is a measured empty balance.
   return v == null ? '—'
     : '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
-async function maybeHandleIdleYieldChat(ident, userId, text) {
-  if (!CHAT_RE.test(String(text || ''))) return null;
+function fmtApy(v) {
+  // A missing rate is not 0%. 0 is a measured zero yield.
+  return typeof v === 'number' && Number.isFinite(v) ? String(v) : '—';
+}
+
+/**
+ * The idle-yield card — ONE renderer for both surfaces. The bot's shared
+ * door and the website's shared door both fetch this card over the sync
+ * channel (`GET /api/bot/sync/card/idleyield?telegram_id=`). Website chat
+ * does not match the sentence itself. `telegramId` is the identity the bot
+ * keys the gateway call on (`web:<uid>` or a linked Telegram id); `userId`
+ * is the web account the wallet is linked to. A caller the website cannot
+ * map is unlinked, never a guessed wallet. Nothing here places, confirms,
+ * sizes, or stakes. Dollars stay on this private card.
+ */
+async function idleyieldChatCard(telegramId, userId) {
   try {
-    const y = await buildIdleYield(ident, userId);
+    const y = await buildIdleYield({ id: String(telegramId || '') }, userId);
     if (!y.available) {
       return { reply_html: 'The idle-yield scanner is briefly unavailable — try again shortly.',
         intent: 'idleyield' };
     }
     if (!y.wallet_linked) {
-      return { reply_html: '💤 ' + y.note, intent: 'idleyield' };
+      return { reply_html: '💤 ' + esc(y.note || ''), intent: 'idleyield' };
     }
-    const recd = (y.recommendations || []).filter(r => r.status === 'recommended');
+    const recd = (y.recommendations || []).filter((r) => r && r.status === 'recommended' && r.best);
     if (!recd.length) {
-      return { reply_html: '💤 ' + (y.note || 'No idle assets matched a known rate right now.'),
+      return { reply_html: '💤 ' + esc(y.note || 'No idle assets matched a known rate right now.'),
         intent: 'idleyield' };
     }
-    const lines = recd.slice(0, 6).map(r => {
+    const lines = recd.slice(0, 6).map((r) => {
       const b = r.best;
       const cust = b.custodial ? 'custodial' : 'non-custodial';
-      return `• <b>${r.asset}</b> ${fmtUsd(r.idle_usd)} → <b>${b.apy}%</b> `
-        + `(${b.source}, ${cust}) ≈ ${fmtUsd(r.est_year_usd)}/yr`
-        + (r.note ? `<br>   <span class="muted">↳ ${r.note}</span>` : '');
+      const note = r.note ? `<br>   <i>↳ ${esc(r.note)}</i>` : '';
+      return `• <b>${esc(r.asset)}</b> ${fmtUsd(r.idle_usd)} → <b>${fmtApy(b.apy)}%</b> `
+        + `(${esc(b.source)}, ${cust}) ≈ ${fmtUsd(r.est_year_usd)}/yr`
+        + note;
     });
     return {
       reply_html: `💤→💸 <b>Idle-yield — best rates for your wallet</b> (read-only)<br><br>`
@@ -118,4 +139,4 @@ async function maybeHandleIdleYieldChat(ident, userId, text) {
   }
 }
 
-module.exports = { CHAT_RE, buildIdleYield, holdingsFromWallet, maybeHandleIdleYieldChat };
+module.exports = { buildIdleYield, holdingsFromWallet, idleyieldChatCard };

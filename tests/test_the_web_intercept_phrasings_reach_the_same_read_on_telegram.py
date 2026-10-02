@@ -1,7 +1,8 @@
-"""One of the website's chat intercepts, reached by the same words on Telegram.
+"""The website's chat intercepts, reached by the same words on Telegram.
 
-`app/routes/chat.js` answers one phrasing from its own Node intercept
-before a turn reaches the bot (idle yield). Net worth left that table:
+`app/routes/chat.js` answers nothing from its own Node intercepts before
+a turn reaches the bot. Idle yield left that table: both doors route
+"my idle usdc" to the shared idleyield card. Net worth left that table:
 both doors route "my net worth" to `/networth`. Research left it too:
 both doors route "research SOL" to `/research`. The RWA radar left it too:
 both doors route "rwa radar" to `/rwa`. The airdrop radar left it too:
@@ -140,12 +141,17 @@ class TestTheRouter:
         # the price alert, a WRITE the website's alert engine holds.
         assert set(ug._WEB_SEAM) == {"networth", "rwa", "research", "nft", "spot", "airdrops",
                                      "replay", "letter", "venue_router", "meme_radar", "wallet", "defi",
-                                     "exposure", "price_alert"}
+                                     "exposure", "price_alert", "idleyield"}
         assert set(WEB_ROUTED_PERMISSION) == set(ROUTED_INTENT_SEAM)
         assert set(ug._WEB_SEAM) == set(WEB_ROUTED_PERMISSION) - {"status"}
         # The permission is the @guard on the command that renders the seam.
+        # Idle yield's slash command stays the operator's exchange scan, so
+        # the chat door is `_idleyield_door`, not `_cmd_idleyield`.
         for intent in ug._WEB_SEAM:
-            src = inspect.getsource(getattr(TelegramHandler, f"_cmd_{intent}"))
+            if intent == "idleyield":
+                src = inspect.getsource(TelegramHandler._idleyield_door)
+            else:
+                src = inspect.getsource(getattr(TelegramHandler, f"_cmd_{intent}"))
             assert f'@guard("{WEB_ROUTED_PERMISSION[intent]}")' in src, intent
             assert ROUTED_INTENT_SEAM[intent] in src, (intent, "the command renders the seam")
 
@@ -231,7 +237,8 @@ def _web(monkeypatch, role="viewer", denial=None):
            _llm_chat=None,
            networth_card_text=AsyncMock(return_value="<b>Net worth</b> — read-only"),
            rwa_card_text=AsyncMock(return_value="<b>RWA radar</b> — live venue tickers"),
-           research_card_text=AsyncMock(return_value="<b>Research: SOL</b> — dossier"))
+           research_card_text=AsyncMock(return_value="<b>Research: SOL</b> — dossier"),
+           idleyield_card_text=AsyncMock(return_value="<b>Idle-yield</b> — read-only"))
     return ug, h
 
 

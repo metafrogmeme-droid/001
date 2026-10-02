@@ -21,8 +21,9 @@ fetchable (`tests/test_the_website_cards_are_telegram_commands.py`,
 price alert since the website's alert engine gained a Telegram delivery
 (`tests/test_a_price_alert_is_armed_and_delivered_on_telegram.py`). Their
 phrasings still route to the same intents (ROWS below); the intents dispatch
-a command rather than a door, and the table holds the one door left — the
-idle-yield read, which is the OPERATOR's account under `/idleyield` here.
+a command rather than a door, and the table is empty — idle yield left it
+for the shared card. Telegram's `/idleyield` stays the operator's exchange
+scan, a different reading, so these words do not reach that command.
 
 Plant the phrase, drive the surface, read the STORE and the words.
 """
@@ -36,8 +37,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from bot.nlp.intent_router import IntentRouter, _is_social_message
-from bot.nlp.skill_memory import routed_answer_memory
-from bot.nlp.web_reads import WEB_READS, collision_blurb, web_read_notice
+from bot.nlp.skill_memory import card_shown_memory
+from bot.nlp.web_reads import WEB_READS, collision_blurb
 from tests.test_a_halt_is_the_operators_own_sentence import bot as _halt_bot
 from tests.test_a_routed_answer_is_in_the_transcript import _store
 from tests.test_free_text_obeys_the_role_gate import OPERATOR, _update
@@ -92,19 +93,20 @@ ROWS = [
     ("degen", "meme_radar"),
     ("meme coins", "meme_radar"),
     ("ai agent tokens", "meme_radar"),
-    # The second door: the website's idle-yield optimiser over the wallet the
-    # caller signed in with; /idleyield here is the operator's account.
-    ("idle yield", "idle_yield"),
-    ("idle-yield optimizer", "idle_yield"),
-    ("my idle usdc", "idle_yield"),
-    ("put my idle cash to work", "idle_yield"),
-    ("put my usdc to work", "idle_yield"),
-    ("best yield for my idle stables", "idle_yield"),
-    ("best apy for usdc", "idle_yield"),
-    ("where can i earn yield", "idle_yield"),
-    ("earn more on my stables", "idle_yield"),
-    ("what to do with my idle cash", "idle_yield"),
-    ("is my capital idle", "idle_yield"),
+    # Idle yield left the intercept table. Both doors route these words to
+    # the shared card. /idleyield here is still the operator's account, and
+    # these words do not reach that command.
+    ("idle yield", "idleyield"),
+    ("idle-yield optimizer", "idleyield"),
+    ("my idle usdc", "idleyield"),
+    ("put my idle cash to work", "idleyield"),
+    ("put my usdc to work", "idleyield"),
+    ("best yield for my idle stables", "idleyield"),
+    ("best apy for usdc", "idleyield"),
+    ("where can i earn yield", "idleyield"),
+    ("earn more on my stables", "idleyield"),
+    ("what to do with my idle cash", "idleyield"),
+    ("is my capital idle", "idleyield"),
 ]
 
 #: Phrases that must NOT reach any of the nine — each a neighbour that was
@@ -140,11 +142,11 @@ DECOYS = [
     # "stake my usdc" is a request to ACT that /stake's confirm card owns, an
     # education question is the model's, and "yield radar" is this chat's
     # own /yield word. None reaches the door.
-    ("stake my usdc", "idle_yield"),
-    ("what is idle yield", "idle_yield"),
-    ("what is yield farming", "idle_yield"),
-    ("how do i earn yield", "idle_yield"),
-    ("yield radar", "idle_yield"),
+    ("stake my usdc", "idleyield"),
+    ("what is idle yield", "idleyield"),
+    ("what is yield farming", "idleyield"),
+    ("how do i earn yield", "idleyield"),
+    ("yield radar", "idleyield"),
 ]
 
 #: Routes that stay exactly where they were.
@@ -213,43 +215,11 @@ def test_every_row_names_a_real_intercept_and_a_real_library():
         assert r.row in rows, r
         assert (REPO / "app" / "lib" / f"{r.lib}.js").exists(), r.lib
     raw = json.loads((REPO / "bot" / "nlp" / "web_reads.json").read_text())
-    assert set(raw) == set(WEB_READS) and len(WEB_READS) == 1
+    assert set(raw) == set(WEB_READS) and len(WEB_READS) == 0
     assert not {"airdrops", "nft", "spot", "replay", "letter", "wallet", "defi",
                 "exposure", "research", "networth", "venue_router", "meme_radar",
-                "price_alert"} & set(WEB_READS), (
+                "price_alert", "idleyield", "idle_yield"} & set(WEB_READS), (
         "commands now, not doors")
-
-
-@pytest.mark.parametrize("intent", sorted(WEB_READS))
-def test_the_example_the_notice_quotes_is_one_telegram_routes_too(intent):
-    """The other direction of the JS pin: a linked user who types the
-    website's example into Telegram lands on this door, not the greeter."""
-    i = IntentRouter().classify_rules(WEB_READS[intent].example)
-    assert i is not None and i.matched and i.skill == intent, (intent, getattr(i, "skill", None))
-
-
-@pytest.mark.parametrize("intent", sorted(WEB_READS))
-def test_the_telegram_notice_names_the_surface_the_words_and_says_nothing_was_read(intent):
-    r = WEB_READS[intent]
-    n = web_read_notice(intent, surface="telegram")
-    assert "web app" in n and r.example in n and r.label.lower() in n.lower()
-    assert n.endswith("Nothing was read or set here.") or "Nothing was read or set here." in n
-    slashes = re.findall(r"(?<![\w/])/[a-z_]{2,}", re.sub(r"<[^>]+>", "", n))
-    if r.collides_with:
-        assert slashes == [f"/{r.collides_with}"] or set(slashes) == {f"/{r.collides_with}"}, slashes
-        assert collision_blurb(r.collides_with) in n
-        assert "a different thing" in n
-    else:
-        assert slashes == [], slashes
-
-
-@pytest.mark.parametrize("intent", sorted(WEB_READS))
-def test_the_web_notice_names_the_words_and_no_command(intent):
-    r = WEB_READS[intent]
-    n = web_read_notice(intent, surface="web")
-    assert r.example in n and "Nothing was read or set" in n
-    assert re.findall(r"(?<![\w/])/[a-z_]{2,}", re.sub(r"<[^>]+>", "", n)) == []
-    assert "web app" not in n, "on the web, the web is 'this chat'"
 
 
 def test_the_collision_sentence_is_the_catalogues_own_words():
@@ -264,58 +234,69 @@ def test_the_collision_sentence_is_the_catalogues_own_words():
 
 class TestTelegram:
     @pytest.mark.asyncio
-    async def test_the_idle_yield_ask_sends_the_door_dispatches_nothing_and_records(self, bot):
-        # RED HERRING: "replay every signal with $1k" used to be this test's
-        # phrase, and before slice 3 those words dispatched `run_backtest`;
-        # then "tell me when BTC drops below 100k" was, until the price alert
-        # became a command too. The one door left is the idle-yield read.
+    async def test_the_idle_yield_ask_sends_the_card_not_the_operator_scan(self, bot, monkeypatch):
+        # The operator's /idleyield reads the exchange account. These words
+        # render the caller's wallet card and dispatch nothing, including
+        # that command.
+        import bot.utils.web_data_pull as wdp
+        monkeypatch.setattr(wdp, "fetch_idleyield", lambda tg: {
+            "reply_html": "💤→💸 <b>Idle-yield</b><br><span>note</span>",
+            "intent": "idleyield",
+        })
+        bot._cmd_idleyield = AsyncMock()
         store = _store(bot)
         await bot._handle_message(_update(OPERATOR, "put my idle cash to work"), None)
         assert bot.registry.dispatched == []
-        assert bot.sent[-1] == web_read_notice("idle_yield", surface="telegram")
+        assert bot._cmd_idleyield.await_count == 0
+        assert "Idle-yield" in bot.sent[-1]
+        assert "<span" not in bot.sent[-1] and "\n" in bot.sent[-1] and "note" in bot.sent[-1]
         turns = [(m.role, m.content) for m in store.get_recent(str(OPERATOR), limit=5)]
         assert turns[0] == ("user", "put my idle cash to work")
-        assert turns[1][1] == routed_answer_memory("idle_yield", bot.sent[-1])
-        assert "no tool ran" in turns[1][1]
+        assert turns[1][1] == card_shown_memory("idleyield")
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("text,intent", [
-        ("put my idle cash to work", "idle_yield"),
-        ("my idle usdc", "idle_yield"),
+    @pytest.mark.parametrize("text", [
+        "put my idle cash to work",
+        "my idle usdc",
     ])
-    async def test_each_read_gets_its_door_and_the_model_never_runs(self, bot, text, intent):
+    async def test_each_read_gets_the_card_and_the_model_never_runs(self, bot, monkeypatch, text):
+        import bot.utils.web_data_pull as wdp
+        monkeypatch.setattr(wdp, "fetch_idleyield", lambda tg: {
+            "reply_html": "<b>Idle-yield</b><br>wallet", "intent": "idleyield",
+        })
         rec = AsyncMock(return_value="narrated")
         bot._llm_chat = rec
+        bot._cmd_idleyield = AsyncMock()
         store = _store(bot)
         await bot._handle_message(_update(OPERATOR, text), None)
         rec.assert_not_awaited()
-        assert bot.sent[-1] == web_read_notice(intent, surface="telegram")
-        assert routed_answer_memory(intent, bot.sent[-1]) == store.get_recent(str(OPERATOR), limit=5)[-1].content
+        assert bot._cmd_idleyield.await_count == 0
+        assert "Idle-yield" in bot.sent[-1] and "<br" not in bot.sent[-1]
+        assert card_shown_memory("idleyield") == store.get_recent(str(OPERATOR), limit=5)[-1].content
 
     @pytest.mark.asyncio
-    async def test_an_idle_yield_ask_names_the_operators_command_as_a_different_thing(self, bot):
-        # The operator typing the website's words gets the door too: their
-        # /idleyield reads the exchange account, not the wallet the website
-        # optimises, and the notice says so off the catalogue's own words.
+    async def test_a_refused_gate_reads_nothing(self, bot):
+        bot.idleyield_card_text = AsyncMock(return_value="<b>Idle-yield</b>")
+        bot._guard = AsyncMock(return_value=False)
+        bot._cmd_idleyield = AsyncMock()
         await bot._handle_message(_update(OPERATOR, "idle yield"), None)
-        n = bot.sent[-1]
-        assert n == web_read_notice("idle_yield", surface="telegram")
-        assert "/idleyield" in n and "cross-source best-rate scan" in n and "different thing" in n
-        assert "put my idle cash to work" in n and "Nothing was read" in n
-        assert bot.registry.dispatched == []
+        assert bot._guard.await_args.args[1] == "idleyield"
+        assert bot.idleyield_card_text.await_count == 0
+        assert bot._cmd_idleyield.await_count == 0
+        assert not [s for s in bot.sent if "Idle-yield" in s]
 
 
 # ── the web ──────────────────────────────────────────────────────────────
 
 class TestTheWeb:
-    @pytest.mark.parametrize("text,intent", [
-        ("best apy for usdc", "idle_yield"), ("my idle usdc", "idle_yield"),
-    ])
-    def test_the_python_path_answers_with_the_intercepts_words_and_records(self, monkeypatch, text, intent):
+    @pytest.mark.parametrize("text", ["best apy for usdc", "my idle usdc"])
+    def test_the_python_path_renders_the_card_and_records(self, monkeypatch, text):
         ug, h = _web(monkeypatch)
         resp, body = _turn(ug, h, text)
         assert resp.status == 200
-        assert body["intent"] == intent
-        assert body["reply_html"] == web_read_notice(intent, surface="web")
-        assert _assistant(h) == routed_answer_memory(intent, body["reply_html"])
+        assert body["intent"] == "idleyield"
+        assert h.idleyield_card_text.await_count == 1
+        assert h.idleyield_card_text.await_args.kwargs == {"surface": "web"}
+        assert body["reply_html"] == h.idleyield_card_text.return_value
+        assert "[idleyield] result:" in _assistant(h)
         assert h._llm_chat.await_count == 0 if hasattr(h._llm_chat, "await_count") else True

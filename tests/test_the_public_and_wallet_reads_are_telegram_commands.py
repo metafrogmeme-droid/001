@@ -116,7 +116,7 @@ class TestThePull:
         # the website's own panel reads, so the flows are read in one place.
         assert WEB_CARDS == ("nft", "spot", "airdrops", "replay", "letter", "venue_router",
                              "meme_radar", "wallet", "defi", "alerts", "rwa", "etf_flows",
-                             "exposure", "research", "networth")
+                             "exposure", "research", "networth", "idleyield")
         assert WEB_CARD_PARAMS == {"replay": ("stake",), "venue_router": ("base",),
                                    "wallet": ("chain",), "alerts": ("text", "channel"),
                                    "research": ("symbol",)}
@@ -377,8 +377,8 @@ class TestTheTables:
             assert WEB_ROUTED_PERMISSION[name] == name
             assert ROUTED_INTENT_SEAM[name] == f"{name}_card_text"
             assert ug._WEB_SKILL_PERMISSION[name] == name
-        assert set(WEB_READS) == {"idle_yield"}, "a door notice over a read that exists"
-        assert "idleyield" not in WEB_CARDS and "alerts" in WEB_CARDS
+        assert set(WEB_READS) == set(), "a door notice over a read that exists"
+        assert "idleyield" in WEB_CARDS and "alerts" in WEB_CARDS
 
     def test_the_command_branches_sit_above_the_door_branch(self):
         src = textwrap.dedent(inspect.getsource(TelegramHandler._handle_message))

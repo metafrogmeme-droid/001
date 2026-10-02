@@ -8,6 +8,7 @@
 process.env.JWT_SECRET = 'j'.repeat(64);
 process.env.WEB3_CHAINS = 'ethereum';
 process.env.WEB_GATEWAY_SECRET = 'g'.repeat(40);
+process.env.BOT_SYNC_SECRET = 's'.repeat(48);
 const GW_PORT = 39879;
 process.env.BOT_GATEWAY_URL = `http://127.0.0.1:${GW_PORT}`;
 delete process.env.DATABASE_URL;
@@ -72,15 +73,19 @@ test.before(async () => {
   app.use(express.json());
   app.use('/api/auth', authModule.router);
   app.use('/api/idleyield', require('../routes/idleyield'));
+  app.use('/api/bot/sync', require('../routes/sync'));
   await new Promise((res) => { server = app.listen(0, '127.0.0.1', res); });
   base = `http://127.0.0.1:${server.address().port}`;
 });
 test.after(() => { if (server) server.close(); if (gwServer) gwServer.close(); });
 
-function req(method, path, { token } = {}) {
+function req(method, path, { token, botSecret } = {}) {
   return new Promise((resolve, reject) => {
     const r = http.request(`${base}${path}`, {
-      method, headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      method, headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(botSecret ? { 'X-Bot-Secret': botSecret } : {}),
+      },
     }, (res) => {
       let d = ''; res.on('data', c => d += c);
       res.on('end', () => resolve({ status: res.statusCode, data: d ? JSON.parse(d) : {} }));
@@ -165,4 +170,57 @@ test('idleyield: unlinked wallet is honest; gateway-down fails soft; anon 401', 
 
   const anon = await req('GET', '/api/idleyield');
   assert.equal(anon.status, 401);
+});
+
+test('the card both doors fetch is the read; chat no longer answers the sentence', async () => {
+  seq++;
+  const reg = await register(`iy${seq}@example.com`);
+  const token = reg.data.token;
+  await linkWallet(token);
+  const me = await req('GET', '/api/auth/me', { token });
+  const uid = me.data.id ?? me.data.user_id;
+  const card = await idle.idleyieldChatCard(`web:${uid}`, uid);
+  assert.equal(card.intent, 'idleyield');
+  assert.match(card.reply_html, /Idle-yield — best rates for your wallet/);
+  assert.match(card.reply_html, /\$3,000/);
+  assert.match(card.reply_html, /3\.1%/);
+  assert.match(card.reply_html, /\$93/);
+  assert.match(card.reply_html, /never moves your funds/);
+  assert.doesNotMatch(card.reply_html, /<span/);
+  assert.equal(typeof idle.maybeHandleIdleYieldChat, 'undefined');
+  assert.equal(idle.CHAT_RE, undefined);
+
+  const via = await req('GET', `/api/bot/sync/card/idleyield?telegram_id=web:${uid}`,
+    { botSecret: process.env.BOT_SYNC_SECRET });
+  assert.equal(via.status, 200);
+  assert.equal(via.data.reply_html, card.reply_html);
+  assert.equal(via.data.intent, 'idleyield');
+
+  const unlinked = await req('GET', '/api/bot/sync/card/idleyield?telegram_id=999999',
+    { botSecret: process.env.BOT_SYNC_SECRET });
+  assert.equal(unlinked.status, 200);
+  assert.equal(unlinked.data.unlinked, true);
+  assert.equal(unlinked.data.reply_html, null);
+  assert.equal(unlinked.data.intent, 'idleyield');
+
+  // An unread rate is not 0%. A name holding a tag is text.
+  const saved = gwResponse;
+  gwResponse = {
+    read_only: true,
+    recommendations: [{
+      asset: '<b', idle_usd: null, status: 'recommended',
+      best: { source: 'Lido', apy: null, custodial: false },
+      est_year_usd: null,
+      note: '<script>',
+    }],
+    total_est_year_usd: null,
+  };
+  const unread = await idle.idleyieldChatCard(`web:${uid}`, uid);
+  gwResponse = saved;
+  assert.match(unread.reply_html, /&lt;b/);
+  assert.match(unread.reply_html, /&lt;script&gt;/);
+  assert.match(unread.reply_html, /—%/);
+  assert.doesNotMatch(unread.reply_html, /\$0/);
+  assert.doesNotMatch(unread.reply_html, /<script/);
+  assert.doesNotMatch(unread.reply_html, /<span/);
 });

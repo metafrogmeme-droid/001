@@ -200,13 +200,13 @@ def test_each_registry_is_read_and_not_empty():
         ("gateway routes", gateway_routes()),
     ):
         assert len(got) > 5, f"{name} read as {len(got)} entries — the reader is broken, not the tree"
-    # One row remains (idleyield). A floor of "> 1" called that reading
-    # broken the day net worth left for the shared door. The set is the
-    # table, so a reader that returns nothing still fails, and a renamed
-    # row fails by name.
-    assert chat_intercepts() == {
-        "idleyield",
-    }, chat_intercepts()
+    # The table is empty. Idle yield was the last row, and it left for
+    # the shared door. A floor of "> 0" called that reading broken the
+    # day it left. The assignment must still be readable: a parser that
+    # cannot see the table also returns nothing, and that is a broken
+    # reader, not an empty table.
+    assert re.search(r"const INTERCEPTS = \[(.*?)\n\];", CHAT.read_text(), re.S)
+    assert chat_intercepts() == set(), chat_intercepts()
 
 
 def test_a_mounted_routers_own_paths_are_read_through_all_three_bindings():

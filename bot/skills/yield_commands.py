@@ -66,6 +66,11 @@ class YieldCommands:
 
         def _lang(self, update: Update) -> str: ...
 
+        async def _web_card_text(self, name: str, surface: str,
+                                 telegram_id: str = "", params: Optional[dict] = None,
+                                 unlinked: Optional[str] = None,
+                                 keep_markup: bool = False) -> str: ...
+
     async def _cmd_yield(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/yield — READ-ONLY idle-asset yield radar (admin).
 
@@ -226,6 +231,32 @@ class YieldCommands:
             await self._send(update, EARN_TAG_MISMATCH, edit=True)
             return None
         return acct
+
+    @guard("idleyield")
+    async def _idleyield_door(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """Free-text idle yield — the caller's linked-wallet card.
+
+        Not `/idleyield`. That command stays the operator's exchange scan
+        and its admin gate. This door is the website's card, the same one
+        the web seam renders, and the guard is the role gate. Nothing here
+        places, confirms, sizes, or stakes."""
+        await self._send(update, await self.idleyield_card_text(self._get_tg_id(update)))
+
+    async def idleyield_card_text(self, user_id: str, *,
+                                  surface: str = "telegram") -> str:
+        """The idle-yield card — the website's own rendering, both surfaces,
+        for THIS caller's linked wallet.
+
+        ``surface="web"`` keeps the card's own markup. Telegram's tag strip
+        turns ``<br>`` into a newline a browser collapses, which is right on
+        Telegram and wrong on the page that used to render this card itself.
+        The read is that caller's wallet, never the operator's exchange book.
+        Nothing here places, confirms, sizes, or stakes. Dollars stay on
+        this private card.
+        """
+        return await self._web_card_text(
+            "idleyield", surface=surface, telegram_id=str(user_id or ""),
+            keep_markup=(surface == "web"))
 
     async def _cmd_idleyield(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/idleyield — cross-SOURCE best-rate scan for idle assets (admin only).

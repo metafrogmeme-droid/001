@@ -226,6 +226,12 @@ WEB_ROUTED_PERMISSION: dict[str, str] = {
     # "what's my drawdown" stays `check_risk`. Nothing here resizes,
     # hedges, or closes a position.
     "exposure": "exposure",
+    # Idle yield left the website's intercept table. Both doors render
+    # `idleyield_card_text` under a permission of its own name. The read
+    # is the caller's linked wallet, never the operator's exchange book
+    # (`/idleyield` stays that admin scan). "stake my usdc" stays the
+    # stake door. Nothing here places, confirms, sizes, or stakes.
+    "idleyield": "idleyield",
 }
 
 # Skills a chat transport must never `execute()` directly, whatever the

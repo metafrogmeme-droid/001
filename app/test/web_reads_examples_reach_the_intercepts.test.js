@@ -27,15 +27,14 @@ function claims(row, text) {
   return lib.CHAT_RE.test(text);
 }
 
-test('the table names one read, on a row the intercept table has', () => {
+test('the table is empty: idle yield left for the shared door', () => {
   // Nine until the website's cards became Telegram commands
   // (bot/skills/market_commands.py, portfolio_commands.py); eight route to a
   // command now, and the price alert — a WRITE the website's alert engine
-  // holds — is /price_alert since the bot polls its trips. A row here would
-  // be a door notice over a read that exists. The idle-yield read is the
-  // website's optimiser over the wallet the caller signed in with, where the
-  // bot's /idleyield is the operator's account.
-  assert.equal(Object.keys(TABLE).length, 1);
+  // holds — is /price_alert since the bot polls its trips. Idle yield was
+  // the last row. A row here would be a door notice over a read that exists.
+  assert.equal(Object.keys(TABLE).length, 0);
+  assert.equal('idle_yield' in TABLE, false);
   for (const gone of ['nft', 'spot', 'airdrops', 'replay', 'letter', 'defi', 'venue_router', 'meme_radar', 'price_alert']) {
     assert.equal(gone in TABLE, false, gone);
   }

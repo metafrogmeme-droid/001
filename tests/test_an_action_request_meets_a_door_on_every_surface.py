@@ -87,7 +87,7 @@ STAKE = [
 STAKE_NOT = {
     "should i stake eth": None, "what is staking": None, "how do i unstake": None,
     "stake": None, "staking options": None, "stake my claim": None,
-    "put my idle cash to work": "idle_yield",
+    "put my idle cash to work": "idleyield",
 }
 # Questions and advice keep their old destination — a question about a stop is
 # not a request to move one.
