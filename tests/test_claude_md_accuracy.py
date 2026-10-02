@@ -536,14 +536,15 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     # shared defi door; four until cross-venue exposure left for the
     # shared exposure door; three until the research dossier left for the
     # shared research door; two until net worth left for the shared
-    # networth door.
-    assert "one row of that table" in flat
+    # networth door; one until idle yield left for the shared
+    # idleyield door.
+    assert "zero rows of that table" in flat
     js = (pathlib.Path(__file__).resolve().parent.parent
           / "app" / "routes" / "chat.js").read_text()
     block = js[js.index("const INTERCEPTS = ["):]
     block = block[:block.index("\n];")]
     rows = re.findall(r"^\s*\['([a-z]+)',", block, re.M)
-    assert len(rows) == 1, rows
+    assert len(rows) == 0, rows
 
 
 def test_the_url_shape_it_names_is_the_shape_both_routes_send():

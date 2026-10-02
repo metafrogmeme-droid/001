@@ -4296,6 +4296,16 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 self._remember_routed(tg_id, text, intent.skill,
                                       card_shown_memory("exposure"))
                 return
+            if intent.skill == "idleyield":
+                # Left the Node intercept table: this door is the card on
+                # both surfaces. NOT `_cmd_idleyield` — that command is the
+                # operator's exchange scan and stays admin-only. The read
+                # is this caller's linked wallet. "stake my usdc" stays the
+                # stake door. Nothing here places, confirms, sizes, or stakes.
+                await self._idleyield_door(update, ctx)
+                self._remember_routed(tg_id, text, intent.skill,
+                                      card_shown_memory("idleyield"))
+                return
             if intent.skill == "price_alert":
                 # The website's alert engine holds the tripwire and the bot's
                 # poll delivers a trip here; the WORDS are the argument, read

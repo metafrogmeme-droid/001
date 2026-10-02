@@ -123,8 +123,8 @@ MY_OWN_BOOK = [
     ("what are my defi positions", "defi"),
     ("what is my health factor", "defi"),
     ("what are my aave positions", "defi"),
-    ("what is my idle cash doing", "idle_yield"),
-    ("what are my idle stables", "idle_yield"),
+    ("what is my idle cash doing", "idleyield"),
+    ("what are my idle stables", "idleyield"),
     ("what are my rwas", "rwa"),
     # the two lookahead-free catchers this slice gave the reading to: their
     # possessive forms must be UNCHANGED by it

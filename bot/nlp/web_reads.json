@@ -1,3 +1,1 @@
-{
-  "idle_yield":   {"row": "idleyield", "lib": "idle_yield",   "label": "the idle-yield optimiser over your linked wallet",           "example": "put my idle cash to work",           "collides_with": "idleyield"}
-}
+{}

@@ -2,7 +2,8 @@
 /**
  * The web chat's local intercepts: order, first-hit-wins, and MEMORY.
  *
- * routes/chat.js answers one shape of question without a bot round-trip.
+ * routes/chat.js answers nothing from its own intercepts. Idle yield was
+ * the last row and left for the shared door.
  * Until now each answered and vanished — the bot's conversation store, which
  * both surfaces read history from, never heard the question or the answer,
  * so a follow-up two turns later reached a model that had never seen the
@@ -32,17 +33,6 @@ function stub(rel, exportsObj) {
   const abs = require.resolve(path.join(__dirname, '..', rel));
   require.cache[abs] = { id: abs, filename: abs, loaded: true, exports: exportsObj };
 }
-function intercept(name, fnName, withIdent = false) {
-  return {
-    [fnName]: async (...args) => {
-      calls.push(name);
-      if (withIdent) assert.ok(args[0] && typeof args[0].id === 'string', `${name} got no identity`);
-      return answers[name] || null;
-    },
-  };
-}
-stub('lib/idle_yield', intercept('idleyield', 'maybeHandleIdleYieldChat', true));
-
 // A fake bot gateway that records what it was told.
 const posted = [];
 let recordStatus = 200;
@@ -116,10 +106,8 @@ function reset() {
 
 // ── the table ───────────────────────────────────────────────────────────────
 
-test('the routing table is the documented order', () => {
-  assert.deepEqual(chat.INTERCEPTS.map(([n]) => n), [
-    'idleyield',
-  ]);
+test('the routing table is empty', () => {
+  assert.deepEqual(chat.INTERCEPTS.map(([n]) => n), []);
   assert.equal(chat.INTERCEPTS.some(([n]) => n === 'alerts'), false,
     'price alerts are the shared price_alert door, not a private intercept');
   assert.equal(chat.INTERCEPTS.some(([n]) => n === 'letter'), false,
@@ -148,6 +136,8 @@ test('the routing table is the documented order', () => {
     'the research dossier is the shared research door, not a private intercept');
   assert.equal(chat.INTERCEPTS.some(([n]) => n === 'networth'), false,
     'net worth is the shared networth door, not a private intercept');
+  assert.equal(chat.INTERCEPTS.some(([n]) => n === 'idleyield'), false,
+    'idle yield is the shared idleyield door, not a private intercept');
 });
 
 test('every row says what it does, in words a person reads', () => {
@@ -182,8 +172,9 @@ test('the turn carries what this client answers for itself', async () => {
   // Sent on EVERY turn, not only a capability ask: this route does not
   // classify the message, the bot does, and a field that only sometimes
   // arrives is a field that is sometimes missing for reasons nobody can
-  // reconstruct.
-  assert.ok(sent.body.client_capabilities.length > 0);
+  // reconstruct. The table is empty, so the list is empty — absent rows,
+  // not a missing field.
+  assert.deepEqual(sent.body.client_capabilities, []);
 });
 
 test('a miss consults every intercept in order, then the model', async () => {
@@ -192,24 +183,18 @@ test('a miss consults every intercept in order, then the model', async () => {
   const r = await req('POST', '/api/chat', { token, body: { text: 'hello there' } });
   assert.equal(r.status, 200);
   assert.equal(r.data.reply_html, 'model answered');
-  // Idle yield gates on its own pattern before it consults the library, so
-  // a sentence matching neither never calls it (and never resolves the
-  // identity for it).
-  assert.deepEqual(calls, chat.INTERCEPTS.map(([n]) => n)
-    .filter((n) => n !== 'idleyield'));
+  assert.deepEqual(calls, []);
   await flush();
   assert.deepEqual(posted.map((p) => p.path), ['/chat']);
 });
 
-test('the first hit answers and nothing below it runs', async () => {
+test('"where can i earn" is not a local intercept', async () => {
   reset();
-  answers.idleyield = { reply_html: '<b>Idle yield</b>', intent: 'idleyield' };
   const token = await newUser();
   const r = await req('POST', '/api/chat', { token, body: { text: 'where can i earn' } });
   assert.equal(r.status, 200);
-  assert.equal(r.data.reply_html, '<b>Idle yield</b>');
-  const upToFirst = chat.INTERCEPTS.map(([n]) => n);
-  assert.deepEqual(calls, upToFirst.slice(0, upToFirst.indexOf('idleyield') + 1));
+  assert.equal(r.data.reply_html, 'model answered');
+  assert.deepEqual(calls, []);
 });
 
 test('"spot market" and "my defi positions" are not local intercepts', async () => {
@@ -239,6 +224,11 @@ test('"spot market" and "my defi positions" are not local intercepts', async () 
   assert.equal(r.status, 200);
   assert.equal(r.data.reply_html, 'model answered');
   assert.ok(!calls.includes('networth'));
+  reset();
+  r = await req('POST', '/api/chat', { token, body: { text: 'my idle usdc' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.reply_html, 'model answered');
+  assert.ok(!calls.includes('idleyield'));
 });
 
 test('"nft radar" is not a local intercept', async () => {
@@ -261,58 +251,32 @@ test('"meme radar" is not a local intercept', async () => {
 
 // ── memory ──────────────────────────────────────────────────────────────────
 
-test('a hit is recorded into the shared conversation memory, as tool output', async () => {
+test('rememberIntercept still records a card, and a reply without html records nothing', async () => {
   reset();
-  answers.idleyield = { reply_html: '<b>Idle yield</b>', intent: 'idleyield' };
   const token = await newUser();
-  const r = await req('POST', '/api/chat', { token, body: { text: 'where can i earn' } });
-  assert.equal(r.status, 200);
+  // The table is empty, so nothing on the route hits the recorder. The
+  // function stays: a later row must not have to reinvent it. Drive it.
+  await req('POST', '/api/chat', { token, body: { text: 'hello there' } });
+  chat.rememberIntercept(async () => ({ id: 'web:7' }), 'my idle usdc',
+    { reply_html: '<b>Idle yield</b>' }, 'idleyield');
+  chat.rememberIntercept(async () => ({ id: 'web:7' }), 'my idle usdc',
+    { pending_trade: { trade_id: 'x' } }, 'idleyield');
   await flush();
-  const rec = posted.find((p) => p.path === '/chat/record');
-  assert.ok(rec, 'the answer must reach /gateway/chat/record');
-  assert.match(rec.body.telegram_id, /^web:\d+$/);
-  assert.equal(rec.body.text, 'where can i earn');
-  assert.equal(rec.body.reply, '<b>Idle yield</b>');
-  assert.equal(rec.body.intent, 'idleyield');
-  assert.ok(!posted.some((p) => p.path === '/chat'), 'a local hit never asks the model');
+  const recs = posted.filter((p) => p.path === '/chat/record');
+  assert.equal(recs.length, 1);
+  assert.equal(recs[0].body.telegram_id, 'web:7');
+  assert.equal(recs[0].body.text, 'my idle usdc');
+  assert.equal(recs[0].body.reply, '<b>Idle yield</b>');
+  assert.equal(recs[0].body.intent, 'idleyield');
 });
 
-test('the identity-bound intercepts record too, and resolve the identity once', async () => {
-  reset();
-  answers.idleyield = { reply_html: 'Idle yield card', intent: 'idleyield' };
-  const token = await newUser();
-  const r = await req('POST', '/api/chat', { token, body: { text: 'where can i earn' } });
-  assert.equal(r.data.reply_html, 'Idle yield card');
-  assert.ok(calls.includes('idleyield'));
-  await flush();
-  const rec = posted.find((p) => p.path === '/chat/record');
-  assert.equal(rec.body.intent, 'idleyield');
-});
-
-test('a refused or failed memory write never touches the reply', async () => {
-  const token = await newUser();
+test('a refused or failed memory write never throws into the caller', async () => {
   for (const mode of [500, 'throw']) {
     reset();
     recordStatus = mode;
-    answers.idleyield = { reply_html: 'idle yield card', intent: 'idleyield' };
-    const r = await req('POST', '/api/chat', { token, body: { text: 'where can i earn' } });
-    assert.equal(r.status, 200, `mode ${mode}`);
-    assert.equal(r.data.reply_html, 'idle yield card');
+    chat.rememberIntercept(async () => ({ id: 'web:7' }), 'my idle usdc',
+      { reply_html: 'idle yield card' }, 'idleyield');
     await flush();
-    assert.ok(posted.some((p) => p.path === '/chat/record'), 'the write was attempted');
+    assert.ok(posted.some((p) => p.path === '/chat/record'), `mode ${mode}`);
   }
-});
-
-test('a reply without html records nothing', async () => {
-  reset();
-  // Idle yield is the only row. A hit with no reply_html must not be written
-  // into conversation memory, and must not be handed to the model.
-  answers.idleyield = { pending_trade: { trade_id: 'x' } };
-  const token = await newUser();
-  const r = await req('POST', '/api/chat', { token, body: { text: 'where can i earn' } });
-  assert.equal(r.status, 200);
-  assert.equal(r.data.pending_trade.trade_id, 'x');
-  await flush();
-  assert.ok(!posted.some((p) => p.path === '/chat/record'));
-  assert.ok(!posted.some((p) => p.path === '/chat'));
 });

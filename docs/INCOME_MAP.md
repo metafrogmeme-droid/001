@@ -461,7 +461,7 @@ LIQUID staking only, and only as a read. A signed-in web user gets (a) live
 liquid-staking RATES — Lido stETH and Rocket Pool rETH, from DefiLlama
 apyBase, behind a curated allowlist and a $20M TVL floor — matched against
 their linked wallet's idle ETH by the idle-yield optimizer (/api/idleyield,
-panel c-idleyield, and the 'idleyield' chat intercept); and (b) a POSITION
+panel c-idleyield, and the shared idleyield chat door on both surfaces); and (b) a POSITION
 read of their Lido stETH mainnet balance via /api/defi, priced at the ETH
 ticker with the approximation stated. Telegram's /yield and /idleyield are the
 same reads for the OPERATOR account and are gated `_is_admin` at

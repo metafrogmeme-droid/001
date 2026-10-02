@@ -21,15 +21,6 @@ delete process.env.DATABASE_URL;
 const test = require('node:test');
 const assert = require('node:assert');
 const http = require('node:http');
-const path = require('node:path');
-
-// An intercept that answers "idle yield" locally, so the local-hit path can be
-// driven without a wallet. Net worth left this table for the shared door.
-const abs = require.resolve(path.join(__dirname, '..', 'lib', 'idle_yield'));
-require.cache[abs] = { id: abs, filename: abs, loaded: true, exports: {
-  maybeHandleIdleYieldChat: async () => (
-    { reply_html: '<b>Idle yield</b>', intent: 'idleyield' }),
-} };
 
 const seen = [];
 let mockGateway, appServer, base;
@@ -149,15 +140,15 @@ test('the stream route relays every frame, in order, as text/event-stream', asyn
   assert.equal(call.accept, 'text/event-stream');
 });
 
-test('a local intercept hit on the stream route is one final frame', async () => {
+test('idle yield is not a local intercept on the stream route', async () => {
   seen.length = 0;
   const r = await requestRaw('POST', '/api/chat/stream', { token, body: { text: 'where can i earn' } });
   assert.equal(r.status, 200);
   assert.match(r.type, /text\/event-stream/);
   const fr = frames(r.text);
-  assert.deepEqual(fr.map((f) => f.event), ['final']);
-  assert.deepEqual(fr[0].data, { status: 200, body: { reply_html: '<b>Idle yield</b>', intent: 'idleyield' } });
-  assert.ok(!seen.some((s) => s.url === '/gateway/chat/stream'), 'the model was never asked');
+  assert.ok(fr.some((f) => f.event !== 'final') || seen.some((s) => s.url === '/gateway/chat/stream'),
+    'the sentence must reach the bot, not a local card');
+  assert.ok(seen.some((s) => s.url === '/gateway/chat/stream'), 'the gateway stream route was asked');
 });
 
 test('a plain JSON refusal from the gateway is wrapped as a final frame with its status', async () => {

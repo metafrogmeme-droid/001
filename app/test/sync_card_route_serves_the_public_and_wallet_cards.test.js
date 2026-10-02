@@ -281,12 +281,11 @@ test('every card the route answered carries only the tags Telegram renders', () 
   }
 });
 
-test('the door that stays a door is not a card, and neither is the admin read', async () => {
-  // `alerts` left this list when the price alert became a Telegram command:
-  // the route answers it now (sync_card_route_arms_price_alerts.test.js drives
-  // that), so the door that stays a door is the idle-yield read alone, and
-  // `price_alert` is the intent name nothing serves as a card.
-  for (const name of ['price_alert', 'idleyield']) {
+test('a name that is not a card stays a 404', async () => {
+  // `alerts` left this list when the price alert became a Telegram command.
+  // Idle yield left it too: both doors fetch the card. `price_alert` is
+  // the intent name nothing serves as a card.
+  for (const name of ['price_alert']) {
     const r = await req(`/api/bot/sync/card/${name}`, { botSecret: SECRET });
     assert.equal(r.status, 404, name);
   }

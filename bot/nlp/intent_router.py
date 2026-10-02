@@ -1690,9 +1690,9 @@ _rule(r"^\s*(?:can you |could you |please |pls )?(?:do (?:some |a )?)?(?:researc
 # same-named command here when there is one. Eight of the nine are commands
 # now (`/airdrops`, `/nft`, `/spot`, `/replay`, `/letter`, `/venue_router`,
 # `/meme_radar`, `/defi` render the website's own card) and route to them the
-# way `rwa` does; the price alert stays a door, being a WRITE the website's
-# push channel does, and the idle-yield read — which had no rule at all, so
-# "idle yield" was greeted — gets a door of the same shape below. The rules
+# way `rwa` does; the price alert is a WRITE the website's alert engine
+# holds, and the idle-yield read — which had no rule at all, so "idle
+# yield" was greeted — is the shared card below. The rules
 # keep their place here because order is what decides which rule answers.
 # `wallet` — the website's mirror of the caller's linked wallet — never had
 # a rule: two words, greeted.
@@ -1749,20 +1749,22 @@ _rule(_EDU + r"\b((?<!over )(?:my|total|current) exposure|exposure (?:across|che
       explanation="Cross-venue exposure, perps netted against on-chain spot (the website's card, /exposure)")
 _rule(r"\b(?:my wallet|wallet (?:balance|portfolio|holdings)|on[- ]chain (?:balance|portfolio|holdings))\b",
       "wallet", explanation="The caller's linked on-chain wallet, mirrored (the website's card, /wallet)")
-# The idle-yield read is the website's too — its optimiser reads the wallet
-# the caller signed in with — and this chat's `/idleyield` is the OPERATOR's
-# exchange account under the same word (admin-only), so the words get a
-# door and never that command. Narrower than the web's regex on purpose: the
-# intercept takes a bare "idle" and "stake my …", and here "stake my usdc"
-# is a request to ACT that /stake's confirm card owns — recorded, not
-# routed, so it must not reach this door.
+# Idle yield left the website's intercept table. Both doors route these
+# words to the shared idleyield card: the caller's linked wallet, never
+# the operator's exchange book. Telegram's `/idleyield` stays that admin
+# scan, a different reading under the same word, so these words must not
+# reach that command. Narrower than the old intercept on purpose: it took
+# a bare "idle" and "stake my …", and "stake my usdc" is a request to ACT
+# that /stake's confirm card owns. "what's my drawdown", "am I over my
+# exposure", "check my risk" and "what's my max exposure" stay the risk
+# engine. Nothing here places, confirms, sizes, or stakes.
 _rule(_EDU + r"\b(idle[- ]yield(?: optimi[sz]er| scan(?:ner)?| radar)?"
       r"|(?:my )?idle (?:capital|cash|stables?|usd[ct]|funds?|money|balances?|assets?|coins?)"
       r"|(?:what|where) (?:to do|can i do) with my idle \w+"
       r"|best (?:rate|yield|apy) for (?:my )?(?:idle )?(?:stables?|usd[ct]|\w+)"
       r"|put (?:my )?(?:idle )?\w+ to work|where can i earn (?:more|yield|on)"
       r"|earn more on my \w+|is my capital idle)\b",
-      "idle_yield", explanation="Idle-yield optimiser over your linked wallet (a website read, ask it there)")
+      "idleyield", explanation="Idle-yield optimiser over the caller's linked wallet (the website's card)")
 # The website's alert intercept anchors its trigger phrase at the START of the
 # message ("tell me when…", "alert me if…") and reads the condition itself;
 # this rule takes the same trigger words, anchored the same way, plus the
