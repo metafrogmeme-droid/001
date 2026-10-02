@@ -1,0 +1,72 @@
+{
+  "agent_id": "eth-ma-trend",
+  "bars": 1500,
+  "code_sha": "7b183dd9218ec3d79a898e3f1cf14af0a59697a8",
+  "dataset": "majors_1h",
+  "dataset_hash": "8dbe73514ce8d2aeecd767a193c005cd1a179221bdce5df2cbe4ded2886bde36",
+  "engine": "runeclaw.backtest",
+  "format": "runeclaw.agent.scorecard.v1",
+  "gates": {
+    "confidence_threshold": null,
+    "direction": null,
+    "leverage": 1,
+    "ma_fast": 50,
+    "ma_slow": 200,
+    "ma_symbols": "ETHUSDT",
+    "ma_timeframe": "4h",
+    "max_gross_leverage": 1,
+    "regime_filter": null,
+    "rsi_max": null,
+    "rsi_min": null,
+    "schedule_hours": 4,
+    "signal_confidence": 0.7,
+    "symbols": [
+      "ETHUSDT"
+    ],
+    "target_weight": 1,
+    "utilization": 1,
+    "volume_spike_min": null
+  },
+  "honest": true,
+  "measured": {
+    "calmar_ratio": -0.92,
+    "max_drawdown_pct": 15.86,
+    "profit_factor": 0.0,
+    "sharpe_ratio": -0.2,
+    "sortino_ratio": -0.19,
+    "total_return_pct": -2.5,
+    "total_trades": 1,
+    "win_rate": 0.0
+  },
+  "metrics": {
+    "calmar_ratio": -0.92,
+    "max_drawdown_pct": 15.86,
+    "profit_factor": 0.0,
+    "sharpe_ratio": -0.2,
+    "sortino_ratio": -0.19,
+    "total_return_pct": -2.5,
+    "total_trades": 1,
+    "win_rate": 0.0
+  },
+  "note": "Design backtest on FROZEN benchmark data \u2014 percent/ratio only, never a dollar figure. Re-run the identical backtest in the Strategy Lab to reproduce. Direction is the closed-bar 50/200 simple moving average, and the position reverses only when that relationship changes. The average is read on closed 4h bars resampled from 1h bars; a trailing unfinished 4h group is dropped. The fill is that closed bar's close. The house risk gate does not size or exit this book. Each row's confidence is the signal's stated 0.7, not a measured probability.",
+  "preset": "eth ma trend",
+  "recorded_at": "2026-10-02T09:06:25+00:00",
+  "symbols": [
+    "BTC/USDT:USDT",
+    "ETH/USDT:USDT",
+    "SOL/USDT:USDT"
+  ],
+  "trades": [
+    {
+      "confidence": 0.7,
+      "direction": "SHORT",
+      "exit_reason": "END_OF_DATA",
+      "pnl_pct": -2.38,
+      "regime": "",
+      "setup": "position",
+      "signal_type": "ma_trend",
+      "volume_spike_ratio": null
+    }
+  ],
+  "unmodeled": []
+}
