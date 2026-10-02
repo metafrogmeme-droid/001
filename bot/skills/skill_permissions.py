@@ -188,9 +188,9 @@ WEB_ROUTED_PERMISSION: dict[str, str] = {
     # `nft_card_text` under a permission of its own name. OpenSea
     # collection stats are public; nothing is listed, bid, minted or traded.
     "nft": "nft",
-    # Spot still renders the card the web intercept answers with, under a
-    # permission of its own name, held by trader, paper and viewer —
-    # public market facts, no account read.
+    # The spot market left the website's intercept table. Both doors render
+    # `spot_card_text` under a permission of its own name. Venue tickers
+    # are public; nothing here places a spot order.
     "spot": "spot",
     # Airdrops left the website's intercept table. Both doors render
     # `airdrops_card_text` under a permission of its own name. The catalogue

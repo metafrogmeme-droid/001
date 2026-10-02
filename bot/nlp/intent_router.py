@@ -1679,8 +1679,9 @@ _rule(r"^\s*(?:can you |could you |please |pls )?(?:do (?:some |a )?)?(?:researc
 # (`bot/nlp/web_reads.py`): six with nothing here at all, three whose word
 # a Telegram command shares while doing something else. Their phrasings are
 # the intercepts' own patterns, narrowed where the web's claim is wider than
-# honest — the web's `spot` takes "spot prices", which on Telegram is a
-# PRICE question and stays one — and an education question ("what is defi",
+# honest — "spot prices" is a price question on both surfaces (the
+# website used to claim it; this router declined, and that decline is
+# the reading both share now) — and an education question ("what is defi",
 # "how do airdrops work") is the model's, as it is for `rwa` above. Six
 # dispatch to no skill: both surfaces answer with `web_read_notice`, which
 # names the surface that has the read, the words it takes, and the
@@ -1713,6 +1714,12 @@ _rule(_EDU + r"\b(airdrops?|testnets?(?: participation)?|airdrop radar|farm(?:in
 # website no longer intercepts it.
 _rule(_EDU + r"\b(nft ?radar|nfts?\b.*\b(?:floor|trending|radar)|opensea|floor prices?)\b",
       "nft", explanation="NFT floor and volume radar (the website's card, /nft)")
+# The spot market left the website's intercept table. Both doors route
+# these words to /spot. "spot prices" and "spot price of btc" stay a
+# price question on both surfaces: the website used to claim the wider
+# phrasing and this router declined it. An education question ("what is
+# a spot market") is the model's, because the website no longer
+# intercepts it. Nothing here places a spot order.
 _rule(_EDU + r"\b(spot (?:market|pairs?|radar)|spot vs\.? perps?|spot[ /]perp basis|spot basis)\b",
       "spot", explanation="Spot pairs and the spot/perp basis (the website's card, /spot)")
 _rule(_EDU + r"\b((?:my )?defi(?: positions| status| health)?|aave(?: positions| health)?|health factor)\b",
