@@ -165,15 +165,35 @@ def _gate_args(cfg: dict) -> list[str]:
     return args
 
 
+# Percent exits the runner does not apply. The trail is an ATR stage table
+# and partial closes are R-multiples, so these stay named rather than filled.
+_PERCENT_EXIT_KEYS = ("trailing_stop_pct", "take_profit_pct", "hard_stop_loss_pct")
+
+
+def publishes_scorecard(cfg: dict) -> bool:
+    """Whether ``generate`` writes a frozen card for this preset.
+
+    Daily volatility rotation's exits are recorded and not applied, and its
+    bar size is daily. A majors 1h house run is not its track record, so the
+    file stays absent.
+    """
+    from bot.core.vol_rotation import publishes_scorecard as _publishes
+    return _publishes(cfg)
+
+
 def _unmodeled(cfg: dict) -> list[str]:
-    """Exit multiples the runner was not asked to apply. A multiple that
-    ``_gate_args`` emits is in the number; one it does not emit stays named."""
+    """Exit knobs the runner was not asked to apply. A multiple that
+    ``_gate_args`` emits is in the number; one it does not emit stays named.
+    A percent trail, target, or hard stop is never emitted."""
     emitted = set(_gate_args(cfg))
     out: list[str] = []
     if cfg.get("sl_atr_mult") is not None and "--sl-atr-mult" not in emitted:
         out.append("sl_atr_mult")
     if cfg.get("tp_atr_mult") is not None and "--tp-atr-mult" not in emitted:
         out.append("tp_atr_mult")
+    for key in _PERCENT_EXIT_KEYS:
+        if cfg.get(key) is not None:
+            out.append(key)
     return out
 
 
@@ -340,6 +360,13 @@ def generate(dataset: str, symbols: str, last_bars: int,
     want = preset.strip().lower().replace("-", " ")
     for key, cfg in RunStrategySkill.PRESETS.items():
         if want and want not in (key, _slug(key).replace("-", " ")):
+            continue
+        if not publishes_scorecard(cfg):
+            if want:
+                raise SystemExit(
+                    f"{key}: no scorecard is published. The percent exits are "
+                    "recorded and not applied, and a majors 1h run is not "
+                    "this daily book.")
             continue
         res = _run_one(key, cfg, dataset, symbols, last_bars)
         card = build_card(

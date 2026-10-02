@@ -89,6 +89,14 @@ _META: dict[str, dict[str, str]] = {
         "risk": "tight",
         "horizon": "position",
     },
+    "daily vol rotation": {
+        "tagline": "Longs one of six markets on a closed daily bar when momentum "
+                   "and the trend average both qualify. No frozen track record "
+                   "is published.",
+        "regime": "Daily momentum",
+        "risk": "balanced",
+        "horizon": "swing",
+    },
 }
 
 _RISK_LABEL = {
@@ -106,6 +114,9 @@ def _how_it_trades(cfg: dict[str, Any]) -> str:
     """Human 'how it trades' line derived from the preset's real config, so it
     stays honest to actual behaviour. No numbers are invented — only the
     thresholds the engine actually applies are surfaced."""
+    from bot.core.vol_rotation import how_line, preset_is_vol_rotation
+    if preset_is_vol_rotation(cfg):
+        return how_line(cfg)
     parts: list[str] = []
     sym = cfg.get("symbols")
     if sym == "top3_volume":
@@ -235,6 +246,10 @@ def catalog() -> list[dict]:
         meta = _META.get(key, {})
         risk = meta.get("risk", "balanced")
         aid = _slug(key)
+        score = _load_scorecard(aid)
+        if score is None:
+            from bot.core.vol_rotation import omitted_scorecard
+            score = omitted_scorecard(cfg)
         out.append({
             "id": aid,
             "name": cfg.get("label", key.title()),
@@ -249,7 +264,7 @@ def catalog() -> list[dict]:
             # Reproducible frozen-benchmark scorecard (percent/ratio only), or
             # None if not yet generated. Lets the marketplace card show verified
             # numbers with a one-tap "reproduce in the Lab".
-            "scorecard": _load_scorecard(aid),
+            "scorecard": score,
         })
     return out
 

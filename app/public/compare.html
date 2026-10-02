@@ -119,7 +119,9 @@
         if (col.missing) return '<span class="dim">—</span>';
         var t = [];
         if (col.engine) {
-          t.push(col.engine.scorecard && col.engine.scorecard.metrics
+          t.push(col.engine.scorecard && col.engine.scorecard.omitted
+            ? '<span class="tier bt">' + esc(col.engine.scorecard.omitted) + '</span>'
+            : col.engine.scorecard && col.engine.scorecard.metrics
             ? '<span class="tier bt">🔬 ' + esc(T('cmp.t_backtest', 'Frozen backtest')) + '</span>'
             : '<span class="tier bt">🔬 ' + esc(T('cmp.t_pending', 'Backtest pending')) + '</span>');
         }

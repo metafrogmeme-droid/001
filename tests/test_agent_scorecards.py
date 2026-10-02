@@ -43,10 +43,19 @@ def _all_keys(obj):
     return out
 
 
-def test_a_scorecard_exists_for_every_preset():
+def test_a_scorecard_exists_for_every_published_preset():
+    from scripts.gen_agent_scorecards import publishes_scorecard
     files = {os.path.basename(p) for p in glob.glob(os.path.join(_SC_DIR, "*.json"))}
-    for key in RunStrategySkill.PRESETS:
-        assert f"{sc._slug(key)}.json" in files, f"missing scorecard for {key}"
+    published = []
+    for key, cfg in RunStrategySkill.PRESETS.items():
+        name = f"{sc._slug(key)}.json"
+        if publishes_scorecard(cfg):
+            published.append(name)
+            assert name in files, f"missing scorecard for {key}"
+        else:
+            assert name not in files, f"{key} must not publish a track record"
+    assert published
+    assert len(published) == len(RunStrategySkill.PRESETS) - 1
 
 
 def test_scorecards_are_section4_safe_percent_ratio_only():
@@ -70,6 +79,11 @@ def test_catalog_attaches_scorecard_with_provenance():
     for card in sc.catalog():
         s = card.get("scorecard")
         assert s is not None, f"{card['id']} has no scorecard attached"
+        if s.get("omitted"):
+            assert "recorded and not applied" in s["omitted"]
+            assert "metrics" not in s
+            assert "recorded and not applied" in card["how"]
+            continue
         assert s["dataset"] and len(s["dataset_hash"]) == 12   # truncated for display
         m = s["metrics"]
         for mk in ("total_return_pct", "profit_factor", "win_rate",
@@ -80,10 +94,19 @@ def test_catalog_attaches_scorecard_with_provenance():
 
 
 def test_catalog_scorecard_is_failsoft(monkeypatch):
-    # A missing scorecard dir just yields scorecard=None, never a crash.
+    # A missing scorecard dir just yields scorecard=None, never a crash and
+    # never a fabricated metric. The daily rotation's omitted reason is not a
+    # track record; it is the sentence that says none was published.
     monkeypatch.setattr(sc, "_SCORECARD_DIR", "/nonexistent/path/xyz")
     cat = sc.catalog()
-    assert cat and all(c["scorecard"] is None for c in cat)
+    assert cat
+    for card in cat:
+        slot = card["scorecard"]
+        if card["id"] == "daily-vol-rotation":
+            assert slot["omitted"]
+            assert "metrics" not in slot
+        else:
+            assert slot is None
 
 
 def test_generator_gate_args_map_preset_filters():
@@ -113,12 +136,19 @@ def test_committed_scorecards_are_the_rerun_of_these_rules():
     TREND_UP filter, Safe Scalper with no RSI floor) changes the rerun, so it
     no longer matches the committed card.
     """
-    from scripts.gen_agent_scorecards import _METRIC_KEYS, _run_one, scorecard_gates
-
+    from scripts.gen_agent_scorecards import (
+        _METRIC_KEYS,
+        _run_one,
+        publishes_scorecard,
+        scorecard_gates,
+    )
     dataset = os.path.join(_REPO, "benchmark", "majors_1h")
     symbols = "BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT"
     for key, cfg in RunStrategySkill.PRESETS.items():
         slug = sc._slug(key)
+        if not publishes_scorecard(cfg):
+            assert not os.path.exists(os.path.join(_SC_DIR, f"{slug}.json"))
+            continue
         with open(os.path.join(_SC_DIR, f"{slug}.json"), encoding="utf-8") as fh:
             card = json.loads(fh.read())
         assert card["gates"] == scorecard_gates(cfg), slug

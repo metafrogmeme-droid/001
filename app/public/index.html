@@ -1118,7 +1118,9 @@
       if (!agents.length) { wrap.innerHTML = fallback; return; }
       wrap.innerHTML = agents.slice(0, 6).map(function (a) {
         var m = a.scorecard && a.scorecard.metrics;
-        var stats = m ? '<div class="mkt-stats">'
+        var stats = (a.scorecard && a.scorecard.omitted)
+          ? '<p class="muted small">' + esc(a.scorecard.omitted) + '</p>'
+          : m ? '<div class="mkt-stats">'
           + '<div class="mkt-stat"><span class="k">Return</span><span class="v ' + cls(m.total_return_pct) + '">'
           + arrow(m.total_return_pct) + esc(pct(m.total_return_pct)) + '</span></div>'
           + '<div class="mkt-stat"><span class="k">Win rate</span><span class="v">' + (m.win_rate == null ? '—' : (m.win_rate * 100).toFixed(0) + '%') + '</span></div>'

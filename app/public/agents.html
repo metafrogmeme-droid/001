@@ -196,7 +196,9 @@
         + cmpToggle(a.id) + '</a>';
     }
     var sc = a.scorecard && a.scorecard.metrics;
-    var mx = sc
+    var mx = (a.scorecard && a.scorecard.omitted)
+      ? '<div class="mx"><div class="k">' + esc(a.scorecard.omitted) + '</div></div>'
+      : sc
       ? '<div class="mx"><div><div class="k">Return</div><div class="v ' + cls(sc.total_return_pct) + '">'
         + esc(pct(sc.total_return_pct)) + '</div></div>'
         + '<div><div class="k">Profit factor</div><div class="v">' + (sc.profit_factor == null ? '—' : Number(sc.profit_factor).toFixed(2)) + '</div></div>'
