@@ -2,12 +2,13 @@
 /**
  * DeFi position intelligence: Aave health factors with liquidation warnings,
  * Lido stETH, Uniswap LP counts — all from view calls against ABI-encoded
- * fake providers, per-chain fail-soft, the REST surface, the chat intercept,
- * and the read-only invariant.
+ * fake providers, per-chain fail-soft, the REST surface, the card both
+ * doors fetch, and the read-only invariant.
  */
 process.env.JWT_SECRET = 'j'.repeat(64);
 delete process.env.DATABASE_URL;
 delete process.env.WEB3_CHAINS;
+delete process.env.WEB_GATEWAY_SECRET;
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -155,23 +156,32 @@ test('REST: linked wallet gets positions; unlinked honest; anonymous 401', async
   assert.equal((await req('GET', '/api/defi')).status, 401);
 });
 
-test('chat: "my defi positions" reports the book with the warning; unlinked guided', async () => {
+test('the card both doors fetch reports the book; chat no longer answers the sentence', async () => {
   const token = await newUser('defichat');
   const [rows] = await pool.execute('SELECT * FROM users WHERE email = ?', ['defichat@example.com']);
   await pool.execute('UPDATE users SET wallet_address = ? WHERE id = ?', [ADDR, rows[0].id]);
 
-  const r = await req('POST', '/api/chat', { token, body: { text: 'what are my defi positions?' } });
-  assert.equal(r.data.intent, 'defi');
-  assert.match(r.data.reply_html, /Aave v3 · Ethereum/);
-  assert.match(r.data.reply_html, /Health factor <b>1\.08<\/b>/);
-  assert.match(r.data.reply_html, /CRITICAL/);
-  assert.match(r.data.reply_html, /Lido/);
-  assert.match(r.data.reply_html, /counted, not valued/);
+  const card = await defi.defiChatCard(rows[0].id);
+  assert.equal(card.intent, 'defi');
+  assert.match(card.reply_html, /Aave v3 · Ethereum/);
+  assert.match(card.reply_html, /Health factor <b>1\.08<\/b>/);
+  assert.match(card.reply_html, /CRITICAL/);
+  assert.match(card.reply_html, /Lido/);
+  assert.match(card.reply_html, /counted, not valued/);
+  assert.equal(typeof defi.maybeHandleDefiChat, 'undefined');
+  assert.equal(defi.CHAT_RE, undefined);
+
+  // The sentence used to be answered here, before the turn reached the bot.
+  const missed = await req('POST', '/api/chat', { token, body: { text: 'what are my defi positions?' } });
+  assert.equal(missed.status, 503);
 
   const token2 = await newUser('defichat2');
-  const r2 = await req('POST', '/api/chat', { token: token2, body: { text: 'health factor?' } });
-  assert.equal(r2.data.intent, 'defi');
-  assert.match(r2.data.reply_html, /No wallet is linked/);
+  const [rows2] = await pool.execute('SELECT * FROM users WHERE email = ?', ['defichat2@example.com']);
+  const card2 = await defi.defiChatCard(rows2[0].id);
+  assert.equal(card2.intent, 'defi');
+  assert.match(card2.reply_html, /No wallet is linked/);
+  const missed2 = await req('POST', '/api/chat', { token: token2, body: { text: 'health factor?' } });
+  assert.equal(missed2.status, 503);
 });
 
 test('read-only invariant: no signing surface is exported', () => {

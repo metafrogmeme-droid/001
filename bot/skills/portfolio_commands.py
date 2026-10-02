@@ -402,14 +402,23 @@ class PortfolioCommands:
         liquidation risk, read by the website straight from the protocols'
         contracts for the wallet linked to their web account. The card is
         `defi_card_text`, the seam the routed "my defi positions" renders on
-        both surfaces."""
+        both surfaces. Website chat no longer answers the sentence itself.
+        Nothing here repays, withdraws, or manages a position."""
         await self._send(update, await self.defi_card_text(self._get_tg_id(update)))
 
     async def defi_card_text(self, user_id: str, *, surface: str = "telegram") -> str:
         """The DeFi positions card — the website's own rendering, both
-        surfaces, for THIS caller's linked wallet."""
-        return await self._web_card_text("defi", surface=surface,
-                                         telegram_id=str(user_id or ""))
+        surfaces, for THIS caller's linked wallet.
+
+        ``surface="web"`` keeps the card's own markup. Telegram's tag strip
+        turns ``<br>`` into a newline a browser collapses, which is right on
+        Telegram and wrong on the page that used to render this card itself.
+        The read is that caller's wallet, never somebody else's. Nothing
+        here repays, withdraws, or manages a position.
+        """
+        return await self._web_card_text(
+            "defi", surface=surface, telegram_id=str(user_id or ""),
+            keep_markup=(surface == "web"))
 
     @guard("exposure")
     async def _cmd_exposure(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
