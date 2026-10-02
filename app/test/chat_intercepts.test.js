@@ -2,7 +2,7 @@
 /**
  * The web chat's local intercepts: order, first-hit-wins, and MEMORY.
  *
- * routes/chat.js answers three shapes of question without a bot round-trip.
+ * routes/chat.js answers two shapes of question without a bot round-trip.
  * Until now each answered and vanished — the bot's conversation store, which
  * both surfaces read history from, never heard the question or the answer,
  * so a follow-up two turns later reached a model that had never seen the
@@ -41,7 +41,6 @@ function intercept(name, fnName, withIdent = false) {
     },
   };
 }
-stub('lib/research', intercept('research', 'maybeHandleResearchChat'));
 stub('lib/networth', intercept('networth', 'maybeHandleNetWorthChat', true));
 stub('lib/idle_yield', intercept('idleyield', 'maybeHandleIdleYieldChat', true));
 
@@ -120,7 +119,7 @@ function reset() {
 
 test('the routing table is the documented order', () => {
   assert.deepEqual(chat.INTERCEPTS.map(([n]) => n), [
-    'research', 'networth', 'idleyield',
+    'networth', 'idleyield',
   ]);
   assert.equal(chat.INTERCEPTS.some(([n]) => n === 'alerts'), false,
     'price alerts are the shared price_alert door, not a private intercept');
@@ -146,6 +145,8 @@ test('the routing table is the documented order', () => {
     'DeFi positions are the shared defi door, not a private intercept');
   assert.equal(chat.INTERCEPTS.some(([n]) => n === 'exposure'), false,
     'cross-venue exposure is the shared exposure door, not a private intercept');
+  assert.equal(chat.INTERCEPTS.some(([n]) => n === 'research'), false,
+    'the research dossier is the shared research door, not a private intercept');
 });
 
 test('every row says what it does, in words a person reads', () => {
@@ -203,14 +204,14 @@ test('a miss consults every intercept in order, then the model', async () => {
 
 test('the first hit answers and nothing below it runs', async () => {
   reset();
-  answers.research = { reply_html: '<b>Research</b> dossier', intent: 'research' };
-  answers.networth = { reply_html: 'never', intent: 'networth' };
+  answers.networth = { reply_html: '<b>Net worth</b>', intent: 'networth' };
+  answers.idleyield = { reply_html: 'never', intent: 'idleyield' };
   const token = await newUser();
-  const r = await req('POST', '/api/chat', { token, body: { text: 'research SOL' } });
+  const r = await req('POST', '/api/chat', { token, body: { text: 'what is my net worth' } });
   assert.equal(r.status, 200);
-  assert.equal(r.data.reply_html, '<b>Research</b> dossier');
+  assert.equal(r.data.reply_html, '<b>Net worth</b>');
   const upToFirst = chat.INTERCEPTS.map(([n]) => n);
-  assert.deepEqual(calls, upToFirst.slice(0, upToFirst.indexOf('research') + 1));
+  assert.deepEqual(calls, upToFirst.slice(0, upToFirst.indexOf('networth') + 1));
 });
 
 test('"spot market" and "my defi positions" are not local intercepts', async () => {
@@ -230,6 +231,11 @@ test('"spot market" and "my defi positions" are not local intercepts', async () 
   assert.equal(r.status, 200);
   assert.equal(r.data.reply_html, 'model answered');
   assert.ok(!calls.includes('exposure'));
+  reset();
+  r = await req('POST', '/api/chat', { token, body: { text: 'research SOL' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.reply_html, 'model answered');
+  assert.ok(!calls.includes('research'));
 });
 
 test('"nft radar" is not a local intercept', async () => {
@@ -254,17 +260,17 @@ test('"meme radar" is not a local intercept', async () => {
 
 test('a hit is recorded into the shared conversation memory, as tool output', async () => {
   reset();
-  answers.research = { reply_html: '<b>Research</b> dossier', intent: 'research' };
+  answers.networth = { reply_html: '<b>Net worth</b>', intent: 'networth' };
   const token = await newUser();
-  const r = await req('POST', '/api/chat', { token, body: { text: 'research SOL' } });
+  const r = await req('POST', '/api/chat', { token, body: { text: 'what is my net worth' } });
   assert.equal(r.status, 200);
   await flush();
   const rec = posted.find((p) => p.path === '/chat/record');
   assert.ok(rec, 'the answer must reach /gateway/chat/record');
   assert.match(rec.body.telegram_id, /^web:\d+$/);
-  assert.equal(rec.body.text, 'research SOL');
-  assert.equal(rec.body.reply, '<b>Research</b> dossier');
-  assert.equal(rec.body.intent, 'research');
+  assert.equal(rec.body.text, 'what is my net worth');
+  assert.equal(rec.body.reply, '<b>Net worth</b>');
+  assert.equal(rec.body.intent, 'networth');
   assert.ok(!posted.some((p) => p.path === '/chat'), 'a local hit never asks the model');
 });
 
@@ -285,10 +291,10 @@ test('a refused or failed memory write never touches the reply', async () => {
   for (const mode of [500, 'throw']) {
     reset();
     recordStatus = mode;
-    answers.research = { reply_html: 'research dossier', intent: 'research' };
-    const r = await req('POST', '/api/chat', { token, body: { text: 'research SOL' } });
+    answers.networth = { reply_html: 'net worth card', intent: 'networth' };
+    const r = await req('POST', '/api/chat', { token, body: { text: 'what is my net worth' } });
     assert.equal(r.status, 200, `mode ${mode}`);
-    assert.equal(r.data.reply_html, 'research dossier');
+    assert.equal(r.data.reply_html, 'net worth card');
     await flush();
     assert.ok(posted.some((p) => p.path === '/chat/record'), 'the write was attempted');
   }
@@ -296,11 +302,11 @@ test('a refused or failed memory write never touches the reply', async () => {
 
 test('a reply without html records nothing', async () => {
   reset();
-  // Research is the first row. A hit with no reply_html must not be written
+  // Net worth is the first row. A hit with no reply_html must not be written
   // into conversation memory, and must not be handed to the model.
-  answers.research = { pending_trade: { trade_id: 'x' } };
+  answers.networth = { pending_trade: { trade_id: 'x' } };
   const token = await newUser();
-  const r = await req('POST', '/api/chat', { token, body: { text: 'research SOL' } });
+  const r = await req('POST', '/api/chat', { token, body: { text: 'what is my net worth' } });
   assert.equal(r.status, 200);
   assert.equal(r.data.pending_trade.trade_id, 'x');
   await flush();

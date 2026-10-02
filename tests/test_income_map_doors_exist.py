@@ -200,12 +200,12 @@ def test_each_registry_is_read_and_not_empty():
         ("gateway routes", gateway_routes()),
     ):
         assert len(got) > 5, f"{name} read as {len(got)} entries — the reader is broken, not the tree"
-    # Three rows remain (research, networth, idleyield). A floor of
-    # "> 3" called that reading broken the day cross-venue exposure left
-    # for the shared door. The set is the table, so a reader that returns
+    # Two rows remain (networth, idleyield). A floor of "> 2" called
+    # that reading broken the day the research dossier left for the
+    # shared door. The set is the table, so a reader that returns
     # nothing still fails, and a renamed row fails by name.
     assert chat_intercepts() == {
-        "research", "networth", "idleyield",
+        "networth", "idleyield",
     }, chat_intercepts()
 
 

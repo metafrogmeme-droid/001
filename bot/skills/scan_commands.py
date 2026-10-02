@@ -153,8 +153,10 @@ class ScanCommands:
 
         def _is_operator(self, update: Update) -> bool: ...
 
-        @staticmethod
-        def _format_research(data: dict) -> str: ...
+        async def _web_card_text(self, name: str, surface: str,
+                                 telegram_id: str = "", params: dict | None = None,
+                                 unlinked: str | None = None,
+                                 keep_markup: bool = False) -> str: ...
 
     @guard("research")
     async def _cmd_research(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE,
@@ -174,16 +176,18 @@ class ScanCommands:
             return
         await self._send(update, await self.research_card_text(sym))
 
-    async def research_card_text(self, symbol: str) -> str:
-        """The research dossier as text — the reading BOTH surfaces render.
-        The fetch runs off the event loop (blocking urllib)."""
-        import asyncio as _aio
-        from bot.utils.web_data_pull import fetch_research
-        data = await _aio.to_thread(fetch_research, str(symbol))
-        if not data or "sections" not in data:
-            return ("No dossier — the symbol isn't listed on the venue, or the "
-                    "web app isn't reachable.")
-        return self._format_research(data)
+    async def research_card_text(self, symbol: str, *, surface: str = "telegram") -> str:
+        """The research dossier — the website's own rendering, both surfaces.
+
+        ``surface="web"`` keeps the card's own markup. Telegram's tag strip
+        turns ``<br>`` into a newline a browser collapses, which is right on
+        Telegram and wrong on the page that used to render this card itself.
+        The symbol the sentence names is the one dossier. Nothing here
+        places, confirms, sizes, or closes a trade.
+        """
+        return await self._web_card_text(
+            "research", surface=surface, params={"symbol": symbol},
+            keep_markup=(surface == "web"))
 
     _EVM_ADDR_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 

@@ -43,9 +43,12 @@ const NAME_MAP = {
 };
 
 function baseOf(word) {
-  const w = String(word || '').toLowerCase().replace(/^\$/, '');
+  // A slash survives as a query parameter (`SOL/USDT`). Strip it here, the
+  // one parser both doors use, and map a full name (solana) to its ticker.
+  const w = String(word == null ? '' : word).toLowerCase().replace(/^\$/, '')
+    .replace(/[^a-z0-9]/g, '').replace(/usdt$/, '');
   if (NAME_MAP[w]) return NAME_MAP[w];
-  if (/^[a-z0-9]{2,10}$/.test(w)) return w.toUpperCase().replace(/USDT$/, '');
+  if (/^[a-z0-9]{2,10}$/.test(w)) return w.toUpperCase();
   return null;
 }
 
@@ -234,16 +237,39 @@ async function buildDossier(base) {
   };
 }
 
-// ── Chat intercept ───────────────────────────────────────────────────────────
+// ── The one card ─────────────────────────────────────────────────────────────
+//
+// ONE renderer. Both chat doors fetch this card over
+// `/api/bot/sync/card/research`. Website chat does not match the sentence
+// itself. The dossier is public venue data plus the recorded history, for
+// every caller. Nothing here places, confirms, sizes, or closes a trade.
+// "deep dive on SOL" stays the chart; this card is the dossier only.
 
-const CHAT_RE = /^(?:please\s+)?(?:research|deep[- ]dive(?:\s+on)?|dossier(?:\s+on)?|due diligence(?:\s+on)?)\s+\$?([a-z0-9]{2,12})\s*$/i;
+function dossierHtml(d) {
+  const secs = d.sections.map(s =>
+    `<b>${esc(s.title)}</b> <i>· ${esc(s.source)}</i><br>${s.html}`).join('<br><br>');
+  return `🔬 <b>Research dossier — ${esc(d.base)}</b><br><br>${secs}`
+    + `<br><br>➡️ ${esc(d.next_step)}`
+    + `<br><br><i>Sources: ${d.sources.map(esc).join(' · ')}. ${esc(d.disclaimer)}</i>`;
+}
 
-async function maybeHandleResearchChat(userId, text) {
-  const m = String(text || '').trim().match(CHAT_RE);
-  if (!m) return null;
+/**
+ * The research dossier card — ONE renderer for both surfaces. The bot's
+ * /research command and the website's shared door both fetch this card over
+ * the sync channel (`GET /api/bot/sync/card/research?symbol=`). Website chat
+ * does not match the sentence itself. A symbol that is not a ticker, or a
+ * coin the venue does not list, is said so — never a dossier of nothing.
+ * Nothing here places, confirms, sizes, or closes a trade.
+ */
+async function researchChatCard(symbol) {
+  const base = baseOf(symbol);
+  if (!base) {
+    return {
+      reply_html: 'Name one ticker, for example research SOL. Nothing was read.',
+      intent: 'research',
+    };
+  }
   try {
-    const base = baseOf(m[1]);
-    if (!base) return null;
     const d = await buildDossier(base);
     if (!d) {
       return {
@@ -252,17 +278,10 @@ async function maybeHandleResearchChat(userId, text) {
         intent: 'research',
       };
     }
-    const secs = d.sections.map(s =>
-      `<b>${esc(s.title)}</b> <i>· ${esc(s.source)}</i><br>${s.html}`).join('<br><br>');
-    return {
-      reply_html: `🔬 <b>Research dossier — ${esc(d.base)}</b><br><br>${secs}`
-        + `<br><br>➡️ ${esc(d.next_step)}`
-        + `<br><br><i>Sources: ${d.sources.map(esc).join(' · ')}. ${esc(d.disclaimer)}</i>`,
-      intent: 'research',
-    };
+    return { reply_html: dossierHtml(d), intent: 'research' };
   } catch (e) {
     return { reply_html: 'Research desk hiccup — try again in a moment.', intent: 'research' };
   }
 }
 
-module.exports = { buildDossier, maybeHandleResearchChat, setTickerFetcher };
+module.exports = { buildDossier, researchChatCard, setTickerFetcher };

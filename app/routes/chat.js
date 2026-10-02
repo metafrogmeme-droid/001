@@ -18,7 +18,6 @@ const gateway = require('../lib/gateway');
 const { loadProfile } = require('./profile');
 const { maybeHandleNetWorthChat } = require('../lib/networth');
 const { maybeHandleIdleYieldChat } = require('../lib/idle_yield');
-const { maybeHandleResearchChat } = require('../lib/research');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -123,8 +122,13 @@ const INTERCEPTS = [
   // position. "what's my drawdown" stays the risk engine. /api/exposure
   // still runs here, so the read is still available while the bot process
   // is down.
-  // "research PENDLE" — evidence dossier from trusted local + live sources.
-  ['research', (uid, text) => maybeHandleResearchChat(uid, text), 'an evidence dossier on one token'],
+  // The research dossier left this table. Both doors route "research
+  // PENDLE" to the shared research seam, which fetches this process's own
+  // card for the one symbol the sentence names. Nothing here places,
+  // confirms, sizes, or closes a trade. "deep dive on SOL" stays the
+  // chart; "research the docs" and "research report" stay the model.
+  // /api/research/:symbol still runs here, so the dossier is still
+  // readable while the bot process is down.
   // "net worth" — everything the user holds, everywhere, read-only. Needs
   // the resolved bot identity, so its own cheap pattern decides first and
   // the DB lookup only happens on a match.

@@ -1293,7 +1293,7 @@ REFERRAL_TIERS …
 
 RUNECLAW genuinely produces research: a cited per-symbol dossier (/research,
 which fetches the web app's research card over HTTP via
-web_data_pull.fetch_research — `bot/skills/scan_commands.py::ScanCommands.research_card_text#"to_thread(fetch_research"`), the contract-
+web_data_pull.fetch_research — `bot/skills/market_commands.py::MarketCommands._web_card_text#"to_thread(fetch_research, symbol"`), the seam both surfaces call (`bot/skills/scan_commands.py::ScanCommands.research_card_text`), the contract-
 detective dossier that composes token_safety + deployer_history and leads with
 what it could NOT read (/token → `bot/core/token_research.py::investigate`), the Daily
 Alpha card, the weekly Agent Letter, the hourly intelligence reports, and the

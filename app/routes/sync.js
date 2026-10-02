@@ -1471,7 +1471,7 @@ router.get('/rwa', async (req, res) => {
 /**
  * The website chat's own cards, for the Telegram commands that render them
  * (/nft /spot /airdrops /replay /letter /venue_router /meme_radar /wallet
- * /defi /exposure): ONE renderer per card — the same function the web intercept
+ * /defi /exposure /research): ONE renderer per card — the same function the web intercept
  * answers with — so the two surfaces cannot drift, and Python carries no
  * second formatter. Whitelisted by name: an unknown name is a 404, never a
  * lookup on a prototype.
@@ -1481,10 +1481,12 @@ router.get('/rwa', async (req, res) => {
  * account is linked to a web account and answers the public radar otherwise;
  * the wallet, DeFi and exposure cards ARE the caller's own book, so a caller
  * nobody could map gets `unlinked` (a fact the bot puts into its own words)
- * and never a guessed wallet. The three query parameters are each one card's own
- * argument, read through the same parser the intercept's regex feeds: a
- * stake for the replay, an asset for the venue router, a chain for the
- * wallet. Anything else on the query string is ignored.
+ * and never a guessed wallet. The research card is public and takes the
+ * symbol the sentence names (`SOL/USDT` stays a query parameter; a slash
+ * in a path segment does not survive the hop). The query parameters are
+ * each one card's own argument: a stake for the replay, an asset for the
+ * venue router, a chain for the wallet, a symbol for the dossier. Anything
+ * else on the query string is ignored.
  */
 /**
  * The web account behind the identity the bot passes on — ONE mapper for
@@ -1549,6 +1551,15 @@ const CHAT_CARDS = {
   exposure: async (tg) => {
     const userId = await webUserFor(tg);
     return userId == null ? UNLINKED : require('../lib/exposure').exposureChatCard(userId);
+  },
+  // The research dossier left the website's intercept table. Both doors
+  // fetch this card. The symbol is the one the sentence names. The dossier
+  // is public venue data plus the recorded history. Nothing here places,
+  // confirms, sizes, or closes a trade.
+  research: (_tg, q) => {
+    const raw = q.symbol;
+    const symbol = typeof raw === 'string' ? raw : '';
+    return require('../lib/research').researchChatCard(symbol);
   },
   // The website's price-alert parser, for both doors. `channel=web` is the
   // push sentence the website chat used to render itself; anything else,
