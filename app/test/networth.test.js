@@ -2,11 +2,13 @@
 /**
  * Unified net worth (PR X, web side): gateway CEX + SIWE wallet combine,
  * the honesty rule (paper equity listed but NEVER counted into the real
- * total), fail-soft sections, and the chat intercept.
+ * total), fail-soft sections, and the card both doors fetch. Website chat
+ * no longer answers the sentence itself.
  */
 process.env.JWT_SECRET = 'j'.repeat(64);
 process.env.WEB3_CHAINS = 'ethereum';   // single-chain FakeProvider — see multichain test
 process.env.WEB_GATEWAY_SECRET = 'g'.repeat(40);   // set BEFORE requiring routes
+process.env.BOT_SYNC_SECRET = 's'.repeat(48);
 // lib/gateway captures BOT_GATEWAY_URL at require time — pin the fake
 // upstream's port BEFORE any route module loads.
 const GW_PORT = 39877;
@@ -64,19 +66,21 @@ test.before(async () => {
   app.use('/api/auth', authModule.router);
   app.use('/api/networth', require('../routes/networth'));
   app.use('/api/chat', require('../routes/chat'));
+  app.use('/api/bot/sync', require('../routes/sync'));
   await new Promise((res) => { server = app.listen(0, '127.0.0.1', res); });
   base = `http://127.0.0.1:${server.address().port}`;
 });
 
 test.after(() => { if (server) server.close(); if (gwServer) gwServer.close(); });
 
-function req(method, path, { token, body } = {}) {
+function req(method, path, { token, body, botSecret } = {}) {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : null;
     const r = http.request(`${base}${path}`, {
       method,
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(botSecret ? { 'X-Bot-Secret': botSecret } : {}),
         ...(payload ? { 'Content-Type': 'application/json' } : {}),
       },
     }, (res) => {
@@ -137,16 +141,60 @@ test('networth: unlinked wallet + gateway down still answers per-section', async
   assert.equal(anon.status, 401);
 });
 
-test('chat: "my net worth" answers with the combined read-only view', async () => {
+test('the card both doors fetch is the read; chat no longer answers the sentence', async () => {
+  const networth = require('../lib/networth');
   const token = await newUser();
   await linkWallet(token);
-  const r = await req('POST', '/api/chat', { token, body: { text: "what's my net worth?" } });
-  assert.equal(r.status, 200);
-  assert.equal(r.data.intent, 'networth');
-  assert.match(r.data.reply_html, /BYBIT/);
-  assert.match(r.data.reply_html, /\$512\.34/);
-  assert.match(r.data.reply_html, /\$3,000/);
-  assert.match(r.data.reply_html, /\$3,512\.34/);
-  assert.match(r.data.reply_html, /simulated, not counted/i);
-  assert.match(r.data.reply_html, /never move them/);
+  const me = await req('GET', '/api/auth/me', { token });
+  const uid = me.data.id ?? me.data.user_id;
+  const card = await networth.networthChatCard(`web:${uid}`, uid);
+  assert.equal(card.intent, 'networth');
+  assert.match(card.reply_html, /Net worth — everywhere/);
+  assert.match(card.reply_html, /BYBIT/);
+  assert.match(card.reply_html, /\$512\.34/);
+  assert.match(card.reply_html, /\$3,000/);
+  assert.match(card.reply_html, /\$3,512\.34/);
+  assert.match(card.reply_html, /simulated, not counted/i);
+  assert.match(card.reply_html, /never move them/);
+  assert.equal(typeof networth.maybeHandleNetWorthChat, 'undefined');
+  assert.equal(networth.CHAT_RE, undefined);
+  // An unread equity is not a measured zero.
+  assert.doesNotMatch(card.reply_html, /\$0\.00/);
+
+  const via = await req('GET', `/api/bot/sync/card/networth?telegram_id=web:${uid}`,
+    { botSecret: process.env.BOT_SYNC_SECRET });
+  assert.equal(via.status, 200);
+  assert.equal(via.data.reply_html, card.reply_html);
+  assert.equal(via.data.intent, 'networth');
+
+  const unlinked = await req('GET', '/api/bot/sync/card/networth?telegram_id=999999',
+    { botSecret: process.env.BOT_SYNC_SECRET });
+  assert.equal(unlinked.status, 200);
+  assert.equal(unlinked.data.unlinked, true);
+  assert.equal(unlinked.data.reply_html, null);
+  assert.equal(unlinked.data.intent, 'networth');
+
+  // Website chat no longer matches the sentence. The turn is proxied.
+  const missed = await req('POST', '/api/chat', { token, body: { text: "what's my net worth?" } });
+  assert.notEqual(missed.data && missed.data.intent, 'networth');
+  assert.ok(!/Net worth — everywhere/.test((missed.data && missed.data.reply_html) || ''));
+
+  // A connected venue whose equity could not be read is said so, never $0.
+  const saved = gwResponse;
+  let unread;
+  try {
+    gwResponse = {
+      read_only: true, paper: null,
+      cex: { connected: true, ok: false, venue: 'bybit', equity_usd: null,
+             detail: 'credentials unreadable' },
+    };
+    unread = await networth.networthChatCard(`web:${uid}`, uid);
+  } finally {
+    gwResponse = saved;
+  }
+  assert.match(unread.reply_html, /unreadable right now \(credentials unreadable\)/);
+  assert.doesNotMatch(unread.reply_html, /\$0\.00/);
+  assert.doesNotMatch(unread.reply_html, /\$NaN/);
+  // The wallet was still read. The exchange was not, so the total says so.
+  assert.match(unread.reply_html, /incomplete|could not be read/i);
 });

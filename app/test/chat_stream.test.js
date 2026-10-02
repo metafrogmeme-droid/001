@@ -23,12 +23,12 @@ const assert = require('node:assert');
 const http = require('node:http');
 const path = require('node:path');
 
-// An intercept that answers "net worth" locally, so the local-hit path can be
-// driven without a book. Research left this table for the shared door.
-const abs = require.resolve(path.join(__dirname, '..', 'lib', 'networth'));
+// An intercept that answers "idle yield" locally, so the local-hit path can be
+// driven without a wallet. Net worth left this table for the shared door.
+const abs = require.resolve(path.join(__dirname, '..', 'lib', 'idle_yield'));
 require.cache[abs] = { id: abs, filename: abs, loaded: true, exports: {
-  maybeHandleNetWorthChat: async () => (
-    { reply_html: '<b>Net worth</b>', intent: 'networth' }),
+  maybeHandleIdleYieldChat: async () => (
+    { reply_html: '<b>Idle yield</b>', intent: 'idleyield' }),
 } };
 
 const seen = [];
@@ -151,12 +151,12 @@ test('the stream route relays every frame, in order, as text/event-stream', asyn
 
 test('a local intercept hit on the stream route is one final frame', async () => {
   seen.length = 0;
-  const r = await requestRaw('POST', '/api/chat/stream', { token, body: { text: 'what is my net worth' } });
+  const r = await requestRaw('POST', '/api/chat/stream', { token, body: { text: 'where can i earn' } });
   assert.equal(r.status, 200);
   assert.match(r.type, /text\/event-stream/);
   const fr = frames(r.text);
   assert.deepEqual(fr.map((f) => f.event), ['final']);
-  assert.deepEqual(fr[0].data, { status: 200, body: { reply_html: '<b>Net worth</b>', intent: 'networth' } });
+  assert.deepEqual(fr[0].data, { status: 200, body: { reply_html: '<b>Idle yield</b>', intent: 'idleyield' } });
   assert.ok(!seen.some((s) => s.url === '/gateway/chat/stream'), 'the model was never asked');
 });
 

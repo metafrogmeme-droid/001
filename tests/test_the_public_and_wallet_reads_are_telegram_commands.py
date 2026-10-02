@@ -116,7 +116,7 @@ class TestThePull:
         # the website's own panel reads, so the flows are read in one place.
         assert WEB_CARDS == ("nft", "spot", "airdrops", "replay", "letter", "venue_router",
                              "meme_radar", "wallet", "defi", "alerts", "rwa", "etf_flows",
-                             "exposure", "research")
+                             "exposure", "research", "networth")
         assert WEB_CARD_PARAMS == {"replay": ("stake",), "venue_router": ("base",),
                                    "wallet": ("chain",), "alerts": ("text", "channel"),
                                    "research": ("symbol",)}

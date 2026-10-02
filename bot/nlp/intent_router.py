@@ -1636,15 +1636,16 @@ _EDU = r"^" + _EDU_DECLINE + r".*?"
 
 
 # --- The reads the website answers from its own intercepts ---
-# Net worth still has a Node intercept and a Telegram command that renders
-# the same reading (/networth). Research left that table: both doors route
-# "research SOL" to `/research`. RWA left it too: both doors route it to
-# `/rwa`. Typed as WORDS, "my net worth" and "rwa radar" were GREETED by the
-# social gate, "research SOL" reached a chat model with no dossier tool. An
-# education question ("what is rwa", "what are real world assets") is the
-# model's on both surfaces now, because the website no longer intercepts it.
-# Registered ABOVE the Portfolio keyword rule, which `total balance` and
-# `total equity` would otherwise feed.
+# Net worth left the Node intercept table: both doors route "my net worth"
+# to `/networth`. Research left it too: both doors route "research SOL" to
+# `/research`. RWA left it too: both doors route it to `/rwa`. Typed as
+# WORDS, "my net worth" and "rwa radar" were GREETED by the social gate,
+# "research SOL" reached a chat model with no dossier tool. An education
+# question ("what is rwa", "what are real world assets", "what is net
+# worth") is the model's on both surfaces. "what's my drawdown", "am I
+# over my exposure", "check my risk" and "what's my max exposure" stay
+# the risk engine. Registered ABOVE the Portfolio keyword rule, which
+# `total balance` and `total equity` would otherwise feed.
 #
 # `deep dive on <sym>` is NOT here. It stays the chart on both surfaces
 # (`analyze_asset`). The website used to claim it as a dossier; that

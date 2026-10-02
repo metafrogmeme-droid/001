@@ -521,7 +521,7 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     for name in under:
         assert f"`{name}`" in DOC, name
 
-    # "all two rows of that table" — the web client's intercepts, counted
+    # "all one row of that table" — the web client's intercepts, counted
     # in the JS file rather than restated here. Fifteen until price alerts
     # left the table for the shared price_alert door; fourteen until the
     # weekly letter left for the shared letter door; thirteen until the
@@ -535,14 +535,15 @@ def test_the_door_table_paragraph_names_numbers_a_drive_returns():
     # for the shared spot door; five until DeFi positions left for the
     # shared defi door; four until cross-venue exposure left for the
     # shared exposure door; three until the research dossier left for the
-    # shared research door.
-    assert "two rows of that table" in flat
+    # shared research door; two until net worth left for the shared
+    # networth door.
+    assert "one row of that table" in flat
     js = (pathlib.Path(__file__).resolve().parent.parent
           / "app" / "routes" / "chat.js").read_text()
     block = js[js.index("const INTERCEPTS = ["):]
     block = block[:block.index("\n];")]
     rows = re.findall(r"^\s*\['([a-z]+)',", block, re.M)
-    assert len(rows) == 2, rows
+    assert len(rows) == 1, rows
 
 
 def test_the_url_shape_it_names_is_the_shape_both_routes_send():
