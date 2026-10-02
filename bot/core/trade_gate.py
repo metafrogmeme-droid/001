@@ -232,8 +232,24 @@ def entry_gate(engine: Any, user_id: str = "", *,
         unknown = True
 
     if live:
+        # The account the order runs on, when the engine can say so. An
+        # unattended confirm and the operator's book are stored under "".
+        # Asking the caller's own id misses that flag: "auto" and a telegram
+        # id were never probed, and an unprobed key defaults to healthy.
+        auth_id = str(user_id or "")
         try:
-            healthy = engine.live_auth_healthy(str(user_id or ""))
+            resolver = getattr(engine, "auth_account_id", None)
+            executor_for = getattr(engine, "_executor_for", None)
+            if callable(resolver) and callable(executor_for):
+                ex = executor_for(auth_id)
+                if ex is not None:
+                    resolved = resolver(ex, user_id)
+                    if isinstance(resolved, str):
+                        auth_id = resolved
+        except Exception:
+            pass
+        try:
+            healthy = engine.live_auth_healthy(auth_id)
         except Exception:
             healthy = _Unset
         if healthy is _Unset:
@@ -243,13 +259,14 @@ def entry_gate(engine: Any, user_id: str = "", *,
             if include_detail:
                 try:
                     detail = _safe_detail((engine._live_auth_detail or {}).get(
-                        str(user_id or ""), ""))
+                        auth_id, ""))
                 except Exception:
                     detail = ""
-            # The recovery route travels WITH the reason. The flag is only
-            # cleared by the preflight, so a surface that reports the halt
-            # without saying that is a diagnosis with no next step — which is
-            # what the operator hit on 2026-08-01.
+            # The recovery route travels WITH the reason. A restart re-runs
+            # the preflight, and a later positive balance read clears the
+            # latch. A surface that reports the halt without a next step is
+            # a diagnosis with nowhere to go — which is what the operator
+            # hit on 2026-08-01.
             reasons.append("venue auth marked down" +
                            (f" ({detail})" if detail else "") +
                            ", a restart re-runs the check")
