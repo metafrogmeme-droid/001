@@ -230,22 +230,31 @@ async function getSpotPerpBasis(limit = 12) {
   };
 }
 
-const CHAT_RE = /\b(spot (market|prices?|pairs?|radar)|spot vs\.? perp|spot basis)\b/i;
-
 function fmt(v) {
   return Number(v).toLocaleString('en-US', { maximumFractionDigits: 6 });
 }
 
+// ── The one card ─────────────────────────────────────────────────────────────
+//
+// ONE renderer. Both chat doors fetch this card over
+// `/api/bot/sync/card/spot`. Website chat does not match the sentence
+// itself. Public: venue tickers, no account in it. Nothing here places
+// a spot order.
+
 /**
- * The spot card — ONE renderer for both surfaces. The web intercept answers
- * with it, and the bot's /spot command fetches this same card over the sync
- * channel (`GET /api/bot/sync/card/spot`) instead of formatting the payload a
- * second time in Python.
+ * The spot card — ONE renderer for both surfaces. The bot's /spot command
+ * and the website's shared door both fetch this card over the sync channel
+ * (`GET /api/bot/sync/card/spot`). Website chat does not match the sentence
+ * itself. Public venue tickers, no account in it. Nothing here places a
+ * spot order.
  */
 async function spotChatCard() {
   const [mkt, basis] = [await getSpotMarket(), await getSpotPerpBasis(6)];
   if (!mkt.available) {
-    return { reply_html: '🪙 <b>Spot market</b> — no spot venue reachable right now, try again shortly.' };
+    return {
+      reply_html: '🪙 <b>Spot market</b> — no spot venue reachable right now, try again shortly.',
+      intent: 'spot',
+    };
   }
   const up = Object.entries(mkt.venues).filter(([, v]) => v.ok).map(([id]) => id);
   // `p.change_pct >= 0` is TRUE for null — null coerces to 0 — so an
@@ -266,12 +275,10 @@ async function spotChatCard() {
       .join(' · '));
   }
   lines.push(`<i>${mkt.note}</i>`);
-  return { reply_html: lines.join('<br>') };
+  return {
+    reply_html: lines.join('<br>'),
+    intent: 'spot',
+  };
 }
 
-async function maybeHandleSpotChat(userId, text) {
-  if (!CHAT_RE.test(String(text || ''))) return null;
-  return spotChatCard();
-}
-
-module.exports = { getSpotMarket, getSpotPerpBasis, maybeHandleSpotChat, spotChatCard, setSpotFetcher, CHAT_RE, VENUES };
+module.exports = { getSpotMarket, getSpotPerpBasis, spotChatCard, setSpotFetcher, VENUES };

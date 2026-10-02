@@ -157,7 +157,7 @@ test('the chat card does not print a move it could not read', async () => {
     { symbol: 'ETHUSDT', lastPr: '4000', change24h: null, usdtVolume: '900000000' },
     { symbol: 'BTCUSDT', lastPr: '100000', change24h: '0.012', usdtVolume: '2000000000' },
   ] }));
-  const out = await spot.maybeHandleSpotChat('u', 'spot market');
+  const out = await spot.spotChatCard();
   assert.match(out.reply_html, /<b>ETH<\/b> \$4,000 \(—\)/,
     `unreadable move rendered as a number: ${out.reply_html}`);
   assert.doesNotMatch(out.reply_html, /\+0%|null%/);

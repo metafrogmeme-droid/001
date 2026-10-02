@@ -246,6 +246,10 @@ async def _seam_nft(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
 
 async def _seam_spot(tg_handler: "TelegramHandler", tg_id: str, kwargs: dict,
                      text: str = "") -> str:
+    # The website chat no longer answers this itself. Both doors render the
+    # spot market's own card; surface="web" keeps the markup the browser
+    # already shows. Venue tickers are public, for every caller. Nothing
+    # here places a spot order. web:<user_id> is not a second book.
     return await tg_handler.spot_card_text(surface="web")
 
 
@@ -327,11 +331,10 @@ async def _seam_price_alert(tg_handler: "TelegramHandler", tg_id: str, kwargs: d
 #: `WEB_ROUTED_PERMISSION` (the gate the branch goes through) and in the
 #: authorisation invariant's `ROUTED_INTENT_SEAM`; both equalities are pinned.
 #: `status` keeps its own branch above: it predates the table and three
-#: guards index that branch's literal. spot is still answered first by a
-#: Node intercept for a web caller — this path sees the phrasings that
-#: intercept misses. Airdrops, the venue router, the meme radar and the NFT
-#: radar left that table: both doors render this seam rather than a door
-#: notice.
+#: guards index that branch's literal. Airdrops, the venue router, the meme
+#: radar, the NFT radar and the spot market left that table: both doors
+#: render this seam rather than a door notice. Net worth, research, DeFi,
+#: exposure and idle yield are still answered first by a Node intercept.
 _WEB_SEAM = {
     "networth": _seam_networth,
     "rwa": _seam_rwa,
@@ -981,8 +984,8 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
         # intercepts before a turn reaches this process, so for a web caller
         # those two see only the phrasings the intercepts miss ("how much am
         # i worth", "can you research SOL for me"). RWA, the airdrop radar, the
-        # venue router, the meme radar and the NFT radar left that table: both
-        # doors render this seam.
+        # venue router, the meme radar, the NFT radar and the spot market left
+        # that table: both doors render this seam.
         # The branch answers every `_WEB_SEAM` intent with the same card
         # Telegram's routed branch renders, under the same gate, recorded
         # the same way — never by a model with no such tool. `_WEB_SEAM`

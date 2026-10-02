@@ -1,10 +1,14 @@
 'use strict';
 /** SPOT-1 — read-only spot market center. No order machinery (source grep). */
 process.env.JWT_SECRET = 'j'.repeat(64);
+delete process.env.DATABASE_URL;
+delete process.env.WEB_GATEWAY_SECRET;
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
+const http = require('node:http');
 const path = require('node:path');
+const express = require('express');
 const spot = require('../lib/spot');
 const tickers = require('../lib/tickers');
 
@@ -44,13 +48,16 @@ test('unreachable venue reads honestly unavailable', async () => {
   spot.setSpotFetcher(null);
 });
 
-test('chat intercept answers its chip phrase with market + basis', async () => {
+test('the card names the market and the basis, and this module no longer matches the sentence', async () => {
   spot.setSpotFetcher(async () => RAW);
   tickers.setTickerFetcher(async () => ({ BTCUSDT: { price: 99900, change: 1, volume: 1 } }));
-  const r = await spot.maybeHandleSpotChat(1, 'spot market');
-  assert.ok(r && r.reply_html.includes('Spot market'));
+  const r = await spot.spotChatCard();
+  assert.equal(r.intent, 'spot');
+  assert.ok(r.reply_html.includes('Spot market'));
   assert.ok(r.reply_html.includes('basis'));
-  assert.equal(await spot.maybeHandleSpotChat(1, 'hello'), null);
+  assert.match(r.reply_html, /places no spot orders/);
+  assert.equal(typeof spot.maybeHandleSpotChat, 'undefined');
+  assert.equal(spot.CHAT_RE, undefined);
   spot.setSpotFetcher(null); tickers.setTickerFetcher(null);
 });
 
@@ -78,6 +85,64 @@ test('one venue down: partial availability reported honestly per venue', async (
   assert.equal(m.available, true, 'one live venue keeps the surface up');
   assert.equal(m.venues.bybit.ok, false);
   spot.setSpotFetcher(null);
+});
+
+test('chat: "spot market" waits for the bot; /api/spot/market still serves', async () => {
+  spot.setSpotFetcher(async () => RAW);
+  tickers.setTickerFetcher(async () => ({ BTCUSDT: { price: 99900, change: 1, volume: 1 } }));
+  const app = express();
+  app.use(express.json());
+  app.use('/api/auth', require('../auth').router);
+  app.use('/api/spot', require('../routes/spot'));
+  app.use('/api/chat', require('../routes/chat'));
+  const server = await new Promise((res) => {
+    const s = app.listen(0, '127.0.0.1', () => res(s));
+  });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  function req(method, p, { token, body } = {}) {
+    return new Promise((resolve, reject) => {
+      const payload = body ? JSON.stringify(body) : null;
+      const r = http.request(`${base}${p}`, {
+        method,
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(payload ? { 'Content-Type': 'application/json' } : {}),
+        },
+      }, (res) => {
+        let d = '';
+        res.on('data', (c) => { d += c; });
+        res.on('end', () => resolve({ status: res.statusCode, data: d ? JSON.parse(d) : {} }));
+      });
+      r.on('error', reject);
+      if (payload) r.write(payload);
+      r.end();
+    });
+  }
+  try {
+    const reg = await req('POST', '/api/auth/register', {
+      body: { email: 'spot-chat@test.io', password: 'x'.repeat(12) },
+    });
+    const token = reg.data.token;
+    for (const text of ['spot market', 'spot pairs', 'spot vs perp', 'spot basis']) {
+      const waiting = await req('POST', '/api/chat', { token, body: { text } });
+      assert.equal(waiting.status, 503, text);
+      assert.equal(waiting.data.intent, undefined, text);
+    }
+    // "spot prices" is a price question, not this card, on both surfaces.
+    const prices = await req('POST', '/api/chat', { token, body: { text: 'spot prices' } });
+    assert.equal(prices.status, 503);
+    const pub = await req('GET', '/api/spot/market');
+    assert.equal(pub.status, 200);
+    assert.equal(pub.data.available, true);
+    assert.equal(pub.data.pairs[0].symbol, 'BTCUSDT');
+    const basis = await req('GET', '/api/spot/basis');
+    assert.equal(basis.status, 200);
+    assert.equal(basis.data.available, true);
+  } finally {
+    server.close();
+    spot.setSpotFetcher(null);
+    tickers.setTickerFetcher(null);
+  }
 });
 
 test('HARD LINE: no order machinery in the spot surface', () => {

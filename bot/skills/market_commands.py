@@ -139,11 +139,11 @@ class MarketCommands:
         await self._send(update, text)
 
     # ── The website chat's own cards, as commands ─────────────────────────
-    # /spot still renders the card the website's chat intercept answers
-    # with. /nft and /airdrops left that table: both doors fetch the card.
-    # Fetched rendered, never re-formatted here. Three of the nine reads
-    # only the website answered (`bot/nlp/web_reads`) were a door notice on
-    # Telegram; these three are the read itself now.
+    # /nft, /spot and /airdrops left the website's intercept table: both
+    # doors fetch the card. Fetched rendered, never re-formatted here.
+    # Three of the nine reads only the website answered
+    # (`bot/nlp/web_reads`) were a door notice on Telegram; these three
+    # are the read itself now.
 
     @guard("nft")
     async def _cmd_nft(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -169,12 +169,20 @@ class MarketCommands:
         """/spot — the spot pairs across connected venues and the spot/perp
         basis (read-only; nothing here places a spot order). The card is
         `spot_card_text`, the seam the routed "spot market" renders on both
-        surfaces."""
+        surfaces. Website chat no longer answers the sentence itself."""
         await self._send(update, await self.spot_card_text())
 
     async def spot_card_text(self, *, surface: str = "telegram") -> str:
-        """The spot market card — the website's own rendering, both surfaces."""
-        return await self._web_card_text("spot", surface=surface)
+        """The spot market card — the website's own rendering, both surfaces.
+
+        ``surface="web"`` keeps the card's own markup. Telegram's tag strip
+        turns ``<br>`` into a newline a browser collapses, which is right on
+        Telegram and wrong on the page that used to render this card itself.
+        Venue tickers are public, for every caller. Nothing here places a
+        spot order.
+        """
+        return await self._web_card_text(
+            "spot", surface=surface, keep_markup=(surface == "web"))
 
     @guard("airdrops")
     async def _cmd_airdrops(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

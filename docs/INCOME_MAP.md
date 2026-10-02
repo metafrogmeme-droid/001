@@ -91,10 +91,13 @@ create_order in bot/ at all (`bot/core/venues.py::BitgetVenue.create_exchange#'"
 market-data reads). What a user gets today is spot READING: /livebalance
 prices the caller's spot holdings on their linked venue; exposure/networth net
 wallet spot against perps; app/lib/spot.js pulls Bitget/Bybit/BingX spot
-tickers and the spot/perp basis, reachable through the web chat 'spot'
-intercept (`app/routes/chat.js::INTERCEPTS#"['spot',"`) and through /spot on Telegram, which renders the SAME
-card over the bot-secret sync channel (market_commands.py) — the /api/spot/*
-routes it also backs have no browser caller. One genuine spot EXECUTION path exists and it is on-chain, not CEX:
+tickers and the spot/perp basis. Asking from chat is the shared `spot` door
+on both surfaces (`bot/web/user_gateway.py::_WEB_SEAM#'"spot": _seam_spot'`,
+`bot/skills/market_commands.py::MarketCommands.spot_card_text`), which fetches
+the card `app/lib/spot.js::spotChatCard` renders. Nothing here places a spot
+order. GET /api/spot/market (`app/routes/spot.js::get('/market')`) and
+GET /api/spot/basis (`app/routes/spot.js::get('/basis')`) still serve the read
+while the bot process is down; those routes have no browser caller. One genuine spot EXECUTION path exists and it is on-chain, not CEX:
 `bot/core/meme_swap.py::build_swap` builds an unsigned Jupiter (Solana DEX) swap that
 the user signs in their own wallet at /swap (`app/public/js/swap-page.js::doSign#".signAndSend(build.unsigned_transaction)"`). It is double-
 gated off: build_swap refuses unless the /memeplan plan came back allowed,
@@ -296,8 +299,10 @@ nothing. Its own docstring (`bot/core/basis.py::__doc__#"had no caller outside t
 outside tests until recently and that a fabricated `basis_pct * 365`
 "annualized" field was removed rather than propagated. On the web,
 app/lib/spot.js exposes getSpotPerpBasis (route /api/spot/basis,
-`app/routes/spot.js::get('/basis')` — no browser caller; the reachable doors are the chat 'spot'
-intercept at `app/routes/chat.js::INTERCEPTS#"['spot',"` and /spot on Telegram, the same card), and app/lib/dex.js renders a DEX↔CEX basis
+`app/routes/spot.js::get('/basis')` — no browser caller; the reachable doors are the shared `spot` door
+on both surfaces (`bot/web/user_gateway.py::_WEB_SEAM#'"spot": _seam_spot'`,
+`bot/skills/market_commands.py::MarketCommands.spot_card_text`, card
+`app/lib/spot.js::spotChatCard`) and /spot on Telegram, the same card), and app/lib/dex.js renders a DEX↔CEX basis
 (Hyperliquid mids vs this venue's perp price, as delta_bps) into the Markets
 view's c-dex panel.
 
@@ -421,8 +426,10 @@ all.
 futures-only mode' (`bot/skills/trading_commands.py::TradingCommands._cmd_buy`, `::TradingCommands._cmd_sell`); the engine, live_executor
 and every confirm path place USDT-M perps only. app/lib/spot.js is read-only
 by its own header ('nothing in this module places orders') and its
-reachable consumers are the chat intercept at `app/routes/chat.js::INTERCEPTS#"['spot',"` and /spot on
-Telegram, which fetches that intercept's own card — the /api/spot/*
+reachable consumers are the shared spot door
+(`bot/web/user_gateway.py::_WEB_SEAM#'"spot": _seam_spot'`,
+`bot/skills/market_commands.py::MarketCommands.spot_card_text`) and /spot on
+Telegram, which fetches `app/lib/spot.js::spotChatCard` — the /api/spot/*
 routes have no caller in the tree. There is no cost-basis lot ledger:
 `app/lib/tax.js::#"There is no spot-lot ledger"` says so outright ('There is no spot-lot ledger to match across, so
 forcing FIFO cost-basis matching onto already-matched round-trips would

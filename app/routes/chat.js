@@ -102,9 +102,12 @@ const INTERCEPTS = [
   // shared nft seam, which fetches this process's own card. OpenSea
   // collection stats are public. /api/nft/radar still runs here, so the
   // radar is still readable while the bot process is down.
+  // The spot market left this table. Both doors route "spot market" to
+  // the shared spot seam, which fetches this process's own card. Venue
+  // tickers are public. Nothing here places a spot order. /api/spot/market
+  // and /api/spot/basis still run here, so the read is still available
+  // while the bot process is down.
 
-  // "spot market" — read-only spot pairs + spot/perp basis. Never orders.
-  ['spot', (uid, text) => require('../lib/spot').maybeHandleSpotChat(uid, text), 'spot pairs and the spot/perp basis'],
   // The wallet mirror left this table. Both doors route "my wallet" to the
   // shared wallet seam, which fetches this process's own card for the caller
   // the turn names. The panel and /api/wallet/portfolio still run here, so
