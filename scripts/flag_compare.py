@@ -45,7 +45,6 @@ from bot.backtest.models import BacktestConfig  # noqa: E402
 ENV_FLAGS = (
     "PATTERN_ATR_TOLERANCES_ENABLED",
     "LEADING_DIAGONAL_PRETREND_FIX",
-    "LIQUIDITY_SWEEP_OWN_CLOSE",
     "OF_FUNDING_VOTE_FIXED_SCALE",
     "OF_TIME_BARS_ENABLED",
 )

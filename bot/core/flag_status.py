@@ -81,8 +81,6 @@ def audit_flag_report() -> list[tuple[str, list[tuple[str, str, bool]]]]:
              bool(_attr("analyzer", "vwap_session_anchored"))),
             ("LEADING_DIAGONAL_PRETREND_FIX", "Leading-diagonal pre-trend window",
              _env_on("LEADING_DIAGONAL_PRETREND_FIX", True)),
-            ("LIQUIDITY_SWEEP_OWN_CLOSE", "Liquidity-sweep own-close check",
-             _env_on("LIQUIDITY_SWEEP_OWN_CLOSE", True)),
             ("OF_TIME_BARS_ENABLED", "Taker 3-bar gate time-awareness",
              _of("time_bars_enabled", True)),
             ("PATTERN_ATR_TOLERANCES_ENABLED", "ATR-scaled chart-pattern tolerances",

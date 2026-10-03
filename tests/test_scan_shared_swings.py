@@ -63,7 +63,10 @@ class TestScanEquivalence:
                     cp.detect_liquidity_sweep, cp.detect_wyckoff_phases,
                     cp.detect_harmonic_pattern, cp.detect_fibonacci_extensions]:
             try:
-                p = det(highs, lows, closes, 5, swings=None)
+                if det is cp.detect_liquidity_sweep:
+                    p = det(highs, lows, closes, 5, swings=None, opens=opens)
+                else:
+                    p = det(highs, lows, closes, 5, swings=None)
                 if p:
                     ref.append(p)
             except Exception:

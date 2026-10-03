@@ -817,8 +817,12 @@ def _liquidity_sweep(df):
     except Exception:  # noqa: BLE001
         return None
     try:
-        res = detect_liquidity_sweep(df["High"].to_numpy(), df["Low"].to_numpy(),
-                                     df["Close"].to_numpy(), lookback=3)
+        opens = df["Open"].to_numpy() if "Open" in df.columns else None
+        volumes = df["Volume"].to_numpy() if "Volume" in df.columns else None
+        res = detect_liquidity_sweep(
+            df["High"].to_numpy(), df["Low"].to_numpy(), df["Close"].to_numpy(),
+            lookback=3, opens=opens, volumes=volumes,
+        )
         if not res:
             return None
         kl = res.get("key_levels", {})
@@ -1106,7 +1110,10 @@ def _pattern_zones_overlay(df, price_ax, t):
         if n < 20:
             return
 
-        patterns = scan_all_chart_patterns(opens, highs, lows, closes, lookback=5)
+        volumes = df["Volume"].to_numpy() if "Volume" in df.columns else None
+        patterns = scan_all_chart_patterns(
+            opens, highs, lows, closes, lookback=5, volumes=volumes,
+        )
         span = (float(highs.max()) - float(lows.min())) or 1.0
 
         # Declutter: an unbounded pattern list crams overlapping badges (e.g.
