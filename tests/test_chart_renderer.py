@@ -13,6 +13,7 @@ than a configuration choice, and `tests.dep_policy.require` says so instead of
 skipping. The fallback paths and async send are still tested regardless: the
 `_CHARTS_AVAILABLE = False` branch is real and must keep returning None.
 """
+import asyncio
 import functools
 import math
 import time
@@ -499,7 +500,7 @@ def test_the_picture_draws_the_forming_bar_and_overlays_read_the_closed_series(m
 
 
 @needs_charts
-async def test_callers_that_know_a_timeframe_hand_it_to_the_chart(monkeypatch):
+def test_callers_that_know_a_timeframe_hand_it_to_the_chart(monkeypatch):
     seen = []
 
     def fake(*_args, **kwargs):
@@ -507,34 +508,38 @@ async def test_callers_that_know_a_timeframe_hand_it_to_the_chart(monkeypatch):
         return None
 
     monkeypatch.setattr(cr, "build_chart_png", fake)
-    bot = _FakeBot()
-    idea = _idea()
-    await cr.send_idea_charts_multi(bot, 1, {"4h": _candles(), "1h": _candles()}, idea)
-    assert seen == ["4h", "1h"]
-    seen.clear()
-    await cr.build_idea_chart_composite({"15m": _candles()}, idea)
-    assert seen == ["15m"]
-    seen.clear()
-    idea.timeframe = "1h"
-    await cr.send_idea_chart(bot, 1, _candles(), idea)
-    assert seen == ["1h"]
-    seen.clear()
-    await cr.send_idea_chart(bot, 1, _candles(), _idea())
-    assert seen == [None]
 
-    import ccxt.async_support as ccxt_async
+    async def _run():
+        bot = _FakeBot()
+        idea = _idea()
+        await cr.send_idea_charts_multi(bot, 1, {"4h": _candles(), "1h": _candles()}, idea)
+        assert seen == ["4h", "1h"]
+        seen.clear()
+        await cr.build_idea_chart_composite({"15m": _candles()}, idea)
+        assert seen == ["15m"]
+        seen.clear()
+        idea.timeframe = "1h"
+        await cr.send_idea_chart(bot, 1, _candles(), idea)
+        assert seen == ["1h"]
+        seen.clear()
+        await cr.send_idea_chart(bot, 1, _candles(), _idea())
+        assert seen == [None]
 
-    class _Exchange:
-        async def fetch_ohlcv(self, *_a, **_k):
-            return _candles()
+        import ccxt.async_support as ccxt_async
 
-        async def close(self):
-            return None
+        class _Exchange:
+            async def fetch_ohlcv(self, *_a, **_k):
+                return _candles()
 
-    monkeypatch.setattr(ccxt_async, "bitget", lambda *_a, **_k: _Exchange())
-    seen.clear()
-    await cr.build_position_chart(bot, "BTC/USDT")
-    assert seen == ["1h"]
+            async def close(self):
+                return None
+
+        monkeypatch.setattr(ccxt_async, "bitget", lambda *_a, **_k: _Exchange())
+        seen.clear()
+        await cr.build_position_chart(bot, "BTC/USDT")
+        assert seen == ["1h"]
+
+    asyncio.run(_run())
 
 
 @needs_charts

@@ -215,7 +215,9 @@ def _last_bar_open_ms(df) -> Optional[float]:
     if pd.isna(last):
         return None
     try:
-        ms = last.value / 1_000_000.0
+        # float() so an untyped Timestamp.value is a number. Returning the
+        # division raw is Any, and an unreadable open is None rather than 0.
+        ms = float(last.value) / 1_000_000.0
     except (AttributeError, TypeError, ValueError, OverflowError):
         return None
     if not math.isfinite(ms):
