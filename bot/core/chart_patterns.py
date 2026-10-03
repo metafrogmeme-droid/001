@@ -36,6 +36,7 @@ from typing import Optional
 
 import numpy as np
 
+from bot.core.liquidity_sweep import SweepSignal, detect_sweeps
 from bot.core.multi_timeframe import _find_swings
 
 
@@ -1352,65 +1353,55 @@ def detect_elliott_wxy(
 
 # ── Liquidity Sweep ──────────────────────────────────────────────
 
+def _pattern_from_sweep(sig: SweepSignal) -> Optional[PatternResult]:
+    """The chart-pattern shape of one SweepSignal. Unknown types are omitted."""
+    if "bullish" in sig.sweep_type:
+        name = "Liquidity Sweep (Bullish)"
+        signal = "bullish"
+        levels: dict = {
+            "swept_level": sig.level_price,
+            "wick_low": sig.sweep_low,
+            "reclaim_close": sig.close_price,
+        }
+    elif "bearish" in sig.sweep_type:
+        name = "Liquidity Sweep (Bearish)"
+        signal = "bearish"
+        levels = {
+            "swept_level": sig.level_price,
+            "wick_high": sig.sweep_high,
+            "reclaim_close": sig.close_price,
+        }
+    else:
+        return None
+    return {
+        "name": name,
+        "signal": signal,
+        "confidence": sig.confidence,
+        "description": sig.description,
+        "key_levels": levels,
+    }
+
+
 def detect_liquidity_sweep(
     highs: np.ndarray, lows: np.ndarray, closes: np.ndarray,
     lookback: int = 5,
-    swings: Optional[dict] = None,  # #41: precomputed swings (compute-once in scan)
+    swings: Optional[dict] = None,  # #41: accepted, not a second swing finder
+    opens: Optional[np.ndarray] = None,
+    volumes: Optional[np.ndarray] = None,
 ) -> Optional[PatternResult]:
-    """Detect liquidity sweep: price briefly pierces a swing level then reverses.
+    """Chart-pattern liquidity sweep: ``liquidity_sweep.detect_sweeps``.
 
-    Bullish sweep: wick below a swing low, close back above → trapped sellers.
-    Bearish sweep: wick above a swing high, close back below → trapped buyers.
+    There is one sweep definition. ``lookback`` and ``swings`` stay on the
+    signature so the shared scan can call every detector the same way; they
+    do not select a level. Opens and volume are used when the caller measured
+    them. Absent volume is left out of the score and the sentence.
     """
-    swings = swings if swings is not None else _find_swings(highs, lows, lookback)
-    sh = swings["swing_highs"]
-    sl = swings["swing_lows"]
-
-    price = float(closes[-1])
-
-    # A sweep-and-reclaim is a property of ONE bar: it wicks through the level
-    # AND closes back on the right side. The legacy check verified the reclaim
-    # with the LATEST close (closes[-1]) even for a bar 2-3 back, so an old bar's
-    # wick plus the current bar's position could fire a false sweep. When enabled,
-    # each candidate bar is checked against ITS OWN close (deep-audit medium).
-    # Default ON; setting it OFF restores the legacy behaviour byte-for-byte.
-    use_own_close = _env_bool("LIQUIDITY_SWEEP_OWN_CLOSE", True)
-
-    # Check last 3 bars for sweeps (not just the last bar)
-    check_bars = min(3, len(lows))
-
-    # Bullish sweep: recent bar wick went below a prior swing low but that bar closed back above it
-    if sl:
-        nearest_sl = sl[-1][1]
-        for offset in range(1, check_bars + 1):
-            last_low = float(lows[-offset])
-            reclaim_close = float(closes[-offset]) if use_own_close else price
-            if last_low < nearest_sl * 0.998 and reclaim_close > nearest_sl:
-                return {
-                    "name": "Liquidity Sweep (Bullish)",
-                    "signal": "bullish",
-                    "confidence": 0.70,
-                    "description": f"Swept lows at ${nearest_sl:,.2f}, reclaimed — trapped sellers",
-                    "key_levels": {"swept_level": nearest_sl, "wick_low": last_low,
-                                   "reclaim_close": reclaim_close},
-                }
-
-    # Bearish sweep: recent bar wick above a prior swing high but that bar closed back below it
-    if sh:
-        nearest_sh = sh[-1][1]
-        for offset in range(1, check_bars + 1):
-            last_high = float(highs[-offset])
-            reclaim_close = float(closes[-offset]) if use_own_close else price
-            if last_high > nearest_sh * 1.002 and reclaim_close < nearest_sh:
-                return {
-                    "name": "Liquidity Sweep (Bearish)",
-                    "signal": "bearish",
-                    "confidence": 0.70,
-                    "description": f"Swept highs at ${nearest_sh:,.2f}, rejected — trapped buyers",
-                    "key_levels": {"swept_level": nearest_sh, "wick_high": last_high,
-                                   "reclaim_close": reclaim_close},
-                }
-
+    del lookback, swings
+    signals = detect_sweeps(opens, highs, lows, closes, volumes)
+    for sig in signals:
+        pattern = _pattern_from_sweep(sig)
+        if pattern is not None:
+            return pattern
     return None
 
 
@@ -1789,10 +1780,13 @@ def detect_fibonacci_extensions(
 def scan_all_chart_patterns(
     opens: np.ndarray, highs: np.ndarray, lows: np.ndarray, closes: np.ndarray,
     lookback: int = 5,
+    volumes: Optional[np.ndarray] = None,
 ) -> list[PatternResult]:
     """Run all chart pattern detectors and return found patterns.
 
     Returns a list of PatternResult dicts, sorted by confidence descending.
+    ``volumes``, when the caller measured them, are handed to the one sweep
+    definition. They are not invented when absent.
     """
     if len(closes) < 20:
         return []
@@ -1808,7 +1802,10 @@ def scan_all_chart_patterns(
     except Exception:
         shared_swings = None
 
-    detectors = [
+    # The sweep detector takes opens and volume the others do not. Keeping it
+    # in this list makes the list a union mypy cannot call. It still runs in
+    # the same place in the order, so a confidence tie sorts as before.
+    before_sweep = [
         detect_head_and_shoulders,
         detect_double_top_bottom,
         detect_flags,
@@ -1821,18 +1818,34 @@ def scan_all_chart_patterns(
         detect_elliott_corrective,
         detect_elliott_diagonal,
         detect_elliott_wxy,
-        detect_liquidity_sweep,
+    ]
+    after_sweep = [
         detect_wyckoff_phases,
         detect_harmonic_pattern,
         detect_fibonacci_extensions,
     ]
 
     results: list[PatternResult] = []
-    for detector in detectors:
+
+    def _keep(pattern: Optional[PatternResult]) -> None:
+        if pattern:
+            results.append(pattern)
+
+    for detector in before_sweep:
         try:
-            pattern = detector(highs, lows, closes, lookback, swings=shared_swings)
-            if pattern:
-                results.append(pattern)
+            _keep(detector(highs, lows, closes, lookback, swings=shared_swings))
+        except Exception:
+            continue  # fail-closed: skip broken detector
+    try:
+        _keep(detect_liquidity_sweep(
+            highs, lows, closes, lookback, swings=shared_swings,
+            opens=opens, volumes=volumes,
+        ))
+    except Exception:
+        pass
+    for detector in after_sweep:
+        try:
+            _keep(detector(highs, lows, closes, lookback, swings=shared_swings))
         except Exception:
             continue  # fail-closed: skip broken detector
 

@@ -970,7 +970,9 @@ class Analyzer:
                 sum(_CANDLE_STRENGTH.get(k, 1.0) for k in bearish_patterns), 2)
 
         # ── Geometric chart pattern detection (H&S, double top/bottom, flags, etc.) ──
-        chart_patterns = scan_all_chart_patterns(opens, highs, lows, closes)
+        chart_patterns = scan_all_chart_patterns(
+            opens, highs, lows, closes, volumes=volumes,
+        )
         if chart_patterns:
             Analyzer._extract_pattern_indicators(indicators, chart_patterns)
 
@@ -5150,7 +5152,9 @@ class Analyzer:
             except Exception:
                 pass
             try:
-                gp = scan_all_chart_patterns(opens, highs, lows, closes)
+                gp = scan_all_chart_patterns(
+                    opens, highs, lows, closes, volumes=volumes,
+                )
                 if gp:
                     # Parity (tuning audit): derive the TYPED pattern keys so
                     # the pattern-family voters fire in /scan scoring exactly

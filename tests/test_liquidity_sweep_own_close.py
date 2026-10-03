@@ -1,63 +1,256 @@
-"""
-Liquidity sweep checks the sweeping bar's OWN close (deep-audit medium).
+"""The chart-pattern sweep is liquidity_sweep.detect_sweeps.
 
-A sweep-and-reclaim is a property of ONE bar: it wicks through a swing level AND
-closes back on the right side. The detector verified the reclaim with the LATEST
-close (closes[-1]) even for a candidate bar 2-3 back, so an old bar's wick plus
-the current bar's position could fire a false sweep. With LIQUIDITY_SWEEP_OWN_CLOSE
-on, each candidate bar is checked against its own close. Default OFF is
-byte-identical.
-
-Data layout (20 bars, lookback 5): a single swing low of 100 at index 7 (the
-nearest swing low); the sweep candidates are the last few bars (excluded from
-swing detection).
+There used to be a second definition in detect_liquidity_sweep, switched by
+LIQUIDITY_SWEEP_OWN_CLOSE. The off position checked an older bar's wick against
+the latest close, so a wick that never reclaimed could still print a sweep.
+That switch is gone. One function decides, and a bar is a sweep only when its
+own close reclaims the level.
 """
 
 import numpy as np
 
-from bot.core.chart_patterns import detect_liquidity_sweep
+import bot.core.chart_patterns as cp
+from bot.core.chart_patterns import detect_liquidity_sweep, scan_all_chart_patterns
+from bot.core.liquidity_sweep import SweepSignal, detect_sweeps
 
 
-def _arrays(*, low18, close18, low19, close19):
-    lows = [105.0] * 20
-    closes = [105.0] * 20
-    highs = [110.0] * 20
-    lows[7] = 100.0           # swing low at index 7 → nearest_sl = 100
-    lows[18], closes[18] = low18, close18   # offset 2 candidate
-    lows[19], closes[19] = low19, close19   # offset 1 (latest) candidate
-    return np.array(highs), np.array(lows), np.array(closes)
+def _book(*, kind, close, low=None, high=None, volume=10.0):
+    """40 bars. One swing at index 15, one candidate at index 37."""
+    n = 40
+    closes = np.full(n, 100.0)
+    opens = np.full(n, 100.0)
+    volumes = np.full(n, 10.0)
+    if kind == "bull":
+        highs = np.full(n, 100.5)
+        lows = np.full(n, 100.0)
+        lows[15] = 99.0
+        lows[37] = 98.7 if low is None else low
+        highs[37] = 100.4
+    else:
+        highs = np.full(n, 100.0)
+        lows = np.full(n, 99.5)
+        highs[15] = 101.0
+        highs[37] = 101.3 if high is None else high
+        lows[37] = 99.6
+    closes[37] = close
+    opens[37] = 100.2
+    volumes[37] = volume
+    return opens, highs, lows, closes, volumes
 
 
-class TestOwnCloseGate:
-    def test_disabled_fires_false_sweep(self, monkeypatch):
-        monkeypatch.setenv("LIQUIDITY_SWEEP_OWN_CLOSE", "0")
-        # Bar -2 wicked below 100 but closed BELOW (no reclaim); the latest bar
-        # merely sits above 100. Legacy uses closes[-1] → false bullish sweep.
-        h, lw, c = _arrays(low18=99.0, close18=99.5, low19=100.5, close19=101.0)
-        res = detect_liquidity_sweep(h, lw, c)
-        assert res is not None and res["signal"] == "bullish"
+def _signal(sweep_type, description, confidence=0.62):
+    return SweepSignal(
+        sweep_type=sweep_type,
+        level_price=100.0,
+        sweep_low=99.5,
+        sweep_high=101.0,
+        close_price=100.4,
+        depth_pct=0.2,
+        reversal_strength=0.5,
+        volume_ratio=1.5,
+        level_touches=2,
+        confidence=confidence,
+        suggested_entry=100.1,
+        suggested_sl=99.2,
+        description=description,
+        bars_ago=1,
+    )
 
-    def test_enabled_rejects_false_sweep(self, monkeypatch):
-        monkeypatch.setenv("LIQUIDITY_SWEEP_OWN_CLOSE", "1")
-        # Same data: bar -2's OWN close (99.5) did NOT reclaim → no sweep.
-        h, lw, c = _arrays(low18=99.0, close18=99.5, low19=100.5, close19=101.0)
-        assert detect_liquidity_sweep(h, lw, c) is None
 
-    def test_enabled_fires_on_genuine_reclaim(self, monkeypatch):
-        monkeypatch.setenv("LIQUIDITY_SWEEP_OWN_CLOSE", "1")
-        # Bar -2 wicked below AND closed back above on its own bar → real sweep.
-        h, lw, c = _arrays(low18=99.0, close18=101.0, low19=105.0, close19=105.0)
-        res = detect_liquidity_sweep(h, lw, c)
-        assert res is not None and res["signal"] == "bullish"
-        assert res["key_levels"]["reclaim_close"] == 101.0
+class TestTheChartPatternCallsTheSweepDetector:
+    def test_a_bullish_signal_is_the_pattern(self, monkeypatch):
+        seen = {}
 
-    def test_offset1_latest_bar_identical_both_modes(self, monkeypatch):
-        # When the LATEST bar itself sweeps+reclaims, closes[-offset]==closes[-1],
-        # so both modes detect it identically.
-        kw = dict(low18=105.0, close18=105.0, low19=99.0, close19=101.0)
-        monkeypatch.setenv("LIQUIDITY_SWEEP_OWN_CLOSE", "0")
-        off = detect_liquidity_sweep(*_arrays(**kw))
-        monkeypatch.setenv("LIQUIDITY_SWEEP_OWN_CLOSE", "1")
-        on = detect_liquidity_sweep(*_arrays(**kw))
-        assert off is not None and on is not None
-        assert off["signal"] == on["signal"] == "bullish"
+        def fake(opens, highs, lows, closes, volumes, **kwargs):
+            seen["ohlcv"] = (opens, highs, lows, closes, volumes)
+            seen["kwargs"] = kwargs
+            return [_signal("bullish_sweep", "Bullish liquidity sweep: planted")]
+
+        monkeypatch.setattr(cp, "detect_sweeps", fake)
+        opens, highs, lows, closes, volumes = _book(kind="bull", close=99.5)
+        res = detect_liquidity_sweep(
+            highs, lows, closes, lookback=3, swings={"swing_lows": [(1, 1.0)]},
+            opens=opens, volumes=volumes,
+        )
+        assert res is not None
+        assert res["signal"] == "bullish"
+        assert res["name"] == "Liquidity Sweep (Bullish)"
+        assert res["description"] == "Bullish liquidity sweep: planted"
+        assert res["confidence"] == 0.62
+        assert res["key_levels"]["swept_level"] == 100.0
+        assert res["key_levels"]["reclaim_close"] == 100.4
+        assert res["key_levels"]["wick_low"] == 99.5
+        assert seen["ohlcv"][1] is highs
+        assert seen["ohlcv"][4] is volumes
+        # The chart lookback is a swing order, not the sweep window.
+        assert "lookback" not in seen["kwargs"]
+
+    def test_a_bearish_signal_is_the_pattern(self, monkeypatch):
+        monkeypatch.setattr(
+            cp, "detect_sweeps",
+            lambda *a, **k: [_signal("bearish_sweep", "Bearish liquidity sweep: planted")],
+        )
+        opens, highs, lows, closes, volumes = _book(kind="bear", close=100.4)
+        res = detect_liquidity_sweep(highs, lows, closes, opens=opens, volumes=volumes)
+        assert res is not None
+        assert res["signal"] == "bearish"
+        assert res["name"] == "Liquidity Sweep (Bearish)"
+        assert res["key_levels"]["wick_high"] == 101.0
+        assert res["description"] == "Bearish liquidity sweep: planted"
+
+    def test_no_signal_is_no_pattern(self, monkeypatch):
+        monkeypatch.setattr(cp, "detect_sweeps", lambda *a, **k: [])
+        opens, highs, lows, closes, volumes = _book(kind="bull", close=99.5)
+        assert detect_liquidity_sweep(
+            highs, lows, closes, opens=opens, volumes=volumes,
+        ) is None
+
+    def test_an_unknown_sweep_type_is_not_filed_as_bearish(self, monkeypatch):
+        monkeypatch.setattr(
+            cp, "detect_sweeps",
+            lambda *a, **k: [_signal("sideways", "not a direction")],
+        )
+        opens, highs, lows, closes, volumes = _book(kind="bull", close=99.5)
+        assert detect_liquidity_sweep(
+            highs, lows, closes, opens=opens, volumes=volumes,
+        ) is None
+
+
+class TestOneDefinitionOnTheBars:
+    def test_bullish_pattern_matches_the_detector(self):
+        opens, highs, lows, closes, volumes = _book(kind="bull", close=99.5)
+        sigs = detect_sweeps(opens, highs, lows, closes, volumes)
+        res = detect_liquidity_sweep(
+            highs, lows, closes, opens=opens, volumes=volumes,
+        )
+        assert sigs and res is not None
+        assert res["signal"] == "bullish"
+        assert res["confidence"] == sigs[0].confidence
+        assert res["description"] == sigs[0].description
+        assert res["key_levels"]["swept_level"] == sigs[0].level_price
+        assert res["key_levels"]["reclaim_close"] == sigs[0].close_price
+        assert res["key_levels"]["reclaim_close"] != 0
+
+    def test_bearish_pattern_matches_the_detector(self):
+        opens, highs, lows, closes, volumes = _book(kind="bear", close=100.4)
+        sigs = detect_sweeps(opens, highs, lows, closes, volumes)
+        res = detect_liquidity_sweep(
+            highs, lows, closes, opens=opens, volumes=volumes,
+        )
+        assert sigs and res is not None
+        assert res["signal"] == "bearish"
+        assert res["description"] == sigs[0].description
+        assert res["key_levels"]["swept_level"] == sigs[0].level_price
+        assert res["key_levels"]["reclaim_close"] == sigs[0].close_price
+
+    def test_a_wick_that_does_not_reclaim_on_its_own_bar_is_not_a_sweep(self, monkeypatch):
+        # Latest close sits back above the level. The wick bar itself closed
+        # below. The retired off-switch used to call that a bullish sweep.
+        opens, highs, lows, closes, volumes = _book(kind="bull", close=98.85)
+        closes[-1] = 101.0
+        for flag in ("0", "1"):
+            monkeypatch.setenv("LIQUIDITY_SWEEP_OWN_CLOSE", flag)
+            assert detect_sweeps(opens, highs, lows, closes, volumes) == []
+            assert detect_liquidity_sweep(
+                highs, lows, closes, opens=opens, volumes=volumes,
+            ) is None
+
+    def test_an_unreadable_close_is_not_a_sweep_and_not_zero(self):
+        opens, highs, lows, closes, volumes = _book(kind="bull", close=99.5)
+        readable = detect_liquidity_sweep(
+            highs, lows, closes, opens=opens, volumes=volumes,
+        )
+        assert readable is not None
+        assert readable["key_levels"]["reclaim_close"] == 99.5
+        closes[37] = np.nan
+        assert detect_sweeps(opens, highs, lows, closes, volumes) == []
+        assert detect_liquidity_sweep(
+            highs, lows, closes, opens=opens, volumes=volumes,
+        ) is None
+
+    def test_absent_volume_is_not_printed_as_a_multiple(self):
+        opens, highs, lows, closes, volumes = _book(kind="bull", close=99.5, volume=80.0)
+        with_vol = detect_liquidity_sweep(
+            highs, lows, closes, opens=opens, volumes=volumes,
+        )
+        without = detect_liquidity_sweep(highs, lows, closes, opens=opens)
+        assert with_vol is not None and without is not None
+        assert "vol " in with_vol["description"]
+        assert "vol " not in without["description"]
+        assert with_vol["confidence"] > without["confidence"]
+        bare = detect_sweeps(opens, highs, lows, closes, None)
+        measured = detect_sweeps(opens, highs, lows, closes, volumes)
+        assert bare and bare[0].volume_ratio is None
+        assert measured and measured[0].volume_ratio is not None
+        from bot.formatters.market_cards import render_sweeps
+        quiet = render_sweeps("BTC/USDT", 100.0, bare)
+        loud = render_sweeps("BTC/USDT", 100.0, measured)
+        assert "vol   —" in quiet
+        assert "vol   —" not in loud
+        assert "×" in loud
+
+    def test_a_supplied_swing_map_cannot_invent_or_hide_a_sweep(self):
+        opens, highs, lows, closes, volumes = _book(kind="bull", close=99.5)
+        bogus = {"swing_highs": [], "swing_lows": [(7, 50.0)]}
+        plain = detect_liquidity_sweep(
+            highs, lows, closes, opens=opens, volumes=volumes,
+        )
+        forced = detect_liquidity_sweep(
+            highs, lows, closes, swings=bogus, opens=opens, volumes=volumes,
+        )
+        assert plain == forced
+        assert plain is not None and plain["key_levels"]["swept_level"] != 50.0
+
+        # A 1% pierce of a handed-in level used to be enough. The one
+        # definition's tolerance refuses it, and the handed-in swings do not
+        # overrule that.
+        opens, highs, lows, closes, volumes = _book(kind="bull", close=101.0, low=98.0)
+        # 98 vs the real swing at 99 is more than half a percent, so the
+        # detector is silent. A caller-supplied swing at 100 would have fired
+        # under the old chart-pattern rule (low < 100 * 0.998, close > 100).
+        assert detect_sweeps(opens, highs, lows, closes, volumes) == []
+        assert detect_liquidity_sweep(
+            highs, lows, closes,
+            swings={"swing_highs": [], "swing_lows": [(15, 100.0)]},
+            opens=opens, volumes=volumes,
+        ) is None
+
+    def test_a_short_series_is_absent(self):
+        closes = np.full(10, 100.0)
+        highs = closes + 1
+        lows = closes - 1
+        assert detect_liquidity_sweep(highs, lows, closes) is None
+
+
+class TestTheScanHandsTheSweepItsMeasurements:
+    def test_measured_volume_is_passed_through(self, monkeypatch):
+        seen = {}
+
+        def fake(opens, highs, lows, closes, volumes, **kwargs):
+            seen["volumes"] = volumes
+            seen["opens"] = opens
+            return []
+
+        monkeypatch.setattr(cp, "detect_sweeps", fake)
+        n = 25
+        opens = np.ones(n)
+        highs = opens + 1
+        lows = opens - 0.5
+        closes = opens.copy()
+        volumes = np.full(n, 3.0)
+        scan_all_chart_patterns(opens, highs, lows, closes, volumes=volumes)
+        assert seen["opens"] is opens
+        assert seen["volumes"] is volumes
+
+    def test_absent_volume_is_passed_as_absent(self, monkeypatch):
+        seen = {}
+
+        def fake(opens, highs, lows, closes, volumes, **kwargs):
+            seen["volumes"] = volumes
+            return []
+
+        monkeypatch.setattr(cp, "detect_sweeps", fake)
+        n = 25
+        opens = np.ones(n)
+        scan_all_chart_patterns(opens, opens + 1, opens - 0.5, opens.copy())
+        assert seen["volumes"] is None
