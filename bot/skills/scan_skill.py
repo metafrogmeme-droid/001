@@ -1430,7 +1430,7 @@ async def _scan_symbol(exchange, symbol: str, analyzer=None) -> Optional[dict]:
                 engine_dir = read.get("regime")
         except Exception:
             pass
-    patterns = scan_all_chart_patterns(o, h, l, c)
+    patterns = scan_all_chart_patterns(o, h, l, c, volumes=v)
     # 24h change (~6 bars of 4h) for the scan display. The formatters already
     # read "change_pct"; without this it was always 0 → the %-change was never
     # shown (deep-audit low: dead change_str).

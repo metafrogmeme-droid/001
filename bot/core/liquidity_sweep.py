@@ -20,6 +20,7 @@ Scoring factors:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -35,7 +36,7 @@ class SweepSignal:
     close_price: float       # close of sweep candle
     depth_pct: float         # how far past the level (%)
     reversal_strength: float # 0-1, how strongly price reversed
-    volume_ratio: float      # sweep candle volume / average volume
+    volume_ratio: float | None  # sweep volume / average, or None when volume was not read
     level_touches: int       # how many times this level was tested before
     confidence: float        # 0-1 overall signal confidence
     suggested_entry: float   # recommended entry price
@@ -75,39 +76,53 @@ def _count_touches(prices: np.ndarray, level: float, tolerance_pct: float = 0.3)
 
 
 def detect_sweeps(
-    opens: np.ndarray,
+    opens: np.ndarray | None,
     highs: np.ndarray,
     lows: np.ndarray,
     closes: np.ndarray,
-    volumes: np.ndarray,
+    volumes: np.ndarray | None,
     lookback: int = 50,
     sweep_tolerance_pct: float = 0.5,
 ) -> list[SweepSignal]:
     """Detect liquidity sweep patterns in recent price action.
 
     Args:
-        opens, highs, lows, closes, volumes: OHLCV arrays
+        opens, highs, lows, closes, volumes: OHLCV arrays. Opens and volumes
+            may be omitted. A missing open skips the wick bonus. A missing
+            volume is left out of the score and the sentence — it is not
+            recorded as 1.0× average.
         lookback: bars to analyze
         sweep_tolerance_pct: max % past level to count as sweep (not breakdown)
 
     Returns:
         List of SweepSignal objects, sorted by confidence.
+
+    A bar whose low, high or close is not a finite number is not a sweep.
+    An unreadable close is not a reclaim of 0.
     """
     signals: list[SweepSignal] = []
 
-    n = min(len(opens), len(highs), len(lows), len(closes), len(volumes))
+    lengths = [len(highs), len(lows), len(closes)]
+    if opens is not None:
+        lengths.append(len(opens))
+    if volumes is not None:
+        lengths.append(len(volumes))
+    n = min(lengths)
     if n < 20:
         return signals
 
     # Use lookback window
     start = max(0, n - lookback)
-    o = opens[start:n]
+    o = opens[start:n] if opens is not None else None
     h = highs[start:n]
     l = lows[start:n]
     c = closes[start:n]
-    v = volumes[start:n]
+    v = volumes[start:n] if volumes is not None else None
 
-    avg_vol = float(np.mean(v)) if len(v) > 0 else 1.0
+    if v is None:
+        avg_vol = None
+    else:
+        avg_vol = float(np.mean(v)) if len(v) > 0 else 1.0
     avg_range = float(np.mean(h - l)) if len(h) > 0 else 1.0
 
     # Find key levels (swing lows and highs)
@@ -124,8 +139,15 @@ def detect_sweeps(
         bar_low = float(l[bar_idx])
         bar_high = float(h[bar_idx])
         bar_close = float(c[bar_idx])
-        bar_open = float(o[bar_idx])
-        bar_vol = float(v[bar_idx])
+        bar_open = float(o[bar_idx]) if o is not None else None
+        bar_vol = float(v[bar_idx]) if v is not None else None
+        # An unreadable bar is not a sweep, and not a reclaim printed as 0.
+        if not (
+            math.isfinite(bar_low)
+            and math.isfinite(bar_high)
+            and math.isfinite(bar_close)
+        ):
+            continue
         bar_range = bar_high - bar_low
 
         if bar_range <= 0:
@@ -148,8 +170,11 @@ def detect_sweeps(
                     close_above = bar_close - sw_price
                     reversal = min(1.0, close_above / (total_wick_below + 1e-10))
 
-                    # Volume ratio
-                    vol_ratio = bar_vol / avg_vol if avg_vol > 0 else 1.0
+                    # Volume ratio. Absent volume adds nothing and is not stored as 1.
+                    if v is None or bar_vol is None or avg_vol is None:
+                        vol_ratio = None
+                    else:
+                        vol_ratio = bar_vol / avg_vol if avg_vol > 0 else 1.0
 
                     # Count prior touches of this level
                     touches = _count_touches(l[:sw_idx], sw_price)
@@ -157,15 +182,17 @@ def detect_sweeps(
                     # Confidence scoring
                     conf = 0.50
                     conf += min(0.15, reversal * 0.15)           # strong reversal
-                    conf += min(0.10, (vol_ratio - 1) * 0.05)   # high volume
+                    if vol_ratio is not None:
+                        conf += min(0.10, (vol_ratio - 1) * 0.05)  # high volume
                     conf += min(0.10, touches * 0.03)            # many touches = more stops
                     conf += min(0.05, depth_pct * 0.1)           # deeper sweep = more stops grabbed
 
-                    # Wick ratio: long lower wick = bullish
-                    lower_wick = min(bar_open, bar_close) - bar_low
-                    wick_ratio = lower_wick / bar_range if bar_range > 0 else 0
-                    if wick_ratio > 0.6:
-                        conf += 0.05  # pin bar / hammer
+                    # Wick ratio: long lower wick = bullish. No open, no wick bonus.
+                    if bar_open is not None:
+                        lower_wick = min(bar_open, bar_close) - bar_low
+                        wick_ratio = lower_wick / bar_range if bar_range > 0 else 0
+                        if wick_ratio > 0.6:
+                            conf += 0.05  # pin bar / hammer
 
                     conf = min(0.95, conf)
 
@@ -182,15 +209,25 @@ def detect_sweeps(
                         close_price=bar_close,
                         depth_pct=round(depth_pct, 3),
                         reversal_strength=round(reversal, 3),
-                        volume_ratio=round(vol_ratio, 2),
+                        volume_ratio=(
+                            round(vol_ratio, 2) if vol_ratio is not None else None
+                        ),
                         level_touches=touches,
                         confidence=round(conf, 3),
                         suggested_entry=round(entry, 8),
                         suggested_sl=round(sl, 8),
                         description=(
-                            f"Bullish liquidity sweep: swept ${sw_price:,.4f} by {depth_pct:.2f}%, "
-                            f"reversed {reversal:.0%}, vol {vol_ratio:.1f}x avg, "
-                            f"{touches} prior touches"
+                            (
+                                f"Bullish liquidity sweep: swept ${sw_price:,.4f} by {depth_pct:.2f}%, "
+                                f"reversed {reversal:.0%}, vol {vol_ratio:.1f}x avg, "
+                                f"{touches} prior touches"
+                            )
+                            if vol_ratio is not None
+                            else (
+                                f"Bullish liquidity sweep: swept ${sw_price:,.4f} by {depth_pct:.2f}%, "
+                                f"reversed {reversal:.0%}, "
+                                f"{touches} prior touches"
+                            )
                         ),
                     ))
 
@@ -208,19 +245,24 @@ def detect_sweeps(
                     close_below = sw_price - bar_close
                     reversal = min(1.0, close_below / (total_wick_above + 1e-10))
 
-                    vol_ratio = bar_vol / avg_vol if avg_vol > 0 else 1.0
+                    if v is None or bar_vol is None or avg_vol is None:
+                        vol_ratio = None
+                    else:
+                        vol_ratio = bar_vol / avg_vol if avg_vol > 0 else 1.0
                     touches = _count_touches(h[:sw_idx], sw_price)
 
                     conf = 0.50
                     conf += min(0.15, reversal * 0.15)
-                    conf += min(0.10, (vol_ratio - 1) * 0.05)
+                    if vol_ratio is not None:
+                        conf += min(0.10, (vol_ratio - 1) * 0.05)
                     conf += min(0.10, touches * 0.03)
                     conf += min(0.05, depth_pct * 0.1)
 
-                    upper_wick = bar_high - max(bar_open, bar_close)
-                    wick_ratio = upper_wick / bar_range if bar_range > 0 else 0
-                    if wick_ratio > 0.6:
-                        conf += 0.05
+                    if bar_open is not None:
+                        upper_wick = bar_high - max(bar_open, bar_close)
+                        wick_ratio = upper_wick / bar_range if bar_range > 0 else 0
+                        if wick_ratio > 0.6:
+                            conf += 0.05
 
                     conf = min(0.95, conf)
 
@@ -236,14 +278,23 @@ def detect_sweeps(
                         close_price=bar_close,
                         depth_pct=round(depth_pct, 3),
                         reversal_strength=round(reversal, 3),
-                        volume_ratio=round(vol_ratio, 2),
+                        volume_ratio=(
+                            round(vol_ratio, 2) if vol_ratio is not None else None
+                        ),
                         level_touches=touches,
                         confidence=round(conf, 3),
                         suggested_entry=round(entry, 8),
                         suggested_sl=round(sl, 8),
                         description=(
-                            f"Bearish liquidity sweep: swept ${sw_price:,.4f} by {depth_pct:.2f}%, "
-                            f"reversed {reversal:.0%}, vol {vol_ratio:.1f}x avg"
+                            (
+                                f"Bearish liquidity sweep: swept ${sw_price:,.4f} by {depth_pct:.2f}%, "
+                                f"reversed {reversal:.0%}, vol {vol_ratio:.1f}x avg"
+                            )
+                            if vol_ratio is not None
+                            else (
+                                f"Bearish liquidity sweep: swept ${sw_price:,.4f} by {depth_pct:.2f}%, "
+                                f"reversed {reversal:.0%}"
+                            )
                         ),
                     ))
 

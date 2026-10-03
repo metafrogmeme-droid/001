@@ -1,7 +1,7 @@
 {
   "agent_id": "full-scan",
   "bars": 1500,
-  "code_sha": "baecea5b4d7168996c65d8645cfc410d3043f3c0",
+  "code_sha": "033f727efb774820efe522f060d87c2fffbea81e",
   "dataset": "majors_1h",
   "dataset_hash": "8dbe73514ce8d2aeecd767a193c005cd1a179221bdce5df2cbe4ded2886bde36",
   "engine": "runeclaw.backtest",
@@ -17,28 +17,28 @@
   },
   "honest": true,
   "measured": {
-    "calmar_ratio": -5.58,
-    "max_drawdown_pct": 5.48,
-    "profit_factor": 0.19,
-    "sharpe_ratio": -5.39,
-    "sortino_ratio": -1.4,
-    "total_return_pct": -5.24,
-    "total_trades": 14,
-    "win_rate": 0.4286
+    "calmar_ratio": -5.52,
+    "max_drawdown_pct": 4.39,
+    "profit_factor": 0.21,
+    "sharpe_ratio": -5.22,
+    "sortino_ratio": -1.21,
+    "total_return_pct": -4.15,
+    "total_trades": 11,
+    "win_rate": 0.3636
   },
   "metrics": {
-    "calmar_ratio": -5.58,
-    "max_drawdown_pct": 5.48,
-    "profit_factor": 0.19,
-    "sharpe_ratio": -5.39,
-    "sortino_ratio": -1.4,
-    "total_return_pct": -5.24,
-    "total_trades": 14,
-    "win_rate": 0.4286
+    "calmar_ratio": -5.52,
+    "max_drawdown_pct": 4.39,
+    "profit_factor": 0.21,
+    "sharpe_ratio": -5.22,
+    "sortino_ratio": -1.21,
+    "total_return_pct": -4.15,
+    "total_trades": 11,
+    "win_rate": 0.3636
   },
   "note": "Design backtest on FROZEN benchmark data \u2014 percent/ratio only, never a dollar figure. Re-run the identical backtest in the Strategy Lab to reproduce.",
   "preset": "full scan",
-  "recorded_at": "2026-10-01T16:18:03+00:00",
+  "recorded_at": "2026-10-03T17:59:25+00:00",
   "symbols": [
     "BTC/USDT:USDT",
     "ETH/USDT:USDT",
@@ -96,16 +96,6 @@
       "volume_spike_ratio": 0.385
     },
     {
-      "confidence": 0.65,
-      "direction": "LONG",
-      "exit_reason": "SL",
-      "pnl_pct": 0.14,
-      "regime": "TREND_UP",
-      "setup": "swing",
-      "signal_type": "momentum_confluence",
-      "volume_spike_ratio": 1.149
-    },
-    {
       "confidence": 0.71,
       "direction": "LONG",
       "exit_reason": "SL",
@@ -126,30 +116,10 @@
       "volume_spike_ratio": 3.654
     },
     {
-      "confidence": 0.76,
-      "direction": "LONG",
-      "exit_reason": "SL",
-      "pnl_pct": 0.36,
-      "regime": "TREND_UP",
-      "setup": "swing",
-      "signal_type": "momentum_confluence",
-      "volume_spike_ratio": 0.474
-    },
-    {
-      "confidence": 0.65,
-      "direction": "LONG",
-      "exit_reason": "SL",
-      "pnl_pct": -1.13,
-      "regime": "RANGE",
-      "setup": "swing",
-      "signal_type": "momentum_confluence",
-      "volume_spike_ratio": 0.497
-    },
-    {
       "confidence": 0.87,
       "direction": "SHORT",
       "exit_reason": "SL",
-      "pnl_pct": 0.27,
+      "pnl_pct": 0.29,
       "regime": "EXPANSION",
       "setup": "swing",
       "signal_type": "momentum_confluence",
@@ -166,14 +136,14 @@
       "volume_spike_ratio": 2.197
     },
     {
-      "confidence": 0.69,
-      "direction": "SHORT",
+      "confidence": 0.62,
+      "direction": "LONG",
       "exit_reason": "SL",
-      "pnl_pct": -1.67,
-      "regime": "TREND_DOWN",
+      "pnl_pct": -0.95,
+      "regime": "TREND_UP",
       "setup": "swing",
       "signal_type": "momentum_confluence",
-      "volume_spike_ratio": 1.237
+      "volume_spike_ratio": 0.781
     },
     {
       "confidence": 0.7,

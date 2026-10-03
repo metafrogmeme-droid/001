@@ -4097,7 +4097,9 @@ class DeepScanSkill(BaseSkill):
             chg = (closes[-1] - closes[-2]) / closes[-2] * 100 if closes[-2] != 0 else 0
 
             # Chart patterns
-            chart_patterns = scan_all_chart_patterns(opens, highs, lows, closes)
+            chart_patterns = scan_all_chart_patterns(
+                opens, highs, lows, closes, volumes=volumes,
+            )
 
             # Candlestick patterns
             candle_patterns = _detect_candlestick_patterns(opens, highs, lows, closes)

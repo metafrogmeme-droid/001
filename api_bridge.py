@@ -639,7 +639,9 @@ async def _scan_single(symbol: str, timeframe: str, limit: int) -> dict | None:
 
     # Chart patterns
     try:
-        chart_pats = scan_all_chart_patterns(opens, highs, lows, closes, lookback=5)
+        chart_pats = scan_all_chart_patterns(
+            opens, highs, lows, closes, lookback=5, volumes=volumes,
+        )
     except Exception:
         chart_pats = []
 
@@ -878,10 +880,13 @@ async def patterns(symbol: str = "", timeframe: str = "1h", limit: int = 100, _r
     highs = candles[:, 2].astype(float)
     lows = candles[:, 3].astype(float)
     closes = candles[:, 4].astype(float)
+    volumes = candles[:, 5].astype(float)
 
     # Chart patterns (geometric)
     try:
-        chart_pats = scan_all_chart_patterns(opens, highs, lows, closes, lookback=5)
+        chart_pats = scan_all_chart_patterns(
+            opens, highs, lows, closes, lookback=5, volumes=volumes,
+        )
     except Exception:
         chart_pats = []
 

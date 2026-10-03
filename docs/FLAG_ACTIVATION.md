@@ -64,7 +64,6 @@ backtest (`python -m bot.backtest.runner`, honest `data_source`) to compare.
 OF_FUNDING_VOTE_FIXED_SCALE=1      # funding confluence vote actually contributes (default ON)
 VWAP_SESSION_ANCHORED=1            # vwap voters use session-anchored VWAP (default ON)
 LEADING_DIAGONAL_PRETREND_FIX=1    # stricter leading-diagonal detection (default ON)
-LIQUIDITY_SWEEP_OWN_CLOSE=1        # stricter liquidity-sweep detection (default ON)
 OF_TIME_BARS_ENABLED=1             # taker 3-bar gate becomes time-aware (default ON)
 PATTERN_ATR_TOLERANCES_ENABLED=1   # H&S / double-top symmetry tolerance scales with
                                    # ATR — only ever tightens the fixed 5%/3% gate (default ON)
