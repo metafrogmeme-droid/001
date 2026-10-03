@@ -15,6 +15,7 @@ skipping. The fallback paths and async send are still tested regardless: the
 """
 import functools
 import math
+import time
 
 from bot.skills import chart_renderer as cr
 from tests.dep_policy import require
@@ -322,6 +323,218 @@ async def test_send_idea_chart_draws_levels_and_sends():
     sent = await cr.send_idea_chart(FakeBot(), 42, _candles(), idea)
     assert sent is True
     assert "BTC" in captured["caption"] and "LONG" in captured["caption"]
+
+
+_H = 3_600_000
+_DAY0 = 1_784_900_000_000 - (1_784_900_000_000 % 86_400_000)
+
+
+def _path(waypoints):
+    """Piecewise candles through [bar_index, price], tiny wicks, volume 1."""
+    out = []
+    for w in range(len(waypoints) - 1):
+        i0, p0 = waypoints[w]
+        i1, p1 = waypoints[w + 1]
+        for i in range(i0, i1):
+            p = p0 + (p1 - p0) * ((i - i0) / (i1 - i0))
+            out.append([_DAY0 + i * _H, p, p + 0.5, p - 0.5, p, 1.0])
+    i_last, p_last = waypoints[-1]
+    out.append([_DAY0 + i_last * _H, p_last, p_last + 0.5, p_last - 0.5, p_last, 1.0])
+    return out
+
+
+def _forming_break():
+    """A settled series with no BOS, then one bar whose close breaks the swing.
+
+    The added bar's own high stays under the level that would become the new
+    pivot, so the break vanishes only because the bar is still forming.
+    Volume on that bar is large enough that a VWAP which included it would
+    move.
+    """
+    settled = _path([[0, 100], [5, 90], [12, 110], [19, 95], [26, 115], [32, 108], [38, 114.9]])
+    open_ms = settled[-1][0] + _H
+    forming = settled + [[open_ms, 114.9, 116.8, 114.8, 116.5, 100.0]]
+    return settled, forming, open_ms
+
+
+def _bos(df, timeframe, now_ms):
+    frame = cr.closed_overlay_frame(df, timeframe, now_ms)
+    return [ln["label"] for ln in cr._market_structure_lines(frame)], len(frame)
+
+
+@needs_charts
+def test_a_forming_bar_that_breaks_a_swing_is_not_a_bos_until_it_closes():
+    _settled, forming, open_ms = _forming_break()
+    df = cr.compute_chart_indicators(forming)
+    live = open_ms + 1000
+    labels, n = _bos(df, "1h", live)
+    assert "BOS" not in labels
+    assert n == len(df) - 1
+    # Bitget's token for fifteen minutes. A bar opened a second ago is still
+    # forming under that spelling too.
+    labels_min, n_min = _bos(df, "15min", live)
+    assert "BOS" not in labels_min and n_min == len(df) - 1
+    closed, n_closed = _bos(df, "1h", open_ms + _H)
+    assert "BOS" in closed and n_closed == len(df)
+    # No timeframe, or one this parser does not know, leaves the series alone.
+    named, n_named = _bos(df, None, live)
+    unknown, n_unknown = _bos(df, "not-a-tf", live)
+    assert "BOS" in named and n_named == len(df)
+    assert "BOS" in unknown and n_unknown == len(df)
+
+
+@needs_charts
+def test_an_unreadable_open_or_clock_is_not_the_epoch():
+    _settled, forming, open_ms = _forming_break()
+    df = cr.compute_chart_indicators(forming)
+    # NaT is not time 0. now=1000 would drop a bar opened at the epoch
+    # (1000 < 0 + 1h) and hide the break.
+    import pandas as pd
+    blank = df.copy()
+    idx = list(blank.index)
+    idx[-1] = pd.NaT
+    blank.index = pd.DatetimeIndex(idx)
+    labels, n = _bos(blank, "1h", 1000)
+    assert n == len(blank)
+    assert "BOS" in labels
+    # A row number is not an open time either.
+    ranged = df.copy()
+    ranged.index = range(len(ranged))
+    labels_r, n_r = _bos(ranged, "1h", 1000)
+    assert n_r == len(ranged) and "BOS" in labels_r
+    # A missing clock is the wall clock. This break closed in July 2026, so
+    # a clock of 0 would still call the bar forming and drop the BOS.
+    labels_now, n_now = _bos(df, "1h", None)
+    assert n_now == len(df) and "BOS" in labels_now
+    # The other arm: a bar that opened this instant is still forming.
+    fresh = df.copy()
+    now = time.time() * 1000.0
+    shift = now - fresh.index[-1].value / 1_000_000.0
+    fresh.index = fresh.index + pd.to_timedelta(shift, unit="ms")
+    _labels_fresh, n_fresh = _bos(fresh, "1h", None)
+    assert n_fresh == len(fresh) - 1
+
+
+@needs_charts
+def test_an_unreadable_close_is_not_a_break_and_not_a_zero():
+    settled, _forming, _open_ms = _forming_break()
+    # The settled series ends inside the threshold. Its last bar has closed.
+    base = cr.compute_chart_indicators(settled)
+    closed_at = base.index[-1].value / 1_000_000.0 + _H
+    quiet, _n = _bos(base, "1h", closed_at)
+    assert "BOS" not in quiet
+    broken = base.copy()
+    broken.iloc[-1, broken.columns.get_loc("Close")] = 1.0
+    labels, n = _bos(broken, "1h", closed_at)
+    assert "BOS" in labels and n == len(broken)
+    unread = base.copy()
+    unread.iloc[-1, unread.columns.get_loc("Close")] = float("nan")
+    labels_nan, n_nan = _bos(unread, "1h", closed_at)
+    assert "BOS" not in labels_nan and n_nan == len(unread)
+    # The held VWAP of a forming bar keeps an unreadable closed value.
+    _s, forming, open_ms = _forming_break()
+    wild = cr.compute_chart_indicators(forming)
+    wild.iloc[-2, wild.columns.get_loc("VWAP")] = float("nan")
+    held = cr._vwap_on_closed_bars(wild, wild.iloc[:-1])
+    assert math.isnan(held["VWAP"].iloc[-1])
+    readable = cr.compute_chart_indicators(forming)
+    assert readable["VWAP"].iloc[-1] != readable["VWAP"].iloc[-2]
+    kept = cr._vwap_on_closed_bars(readable, readable.iloc[:-1])
+    assert kept["VWAP"].iloc[-1] == readable["VWAP"].iloc[-2]
+    untouched = cr._vwap_on_closed_bars(readable, readable)
+    assert untouched["VWAP"].iloc[-1] == readable["VWAP"].iloc[-1]
+
+
+@needs_charts
+def test_the_picture_draws_the_forming_bar_and_overlays_read_the_closed_series(monkeypatch):
+    _settled, forming, open_ms = _forming_break()
+    df = cr.compute_chart_indicators(forming)
+    raw_last = float(df["VWAP"].iloc[-1])
+    raw_prev = float(df["VWAP"].iloc[-2])
+    assert raw_last != raw_prev
+    seen = {}
+
+    def wrap(name, fn):
+        def inner(frame, *args, **kwargs):
+            seen.setdefault("lens", {})[name] = len(frame)
+            out = fn(frame, *args, **kwargs)
+            if name == "_market_structure_lines":
+                seen["lines"] = out
+            return out
+        return inner
+
+    for name in ("_market_structure_lines", "_fair_value_gaps", "_order_blocks",
+                 "_liquidity_sweep", "_swing_labels", "_elliott_wave_overlay",
+                 "_fibonacci_levels_overlay", "_pattern_zones_overlay"):
+        monkeypatch.setattr(cr, name, wrap(name, getattr(cr, name)))
+    real_plot = cr.mpf.plot
+
+    def plot_spy(data, **kwargs):
+        seen["drawn"] = len(data)
+        seen["close"] = float(data["Close"].iloc[-1])
+        seen["vwap"] = float(data["VWAP"].iloc[-1])
+        return real_plot(data, **kwargs)
+
+    monkeypatch.setattr(cr.mpf, "plot", plot_spy)
+    png = cr.render_chart_png(df, title="BTC 1h", dpi=72, timeframe="1h",
+                              now_ms=open_ms + 1000)
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    assert seen["drawn"] == len(df)
+    assert seen["close"] == float(df["Close"].iloc[-1])
+    assert seen["vwap"] == raw_prev
+    assert set(seen["lens"]) == {
+        "_market_structure_lines", "_fair_value_gaps", "_order_blocks",
+        "_liquidity_sweep", "_swing_labels", "_elliott_wave_overlay",
+        "_fibonacci_levels_overlay", "_pattern_zones_overlay",
+    }
+    assert set(seen["lens"].values()) == {len(df) - 1}
+    assert "BOS" not in [ln["label"] for ln in seen["lines"]]
+    png_closed = cr.render_chart_png(df, title="BTC 1h", dpi=72, timeframe="1h",
+                                     now_ms=open_ms + _H)
+    assert png_closed[:8] == b"\x89PNG\r\n\x1a\n"
+    assert seen["drawn"] == len(df)
+    assert seen["vwap"] == raw_last
+    assert set(seen["lens"].values()) == {len(df)}
+    assert "BOS" in [ln["label"] for ln in seen["lines"]]
+
+
+@needs_charts
+async def test_callers_that_know_a_timeframe_hand_it_to_the_chart(monkeypatch):
+    seen = []
+
+    def fake(*_args, **kwargs):
+        seen.append(kwargs.get("timeframe"))
+        return None
+
+    monkeypatch.setattr(cr, "build_chart_png", fake)
+    bot = _FakeBot()
+    idea = _idea()
+    await cr.send_idea_charts_multi(bot, 1, {"4h": _candles(), "1h": _candles()}, idea)
+    assert seen == ["4h", "1h"]
+    seen.clear()
+    await cr.build_idea_chart_composite({"15m": _candles()}, idea)
+    assert seen == ["15m"]
+    seen.clear()
+    idea.timeframe = "1h"
+    await cr.send_idea_chart(bot, 1, _candles(), idea)
+    assert seen == ["1h"]
+    seen.clear()
+    await cr.send_idea_chart(bot, 1, _candles(), _idea())
+    assert seen == [None]
+
+    import ccxt.async_support as ccxt_async
+
+    class _Exchange:
+        async def fetch_ohlcv(self, *_a, **_k):
+            return _candles()
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(ccxt_async, "bitget", lambda *_a, **_k: _Exchange())
+    seen.clear()
+    await cr.build_position_chart(bot, "BTC/USDT")
+    assert seen == ["1h"]
 
 
 @needs_charts
