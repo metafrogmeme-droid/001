@@ -958,7 +958,6 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             # A person who cannot be told the first four steps cannot take
             # them. The card names Confirm and does not tap it.
             from bot.formatters.onboarding_checklist import onboarding_checklist
-            from bot.nlp.skill_memory import routed_answer_memory
             _card = onboarding_checklist("web", tg_handler.users, tg_id)
             record_routed_turn(
                 tg_handler.conversations, tg_id, text, "onboarding",

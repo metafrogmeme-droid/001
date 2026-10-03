@@ -4155,7 +4155,6 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 # card names Confirm and does not tap it. Nothing here
                 # stages a ticket or calls the executor.
                 from bot.formatters.onboarding_checklist import onboarding_checklist
-                from bot.nlp.skill_memory import routed_answer_memory
                 _card = onboarding_checklist("telegram", self.users, tg_id)
                 await self._send(update, _card)
                 self._remember_routed(
