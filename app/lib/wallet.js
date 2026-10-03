@@ -199,10 +199,92 @@ function setTickerFetcher(fn) { fetchTickers = fn || getTickers; }
 
 const cache = new Map();   // address(lower) -> { at, portfolio }
 
+// The class name is the only text from a thrown error that a person may see.
+// `e.message` has carried library sentences ("ethers.formatEther is not a
+// function") and RPC URLs onto the portfolio card.
+function exceptionClass(e) {
+  const name = e && typeof e === 'object'
+    ? (e.name || (e.constructor && e.constructor.name))
+    : null;
+  if (typeof name === 'string' && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) return name;
+  return 'Error';
+}
+
+const FORMAT_MISSING = Symbol('formatMissing');
+
+// ethers v6: `formatEther` / `formatUnits` on the module (and on the `ethers`
+// namespace). ethers v5: `utils.formatEther`. Call whichever this install
+// actually exports. A build that has the name but not the function used to
+// throw, and the catch painted that throw on every chain.
+function formatWithInstalledEthers(mod, name, args) {
+  const objs = [mod, mod && mod.ethers, mod && mod.utils, mod && mod.ethers && mod.ethers.utils];
+  for (const obj of objs) {
+    if (obj && typeof obj[name] === 'function') return obj[name].apply(obj, args);
+  }
+  return FORMAT_MISSING;
+}
+
+function asBaseUnit(raw) {
+  if (typeof raw === 'bigint') return raw;
+  if (typeof raw === 'number') {
+    if (!Number.isSafeInteger(raw)) throw new TypeError('UnsafeInteger');
+    return BigInt(raw);
+  }
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    if (!/^(?:0x[0-9a-fA-F]+|-?\d+)$/.test(s)) throw new TypeError('BadWei');
+    return BigInt(s);
+  }
+  if (raw != null && typeof raw.toString === 'function') {
+    const s = raw.toString();
+    if (typeof s === 'string' && s !== '[object Object]') return asBaseUnit(s);
+  }
+  throw new TypeError('BadWei');
+}
+
+// Same split txray-model.js uses for 18-decimal wei, for any token decimals,
+// used only when this install exports neither formatter.
+function formatRawUnits(raw, decimals) {
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 80) {
+    throw new TypeError('BadDecimals');
+  }
+  const v0 = asBaseUnit(raw);
+  const neg = v0 < 0n;
+  const v = neg ? -v0 : v0;
+  const scale = 10n ** BigInt(decimals);
+  const whole = v / scale;
+  const frac = (v % scale).toString().padStart(decimals, '0').replace(/0+$/, '');
+  const text = frac ? `${whole.toString()}.${frac}` : whole.toString();
+  return neg ? `-${text}` : text;
+}
+
+function formatAmount(mod, raw, decimals) {
+  const places = Number(decimals);
+  if (places === 18) {
+    const eth = formatWithInstalledEthers(mod, 'formatEther', [raw]);
+    if (eth !== FORMAT_MISSING) return eth;
+  }
+  const units = formatWithInstalledEthers(mod, 'formatUnits', [raw, places]);
+  if (units !== FORMAT_MISSING) return units;
+  return formatRawUnits(raw, places);
+}
+
+function readAmount(mod, raw, decimals) {
+  const amount = parseFloat(formatAmount(mod, raw, decimals));
+  if (!Number.isFinite(amount)) throw new TypeError('UnreadableAmount');
+  return amount;
+}
+
+function ethersForContracts(mod) {
+  if (mod && mod.ethers && typeof mod.ethers.Contract === 'function') return mod.ethers;
+  return mod;
+}
+
 /** Read one chain's balances. Never throws: an unreachable RPC returns an
  * empty section flagged `error` so the multi-chain view stays honest. */
 async function readChain(chain, address, tickers) {
-  const { ethers } = require('ethers');
+  const ethersMod = require('ethers');
+  const ethers = ethersForContracts(ethersMod);
   const assets = [];
   const priceOf = (t) => {
     if (t.stable) return 1;
@@ -214,14 +296,13 @@ async function readChain(chain, address, tickers) {
     return { chain: chain.key, label: chain.label, assets: [], total_usd: 0, unpriced: 0, error: 'rpc unavailable' };
   }
   let sawError = false;
-  let errorDetail = null;   // WHY, not just THAT — see the return below.
+  let errorDetail = null;   // exception class, never the message.
   // A test factory hands back a plain provider; the default hands back a
   // rotating wrapper. Accept both.
   const active = () => (provider && provider.current) ? provider.current : provider;
   const note = (e) => {
     if (errorDetail) return;
-    const m = String((e && (e.shortMessage || e.code || e.message)) || e || '').slice(0, 90);
-    if (m) errorDetail = m;
+    errorDetail = exceptionClass(e);
   };
   // Try the current endpoint; on failure move to the next configured one and
   // try once more. Without this a single rate-limited public RPC blanks the
@@ -239,7 +320,7 @@ async function readChain(chain, address, tickers) {
   // Native coin.
   try {
     const wei = await attempt((pr) => pr.getBalance(address));
-    const amount = parseFloat(ethers.formatEther(wei));
+    const amount = readAmount(ethersMod, wei, 18);
     if (amount > 0) {
       const tk = tickers[chain.native.ticker];
       const p = tk && isFinite(tk.price) ? tk.price : null;
@@ -253,7 +334,7 @@ async function readChain(chain, address, tickers) {
     try {
       const raw = await attempt((pr) =>
         new ethers.Contract(t.address, ERC20_ABI, pr).balanceOf(address));
-      const amount = parseFloat(ethers.formatUnits(raw, t.decimals));
+      const amount = readAmount(ethersMod, raw, t.decimals);
       if (amount <= 0) continue;
       const p = priceOf(t);
       assets.push({ symbol: t.symbol, chain: chain.key, amount,
@@ -269,8 +350,8 @@ async function readChain(chain, address, tickers) {
     assets,
     total_usd: round2(priced.reduce((a, x) => a + x.usd, 0)),
     unpriced: assets.length - priced.length,
-    // "rpc unreadable" alone is unactionable: an operator cannot tell a
-    // blocked VPC egress from a 429 from a bad URL. Carry the reason.
+    // The page may say the chain is unreadable and name the exception class.
+    // It must not repeat the exception message.
     ...(sawError && !assets.length
       ? { error: 'rpc unreadable', ...(errorDetail ? { error_detail: errorDetail } : {}) }
       : {}),
