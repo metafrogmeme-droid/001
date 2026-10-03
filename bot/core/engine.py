@@ -965,6 +965,16 @@ class RuneClawEngine:
         # force_scan concurrently; both would clear+repopulate _pending_ideas. This
         # serializes force_scan against itself and against the periodic tick scan.
         self._scan_lock: asyncio.Lock = asyncio.Lock()
+        # True for the whole scan+analyze batch, including the stretch where
+        # the work is on the scan lane and this lock is NOT held. Gateway
+        # reads consult it and return the cache or "not ready"; they do not
+        # wait. None of those reads is an empty market.
+        self._scan_batch_running: bool = False
+        # Monotonic stamp of the last scan heartbeat. None until a batch
+        # stamps one. A missing stamp is unknown, not "just scanned".
+        self._scan_heartbeat_mono: float | None = None
+        # Last scan card a website read can return without exchange I/O.
+        self._gateway_scan_cache: dict | None = None
         # Hard kill-switch flag. Set by emergency_halt_all, cleared on resume, and
         # re-checked fail-closed just before executor.execute() so a confirm that
         # passed its risk gate BEFORE /halt tripped can never land an order after
@@ -5617,6 +5627,13 @@ class RuneClawEngine:
     async def stop(self) -> None:
         self._running = False
         await self.ws_feed.stop()
+        # The scan lane's exchange clients live on its loop. Close them
+        # there, then close the ones this loop opened.
+        try:
+            from bot.core.scan_lane import scan_lane
+            await scan_lane.close_scanner(self.scanner)
+        except Exception as exc:
+            logger.debug("Scan lane close skipped: %s", type(exc).__name__)
         await self.scanner.close()
         # The pusher owns an aiohttp session and a background task, and its
         # `stop()` was written and then called from nowhere — so on any boot
@@ -6091,6 +6108,93 @@ class RuneClawEngine:
         except Exception:
             pass
 
+    async def _off_gateway_loop(self, factory):
+        """Run one scan-batch coroutine on the scan lane.
+
+        ``factory`` is called on the worker loop. The await here only waits
+        for the result, so a batch that blocks its own thread does not block
+        the gateway, the market socket, or this heartbeat.
+        """
+        from bot.core.scan_lane import scan_lane
+        return await scan_lane.run(factory)
+
+    def _stamp_scan_heartbeat(self) -> None:
+        """One check-in from a batch that is still working.
+
+        This is not ``_record_sweep_complete``. That stamp means the sweep
+        finished and the freshness gate may serve its answer. This one only
+        says the scan is alive. A missing stamp stays missing.
+        """
+        self._scan_heartbeat_mono = time.monotonic()
+        try:
+            from bot.utils.website_sync import sync_scan_heartbeat
+            sync_scan_heartbeat()
+        except Exception:
+            pass
+
+    async def _scan_heartbeat_while(self, stop: asyncio.Event) -> None:
+        """Stamp on a cadence until ``stop`` is set.
+
+        The cadence is ``_scan_heartbeat_cadence_s`` when a caller sets it
+        (tests) and the production interval otherwise. A zero or missing
+        override is the production interval, not "stamp as fast as possible".
+        """
+        from bot.core.scan_lane import SCAN_HEARTBEAT_CADENCE_S
+        raw = getattr(self, "_scan_heartbeat_cadence_s", None)
+        try:
+            cadence = float(raw) if raw is not None else SCAN_HEARTBEAT_CADENCE_S
+        except (TypeError, ValueError):
+            cadence = SCAN_HEARTBEAT_CADENCE_S
+        if cadence <= 0:
+            cadence = SCAN_HEARTBEAT_CADENCE_S
+        self._stamp_scan_heartbeat()
+        while not stop.is_set():
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=cadence)
+            except asyncio.TimeoutError:
+                if not stop.is_set():
+                    self._stamp_scan_heartbeat()
+
+    async def _end_scan_batch(self, stop: asyncio.Event, task: "asyncio.Task") -> None:
+        """The batch has finished or failed. Stop stamping.
+
+        Idempotent enough to call from every exit: the flag clears, the
+        cadence task is cancelled, and a second call finds a finished task.
+        """
+        self._scan_batch_running = False
+        stop.set()
+        if not task.done():
+            task.cancel()
+        # wait(), not await task: awaiting a task we just cancelled raises
+        # CancelledError, and catching it would also swallow a cancellation
+        # of THIS tick (a stop request). wait() returns when the heartbeat
+        # task finishes and lets our own cancellation propagate.
+        await asyncio.wait({task})
+
+    def _remember_gateway_scan(self, signals) -> None:
+        """The card a website read can return without touching the exchange.
+
+        ``None`` is a scan that did not happen (a timeout). That must not
+        replace a card already on file with "nothing found". A list, including
+        an empty one, is a reading.
+        """
+        if signals is None:
+            return
+        names: list[str] = []
+        rows = list(signals)
+        for row in rows[:8]:
+            sym = getattr(row, "symbol", None)
+            if isinstance(sym, str) and sym.strip():
+                names.append(sym)
+        n = len(rows)
+        if names:
+            text = "Scan on file — " + ", ".join(names)
+            if n > len(names):
+                text += f" ({n} pairs)"
+        else:
+            text = "Scan on file — the market was read and no pairs were selected."
+        self._gateway_scan_cache = {"reply_html": text, "pairs": n}
+
     async def _tick(self) -> None:
         """One full scan-analyze cycle."""
         self._last_tick_started_ts = time.monotonic()
@@ -6194,7 +6298,7 @@ class RuneClawEngine:
         # protection unaffected) and bail; the in-flight force_scan produces this
         # cycle's ideas. Same-symbol double orders are separately impossible via
         # the per-symbol entry locks in confirm_trade.
-        if self._scan_lock.locked():
+        if self._scan_lock.locked() or getattr(self, "_scan_batch_running", False):
             self._transition(AgentState.MONITORING, "checking positions (force_scan in progress)")
             await self._phase(self._check_open_positions(), "positions (scan in progress)")
             self._transition(AgentState.IDLE, "tick cycle complete (scan in progress)")
@@ -6218,106 +6322,121 @@ class RuneClawEngine:
         # analyze phase jumped over that. See _backstop_position_monitor.
         # The timeout is recorded and surfaced — see
         # CONFIG.monitoring.tick_scan_timeout_fatal.
-        signals = await self._phase(
-            self.scanner.scan(), "scan",
-            fatal=bool(getattr(CONFIG.monitoring, "tick_scan_timeout_fatal", False)))
-        # Cache scan results for the proactive monitor (Move 2)
-        self._last_scan_signals = signals or []
-
-        # ── Structured scan logging ──
-        scan_summary = {
-            "cycle_ts": datetime.now(UTC).isoformat(),
-            "pairs_scanned": len(self._last_scan_signals),
-            "signals_found": len(signals) if signals else 0,
-            "top_signals": [
-                {
-                    "symbol": s.symbol,
-                    "price": s.price,
-                    "change_24h": round(s.change_pct_24h, 2),
-                    "volume_usd": round(s.volume_usd_24h, 0),
-                    "volume_spike": s.volume_spike,
-                    "momentum": round(s.momentum_score, 3),
-                }
-                for s in (signals or [])[:5]
-            ],
-        }
-        audit(scan_log, f"Scan cycle: {scan_summary['signals_found']} signals from market",
-              action="scan_cycle", result="OK" if signals else "NO_SIGNALS",
-              data=scan_summary)
-
-        # Public mind-stream: one compact "the agent just scanned" event per
-        # cycle (bounded queue, background flush — see bot/core/agent_feed).
+        # The batch runs on the scan lane, not on this loop. This loop is
+        # the one the website gateway and the market socket share
+        # (bot/main.py). A batch that takes minutes must not be the thing
+        # that loop is doing. The heartbeat task stays HERE, so a scan that
+        # is still working keeps stamping while the lane is busy, and stops
+        # stamping when the batch returns or is cancelled.
+        self._scan_batch_running = True
+        _hb_stop = asyncio.Event()
+        _hb = asyncio.create_task(self._scan_heartbeat_while(_hb_stop))
         try:
-            from bot.core.agent_feed import FEED
-            _feed_top = ", ".join(
-                s["symbol"] for s in scan_summary["top_signals"][:3])
-            FEED.emit(
-                "scan",
-                f"Scan complete — {scan_summary['pairs_scanned']} pairs, "
-                f"{scan_summary['signals_found']} candidate(s)",
-                body=f"Strongest momentum: {_feed_top}" if _feed_top else "",
-                data={"pairs": scan_summary["pairs_scanned"],
-                      "candidates": scan_summary["signals_found"]})
-        except Exception as _feed_exc:
-            logger.debug("Agent feed scan event skipped: %s", _feed_exc)
+            signals = await self._phase(
+                self._off_gateway_loop(lambda: self.scanner.scan()), "scan",
+                fatal=bool(getattr(CONFIG.monitoring, "tick_scan_timeout_fatal", False)))
+            # Cache scan results for the proactive monitor (Move 2)
+            self._last_scan_signals = signals or []
+            self._remember_gateway_scan(signals)
 
-        # Push a fresh regime/circuit-breaker/key-call summary every autonomous
-        # cycle. Before this, those dashboard panels only ever refreshed from a
-        # manual Telegram /scan (or DeepScanSkill/PlaybookSkill query) -- while
-        # trade/signal sync now update automatically (see _on_live_position_closed
-        # and _build_signal_sync_payloads), this summary could go stale for
-        # hours between manual scans, showing the dashboard as "disconnected"
-        # even while the bot was healthy and trading normally.
-        try:
-            # ON A WORKER THREAD, because this is not the cheap serialiser its
-            # name suggests. `_push_scan_summary_to_website` calls
-            # `_build_scan_payload`, which in live mode calls
-            # `_fetch_live_exchange_data` — SYNCHRONOUS ccxt: a balance fetch, a
-            # positions fetch and a trade-history read, each with its own HTTP
-            # timeout. Called inline from `_tick` it blocked the event loop for
-            # as long as the venue took to answer, which stalls every other
-            # coroutine on it: the stop-loss re-arm, the Telegram poller, the
-            # heartbeat the dashboard reads to decide the engine is alive. The
-            # `sync_scan_in_background` at the end of it was already off-thread,
-            # so the fire-and-forget half was covered and the expensive half was
-            # not.
-            await asyncio.to_thread(self._push_scan_summary_to_website, signals)
-        except Exception as _scan_push_exc:
-            logger.debug("Autonomous scan summary push skipped: %s", _scan_push_exc)
+            # ── Structured scan logging ──
+            scan_summary = {
+                "cycle_ts": datetime.now(UTC).isoformat(),
+                "pairs_scanned": len(self._last_scan_signals),
+                "signals_found": len(signals) if signals else 0,
+                "top_signals": [
+                    {
+                        "symbol": s.symbol,
+                        "price": s.price,
+                        "change_24h": round(s.change_pct_24h, 2),
+                        "volume_usd": round(s.volume_usd_24h, 0),
+                        "volume_spike": s.volume_spike,
+                        "momentum": round(s.momentum_score, 3),
+                    }
+                    for s in (signals or [])[:5]
+                ],
+            }
+            audit(scan_log, f"Scan cycle: {scan_summary['signals_found']} signals from market",
+                  action="scan_cycle", result="OK" if signals else "NO_SIGNALS",
+                  data=scan_summary)
 
-        if not signals:
-            # `is None`, NOT falsiness. A scan that TIMED OUT returns None here
-            # (_phase, fatal=False) and an empty list means the market was read
-            # and nothing passed the filter. Those are opposite facts and only
-            # the second one is a sweep. Stamping the first would let the
-            # freshness gate answer a tap with "swept 30s ago, nothing found"
-            # on the strength of a read that never happened.
-            if signals is not None:
-                self._record_sweep_complete(_sweep_started)
-            self._transition(AgentState.IDLE, "no signals found")
-            return
+            # Public mind-stream: one compact "the agent just scanned" event per
+            # cycle (bounded queue, background flush — see bot/core/agent_feed).
+            try:
+                from bot.core.agent_feed import FEED
+                _feed_top = ", ".join(
+                    s["symbol"] for s in scan_summary["top_signals"][:3])
+                FEED.emit(
+                    "scan",
+                    f"Scan complete — {scan_summary['pairs_scanned']} pairs, "
+                    f"{scan_summary['signals_found']} candidate(s)",
+                    body=f"Strongest momentum: {_feed_top}" if _feed_top else "",
+                    data={"pairs": scan_summary["pairs_scanned"],
+                          "candidates": scan_summary["signals_found"]})
+            except Exception as _feed_exc:
+                logger.debug("Agent feed scan event skipped: %s", _feed_exc)
 
-        self._transition(AgentState.ANALYZING, "signals detected")
+            # Push a fresh regime/circuit-breaker/key-call summary every autonomous
+            # cycle. Before this, those dashboard panels only ever refreshed from a
+            # manual Telegram /scan (or DeepScanSkill/PlaybookSkill query) -- while
+            # trade/signal sync now update automatically (see _on_live_position_closed
+            # and _build_signal_sync_payloads), this summary could go stale for
+            # hours between manual scans, showing the dashboard as "disconnected"
+            # even while the bot was healthy and trading normally.
+            try:
+                # ON A WORKER THREAD, because this is not the cheap serialiser its
+                # name suggests. `_push_scan_summary_to_website` calls
+                # `_build_scan_payload`, which in live mode calls
+                # `_fetch_live_exchange_data` — SYNCHRONOUS ccxt: a balance fetch, a
+                # positions fetch and a trade-history read, each with its own HTTP
+                # timeout. Called inline from `_tick` it blocked the event loop for
+                # as long as the venue took to answer, which stalls every other
+                # coroutine on it: the stop-loss re-arm, the Telegram poller, the
+                # heartbeat the dashboard reads to decide the engine is alive. The
+                # `sync_scan_in_background` at the end of it was already off-thread,
+                # so the fire-and-forget half was covered and the expensive half was
+                # not.
+                await asyncio.to_thread(self._push_scan_summary_to_website, signals)
+            except Exception as _scan_push_exc:
+                logger.debug("Autonomous scan summary push skipped: %s", _scan_push_exc)
 
-        # Analyze scanner-selected signals with BOUNDED concurrency. The scanner
-        # now emits a wide (~200) volume-filtered universe, so an unbounded
-        # gather would fan out hundreds of simultaneous OHLCV/order-flow/MTF
-        # fetches and hammer the exchange rate limiter. The semaphore caps
-        # in-flight analyses at CONFIG.scan_analysis_concurrency.
-        # background=True is set HERE and nowhere else. This is the autonomous
-        # tick — nobody is waiting on it — so it is the one sweep the
-        # LLM_BACKGROUND_SCANS valve may send to the rule engine. Telegram's
-        # force_scan is a sweep too but a person triggered it and is reading
-        # the answer, so it keeps the LLM; if on-demand sweeps ever need
-        # throttling that is a rate limit, not this valve.
-        results = await self._phase(
-            self._analyze_signals_batched(signals, background=True), "analyze")
-        # The sweep is done. Stamped here rather than at the end of the tick so
-        # the post-analyze work (position checks, publishing) cannot delay or
-        # skip it — and NOT reached at all when the analyze phase blows its cap,
-        # because _phase re-raises there and a sweep that was cancelled midway
-        # did not produce the answer the gate would be serving.
-        self._record_sweep_complete(_sweep_started)
+            if not signals:
+                # `is None`, NOT falsiness. A scan that TIMED OUT returns None here
+                # (_phase, fatal=False) and an empty list means the market was read
+                # and nothing passed the filter. Those are opposite facts and only
+                # the second one is a sweep. Stamping the first would let the
+                # freshness gate answer a tap with "swept 30s ago, nothing found"
+                # on the strength of a read that never happened.
+                if signals is not None:
+                    self._record_sweep_complete(_sweep_started)
+                self._transition(AgentState.IDLE, "no signals found")
+                return
+
+            self._transition(AgentState.ANALYZING, "signals detected")
+
+            # Analyze scanner-selected signals with BOUNDED concurrency. The scanner
+            # now emits a wide (~200) volume-filtered universe, so an unbounded
+            # gather would fan out hundreds of simultaneous OHLCV/order-flow/MTF
+            # fetches and hammer the exchange rate limiter. The semaphore caps
+            # in-flight analyses at CONFIG.scan_analysis_concurrency.
+            # background=True is set HERE and nowhere else. This is the autonomous
+            # tick — nobody is waiting on it — so it is the one sweep the
+            # LLM_BACKGROUND_SCANS valve may send to the rule engine. Telegram's
+            # force_scan is a sweep too but a person triggered it and is reading
+            # the answer, so it keeps the LLM; if on-demand sweeps ever need
+            # throttling that is a rate limit, not this valve.
+            results = await self._phase(
+                self._off_gateway_loop(
+                    lambda: self._analyze_signals_batched(signals, background=True)),
+                "analyze")
+            # The sweep is done. Stamped here rather than at the end of the tick so
+            # the post-analyze work (position checks, publishing) cannot delay or
+            # skip it — and NOT reached at all when the analyze phase blows its cap,
+            # because _phase re-raises there and a sweep that was cancelled midway
+            # did not produce the answer the gate would be serving.
+            self._record_sweep_complete(_sweep_started)
+        finally:
+            await self._end_scan_batch(_hb_stop, _hb)
         _synced_ideas = []
         for idea in results:
             if idea:
@@ -9332,28 +9451,54 @@ class RuneClawEngine:
         self._engine_idea_ids.clear()
         self._cooldown_until = 0.0
 
-        # Run scan
+        # Run scan. Off the gateway loop when this engine has the lane
+        # (every real engine does). A host that only borrowed this method
+        # for a unit test keeps the inline call: it has no lane, and the
+        # scan it stubbed is not the three-minute batch.
+        _off = getattr(self, "_off_gateway_loop", None)
+        _beat = getattr(self, "_scan_heartbeat_while", None)
+        _hb_stop: asyncio.Event | None = None
+        _hb: asyncio.Task | None = None
+        if callable(_beat):
+            self._scan_batch_running = True
+            _hb_stop = asyncio.Event()
+            _hb = asyncio.create_task(self._scan_heartbeat_while(_hb_stop))
         self._transition(AgentState.SCANNING, "force scan")
         try:
-            signals = await self.scanner.scan()
-            self._last_scan_signals = signals or []
-        except Exception as exc:
-            self._transition(AgentState.IDLE, "force scan error")
-            return {"error": str(exc), "signals": 0, "ideas": 0}
+            try:
+                if callable(_off):
+                    signals = await _off(lambda: self.scanner.scan())
+                else:
+                    signals = await self.scanner.scan()
+                self._last_scan_signals = signals or []
+                _remember = getattr(self, "_remember_gateway_scan", None)
+                if callable(_remember):
+                    _remember(signals)
+            except Exception as exc:
+                self._transition(AgentState.IDLE, "force scan error")
+                return {"error": str(exc), "signals": 0, "ideas": 0}
 
-        if not signals:
-            self._transition(AgentState.IDLE, "force scan: no signals")
-            return {"signals": 0, "ideas": 0, "cleared_pending": old_pending}
+            if not signals:
+                self._transition(AgentState.IDLE, "force scan: no signals")
+                return {"signals": 0, "ideas": 0, "cleared_pending": old_pending}
 
-        # Interactive cap: analyze only the top-N (scanner already ranked by
-        # allocation), keeping the button responsive. The full sweep still runs
-        # in the autonomous loop.
-        if max_symbols and max_symbols > 0 and len(signals) > max_symbols:
-            signals = signals[:max_symbols]
+            # Interactive cap: analyze only the top-N (scanner already ranked by
+            # allocation), keeping the button responsive. The full sweep still runs
+            # in the autonomous loop.
+            if max_symbols and max_symbols > 0 and len(signals) > max_symbols:
+                signals = signals[:max_symbols]
 
-        # Analyze (bounded concurrency, same as the autonomous tick)
-        self._transition(AgentState.ANALYZING, "force scan analyzing")
-        results = await self._analyze_signals_batched(signals, lightweight=lightweight)
+            # Analyze (bounded concurrency, same as the autonomous tick)
+            self._transition(AgentState.ANALYZING, "force scan analyzing")
+            if callable(_off):
+                results = await _off(lambda: self._analyze_signals_batched(
+                    signals, lightweight=lightweight))
+            else:
+                results = await self._analyze_signals_batched(
+                    signals, lightweight=lightweight)
+        finally:
+            if _hb is not None and _hb_stop is not None:
+                await self._end_scan_batch(_hb_stop, _hb)
 
         ideas_found = 0
         for idea in results:

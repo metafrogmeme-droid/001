@@ -150,6 +150,21 @@ test('a real scan that found nothing DOES clear the cards', async () => {
   });
 });
 
+test('a heartbeat does not replace the scan it is checking in for', async () => {
+  await withServer(async (port) => {
+    assert.equal((await post(port, A_REAL_SCAN)).status, 200);
+    const before = (await get(port)).data.scan;
+    assert.equal((await post(port, { heartbeat: true })).status, 200);
+    const after = (await get(port)).data.scan;
+    assert.equal(after.entry_cards.length, 1, 'the heartbeat wiped the cards');
+    assert.equal(after.entry_cards[0].symbol, 'BTC');
+    assert.equal(after.scan_at, before.scan_at, 'the heartbeat re-dated the scan');
+    assert.ok(after.heartbeat_at, 'a working scan stamps heartbeat_at');
+    assert.equal(after.received_at, before.received_at,
+      'a heartbeat is not a new scan body');
+  });
+});
+
 test('scan_at is stamped by the scan, not by the summary that follows it', async () => {
   await withServer(async (port) => {
     await post(port, A_REAL_SCAN);

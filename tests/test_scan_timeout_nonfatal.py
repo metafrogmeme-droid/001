@@ -108,7 +108,9 @@ def test_a_fatal_phase_still_raises():
 
 def test_the_scan_call_site_is_non_fatal_and_reversible():
     src = Path("bot/core/engine.py").read_text(encoding="utf-8")
-    assert 'self.scanner.scan(), "scan",' in src
+    # The batch runs on the scan lane, not on the gateway loop. The phase
+    # awaits that wrapper, and a slow scan stays non-fatal and reversible.
+    assert 'self._off_gateway_loop(lambda: self.scanner.scan()), "scan",' in src
     assert 'fatal=bool(getattr(CONFIG.monitoring, "tick_scan_timeout_fatal", False))' in src, \
         "the behaviour must be reversible by config, not baked in"
     # every OTHER phase stays fatal (no explicit fatal= argument)

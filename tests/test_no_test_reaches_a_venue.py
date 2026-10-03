@@ -25,6 +25,7 @@ containment reporting success over the leak it exists to prevent.
 from __future__ import annotations
 
 import ast
+import asyncio
 import errno
 import inspect
 import os
@@ -699,6 +700,59 @@ class TestABackgroundThreadIsNotTheTestThatWasRunning:
                 finished.set()
 
         return threading.Thread(target=reach, name=name, daemon=True), release, finished, box
+
+    def test_a_later_scan_lane_job_belongs_to_the_test_that_submitted_it(self, refusals):
+        """The scan lane is one daemon. Thread.start names the first job.
+
+        A later job's connect was reported against that first file, which
+        had mocked its scan and opened nothing. The seam to stub is the
+        test that submitted the job. A one-shot thread still belongs to
+        the test that started it.
+        """
+        from bot.core.scan_lane import scan_lane
+
+        real = conftest._OUTBOUND.nodeid
+
+        async def _ready():
+            return "ready"
+
+        async def _reach():
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                sock.connect(("198.51.100.23", 443))
+            except ConnectionRefusedError:
+                return "refused"
+            finally:
+                sock.close()
+
+        async def _restore():
+            setattr(threading.current_thread(), conftest._THREAD_ORIGIN, real)
+
+        async def _drive():
+            conftest.pytest_runtest_logstart(
+                "tests/planted.py::test_started_the_lane", None)
+            assert await scan_lane.run(_ready) == "ready"
+            conftest.pytest_runtest_logfinish(
+                "tests/planted.py::test_started_the_lane", None)
+
+            conftest.pytest_runtest_logstart(
+                "tests/planted.py::test_submitted_the_job", None)
+            assert await scan_lane.run(_reach) == "refused"
+            conftest.pytest_runtest_logfinish(
+                "tests/planted.py::test_submitted_the_job", None)
+
+        try:
+            asyncio.run(_drive())
+        finally:
+            conftest._OUTBOUND.nodeid = real
+            asyncio.run(scan_lane.run(_restore))
+            conftest._OUTBOUND.nodeid = real
+
+        rows = refusals.drain_all()
+        assert [r.nodeid for r in rows] == [
+            "tests/planted.py::test_submitted_the_job"]
+        assert [r.how for r in rows] == ["thread"]
+        assert [r.thread for r in rows] == ["runeclaw-scan-lane"]
 
     def test_it_is_attributed_to_the_test_that_started_it(self, refusals):
         th, release, finished, box = self._thread_that_connects("planted-sync")

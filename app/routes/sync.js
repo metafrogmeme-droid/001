@@ -939,6 +939,29 @@ router.post('/events', async (req, res) => {
 router.post('/scan', async (req, res) => {
   try {
     const incoming = req.body || {};
+    // A cadence stamp from a batch that is still working. It must not
+    // replace the stored scan: no cards, no balances, no "we scanned and
+    // found nothing". The status line reads heartbeat_at while it is a
+    // real time, and a stopped batch simply stops posting it.
+    if (incoming.heartbeat === true) {
+      const beat = new Date().toISOString();
+      if (latestScan && typeof latestScan === 'object') {
+        latestScan = { ...latestScan, heartbeat_at: beat };
+      } else {
+        latestScan = { heartbeat_at: beat };
+      }
+      try {
+        await pool.execute(
+          'REPLACE INTO scan_cache (id, scan_json) VALUES (1, ?)',
+          [JSON.stringify(latestScan)]
+        );
+      } catch (dbErr) {
+        console.error('Scan heartbeat write error:', dbErr.message);
+      }
+      nudge('scan');
+      res.json({ ok: true, heartbeat: true });
+      return;
+    }
     // After a website restart `latestScan` is empty until a reader loads it,
     // and the carry-forward below reads it: the first cycle summary would
     // then carry nothing and REPLACE the saved scan in the DB, cards and all.

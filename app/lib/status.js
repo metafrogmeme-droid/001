@@ -135,6 +135,23 @@ function ageState(iso, freshMs, now) {
   };
 }
 
+/**
+ * Which clock the engine-scan line reads.
+ *
+ * ``heartbeat_at`` is stamped on a cadence while a batch is still working.
+ * ``received_at`` is the last scan body. A working scan must not go stale
+ * because the body has not been replaced yet, and a heartbeat that cannot
+ * be read is not a stamp — fall through to the body, and if that cannot be
+ * read either the line is no_data.
+ */
+function scanClock(scan, now) {
+  if (!scan || typeof scan !== 'object') return null;
+  if (scan.heartbeat_at && ageState(scan.heartbeat_at, FRESH_SCAN_MS, now).state !== 'no_data') {
+    return scan.heartbeat_at;
+  }
+  return scan.received_at || scan.timestamp || null;
+}
+
 async function buildStatus(now = Date.now()) {
   const p = _probes || defaultProbes();
   const components = {};
@@ -147,7 +164,7 @@ async function buildStatus(now = Date.now()) {
   let scan = null;
   try { scan = await p.getScan(); } catch (e) { /* honest no_data below */ }
   components.engine_scan = {
-    ...ageState(scan && (scan.received_at || scan.timestamp), FRESH_SCAN_MS, now),
+    ...ageState(scanClock(scan, now), FRESH_SCAN_MS, now),
     note: 'live market scan pushed by the trading engine',
   };
 
