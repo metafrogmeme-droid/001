@@ -4150,6 +4150,17 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # user typing "status" got a language model's impression of
             # whether the engine was running. These are the two things it is
             # least excusable to improvise, and the commands already exist.
+            if intent.skill == "onboarding":
+                # Getting started is a checklist of doors, not a trade. The
+                # card names Confirm and does not tap it. Nothing here
+                # stages a ticket or calls the executor.
+                from bot.formatters.onboarding_checklist import onboarding_checklist
+                _card = onboarding_checklist("telegram", self.users, tg_id)
+                await self._send(update, _card)
+                self._remember_routed(
+                    tg_id, text, intent.skill,
+                    routed_answer_memory(intent.skill, _card))
+                return
             if intent.skill == "help":
                 # A typed QUESTION gets an answer; the /help COMMAND keeps
                 # its full reference. (No count here: this comment said "126"

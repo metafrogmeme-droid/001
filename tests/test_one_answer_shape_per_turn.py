@@ -591,7 +591,7 @@ PURE_SOCIAL = (
 CAPABILITY_ASKS = (
     "what can you do", "what can you do?", "what can i ask", "capabilities",
     "how does this work", "show me what you can do", "what can this bot do",
-    "what are your features", "im new what now", "/help", "help", "commands",
+    "what are your features", "/help", "help", "commands",
 )
 
 
