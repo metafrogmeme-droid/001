@@ -26,6 +26,10 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from bot.compat import UTC
+from bot.formatters.retention_baseline import (
+    render_retention_baseline,
+    retention_baseline,
+)
 from bot.formatters.user_roster import render_table
 from bot.utils.i18n import get_user_lang, t
 from bot.utils.logger import audit, system_log
@@ -424,10 +428,17 @@ class AccessCommands:
             fresh_db = ""
 
         all_users = self.users.list_users()
+        # D7 and D30 over this same list. Signup is created_at — the store
+        # has no first-confirm stamp — and a return is last_seen on or after
+        # that day. Not-yet-due and unreadable rows stay out of the rate.
+        # Nothing here places, stages, or confirms an order.
+        _retention = render_retention_baseline(
+            retention_baseline(all_users, datetime.now(UTC)))
         if not all_users:
             await self._send(
                 update,
                 f"\U0001f4cb {t('no_registered_users', self._lang(update))}"
+                + "\n\n" + _retention
                 + fresh_db)
             return
 
@@ -460,6 +471,8 @@ class AccessCommands:
         if len(all_users) > 15:
             lines.append(f"\n<i>{t('users_more', self._lang(update), n=len(all_users))}</i>")
 
+        lines.append("")
+        lines.append(_retention)
         await self._send(update, "\n".join(lines) + fresh_db)
 
     async def _cmd_setcap(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
