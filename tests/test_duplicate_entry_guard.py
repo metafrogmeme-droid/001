@@ -26,6 +26,9 @@ class _FakeExec:
 class _FakeEngine:
     confirm_trade = RuneClawEngine.confirm_trade  # exercise the real wrapper
     _drop_pending_idea = RuneClawEngine._drop_pending_idea  # the wrapper's own exit
+    # The wrapper asks this before it reads a live book. This stand-in has no
+    # user store, so the real reading answers "not paper" and the live check runs.
+    _self_admitted_practice = RuneClawEngine._self_admitted_practice
 
     def __init__(self, ideas):
         self._pending_ideas = ideas

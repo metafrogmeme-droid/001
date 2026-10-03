@@ -171,7 +171,13 @@ class TestTheEngineRefusesRatherThanReadingPermission:
 
     def test_a_healthy_store_still_gates_by_revoke_and_cap(self, wired, healthy_store, open_policy, tmp_path):
         """Controls: not revoked and uncapped places at the ticket; revoked
-        refuses; a $20 cap caps the typed $500."""
+        refuses; a $20 cap caps the typed $500.
+
+        register() leaves the self-admission role, and that confirm opens a
+        practice row and does not call the executor. This control is the live
+        door, so the user is vouched as a trader first.
+        """
+        assert healthy_store.authorize(UID, "trader", by="1") is True
         own = _own()
         engine, idea = _engine(tmp_path, own, symbol="SOL", margin=500.0)
         engine._user_store = healthy_store

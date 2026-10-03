@@ -1715,17 +1715,22 @@ class CallbackHandler:
             if len(self._confirmed_ids) > 100:
                 self._confirmed_ids = set(list(self._confirmed_ids)[-50:])
 
-            # H-18 FIX: LIVE mode — check per-user live trading permission
+            # H-18 FIX: LIVE mode — check per-user live trading permission.
+            # A self-admitted paper account does not take this refusal: their
+            # confirm is a practice fill (the engine branch), never a live
+            # order. A trader or viewer who may not trade live still stops here.
             if CONFIG.is_live() and not self._is_admin(update):
                 caller_uid_str = str(update.effective_user.id) if update.effective_user else ""
                 if not self._can_trade_live(caller_uid_str):
-                    await self._send(update,
-                        f"\U0001f512 {t(self._live_refusal_key(), self._lang(update))}",
-                        edit=True)
-                    audit(system_log,
-                          f"Non-admin trade confirm blocked: caller={caller_uid_str}",
-                          action="admin_gate", result="DENIED")
-                    return
+                    from bot.core.practice_fill import self_admitted_paper_caller
+                    if not self_admitted_paper_caller(self.users, caller_uid_str):
+                        await self._send(update,
+                            f"\U0001f512 {t(self._live_refusal_key(), self._lang(update))}",
+                            edit=True)
+                        audit(system_log,
+                              f"Non-admin trade confirm blocked: caller={caller_uid_str}",
+                              action="admin_gate", result="DENIED")
+                        return
 
             # The idea this button is for, read BEFORE the confirm pops it.
             # Both uses below used to read `engine._last_confirmed_idea`, ONE

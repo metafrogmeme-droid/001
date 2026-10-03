@@ -200,6 +200,11 @@ PASSED_THROUGH = {
     "await self._confirm_trade_inner(trade_id, user_id)": "the inner path, walked below",
     "await self._simulate_paper_fill(idea, recheck, user_id, trade_id)":
         "the practice fill, walked below",
+    "practice_book_refusal(exc)": (
+        "the practice book could not be read; the sentence is Trade REJECTED, "
+        "so placed_nothing is true and nothing is announced as a fill"),
+    "practice_book_refusal(None)": (
+        "the practice book was absent; same Trade REJECTED sentence, nothing placed"),
 }
 # Literal answers that DID place something, each with what it placed.
 PLACED = {
