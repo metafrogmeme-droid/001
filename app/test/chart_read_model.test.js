@@ -62,6 +62,47 @@ test('a monotone ramp is NOT "ranging" — an unreadable structure says so', () 
   assert.ok(!kinds(r).includes('choch'), 'no CHoCH chip over an unmeasured structure');
 });
 
+test('a planted forming bar that breaks a swing shows no BOS chip', () => {
+  // Settled path finishes inside the 0.1% band. The next bar closes at
+  // 116.5, past the last swing high, and its period has not elapsed.
+  const H = 3600000;
+  const t0 = START;
+  const pts = [[0, 100], [5, 90], [12, 110], [19, 95], [26, 115], [32, 108], [38, 114.9]];
+  const rows = [];
+  for (let w = 0; w < pts.length - 1; w++) {
+    const [i0, p0] = pts[w], [i1, p1] = pts[w + 1];
+    for (let i = i0; i < i1; i++) {
+      const p = p0 + (p1 - p0) * ((i - i0) / (i1 - i0));
+      rows.push([String(t0 + i * H), String(p), String(p + 0.5), String(p - 0.5), String(p), '1']);
+    }
+  }
+  const [iL, pL] = pts[pts.length - 1];
+  rows.push([String(t0 + iL * H), String(pL), String(pL + 0.5), String(pL - 0.5), String(pL), '1']);
+  const open = t0 + iL * H + H;
+  rows.push([String(open), '114.9', '116.8', '114.8', '116.5', '1']);
+
+  const live = read(rows, { gran: '1h', now: open + 1000 });
+  const prefix = read(rows.slice(0, -1), { gran: '1h', now: open + H });
+  assert.ok(!kinds(live).includes('bos'), 'the forming close is not a break of structure');
+  assert.equal(word(live, 'structure'), word(prefix, 'structure'));
+  assert.equal(word(live, 'choch'), word(prefix, 'choch'));
+  for (const it of live.items) {
+    assert.equal(it.bars, rows.length - 1, 'the chip names the closed sample, not the forming bar');
+  }
+
+  const settled = read(rows, { gran: '1h', now: open + H });
+  assert.ok(kinds(settled).includes('bos'));
+  assert.equal(word(settled, 'bos'), 'BOS up');
+  assert.equal(settled.items.find((x) => x.kind === 'bos').bars, rows.length);
+
+  // The other spelling of the same period, and a timeframe this reader
+  // cannot parse (which must not pretend the bar closed, nor drop it).
+  const bitget = read(rows, { gran: '15min', now: open + 1000 });
+  assert.ok(!kinds(bitget).includes('bos'));
+  const unknown = read(rows, { gran: 'not-a-tf', now: open + 1000 });
+  assert.ok(kinds(unknown).includes('bos'), 'an unnamed period leaves the series as it was given');
+});
+
 test('a structure that WAS measured still reports its verdict', () => {
   const r = read(bars(60, ZIG));
   const st = r.items.find((x) => x.kind === 'structure');

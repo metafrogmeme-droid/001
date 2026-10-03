@@ -111,6 +111,53 @@ test('structure: HH+HL classifies bullish; a break beyond +0.1% is a BOS↑', ()
   assert.equal(st.bos_dir, 1);   // close 117 > 115 × 1.001
 });
 
+test('structure: a forming bar that breaks a swing is not a BOS until it closes', () => {
+  // The settled series finishes inside the threshold. The next bar's close
+  // would break the swing high, but its hour has not elapsed, so that close
+  // is the price right now and not a close.
+  const settled = path([[0, 100], [5, 90], [12, 110], [19, 95], [26, 115], [32, 108], [38, 114.9]]);
+  assert.equal(CR.structure(settled).bos, false);
+  const open = settled[settled.length - 1].t + H;
+  // A close past the last swing (115.5 × 1.001) whose own high does not
+  // register as a new pivot. A taller wick would become the swing the
+  // close is measured against, and the break would vanish for a different
+  // reason than the bar still forming.
+  const forming = settled.concat([{ t: open, o: 114.9, h: 116.8, l: 114.8, c: 116.5, v: 1 }]);
+  assert.equal(CR.structure(forming).bos, true, 'no timeframe named: the bar is part of the series');
+  const live = { gran: '1h', now: open + 1000 };
+  const closed = CR.structure(forming, live);
+  const prefix = CR.structure(settled);
+  assert.equal(closed.bos, false, 'a planted forming break shows no BOS');
+  assert.equal(closed.choch, prefix.choch);
+  assert.equal(closed.structure, prefix.structure);
+  // Bitget's own token for fifteen minutes. A bar opened a second ago is
+  // still forming under that spelling too.
+  assert.equal(CR.structure(forming, { gran: '15min', now: open + 1000 }).bos, false);
+  const done = CR.structure(forming, { gran: '1h', now: open + H });
+  assert.equal(done.bos, true, 'once the period has elapsed the break is a close');
+  assert.equal(done.bos_dir, 1);
+  // An unparseable timeframe does not guess, and a missing clock is not
+  // "the epoch": the caller who names neither keeps the series.
+  assert.equal(CR.structure(forming, { gran: 'not-a-tf', now: open + 1000 }).bos, true);
+  assert.equal(CR.closedCandles(settled, { gran: '1h', now: settled[settled.length - 1].t + H }).length, settled.length);
+  assert.equal(CR.closedCandles(forming, live).length, forming.length - 1);
+});
+
+test('vwap: a forming bar does not move the session average', () => {
+  const settled = [];
+  for (let i = 0; i < 6; i++) settled.push({ t: DAY0 + i * H, o: 100, h: 101, l: 99, c: 100, v: 1 });
+  const base = CR.vwap(settled);
+  const open = settled[settled.length - 1].t + H;
+  const forming = settled.concat([{ t: open, o: 100, h: 500, l: 100, c: 400, v: 100 }]);
+  const live = CR.vwap(forming, { gran: '1h', now: open + 1000 });
+  near(live.value, base.value);
+  near(live.dist_pct, base.dist_pct);
+  const kept = CR.vwap(forming);
+  assert.ok(Math.abs(kept.value - base.value) > 1, 'without a timeframe the wild bar is in the average');
+  const done = CR.vwap(forming, { gran: '1h', now: open + H });
+  near(done.value, kept.value);
+});
+
 test('structure: a close INSIDE the 0.1% threshold is not a BOS', () => {
   // Pull back after the 115 swing (so it stays a fractal), then finish just
   // inside the threshold: 114.9 < 115 × 1.001 = 115.115.
@@ -152,6 +199,26 @@ test('structure: a bullish→bearish flip with 3 swings per side is a CHoCH↓',
   assert.equal(st.structure, 'bearish');
   assert.equal(st.choch, true);
   assert.equal(st.choch_dir, -1);
+});
+
+test('svgChart and tvSpec: a forming break is drawn, and not tagged as BOS', () => {
+  const settled = path([[0, 100], [5, 90], [12, 110], [19, 95], [26, 115], [32, 108], [38, 114.9]]);
+  const open = settled[settled.length - 1].t + H;
+  // A close past the last swing (115.5 × 1.001) whose own high does not
+  // register as a new pivot. A taller wick would become the swing the
+  // close is measured against, and the break would vanish for a different
+  // reason than the bar still forming.
+  const forming = settled.concat([{ t: open, o: 114.9, h: 116.8, l: 114.8, c: 116.5, v: 1 }]);
+  const live = { gran: '1h', now: open + 1000 };
+  const svg = CR.svgChart(forming, live);
+  assert.match(svg, /<rect/);
+  assert.ok(!svg.includes('BOS'), 'the structure tag does not claim the break');
+  const spec = CR.tvSpec(forming, live);
+  assert.equal(spec.ok, true);
+  assert.equal(spec.bars.length, forming.length, 'the chart still contains the forming bar');
+  assert.ok(!spec.legend.includes('BOS'));
+  const later = CR.tvSpec(forming, { gran: '1h', now: open + H });
+  assert.ok(later.legend.includes('BOS↑'));
 });
 
 test('svgChart: draws candles, position levels in range, and the structure tag', () => {

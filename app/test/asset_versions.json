@@ -40,12 +40,12 @@
     "sha": "b5e9e3bec0ac5f5c"
   },
   "js/chart-read-model.js": {
-    "v": 1,
-    "sha": "3d516039e13a2765"
+    "v": 2,
+    "sha": "73f5d6499da5c546"
   },
   "js/chartread.js": {
-    "v": 7,
-    "sha": "1ade4bf742b092a5"
+    "v": 8,
+    "sha": "755444f180723cc2"
   },
   "js/charts2d.js": {
     "v": 1,
@@ -72,8 +72,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 213,
-    "sha": "80e6fce14393e52b"
+    "v": 214,
+    "sha": "46bbad51570bd4da"
   },
   "js/decision-court-model.js": {
     "v": 2,

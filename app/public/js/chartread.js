@@ -39,12 +39,51 @@
     return out;
   }
 
+  // Bitget writes `15min`; the engine writes `15m`. Both are one period.
+  // Anything else is unparseable and answers 0 — a caller that did not name
+  // a timeframe is not told the last bar is forming.
+  function periodMs(gran) {
+    if (gran == null) return 0;
+    var m = /^(\d+)(min|m|h|d|w)$/.exec(String(gran).trim().toLowerCase());
+    if (!m) return 0;
+    var n = Number(m[1]);
+    if (!(n > 0) || !isFinite(n)) return 0;
+    var mult = { min: 60000, m: 60000, h: 3600000, d: 86400000, w: 604800000 }[m[2]];
+    return n * mult;
+  }
+
+  // The series structure, BOS, CHoCH and VWAP may read.
+  //
+  // A live candle feed's last row is still forming. Its close is the price
+  // right now, not a close, so a wick through a swing prints a BOS that the
+  // next refresh takes back. The bar is dropped only when its period has not
+  // elapsed (`now < open + period`), the same comparison as
+  // `drop_forming_candle`. A feed that already ended on a closed bar is left
+  // intact. No timeframe, or one this parser does not know, leaves the series
+  // alone: a forming bar and a closed bar are the same row, and guessing
+  // would hide a real close.
+  //
+  // The clock is the moment of the READ. `opts.now` lets a test plant it;
+  // a page omits it and the comparison is Date.now().
+  function closedCandles(candles, opts) {
+    if (!candles || !candles.length) return candles;
+    opts = opts || {};
+    var tf = periodMs(opts.gran);
+    if (!(tf > 0)) return candles;
+    var now = (typeof opts.now === 'number' && isFinite(opts.now)) ? opts.now : Date.now();
+    var last = candles[candles.length - 1];
+    if (!last || typeof last.t !== 'number' || !isFinite(last.t)) return candles;
+    if (now < last.t + tf) return candles.slice(0, -1);
+    return candles;
+  }
+
   // Session VWAP + bands — the ENGINE's exact semantics (analyzer
   // _session_anchor_index/_session_vwap): anchor at the first bar of the
   // LAST bar's UTC day, however few bars that is; zero-volume bars weigh
   // NOTHING; a zero-volume session falls back to the full-window VWAP
   // (what the engine's caller keeps when _session_vwap returns None).
-  function vwap(candles) {
+  function vwap(candles, opts) {
+    candles = closedCandles(candles, opts);
     if (!candles || candles.length < 5) return null;
     var last = candles[candles.length - 1];
     var day = Math.floor(last.t / 86400000);
@@ -168,7 +207,8 @@
   // ranging with NO BOS/CHoCH; STRICT HH+HL / LH+LL (equal swings rank as
   // ranging, never bearish); BOS beyond the last swing ±0.1%; CHoCH via the
   // 3-swing flip, or the 2-swing branch (current swings opposing bos_dir).
-  function structure(candles) {
+  function structure(candles, opts) {
+    candles = closedCandles(candles, opts);
     if (!candles || candles.length < 15) return null;
     var sw = zigzagSwings(candles, 1.5);
     if (sw.highs.length < 2 || sw.lows.length < 2) sw = findSwings(candles, 5);
@@ -267,8 +307,11 @@
     // Callers pass the mount's real clientWidth so 1 SVG unit ≈ 1 CSS px and
     // the label text renders at true, legible size on every screen.
     var W = Math.max(300, opts.width || 640), H = opts.height || 220, PAD = 6;
-    var vw = opts.vwap === false ? null : vwap(candles);
-    var st = opts.structure === false ? null : structure(candles);
+    // The picture still draws the forming bar. The read under it does not
+    // treat that bar's close as a close.
+    var readOn = closedCandles(candles, opts);
+    var vw = opts.vwap === false ? null : vwap(readOn);
+    var st = opts.structure === false ? null : structure(readOn);
     var lo = Infinity, hi = -Infinity;
     for (var i = 0; i < candles.length; i++) {
       if (candles[i].l < lo) lo = candles[i].l;
@@ -434,8 +477,9 @@
       || (typeof require === 'function' ? require('./tv-chart.js') : null);
     var bars = TV.toBars(candles);
     var byIndex = function (i) { return Math.floor(Number(candles[i].t) / 1000); };
-    var vw = opts.vwap === false ? null : vwap(candles);
-    var st = opts.structure === false ? null : structure(candles);
+    var readOn = closedCandles(candles, opts);
+    var vw = opts.vwap === false ? null : vwap(readOn);
+    var st = opts.structure === false ? null : structure(readOn);
     var lo = Infinity, hi = -Infinity, i;
     for (i = 0; i < candles.length; i++) {
       if (candles[i].l < lo) lo = candles[i].l;
@@ -579,7 +623,7 @@
     };
   }
 
-  var api = { parseCandles: parseCandles, vwap: vwap, structure: structure, findSwings: findSwings, zigzagSwings: zigzagSwings, atrOf: atrOf, svgChart: svgChart, tvSpec: tvSpec, drawInto: drawInto, windowLevels: windowLevels, windowFvgs: windowFvgs, levelMove: levelMove, elliottWavePoints: elliottWavePoints, matchWaveBars: matchWaveBars };
+  var api = { parseCandles: parseCandles, closedCandles: closedCandles, vwap: vwap, structure: structure, findSwings: findSwings, zigzagSwings: zigzagSwings, atrOf: atrOf, svgChart: svgChart, tvSpec: tvSpec, drawInto: drawInto, windowLevels: windowLevels, windowFvgs: windowFvgs, levelMove: levelMove, elliottWavePoints: elliottWavePoints, matchWaveBars: matchWaveBars };
   if (typeof window !== 'undefined') window.RCChartRead = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();
