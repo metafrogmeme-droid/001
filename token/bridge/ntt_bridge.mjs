@@ -24,9 +24,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { wormhole, amount, signSendWait } from '@wormhole-foundation/sdk';
-import solana from '@wormhole-foundation/sdk/solana';
-import evm from '@wormhole-foundation/sdk/evm';
+// The all-chain package `@wormhole-foundation/sdk` installs Aptos. That
+// client pulls got → cacheable-request → http-cache-semantics, and no
+// release fixes GHSA-ch52-4w7c-c8xp (every published version through
+// 4.2.0). This bridge only builds Solana and EVM, so it depends on those
+// platforms and constructs Wormhole itself. Same classes the meta package
+// passes in after its loaders resolve.
+import { Wormhole, amount, signSendWait } from '@wormhole-foundation/sdk-connect';
+import { SolanaPlatform } from '@wormhole-foundation/sdk-solana';
+import { EvmPlatform } from '@wormhole-foundation/sdk-evm';
+
+function openWormhole(network) {
+  return new Wormhole(network, [SolanaPlatform, EvmPlatform]);
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_ROOT = path.resolve(__dirname, '..');
@@ -65,7 +75,7 @@ export function validate(cfg) {
 async function cmdPlan() {
   const cfg = loadConfig();
   const { hub, spoke, missing, ready } = validate(cfg);
-  const wh = await wormhole(cfg.network, [solana, evm]);
+  const wh = openWormhole(cfg.network);
   const hubCtx = wh.getChain(hub.chain);
   const spokeCtx = wh.getChain(spoke.chain);
 
@@ -113,7 +123,7 @@ async function cmdTransfer() {
     );
   }
 
-  const wh = await wormhole(cfg.network, [solana, evm]);
+  const wh = openWormhole(cfg.network);
   const srcCtx = wh.getChain(src.chain);
   const dstCtx = wh.getChain(dst.chain);
 
