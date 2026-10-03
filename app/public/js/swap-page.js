@@ -44,8 +44,18 @@
   }
 
   async function connect() {
-    if (!window.RCSolanaWallet || !window.RCSolanaWallet.available()) {
-      setStatus('No Solana wallet found. Install Phantom or Backpack.', 'err');
+    const api = window.RCSolanaWallet;
+    if (!api || !api.available()) {
+      // Same reading as the Account page: a phone browser with no injection
+      // is not "install Phantom". The message comes from detectionState.
+      const st = api && typeof api.detectionState === 'function'
+        ? api.detectionState({
+            provider: false,
+            userAgent: navigator.userAgent || '',
+            pageUrl: location.href || '',
+          })
+        : null;
+      setStatus((st && st.message) || 'This page cannot see a Solana wallet in this browser.', 'err');
       return;
     }
     try {

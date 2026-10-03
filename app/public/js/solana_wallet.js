@@ -29,8 +29,18 @@
  * could: what is displayed for review is decoded from the same terms the
  * server sent, not from the transaction.
  *
+ * A missing injection is not "Phantom is not installed". The Phantom app on a
+ * phone does not inject window.phantom / window.solana into Chrome. That
+ * injection exists in the desktop extension and in Phantom's own in-app
+ * browser. detectionState is the reading the Account page renders: a provider
+ * can connect and verify, a phone browser is offered the same Phantom browse
+ * link wallet-link.html already uses (or a pasted address, Watch only), and a
+ * desktop browser with no extension may be told to install or enable one.
+ *
  * Exposes window.RCSolanaWallet =
- *   { available, connect, signMessage, signAndSend, base58, SIGN_METHOD }.
+ *   { available, connect, signMessage, signAndSend, base58, SIGN_METHOD,
+ *     detectionState, solanaLinkOffer, phantomBrowseHref, isSolanaAddress,
+ *     prepareWatchOnly, watchOnlyPostBody }.
  */
 (function (root, factory) {
   const api = factory();
@@ -60,10 +70,120 @@
     return !!provider();
   }
 
+  function navigatorUA() {
+    const n = win().navigator;
+    return (n && n.userAgent) || '';
+  }
+
+  function pageHref() {
+    const loc = win().location;
+    return (loc && loc.href) || '';
+  }
+
+  // Same universal link as public/wallet-link.html. It reopens THIS page
+  // inside Phantom's in-app browser, which is where the provider is injected.
+  // The encoded page is the path; `ref` is Phantom's own query, not part of
+  // the page URL.
+  function phantomBrowseHref(pageUrl) {
+    const full = String(pageUrl || '');
+    if (!full) return null;
+    let origin = '';
+    try { origin = new URL(full).origin; } catch (e) { return null; }
+    if (!origin || origin === 'null') return null;
+    return 'https://phantom.app/ul/browse/' + encodeURIComponent(full)
+      + '?ref=' + encodeURIComponent(origin);
+  }
+
+  const MOBILE_UA = /Android|iPhone|iPad|iPod|Mobile/i;
+
+  /**
+   * What this page can actually see.
+   *
+   * `provider: true` means an injected Solana provider is present — Connect
+   * & verify can use it, including inside Phantom's own browser on a phone.
+   * `provider: false` on a mobile browser is "this browser has no injection",
+   * which is the normal state of Chrome with the Phantom app installed.
+   * Desktop with no extension is the case where "install or enable" is fair.
+   */
+  function detectionState(ctx) {
+    const c = ctx || {};
+    const has = Object.prototype.hasOwnProperty.call(c, 'provider')
+      ? !!c.provider
+      : available();
+    const ua = c.userAgent != null ? String(c.userAgent) : navigatorUA();
+    const pageUrl = c.pageUrl != null ? String(c.pageUrl) : pageHref();
+    const mobile = MOBILE_UA.test(ua);
+    if (has) {
+      return {
+        connect: true,
+        mobile: mobile,
+        sayInstall: false,
+        message: '',
+        openInPhantom: null,
+      };
+    }
+    if (mobile) {
+      return {
+        connect: false,
+        mobile: true,
+        sayInstall: false,
+        message: 'This page cannot see a Solana wallet in this browser. '
+          + 'Open this page in Phantom\'s browser to connect and verify.',
+        openInPhantom: phantomBrowseHref(pageUrl),
+      };
+    }
+    return {
+      connect: false,
+      mobile: false,
+      sayInstall: true,
+      message: 'No Solana wallet extension in this browser. '
+        + 'Install or enable Phantom or Backpack, then reload.',
+      openInPhantom: null,
+    };
+  }
+
+  /** Account-panel copy and the one control that can succeed from this state. */
+  function solanaLinkOffer(state) {
+    const s = state || detectionState();
+    if (s.connect) {
+      return {
+        intro: 'Also on Solana? Connect Phantom or Backpack to verify ownership, '
+          + 'or paste an address to watch read-only. Either way it never signs a transaction.',
+        primary: { kind: 'connect', label: 'Connect & verify' },
+        toast: null,
+        showInstall: false,
+        watchOnly: true,
+      };
+    }
+    if (s.mobile) {
+      const intro = s.message
+        + ' Or paste an address and Watch only. Nothing here signs a transaction.';
+      return {
+        intro: intro,
+        primary: s.openInPhantom
+          ? { kind: 'open', label: 'Open in Phantom', href: s.openInPhantom }
+          : { kind: 'connect', label: 'Connect & verify' },
+        toast: s.openInPhantom ? null : intro,
+        showInstall: false,
+        watchOnly: true,
+      };
+    }
+    const intro = s.message
+      + ' You can still paste an address and Watch only. Nothing here signs a transaction.';
+    return {
+      intro: intro,
+      primary: { kind: 'connect', label: 'Connect & verify' },
+      toast: s.message,
+      showInstall: true,
+      watchOnly: true,
+    };
+  }
+
   async function connect() {
     const p = provider();
     if (!p) {
-      const e = new Error('No Solana wallet found. Install Phantom or Backpack.');
+      const st = detectionState({ provider: false });
+      const e = new Error(st.message);
       e.code = 'NO_WALLET';
       throw e;
     }
@@ -90,6 +210,46 @@
   }
 
   const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  // Same predicate as app/lib/solana.js isSolanaAddress. The browser cannot
+  // require that module; solana_wallet_detect.test.js compares the two on a
+  // shared set of inputs so a drift fails the test rather than linking a
+  // different string than the server would accept.
+  const B58_MAP = Object.fromEntries([...B58].map((c, i) => [c, BigInt(i)]));
+
+  function isSolanaAddress(addr) {
+    const s = String(addr || '');
+    if (s.length < 32 || s.length > 44) return false;
+    let n = 0n;
+    for (const c of s) {
+      const v = B58_MAP[c];
+      if (v === undefined) return false;
+      n = n * 58n + v;
+    }
+    let bytes = 0;
+    for (const c of s) { if (c === '1') bytes++; else break; }
+    let m = n;
+    while (m > 0n) { bytes++; m >>= 8n; }
+    return bytes === 32;
+  }
+
+  /**
+   * Watch only is a pasted public address. It does not read window, does not
+   * connect a provider, and does not sign. A bad address is refused whole —
+   * it is not trimmed down, rewritten, or replaced with whatever wallet
+   * happens to be injected.
+   */
+  function prepareWatchOnly(address) {
+    const addr = String(address == null ? '' : address).trim();
+    if (!addr) return { ok: false, reason: 'empty', address: null };
+    if (!isSolanaAddress(addr)) return { ok: false, reason: 'invalid', address: null };
+    return { ok: true, reason: null, address: addr };
+  }
+
+  function watchOnlyPostBody(address) {
+    const prep = prepareWatchOnly(address);
+    if (!prep.ok) return { post: false, reason: prep.reason };
+    return { post: true, body: { address: prep.address } };
+  }
 
   /**
    * Bytes -> base58 (Bitcoin alphabet, the one Solana uses).
@@ -200,5 +360,11 @@
     signAndSend: signAndSend,
     base58: base58,
     SIGN_METHOD: SIGN_METHOD,
+    detectionState: detectionState,
+    solanaLinkOffer: solanaLinkOffer,
+    phantomBrowseHref: phantomBrowseHref,
+    isSolanaAddress: isSolanaAddress,
+    prepareWatchOnly: prepareWatchOnly,
+    watchOnlyPostBody: watchOnlyPostBody,
   };
 }));

@@ -5729,6 +5729,30 @@
       };
     }
 
+    // Solana detection lives in solana_wallet.js. A phone with the Phantom app
+    // installed still has no window.phantom in Chrome; that is not "install
+    // Phantom". The offer is the browse link or Watch only. Desktop with no
+    // extension may say install or enable.
+    function solanaOffer() {
+      const api = window.RCSolanaWallet;
+      if (api && typeof api.detectionState === 'function'
+          && typeof api.solanaLinkOffer === 'function') {
+        return api.solanaLinkOffer(api.detectionState({
+          provider: !!api.available(),
+          userAgent: navigator.userAgent || '',
+          pageUrl: location.href || '',
+        }));
+      }
+      return {
+        intro: 'This page cannot see a Solana wallet in this browser. '
+          + 'Paste an address and Watch only. Nothing here signs a transaction.',
+        primary: { kind: 'connect', label: 'Connect & verify' },
+        toast: 'This page cannot see a Solana wallet in this browser.',
+        showInstall: false,
+        watchOnly: true,
+      };
+    }
+
     async function drawWalletLink() {
       renderPanel(C('awallet'), async () => {
         const r = await fetchJSON('/api/wallet/portfolio', { timeoutMs: 25000 }).catch(() => null);
@@ -5746,6 +5770,10 @@
         // A signed address and a pasted one are NOT the same claim, and the
         // panel used to call both "watch address". Signing proves ownership;
         // pasting proves only that someone can type. Say which one this is.
+        const solOffer = solanaOffer();
+        const solPrimary = solOffer.primary && solOffer.primary.kind === 'open'
+          ? `<a class="btn btn--sm btn--primary" id="solOpenPhantom" href="${esc(solOffer.primary.href)}" rel="noopener">◎ ${esc(solOffer.primary.label)}</a>`
+          : `<button class="btn btn--sm btn--primary" id="solConnect" type="button">◎ ${esc((solOffer.primary && solOffer.primary.label) || 'Connect & verify')}</button>`;
         const solBlock = d.sol_address
           ? `<div class="mt-3" style="border-top:1px solid var(--line);padding-top:var(--s3)">
               <p class="small" style="color:var(--text-2)">◎ ${d.sol_verified
@@ -5758,9 +5786,9 @@
               <button class="btn btn--sm" id="solUnwatch" type="button">${esc(
                 T('dd.s_stop', 'Stop watching'))}</button></div>`
           : `<div class="mt-3" style="border-top:1px solid var(--line);padding-top:var(--s3)">
-              <p class="small muted">Also on Solana? Connect Phantom/Backpack to verify ownership, or paste an address to watch read-only. Either way it never signs a transaction.</p>
+              <p class="small muted">${esc(solOffer.intro)}</p>
               <div class="row" style="gap:var(--s2);flex-wrap:wrap;margin-bottom:var(--s2)">
-                <button class="btn btn--sm btn--primary" id="solConnect" type="button">◎ Connect &amp; verify</button></div>
+                ${solPrimary}</div>
               <div class="row" style="gap:var(--s2);flex-wrap:wrap">
                 <input class="input" id="solAddr" placeholder="Solana address (base58)" autocomplete="off" style="max-width:340px">
                 <button class="btn btn--sm" id="solWatch" type="button">Watch only</button></div></div>`;
@@ -5943,8 +5971,12 @@
       if (e.target.closest('#walletQrRenew')) { showWalletQr(); return; }
       if (e.target.closest('#walletQr')) { showWalletQr(); return; }
       if (e.target.closest('#solConnect')) {
+        const offer = solanaOffer();
         if (!window.RCSolanaWallet || !RCSolanaWallet.available()) {
-          toast(T('dd.t_no_sol_wallet', 'No Solana wallet detected — install Phantom or Backpack.')); return;
+          // Mobile renders an "Open in Phantom" link instead of this button.
+          // Desktop with no extension may land here; the offer's toast is the
+          // install-or-enable sentence. A phone must not be told to install.
+          toast(offer.toast || offer.intro); return;
         }
         try {
           const c = await RCSolanaWallet.connect();
@@ -5960,9 +5992,18 @@
         drawWalletLink(); return;
       }
       if (e.target.closest('#solWatch')) {
-        const addr = (document.getElementById('solAddr')?.value || '').trim();
-        if (!addr) { toast(T('dd.t_need_sol_addr', 'Paste a Solana address first.')); return; }
-        const v = await fetchJSON('/api/auth/wallet/solana', { method: 'POST', body: { address: addr } }).catch(() => null);
+        // Pasted address only. No provider, no signature, no transaction.
+        // An invalid address does not post, and is not rewritten into one.
+        const watched = window.RCSolanaWallet && RCSolanaWallet.watchOnlyPostBody
+          ? RCSolanaWallet.watchOnlyPostBody(document.getElementById('solAddr')?.value)
+          : { post: false, reason: 'invalid' };
+        if (!watched.post) {
+          toast(watched.reason === 'empty'
+            ? T('dd.t_need_sol_addr', 'Paste a Solana address first.')
+            : 'That is not a Solana address — nothing was linked.');
+          return;
+        }
+        const v = await fetchJSON('/api/auth/wallet/solana', { method: 'POST', body: watched.body }).catch(() => null);
         toast(v?.ok ? 'Solana address watched — balances mirror read-only.' : (v?.data?.error || 'Could not watch that address.'));
         drawWalletLink(); return;
       }
