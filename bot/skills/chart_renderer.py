@@ -24,11 +24,13 @@ import logging
 import math
 import re
 import threading
+import time
 from typing import Optional
 
 from bot.core.position_telemetry import price_on_record
 from bot.core.signal_confidence import displayed_confidence
 from bot.formatters.rich_cards import _fmt_price
+from bot.utils.candles import timeframe_to_ms
 from bot.utils.site_url import site_url
 
 logger = logging.getLogger(__name__)
@@ -160,9 +162,126 @@ def compute_chart_indicators(candles, rsi_length: int = 14,
     return df
 
 
+def _period_ms(timeframe) -> int:
+    """Milliseconds in ``timeframe``, or 0 when it cannot be read.
+
+    Bitget writes ``15min`` and the engine writes ``15m``. Both name one
+    period; the engine parser is the reading, after that one spelling is
+    folded into it. Anything else is unparseable and answers 0, so a caller
+    that did not name a timeframe is not told the last bar is forming.
+    """
+    if not isinstance(timeframe, str):
+        return 0
+    tf = timeframe.strip().lower()
+    if not tf:
+        return 0
+    if tf.endswith("min") and tf[:-3].isdigit():
+        tf = tf[:-3] + "m"
+    return timeframe_to_ms(tf)
+
+
+def _clock_ms(now_ms) -> Optional[float]:
+    """The read's clock, in ms. A missing or unreadable clock is the wall
+    clock: the epoch would call every past bar still forming."""
+    if now_ms is None:
+        return time.time() * 1000.0
+    if isinstance(now_ms, bool):
+        return time.time() * 1000.0
+    try:
+        clock = float(now_ms)
+    except (TypeError, ValueError):
+        return time.time() * 1000.0
+    if not math.isfinite(clock):
+        return time.time() * 1000.0
+    return clock
+
+
+def _last_bar_open_ms(df) -> Optional[float]:
+    """The last bar's open, epoch ms, or None when that time cannot be read.
+
+    The index was built with ``to_datetime(..., unit="ms")``, so ``Timestamp.value``
+    is those milliseconds. ``Timestamp.timestamp()`` would read a naive index
+    as local time. A row number is not a time, and NaT is not the epoch.
+    """
+    if not _CHARTS_AVAILABLE:
+        return None
+    try:
+        idx = df.index
+    except Exception:  # noqa: BLE001 — an unreadable frame has no open
+        return None
+    if not isinstance(idx, pd.DatetimeIndex) or len(idx) == 0:
+        return None
+    last = idx[-1]
+    if pd.isna(last):
+        return None
+    try:
+        # float() so an untyped Timestamp.value is a number. Returning the
+        # division raw is Any, and an unreadable open is None rather than 0.
+        ms = float(last.value) / 1_000_000.0
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(ms):
+        return None
+    return ms
+
+
+def closed_overlay_frame(df, timeframe: Optional[str] = None,
+                         now_ms: Optional[float] = None):
+    """The bars structure, BOS, CHoCH, VWAP and the pattern overlays may read.
+
+    The picture still draws a forming bar. Its close is the price right now,
+    so a wick through a swing is not a break until the bar's period has
+    elapsed (``now < open + period``), the same comparison as
+    ``drop_forming_candle``. A feed that already ended on a closed bar is
+    left intact. No timeframe, or one this parser does not know, leaves the
+    frame alone: a forming bar and a closed bar are the same row, and guessing
+    would hide a real close. An unreadable open leaves the frame alone too.
+    """
+    if df is None:
+        return df
+    try:
+        if len(df) == 0:
+            return df
+    except TypeError:
+        return df
+    period = _period_ms(timeframe)
+    if period <= 0:
+        return df
+    open_ms = _last_bar_open_ms(df)
+    if open_ms is None:
+        return df
+    clock = _clock_ms(now_ms)
+    if clock is None:
+        return df
+    if clock < open_ms + period:
+        return df.iloc[:-1]
+    return df
+
+
+def _vwap_on_closed_bars(df, overlay):
+    """VWAP for the picture. A forming bar does not move the average: the
+    last point keeps the last closed bar's value, and an unreadable closed
+    value stays unreadable."""
+    if df is None:
+        return df
+    columns = getattr(df, "columns", None)
+    if columns is None or "VWAP" not in columns:
+        return df
+    try:
+        if len(overlay) >= len(df) or len(df) < 2:
+            return df
+    except TypeError:
+        return df
+    out = df.copy()
+    out.iloc[-1, out.columns.get_loc("VWAP")] = out["VWAP"].iloc[-2]
+    return out
+
+
 def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
                      levels: Optional[dict] = None, theme: str = _DEFAULT_THEME,
-                     subtitle: str = "", smc: bool = True) -> bytes:
+                     subtitle: str = "", smc: bool = True,
+                     timeframe: Optional[str] = None,
+                     now_ms: Optional[float] = None) -> bytes:
     """Render a polished 3-panel chart to PNG bytes. BLOCKING — call via to_thread.
 
     Upgrades over a plain mpf chart:
@@ -176,6 +295,12 @@ def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
     """
     if not _CHARTS_AVAILABLE:
         raise RuntimeError(f"charting libraries unavailable: {_IMPORT_ERROR}")
+    # The candles, the last-price mark and the EMA/RSI lines are the picture,
+    # forming bar included. Structure and the other overlays read `overlay`:
+    # a bar whose period has not elapsed is not a confirmed event. VWAP's
+    # last point is held at the last closed value so the line does not jump.
+    overlay = closed_overlay_frame(df, timeframe, now_ms)
+    df = _vwap_on_closed_bars(df, overlay)
     t = _THEMES.get(theme, _THEMES[_DEFAULT_THEME])
 
     mc = mpf.make_marketcolors(
@@ -367,11 +492,13 @@ def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
 
             # Swing high/low markers — only show the last 8 of each to
             # avoid cluttering the chart with dozens of tiny triangles.
+            # The markers are swings, so they come from the closed bars. The
+            # gap uses the picture's range, forming wick included.
             k = 3
-            hi = df["High"]; lo = df["Low"]
+            span = (df["High"].max() - df["Low"].min()) or 1.0
+            hi = overlay["High"]; lo = overlay["Low"]
             hi_mask = (hi == hi.rolling(2 * k + 1, center=True).max())
             lo_mask = (lo == lo.rolling(2 * k + 1, center=True).min())
-            span = (hi.max() - lo.min()) or 1.0
             hi_pts = [j for j, m in enumerate(hi_mask) if m]
             lo_pts = [j for j, m in enumerate(lo_mask) if m]
             for i in hi_pts[-8:]:
@@ -382,8 +509,10 @@ def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
                                  s=14, color=t["up"], alpha=0.45, zorder=3)
 
             # BOS / CHoCH structure lines (reuse the engine's structure logic).
+            # `n` is the picture, so a confirmed level still reaches the
+            # forming bar. The break itself was read on `overlay`.
             n = len(df)
-            for ln in _market_structure_lines(df):
+            for ln in _market_structure_lines(overlay):
                 color = t.get(ln["color_key"], t["muted"])
                 x0 = max(0, min(ln["start"], n - 1))
                 price_ax.plot([x0, n - 1], [ln["level"], ln["level"]],
@@ -401,7 +530,7 @@ def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
             if smc:
                 # Fair value gaps (shaded imbalance bands, label at left edge).
                 _fvg_placed: list[float] = []
-                for z in _fair_value_gaps(df):
+                for z in _fair_value_gaps(overlay):
                     col = t["up"] if z["bull"] else t["down"]
                     price_ax.fill_between([z["start"], n - 1], z["bottom"], z["top"],
                                           color=col, alpha=0.10, zorder=1)
@@ -416,7 +545,7 @@ def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
                 # would overlap with previously placed ones.
                 _ob_placed: list[float] = []
                 _ob_min_gap = span * 0.04
-                for ob in _order_blocks(df):
+                for ob in _order_blocks(overlay):
                     col = t["up"] if ob["bull"] else t["down"]
                     price_ax.fill_between([ob["start"], n - 1], ob["bottom"], ob["top"],
                                           color=col, alpha=0.12, edgecolor=col,
@@ -429,7 +558,7 @@ def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
                                                 alpha=0.75), zorder=4)
                         _ob_placed.append(label_y)
                 # Liquidity sweep marker on the swept level.
-                sweep = _liquidity_sweep(df)
+                sweep = _liquidity_sweep(overlay)
                 if sweep and sweep.get("level"):
                     scol = t["up"] if sweep["bull"] else t["down"]
                     price_ax.axhline(sweep["level"], color=scol, lw=0.9, ls=(0, (1, 1)),
@@ -440,7 +569,7 @@ def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
                                             alpha=0.85), zorder=4)
                 # HH/HL/LH/LL swing structure tags — deduplicate labels
                 # that are too close vertically (within 3% of price range).
-                _swing_items = _swing_labels(df)
+                _swing_items = _swing_labels(overlay)
                 _placed_y: list[float] = []
                 min_gap = span * 0.04
                 for sx, sy, lab, kind in _swing_items:
@@ -456,9 +585,11 @@ def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
                                   alpha=0.75, zorder=4)
 
             # ── Wave analysis & pattern overlays ──
-            _elliott_wave_overlay(df, price_ax, t)
-            _fibonacci_levels_overlay(df, price_ax, t)
-            _pattern_zones_overlay(df, price_ax, t)
+            # Closed bars only. A forming bar is drawn above and is not a
+            # wave, a fib swing, or a pattern.
+            _elliott_wave_overlay(overlay, price_ax, t)
+            _fibonacci_levels_overlay(overlay, price_ax, t)
+            _pattern_zones_overlay(overlay, price_ax, t)
 
             # The RSI pane's one band between 30 and 70, faint in the line's
             # own colour, as a terminal shades it.
@@ -1220,12 +1351,18 @@ def build_chart_png(candles, title: str = "RUNECLAW Setup",
                     min_bars: int = 25, dpi: int = 160,
                     levels: Optional[dict] = None,
                     theme: str = _DEFAULT_THEME, subtitle: str = "",
-                    smc: bool = True) -> Optional[bytes]:
+                    smc: bool = True,
+                    timeframe: Optional[str] = None,
+                    now_ms: Optional[float] = None) -> Optional[bytes]:
     """Compute indicators + render. Returns PNG bytes, or None on any problem.
 
     BLOCKING — invoke with ``await asyncio.to_thread(build_chart_png, ...)``.
     Never raises: missing libs, too few bars, or a render error all return None
     so the caller can fall back to a plain text signal.
+
+    ``timeframe`` decides which bar the overlays may read. The candles
+    themselves are drawn either way. Omit it and the overlays keep the last
+    bar: an unnamed period is not guessed.
     """
     if not _CHARTS_AVAILABLE:
         logger.info("charts unavailable (%s) — falling back to text", _IMPORT_ERROR)
@@ -1237,7 +1374,8 @@ def build_chart_png(candles, title: str = "RUNECLAW Setup",
             return None
         df = compute_chart_indicators(candles)
         return render_chart_png(df, title=title, dpi=dpi, levels=levels,
-                                theme=theme, subtitle=subtitle, smc=smc)
+                                theme=theme, subtitle=subtitle, smc=smc,
+                                timeframe=timeframe, now_ms=now_ms)
     except Exception as exc:  # noqa: BLE001
         logger.warning("chart render failed: %s", exc)
         return None
@@ -1260,7 +1398,9 @@ def _levels_from_idea(idea) -> Optional[dict]:
 async def send_chart(bot, chat_id, candles, caption: str,
                      title: str = "RUNECLAW Setup", dpi: int = 160,
                      levels: Optional[dict] = None,
-                     theme: str = _DEFAULT_THEME, subtitle: str = "") -> bool:
+                     theme: str = _DEFAULT_THEME, subtitle: str = "",
+                     timeframe: Optional[str] = None,
+                     now_ms: Optional[float] = None) -> bool:
     """Render off-thread and deliver via the PTB bot. Returns True iff a photo
     was sent. Falls back to a text message when charting is unavailable.
 
@@ -1269,7 +1409,8 @@ async def send_chart(bot, chat_id, candles, caption: str,
     parse error (mirrors TelegramHandler._send).
     """
     png = await asyncio.to_thread(
-        build_chart_png, candles, title, 25, dpi, levels, theme, subtitle)
+        build_chart_png, candles, title, 25, dpi, levels, theme, subtitle,
+        timeframe=timeframe, now_ms=now_ms)
     caption = caption or ""
 
     if png is None:
@@ -1399,6 +1540,7 @@ async def send_idea_chart(bot, chat_id, candles, idea,
             bot, chat_id, candles, caption=caption,
             title=f"{pair} {direction}".strip(),
             dpi=dpi, levels=levels, subtitle=subtitle, theme=theme,
+            timeframe=getattr(idea, "timeframe", None),
         )
     except Exception as exc:  # noqa: BLE001
         logger.debug("send_idea_chart skipped: %s", exc)
@@ -1443,7 +1585,8 @@ async def send_idea_charts_multi(bot, chat_id, candles_by_tf: dict, idea,
         for tf, candles in (candles_by_tf or {}).items():
             png = await asyncio.to_thread(
                 build_chart_png, candles, f"{pair} {direction} · {tf}".strip(),
-                25, dpi, levels, theme, f"{subtitle}   ·   {tf}".strip(" ·"))
+                25, dpi, levels, theme, f"{subtitle}   ·   {tf}".strip(" ·"),
+                timeframe=tf)
             if png:
                 rendered.append((tf, png))
 
@@ -1579,7 +1722,8 @@ async def build_idea_chart_composite(candles_by_tf: dict, idea,
         for tf, candles in (candles_by_tf or {}).items():
             png = await asyncio.to_thread(
                 build_chart_png, candles, f"{pair} {direction} · {tf}".strip(),
-                25, dpi, levels, theme, f"{subtitle}   ·   {tf}".strip(" ·"))
+                25, dpi, levels, theme, f"{subtitle}   ·   {tf}".strip(" ·"),
+                timeframe=tf)
             if png:
                 rendered.append(png)
         if not rendered:
@@ -1646,7 +1790,7 @@ async def build_position_chart(bot, symbol: str,
                 pass
         png = await asyncio.to_thread(
             build_chart_png, candles, f"{pair} · 1h", 25, dpi,
-            levels or None, theme, "")
+            levels or None, theme, "", timeframe="1h")
         return png
     except Exception as exc:
         logger.debug("build_position_chart failed for %s: %s", symbol, exc)
