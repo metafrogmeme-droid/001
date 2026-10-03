@@ -63,8 +63,8 @@ test('a monotone ramp is NOT "ranging" — an unreadable structure says so', () 
 });
 
 test('a planted forming bar that breaks a swing shows no BOS chip', () => {
-  // Settled path finishes inside the 0.1% band (114.9 < 115 × 1.001). The
-  // next bar closes at 117, which is a break, and its period has not elapsed.
+  // Settled path finishes inside the 0.1% band. The next bar closes at
+  // 116.5, past the last swing high, and its period has not elapsed.
   const H = 3600000;
   const t0 = START;
   const pts = [[0, 100], [5, 90], [12, 110], [19, 95], [26, 115], [32, 108], [38, 114.9]];
@@ -79,7 +79,7 @@ test('a planted forming bar that breaks a swing shows no BOS chip', () => {
   const [iL, pL] = pts[pts.length - 1];
   rows.push([String(t0 + iL * H), String(pL), String(pL + 0.5), String(pL - 0.5), String(pL), '1']);
   const open = t0 + iL * H + H;
-  rows.push([String(open), '114.9', '118', '114', '117', '1']);
+  rows.push([String(open), '114.9', '116.8', '114.8', '116.5', '1']);
 
   const live = read(rows, { gran: '1h', now: open + 1000 });
   const prefix = read(rows.slice(0, -1), { gran: '1h', now: open + H });

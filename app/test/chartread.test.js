@@ -118,7 +118,11 @@ test('structure: a forming bar that breaks a swing is not a BOS until it closes'
   const settled = path([[0, 100], [5, 90], [12, 110], [19, 95], [26, 115], [32, 108], [38, 114.9]]);
   assert.equal(CR.structure(settled).bos, false);
   const open = settled[settled.length - 1].t + H;
-  const forming = settled.concat([{ t: open, o: 114.9, h: 118, l: 114, c: 117, v: 1 }]);
+  // A close past the last swing (115.5 × 1.001) whose own high does not
+  // register as a new pivot. A taller wick would become the swing the
+  // close is measured against, and the break would vanish for a different
+  // reason than the bar still forming.
+  const forming = settled.concat([{ t: open, o: 114.9, h: 116.8, l: 114.8, c: 116.5, v: 1 }]);
   assert.equal(CR.structure(forming).bos, true, 'no timeframe named: the bar is part of the series');
   const live = { gran: '1h', now: open + 1000 };
   const closed = CR.structure(forming, live);
@@ -200,7 +204,11 @@ test('structure: a bullish→bearish flip with 3 swings per side is a CHoCH↓',
 test('svgChart and tvSpec: a forming break is drawn, and not tagged as BOS', () => {
   const settled = path([[0, 100], [5, 90], [12, 110], [19, 95], [26, 115], [32, 108], [38, 114.9]]);
   const open = settled[settled.length - 1].t + H;
-  const forming = settled.concat([{ t: open, o: 114.9, h: 118, l: 114, c: 117, v: 1 }]);
+  // A close past the last swing (115.5 × 1.001) whose own high does not
+  // register as a new pivot. A taller wick would become the swing the
+  // close is measured against, and the break would vanish for a different
+  // reason than the bar still forming.
+  const forming = settled.concat([{ t: open, o: 114.9, h: 116.8, l: 114.8, c: 116.5, v: 1 }]);
   const live = { gran: '1h', now: open + 1000 };
   const svg = CR.svgChart(forming, live);
   assert.match(svg, /<rect/);
