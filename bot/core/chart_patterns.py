@@ -38,6 +38,7 @@ import numpy as np
 
 from bot.core.liquidity_sweep import SweepSignal, detect_sweeps
 from bot.core.multi_timeframe import _find_swings
+from bot.formatters.price_text import fmt_price
 
 
 def _env_bool(key: str, default: bool) -> bool:
@@ -209,7 +210,10 @@ def detect_head_and_shoulders(
                             "name": "Head & Shoulders",
                             "signal": "bearish",
                             "confidence": round(conf, 2),
-                            "description": f"H&S top: head ${head[1]:,.2f}, neckline ~${neckline:,.2f}",
+                            "description": (
+                                f"H&S top: head {fmt_price(head[1])}, "
+                                f"neckline ~{fmt_price(neckline)}"
+                            ),
                             "key_levels": {"head": head[1], "left_shoulder": left[1],
                                            "right_shoulder": right[1], "neckline": float(neckline)},
                         }
@@ -235,7 +239,10 @@ def detect_head_and_shoulders(
                     "name": "Inverse Head & Shoulders",
                     "signal": "bullish",
                     "confidence": round(conf, 2),
-                    "description": f"IH&S bottom: head ${head[1]:,.2f}, neckline ~${neckline:,.2f}",
+                    "description": (
+                        f"IH&S bottom: head {fmt_price(head[1])}, "
+                        f"neckline ~{fmt_price(neckline)}"
+                    ),
                     "key_levels": {"head": head[1], "left_shoulder": left[1],
                                    "right_shoulder": right[1], "neckline": float(neckline)},
                 }
@@ -276,7 +283,10 @@ def detect_double_top_bottom(
                     "name": "Double Top",
                     "signal": "bearish",
                     "confidence": round(conf, 2),
-                    "description": f"Double top at ~${top1[1]:,.2f}, neckline ~${neckline:,.2f}",
+                    "description": (
+                        f"Double top at ~{fmt_price(top1[1])}, "
+                        f"neckline ~{fmt_price(neckline)}"
+                    ),
                     "key_levels": {"top1": top1[1], "top2": top2[1], "neckline": float(neckline)},
                 }
 
@@ -297,7 +307,10 @@ def detect_double_top_bottom(
                     "name": "Double Bottom",
                     "signal": "bullish",
                     "confidence": round(conf, 2),
-                    "description": f"Double bottom at ~${bot1[1]:,.2f}, neckline ~${neckline:,.2f}",
+                    "description": (
+                        f"Double bottom at ~{fmt_price(bot1[1])}, "
+                        f"neckline ~{fmt_price(neckline)}"
+                    ),
                     "key_levels": {"bot1": bot1[1], "bot2": bot2[1], "neckline": float(neckline)},
                 }
 
@@ -417,8 +430,10 @@ def detect_triangles(
             "name": "Ascending Triangle" if broke else "Ascending Triangle (forming)",
             "signal": "bullish" if broke else "neutral",
             "confidence": 0.70 if broke else 0.55,
-            "description": f"Ascending triangle: flat resistance ~${sh[-1][1]:,.2f}, rising lows"
-                           + ("" if broke else " (no breakout yet)"),
+            "description": (
+                f"Ascending triangle: flat resistance ~{fmt_price(sh[-1][1])}, rising lows"
+                + ("" if broke else " (no breakout yet)")
+            ),
             "key_levels": {"resistance": sh[-1][1], "support_rising": sl[-1][1]},
         }
 
@@ -429,8 +444,10 @@ def detect_triangles(
             "name": "Descending Triangle" if broke else "Descending Triangle (forming)",
             "signal": "bearish" if broke else "neutral",
             "confidence": 0.70 if broke else 0.55,
-            "description": f"Descending triangle: falling highs, flat support ~${sl[-1][1]:,.2f}"
-                           + ("" if broke else " (no breakout yet)"),
+            "description": (
+                f"Descending triangle: falling highs, flat support ~{fmt_price(sl[-1][1])}"
+                + ("" if broke else " (no breakout yet)")
+            ),
             "key_levels": {"resistance_falling": sh[-1][1], "support": sl[-1][1]},
         }
 
@@ -540,7 +557,7 @@ def detect_rectangle(
             "name": "Rectangle",
             "signal": signal,
             "confidence": 0.65,
-            "description": f"Range: ${support:,.2f} - ${resistance:,.2f}",
+            "description": f"Range: {fmt_price(support)} - {fmt_price(resistance)}",
             "key_levels": {"support": float(support), "resistance": float(resistance)},
         }
 
@@ -606,7 +623,10 @@ def detect_cup_and_handle(
             "name": "Cup and Handle",
             "signal": "bullish",
             "confidence": round(conf, 2),
-            "description": f"Cup & handle: depth {cup_depth_pct:.1f}%, breakout ~${right_lip[1]:,.2f}",
+            "description": (
+                f"Cup & handle: depth {cup_depth_pct:.1f}%, "
+                f"breakout ~{fmt_price(right_lip[1])}"
+            ),
             "key_levels": {"left_lip": left_lip[1], "right_lip": right_lip[1],
                            "cup_bottom": cup_bottom[1], "breakout": right_lip[1]},
         }
@@ -645,7 +665,9 @@ def detect_sr_flip(
                     "name": "S/R Flip (Support → Resistance)",
                     "signal": "bearish",
                     "confidence": 0.70,
-                    "description": f"Old support ${old_support:,.2f} now acting as resistance",
+                    "description": (
+                        f"Old support {fmt_price(old_support)} now acting as resistance"
+                    ),
                     "key_levels": {"level": old_support},
                 }
 
@@ -660,7 +682,9 @@ def detect_sr_flip(
                     "name": "S/R Flip (Resistance → Support)",
                     "signal": "bullish",
                     "confidence": 0.70,
-                    "description": f"Old resistance ${old_resistance:,.2f} now acting as support",
+                    "description": (
+                        f"Old resistance {fmt_price(old_resistance)} now acting as support"
+                    ),
                     "key_levels": {"level": old_resistance},
                 }
 
@@ -1029,7 +1053,7 @@ def detect_elliott_corrective(
                         "confidence": round(min(0.80, max(0.45, conf)), 2),
                         "description": (
                             f"ABC correction ({pattern_type}) after impulse top"
-                            f" ${a_start:,.2f} | {fib_detail}"
+                            f" {fmt_price(a_start)} | {fib_detail}"
                         ),
                         "key_levels": levels,
                     }
@@ -1077,7 +1101,7 @@ def detect_elliott_corrective(
                         "confidence": round(min(0.80, max(0.45, conf)), 2),
                         "description": (
                             f"ABC correction ({pattern_type}) after impulse bottom"
-                            f" ${a_start:,.2f} | {fib_detail}"
+                            f" {fmt_price(a_start)} | {fib_detail}"
                         ),
                         "key_levels": levels,
                     }
@@ -1520,7 +1544,7 @@ def detect_wyckoff_phases(
             "confidence": round(conf, 2),
             "description": (
                 f"Wyckoff accumulation: phases {', '.join(phases_found)}"
-                f" in range ${range_bot:,.2f}-${range_top:,.2f}"
+                f" in range {fmt_price(range_bot)}-{fmt_price(range_top)}"
             ),
             "key_levels": key_levels,
         }
@@ -1575,7 +1599,7 @@ def detect_wyckoff_phases(
             "confidence": round(conf, 2),
             "description": (
                 f"Wyckoff distribution: phases {', '.join(phases_found)}"
-                f" in range ${range_bot:,.2f}-${range_top:,.2f}"
+                f" in range {fmt_price(range_bot)}-{fmt_price(range_top)}"
             ),
             "key_levels": key_levels,
         }
@@ -1732,8 +1756,8 @@ def detect_fibonacci_extensions(
                 "signal": "bullish",
                 "confidence": 0.60,
                 "description": (
-                    f"Fib extensions from impulse ${start_low[1]:,.2f}"
-                    f" -> ${impulse_high[1]:,.2f}, retrace ${retrace_low[1]:,.2f}"
+                    f"Fib extensions from impulse {fmt_price(start_low[1])}"
+                    f" -> {fmt_price(impulse_high[1])}, retrace {fmt_price(retrace_low[1])}"
                 ),
                 "key_levels": {
                     "ext_1.000": round(ext_base + impulse * 1.000, 2),
@@ -1760,8 +1784,8 @@ def detect_fibonacci_extensions(
                 "signal": "bearish",
                 "confidence": 0.60,
                 "description": (
-                    f"Fib extensions from impulse ${start_high[1]:,.2f}"
-                    f" -> ${impulse_low[1]:,.2f}, retrace ${retrace_high[1]:,.2f}"
+                    f"Fib extensions from impulse {fmt_price(start_high[1])}"
+                    f" -> {fmt_price(impulse_low[1])}, retrace {fmt_price(retrace_high[1])}"
                 ),
                 "key_levels": {
                     "ext_1.000": round(ext_base - impulse * 1.000, 2),
