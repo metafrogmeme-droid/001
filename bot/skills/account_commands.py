@@ -215,6 +215,52 @@ def _venue_label(v: str) -> str:
         return v.title()
 
 
+def read_per_user_live_enabled(config: object | None = None) -> bool | None:
+    """``True``, ``False``, or ``None`` when ``PER_USER_LIVE_ENABLED`` could not be read.
+
+    A missing attribute, a raised read, and a value that is not a bool are
+    ``None``. ``None`` is not off: the shipped default is a successful
+    ``False``, and an unreadable switch must not be reported as that default.
+    ``0`` and ``1`` are not bools, so they are not off and not on.
+    """
+    src = CONFIG if config is None else config
+    try:
+        value = getattr(src, "per_user_live_enabled")
+    except Exception:
+        return None
+    if isinstance(value, bool):
+        return value
+    return None
+
+
+def per_user_live_connect_line(enabled: bool | None) -> str:
+    """The ``/connect`` card's sentence about ``PER_USER_LIVE_ENABLED``.
+
+    The card stores keys. It does not place an order, so none of these
+    sentences says one was placed. ``True`` names the routing the flag
+    turns on (``_executor_for`` uses the caller's own keys on a venue this
+    bot can execute, instead of the shared operator account) and says the
+    other live gates still apply. ``False`` does not say live trading is
+    available. Anything else says the flag could not be read.
+    """
+    if enabled is True:
+        return (
+            "Per-user live trading is on: the engine routes a regular user's "
+            "confirmed live order to their own linked keys on a venue this bot "
+            "can execute, instead of the shared operator account, when the "
+            "other live gates allow it. This message places no order."
+        )
+    if enabled is False:
+        return (
+            "Per-user live trading is off. Linking these keys does not open "
+            "live trading, and this message places no order."
+        )
+    return (
+        "Per-user live trading could not be read. This card does not call it "
+        "on and does not call it off. This message places no order."
+    )
+
+
 class AccountCommands:
     """A user's own account, and the operator's keys. Host contract below."""
 
@@ -357,15 +403,19 @@ class AccountCommands:
         # the keys are stored and readable, and no order will ever route there
         # until its adapter is driven — no date promised.
         _orders_line = per_user_execution_refusal(venue)
+        # The flag, read here, is the only source of the live sentence. A
+        # missing or non-bool value is not the shipped off default.
+        _live_line = per_user_live_connect_line(read_per_user_live_enabled())
         await self._send(update,
             f"🟢 <b>{label} account linked</b>\n\n"
             f"Key: <code>{store.fingerprint(tg_id)}</code>\n"
             f"Balance: {html.escape(detail)}\n\n"
             + (f"⚠️ {html.escape(_orders_line)}\n\n" if _orders_line else "") +
             f"{withdraw_notice(scope.get('withdraw'))}\n\n"
-            "Your keys are encrypted at rest. Per-user live trading is not yet "
-            "enabled — you'll be notified when it goes live. Use "
-            "<code>/exchange</code> to review or <code>/disconnect</code> to remove.")
+            "Your keys are encrypted at rest. "
+            + _live_line
+            + " Use <code>/exchange</code> to review or "
+            "<code>/disconnect</code> to remove.")
 
     async def _cmd_setexchange(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/setexchange [venue] <credentials…> — ADMIN ONLY.
