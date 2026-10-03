@@ -574,6 +574,11 @@ class TestTheCardsPrintTheBasis:
             def _per_user_margin_cap(self, uid):
                 return None
 
+            def _self_admitted_practice(self, user_id):
+                # This card is the vouched opt-in fill, not a self-admitted
+                # PRACTICE row. The production path asks; the stand-in answers.
+                return False
+
             def _transition(self, *a, **k):
                 pass
 
