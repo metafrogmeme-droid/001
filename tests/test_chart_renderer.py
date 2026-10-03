@@ -593,6 +593,14 @@ def test_the_position_chart_keeps_the_forming_bar_and_marks_its_close(monkeypatc
     previous = 80.0
     sl, atr = 70.0, 2.0
     captured = {}
+    marks = []
+    real_mark = cr._trail_mark
+
+    def spy(row):
+        marks.append(real_mark(row))
+        return marks[-1]
+
+    monkeypatch.setattr(cr, "_trail_mark", spy)
 
     def fake(candles, _title, _min_bars, _dpi, levels, _theme, _subtitle,
              timeframe=None):
@@ -637,15 +645,22 @@ def test_the_position_chart_keeps_the_forming_bar_and_marks_its_close(monkeypatc
     assert want is not None and stale is not None
     assert abs(want - stale) > 1.0
     assert levels["threshold"] == want
+    assert marks[-1] == forming
 
-    # The other arm: no mark inputs, the forming bar is still the picture.
+    # The other arm: no mark inputs, the forming bar is still the picture,
+    # and the mark is not consulted.
+    asked = len(marks)
     candles, levels, _tf = _run(_forming_position_candles(forming))
     assert candles[-1][4] == forming
     assert levels is None
+    assert len(marks) == asked
 
     # And an unreadable close is not a mark and is not written back as 0.
+    # The stated stop is still drawn: only the threshold, which divides by
+    # the mark, is left off.
     candles, levels, _tf = _run(
         _forming_position_candles(None), direction="LONG", sl=sl, atr=atr)
     assert candles[-1][4] is None
-    assert levels is None
-    assert cr._trail_mark(candles[-1]) is None
+    assert "threshold" not in levels
+    assert levels["stop_loss"] == sl
+    assert marks[-1] is None
