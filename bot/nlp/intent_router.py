@@ -1008,12 +1008,11 @@ BARE_SOCIAL_LEAD = re.compile(
 #: talk. The bare tokens (`help`, `commands`, `menu`) already routed; every
 #: phrasing a person actually uses did not. Driven: `what can you do` was eaten
 #: by `_SOCIAL_CHAT`, `capabilities` and `/help` by the three-word rule, and
-#: `how does this work`, `show me what you can do`, `what can i ask` and
-#: `im new what now` simply matched nothing and reached a tool-less model —
-#: it is `ONBOARDING_ASK` now, the getting-started checklist, not this
-#: catalogue. The rest of that list is the exact failure the unavailable
-#: notice was written to prevent,
-#: with the model improvising the product's own feature list.
+#: `how does this work`, `show me what you can do` and `what can i ask`
+#: simply matched nothing and reached a tool-less model — which is the
+#: exact failure the unavailable notice was written to prevent, with the
+#: model improvising the product's own feature list. `im new what now` was
+#: in that list; it is `ONBOARDING_ASK` now, the getting-started checklist.
 #:
 #: `how (does|do) (this|it|you) work` only, never a bare "how does X work":
 #: "how does funding work" is a question about the market and belongs to the
