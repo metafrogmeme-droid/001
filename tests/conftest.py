@@ -864,7 +864,41 @@ def _refuse_outbound_connections() -> None:
     _socket.socket.connect = connect
     _socket.socket.connect_ex = connect_ex
     _stamp_thread_origins()
+    _attribute_scan_lane_jobs()
     _prove_the_refusal_is_honest(_socket)
+
+
+def _attribute_scan_lane_jobs() -> None:
+    """Charge a scan-lane connect to the test that submitted the job.
+
+    ``runeclaw-scan-lane`` is one daemon for the whole process. The stamp
+    taken at ``Thread.start`` names whichever test submitted the first job,
+    and every later job's connect is then reported against that file — a
+    file that mocked its scan and opened nothing. The seam to stub is the
+    test that submitted the job.
+
+    The worker's origin is replaced when the job starts and left in place,
+    so a connect that lands after the job returns is still that job's. A
+    one-shot thread (``sync_*_in_background``) keeps the stamp it took at
+    ``Thread.start``. This is only the shared lane.
+    """
+    from bot.core.scan_lane import ScanLane
+
+    if getattr(ScanLane.run, "_runeclaw_attributes_jobs", False):
+        return
+    real_run = ScanLane.run
+
+    async def run(self, factory):
+        origin = _OUTBOUND.nodeid
+
+        async def _stamped():
+            setattr(threading.current_thread(), _THREAD_ORIGIN, origin)
+            return await factory()
+
+        return await real_run(self, _stamped)
+
+    run._runeclaw_attributes_jobs = True
+    ScanLane.run = run
 
 
 def _prove_the_refusal_is_honest(_socket) -> None:
