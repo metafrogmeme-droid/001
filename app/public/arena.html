@@ -442,7 +442,7 @@ window.addEventListener('unhandledrejection', rcReportPageError);
 <script src="/js/arena-risk-model.js?v=1"></script>
 <script src="/vendor/lightweight-charts.standalone.production.js?v=1"></script>
 <script src="/js/tv-chart.js?v=1"></script>
-<script src="/js/chartread.js?v=7"></script>
+<script src="/js/chartread.js?v=8"></script>
 <script src="/js/radar3d.js?v=3" defer></script>
 <script>
 (function () {
@@ -683,6 +683,7 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     cell.innerHTML = tfRow(sym, p.id) + '<div class="rc-chart-host"></div>' + readChips(p, parsed, d0.patterns, gran);
     CR.drawInto(cell.querySelector('.rc-chart-host'), parsed, {
       width: Math.max(300, (cell.clientWidth || 0) - 10), height: 260,
+      gran: gran,
       title: sym + ' · ' + gran,
       entry: p.entry, sl: p.sl, tp: p.tp, liq: p.liq_price, direction: p.direction,
       levels: (d0.insight && d0.insight.levels) || [],
@@ -1461,6 +1462,7 @@ window.addEventListener('unhandledrejection', rcReportPageError);
         box.hidden = false;   // unhide first so clientWidth measures real
         CR.drawInto(box, parsed, {
           width: Math.max(300, (box.clientWidth || 0) - 4), height: 240,
+          gran: '1h',
           title: sym + ' · 1h',
           entry: liveMark,
           tp: Number($('tTp').value) || null,

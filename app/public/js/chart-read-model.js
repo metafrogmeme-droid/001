@@ -131,15 +131,20 @@
    * Every item carries `bars`, so a verdict off 6 bars and one off 200 stop
    * rendering identically.
    */
-  function chips(parsed, read) {
+  function chips(parsed, read, clock) {
     if (!read || typeof read.vwap !== 'function' || typeof read.structure !== 'function') return null;
-    const bars = (parsed && parsed.length) || 0;
+    // The forming bar is chartread's to drop. This model does not re-spell
+    // the period check; it asks, and the sample on each chip is the series
+    // the verdict was actually read from.
+    const series = (clock && typeof read.closedCandles === 'function')
+      ? read.closedCandles(parsed, clock) : parsed;
+    const bars = (series && series.length) || 0;
     const items = [];
 
     // NO floor is spelled here. vwap() answers null under 5 bars and
     // structure() under 15, each in its own first line; re-stating either is
     // the second copy that made the two call sites disagree.
-    const vw = read.vwap(parsed);
+    const vw = read.vwap(series);
     if (vw) {
       const d = num(vw.dist_pct);
       if (d !== null) {
@@ -156,7 +161,7 @@
       }
     }
 
-    const st = read.structure(parsed);
+    const st = read.structure(series);
     if (st) {
       // `measured` is structure()'s OWN answer about whether it found swings
       // to read. Re-deriving it from st.swings here would be the second copy
@@ -244,7 +249,7 @@
     const s = (rows && usable) ? sample(rows.length, parsed.length, o.drawn) : null;
     const prov = provenance({ rows: usable ? rows : null, sample: s, venue: o.venue, gran: o.gran });
     if (prov.state !== 'read') return { provenance: prov, items: [], parsed: parsed, thin: null };
-    const items = chips(parsed, read);
+    const items = chips(parsed, read, { gran: o.gran, now: o.now });
     if (items === null) return { provenance: prov, items: [], parsed: parsed, thin: W.unread };
     // Nothing to say is not the same as nothing to read: under every floor
     // the module owns, the sample itself is the answer.

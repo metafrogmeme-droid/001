@@ -3444,6 +3444,7 @@
                     leverage: geo.l } : {},
             { width: Math.max(300, (chartBox.clientWidth || 0) - 4),
               height: 300,
+              gran: gran,
               title: pair + ' · ' + (({ '15min': '15m' })[gran] || gran),
               levels: (ins && ins.data && ins.data.levels) || [],
               fvgs: (ins && ins.data && ins.data.fvgs) || [],
