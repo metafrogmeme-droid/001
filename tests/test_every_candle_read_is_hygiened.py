@@ -271,3 +271,22 @@ class TestEveryVenueCandleReadIsAccountedFor:
         assert nested, "the deep scan's nested fetch is no longer found"
         assert all(sites[k]["covered"] for k in nested), (
             "a nested read whose caller hygienes the rows reads as bare")
+
+    def test_the_chart_exemption_names_the_picture_and_the_closed_frame(self):
+        """The row used to say this fetch's only read of the last bar is the
+        mark and that no indicator is computed on the window. The fetch is
+        still bare — the picture is that series — and the reason has to say
+        both halves a reviewer can check: the chart draws the forming bar,
+        and confirmed overlays read the closed frame.
+        """
+        key = "bot/skills/chart_renderer.py::build_position_chart#0"
+        sites = candle_read_sites()
+        reason = _baseline()[key]
+        assert sites[key]["covered"] is False, (
+            "the position chart's fetch grew a drop; this row would be hiding "
+            "a site the walk now calls clean")
+        assert "draws the forming bar" in reason
+        assert "closed frame" in reason
+        assert "EMA" in reason and "RSI" in reason
+        assert "no indicator is computed" not in reason
+        assert "only read of the last bar" not in reason

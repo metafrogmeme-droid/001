@@ -552,3 +552,100 @@ def test_a_rally_with_no_loss_reads_100_and_a_flat_window_reads_nothing():
     assert up.iloc[-1] == 100.0
     flat = cr._wilder_rsi(pd.Series([5.0] * 40), 14)
     assert flat.isna().all()
+
+
+def test_an_unreadable_trail_mark_is_not_zero():
+    """Both arms of the mark. A real close is that close. Absent, zero,
+    negative, NaN, infinity and junk are not a mark, and none of them is 0.
+    """
+    assert cr._trail_mark([1, 1, 1, 1, 50.0, 1]) == 50.0
+    for bad in (None, 0.0, -1.0, float("nan"), float("inf"), "nope"):
+        assert cr._trail_mark([1, 1, 1, 1, bad, 1]) is None, bad
+    assert cr._trail_mark([1, 1, 1, 1]) is None
+    assert cr._trail_mark(None) is None
+    assert cr._trail_mark([]) is None
+
+
+def _forming_position_candles(last_close, n=60):
+    """`n` 1h bars, the last one still forming, its close planted."""
+    now_ms = time.time() * 1000.0
+    last_open = now_ms - 10 * 60 * 1000.0
+    rows = []
+    for i in range(n - 1, 0, -1):
+        rows.append([last_open - i * 3_600_000, 80.0, 81.0, 79.0, 80.0, 10.0])
+    rows.append([last_open, 80.0, 90.0, 70.0, last_close, 10.0])
+    return rows
+
+
+@needs_charts
+def test_the_position_chart_keeps_the_forming_bar_and_marks_its_close(monkeypatch):
+    """The hygiene row used to say this fetch computes no indicator and that
+    its only read of the last bar is the mark. Both arms of what it actually
+    does: the picture is handed the forming bar (so EMA on that window moves),
+    and the trail threshold divides by that close. An unreadable close draws
+    no threshold and is not rewritten to 0, and the bar still stays.
+    """
+    import ccxt.async_support as ccxt_async
+
+    from bot.core.position_telemetry import playbook_trail_threshold
+
+    forming = 50.0
+    previous = 80.0
+    sl, atr = 70.0, 2.0
+    captured = {}
+
+    def fake(candles, _title, _min_bars, _dpi, levels, _theme, _subtitle,
+             timeframe=None):
+        captured["candles"] = [list(c) for c in candles]
+        captured["levels"] = levels
+        captured["timeframe"] = timeframe
+        return b"png"
+
+    monkeypatch.setattr(cr, "build_chart_png", fake)
+
+    class _Exchange:
+        def __init__(self, rows):
+            self.rows = rows
+
+        async def fetch_ohlcv(self, *_a, **_k):
+            return [list(r) for r in self.rows]
+
+        async def close(self):
+            return None
+
+    def _run(rows, **kwargs):
+        captured.clear()
+        monkeypatch.setattr(ccxt_async, "bitget", lambda *_a, **_k: _Exchange(rows))
+        png = asyncio.run(cr.build_position_chart(
+            _FakeBot(), "BTC/USDT", direction=kwargs.get("direction", ""),
+            sl=kwargs.get("sl", 0), atr=kwargs.get("atr", 0)))
+        assert png == b"png"
+        return captured["candles"], captured["levels"], captured["timeframe"]
+
+    candles, levels, timeframe = _run(
+        _forming_position_candles(forming), direction="LONG", sl=sl, atr=atr)
+    assert timeframe == "1h"
+    assert candles[-1][4] == forming
+    assert len(candles) == 60
+    full = cr.compute_chart_indicators(candles)
+    closed = cr.compute_chart_indicators(candles[:-1])
+    assert full["Close"].iloc[-1] == forming
+    assert closed["Close"].iloc[-1] == previous
+    assert float(full["EMA_9"].iloc[-1]) != float(closed["EMA_9"].iloc[-1])
+    want = playbook_trail_threshold("LONG", sl, atr / forming)
+    stale = playbook_trail_threshold("LONG", sl, atr / previous)
+    assert want is not None and stale is not None
+    assert abs(want - stale) > 1.0
+    assert levels["threshold"] == want
+
+    # The other arm: no mark inputs, the forming bar is still the picture.
+    candles, levels, _tf = _run(_forming_position_candles(forming))
+    assert candles[-1][4] == forming
+    assert levels is None
+
+    # And an unreadable close is not a mark and is not written back as 0.
+    candles, levels, _tf = _run(
+        _forming_position_candles(None), direction="LONG", sl=sl, atr=atr)
+    assert candles[-1][4] is None
+    assert levels is None
+    assert cr._trail_mark(candles[-1]) is None

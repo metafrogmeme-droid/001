@@ -1736,6 +1736,20 @@ async def build_idea_chart_composite(candles_by_tf: dict, idea,
         return None
 
 
+def _trail_mark(candle) -> Optional[float]:
+    """The close the playbook trail threshold divides by.
+
+    A forming bar's close is the price now, so it is the mark. A close that
+    is not a price on record is not a mark and is not 0: the threshold is
+    left off the chart rather than drawn from a division by nothing.
+    """
+    try:
+        close = candle[_CLOSE] if candle is not None and len(candle) > _CLOSE else None
+    except TypeError:
+        return None
+    return price_on_record(close)
+
+
 async def build_position_chart(bot, symbol: str,
                                entry: float = 0, sl: float = 0, tp: float = 0,
                                theme: str = _DEFAULT_THEME,
@@ -1778,13 +1792,16 @@ async def build_position_chart(bot, symbol: str,
         if liq > 0:
             levels["liq"] = liq
         # Playbook ratchet threshold: the mark at which the trail is DEMANDED.
+        # The forming close is that mark. EMA and RSI are computed on this
+        # same series; structure and the other overlays read the closed frame
+        # inside the renderer. An unreadable close draws no threshold.
         if direction and sl > 0 and atr > 0:
             try:
-                last_close = float(candles[-1][4]) if candles[-1] and len(candles[-1]) > 4 else 0.0
-                if last_close > 0:
+                last_close = _trail_mark(candles[-1])
+                if last_close is not None:
                     from bot.core.position_telemetry import playbook_trail_threshold
                     thr = playbook_trail_threshold(direction, sl, atr / last_close)
-                    if thr and thr > 0:
+                    if thr is not None and thr > 0:
                         levels["threshold"] = thr
             except Exception:
                 pass
