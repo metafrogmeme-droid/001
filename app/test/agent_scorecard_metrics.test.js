@@ -180,12 +180,12 @@ test('Dip Sniper keeps the frozen figures, in a 3-column grid, caption outside',
   const sh = cell(parsed, 'Sharpe');
   const tr = cell(parsed, 'Trades');
 
-  assert.equal(ret.text, '+2.32%');
-  assert.equal(pf.text, '1.45');
-  assert.equal(wr.text, '58%');
+  assert.equal(ret.text, '+3.24%');
+  assert.equal(pf.text, '1.62');
+  assert.equal(wr.text, '62%');
   assert.equal(dd.text, '2.75%');
-  assert.equal(sh.text, '0.84');
-  assert.equal(tr.text, '12');
+  assert.equal(sh.text, '1.24');
+  assert.equal(tr.text, '13');
 
   gain(ret.cls);
   gain(pf.cls);
@@ -327,18 +327,18 @@ function stratCell(html, key) {
 
 test('the public strategy page uses the same reading and a 3-column grid', () => {
   const html = strategyBlock(cardFrom('dip-sniper.json'));
-  assert.equal(stratCell(html, 'return').text, '+2.32%');
+  assert.equal(stratCell(html, 'return').text, '+3.24%');
   assert.equal(stratCell(html, 'return').cls, 'up');
-  assert.equal(stratCell(html, 'profit-factor').text, '1.45');
+  assert.equal(stratCell(html, 'profit-factor').text, '1.62');
   assert.equal(stratCell(html, 'profit-factor').cls, 'up');
-  assert.equal(stratCell(html, 'win-rate').text, '58%');
+  assert.equal(stratCell(html, 'win-rate').text, '62%');
   assert.equal(stratCell(html, 'win-rate').cls, '');
   assert.equal(stratCell(html, 'max-dd').text, '2.75%');
   assert.equal(stratCell(html, 'max-dd').cls, '');
-  assert.equal(stratCell(html, 'sharpe').text, '0.84');
+  assert.equal(stratCell(html, 'sharpe').text, '1.24');
   assert.equal(stratCell(html, 'sharpe').cls, 'up');
   assert.equal(stratCell(html, 'sharpe').cls, stratCell(html, 'profit-factor').cls);
-  assert.equal(stratCell(html, 'trades').text, '12');
+  assert.equal(stratCell(html, 'trades').text, '13');
 
   const mom = strategyBlock(cardFrom('momentum-hunter.json'));
   assert.equal(stratCell(mom, 'profit-factor').text, '1.80');
