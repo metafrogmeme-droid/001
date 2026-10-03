@@ -1397,14 +1397,14 @@ second door.
 **Writing that module produced the same defect one layer down, and it was
 fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
 other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
-whole vocabulary plus every chat tool: **57 names including `halt`,
+whole vocabulary plus every chat tool: **58 names including `halt`,
 `close_position` and `emergency_stop`**, on the function whose entire job is
 deciding what the card may promise. (The figure is a live drive of what would
 fall through TODAY, not a note of what it was the day the branch was fixed,
 which is why it moves when the router gains an intent — it was 51 before the
 sweep's own timeframes got rules, 53 before `place_order`, and 56 before
 cross-venue exposure became a routed intent.) It answered MORE for an unrecognised
-surface than for the one it modelled best (telegram, 52), because the
+surface than for the one it modelled best (telegram, 53), because the
 unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
 names that are not skills at all. An unmeasured surface is neither "everything"
 nor "nothing": it raises. `public` and `api` are measured — `_chat_tools_for`
@@ -3418,9 +3418,9 @@ wired into ONE path. The user turn is appended INSIDE `if skill:`, so every
 branch that answers above it returned without touching the store at all: a
 typed "deep scan" left no trace of the question OR the card, and "which of
 those is best?" then reached the model with a history in which the scan had
-never happened. Fifty-six call sites across the two entry points today, one on
+never happened. Fifty-eight call sites across the two entry points today, one on
 every branch that answers — the stance card, the paywall refusal, the scan card,
-orders, help, status, the close/cancel/modify door, a forwarded halt, the
+orders, the onboarding checklist, help, status, the close/cancel/modify door, a forwarded halt, the
 bare-verb door, the guarded dangerous commands, the role refusal, the firewall
 block, the clarifying QUESTION (the one reply the next turn is certainly an
 answer to), the quota refusal, the manual-trade hand-off, the unavailable
@@ -19733,7 +19733,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1204** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1205** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

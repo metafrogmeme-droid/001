@@ -266,7 +266,8 @@ def test_the_recorded_call_sites_are_the_number_it_claims():
     words = {n_: w for n_, w in {
         48: "Forty-eight", 49: "Forty-nine", 50: "Fifty", 51: "Fifty-one",
         52: "Fifty-two", 53: "Fifty-three", 54: "Fifty-four",
-        55: "Fifty-five", 56: "Fifty-six"}.items()}
+        55: "Fifty-five", 56: "Fifty-six",
+        57: "Fifty-seven", 58: "Fifty-eight"}.items()}
     assert n in words, f"{n} call sites; widen the spelling map"
     claim = f"{words[n]} call sites across the two entry points"
     assert claim in DOC, (

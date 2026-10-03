@@ -1010,7 +1010,9 @@ BARE_SOCIAL_LEAD = re.compile(
 #: by `_SOCIAL_CHAT`, `capabilities` and `/help` by the three-word rule, and
 #: `how does this work`, `show me what you can do`, `what can i ask` and
 #: `im new what now` simply matched nothing and reached a tool-less model —
-#: which is the exact failure the unavailable notice was written to prevent,
+#: it is `ONBOARDING_ASK` now, the getting-started checklist, not this
+#: catalogue. The rest of that list is the exact failure the unavailable
+#: notice was written to prevent,
 #: with the model improvising the product's own feature list.
 #:
 #: `how (does|do) (this|it|you) work` only, never a bare "how does X work":
@@ -1048,12 +1050,32 @@ CAPABILITY_ASK = re.compile(
     r"|(?:show|tell|list)\s+(?:me\s+)?what\s+you\s+can\s+do"
     r"|capabilities|features"
     r"|how\s+(?:does|do)\s+(?:this|it|you)\s+work"
-    r"|(?:i'?m|im)\s+new[,.]?\s*what\s+(?:now|next|do\s+i\s+do)"
     r"|/help"
     r")"
     # The politeness TAIL. Anchored rules that forbid it read a courteous
     # question as small talk, which is the one reading a courteous question
     # never deserves.
+    r"(?:[\s,]+(?:please|pls|plz|thanks|thx|ty|mate|bro|dude|lol|here))*"
+    r"\s*[?!.]*\s*$", re.IGNORECASE)
+
+#: "I'm new, what now?" is a getting-started question, not the capability
+#: catalogue. It used to live inside `CAPABILITY_ASK`, which answered it with
+#: every skill this caller can reach. The checklist names four doors and
+#: stages nothing. Whole message, same politeness tail, so "im new what now
+#: thanks" is still the question.
+ONBOARDING_ASK = re.compile(
+    r"^\s*(?:(?:so|ok|okay|hey|hi|yo|erm|um)[,\s]+)*"
+    r"(?:"
+    r"(?:i'?m|im|i am)\s+new(?:[,.]?\s*what\s+(?:now|next|do\s+i\s+do))?"
+    r"|how\s+do\s+i\s+(?:get\s+started|start|begin)"
+    r"|where\s+do\s+i\s+start"
+    r"|what\s+(?:should|do)\s+i\s+do\s+first"
+    r"|getting\s+started"
+    r"|first\s+steps"
+    r"|onboarding(?:\s+checklist)?"
+    r"|help\s+me\s+get\s+started"
+    r"|show\s+(?:me\s+)?(?:the\s+)?(?:onboarding|getting\s+started)\s+checklist"
+    r")"
     r"(?:[\s,]+(?:please|pls|plz|thanks|thx|ty|mate|bro|dude|lol|here))*"
     r"\s*[?!.]*\s*$", re.IGNORECASE)
 
@@ -1219,7 +1241,7 @@ _ANCHORED_ACTION_RULES = (HALT_COMPOUND_HALT, HALT_COMPOUND_ANY, EMERGENCY_STOP,
                           HALT_IMPERATIVE, PAUSE_OWN, HALT_BARE_VERB, PLACE_ORDER,
                           HALT_SOCIAL_LEAD, EMERGENCY_SOCIAL_LEAD, PAUSE_SOCIAL_LEAD,
                           BARE_SOCIAL_LEAD,
-                          CAPABILITY_ASK)
+                          CAPABILITY_ASK, ONBOARDING_ASK)
 _rule(HALT_COMPOUND_HALT.pattern, "halt",
       explanation="Two or more halt clauses in one message — the operator's own imperative, twice")
 _rule(HALT_COMPOUND_ANY.pattern, "emergency_stop",
@@ -2259,6 +2281,8 @@ _rule(r"\b(show (me )?help|list (of )?commands?|what commands?|how (do i|to) use
 # `_ANCHORED_ACTION_RULES` — the social gate consults it before deciding that
 # "what can you do" is small talk — and a rule that is consulted in two places
 # has to be one object, not one spelling copied twice.
+_rule(ONBOARDING_ASK.pattern, "onboarding",
+      explanation="Getting-started checklist — four doors, nothing staged")
 _rule(CAPABILITY_ASK.pattern, "help",
       explanation="Capability question — what the bot can do for this caller")
 

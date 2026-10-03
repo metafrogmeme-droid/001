@@ -1225,7 +1225,7 @@ def _turn(ug, h, text):
 
 
 @pytest.mark.parametrize("text", ["help", "what can you do", "capabilities",
-                                  "how does this work", "im new what now"])
+                                  "how does this work"])
 def test_the_web_answers_the_capability_question(monkeypatch, text):
     ug, h, asked, _ids = _web(monkeypatch)
     resp, body = _turn(ug, h, text)

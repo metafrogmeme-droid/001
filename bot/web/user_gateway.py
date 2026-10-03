@@ -952,6 +952,19 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
         # role including `pending` holds `help`, and `_cmd_help` carries no
         # `@guard` for the same reason — somebody who cannot be told what the
         # product does cannot ask for access to it.
+        if intent.skill == "onboarding":
+            # The checklist, not the catalogue, and not a staged ticket.
+            # Same reason as help: not gated, not in WEB_ROUTED_PERMISSION.
+            # A person who cannot be told the first four steps cannot take
+            # them. The card names Confirm and does not tap it.
+            from bot.formatters.onboarding_checklist import onboarding_checklist
+            from bot.nlp.skill_memory import routed_answer_memory
+            _card = onboarding_checklist("web", tg_handler.users, tg_id)
+            record_routed_turn(
+                tg_handler.conversations, tg_id, text, "onboarding",
+                routed_answer_memory("onboarding", _card), surface="web")
+            return web.json_response(
+                {"reply_html": _card, "intent": "onboarding"})
         if intent.skill == "help":
             from bot.formatters.capabilities import capability_answer
             from bot.nlp.chat_tools import skill_reach
@@ -1489,6 +1502,13 @@ async def _public_chat_turn(request: web.Request, on_event=None) -> web.Response
     # it says.
     from bot.nlp.intent_router import IntentRouter, detect_reply_mode
     _pub_intent = IntentRouter().classify_rules(text)
+    if _pub_intent.skill == "onboarding" and _pub_intent.confidence >= 0.8:
+        # No account on this door, so the practice step says so. The card
+        # names Confirm and does not tap it, and there is no executor here.
+        from bot.formatters.onboarding_checklist import onboarding_checklist
+        return web.json_response({
+            "reply_html": onboarding_checklist("public"),
+            "intent": "onboarding"})
     if _pub_intent.skill == "help" and _pub_intent.confidence >= 0.8:
         from bot.formatters.capabilities import toolless_capability_answer
         return web.json_response({

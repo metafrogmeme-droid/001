@@ -102,6 +102,18 @@ async def ask(handler: TelegramHandler, question: str, *, user_id: str = "",
     # placeholder `skill_memory.py` was written to delete.
     from bot.nlp.intent_router import IntentRouter
     _intent = IntentRouter().classify_rules(text)
+    if _intent.skill == "onboarding" and _intent.confidence >= 0.8:
+        from bot.formatters.onboarding_checklist import onboarding_checklist
+        from bot.nlp.skill_memory import record_routed_turn, routed_answer_memory
+        _who = None if public or not user_id else user_id
+        _doors = surface if surface in ("web", "public", "telegram", "api") else "api"
+        _card = onboarding_checklist(_doors, handler.users, _who)
+        if user_id and not public:
+            record_routed_turn(
+                handler.conversations, user_id, text, "onboarding",
+                routed_answer_memory("onboarding", _card), surface=surface)
+        return {"reply_html": _card, "provider": "", "model": "",
+                "tools": [], "answered_by": "none"}
     if _intent.skill == "help" and _intent.confidence >= 0.8:
         from bot.formatters.capabilities import toolless_capability_answer
         from bot.nlp.skill_memory import card_shown_memory, record_routed_turn
