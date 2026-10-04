@@ -33,6 +33,7 @@ class LeverageDrive:
         self.leverage_reads: int = 0
         self.position_reads: int = 0
         self.uta_reads: int = 0
+        self.uta_modes: list = []
         self.target_asks: list = []
 
     @property
@@ -56,6 +57,7 @@ def drive_ensure_leverage(
     runs: int = 1,
     monkeypatch: Any = None,
     uta_settings: Any = None,
+    client_uta: bool = False,
 ) -> LeverageDrive:
     """Run `_ensure_leverage` against a stub venue and return what happened.
 
@@ -88,6 +90,11 @@ def drive_ensure_leverage(
     seq = list(readings)
 
     class _Exchange:
+        def __init__(self) -> None:
+            # Production Bitget clients set this. Off unless the test is
+            # asking about the UTA dialect of set_leverage.
+            self.options = {"uta": True} if client_uta else {}
+
         async def set_margin_mode(self, *a, **k):
             return None
 
@@ -162,8 +169,13 @@ def drive_ensure_leverage(
 
     ex._detect_hold_mode = _detect_hold_mode
 
-    async def _read_uta_symbol_leverage(symbol: str) -> dict:
+    async def _read_uta_symbol_leverage(symbol: str, margin_mode: Any = None) -> dict:
         out.uta_reads += 1
+        # The mode is recorded and NOT applied here. Existing drives plant a
+        # crossed row and ask "did 20 abort"; filtering that row out by the
+        # process's margin mode would change the question. The filter is
+        # `uta_symbol_leverage`'s own argument, tested on the function.
+        out.uta_modes.append(margin_mode)
         if uta_settings is None:
             return {"value": None, "field": None, "governs": None, "mode": None}
         return LE.uta_symbol_leverage(uta_settings, symbol)
