@@ -7230,7 +7230,10 @@
     // throw, carrying the code. Absent is not unreadable.
     const load = async () => { data = mustRead(await fetchJSON('/api/news')); return data; };
     const icon = (imp) => imp === 'high' ? '🔴' : imp === 'medium' ? '🟠' : '⚪';
-    const ago = (s) => { s = +s || 0; return s < 90 ? Math.max(s, 1) + 's' : s < 5400 ? Math.floor(s / 60) + 'm' : s < 172800 ? Math.floor(s / 3600) + 'h' : Math.floor(s / 86400) + 'd'; };
+    // Age text is the bot's (`age_label`). Recomputing it here with `+s || 0`
+    // turned a missing clock into "1s ago" — an undated headline painted as
+    // just published. The label already says "time unreadable" when it is.
+    const when = (row) => esc((row && row.age_label) || 'time unreadable');
 
     // BYON (NEWS-2): connect your OWN paid news key to enrich YOUR feed. The key
     // rides once to the bot's encrypted store; this page only sees a masked
@@ -7293,7 +7296,7 @@
         return recs.slice(0, 6).map((r) => `
           <div class="news-alert">
             <div><span class="chip chip--down">🔴 ${esc(r.symbol)}</span> <b>${esc(r.headline)}</b></div>
-            ${(r.reasons || []).length ? `<div class="small muted">${esc((r.reasons || []).slice(0, 3).join(', '))} · ${ago(r.age_sec)} ago</div>` : ''}
+            ${(r.reasons || []).length ? `<div class="small muted">${esc((r.reasons || []).slice(0, 3).join(', '))} · ${when(r)}</div>` : ''}
             <div class="small">${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">Read →</a> · ` : ''}<i>Advisory — review and decide; nothing was traded.</i></div>
           </div>`).join('');
       }, { empty: { text: 'The news radar is unavailable right now.' } });
@@ -7312,7 +7315,7 @@
         const pub = items.map((it) => `
           <div class="news-item">
             <div>${icon(it.impact)} <b>${esc(it.title)}</b></div>
-            <div class="small muted">${esc(it.source || '')}${(it.symbols || []).length ? ' · ' + esc((it.symbols || []).join('/')) : ''} · ${ago(it.age_sec)} ago${it.url ? ` · <a href="${esc(it.url)}" target="_blank" rel="noopener">open</a>` : ''}</div>
+            <div class="small muted">${esc(it.source || '')}${(it.symbols || []).length ? ' · ' + esc((it.symbols || []).join('/')) : ''} · ${when(it)}${it.url ? ` · <a href="${esc(it.url)}" target="_blank" rel="noopener">open</a>` : ''}</div>
           </div>`).join('');
         if (!byon && !pub) return null;
         return byon + pub;

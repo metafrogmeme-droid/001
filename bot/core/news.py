@@ -114,8 +114,15 @@ class NewsItem:
     impact_reasons: tuple = ()     # matched keywords
     symbols: tuple = ()            # matched symbols (base assets, upper-case)
 
-    def age_sec(self, now: float) -> float:
-        return max(0.0, now - self.published_ts) if self.published_ts else 0.0
+    def age_sec(self, now: float) -> Optional[float]:
+        """Seconds since publication, or None when the feed gave no time.
+
+        None is not zero. Zero is a headline published at ``now``. A missing
+        clock used to take the zero path and render as just published.
+        """
+        if not self.published_ts:
+            return None
+        return max(0.0, now - self.published_ts)
 
 
 def classify_impact(title: str) -> tuple[Impact, tuple]:
@@ -198,7 +205,10 @@ def standdown_for_holdings(
     for it in items:
         if it.impact != Impact.HIGH:
             continue
-        if it.age_sec(now) > max_age_sec:
+        age = it.age_sec(now)
+        # No clock is not "just now". A stand-down is acted on immediately,
+        # and an undated headline must not read as a fresh one.
+        if age is None or age > max_age_sec:
             continue
         for base in it.symbols:
             if base in held:
@@ -208,7 +218,8 @@ def standdown_for_holdings(
                     "url": it.url,
                     "source": it.source,
                     "reasons": list(it.impact_reasons),
-                    "age_sec": int(it.age_sec(now)),
+                    "age_sec": int(age),
+                    "age_label": _fmt_age(age),
                     "recommendation":
                         f"High-impact news on a position you hold ({base}) — "
                         f"review it; consider tightening the stop or reducing. "
@@ -231,6 +242,37 @@ def _fmt_age(sec: float) -> str:
     if sec < 172800:
         return f"{sec // 3600}h ago"
     return f"{sec // 86400}d ago"
+
+
+def _age_phrase(item: NewsItem, now: float) -> str:
+    """How old a headline is, or an explicit unread when the clock is missing.
+
+    ``_fmt_age(0)`` is "1s ago". That is a real just-published item, and it is
+    also what a missing timestamp used to become. Those are different facts.
+    """
+    age = item.age_sec(now)
+    if age is None:
+        return "time unreadable"
+    return _fmt_age(age)
+
+
+def headline_view(item: NewsItem, now: float) -> dict:
+    """One headline for the web radar.
+
+    ``age_sec`` is null when the feed's clock did not parse. Zero would read
+    as just published. ``age_label`` is the same phrase the Telegram card uses.
+    """
+    age = item.age_sec(now)
+    return {
+        "title": item.title,
+        "url": item.url,
+        "source": item.source,
+        "impact": item.impact.value,
+        "reasons": list(item.impact_reasons),
+        "symbols": list(item.symbols),
+        "age_sec": None if age is None else int(age),
+        "age_label": _age_phrase(item, now),
+    }
 
 
 def _esc(s: str) -> str:
@@ -269,7 +311,7 @@ def render_news_digest(recent, standdown_recs, now, limit=6,
             syms = (" · " + "/".join(it.symbols)) if it.symbols else ""
             lines.append(
                 f"{icon} {_esc(it.title)[:130]}"
-                f"\n    <i>{_esc(it.source)}{syms} · {_fmt_age(it.age_sec(now))}</i>")
+                f"\n    <i>{_esc(it.source)}{syms} · {_age_phrase(it, now)}</i>")
     elif not standdown_recs:
         if refresh_failed:
             lines.append(
@@ -300,7 +342,14 @@ _DOCTYPE_SCAN_BYTES = 64 * 1024
 def parse_rss(xml_text: str, source: str, symbols: Iterable[str], now: float) -> list[NewsItem]:
     """Parse an RSS/Atom document into scored NewsItems. Tolerant of the two
     common shapes (RSS <item> and Atom <entry>); returns [] on any parse error
-    so a malformed feed never breaks the radar."""
+    so a malformed feed never breaks the radar.
+
+    ``now`` is the caller's clock, kept so every caller passes one. It is not
+    stamped onto an item whose pubDate did not parse: that substitution
+    presented an undated headline as just published. The item stays, with
+    ``published_ts`` 0.
+    """
+    del now
     syms = list(symbols)
     out: list[NewsItem] = []
 
@@ -356,7 +405,7 @@ def parse_rss(xml_text: str, source: str, symbols: Iterable[str], now: float) ->
         impact, reasons = classify_impact(title)
         matched = match_symbols(title, syms)
         out.append(NewsItem(
-            title=title, url=link, source=source, published_ts=ts or now,
+            title=title, url=link, source=source, published_ts=ts,
             impact=impact, impact_reasons=reasons, symbols=matched))
     return out
 
@@ -366,8 +415,11 @@ _MONTHS = {m: i for i, m in enumerate(
 
 
 def _parse_pubdate(raw: str) -> float:
-    """Best-effort RFC-822 / ISO-8601 → epoch seconds. 0 on failure (the caller
-    substitutes 'now' so the item is still radar-visible)."""
+    """Best-effort RFC-822 / ISO-8601 → epoch seconds.
+
+    0.0 when the feed gave no readable time. The caller keeps the headline
+    and does not substitute 'now'.
+    """
     raw = (raw or "").strip()
     if not raw:
         return 0.0
@@ -394,31 +446,51 @@ def _parse_pubdate(raw: str) -> float:
     return 0.0
 
 
+def _recency_key(item: NewsItem) -> tuple:
+    """Dated items rank by publication time. An unreadable clock ranks last,
+    so it is not presented as just published and is the first dropped at the cap."""
+    return (item.published_ts > 0, item.published_ts)
+
+
 @dataclass
 class NewsRadar:
     """Holds recent, de-duplicated news items and answers per-symbol / holdings
-    queries. Fetching is gated + best-effort; the store is pure in-memory."""
+    queries. The store is newest-first by publication time. Fetching is gated
+    + best-effort; the store is pure in-memory."""
     max_items: int = 200
     _items: deque = field(default_factory=lambda: deque(maxlen=200))
     _seen: set = field(default_factory=set)
     _last_fetch: float = 0.0
 
     def ingest(self, items: Iterable[NewsItem]) -> int:
-        """Add new items (de-duped by url|title). Returns the count added."""
-        added = 0
+        """Add new items (de-duped by url|title). Returns the count added.
+
+        Feeds list the newest item first. Pushing each one onto the front
+        reversed that page, so the oldest rows of the last feed were what
+        "Latest headlines" showed.
+        """
+        fresh: list[NewsItem] = []
         for it in items:
             key = (it.url or "") + "|" + it.title
             if key in self._seen:
                 continue
             self._seen.add(key)
-            self._items.appendleft(it)
-            added += 1
-        # Keep _seen from growing unbounded alongside the capped deque.
-        if len(self._seen) > self.max_items * 4:
+            fresh.append(it)
+        if not fresh:
+            return 0
+        ranked = sorted(
+            [*fresh, *self._items], key=_recency_key, reverse=True)
+        cap = self.max_items
+        self._items = deque(ranked[:cap], maxlen=cap)
+        # Dropped rows stay in _seen so the next refresh of the same page
+        # does not put them back. The set is rebuilt only when it dwarfs
+        # the cap, same bound as before.
+        if len(self._seen) > cap * 4:
             self._seen = {(it.url or "") + "|" + it.title for it in self._items}
-        return added
+        return len(fresh)
 
     def recent(self, limit: int = 20) -> list[NewsItem]:
+        """Newest dated headlines first. An unreadable clock sorts last."""
         return list(self._items)[:limit]
 
     def for_symbol(self, symbol: str, limit: int = 10) -> list[NewsItem]:

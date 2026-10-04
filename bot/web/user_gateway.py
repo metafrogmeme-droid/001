@@ -3187,7 +3187,7 @@ async def handle_news(request: web.Request) -> web.Response:
     READ-ONLY / advisory: nothing here moves, sizes, or blocks a trade."""
     import time as _time
 
-    from bot.core.news import NewsRadar
+    from bot.core.news import NewsRadar, headline_view
     engine = request.app["engine"]
     tg_handler = request.app["tg_handler"]
     tg_id = str(request.query.get("telegram_id") or "").strip()
@@ -3223,11 +3223,6 @@ async def handle_news(request: web.Request) -> web.Response:
 
     now = _time.time()
 
-    def _item(it) -> dict:
-        return {"title": it.title, "url": it.url, "source": it.source,
-                "impact": it.impact.value, "reasons": list(it.impact_reasons),
-                "symbols": list(it.symbols), "age_sec": int(it.age_sec(now))}
-
     # NEWS-2: if the caller has connected their own paid news key, enrich THEIR
     # feed with it — never the operator's cost, never seen by other users. §4:
     # headline + source + link only (fetch_byon_news maps public fields only),
@@ -3252,8 +3247,8 @@ async def handle_news(request: web.Request) -> web.Response:
     return web.json_response({
         "enabled": enabled,
         "read_only": True,
-        "recent": [_item(i) for i in radar.recent(12)],
-        "high_impact": [_item(i) for i in radar.high_impact(8)],
+        "recent": [headline_view(i, now) for i in radar.recent(12)],
+        "high_impact": [headline_view(i, now) for i in radar.high_impact(8)],
         "standdown": radar.standdown(held, now) if held else [],
         "byon": byon,
         "byon_active": byon_active,
