@@ -8,6 +8,8 @@ const express = require('express');
 const { pool } = require('../db');
 const { computeAnalytics } = require('../lib/signal_analytics');
 const { loadCellRegistrations } = require('../lib/cell_registrations');
+const { readCalibrationCurve } = require('../lib/calibration_curve');
+const { unavailableReading } = require('../public/js/calibration-chart');
 const { publicSignal, publicAnalytics } = require('../lib/public_signal');
 const SignalStatus = require('../public/js/signal-status-model.js');
 
@@ -171,9 +173,19 @@ router.get('/analytics', async (req, res) => {
     // row. None of those records names a cell today, so every cell stays
     // exploratory. An unreadable record is no registration, not a 503:
     // the scoreboard's measurements do not depend on it.
-    res.json(publicAnalytics(computeAnalytics(rows, {
+    // The calibration chart is the curve already saved, not a second fit.
+    // A curve that cannot be read is omitted from the claim: the
+    // scoreboard's own rows still return.
+    const analytics = computeAnalytics(rows, {
       registrations: loadCellRegistrations(),
-    })));
+    });
+    try {
+      analytics.calibration = readCalibrationCurve();
+    } catch (err) {
+      console.error('calibration curve:', err && err.name ? err.name : 'Error');
+      analytics.calibration = unavailableReading();
+    }
+    res.json(publicAnalytics(analytics));
   } catch (err) {
     console.error('Signal analytics error:', err.stack || err.message);
     // The deleted EMPTY_ANALYTICS was `{resolved:0, wins:0, losses:0,
