@@ -135,10 +135,10 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-// GET /api/signals/analytics - win-rate / net-pnl broken down by pattern,
-// symbol, direction and confidence bucket (resolved signals only). Aggregation
-// runs in-process over a bounded window so it behaves the same on MySQL and the
-// in-memory mock (which ignores WHERE clauses).
+// GET /api/signals/analytics - win rate and realized R (net_r, mean_r) broken
+// down by pattern, symbol, direction and confidence bucket (resolved signals
+// only). Aggregation runs in-process over a bounded window so it behaves the
+// same on MySQL and the in-memory mock (which ignores WHERE clauses).
 router.get('/analytics', async (req, res) => {
   try {
     const [rows] = await pool.execute(
@@ -146,10 +146,10 @@ router.get('/analytics', async (req, res) => {
        FROM signals WHERE pnl IS NOT NULL
        ORDER BY resolved_at DESC LIMIT 2000`
     );
-    // Dollar totals stripped at the boundary, not in the aggregator:
-    // computeAnalytics keeps computing net_pnl honestly (null over an empty
-    // set) and keeps its own tests; this surface is anonymous, so it publishes
-    // the ratios and counts only.
+    // The column is realized R. computeAnalytics names the sum `net_r` and
+    // the mean `mean_r` (null when nothing resolved). publicAnalytics keeps
+    // those ratios and drops a dollar-named key if one is ever added beside
+    // them. This surface is anonymous.
     res.json(publicAnalytics(computeAnalytics(rows)));
   } catch (err) {
     console.error('Signal analytics error:', err.stack || err.message);

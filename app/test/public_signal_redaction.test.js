@@ -87,21 +87,56 @@ test('the allowlist does not publish a column added to the SELECT later', () => 
   assert.deepStrictEqual(dollarKeys(p), []);
 });
 
-test('analytics keeps every ratio and drops every total', () => {
+test('analytics keeps the R aggregates and drops every dollar total', () => {
+  // 10, −5 and a flat: sum 5R, mean 1.67R. The old name `net_pnl` made the
+  // boundary throw that ratio away as if it were dollars.
   const a = computeAnalytics([row(10), row(-5), row(0)]);
-  assert.strictEqual(a.overall.net_pnl, 5, 'the aggregator still computes it');
+  assert.strictEqual(a.overall.net_r, 5);
+  assert.strictEqual(a.overall.mean_r, 1.67);
+  assert.ok(!('net_pnl' in a.overall));
   const p = publicAnalytics(a);
   assert.deepStrictEqual(dollarKeys(p), [],
     'a dollar total survived onto the anonymous analytics payload');
+  assert.strictEqual(p.r_basis, 'gross');
   assert.strictEqual(p.overall.resolved, 3);
   assert.strictEqual(p.overall.wins, 1);
   assert.strictEqual(p.overall.losses, 1);
   assert.strictEqual(p.overall.flat, 1);
   assert.strictEqual(p.overall.win_rate, a.overall.win_rate);
-  // …including one level down, per group.
+  assert.strictEqual(p.overall.net_r, 5, 'the sum of R is a ratio and stays');
+  assert.strictEqual(p.overall.mean_r, 1.67, 'the mean R stays with the sum');
   const g = p.by_pattern.find((x) => x.key === 'breakout');
-  assert.ok(g && !('net_pnl' in g), 'per-group totals are amounts too');
+  assert.ok(g);
+  assert.strictEqual(g.net_r, 5, 'a group keeps its own sum');
+  assert.strictEqual(g.mean_r, 1.67);
   assert.strictEqual(g.win_rate, a.by_pattern[0].win_rate);
+});
+
+test('a planted dollar total is dropped beside the R it must not replace', () => {
+  // Both arms, and one level down. Keeping only `overall` would leave the
+  // group's `net_pnl` on the wire. A measured 0R must survive the same pass:
+  // the scrubber drops keys, not zeros.
+  const planted = {
+    r_basis: 'gross',
+    overall: { resolved: 2, net_r: 1.5, mean_r: 0.75, net_pnl: 40, pnl_usd: 9 },
+    by_pattern: [{ key: 'breakout', n: 2, net_r: 1.5, mean_r: 0.75, net_pnl: 40 }],
+    by_symbol: [{ key: 'BTC/USDT', n: 1, net_r: 0, mean_r: 0, win_rate: 0, fee_usd: 3 }],
+  };
+  const p = publicAnalytics(planted);
+  assert.deepStrictEqual(dollarKeys(p), []);
+  assert.strictEqual(p.overall.net_r, 1.5);
+  assert.strictEqual(p.overall.mean_r, 0.75);
+  assert.ok(!('net_pnl' in p.overall));
+  assert.ok(!('pnl_usd' in p.overall));
+  const pattern = p.by_pattern[0];
+  assert.strictEqual(pattern.net_r, 1.5);
+  assert.strictEqual(pattern.mean_r, 0.75);
+  assert.ok(!('net_pnl' in pattern), 'the group total was the row beside the verdict');
+  const symbol = p.by_symbol[0];
+  assert.strictEqual(symbol.net_r, 0, 'a measured 0R is not dropped with the dollars');
+  assert.strictEqual(symbol.mean_r, 0);
+  assert.strictEqual(symbol.win_rate, 0);
+  assert.ok(!('fee_usd' in symbol));
 });
 
 // ── the wires: both routes must actually use it ────────────────────────────
@@ -146,6 +181,54 @@ test('GET /api/signals publishes outcomes, not amounts', async () => {
   // The two facts the stream table needs are still derivable.
   assert.strictEqual(body.signals.filter((s) => s.outcome == null).length, 1,
     'exactly one signal is still actionable');
+});
+
+function getAnalytics(rows) {
+  return new Promise((resolve, reject) => {
+    const s = withPool(rows, () => {
+      delete require.cache[require.resolve(path.join(APP, 'routes', 'signals.js'))];
+      const app = express();
+      app.use('/api/signals', require(path.join(APP, 'routes', 'signals.js')));
+      return http.createServer(app);
+    });
+    s.listen(0, '127.0.0.1', () => {
+      http.get({ port: s.address().port, path: '/api/signals/analytics' }, (res) => {
+        let b = '';
+        res.on('data', (d) => { b += d; });
+        res.on('end', () => {
+          s.close();
+          resolve({ status: res.statusCode, body: JSON.parse(b || '{}') });
+        });
+      }).on('error', (e) => { s.close(); reject(e); });
+    });
+  });
+}
+
+test('GET /api/signals/analytics publishes net_r and mean_r, not a dollar total', async () => {
+  // Two groups with different means, plus an unresolved row. A wire that
+  // still drops `net_pnl` and publishes nothing in its place fails the
+  // overall figure; a wire that copies one mean onto every group fails
+  // the sweep's measured 0.
+  const { status, body } = await getAnalytics([
+    row(2, { pattern: 'breakout', symbol: 'BTC/USDT' }),
+    row(-1, { pattern: 'breakout', symbol: 'BTC/USDT' }),
+    row(0, { pattern: 'sweep', symbol: 'ETH/USDT' }),
+    row(null, { pattern: 'breakout', status: 'NEW' }),
+  ]);
+  assert.strictEqual(status, 200);
+  assert.deepStrictEqual(dollarKeys(body), []);
+  assert.strictEqual(body.r_basis, 'gross');
+  assert.strictEqual(body.overall.resolved, 3);
+  assert.strictEqual(body.overall.net_r, 1);
+  assert.strictEqual(body.overall.mean_r, 0.33);
+  assert.ok(!('net_pnl' in body.overall));
+  const breakout = body.by_pattern.find((g) => g.key === 'breakout');
+  const sweep = body.by_pattern.find((g) => g.key === 'sweep');
+  assert.strictEqual(breakout.mean_r, 0.5);
+  assert.strictEqual(breakout.net_r, 1);
+  assert.strictEqual(sweep.mean_r, 0);
+  assert.strictEqual(sweep.net_r, 0);
+  assert.ok(!('net_pnl' in breakout) && !('net_pnl' in sweep));
 });
 
 test('MCP get_signals redacts the same way', async () => {
