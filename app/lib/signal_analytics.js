@@ -17,10 +17,15 @@
  * count and every sum — an unreadable row is not a 0R.
  *
  * Each displayed setup cell also carries n, the hit rate (wins / n) with
- * its Wilson interval, the mean R with `mean_r_interval`'s twin, and a
- * Benjamini-Hochberg q-value. The q-values are computed after the cap, so
- * a cell that was not published is not in the family.
+ * its Wilson interval, the mean R with `mean_r_interval`'s twin, a
+ * Benjamini-Hochberg q-value, and the reading `exploratory`. A clear
+ * interval and a q-value under 0.05 do not change that word. The q-values
+ * are computed after the cap, so a cell that was not published is not in
+ * the family, and a row that was not a cell is not given the reading.
  */
+
+/** The word every published setup cell reads. */
+const SETUP_CELL_READING = 'exploratory';
 
 const {
   wilsonInterval, meanRInterval, meanRPValue, bhQValues,
@@ -177,6 +182,7 @@ function _finaliseSetups(map, top = 12) {
       if (k !== '_p') out[k] = g[k];
     }
     out.q_value = qs[i];
+    out.reading = SETUP_CELL_READING;
     return out;
   });
 }

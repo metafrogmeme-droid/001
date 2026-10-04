@@ -241,7 +241,10 @@ test('GET /api/signals/analytics publishes net_r and mean_r, not a dollar total'
   assert.strictEqual(setup.n, 2);
   assert.strictEqual(setup.net_r, 1);
   assert.strictEqual(setup.mean_r, 0.5);
+  assert.strictEqual(setup.reading, 'exploratory');
   assert.ok(!('net_pnl' in setup));
+  assert.ok(body.by_pattern.every((g) => !('reading' in g)));
+  assert.ok(!JSON.stringify(body).includes('survives'));
 });
 
 test('MCP get_signals redacts the same way', async () => {
