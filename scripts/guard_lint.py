@@ -473,6 +473,12 @@ RULES: list[Rule] = [
             "stream",      # a "refresh now" ping, no payload
             "frame",       # Farcaster frame endpoints, public by protocol
             "call",        # /call/<key> verify links printed in public scan cards
+            "signal_page", # GET /api/signal?key= — one public stream row's stored
+                           # thesis and counter-case. The allowlist is
+                           # signal_key, symbol, direction, thesis and
+                           # counter_case: no account, no prices, no seal, no
+                           # pnl. The id is one the caller already holds from
+                           # the stream. Same table as `signals`, one row.
             "spot", "market", "macro", "patterns", "signals", "insight",
             "today", "feed", "gas", "dapps", "allowances",
             # ^ market data and read-only chain lookups: no account is in scope,
