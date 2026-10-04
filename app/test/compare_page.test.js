@@ -28,9 +28,11 @@ test('the literal compare route is registered before the slug route', () => {
 
 test('every column declares its evidence tier', () => {
   const html = read('public/compare.html');
-  for (const t of ['cmp.t_backtest', 'cmp.t_pending', 'cmp.t_config', 'cmp.t_live']) {
+  for (const t of ['cmp.t_backtest', 'cmp.t_config', 'cmp.t_live']) {
     assert.ok(html.includes(`'${t}'`), `${t} tier`);
   }
+  assert.match(html, /No track record published/);
+  assert.doesNotMatch(html, /Backtest pending/);
   assert.match(html, /Compare within a row, never across kinds/,
     'the non-commensurability note is the page subtitle');
 });

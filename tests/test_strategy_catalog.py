@@ -171,6 +171,19 @@ def test_folds_pass_through_and_a_missing_block_is_not_zero(tmp_path, monkeypatc
     assert sc._load_scorecard("dip-sniper")["folds"] is None
 
 
+def test_the_lineup_note_is_one_paragraph():
+    note = sc.catalogue_note()
+    assert note.count("Every agent is") == 1
+    assert "percent and ratio only" in note
+    assert "A card with no track record has none." in note
+    assert "leaderboard" in note
+    assert "$" not in note
+    src = inspect.getsource(
+        __import__("bot.web.user_gateway", fromlist=["x"]).handle_strategies_public)
+    assert "catalogue_note()" in src
+    assert src.count("Every agent is") == 0
+
+
 def test_public_gateway_route_is_registered_no_auth():
     src = inspect.getsource(__import__("bot.web.user_gateway", fromlist=["x"]))
     assert 'add_get("/public/strategies", handle_strategies_public)' in src

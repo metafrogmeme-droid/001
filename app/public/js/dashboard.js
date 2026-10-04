@@ -7620,8 +7620,7 @@
       return '<p class="small muted" style="margin:0">' + esc(sc.omitted) + '</p>';
     }
     if (!sc || !sc.metrics) {
-      return '<p class="small muted" style="margin:0">Verified backtest pending'
-        + ' — run it in the <a href="#lab">Lab</a>.</p>';
+      return '<p class="small muted" style="margin:0">No track record published.</p>';
     }
     // A missing painter is not "backtest pending", and it is not a row of
     // zeros. The card around this slot still renders.
@@ -7707,6 +7706,18 @@
     };
   }
 
+  // The catalogue note is one paragraph. "leaderboard" is the page's own
+  // anchor; the rest of the sentence is the gateway's, escaped.
+  function catalogueFoot(note) {
+    if (!note) return '';
+    const word = 'leaderboard';
+    const at = String(note).lastIndexOf(word);
+    if (at < 0) return `<p class="muted small mt-3">${esc(note)}</p>`;
+    return `<p class="muted small mt-3">${esc(note.slice(0, at))}`
+      + `<a href="#leaderboard">${esc(word)}</a>`
+      + `${esc(note.slice(at + word.length))}</p>`;
+  }
+
   async function renderAgents() {
     const $ = id => document.getElementById(id);
     container.innerHTML = viewHead('Strategy Agents',
@@ -7767,9 +7778,11 @@
           a.horizon ? `<span class="chip" style="font-size:11px">${esc(a.horizon)}</span>` : '',
         ].filter(Boolean).join('');
         const hasSc = !!(a.scorecard && a.scorecard.metrics);
-        const omitted = !!(a.scorecard && a.scorecard.omitted);
-        const labButton = omitted ? ''
-          : `<button class="btn btn--primary btn--sm" data-agentlab="${esc(a.id)}" type="button">${hasSc ? 'Reproduce in Lab' : 'Backtest in Lab'}</button>`;
+        // A frozen run is the only thing Reproduce can re-run. A card with
+        // no measured universe does not get a Lab button.
+        const labButton = hasSc
+          ? `<button class="btn btn--primary btn--sm" data-agentlab="${esc(a.id)}" type="button">Reproduce in Lab</button>`
+          : '';
         return `<article class="panel" style="border-top:3px solid ${border};display:flex;flex-direction:column;gap:var(--s2)">
           <div class="row" style="gap:var(--s2);align-items:center">
             <span style="font-size:26px;line-height:1">${esc(a.icon || '🤖')}</span>
@@ -7790,8 +7803,7 @@
         </article>`;
       }).join('');
       return `<div class="grid-cards" style="display:grid;gap:var(--s3);grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">${cards}</div>
-        ${note ? `<p class="muted small mt-3">${esc(note)}</p>` : ''}
-        <p class="muted small mt-1">Every agent is one of the engine's real strategies. Where a frozen backtest is attached, it is percent and ratio only, never a dollar figure, and <b>Reproduce in Lab</b> re-runs that backtest. A card with no track record has none. Verified live ranks are on the <a href="#leaderboard">leaderboard</a>.</p>`;
+        ${catalogueFoot(note)}`;
     }, { timeoutMs: 18000, errorText: T('dd.err_agents', 'The agent catalogue is unavailable right now.') });
 
     // Live "would-take" picks for the agents this user follows. Paper-only: each
