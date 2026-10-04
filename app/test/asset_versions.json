@@ -39,6 +39,10 @@
     "v": 1,
     "sha": "b5e9e3bec0ac5f5c"
   },
+  "js/calibration-chart.js": {
+    "v": 1,
+    "sha": "6246e07772ca38ed"
+  },
   "js/chart-read-model.js": {
     "v": 2,
     "sha": "73f5d6499da5c546"
@@ -72,8 +76,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 217,
-    "sha": "717549e617a87eae"
+    "v": 218,
+    "sha": "87848668874dbdb9"
   },
   "js/decision-court-model.js": {
     "v": 2,
