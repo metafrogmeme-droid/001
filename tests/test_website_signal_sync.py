@@ -82,6 +82,40 @@ class TestBuildSignalPayload:
         assert row["confidence"] == 0.70
         assert row["score"] == 0.70
 
+    def test_setup_dimensions_are_copied_or_left_absent(self):
+        # Both arms. A recorded word is the word. A missing attribute, a
+        # blank, and a number are not a setup — stringifying 1 would name a
+        # group the idea never stored.
+        idea = SimpleNamespace(
+            asset="BTC/USDT", direction="LONG", confidence=0.8,
+            entry_price=1.0, stop_loss=0.9, take_profit=1.2, reasoning="x",
+            signal_type="vwap_reversion", timeframe="4h", source="rules",
+        )
+        row = ws.build_signal_payload("k-dims", idea, regime="TREND")
+        assert row["signal_type"] == "vwap_reversion"
+        assert row["timeframe"] == "4h"
+        assert row["source"] == "rules"
+        assert row["regime"] == "TREND"
+
+        bare = SimpleNamespace(
+            asset="ETH/USDT", direction="SHORT", confidence=0.5,
+            entry_price=1.0, stop_loss=1.1, take_profit=0.8, reasoning="x",
+        )
+        missing = ws.build_signal_payload("k-bare", bare)
+        assert missing["signal_type"] is None
+        assert missing["timeframe"] is None
+        assert missing["source"] is None
+
+        weird = SimpleNamespace(
+            asset="SOL/USDT", direction="LONG", confidence=0.5,
+            entry_price=1.0, stop_loss=0.9, take_profit=1.2, reasoning="x",
+            signal_type=1, timeframe="  ", source="",
+        )
+        blank = ws.build_signal_payload("k-blank", weird)
+        assert blank["signal_type"] is None
+        assert blank["timeframe"] is None
+        assert blank["source"] is None
+
     def test_rr_computed_when_absent(self):
         idea = {"asset": "ETH/USDT", "direction": "LONG", "confidence": 0.5,
                 "entry_price": 100.0, "stop_loss": 90.0, "take_profit": 120.0}

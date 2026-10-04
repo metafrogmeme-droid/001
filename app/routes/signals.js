@@ -136,13 +136,16 @@ router.get('/stats', async (req, res) => {
 });
 
 // GET /api/signals/analytics - win rate and realized R (net_r, mean_r) broken
-// down by pattern, symbol, direction and confidence bucket (resolved signals
-// only). Aggregation runs in-process over a bounded window so it behaves the
-// same on MySQL and the in-memory mock (which ignores WHERE clauses).
+// down by pattern, symbol, direction and confidence bucket, and by the setup
+// cell (signal_type × regime × timeframe × source × direction). Resolved
+// signals only. Aggregation runs in-process over a bounded window so it
+// behaves the same on MySQL and the in-memory mock. The mock projects this
+// SELECT: a dimension the query does not name never reaches a cell.
 router.get('/analytics', async (req, res) => {
   try {
     const [rows] = await pool.execute(
-      `SELECT symbol, direction, confidence, pattern, pnl
+      `SELECT symbol, direction, confidence, pattern, regime, signal_type,
+              timeframe, source, pnl
        FROM signals WHERE pnl IS NOT NULL
        ORDER BY resolved_at DESC LIMIT 2000`
     );

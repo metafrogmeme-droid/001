@@ -2890,7 +2890,7 @@
       const r = await fetchJSON('/api/signals/analytics', { auth: false });
       mustRead(r);
       const a = r.data;
-      if (!a || !(a.by_pattern?.length || a.by_symbol?.length)) return null;
+      if (!a) return null;
       // `: 0` then `wr >= 50 ? 'pos' : 'neg'` painted an unmeasured group RED
       // at 0% — the worst reading there is, for a group with nothing resolved.
       // That half was fixed here; the SAMPLE half was not, and `wr >= 50`
@@ -2898,12 +2898,26 @@
       // trades at 61%. RCWinRate carries both rules and a sample floor that is
       // the learner's own (setup_expectancy's min_samples), so the dashboard
       // and the learner cannot disagree about what counts as evidence.
+      // A group the payload does not send is omitted. `|| []` then "No data"
+      // claimed the column. A setup cell missing a dimension is omitted inside
+      // setupScoreboard, which also refuses to paint a null mean as 0R.
       const WRB = window.RCWinRate;
       const bars = (rows, key) => (WRB ? WRB.buildRows(rows, key) : '');
-      return `<div class="grid grid-2">
-        <div><div class="stat mb-2"><div class="k">By pattern</div></div>${bars(a.by_pattern || [], 'pattern') || '<p class="muted small">No data.</p>'}</div>
-        <div><div class="stat mb-2"><div class="k">By symbol</div></div>${bars(a.by_symbol || [], 'symbol') || '<p class="muted small">No data.</p>'}</div>
-      </div>`;
+      const setupHtml = (WRB && typeof WRB.setupScoreboard === 'function')
+        ? WRB.setupScoreboard(a.by_setup) : '';
+      const patternHtml = Array.isArray(a.by_pattern) && a.by_pattern.length
+        ? bars(a.by_pattern, 'pattern') : '';
+      const symbolHtml = Array.isArray(a.by_symbol) && a.by_symbol.length
+        ? bars(a.by_symbol, 'symbol') : '';
+      if (!setupHtml && !patternHtml && !symbolHtml) return null;
+      const columns = [
+        patternHtml ? `<div><div class="stat mb-2"><div class="k">By pattern</div></div>${patternHtml}</div>` : '',
+        symbolHtml ? `<div><div class="stat mb-2"><div class="k">By symbol</div></div>${symbolHtml}</div>` : '',
+      ].filter(Boolean).join('');
+      const setupBlock = setupHtml
+        ? `<div class="mb-3"><div class="stat mb-2"><div class="k">By setup</div><div class="muted small">setup · regime · timeframe · source · direction</div></div>${setupHtml}</div>`
+        : '';
+      return `${setupBlock}${columns ? `<div class="grid grid-2">${columns}</div>` : ''}`;
     }, { empty: { text: 'Insights build up as signals resolve.' } });
 
     drawStream();

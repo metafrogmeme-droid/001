@@ -209,11 +209,15 @@ test('GET /api/signals/analytics publishes net_r and mean_r, not a dollar total'
   // still drops `net_pnl` and publishes nothing in its place fails the
   // overall figure; a wire that copies one mean onto every group fails
   // the sweep's measured 0.
+  const dims = {
+    signal_type: 'vwap_reversion', regime: 'TREND', timeframe: '1h', source: 'rules',
+  };
   const { status, body } = await getAnalytics([
-    row(2, { pattern: 'breakout', symbol: 'BTC/USDT' }),
-    row(-1, { pattern: 'breakout', symbol: 'BTC/USDT' }),
-    row(0, { pattern: 'sweep', symbol: 'ETH/USDT' }),
-    row(null, { pattern: 'breakout', status: 'NEW' }),
+    row(2, { pattern: 'breakout', symbol: 'BTC/USDT', ...dims }),
+    row(-1, { pattern: 'breakout', symbol: 'BTC/USDT', ...dims }),
+    // No signal_type: pattern is not a setup, so this flat is not a cell.
+    row(0, { pattern: 'sweep', symbol: 'ETH/USDT', regime: 'RANGE', timeframe: '4h', source: 'rules' }),
+    row(null, { pattern: 'breakout', status: 'NEW', ...dims }),
   ]);
   assert.strictEqual(status, 200);
   assert.deepStrictEqual(dollarKeys(body), []);
@@ -229,6 +233,15 @@ test('GET /api/signals/analytics publishes net_r and mean_r, not a dollar total'
   assert.strictEqual(sweep.mean_r, 0);
   assert.strictEqual(sweep.net_r, 0);
   assert.ok(!('net_pnl' in breakout) && !('net_pnl' in sweep));
+  assert.strictEqual(body.by_setup.length, 1);
+  const setup = body.by_setup[0];
+  assert.deepStrictEqual(
+    [setup.setup, setup.regime, setup.timeframe, setup.source, setup.direction],
+    ['vwap_reversion', 'TREND', '1h', 'rules', 'LONG']);
+  assert.strictEqual(setup.n, 2);
+  assert.strictEqual(setup.net_r, 1);
+  assert.strictEqual(setup.mean_r, 0.5);
+  assert.ok(!('net_pnl' in setup));
 });
 
 test('MCP get_signals redacts the same way', async () => {

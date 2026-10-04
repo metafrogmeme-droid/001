@@ -36,6 +36,21 @@ def _attr(obj, key, default=None):
     return val if val is not None else default
 
 
+def _recorded_label(value: object) -> Optional[str]:
+    """A setup-cell word the idea stored, or None when it did not.
+
+    A missing signal_type, timeframe or source is not a bucket. Stringifying
+    a number, or writing ``unknown`` because the attribute was absent, would
+    publish a group the row never named. The word the idea already carries
+    is copied as it stands, including a producer default that is actually
+    set on the object.
+    """
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
+
+
 def _opt_num(obj, key):
     """The number, or ``None`` when nobody could read one.
 
@@ -536,6 +551,12 @@ def build_signal_payload(signal_key: str, idea, *, score: float = 0.0,
         "score": float(score or 0),
         "pattern": _attr(idea, "pattern"),
         "regime": regime or "",
+        # Outside the seal (sync.js stores them beside it). Null when the
+        # idea did not record the word — the scoreboard leaves that row out
+        # of the setup cell rather than filing a filler.
+        "signal_type": _recorded_label(_attr(idea, "signal_type", None)),
+        "timeframe": _recorded_label(_attr(idea, "timeframe", None)),
+        "source": _recorded_label(_attr(idea, "source", None)),
         "entry_price": entry,
         "stop_loss": sl,
         "take_profit": tp,

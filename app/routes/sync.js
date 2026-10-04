@@ -1106,15 +1106,34 @@ router.post('/flight', async (req, res) => {
 });
 
 /**
+ * A setup-cell label the bot recorded, or null when it did not.
+ *
+ * A missing signal_type, timeframe or source is not a cell. Stringifying a
+ * number, or filling `unknown` when the field was absent, would publish a
+ * group the row never named. Stored beside the seal, like expires_at: a
+ * display dimension, not a decision fact.
+ */
+function recordedLabel(value, max) {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  if (!text) return null;
+  return text.slice(0, max);
+}
+
+/**
  * POST /api/bot/sync/signals
  * Body: { signals: [{ signal_key, symbol, direction, confidence, score, pattern,
- *         regime, entry_price, stop_loss, take_profit, rr, thesis, status, pnl,
- *         created_at, resolved_at, expires_at }] }
+ *         regime, signal_type, timeframe, source, entry_price, stop_loss,
+ *         take_profit, rr, thesis, status, pnl, created_at, resolved_at,
+ *         expires_at }] }
  *
  * Append/UPSERT to the global signal stream. signal_key is the stable per-signal
  * id from the bot, so re-syncing the same signal updates its outcome (status/pnl)
  * rather than duplicating. Global stream (not per-user); the dashboard joins each
  * user's taken trades to it. Bot-secret authed (botAuth middleware above).
+ *
+ * signal_type, timeframe and source are stored beside the seal. A missing one
+ * is null. A re-sync updates the outcome only, so the cell cannot move.
  */
 router.post('/signals', async (req, res) => {
   try {
@@ -1157,8 +1176,9 @@ router.post('/signals', async (req, res) => {
         `INSERT INTO signals
            (signal_key, symbol, direction, confidence, score, pattern, regime,
             entry_price, stop_loss, take_profit, rr, thesis, status, pnl,
-            created_at, resolved_at, seal, seal_payload, sealed_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            created_at, resolved_at, seal, seal_payload, sealed_at, expires_at,
+            signal_type, timeframe, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            status = VALUES(status), pnl = VALUES(pnl),
            resolved_at = VALUES(resolved_at)`,
@@ -1183,6 +1203,11 @@ router.post('/signals', async (req, res) => {
           receipt.seal_payload,
           new Date(),
           expiresAt,
+          // Outside the seal. A re-sync updates the outcome only, so the
+          // cell the call was published under cannot move when it resolves.
+          recordedLabel(s.signal_type, 64),
+          recordedLabel(s.timeframe, 32),
+          recordedLabel(s.source, 64),
         ]
       );
       upserted++;

@@ -150,3 +150,140 @@ test('the dashboard reads win_rate rather than recomputing it', () => {
   assert.strictEqual(
     WR.classify({ pattern: 'p', win_rate: null, wins: 0, n: 0 }, 'pattern').rate, null);
 });
+
+function cell(over = {}) {
+  return {
+    pnl: 1,
+    signal_type: 'vwap_reversion',
+    regime: 'TREND',
+    timeframe: '1h',
+    source: 'rules',
+    direction: 'LONG',
+    pattern: 'breakout',
+    symbol: 'BTC/USDT',
+    confidence: 0.7,
+    ...over,
+  };
+}
+
+test('a setup cell is the cross of the five recorded dimensions', () => {
+  // Two cells, different means. One figure copied onto every cell would
+  // pass a single-cell fixture. The flat cell stays 0.
+  const a = computeAnalytics([
+    cell({ pnl: 2, signal_type: 'vwap_reversion' }),
+    cell({ pnl: -1, signal_type: 'vwap_reversion' }),
+    cell({ pnl: 0, signal_type: 'sweep', regime: 'RANGE', timeframe: '4h', source: 'llm' }),
+  ]);
+  assert.strictEqual(a.r_basis, 'gross');
+  assert.strictEqual(a.by_setup.length, 2);
+  const vwap = a.by_setup.find((g) => g.setup === 'vwap_reversion');
+  const sweep = a.by_setup.find((g) => g.setup === 'sweep');
+  assert.deepStrictEqual(
+    [vwap.setup, vwap.regime, vwap.timeframe, vwap.source, vwap.direction],
+    ['vwap_reversion', 'TREND', '1h', 'rules', 'LONG']);
+  assert.strictEqual(vwap.n, 2);
+  assert.strictEqual(vwap.net_r, 1);
+  assert.strictEqual(vwap.mean_r, 0.5);
+  assert.strictEqual(sweep.net_r, 0);
+  assert.strictEqual(sweep.mean_r, 0);
+  assert.strictEqual(sweep.flat, 1);
+  assert.notStrictEqual(vwap.mean_r, sweep.mean_r);
+  assert.strictEqual(vwap.wins + vwap.losses + vwap.flat, vwap.n);
+});
+
+test('a missing dimension is left out of the cell, and an unreadable R is left out of both', () => {
+  // 2 and -1 share a cell (net 1, mean 0.5). The 4R row has no timeframe, so
+  // filing it as timeframe "(none)" would publish a different book (net 5).
+  // The word and the null are unreadable and stay out of the count and the sum.
+  // pattern is a different column and does not stand in for signal_type.
+  const a = computeAnalytics([
+    cell({ pnl: 2 }),
+    cell({ pnl: -1 }),
+    cell({ pnl: 4, timeframe: null, pattern: 'breakout' }),
+    cell({ pnl: 9, signal_type: null, pattern: 'breakout' }),
+    cell({ pnl: 'n/a' }),
+    cell({ pnl: null }),
+  ]);
+  assert.strictEqual(a.overall.resolved, 4);
+  assert.strictEqual(a.overall.net_r, 14);
+  assert.strictEqual(a.by_setup.length, 1);
+  const g = a.by_setup[0];
+  assert.strictEqual(g.n, 2);
+  assert.strictEqual(g.net_r, 1);
+  assert.strictEqual(g.mean_r, 0.5);
+  assert.ok(a.by_setup.every((row) => row.timeframe && row.setup));
+  assert.ok(!a.by_setup.some((row) => row.setup === 'breakout' || row.setup === '(none)'));
+});
+
+test('a blank, a number, and a case-different direction are not a new dimension', () => {
+  const a = computeAnalytics([
+    cell({ pnl: 2, direction: 'long' }),
+    cell({ pnl: -1, direction: ' LONG ' }),
+    cell({ pnl: 3, source: '   ' }),
+    cell({ pnl: 4, signal_type: 1 }),
+    cell({ pnl: 5, timeframe: '  4h  ', regime: ' RANGE ' }),
+  ]);
+  assert.strictEqual(a.overall.resolved, 5);
+  assert.strictEqual(a.by_setup.length, 2);
+  const vwap = a.by_setup.find((g) => g.timeframe === '1h');
+  const other = a.by_setup.find((g) => g.timeframe === '4h');
+  assert.strictEqual(vwap.n, 2);
+  assert.strictEqual(vwap.direction, 'LONG');
+  assert.strictEqual(vwap.net_r, 1);
+  assert.strictEqual(vwap.mean_r, 0.5);
+  assert.strictEqual(other.regime, 'RANGE');
+  assert.strictEqual(other.timeframe, '4h');
+  assert.strictEqual(other.net_r, 5);
+  assert.strictEqual(other.mean_r, 5);
+});
+
+test('nothing resolved publishes no setup cell and a null R', () => {
+  const a = computeAnalytics([cell({ pnl: null }), cell({ pnl: undefined })]);
+  assert.deepStrictEqual(a.by_setup, []);
+  assert.strictEqual(a.overall.net_r, null);
+  assert.strictEqual(a.overall.mean_r, null);
+});
+
+test('the setup board omits a missing group and does not paint a null mean as 0R', () => {
+  const WR = require('../public/js/winrate-bar');
+  assert.strictEqual(WR.setupScoreboard(undefined), '');
+  assert.strictEqual(WR.setupScoreboard(null), '');
+  assert.strictEqual(WR.setupScoreboard([]), '');
+  const dropped = WR.setupScoreboard([{
+    setup: 'vwap_reversion', regime: 'TREND', timeframe: null,
+    source: 'rules', direction: 'LONG', n: 10, win_rate: 60, mean_r: 0, net_r: 0,
+  }]);
+  assert.strictEqual(dropped, '', 'a missing timeframe was painted');
+  assert.ok(!dropped.includes('(none)'));
+
+  const absentMean = WR.setupScoreboard([{
+    setup: 'vwap_reversion', regime: 'TREND', timeframe: '1h',
+    source: 'rules', direction: 'LONG', n: 2, win_rate: 0, mean_r: null, net_r: null,
+  }]);
+  assert.ok(absentMean.includes('vwap_reversion'));
+  assert.ok(!absentMean.includes('0R'), 'a null mean was painted as 0R');
+
+  const flat = WR.setupScoreboard([{
+    setup: 'sweep', regime: 'RANGE', timeframe: '4h',
+    source: 'llm', direction: 'SHORT', n: 2, win_rate: 0, mean_r: 0, net_r: 0,
+  }]);
+  assert.ok(flat.includes('0R'), 'a measured 0R was omitted');
+  assert.ok(flat.includes('wr-unrated'), 'two trades were ranked');
+  assert.ok(!flat.includes('wr-pos'));
+
+  const rated = WR.setupScoreboard([{
+    setup: 'vwap_reversion', regime: 'TREND', timeframe: '1h',
+    source: 'rules', direction: 'LONG', n: 10, win_rate: 60, mean_r: 0.5, net_r: 5,
+  }]);
+  assert.ok(rated.includes('wr-pos'));
+  assert.ok(rated.includes('0.5R'));
+
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { codeOnly } = require('./helpers/code_only');
+  const src = codeOnly(fs.readFileSync(
+    path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8'));
+  assert.match(src, /setupScoreboard\(a\.by_setup\)/);
+  assert.ok(!/by_setup \|\| \[\]/.test(src),
+    'a missing setup group is filled with an empty list and then painted');
+});

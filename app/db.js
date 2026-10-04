@@ -583,6 +583,32 @@ class MemoryDB {
         .slice(0, limit);
       return [rows.map(r => ({ ...r })), []];
     }
+    if (cmd.includes('FROM SIGNALS') && cmd.includes('ORDER BY RESOLVED_AT')) {
+      // Analytics. MySQL returns only the columns the SELECT names, and only
+      // rows with a pnl. The catch-all below returns the whole stored row and
+      // ignores WHERE, which is how a query that forgot `signal_type` still
+      // looked grouped in every test. Project the named columns.
+      const selected = sql.match(/select\s+([\s\S]+?)\s+from\s+signals/i);
+      const cols = selected
+        ? selected[1].split(',').map(c => c.trim().toLowerCase().split(/\s+/).pop())
+        : [];
+      const limitM = cmd.match(/LIMIT\s+(\d+)/);
+      const limit = limitM ? Number(limitM[1]) : 2000;
+      const rows = this.signals
+        .filter(s => s.pnl !== null && s.pnl !== undefined)
+        .sort((a, b) => {
+          const ta = a.resolved_at ? new Date(a.resolved_at).getTime() : 0;
+          const tb = b.resolved_at ? new Date(b.resolved_at).getTime() : 0;
+          return tb - ta;
+        })
+        .slice(0, limit)
+        .map(s => {
+          const out = {};
+          for (const c of cols) out[c] = s[c];
+          return out;
+        });
+      return [rows, []];
+    }
     if (cmd.includes('FROM SIGNALS')) {
       // Filters are ignored in the mock; newest-first up to the LIMIT. An
       // INLINE `LIMIT 12` wins over the last param — reading the last param
@@ -2669,6 +2695,9 @@ async function migrate() {
         thesis TEXT DEFAULT NULL,
         status VARCHAR(16) DEFAULT 'NEW',
         pnl DECIMAL(20,8) DEFAULT NULL,
+        signal_type VARCHAR(64) DEFAULT NULL,
+        timeframe VARCHAR(32) DEFAULT NULL,
+        source VARCHAR(64) DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         resolved_at TIMESTAMP NULL DEFAULT NULL,
         seal VARCHAR(64) DEFAULT NULL,
@@ -2690,6 +2719,11 @@ async function migrate() {
       // The copy readers select on it; nothing ever wrote the 'OPEN' status
       // they used to select on.
       'ALTER TABLE signals ADD COLUMN expires_at TIMESTAMP NULL DEFAULT NULL',
+      // Setup-cell dimensions. Nullable, no filler default: a row that never
+      // recorded a timeframe must not become timeframe='' or 'unknown'.
+      'ALTER TABLE signals ADD COLUMN signal_type VARCHAR(64) DEFAULT NULL',
+      'ALTER TABLE signals ADD COLUMN timeframe VARCHAR(32) DEFAULT NULL',
+      'ALTER TABLE signals ADD COLUMN source VARCHAR(64) DEFAULT NULL',
     ]) {
       try { await pool.execute(ddl); } catch (e) { /* exists */ }
     }
