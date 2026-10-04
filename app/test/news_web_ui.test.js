@@ -8,6 +8,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
+const { codeOnly } = require('./helpers/code_only');
 
 const route = fs.readFileSync(path.join(__dirname, '..', 'routes', 'news.js'), 'utf8');
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
@@ -73,6 +74,19 @@ test('the share-panel remove/clear listener is bound once (no leak)', () => {
   assert.match(dash, /if \(wrap && !wrap\._shareBound\)/);
   // the fragile float layout was replaced with a flex header
   assert.ok(!/data-del="\$\{esc\(String\(n\.id\)\)\}" type="button" style="float:right"/.test(dash));
+});
+
+test('a headline age is the bot label, not a coerced zero', () => {
+  const start = dash.indexOf('async function renderNews()');
+  const end = dash.indexOf('async function drawShare()');
+  assert.ok(start > -1 && end > start);
+  // Comments quote the old `+s || 0` so a reader can see what failed.
+  // code_only blanks them; the assertion is about the code.
+  const fn = codeOnly(dash.slice(start, end));
+  assert.match(fn, /row\.age_label/);
+  assert.match(fn, /time unreadable/);
+  assert.doesNotMatch(fn, /\+\s*s\s*\|\|\s*0/);
+  assert.doesNotMatch(fn, /ago\(it\.age_sec\)/);
 });
 
 test('the BYON key gateway routes are registered bot-side', () => {
