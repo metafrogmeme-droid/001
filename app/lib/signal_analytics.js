@@ -18,18 +18,20 @@
  *
  * Each displayed setup cell also carries n, the hit rate (wins / n) with
  * its Wilson interval, the mean R with `mean_r_interval`'s twin, a
- * Benjamini-Hochberg q-value, and the reading `exploratory`. A clear
- * interval and a q-value under 0.05 do not change that word. The q-values
- * are computed after the cap, so a cell that was not published is not in
- * the family, and a row that was not a cell is not given the reading.
+ * Benjamini-Hochberg q-value, and a reading. The reading is `exploratory`
+ * unless the cell was pre-registered and that registration was replicated
+ * on prospective data (`setup-cell-reading.js`). A clear interval and a
+ * q-value under 0.05 do not change the word. The q-values are computed
+ * after the cap, so a cell that was not published is not in the family,
+ * and a row that was not a cell is not given the reading.
  */
-
-/** The word every published setup cell reads. */
-const SETUP_CELL_READING = 'exploratory';
 
 const {
   wilsonInterval, meanRInterval, meanRPValue, bhQValues,
 } = require('./inference');
+const {
+  readingForCell, matchedRegistrations,
+} = require('../public/js/setup-cell-reading');
 
 // Confidence buckets: [label, lo, hi) with hi exclusive except the last.
 const CONF_BUCKETS = [
@@ -140,7 +142,7 @@ function _addSetup(map, dims, isWin, r) {
   map.set(key, g);
 }
 
-function _finaliseSetups(map, top = 12) {
+function _finaliseSetups(map, top = 12, registrations) {
   const ranked = [...map.values()]
     .map(g => {
       const wilson = wilsonInterval(g.wins, g.n);
@@ -182,7 +184,12 @@ function _finaliseSetups(map, top = 12) {
       if (k !== '_p') out[k] = g[k];
     }
     out.q_value = qs[i];
-    out.reading = SETUP_CELL_READING;
+    // The gate reads registrations, not this cell's interval and not a
+    // word planted on a signal row. No match stays exploratory, and the
+    // evidence list is omitted rather than published as an empty claim.
+    out.reading = readingForCell(out, registrations);
+    const hits = matchedRegistrations(out, registrations);
+    if (hits.length) out.registrations = hits;
     return out;
   });
 }
@@ -204,7 +211,7 @@ function _finalise(map, top = 12) {
     .slice(0, top);
 }
 
-function computeAnalytics(signals, { top = 12 } = {}) {
+function computeAnalytics(signals, { top = 12, registrations } = {}) {
   const byPattern = new Map();
   const bySymbol = new Map();
   const byDirection = new Map();
@@ -255,7 +262,7 @@ function computeAnalytics(signals, { top = 12 } = {}) {
     by_confidence: byConfidenceArr,
     // One cell per recorded setup × regime × timeframe × source × direction.
     // A row missing any of those is absent here, not keyed under a filler.
-    by_setup: _finaliseSetups(bySetup, top),
+    by_setup: _finaliseSetups(bySetup, top, registrations),
   };
 }
 

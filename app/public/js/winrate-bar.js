@@ -24,19 +24,33 @@
  * its own dishonesty — but it carries no colour, no bar, and says how many
  * trades it rests on. Above it: colour and a bar proportional to the rate.
  *
- * A setup cell is the exception to that colour. It reads "exploratory".
- * The colour and the bar are the claim that the rate is established, and a
- * clear interval with a q-value under 0.05 does not establish it. The
+ * A setup cell is the exception to that colour. It reads "exploratory"
+ * unless it was pre-registered and replicated prospectively, in which
+ * case the word is "survives". The colour and the bar stay off either
+ * way: they are the claim that the rate is established, and neither a
+ * clear interval nor a q-value under 0.05 establishes it. The word is
+ * decided by setup-cell-reading.js, not copied off a planted field. The
  * percentage, n, and the interval stay. A pattern column is not a setup
  * cell and keeps the sample-floor colour.
  *
  * Exposed as window.RCWinRate; module.exports in node so it can be tested.
  */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.RCWinRate = factory();
-}(typeof self !== 'undefined' ? self : this, function () {
+  var api = factory(root);
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.RCWinRate = api;
+}(typeof self !== 'undefined' ? self : this, function (root) {
   'use strict';
+
+  // One decision, shared with the analytics route. In node this file is
+  // required; in the browser the script before this one sets the global.
+  // A missing gate stays exploratory: the word "survives" is not guessed.
+  var SetupReading = null;
+  if (typeof module === 'object' && module.exports) {
+    SetupReading = require('./setup-cell-reading');
+  } else if (root && root.RCSetupReading) {
+    SetupReading = root.RCSetupReading;
+  }
 
   /** Resolved outcomes below which a rate is reported but never ranked.
    *  Same value as SetupExpectancy(min_samples=10). */
@@ -95,9 +109,10 @@
       rated: false,
       reason: null,
       detail: typeof g.detail === 'string' ? g.detail : '',
-      // The plan's word, not a second status. A planted "survives" on the
-      // payload is not copied: agreement does not promote the cell.
-      reading: setup ? 'exploratory' : '',
+      // The gate's word. A planted "survives" on the payload is not copied:
+      // the registration list is what the gate reads, and a cell with none
+      // stays exploratory.
+      reading: setup ? cellWord(g) : '',
     };
     if (rate === null) {
       out.reason = 'nothing resolved yet';
@@ -114,9 +129,9 @@
       return out;
     }
     out.rated = true;
-    // Colour is the established verdict. A setup cell is exploratory, so
-    // the verdict stays off even when the interval and q agree. A pattern
-    // column has neither mark and keeps the sample-floor colour.
+    // Colour is the established verdict. A setup cell does not carry it,
+    // whether the word is exploratory or survives. A pattern column has
+    // neither mark and keeps the sample-floor colour.
     if (!evidenceAgrees(g, rate >= 50)) {
       out.rated = false;
       out.reason = '';
@@ -150,6 +165,20 @@
     return false;
   }
 
+  /**
+   * The word for a setup cell, from the registration gate.
+   *
+   * `g.reading` is not an input. The list the analytics route attached is.
+   * No list, or a gate that failed to load, stays exploratory.
+   */
+  function cellWord(g) {
+    if (!SetupReading || typeof SetupReading.readingForCell !== 'function') {
+      return 'exploratory';
+    }
+    var regs = (g && Array.isArray(g.registrations)) ? g.registrations : [];
+    return SetupReading.readingForCell(g, regs);
+  }
+
   /** One row. Colour and bar only when `rated`. */
   function rowHtml(c) {
     var pct = c.rate === null ? null : Math.round(c.rate);
@@ -170,9 +199,10 @@
     // mean would be a second verdict beside the win-rate bar.
     var detail = c.detail
       ? '<span class="wr-why">' + esc(c.detail) + '</span>' : '';
-    // The plan's word, muted. Only that word: a different status is not shown.
-    var reading = c.reading === 'exploratory'
-      ? '<span class="wr-why">exploratory</span>' : '';
+    // The gate's word, muted. Only the two words it returns: a different
+    // status is not shown, and neither word is a colour.
+    var reading = (c.reading === 'exploratory' || c.reading === 'survives')
+      ? '<span class="wr-why">' + c.reading + '</span>' : '';
 
     return '<div class="wr-row' + (c.rated ? '' : ' wr-row--unrated') + '">'
       + '<div class="wr-head"><span class="wr-label">' + esc(c.label) + '</span>'
@@ -262,11 +292,12 @@
   /**
    * The setup scoreboard, or '' when there is no cell to show.
    *
-   * A missing group, an empty list, and a cell that lacks a dimension all
-   * omit. They do not become a 0% row and they are not labelled. Every
-   * cell that is shown reads exploratory, and the established colour stays
-   * off. The R in the label is a number, not a second colour claim.
-   */
+ * A missing group, an empty list, and a cell that lacks a dimension all
+ * omit. They do not become a 0% row and they are not labelled. A cell
+ * that is shown reads exploratory, or survives when its registration
+ * was replicated prospectively. The established colour stays off either
+ * way. The R in the label is a number, not a second colour claim.
+ */
   function setupScoreboard(cells) {
     if (!Array.isArray(cells) || !cells.length) return '';
     var prepared = [];
