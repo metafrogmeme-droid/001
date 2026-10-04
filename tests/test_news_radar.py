@@ -102,6 +102,8 @@ def test_parse_rss_scores_and_matches_each_item():
     top = items[0]
     assert top.impact is Impact.HIGH and top.symbols == ("SOL",)
     assert top.published_ts > 0            # pubDate parsed
+    # The second item has no pubDate. That is unreadable, not "now".
+    assert items[1].published_ts == 0.0
     assert items[1].impact is Impact.LOW
 
 
@@ -185,3 +187,133 @@ def test_held_symbols_helper_is_best_effort():
     src = inspect.getsource(th.TelegramHandler._held_symbols)
     assert "open_positions" in src
     assert "except Exception" in src   # a missing source is skipped, never fatal
+
+
+def _rfc(ts: float) -> str:
+    """English RFC-822, independent of the process locale."""
+    import time
+    t = time.gmtime(ts)
+    mon = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")[t.tm_mon - 1]
+    day = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[t.tm_wday]
+    return (f"{day}, {t.tm_mday:02d} {mon} {t.tm_year} "
+            f"{t.tm_hour:02d}:{t.tm_min:02d}:{t.tm_sec:02d} GMT")
+
+
+def _rss(rows: list[tuple[str, str, float | None]]) -> str:
+    """Newest-first RSS, the order the live feeds actually use. ``None`` is a
+    pubDate that does not parse."""
+    parts = []
+    for title, url, ts in rows:
+        pub = _rfc(ts) if ts else "not-a-date"
+        parts.append(
+            f"<item><title>{title}</title><link>{url}</link>"
+            f"<pubDate>{pub}</pubDate></item>")
+    return ("<?xml version=\"1.0\"?><rss><channel>"
+            + "".join(parts) + "</channel></rss>")
+
+
+def _meta(out: str, title: str) -> str:
+    lines = out.splitlines()
+    for i, line in enumerate(lines):
+        if title in line and i + 1 < len(lines):
+            return lines[i + 1]
+    raise AssertionError(title)
+
+
+def test_latest_headlines_follow_publication_time_not_feed_order():
+    """A newest-first page used to render backwards.
+
+    Decrypt's feed is current and long: today's post first, a December 2025
+    post last. Prepending each item put that tail at the front of the card,
+    so "Latest headlines" was six rows about 270 days old.
+    """
+    import calendar
+
+    from bot.core.news import headline_view, render_news_digest
+
+    now = float(calendar.timegm((2026, 10, 4, 13, 48, 0, 0, 0, 0)))
+    today = now - 30 * 60
+    old = now - 270 * 86400
+    rss = _rss([
+        ("Desk note from this afternoon", "http://x/today", today),
+        ("Note from an hour ago", "http://x/h1", now - 3600),
+        ("Note from two hours ago", "http://x/h2", now - 2 * 3600),
+        ("Note from three hours ago", "http://x/h3", now - 3 * 3600),
+        ("Note from four hours ago", "http://x/h4", now - 4 * 3600),
+        ("Note from five hours ago", "http://x/h5", now - 5 * 3600),
+        ("Year-start roundup", "http://x/old", old),
+        ("Clockless note", "http://x/blind", None),
+    ])
+    radar = NewsRadar()
+    radar.ingest(parse_rss(rss, "decrypt.co", ["BTC/USDT"], now))
+    shown = radar.recent(8)
+    assert [i.title for i in shown[:6]] == [
+        "Desk note from this afternoon",
+        "Note from an hour ago",
+        "Note from two hours ago",
+        "Note from three hours ago",
+        "Note from four hours ago",
+        "Note from five hours ago",
+    ]
+    assert shown[6].title == "Year-start roundup"
+    assert shown[7].title == "Clockless note"
+    assert shown[7].published_ts == 0.0
+
+    out = render_news_digest(shown, [], now, limit=8)
+    today_line = _meta(out, "Desk note from this afternoon")
+    old_line = _meta(out, "Year-start roundup")
+    blind_line = _meta(out, "Clockless note")
+    assert "30m ago" in today_line
+    assert "270d" not in today_line
+    assert "270d ago" in old_line
+    assert "Clockless note" in out
+    assert "time unreadable" in blind_line
+    assert "1s ago" not in blind_line
+    assert "0d ago" not in blind_line
+
+    by_title = {i.title: headline_view(i, now) for i in shown}
+    assert by_title["Desk note from this afternoon"]["age_label"] == "30m ago"
+    assert by_title["Desk note from this afternoon"]["age_sec"] == 30 * 60
+    assert by_title["Year-start roundup"]["age_label"] == "270d ago"
+    assert by_title["Year-start roundup"]["age_sec"] == 270 * 86400
+    assert by_title["Clockless note"]["age_sec"] is None
+    assert by_title["Clockless note"]["age_label"] == "time unreadable"
+    assert by_title["Clockless note"]["title"] == "Clockless note"
+
+    # A later item files by its own clock, not by arriving last.
+    radar.ingest([NewsItem(
+        title="Just filed", url="http://x/new", source="s",
+        published_ts=now - 60)])
+    assert radar.recent(1)[0].title == "Just filed"
+    radar.ingest([NewsItem(
+        title="Older than the tail", url="http://x/ancient", source="s",
+        published_ts=old - 86400)])
+    assert radar.recent(1)[0].title == "Just filed"
+
+
+def test_the_store_keeps_newer_headlines_when_the_cap_bites():
+    now = 1_800_000_000.0
+    radar = NewsRadar(max_items=2)
+    # Feed order: newest first. Prepending this list used to drop the newest
+    # when the cap bit, and keep the oldest.
+    radar.ingest([
+        NewsItem(title="newest", url="n", source="s", published_ts=now - 60),
+        NewsItem(title="mid", url="m", source="s", published_ts=now - 3600),
+        NewsItem(title="oldest", url="o", source="s",
+                 published_ts=now - 270 * 86400),
+    ])
+    assert [i.title for i in radar.recent()] == ["newest", "mid"]
+
+
+def test_an_unreadable_clock_does_not_stand_down_and_a_fresh_one_still_does():
+    now = 1_000_000.0
+    fresh = NewsItem(
+        title="SOL exploit drains funds", url="http://x/f", source="s",
+        published_ts=now - 60, impact=Impact.HIGH, symbols=("SOL",))
+    blind = NewsItem(
+        title="SOL exploit drains funds again", url="http://x/b", source="s",
+        published_ts=0.0, impact=Impact.HIGH, symbols=("SOL",))
+    recs = standdown_for_holdings([blind, fresh], ["SOL/USDT"], now)
+    assert [r["headline"] for r in recs] == ["SOL exploit drains funds"]
+    assert recs[0]["age_label"] == "60s ago"
