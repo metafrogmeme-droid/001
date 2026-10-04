@@ -95,6 +95,22 @@ class TestPushScanSummaryToWebsite:
         assert "Autonomous scan" in captured["payload"]["key_call"]
         assert "+2.50%" in captured["payload"]["key_call"]
 
+    def test_nonempty_cycle_without_btc_does_not_claim_there_was_no_scan(self, monkeypatch):
+        monkeypatch.setattr(eng_mod, "CONFIG", CONFIG)
+        import bot.utils.website_sync as ws
+        captured = {}
+        monkeypatch.setattr(ws, "sync_scan_in_background", lambda payload: captured.update(payload=payload))
+
+        stub = _stub_engine()
+        signals = [_sig("ATOM/USDT", price=1.75, change_pct_24h=4.7, momentum_score=0.47)]
+        RuneClawEngine._push_scan_summary_to_website(stub, signals)
+
+        call = captured["payload"]["key_call"]
+        assert "Autonomous scan" in call
+        assert "1 pairs scanned" in call
+        assert "ATOM/USDT" in call
+        assert "No scan data available" not in call
+
     def test_bearish_regime_derived_from_btc_signal(self, monkeypatch):
         monkeypatch.setattr(eng_mod, "CONFIG", CONFIG)
         import bot.utils.website_sync as ws

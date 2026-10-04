@@ -2435,9 +2435,24 @@ class RuneClawEngine:
                 "gate": getattr(btc_sig, "price", 0.0) or 0.0,
                 "long_short": "", "funding": "",
             }
+        # The autonomous scanner returns the strongest movers, not a fixed
+        # BTC row. A healthy non-empty cycle can therefore contain no BTC.
+        # Leaving _build_scan_payload([], scanned=False)'s placeholder in that
+        # case made the live website say "No scan data available" beside a
+        # fresh heartbeat and a real 20-symbol scan. Prefer BTC for the market
+        # context when present; otherwise describe the first measured result.
+        reference_sig = btc_sig or next(iter(signals or []), None)
+        if reference_sig is not None:
+            ref_symbol = (
+                getattr(reference_sig, "symbol", "")
+                or getattr(reference_sig, "asset", "")
+                or "Top signal"
+            )
+            momentum = getattr(reference_sig, "momentum_score", 0.0) or 0.0
+            change = getattr(reference_sig, "change_pct_24h", 0.0) or 0.0
             payload["key_call"] = (
                 f"<b>Autonomous scan</b> — {len(signals)} pairs scanned this cycle\n"
-                f"BTC 24h change: {change:+.2f}% | momentum {momentum:+.2f}\n"
+                f"{ref_symbol} 24h change: {change:+.2f}% | momentum {momentum:+.2f}\n"
                 f"Scanned at {datetime.now(UTC).strftime('%H:%M UTC')}"
             )
         payload["config"] = self._build_strategy_config_summary()
