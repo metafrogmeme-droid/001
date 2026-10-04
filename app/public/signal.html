@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Signal — RUNECLAW</title>
+<meta name="description" content="The thesis and counter-case recorded for one signal.">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#0a0b10">
+<link rel="stylesheet" href="/styles.css?v=50">
+<style>
+  .sig-wrap { max-width: 720px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; font-size: var(--fs-sm); }
+  .topnav a { color: var(--text-2); }
+  .sig-wrap h1 { font-family: var(--font-display); letter-spacing: .04em; margin: 0 0 var(--s4); }
+  .sig-id { font-family: var(--font-data); margin: 0 0 var(--s4); }
+  .sig-wrap h2 { font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); margin: var(--s4) 0 var(--s2); }
+  .sig-prose { margin: 0; white-space: pre-wrap; color: var(--text); }
+  /* Absence is muted. Green would say the missing sentence was a result. */
+  .sig-absent { margin: 0; color: var(--text-3); }
+</style>
+</head>
+<body>
+<div class="sig-wrap" role="main">
+  <nav class="topnav">
+    <a href="/" data-i18n="nav.back_runeclaw">← RUNECLAW</a>
+    <span style="flex:1"></span>
+    <a href="/dashboard#signals" data-i18n="dp.stream">Signal stream</a>
+  </nav>
+  <h1>Signal</h1>
+  <div id="sig-root"><p class="sig-absent">…</p></div>
+</div>
+<script src="/js/i18n-core.js?v=161"></script>
+<script src="/js/signal-page.js?v=1"></script>
+</body>
+</html>

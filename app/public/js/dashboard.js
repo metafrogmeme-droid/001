@@ -904,9 +904,13 @@
       const btn = tradeable
         ? `<button class="btn btn--sm btn--primary" data-ptrade='${esc(JSON.stringify({ d: s.direction, sy: s.symbol, e: s.entry_price, sl: s.stop_loss, tp: s.take_profit }))}'>Trade</button>`
         : '';
+      // The detail page. A missing SignalPage is a script that did not load,
+      // and then the row offers no link rather than a URL built a second way.
+      const thesisLink = (self.SignalPage
+        ? self.SignalPage.streamLink(s, esc, T('dd.dc_t_thesis', 'Thesis')) : '');
       return `
       <div class="kv-row">
-        <span class="row" style="gap:8px">${dirChip(s.direction)}<b style="font-family:var(--font-ui)">${esc(s.symbol)}</b><span class="muted small">${esc(s.pattern || '')}</span></span>
+        <span class="row" style="gap:8px">${dirChip(s.direction)}<b style="font-family:var(--font-ui)">${esc(s.symbol)}</b>${thesisLink}<span class="muted small">${esc(s.pattern || '')}</span></span>
         <span class="row" style="gap:8px;align-items:center"><span class="num muted">${fmtPrice(s.entry_price)} · ${fmtAgo(s.created_at)}</span>${btn}</span>
       </div>`;
     }).join('') + `<a class="btn btn--ghost btn--sm mt-2" href="#signals">All signals →</a>`;
@@ -2876,11 +2880,16 @@
             const arenaBtn = live && s.signal_key
               ? `<button class="btn btn--ghost btn--sm" data-parena="${esc(s.signal_key)}" title="${esc(T('dd.arena_t', 'Open this call in your paper Arena account — filled at the live mark, never the signal price'))}">${esc(T('dd.b_arena', '🏟 Paper'))}</button>`
               : '';
+            // Opens the thesis page. The cell itself still opens the symbol
+            // chart: the click handler ignores anchors, and the <b> stays the
+            // chart control.
+            const thesisLink = (self.SignalPage
+              ? self.SignalPage.streamLink(s, esc, T('dd.dc_t_thesis', 'Thesis')) : '');
             return `<tr>
               <td data-label="Signal" class="td--stack" data-sym="${esc(dsBase(s.symbol))}"
                   data-geo='${esc(JSON.stringify({ e: s.entry_price, sl: s.stop_loss, tp: s.take_profit, d: s.direction }))}'
                   role="button" tabindex="0" title="Chart with this signal's levels"
-                  style="cursor:pointer">${dirChip(s.direction)} <b>${esc(s.symbol)}</b> <span class="muted small">📈</span><div class="muted small">${esc(s.pattern || '')}${s.seal ? ` · <a href="/call/${encodeURIComponent(s.signal_key)}" title="Cryptographically sealed at decision time — verify in your browser" onclick="event.stopPropagation()">🔏 verify</a>` : ''}</div>
+                  style="cursor:pointer">${dirChip(s.direction)} <b>${esc(s.symbol)}</b> <span class="muted small">📈</span><div class="muted small">${esc(s.pattern || '')}${thesisLink}${s.seal ? ` · <a href="/call/${encodeURIComponent(s.signal_key)}" title="Cryptographically sealed at decision time — verify in your browser" onclick="event.stopPropagation()">🔏 verify</a>` : ''}</div>
                   <div class="sc-slot" data-sc-sym="${esc(dsContract(s.symbol))}" data-sc-label="${esc(dsBase(s.symbol))}"
                        data-sc-geo='${esc(JSON.stringify({ entry: s.entry_price, stop: s.stop_loss, target: s.take_profit, direction: s.direction }))}'
                        aria-busy="true"><div class="skel skel--sc"></div></div></td>

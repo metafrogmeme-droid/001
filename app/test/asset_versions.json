@@ -76,8 +76,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 218,
-    "sha": "87848668874dbdb9"
+    "v": 219,
+    "sha": "678b76b0fc3d7431"
   },
   "js/decision-court-model.js": {
     "v": 2,
@@ -243,6 +243,10 @@
     "v": 2,
     "sha": "2e83ab4f03fab28f"
   },
+  "js/signal-page.js": {
+    "v": 1,
+    "sha": "d509819b86a1ce97"
+  },
   "js/signal-status-model.js": {
     "v": 1,
     "sha": "4323d7e984b716e8"
@@ -272,8 +276,8 @@
     "sha": "2d1bbf1c17554a79"
   },
   "js/thesis-model.js": {
-    "v": 1,
-    "sha": "b9f6acd93b4feee5"
+    "v": 2,
+    "sha": "0a41f855dcb11f74"
   },
   "js/trade-confirm-model.js": {
     "v": 2,
