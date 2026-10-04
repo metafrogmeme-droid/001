@@ -78,11 +78,34 @@ function rowHtml(html, setup) {
 }
 
 test('the JS interval matches the Python functions on the same inputs', () => {
+  // The web-app job installs Node only. ubuntu-latest has `python3` and not
+  // `python3.11`, and it does not install the bot's dependencies. Importing
+  // `bot.backtest.parity` loads `bot.config`, which imports dotenv, so that
+  // import cannot run there. `wilson_lower_bound` and `mean_r_interval` use
+  // the standard library. `_wilson` is compiled from its own source in
+  // parity.py, with that lower bound in scope: still that function, not a
+  // second formula written beside it.
   const script = `
-import json, math
+import ast, json, math
+from pathlib import Path
+from typing import Optional
 from bot.core.shadow_book import mean_r_interval
 from bot.learning.readiness import wilson_lower_bound
-from bot.backtest.parity import _wilson
+
+tree = ast.parse(Path("bot/backtest/parity.py").read_text(encoding="utf-8"))
+picked = []
+for node in tree.body:
+    if isinstance(node, ast.Assign):
+        names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        if names == ["_Z"]:
+            picked.append(node)
+    elif isinstance(node, ast.FunctionDef) and node.name == "_wilson":
+        picked.append(node)
+if len(picked) != 2 or not isinstance(picked[-1], ast.FunctionDef):
+    raise SystemExit("parity.py did not yield module-level _Z and _wilson")
+ns = {"wilson_lower_bound": wilson_lower_bound, "Optional": Optional}
+exec(compile(ast.Module(body=picked, type_ignores=[]), "bot/backtest/parity.py", "exec"), ns)
+_wilson = ns["_wilson"]
 wilson = []
 for succ, n in [(21, 34), (27, 34), (0, 11), (1, 2), (20, 40), (0, 4), (3, 3), (10, 10), (5, 8)]:
     lo, hi = _wilson(succ, n)
@@ -111,8 +134,18 @@ for n, s, s2 in [
                       "p": two_sided(n, s, s2)})
 print(json.dumps({"wilson": wilson, "intervals": intervals}))
 `;
-  const run = spawnSync('python3.11', ['-c', script], { cwd: REPO, encoding: 'utf8' });
-  assert.equal(run.status, 0, run.stderr);
+  // Prefer the interpreter this repo pins. The web-app runner only has
+  // `python3` (3.12 on ubuntu-latest). Either can run the script above.
+  const bin = ['python3.11', 'python3'].find((name) => {
+    const probe = spawnSync(name, ['-c', 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'], {
+      encoding: 'utf8',
+    });
+    return probe.status === 0;
+  });
+  assert.ok(bin, 'no Python >= 3.11 on PATH (tried python3.11 and python3)');
+  const run = spawnSync(bin, ['-c', script], { cwd: REPO, encoding: 'utf8' });
+  const detail = [run.stderr, run.error && run.error.message].filter(Boolean).join('\n');
+  assert.equal(run.status, 0, detail || 'python exited without a status');
   const py = JSON.parse(run.stdout);
   for (const c of py.wilson) {
     const got = inf.wilsonInterval(c.succ, c.n);
