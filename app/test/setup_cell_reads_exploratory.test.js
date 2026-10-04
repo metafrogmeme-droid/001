@@ -1,12 +1,13 @@
 'use strict';
 /**
- * Every displayed setup cell reads "exploratory".
+ * A setup cell at or above the sample floor reads "exploratory".
  *
  * A q-value under 0.05 and an interval clear of zero do not promote the
  * cell to a verdict, a "survives" label, or a follow offer. A missing
  * dimension and an empty payload are omitted: they are not labelled, and
- * they are not given a 0. A measured flat book stays 0, and that 0 is
- * still exploratory. An unreadable interval stays unavailable.
+ * they are not given a 0. A measured flat book stays 0. Under the floor
+ * that 0 reads "too thin to say"; the floor itself is the other test.
+ * An unreadable interval stays unavailable.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -123,11 +124,14 @@ test('a measured flat book stays 0 and an unreadable interval stays unavailable'
   assert.equal(flat.by_setup.length, 1);
   assert.equal(flat.by_setup[0].mean_r, 0);
   assert.equal(flat.by_setup[0].hit_rate, 0);
-  assert.equal(flat.by_setup[0].reading, 'exploratory');
+  assert.equal(flat.by_setup[0].n, 4);
+  assert.ok(flat.by_setup[0].n < WR.MIN_RATED);
+  assert.equal(flat.by_setup[0].reading, 'too thin to say');
   const flatHtml = WR.setupScoreboard(flat.by_setup);
   assert.match(flatHtml, /0R/);
   assert.match(flatHtml, /hit 0/);
-  assert.match(flatHtml, /exploratory/);
+  assert.match(flatHtml, /too thin to say/);
+  assert.equal(flatHtml.includes('exploratory'), false);
   assert.equal(flatHtml.includes('wr-pos'), false);
   assert.equal(flatHtml.includes('wr-neg'), false);
 
@@ -137,12 +141,13 @@ test('a measured flat book stays 0 and an unreadable interval stays unavailable'
   assert.equal(one.mean_r_lo, null);
   assert.equal(one.mean_r_hi, null);
   assert.equal(one.q_value, null);
-  assert.equal(one.reading, 'exploratory');
+  assert.equal(one.reading, 'too thin to say');
   const thinHtml = WR.setupScoreboard(thin.by_setup);
   assert.match(thinHtml, /mean 0R/);
   assert.match(thinHtml, /interval unavailable/);
   assert.match(thinHtml, /q unavailable/);
-  assert.match(thinHtml, /exploratory/);
+  assert.match(thinHtml, /too thin to say/);
+  assert.equal(thinHtml.includes('exploratory'), false);
   assert.equal(thinHtml.includes('interval 0'), false);
 
   const pattern = WR.buildRows([{ pattern: 'flag', win_rate: 61, n: 47 }], 'pattern');

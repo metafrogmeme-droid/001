@@ -24,14 +24,17 @@
  * its own dishonesty — but it carries no colour, no bar, and says how many
  * trades it rests on. Above it: colour and a bar proportional to the rate.
  *
- * A setup cell is the exception to that colour. It reads "exploratory"
- * unless it was pre-registered and replicated prospectively, in which
- * case the word is "survives". The colour and the bar stay off either
- * way: they are the claim that the rate is established, and neither a
- * clear interval nor a q-value under 0.05 establishes it. The word is
- * decided by setup-cell-reading.js, not copied off a planted field. The
- * percentage, n, and the interval stay. A pattern column is not a setup
- * cell and keeps the sample-floor colour.
+ * A setup cell is the exception to that colour. Under MIN_RATED it
+ * reads "too thin to say", with no colour and no bar. At the floor and
+ * above it, the word is "exploratory" unless the cell was pre-registered
+ * and replicated prospectively, in which case the word is "survives".
+ * The colour and the bar stay off on those cells too: they are the claim
+ * that the rate is established, and neither a clear interval nor a
+ * q-value under 0.05 establishes it. An unreadable n reads "unavailable"
+ * and is not painted as 0%. The word is decided by setup-cell-reading.js,
+ * not copied off a planted field. The percentage, n, and the interval
+ * stay when they were measured. A pattern column is not a setup cell
+ * and keeps the sample-floor colour.
  *
  * Exposed as window.RCWinRate; module.exports in node so it can be tested.
  */
@@ -114,6 +117,15 @@
       // stays exploratory.
       reading: setup ? cellWord(g) : '',
     };
+    // An unreadable count is not a 0% rate. Blank the percentage before
+    // the row is painted; the word is already "unavailable".
+    if (setup && SetupReading && out.reading === SetupReading.UNAVAILABLE) {
+      out.rate = null;
+      out.n = null;
+      out.rated = false;
+      out.reason = 'sample size unknown';
+      return out;
+    }
     if (rate === null) {
       out.reason = 'nothing resolved yet';
       return out;
@@ -135,6 +147,11 @@
     if (!evidenceAgrees(g, rate >= 50)) {
       out.rated = false;
       out.reason = '';
+    }
+    // The gate's thin word withholds colour even if this count and the
+    // floor were ever read differently. A thin cell is not established.
+    if (setup && SetupReading && out.reading === SetupReading.TOO_THIN) {
+      out.rated = false;
     }
     return out;
   }
@@ -168,15 +185,26 @@
   /**
    * The word for a setup cell, from the registration gate.
    *
-   * `g.reading` is not an input. The list the analytics route attached is.
-   * No list, or a gate that failed to load, stays exploratory.
+   * `g.reading` is not an input. The list the analytics route attached is,
+   * and the floor is this file's MIN_RATED, passed through rather than
+   * copied. No list, or a gate that failed to load, stays exploratory.
    */
   function cellWord(g) {
     if (!SetupReading || typeof SetupReading.readingForCell !== 'function') {
       return 'exploratory';
     }
     var regs = (g && Array.isArray(g.registrations)) ? g.registrations : [];
-    return SetupReading.readingForCell(g, regs);
+    return SetupReading.readingForCell(g, regs, MIN_RATED);
+  }
+
+  /** A status the gate actually returns. Anything else is not shown. */
+  function shownReading(word) {
+    if (!SetupReading) return word === 'exploratory' ? word : '';
+    if (word === SetupReading.EXPLORATORY || word === SetupReading.SURVIVES
+        || word === SetupReading.TOO_THIN || word === SetupReading.UNAVAILABLE) {
+      return word;
+    }
+    return '';
   }
 
   /** One row. Colour and bar only when `rated`. */
@@ -199,10 +227,11 @@
     // mean would be a second verdict beside the win-rate bar.
     var detail = c.detail
       ? '<span class="wr-why">' + esc(c.detail) + '</span>' : '';
-    // The gate's word, muted. Only the two words it returns: a different
-    // status is not shown, and neither word is a colour.
-    var reading = (c.reading === 'exploratory' || c.reading === 'survives')
-      ? '<span class="wr-why">' + c.reading + '</span>' : '';
+    // The gate's word, muted. Only a word it returns: a different status
+    // is not shown, and none of them is a colour.
+    var readingWord = shownReading(c.reading);
+    var reading = readingWord
+      ? '<span class="wr-why">' + esc(readingWord) + '</span>' : '';
 
     return '<div class="wr-row' + (c.rated ? '' : ' wr-row--unrated') + '">'
       + '<div class="wr-head"><span class="wr-label">' + esc(c.label) + '</span>'
@@ -271,7 +300,11 @@
    */
   function setupDetail(g) {
     var cell = g || {};
-    var n = num(cell.n);
+    // The gate's count, so a boolean or a word is "n unavailable" and not
+    // a sample of 1 or of 0. Pattern rows do not come through here.
+    var n = (SetupReading && typeof SetupReading.measuredCount === 'function')
+      ? SetupReading.measuredCount(cell.n)
+      : num(cell.n);
     var hit = ratioText(cell.hit_rate);
     var wlo = ratioText(cell.wilson_lo);
     var whi = ratioText(cell.wilson_hi);
@@ -293,10 +326,13 @@
    * The setup scoreboard, or '' when there is no cell to show.
    *
  * A missing group, an empty list, and a cell that lacks a dimension all
- * omit. They do not become a 0% row and they are not labelled. A cell
- * that is shown reads exploratory, or survives when its registration
- * was replicated prospectively. The established colour stays off either
- * way. The R in the label is a number, not a second colour claim.
+ * omit. They do not become a 0% row and they are not labelled thin. A
+ * cell under the sample floor reads "too thin to say", with no colour
+ * and no bar. At the floor and above, the cell reads exploratory, or
+ * survives when its registration was replicated prospectively. The
+ * established colour stays off on those too. An unreadable n reads
+ * "unavailable" and is not a 0%. The R in the label is a number, not a
+ * second colour claim.
  */
   function setupScoreboard(cells) {
     if (!Array.isArray(cells) || !cells.length) return '';
