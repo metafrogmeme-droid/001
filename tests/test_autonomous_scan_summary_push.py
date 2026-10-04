@@ -110,6 +110,35 @@ class TestPushScanSummaryToWebsite:
         assert "1 pairs scanned" in call
         assert "ATOM/USDT" in call
         assert "No scan data available" not in call
+        assert "+4.70%" in call
+        assert "momentum +0.47" in call
+
+    def test_unread_reference_move_is_not_printed_as_flat(self, monkeypatch):
+        """A row with no 24h change is not a measured +0.00%.
+
+        The non-BTC key call used ``getattr(..., 0.0) or 0.0``. A missing
+        attribute and an explicit None both became a flat print. 0.0 stays
+        a flat print; the unread case is named.
+        """
+        monkeypatch.setattr(eng_mod, "CONFIG", CONFIG)
+        import bot.utils.website_sync as ws
+        captured = {}
+        monkeypatch.setattr(ws, "sync_scan_in_background", lambda payload: captured.update(payload=payload))
+
+        stub = _stub_engine()
+        unread = types.SimpleNamespace(symbol="ATOM/USDT", price=1.75, change_pct_24h=None)
+        RuneClawEngine._push_scan_summary_to_website(stub, [unread])
+        call = captured["payload"]["key_call"]
+        assert "ATOM/USDT" in call
+        assert "24h change unread" in call
+        assert "momentum unread" in call
+        assert "+0.00%" not in call
+
+        flat = _sig("ATOM/USDT", change_pct_24h=0.0, momentum_score=0.0)
+        RuneClawEngine._push_scan_summary_to_website(stub, [flat])
+        flat_call = captured["payload"]["key_call"]
+        assert "24h change: +0.00%" in flat_call
+        assert "momentum +0.00" in flat_call
 
     def test_bearish_regime_derived_from_btc_signal(self, monkeypatch):
         monkeypatch.setattr(eng_mod, "CONFIG", CONFIG)
