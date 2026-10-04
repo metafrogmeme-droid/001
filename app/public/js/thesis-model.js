@@ -57,5 +57,37 @@
     return inner || null;
   }
 
-  return { prose, provenance, PROVENANCE };
+  // The marker the thesis prompt asks the model to end with, before the
+  // single strongest reason the trade fails. The LAST one counts: a model
+  // quoting the word earlier has not started the section. The Python twin
+  // is split_counter_case in bot/formatters/thesis_text.py.
+  const AGAINST = /\bAgainst:\s*/i;
+
+  /**
+   * (thesis, counter-case) from prose that has already had its tag stripped.
+   * null on either side means that part was not written. An empty string
+   * after the marker is not a counter-case.
+   */
+  function splitCounterCase(text) {
+    if (text === null || text === undefined) return { thesis: null, counter_case: null };
+    const body = String(text);
+    const marks = [...body.matchAll(new RegExp(AGAINST.source, 'gi'))];
+    if (!marks.length) return { thesis: body, counter_case: null };
+    const m = marks[marks.length - 1];
+    const thesis = body.slice(0, m.index).trim() || null;
+    const counter = body.slice(m.index + m[0].length).trim() || null;
+    return { thesis, counter_case: counter };
+  }
+
+  /**
+   * The stored reasoning column, as the two sentences a reader can be shown.
+   * Tag-only, blank and null are not a thesis: both sides come back null.
+   */
+  function storedThesis(reasoning) {
+    const body = prose(reasoning);
+    if (body === null) return { thesis: null, counter_case: null };
+    return splitCounterCase(body);
+  }
+
+  return { prose, provenance, PROVENANCE, splitCounterCase, storedThesis, AGAINST };
 }));

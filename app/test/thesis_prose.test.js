@@ -81,6 +81,31 @@ test('provenance is kept, not discarded', () => {
   assert.strictEqual(TM.provenance('Manual trade placed by user'), null);
 });
 
+const SPLIT = [
+  ['RSI 58 over VWAP. Against: funding is crowded.', 'RSI 58 over VWAP.', 'funding is crowded.'],
+  ['Against: only a counter.', null, 'only a counter.'],
+  ['RSI 58. Against:', 'RSI 58.', null],
+  ['Bears argue against: nothing. RSI 58. Against: crowded longs.',
+    'Bears argue against: nothing. RSI 58.', 'crowded longs.'],
+  ['no marker here', 'no marker here', null],
+  ['', null, null],
+];
+
+test('the counter-case is the last Against, and an empty one is not a sentence', () => {
+  for (const [input, thesis, counter] of SPLIT) {
+    assert.deepStrictEqual(TM.storedThesis(input), { thesis, counter_case: counter },
+      `storedThesis(${JSON.stringify(input)})`);
+  }
+  assert.deepStrictEqual(TM.storedThesis(null), { thesis: null, counter_case: null });
+  assert.deepStrictEqual(TM.storedThesis(undefined), { thesis: null, counter_case: null });
+  assert.deepStrictEqual(TM.storedThesis(TAG + ' '), { thesis: null, counter_case: null },
+    'a provenance tag is not a thesis');
+  assert.deepStrictEqual(
+    TM.storedThesis(TAG + ' RSI 58. Against: crowded.'),
+    { thesis: 'RSI 58.', counter_case: 'crowded.' },
+    'the tag is stripped before the split, and does not ride into either sentence');
+});
+
 test('the browser model and the bot agree, character for character', () => {
   // THE PARITY PIN. Lift the pattern out of the Python module and run this
   // file's whole table through it. Two implementations that drift produce a
@@ -98,6 +123,32 @@ test('the browser model and the bot agree, character for character', () => {
     assert.strictEqual(viaPython, want,
       `the Python pattern disagrees on ${JSON.stringify(input)}`);
   }
+
+  // The counter-case marker, the same way. Last match, case-insensitive,
+  // and an empty side is null — the Python function's own rule.
+  const against = py.match(/_AGAINST = re\.compile\(r"([^"]+)",\s*re\.IGNORECASE\)/);
+  assert.ok(against, 'bot/formatters/thesis_text.py no longer declares _AGAINST '
+    + 'the way this test reads it');
+  const fromPythonAgainst = new RegExp(against[1], 'gi');
+  const splitViaPython = (input) => {
+    if (input == null) return { thesis: null, counter_case: null };
+    const stripped = String(input).replace(fromPython, '').trim();
+    if (!stripped) return { thesis: null, counter_case: null };
+    const marks = [...stripped.matchAll(fromPythonAgainst)];
+    if (!marks.length) return { thesis: stripped, counter_case: null };
+    const hit = marks[marks.length - 1];
+    return {
+      thesis: stripped.slice(0, hit.index).trim() || null,
+      counter_case: stripped.slice(hit.index + hit[0].length).trim() || null,
+    };
+  };
+  for (const [input] of SPLIT) {
+    assert.deepStrictEqual(TM.storedThesis(input), splitViaPython(input),
+      `split disagrees with the Python patterns on ${JSON.stringify(input)}`);
+  }
+  assert.deepStrictEqual(
+    TM.storedThesis(TAG + ' RSI 58. Against: crowded.'),
+    splitViaPython(TAG + ' RSI 58. Against: crowded.'));
 });
 
 // ── the receipt is wired to it ───────────────────────────────────────────────

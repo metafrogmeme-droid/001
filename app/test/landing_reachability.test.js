@@ -19,7 +19,7 @@
  * whose own meta description promises "unreadable chains omitted, never
  * invented". It followed the house rule and was reachable from nowhere.
  *
- * The three genuine exceptions live in `unlinked_routes.json` with reasons,
+ * The genuine exceptions live in `unlinked_routes.json` with reasons,
  * and that file is a ratchet in both directions: a new entry means somebody
  * just orphaned a page, and a stale entry must go in the commit that links it.
  */

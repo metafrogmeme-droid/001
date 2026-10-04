@@ -360,6 +360,9 @@ app.use('/api/guardian/readiness', require('./routes/guardian_readiness'));
 app.use('/api/guardian/review', require('./routes/guardian_review'));
 app.use('/api/guardian', require('./routes/guardian'));
 app.use('/api/signals', signalsRouter);
+// One signal's thesis. Query key, not a path segment: a symbol slash does
+// not survive a hop, and a signal id is allowed to carry one.
+app.use('/api/signal', require('./routes/signal_page'));
 app.use('/api/credentials', credentialsRouter);
 app.use('/api/controls', controlsRouter);
 app.use('/api/chat', chatRouter);
@@ -509,6 +512,14 @@ app.get('/gas', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.
 app.get('/approvals', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'approvals.html')); });
 app.get('/command', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'command.html')); });
 app.get('/duel', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'duel.html')); });
+// Per-signal page. The id rides as ?key= so a slash in it still arrives.
+// /signal/:key remains for an id that has no slash.
+function sendSignalPage(req, res) {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, 'public', 'signal.html'));
+}
+app.get('/signal', sendSignalPage);
+app.get('/signal/:key', sendSignalPage);
 // Provable Calls — the public per-call verify page. The page itself pulls
 // /api/call/:key and re-derives the SHA-256 in the visitor's browser.
 app.get('/call/:key', (req, res) => {
