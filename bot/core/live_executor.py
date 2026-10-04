@@ -1843,6 +1843,85 @@ def _leverage_field_phrase(read: Any) -> str:
             f"nothing says whether that field decides the fill")
 
 
+def uta_symbol_leverage(payload: Any, symbol: Any) -> dict:
+    """The leverage a Bitget UTA account states for THIS symbol, or unknown.
+
+    ``GET /api/v3/account/settings`` lists one row per futures symbol
+    (``symbolConfigList``). That row's ``leverage`` is what a new fill uses.
+    Two other numbers on Bitget payloads wear the same word and must not:
+
+    * the account-assets ``leverage``, which is mark-to-market position
+      value over equity. A failed equity read comes back as a dust figure
+      (the v2 account sample is ``usdtEquity`` of ``9e-9``) and the ratio
+      looks infinite. That is not an overshoot, and it is not "no overshoot".
+    * ``coinConfigList``, which is spot-margin leverage per coin.
+
+    A missing row, a blank leverage, a non-numeric one, and a payload that
+    is not this document are unknown: ``value`` is None. Unknown is not 0
+    and not the account ratio. Callers abort only on a positive reading
+    past the same ratio the post-fill guard flattens on.
+    """
+    unknown: dict = {"value": None, "field": None, "governs": None, "mode": None}
+    if not isinstance(payload, dict):
+        return unknown
+    data = payload.get("data")
+    body = data if isinstance(data, dict) else payload
+    rows = body.get("symbolConfigList")
+    if not isinstance(rows, list):
+        return unknown
+
+    def _compact(raw: Any) -> str:
+        text = str(raw or "").upper().replace("-", "").replace("/", "")
+        if ":" in text:
+            text = text.split(":", 1)[0]
+        return text
+
+    def _positive(raw: Any) -> Optional[int]:
+        # A bool is an int. float(True) is 1.0, which would be a leverage.
+        if isinstance(raw, bool) or raw is None:
+            return None
+        try:
+            number = float(raw)
+        except (TypeError, ValueError):
+            return None
+        if number != number or number in (float("inf"), float("-inf")) or number <= 0:
+            return None
+        try:
+            return int(number)
+        except (OverflowError, ValueError):
+            return None
+
+    want = _compact(symbol)
+    if not want:
+        return unknown
+    best: Optional[int] = None
+    best_mode: Optional[str] = None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        category = row.get("category")
+        if not isinstance(category, str) or category.strip().upper() != "USDT-FUTURES":
+            continue
+        raw_symbol = row.get("symbol")
+        if not isinstance(raw_symbol, str) or _compact(raw_symbol) != want:
+            continue
+        got = _positive(row.get("leverage"))
+        if got is None:
+            continue
+        if best is None or got > best:
+            best = got
+            mode = row.get("marginMode")
+            best_mode = mode.strip().lower() if isinstance(mode, str) and mode.strip() else None
+    if best is None:
+        return unknown
+    return {
+        "value": best,
+        "field": "symbolConfigList.leverage",
+        "governs": True,
+        "mode": best_mode,
+    }
+
+
 @dataclass
 class LiveOrder:
     """Record of a live order placed on the exchange."""
@@ -2488,6 +2567,26 @@ class LiveExecutor:
             self._record_warning("dynamic_leverage")
             return 1
 
+    async def _read_uta_symbol_leverage(self, symbol: str) -> dict:
+        """The UTA symbol-config leverage, or unknown. Never raises.
+
+        Asked only after the v2 leverage read has already failed with 40085.
+        A transport failure is unknown — the fail-open default still decides
+        that — and the log names the exception class, never its text.
+        """
+        unknown: dict = {"value": None, "field": None, "governs": None, "mode": None}
+        try:
+            from bot.core.bitget_v3_client import BitgetV3Client
+            creds = getattr(self, "_credentials", None)
+            client = BitgetV3Client.for_account(creds if isinstance(creds, dict) else None)
+            resp = await asyncio.to_thread(
+                client.request, "GET", "/api/v3/account/settings")
+        except Exception as exc:
+            logger.debug("UTA symbol leverage unread for %s: %s",
+                         symbol, type(exc).__name__)
+            return unknown
+        return uta_symbol_leverage(resp, symbol)
+
     async def _ensure_leverage(self, symbol: str, side: str = "",
                                idea: Any = None,
                                target: Optional[int] = None) -> None:
@@ -2762,6 +2861,9 @@ class LiveExecutor:
         _lev_verified = False
         _lev_read: dict = {"value": None, "field": None,
                            "governs": None, "mode": None}
+        # Set when fetch_leverage fails because the account is UTA (40085).
+        # The v2 payload does not exist there; the symbol row does.
+        _uta_account = False
         # The OBSERVED mode only, read ONCE here. `cfg.margin_mode` is what we
         # asked for, not what the account is, and placing the reading under a
         # requested mode is how a crossed account reads as isolated. Read
@@ -2849,7 +2951,13 @@ class LiveExecutor:
                             f"{_v['why']}. Aborting order.")
         except RuntimeError:
             raise  # propagate leverage abort
-        except Exception:
+        except Exception as _lev_exc:
+            # 40085 is Bitget refusing the v2 account read because the account
+            # is unified. The symbol leverage lives on the v3 settings
+            # document, read below — not on this failure, and not on the
+            # account-equity ratio.
+            if "40085" in str(_lev_exc):
+                _uta_account = True
             logger.debug("Could not verify leverage for %s (fetch_leverage unavailable)", symbol)
 
         # Second confirmation source (live incident: ETHFI 2026-07-21). Some
@@ -2915,6 +3023,53 @@ class LiveExecutor:
             except Exception:
                 logger.debug(
                     "Position-based leverage verify unavailable for %s", symbol)
+
+        # UTA: the v2 read does not exist (40085) and a brand-new order has no
+        # position row yet, so both confirms above are empty. The symbol's
+        # leverage is on the settings document. A CONFIRMED reading past the
+        # post-fill ratio aborts here — placing it and market-closing the fill
+        # is a round trip of fees, which is the JUP card (move +0.03%, hold
+        # 0m, labeled leverage overshoot). An absent row stays unknown: that
+        # is the fail-open case, not a fabricated ratio off account equity.
+        if not _lev_verified and _uta_account:
+            _uta = await self._read_uta_symbol_leverage(symbol)
+            _uv = _uta.get("value") if isinstance(_uta, dict) else None
+            if isinstance(_uv, int) and _uv > 0:
+                _lev_read = _uta
+                _lev_verified = _uta.get("governs") is not False
+                _mode = _uta.get("mode")
+                if (isinstance(_mode, str) and _mode
+                        and not getattr(self, "_actual_margin_mode", None)):
+                    self._actual_margin_mode = _mode
+                if _uv != _target_leverage:
+                    _v = preorder_leverage_verdict(
+                        _target_leverage, _uv, _lev_overshoot_ratio)
+                    _abort = _v["decision"] == "abort" or not _lev_fail_open
+                    _where = _leverage_field_phrase(_uta)
+                    logger.critical(
+                        "LEVERAGE MISMATCH (UTA settings) for %s: wanted %dx, "
+                        "symbol config %dx (%s) — %s",
+                        symbol, _target_leverage, _uv, _where,
+                        "ABORTING" if _abort
+                        else "proceeding with warning (SL is the backstop)")
+                    if _abort:
+                        audit(trade_log,
+                              f"Leverage ABORT for {symbol} (UTA settings): "
+                              f"wanted {_target_leverage}x, symbol config "
+                              f"{_uv}x ({_where}) — {_v['why']}",
+                              action="leverage_abort", result="ABORT",
+                              level=logging.CRITICAL,
+                              data={"symbol": symbol,
+                                    "target": _target_leverage,
+                                    "observed": _uv,
+                                    "field": _uta.get("field"),
+                                    "margin_mode": _mode,
+                                    "governs": _uta.get("governs"),
+                                    "ratio": _v["ratio"]})
+                        raise RuntimeError(
+                            f"Cannot set leverage to {_target_leverage}x for "
+                            f"{symbol} (symbol config at {_uv}x, {_where}). "
+                            f"{_v['why']}. Aborting order.")
 
         # Unverifiable leverage is how the 20x drift stayed invisible: the
         # set call failed, the verify read failed, and the order proceeded

@@ -94,6 +94,41 @@ class TestTheLiveCard:
         assert "&lt;" not in line
 
 
+class TestTheMarginLineIsTheMeasuredNet:
+    """JUPUSDT LONG, hold 0m: Move +0.03% beside on margin -0.99%.
+
+    Both figures are this close's own record. The margin line is the net
+    return on the recorded margin (fees included). An unreadable net is left
+    out — it is not printed as -0.99% and it is not printed as 0%.
+    """
+
+    def test_a_measured_net_is_printed_beside_the_move(self):
+        line = public_close_line({
+            "symbol": "JUPUSDT", "direction": "LONG",
+            "reason": "leverage_overshoot", "pnl_pct": 0.03,
+            "pnl_usd": -0.05, "pnl_pct_margin_net": -0.99,
+            "hold_time": "0m",
+        })
+        assert line is not None
+        assert "+0.03%" in line
+        assert "on margin <code>-0.99%</code>" in line
+        assert "Hold: <code>0m</code>" in line
+
+    def test_an_unreadable_margin_net_is_omitted(self):
+        line = public_close_line({
+            "symbol": "JUPUSDT", "direction": "LONG",
+            "reason": "leverage_overshoot", "pnl_pct": 0.03,
+            "pnl_pct_margin_net": None, "leverage": 20,
+            "hold_time": "0m",
+        })
+        assert line is not None
+        assert "+0.03%" in line
+        assert "on margin" not in line
+        assert "-0.99%" not in line
+        assert "0.00%" not in line
+        assert "at <code>20×</code>" in line
+
+
 class TestAHostileFieldIsStillEscaped:
     """The escape guarded something real. It must keep guarding it."""
 
