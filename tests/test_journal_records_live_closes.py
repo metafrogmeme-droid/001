@@ -27,13 +27,21 @@ from __future__ import annotations
 import inspect
 from datetime import datetime, timedelta
 
+from types import SimpleNamespace as NS
+
 from bot.compat import UTC
 from bot.core.engine import RuneClawEngine
 from bot.core.trade_journal import TradeJournal
+from bot.skills.callback_handler import book_untracked_exchange_close
+from bot.skills.engine_ops_commands import (
+    _journal_gap_closes,
+    _window_coverage_line,
+)
 
 from tests.source_scan import code_only
 
-SRC = code_only(inspect.getsource(RuneClawEngine._on_live_position_closed))
+SRC = code_only(inspect.getsource(RuneClawEngine.journal_live_close))
+HOOK = code_only(inspect.getsource(RuneClawEngine._on_live_position_closed))
 
 
 class _Pos:
@@ -120,6 +128,9 @@ class TestItStaysFailOpen:
 
 class TestTheClaimIsNowEnforced:
     def test_the_live_path_calls_the_journal(self):
+        assert "RuneClawEngine.journal_live_close(" in HOOK, (
+            "the close hook must journal through the one writer"
+        )
         assert "journal.record_trade(" in SRC, (
             "the comment at the paper site promises this; it must be true"
         )
@@ -127,10 +138,131 @@ class TestTheClaimIsNowEnforced:
     def test_the_journal_write_is_guarded(self):
         # Fail-open, like every other recorder on this path.
         assert "Journal record skipped for live close" in inspect.getsource(
-            RuneClawEngine._on_live_position_closed)
+            RuneClawEngine.journal_live_close)
 
     def test_the_stale_claim_is_gone(self):
         tick = code_only(inspect.getsource(RuneClawEngine))
         assert "Live closes already record via" not in tick, (
             "the old wording asserted behaviour that did not exist"
         )
+
+
+class _Ledger:
+    """The executor surface the exchange-direct close writes."""
+
+    def __init__(self, *, keep: bool = True, store: bool = True) -> None:
+        self.user_id = "alice"
+        self._closed_trades: list = []
+        self._keep = keep
+        self._store = store
+
+    def _append_closed_trade(self, pos) -> bool:
+        if self._store:
+            self._closed_trades.append(pos)
+        return self._keep
+
+    @property
+    def closed_positions(self):
+        return list(self._closed_trades)
+
+
+def _live(**over):
+    base = dict(
+        trade_id="TI-manual-ICP-1",
+        symbol="ICP/USDT",
+        direction="LONG",
+        strategy_type="swing",
+        entry_price=10.0,
+        close_price=9.0,
+        stop_loss=0.0,
+        take_profit=0.0,
+        quantity=1.0,
+        pnl_usd=-2.92,
+        close_reason="manual_exchange",
+        opened_at=datetime.now(UTC) - timedelta(hours=1),
+        closed_at=datetime.now(UTC),
+    )
+    base.update(over)
+    return NS(**base)
+
+
+def _wired(tmp_path, ledger):
+    """A stub engine whose breaker hook raises if this path calls it."""
+    eng = _engine_stub()
+    eng.journal = _journal(tmp_path)
+    eng.live_executor = ledger
+    eng._user_executors = {}
+
+    def _breaker(*_a, **_k):
+        raise AssertionError("the loss-breaker path must not run from this close")
+
+    eng._on_live_position_closed = _breaker
+    return eng
+
+
+class TestTheUntrackedCloseIsJournaledWhenPriced:
+    """The Close button's exchange fallback used to ledger and stop.
+
+    The bot is up — the operator tapped Close — and the venue returned a
+    price. That close belongs in the journal. An unreadable fill stays out
+    of it and stays in the weekly gap. A measured 0.00 stays a flat.
+    """
+
+    def test_a_priced_close_is_journaled_in_dollars(self, tmp_path):
+        ledger = _Ledger()
+        eng = _wired(tmp_path, ledger)
+        book_untracked_exchange_close(eng, ledger, _live())
+        rev = eng.journal.get_weekly_review()
+        assert rev["trades"] == 1
+        assert rev["losses"] == 1
+        assert rev["wins"] == 0
+        assert rev["flat"] == 0
+        assert rev["total_pnl"] == -2.92
+        assert eng.journal._entries[-1].pnl == -2.92
+        assert eng.journal._entries[-1].user_id == "alice"
+        # The executor and the journal each hold the close, so the gap is 0.
+        assert _journal_gap_closes(eng, days=7) == 1
+        assert _window_coverage_line(_journal_gap_closes(eng, days=7), rev["trades"]) == ""
+
+    def test_a_measured_flat_stays_flat(self, tmp_path):
+        ledger = _Ledger()
+        eng = _wired(tmp_path, ledger)
+        book_untracked_exchange_close(eng, ledger, _live(pnl_usd=0.0, trade_id="TI-flat"))
+        rev = eng.journal.get_weekly_review()
+        assert rev["trades"] == 1
+        assert rev["flat"] == 1
+        assert rev["losses"] == 0
+        assert rev["wins"] == 0
+        # The flat is in the denominator: 0 wins / 1 scored, not "no trades".
+        assert rev["win_rate"] == 0.0
+        assert rev["losses"] != rev["trades"] - rev["wins"]
+
+    def test_an_unpriced_close_is_omitted_and_still_a_gap(self, tmp_path):
+        ledger = _Ledger()
+        eng = _wired(tmp_path, ledger)
+        book_untracked_exchange_close(
+            eng, ledger, _live(pnl_usd=None, close_price=None, trade_id="TI-unread"))
+        rev = eng.journal.get_weekly_review()
+        assert rev["trades"] == 0
+        assert ledger.closed_positions, "the executor still holds the row"
+        gap = _journal_gap_closes(eng, days=7)
+        assert gap == 1
+        line = _window_coverage_line(gap, rev["trades"])
+        assert "1 more position(s) closed" in line
+        assert "recording gap" in line
+
+    def test_a_duplicate_the_ledger_refuses_is_not_journaled(self, tmp_path):
+        ledger = _Ledger(keep=False, store=False)
+        eng = _wired(tmp_path, ledger)
+        book_untracked_exchange_close(eng, ledger, _live())
+        assert eng.journal.get_weekly_review()["trades"] == 0
+        assert ledger.closed_positions == []
+
+    def test_a_journal_fault_does_not_raise_into_the_close(self, tmp_path):
+        ledger = _Ledger()
+        eng = _wired(tmp_path, ledger)
+        eng.journal = type("J", (), {
+            "record_trade": lambda *a, **k: (_ for _ in ()).throw(RuntimeError("disk")),
+        })()
+        book_untracked_exchange_close(eng, ledger, _live())
+        assert len(ledger.closed_positions) == 1

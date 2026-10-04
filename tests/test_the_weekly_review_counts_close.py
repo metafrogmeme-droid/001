@@ -414,3 +414,46 @@ class TestOneClassifier:
         assert '["scored"] - wins' not in src, (
             f"{module} is back to subtracting for its loss count, which files "
             "every measured break-even as a loss")
+
+
+class TestLessonCountsStayInsideTheCard:
+    """The (Nx) lines are occurrences on the rows the card itself counts.
+
+    Lessons are stored on the entry when it is recorded and tallied over the
+    same window `trades` is the length of. A close outside that window is on
+    neither line. A measured 0.00 is a flat: it stays in the rate's
+    denominator and it is not a loss, so a lesson that says "lost" is not
+    attached to it.
+    """
+
+    def test_an_older_close_is_not_counted_and_a_flat_is_not_a_loss(self, tmp_path):
+        j = TradeJournal(journal_file=str(tmp_path / "journal.json"))
+        j.record_trade(
+            trade_id="OLD", symbol="ICP/USDT", direction="LONG",
+            strategy_type="swing", entry_price=10.0, exit_price=9.0,
+            stop_loss=9.5, take_profit=12.0, pnl=-2.92, quantity=1.0,
+            confidence=0.2, holding_hours=0.1)
+        j._entries[-1].timestamp = _NOW - 10 * 86400
+        j.record_trade(
+            trade_id="LOSS", symbol="ICP/USDT", direction="LONG",
+            strategy_type="swing", entry_price=10.0, exit_price=9.0,
+            stop_loss=9.5, take_profit=12.0, pnl=-1.10, quantity=1.0,
+            confidence=0.2, holding_hours=0.1)
+        j.record_trade(
+            trade_id="FLAT", symbol="CRV/USDT", direction="LONG",
+            strategy_type="swing", entry_price=10.0, exit_price=10.0,
+            stop_loss=9.5, take_profit=12.0, pnl=0.0, quantity=1.0,
+            confidence=0.2, holding_hours=0.1)
+        rev = j.get_weekly_review()
+        assert rev["trades"] == 2
+        assert (rev["wins"], rev["losses"], rev["flat"], rev["unscored"]) == (0, 1, 1, 0)
+        assert rev["wins"] + rev["losses"] + rev["flat"] + rev["unscored"] == rev["trades"]
+        # 0 / 2, flat included. Subtracting would have called the flat a loss.
+        assert rev["win_rate"] == 0.0
+        assert rev["losses"] != rev["trades"] - rev["wins"]
+        low = "Low confidence trade lost — stick to high-conf setups"
+        short = "Very short hold — possible overreaction or noise stop"
+        counts = dict(rev["top_lessons"])
+        assert counts[low] == 1
+        assert counts[short] == 1
+        assert all(n <= rev["trades"] for _lesson, n in rev["top_lessons"])

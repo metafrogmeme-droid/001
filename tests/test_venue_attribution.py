@@ -179,7 +179,7 @@ def test_a_label_failure_never_costs_the_record():
     """
     import inspect
     from bot.core.engine import RuneClawEngine
-    src = inspect.getsource(RuneClawEngine._on_live_position_closed)
+    src = inspect.getsource(RuneClawEngine.journal_live_close)
     resolve = src.index("_venue_of_closed_position")
     record = src.index("self.journal.record_trade(")
     assert resolve < record, (
