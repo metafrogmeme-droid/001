@@ -39,6 +39,13 @@
   /** Rows rendered per column. */
   var MAX_ROWS = 6;
 
+  /**
+   * The display family rejects at this q. It is the complement of the 95%
+   * interval (`z = 1.96`), not a second bar. A cell whose q is missing, or
+   * not below this, is not established, and the row stays muted.
+   */
+  var Q_DISPLAY = 0.05;
+
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -75,6 +82,7 @@
       n: n === null ? null : Math.max(0, Math.round(n)),
       rated: false,
       reason: null,
+      detail: typeof g.detail === 'string' ? g.detail : '',
     };
     if (rate === null) {
       out.reason = 'nothing resolved yet';
@@ -91,7 +99,35 @@
       return out;
     }
     out.rated = true;
+    // The win-rate colour is the only verdict. It stays only when the cell's
+    // own interval and q-value agree with it. A positive point estimate with
+    // a straddling interval, or a q that does not clear the display family,
+    // is muted. A group that does not carry those fields (a pattern column,
+    // an older payload) is unchanged.
+    if (!evidenceAgrees(g, rate >= 50)) {
+      out.rated = false;
+      out.reason = '';
+    }
     return out;
+  }
+
+  /**
+   * Does the published interval and q-value support the win-rate colour?
+   *
+   * No `mean_r_lo` key: this row is not a setup cell, and the sample floor
+   * is the whole rule. A setup cell with the key present and a null interval,
+   * a null q, an interval that reaches zero, or a q that is not below
+   * `Q_DISPLAY` does not support a colour. `lo > 0` and `hi < 0` are the
+   * same strict clears `mean_r_interval`'s callers already use; touching
+   * zero is not clear of it.
+   */
+  function evidenceAgrees(g, positive) {
+    if (!g || !Object.prototype.hasOwnProperty.call(g, 'mean_r_lo')) return true;
+    var lo = num(g.mean_r_lo);
+    var hi = num(g.mean_r_hi);
+    var q = num(g.q_value);
+    if (lo === null || hi === null || q === null || !(q < Q_DISPLAY)) return false;
+    return positive ? lo > 0 : hi < 0;
   }
 
   /** One row. Colour and bar only when `rated`. */
@@ -108,13 +144,18 @@
         + Math.max(0, Math.min(100, pct)) + '%"></div></div>'
       : '';
 
-    var note = c.rated ? '' : '<span class="wr-why">' + esc(c.reason) + '</span>';
+    var note = (!c.rated && c.reason)
+      ? '<span class="wr-why">' + esc(c.reason) + '</span>' : '';
+    // The interval, the hit rate and the q-value. Muted on purpose: a green
+    // mean would be a second verdict beside the win-rate bar.
+    var detail = c.detail
+      ? '<span class="wr-why">' + esc(c.detail) + '</span>' : '';
 
     return '<div class="wr-row' + (c.rated ? '' : ' wr-row--unrated') + '">'
       + '<div class="wr-head"><span class="wr-label">' + esc(c.label) + '</span>'
       + count
       + '<b class="wr-val ' + cls + '">' + value + '</b></div>'
-      + bar + note
+      + bar + note + detail
       + '</div>';
   }
 
@@ -168,6 +209,41 @@
    * `classify`: under the sample floor the row is muted, and the R in the
    * label is a number, not a second colour claim.
    */
+  /** A ratio for the row, or null when the field was not a measurement. */
+  function ratioText(v) {
+    var n = num(v);
+    if (n === null) return null;
+    if (n === 0) return '0';
+    return String(n);
+  }
+
+  /**
+   * The numbers the scoreboard shows under one cell.
+   *
+   * Read from the payload. This function does not recompute a hit rate, an
+   * interval or a q-value — a second copy would be a second answer, and a
+   * null rendered as 0.
+   */
+  function setupDetail(g) {
+    var cell = g || {};
+    var n = num(cell.n);
+    var hit = ratioText(cell.hit_rate);
+    var wlo = ratioText(cell.wilson_lo);
+    var whi = ratioText(cell.wilson_hi);
+    var mean = num(cell.mean_r);
+    var lo = num(cell.mean_r_lo);
+    var hi = num(cell.mean_r_hi);
+    var q = ratioText(cell.q_value);
+    return [
+      'n ' + (n === null ? 'unavailable' : String(Math.round(n))),
+      hit === null ? 'hit unavailable' : 'hit ' + hit,
+      (wlo === null || whi === null) ? 'Wilson unavailable' : 'Wilson ' + wlo + ' to ' + whi,
+      mean === null ? 'mean unavailable' : 'mean ' + mean + 'R',
+      (lo === null || hi === null) ? 'interval unavailable' : 'interval ' + lo + ' to ' + hi,
+      q === null ? 'q unavailable' : 'q ' + q,
+    ].join(' · ');
+  }
+
   function setupScoreboard(cells) {
     if (!Array.isArray(cells) || !cells.length) return '';
     var prepared = [];
@@ -179,6 +255,7 @@
         if (Object.prototype.hasOwnProperty.call(cells[i], k)) row[k] = cells[i][k];
       }
       row.label = label;
+      row.detail = setupDetail(cells[i]);
       prepared.push(row);
     }
     if (!prepared.length) return '';
@@ -193,5 +270,6 @@
   }
 
   return { buildRows: buildRows, classify: classify, ratedCount: ratedCount,
-           setupScoreboard: setupScoreboard, MIN_RATED: MIN_RATED, MAX_ROWS: MAX_ROWS };
+           setupScoreboard: setupScoreboard, setupDetail: setupDetail,
+           MIN_RATED: MIN_RATED, MAX_ROWS: MAX_ROWS, Q_DISPLAY: Q_DISPLAY };
 }));

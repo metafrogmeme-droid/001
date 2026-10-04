@@ -15,7 +15,16 @@
  * A signal is a "win" when that R is > 0. Rows with a null, undefined or
  * non-finite `pnl` are unresolved or unreadable and are left out of every
  * count and every sum — an unreadable row is not a 0R.
+ *
+ * Each displayed setup cell also carries n, the hit rate (wins / n) with
+ * its Wilson interval, the mean R with `mean_r_interval`'s twin, and a
+ * Benjamini-Hochberg q-value. The q-values are computed after the cap, so
+ * a cell that was not published is not in the family.
  */
+
+const {
+  wilsonInterval, meanRInterval, meanRPValue, bhQValues,
+} = require('./inference');
 
 // Confidence buckets: [label, lo, hi) with hi exclusive except the last.
 const CONF_BUCKETS = [
@@ -116,29 +125,43 @@ function _addSetup(map, dims, isWin, r) {
     wins: 0,
     losses: 0,
     sumR: 0,
+    sumR2: 0,
   };
   g.n += 1;
   if (isWin) g.wins += 1;
   if (r < 0) g.losses += 1;
   g.sumR += r;
+  g.sumR2 += r * r;
   map.set(key, g);
 }
 
 function _finaliseSetups(map, top = 12) {
-  return [...map.values()]
-    .map(g => ({
-      setup: g.setup,
-      regime: g.regime,
-      timeframe: g.timeframe,
-      source: g.source,
-      direction: g.direction,
-      n: g.n,
-      wins: g.wins,
-      losses: g.losses,
-      flat: Math.max(0, g.n - g.wins - g.losses),
-      win_rate: g.n > 0 ? round1((g.wins / g.n) * 100) : null,
-      ...publishedR(g.sumR, g.n),
-    }))
+  const ranked = [...map.values()]
+    .map(g => {
+      const wilson = wilsonInterval(g.wins, g.n);
+      const interval = meanRInterval(g.n, g.sumR, g.sumR2);
+      return {
+        setup: g.setup,
+        regime: g.regime,
+        timeframe: g.timeframe,
+        source: g.source,
+        direction: g.direction,
+        n: g.n,
+        wins: g.wins,
+        losses: g.losses,
+        flat: Math.max(0, g.n - g.wins - g.losses),
+        win_rate: g.n > 0 ? round1((g.wins / g.n) * 100) : null,
+        // A ratio. n == 0 is not a cell this map builds; the guard is the
+        // same one publishedR uses, so a future caller cannot publish 0%.
+        hit_rate: g.n > 0 ? g.wins / g.n : null,
+        wilson_lo: wilson ? wilson[0] : null,
+        wilson_hi: wilson ? wilson[1] : null,
+        ...publishedR(g.sumR, g.n),
+        mean_r_lo: interval ? interval[0] : null,
+        mean_r_hi: interval ? interval[1] : null,
+        _p: meanRPValue(g.n, g.sumR, g.sumR2),
+      };
+    })
     .sort((a, b) => {
       if (b.n !== a.n) return b.n - a.n;
       const ak = [a.setup, a.regime, a.timeframe, a.source, a.direction].join('\0');
@@ -146,6 +169,16 @@ function _finaliseSetups(map, top = 12) {
       return ak < bk ? -1 : ak > bk ? 1 : 0;
     })
     .slice(0, top);
+  // After the slice. A cell the cap hid is not a hypothesis in this family.
+  const qs = bhQValues(ranked.map(g => g._p));
+  return ranked.map((g, i) => {
+    const out = {};
+    for (const k of Object.keys(g)) {
+      if (k !== '_p') out[k] = g[k];
+    }
+    out.q_value = qs[i];
+    return out;
+  });
 }
 
 // Finalise a group map into a win_rate-annotated array, sorted by sample count
