@@ -132,15 +132,14 @@ test('the receipt loads the model before the script that reads it', () => {
 const DASH = codeOnly(read('public', 'js', 'dashboard.js'));
 
 function hsigLoader() {
-  const panel = loaderBodies(DASH).find((l) => l.target === "C('hsig')");
-  assert.ok(panel && panel.inline, 'the home signals panel moved');
-  const a = panel.body.indexOf('async () => {');
-  let depth = 0; let i = panel.body.indexOf('{', a);
-  for (; i < panel.body.length; i++) {
-    if (panel.body[i] === '{') depth++;
-    else if (panel.body[i] === '}') { depth--; if (depth === 0) break; }
+  const a = DASH.indexOf('async function homeSignalsLoader()');
+  assert.ok(a >= 0, 'the home signals loader moved');
+  let depth = 0; let i = DASH.indexOf('{', a);
+  for (; i < DASH.length; i++) {
+    if (DASH[i] === '{') depth++;
+    else if (DASH[i] === '}') { depth--; if (depth === 0) break; }
   }
-  return panel.body.slice(a, i + 1);
+  return DASH.slice(a, i + 1);
 }
 
 async function renderHome(signals, { model = true } = {}) {
@@ -174,6 +173,13 @@ test('the home panel offers Trade on a pending call and not on an ended one', as
 test('the home panel offers nothing when the model did not load', async () => {
   const html = await renderHome([row({ status: 'NEW' })], { model: false });
   assert.doesNotMatch(html, /data-ptrade/);
+});
+
+test('the home signal panel refreshes while the tab stays open', () => {
+  assert.match(DASH, /every\(30000, refreshHomeSignals\)/,
+    'the Home card can freeze after its first render');
+  assert.match(DASH, /else if \(currentView === 'home'\) refreshHomeSignals\(\)/,
+    'a live signal event does not refresh the Home card');
 });
 
 test('no panel that reads the public signal stream decides from pnl', () => {

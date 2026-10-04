@@ -888,6 +888,39 @@
   }
 
   /* ═══════════════ HOME ═══════════════ */
+  async function homeSignalsLoader() {
+    const r = await fetchJSON('/api/signals?limit=3', { auth: false });
+    mustRead(r);
+    const sigs = r.data?.signals || [];
+    if (!sigs.length) return null;
+    return sigs.map(s => {
+      // Actionable signals get a one-tap Trade button (prefills the ticket
+      // with this signal's geometry) — same mechanism, and the same reading,
+      // as the Signals stream. It tested `s.pnl == null`, a field the public
+      // payload never carries, so every call offered Trade, a stopped-out
+      // one included. A missing model offers nothing.
+      const SSh = self.SignalStatusModel;
+      const tradeable = !!SSh && SSh.actionable(s) && s.entry_price && s.stop_loss && s.take_profit;
+      const btn = tradeable
+        ? `<button class="btn btn--sm btn--primary" data-ptrade='${esc(JSON.stringify({ d: s.direction, sy: s.symbol, e: s.entry_price, sl: s.stop_loss, tp: s.take_profit }))}'>Trade</button>`
+        : '';
+      return `
+      <div class="kv-row">
+        <span class="row" style="gap:8px">${dirChip(s.direction)}<b style="font-family:var(--font-ui)">${esc(s.symbol)}</b><span class="muted small">${esc(s.pattern || '')}</span></span>
+        <span class="row" style="gap:8px;align-items:center"><span class="num muted">${fmtPrice(s.entry_price)} · ${fmtAgo(s.created_at)}</span>${btn}</span>
+      </div>`;
+    }).join('') + `<a class="btn btn--ghost btn--sm mt-2" href="#signals">All signals →</a>`;
+  }
+
+  function refreshHomeSignals() {
+    const el = C('hsig');
+    if (!el) return;
+    renderPanel(el, homeSignalsLoader, {
+      empty: { icon: 'icon-radar', text: T('dd.e_signals', 'No signals yet — they appear as the engine scans.') },
+      timeoutMs: 10000,
+    });
+  }
+
   async function renderHome() {
     container.innerHTML = viewHead('Home', 'Your account at a glance');
     // First visit after signup: the agent introduces itself once, with three
@@ -1530,31 +1563,13 @@
         + `<ol class="checklist">${rows}</ol>`;
     }, { empty: { text: 'All set.' } });
 
-    renderPanel(C('hsig'), async () => {
-      const r = await fetchJSON('/api/signals?limit=3', { auth: false });
-      mustRead(r);
-      const sigs = r.data?.signals || [];
-      if (!sigs.length) return null;
-      return sigs.map(s => {
-        // Actionable signals get a one-tap Trade button (prefills the ticket
-        // with this signal's geometry) — same mechanism, and the same reading,
-        // as the Signals stream. It tested `s.pnl == null`, a field the public
-        // payload never carries, so every call offered Trade, a stopped-out
-        // one included. A missing model offers nothing.
-        const SSh = self.SignalStatusModel;
-        const tradeable = !!SSh && SSh.actionable(s) && s.entry_price && s.stop_loss && s.take_profit;
-        const btn = tradeable
-          ? `<button class="btn btn--sm btn--primary" data-ptrade='${esc(JSON.stringify({ d: s.direction, sy: s.symbol, e: s.entry_price, sl: s.stop_loss, tp: s.take_profit }))}'>Trade</button>`
-          : '';
-        return `
-        <div class="kv-row">
-          <span class="row" style="gap:8px">${dirChip(s.direction)}<b style="font-family:var(--font-ui)">${esc(s.symbol)}</b><span class="muted small">${esc(s.pattern || '')}</span></span>
-          <span class="row" style="gap:8px;align-items:center"><span class="num muted">${fmtPrice(s.entry_price)} · ${fmtAgo(s.created_at)}</span>${btn}</span>
-        </div>`;
-      }).join('') + `<a class="btn btn--ghost btn--sm mt-2" href="#signals">All signals →</a>`;
-    }, { empty: { icon: 'icon-radar', text: T('dd.e_signals', 'No signals yet — they appear as the engine scans.'), }, timeoutMs: 10000 });
+    refreshHomeSignals();
 
     every(60000, () => { getScan().then(updateConnChip); });
+    // The Home card is not the Signals view, so its timestamp used to freeze
+    // for the lifetime of an open tab. Refresh only this small public panel;
+    // do not rerender the whole dashboard or multiply its authenticated reads.
+    every(30000, refreshHomeSignals);
   }
 
   function posTable(rows) {
@@ -10489,7 +10504,11 @@
     scan: () => { beat(); cache.scan = null; agentReact('analyze'); getScan().then(updateConnChip); if (currentView === 'engine' || currentView === 'deepscan') showView(currentView, { soft: true }); },
     portfolio: () => { beat(); cache.portfolio = null; if (currentView === 'home' || currentView === 'portfolio') showView(currentView, { soft: true }); },
     trade: () => { beat(); cache.portfolio = null; agentReact('execute'); toast(T('dd.t_trade_update', 'Trade update from the engine.')); if (currentView === 'home' || currentView === 'portfolio' || currentView === 'trade') showView(currentView, { soft: true }); },
-    signals: () => { beat(); agentReact('alert'); if (currentView === 'signals') showView('signals', { soft: true }); },
+    signals: () => {
+      beat(); agentReact('alert');
+      if (currentView === 'signals') showView('signals', { soft: true });
+      else if (currentView === 'home') refreshHomeSignals();
+    },
     activity: (e) => { beat(); onActivity(e); },
   }, {
     // The reconnect loop tells us what it is doing; the dot says so rather
