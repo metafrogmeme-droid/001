@@ -111,6 +111,21 @@ class TestPushScanSummaryToWebsite:
         assert "ATOM/USDT" in call
         assert "No scan data available" not in call
 
+    def test_missing_market_readings_are_not_reported_as_zero(self, monkeypatch):
+        monkeypatch.setattr(eng_mod, "CONFIG", CONFIG)
+        import bot.utils.website_sync as ws
+        captured = {}
+        monkeypatch.setattr(ws, "sync_scan_in_background", lambda payload: captured.update(payload=payload))
+
+        stub = _stub_engine()
+        signals = [types.SimpleNamespace(symbol="ATOM/USDT")]
+        RuneClawEngine._push_scan_summary_to_website(stub, signals)
+
+        call = captured["payload"]["key_call"]
+        assert "market readings unavailable" in call
+        assert "24h change: +0.00%" not in call
+        assert "momentum +0.00" not in call
+
     def test_bearish_regime_derived_from_btc_signal(self, monkeypatch):
         monkeypatch.setattr(eng_mod, "CONFIG", CONFIG)
         import bot.utils.website_sync as ws

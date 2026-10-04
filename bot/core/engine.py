@@ -2448,11 +2448,23 @@ class RuneClawEngine:
                 or getattr(reference_sig, "asset", "")
                 or "Top signal"
             )
-            momentum = getattr(reference_sig, "momentum_score", 0.0) or 0.0
-            change = getattr(reference_sig, "change_pct_24h", 0.0) or 0.0
+            def _measured_number(value: Any) -> float | None:
+                try:
+                    return None if value is None else float(value)
+                except (TypeError, ValueError):
+                    return None
+
+            momentum = _measured_number(getattr(reference_sig, "momentum_score", None))
+            change = _measured_number(getattr(reference_sig, "change_pct_24h", None))
+            readings = []
+            if change is not None:
+                readings.append(f"24h change: {change:+.2f}%")
+            if momentum is not None:
+                readings.append(f"momentum {momentum:+.2f}")
+            reading_text = " | ".join(readings) or "market readings unavailable"
             payload["key_call"] = (
                 f"<b>Autonomous scan</b> — {len(signals)} pairs scanned this cycle\n"
-                f"{ref_symbol} 24h change: {change:+.2f}% | momentum {momentum:+.2f}\n"
+                f"{ref_symbol} {reading_text}\n"
                 f"Scanned at {datetime.now(UTC).strftime('%H:%M UTC')}"
             )
         payload["config"] = self._build_strategy_config_summary()
