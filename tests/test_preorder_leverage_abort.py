@@ -45,9 +45,13 @@ import asyncio
 
 import pytest
 
+from bot.config import CONFIG
 from bot.core.live_executor import (
     LiveExecutor,
+    bitget_margin_mode,
+    governing_fill_leverage,
     leverage_overshoot_verdict,
+    leverage_set_params,
     preorder_leverage_verdict,
     uta_symbol_leverage,
 )
@@ -390,3 +394,94 @@ class TestUtaSymbolConfigIsThePreOrderRead:
         unread = asyncio.run(ex._read_uta_symbol_leverage("JUP/USDT:USDT"))
         assert unread["value"] is None
         assert "sk-secret" not in str(unread)
+
+    def test_the_settings_read_is_asked_in_the_order_mode(self, monkeypatch):
+        d = drive_ensure_leverage(
+            [_UTA_REFUSED], positions=[], target=5, fail_open=True,
+            monkeypatch=monkeypatch,
+            uta_settings=_uta_settings("TRXUSDT", "20"))
+        assert d.uta_modes == [CONFIG.exchange.margin_mode]
+
+
+def _both_modes(isolated: str, crossed: str) -> dict:
+    """One symbol, both margin modes. The fill uses only one of them."""
+    return {
+        "code": "00000",
+        "data": {
+            "symbolConfigList": [
+                {"category": "USDT-FUTURES", "symbol": "JUPUSDT",
+                 "marginMode": "isolated", "leverage": isolated},
+                {"category": "USDT-FUTURES", "symbol": "JUPUSDT",
+                 "marginMode": "crossed", "leverage": crossed},
+            ],
+        },
+    }
+
+
+class TestTheOrderModeIsTheRow:
+    """ccxt's UTA setLeverage omits marginMode, so Bitget writes cross.
+    The entry sends the configured mode (isolated by default). A cross 5
+    beside an isolated 20 is not a confirmation of the isolated fill."""
+
+    def test_isolated_20_is_the_overshoot_when_the_order_is_isolated(self):
+        read = uta_symbol_leverage(
+            _both_modes("20", "5"), "JUP/USDT:USDT", "isolated")
+        assert read["value"] == 20
+        assert read["mode"] == "isolated"
+        assert preorder_leverage_verdict(5, read["value"], RATIO)["decision"] == "abort"
+
+    def test_crossed_5_does_not_answer_an_isolated_order(self):
+        read = uta_symbol_leverage(
+            _both_modes("20", "5"), "JUPUSDT", "cross")
+        assert read["value"] == 5
+        assert read["mode"] == "crossed"
+        assert preorder_leverage_verdict(5, read["value"], RATIO)["decision"] == "proceed"
+
+    def test_a_missing_mode_row_is_unknown_not_the_other_modes_20(self):
+        payload = _uta_settings("JUPUSDT", "20")  # crossed only
+        read = uta_symbol_leverage(payload, "JUP/USDT:USDT", "isolated")
+        assert read["value"] is None
+        assert governing_fill_leverage(20, read, uta=True) is None
+
+    def test_with_no_mode_the_worst_row_still_answers(self):
+        read = uta_symbol_leverage(_both_modes("5", "20"), "JUPUSDT")
+        assert read["value"] == 20
+
+
+class TestTheSetNamesTheOrderMode:
+    def test_a_uta_isolated_write_names_the_side(self):
+        params = leverage_set_params(
+            {"productType": "USDT-FUTURES"}, uta=True,
+            margin_mode="isolated", side="long")
+        assert params["marginMode"] == "isolated"
+        assert params["posSide"] == "long"
+        assert "holdSide" not in params
+
+    def test_a_uta_cross_write_is_per_symbol(self):
+        params = leverage_set_params(
+            {"productType": "USDT-FUTURES"}, uta=True,
+            margin_mode="cross", side="short")
+        assert params["marginMode"] == "crossed"
+        assert "posSide" not in params
+        assert "holdSide" not in params
+
+    def test_a_classic_write_still_names_hold_side(self):
+        params = leverage_set_params(
+            {"productType": "USDT-FUTURES"}, uta=False,
+            margin_mode="isolated", side="short")
+        assert params["holdSide"] == "short"
+        assert "posSide" not in params
+        assert "marginMode" not in params
+
+    def test_the_uta_client_is_asked_in_that_dialect(self, monkeypatch):
+        d = drive_ensure_leverage(
+            [_UTA_REFUSED], positions=[], target=5, fail_open=True,
+            monkeypatch=monkeypatch, client_uta=True,
+            uta_settings=_uta_settings("TRXUSDT", "5"))
+        sides = [(p or {}).get("posSide") for _, _, p in d.set_calls]
+        modes = {(p or {}).get("marginMode") for _, _, p in d.set_calls}
+        assert modes == {bitget_margin_mode(CONFIG.exchange.margin_mode)}
+        assert "holdSide" not in {
+            key for _, _, p in d.set_calls for key in (p or {})}
+        if bitget_margin_mode(CONFIG.exchange.margin_mode) == "isolated":
+            assert sides == [None, "long", "short"]

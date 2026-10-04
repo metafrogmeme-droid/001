@@ -1843,7 +1843,25 @@ def _leverage_field_phrase(read: Any) -> str:
             f"nothing says whether that field decides the fill")
 
 
-def uta_symbol_leverage(payload: Any, symbol: Any) -> dict:
+def bitget_margin_mode(raw: Any) -> Optional[str]:
+    """Bitget's spelling of a margin mode, or None when it does not name one.
+
+    The order, the set, and the settings row have to name the SAME mode.
+    Config says ``cross``; the settings document says ``crossed``. Those are
+    one mode. Anything else is not a mode we can place a row under.
+    """
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip().lower()
+    if text in ("cross", "crossed"):
+        return "crossed"
+    if text in ("isolated", "fixed"):
+        return "isolated"
+    return None
+
+
+def uta_symbol_leverage(payload: Any, symbol: Any,
+                        margin_mode: Any = None) -> dict:
     """The leverage a Bitget UTA account states for THIS symbol, or unknown.
 
     ``GET /api/v3/account/settings`` lists one row per futures symbol
@@ -1855,6 +1873,16 @@ def uta_symbol_leverage(payload: Any, symbol: Any) -> dict:
       (the v2 account sample is ``usdtEquity`` of ``9e-9``) and the ratio
       looks infinite. That is not an overshoot, and it is not "no overshoot".
     * ``coinConfigList``, which is spot-margin leverage per coin.
+    * a row for the OTHER margin mode. ccxt's UTA ``setLeverage`` omits
+      ``marginMode``, and Bitget then writes the cross leverage. An isolated
+      order (the config default) still fills at the isolated row. Reading
+      the cross 5x and trading the isolated 20x is how a settings read of
+      the approved leverage was followed by a same-minute flatten.
+
+    ``margin_mode`` selects the row the order will use. With none given,
+    every USDT-futures row for the symbol is eligible and the worst
+    (highest) leverage is the reading — the historical caller. A requested
+    mode with no matching row is unknown, not the other mode's number.
 
     A missing row, a blank leverage, a non-numeric one, and a payload that
     is not this document are unknown: ``value`` is None. Unknown is not 0
@@ -1894,6 +1922,7 @@ def uta_symbol_leverage(payload: Any, symbol: Any) -> dict:
     want = _compact(symbol)
     if not want:
         return unknown
+    want_mode = bitget_margin_mode(margin_mode)
     best: Optional[int] = None
     best_mode: Optional[str] = None
     for row in rows:
@@ -1905,13 +1934,16 @@ def uta_symbol_leverage(payload: Any, symbol: Any) -> dict:
         raw_symbol = row.get("symbol")
         if not isinstance(raw_symbol, str) or _compact(raw_symbol) != want:
             continue
+        mode = row.get("marginMode")
+        row_mode = bitget_margin_mode(mode) if isinstance(mode, str) else None
+        if want_mode is not None and row_mode != want_mode:
+            continue
         got = _positive(row.get("leverage"))
         if got is None:
             continue
         if best is None or got > best:
             best = got
-            mode = row.get("marginMode")
-            best_mode = mode.strip().lower() if isinstance(mode, str) and mode.strip() else None
+            best_mode = row_mode
     if best is None:
         return unknown
     return {
@@ -1920,6 +1952,70 @@ def uta_symbol_leverage(payload: Any, symbol: Any) -> dict:
         "governs": True,
         "mode": best_mode,
     }
+
+
+def leverage_set_params(base: dict, *, uta: bool, margin_mode: Any,
+                        side: Optional[str] = None) -> dict:
+    """Params for one ``set_leverage`` call.
+
+    Classic Bitget takes ``holdSide``. A UTA client does not: omitting
+    ``marginMode`` makes Bitget write the cross leverage, and an isolated
+    order then fills at the isolated value the write never touched.
+    Isolated UTA wants ``posSide``, not ``holdSide``. Cross UTA leverage is
+    per symbol, so a side is not part of that write.
+    """
+    params = dict(base)
+    if not uta:
+        if side:
+            params["holdSide"] = side
+        return params
+    mode = bitget_margin_mode(margin_mode)
+    if mode is not None:
+        params["marginMode"] = mode
+    if side and mode == "isolated":
+        params["posSide"] = side
+    elif side and mode is None:
+        params["holdSide"] = side
+    return params
+
+
+def client_marks_uta(exchange: Any) -> bool:
+    """Whether this ccxt client sends Bitget's UTA endpoints.
+
+    The venue constructor sets ``options.uta``. That is a property of the
+    client, not a reading that this account is unified — ``_is_uta`` is
+    that reading. The set has to speak the client's dialect either way.
+    """
+    options = getattr(exchange, "options", None)
+    return isinstance(options, dict) and options.get("uta") is True
+
+
+def governing_fill_leverage(position_leverage: Any, settings: Any, *,
+                            uta: bool) -> Optional[int]:
+    """The leverage a post-fill guard may flatten on, or None when it may not.
+
+    On a Bitget UTA account the fill's leverage is the symbol-config row.
+    The position row can still report the sticky default (~20) after that
+    row has confirmed the approved leverage, and flattening on it is a
+    round trip of fees. A missing row is unknown: not 0, and not that 20.
+
+    On any other account the position row is the reading. A true 20 against
+    a 5 still flattens there, and on UTA when the symbol row itself says 20.
+    """
+    if uta:
+        if not isinstance(settings, dict):
+            return None
+        value = settings.get("value")
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            return None
+        return value
+    if isinstance(position_leverage, bool) or position_leverage is None:
+        return None
+    try:
+        got = int(float(position_leverage))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return got if got > 0 else None
 
 
 @dataclass
@@ -2567,12 +2663,15 @@ class LiveExecutor:
             self._record_warning("dynamic_leverage")
             return 1
 
-    async def _read_uta_symbol_leverage(self, symbol: str) -> dict:
+    async def _read_uta_symbol_leverage(self, symbol: str,
+                                       margin_mode: Any = None) -> dict:
         """The UTA symbol-config leverage, or unknown. Never raises.
 
-        Asked only after the v2 leverage read has already failed with 40085.
-        A transport failure is unknown — the fail-open default still decides
-        that — and the log names the exception class, never its text.
+        Asked after the v2 leverage read has failed with 40085, and again
+        after a fill: the position row is a different number. ``margin_mode``
+        is the mode the order uses; a row for another mode is not this fill.
+        A transport failure is unknown — not 0, and not a sticky 20 — and
+        the log names the exception class, never its text.
         """
         unknown: dict = {"value": None, "field": None, "governs": None, "mode": None}
         try:
@@ -2585,7 +2684,7 @@ class LiveExecutor:
             logger.debug("UTA symbol leverage unread for %s: %s",
                          symbol, type(exc).__name__)
             return unknown
-        return uta_symbol_leverage(resp, symbol)
+        return uta_symbol_leverage(resp, symbol, margin_mode)
 
     async def _ensure_leverage(self, symbol: str, side: str = "",
                                idea: Any = None,
@@ -2762,10 +2861,18 @@ class LiveExecutor:
         # applied is decided by the per-side result and the read-back.
         _lev_set_ok = False
         _bare_set_ok = False
+        # The mode the entry order will name (`entry_params` sends
+        # CONFIG.exchange.margin_mode). The set and the settings read have
+        # to use that same mode, or a cross write confirms 5x while an
+        # isolated order fills at the sticky isolated default.
+        _order_margin_mode = CONFIG.exchange.margin_mode
+        _set_uta = client_marks_uta(exchange)
         try:
             await exchange.set_leverage(
                 _target_leverage, symbol,
-                params=self._venue.futures_params())
+                params=leverage_set_params(
+                    self._venue.futures_params(), uta=_set_uta,
+                    margin_mode=_order_margin_mode))
             _bare_set_ok = True
         except Exception as exc:
             logger.warning("Leverage set failed for %s (may use exchange default): %s", symbol, exc)
@@ -2793,7 +2900,9 @@ class LiveExecutor:
                 try:
                     await exchange.set_leverage(
                         _target_leverage, symbol,
-                        params={"productType": "USDT-FUTURES", "holdSide": _side})
+                        params=leverage_set_params(
+                            self._venue.futures_params(), uta=_set_uta,
+                            margin_mode=_order_margin_mode, side=_side))
                     _per_side_ok.append(_side)
                 except Exception as _side_exc:
                     # The CLASS only — a venue rejection can echo request
@@ -2894,12 +3003,12 @@ class LiveExecutor:
                     _lev_read["field"] or "unnamed",
                     _lev_read["mode"] or "unread")
                 try:
-                    await exchange.set_leverage(
-                        _target_leverage, symbol,
-                        params={"productType": "USDT-FUTURES", "holdSide": "long"})
-                    await exchange.set_leverage(
-                        _target_leverage, symbol,
-                        params={"productType": "USDT-FUTURES", "holdSide": "short"})
+                    for _retry_side in ("long", "short"):
+                        await exchange.set_leverage(
+                            _target_leverage, symbol,
+                            params=leverage_set_params(
+                                self._venue.futures_params(), uta=_set_uta,
+                                margin_mode=_order_margin_mode, side=_retry_side))
                 except Exception:
                     pass
                 # Re-verify after retry.
@@ -3032,7 +3141,8 @@ class LiveExecutor:
         # 0m, labeled leverage overshoot). An absent row stays unknown: that
         # is the fail-open case, not a fabricated ratio off account equity.
         if not _lev_verified and _uta_account:
-            _uta = await self._read_uta_symbol_leverage(symbol)
+            _uta = await self._read_uta_symbol_leverage(
+                symbol, _order_margin_mode)
             _uv = _uta.get("value") if isinstance(_uta, dict) else None
             if isinstance(_uv, int) and _uv > 0:
                 _lev_read = _uta
@@ -4973,6 +5083,22 @@ class LiveExecutor:
                 result["state"] = "unreadable"
                 logger.warning("Position verification failed for %s (attempt "
                                "%d/%d): %s", symbol, attempt + 1, attempts, exc)
+            # Confirmed UTA only. `__init__` stores None until detection;
+            # an executor built with `__new__` has never stored it. Missing
+            # is unknown, and unknown is not the symbol-config path — the
+            # position row stays the reading, which is also the classic case.
+            if result["state"] == "found" and getattr(self, "_is_uta", None) is True:
+                # The position row's `leverage` is not the symbol-config row.
+                # On UTA the row can still say the sticky default after
+                # settings confirmed the approved leverage, and the guard
+                # then market-closes a fill that was already at the target.
+                # A settings miss stays "no leverage the guard may act on"
+                # (this method's 0), not that sticky number.
+                _settings = await self._read_uta_symbol_leverage(
+                    symbol, CONFIG.exchange.margin_mode)
+                _governed = governing_fill_leverage(
+                    result.get("leverage"), _settings, uta=True)
+                result["leverage"] = _governed if _governed is not None else 0
             # The one place the retry rule lives. `found` breaks here rather
             # than returning above, so the policy decides every exit.
             if not position_read_needs_another_look(
