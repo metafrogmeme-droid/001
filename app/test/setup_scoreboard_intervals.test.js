@@ -285,10 +285,12 @@ test('q-values are over the published cells only', () => {
   assert.ok(rawSig.includes('beta') && rawSig.includes('gamma'));
   assert.ok(!fdrSig.includes('beta') && !fdrSig.includes('gamma'));
 
-  // Colour follows the q-value, not the raw p. beta's p is under 0.05 and
-  // its mean is positive; its q is not, so the row stays muted.
+  // Colour does not follow the q-value. alpha's interval clears zero and
+  // its q is under 0.05; it still reads exploratory, and the row stays muted.
   const board = WR.setupScoreboard(published.by_setup);
-  assert.match(rowHtml(board, 'alpha'), /wr-pos/);
+  assert.match(rowHtml(board, 'alpha'), /exploratory/);
+  assert.equal(rowHtml(board, 'alpha').includes('wr-pos'), false);
+  assert.match(rowHtml(board, 'beta'), /exploratory/);
   assert.equal(rowHtml(board, 'beta').includes('wr-pos'), false);
   assert.match(rowHtml(board, 'beta'), /interval /);
   assert.match(rowHtml(board, 'delta'), /q /);
@@ -329,11 +331,13 @@ test('the board shows the payload numbers and does not paint an unestablished ce
   assert.doesNotMatch(open, /wr-fill/);
 
   // Same point estimate, interval clear of zero, q under the display level.
+  // The numbers stay. The established colour does not: the cell is exploratory.
   const held = WR.setupScoreboard([{
     ...base, mean_r_lo: 0.2, mean_r_hi: 2.4, q_value: 0.01,
   }]);
-  assert.match(held, /wr-pos/);
-  assert.match(held, /wr-fill/);
+  assert.match(held, /exploratory/);
+  assert.equal(held.includes('wr-pos'), false);
+  assert.equal(held.includes('wr-fill'), false);
 
   // q exactly at the level does not clear. Touching zero does not either.
   const edgeQ = WR.setupScoreboard([{
@@ -345,12 +349,13 @@ test('the board shows the payload numbers and does not paint an unestablished ce
   }]);
   assert.equal(rowHtml(touch, 'vwap_reversion').includes('wr-pos'), false);
 
-  // A losing rate stays red only when the interval is entirely below zero.
+  // A losing rate whose interval is entirely below zero is still exploratory.
   const loss = WR.setupScoreboard([{
     ...base, win_rate: 30, hit_rate: 0.3, mean_r: -1,
     mean_r_lo: -2, mean_r_hi: -0.1, q_value: 0.01,
   }]);
-  assert.match(loss, /wr-neg/);
+  assert.match(loss, /exploratory/);
+  assert.equal(loss.includes('wr-neg'), false);
   const lossOpen = WR.setupScoreboard([{
     ...base, win_rate: 30, hit_rate: 0.3, mean_r: -1,
     mean_r_lo: -2, mean_r_hi: 0.1, q_value: 0.01,

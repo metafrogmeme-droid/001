@@ -24,6 +24,12 @@
  * its own dishonesty — but it carries no colour, no bar, and says how many
  * trades it rests on. Above it: colour and a bar proportional to the rate.
  *
+ * A setup cell is the exception to that colour. It reads "exploratory".
+ * The colour and the bar are the claim that the rate is established, and a
+ * clear interval with a q-value under 0.05 does not establish it. The
+ * percentage, n, and the interval stay. A pattern column is not a setup
+ * cell and keeps the sample-floor colour.
+ *
  * Exposed as window.RCWinRate; module.exports in node so it can be tested.
  */
 (function (root, factory) {
@@ -41,10 +47,15 @@
 
   /**
    * The display family rejects at this q. It is the complement of the 95%
-   * interval (`z = 1.96`), not a second bar. A cell whose q is missing, or
-   * not below this, is not established, and the row stays muted.
+   * interval (`z = 1.96`), not a second bar. Agreement with it used to be
+   * the established colour. A setup cell stays muted either way.
    */
   var Q_DISPLAY = 0.05;
+
+  /** A setup cell: the board marked it, or it carries the interval fields. */
+  function exploratoryCell(g) {
+    return !!(g && (g._setupCell || Object.prototype.hasOwnProperty.call(g, 'mean_r_lo')));
+  }
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -76,6 +87,7 @@
     var rate = num(g.win_rate);
     var n = num(g.n);
     var label = g[key];
+    var setup = exploratoryCell(g);
     var out = {
       label: (label === null || label === undefined || label === '') ? '(none)' : String(label),
       rate: rate,
@@ -83,6 +95,9 @@
       rated: false,
       reason: null,
       detail: typeof g.detail === 'string' ? g.detail : '',
+      // The plan's word, not a second status. A planted "survives" on the
+      // payload is not copied: agreement does not promote the cell.
+      reading: setup ? 'exploratory' : '',
     };
     if (rate === null) {
       out.reason = 'nothing resolved yet';
@@ -99,11 +114,9 @@
       return out;
     }
     out.rated = true;
-    // The win-rate colour is the only verdict. It stays only when the cell's
-    // own interval and q-value agree with it. A positive point estimate with
-    // a straddling interval, or a q that does not clear the display family,
-    // is muted. A group that does not carry those fields (a pattern column,
-    // an older payload) is unchanged.
+    // Colour is the established verdict. A setup cell is exploratory, so
+    // the verdict stays off even when the interval and q agree. A pattern
+    // column has neither mark and keeps the sample-floor colour.
     if (!evidenceAgrees(g, rate >= 50)) {
       out.rated = false;
       out.reason = '';
@@ -114,20 +127,27 @@
   /**
    * Does the published interval and q-value support the win-rate colour?
    *
-   * No `mean_r_lo` key: this row is not a setup cell, and the sample floor
-   * is the whole rule. A setup cell with the key present and a null interval,
-   * a null q, an interval that reaches zero, or a q that is not below
-   * `Q_DISPLAY` does not support a colour. `lo > 0` and `hi < 0` are the
-   * same strict clears `mean_r_interval`'s callers already use; touching
-   * zero is not clear of it.
+   * A pattern column has no `mean_r_lo` and was not marked by the setup
+   * board. The sample floor is its whole rule, and this returns true.
+   *
+   * A setup cell returns false on both arms. The interval and q are still
+   * read: q below `Q_DISPLAY` and an interval strictly clear of zero
+   * (`lo > 0` or `hi < 0`; touching zero is not clear) is the pair that
+   * used to paint the established colour. That pair does not paint it.
+   * A missing interval, a missing q, or a q that does not clear does not
+   * paint it either.
    */
   function evidenceAgrees(g, positive) {
-    if (!g || !Object.prototype.hasOwnProperty.call(g, 'mean_r_lo')) return true;
+    if (!g || (!g._setupCell && !Object.prototype.hasOwnProperty.call(g, 'mean_r_lo'))) {
+      return true;
+    }
     var lo = num(g.mean_r_lo);
     var hi = num(g.mean_r_hi);
     var q = num(g.q_value);
-    if (lo === null || hi === null || q === null || !(q < Q_DISPLAY)) return false;
-    return positive ? lo > 0 : hi < 0;
+    var established = lo !== null && hi !== null && q !== null && q < Q_DISPLAY
+      && (positive ? lo > 0 : hi < 0);
+    if (established) return false;
+    return false;
   }
 
   /** One row. Colour and bar only when `rated`. */
@@ -150,12 +170,15 @@
     // mean would be a second verdict beside the win-rate bar.
     var detail = c.detail
       ? '<span class="wr-why">' + esc(c.detail) + '</span>' : '';
+    // The plan's word, muted. Only that word: a different status is not shown.
+    var reading = c.reading === 'exploratory'
+      ? '<span class="wr-why">exploratory</span>' : '';
 
     return '<div class="wr-row' + (c.rated ? '' : ' wr-row--unrated') + '">'
       + '<div class="wr-head"><span class="wr-label">' + esc(c.label) + '</span>'
       + count
       + '<b class="wr-val ' + cls + '">' + value + '</b></div>'
-      + bar + note + detail
+      + reading + bar + note + detail
       + '</div>';
   }
 
@@ -201,14 +224,6 @@
     return label + ' · ' + mean + 'R';
   }
 
-  /**
-   * The setup scoreboard, or '' when there is no cell to show.
-   *
-   * A missing group, an empty list, and a cell that lacks a dimension all
-   * omit. They do not become a 0% row. Colour stays the win-rate rule in
-   * `classify`: under the sample floor the row is muted, and the R in the
-   * label is a number, not a second colour claim.
-   */
   /** A ratio for the row, or null when the field was not a measurement. */
   function ratioText(v) {
     var n = num(v);
@@ -244,6 +259,14 @@
     ].join(' · ');
   }
 
+  /**
+   * The setup scoreboard, or '' when there is no cell to show.
+   *
+   * A missing group, an empty list, and a cell that lacks a dimension all
+   * omit. They do not become a 0% row and they are not labelled. Every
+   * cell that is shown reads exploratory, and the established colour stays
+   * off. The R in the label is a number, not a second colour claim.
+   */
   function setupScoreboard(cells) {
     if (!Array.isArray(cells) || !cells.length) return '';
     var prepared = [];
@@ -256,6 +279,9 @@
       }
       row.label = label;
       row.detail = setupDetail(cells[i]);
+      // Marks the row for classify. A cell with no interval fields is still
+      // a setup cell, and a payload status is not consulted.
+      row._setupCell = true;
       prepared.push(row);
     }
     if (!prepared.length) return '';

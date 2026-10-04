@@ -275,7 +275,8 @@ test('the setup board omits a missing group and does not paint a null mean as 0R
     setup: 'vwap_reversion', regime: 'TREND', timeframe: '1h',
     source: 'rules', direction: 'LONG', n: 10, win_rate: 60, mean_r: 0.5, net_r: 5,
   }]);
-  assert.ok(rated.includes('wr-pos'));
+  assert.ok(rated.includes('exploratory'), 'a cell above the floor was not labelled');
+  assert.ok(!rated.includes('wr-pos'), 'a setup cell was painted as established');
   assert.ok(rated.includes('0.5R'));
 
   const fs = require('node:fs');
