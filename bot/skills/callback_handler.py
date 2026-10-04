@@ -12,6 +12,8 @@ Its behaviour is covered where it always was (`test_callback_owner_guard_is_fail
 `test_closeall_confirm_tg2b`, `test_pending_order_desync`, `test_audit_fixes_batch_1`,
 `test_shared_engine_controls_are_operator_only`, `test_user_admission`);
 `tests/test_handler_mixins.py` holds this class to the split's rules.
+`tests/test_journal_records_live_closes.py` drives the exchange-direct
+close: a priced fill is journaled, an unpriced one is not.
 
 `safe_mode_notice` moved with it because the Safe Mode button is its only
 caller: the text says the button is wired to nothing and points at the two
@@ -136,6 +138,36 @@ def _level_row(label: str, price: Optional[float],
         return f"{label} {format_level(None)}"
     _d = f" ({dist_pct:.1f}%)" if dist_pct is not None else ""
     return f"{label} {format_level(price)}{_d} {tag}"
+
+
+def book_untracked_exchange_close(engine, executor, pos) -> None:
+    """Ledger a close the executor was not tracking, and journal it when priced.
+
+    The Close button's exchange-direct fallback handles a position that was
+    never in ``open_positions``. The executor's own close paths journal by
+    firing ``on_position_closed``. This one appended the ledger row and
+    stopped, so a fill the venue priced while the bot was up sat in the
+    executor — and in the weekly review's gap — and not in the journal.
+
+    An unpriced close (``pnl_usd is None``) is still ledgered and still not
+    journaled. The gap counts executor rows the journal does not hold;
+    writing it as $0 would make that gap read 0.
+
+    A duplicate the ledger refuses is not a second close, so it is not a
+    second journal row either. This does not call ``_on_live_position_closed``:
+    that hook also feeds the account loss breakers, and this path did not.
+    """
+    from bot.core.engine import RuneClawEngine
+
+    kept = bool(executor._append_closed_trade(pos))
+    tid = getattr(pos, "trade_id", None)
+    in_book = any(
+        getattr(row, "trade_id", None) == tid
+        for row in (getattr(executor, "_closed_trades", None) or ()))
+    if not kept and not in_book:
+        return
+    uid = str(getattr(executor, "user_id", "") or "")
+    RuneClawEngine.journal_live_close(engine, pos, uid)
 
 
 class CallbackHandler:
@@ -1423,7 +1455,8 @@ class CallbackHandler:
                                         opened_at=opened_at,
                                         closed_at=datetime.now(timezone.utc),
                                     )
-                                    executor._append_closed_trade(closed_pos)
+                                    book_untracked_exchange_close(
+                                        self.engine, executor, closed_pos)
 
                                 # Colour is a claim: green says "in profit" as
                                 # loudly as the number does, and an unread fill

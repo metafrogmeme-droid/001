@@ -1624,6 +1624,59 @@ class RuneClawEngine:
             pass
         return "bitget"
 
+    def journal_live_close(self, pos, user_id: str = "") -> None:
+        """Write one live close into the trade journal, or write nothing.
+
+        A close the venue could not price (``pnl_usd is None``) is not a
+        $0 trade. It stays out of the journal, and the weekly review's gap
+        still counts the executor row. The same rule the paper path does
+        not need: a paper close always has a pnl.
+
+        Resolved BEFORE the journal write, and guarded separately, because
+        the first version called the venue resolver inline — so anything it
+        raised was swallowed by the fail-open ``except`` and the whole trade
+        went unrecorded. A missing label must never cost the record.
+
+        Does not feed the loss breakers. ``_on_live_position_closed`` does
+        that after this returns, and the exchange-direct Close button
+        journals through here without starting to.
+        """
+        try:
+            _venue = self._venue_of_closed_position(pos, user_id)
+        except Exception:
+            _venue = "bitget"
+        try:
+            _jpnl = getattr(pos, "pnl_usd", None)
+            if _jpnl is not None:
+                _opened = entered_at(pos)
+                _closed = getattr(pos, "closed_at", None)
+                _hold = ((_closed - _opened).total_seconds() / 3600.0
+                         if _opened and _closed else 0.0)
+                self.journal.record_trade(
+                    trade_id=getattr(pos, "trade_id", "") or "",
+                    symbol=getattr(pos, "symbol", ""),
+                    direction=str(getattr(pos, "direction", "") or ""),
+                    strategy_type=getattr(pos, "strategy_type", "") or "",
+                    entry_price=float(getattr(pos, "entry_price", 0) or 0),
+                    # `close_price` is the LivePosition field; `exit_price` is
+                    # the paper Trade's name for it. Reading only the second
+                    # journaled exit=0.0 for EVERY live close — the attribute
+                    # does not exist on a LivePosition, so getattr answered its
+                    # default — under a test whose fake carried both names.
+                    exit_price=_journal_exit_price(pos),
+                    stop_loss=float(getattr(pos, "stop_loss", 0) or 0),
+                    take_profit=float(getattr(pos, "take_profit", 0) or 0),
+                    quantity=_journal_quantity(pos),
+                    pnl=float(_jpnl),
+                    regime=self._outcome_regime(getattr(pos, "symbol", "")),
+                    holding_hours=_hold,
+                    exit_reason=str(getattr(pos, "close_reason", "") or ""),
+                    venue=_venue,
+                    user_id=str(user_id or ""),
+                )
+        except Exception as _j_exc:
+            logger.debug("Journal record skipped for live close: %s", _j_exc)
+
     def _on_live_position_closed(self, pos, user_id: str = "") -> None:
         """Handle live position close: invalidate cache + set SL cooldown.
 
@@ -1669,49 +1722,10 @@ class RuneClawEngine:
         # surfaces flatly contradicting each other, on 2026-07-30.
         #
         # Fail-open like every other recorder on this path: a journal write
-        # must never cost a close its breaker feed below.
-        # Resolved BEFORE the journal write, and guarded separately, because the
-        # first version of this called the resolver inline — so anything it
-        # raised was swallowed by the fail-open `except` below and the whole
-        # trade went unrecorded. A missing LABEL must never cost the RECORD:
-        # a journal entry marked with the default venue is a small
-        # inaccuracy, and a live close that never reaches the journal is the
-        # exact defect tests/test_journal_records_live_closes.py exists to stop.
-        try:
-            _venue = self._venue_of_closed_position(pos, user_id)
-        except Exception:
-            _venue = "bitget"
-        try:
-            _jpnl = getattr(pos, "pnl_usd", None)
-            if _jpnl is not None:
-                _opened = entered_at(pos)
-                _closed = getattr(pos, "closed_at", None)
-                _hold = ((_closed - _opened).total_seconds() / 3600.0
-                         if _opened and _closed else 0.0)
-                self.journal.record_trade(
-                    trade_id=getattr(pos, "trade_id", "") or "",
-                    symbol=getattr(pos, "symbol", ""),
-                    direction=str(getattr(pos, "direction", "") or ""),
-                    strategy_type=getattr(pos, "strategy_type", "") or "",
-                    entry_price=float(getattr(pos, "entry_price", 0) or 0),
-                    # `close_price` is the LivePosition field; `exit_price` is
-                    # the paper Trade's name for it. Reading only the second
-                    # journaled exit=0.0 for EVERY live close — the attribute
-                    # does not exist on a LivePosition, so getattr answered its
-                    # default — under a test whose fake carried both names.
-                    exit_price=_journal_exit_price(pos),
-                    stop_loss=float(getattr(pos, "stop_loss", 0) or 0),
-                    take_profit=float(getattr(pos, "take_profit", 0) or 0),
-                    quantity=_journal_quantity(pos),
-                    pnl=float(_jpnl),
-                    regime=self._outcome_regime(getattr(pos, "symbol", "")),
-                    holding_hours=_hold,
-                    exit_reason=str(getattr(pos, "close_reason", "") or ""),
-                    venue=_venue,
-                    user_id=str(user_id or ""),
-                )
-        except Exception as _j_exc:
-            logger.debug("Journal record skipped for live close: %s", _j_exc)
+        # must never cost a close its breaker feed below. The class call,
+        # not `self.journal_live_close`, so a stub engine the close tests
+        # build still reaches the method.
+        RuneClawEngine.journal_live_close(self, pos, user_id)
         # ── Feed the ACCOUNT-LEVEL loss breakers (audit CRITICAL) ──────────
         # In pure-live mode the paper portfolio is never updated, so the
         # consecutive-loss breaker, live-performance governor, equity throttle
