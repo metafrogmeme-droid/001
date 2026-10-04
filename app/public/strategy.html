@@ -127,8 +127,7 @@
       return '<div class="sc"><p class="prov">' + esc(sc.omitted) + '</p></div>';
     }
     if (!sc || !sc.metrics) {
-      return '<div class="sc"><p class="prov">Verified backtest pending — run it in the '
-        + '<a href="/dashboard#lab">Lab</a>.</p></div>';
+      return '<div class="sc"><p class="prov">No track record published.</p></div>';
     }
     if (!window.AgentScorecard) {
       return '<div class="sc"><p class="prov">The scorecard could not be painted.'
@@ -216,12 +215,12 @@
         ? '<a class="btn btn--primary btn--sm" href="/dashboard?fork=' + encodeURIComponent(a.id) + '#agents">⑂ Fork in the app</a>'
         // A preset whose exits are recorded and not applied has no backtest
         // to reproduce. The Lab door would claim a track record that is missing.
-        : (a.scorecard && a.scorecard.omitted
-          ? (window.AgentScorecard ? window.AgentScorecard.followLinkHtml(a) : '')
+        : (a.scorecard && a.scorecard.metrics
           // Deep-link straight into the Lab with THIS agent auto-running its exact
-          // backtest — the page's "reproduce its numbers" promise, in one tap.
-          : '<a class="btn btn--primary btn--sm" href="/dashboard?lab_agent=' + encodeURIComponent(a.id) + '#lab">Reproduce this backtest in the Lab</a>'
-            + (window.AgentScorecard ? window.AgentScorecard.followLinkHtml(a) : '')))
+          // backtest — only when a frozen run exists to reproduce.
+          ? '<a class="btn btn--primary btn--sm" href="/dashboard?lab_agent=' + encodeURIComponent(a.id) + '#lab">Reproduce this backtest in the Lab</a>'
+            + (window.AgentScorecard ? window.AgentScorecard.followLinkHtml(a) : '')
+          : (window.AgentScorecard ? window.AgentScorecard.followLinkHtml(a) : '')))
       + '<button class="btn btn--sm" id="shareBtn" type="button">Share</button>'
       + '</div>'
       + '<p class="disc">' + (a.community
@@ -231,10 +230,12 @@
           + 'Nothing here is financial advice.'
         : (a.scorecard && a.scorecard.omitted
           ? esc(a.scorecard.omitted) + ' Nothing here is financial advice.'
-          : 'Every RUNECLAW agent is one of the engine\'s real strategies, backtested on '
-            + 'frozen, content-hashed benchmark data — percent and ratio only, never a dollar figure. '
-            + 'Reproduce the identical backtest yourself in the Lab, or watch verified live ranks on the '
-            + '<a href="/leaderboard">leaderboard</a>. Nothing here is financial advice.')) + '</p>'
+          : (a.scorecard && a.scorecard.metrics
+            ? 'Every RUNECLAW agent is one of the engine\'s real strategies, backtested on '
+              + 'frozen, content-hashed benchmark data — percent and ratio only, never a dollar figure. '
+              + 'Reproduce the identical backtest yourself in the Lab, or watch verified live ranks on the '
+              + '<a href="/leaderboard">leaderboard</a>. Nothing here is financial advice.'
+            : 'No track record published. Nothing here is financial advice.'))) + '</p>'
       + '</article>';
     var sb = document.getElementById('shareBtn');
     if (sb) sb.addEventListener('click', function () {

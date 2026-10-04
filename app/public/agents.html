@@ -211,7 +211,7 @@
         + '<div><div class="k">Profit factor</div><div class="v">' + (sc.profit_factor == null ? '—' : Number(sc.profit_factor).toFixed(2)) + '</div></div>'
         + '<div><div class="k">Win rate</div><div class="v">' + (sc.win_rate == null ? '—' : (sc.win_rate * 100).toFixed(0) + '%') + '</div></div>'
         + verdict + '</div>'
-      : '<div class="mx"><div class="k">Verified backtest pending — reproduce it in the Lab.</div></div>';
+      : '<div class="mx"><div class="k">No track record published.</div></div>';
     return '<a class="ag-card" href="/agents/' + encodeURIComponent(a.id) + '">'
       + '<div class="h"><span class="emo">' + esc(a.icon || '🤖') + '</span>'
       + '<span class="nm">' + esc(a.name) + '</span></div>'
@@ -285,9 +285,10 @@
         + '<a class="ag-build" href="/dashboard#agents">＋ Build your own</a>'
         + '<span class="ag-count" id="ag-count"></span></div>'
         + '<div class="ag-grid" id="ag-grid"></div>'
-        + '<p class="disc">Engine agents carry verified frozen backtests; <b>community</b> strategies are member-authored configs '
-        + '(intent rules, no dollar figures, no performance claims). Nothing here is financial advice. Verified live ranks are on the '
-        + '<a href="/leaderboard">leaderboard</a>; build your own in the <a href="/dashboard#agents">app</a>.</p>';
+        + '<p class="disc">Where a frozen backtest is attached, it is percent and ratio only. A card with no track record has none. '
+        + '<b>Community</b> strategies are member-authored configs (intent rules, no dollar figures, no performance claims). '
+        + 'Nothing here is financial advice. Verified live ranks are on the '
+        + '<a href="/leaderboard">leaderboard</a>.</p>';
       // apply() runs once at init and there is no MutationObserver, so markup
       // built here — after the catalogue lands — is never reached by it. These
       // controls carry data-i18n-attr; without this call the wiring is inert.

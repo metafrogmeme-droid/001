@@ -233,7 +233,11 @@ def test_the_public_card_has_no_dollar_and_no_measured_scorecard():
     assert card["name"] == "ALT Sweep"
     blob = repr(card)
     assert "$" not in blob
-    assert card["scorecard"] is None
+    omitted = card["scorecard"]["omitted"]
+    assert "No track record published" in omitted
+    assert "not applied" in omitted
+    assert "pending" not in omitted.lower()
+    assert "metrics" not in card["scorecard"]
     # USDT in a symbol is a market name. A dollar field is a key.
     keys: set[str] = set()
 

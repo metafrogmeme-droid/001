@@ -97,7 +97,7 @@ test('the dashboard has a Strategy Agents view wired into nav + router', () => {
   assert.match(dash, /async function renderAgents\(\)/);
   // Fetches the public catalogue without auth and renders per-agent cards.
   assert.match(dash, /fetchJSON\('\/api\/public\/strategies',\s*\{[^}]*auth: false/);
-  assert.match(dash, /data-agentlab=/);   // "Backtest in Lab" CTA
+  assert.match(dash, /data-agentlab=/);   // "Reproduce in Lab", only with a frozen run
   assert.match(dash, /data-agentask=/);   // "Ask the agent" CTA
   assert.match(dash, /a\.how/);           // the derived "how it trades" line
 });
@@ -134,7 +134,14 @@ test('agent cards render a verified scorecard stat block with provenance', () =>
 
 test('the primary CTA becomes "Reproduce in Lab" when a scorecard exists', () => {
   const dash = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
-  assert.match(dash, /hasSc \? 'Reproduce in Lab' : 'Backtest in Lab'/);
+  assert.match(dash, /const labButton = hasSc/);
+  assert.match(dash, /Reproduce in Lab/);
+  assert.doesNotMatch(dash, /Backtest in Lab/);
+  const start = dash.indexOf('async function renderAgents()');
+  const end = dash.indexOf('async function renderLeaderboard()', start);
+  const body = dash.slice(start, end);
+  assert.equal((body.match(/Every agent is/g) || []).length, 0);
+  assert.match(body, /catalogueFoot\(note\)/);
   // The click handler stashes the EXACT scorecard gates for the Lab to re-run.
   assert.match(dash, /_labReproduce = labBodyFromScorecard\(/);
   assert.match(dash, /function labBodyFromScorecard\(name, sc\)/);

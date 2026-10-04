@@ -132,8 +132,11 @@ def _ma_book_can_size(cfg: dict[str, Any]) -> bool:
         "target_weight", "utilization", "max_gross_leverage"))
 
 
-def _unapplied_clause(cfg: dict[str, Any]) -> str:
-    """Preset knobs this book records and does not apply. Empty when none."""
+def _unapplied_knobs(cfg: dict[str, Any]) -> str:
+    """The knobs this book records and does not apply, or empty.
+
+    One sentence, no leading space. Empty when the preset names none.
+    """
     bits: list[str] = []
     trail = cfg.get("trailing_stop_pct")
     if (isinstance(trail, int | float) and not isinstance(trail, bool)
@@ -161,10 +164,50 @@ def _unapplied_clause(cfg: dict[str, Any]) -> str:
         return ""
     joined = ", ".join(bits)
     verb = "is" if len(bits) == 1 else "are"
+    sentence = f"{joined} {verb} recorded on this preset and {verb} not applied."
+    return sentence[:1].upper() + sentence[1:]
+
+
+def _unapplied_clause(cfg: dict[str, Any]) -> str:
+    """Preset knobs this book records and does not apply. Empty when none."""
+    knobs = _unapplied_knobs(cfg)
+    if not knobs:
+        return ""
     return (
-        f" {joined} {verb} recorded on this preset and {verb} not applied."
-        " No frozen-benchmark scorecard is published for this universe."
+        " " + knobs
+        + " No frozen-benchmark scorecard is published for this universe."
     )
+
+
+def catalogue_note() -> str:
+    """The one lineup sentence. Percent and ratio, a missing record stays
+    missing, and verified live ranks are on the leaderboard."""
+    return (
+        "Every agent is one of the engine's real strategies. "
+        "Where a frozen backtest is attached, it is percent and ratio only, "
+        "never a dollar figure, and Reproduce in Lab re-runs that backtest. "
+        "A card with no track record has none. "
+        "Verified live ranks are on the leaderboard."
+    )
+
+
+def unpublished_scorecard(cfg: dict[str, Any]) -> Optional[dict]:
+    """The metrics slot when no frozen scorecard file exists.
+
+    Daily volatility rotation names its own percent exits. Any other preset
+    whose recorded knobs do not size a fill gets the same kind of omission:
+    no track record, not a backtest that is about to appear. A preset with
+    nothing unapplied returns None so a missing house file stays a missing
+    file rather than a sentence this helper invented.
+    """
+    from bot.core.vol_rotation import omitted_scorecard
+    vol = omitted_scorecard(cfg)
+    if vol is not None:
+        return vol
+    knobs = _unapplied_knobs(cfg)
+    if not knobs:
+        return None
+    return {"omitted": "No track record published. " + knobs}
 
 # Recorded on a preset and not asked of the runner, unless a key names a
 # flag ``_gate_args`` actually emits (leverage, and only when the fill path
@@ -215,7 +258,22 @@ def _how_it_trades(cfg: dict[str, Any]) -> str:
             f"the closed-bar {fast}/{slow} simple moving-average direction, "
             "reversing only when that relationship changes")
     hours = cfg.get("schedule_hours")
-    if isinstance(hours, int) and not isinstance(hours, bool) and hours > 0:
+    target_tf = cfg.get("ma_timeframe")
+    source_tf = cfg.get("ma_source_timeframe")
+    fast_ok = isinstance(fast, int) and not isinstance(fast, bool)
+    slow_ok = isinstance(slow, int) and not isinstance(slow, bool)
+    # The closed target bar is the check. Saying "every N hours" beside
+    # "closed Nh bars" is the same cadence twice.
+    schedule_is_the_bar = (
+        fast_ok and slow_ok
+        and isinstance(hours, int) and not isinstance(hours, bool) and hours > 0
+        and isinstance(source_tf, str) and isinstance(target_tf, str)
+        and source_tf.strip() and target_tf.strip()
+        and source_tf.strip() != target_tf.strip()
+        and target_tf.strip() == f"{hours}h"
+    )
+    if (isinstance(hours, int) and not isinstance(hours, bool) and hours > 0
+            and not schedule_is_the_bar):
         parts.append(f"checked every {hours} hours")
     gross = cfg.get("max_gross_leverage")
     if isinstance(gross, (int, float)) and not isinstance(gross, bool):
@@ -264,15 +322,17 @@ def _how_it_trades(cfg: dict[str, Any]) -> str:
         parts.append(" / ".join(bits))
     text = "Trades " + ", ".join(parts) + "."
     text += _unapplied_clause(cfg)
-    source_tf = cfg.get("ma_source_timeframe")
-    target_tf = cfg.get("ma_timeframe")
-    if (isinstance(fast, int) and not isinstance(fast, bool)
-            and isinstance(slow, int) and not isinstance(slow, bool)
-            and source_tf and target_tf and source_tf != target_tf):
+    if (fast_ok and slow_ok
+            and isinstance(source_tf, str) and isinstance(target_tf, str)
+            and source_tf.strip() and target_tf.strip()
+            and source_tf.strip() != target_tf.strip()):
+        target = target_tf.strip()
+        source = source_tf.strip()
+        # The periods were already named above. This sentence is the bars.
         text += (
-            f" The {fast}/{slow} average is read on closed {target_tf} bars "
-            f"resampled from {source_tf} bars; a trailing unfinished "
-            f"{target_tf} group is dropped. {source_tf} bars stay {source_tf} bars."
+            f" That average is read on closed {target} bars "
+            f"resampled from {source} bars; a trailing unfinished "
+            f"{target} group is dropped. {source} bars stay {source} bars."
         )
     return text
 
@@ -451,8 +511,7 @@ def catalog() -> list[dict]:
         aid = _slug(key)
         score = _load_scorecard(aid)
         if score is None:
-            from bot.core.vol_rotation import omitted_scorecard
-            score = omitted_scorecard(cfg)
+            score = unpublished_scorecard(cfg)
         state = _preset_eligibility_state(aid) if _profit_factor_below_one(score) else "missing"
         offered, reason = follow_listing(score, state)
         out.append({
@@ -466,9 +525,9 @@ def catalog() -> list[dict]:
             "risk_label": _RISK_LABEL.get(risk, "🟡 Balanced"),
             "horizon": meta.get("horizon", ""),
             "run": _run_alias(key),
-            # Reproducible frozen-benchmark scorecard (percent/ratio only), or
-            # None if not yet generated. Lets the marketplace card show verified
-            # numbers with a one-tap "reproduce in the Lab".
+            # A frozen scorecard (percent/ratio only), an omission when no
+            # frozen run exists, or None when this preset has neither. None
+            # is not a backtest that is about to appear.
             "scorecard": score,
             # Copy/follow is a listing decision. Profit factor below 1 stays
             # off the follow door until this preset has an eligibility artefact.
