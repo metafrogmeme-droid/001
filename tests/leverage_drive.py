@@ -32,6 +32,7 @@ class LeverageDrive:
         self.set_calls: list = []
         self.leverage_reads: int = 0
         self.position_reads: int = 0
+        self.uta_reads: int = 0
         self.target_asks: list = []
 
     @property
@@ -54,6 +55,7 @@ def drive_ensure_leverage(
     force_per_side: Optional[str] = None,
     runs: int = 1,
     monkeypatch: Any = None,
+    uta_settings: Any = None,
 ) -> LeverageDrive:
     """Run `_ensure_leverage` against a stub venue and return what happened.
 
@@ -66,10 +68,12 @@ def drive_ensure_leverage(
     ``margin_mode`` is planted as the executor's OBSERVED mode — the value the
     margin-mode verification read above would have written — because the read
     that decides which leverage field governs is placed under that mode, not
-    under the configured one. ``runs`` calls the method that many times on the
+    under the configured one.     ``runs`` calls the method that many times on the
     SAME executor, which is the only way to drive the once-per-symbol warnings
     (a fresh executor each time cannot tell "once per process" from "every
-    time").
+    time"). ``uta_settings`` is what ``_read_uta_symbol_leverage`` returns a
+    parse of, when the v2 read fails with 40085. ``None`` answers unknown and
+    does not touch the network — the real client is not this harness's seam.
     """
     from bot.core import live_executor as LE
 
@@ -157,6 +161,14 @@ def drive_ensure_leverage(
         return None
 
     ex._detect_hold_mode = _detect_hold_mode
+
+    async def _read_uta_symbol_leverage(symbol: str) -> dict:
+        out.uta_reads += 1
+        if uta_settings is None:
+            return {"value": None, "field": None, "governs": None, "mode": None}
+        return LE.uta_symbol_leverage(uta_settings, symbol)
+
+    ex._read_uta_symbol_leverage = _read_uta_symbol_leverage
 
     async def _all() -> None:
         for _ in range(max(1, runs)):

@@ -41,9 +41,16 @@ does not open a trade — it opens one that is closed seconds later, and
 charges two fees for the privilege.
 """
 
+import asyncio
+
 import pytest
 
-from bot.core.live_executor import leverage_overshoot_verdict, preorder_leverage_verdict
+from bot.core.live_executor import (
+    LiveExecutor,
+    leverage_overshoot_verdict,
+    preorder_leverage_verdict,
+    uta_symbol_leverage,
+)
 from tests.leverage_drive import drive_ensure_leverage, lev
 
 RATIO = 1.5
@@ -239,3 +246,147 @@ class TestTheOrderPathRefusesAConfirmedOvershoot:
             [_UNREADABLE], positions=[], target=5, fail_open=True,
             monkeypatch=monkeypatch)
         assert not aborted, "the 2026-07-21 regression is back"
+
+
+def _uta_settings(symbol: str, row_leverage: str, *,
+                  account_leverage: str | None = None, **extra) -> dict:
+    """A settings document. ``account_leverage`` is ``data.leverage``, the
+    account ratio, which is not the fill. ``extra`` lands on ``data`` too."""
+    data: dict = {
+        "symbolConfigList": [{
+            "category": "USDT-FUTURES",
+            "symbol": symbol,
+            "marginMode": "crossed",
+            "leverage": row_leverage,
+        }],
+    }
+    if account_leverage is not None:
+        data["leverage"] = account_leverage
+    data.update(extra)
+    return {"code": "00000", "data": data}
+
+
+_UTA_REFUSED = Exception('{"code":"40085","msg":"uta"}')
+
+
+class TestUtaSymbolConfigIsThePreOrderRead:
+    """A unified account's v2 leverage read does not exist (40085).
+
+    The symbol row on ``GET /api/v3/account/settings`` does. JUPUSDT at the
+    account default of 20x against a 5x target is the card: the fill is placed,
+    the post-fill guard flattens it in the same minute, the price has moved
+    +0.03% and the fee drag on a 20x margin prints about -0.99%. The price is
+    not an input. The order is not placed.
+    """
+
+    def test_jup_at_20x_is_the_symbol_row_not_the_account_ratio(self):
+        payload = _uta_settings(
+            "JUPUSDT", "20",
+            account_leverage="1000000",
+            accountEquity="0.000000009166",
+            usdtEquity="0.000000009166",
+            coinConfigList=[{"coin": "USDT", "leverage": "6"}],
+        )
+        read = uta_symbol_leverage(payload, "JUP/USDT:USDT")
+        assert read["value"] == 20
+        assert read["governs"] is True
+        assert read["mode"] == "crossed"
+        assert preorder_leverage_verdict(5, read["value"], RATIO)["decision"] == "abort"
+
+    def test_a_symbol_at_the_target_is_not_the_account_ratio(self):
+        payload = _uta_settings(
+            "JUPUSDT", "5", account_leverage="1000000",
+            accountEquity="0.000000009166")
+        # data.leverage is the account ratio. The symbol row is 5.
+        read = uta_symbol_leverage(payload, "JUPUSDT")
+        assert read["value"] == 5
+        assert preorder_leverage_verdict(5, read["value"], RATIO)["decision"] == "proceed"
+
+    def test_a_missing_symbol_is_unknown_not_the_dust_ratio(self):
+        payload = _uta_settings(
+            "BTCUSDT", "20",
+            account_leverage="1000000",
+            usdtEquity="0.000000009166")
+        read = uta_symbol_leverage(payload, "JUP/USDT")
+        assert read == {"value": None, "field": None, "governs": None, "mode": None}
+
+    def test_a_blank_leverage_is_unknown_not_zero(self):
+        read = uta_symbol_leverage(_uta_settings("JUPUSDT", ""), "JUPUSDT")
+        assert read["value"] is None
+
+    def test_the_order_is_not_placed_when_the_symbol_is_at_20x(self, monkeypatch):
+        d = drive_ensure_leverage(
+            [_UTA_REFUSED], positions=[], target=5, fail_open=True,
+            monkeypatch=monkeypatch,
+            uta_settings=_uta_settings("TRXUSDT", "20"))
+        assert d.uta_reads == 1
+        assert d.aborted, "the fill would have been opened and flattened"
+        assert "20" in d.why and "5" in d.why
+
+    def test_a_symbol_at_the_target_is_placed(self, monkeypatch):
+        d = drive_ensure_leverage(
+            [_UTA_REFUSED], positions=[], target=5, fail_open=True,
+            monkeypatch=monkeypatch,
+            uta_settings=_uta_settings("TRXUSDT", "5"))
+        assert d.uta_reads == 1
+        assert not d.aborted
+
+    def test_inside_the_ratio_is_placed_and_a_price_move_is_not_an_input(self, monkeypatch):
+        # 6/5 = 1.2, inside 1.5. The JUP card's +0.03% never reaches this gate.
+        d = drive_ensure_leverage(
+            [_UTA_REFUSED], positions=[], target=5, fail_open=True,
+            monkeypatch=monkeypatch,
+            uta_settings=_uta_settings("TRXUSDT", "6"))
+        assert not d.aborted
+        assert leverage_overshoot_verdict(5, 6, RATIO)["decision"] == "keep"
+        assert leverage_overshoot_verdict(5, 5, RATIO)["decision"] == "keep"
+        assert leverage_overshoot_verdict(5, 20, RATIO)["decision"] == "close"
+
+    def test_an_unreadable_symbol_row_does_not_become_an_overshoot(self, monkeypatch):
+        payload = _uta_settings(
+            "BTCUSDT", "20",
+            account_leverage="1000000",
+            usdtEquity="0.000000009166")
+        d = drive_ensure_leverage(
+            [_UTA_REFUSED], positions=[], target=5, fail_open=True,
+            monkeypatch=monkeypatch, uta_settings=payload)
+        assert d.uta_reads == 1
+        assert not d.aborted
+
+    def test_a_classic_read_failure_does_not_consult_uta_settings(self, monkeypatch):
+        """Fail-open for a read that did not answer. Not the UTA document."""
+        d = drive_ensure_leverage(
+            [Exception("fetch_leverage unavailable")], positions=[],
+            target=5, fail_open=True, monkeypatch=monkeypatch,
+            uta_settings=_uta_settings("TRXUSDT", "20"))
+        assert d.uta_reads == 0
+        assert not d.aborted
+
+    def test_the_reader_asks_settings_and_a_failure_is_unknown(self, monkeypatch):
+        calls = {}
+
+        class _Client:
+            @classmethod
+            def for_account(cls, creds):
+                calls["creds"] = creds
+                return cls()
+
+            def request(self, method, path, body_dict=None, timeout=10):
+                calls["req"] = (method, path)
+                return _uta_settings("JUPUSDT", "20")
+
+        monkeypatch.setattr(
+            "bot.core.bitget_v3_client.BitgetV3Client", _Client)
+        ex = LiveExecutor.__new__(LiveExecutor)
+        ex._credentials = {"api_key": "k", "api_secret": "s", "passphrase": "p"}
+        read = asyncio.run(ex._read_uta_symbol_leverage("JUP/USDT:USDT"))
+        assert calls["req"] == ("GET", "/api/v3/account/settings")
+        assert read["value"] == 20
+
+        def _boom(self, method, path, body_dict=None, timeout=10):
+            raise RuntimeError("api key sk-secret-should-not-surface")
+
+        monkeypatch.setattr(_Client, "request", _boom)
+        unread = asyncio.run(ex._read_uta_symbol_leverage("JUP/USDT:USDT"))
+        assert unread["value"] is None
+        assert "sk-secret" not in str(unread)

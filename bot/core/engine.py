@@ -2441,6 +2441,11 @@ class RuneClawEngine:
         # case made the live website say "No scan data available" beside a
         # fresh heartbeat and a real 20-symbol scan. Prefer BTC for the market
         # context when present; otherwise describe the first measured result.
+        def _finite_measurement(raw: object) -> float | None:
+            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+                return None
+            return float(raw)
+
         reference_sig = btc_sig or next(iter(signals or []), None)
         if reference_sig is not None:
             ref_symbol = (
@@ -2448,23 +2453,16 @@ class RuneClawEngine:
                 or getattr(reference_sig, "asset", "")
                 or "Top signal"
             )
-            def _measured_number(value: Any) -> float | None:
-                try:
-                    return None if value is None else float(value)
-                except (TypeError, ValueError):
-                    return None
-
-            momentum = _measured_number(getattr(reference_sig, "momentum_score", None))
-            change = _measured_number(getattr(reference_sig, "change_pct_24h", None))
-            readings = []
-            if change is not None:
-                readings.append(f"24h change: {change:+.2f}%")
-            if momentum is not None:
-                readings.append(f"momentum {momentum:+.2f}")
-            reading_text = " | ".join(readings) or "market readings unavailable"
+            # A missing figure is not a flat market. 0.0 still prints: that
+            # is a measured change. None, or an attribute the row does not
+            # carry, is named unread.
+            momentum = _finite_measurement(getattr(reference_sig, "momentum_score", None))
+            change = _finite_measurement(getattr(reference_sig, "change_pct_24h", None))
+            change_text = "24h change unread" if change is None else f"24h change: {change:+.2f}%"
+            momentum_text = "momentum unread" if momentum is None else f"momentum {momentum:+.2f}"
             payload["key_call"] = (
                 f"<b>Autonomous scan</b> — {len(signals)} pairs scanned this cycle\n"
-                f"{ref_symbol} {reading_text}\n"
+                f"{ref_symbol} {change_text} | {momentum_text}\n"
                 f"Scanned at {datetime.now(UTC).strftime('%H:%M UTC')}"
             )
         payload["config"] = self._build_strategy_config_summary()
