@@ -390,6 +390,52 @@ class TestTheTierCard:
         risk._last_live_equity = 9141.0
         assert m._check_drawdown_tiers() == [] and m._last_dd_tier == 0
 
+    def test_winning_closes_and_an_open_mark_still_warn(self, live, tmp_path):
+        """4.56% under a 7% limit is 65% of the limit, and it is not a closed loss.
+
+        The exchange equity is the mark-to-market reading the gate compares
+        with the high-water mark. A winning close does not move that equity;
+        an open mark 4.56% under the peak does. The warning still fires, and
+        the card does not say the closed trades lost. Flat at the peak, the
+        same book warns nothing. An unreadable equity is refused and leaves
+        the last reading where it was: not a new drawdown, and not zero.
+        """
+        risk = _risk(tmp_path)
+        peak = 10000.0
+        risk.record_live_trade_result(25.0, notional=500.0)
+        risk.evaluate(_idea(), live_equity=peak, live_mode=True, live_account="bitget")
+        closes = risk.recent_live_closes(10)
+        assert closes == [25.0] and all(p > 0 for p in closes)
+        m = ProactiveMonitor(_engine(risk))
+        assert m._check_drawdown_tiers() == [], "flat at the peak is not a drawdown"
+        marked = 9544.0  # 4.56% under the peak: the open mark, not the close
+        risk.evaluate(_idea(), live_equity=marked, live_mode=True, live_account="bitget")
+        st = risk.drawdown_status()
+        assert st["drawdown_source"] == "live"
+        assert st["drawdown_pct"] == pytest.approx(4.56, abs=1e-9)
+        assert risk.circuit_breaker_active is False
+        (card,) = m._check_drawdown_tiers()
+        assert card.title == "Drawdown 65% of limit"
+        assert card.severity == "WARNING" and card.dedup_key == "dd_tier_50"
+        assert "DRAWDOWN AT 65% OF LIMIT" in card.body
+        assert "4.56%" in card.body and "7.00%" in card.body
+        assert "halts all entries at 100% of the limit" in card.body
+        line = _line(card.body, "Current drawdown")
+        assert line == ("- Current drawdown: <code>4.56%</code> "
+                        "(live equity high-water mark)")
+        assert "lost" not in line
+        assert ("open positions marked to market included" in card.body)
+        assert "It is not closed-trade profit and loss." in card.body
+        assert "closed trades lost" not in card.body
+        refused = risk.evaluate(
+            _idea(), live_equity=None, live_mode=True, live_account="bitget")
+        assert "LIVE_EQUITY: unreadable" in refused.checks_failed
+        assert risk.drawdown_status()["drawdown_pct"] == pytest.approx(4.56, abs=1e-9)
+        refused_zero = risk.evaluate(
+            _idea(), live_equity=0.0, live_mode=True, live_account="bitget")
+        assert "LIVE_EQUITY: unreadable" in refused_zero.checks_failed
+        assert risk.drawdown_status()["drawdown_pct"] == pytest.approx(4.56, abs=1e-9)
+
     def test_below_the_limit_the_card_is_the_early_warning(self, live, tmp_path):
         risk = _past_limit(tmp_path)
         risk._last_live_equity = 9400.0          # 6.00% of 7.00%: 86%
