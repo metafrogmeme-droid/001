@@ -1,13 +1,19 @@
 /**
  * Signal performance analytics (pure, in-process aggregation).
  *
- * Given a list of resolved signal rows (each with a numeric `pnl`), break the
- * win-rate / net-pnl down by pattern, symbol, direction, and confidence bucket.
- * Kept as a pure function (no DB, no I/O) so it runs identically over the MySQL
- * pool and the in-memory mock, and is unit-testable on its own.
+ * Given resolved signal rows, break the win rate and the realized R down by
+ * pattern, symbol, direction, and confidence bucket. Kept as a pure function
+ * (no DB, no I/O) so it runs identically over the MySQL pool and the
+ * in-memory mock, and is unit-testable on its own.
  *
- * A signal is a "win" when pnl > 0. Rows with a null/undefined/non-finite pnl
- * are treated as unresolved and ignored.
+ * `pnl` on a signal row is the R the outcome walk wrote (reward/risk at the
+ * target, −1 at the stop), gross of fees: a call has no size. The aggregates
+ * are named `net_r` (the sum) and `mean_r` (the sum divided by the counted
+ * rows) so the public boundary can keep them. R is a ratio.
+ *
+ * A signal is a "win" when that R is > 0. Rows with a null, undefined or
+ * non-finite `pnl` are unresolved or unreadable and are left out of every
+ * count and every sum — an unreadable row is not a 0R.
  */
 
 // Confidence buckets: [label, lo, hi) with hi exclusive except the last.
@@ -31,15 +37,30 @@ function bucketFor(conf) {
 function round1(n) { return Math.round(n * 10) / 10; }
 function round2(n) { return Math.round(n * 100) / 100; }
 
-// Accumulate one signal into a group map keyed by `key`.
-function _add(map, key, isWin, pnl) {
+// Accumulate one readable R into a group map keyed by `key`.
+function _add(map, key, isWin, r) {
   if (key == null || key === '') key = '(none)';
-  const g = map.get(key) || { key, n: 0, wins: 0, losses: 0, net_pnl: 0 };
+  const g = map.get(key) || { key, n: 0, wins: 0, losses: 0, sumR: 0 };
   g.n += 1;
   if (isWin) g.wins += 1;
-  if (pnl < 0) g.losses += 1;
-  g.net_pnl += pnl;
+  if (r < 0) g.losses += 1;
+  g.sumR += r;
   map.set(key, g);
+}
+
+/**
+ * The two R aggregates, or null when nothing in the set was readable.
+ *
+ * `count === 0` is "no resolved row", and the accumulator's 0 is not a
+ * measured flat book. A counted set whose R sums to 0 is a measurement,
+ * and both fields stay 0. The mean is taken from the raw sum, then rounded
+ * once, the same way `/api/signals/stats` rounds `avg_r`.
+ */
+function publishedR(sum, count) {
+  if (!(count > 0) || !Number.isFinite(sum)) {
+    return { net_r: null, mean_r: null };
+  }
+  return { net_r: round2(sum), mean_r: round2(sum / count) };
 }
 
 // Finalise a group map into a win_rate-annotated array, sorted by sample count
@@ -53,7 +74,7 @@ function _finalise(map, top = 12) {
       losses: g.losses,
       flat: Math.max(0, g.n - g.wins - g.losses),
       win_rate: g.n > 0 ? round1((g.wins / g.n) * 100) : null,
-      net_pnl: g.n > 0 ? round2(g.net_pnl) : null,
+      ...publishedR(g.sumR, g.n),
     }))
     .sort((a, b) => b.n - a.n)
     .slice(0, top);
@@ -64,17 +85,19 @@ function computeAnalytics(signals, { top = 12 } = {}) {
   const bySymbol = new Map();
   const byDirection = new Map();
   const byConfidence = new Map();
-  let n = 0, wins = 0, losses = 0, net = 0;
+  let n = 0, wins = 0, losses = 0, sumR = 0;
 
   for (const s of signals || []) {
-    const pnl = Number(s.pnl);
-    if (s.pnl == null || !Number.isFinite(pnl)) continue; // unresolved
-    const isWin = pnl > 0;
-    n += 1; if (isWin) wins += 1; if (pnl < 0) losses += 1; net += pnl;
-    _add(byPattern, s.pattern, isWin, pnl);
-    _add(bySymbol, s.symbol, isWin, pnl);
-    _add(byDirection, (s.direction || '').toUpperCase(), isWin, pnl);
-    _add(byConfidence, bucketFor(s.confidence), isWin, pnl);
+    // `== null` before Number(): Number(null) is 0, and a missing R is not
+    // a break-even. A non-finite value (NaN, a word) is unreadable, same skip.
+    const r = Number(s.pnl);
+    if (s.pnl == null || !Number.isFinite(r)) continue;
+    const isWin = r > 0;
+    n += 1; if (isWin) wins += 1; if (r < 0) losses += 1; sumR += r;
+    _add(byPattern, s.pattern, isWin, r);
+    _add(bySymbol, s.symbol, isWin, r);
+    _add(byDirection, (s.direction || '').toUpperCase(), isWin, r);
+    _add(byConfidence, bucketFor(s.confidence), isWin, r);
   }
 
   // Confidence buckets keep their natural order (not by count).
@@ -83,6 +106,9 @@ function computeAnalytics(signals, { top = 12 } = {}) {
     .sort((a, b) => confOrder.indexOf(a.key) - confOrder.indexOf(b.key));
 
   return {
+    // Same word `/api/signals/stats` stamps. Gross: the walk does not charge
+    // fees to a call, so `net_r` is the signed sum of that R, not a fee-net.
+    r_basis: 'gross',
     overall: {
       resolved: n,
       wins,
@@ -91,10 +117,10 @@ function computeAnalytics(signals, { top = 12 } = {}) {
       // break-even is an outcome, not a defeat.
       losses,
       flat: Math.max(0, n - wins - losses),
-      // null, not 0: nothing resolved is not a 0% win rate, and `round2(0)`
-      // over an empty set prints a measured flat book.
+      // null, not 0: nothing resolved is not a 0% win rate, and a sum of 0
+      // over an empty set is not a measured flat book.
       win_rate: n > 0 ? round1((wins / n) * 100) : null,
-      net_pnl: n > 0 ? round2(net) : null,
+      ...publishedR(sumR, n),
     },
     by_pattern: _finalise(byPattern, top),
     by_symbol: _finalise(bySymbol, top),

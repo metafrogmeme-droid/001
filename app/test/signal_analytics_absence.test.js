@@ -48,15 +48,69 @@ test('nothing resolved is null, never 0%', () => {
   assert.strictEqual(a.overall.resolved, 0);
   assert.strictEqual(a.overall.win_rate, null,
     '0% claims every signal lost; nothing resolved claims nothing');
-  assert.strictEqual(a.overall.net_pnl, null,
-    'round2(0) over an empty set prints a measured flat book');
+  assert.strictEqual(a.overall.net_r, null,
+    'a sum of 0 over an empty set prints a measured flat book');
+  assert.strictEqual(a.overall.mean_r, null,
+    'a mean over nothing resolved is not 0R');
+  assert.ok(!('net_pnl' in a.overall), 'the R sum is no longer named as dollars');
 });
 
 test('a measured zero survives', () => {
   const a = computeAnalytics([sig(0), sig(0)]);
   assert.strictEqual(a.overall.win_rate, 0, 'two resolved, none won — that IS 0%');
-  assert.strictEqual(a.overall.net_pnl, 0);
+  assert.strictEqual(a.overall.net_r, 0, 'two resolved flats sum to a measured 0R');
+  assert.strictEqual(a.overall.mean_r, 0, 'the mean of two flats is 0R, not absent');
   assert.strictEqual(a.overall.flat, 2);
+  const g = a.by_pattern[0];
+  assert.strictEqual(g.net_r, 0);
+  assert.strictEqual(g.mean_r, 0);
+});
+
+test('an unreadable R is left out of the sum, not booked as 0R', () => {
+  // 2R beside a missing row and a word. Counting either as 0R would publish
+  // a mean of 2/3 or 1, which is a different book.
+  const a = computeAnalytics([sig(2), sig(null), sig('n/a'), sig(undefined)]);
+  assert.strictEqual(a.overall.resolved, 1);
+  assert.strictEqual(a.overall.net_r, 2);
+  assert.strictEqual(a.overall.mean_r, 2);
+  const g = a.by_pattern.find((row) => row.key === 'breakout');
+  assert.strictEqual(g.n, 1);
+  assert.strictEqual(g.net_r, 2);
+  assert.strictEqual(g.mean_r, 2);
+});
+
+test('each group carries its own R, and a flat group stays 0', () => {
+  // Overall mean is 0.33. Breakout's mean is 0.50. Sweep is a measured 0.
+  // One figure copied onto every group would pass a single-group fixture.
+  const a = computeAnalytics([
+    sig(2, 'breakout', 'BTC/USDT'),
+    sig(-1, 'breakout', 'BTC/USDT'),
+    sig(0, 'sweep', 'ETH/USDT'),
+  ]);
+  assert.strictEqual(a.r_basis, 'gross');
+  assert.strictEqual(a.overall.net_r, 1);
+  assert.strictEqual(a.overall.mean_r, 0.33);
+  const breakout = a.by_pattern.find((row) => row.key === 'breakout');
+  const sweep = a.by_pattern.find((row) => row.key === 'sweep');
+  assert.strictEqual(breakout.net_r, 1);
+  assert.strictEqual(breakout.mean_r, 0.5);
+  assert.strictEqual(sweep.net_r, 0);
+  assert.strictEqual(sweep.mean_r, 0);
+  assert.notStrictEqual(breakout.mean_r, a.overall.mean_r);
+});
+
+test('a DECIMAL string zero is a measured flat, and a missing pattern still sums', () => {
+  const a = computeAnalytics([
+    { pnl: '0.00', pattern: null, symbol: 'ETH/USDT', direction: 'SHORT', confidence: 0.2 },
+  ]);
+  assert.strictEqual(a.overall.resolved, 1);
+  assert.strictEqual(a.overall.net_r, 0);
+  assert.strictEqual(a.overall.mean_r, 0);
+  assert.strictEqual(a.overall.flat, 1);
+  const g = a.by_pattern[0];
+  assert.strictEqual(g.key, '(none)');
+  assert.strictEqual(g.net_r, 0);
+  assert.strictEqual(g.mean_r, 0);
 });
 
 test('the buckets partition every resolved signal', () => {

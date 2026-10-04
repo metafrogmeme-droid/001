@@ -27,12 +27,14 @@
  * separately; the stream beside it had not. Naming FLAT as its own outcome is
  * what stops the two from disagreeing.
  *
- * Redaction lives at the HTTP boundary, not in the aggregator: `computeAnalytics`
- * still computes `net_pnl` honestly (null over an empty set, never 0) and keeps
- * its own unit tests. The same split `sanitizeRecord` uses for flight records.
+ * Redaction lives at the HTTP boundary. `computeAnalytics` publishes the R
+ * aggregates as `net_r` and `mean_r` (null when nothing resolved, never a
+ * stand-in 0) and keeps its own unit tests. The boundary runs the flight
+ * scrubber: a key that names a ratio stays, a key that names dollars does
+ * not, at every depth. The same split `sanitizeRecord` uses for flight records.
  */
 
-const { DOLLAR_KEY } = require('./flight');
+const { DOLLAR_KEY, scrub } = require('./flight');
 
 /**
  * WIN / LOSS / FLAT from a P&L, or null when it cannot be read.
@@ -72,28 +74,18 @@ function publicSignal(row) {
 }
 
 /**
- * `computeAnalytics` output with the dollar totals removed.
+ * `computeAnalytics` output safe for an anonymous payload.
  *
- * Win rate, the counts and the group keys are all ratios/counts and survive
- * untouched — they are the entire content of the insights panel. Only
- * `net_pnl` (overall and per group) is an amount.
+ * Win rate, the counts, and the R aggregates are ratios and counts. `net_r`
+ * and `mean_r` end in `_r`, so the flight scrubber keeps them — R is allowed
+ * on a public surface. A dollar-named key (`net_pnl`, `pnl_usd`, `fee_usd`)
+ * is dropped at every depth, including a group sitting beside `overall`.
+ * Dropping only the top-level total is how a per-row amount survived once
+ * already, one route over.
  */
 function publicAnalytics(a) {
   if (!a || typeof a !== 'object') return a;
-  const dropNet = (g) => {
-    const out = {};
-    for (const k of Object.keys(g || {})) {
-      if (k === 'net_pnl') continue;
-      out[k] = g[k];
-    }
-    return out;
-  };
-  const out = {};
-  for (const k of Object.keys(a)) {
-    out[k] = Array.isArray(a[k]) ? a[k].map(dropNet)
-      : (k === 'overall' ? dropNet(a[k]) : a[k]);
-  }
-  return out;
+  return scrub(a);
 }
 
 /**
