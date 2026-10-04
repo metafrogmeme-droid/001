@@ -188,6 +188,18 @@ def tier_card(*, frac: float, dd: float, source: Optional[str], limit: float,
         return None
     sev = "CRITICAL" if frac >= 0.85 else "WARNING"
     note = drawdown_source_note(source)
+    # The percent is account equity versus its peak. Open marks, fees, funding
+    # and transfers move that equity, and a book of winning closes can still
+    # sit under the peak. "Drawdown" alone was read as closed losses. Name the
+    # basis; do not say the closes lost.
+    if source == "live":
+        basis = (
+            "This percent is live account equity versus its high-water mark, "
+            "open positions marked to market included. It is not closed-trade "
+            "profit and loss.\n"
+        )
+    else:
+        basis = ""
     if past:
         tail = ("That is past the limit. The breaker trips on the next entry "
                 "evaluation; nothing has been halted yet.\n"
@@ -202,6 +214,7 @@ def tier_card(*, frac: float, dd: float, source: Optional[str], limit: float,
         f"{SEP}\n"
         f"- Current drawdown: <code>{dd:.2f}%</code>{note}\n"
         f"- Circuit-breaker limit: <code>{limit:.2f}%</code>\n\n"
+        + basis
         + tail
         + f"{SEP}\n"
         "\U0001f449 /status — review engine state\n"
