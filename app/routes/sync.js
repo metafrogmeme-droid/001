@@ -1172,8 +1172,34 @@ router.post('/signals', async (req, res) => {
       // window, and a row with none is never read as live.
       const exp = s.expires_at ? new Date(s.expires_at) : null;
       const expiresAt = exp && Number.isFinite(exp.getTime()) ? exp : null;
-      await pool.execute(
-        `INSERT INTO signals
+      const values = [
+        fixed.signal_key,
+        fixed.symbol,
+        fixed.direction,
+        fixed.confidence,
+        Number(s.score) || 0,
+        fixed.pattern,
+        fixed.regime,
+        fixed.entry_price,
+        fixed.stop_loss,
+        fixed.take_profit,
+        Number(s.rr) || 0,
+        fixed.thesis,
+        s.status ? String(s.status).slice(0, 16) : 'NEW',
+        (s.pnl === null || s.pnl === undefined) ? null : Number(s.pnl),
+        fixed.created_at,
+        s.resolved_at ? new Date(s.resolved_at) : null,
+        receipt.seal,
+        receipt.seal_payload,
+        new Date(),
+        expiresAt,
+        recordedLabel(s.signal_type, 64),
+        recordedLabel(s.timeframe, 32),
+        recordedLabel(s.source, 64),
+      ];
+      try {
+        await pool.execute(
+          `INSERT INTO signals
            (signal_key, symbol, direction, confidence, score, pattern, regime,
             entry_price, stop_loss, take_profit, rr, thesis, status, pnl,
             created_at, resolved_at, seal, seal_payload, sealed_at, expires_at,
@@ -1182,34 +1208,26 @@ router.post('/signals', async (req, res) => {
          ON DUPLICATE KEY UPDATE
            status = VALUES(status), pnl = VALUES(pnl),
            resolved_at = VALUES(resolved_at)`,
-        [
-          fixed.signal_key,
-          fixed.symbol,
-          fixed.direction,
-          fixed.confidence,
-          Number(s.score) || 0,
-          fixed.pattern,
-          fixed.regime,
-          fixed.entry_price,
-          fixed.stop_loss,
-          fixed.take_profit,
-          Number(s.rr) || 0,
-          fixed.thesis,
-          s.status ? String(s.status).slice(0, 16) : 'NEW',
-          (s.pnl === null || s.pnl === undefined) ? null : Number(s.pnl),
-          fixed.created_at,
-          s.resolved_at ? new Date(s.resolved_at) : null,
-          receipt.seal,
-          receipt.seal_payload,
-          new Date(),
-          expiresAt,
-          // Outside the seal. A re-sync updates the outcome only, so the
-          // cell the call was published under cannot move when it resolves.
-          recordedLabel(s.signal_type, 64),
-          recordedLabel(s.timeframe, 32),
-          recordedLabel(s.source, 64),
-        ]
-      );
+          values
+        );
+      } catch (err) {
+        // A rolling deploy can serve before a pre-existing database has the
+        // three optional setup dimensions. Never stop the primary signal
+        // stream for an exploratory scoreboard: preserve the original row
+        // shape and let the next migration/cold start add the dimensions.
+        if (!err || (err.code !== 'ER_BAD_FIELD_ERROR' && Number(err.errno) !== 1054)) throw err;
+        await pool.execute(
+          `INSERT INTO signals
+             (signal_key, symbol, direction, confidence, score, pattern, regime,
+              entry_price, stop_loss, take_profit, rr, thesis, status, pnl,
+              created_at, resolved_at, seal, seal_payload, sealed_at, expires_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             status = VALUES(status), pnl = VALUES(pnl),
+             resolved_at = VALUES(resolved_at)`,
+          values.slice(0, 20)
+        );
+      }
       upserted++;
     }
     nudge('signals');

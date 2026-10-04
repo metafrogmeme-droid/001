@@ -144,12 +144,25 @@ router.get('/stats', async (req, res) => {
 // SELECT: a dimension the query does not name never reaches a cell.
 router.get('/analytics', async (req, res) => {
   try {
-    const [rows] = await pool.execute(
-      `SELECT symbol, direction, confidence, pattern, regime, signal_type,
-              timeframe, source, pnl
-       FROM signals WHERE pnl IS NOT NULL
-       ORDER BY resolved_at DESC LIMIT 2000`
-    );
+    let rows;
+    try {
+      [rows] = await pool.execute(
+        `SELECT symbol, direction, confidence, pattern, regime, signal_type,
+                timeframe, source, pnl
+         FROM signals WHERE pnl IS NOT NULL
+         ORDER BY resolved_at DESC LIMIT 2000`
+      );
+    } catch (err) {
+      // The setup-cell dimensions are additive and exploratory. During a
+      // rolling schema upgrade the long-standing analytics must remain
+      // readable even if those optional columns are not present yet.
+      if (!err || (err.code !== 'ER_BAD_FIELD_ERROR' && Number(err.errno) !== 1054)) throw err;
+      [rows] = await pool.execute(
+        `SELECT symbol, direction, confidence, pattern, regime, pnl
+         FROM signals WHERE pnl IS NOT NULL
+         ORDER BY resolved_at DESC LIMIT 2000`
+      );
+    }
     // The column is realized R. computeAnalytics names the sum `net_r` and
     // the mean `mean_r` (null when nothing resolved). publicAnalytics keeps
     // those ratios and drops a dollar-named key if one is ever added beside
