@@ -25,6 +25,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from bot.formatters.price_text import fmt_price
+
 
 @dataclass
 class SweepSignal:
@@ -218,13 +220,13 @@ def detect_sweeps(
                         suggested_sl=round(sl, 8),
                         description=(
                             (
-                                f"Bullish liquidity sweep: swept ${sw_price:,.4f} by {depth_pct:.2f}%, "
+                                f"Bullish liquidity sweep: swept {fmt_price(sw_price)} by {depth_pct:.2f}%, "
                                 f"reversed {reversal:.0%}, vol {vol_ratio:.1f}x avg, "
                                 f"{touches} prior touches"
                             )
                             if vol_ratio is not None
                             else (
-                                f"Bullish liquidity sweep: swept ${sw_price:,.4f} by {depth_pct:.2f}%, "
+                                f"Bullish liquidity sweep: swept {fmt_price(sw_price)} by {depth_pct:.2f}%, "
                                 f"reversed {reversal:.0%}, "
                                 f"{touches} prior touches"
                             )
@@ -287,12 +289,12 @@ def detect_sweeps(
                         suggested_sl=round(sl, 8),
                         description=(
                             (
-                                f"Bearish liquidity sweep: swept ${sw_price:,.4f} by {depth_pct:.2f}%, "
+                                f"Bearish liquidity sweep: swept {fmt_price(sw_price)} by {depth_pct:.2f}%, "
                                 f"reversed {reversal:.0%}, vol {vol_ratio:.1f}x avg"
                             )
                             if vol_ratio is not None
                             else (
-                                f"Bearish liquidity sweep: swept ${sw_price:,.4f} by {depth_pct:.2f}%, "
+                                f"Bearish liquidity sweep: swept {fmt_price(sw_price)} by {depth_pct:.2f}%, "
                                 f"reversed {reversal:.0%}"
                             )
                         ),
