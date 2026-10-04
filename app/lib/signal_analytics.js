@@ -18,12 +18,16 @@
  *
  * Each displayed setup cell also carries n, the hit rate (wins / n) with
  * its Wilson interval, the mean R with `mean_r_interval`'s twin, a
- * Benjamini-Hochberg q-value, and a reading. The reading is `exploratory`
- * unless the cell was pre-registered and that registration was replicated
- * on prospective data (`setup-cell-reading.js`). A clear interval and a
- * q-value under 0.05 do not change the word. The q-values are computed
- * after the cap, so a cell that was not published is not in the family,
- * and a row that was not a cell is not given the reading.
+ * Benjamini-Hochberg q-value, and a reading. The reading is `too thin to
+ * say` when the cell's n is below `RCWinRate.MIN_RATED` (the learner's
+ * `min_samples`, passed in — not a second floor). At that floor and
+ * above it, the reading is `exploratory` unless the cell was
+ * pre-registered and that registration was replicated on prospective
+ * data (`setup-cell-reading.js`). A clear interval and a q-value under
+ * 0.05 do not change the word. An unreadable n is `unavailable`, not a
+ * sample of 0. The q-values are computed after the cap, so a cell that
+ * was not published is not in the family, and a row that was not a cell
+ * is not given the reading.
  */
 
 const {
@@ -32,6 +36,7 @@ const {
 const {
   readingForCell, matchedRegistrations,
 } = require('../public/js/setup-cell-reading');
+const { MIN_RATED } = require('../public/js/winrate-bar');
 
 // Confidence buckets: [label, lo, hi) with hi exclusive except the last.
 const CONF_BUCKETS = [
@@ -184,10 +189,11 @@ function _finaliseSetups(map, top = 12, registrations) {
       if (k !== '_p') out[k] = g[k];
     }
     out.q_value = qs[i];
-    // The gate reads registrations, not this cell's interval and not a
-    // word planted on a signal row. No match stays exploratory, and the
-    // evidence list is omitted rather than published as an empty claim.
-    out.reading = readingForCell(out, registrations);
+    // The gate reads n against MIN_RATED, then the registrations. A
+    // planted word on a signal row is not an input. No match at or above
+    // the floor stays exploratory. The evidence list is omitted rather
+    // than published as an empty claim.
+    out.reading = readingForCell(out, registrations, MIN_RATED);
     const hits = matchedRegistrations(out, registrations);
     if (hits.length) out.registrations = hits;
     return out;

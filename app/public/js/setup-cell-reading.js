@@ -1,18 +1,27 @@
 /*
  * The word on one setup cell.
  *
- *   readingForCell(cell, registrations) -> 'exploratory' | 'survives'
+ *   readingForCell(cell, registrations, minRated)
+ *     -> 'too thin to say' | 'unavailable' | 'exploratory' | 'survives'
+ *
+ * A measured n below `minRated` reads 'too thin to say'. The floor is
+ * not chosen here: callers pass RCWinRate.MIN_RATED, the same number
+ * setup_expectancy already uses. A second literal would be a second
+ * answer. A cell at the floor, and one above it, is not thin.
+ *
+ * An unreadable n is 'unavailable'. It is not a sample of 0, and it is
+ * not thin by pretending the count was 0. A missing cell is not this
+ * function's to label: the scoreboard omits it.
  *
  * 'survives' is painted only when the cell was pre-registered and that
- * registration was replicated on prospective data. A q-value under 0.05,
- * a mean-R interval clear of zero, and a planted word are not that record.
- * The cell's own mean_r_lo / mean_r_hi are a different quantity and are
- * not read here.
+ * registration was replicated on prospective data, and only once n is
+ * a measurement at or above the floor. A thin cell does not say it. A
+ * q-value under 0.05, a mean-R interval clear of zero, and a planted
+ * word are not that record. The cell's own mean_r_lo / mean_r_hi are a
+ * different quantity and are not read here.
  *
  * A registration matches on all five published dimensions. A missing
- * dimension matches nothing: the cell is not given a label by this
- * function beyond 'exploratory', and the scoreboard omits a cell that
- * never had the dimension. Prospective replication is the interval on
+ * dimension matches nothing. Prospective replication is the interval on
  * the prospective window. Both ends have to be finite measurements, in
  * order, with the lower end strictly above zero. Touching zero is not
  * clear. An unreadable end is not a zero. One registration that did not
@@ -33,6 +42,24 @@
 
   var EXPLORATORY = 'exploratory';
   var SURVIVES = 'survives';
+  var TOO_THIN = 'too thin to say';
+  var UNAVAILABLE = 'unavailable';
+
+  /**
+   * A measured sample count, or null when the field was not one.
+   *
+   * null before Number: Number(null) is 0, and a missing count is not a
+   * sample of 0. A boolean is not a count either (Number(true) is 1).
+   * A negative is not clamped to 0. The round is the same one the win-rate
+   * bar uses before it compares with MIN_RATED, so the word and the bar
+   * agree about which side of the floor a fractional count is on.
+   */
+  function measuredCount(v) {
+    if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null;
+    var n = typeof v === 'number' ? v : Number(v);
+    if (typeof n !== 'number' || !isFinite(n) || n < 0) return null;
+    return Math.round(n);
+  }
 
   function num(v) {
     // null before Number: Number(null) is 0, and a missing bound is not
@@ -101,7 +128,19 @@
     return out;
   }
 
-  function readingForCell(cell, registrations) {
+  /**
+   * The word for one published cell.
+   *
+   * `minRated` is the caller's floor (RCWinRate.MIN_RATED). This function
+   * does not keep a copy. A missing floor does not invent one: the cell
+   * is then exploratory or survives under the registration rule, and a
+   * test that forgets the argument fails the thin arm.
+   */
+  function readingForCell(cell, registrations, minRated) {
+    var n = measuredCount(cell && cell.n);
+    if (n === null) return UNAVAILABLE;
+    var floor = measuredCount(minRated);
+    if (floor !== null && n < floor) return TOO_THIN;
     var hits = matchedRegistrations(cell, registrations);
     if (!hits.length) return EXPLORATORY;
     for (var i = 0; i < hits.length; i++) {
@@ -112,8 +151,11 @@
 
   return {
     readingForCell: readingForCell,
+    measuredCount: measuredCount,
     matchedRegistrations: matchedRegistrations,
     EXPLORATORY: EXPLORATORY,
     SURVIVES: SURVIVES,
+    TOO_THIN: TOO_THIN,
+    UNAVAILABLE: UNAVAILABLE,
   };
 }));

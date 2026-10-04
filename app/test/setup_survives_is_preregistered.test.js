@@ -92,11 +92,14 @@ test('the records on disk register no cell, so a strong one does not read surviv
   assert.equal(html.includes('wr-neg'), false);
   assert.equal(html.includes('wr-fill'), false);
 
-  // A word planted on the signal row is not a registration.
+  // A word planted on the signal row is not a registration. One row is
+  // under the floor, so the cell reads too thin rather than exploratory,
+  // and the planted word still does not say survives.
   const planted = computeAnalytics([
     cell({ preregistered: true, prospective_lo: 1, prospective_hi: 2, reading: 'survives' }),
   ]);
-  assert.equal(planted.by_setup[0].reading, 'exploratory');
+  assert.equal(planted.by_setup[0].n, 1);
+  assert.equal(planted.by_setup[0].reading, 'too thin to say');
   assert.equal('registrations' in planted.by_setup[0], false);
 });
 
@@ -169,17 +172,20 @@ test('a pre-registered cell that was not replicated prospectively does not read 
   assert.equal(split.by_setup[0].reading, 'exploratory');
   assert.equal(WR.setupScoreboard(split.by_setup).includes('survives'), false);
 
-  // A measured flat book stays 0. The failed registration does not relabel it.
+  // A measured flat book stays 0. Four rows are under the floor, so the
+  // word is too thin. The failed registration does not say survives.
   const flat = computeAnalytics([
     cell({ pnl: 0 }), cell({ pnl: 0 }), cell({ pnl: 0 }), cell({ pnl: 0 }),
   ], {
     registrations: [registration({ prospective_lo: -0.2, prospective_hi: 0.3 })],
   });
   assert.equal(flat.by_setup[0].mean_r, 0);
-  assert.equal(flat.by_setup[0].reading, 'exploratory');
+  assert.equal(flat.by_setup[0].n, 4);
+  assert.equal(flat.by_setup[0].reading, 'too thin to say');
   const flatHtml = WR.setupScoreboard(flat.by_setup);
   assert.match(flatHtml, /0R/);
-  assert.match(flatHtml, /exploratory/);
+  assert.match(flatHtml, /too thin to say/);
+  assert.equal(flatHtml.includes('exploratory'), false);
   assert.equal(flatHtml.includes('survives'), false);
 });
 

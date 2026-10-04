@@ -36,6 +36,7 @@ const APP = path.join(__dirname, '..');
 const { signalOutcome, publicSignal, publicAnalytics, dollarKeys } =
   require('../lib/public_signal');
 const { computeAnalytics } = require('../lib/signal_analytics');
+const { MIN_RATED } = require('../public/js/winrate-bar');
 
 // A row shaped like the SELECT in routes/signals.js, with a populated pnl.
 const row = (pnl, over = {}) => ({
@@ -241,7 +242,8 @@ test('GET /api/signals/analytics publishes net_r and mean_r, not a dollar total'
   assert.strictEqual(setup.n, 2);
   assert.strictEqual(setup.net_r, 1);
   assert.strictEqual(setup.mean_r, 0.5);
-  assert.strictEqual(setup.reading, 'exploratory');
+  assert.ok(setup.n < MIN_RATED);
+  assert.strictEqual(setup.reading, 'too thin to say');
   assert.ok(!('net_pnl' in setup));
   assert.ok(body.by_pattern.every((g) => !('reading' in g)));
   assert.ok(!JSON.stringify(body).includes('survives'));
