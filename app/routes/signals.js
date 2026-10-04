@@ -7,6 +7,7 @@
 const express = require('express');
 const { pool } = require('../db');
 const { computeAnalytics } = require('../lib/signal_analytics');
+const { loadCellRegistrations } = require('../lib/cell_registrations');
 const { publicSignal, publicAnalytics } = require('../lib/public_signal');
 const SignalStatus = require('../public/js/signal-status-model.js');
 
@@ -153,7 +154,13 @@ router.get('/analytics', async (req, res) => {
     // the mean `mean_r` (null when nothing resolved). publicAnalytics keeps
     // those ratios and drops a dollar-named key if one is ever added beside
     // them. This surface is anonymous.
-    res.json(publicAnalytics(computeAnalytics(rows)));
+    // Registrations are the committed records, not a field on the signal
+    // row. None of those records names a cell today, so every cell stays
+    // exploratory. An unreadable record is no registration, not a 503:
+    // the scoreboard's measurements do not depend on it.
+    res.json(publicAnalytics(computeAnalytics(rows, {
+      registrations: loadCellRegistrations(),
+    })));
   } catch (err) {
     console.error('Signal analytics error:', err.stack || err.message);
     // The deleted EMPTY_ANALYTICS was `{resolved:0, wins:0, losses:0,

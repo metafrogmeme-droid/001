@@ -227,6 +227,10 @@
     "v": 1,
     "sha": "550cc931fed16e08"
   },
+  "js/setup-cell-reading.js": {
+    "v": 1,
+    "sha": "a4bc1100633c9fb7"
+  },
   "js/shadow-gate-row.js": {
     "v": 2,
     "sha": "f3fcfd29d8415b0b"
@@ -296,8 +300,8 @@
     "sha": "6f0104bc8dc01e88"
   },
   "js/winrate-bar.js": {
-    "v": 4,
-    "sha": "1079b222980915d7"
+    "v": 5,
+    "sha": "608b6b132c21d719"
   },
   "styles.css": {
     "v": 50,
