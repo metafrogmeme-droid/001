@@ -2,7 +2,8 @@
  * Signal performance analytics (pure, in-process aggregation).
  *
  * Given resolved signal rows, break the win rate and the realized R down by
- * pattern, symbol, direction, and confidence bucket. Kept as a pure function
+ * pattern, symbol, direction, and confidence bucket, and by the setup cell
+ * setup × regime × timeframe × source × direction. Kept as a pure function
  * (no DB, no I/O) so it runs identically over the MySQL pool and the
  * in-memory mock, and is unit-testable on its own.
  *
@@ -37,6 +38,46 @@ function bucketFor(conf) {
 function round1(n) { return Math.round(n * 10) / 10; }
 function round2(n) { return Math.round(n * 100) / 100; }
 
+/**
+ * A dimension word the row actually stored, or null when it did not.
+ *
+ * Only a non-empty string counts. `null`, a blank, and a number are not a
+ * setup or a timeframe — `String(1)` would publish a group the row never
+ * named. `pattern` is a different column (the scan trigger) and is not a
+ * stand-in for `signal_type`.
+ */
+function recordedLabel(value) {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  return text ? text : null;
+}
+
+/**
+ * The five dimensions of one setup cell, or null when any one was not stored.
+ *
+ * Setup is the row's `signal_type` — the family the analyzer classified —
+ * published under the scoreboard's word for it. A missing dimension is left
+ * out of the cross-tab rather than filed as `(none)` or `unknown`. The row
+ * can still count in the overall R; it just has no cell.
+ */
+function setupDims(row) {
+  if (!row || typeof row !== 'object') return null;
+  const direction = typeof row.direction === 'string'
+    ? row.direction.toUpperCase()
+    : row.direction;
+  const dims = {
+    setup: recordedLabel(row.signal_type),
+    regime: recordedLabel(row.regime),
+    timeframe: recordedLabel(row.timeframe),
+    source: recordedLabel(row.source),
+    direction: recordedLabel(direction),
+  };
+  for (const value of Object.values(dims)) {
+    if (value == null) return null;
+  }
+  return dims;
+}
+
 // Accumulate one readable R into a group map keyed by `key`.
 function _add(map, key, isWin, r) {
   if (key == null || key === '') key = '(none)';
@@ -63,6 +104,50 @@ function publishedR(sum, count) {
   return { net_r: round2(sum), mean_r: round2(sum / count) };
 }
 
+function _addSetup(map, dims, isWin, r) {
+  const key = [dims.setup, dims.regime, dims.timeframe, dims.source, dims.direction].join('\0');
+  const g = map.get(key) || {
+    setup: dims.setup,
+    regime: dims.regime,
+    timeframe: dims.timeframe,
+    source: dims.source,
+    direction: dims.direction,
+    n: 0,
+    wins: 0,
+    losses: 0,
+    sumR: 0,
+  };
+  g.n += 1;
+  if (isWin) g.wins += 1;
+  if (r < 0) g.losses += 1;
+  g.sumR += r;
+  map.set(key, g);
+}
+
+function _finaliseSetups(map, top = 12) {
+  return [...map.values()]
+    .map(g => ({
+      setup: g.setup,
+      regime: g.regime,
+      timeframe: g.timeframe,
+      source: g.source,
+      direction: g.direction,
+      n: g.n,
+      wins: g.wins,
+      losses: g.losses,
+      flat: Math.max(0, g.n - g.wins - g.losses),
+      win_rate: g.n > 0 ? round1((g.wins / g.n) * 100) : null,
+      ...publishedR(g.sumR, g.n),
+    }))
+    .sort((a, b) => {
+      if (b.n !== a.n) return b.n - a.n;
+      const ak = [a.setup, a.regime, a.timeframe, a.source, a.direction].join('\0');
+      const bk = [b.setup, b.regime, b.timeframe, b.source, b.direction].join('\0');
+      return ak < bk ? -1 : ak > bk ? 1 : 0;
+    })
+    .slice(0, top);
+}
+
 // Finalise a group map into a win_rate-annotated array, sorted by sample count
 // desc (most-traded first), capped at `top`.
 function _finalise(map, top = 12) {
@@ -85,6 +170,7 @@ function computeAnalytics(signals, { top = 12 } = {}) {
   const bySymbol = new Map();
   const byDirection = new Map();
   const byConfidence = new Map();
+  const bySetup = new Map();
   let n = 0, wins = 0, losses = 0, sumR = 0;
 
   for (const s of signals || []) {
@@ -98,6 +184,8 @@ function computeAnalytics(signals, { top = 12 } = {}) {
     _add(bySymbol, s.symbol, isWin, r);
     _add(byDirection, (s.direction || '').toUpperCase(), isWin, r);
     _add(byConfidence, bucketFor(s.confidence), isWin, r);
+    const dims = setupDims(s);
+    if (dims) _addSetup(bySetup, dims, isWin, r);
   }
 
   // Confidence buckets keep their natural order (not by count).
@@ -126,6 +214,9 @@ function computeAnalytics(signals, { top = 12 } = {}) {
     by_symbol: _finalise(bySymbol, top),
     by_direction: _finalise(byDirection, 4),
     by_confidence: byConfidenceArr,
+    // One cell per recorded setup × regime × timeframe × source × direction.
+    // A row missing any of those is absent here, not keyed under a filler.
+    by_setup: _finaliseSetups(bySetup, top),
   };
 }
 

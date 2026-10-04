@@ -139,6 +139,52 @@
     return rows.slice(0, opts.max || MAX_ROWS).map(rowHtml).join('');
   }
 
+  /**
+   * The label of one setup cell, or null when a dimension was not stored.
+   *
+   * Five words, in the scoreboard's order. A missing one is omitted — the
+   * function returns null and the caller paints nothing — rather than
+   * "(none)" or a 0R. `mean_r == null` is checked before `Number`, because
+   * `Number(null)` is 0 and would print a measured flat book.
+   */
+  function setupCellLabel(g) {
+    if (!g || typeof g !== 'object') return null;
+    var dims = [g.setup, g.regime, g.timeframe, g.source, g.direction];
+    for (var i = 0; i < dims.length; i++) {
+      if (dims[i] == null || typeof dims[i] !== 'string' || dims[i].trim() === '') return null;
+    }
+    var label = dims.map(function (p) { return p.trim(); }).join(' · ');
+    if (g.mean_r == null) return label;
+    var mean = Number(g.mean_r);
+    if (!Number.isFinite(mean)) return label;
+    return label + ' · ' + mean + 'R';
+  }
+
+  /**
+   * The setup scoreboard, or '' when there is no cell to show.
+   *
+   * A missing group, an empty list, and a cell that lacks a dimension all
+   * omit. They do not become a 0% row. Colour stays the win-rate rule in
+   * `classify`: under the sample floor the row is muted, and the R in the
+   * label is a number, not a second colour claim.
+   */
+  function setupScoreboard(cells) {
+    if (!Array.isArray(cells) || !cells.length) return '';
+    var prepared = [];
+    for (var i = 0; i < cells.length; i++) {
+      var label = setupCellLabel(cells[i]);
+      if (label == null) continue;
+      var row = {};
+      for (var k in cells[i]) {
+        if (Object.prototype.hasOwnProperty.call(cells[i], k)) row[k] = cells[i][k];
+      }
+      row.label = label;
+      prepared.push(row);
+    }
+    if (!prepared.length) return '';
+    return buildRows(prepared, 'label');
+  }
+
   /** How many of these groups may honestly be ranked. For a caption. */
   function ratedCount(groups, key) {
     return (Array.isArray(groups) ? groups : [])
@@ -146,5 +192,6 @@
       .filter(function (c) { return c.rated; }).length;
   }
 
-  return { buildRows: buildRows, classify: classify, ratedCount: ratedCount, MIN_RATED: MIN_RATED, MAX_ROWS: MAX_ROWS };
+  return { buildRows: buildRows, classify: classify, ratedCount: ratedCount,
+           setupScoreboard: setupScoreboard, MIN_RATED: MIN_RATED, MAX_ROWS: MAX_ROWS };
 }));
