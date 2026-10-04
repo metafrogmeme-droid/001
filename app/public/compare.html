@@ -124,7 +124,7 @@
             ? '<span class="tier bt">' + esc(col.engine.scorecard.omitted) + '</span>'
             : col.engine.scorecard && col.engine.scorecard.metrics
             ? '<span class="tier bt">🔬 ' + esc(T('cmp.t_backtest', 'Frozen backtest')) + '</span>'
-            : '<span class="tier bt">🔬 ' + esc(T('cmp.t_pending', 'Backtest pending')) + '</span>');
+            : '<span class="tier bt">' + esc('No track record published') + '</span>');
           var sc = col.engine.scorecard;
           if (sc && sc.metrics && window.AgentScorecard) {
             t.push('<span data-trades>Trades ' + esc(AgentScorecard.tradesText(sc)) + '</span>');

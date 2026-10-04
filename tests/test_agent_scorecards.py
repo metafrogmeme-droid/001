@@ -100,7 +100,10 @@ def test_catalog_attaches_scorecard_with_provenance():
             assert "recorded and not applied" in card["how"]
             continue
         if not preset_universe_covered(cfg, _WINDOW):
-            assert s is None, card["id"]
+            assert isinstance(s, dict) and s.get("omitted"), card["id"]
+            assert "No track record published" in s["omitted"]
+            assert "pending" not in s["omitted"].lower()
+            assert "metrics" not in s
             continue
         assert s is not None, f"{card['id']} has no scorecard attached"
         assert s["dataset"] and len(s["dataset_hash"]) == 12   # truncated for display
@@ -113,16 +116,17 @@ def test_catalog_attaches_scorecard_with_provenance():
 
 
 def test_catalog_scorecard_is_failsoft(monkeypatch):
-    # A missing scorecard dir just yields scorecard=None, never a crash and
-    # never a fabricated metric. The daily rotation's omitted reason is not a
-    # track record; it is the sentence that says none was published.
+    # A missing scorecard dir does not invent metrics. A preset whose knobs
+    # do not size a fill still says the track record is unpublished. A house
+    # preset with no file stays None — missing, not pending.
     monkeypatch.setattr(sc, "_SCORECARD_DIR", "/nonexistent/path/xyz")
     cat = sc.catalog()
     assert cat
     for card in cat:
         slot = card["scorecard"]
-        if card["id"] == "daily-vol-rotation":
+        if card["id"] in ("daily-vol-rotation", "alt-sweep"):
             assert slot["omitted"]
+            assert "No track record published" in slot["omitted"]
             assert "metrics" not in slot
         else:
             assert slot is None

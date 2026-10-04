@@ -312,7 +312,7 @@ def how_line(cfg: dict) -> str:
 def omitted_reason(cfg: dict) -> str:
     """Why the public card has no track record. No dollar amount."""
     return (
-        "No track record is published. The"
+        "No track record published. The"
         f" {_pct(cfg.get('trailing_stop_pct'))} trailing stop, the"
         f" {_pct(cfg.get('take_profit_pct'))} take-profit, and the"
         f" {_pct(cfg.get('hard_stop_loss_pct'))} hard stop are recorded and"

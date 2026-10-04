@@ -207,10 +207,12 @@ def test_the_public_card_has_no_dollar_budget():
     assert "margin_budget" not in blob
     assert "starting_capital" not in blob
     assert "10000" not in blob and "10,000" not in blob
-    assert "50/200" in card["how"]
+    assert card["how"].count("50/200") == 1
     assert "reversing only when that relationship changes" in card["how"]
     assert "ETHUSDT" in card["how"]
     assert "resampled from 1h" in card["how"]
+    assert "That average is read on closed 4h bars" in card["how"]
+    assert "checked every 4 hours" not in card["how"]
     assert "1\u00d7" in card["how"]
     dip = sc.get_agent("dip-sniper")
     assert "moving-average" not in dip["how"]

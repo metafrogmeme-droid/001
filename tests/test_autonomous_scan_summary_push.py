@@ -140,6 +140,22 @@ class TestPushScanSummaryToWebsite:
         assert "24h change: +0.00%" in flat_call
         assert "momentum +0.00" in flat_call
 
+    def test_missing_market_readings_are_not_reported_as_zero(self, monkeypatch):
+        monkeypatch.setattr(eng_mod, "CONFIG", CONFIG)
+        import bot.utils.website_sync as ws
+        captured = {}
+        monkeypatch.setattr(ws, "sync_scan_in_background", lambda payload: captured.update(payload=payload))
+
+        stub = _stub_engine()
+        signals = [types.SimpleNamespace(symbol="ATOM/USDT")]
+        RuneClawEngine._push_scan_summary_to_website(stub, signals)
+
+        call = captured["payload"]["key_call"]
+        assert "24h change unread" in call
+        assert "momentum unread" in call
+        assert "24h change: +0.00%" not in call
+        assert "momentum +0.00" not in call
+
     def test_bearish_regime_derived_from_btc_signal(self, monkeypatch):
         monkeypatch.setattr(eng_mod, "CONFIG", CONFIG)
         import bot.utils.website_sync as ws
