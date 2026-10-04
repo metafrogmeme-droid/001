@@ -5083,7 +5083,11 @@ class LiveExecutor:
                 result["state"] = "unreadable"
                 logger.warning("Position verification failed for %s (attempt "
                                "%d/%d): %s", symbol, attempt + 1, attempts, exc)
-            if result["state"] == "found" and self._is_uta is True:
+            # Confirmed UTA only. `__init__` stores None until detection;
+            # an executor built with `__new__` has never stored it. Missing
+            # is unknown, and unknown is not the symbol-config path — the
+            # position row stays the reading, which is also the classic case.
+            if result["state"] == "found" and getattr(self, "_is_uta", None) is True:
                 # The position row's `leverage` is not the symbol-config row.
                 # On UTA the row can still say the sticky default after
                 # settings confirmed the approved leverage, and the guard
