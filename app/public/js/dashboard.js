@@ -2924,7 +2924,14 @@
         ? bars(a.by_pattern, 'pattern') : '';
       const symbolHtml = Array.isArray(a.by_symbol) && a.by_symbol.length
         ? bars(a.by_symbol, 'symbol') : '';
-      if (!setupHtml && !patternHtml && !symbolHtml) return null;
+      // The curve ConfidenceCalibrator already saved. The chart words it
+      // the way C3 does: provisional, a rung word or unmeasured, not a
+      // probability. A script that did not load omits the chart. It does
+      // not draw a line at zero.
+      const Cal = window.RCCalibration;
+      const calHtml = (Cal && typeof Cal.chart === 'function')
+        ? Cal.chart(a.calibration) : '';
+      if (!setupHtml && !patternHtml && !symbolHtml && !calHtml) return null;
       const columns = [
         patternHtml ? `<div><div class="stat mb-2"><div class="k">By pattern</div></div>${patternHtml}</div>` : '',
         symbolHtml ? `<div><div class="stat mb-2"><div class="k">By symbol</div></div>${symbolHtml}</div>` : '',
@@ -2932,7 +2939,12 @@
       const setupBlock = setupHtml
         ? `<div class="mb-3"><div class="stat mb-2"><div class="k">By setup</div><div class="muted small">setup · regime · timeframe · source · direction</div></div>${setupHtml}</div>`
         : '';
-      return `${setupBlock}${columns ? `<div class="grid grid-2">${columns}</div>` : ''}`;
+      const calBlock = calHtml
+        ? `<div class="mb-3"><div class="stat mb-2"><div class="k">Calibration</div></div>${calHtml}</div>`
+        : '';
+      const groups = `${setupBlock}${columns ? `<div class="grid grid-2">${columns}</div>` : ''}`;
+      const waiting = groups ? '' : '<p class="muted small">Insights build up as signals resolve.</p>';
+      return `${calBlock}${waiting}${groups}`;
     }, { empty: { text: 'Insights build up as signals resolve.' } });
 
     drawStream();
