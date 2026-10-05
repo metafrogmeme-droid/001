@@ -16279,6 +16279,56 @@ account marked to market, and the restart re-seeds it.
 (`tests/test_the_drawdown_gate_reads_the_account_marked_to_market.py`,
 `bot/core/live_executor.py`, `bot/risk/risk_engine.py`.)
 
+**THE POSITION SYNC REWROTE A UNIFIED ACCOUNT'S FILL FROM THE ROW THE GUARD
+HAD JUST DISCARDED.** PR 523 made the post-fill guard read a unified (UTA)
+Bitget account's leverage off the symbol-config row of `GET
+/api/v3/account/settings`, because the position row's `leverage` can stay
+at the sticky default (~20) after that row has confirmed the approved 5x,
+and the guard had been flattening fills that were already at the target.
+`execute()` then recorded `position.leverage = 5` and `cost_usd = notional
+/ 5`. `sync_positions_from_exchange` was not in that diff. At startup,
+every five minutes and on the limit-fill path (in the same pass that then
+hands the guard the symbol row) it read the same v3 position document,
+found `leverage: "20"` against the recorded 5, audited `leverage_sync 5x →
+20x`, wrote the 20, quartered `cost_usd`, cleared the adoption-unread
+markers and saved. The position card printed 20x and a quarter of the
+margin committed, and the published "on margin" return was computed on
+that quartered figure, for every unified fill, not only on a failure. Two
+readings of one quantity, and the one that persisted was the one 523 had
+called sticky. The review of the sixty PRs found it by asking which other
+surface makes the same claim; the refuter's reproduction, a real
+`LiveExecutor` over a stubbed v3 wire, is now the first test. A sibling in
+`_ensure_leverage`: on a unified account the v2 leverage read always
+answers 40085, so the position-row fallback was the FIRST pre-order
+reading, and a held symbol's sticky 20 refused the order with a CRITICAL
+`leverage_abort` whose own text said the field does not decide the fill,
+before the symbol row was ever asked.
+
+One reading now, `governing_fill_leverage`, asked by the guard, the sync
+and the pre-order check alike: the symbol row on a unified account, for the
+mode the orders use, read ONCE per sync pass off one settings document
+(`_read_uta_settings`, the one transport; `_read_uta_symbol_leverage` takes
+a document already in hand); the position row on a classic account, as
+before. Unknown is unknown and is said: an account no probe has answered is
+asked once through the monitoring pass's spaced probe and otherwise left
+alone (`leverage_sync` UNREAD, `account_type_unknown`); a settings document
+that will not read leaves every record and feeds the warning-rate breaker
+(`settings_unread`); a symbol with no row for the order's mode keeps its
+record and names the position row's figure as the sticky one it is not
+adopting (`symbol_row_missing`). The pre-order position-row fallback is
+skipped on a unified account, so the symbol row is the reading there too.
+And a fill the venue confirmed with no leverage the guard may act on used
+to fall through in silence, the card printing `Leverage: 5x` beside
+`CONFIRMED` as if the 5 had been read: it is still recorded at the
+requested figure, since that is what the order was sized at, and the audit
+(`leverage_unverified_on_fill`, UNREAD) and the card's leverage line now
+say that nothing has read it back. Every test that drives the real sync on
+a classic account now says so (`_is_uta = False`): `None` is a third value,
+and a fixture that left it unset was asserting a classic reading on an
+account whose type nobody had measured.
+(`tests/test_the_sync_reads_the_row_the_guard_reads.py`,
+`bot/core/live_executor.py`.)
+
 **A RISK BUDGET THAT BOUNDED THE NOTIONAL BOUNDED A LOSS FIVE TIMES ITS
 NAME, AND BOTH DECISIONS THE CHAPTER ABOVE FILED WERE MADE THE SAME DAY.**
 The benchmark chapter above measured it: the gate's base was
@@ -19815,7 +19865,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1211** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1212** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

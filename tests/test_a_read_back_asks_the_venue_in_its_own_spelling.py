@@ -705,6 +705,8 @@ async def test_a_per_user_bitget_sync_under_a_hyperliquid_operator_reads_its_boo
     audits: list = []
     monkeypatch.setattr(le, "audit", lambda log, msg, **kw: audits.append((msg, kw)))
     exr = _executor(tmp_path, "bitget", {"api_key": "k", "api_secret": "s", "passphrase": "p"})
+    # A classic account, said so: the position row is its leverage reading.
+    exr._is_uta = False
     pos = _pos(symbol="BTC/USDT", quantity=0.5, leverage=5, sl_order_id=None, tp_order_id=None)
     exr._positions["T1"] = pos
     await exr.sync_positions_from_exchange()

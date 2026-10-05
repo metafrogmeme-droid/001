@@ -24,6 +24,10 @@ def _pos(symbol="XPT/USDT", lev=10, qty=2.0, entry=1000.0):
 
 def _exec(tmp_path, fetch_result):
     e = LiveExecutor(state_dir=str(tmp_path))
+    # A CLASSIC account, said so: on a unified one the position row's
+    # leverage is the sticky figure and the sync reads the symbol row
+    # instead (tests/test_the_sync_reads_the_row_the_guard_reads.py).
+    e._is_uta = False
     e._risk_engine = MagicMock()
     e._save_positions = MagicMock()
     p = _pos()

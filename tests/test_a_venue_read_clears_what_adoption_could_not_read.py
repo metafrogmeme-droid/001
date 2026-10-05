@@ -31,9 +31,14 @@ from bot.skills.telegram_handler import _live_position_row
 
 
 def _executor(tmp_path) -> LiveExecutor:
-    return LiveExecutor(user_id="u1",
-                        credentials={"api_key": "k", "api_secret": "s", "passphrase": "p"},
-                        venue="bitget", state_dir=str(tmp_path))
+    ex = LiveExecutor(user_id="u1",
+                      credentials={"api_key": "k", "api_secret": "s", "passphrase": "p"},
+                      venue="bitget", state_dir=str(tmp_path))
+    # A CLASSIC account, said so: there the position row states the
+    # leverage. On a unified account that row is the sticky figure and the
+    # sync reads the symbol row (tests/test_the_sync_reads_the_row_the_guard_reads.py).
+    ex._is_uta = False
+    return ex
 
 
 def _adopted(*, entry=60000.0, leverage=0, cost=0.0, unread=("margin", "leverage"),
