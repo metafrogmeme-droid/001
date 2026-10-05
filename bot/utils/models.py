@@ -73,7 +73,15 @@ class MarketSignal(BaseModel):
     change_pct_24h: Optional[float] = None
     volume_usd_24h: float = Field(..., ge=0)  # C2-60 FIX: non-negative constraint
     volume_spike: bool = False
-    volume_spike_ratio: float = Field(default=0.0, ge=0)  # C2-22 FIX: actual field for spike filter
+    # The 24h turnover over its rolling average, as the scanner MEASURED it
+    # (`MarketScanner._measure_volume`), or None when it could not: fewer than
+    # three prior scans of the symbol, or turnover under the liquidity floor
+    # a multiple is believed from. The preset gates (`volume_ratio_clears`)
+    # read it; None does not clear a gate. It is not the 2x `volume_spike`
+    # flag, which is derived from it. A default of 0.0 here was how every
+    # live signal failed Momentum Hunter's 3x gate forever: the scanner never
+    # wrote the field, and 0.0 read as a measured "no volume".
+    volume_spike_ratio: Optional[float] = Field(default=None, ge=0)
     momentum_score: float = Field(default=0.0, ge=-1.0, le=1.0)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     asset_category: str = "Crypto"  # Crypto | Metal | Commodity | ETF | Pre-IPO | Stock

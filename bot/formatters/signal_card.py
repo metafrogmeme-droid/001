@@ -649,7 +649,11 @@ def render_scan_results_card(
         tp = s.get("tp", 0)
         rr = s.get("rr", 0)
         rsi = s.get("rsi", 0)
-        vol_ratio = s.get("vol_ratio", 0)
+        # None, or absent, is a ratio nobody measured: the stat is left off
+        # the card (omit), never drawn as 0x.
+        vol_ratio = s.get("vol_ratio")
+        if isinstance(vol_ratio, bool) or not isinstance(vol_ratio, (int, float)):
+            vol_ratio = 0
         score = s.get("score", 0)
         score_pct = int(score * 100) if score <= 1 else int(score)
         dir_color = _GREEN if direction == "LONG" else _RED

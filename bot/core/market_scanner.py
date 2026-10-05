@@ -821,7 +821,7 @@ class MarketScanner:
         if price <= 0 or volume < min_vol:
             return None
 
-        spike = self._detect_volume_spike(symbol, volume)
+        ratio, spike = self._measure_volume(symbol, volume)
         momentum = self._momentum_score(change, spike)
         category = _classify_symbol(symbol)
 
@@ -831,6 +831,11 @@ class MarketScanner:
             change_pct_24h=round(change, 2),
             volume_usd_24h=round(volume, 2),
             volume_spike=spike,
+            # The ratio the presets gate on, carried as measured. It used to
+            # be computed for the flag and dropped, so the model's 0.0 stood
+            # in for it and Momentum Hunter's 3x gate refused every live
+            # signal. None is unmeasured, and does not clear a gate.
+            volume_spike_ratio=None if ratio is None else round(ratio, 3),
             momentum_score=round(momentum, 3),
             timestamp=datetime.now(UTC),
             asset_category=category,
@@ -838,8 +843,15 @@ class MarketScanner:
 
     # ── Internal helpers ─────────────────────────────────────────
 
+    #: The multiple of its rolling average at which 24h turnover is a SPIKE.
+    SPIKE_RATIO = 2.0
+
     def _detect_volume_spike(self, symbol: str, current_vol: float) -> bool:
         """True if turnover is >2x its rolling average AND large enough to mean it.
+
+        The flag half of `_measure_volume`, which records this scan's volume
+        and measures the ratio the flag is read from. One reading: the flag
+        is the ratio past `SPIKE_RATIO`, never a second computation of it.
 
         A SPIKE NEEDS LIQUIDITY TO SPIKE FROM, and this is the mirror of the
         note `black_swan._MIN_BAR_NOTIONAL` already carries about collapses:
@@ -867,20 +879,33 @@ class MarketScanner:
         universe an operator scans, and `0` restores the previous behaviour
         for anyone who wants every multiple.
         """
+        return self._measure_volume(symbol, current_vol)[1]
+
+    def _measure_volume(self, symbol: str, current_vol: float) -> tuple[Optional[float], bool]:
+        """(ratio, spike): this scan's turnover over the symbol's rolling
+        average, and whether that is a spike. Records the scan.
+
+        The ratio is None, UNMEASURED, when there are fewer than three prior
+        scans to average, when that average is zero, or when the turnover is
+        under `CONFIG.min_spike_notional_usd`: the docstring above says why a
+        multiple over a baseline of nothing means nothing, and the gates that
+        read the ratio (`volume_ratio_clears`) treat None as not clearing.
+        A ratio is measured whether it is 0.4x or 5x; only a believable one
+        is reported, and the flag is that ratio past `SPIKE_RATIO`.
+        """
         # Note: rapid rescans may dampen spike detection as recent high volumes
         # are included in the baseline. This is acceptable for the 5-min scan interval.
         with self._lock:
             history = self._volume_history.setdefault(symbol, [])
+            ratio: Optional[float] = None
             if len(history) >= 3:
                 avg = sum(history) / len(history)
-                is_spike = (current_vol > avg * 2.0
-                            and current_vol >= CONFIG.min_spike_notional_usd)
-            else:
-                is_spike = False
+                if avg > 0 and current_vol >= CONFIG.min_spike_notional_usd:
+                    ratio = current_vol / avg
             history.append(current_vol)
             if len(history) > 20:
                 self._volume_history[symbol] = history[-20:]
-            return is_spike
+        return ratio, (ratio is not None and ratio > self.SPIKE_RATIO)
 
     @staticmethod
     def _momentum_score(change_pct: float, volume_spike: bool) -> float:
