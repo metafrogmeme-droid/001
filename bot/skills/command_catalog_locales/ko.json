@@ -29,6 +29,7 @@
     "livebalance": "실제 거래소 잔고(본인 계정, 읽기 전용)",
     "disconnect": "연결된 자격 증명 제거",
     "linkwallet": "$RCLAW 등급 접근용 Solana 지갑 연결(읽기 전용)",
+    "rclaw": "$RCLAW 토큰: 민트 주소, 공급량, 프리세일 상태",
     "lang": "언어 변경",
     "version": "봇 버전 및 모드",
     "health": "시스템 상태",

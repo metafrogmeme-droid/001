@@ -4,6 +4,11 @@ Scripts to mint and verify the **`$RCLAW`** SPL **Token-2022** on Solana **devne
 specified in [`docs/TOKEN_ROADMAP.md`](../docs/TOKEN_ROADMAP.md): 1,000,000,000 fixed supply,
 9 decimals, in-mint metadata, **freeze authority null**, **mint authority revoked** after mint.
 
+> **The `$RCLAW` that exists on Solana mainnet was not made by these scripts.** It is a classic
+> SPL Token, recorded in [`config/rclaw.mainnet.json`](config/rclaw.mainnet.json) (the file the
+> website's `/token` page and the bot's `/rclaw` card read). `config/token.config.json` is the
+> devnet draft.
+>
 > ⚠️ **This is draft tooling for devnet.** It refuses to run against mainnet. A real launch is
 > gated behind legal review + a smart-contract audit (roadmap §10–§11). All parameters in
 > `config/token.config.json` are a **proposed baseline to ratify**, not final.

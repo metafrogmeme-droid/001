@@ -1,6 +1,6 @@
 """The start-here command group — a slice out of the handler.
 
-`/start`, `/help`, `/status`, `/health`, `/dashboard`, `/version`, `/lang`,
+`/start`, `/help`, `/status`, `/health`, `/dashboard`, `/version`, `/rclaw`, `/lang`,
 `/leaderboard`, `/arena` and `/duel`, with the unknown-command reply, the
 duel keyboard and its pick callback, the viewer-board handle read, and the
 three status helpers (`_status_market_bias`, `_tick_age_s`,
@@ -114,6 +114,38 @@ class StartCommands:
             f"⚔️ <b>RUNECLAW</b> v{html.escape(__version__)}\n"
             f"Build: <code>{html.escape(build_short())}</code>\n"
             f"Mode: <code>{mode}</code>")
+
+    async def _cmd_rclaw(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/rclaw — the $RCLAW mint, its fixed-supply facts and the presale status.
+
+        Read from the one record the website's /token page reads too
+        (``token/config/rclaw.mainnet.json``), so the two surfaces cannot name
+        two mints. Not ``/token``: that is the contract detective for any
+        EVM address, and its bare usage reply points here. An unreadable record is said, by exception class, and no
+        address is shown in its place. The operator also sees what the tier
+        gate's ``RCLAW_MINT`` names, since a gate reading another mint is a
+        silent misconfiguration.
+        """
+        uid = update.effective_user.id if update.effective_user else 0
+        if not self._limiter.allow(uid):
+            return
+        from bot.formatters.token_card import render_token_card
+        from bot.token.record import load_record
+        try:
+            record = load_record()
+        except Exception as exc:
+            system_log.error("/rclaw: record unreadable: %s", type(exc).__name__, exc_info=True)
+            await self._send(update,
+                "🪙 The $RCLAW token record could not be read "
+                f"({type(exc).__name__}). No address is shown in its place; "
+                "try again in a minute.")
+            return
+        operator = self._is_admin(update)
+        env_mint: Optional[str] = None
+        if operator:
+            from bot.token.tier_gate import mint_address
+            env_mint = mint_address()
+        await self._send(update, render_token_card(record, operator=operator, env_mint=env_mint))
 
     async def _cmd_start(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """GetClaw welcome — auto-registers new users."""

@@ -1313,9 +1313,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 107 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 108 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 98 of the 107 reach the tool-less chat model and 9
+typed as the card prints them, 99 of the 108 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -16386,6 +16386,37 @@ else.
 `bot/core/engine.py`, `bot/core/practice_fill.py`,
 `bot/skills/telegram_handler.py`, `bot/web/user_gateway.py`.)
 
+**THE TOKEN WAS MINTED, AND EVERY SURFACE THAT NAMED IT STILL SAID IT DID NOT
+EXIST.**
+`$RCLAW` was minted on Solana mainnet on 2026-09-30
+(`rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71qBK2CaNe`). Five days later the token
+roadmap still opened "No token exists. No sale has run.", the marketing
+site's product page and its `llms.txt` said the same to every reader and
+summariser, two referral rungs said their perk rode on "a token that does
+not exist yet", the income map cited that sentence twice, and the tier
+gate's docstring named Token-2022 as the standard. Read back from the chain
+(`getAccountInfo`, jsonParsed), the mint is a CLASSIC SPL Token under
+`Tokenkeg…`, not the Token-2022 the plan proposed, so the one sentence that
+described the standard had never been a reading of the token at all: it
+was the plan's word, written before there was anything to read. The facts
+now live in one record, `token/config/rclaw.mainnet.json`, with the RPC
+call each value came from, and the two surfaces that show the mint read it
+rather than retyping it: the website's `/token` page (through
+`GET /api/token`) and the bot's `/rclaw` card. A record that cannot be read
+paints no address, because a guessed mint is worse than none, and every
+presale term is `null` until it is announced, rendered as "not announced
+yet" and never as a blank or a 0. The bot command is `/rclaw`, not `/token`:
+`/token` was already the contract detective, and a second definition under
+the same name was shadowed by the mixin order, which
+`tests/test_handler_mixins.py` caught before anything ran. The marketing
+site keeps its rule that the ticker never appears there; its sentences now
+say the token is minted but not launched. One measurement worth keeping
+apart from the record: the tier gate still accepts only devnet and testnet
+RPC hosts, so `RCLAW_MINT` set to the mainnet mint would read nothing, and
+the operator's `/rclaw` card says which mint the gate is configured for.
+(`tests/test_the_token_card_reads_the_one_record.py`,
+`app/test/the_token_page_names_one_mint.test.js`.)
+
 **A RISK BUDGET THAT BOUNDED THE NOTIONAL BOUNDED A LOSS FIVE TIMES ITS
 NAME, AND BOTH DECISIONS THE CHAPTER ABOVE FILED WERE MADE THE SAME DAY.**
 The benchmark chapter above measured it: the gate's base was
@@ -19922,7 +19953,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1213** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1214** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

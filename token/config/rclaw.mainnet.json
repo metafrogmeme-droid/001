@@ -1,0 +1,40 @@
+{
+  "_comment": [
+    "The $RCLAW token that exists on Solana mainnet. ONE record: the website",
+    "(app/lib/rclaw_token.js -> GET /api/token -> /token) and the bot",
+    "(bot/token/record.py -> /token) both read this file, so no surface can",
+    "name a second mint. Every value was read back from the chain and the",
+    "Jupiter token index on verified_at (see basis). Re-read before editing.",
+    "token.config.json beside this file is the DEVNET DRAFT the tooling in",
+    "token/ runs against; it is not this token."
+  ],
+  "name": "RUNECLAW Token",
+  "symbol": "RCLAW",
+  "chain": "Solana",
+  "cluster": "mainnet-beta",
+  "mint": "rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71qBK2CaNe",
+  "token_program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+  "standard": "SPL Token",
+  "decimals": 9,
+  "supply_tokens": "1000000000",
+  "supply_base_units": "1000000000000000000",
+  "mint_authority": null,
+  "freeze_authority": null,
+  "created_at": "2026-09-30T16:51:51Z",
+  "icon": "https://ipfs.io/ipfs/QmY6jVhLcJtRFZW978vvTi3oJmGKGt3s1vZoJbKswX63qQ",
+  "explorer": "https://solscan.io/token/rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71qBK2CaNe",
+  "verified_at": "2026-10-05",
+  "basis": {
+    "mint, token_program, decimals, supply_base_units, mint_authority, freeze_authority": "getAccountInfo(mint, jsonParsed) on api.mainnet-beta.solana.com: owner TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA, supply 1000000000000000000, both authorities null",
+    "created_at": "blockTime of the only signature getSignaturesForAddress(mint) returns (slot 452023656)",
+    "name, symbol, icon": "lite-api.jup.ag/tokens/v2/search?query=<mint>"
+  },
+  "presale": {
+    "_comment": "null is NOT ANNOUNCED, and every reader says so in words. Fill a field only once it is announced on the official channels; never with a placeholder.",
+    "status": "coming_soon",
+    "date": null,
+    "price": null,
+    "venue": null,
+    "allocation_tokens": null
+  }
+}

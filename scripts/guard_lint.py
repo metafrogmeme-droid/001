@@ -479,6 +479,12 @@ RULES: list[Rule] = [
                            # counter_case: no account, no prices, no seal, no
                            # pnl. The id is one the caller already holds from
                            # the stream. Same table as `signals`, one row.
+            "token",       # GET /api/token — the $RCLAW record from
+                           # token/config/rclaw.mainnet.json: a mint address,
+                           # a token program, a supply, two revoked
+                           # authorities and a presale block. No account, no
+                           # request input, no database; the file is in the
+                           # repository. GET only.
             "spot", "market", "macro", "patterns", "signals", "insight",
             "today", "feed", "gas", "dapps", "allowances",
             # ^ market data and read-only chain lookups: no account is in scope,

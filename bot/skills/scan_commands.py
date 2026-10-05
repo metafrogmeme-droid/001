@@ -213,7 +213,8 @@ class ScanCommands:
                 update,
                 "Usage: <code>/token &lt;contract address&gt; [chain]</code>\n"
                 "e.g. <code>/token 0xdAC17F958D2ee523a2206206994597C13D831ec7</code>\n"
-                f"Chains: {', '.join(sorted(set(CHAIN_IDS)))}")
+                f"Chains: {', '.join(sorted(set(CHAIN_IDS)))}\n"
+                "Looking for RUNECLAW's own token? /rclaw")
             return
         address = str(args[0]).strip()
         if not self._EVM_ADDR_RE.match(address):

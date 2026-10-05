@@ -444,12 +444,12 @@ const REFERRAL_TIERS = [
       + 'referrals today, so this is an intention rather than a benefit.' },
   { at: 10, name: 'Ambassador', state: 'planned',
     perk: 'Fee credits.',
-    requires: 'Would ride on the $RCLAW token, which does not exist yet — no '
-      + 'token has launched and no sale has run.' },
+    requires: 'Would ride on the $RCLAW token, which is minted but not launched '
+      + 'yet — no sale has run and nothing in the product uses it.' },
   { at: 25, name: 'Legend', state: 'planned',
     perk: 'A share of protocol revenue.',
-    requires: 'Would ride on the $RCLAW token, which does not exist yet — no '
-      + 'token has launched and no sale has run. Not an offer.' },
+    requires: 'Would ride on the $RCLAW token, which is minted but not launched '
+      + 'yet — no sale has run and nothing in the product uses it. Not an offer.' },
 ];
 
 // The tier for a referral count, or NULL when the count is not a measurement.

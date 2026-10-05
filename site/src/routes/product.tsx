@@ -138,9 +138,10 @@ function Product() {
         The roadmap marks these as building, planned or gated, and this page
         will not say otherwise until they are reachable.
       </P>
-      <Gap title="No token, and nothing that depends on one">
-        No token exists and no sale has run. Tooling exists in a draft state and
-        refuses mainnet. Rewards that would ride on it say so where they appear.
+      <Gap title="No token sale, and nothing that depends on the token">
+        A token has been minted but not launched, and no sale has run. Its one
+        mint address is on the web app at /token. Rewards that would ride on it
+        say so where they appear.
       </Gap>
       <Gap title="No deposit-taking product">
         Idle-margin yield is a read-only rate display. Nothing here takes custody

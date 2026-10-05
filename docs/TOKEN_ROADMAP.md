@@ -13,8 +13,18 @@
 > **Ticker note.** This document standardizes on **`$RCLAW`**. It supersedes the earlier
 > `$CLAW` placeholder used in [`ROADMAP.md`](./ROADMAP.md); treat `$CLAW` as a legacy alias.
 
-> **Implementation status — devnet draft, nothing launched.** Parts of this plan now exist as
-> code in [`token/`](../token/), which changes what is *decided* versus *proposed*:
+> **Implementation status — minted on mainnet, nothing sold.** The `$RCLAW` mint exists on
+> Solana mainnet: `rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71qBK2CaNe`
+> ([Solscan](https://solscan.io/token/rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71qBK2CaNe)). Read back from the chain on 2026-10-05:
+> a **classic SPL Token** (program `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`), not the
+> Token-2022 this plan proposes; 9 decimals; 1,000,000,000 supply; mint authority and freeze
+> authority both **revoked**; created 2026-09-30. It was not made by the devnet tooling below,
+> which creates a Token-2022 mint. The record is
+> [`token/config/rclaw.mainnet.json`](../token/config/rclaw.mainnet.json), and the website's
+> `/token` page and the bot's `/rclaw` card both read it.
+>
+> Parts of this plan also exist as code in [`token/`](../token/), which changes what is
+> *decided* versus *proposed*:
 >
 > - **Mint tooling** ([`token/README.md`](../token/README.md)) creates the Token-2022 mint,
 >   mints the fixed supply and revokes mint + freeze authority, then verifies all of it. It
@@ -25,8 +35,9 @@
 > - Building it settled two things this document previously left open (§13) and **disproved
 >   one assumption** about soft caps (§5).
 >
-> No token exists. No sale has run. Legal review and the audit in §10–§11 still gate
-> everything, and every number below remains a baseline to ratify.
+> The token is minted but not launched: no sale has run and no pool exists. Legal review
+> and the audit in §10–§11 still gate the presale, and every number below remains a baseline
+> to ratify.
 
 ---
 
@@ -88,6 +99,9 @@ tissue, not the product.
 | Mint authority | **Revoked** after the full supply is minted (supply can never increase) |
 | Freeze authority | **Revoked** (no wallet can be frozen; credibly neutral) |
 | Update authority | Held by a **Squads multisig**, then time-locked / renounced post-launch |
+
+**As minted on mainnet** (see the status note at the top): the standard is a **classic SPL
+Token**, not Token-2022. Supply, decimals and both revoked authorities match the table.
 
 **Why Solana.** The launch venues the team is evaluating (Smithii, Metaplex Genesis,
 Pump.fun/LetsBonk) are Solana-native, RUNECLAW already runs a **Solana ecosystem scan mode**
@@ -490,8 +504,9 @@ section to read before trusting any of it.
   **mint-scoped** vault authority (`["vault", mint]`). Token-2022 aware (`transfer_checked`).
   Non-custodial (users can unstake at any time). The canonical mint can be pinned at build
   time with `RCLAW_PINNED_MINT=<address> anchor build` — deliberately **not** a hardcoded
-  literal, because the `$RCLAW` mint does not exist yet and a placeholder in a security
-  constant would either brick staking or fake the appearance of protection. Unset → any mint;
+  literal: no mint existed when it was written, and a placeholder in a security
+  constant would either brick staking or fake the appearance of protection. The mainnet
+  mint is now recorded in `token/config/rclaw.mainnet.json`. Unset → any mint;
   set → others rejected with `UnexpectedMint`; malformed → **fails closed** with
   `InvalidPinnedMint`. ⚠️ **Still unaudited, and an earlier revision shipped a critical
   vault-drain bug** — see §14 and

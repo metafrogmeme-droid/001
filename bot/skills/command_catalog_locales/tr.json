@@ -29,6 +29,7 @@
     "livebalance": "gerçek borsa bakiyeniz (kendi hesabınız, salt okunur)",
     "disconnect": "bağlı kimlik bilgilerinizi kaldırın",
     "linkwallet": "$RCLAW kademe erişimi için bir Solana cüzdanı bağlayın (salt okunur)",
+    "rclaw": "$RCLAW tokenı: mint adresi, arz ve ön satış durumu",
     "lang": "dili değiştirin",
     "version": "bot sürümü ve modu",
     "health": "sistem sağlığı",

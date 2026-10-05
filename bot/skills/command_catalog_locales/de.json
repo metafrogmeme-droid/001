@@ -29,6 +29,7 @@
     "livebalance": "dein echtes Börsenguthaben (eigenes Konto, nur lesend)",
     "disconnect": "deine verknüpften Zugangsdaten entfernen",
     "linkwallet": "eine Solana-Wallet verknüpfen (nur lesend) für den $RCLAW-Stufenzugang",
+    "rclaw": "der $RCLAW-Token: Mint-Adresse, Angebot und Presale-Status",
     "lang": "Sprache wechseln",
     "version": "Bot-Version und Modus",
     "health": "Systemzustand",

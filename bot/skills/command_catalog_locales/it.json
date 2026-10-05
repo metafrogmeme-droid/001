@@ -29,6 +29,7 @@
     "livebalance": "il tuo saldo reale sull'exchange (il tuo account, sola lettura)",
     "disconnect": "rimuovi le credenziali collegate",
     "linkwallet": "collega un wallet Solana (sola lettura) per l'accesso a livelli $RCLAW",
+    "rclaw": "il token $RCLAW: indirizzo del mint, offerta e stato della prevendita",
     "lang": "cambia lingua",
     "version": "versione e modalità del bot",
     "health": "salute del sistema",
