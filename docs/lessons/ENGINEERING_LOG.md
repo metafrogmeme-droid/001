@@ -16329,6 +16329,63 @@ account whose type nobody had measured.
 (`tests/test_the_sync_reads_the_row_the_guard_reads.py`,
 `bot/core/live_executor.py`.)
 
+**A PRACTICE CONFIRM WAS SIZED AND GATED ON THE OPERATOR'S LIVE ACCOUNT,
+AND THE MODE CARD SAID LIVE OVER IT.** PR 498 (plan item F8) made a
+self-admitted account's confirm a PRACTICE row on its own paper book, and
+skipped the wrapper's duplicate read of the live book for it. The review of
+the sixty PRs found the two surfaces one step over that still read the
+operator's money and the live flags. The re-check in `_confirm_trade_inner`
+went through `_live_recheck_context`, which with per-user live off (the
+default) is the OPERATOR's cached live equity, exchange position count and
+held rows: driven, an operator balance that could not be read refused the
+practice confirm ("Live equity could not be read"), an operator book at the
+position cap refused it ("MAX_POSITIONS"), and a $50,000 operator book sized
+a $100 practice fill (the live execution ceiling) on a $10,000 practice
+book. The compliance gate then authorized a LIVE_TRADE against the
+operator's profile, minted a Lock 5 human-approval token for it and wrote
+the grant to the consent ledger, for a fill that reached no venue. And
+`_trade_mode` (`GET /trade/live_mode`, the key the browser's 2FA step-up
+turns on) read the web live gate or the Telegram key-holder policy alone,
+while `_can_trade_live` answered True for a self-admitted key holder under
+LIVE_OPEN_TO_KEY_HOLDERS and for a store flag an admin had granted, so the
+mode card said "🔥 Live" over a confirm that landed on the practice book,
+and `placed: true` came back with no word that it was practice. Identity
+decides whose book, and a self-admitted account's book is the practice one.
+
+One reading now, `RuneClawEngine.confirm_is_practice` (a self-admitted
+account, or a practice-mode opt-in; an unreadable store or opt-in is not
+practice, so the live doors still refuse), asked by the confirm branch, the
+re-check, the compliance gate, the Telegram doors
+(`confirm_is_practice_for`), the web gateway (`_confirm_is_practice`) and
+every mode surface. The re-check runs on `practice_risk_for`: a per-user
+engine bound to the practice book, so the practice book's own equity, open
+count and breakers decide, and the operator's live peak and breaker are
+never written by a practice evaluation. It is a SEPARATE engine from the
+person's live one, under its own key and state file, with its person-level
+peak keyed `practice:<user>` and no cross-venue halt: a practice peak of
+$10,000 meeting a later $500 live account would read as a 95% drawdown and
+halt the person on their first live confirm, and a practice loss must never
+arm a live engine. The reproduction that found the first defect also found
+that shape, as a 53% drawdown on a fresh practice book whose peak another
+test's fills had left under the same person. A practice confirm authorizes
+a PAPER trade with no live token; `_can_trade_live` answers No for a
+practice caller whatever the flag or the keys say; `/trade/live_mode` reads
+PAPER with the practice reason and carries `practice`; the web confirm
+answer carries `practice` beside `placed`. Every test that expected a
+register()-only user to trade live now vouches that user by a human admin
+id first: `authorize(..., by="auto-accept")` clamps the role to the
+self-admission role by design, and a stand-in engine that is a mock answers
+every attribute, so a reading counts only when it is the literal `True`.
+A POLICY SEAM THIS LEAVES VISIBLE: LIVE_OPEN_TO_KEY_HOLDERS says a key
+holder trades live "without any admin step", and F8 says a self-admitted
+account is practice until vouched; at HEAD the engine's rule wins and every
+surface now says so. Reversing it (a self-admitted key holder trades live
+on their own account) is one clause in `confirm_is_practice`, and nowhere
+else.
+(`tests/test_a_practice_confirm_reads_the_practice_book.py`,
+`bot/core/engine.py`, `bot/core/practice_fill.py`,
+`bot/skills/telegram_handler.py`, `bot/web/user_gateway.py`.)
+
 **A RISK BUDGET THAT BOUNDED THE NOTIONAL BOUNDED A LOSS FIVE TIMES ITS
 NAME, AND BOTH DECISIONS THE CHAPTER ABOVE FILED WERE MADE THE SAME DAY.**
 The benchmark chapter above measured it: the gate's base was
@@ -19865,7 +19922,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1212** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1213** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

@@ -221,6 +221,9 @@ class TestTheTelegramGate:
         assert said and "RuntimeError" in said[0] and "users.json failed" not in said[0]
 
     def test_a_healthy_store_still_opens_to_a_key_holder(self, wired, healthy_store, open_policy):
+        # Vouched: a register() alone leaves the self-admission role, whose
+        # confirm is a practice fill, and practice is not live.
+        healthy_store.authorize(UID, role="trader", by="999")
         assert _gate(healthy_store) is True
         assert _gate(healthy_store, own_keys=False) is False
         healthy_store.set_live_trading(UID, False)

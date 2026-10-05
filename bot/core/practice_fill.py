@@ -14,6 +14,14 @@ from bot.utils.user_store import SELF_ADMISSION_ROLE
 #: Stamped on the paper row a self-admitted confirm opens. Not a count.
 PRACTICE_FILL = "PRACTICE"
 
+#: Why a caller's mode reads PAPER when the live flags alone would say LIVE:
+#: the engine opens a practice row for their confirm (`confirm_is_practice`),
+#: so every surface that names the mode says this rather than LIVE.
+PRACTICE_MODE_REASON = (
+    "practice account: your confirms open practice rows on your own paper "
+    "book, not live orders (a self-admitted account, or practice mode opted "
+    "in). Live trading needs an account an admin has vouched for.")
+
 
 def is_self_admitted_paper(user: object) -> bool:
     """True only when the stored role is the self-admission role.

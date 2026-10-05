@@ -89,6 +89,7 @@ class _Engine:
     from bot.core.engine import RuneClawEngine as _E
     _is_operator_user = _E._is_operator_user
     risk_for = _E.risk_for
+    _user_risk_engine = _E._user_risk_engine
     del _E
 
     def __init__(self):

@@ -352,18 +352,29 @@ class TestTheGateRecordsEverySizedEvaluation:
     def test_risk_for_tells_every_per_user_engine_whose_it_is(self):
         """A SCAN, stated as one: `risk_for` needs a whole RuneClawEngine to
         drive, and the claim is the wiring -- the per-user engine it builds is
-        handed the user id through `set_person_identity` before it is cached."""
+        handed the user id through `set_person_identity` before it is cached.
+
+        The building moved into `_user_risk_engine`, which `risk_for` and
+        `practice_risk_for` share, so the scan reads the builder: the live
+        arm names the person by their id, the practice arm by a key of its
+        own, and `risk_for` reaches the builder on its live arm."""
         import ast
         import inspect
         import textwrap
 
         from bot.core.engine import RuneClawEngine
-        fn = ast.parse(textwrap.dedent(inspect.getsource(RuneClawEngine.risk_for)))
-        calls = [node for node in ast.walk(fn)
-                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                 and node.func.attr == "set_person_identity"]
-        assert len(calls) == 1
-        assert ast.unparse(calls[0].args[0]) == "str(user_id)"
+
+        def _calls(fn, attr):
+            tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+            return [node for node in ast.walk(tree)
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == attr]
+
+        named = sorted(ast.unparse(c.args[0])
+                       for c in _calls(RuneClawEngine._user_risk_engine, "set_person_identity"))
+        assert named == ["f'practice:{user_id}'", "str(user_id)"]
+        built = [ast.unparse(c) for c in _calls(RuneClawEngine.risk_for, "_user_risk_engine")]
+        assert built == ["self._user_risk_engine(user_id, venue)"]
 
     def test_the_gate_reads_the_module_singleton_at_call_time(self, ledger, monkeypatch):
         """A ledger bound at import would be the seam-as-default-argument

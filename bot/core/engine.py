@@ -1478,9 +1478,14 @@ class RuneClawEngine:
                             unrealized_usd=(bal or {}).get("unrealized_pnl"))
 
     @staticmethod
-    def _critique_book(recheck_engine, rc: "_LiveRecheck"):
+    def _critique_book(recheck_engine, rc: "_LiveRecheck", *, practice: bool = False):
         """The book the confirm path's self-critique counts: the one the risk
         re-check just read.
+
+        ``practice`` is a confirm the practice branch will take: the re-check
+        read the caller's own practice book through its engine, and so does
+        this, in a live bot too. The live count below is read off an account
+        a practice fill never touches.
 
         The critique's heat check ("N open positions, portfolio is hot") read
         `user_portfolios.combined_snapshot()`: every user's PRACTICE book,
@@ -1493,7 +1498,7 @@ class RuneClawEngine:
         and the count is read beside it, so it is a number here. Paper, it is
         the book the re-check's engine gates read.
         """
-        if CONFIG.is_live():
+        if CONFIG.is_live() and not practice:
             from types import SimpleNamespace
             return SimpleNamespace(open_positions=rc.open_count)
         return recheck_engine.book_snapshot()
@@ -3128,6 +3133,46 @@ class RuneClawEngine:
         # Operators/admins trade the operator account → operator engine.
         if self._is_operator_user(user_id):
             return self.risk
+        return self._user_risk_engine(user_id, venue)
+
+    def practice_risk_for(self, user_id: str):
+        """The RiskEngine a PRACTICE confirm is sized and gated on: one bound
+        to this person's own practice book.
+
+        `risk_for` answers the operator engine while per-user live is off,
+        and the operator engine reads the operator's live equity, exchange
+        position count and held rows at the re-check. A practice confirm
+        was therefore refused when the OPERATOR's balance could not be read
+        or the operator's book was at the position cap, and sized on the
+        operator's equity before the execution ceiling cut it to the live
+        micro cap — a stranger's rehearsal decided by the operator's money.
+        Identity decides whose book: the practice book is this person's,
+        whatever the live flags say, so its engine is the per-user one
+        (`_user_risk_engine`), which the paper sizing and the paper
+        breakers read off that book. An unattended caller has no practice
+        book and keeps the operator engine, as `risk_for` gives it.
+        """
+        if not user_id or user_id in ("auto", ""):
+            return self.risk
+        return self._user_risk_engine(user_id, "", practice=True)
+
+    def _user_risk_engine(self, user_id: str, venue: str = "", *,
+                          practice: bool = False):
+        """Build (once) and return the per-user RiskEngine for ``user_id`` on
+        ``venue``, bound to that person's own portfolio and state file. The
+        policy of WHO gets one is `risk_for`'s and `practice_risk_for`'s;
+        this is the one construction both share.
+
+        ``practice`` is the engine a PRACTICE confirm runs on, and it is a
+        separate engine from the person's live one, under its own key and
+        state file: its person-level peak is the practice book's and is
+        keyed ``practice:<user>`` so it never meets the live peak of the
+        same person once they are vouched (a $10,000 practice peak over a
+        $500 live account would read as a 95% drawdown and halt them on
+        their first live confirm), its totals are the practice books', and
+        a practice-book breach halts nothing but itself — a practice loss
+        must never arm a live engine.
+        """
         try:
             from bot.core.venue_key import is_split, venue_state_path
             split_venue = str(venue).strip().lower() if is_split(venue) else ""
@@ -3137,13 +3182,21 @@ class RuneClawEngine:
             split_venue = ""
         # The cache key carries the venue. '/' cannot appear in a sanitized
         # user id, so a venue-scoped key can never be mistaken for a plain one.
+        # ':' cannot either, so the practice key is its own.
         key = f"{split_venue}/{user_id}" if split_venue else str(user_id)
+        if practice:
+            key = f"practice:{user_id}"
         eng = self._user_risk.get(key)
         if eng is None:
             try:
                 safe = self.user_portfolios._sanitize(user_id)
-                state_file = (venue_state_path("risk_state", safe, split_venue)
-                              if split_venue else f"data/risk_state_{safe}.json")
+                if practice:
+                    # Anchored here rather than recorded as an exception:
+                    # RiskEngine anchors it again, which is a no-op.
+                    state_file = str(state_path(f"data/risk_state_{safe}_practice.json"))
+                else:
+                    state_file = (venue_state_path("risk_state", safe, split_venue)
+                                  if split_venue else f"data/risk_state_{safe}.json")
             except Exception:
                 return self.risk
             eng = RiskEngine(
@@ -3164,25 +3217,35 @@ class RuneClawEngine:
                 # books below are practice: driven, a person holding three
                 # live positions on bitget and three on bybit against a cap of
                 # five read "OPEN_POSITIONS: 3 OK", counted off a practice
-                # book of $10,000 and no positions.
-                if CONFIG.is_live():
+                # book of $10,000 and no positions. The PRACTICE engine's
+                # total is the practice books', in a live bot too: its
+                # confirms never reach a venue, and a count over venues the
+                # person never linked would read as a floor.
+                if CONFIG.is_live() and not practice:
                     return position_totals(self._live_person_readings(_uid))
                 return aggregate(self.user_portfolios.venue_readings(_uid))
             eng.set_person_totals_fn(_totals)
             # Drawdown is per person and measured off ONE shared peak, so this
             # engine needs to know whose it is — and a person-level breach has
-            # to reach the person's OTHER venues, not just this one.
-            eng.set_person_identity(str(user_id),
-                                    lambda reason, _uid=str(user_id):
-                                        self._halt_all_venues_for(_uid, reason))
+            # to reach the person's OTHER venues, not just this one. The
+            # practice engine's person is the practice person (its own peak,
+            # see the docstring), and a practice breach halts only itself.
+            if practice:
+                eng.set_person_identity(f"practice:{user_id}", None)
+            else:
+                eng.set_person_identity(str(user_id),
+                                        lambda reason, _uid=str(user_id):
+                                            self._halt_all_venues_for(_uid, reason))
             if getattr(self, "_state_persistence_detached", False):
                 eng.make_reader()
             self._user_risk[key] = eng
             audit(system_log,
                   f"Per-user risk engine bound for user {user_id}"
-                  + (f" on {split_venue}" if split_venue else ""),
+                  + (" (practice book)" if practice
+                     else (f" on {split_venue}" if split_venue else "")),
                   action="per_user_risk", result="BOUND",
-                  data={"user": str(user_id), "venue": split_venue or "default"})
+                  data={"user": str(user_id),
+                        "venue": "practice" if practice else (split_venue or "default")})
         # Market context is synced onto EVERY engine, venue-scoped included.
         # Skipping it here is precisely how the split turns into a loosening:
         # an engine with no regime evaluates against UNKNOWN and the market
@@ -8128,6 +8191,33 @@ class RuneClawEngine:
         """
         return self_admitted_paper_caller(getattr(self, "_user_store", None), user_id)
 
+    def confirm_is_practice(self, user_id: str) -> bool:
+        """Whether this caller's confirm opens a PRACTICE row rather than a
+        live order: a self-admitted account, or a practice-mode opt-in under
+        PAPER_SIM_OPT_IN_ENABLED.
+
+        THE ONE READING. The confirm branch below, the re-check that sizes
+        and gates the confirm, the Telegram and web doors, and the mode
+        cards all ask this, so no surface can say LIVE over a confirm that
+        lands on the practice book. An unreadable store or opt-in is not
+        practice: the live doors still refuse, and nothing is placed.
+        """
+        if self._self_admitted_practice(user_id):
+            return True
+        if not CONFIG.paper_sim_opt_in_enabled or not user_id or user_id in ("auto", ""):
+            return False
+        store = getattr(self, "_user_store", None)
+        if store is None:
+            return False
+        try:
+            # `is True`: the real store answers a bool, and a stand-in that
+            # answers anything else has not answered.
+            return store.sim_opt_in(user_id) is True
+        except Exception as exc:
+            logger.warning("Practice opt-in for %s could not be read (%s): not practice",
+                           user_id, type(exc).__name__)
+            return False
+
     async def confirm_trade(self, trade_id: str, user_id: str = "") -> str:
         """Serialize execution per symbol so concurrent/overlapping cycles can't
         double-place the same setup, then delegate to the real logic.
@@ -8501,10 +8591,23 @@ class RuneClawEngine:
         if current_price > 0:
             idea = idea.model_copy(update={"timestamp": datetime.now(UTC)})
 
+        # WHOSE BOOK THIS CONFIRM IS, decided once. A practice confirm (a
+        # self-admitted account, or a practice-mode opt-in) opens a row on
+        # the caller's own practice book and never reaches a venue, so from
+        # here on it is sized, gated, critiqued and authorized as the paper
+        # confirm it is, on that book: no executor is needed, the re-check
+        # reads the practice book through its own engine rather than the
+        # operator's live equity and position count, and the compliance
+        # gate authorizes a PAPER trade with no human-approval token minted
+        # for a live one. The operator's live breaker and live peak are
+        # never written by a practice evaluation.
+        _practice = self.confirm_is_practice(user_id)
+        _live_fill = CONFIG.is_live() and not _practice
+
         # A caller whose linked venue has no executor is refused HERE, in the
         # venue's own words. Left to the re-check below, the same None surfaced
         # as "re-check failed (error logged)" off an AttributeError.
-        if CONFIG.is_live():
+        if _live_fill:
             _no_venue = self.execution_refusal(user_id)
             if _no_venue:
                 self._pending_pyramid.pop(trade_id, None)
@@ -8523,14 +8626,20 @@ class RuneClawEngine:
             # never sized against the operator's (much larger) balance. The
             # third figure is that same payload's AVAILABLE margin, which the
             # execution bound below is derived from.
-            _rc = await self._live_recheck_context(user_id)
+            # A practice confirm reads nothing live: its context is the paper
+            # one, and the practice book is read by its engine below.
+            if _practice:
+                _rc = _LiveRecheck(None, None, None)
+            else:
+                _rc = await self._live_recheck_context(user_id)
             live_eq_recheck, live_open_recheck = _rc.equity, _rc.open_count
             # The account this confirm will EXECUTE on decides the bound, so
             # it is read off THAT executor. With the balance-relative feature
             # off, or with no available margin on the payload, it is
-            # byte-identical to MICRO_MAX_POSITION_USD.
+            # byte-identical to MICRO_MAX_POSITION_USD. A practice fill has
+            # no execution bound: it is the paper book's own sizing.
             recheck_cap = None
-            if CONFIG.is_live():
+            if _live_fill:
                 recheck_cap = _live_executor_mod.size_bounds_for(
                     _rc.available_usd).per_trade_usd
             # Per-user margin cap (operator-set, tighten-only): a regular user's
@@ -8542,12 +8651,13 @@ class RuneClawEngine:
             # Per-user risk isolation: this confirm-time gate runs against the
             # engine that owns THIS user's breaker/streak/daily-loss/drawdown
             # state. Default (per-user OFF) → shared operator engine, unchanged.
-            recheck_engine = self.risk_for(user_id)
+            recheck_engine = (self.practice_risk_for(user_id) if _practice
+                              else self.risk_for(user_id))
             # Regime-aware sizing (gated): set regime AFTER risk_for (whose market-
             # context sync may have copied the shared engine's regime) so this
             # idea's symbol regime is authoritative for the executed-size recheck.
             self._apply_regime_to(recheck_engine, idea.asset)
-            recheck = recheck_engine.evaluate(idea, atr=stored_atr, live_equity=live_eq_recheck, max_position_usd=recheck_cap, live_open_count=live_open_recheck, live_mode=CONFIG.is_live(), live_book=_rc.book, live_account=_rc.account, live_unrealized_pnl=_rc.unrealized_usd)
+            recheck = recheck_engine.evaluate(idea, atr=stored_atr, live_equity=live_eq_recheck, max_position_usd=recheck_cap, live_open_count=live_open_recheck, live_mode=_live_fill, live_book=_rc.book, live_account=_rc.account, live_unrealized_pnl=_rc.unrealized_usd)
         except Exception as exc:
             # Fix 6: if re-check raises, do NOT silently lose the idea.
             # Log it as a failed re-check and return a clear message.
@@ -8570,7 +8680,7 @@ class RuneClawEngine:
                 decision_id=trade_id, symbol=idea.asset,
                 idea=_flight_idea(idea),
                 risk=_flight_risk(recheck),
-                outcome="REJECTED_ON_RECHECK", is_paper=not CONFIG.is_live(),
+                outcome="REJECTED_ON_RECHECK", is_paper=not _live_fill,
             )))
             self._emit_policy_decision(recheck, trade_id, idea.asset, user_id)
             self._sync_flight_records()
@@ -8580,7 +8690,7 @@ class RuneClawEngine:
         try:
             from bot.core.critique import TradeCritique
             critique = TradeCritique()
-            snapshot = self._critique_book(recheck_engine, _rc)
+            snapshot = self._critique_book(recheck_engine, _rc, practice=_practice)
             macro_ctx_for_critique = self.macro_provider.get_context(symbol=idea.asset)
             critique_result = critique.evaluate(idea, recheck, snapshot, macro_ctx_for_critique)
 
@@ -8651,8 +8761,11 @@ class RuneClawEngine:
             audit(trade_log, f"Critique gate error (fail-open): {exc}",
                   action="critique", result="ERROR")
 
-        # Compliance gate: authorize before execution
-        action = Permission.LIVE_TRADE if CONFIG.is_live() else Permission.PAPER_TRADE
+        # Compliance gate: authorize before execution. A practice confirm is
+        # a PAPER trade here whatever mode the bot runs in: it authorizes no
+        # live order, mints no human-approval token and writes no live grant
+        # to the consent ledger.
+        action = Permission.LIVE_TRADE if _live_fill else Permission.PAPER_TRADE
         macro_ctx = self.macro_provider.get_context(symbol=idea.asset)
         macro_ok = macro_ctx.risk_state != "BLOCK_NEW_ENTRIES"
 
@@ -8663,7 +8776,7 @@ class RuneClawEngine:
         # Why a non-human live confirm is not minted a token, or None. Bound
         # above the branch because the denial below reads it on every path.
         _auto_refusal: Optional[str] = None
-        if CONFIG.is_live():
+        if _live_fill:
             human = self._human_confirmed(user_id)
             # Audit F-8: only mint the Lock 5 human-approval token for a REAL
             # human confirmation. For non-human callers (user_id "" / "auto" —
@@ -8697,7 +8810,7 @@ class RuneClawEngine:
         compliance_decision = self.compliance.authorize(
             action=action,
             profile=self.compliance_profile,
-            live_mode=CONFIG.is_live(),
+            live_mode=_live_fill,
             risk_passed=(recheck.verdict == RiskVerdict.APPROVED),
             macro_ok=macro_ok,
             # THE MARGIN, named as such. `position_size_usd` is the margin
@@ -8733,10 +8846,7 @@ class RuneClawEngine:
         # pyramid SL move (which mutates an exchange stop) — so a paper trade
         # can NEVER place or modify a real order. The opt-in flag stays OFF,
         # so a vouched trader is unaffected.
-        if self._self_admitted_practice(user_id) or (
-                CONFIG.paper_sim_opt_in_enabled and user_id
-                and self._user_store is not None
-                and self._user_store.sim_opt_in(user_id)):
+        if _practice:
             self._pending_pyramid.pop(trade_id, None)
             return await self._simulate_paper_fill(idea, recheck, user_id, trade_id)
 

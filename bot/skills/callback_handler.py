@@ -219,6 +219,7 @@ class CallbackHandler:
         def _control_scope(self, update: Update): ...
 
         def _can_trade_live(self, tg_id) -> bool: ...
+        def _confirm_is_practice(self, tg_id) -> bool: ...
 
         def _live_refusal_key(self) -> str: ...
 
@@ -1755,8 +1756,7 @@ class CallbackHandler:
             if CONFIG.is_live() and not self._is_admin(update):
                 caller_uid_str = str(update.effective_user.id) if update.effective_user else ""
                 if not self._can_trade_live(caller_uid_str):
-                    from bot.core.practice_fill import self_admitted_paper_caller
-                    if not self_admitted_paper_caller(self.users, caller_uid_str):
+                    if not self._confirm_is_practice(caller_uid_str):
                         await self._send(update,
                             f"\U0001f512 {t(self._live_refusal_key(), self._lang(update))}",
                             edit=True)

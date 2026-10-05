@@ -350,6 +350,9 @@ class _Engine:
     from bot.core.engine import RuneClawEngine as _E
     _is_operator_user = _E._is_operator_user
     risk_for = _E.risk_for
+    # risk_for builds a per-user engine through this since the practice
+    # engine shares the builder; the real method, not a stand-in.
+    _user_risk_engine = _E._user_risk_engine
     reset_circuit_breaker_all = _E.reset_circuit_breaker_all
     clear_governor_pauses = _E.clear_governor_pauses
     del _E
