@@ -29,8 +29,11 @@ REQUIRED_KEYS = (
 _BASE58 = frozenset("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
 
 
+# The file parsed, but what it holds does not describe a token. A comment, not
+# a docstring: a class whose whole body is a docstring stops parsing once
+# `tests/source_scan.py::code_only` blanks docstrings.
 class TokenRecordInvalid(ValueError):
-    """The file parsed, but what it holds does not describe a token."""
+    pass
 
 
 def is_base58_address(value: Any) -> bool:

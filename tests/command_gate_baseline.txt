@@ -119,6 +119,7 @@ postmortem guard
 price_alert guard
 proposals guard
 quant guard
+rclaw is_admin+rate_limit
 readiness is_admin
 rejected guard
 replay guard

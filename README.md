@@ -482,6 +482,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/livebalance` | your real exchange balance (your own account, read-only) |
 | `/disconnect` | remove your linked credentials |
 | `/linkwallet` | link a Solana wallet (read-only) for $RCLAW tier access |
+| `/rclaw` | the $RCLAW token: mint address, supply and presale status |
 | `/lang` | switch language |
 | `/version` | bot version and mode |
 | `/health` | system health |
