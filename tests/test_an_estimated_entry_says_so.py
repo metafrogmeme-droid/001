@@ -307,6 +307,9 @@ def _synced(tmp_path, monkeypatch, rows, *, source, entry=TICKER):
     ex = LiveExecutor(state_dir=str(tmp_path),
                       credentials={"api_key": "k", "api_secret": "s", "passphrase": "p"})
     ex._venue = get_venue("bitget")
+    # A classic account, said so: an unprobed one is probed by the sync, and
+    # this harness stubs the v3 wire, not the ccxt client the probe asks.
+    ex._is_uta = False
     pos = LivePosition(trade_id="T1", symbol="ETH/USDT", direction="LONG",
                        entry_price=entry, quantity=0.05, cost_usd=entry * 0.05 / 5,
                        stop_loss=entry * 0.98, take_profit=entry * 1.06, leverage=5,

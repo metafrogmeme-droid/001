@@ -2663,17 +2663,15 @@ class LiveExecutor:
             self._record_warning("dynamic_leverage")
             return 1
 
-    async def _read_uta_symbol_leverage(self, symbol: str,
-                                       margin_mode: Any = None) -> dict:
-        """The UTA symbol-config leverage, or unknown. Never raises.
+    async def _read_uta_settings(self) -> Optional[dict]:
+        """This account's ``GET /api/v3/account/settings`` document, or None.
 
-        Asked after the v2 leverage read has failed with 40085, and again
-        after a fill: the position row is a different number. ``margin_mode``
-        is the mode the order uses; a row for another mode is not this fill.
-        A transport failure is unknown — not 0, and not a sticky 20 — and
-        the log names the exception class, never its text.
+        None is UNREAD: the transport raised, or the venue answered something
+        that is not a document. Never raises, and the log names the exception
+        class, never its text. The one transport for the symbol-config rows,
+        so the post-fill guard, the pre-order check and the position sync
+        read the same document the same way.
         """
-        unknown: dict = {"value": None, "field": None, "governs": None, "mode": None}
         try:
             from bot.core.bitget_v3_client import BitgetV3Client
             creds = getattr(self, "_credentials", None)
@@ -2681,10 +2679,27 @@ class LiveExecutor:
             resp = await asyncio.to_thread(
                 client.request, "GET", "/api/v3/account/settings")
         except Exception as exc:
-            logger.debug("UTA symbol leverage unread for %s: %s",
-                         symbol, type(exc).__name__)
-            return unknown
-        return uta_symbol_leverage(resp, symbol, margin_mode)
+            logger.debug("UTA account settings unread: %s", type(exc).__name__)
+            return None
+        return resp if isinstance(resp, dict) else None
+
+    async def _read_uta_symbol_leverage(self, symbol: str,
+                                       margin_mode: Any = None, *,
+                                       settings: Any = None) -> dict:
+        """The UTA symbol-config leverage, or unknown. Never raises.
+
+        Asked after the v2 leverage read has failed with 40085, again after
+        a fill, and by the position sync: the position row is a different
+        number. ``margin_mode`` is the mode the order uses; a row for another
+        mode is not this fill. A transport failure is unknown — not 0, and
+        not a sticky 20.
+
+        ``settings`` is a document this caller already read, so a sync over
+        several positions asks the venue once and reads every row off that
+        one answer; with none given the document is read here.
+        """
+        document = settings if settings is not None else await self._read_uta_settings()
+        return uta_symbol_leverage(document, symbol, margin_mode)
 
     async def _ensure_leverage(self, symbol: str, side: str = "",
                                idea: Any = None,
@@ -3076,7 +3091,14 @@ class LiveExecutor:
         # applied leverage is also carried on the position/settings, so read it
         # back via fetch_positions before failing closed — SAME equality
         # standard: a value that doesn't match the target still aborts.
-        if not _lev_verified:
+        #
+        # NOT ON A UNIFIED ACCOUNT. There the position row's `leverage` is the
+        # sticky figure `governing_fill_leverage` discards after the fill, and
+        # reading it here refused an order on a symbol the account already
+        # held (`leverage_abort` on a field whose own audit text said it does
+        # not decide the fill) before the symbol row below was ever asked. The
+        # pre-order check and the post-fill guard read the same row now.
+        if not _lev_verified and not _uta_account:
             try:
                 _positions = await exchange.fetch_positions(
                     [symbol], params=self._venue.futures_params())
@@ -3133,13 +3155,14 @@ class LiveExecutor:
                 logger.debug(
                     "Position-based leverage verify unavailable for %s", symbol)
 
-        # UTA: the v2 read does not exist (40085) and a brand-new order has no
-        # position row yet, so both confirms above are empty. The symbol's
-        # leverage is on the settings document. A CONFIRMED reading past the
-        # post-fill ratio aborts here — placing it and market-closing the fill
-        # is a round trip of fees, which is the JUP card (move +0.03%, hold
-        # 0m, labeled leverage overshoot). An absent row stays unknown: that
-        # is the fail-open case, not a fabricated ratio off account equity.
+        # UTA: the v2 read does not exist (40085) and the position row is not
+        # consulted (above), so the symbol's leverage is read where it lives:
+        # the settings document, for the mode the order will name. A
+        # CONFIRMED reading past the post-fill ratio aborts here — placing it
+        # and market-closing the fill is a round trip of fees, which is the
+        # JUP card (move +0.03%, hold 0m, labeled leverage overshoot). An
+        # absent row stays unknown: that is the fail-open case, not a
+        # fabricated ratio off account equity and not the position row.
         if not _lev_verified and _uta_account:
             _uta = await self._read_uta_symbol_leverage(
                 symbol, _order_margin_mode)
@@ -7889,8 +7912,13 @@ class LiveExecutor:
                            _slip_warn: str = "", _pos_state: Any = None,
                            size_usd: Optional[float] = None,
                            entry_estimated: bool = False,
+                           leverage_unverified: bool = False,
                            ) -> str:
         """The card the operator reads after a fill. Pure formatting.
+
+        ``leverage_unverified`` is the found-position-no-leverage case: the
+        figure on the leverage line is the one the order was sized at, and
+        the line says that nothing has read it back.
 
         Extracted from execute() verbatim (slice 2) — the renderer seam: every
         warning state on this card (unprotected, leverage mismatch kept, mismatch
@@ -7966,8 +7994,10 @@ class LiveExecutor:
             + f"- Qty: <code>{filled_qty:.6f}</code>\n"
             f"- Cost: <code>${cost:.2f}</code>{sizing_line}\n"
             f"- Notional: <code>${fill_price * filled_qty:.2f}</code>\n"
-            f"- Leverage: <code>{leverage}x</code>\n"
-            f"- SL: <code>${idea.stop_loss:,.4f}</code>{sl_info}\n"
+            f"- Leverage: <code>{leverage}x</code>"
+            + (" ⚠️ as requested — the venue stated none, NOT verified\n"
+               if leverage_unverified else "\n")
+            + f"- SL: <code>${idea.stop_loss:,.4f}</code>{sl_info}\n"
             f"- TP: <code>${idea.take_profit:,.4f}</code>{tp_info}\n"
             f"- Order: <code>{order_id}</code>{fee_line}\n"
             f"- Risk: ✅ APPROVED{trail_info}\n"
@@ -8575,6 +8605,10 @@ class LiveExecutor:
 
             # Update position with exchange-verified data
             _lev_mismatch: Optional[tuple[int, int]] = None
+            # Set when the venue confirmed the position and stated no
+            # leverage the guard may act on: the record below then keeps the
+            # REQUESTED figure, and the card and the audit say that it does.
+            _lev_unread = False
             # Set only when the overshoot guard below tried to flatten and the
             # close itself failed. The position is then OPEN and over-levered,
             # so the notification must say that rather than the ordinary
@@ -8612,6 +8646,37 @@ class LiveExecutor:
                                     "actual": int(pos_verify["leverage"])})
                     position.leverage = pos_verify["leverage"]
                     leverage = pos_verify["leverage"]
+                else:
+                    # FOUND, AND NO LEVERAGE THE GUARD MAY ACT ON. On a
+                    # unified account the settings document carried no row
+                    # for this symbol in the order's margin mode (or could not
+                    # be read); on a classic one the position row stated
+                    # none. The record keeps the requested figure and the
+                    # margin derived from it either way — that is what the
+                    # order was sized at — but a sizing input is not a venue
+                    # reading, and this used to fall through in silence: the
+                    # card printed `Leverage: 5x` and `CONFIRMED` beside it
+                    # as if the 5 had been read. The next position sync
+                    # corrects the record if the venue states a figure; until
+                    # then it is unverified, and says so.
+                    _lev_unread = True
+                    _lev_unread_why = (
+                        "the settings document stated no leverage for it in "
+                        f"{CONFIG.exchange.margin_mode} mode"
+                        if getattr(self, "_is_uta", None) is True
+                        else "the position row stated no leverage")
+                    audit(trade_log,
+                          f"Leverage NOT VERIFIED on fill for {idea.asset}: the "
+                          f"position was found but {_lev_unread_why}, so the "
+                          f"overshoot guard did not run and margin is recorded "
+                          f"at the requested {int(leverage)}x",
+                          action="leverage_unverified_on_fill", result="UNREAD",
+                          level=logging.WARNING,
+                          data={"trade_id": idea.id, "symbol": idea.asset,
+                                "requested": int(leverage),
+                                "reason": ("symbol_row_unread"
+                                           if getattr(self, "_is_uta", None) is True
+                                           else "position_row_unread")})
             elif leverage_went_unverified(
                     pos_verify.get("state"), position_confirmed):
                 # THE GUARD BELOW CANNOT RUN, AND THAT HAS TO BE ON THE RECORD.
@@ -8731,7 +8796,8 @@ class LiveExecutor:
                 sl_id, tp_id, trailing_st, confirmed, position_confirmed, verify,
                 exchange_fees, _lev_mismatch, _lev_close_failed, _slip_warn,
                 pos_verify.get("state"), size_usd=size_usd,
-                entry_estimated=(fill_price_source == ENTRY_ESTIMATED))
+                entry_estimated=(fill_price_source == ENTRY_ESTIMATED),
+                leverage_unverified=_lev_unread)
 
         except ccxt.InsufficientFunds as exc:
             self.record_api_error()
@@ -9312,10 +9378,23 @@ class LiveExecutor:
 
         Called on startup and periodically. Queries the v3 position API and
         updates any tracked position whose leverage differs from what the
-        exchange reports — stale leverage silently corrupts margin/risk math.
+        exchange states — stale leverage silently corrupts margin/risk math.
         Quantity drift is detected and audited REPORT-ONLY (never auto-written:
         partial-TP ladders, pyramids and in-flight closes legitimately diverge
         from a point-in-time snapshot).
+
+        WHICH ROW STATES THE LEVERAGE depends on the account, and it is the
+        same row the post-fill guard reads (`governing_fill_leverage`). On a
+        classic account it is the position row. On a unified account that
+        row's `leverage` is the sticky per-symbol figure, which stays at the
+        default (~20) after the settings row has confirmed the approved 5x;
+        there the reading is the symbol-config row of the settings document,
+        read once per pass for the mode the orders use. Unknown is unknown:
+        an account type no probe has answered, a settings document that
+        would not read, or a symbol with no row leaves the record as it is
+        and audits `leverage_sync` UNREAD, because the other figures to hand
+        (the sticky row, the requested leverage) are not the venue stating
+        anything.
 
         Fail-loud contract: a failed or empty-when-positions-exist fetch is
         AUDITED and fed to the risk engine's warning-rate breaker — a broken
@@ -9378,6 +9457,46 @@ class LiveExecutor:
             if sym:
                 exchange_map[sym] = ep
 
+        # The row that states a position's leverage on THIS account (see the
+        # docstring). `_is_uta` is the probed reading; `__init__` stores None
+        # until a probe answers, and the startup sync runs before the first
+        # order, so an unknown account is asked once here through the same
+        # spaced probe the monitoring pass uses. Still unknown is unknown.
+        _uta = getattr(self, "_is_uta", None)
+        if _uta is None:
+            try:
+                await self._probe_hold_mode_if_unknown()
+            except Exception as _probe_exc:
+                # The probe never raises; this sync must not either.
+                logger.debug("Hold-mode probe raised inside the position sync: %s",
+                             type(_probe_exc).__name__)
+            _uta = getattr(self, "_is_uta", None)
+        _order_mode = CONFIG.exchange.margin_mode
+        _uta_doc: Optional[dict] = None
+        if _uta is True:
+            _uta_doc = await self._read_uta_settings()
+            if _uta_doc is None:
+                audit(trade_log,
+                      f"Leverage sync UNREAD: the account settings document could "
+                      f"not be read with {len(open_pos)} open position(s) on a "
+                      f"unified account — the recorded leverage and margin are "
+                      f"left as they are, not rewritten from the position row",
+                      action="leverage_sync", result="UNREAD",
+                      level=logging.WARNING,
+                      data={"open_positions": len(open_pos),
+                            "reason": "settings_unread"})
+                self._record_warning("position_sync_settings")
+        elif _uta is None:
+            audit(trade_log,
+                  f"Leverage sync UNREAD: the account type has not been read "
+                  f"(the hold-mode probe did not answer), so which row states a "
+                  f"position's leverage is unknown — {len(open_pos)} open "
+                  f"position(s) left as recorded",
+                  action="leverage_sync", result="UNREAD",
+                  level=logging.WARNING,
+                  data={"open_positions": len(open_pos),
+                        "reason": "account_type_unknown"})
+
         synced = 0
         unmatched = 0
         for pos in open_pos:
@@ -9392,32 +9511,55 @@ class LiveExecutor:
 
             changed = False
 
-            # Sync leverage
+            # Sync leverage, from the row that states it for this account.
+            # `governing_fill_leverage` is the guard's reading and this one.
             ex_lev_raw = ex_data.get("leverage")
-            if ex_lev_raw is not None:
-                try:
-                    ex_lev = int(float(ex_lev_raw))
-                except (ValueError, TypeError):
-                    ex_lev = 0
+            ex_lev: Optional[int] = None
+            _lev_source = ""
+            if _uta is True:
+                if _uta_doc is not None:
+                    _settings = await self._read_uta_symbol_leverage(
+                        pos.symbol, _order_mode, settings=_uta_doc)
+                    ex_lev = governing_fill_leverage(ex_lev_raw, _settings, uta=True)
+                    _lev_source = "symbol_row"
+                    if ex_lev is None:
+                        audit(trade_log,
+                              f"Leverage sync UNREAD for {pos.symbol}: the settings "
+                              f"document has no {_order_mode} row for it — the "
+                              f"recorded {pos.leverage}x is kept; the position "
+                              f"row's {ex_lev_raw!r} is the sticky figure, not "
+                              f"the fill's",
+                              action="leverage_sync", result="UNREAD",
+                              level=logging.WARNING,
+                              data={"trade_id": pos.trade_id, "symbol": pos.symbol,
+                                    "recorded": pos.leverage,
+                                    "position_row": ex_lev_raw,
+                                    "reason": "symbol_row_missing"})
+            elif _uta is False and ex_lev_raw is not None:
+                ex_lev = governing_fill_leverage(ex_lev_raw, None, uta=False)
+                _lev_source = "position_row"
+                if ex_lev is None:
                     logger.warning(
                         "Position sync: unparseable leverage %r for %s — skipping",
                         ex_lev_raw, pos.symbol)
-                if ex_lev > 0 and ex_lev != pos.leverage:
-                    logger.warning(
-                        "LEVERAGE SYNC %s: tracked=%dx, exchange=%dx — updating to exchange value",
-                        pos.symbol, pos.leverage, ex_lev)
-                    audit(trade_log,
-                          f"Leverage sync: {pos.symbol} {pos.leverage}x → {ex_lev}x",
-                          action="leverage_sync", result="UPDATED",
-                          data={"trade_id": pos.trade_id, "old": pos.leverage, "new": ex_lev})
-                    pos.leverage = ex_lev
-                    clear_unread(pos, "leverage")
-                    # Recalculate cost_usd with correct leverage
-                    if pos.entry_price > 0 and pos.quantity > 0:
-                        raw_notional = pos.entry_price * pos.quantity
-                        pos.cost_usd = raw_notional / ex_lev
-                        clear_unread(pos, "margin")
-                    changed = True
+            if ex_lev is not None and ex_lev != pos.leverage:
+                logger.warning(
+                    "LEVERAGE SYNC %s: tracked=%dx, exchange=%dx (%s) — updating to exchange value",
+                    pos.symbol, pos.leverage, ex_lev, _lev_source)
+                audit(trade_log,
+                      f"Leverage sync: {pos.symbol} {pos.leverage}x → {ex_lev}x "
+                      f"({_lev_source.replace('_', ' ')})",
+                      action="leverage_sync", result="UPDATED",
+                      data={"trade_id": pos.trade_id, "old": pos.leverage,
+                            "new": ex_lev, "source": _lev_source})
+                pos.leverage = ex_lev
+                clear_unread(pos, "leverage")
+                # Recalculate cost_usd with correct leverage
+                if pos.entry_price > 0 and pos.quantity > 0:
+                    raw_notional = pos.entry_price * pos.quantity
+                    pos.cost_usd = raw_notional / ex_lev
+                    clear_unread(pos, "margin")
+                changed = True
 
             # AN ESTIMATED ENTRY IS CORRECTED BY THE VENUE'S OWN FIGURE, the
             # way an unread leverage is: this row states the average entry
