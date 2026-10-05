@@ -52,8 +52,10 @@ async function buildNetWorth(ident, userId) {
   // already linked Bitget off to re-enter keys that are sitting right there.
   //
   // "I cannot reach the bot" and "you have no exchange" are different answers.
+  // `userId == null` is a caller with no web account: no exchange_status row
+  // and no wallet can be theirs, and neither lookup is made.
   if (sections.cex && !sections.cex.connected) {
-    try {
+    if (userId != null) try {
       const { pool } = require('../db');
       const [rows] = await pool.execute(
         'SELECT exchange FROM exchange_status WHERE user_id = ? AND connected = 1 LIMIT 1',
@@ -73,9 +75,10 @@ async function buildNetWorth(ident, userId) {
     } catch (e) { /* leave the gateway's answer as-is */ }
   }
 
-  // SIWE wallet (web-side chain reads).
+  // SIWE wallet (web-side chain reads). No web account, no wallet to look
+  // up: the card says that, apart from "none linked".
   try {
-    const address = await wallet.walletAddressOf(userId);
+    const address = userId == null ? null : await wallet.walletAddressOf(userId);
     if (!address) {
       sections.wallet = { linked: false };
     } else {
@@ -197,6 +200,31 @@ function fmtUsd(v) {
 }
 
 /**
+ * The exchange line for a `cex` that is not connected: "none connected"
+ * only when the bot ANSWERED that no venue is linked. An error word is a
+ * read that could not be made, and says which.
+ */
+function exchangeUnreadLine(c) {
+  const err = c && typeof c.error === 'string' ? c.error : '';
+  if (err === 'cex_unavailable') {
+    return '• Exchange: could not be read just now — the credential store did not '
+         + 'answer. That is not a missing link; try again shortly.';
+  }
+  if (err === 'gateway') {
+    return '• Exchange: could not be read just now — the bot did not answer, so '
+         + 'whether one is connected is unknown here.';
+  }
+  if (err === 'not_configured') {
+    return '• Exchange: could not be read here — the website has no bot link '
+         + 'configured, so whether one is connected is unknown.';
+  }
+  if (err) {
+    return `• Exchange: could not be read just now (${err}).`;
+  }
+  return '• Exchange: none connected — /connect in Telegram links one (read-only here).';
+}
+
+/**
  * The net-worth card — ONE renderer for both surfaces. The bot's /networth
  * command and the website's shared door both fetch this card over the sync
  * channel (`GET /api/bot/sync/card/networth?telegram_id=`). Website chat
@@ -216,13 +244,23 @@ async function networthChatCard(telegramId, userId) {
         ? `• <b>${(c.venue || 'exchange').toUpperCase()}</b> (connected exchange): <b>${fmtUsd(c.equity_usd)}</b>`
         : `• <b>${(c.venue || 'exchange').toUpperCase()}</b>: unreadable right now (${c.detail || 'venue error'})`);
     } else {
-      lines.push('• Exchange: none connected — /connect in Telegram links one (read-only here).');
+      // THE FOURTH WORD. `cex` has four: no venue (connected false, no
+      // error), unreadable or timed out (connected true, ok false), read,
+      // and COULD NOT BE ASKED (connected false with an error). The last
+      // is the bot's credential store raising, the bot not answering, or
+      // the bot link not being configured here, and none of them is "none
+      // connected": that sentence sends a person to re-link keys that are
+      // sitting right there. The exchange line names what did not answer.
+      lines.push(exchangeUnreadLine(c));
     }
     const w = n.sections.wallet;
     if (w && w.linked) {
       lines.push(w.total_usd != null
         ? `• <b>Wallet</b> (on-chain, read-only): <b>${fmtUsd(w.total_usd)}</b> across ${w.assets} asset(s)`
         : '• <b>Wallet</b>: linked but unreadable right now.');
+    } else if (userId == null) {
+      lines.push('• Wallet: no web account is linked to this Telegram — /link one, then '
+                 + 'Sign-In with Ethereum adds a read-only mirror.');
     } else {
       lines.push('• Wallet: none linked — Sign-In with Ethereum adds a read-only mirror.');
     }
@@ -241,4 +279,4 @@ async function networthChatCard(telegramId, userId) {
   }
 }
 
-module.exports = { buildNetWorth, networthChatCard };
+module.exports = { buildNetWorth, networthChatCard, exchangeUnreadLine };

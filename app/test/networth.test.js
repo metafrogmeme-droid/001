@@ -167,12 +167,22 @@ test('the card both doors fetch is the read; chat no longer answers the sentence
   assert.equal(via.data.reply_html, card.reply_html);
   assert.equal(via.data.intent, 'networth');
 
-  const unlinked = await req('GET', '/api/bot/sync/card/networth?telegram_id=999999',
+  // A web id the website cannot map is unlinked. A Telegram id it cannot
+  // map is a chat with no web account, whose exchange and paper book the
+  // BOT still holds: that half is rendered, and the wallet line says why
+  // there is no wallet half.
+  const unlinked = await req('GET', '/api/bot/sync/card/networth?telegram_id=web:999999',
     { botSecret: process.env.BOT_SYNC_SECRET });
   assert.equal(unlinked.status, 200);
   assert.equal(unlinked.data.unlinked, true);
   assert.equal(unlinked.data.reply_html, null);
   assert.equal(unlinked.data.intent, 'networth');
+  const unmapped = await req('GET', '/api/bot/sync/card/networth?telegram_id=999999',
+    { botSecret: process.env.BOT_SYNC_SECRET });
+  assert.equal(unmapped.status, 200);
+  assert.notEqual(unmapped.data.unlinked, true);
+  assert.match(unmapped.data.reply_html, /no web account is linked to this Telegram/);
+  assert.doesNotMatch(unmapped.data.reply_html, /\$3,000/);
 
   // Website chat no longer matches the sentence. The turn is proxied.
   const missed = await req('POST', '/api/chat', { token, body: { text: "what's my net worth?" } });

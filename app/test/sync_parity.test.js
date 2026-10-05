@@ -82,7 +82,7 @@ test('exposure maps telegram_id to the web account; unlinked 404s', async () => 
     rq.write(body);
     rq.end();
   });
-  await pool.execute('UPDATE users SET telegram_id = ? WHERE id = ?',
+  await pool.execute('UPDATE users SET telegram_id = ?, telegram_linked = TRUE WHERE id = ?',
     ['990001', reg.user_id]);
   r = await req('/api/bot/sync/exposure?telegram_id=990001', { botSecret: SECRET });
   assert.equal(r.status, 200);

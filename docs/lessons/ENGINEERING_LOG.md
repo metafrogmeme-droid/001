@@ -1631,8 +1631,9 @@ as "Exchange: not connected — /connect to link one" — a store nobody could
 ask, rendered as an account nobody linked, under a door that re-links it.
 `bot/core/networth_reading.py` is the one reading; `cex` has four words (no
 venue; unreadable or timed out, with its reason; read; could not be asked) and
-`_format_networth` prints the fourth as *could not be read … not a missing
-link*, on both surfaces. The wire shape is unchanged. The hint for a web-app
+the one renderer (since #494 the website's `networthChatCard`, fetched by both
+surfaces; `_format_networth` before it) prints the fourth as *could not be
+read … not a missing link*. The wire shape is unchanged. The hint for a web-app
 channel that did not answer is keyed by transport too: `_link_hint("web")`
 names no `/link` — a web caller IS linked to the web app, so that half of the
 Telegram sentence is false there — and ends "Nothing was read".
@@ -16487,6 +16488,51 @@ stamps and stores the beat.
 (`app/test/a_heartbeat_after_a_restart_keeps_the_saved_scan.test.js`,
 `app/routes/sync.js`.)
 
+**/UNLINK CLOSED THE WEBSITE'S DOORS AND LEFT THE BOT'S OPEN, AND THE
+NET-WORTH DOOR HUNG UP ON ITS OWN ANSWER.** Four findings on the shared
+doors, one PR. (1) The website's unlink route clears `telegram_linked` and
+keeps `telegram_id` (it is also the Telegram OAuth identity), on the stated
+contract that every consumer requires the pair, which routes/credentials.js
+and routes/controls.js honour. `webUserFor` in routes/sync.js, a month
+younger, mapped a Telegram id by the id alone, and the shared-door series
+stacked six per-user doors on it: after /unlink the same chat still read the
+account's wallet, DeFi, exposure and idle-yield dollar cards, still armed
+alerts on the account, and `pendingTelegramTrips` still delivered the
+account's tripped alerts to it, while the bot had said "Unlinked from
+<email>". The mapper and the trip query require the flag now, and the
+in-memory shim honours the clauses it is handed (the shim's own recorded
+lesson, running the same way). A fixture that cannot produce the
+flag-false-with-id state measures nothing about it, so the linked fixtures
+now write the pair the way auth.js does. (2) Telegram's `/networth` fetched
+the website's card after #494, and the website answered `unlinked` for any
+Telegram id it could not map, so a Telegram-only user who had connected an
+exchange with the bot and held a paper book was told to /link a wallet
+they had not asked about, over a book one hop away. The card renders the
+half the bot holds for an unmapped Telegram chat, and its wallet line says
+there is no web account; only an unmapped `web:<uid>` is unlinked. (3) The
+fourth word of `cex`, the credential store that could not be asked, was
+printed by the one renderer as "none connected — /connect", the exact
+sentence an earlier chapter recorded as fixed under a renderer #494
+deleted; the bot not answering and the website having no bot link took the
+same sentence. `exchangeUnreadLine` names each. (4) The sync channel gave
+every request 15 s, while the net-worth card calls back into the bot with a
+30 s budget around a 25 s venue read: a linked trader whose venue took
+16-25 s, the case that budget exists for, was told the web app was
+unreachable and to /link an account they had linked, and the website
+finished rendering after the bot hung up. The channel takes a budget per
+request (`_request(timeout=)`), the net-worth and idle-yield cards get one
+that outlasts the chain (`WEB_CARD_TIMEOUT_S`, driven against the budgets
+it must exceed), and a fetch that runs out comes back as its own fact
+(`timed_out`), which the seam renders as a wait (`_timeout_hint`): not a
+dead channel, not /link. Three absences became four, each with its
+sentence.
+(`app/test/an_unlinked_telegram_chat_is_unlinked_at_every_door.test.js`,
+`app/test/the_networth_card_names_what_did_not_answer.test.js`,
+`tests/test_the_networth_door_outlasts_the_venue_it_waits_for.py`,
+`app/routes/sync.js`, `app/lib/networth.js`, `app/lib/alerts.js`, `app/db.js`,
+`bot/utils/credential_pull.py`, `bot/utils/web_data_pull.py`,
+`bot/skills/market_commands.py`, `bot/skills/telegram_handler.py`.)
+
 **A RISK BUDGET THAT BOUNDED THE NOTIONAL BOUNDED A LOSS FIVE TIMES ITS
 NAME, AND BOTH DECISIONS THE CHAPTER ABOVE FILED WERE MADE THE SAME DAY.**
 The benchmark chapter above measured it: the gate's base was
@@ -20023,7 +20069,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1215** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1216** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

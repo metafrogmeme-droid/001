@@ -125,6 +125,23 @@ def fetch_idleyield(telegram_id: str) -> dict | None:
     return fetch_web_card("idleyield", telegram_id)
 
 
+#: Per-card budgets, in seconds, for the cards whose rendering waits on a
+#: read BEHIND the website: net worth and idle yield call back into the bot
+#: (`gateway.getGateway(..., 30000)` in app/lib/networth.js and
+#: app/lib/idle_yield.js), and the bot's venue read inside that is budgeted
+#: `BALANCE_TIMEOUT_S` (25 s). The sync channel's 15 s default hung up on
+#: exactly the slow-venue case that 25 s budget exists for, and the caller
+#: was told the web app was unreachable and to /link an account they had
+#: linked. The budget here outlasts the chain it waits for.
+WEB_CARD_TIMEOUT_S: dict[str, float] = {"networth": 45.0, "idleyield": 45.0}
+
+
+def web_card_timeout_s(name: str) -> float:
+    """This card's budget on the sync channel."""
+    from bot.utils.credential_pull import REQUEST_TIMEOUT_S
+    return float(WEB_CARD_TIMEOUT_S.get(name, REQUEST_TIMEOUT_S))
+
+
 def fetch_web_card(name: str, telegram_id: str = "", **params: object) -> dict | None:
     """One of the website chat's own cards (`WEB_CARDS`), as the website
     renders it: ``{"reply_html", "intent"}`` — or ``{"reply_html": None,
@@ -141,6 +158,9 @@ def fetch_web_card(name: str, telegram_id: str = "", **params: object) -> dict |
     (`WEB_CARD_PARAMS`), sent when given and never defaulted here.
     None = channel unconfigured, name not a card, or the fetch failed — the
     command says which surface could not be read rather than inventing one.
+    A fetch that ran out of its budget answers ``{"reply_html": None,
+    "timed_out": <seconds>}``: the website was still answering, which is a
+    different fact from a channel that is down, and the command says so.
     """
     if not SYNC_SECRET or name not in WEB_CARDS:
         return None
@@ -157,7 +177,25 @@ def fetch_web_card(name: str, telegram_id: str = "", **params: object) -> dict |
             continue
         parts.append(f"{key}=" + urllib.parse.quote(str(value).strip()[:_PARAM_LIMIT.get(key, 32)]))
     query = ("?" + "&".join(parts)) if parts else ""
-    return _request(f"/api/bot/sync/card/{name}{query}")
+    budget = web_card_timeout_s(name)
+    failure: dict = {}
+    payload = _request(f"/api/bot/sync/card/{name}{query}", timeout=budget,
+                       failure=failure)
+    if payload is None and failure.get("kind") == "timeout":
+        return {"reply_html": None, "timed_out": budget}
+    return payload
+
+
+def web_card_timed_out(payload: object) -> Optional[float]:
+    """The budget a card fetch ran out of, or None when it did not: a card
+    the website was still rendering when the bot hung up is not a channel
+    that is down, and the two get two sentences."""
+    if not isinstance(payload, dict):
+        return None
+    secs = payload.get("timed_out")
+    if isinstance(secs, bool) or not isinstance(secs, (int, float)):
+        return None
+    return float(secs)
 
 
 def fetch_alert_trips(limit: int = 50) -> list[dict] | None:

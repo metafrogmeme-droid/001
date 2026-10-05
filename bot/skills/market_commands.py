@@ -56,6 +56,9 @@ class MarketCommands:
         @staticmethod
         def _unlinked_hint(surface: str = "telegram") -> str: ...
 
+        @staticmethod
+        def _timeout_hint(surface: str = "telegram", seconds: float = 0.0) -> str: ...
+
         async def _send(self, update: Update, text: str,
                         reply_markup=None, edit: bool = False) -> None: ...
 
@@ -232,6 +235,7 @@ class MarketCommands:
             fetch_research,
             fetch_web_card,
             web_card_text,
+            web_card_timed_out,
             web_card_unlinked,
         )
         # Exposure is the caller's own book, pulled through the same helper
@@ -258,6 +262,13 @@ class MarketCommands:
                 fetch_web_card, name, telegram_id, **(params or {}))
         if web_card_unlinked(payload):
             return unlinked if unlinked is not None else self._unlinked_hint(surface)
+        # A fetch that ran out of its budget while the website was still
+        # rendering (a slow venue read behind the card) is not a channel
+        # that is down, and it is not a caller who has not linked: the
+        # sentence names the wait, never /link.
+        _after = web_card_timed_out(payload)
+        if _after is not None:
+            return self._timeout_hint(surface, _after)
         if keep_markup:
             raw = payload.get("reply_html") if isinstance(payload, dict) else None
             if isinstance(raw, str) and raw.strip():

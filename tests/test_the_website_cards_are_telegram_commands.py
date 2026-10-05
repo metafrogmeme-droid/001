@@ -76,7 +76,7 @@ class TestThePull:
     def test_the_paths_and_the_optional_telegram_id(self, monkeypatch):
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
         calls = []
-        monkeypatch.setattr(wdp, "_request", lambda path, body=None: calls.append(path) or {"ok": 1})
+        monkeypatch.setattr(wdp, "_request", lambda path, body=None, **kw: calls.append(path) or {"ok": 1})
         fetch_web_card("nft")
         fetch_web_card("spot")
         fetch_web_card("airdrops", "770001")
@@ -125,7 +125,7 @@ class TestThePull:
     def test_the_telegram_id_is_quoted_and_bounded(self, monkeypatch):
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
         calls = []
-        monkeypatch.setattr(wdp, "_request", lambda path, body=None: calls.append(path) or {})
+        monkeypatch.setattr(wdp, "_request", lambda path, body=None, **kw: calls.append(path) or {})
         fetch_web_card("airdrops", "1 2&x=3" + "9" * 40)
         assert calls == ["/api/bot/sync/card/airdrops?telegram_id=1%202%26x%3D3" + "9" * 25]
 

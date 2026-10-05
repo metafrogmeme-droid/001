@@ -206,7 +206,7 @@ test('wallet and defi: unlinked is a fact, never a guessed wallet; linked is the
     assert.deepEqual(none.data, { reply_html: null, intent: name, unlinked: true });
   }
   const reg = await register('cards5@test.io');
-  await pool.execute('UPDATE users SET telegram_id = ? WHERE id = ?', ['880001', reg.user_id]);
+  await pool.execute('UPDATE users SET telegram_id = ?, telegram_linked = TRUE WHERE id = ?', ['880001', reg.user_id]);
   // Linked to a web account that has no wallet: the renderer's own sentence.
   let r = await card('/api/bot/sync/card/wallet?telegram_id=880001');
   assert.equal(r.status, 200);
