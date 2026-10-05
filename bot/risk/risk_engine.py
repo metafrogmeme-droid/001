@@ -482,6 +482,11 @@ class RiskEngine:
         # Last live equity seen by evaluate(). Only ever set in LIVE mode, so
         # None means "no live evaluation yet" and the reporter says paper.
         self._last_live_equity: float | None = None
+        # The venue's own unrealized PnL beside that equity, or None when the
+        # balance document did not carry one. The drawdown trip reason reads
+        # it: a drop the realized and unrealized figures explain is a losing
+        # book, not a transfer or a wrong reading.
+        self._last_live_unrealized: float | None = None
         # Feature: Rolling return correlation (V2)
         # #49: (timestamp, price) points so cross-asset returns align on a common
         # time grid, not by list position. In-memory only (not persisted).
@@ -1503,7 +1508,7 @@ class RiskEngine:
         missing = tuple(getattr(t, "unreadable", ()) or ())
         return f"could not read {', '.join(missing)}" if missing else ""
 
-    def evaluate(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None, live_account: str = "", fill_leverage: Optional[int] = None) -> RiskCheck:
+    def evaluate(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None, live_account: str = "", fill_leverage: Optional[int] = None, live_unrealized_pnl: Optional[float] = None) -> RiskCheck:
         """
         Run all 23 pre-trade checks (16 in-engine + #17 liquidity + #18 macro + #19 MTF + #20 PCA + #21 VaR + #22 taker 3-bar + #23 bid dominance).
         Returns RiskCheck with APPROVED or REJECTED.
@@ -1529,9 +1534,9 @@ class RiskEngine:
         base and the margin-risk cap are measured at that one figure.
         """
         with self._lock:
-            return self._evaluate_locked(idea, atr, live_equity=live_equity, max_position_usd=max_position_usd, live_open_count=live_open_count, as_of=as_of, live_mode=live_mode, live_book=live_book, live_account=live_account, fill_leverage=fill_leverage)
+            return self._evaluate_locked(idea, atr, live_equity=live_equity, max_position_usd=max_position_usd, live_open_count=live_open_count, as_of=as_of, live_mode=live_mode, live_book=live_book, live_account=live_account, fill_leverage=fill_leverage, live_unrealized_pnl=live_unrealized_pnl)
 
-    def _evaluate_locked(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None, live_account: str = "", fill_leverage: Optional[int] = None) -> RiskCheck:
+    def _evaluate_locked(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None, live_account: str = "", fill_leverage: Optional[int] = None, live_unrealized_pnl: Optional[float] = None) -> RiskCheck:
         self._total_checks += 1
         passed: list[str] = []
         failed: list[str] = []
@@ -2331,6 +2336,7 @@ class RiskEngine:
                 # had no live equity to work from and fell back to the paper
                 # snapshot — reporting ~0% while this gate was refusing trades.
                 self._last_live_equity = live_equity
+                self._last_live_unrealized = live_unrealized_pnl
                 if live_equity > self._live_equity_peak:
                     self._live_equity_peak = live_equity
                 _cur_dd = (100.0 * (self._live_equity_peak - live_equity)
@@ -2353,7 +2359,7 @@ class RiskEngine:
                 # C-05 FIX: trip circuit breaker AND reject the CURRENT trade
                 self._trip_circuit_breaker(
                     "max drawdown breached"
-                    + self._drawdown_transfer_hint(live_equity),
+                    + self._drawdown_transfer_hint(live_equity, live_unrealized_pnl),
                     cause="drawdown")
                 # A PERSON-level breach must stop EVERY venue. Tripping only
                 # this engine's breaker would leave the same person trading on
@@ -5048,7 +5054,7 @@ class RiskEngine:
               data={"from": left, "to": acct,
                     "resumed_peak": resumed if resumed > 0 else None})
 
-    def _drawdown_transfer_hint(self, live_equity) -> str:
+    def _drawdown_transfer_hint(self, live_equity, unrealized=None) -> str:
         """A suffix for the drawdown trip reason when the drop looks like a
         TRANSFER rather than trading losses — "" when losses explain it.
 
@@ -5078,23 +5084,53 @@ class RiskEngine:
             if drop <= 0:
                 return ""
             recorded_loss = max(0.0, -self._live_daily_pnl)
-            if recorded_loss >= 0.5 * drop:
+            # The venue's own unrealized figure, when the balance document
+            # carried one (`LiveExecutor.fetch_balance`'s `unrealized_pnl`).
+            # With it the open book is MEASURED, not guessed at; without it
+            # the three-way hint below stands, because the comparison then
+            # really cannot see open positions.
+            unreal_loss: Optional[float] = None
+            if unrealized is not None:
+                try:
+                    _u = float(unrealized)
+                    unreal_loss = max(0.0, -_u) if _u == _u else None
+                except (TypeError, ValueError):
+                    unreal_loss = None
+            explained = recorded_loss + (unreal_loss or 0.0)
+            if explained >= 0.5 * drop:
+                if unreal_loss:
+                    return (f" — equity is ${drop:,.2f} below the session peak: "
+                            f"realized trade PnL ${recorded_loss:,.2f} and "
+                            f"unrealized PnL ${unreal_loss:,.2f} on open "
+                            f"positions account for it. Check /positions; the "
+                            f"breaker holds until /resume.")
                 return ""
-            # THREE explanations, not two. The comparison is against
-            # REALIZED PnL only — this engine has no view of open positions —
-            # so an unrealized mark-to-market drawdown produces exactly the
-            # same arithmetic as a withdrawal. Naming only "transfer" would
-            # point a losing book at the wrong cause, and this hint exists
-            # because pointing at the wrong cause is expensive.
+            if unreal_loss is None:
+                # THREE explanations, not two. The comparison is against
+                # REALIZED PnL only — this engine has no view of open positions —
+                # so an unrealized mark-to-market drawdown produces exactly the
+                # same arithmetic as a withdrawal. Naming only "transfer" would
+                # point a losing book at the wrong cause, and this hint exists
+                # because pointing at the wrong cause is expensive.
+                return (f" — equity is ${drop:,.2f} below the session peak while "
+                        f"REALIZED trade PnL accounts for only "
+                        f"${recorded_loss:,.2f} of it. Three things look like "
+                        f"this: (1) a deposit/withdrawal — confirm it was yours "
+                        f"and /resume to re-seed the peak at current equity; "
+                        f"(2) OPEN positions marked to market, which this "
+                        f"comparison cannot see — check /positions before "
+                        f"resuming; (3) a genuinely wrong balance reading. Do "
+                        f"not resume until you know which.")
+            # The open book IS in this reading, so (2) is ruled out: two
+            # explanations remain.
             return (f" — equity is ${drop:,.2f} below the session peak while "
-                    f"REALIZED trade PnL accounts for only "
-                    f"${recorded_loss:,.2f} of it. Three things look like "
-                    f"this: (1) a deposit/withdrawal — confirm it was yours "
-                    f"and /resume to re-seed the peak at current equity; "
-                    f"(2) OPEN positions marked to market, which this "
-                    f"comparison cannot see — check /positions before "
-                    f"resuming; (3) a genuinely wrong balance reading. Do "
-                    f"not resume until you know which.")
+                    f"realized trade PnL ${recorded_loss:,.2f} and unrealized "
+                    f"PnL ${unreal_loss:,.2f} account for only "
+                    f"${explained:,.2f} of it. Two things look like this: "
+                    f"(1) a deposit/withdrawal — confirm it was yours and "
+                    f"/resume to re-seed the peak at current equity; (2) a "
+                    f"genuinely wrong balance reading. Do not resume until "
+                    f"you know which.")
         except Exception:
             return ""
 
