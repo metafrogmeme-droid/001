@@ -221,3 +221,172 @@ def tier_card(*, frac: float, dd: float, source: Optional[str], limit: float,
         "\U0001f449 /positions — inspect open trades"
     )
     return f"Drawdown {pct_of_limit:.0f}% of limit", body, sev
+
+
+# ── the cleared card, and the engine's HALTED card ────────────────────────
+#
+# Both were built inline in `ProactiveMonitor` beside the trip card, and both
+# said something nobody had measured. The cleared card printed "Risk limits
+# are back within tolerance. Trading operations have resumed." for every
+# open-to-closed transition: a manual /reset after a drawdown trip, where the
+# limit was not recovered but the peak discarded; a daily-loss reset at UTC
+# rollover; a streak cool-off. The HALTED card printed the moment the monitor
+# NOTICED as "Halted At" and the monitor's last SAMPLE as "Previous State",
+# the same shape the trip card was cured of (`tripped_at_line`). Each line
+# here reads the engine's own record (`RiskEngine.last_breaker_clear`, the
+# transition into HALTED in `state_history`) or says the record is missing.
+
+#: Verb-less, so the sentence after it can be read either way round.
+_HOW = {
+    "manual": "the operator (/reset or /resume)",
+    "daily_rollover": "the daily-loss auto-reset at UTC day rollover",
+    "streak_cooloff": "the loss-streak cool-off (STREAK_BREAKER_AUTORESET_HOURS)",
+}
+
+
+def trip_dedup_key(tripped_at: Any) -> str:
+    """One dedup key PER TRIP, never one for all trips.
+
+    The key used to be the constant ``cb_tripped`` under a five-minute
+    cooldown, so a trip, a /reset and a second trip inside five minutes sent
+    the HALTED card and no trip card: the operator saw a halt with no reason
+    on it. A trip with its own recorded time is its own event; one without
+    (an engine stand-in) keeps the constant, which is what it can say."""
+    at = _num(tripped_at)
+    return f"cb_tripped:{int(at)}" if at is not None and at >= 0 else "cb_tripped"
+
+
+def clear_dedup_key(clear: Any) -> str:
+    """One dedup key PER CLEAR, for the same reason."""
+    at = _num(clear.get("at")) if isinstance(clear, dict) else None
+    return f"cb_cleared:{int(at)}" if at is not None and at >= 0 else "cb_cleared"
+
+
+def cleared_by_line(how: Any, at: Any, noticed_at: float) -> str:
+    """``Cleared by``: the closing path, on the engine's own clock.
+
+    A record this process does not hold (an engine stand-in without the
+    field, or a breaker a build before this record closed) is said to be
+    missing, with the moment the monitor noticed labelled as that."""
+    at_f = _num(at)
+    stamp = _stamp(at_f, with_day=False) if at_f is not None and at_f >= 0 else None
+    who = _HOW.get(how) if isinstance(how, str) else None
+    if who is None:
+        return ("not on record (this process did not close it; noticed at "
+                f"{_stamp(float(noticed_at), with_day=False)})")
+    return f"{who} at {stamp}" if stamp else f"{who} (time not on record)"
+
+
+def _cleared_meaning(how: Any, person_peak: Any) -> str:
+    """What the clear DID, which is never "the limits are back"."""
+    person = person_peak if isinstance(person_peak, str) else ""
+    if how == "manual":
+        text = ("Nothing was measured as back within tolerance: the trip was "
+                "overridden. The drawdown peak is forgotten and re-measured "
+                "from the next equity read, and today's daily-loss budget "
+                "restarts from zero.")
+        if person == "reseeded":
+            text += " The person-level peak was re-seeded too."
+        elif person.startswith("unreadable"):
+            cls = person.split(":", 1)[1] if ":" in person else "unknown"
+            text += (" The person-level peak could <b>not</b> be re-seeded "
+                     f"(store unreadable: <code>{cls}</code>); a person-level "
+                     "drawdown can re-trip on the next evaluation.")
+        return text
+    if how == "daily_rollover":
+        return ("The UTC day rolled over, so today's daily-loss budget is "
+                "fresh. The drawdown peak is unchanged; if today is also a "
+                "loss, the breaker re-trips on the next evaluation.")
+    if how == "streak_cooloff":
+        return ("The cool-off since the last loss elapsed, so the streak "
+                "counter is zero. The drawdown peak and the daily-loss "
+                "budget are unchanged.")
+    return ("How it cleared is not on record, so this card cannot say what "
+            "is back within tolerance. /status shows the gate's reading now.")
+
+
+def gate_after_clear_line(gate: Optional[str]) -> tuple[str, bool]:
+    """``(line, open)`` from `trading_blocked_by` read AFTER the clear.
+
+    "" is an open gate; a reason string means entries are still refused
+    (the resume card's vocabulary, one reading); None means the gate could
+    not be read, which is said rather than rounded to "resumed"."""
+    if gate is None:
+        return ("⚪ Could not read the entry gate after the clear — "
+                "check /status before trusting this card.", False)
+    if gate:
+        from bot.warroom.warroom_bot import resume_gate_line
+        return resume_gate_line(gate).strip(), False
+    return "New entries are <b>open</b>.", True
+
+
+def cleared_card(*, clear: Any, gate: Optional[str], noticed_at: float) -> tuple[str, str]:
+    """``(title, body)`` for a breaker found closed after it was open.
+
+    ``clear`` is `RiskEngine.last_breaker_clear` (a dict, or None / a
+    stand-in's attribute, both read as "not on record"); ``gate`` is
+    `trading_blocked_by` read after the clear. The word "resumed" never
+    appears: the card says the gate is open, or what still refuses, or that
+    it could not read the gate."""
+    rec = clear if isinstance(clear, dict) else {}
+    # A gate that is not a string (a stand-in, a mock) is a gate nobody read.
+    gate = gate if isinstance(gate, str) else None
+    how = rec.get("how")
+    cause = rec.get("cause")
+    cause_txt = cause if isinstance(cause, str) and cause else "not on record"
+    tripped = _num(rec.get("tripped_at"))
+    when = (f", at <code>{_stamp(tripped, with_day=False)}</code>"
+            if tripped is not None and tripped >= 0 else "")
+    gate_line, is_open = gate_after_clear_line(gate)
+    body = (
+        "✅ <b>CIRCUIT BREAKER CLEARED</b>\n"
+        f"{SEP}\n"
+        f"- Cleared by: <code>{cleared_by_line(how, rec.get('at'), noticed_at)}</code>\n"
+        f"- It had tripped on: <code>{cause_txt}</code>{when}\n\n"
+        + _cleared_meaning(how, rec.get("person_peak")) + "\n\n"
+        + gate_line + "\n"
+        + ("\U0001f680 The engine resumes scanning on its next cycle.\n" if is_open else "")
+        + f"{SEP}\n"
+        + "\U0001f449 /status — confirm engine state\n"
+        + "\U0001f449 /health — check system vitals"
+    )
+    return "Circuit Breaker Cleared", body
+
+
+def halted_card(*, prev_state: Optional[str], reason: str, halted_at: Any,
+                last_seen: str, noticed_at: float) -> tuple[str, str]:
+    """``(title, body)`` for the engine entering HALTED.
+
+    ``prev_state`` / ``reason`` / ``halted_at`` are the engine's own
+    transition record (the last `StateTransition` into HALTED); with none on
+    record the card prints the monitor's last sample and notice time, each
+    labelled as that, instead of calling them the engine's."""
+    at = _num(halted_at)
+    when = _stamp(at, with_day=False) if at is not None and at >= 0 else "not on record"
+    if prev_state:
+        lines = (
+            f"- Previous state: <code>{prev_state}</code>\n"
+            f"- Halted at: <code>{when}</code>\n"
+            + (f"- Reason: <code>{reason}</code>\n" if reason else "")
+        )
+    else:
+        lines = (
+            f"- Last state seen by the monitor: <code>{last_seen or 'UNKNOWN'}</code>\n"
+            f"- Noticed at: <code>{_stamp(float(noticed_at), with_day=False)}</code> "
+            "(the engine's own transition is not on record)\n"
+        )
+    body = (
+        "⛔ <b>ENGINE HALTED</b>\n"
+        f"{SEP}\n"
+        + lines
+        + "\nNo new scans or analyses will run.\n"
+        "All automated trading is paused; open positions are still "
+        "monitored for SL/TP.\n"
+        "The breaker's own card says why it tripped; if none arrived, "
+        "/status shows the trip reason.\n"
+        f"{SEP}\n"
+        "\U0001f449 /status — review engine details\n"
+        "\U0001f449 /health — check system vitals\n"
+        "\U0001f449 /reset — resume after review"
+    )
+    return "Engine HALTED", body
