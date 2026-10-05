@@ -86,6 +86,8 @@ const AUTHORIZED_BOT_USER_ID = parseInt(process.env.BOT_USER_ID) || 1;
 
 // -- In-memory stores (persist within same cold start) --
 let latestScan = null;
+// Said once per process: a heartbeat that found no saved scan to stamp.
+let heartbeatUnstoredSaid = false;
 let latestPortfolio = null; // { equity, open_count, net_pnl, total_trades, win_rate, updated_at }
 // Guardian Flight Recorder: recent joined decision records + engine-verified
 // chain status. { records: [...], chain: {ok,length,tip_hash,problems}, updated_at }
@@ -939,6 +941,21 @@ router.post('/events', async (req, res) => {
 router.post('/scan', async (req, res) => {
   try {
     const incoming = req.body || {};
+    // After a website restart `latestScan` is empty until a reader loads it,
+    // and both branches below read it: the first push would otherwise carry
+    // nothing and REPLACE the saved scan in the DB, cards and all. The saved
+    // copy is loaded first; a read that fails leaves it empty (getLatestScan
+    // never throws), and the heartbeat branch then writes nothing.
+    //
+    // THIS LOAD SITS ABOVE THE HEARTBEAT BRANCH. It used to sit below it,
+    // so on a fresh process the heartbeat -- which the bot posts every 20 s
+    // for the length of every batch, and which therefore arrives before any
+    // reader after almost every deploy -- took the `else` arm with
+    // `latestScan === null`, stored `{heartbeat_at}` over the saved scan, and
+    // the cards, symbols, scan_at, deepscan and breaker block were gone
+    // until the next manual /scan. The guard two statements down had been
+    // written for exactly that replace, one branch over.
+    if (!latestScan) await getLatestScan();
     // A cadence stamp from a batch that is still working. It must not
     // replace the stored scan: no cards, no balances, no "we scanned and
     // found nothing". The status line reads heartbeat_at while it is a
@@ -947,27 +964,30 @@ router.post('/scan', async (req, res) => {
       const beat = new Date().toISOString();
       if (latestScan && typeof latestScan === 'object') {
         latestScan = { ...latestScan, heartbeat_at: beat };
+        try {
+          await pool.execute(
+            'REPLACE INTO scan_cache (id, scan_json) VALUES (1, ?)',
+            [JSON.stringify(latestScan)]
+          );
+        } catch (dbErr) {
+          console.error('Scan heartbeat write error:', dbErr.message);
+        }
       } else {
+        // Nothing loaded: no saved scan, or a read that failed. The beat
+        // lives in memory for the status line and is NOT written, because
+        // a REPLACE here is the only statement that can turn a saved scan
+        // this process could not read into a row holding one timestamp.
         latestScan = { heartbeat_at: beat };
-      }
-      try {
-        await pool.execute(
-          'REPLACE INTO scan_cache (id, scan_json) VALUES (1, ?)',
-          [JSON.stringify(latestScan)]
-        );
-      } catch (dbErr) {
-        console.error('Scan heartbeat write error:', dbErr.message);
+        if (!heartbeatUnstoredSaid) {
+          heartbeatUnstoredSaid = true;
+          console.warn('Scan heartbeat kept in memory only: no saved scan was loaded, '
+                       + 'so nothing is written over the scan_cache row');
+        }
       }
       nudge('scan');
       res.json({ ok: true, heartbeat: true });
       return;
     }
-    // After a website restart `latestScan` is empty until a reader loads it,
-    // and the carry-forward below reads it: the first cycle summary would
-    // then carry nothing and REPLACE the saved scan in the DB, cards and all.
-    // The saved copy is loaded first; a read that fails leaves it empty, as
-    // before (getLatestScan never throws).
-    if (!latestScan) await getLatestScan();
     // Preserve the deep-scan pattern block across scans that don't carry one.
     // A fresh block (from /deepscan) is stamped with its web arrival time; a
     // carried-forward block is dropped once older than the TTL.

@@ -16455,6 +16455,38 @@ description now says `≥ 3x`, which is the comparison the gate makes.
 `bot/core/market_scanner.py`, `bot/utils/models.py`,
 `bot/skills/skill_registry.py`.)
 
+**THE FIRST HEARTBEAT AFTER A WEBSITE RESTART REPLACED THE SAVED SCAN
+WITH ONE TIMESTAMP.** PR 499 gave `POST /api/bot/sync/scan` a heartbeat
+branch: the bot stamps `{heartbeat: true}` every 20 s for the length of
+every batch, and the status line reads `heartbeat_at` while it is a real
+time. The branch was inserted ABOVE the restart guard, `if (!latestScan)
+await getLatestScan()`, whose own comment says it exists so a push after a
+website restart does not REPLACE the saved scan in the DB, cards and all.
+`latestScan` is null at module load, so on a fresh process the heartbeat,
+which arrives before any reader after almost every deploy, took the `else`
+arm, set `latestScan = {heartbeat_at}` and executed `REPLACE INTO
+scan_cache` with that object: entry_cards, symbols, scan_at, deepscan and
+the breaker block were gone, and stayed gone until a human ran a manual
+`/scan`, because the autonomous cycle's own pushes carry none of them and
+only carry forward what `latestScan` holds. The dashboard's scan panel then
+read a working scan as fresh over an empty record. The sixty-PR review
+drove it against a pool that persists the row across fresh requires of the
+router, the way a deploy persists the database: a real scan, a restart, a
+heartbeat, and the stored JSON was `{"heartbeat_at": ...}`. The guard two
+statements down had been written for exactly that replace, one branch
+over. Ask which other surface makes the same claim.
+
+The load runs first now, for both branches. And a heartbeat that finds
+nothing loaded, no saved scan or a read that failed, keeps the beat in
+memory for the status line and writes nothing, saying so once per process:
+a REPLACE is the one statement that can turn a saved scan this process
+could not read into a row holding one timestamp, and the cycle-summary
+path's "a read that fails leaves it empty, as before" is a cadence of
+minutes, not twenty seconds. Both arms are driven: a loaded process still
+stamps and stores the beat.
+(`app/test/a_heartbeat_after_a_restart_keeps_the_saved_scan.test.js`,
+`app/routes/sync.js`.)
+
 **A RISK BUDGET THAT BOUNDED THE NOTIONAL BOUNDED A LOSS FIVE TIMES ITS
 NAME, AND BOTH DECISIONS THE CHAPTER ABOVE FILED WERE MADE THE SAME DAY.**
 The benchmark chapter above measured it: the gate's base was
