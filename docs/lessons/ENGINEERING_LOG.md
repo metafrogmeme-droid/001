@@ -16240,6 +16240,45 @@ since one trip has nothing to collide with.
 (`tests/test_the_cleared_card_says_how_it_cleared.py`,
 `bot/formatters/breaker_card.py`, `bot/risk/risk_engine.py`.)
 
+**THE DRAWDOWN GATE COMPARED THE COIN'S WALLET BALANCE WITH A PEAK AND
+CALLED THE DIFFERENCE A DRAWDOWN.** From the live bot, 2026-10-05 12:53:11
+UTC, thirty minutes after a `/reset`: `CIRCUIT BREAKER TRIPPED: max drawdown
+breached — equity is $12.36 below the session peak while REALIZED trade PnL
+accounts for only $0.00 of it`. No trade had closed. `bot/core/venues.py`
+marks every Bitget client `options.uta`, so ccxt's `fetch_balance` calls
+`GET /api/v3/account/assets` and `parse_uta_balance` keeps only the per-coin
+list: `info` is that list, and the account-level `usdtEquity` and
+`usdtUnrealisedPnl` beside it are dropped. `LiveExecutor.fetch_balance`'s
+equity loop, written for the classic response where `info.data` is a list
+of rows carrying `usdtEquity`, found no `data` dict and fell through to the
+coin's `balance`. The docstring over it said `total` was "always the
+equity-aware value"; on a unified account it was a wallet figure, which
+moves when margin is committed to a position or a resting order and does
+not move when an open position loses. The gate therefore tripped on money
+that had not been lost and could not see money that had. A field name is
+not a quantity, and the two were under one key.
+
+The executor now asks for the envelope itself, through ccxt's own implicit
+method (one transport, one signature), takes `usdtEquity` as `total`,
+carries `usdtUnrealisedPnl` as `unrealized_pnl`, and says which figure it
+read in `equity_source`. An envelope without a readable `usdtEquity` is the
+UNREAD shape, never the wallet figure under the same key: two readings of
+one quantity on alternate calls would seed the peak from one and compare
+the other. The classic path reads as before and now carries its own row's
+`unrealizedPL`. The engine hands the unrealized figure to the gate beside
+the equity (`live_unrealized_pnl`, read by name off the recheck row), and
+the trip reason reads it: a drop the realized and unrealized figures
+explain is named as a losing book, a known open book that does not explain
+it leaves two causes, and an unread one keeps the three. Mutations worth
+naming: the envelope never asked dies only on the test that evaluates the
+SAME account on both readings, because each reading is internally
+consistent; a missing `usdtEquity` minted as the wallet figure dies only
+on the unread test, since every readable fixture agrees. One consequence
+the deploy carries: the peak's basis changed from the wallet figure to the
+account marked to market, and the restart re-seeds it.
+(`tests/test_the_drawdown_gate_reads_the_account_marked_to_market.py`,
+`bot/core/live_executor.py`, `bot/risk/risk_engine.py`.)
+
 **A RISK BUDGET THAT BOUNDED THE NOTIONAL BOUNDED A LOSS FIVE TIMES ITS
 NAME, AND BOTH DECISIONS THE CHAPTER ABOVE FILED WERE MADE THE SAME DAY.**
 The benchmark chapter above measured it: the gate's base was
@@ -19776,7 +19815,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1210** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1211** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

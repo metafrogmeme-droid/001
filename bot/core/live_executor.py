@@ -15186,15 +15186,115 @@ class LiveExecutor:
 
     # ── Account info ─────────────────────────────────────────────
 
+    async def _read_uta_account_assets(self, exchange: Any) -> Any:
+        """The UTA assets ENVELOPE (``GET /api/v3/account/assets``) as the
+        venue answered it, or None when this client does not speak it.
+        Untyped on purpose: `_balance_from_uta_envelope` is the reader, and
+        an answer that is not the documented shape is UNREAD there, never
+        routed to the classic path as if the client had not asked.
+
+        ccxt's `fetch_balance` on a client marked ``options.uta`` calls this
+        same endpoint and keeps only the per-coin list: `parse_uta_balance`
+        sets ``info`` to that list, and the account-level figures beside it
+        (``usdtEquity``, ``usdtUnrealisedPnl``, ``imr``, ...) are dropped on
+        the floor. The equity loop in the classic path then finds no ``data``
+        dict and the account's "equity" became the coin's ``balance``: a
+        wallet figure, not the account marked to market, and on 2026-10-05
+        the drawdown breaker tripped on it with $0.00 of realized PnL.
+
+        Asked through ccxt's own implicit method, so there is one transport
+        and one signature. A client without it (a classic venue, a test
+        stand-in) answers None and the classic path reads as before.
+        """
+        if not client_marks_uta(exchange):
+            return None
+        fn = getattr(exchange, "privateUtaGetV3AccountAssets", None)
+        if not callable(fn):
+            return None
+        return await fn({})
+
+    def _balance_from_uta_envelope(self, exchange: Any, envelope: Any) -> dict:
+        """The balance dict from the UTA envelope: ``total`` is the account's
+        ``usdtEquity`` (marked to market, unmoved by margin merely committed
+        to a position or a resting order), ``unrealized_pnl`` is
+        ``usdtUnrealisedPnl`` or None when the document does not carry it.
+
+        An envelope without a readable ``usdtEquity`` raises: the caller's
+        except turns that into the UNREAD shape (``error``), never into the
+        wallet figure under the same key. Two readings of one quantity on
+        alternate calls would seed the peak from one and compare the other.
+        """
+        data = envelope.get("data") if isinstance(envelope, dict) else None
+        if not isinstance(data, dict):
+            raise ValueError("UTA assets envelope carries no data object")
+        assets = data.get("assets")
+        parsed = exchange.parse_uta_balance(assets if isinstance(assets, list) else [])
+        usdt = parsed.get(self._venue.balance_coin, {}) or {}
+        # The coin's wallet figure, or None when the balance coin has no
+        # entry: "not reported", never a measured 0.0 (RC-2026-017's shape).
+        raw_total = usdt.get("total")
+        wallet_total: Optional[float]
+        try:
+            wallet_total = None if raw_total is None else float(raw_total)
+        except (TypeError, ValueError):
+            wallet_total = None
+        raw_eq = data.get("usdtEquity")
+        try:
+            equity = float(raw_eq) if raw_eq is not None else math.nan
+        except (TypeError, ValueError):
+            raise ValueError("usdtEquity unread in UTA assets envelope") from None
+        if not math.isfinite(equity):
+            raise ValueError("usdtEquity absent or not a finite number in UTA assets envelope")
+        unrealized: Optional[float] = None
+        raw_u = data.get("usdtUnrealisedPnl")
+        if raw_u is not None:
+            try:
+                _u = float(raw_u)
+                unrealized = _u if math.isfinite(_u) else None
+            except (TypeError, ValueError):
+                unrealized = None
+        return {
+            "free": _free_or_none(usdt),
+            "used": _used_or_none(usdt),
+            "total": equity,  # the account marked to market
+            "wallet_total": wallet_total,  # the coin's wallet balance
+            "holdings": self._holdings_from(parsed),
+            "unrealized_pnl": unrealized,
+            "equity_source": "usdtEquity",
+        }
+
+    def _holdings_from(self, balance: dict) -> list:
+        """Every non-zero holding other than the balance coin, from a ccxt
+        balance dict (parsed per-coin entries beside ``info``)."""
+        holdings = []
+        for asset, info in balance.items():
+            if asset in ("info", "free", "used", "total", "timestamp", "datetime"):
+                continue
+            total_val = float(info.get("total", 0) if isinstance(info, dict) else 0)
+            if total_val > 0 and asset != self._venue.balance_coin:
+                holdings.append({
+                    "asset": asset,
+                    "total": total_val,
+                    "free": float(info.get("free", 0) if isinstance(info, dict) else 0),
+                })
+        return holdings
+
     async def fetch_balance(self) -> dict:
         """Fetch USDT balance and all spot holdings from Bitget.
 
-        Returns 'equity' (includes unrealized PnL) when available from the
-        exchange response; falls back to 'total' (wallet balance only).
-        The 'total' key is always the equity-aware value for display purposes.
+        ``total`` is the account's equity: ``usdtEquity`` from the UTA assets
+        envelope on a unified client (`_read_uta_account_assets`), else the
+        ``usdtEquity``/``accountEquity``/``equity`` field of the classic
+        response, else the coin's wallet balance. ``equity_source`` says which.
+        ``unrealized_pnl`` is the venue's own figure when the document carries
+        one, else None: the drawdown trip reason reads it so a drop below the
+        peak can be attributed to open positions instead of guessed at.
         """
         try:
             exchange = await self._get_exchange()
+            envelope = await self._read_uta_account_assets(exchange)
+            if envelope is not None:
+                return self._balance_from_uta_envelope(exchange, envelope)
             balance = await exchange.fetch_balance()
             usdt = balance.get(self._venue.balance_coin, {})
 
@@ -15204,6 +15304,8 @@ class LiveExecutor:
             # field is only wallet balance (free + used) and excludes unrealized.
             wallet_total = float(usdt.get("total", 0))
             equity = wallet_total  # default: wallet balance
+            equity_source = "wallet_total"
+            unrealized: Optional[float] = None
             raw_info = balance.get("info", {})
             raw_data = raw_info.get("data", []) if isinstance(raw_info, dict) else []
             if isinstance(raw_data, dict):
@@ -15219,24 +15321,20 @@ class LiveExecutor:
                             eq_val = float(val)
                             if eq_val > 0:
                                 equity = eq_val
+                                equity_source = key
                                 break
                         except (ValueError, TypeError):
                             continue
                 if equity != wallet_total:
+                    # The same row carries the unrealized figure, when it does.
+                    raw_u = item.get("unrealizedPL")
+                    if raw_u is not None:
+                        try:
+                            _u = float(raw_u)
+                            unrealized = _u if math.isfinite(_u) else None
+                        except (TypeError, ValueError):
+                            unrealized = None
                     break
-
-            # Collect all non-zero spot holdings
-            holdings = []
-            for asset, info in balance.items():
-                if asset in ("info", "free", "used", "total", "timestamp", "datetime"):
-                    continue
-                total_val = float(info.get("total", 0) if isinstance(info, dict) else 0)
-                if total_val > 0 and asset != self._venue.balance_coin:
-                    holdings.append({
-                        "asset": asset,
-                        "total": total_val,
-                        "free": float(info.get("free", 0) if isinstance(info, dict) else 0),
-                    })
 
             return {
                 # RC-2026-017: was `float(usdt.get("free", 0))`. `usdt` is `{}`
@@ -15266,10 +15364,13 @@ class LiveExecutor:
                 "used": _used_or_none(usdt),
                 "total": equity,  # equity-aware value for display
                 "wallet_total": wallet_total,  # raw wallet balance
-                "holdings": holdings,
+                "holdings": self._holdings_from(balance),
+                "unrealized_pnl": unrealized,
+                "equity_source": equity_source,
             }
         except Exception as exc:
-            return {"error": str(exc), "free": 0, "used": 0, "total": 0, "holdings": []}
+            return {"error": str(exc), "free": 0, "used": 0, "total": 0, "holdings": [],
+                    "unrealized_pnl": None}
 
     @property
     def open_positions(self) -> list[LivePosition]:

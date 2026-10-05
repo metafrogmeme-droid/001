@@ -687,6 +687,9 @@ class _LiveRecheck(NamedTuple):
     # the live drawdown is measured against that account's own peak. "" is
     # "not named", which keeps whichever peak the engine last measured.
     account: str = ""
+    # The venue's own unrealized PnL off that same payload, or None: unread.
+    # The drawdown trip reason attributes a drop to open positions with it.
+    unrealized_usd: Optional[float] = None
 
 
 class RuneClawEngine:
@@ -1461,7 +1464,8 @@ class RuneClawEngine:
                                 size_bounds.available_from_balance(_bal),
                                 _live_executor_mod.held_rows(
                                     self.live_executor.open_positions),
-                                account=_executor_account(self.live_executor))
+                                account=_executor_account(self.live_executor),
+                                unrealized_usd=_bal.get("unrealized_pnl"))
         # Per-user regular path — the user's OWN account.
         bal = await self.get_user_live_equity(user_id)
         live_eq = bal.get("total", 0.0) if bal else None
@@ -1470,7 +1474,8 @@ class RuneClawEngine:
         return _LiveRecheck(live_eq, live_open,
                             size_bounds.available_from_balance(bal or {}),
                             _live_executor_mod.held_rows(ex.open_positions),
-                            account=_executor_account(ex))
+                            account=_executor_account(ex),
+                            unrealized_usd=(bal or {}).get("unrealized_pnl"))
 
     @staticmethod
     def _critique_book(recheck_engine, rc: "_LiveRecheck"):
@@ -7741,6 +7746,9 @@ class RuneClawEngine:
         # already REFUSES a live entry it cannot size ("LIVE_EQUITY: unreadable").
         _bal_now = (self.live_balance_cached() or {}) if CONFIG.is_live() else {}
         live_eq = _bal_now.get("total") if CONFIG.is_live() else None
+        # The venue's unrealized PnL off the SAME payload, or None: the
+        # drawdown trip reason attributes a drop to open positions with it.
+        live_unreal = _bal_now.get("unrealized_pnl") if CONFIG.is_live() else None
         # Pass the execution cap so risk evaluates the actual executed size.
         # It is the EXECUTOR's bound rather than a flat constant: with the
         # balance-relative feature off, or with no available margin on the
@@ -7780,7 +7788,7 @@ class RuneClawEngine:
         # holds nothing a live fill wrote).
         live_book = (_live_executor_mod.held_rows(self.live_executor.open_positions)
                      if CONFIG.is_live() else None)
-        risk_check = self.risk.evaluate(idea, atr=atr_value, live_equity=live_eq, max_position_usd=exec_cap, live_open_count=live_open, live_mode=CONFIG.is_live(), live_book=live_book, live_account=_executor_account(self.live_executor) if CONFIG.is_live() else "")
+        risk_check = self.risk.evaluate(idea, atr=atr_value, live_equity=live_eq, max_position_usd=exec_cap, live_open_count=live_open, live_mode=CONFIG.is_live(), live_book=live_book, live_account=_executor_account(self.live_executor) if CONFIG.is_live() else "", live_unrealized_pnl=live_unreal)
 
         # Log risk evaluation to scan log
         audit(scan_log, f"Risk evaluation: {risk_check.verdict.value} for {idea.asset}",
@@ -8539,7 +8547,7 @@ class RuneClawEngine:
             # context sync may have copied the shared engine's regime) so this
             # idea's symbol regime is authoritative for the executed-size recheck.
             self._apply_regime_to(recheck_engine, idea.asset)
-            recheck = recheck_engine.evaluate(idea, atr=stored_atr, live_equity=live_eq_recheck, max_position_usd=recheck_cap, live_open_count=live_open_recheck, live_mode=CONFIG.is_live(), live_book=_rc.book, live_account=_rc.account)
+            recheck = recheck_engine.evaluate(idea, atr=stored_atr, live_equity=live_eq_recheck, max_position_usd=recheck_cap, live_open_count=live_open_recheck, live_mode=CONFIG.is_live(), live_book=_rc.book, live_account=_rc.account, live_unrealized_pnl=_rc.unrealized_usd)
         except Exception as exc:
             # Fix 6: if re-check raises, do NOT silently lose the idea.
             # Log it as a failed re-check and return a clear message.

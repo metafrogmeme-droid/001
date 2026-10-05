@@ -204,51 +204,51 @@ about to change before changing it.
 - L15850: THE PROVENANCE RIDES ON THE POSITION, AND SURVIVES A RESTART
 - L15864: ONE SEAM, ASKED BETWEEN THE HALT AND THE ORDER
 - L15882: A LEVERAGE THE RECORD DOES NOT HOLD IS NOT A MARGIN OF ZERO
-- L15903: THE CAPS FOUND WHAT THE OLDER DRIVES HAD APPROVED — `tests/command_gates.py`, `tests/test_a_failed_signature_takes_its_spend_back.py`, `tests/test_a_gate_error_line_names_the_class.py`, `tests/test_a_typed_ticket_rests_on_its_own_clock.py`, `tests/test_an_env_value_that_did_not_parse_is_said_every_boot.py`, `tests/test_core.py`, `tests/test_stop_distance_floor_is_final.py`, `tests/test_the_agent_feeds_thesis_states_the_signal_rows_confidence.py`, `tests/test_the_benchmark_fills_at_the_leverage_it_states.py`, `tests/test_the_breaker_card_says_what_the_gate_read.py`, `tests/test_the_cleared_card_says_how_it_cleared.py`, `tests/test_the_drift_fallback_places_what_was_approved.py`, `tests/test_the_per_user_cap_is_read_or_refused.py`, `tests/test_the_risk_budget_is_a_loss_at_the_stop.py`
-- L16541: THE FOLLOW FEATURE SELECTED SIGNALS BY A STATUS NO PRODUCER EVER WROTE — `app/test/copy_picks_read_the_bots_stated_window.test.js`, `app/test/embed_chart_page.test.js`, `app/test/every_candle_chart_is_a_tradingview_chart.test.js`, `app/test/signal_outcomes_reach_the_panels.test.js`, `app/test/tv_charts_render.smoke.test.js`, `tests/test_a_published_signal_is_resolved.py`, `tests/test_a_signal_states_when_it_stops_being_live.py`, `tests/test_a_telegram_chart_links_the_live_chart.py`, `tests/test_every_confidence_reader_asks_the_one_reading.py`, `tests/test_the_telegram_cards_print_the_one_confidence.py`
-- L16883: THE ARENA OPENED A CALL THAT HAD ALREADY ENDED, AT ALL THREE OF ITS DOORS — `app/test/a_resolved_call_reads_as_resolved.test.js`, `app/test/an_ended_call_is_not_opened_in_the_arena.test.js`, `tests/test_the_signal_history_reads_the_outcome_ledger.py`
-- L17030: THE ENGINE PUBLISHED THE SAME SETUP AS A NEW CALL EVERY FIVE MINUTES — `tests/conftest.py`, `tests/test_a_published_signal_is_resolved.py`, `tests/test_a_re_offered_setup_is_one_call.py`, `tests/test_a_test_that_builds_an_engine_hands_the_halt_check_back.py`, `tests/test_alert_audience.py`
-- L17184: A RESTING LIMIT WAS SIZED AT THE MARKET PRICE AND FILLED AT ITS OWN — `tests/test_a_resting_limit_is_sized_at_its_own_price.py`, `tests/test_a_second_order_is_not_placed_beside_a_resting_one.py`
-- L17293: AND CONFIRM'S DUPLICATE CHECK READ THE OPERATOR'S BOOK FOR EVERY CALLER — `tests/test_a_halt_cancels_a_resting_entry.py`, `tests/test_a_resting_limit_drifts_only_when_the_market_moves.py`, `tests/test_a_retry_places_only_the_missing_leg.py`, `tests/test_a_scan_cards_levels_are_placed_as_shown.py`, `tests/test_an_open_is_announced_when_the_position_opens.py`, `tests/test_an_unfilled_order_is_not_a_trade_result.py`, `tests/test_the_livepositions_card_prints_what_the_record_holds.py`
-- L17811: A TICKER THAT STATED NO PRICE PLACED THE ORDER — `app/test/etf_flows_reads_what_the_source_stated.test.js`, `tests/test_a_backtest_fill_keeps_a_sub_cent_entry.py`, `tests/test_a_mark_is_read_on_the_market_the_position_trades.py`, `tests/test_a_stop_at_the_floor_reads_at_the_floor.py`, `tests/test_a_sub_cent_level_is_recorded_in_significant_digits.py`, `tests/test_a_trail_stop_the_price_has_crossed_closes_the_position.py`, `tests/test_the_backtest_ladder_locks_what_the_live_ladder_locks.py`, `tests/test_the_etf_flows_picture_draws_the_websites_figures.py`, `tests/venue_symbol_reads.py`
-- L18173: THE EXECUTOR'S LIMIT WAS PRICED OFF A VWAP THAT READ A NULL HIGH AS ZERO — `tests/test_a_null_candle_value_is_left_out_of_the_limit_levels.py`, `tests/test_an_empty_book_or_quiet_tape_is_not_an_order_flow_reading.py`
-- L18272: THE ENGINE'S SMART EXITS HAD A PRICE FOR THREE SYMBOLS
-- L18294: IN LIVE MODE A STALE PAPER POSITION FED THE LIVE ENGINE
-- L18316: ONE VWAP PER SYMBOL, IN MEMORY
-- L18337: A DRIFT RE-OFFER DROPPED WHAT KIND OF TRADE IT WAS — `tests/test_a_live_exit_reads_its_own_price_book_and_vwap.py`
-- L18367: A TEST THAT TWO FIGURES AGREE IS NOT ONE FIGURE — `tests/test_a_baseline_total_is_the_sum_of_its_counts.py`, `tests/test_rerecord_never_blesses_a_regression.py`
-- L18403: A FILTER THAT MATCHES NOTHING IS ONE PASSING TEST — `app/test/js_honesty_ratchet.test.js`, `tests/test_a_baseline_total_is_the_sum_of_its_counts.py`, `tests/test_rerecord_never_blesses_a_regression.py`
+- L15903: THE CAPS FOUND WHAT THE OLDER DRIVES HAD APPROVED — `tests/command_gates.py`, `tests/test_a_failed_signature_takes_its_spend_back.py`, `tests/test_a_gate_error_line_names_the_class.py`, `tests/test_a_typed_ticket_rests_on_its_own_clock.py`, `tests/test_an_env_value_that_did_not_parse_is_said_every_boot.py`, `tests/test_core.py`, `tests/test_stop_distance_floor_is_final.py`, `tests/test_the_agent_feeds_thesis_states_the_signal_rows_confidence.py`, `tests/test_the_benchmark_fills_at_the_leverage_it_states.py`, `tests/test_the_breaker_card_says_what_the_gate_read.py`, `tests/test_the_cleared_card_says_how_it_cleared.py`, `tests/test_the_drawdown_gate_reads_the_account_marked_to_market.py`, `tests/test_the_drift_fallback_places_what_was_approved.py`, `tests/test_the_per_user_cap_is_read_or_refused.py`, `tests/test_the_risk_budget_is_a_loss_at_the_stop.py`
+- L16580: THE FOLLOW FEATURE SELECTED SIGNALS BY A STATUS NO PRODUCER EVER WROTE — `app/test/copy_picks_read_the_bots_stated_window.test.js`, `app/test/embed_chart_page.test.js`, `app/test/every_candle_chart_is_a_tradingview_chart.test.js`, `app/test/signal_outcomes_reach_the_panels.test.js`, `app/test/tv_charts_render.smoke.test.js`, `tests/test_a_published_signal_is_resolved.py`, `tests/test_a_signal_states_when_it_stops_being_live.py`, `tests/test_a_telegram_chart_links_the_live_chart.py`, `tests/test_every_confidence_reader_asks_the_one_reading.py`, `tests/test_the_telegram_cards_print_the_one_confidence.py`
+- L16922: THE ARENA OPENED A CALL THAT HAD ALREADY ENDED, AT ALL THREE OF ITS DOORS — `app/test/a_resolved_call_reads_as_resolved.test.js`, `app/test/an_ended_call_is_not_opened_in_the_arena.test.js`, `tests/test_the_signal_history_reads_the_outcome_ledger.py`
+- L17069: THE ENGINE PUBLISHED THE SAME SETUP AS A NEW CALL EVERY FIVE MINUTES — `tests/conftest.py`, `tests/test_a_published_signal_is_resolved.py`, `tests/test_a_re_offered_setup_is_one_call.py`, `tests/test_a_test_that_builds_an_engine_hands_the_halt_check_back.py`, `tests/test_alert_audience.py`
+- L17223: A RESTING LIMIT WAS SIZED AT THE MARKET PRICE AND FILLED AT ITS OWN — `tests/test_a_resting_limit_is_sized_at_its_own_price.py`, `tests/test_a_second_order_is_not_placed_beside_a_resting_one.py`
+- L17332: AND CONFIRM'S DUPLICATE CHECK READ THE OPERATOR'S BOOK FOR EVERY CALLER — `tests/test_a_halt_cancels_a_resting_entry.py`, `tests/test_a_resting_limit_drifts_only_when_the_market_moves.py`, `tests/test_a_retry_places_only_the_missing_leg.py`, `tests/test_a_scan_cards_levels_are_placed_as_shown.py`, `tests/test_an_open_is_announced_when_the_position_opens.py`, `tests/test_an_unfilled_order_is_not_a_trade_result.py`, `tests/test_the_livepositions_card_prints_what_the_record_holds.py`
+- L17850: A TICKER THAT STATED NO PRICE PLACED THE ORDER — `app/test/etf_flows_reads_what_the_source_stated.test.js`, `tests/test_a_backtest_fill_keeps_a_sub_cent_entry.py`, `tests/test_a_mark_is_read_on_the_market_the_position_trades.py`, `tests/test_a_stop_at_the_floor_reads_at_the_floor.py`, `tests/test_a_sub_cent_level_is_recorded_in_significant_digits.py`, `tests/test_a_trail_stop_the_price_has_crossed_closes_the_position.py`, `tests/test_the_backtest_ladder_locks_what_the_live_ladder_locks.py`, `tests/test_the_etf_flows_picture_draws_the_websites_figures.py`, `tests/venue_symbol_reads.py`
+- L18212: THE EXECUTOR'S LIMIT WAS PRICED OFF A VWAP THAT READ A NULL HIGH AS ZERO — `tests/test_a_null_candle_value_is_left_out_of_the_limit_levels.py`, `tests/test_an_empty_book_or_quiet_tape_is_not_an_order_flow_reading.py`
+- L18311: THE ENGINE'S SMART EXITS HAD A PRICE FOR THREE SYMBOLS
+- L18333: IN LIVE MODE A STALE PAPER POSITION FED THE LIVE ENGINE
+- L18355: ONE VWAP PER SYMBOL, IN MEMORY
+- L18376: A DRIFT RE-OFFER DROPPED WHAT KIND OF TRADE IT WAS — `tests/test_a_live_exit_reads_its_own_price_book_and_vwap.py`
+- L18406: A TEST THAT TWO FIGURES AGREE IS NOT ONE FIGURE — `tests/test_a_baseline_total_is_the_sum_of_its_counts.py`, `tests/test_rerecord_never_blesses_a_regression.py`
+- L18442: A FILTER THAT MATCHES NOTHING IS ONE PASSING TEST — `app/test/js_honesty_ratchet.test.js`, `tests/test_a_baseline_total_is_the_sum_of_its_counts.py`, `tests/test_rerecord_never_blesses_a_regression.py`
 
-## Public-surface rules (line 18477)
+## Public-surface rules (line 18516)
 
-- L18485: THE GUARD ASKED WHICH FILES ARE PUBLIC AND THE ANSWER IS PER ROUTE — `tests/command_gates.py`
-- L18499: THE FIX REACHED THE VERDICT AND NOT THE ROWS BESIDE IT — `tests/test_the_public_report_carries_no_dollar.py`
-- L18525: A HANDLER-BOUNDED SCAN WAS THE OBVIOUS FIX AND IS WORSE
-- L18577: AND A GUARD HAD PINNED THE HALF-FIX AS THE CONTRACT
-- L18603: A MARKER IS THE DEFINITION, AND FIVE PIECES OF PROSE DESCRIBED IT WRONG
-- L18674: THE SCRUBBER'S UNIT WAS A LINE AND THE CARD'S UNIT IS A FIELD
-- L18712: THREE ABORT CARDS ANNOUNCED A FLATTEN AND NAMED NO CAUSE
-- L18829: THE ALLOWANCE X-RAY PRINTED ✅ OVER GRANTS IT NEVER READ, THREE WAYS — `app/test/allowance_xray_says_what_it_read.test.js`, `app/test/signed_in_is_not_the_operator.test.js`
+- L18524: THE GUARD ASKED WHICH FILES ARE PUBLIC AND THE ANSWER IS PER ROUTE — `tests/command_gates.py`
+- L18538: THE FIX REACHED THE VERDICT AND NOT THE ROWS BESIDE IT — `tests/test_the_public_report_carries_no_dollar.py`
+- L18564: A HANDLER-BOUNDED SCAN WAS THE OBVIOUS FIX AND IS WORSE
+- L18616: AND A GUARD HAD PINNED THE HALF-FIX AS THE CONTRACT
+- L18642: A MARKER IS THE DEFINITION, AND FIVE PIECES OF PROSE DESCRIBED IT WRONG
+- L18713: THE SCRUBBER'S UNIT WAS A LINE AND THE CARD'S UNIT IS A FIELD
+- L18751: THREE ABORT CARDS ANNOUNCED A FLATTEN AND NAMED NO CAUSE
+- L18868: THE ALLOWANCE X-RAY PRINTED ✅ OVER GRANTS IT NEVER READ, THREE WAYS — `app/test/allowance_xray_says_what_it_read.test.js`, `app/test/signed_in_is_not_the_operator.test.js`
 
-## A URL is a surface, and a slash in a path segment does not survive a hop (line 18852)
-
-
-## Verifying a deploy (line 18901)
+## A URL is a surface, and a slash in a path segment does not survive a hop (line 18891)
 
 
-## Writing tests that scan source (line 18946)
-
-- L19388: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
-- L19589: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
-- L19616: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
-
-### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 19850)
+## Verifying a deploy (line 18940)
 
 
-### A module nothing calls is indistinguishable from one that does not work (line 19922)
+## Writing tests that scan source (line 18985)
+
+- L19427: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
+- L19628: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
+- L19655: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
+
+### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 19889)
 
 
-## Deploying so a dead bot cannot look like a live one (line 20113)
+### A module nothing calls is indistinguishable from one that does not work (line 19961)
 
 
-## Operational docs (line 20270)
+## Deploying so a dead bot cannot look like a live one (line 20152)
+
+
+## Operational docs (line 20309)
