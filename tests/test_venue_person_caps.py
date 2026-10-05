@@ -243,7 +243,10 @@ def test_the_engine_binds_the_hook_for_every_per_user_engine():
     import inspect
 
     from bot.core.engine import RuneClawEngine
-    src = inspect.getsource(RuneClawEngine.risk_for)
+    # The per-user engine is built by `_user_risk_engine`, which `risk_for`
+    # (and the practice engine) call; the wiring lives there.
+    assert "self._user_risk_engine(" in inspect.getsource(RuneClawEngine.risk_for)
+    src = inspect.getsource(RuneClawEngine._user_risk_engine)
     assert "set_person_totals_fn" in src, (
         "risk_for never wires the person-level totals, so the cap silently "
         "stays per-venue")
@@ -410,4 +413,5 @@ def test_the_drawdown_check_consults_the_person_number_and_the_fanout():
     assert "_person_drawdown_pct()" in src
     assert "_halt_person(" in src, (
         "a person-level breach never reaches the other venues")
-    assert "set_person_identity" in inspect.getsource(RuneClawEngine.risk_for)
+    assert "set_person_identity" in inspect.getsource(RuneClawEngine._user_risk_engine)
+    assert "self._user_risk_engine(" in inspect.getsource(RuneClawEngine.risk_for)

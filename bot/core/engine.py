@@ -3191,7 +3191,9 @@ class RuneClawEngine:
             try:
                 safe = self.user_portfolios._sanitize(user_id)
                 if practice:
-                    state_file = f"data/risk_state_{safe}_practice.json"
+                    # Anchored here rather than recorded as an exception:
+                    # RiskEngine anchors it again, which is a no-op.
+                    state_file = str(state_path(f"data/risk_state_{safe}_practice.json"))
                 else:
                     state_file = (venue_state_path("risk_state", safe, split_venue)
                                   if split_venue else f"data/risk_state_{safe}.json")
