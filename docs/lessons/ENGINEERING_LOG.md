@@ -16197,6 +16197,49 @@ asymmetric-fixture rule one sign over.
 (`tests/test_the_breaker_card_says_what_the_gate_read.py`,
 `bot/formatters/breaker_card.py`.)
 
+**THE CLEARED CARD SAID THE LIMITS WERE BACK WITHIN TOLERANCE, AND NOBODY HAD
+MEASURED THEM.** Pasted from the live bot on 2026-10-05, ninety-one seconds
+apart: `⛔ ENGINE HALTED · Previous State: IDLE · Halted At: 12:21:22 UTC`,
+then `✅ CIRCUIT BREAKER CLEARED · Risk limits are back within tolerance.
+Trading operations have resumed. · Cleared At: 12:22:53 UTC`, with no trip
+card between them and a resting limit cancelled for "drawdown" just before.
+The cause was a drawdown trip, and a drawdown trip has one exit: a manual
+`/reset` or `/resume` (`_should_autoreset_daily_breaker` clears only
+`daily_loss`; the streak cool-off only `streak`). So nothing was back within
+tolerance. The operator overrode the trip, and `reset_circuit_breaker`
+discarded the peak to re-measure it from the next read. The cleared card said
+the same sentence for that, for the daily-loss reset at UTC rollover and for a
+streak cool-off, and named no cause, no figure and no gate.
+
+Three shapes, each cured once elsewhere in this log. A card asserting a
+measurement nobody took. The HALTED card's "Halted At" was the monitor's
+notice time and "Previous State" its last sample -- the shape the trip card
+was cured of in the chapter above (`tripped_at_line`). And the trip card's
+dedup key was the constant `cb_tripped` under the five-minute cooldown, so a
+trip, a reset and a second trip inside five minutes sent the halt with no
+trip card, which is one reading of why the paste had none. One dimension
+over, found on the way: `PersonPeakStore.reseed` was written for the
+manual-reset path and nothing called it, so an engine with a person identity
+re-tripped on the next evaluation after `/reset`, off the peak the reset
+kept -- the "still halted after reset" loop the engine-level re-seed exists
+to end.
+
+The engine now records how it closed (`RiskEngine.last_breaker_clear`:
+manual, daily rollover or streak cool-off, with the cause and time it had
+been open for), re-seeds the person-level peak on a manual reset and says
+when the store would not let it. The cleared card reads that record and
+`trading_blocked_by` after the clear, and never prints "resumed": the gate
+is open, or what still refuses it, or it could not be read. The HALTED card
+reads the engine's own transition into HALTED from `state_history`, and
+labels the monitor's sample as the monitor's when there is none. Each trip
+and each clear carries its own dedup key. Mutations worth naming: the reset
+without the person re-seed dies only on the test that evaluates AGAIN after
+the reset, because the reset's own fields look identical either way; the
+constant key dies only on the test that trips TWICE inside the cooldown,
+since one trip has nothing to collide with.
+(`tests/test_the_cleared_card_says_how_it_cleared.py`,
+`bot/formatters/breaker_card.py`, `bot/risk/risk_engine.py`.)
+
 **A RISK BUDGET THAT BOUNDED THE NOTIONAL BOUNDED A LOSS FIVE TIMES ITS
 NAME, AND BOTH DECISIONS THE CHAPTER ABOVE FILED WERE MADE THE SAME DAY.**
 The benchmark chapter above measured it: the gate's base was
@@ -19733,7 +19776,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1209** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1210** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

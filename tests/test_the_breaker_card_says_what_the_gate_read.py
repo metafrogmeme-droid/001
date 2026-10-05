@@ -109,7 +109,7 @@ class TestTheTripCard:
         _trip_on_drawdown(risk)
         (card,) = m._check_circuit_breaker()
         assert card.alert_type == "CIRCUIT_BREAKER" and card.severity == "CRITICAL"
-        assert card.dedup_key == "cb_tripped"
+        assert card.dedup_key == f"cb_tripped:{int(risk.circuit_trip_at)}", "one key PER TRIP"
         assert "CIRCUIT BREAKER TRIPPED" in card.body and "OPEN AT STARTUP" not in card.body
         assert m._check_circuit_breaker() == [], "unchanged: nothing more"
 

@@ -340,6 +340,22 @@ class RiskEngine:
         # fresh trip "Triggered At: <boot time>". Restored by
         # `_restore_trip_time`; None when the trip on record carries no time.
         self._circuit_trip_at: Optional[float] = None
+        # HOW the breaker last closed, and what it had been open for. Three
+        # paths close it (a manual /reset or /resume, the daily-loss reset at
+        # UTC day rollover, the streak cool-off) and the cleared card used to
+        # print one sentence for all of them: "Risk limits are back within
+        # tolerance". After a manual reset of a drawdown trip nothing was
+        # measured as back: the peak was discarded and is re-measured from
+        # the next read. In memory only: the card is built in this process
+        # right after the clear, and a restart is not a clear.
+        self._circuit_cleared_how: str = ""       # "manual" | "daily_rollover" | "streak_cooloff"
+        self._circuit_cleared_at: Optional[float] = None
+        self._circuit_cleared_cause: str = ""     # the cause that was cleared
+        self._circuit_cleared_trip_at: Optional[float] = None
+        # What a manual reset did to the PERSON-level peak: "" when this
+        # engine has no person identity, "reseeded", or "unreadable:<Cls>"
+        # when the store would not read and the peak stayed.
+        self._person_peak_reseed: str = ""
         # The last evaluation's SIGNED daily P&L over its base, and which
         # book it was ("live" / "paper"). `_last_known_daily_loss_pct` is the
         # MAGNITUDE the gate compares, and a card printing it behind a minus
@@ -504,6 +520,76 @@ class RiskEngine:
         record carries no time (no trip, or a state a build before this
         field wrote)."""
         return self._circuit_trip_at
+
+    @property
+    def last_breaker_clear(self) -> Optional[dict]:
+        """How the breaker LAST closed in this process, or None when it has
+        not closed here (a breaker that was never open, or one a build before
+        this record closed). The cleared card reads this instead of printing
+        one sentence for three different events:
+
+        ``how``: ``"manual"`` (a /reset or /resume), ``"daily_rollover"``
+        (the daily-loss trip auto-reset at UTC day change) or
+        ``"streak_cooloff"``; ``at``: epoch seconds on the engine's clock;
+        ``cause`` and ``tripped_at``: what it had been open for and since;
+        ``person_peak``: what a manual reset did to the person-level peak
+        (``""`` not applicable, ``"reseeded"``, ``"unreadable:<Class>"``).
+        """
+        if not self._circuit_cleared_how:
+            return None
+        return {
+            "how": self._circuit_cleared_how,
+            "at": self._circuit_cleared_at,
+            "cause": self._circuit_cleared_cause,
+            "tripped_at": self._circuit_cleared_trip_at,
+            "person_peak": self._person_peak_reseed,
+        }
+
+    def _record_breaker_clear(self, how: str) -> None:
+        """Remember how the breaker is closing, BEFORE the trip fields are
+        zeroed: the record carries the cause and time that are about to be
+        forgotten."""
+        self._circuit_cleared_how = how
+        self._circuit_cleared_at = self._now()
+        self._circuit_cleared_cause = self._circuit_trip_cause
+        self._circuit_cleared_trip_at = self._circuit_trip_at
+        self._person_peak_reseed = ""
+
+    def _reseed_person_peak(self) -> None:
+        """Forget the PERSON-level peak on a manual reset, exactly as the
+        engine's own `_live_equity_peak` is forgotten beside it.
+
+        `PersonPeakStore.reseed` was written for this path and nothing called
+        it: `reset_circuit_breaker` re-seeded only this engine's peak, so on
+        an engine with a person identity the TIGHTEN-ONLY person drawdown
+        kept the old peak and the breaker re-tripped on the very next
+        evaluation after /reset -- the "still halted after reset" loop the
+        engine-level re-seed exists to end, one dimension over. An engine
+        with no person identity (the shared operator engine) has nothing to
+        re-seed. A store that will not read keeps its peaks (forgetting one
+        means writing the file) and the result says so, because a reset that
+        can re-trip is not the reset the card describes.
+        """
+        uid = str(getattr(self, "_person_user_id", "") or "")
+        if not uid:
+            self._person_peak_reseed = ""
+            return
+        try:
+            from bot.risk.person_peak import get_person_peak_store
+            get_person_peak_store().reseed(uid)
+        except Exception as exc:
+            self._person_peak_reseed = f"unreadable:{type(exc).__name__}"
+            risk_log.error(
+                "person-level peak NOT re-seeded on manual reset (%s): a "
+                "person-level drawdown can re-trip on the next evaluation",
+                type(exc).__name__)
+            audit(risk_log, "Person-level peak not re-seeded on manual reset",
+                  action="person_peak", result="UNREADABLE",
+                  data={"user": uid, "error": type(exc).__name__})
+            return
+        self._person_peak_reseed = "reseeded"
+        audit(risk_log, "Person-level peak re-seeded on manual reset",
+              action="person_peak", result="RESEEDED", data={"user": uid})
 
     def last_daily_pnl_reading(self) -> tuple[Optional[float], str]:
         """``(signed percent of equity, basis)`` from the last evaluation that
@@ -2062,6 +2148,7 @@ class RiskEngine:
                 _today_utc, CONFIG.risk.daily_loss_breaker_autoreset_enabled,
                 self._consecutive_losses, CONFIG.risk.max_consecutive_losses):
             _prev_day = self._circuit_trip_day
+            self._record_breaker_clear("daily_rollover")
             self._circuit_open = False
             self._circuit_trip_cause = ""
             self._circuit_trip_day = ""
@@ -2084,6 +2171,7 @@ class RiskEngine:
                 and self._circuit_trip_cause == "streak"
                 and self._last_loss_time is not None
                 and self._now() - self._last_loss_time >= _sbh * 3600.0):
+            self._record_breaker_clear("streak_cooloff")
             self._circuit_open = False
             self._circuit_trip_cause = ""
             self._circuit_trip_day = ""
@@ -5033,6 +5121,7 @@ class RiskEngine:
     def reset_circuit_breaker(self) -> None:
         """Manual reset -- requires human intervention."""
         with self._lock:
+            self._record_breaker_clear("manual")
             self._circuit_open = False
             self._consecutive_losses = 0
             self._last_loss_time = None
@@ -5061,6 +5150,8 @@ class RiskEngine:
             self._live_daily_pnl = 0.0
             self._live_daily_day = self._utc_day()
             self._last_known_daily_loss_pct = 0.0
+            # And the PERSON-level peak, for the same reason: see the method.
+            self._reseed_person_peak()
             audit(risk_log, "Circuit breaker manually reset (live peak + daily-loss re-seeded)",
                   action="circuit_breaker", result="RESET")
             self._save_state()

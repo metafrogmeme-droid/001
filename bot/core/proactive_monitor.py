@@ -1746,26 +1746,33 @@ class ProactiveMonitor:
                 severity="CRITICAL",
                 title=title,
                 body=body,
-                dedup_key="cb_open_at_boot" if restored else "cb_tripped",
+                # One key PER TRIP: a second trip inside the dedup cooldown
+                # used to be swallowed as a repeat of the first.
+                dedup_key=("cb_open_at_boot" if restored
+                           else breaker_card.trip_dedup_key(
+                               getattr(risk, "circuit_trip_at", None))),
             ))
         elif not cb_active and self._last_cb_state:
-            ts = datetime.now(UTC).strftime("%H:%M:%S UTC")
+            # The card reads HOW it cleared (`last_breaker_clear`) and what
+            # the entry gate says AFTER the clear, never "limits are back":
+            # a manual /reset of a drawdown trip measures nothing back, it
+            # discards the peak. Both reads tolerate an engine that lacks
+            # them: a missing record is said to be missing.
+            risk = self.engine.risk
+            clear = getattr(risk, "last_breaker_clear", None)
+            try:
+                _g = getattr(risk, "trading_blocked_by", None)
+                gate = _g if isinstance(_g, str) else None
+            except Exception:
+                gate = None
+            title, body = breaker_card.cleared_card(
+                clear=clear, gate=gate, noticed_at=time.time())
             alerts.append(Alert(
                 alert_type="CIRCUIT_BREAKER",
                 severity="INFO",
-                title="Circuit Breaker Cleared",
-                body=(
-                    "\u2705 <b>CIRCUIT BREAKER CLEARED</b>\n"
-                    "────────────────\n"
-                    "Risk limits are back within tolerance.\n"
-                    "Trading operations have <b>resumed</b>.\n\n"
-                    f"- Cleared At: <code>{ts}</code>\n\n"
-                    "\U0001f680 The engine will begin scanning on the next cycle.\n"
-                    "────────────────\n"
-                    "\U0001f449 /status — confirm engine state\n"
-                    "\U0001f449 /health — check system vitals"
-                ),
-                dedup_key="cb_cleared",
+                title=title,
+                body=body,
+                dedup_key=breaker_card.clear_dedup_key(clear),
             ))
 
         self._last_cb_state = cb_active
@@ -3603,6 +3610,33 @@ class ProactiveMonitor:
             logger.debug("anomaly repeat filter failed open: %s", exc)
             return True
 
+    def _last_transition_into(self, state: str) -> tuple[Optional[str], str, Optional[float]]:
+        """``(from_state, reason, epoch seconds)`` of the engine's latest
+        recorded transition into ``state``, or ``(None, "", None)`` when the
+        engine keeps no such record (a stand-in, or no transition yet).
+        Read-only, and every field is checked before it is believed: a
+        history that is not a list, or an entry without the fields, is no
+        record, not a crash."""
+        try:
+            hist = getattr(self.engine, "state_history", None)
+            if not isinstance(hist, list):
+                return None, "", None
+            for t in reversed(hist):
+                to = getattr(t, "to_state", None)
+                if str(getattr(to, "value", to)) != state:
+                    continue
+                frm = getattr(t, "from_state", None)
+                prev = str(getattr(frm, "value", frm)) if frm is not None else None
+                reason = getattr(t, "reason", "")
+                ts = getattr(t, "timestamp", None)
+                at: Optional[float] = None
+                if ts is not None and callable(getattr(ts, "timestamp", None)):
+                    at = float(ts.timestamp())
+                return prev, (reason if isinstance(reason, str) else ""), at
+        except Exception as exc:
+            logger.debug("state history unreadable: %s", type(exc).__name__)
+        return None, "", None
+
     def _check_state_changes(self) -> list[Alert]:
         """Alert on significant FSM state changes."""
         alerts = []
@@ -3611,24 +3645,21 @@ class ProactiveMonitor:
         if current_state != self._last_state:
             # Only alert on interesting transitions
             if current_state == "HALTED" and self._last_state != "HALTED":
-                ts = datetime.now(UTC).strftime("%H:%M:%S UTC")
+                # The engine's OWN transition into HALTED, not this pass's
+                # notice time and last sample: the trip card learned the
+                # same distinction (`tripped_at_line`).
+                prev, reason, halted_at = self._last_transition_into("HALTED")
+                title, body = breaker_card.halted_card(
+                    prev_state=prev, reason=reason, halted_at=halted_at,
+                    last_seen=self._last_state, noticed_at=time.time())
                 alerts.append(Alert(
                     alert_type="STATE_CHANGE",
                     severity="CRITICAL",
-                    title="Engine HALTED",
-                    body=(
-                        "\u26d4 <b>ENGINE HALTED</b>\n"
-                        "────────────────\n"
-                        f"- Previous State: <code>{self._last_state or 'UNKNOWN'}</code>\n"
-                        f"- Halted At: <code>{ts}</code>\n\n"
-                        "No new scans or analyses will run.\n"
-                        "All automated trading is paused.\n"
-                        "────────────────\n"
-                        "\U0001f449 /status — review engine details\n"
-                        "\U0001f449 /health — check system vitals\n"
-                        "\U0001f449 /reset — resume after review"
-                    ),
-                    dedup_key="state_halted",
+                    title=title,
+                    body=body,
+                    dedup_key=(f"state_halted:{int(halted_at)}"
+                               if isinstance(halted_at, (int, float)) and halted_at >= 0
+                               else "state_halted"),
                 ))
             elif current_state == "COOLING_DOWN" and self._last_state != "COOLING_DOWN":
                 cooldown_sec = CONFIG.risk.cooldown_after_loss_seconds
