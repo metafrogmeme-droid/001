@@ -41,10 +41,17 @@ def _with_allowlist(monkeypatch, chat_id="", admin_ids="", open_live=False):
 
 
 class TestCanTradeLiveAuthority:
+    """Every arm that answers True VOUCHES its user first. ``register()``
+    alone leaves the self-admission role, whose confirm the engine opens as
+    a PRACTICE row (bot/core/practice_fill.py), and "may trade live" is No
+    for a confirm that never reaches a venue, whatever the flag or the keys
+    say -- `TestASelfAdmittedCallerIsPractice` is that arm."""
+
     def test_allowlisted_user_with_flag_can_trade(self, monkeypatch):
         h = _handler()
         _with_allowlist(monkeypatch, chat_id="111")
         h.users.register(111, name="op")
+        h.users.authorize(111, role="trader", by="999")
         h.users.set_live_trading(111, True)
         assert h._can_trade_live(111) is True
 
@@ -79,6 +86,7 @@ class TestCanTradeLiveAuthority:
         _with_allowlist(monkeypatch, chat_id="", admin_ids="",
                         open_live=False)
         h.users.register(333, name="demo")
+        h.users.authorize(333, role="trader", by="999")
         assert h._can_trade_live(333) is False
         h.users.set_live_trading(333, True)
         assert h._can_trade_live(333) is True
@@ -87,6 +95,7 @@ class TestCanTradeLiveAuthority:
         h = _handler()
         _with_allowlist(monkeypatch, chat_id="444")
         h.users.register(444, name="op")
+        h.users.authorize(444, role="trader", by="999")
         h.users.set_live_trading(444, True)
         assert h._can_trade_live(444) is True
         assert h._can_trade_live("444") is True
@@ -127,6 +136,7 @@ class TestLiveOpensToKeyHoldersNotToEveryone:
         self._cfg(monkeypatch, per_user=True, open_live=True)
         self._keys(monkeypatch, {"222"})
         h.users.register(222, name="trader")
+        h.users.authorize(222, role="trader", by="999")
         assert h._can_trade_live(222) is True
 
     def test_a_trader_with_no_keys_may_not(self, monkeypatch):
@@ -146,6 +156,7 @@ class TestLiveOpensToKeyHoldersNotToEveryone:
         self._cfg(monkeypatch, per_user=False, open_live=True)
         self._keys(monkeypatch, {"222"})
         h.users.register(222, name="trader")
+        h.users.authorize(222, role="trader", by="999")
         assert h._can_trade_live(222) is False
 
     def test_an_explicit_revoke_beats_owning_keys(self, monkeypatch):
@@ -210,6 +221,7 @@ class TestLiveOpensToKeyHoldersNotToEveryone:
         self._cfg(monkeypatch, per_user=True, open_live=False, chat_id="")
         self._keys(monkeypatch, {"777"})
         h.users.register(777, name="trader")
+        h.users.authorize(777, role="trader", by="999")
         assert h._can_trade_live(777) is False      # keys alone are not enough
         h.users.set_live_trading(777, True)
         assert h._can_trade_live(777) is True
@@ -219,3 +231,33 @@ class TestLiveOpensToKeyHoldersNotToEveryone:
         self._cfg(monkeypatch, per_user=True, open_live=True)
         self._keys(monkeypatch, {"web:9"})
         assert h._can_trade_live("web:9") is False
+
+
+class TestASelfAdmittedCallerIsPractice:
+    """The flag and the keys do not make a self-admitted account live: its
+    confirm is a practice fill, and this gate says so, with the same reading
+    the engine's confirm branch uses."""
+
+    def test_a_granted_flag_is_still_practice(self, monkeypatch):
+        h = _handler()
+        _with_allowlist(monkeypatch, chat_id="555")
+        h.users.register(555, name="newcomer")
+        h.users.set_live_trading(555, True)
+        assert h.engine.confirm_is_practice("555") is True
+        assert h._can_trade_live(555) is False
+        # Vouched, the same flag opens the gate.
+        h.users.authorize(555, role="trader", by="999")
+        assert h.engine.confirm_is_practice("555") is False
+        assert h._can_trade_live(555) is True
+
+    def test_linked_keys_are_still_practice_under_the_open_policy(self, monkeypatch):
+        h = _handler()
+        TestLiveOpensToKeyHoldersNotToEveryone._cfg(
+            TestLiveOpensToKeyHoldersNotToEveryone(), monkeypatch,
+            per_user=True, open_live=True)
+        TestLiveOpensToKeyHoldersNotToEveryone._keys(
+            TestLiveOpensToKeyHoldersNotToEveryone(), monkeypatch, {"666"})
+        h.users.register(666, name="newcomer")
+        assert h._can_trade_live(666) is False
+        h.users.authorize(666, role="trader", by="999")
+        assert h._can_trade_live(666) is True

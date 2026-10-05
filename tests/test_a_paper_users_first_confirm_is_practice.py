@@ -80,8 +80,13 @@ class _Roles:
         return False
 
 
-def _confirm_tap(role, *, live_ok):
-    """One Confirm tap through the real dispatcher. ``confirm_trade`` is planted."""
+def _confirm_tap(role, *, live_ok, engine_practice=None):
+    """One Confirm tap through the real dispatcher. ``confirm_trade`` is planted.
+
+    ``engine_practice`` plants the engine's own reading of "this confirm is
+    practice" (`confirm_is_practice`); ``None`` builds an engine without one,
+    so the door falls back to the store's self-admission reading of ``role``.
+    """
     from bot.skills.manual_trade import build_manual_idea
     from bot.skills.telegram_handler import TelegramHandler
 
@@ -92,6 +97,8 @@ def _confirm_tap(role, *, live_ok):
         _pending_ideas={idea.id: idea},
     )
     engine.confirm_trade = AsyncMock(return_value="📝 [PAPER] simulated")
+    if engine_practice is not None:
+        engine.confirm_is_practice = lambda uid, _p=engine_practice: _p
 
     async def _noop(*a, **k):
         return None

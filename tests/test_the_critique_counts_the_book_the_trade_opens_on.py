@@ -117,13 +117,18 @@ class TestPaper:
             object.__setattr__(CONFIG, "paper_sim_opt_in_enabled", was)
 
     def test_a_practice_fill_counts_the_book_its_gates_read(self, tmp_path):
+        """With per-user live OFF too: a practice confirm's gates read the
+        caller's OWN practice book through `practice_risk_for`, not the
+        operator engine's book and not every practice book summed, so the
+        critique counts that same book."""
         engine, idea = _engine(tmp_path)
         _practice_books_hold(engine, 7)
         engine.risk.book_snapshot = lambda: NS(open_positions=2)
         seen: list = []
         with _spy(seen):
             result = self._practice_confirm(engine, idea)
-        assert seen == [2], "counted another user's practice book"
+        own = engine.user_portfolios.get("123456").snapshot().open_positions
+        assert seen == [own] == [0], "counted a book that is not the caller's"
         assert result == "✅ [PAPER] filled"
 
     def test_under_per_user_live_it_is_the_callers_own_practice_book(

@@ -2372,8 +2372,36 @@ def _operator_account_refusal(engine, tg_id: str) -> Optional[str]:
     return _own_account_executor(engine, tg_id)[1]
 
 
+def _confirm_is_practice(app, tg_handler, tg_id: str) -> bool:
+    """Whether this caller's confirm opens a PRACTICE row: the engine's one
+    reading (`RuneClawEngine.confirm_is_practice`), which is also what the
+    confirm branch itself asks. A host built without that reading (a test
+    double) falls back to the store's self-admission reading, the half of
+    the answer the gateway used to read on its own. An unreadable answer is
+    not practice: the live doors still refuse, and nothing is placed."""
+    engine = app.get("engine") if hasattr(app, "get") else None
+    fn = getattr(engine, "confirm_is_practice", None)
+    if callable(fn):
+        try:
+            # `is True`: the engine answers a bool, and a stand-in that
+            # answers anything else (a mock's attribute) has not answered.
+            return fn(tg_id) is True
+        except Exception as exc:
+            system_log.warning("Practice reading for %s could not be made (%s): "
+                               "not practice", tg_id, type(exc).__name__)
+            return False
+    from bot.core.practice_fill import self_admitted_paper_caller
+    return self_admitted_paper_caller(tg_handler.users, tg_id)
+
+
 def _trade_mode(app, tg_handler, tg_id: str) -> tuple[str, bool, str]:
     """(mode, live_allowed, reason) — the live-execution decision.
+
+    A PRACTICE caller is PAPER first, whatever the gates below would say:
+    the engine opens a practice row for their confirm, so a mode that read
+    only the web live gate (keys + opt-in + envelope) or the Telegram
+    key-holder policy answered LIVE over a confirm that landed on the
+    practice book, and the browser's 2FA step-up keyed off it.
 
     Telegram identities follow the operator allowlist + UserStore flag exactly.
     Web-only identities are paper by default and can reach LIVE only through the
@@ -2381,6 +2409,9 @@ def _trade_mode(app, tg_handler, tg_id: str) -> tuple[str, bool, str]:
     per-user opt-in + enforce-mode Authority Envelope) — a tampered users.json
     entry alone (web:N with role=admin) never yields LIVE.
     """
+    if _confirm_is_practice(app, tg_handler, tg_id):
+        from bot.core.practice_fill import PRACTICE_MODE_REASON
+        return "PAPER", False, PRACTICE_MODE_REASON
     if _is_web_id(tg_id):
         dec = _web_live_decision(app, tg_handler, tg_id)
         if dec.allowed and CONFIG.is_live():
@@ -2570,11 +2601,10 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
     # a refusal below can release exactly that and nothing an earlier attempt
     # recorded.
     web_live_recorded: Optional[str] = None
-    # A self-admitted paper account's confirm is practice. The live gates
-    # below stay in force for everyone else, including a web id whose store
-    # says admin.
-    from bot.core.practice_fill import self_admitted_paper_caller
-    _practice_caller = self_admitted_paper_caller(tg_handler.users, tg_id)
+    # A practice caller's confirm is practice (the engine's one reading, the
+    # same one `_trade_mode` answers PAPER from). The live gates below stay
+    # in force for everyone else, including a web id whose store says admin.
+    _practice_caller = _confirm_is_practice(request.app, tg_handler, tg_id)
     if CONFIG.is_live() and _is_web_id(tg_id) and not _practice_caller:
         dec = _web_live_decision(request.app, tg_handler, tg_id)
         if not dec.allowed:
@@ -2662,7 +2692,10 @@ async def handle_trade_confirm(request: web.Request) -> web.Response:
         audit(system_log, f"Web trade confirm REFUSED: {trade_id}",
               action="web_trade_confirm", result="REFUSED",
               data={"user": tg_id, "reason": _refusal_line(result)})
-    return web.json_response({"result_html": result, "placed": placed})
+    # `practice` rides beside `placed`: a practice fill IS placed, on the
+    # practice book, and the browser must not paint it as a live order.
+    return web.json_response({"result_html": result, "placed": placed,
+                              "practice": bool(_practice_caller)})
 
 
 def _refusal_line(result) -> str:
@@ -2690,8 +2723,14 @@ async def handle_trade_live_mode(request: web.Request) -> web.Response:
     err = _guard_user(tg_handler, tg_id)
     if err is not None:
         return err
-    mode, live_allowed, _reason = _trade_mode(request.app, tg_handler, tg_id)
-    return web.json_response({"mode": mode, "live_allowed": bool(live_allowed)})
+    mode, live_allowed, reason = _trade_mode(request.app, tg_handler, tg_id)
+    # `practice` and `reason` beside the mode: a practice caller reads PAPER
+    # here for a reason the live checklist cannot name (no key, opt-in or
+    # envelope changes it), and the page should say which.
+    return web.json_response({
+        "mode": mode, "live_allowed": bool(live_allowed),
+        "practice": _confirm_is_practice(request.app, tg_handler, tg_id),
+        "reason": reason})
 
 
 async def handle_trade_copilot(request: web.Request) -> web.Response:

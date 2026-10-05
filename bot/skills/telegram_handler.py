@@ -1044,6 +1044,30 @@ def resolve_profile_note(profile_note: str, user_id) -> str:
     return " ".join(p for p in parts if p)
 
 
+def confirm_is_practice_for(handler: Any, tg_id: Any) -> bool:
+    """Whether ``tg_id``'s confirm opens a PRACTICE row: the engine's one
+    reading (`RuneClawEngine.confirm_is_practice`), which also decides the
+    confirm branch. A handler built without an engine reading (a test double)
+    falls back to the store's self-admission reading, the half of the answer
+    the doors used to read on their own. A function rather than a method so
+    `_can_trade_live` can be driven on a stand-in that has a store and no
+    handler. Unreadable is not practice: the live doors still refuse, and
+    nothing is placed.
+    """
+    fn = getattr(getattr(handler, "engine", None), "confirm_is_practice", None)
+    if callable(fn):
+        try:
+            # `is True`: the engine answers a bool, and a stand-in that
+            # answers anything else (a mock's attribute) has not answered.
+            return fn(str(tg_id)) is True
+        except Exception as exc:
+            system_log.warning("Practice reading for %s could not be made (%s): "
+                               "not practice", tg_id, type(exc).__name__)
+            return False
+    from bot.core.practice_fill import self_admitted_paper_caller
+    return self_admitted_paper_caller(getattr(handler, "users", None), str(tg_id))
+
+
 class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldCommands,
                       AccountCommands, MarketCommands, ResearchCommands, AgentCommands,
                       EngineOpsCommands, PortfolioCommands, ScanCommands,
@@ -3961,8 +3985,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 if CONFIG.is_live() and not self._is_admin(update):
                     caller_uid_str = str(update.effective_user.id) if update.effective_user else ""
                     if not self._can_trade_live(caller_uid_str):
-                        from bot.core.practice_fill import self_admitted_paper_caller
-                        if not self_admitted_paper_caller(self.users, caller_uid_str):
+                        if not self._confirm_is_practice(caller_uid_str):
                             await self._send(update,
                                 f"\U0001f512 {t(self._live_refusal_key(), self._lang(update))}")
                             self._remember_routed(
@@ -5043,6 +5066,16 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # make them live.
         if str(tg_id).startswith("web:"):
             return False
+        # A PRACTICE caller may not trade live, whatever the flags below
+        # say: the engine opens a practice row for their confirm
+        # (`confirm_is_practice`), so answering True here put "🔥 Live" on
+        # the mode card and LIVE on /trade/live_mode over a confirm that
+        # landed on the practice book — for a self-admitted key holder under
+        # LIVE_OPEN_TO_KEY_HOLDERS, and for a store flag an admin granted.
+        # The confirm doors let a practice caller through on that same
+        # reading, never on this one.
+        if confirm_is_practice_for(self, tg_id):
+            return False
         # An explicit revoke outranks every path below, including a user who
         # brings their own keys. A revoke that cannot be READ (the store
         # failed to load) is refused too, by the exception's class: under the
@@ -5092,6 +5125,10 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         if allow and str(tg_id) not in allow:
             return False
         return self.users.can_trade_live(tg_id)
+
+    def _confirm_is_practice(self, tg_id) -> bool:
+        """`confirm_is_practice_for` on this handler: the doors ask it."""
+        return confirm_is_practice_for(self, tg_id)
 
     def _live_refusal_key(self) -> str:
         """Which refusal a member should be shown when live trading is denied.

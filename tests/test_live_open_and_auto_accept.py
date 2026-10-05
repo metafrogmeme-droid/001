@@ -249,6 +249,9 @@ class TestTheMasterSwitchIsPartOfTheRule:
         _keys(monkeypatch, {"222"})
         h = self._handler()
         h.users.register(222, name="trader")
+        # Vouched by a human admin: a register() alone leaves the
+        # self-admission role, whose confirm is practice, and practice is not live.
+        h.users.authorize(222, role="trader", by="999")
         assert h._can_trade_live(222) is True
 
 
