@@ -131,13 +131,17 @@
    * Every item carries `bars`, so a verdict off 6 bars and one off 200 stop
    * rendering identically.
    */
+  // The forming bar is chartread's to drop. This model does not re-spell
+  // the period check; it asks. One call, for the chips and the footnote.
+  function closedSeries(parsed, read, clock) {
+    return (clock && read && typeof read.closedCandles === 'function')
+      ? read.closedCandles(parsed, clock) : parsed;
+  }
+
   function chips(parsed, read, clock) {
     if (!read || typeof read.vwap !== 'function' || typeof read.structure !== 'function') return null;
-    // The forming bar is chartread's to drop. This model does not re-spell
-    // the period check; it asks, and the sample on each chip is the series
-    // the verdict was actually read from.
-    const series = (clock && typeof read.closedCandles === 'function')
-      ? read.closedCandles(parsed, clock) : parsed;
+    // The sample on each chip is the series the verdict was actually read from.
+    const series = closedSeries(parsed, read, clock);
     const bars = (series && series.length) || 0;
     const items = [];
 
@@ -249,7 +253,8 @@
     const s = (rows && usable) ? sample(rows.length, parsed.length, o.drawn) : null;
     const prov = provenance({ rows: usable ? rows : null, sample: s, venue: o.venue, gran: o.gran });
     if (prov.state !== 'read') return { provenance: prov, items: [], parsed: parsed, thin: null };
-    const items = chips(parsed, read, { gran: o.gran, now: o.now });
+    const clock = { gran: o.gran, now: o.now };
+    const items = chips(parsed, read, clock);
     if (items === null) return { provenance: prov, items: [], parsed: parsed, thin: W.unread };
     // Nothing to say is not the same as nothing to read: under every floor
     // the module owns, the sample itself is the answer.
@@ -258,7 +263,10 @@
       items: items,
       parsed: parsed,
       thin: items.length ? null : W.thin,
-      thinN: items.length ? null : parsed.length,
+      // The sample the floors were measured on: the closed series each chip
+      // stamps as `bars`. `parsed.length` still held the forming bar, so
+      // "too few bars — 5 on record" named one bar more than the 4 found thin.
+      thinN: items.length ? null : ((closedSeries(parsed, read, clock) || []).length),
     };
   }
 

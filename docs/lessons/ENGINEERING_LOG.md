@@ -6421,6 +6421,54 @@ looks like, and both are driven from that side now. The two refusals were
 stale anchors in my own driver — one on an em dash a heredoc had rewritten,
 one on a line the same slice had moved.
 
+**THE WEBSITE'S CHARTS HAD THE SAME WALL-CLOCK DEFECT, ONE CACHE FURTHER
+OUT.** #505 taught the pages' chart read (`chartread.closedCandles`) to drop
+a forming last bar, comparing its period end against `Date.now()`, the moment
+of the RENDER. The pages hold candles for 120 s and the server for 15 s, so a
+bar that was forming when the venue was read became a closed bar once its
+period ended, with the read-time price as its close and a part-period's
+volume. That is the defect above, and the fix is the same: the clock is the
+READ. Bitget stamps every response with `requestTime` (epoch ms, checked live),
+the server relays the body unchanged, so the stamp survives its cache, and
+`chartread.readClock` takes it, falling back to the moment the page received
+the rows. Each page keeps the clock with the rows through its own cache and
+its stale-good fallback, and passes it to every read that names a timeframe.
+Three more findings from the sixty-PR review had the same root:
+
+- **The Arena position card's chips** called `vwap()` and `structure()` with
+  no timeframe at all, so a forming break printed a BOS/CHoCH chip over a
+  chart that drew no break.
+- **"too few bars — 5 on record"** counted the forming bar the floors had not
+  seen; it counts the closed series the chips stamp as `bars` now.
+- **`1M` is a month.** Both parsers folded case, so a monthly bar read as one
+  minute long and closed a minute after it opened. A month closes on the
+  calendar, at the same local midnight n months on: Bitget's plain `1M`
+  opens at 00:00 UTC+8, so the open's offset from UTC midnight is carried
+  across the months, not assumed to be zero (`chartread.periodEnd`,
+  `candles.period_end_ms`, one reading in each runtime).
+
+**And the bot's chart overlays held a second copy of the comparison that
+read no flag.** `chart_renderer.closed_overlay_frame` compared
+`now < open + period` itself, so with `DROP_UNCLOSED_CANDLE_ENABLED` off the
+analysis read the forming bar and the picture attached to it did not. Both
+ask `candles.bar_is_forming` now, which reads the flag; the flag defaults
+on, so production overlays do not change.
+
+**The dashboard's symbol modal had no seam, and the first round showed it.**
+Its candle cache was a closure in a 400-line handler, held only by a source
+shape, and three mutants survived: a cache hit and a stale fallback that
+re-stamped the rows with the render time, and a painter that dropped the
+clock on its way to the model. The cache is `candleReader(sym)` in the
+renderer block now, driven on a planted clock through its hit, its fallback
+and its failed-versus-empty answers; the painter is driven on a forming and a
+closed read of the same rows. Twenty-one mutants, all killed.
+(`app/test/a_partial_bar_stays_partial_on_every_chart_read.test.js`,
+`app/test/chart_read_is_one_reading.test.js`,
+`tests/test_one_reading_of_a_forming_bar.py`, `app/public/js/chartread.js`,
+`app/public/js/chart-read-model.js`, `app/public/js/dashboard.js`,
+`app/public/arena.html`, `bot/utils/candles.py`,
+`bot/skills/chart_renderer.py`.)
+
 **THE CURE UPSTREAM WAS WHAT CRASHED THE READER DOWNSTREAM.** The map's own
 completeness critic filed this as a doubt it could not answer — *"app/lib/rwa.js's
 header claims an unlisted symbol is omitted rather than invented, which is the
@@ -20139,7 +20187,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1218** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1219** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

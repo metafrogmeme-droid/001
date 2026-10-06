@@ -442,7 +442,7 @@ window.addEventListener('unhandledrejection', rcReportPageError);
 <script src="/js/arena-risk-model.js?v=1"></script>
 <script src="/vendor/lightweight-charts.standalone.production.js?v=1"></script>
 <script src="/js/tv-chart.js?v=1"></script>
-<script src="/js/chartread.js?v=8"></script>
+<script src="/js/chartread.js?v=9"></script>
 <script src="/js/radar3d.js?v=3" defer></script>
 <script>
 (function () {
@@ -575,15 +575,20 @@ window.addEventListener('unhandledrejection', rcReportPageError);
   // patterns incl. Elliott waves, Wyckoff, harmonics, plus the doji/candle
   // map — from the public /api/patterns proxy. When that bridge is down we
   // say so instead of inventing a read.
-  function readChips(p, parsed, pat, gran) {
+  // The chips read the same closed series as the chart drawn under them:
+  // the timeframe and the rows' read clock go to every read. They were read
+  // with neither, so a forming break printed a BOS/CHoCH chip and moved the
+  // VWAP chip over a chart that drew neither.
+  function readChips(p, parsed, pat, gran, readAt) {
     var chips = [];
     var CR = window.RCChartRead;
-    var vw = CR && parsed.length >= 5 ? CR.vwap(parsed) : null;
+    var clock = { gran: gran, now: readAt };
+    var vw = CR && parsed.length >= 5 ? CR.vwap(parsed, clock) : null;
     if (vw) {
       chips.push('<span class="read-chip ' + (vw.dist_pct >= 0 ? 'up-c' : 'down-c') + '">VWAP '
         + (vw.dist_pct >= 0 ? 'above' : 'below') + ' ' + (vw.dist_pct >= 0 ? '+' : '') + vw.dist_pct.toFixed(2) + '%</span>');
     }
-    var st = CR && parsed.length >= 15 ? CR.structure(parsed) : null;
+    var st = CR && parsed.length >= 15 ? CR.structure(parsed, clock) : null;
     if (st) {
       var stCls = st.structure === 'bullish' ? 'up-c' : st.structure === 'bearish' ? 'down-c' : '';
       chips.push('<span class="read-chip ' + stCls + '">structure ' + st.structure + '</span>');
@@ -628,7 +633,7 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     var pat0 = patCache[sym];
     var needPat = !(pat0 && Date.now() - pat0.at <= 120000);
     if (d0 && Date.now() - d0.at <= 120000 && !needPat) {
-      return { at: d0.at, candles: d0.candles, insight: d0.insight, patterns: pat0.data };
+      return { at: d0.at, candles: d0.candles, readAt: d0.readAt, insight: d0.insight, patterns: pat0.data };
     }
     var results = await Promise.all([
       (d0 && Date.now() - d0.at <= 120000) ? null
@@ -645,9 +650,13 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     // back at all, leave the entry stale so the next repaint retries.
     if (results[0] || results[2]) {
       var prev = d0 || {};
+      // `readAt` is when the venue read THESE candles (chartread.readClock),
+      // kept with them through the cache and the stale-good fallback.
+      var CRk = window.RCChartRead;
       d0 = {
         at: Date.now(),
         candles: rows.length ? rows : (prev.candles || []),
+        readAt: rows.length ? (CRk ? CRk.readClock(results[0].data, Date.now()) : Date.now()) : (prev.readAt || null),
         insight: insD || prev.insight || null,
       };
       if (!rows.length && !d0.candles.length) d0.at = 0;
@@ -657,7 +666,7 @@ window.addEventListener('unhandledrejection', rcReportPageError);
       patCache[sym] = { at: pat ? Date.now() : 0, data: pat || (pat0 && pat0.data) || null };
       pat0 = patCache[sym];
     }
-    return { at: d0.at, candles: d0.candles, insight: d0.insight, patterns: pat0 && pat0.data };
+    return { at: d0.at, candles: d0.candles, readAt: d0.readAt, insight: d0.insight, patterns: pat0 && pat0.data };
   }
   async function paintChart(p) {
     var cell = $('chartCell' + p.id);
@@ -680,10 +689,10 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     for (var wi = 0; wi < cps.length; wi++) {
       if (/^Elliott/i.test(cps[wi].name || '')) { ew = cps[wi]; break; }
     }
-    cell.innerHTML = tfRow(sym, p.id) + '<div class="rc-chart-host"></div>' + readChips(p, parsed, d0.patterns, gran);
+    cell.innerHTML = tfRow(sym, p.id) + '<div class="rc-chart-host"></div>' + readChips(p, parsed, d0.patterns, gran, d0.readAt);
     CR.drawInto(cell.querySelector('.rc-chart-host'), parsed, {
       width: Math.max(300, (cell.clientWidth || 0) - 10), height: 260,
-      gran: gran,
+      gran: gran, now: d0.readAt,
       title: sym + ' · ' + gran,
       entry: p.entry, sl: p.sl, tp: p.tp, liq: p.liq_price, direction: p.direction,
       levels: (d0.insight && d0.insight.levels) || [],
@@ -1462,7 +1471,7 @@ window.addEventListener('unhandledrejection', rcReportPageError);
         box.hidden = false;   // unhide first so clientWidth measures real
         CR.drawInto(box, parsed, {
           width: Math.max(300, (box.clientWidth || 0) - 4), height: 240,
-          gran: '1h',
+          gran: '1h', now: d0.readAt,
           title: sym + ' · 1h',
           entry: liveMark,
           tp: Number($('tTp').value) || null,

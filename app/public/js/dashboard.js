@@ -2259,6 +2259,9 @@
       try {
         candleRes = await fetchJSON(`/api/market/candles/${sym}?granularity=${gran}&limit=200`, { auth: false, timeoutMs: 12000 });
       } catch (e) { candleErr = e; }
+      // When these rows were read: the closed-bar clock (chartread.readClock).
+      const candlesReadAt = window.RCChartRead
+        ? window.RCChartRead.readClock(candleRes && candleRes.data, Date.now()) : Date.now();
       if (!current()) return;
       await renderPanel(C('chart'), async () => {
         if (candleErr) throw candleErr;
@@ -2283,7 +2286,7 @@
       // rows.length)`, so a failed read left the PREVIOUS symbol's verdict
       // on screen beside the new symbol's error panel.
       if (!current()) return;
-      paintChartRead('chartRead', rows, { venue: 'Bitget', gran: gran });
+      paintChartRead('chartRead', rows, { venue: 'Bitget', gran: gran, now: candlesReadAt });
 
       const host = document.getElementById('tvChart');
       if (!host || !window.LightweightCharts || !rows || !rows.length) return;
@@ -3274,7 +3277,7 @@
     const o = opts || {};
     let read;
     try {
-      read = M.chartRead(rows, window.RCChartRead, { venue: o.venue, gran: o.gran, drawn: o.drawn });
+      read = M.chartRead(rows, window.RCChartRead, { venue: o.venue, gran: o.gran, drawn: o.drawn, now: o.now });
     } catch (e) {
       // A reading that threw is not a quiet market. Clearing is the honest
       // floor: nothing is claimed, and nothing stale survives.
@@ -3300,6 +3303,37 @@
     const thin = read.thin ? `<span class="chip dl-unread">${esc(crSay(WORDS, read.thin, read.thinN))}</span>` : '';
     box.innerHTML = chips + thin
       + `<span class="muted small" style="align-self:center">${foot.join(' · ')}</span>`;
+  }
+
+  /**
+   * The symbol modal's candle reads for one symbol, cached per timeframe for
+   * 120 s. Each answer is `{ rows, now }`: the rows and when the venue read
+   * them (chartread.readClock). A cached or stale-fallback row set keeps the
+   * clock of its own read, so a bar that was forming then is not read as
+   * closed now (chartread.closedCandles). It lived in the modal's handler,
+   * where no test could run it.
+   */
+  function candleReader(sym) {
+    const cache = {};
+    return async (gran) => {
+      const c = cache[gran];
+      if (c && Date.now() - c.at < 120000) return { rows: c.rows, now: c.now };
+      const r = await fetchJSON(`/api/market/candles/${sym}?granularity=${gran}&limit=120`, { auth: false, timeoutMs: 12000 }).catch(() => null);
+      const ok = !!(r && r.ok && r.data && Array.isArray(r.data.data));
+      const rows = ok ? r.data.data : null;
+      if (rows && rows.length) {
+        cache[gran] = { at: Date.now(), rows,
+          now: window.RCChartRead ? window.RCChartRead.readClock(r.data, Date.now()) : Date.now() };
+        return { rows, now: cache[gran].now };
+      }
+      // A read that FAILED and one the venue answered empty are different
+      // facts, and this used to answer `[]` for both — so the chart read
+      // could not tell "nothing to show" from "we could not ask". The
+      // stale-cache fallback is unchanged: a chart is better drawn from the
+      // last good candles than not at all.
+      if (c) return { rows: c.rows, now: c.now };
+      return { rows: ok ? [] : null, now: null };
+    };
   }
   // ── the chart read: renderer end ──────────────────────────────────────
 
@@ -3443,23 +3477,7 @@
       // the engine's formulas.
       const SYM_TFS = [['15min', '15m'], ['1h', '1H'], ['4h', '4H'], ['1d', '1D']];
       let symGran = '4h';
-      const candleCache = {};
-      const candlesAt = async (gran) => {
-        const c = candleCache[gran];
-        if (c && Date.now() - c.at < 120000) return c.rows;
-        const r = await fetchJSON(`/api/market/candles/${base}USDT?granularity=${gran}&limit=120`, { auth: false, timeoutMs: 12000 }).catch(() => null);
-        const ok = !!(r && r.ok && r.data && Array.isArray(r.data.data));
-        const rows = ok ? r.data.data : null;
-        if (rows && rows.length) candleCache[gran] = { at: Date.now(), rows };
-        if (rows && rows.length) return rows;
-        // A read that FAILED and one the venue answered empty are different
-        // facts, and this used to answer `[]` for both — so the chart read
-        // could not tell "nothing to show" from "we could not ask". The
-        // stale-cache fallback is unchanged: a chart is better drawn from the
-        // last good candles than not at all.
-        if (c) return c.rows;
-        return ok ? [] : null;
-      };
+      const candlesAt = candleReader(`${base}USDT`);
       const paintTfRow = () => {
         const tf = document.getElementById('symTf');
         if (!tf) return;
@@ -3471,7 +3489,7 @@
       };
       const paintChartAt = async () => {
         const gran = symGran;
-        const rows = await candlesAt(gran);
+        const { rows, now: readAt } = await candlesAt(gran);
         const box = document.getElementById('symReadChips');
         if (!box || m.hidden || _seq !== _symSeq || symGran !== gran) return;   // stale — drop
         const parsed = window.RCChartRead.parseCandles(rows);
@@ -3495,6 +3513,7 @@
             { width: Math.max(300, (chartBox.clientWidth || 0) - 4),
               height: 300,
               gran: gran,
+              now: readAt,
               title: pair + ' · ' + (({ '15min': '15m' })[gran] || gran),
               levels: (ins && ins.data && ins.data.levels) || [],
               fvgs: (ins && ins.data && ins.data.fvgs) || [],
@@ -3511,7 +3530,7 @@
         // no candles"; the distinction it cannot make from here is the
         // fetch's own, and `rows` is passed through unchanged so the model
         // decides rather than this block.
-        paintChartRead('symReadChips', rows, { venue: 'Bitget', gran: gran, levelsFrom4h: true });
+        paintChartRead('symReadChips', rows, { venue: 'Bitget', gran: gran, now: readAt, levelsFrom4h: true });
       };
       paintTfRow();
       paintChartAt().catch(() => { /* the chart is a bonus read */ });
