@@ -154,11 +154,25 @@
     return 'Not offered for follow.';
   }
 
+  /** The picks panel's line for a followed agent that is now withheld. */
+  function withheldPicksText(reason) {
+    return withheldText(reason) + ' Its picks are no longer shown or pushed. Unfollow to remove it.';
+  }
+
   function followButtonHtml(agent, loggedIn, following) {
     const offer = followOffer(agent);
     if (offer === 'withheld') {
       const reason = agent && agent.copy_follow_reason;
-      return '<span class="chip" data-follow="withheld">' + esc(withheldText(reason)) + '</span>';
+      const chip = '<span class="chip" data-follow="withheld">' + esc(withheldText(reason)) + '</span>';
+      // Still followed from before the withholding: say so, and offer only
+      // the unfollow (a follow would be refused). The chip alone hid that
+      // the user was subscribed.
+      if (loggedIn && following) {
+        const wid = agent && agent.id != null ? String(agent.id) : '';
+        return chip + ' <button class="btn btn--sm btn--ghost" data-agentunfollow="' + esc(wid)
+          + '" data-withheld-following="' + esc(wid) + '" type="button">✓ Following · Unfollow</button>';
+      }
+      return chip;
     }
     if (offer !== 'offered' || !loggedIn) return '';
     const id = agent && agent.id != null ? String(agent.id) : '';
@@ -189,6 +203,8 @@
     discoveryHtml: discoveryHtml,
     tradesText: tradesText,
     followOffer: followOffer,
+    withheldText: withheldText,
+    withheldPicksText: withheldPicksText,
     followButtonHtml: followButtonHtml,
     followLinkHtml: followLinkHtml,
   };

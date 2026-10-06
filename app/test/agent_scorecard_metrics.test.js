@@ -416,6 +416,17 @@ test('the public strategy page uses the same reading and a 3-column grid', () =>
   assert.match(Score.followButtonHtml(offered, true, true), /Following/);
   assert.equal(Score.followButtonHtml(offered, false, false), '');
   assert.equal(Score.followButtonHtml(absent, true, false), '');
+  // Followed before the withholding: the card says so and offers only the
+  // unfollow (a follow is refused by the route). Not followed: chip only.
+  const kept = Score.followButtonHtml(below, true, true);
+  assert.match(kept, /data-follow="withheld"/);
+  assert.match(kept, /data-agentunfollow="full-scan"/);
+  assert.match(kept, /data-withheld-following="full-scan"/);
+  assert.doesNotMatch(kept, /data-agentfollow=/);
+  assert.doesNotMatch(Score.followButtonHtml(below, true, false), /data-agentunfollow=/);
+  assert.doesNotMatch(Score.followButtonHtml(below, false, true), /data-agentunfollow=/);
+  assert.match(Score.withheldPicksText('below_one'), /Profit factor is below 1.*no longer shown or pushed/);
+  assert.match(Score.withheldPicksText(undefined), /^Not offered for follow\. Its picks/);
   assert.match(Score.followLinkHtml(offered), /Follow in the app/);
   assert.match(Score.followLinkHtml(below), /data-follow="withheld"/);
   assert.equal(Score.followLinkHtml(absent), '');

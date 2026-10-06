@@ -76,10 +76,7 @@ router.post('/follow', writeLimit, async (req, res) => {
       // Profit factor below 1 stays off this door until an eligibility
       // artefact exists; a preset with no measured verdict is not offered.
       if (agent.copy_follow !== true) {
-        const allowed = new Set(['below_one', 'no_verdict', 'eligibility_unreadable']);
-        const reason = allowed.has(agent.copy_follow_reason)
-          ? agent.copy_follow_reason : 'not_offered_for_follow';
-        return res.status(403).json({ error: 'not_offered_for_follow', reason });
+        return res.status(403).json({ error: 'not_offered_for_follow', reason: withheldReason(agent) });
       }
     }
     const uid = req.user.user_id;
@@ -97,6 +94,15 @@ router.post('/follow', writeLimit, async (req, res) => {
     res.status(500).json({ error: 'follow_failed' });
   }
 });
+
+// Why an engine agent is not offered for follow. One reading for the follow
+// door and the picks panel: a door that refuses a follow must not keep
+// serving the picks of a follow made before the refusal.
+const WITHHELD_REASONS = new Set(['below_one', 'no_verdict', 'eligibility_unreadable']);
+function withheldReason(agent) {
+  return WITHHELD_REASONS.has(agent && agent.copy_follow_reason)
+    ? agent.copy_follow_reason : 'not_offered_for_follow';
+}
 
 router.post('/unfollow', writeLimit, async (req, res) => {
   try {
@@ -148,6 +154,15 @@ router.get('/picks', async (req, res) => {
     const store = require('../lib/user_strategies');
     const agents = await Promise.all(following.map(async (id) => {
       const a = byId.get(id);
+      // PR 497 refused new follows of a preset whose measured profit factor
+      // is below 1, and left every existing follow serving its picks: the
+      // panel listed them with a paper-copy button and the push sweep sent
+      // "new pick" to the follower's phone. A withheld agent shows that it
+      // is withheld, and why, with no picks. Unfollow stays open.
+      if (a && a.copy_follow !== true) {
+        return { id, name: a.name || id, icon: a.icon || '🤖', matched_on: [], picks: null,
+                 withheld: true, reason: withheldReason(a) };
+      }
       if (a) return picksOf(a);
       // Not an engine agent — a followed COMMUNITY strategy resolves here:
       // its signal-checkable rules project onto the same gate shape
@@ -183,3 +198,4 @@ router.get('/picks', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.withheldReason = withheldReason;
