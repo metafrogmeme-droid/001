@@ -128,7 +128,11 @@ test('a dollar P&L sent to the ingest is stored, streamed and pushed without it'
   assert.ok(raw.includes('Closed BTC/USDT'), 'with its title');
   assert.ok(raw.includes('free margin sits idle'), 'and the alert with its words');
   assert.ok(!DOLLAR.test(raw), `no dollar figure on the public stream: ${raw}`);
-  assert.ok(!raw.includes('41.2'), 'no P&L figure in any spelling');
+  // Each event rides the stream with its created_at as an ISO time, and a
+  // row created at hh:mm:41.2xx contains "41.2": that failed CI once in
+  // about six hundred runs with no figure anywhere. The times go first.
+  const untimed = raw.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g, '<time>');
+  assert.ok(!untimed.includes('41.2'), 'no P&L figure in any spelling');
   assert.ok(raw.includes('idle_pct'), 'a ratio in the data rides the stream');
 
   const push = pushes.find(p => /Closed BTC\/USDT/.test(p.title));
