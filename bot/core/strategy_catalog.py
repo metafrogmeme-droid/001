@@ -450,18 +450,34 @@ def _preset_eligibility_state(agent_id: str) -> str:
     return read_eligibility(f"presets/{agent_id}", root).state
 
 
+#: The scorecard slot for a committed file that could not be read. Every
+#: renderer prints an ``omitted`` sentence verbatim, so this is what the
+#: lineup, the agent page and the compare table say instead of a figure.
+SCORECARD_UNREADABLE = ("The track record on file could not be read. It is not "
+                        "absent, and no figure is shown from it.")
+
+
 def _load_scorecard(agent_id: str) -> Optional[dict]:
     """The committed benchmark scorecard for this agent slug, or None. Public-safe
     by construction (the generator writes percent/ratio only); we still strip any
-    non-metric/dollar-ish keys defensively before it reaches a card."""
+    non-metric/dollar-ish keys defensively before it reaches a card.
+
+    None is NO FILE, and only that. Every other failure (corrupt JSON, a
+    permission error, a payload that is not a card) was None too, and the
+    catalogue then fell through to "No track record published." on four
+    public surfaces for a preset whose frozen record is committed. A file
+    that could not be read is its own slot, `SCORECARD_UNREADABLE`.
+    """
     try:
         path = os.path.join(_scorecard_dir(), f"{agent_id}.json")
         with open(path, encoding="utf-8") as fh:
             card = json.load(fh)
+    except FileNotFoundError:
+        return None
     except Exception:
-        return None
+        return {"omitted": SCORECARD_UNREADABLE}
     if not isinstance(card, dict):
-        return None
+        return {"omitted": SCORECARD_UNREADABLE}
     raw_metrics = card.get("metrics")
     # Bind once so isinstance narrows. A second ``card.get`` stays ``Any | None``
     # and ``.get`` on that union is not a dict read.

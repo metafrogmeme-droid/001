@@ -16897,6 +16897,48 @@ carry it now. Five mutants killed.
 `app/lib/copy_watch.js`, `app/public/js/agent-scorecard.js`,
 `app/public/js/dashboard.js`.)
 
+**"REPRODUCE IN LAB" RAN A DIFFERENT BACKTEST UNDER THE CARD'S NAME, FOR
+TWO OF THE FIVE CARDS.** The button builds a Lab request from the card's
+gate block. The block is written by the generator's `scorecard_gates`, and
+the request was built by hand in `dashboard.js`, so the two drifted:
+
+- **ETH MA trend** read `ma_target_weight`, `ma_max_gross_leverage` and
+  `ma_utilization`, names no card carries (the generator writes
+  `target_weight`, `max_gross_leverage`, `utilization`). The Lab ran the
+  moving-average book with no sizing; `ma_margin` answers None for a missing
+  input and the engine skips the open, so the run came back as 0 trades and
+  +0.00%, which reads as a measured flat strategy.
+- **Safe Scalper** was measured with a 1.5-ATR stop and a 2.0-ATR target.
+  The card did not record them, and the Lab had no field for them, so the
+  rerun used the analyzer's own levels.
+
+Two copies of one mapping are two answers. The request is now
+`AgentScorecard.labBody`, one function the dashboard calls, and a test runs
+it in Node for every committed card and holds the flags `_preset_gate_args`
+builds from it to the generator's own `_gate_args` for that preset. The
+generator records the exit multiples when a preset has them, the Lab takes
+them (0 < x ≤ 20, else 400), and the Safe Scalper card was regenerated on
+this branch (its metrics did not move). A moving-average run missing any
+sizing input or the signal confidence is refused with a 400 that names
+them, because the zero-trade answer is the failure this chapter is about.
+The test the dashboard's old body had was a regex on its source, and it
+pinned the wrong names; it drives the shared function now.
+
+**AN UNREADABLE SCORECARD SAID "NO TRACK RECORD PUBLISHED."**
+`_load_scorecard` returned None for every failure (corrupt JSON, a
+permission error, a payload that is not a card), and None is how the
+catalogue says no file exists. Four public surfaces then printed the
+absent sentence for a preset whose frozen record is committed. None is now
+`FileNotFoundError` only; any other failure is the scorecard slot
+`{"omitted": SCORECARD_UNREADABLE}`, which every renderer prints verbatim,
+and the follow verdict reads it as no verdict. Thirteen mutants killed
+(eight Python, five JS).
+(`tests/test_reproduce_in_lab_runs_the_cards_backtest.py`,
+`tests/test_an_unreadable_scorecard_is_not_an_absent_one.py`,
+`app/test/strategies_marketplace.test.js`, `bot/api/lab.py`,
+`scripts/gen_agent_scorecards.py`, `bot/core/strategy_catalog.py`,
+`app/public/js/agent-scorecard.js`.)
+
 **EVERY CANDLE CHART IS A TRADINGVIEW CHART, AND THE FIRST ONE WAS DRAWING
 ANOTHER SYMBOL'S LEVELS.** Asked for by the operator with two screenshots: the
 Markets view drew TradingView Lightweight Charts, and every chart a reader
@@ -20097,7 +20139,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1216** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1218** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

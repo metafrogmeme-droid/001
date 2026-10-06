@@ -182,6 +182,50 @@
       + (on ? '✓ Following' : '+ Follow') + '</button>';
   }
 
+  /**
+   * The Lab request that re-runs this card's backtest, or null without one.
+   *
+   * The card's gate block is the generator's (`scorecard_gates`), so its
+   * names are read here as the generator writes them. This lived in
+   * dashboard.js and read `ma_target_weight`, `ma_max_gross_leverage` and
+   * `ma_utilization`, names no card carries, and no exit multiple at all:
+   * ETH MA trend reproduced with no sizing (a book that opens nothing) and
+   * Safe Scalper without the ATR stop and target it was measured with. An
+   * absent gate is left out of the request, never sent as a zero. That
+   * includes the confidence threshold: the Lab reads an absent one as the
+   * runner's own default, 0.0, which is what the generator ran.
+   */
+  function labBody(name, sc) {
+    if (!sc || typeof sc !== 'object' || !sc.dataset || !sc.gates || typeof sc.gates !== 'object') return null;
+    var g = sc.gates;
+    var pick = function (a, b) { return g[a] != null ? g[a] : g[b]; };
+    return {
+      _agent: name,
+      body: {
+        dataset: sc.dataset,
+        symbols: sc.symbols || [],
+        last_bars: sc.bars || 1500,
+        confidence_threshold: g.confidence_threshold,
+        volume_spike_min: g.volume_spike_min,
+        regime_filter: g.regime_filter || '',
+        rsi_max: g.rsi_max,
+        rsi_min: g.rsi_min,
+        direction: g.direction || '',
+        ma_fast: g.ma_fast,
+        ma_slow: g.ma_slow,
+        ma_timeframe: g.ma_timeframe || '',
+        ma_symbols: g.ma_symbols || '',
+        ma_target_weight: pick('target_weight', 'ma_target_weight'),
+        ma_max_gross_leverage: pick('max_gross_leverage', 'ma_max_gross_leverage'),
+        ma_utilization: pick('utilization', 'ma_utilization'),
+        leverage: g.leverage,
+        signal_confidence: g.signal_confidence,
+        sl_atr_mult: g.sl_atr_mult,
+        tp_atr_mult: g.tp_atr_mult,
+      },
+    };
+  }
+
   function followLinkHtml(agent) {
     const offer = followOffer(agent);
     if (offer === 'offered') {
@@ -207,5 +251,6 @@
     withheldPicksText: withheldPicksText,
     followButtonHtml: followButtonHtml,
     followLinkHtml: followLinkHtml,
+    labBody: labBody,
   };
 }));

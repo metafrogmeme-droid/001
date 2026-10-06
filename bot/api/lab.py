@@ -110,6 +110,10 @@ class LabRunRequest(BaseModel):
     ma_utilization: Optional[float] = None
     leverage: Optional[int] = None
     signal_confidence: Optional[float] = None
+    # ATR exit multiples a preset's card was measured with (Safe Scalper's
+    # 1.5-ATR stop and 2.0-ATR target). Unset is the analyzer's own levels.
+    sl_atr_mult: Optional[float] = None
+    tp_atr_mult: Optional[float] = None
 
 
 def _datasets() -> dict[str, dict]:
@@ -145,6 +149,26 @@ async def lab_meta():
                        "timeout_sec": _TIMEOUT_SEC}}
 
 
+def _exit_args(req: LabRunRequest) -> tuple[list[str], dict]:
+    """Runner flags for the ATR exit multiples a card was measured with.
+
+    The Lab had no field for them, so "Reproduce in Lab" re-ran Safe Scalper
+    on the analyzer's levels while its card was measured with a 1.5-ATR stop
+    and a 2.0-ATR target: a different backtest under the card's name.
+    """
+    args: list[str] = []
+    params: dict = {}
+    for name, flag, raw in (("sl_atr_mult", "--sl-atr-mult", req.sl_atr_mult),
+                            ("tp_atr_mult", "--tp-atr-mult", req.tp_atr_mult)):
+        if raw is None:
+            continue
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not 0.0 < float(raw) <= 20.0:
+            raise HTTPException(status_code=400, detail=f"Invalid {name}.")
+        args += [flag, str(float(raw))]
+        params[name] = float(raw)
+    return args, params
+
+
 def _ma_gate_args(req: LabRunRequest) -> tuple[list[str], dict]:
     """Runner flags for a moving-average replay. Both periods or neither.
 
@@ -162,6 +186,21 @@ def _ma_gate_args(req: LabRunRequest) -> tuple[list[str], dict]:
         raise HTTPException(status_code=400, detail="Invalid ma_slow.")
     if slow <= fast:
         raise HTTPException(status_code=400, detail="ma_slow must be above ma_fast.")
+    # The book opens nothing without these: `ma_margin` answers None for a
+    # missing sizing input and the engine then skips the open, and a missing
+    # signal confidence skips it too. The run came back as 0 trades and
+    # +0.00%, which reads as a measured flat strategy. Refused, by name.
+    missing = [name for name, raw in (
+        ("ma_target_weight", req.ma_target_weight),
+        ("ma_max_gross_leverage", req.ma_max_gross_leverage),
+        ("ma_utilization", req.ma_utilization),
+        ("signal_confidence", req.signal_confidence),
+    ) if raw is None]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=("A moving-average run needs " + ", ".join(missing)
+                    + "; without them it cannot size a fill and would report zero trades."))
     args = ["--ma-fast", str(fast), "--ma-slow", str(slow)]
     params: dict = {"ma_fast": fast, "ma_slow": slow}
     tf = (req.ma_timeframe or "").strip()
@@ -202,33 +241,13 @@ def _ma_gate_args(req: LabRunRequest) -> tuple[list[str], dict]:
     return args, params
 
 
-@lab_router.post("/lab/run")
-async def lab_run(req: LabRunRequest):
-    global _running_id, _last_submit
-    now = time.monotonic()
-    if now - _last_submit < _MIN_SUBMIT_GAP_SEC:
-        raise HTTPException(status_code=429, detail="Slow down — one submission "
-                            "every few seconds.")
-    if _running_id and _jobs.get(_running_id, {}).get("status") == "running":
-        raise HTTPException(status_code=409, detail="A backtest is already "
-                            "running — poll it or wait for it to finish.")
+def _preset_gate_args(req: LabRunRequest) -> tuple[list[str], dict]:
+    """Runner flags and echoed params for a preset's gates, exits and MA book.
 
-    cats = _datasets()
-    if req.dataset not in cats:
-        raise HTTPException(status_code=400,
-                            detail=f"Unknown dataset. Available: {sorted(cats)}")
-    available = set(cats[req.dataset]["symbols"])
-    symbols = [s.strip() for s in req.symbols if s.strip()][:4]
-    if not symbols:
-        symbols = sorted(available)[:3]
-    bad = [s for s in symbols if s not in available]
-    if bad:
-        raise HTTPException(status_code=400,
-                            detail=f"Not in this snapshot: {bad}")
-    last_bars = max(200, min(6000, int(req.last_bars)))
-    confidence = max(0.0, min(1.0, float(req.confidence_threshold)))
-    balance = max(100.0, min(1_000_000.0, float(req.balance)))
-
+    The one place the Lab turns a request into runner flags, so a test can
+    hold "Reproduce in Lab" to the generator's own `_gate_args` without
+    starting a job.
+    """
     # Preset entry gates (marketplace "Reproduce in Lab"). Validated/clamped
     # here before reaching the runner; all optional so a normal run omits them.
     gate_args: list[str] = []
@@ -257,9 +276,43 @@ async def lab_run(req: LabRunRequest):
             raise HTTPException(status_code=400, detail="Invalid direction.")
         gate_args += ["--direction", direction]
         gate_params["direction"] = direction
+    exit_args, exit_params = _exit_args(req)
+    gate_args += exit_args
+    gate_params.update(exit_params)
     ma_args, ma_params = _ma_gate_args(req)
     gate_args += ma_args
     gate_params.update(ma_params)
+    return gate_args, gate_params
+
+
+@lab_router.post("/lab/run")
+async def lab_run(req: LabRunRequest):
+    global _running_id, _last_submit
+    now = time.monotonic()
+    if now - _last_submit < _MIN_SUBMIT_GAP_SEC:
+        raise HTTPException(status_code=429, detail="Slow down — one submission "
+                            "every few seconds.")
+    if _running_id and _jobs.get(_running_id, {}).get("status") == "running":
+        raise HTTPException(status_code=409, detail="A backtest is already "
+                            "running — poll it or wait for it to finish.")
+
+    cats = _datasets()
+    if req.dataset not in cats:
+        raise HTTPException(status_code=400,
+                            detail=f"Unknown dataset. Available: {sorted(cats)}")
+    available = set(cats[req.dataset]["symbols"])
+    symbols = [s.strip() for s in req.symbols if s.strip()][:4]
+    if not symbols:
+        symbols = sorted(available)[:3]
+    bad = [s for s in symbols if s not in available]
+    if bad:
+        raise HTTPException(status_code=400,
+                            detail=f"Not in this snapshot: {bad}")
+    last_bars = max(200, min(6000, int(req.last_bars)))
+    confidence = max(0.0, min(1.0, float(req.confidence_threshold)))
+    balance = max(100.0, min(1_000_000.0, float(req.balance)))
+
+    gate_args, gate_params = _preset_gate_args(req)
 
     job_id = uuid.uuid4().hex[:12]
     _OUT_DIR.mkdir(parents=True, exist_ok=True)
