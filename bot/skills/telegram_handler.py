@@ -1164,6 +1164,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("patterns", self._cmd_patterns), ("proposals", self._cmd_proposals),
             ("optimize", self._cmd_optimize), ("help", self._cmd_help),
             ("version", self._cmd_version),
+            ("rclaw", self._cmd_rclaw),
             # Strategy preset shortcuts (aliases for /run <name>)
             ("momentum", self._cmd_momentum), ("dip", self._cmd_dip),
             ("linkwallet", self._cmd_linkwallet),

@@ -2142,7 +2142,42 @@
     "home.welcome_2": { en: "📡 2 · Watch it read the market" },
     "home.welcome_3": { en: "🎯 3 · Place a risk-gated paper trade" },
     "home.welcome_dismiss": { en: "Got it — don’t show again" },
-    "vh.feed.sub": { en: "The agent’s mind-stream — every scan, thesis, trade and alert, as it happens" }
+    "vh.feed.sub": { en: "The agent’s mind-stream — every scan, thesis, trade and alert, as it happens" },
+    "nav.token": { en: "$RCLAW token" },
+    "home.token_live": { en: "$RCLAW is live on Solana — presale coming soon" },
+    "home.token_cta": { en: "See the mint address →" },
+    "tok.h1": { en: "The $RCLAW token" },
+    "tok.lede": { en: "RUNECLAW’s token lives on Solana. This page shows the one mint address that is $RCLAW, read from the project’s own record, and what has and has not been announced about the presale." },
+    "tok.mint_h": { en: "Mint address" },
+    "tok.copy": { en: "Copy" },
+    "tok.copied": { en: "Copied" },
+    "tok.copy_failed": { en: "Copy failed — select the address instead" },
+    "tok.solscan": { en: "View on Solscan" },
+    "tok.facts_h": { en: "On-chain facts" },
+    "tok.chain": { en: "Chain" },
+    "tok.standard": { en: "Standard" },
+    "tok.program": { en: "Token program" },
+    "tok.decimals": { en: "Decimals" },
+    "tok.supply": { en: "Total supply" },
+    "tok.fixed": { en: "fixed — the mint authority is revoked, so no more can ever be minted" },
+    "tok.mint_auth": { en: "Mint authority" },
+    "tok.freeze_auth": { en: "Freeze authority" },
+    "tok.auth_none": { en: "none (revoked)" },
+    "tok.auth_held": { en: "held by" },
+    "tok.unreadable": { en: "unreadable" },
+    "tok.created": { en: "Created" },
+    "tok.verified": { en: "Record checked against the chain on" },
+    "tok.presale_h": { en: "Presale" },
+    "tok.presale_soon": { en: "Coming soon" },
+    "tok.date": { en: "Date" },
+    "tok.price": { en: "Price" },
+    "tok.venue": { en: "Venue" },
+    "tok.not_announced": { en: "not announced yet" },
+    "tok.presale_body": { en: "A presale is being prepared. The date, price and venue will be announced on this page, in the Telegram bot and on the project’s X account before anything opens. Until then there is nothing to buy from us." },
+    "tok.verify": { en: "Only this mint address is $RCLAW. Any other token using the name or logo is not ours — check the address before you trade anything." },
+    "tok.not_offer": { en: "Nothing on this page is financial advice, an offer to sell or a solicitation to buy any token. Presale terms, if and when announced, may change with legal review." },
+    "tok.unread": { en: "The token record could not be read right now. No mint address is shown in its place — a guessed address is worse than none. Try again in a minute." },
+    "tok.bot_hint": { en: "Also in the Telegram bot: /rclaw" }
   };
 
   // ── Split build ───────────────────────────────────────────────────────────
@@ -2154,7 +2189,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"addec03a","zh":"e9cd745c","pt":"2fee8926","fr":"104132fb","de":"3fc92204","nl":"33d77ec4","ja":"65c7d47d","ko":"9496828d","ru":"6711d409","tr":"6b31221f","it":"d1b93f0d","hi":"2e291bc8","ar":"9facc5fd"};
+  var CHUNKS = {"es":"bc4e620a","zh":"6717374d","pt":"89af6927","fr":"0e6ecf87","de":"eb2c192d","nl":"f1239761","ja":"8401c1e3","ko":"1882cc6b","ru":"b4675912","tr":"f5cf7fae","it":"2fde28f0","hi":"8c5755a0","ar":"497f8bc2"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

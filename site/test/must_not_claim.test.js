@@ -7,7 +7,7 @@
  * BUILT OUTPUT, so a claim cannot arrive through a component either.
  *
  * Vocabulary, not sentences: "$RCLAW" and "staking" cannot appear at all on a
- * site that says no token exists; a negation ("no token exists") is allowed
+ * site that says no sale has run; a negation ("no sale has run") is allowed
  * because the words that would assert the thing — the ticker, "staking",
  * "vault", "DAO" — are what is banned, and the negation does not need them.
  */

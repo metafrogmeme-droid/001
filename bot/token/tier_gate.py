@@ -9,7 +9,10 @@ on :mod:`bot.core.onchain`: **completely inert unless explicitly enabled AND
 configured**, no import-time side effects, and fail-open on infrastructure
 errors so an RPC hiccup never locks a user out.
 
-$RCLAW is a Solana-native SPL Token-2022 (see ``docs/TOKEN_ROADMAP.md``). There
+$RCLAW is a Solana SPL token. The roadmap (``docs/TOKEN_ROADMAP.md``) proposed
+Token-2022; the mint that exists on mainnet is a classic SPL Token under
+``TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`` (``token/config/rclaw.mainnet.json``,
+read by ``bot.token.record``), which this reader handles the same way. There
 is no Solana client dependency in ``bot/`` yet, so the balance read is a
 hand-rolled JSON-RPC call in the same dependency-free ``urllib`` style as
 ``bot/proofofpnl/anchor.py``. Until a mint + RPC are configured the gate is

@@ -435,6 +435,7 @@ python -m bot.main --mode scan
 | `/livebalance` | 交易所實際餘額 |
 | `/disconnect` | 移除已連結的憑證 |
 | `/linkwallet` | 連結 Solana 錢包（唯讀）以取得 $RCLAW 等級權限 |
+| `/rclaw` | $RCLAW 代幣：鑄造地址、供應量與預售狀態 |
 | `/lang` | 切換語言 |
 | `/version` | 機器人版本與模式 |
 | `/health` | 系統健康狀態 |

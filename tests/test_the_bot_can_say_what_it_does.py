@@ -805,7 +805,9 @@ def test_the_telegram_card_would_be_a_mostly_false_answer_here():
     # And again for /etf: a bare "etf" reaches no rule, so the weekly flows
     # picture is a command a caller types, and on the web the dashboard's
     # own panel is where the same reading is shown.
-    assert (named, nothing, len(hits)) == (107, 98, 9), (named, nothing, hits)
+    # And again for /rclaw: a bare "rclaw" reaches no rule, so the token card
+    # is a command a caller types, and on the web the /token page shows it.
+    assert (named, nothing, len(hits)) == (108, 99, 9), (named, nothing, hits)
     # The sharpest one: the universe sweep answered by a single-asset read.
     assert hits.get("scan") == "analyze_asset", hits
 

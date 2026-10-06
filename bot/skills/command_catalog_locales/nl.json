@@ -29,6 +29,7 @@
     "livebalance": "je echte exchange-saldo (je eigen account, alleen-lezen)",
     "disconnect": "verwijder je gekoppelde inloggegevens",
     "linkwallet": "koppel een Solana-wallet (alleen-lezen) voor $RCLAW-niveautoegang",
+    "rclaw": "de $RCLAW-token: mintadres, aanbod en presale-status",
     "lang": "taal wisselen",
     "version": "botversie en modus",
     "health": "systeemgezondheid",

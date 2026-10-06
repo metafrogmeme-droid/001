@@ -81,6 +81,14 @@
   /* Real-time 3D agent in the hero — invisible until agent.glb is present, so
      this never alters the landing until the model artwork is added. */
   .hero-agent3d { display: none; }
+  /* $RCLAW announcement strip under the hero note. The accent colour is the
+     brand's, not a profit colour: nothing here is a number. */
+  .hero-token { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: var(--s3);
+    padding: 6px 12px; border: 1px solid var(--gold); border-radius: 999px; font-size: var(--fs-sm);
+    color: var(--text); text-decoration: none; max-width: 100%; }
+  .hero-token:hover { background: var(--surface); }
+  .hero-token-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gold); flex: none; }
+  .hero-token-cta { color: var(--gold); }
   .hero-agent3d[data-rc3d-state="loading"], .hero-agent3d[data-rc3d-state="ready"] {
     display: block; position: absolute; top: 0; right: 3%; width: clamp(200px, 30vw, 380px);
     aspect-ratio: 1 / 1; z-index: 1; pointer-events: auto;
@@ -163,6 +171,7 @@
       <div class="nav-group-panel">
         <a href="/explore" data-i18n="nav.explore_all">Everything RUNECLAW does</a>
         <a href="/letter" data-i18n="nav.letter">Agent Letter</a>
+        <a href="/token" data-i18n="nav.token">$RCLAW token</a>
         <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai" target="_blank" rel="noopener" data-i18n="nav.docs">Docs</a>
       </div>
     </details>
@@ -191,6 +200,7 @@
       <a href="/leaderboard" data-i18n="nav.leaderboard">Leaderboard</a>
       <a href="/explore" data-i18n="nav.explore_all">Everything RUNECLAW does</a>
       <a href="/letter" data-i18n="nav.letter">Agent Letter</a>
+      <a href="/token" data-i18n="nav.token">$RCLAW token</a>
       <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai" target="_blank" rel="noopener" data-i18n="nav.docs">Docs</a>
     </div>
   </details>
@@ -210,6 +220,10 @@
     <a class="hero-secondary" href="/dashboard" data-i18n="hero.cta_dashboard">View the dashboard</a>
   </form>
   <p class="hero-note muted small" data-i18n="hero.free_note">Free · paper-trade in your browser instantly · no exchange keys needed.</p>
+  <!-- The token announcement. Words only: the mint address, supply and the
+       presale's unannounced terms live on /token, read from the one record
+       the bot reads too, so this strip cannot drift from them. -->
+  <a class="hero-token" href="/token"><span class="hero-token-dot" aria-hidden="true"></span><span data-i18n="home.token_live">$RCLAW is live on Solana — presale coming soon</span> <span class="hero-token-cta" data-i18n="home.token_cta">See the mint address →</span></a>
   <!-- Objection-killers right where the decision is made. All literally true and
        verifiable; no numbers, so nothing to keep fresh (and §4-safe). -->
   <ul class="trust-badges" aria-label="Why you can trust it" data-i18n-attr="aria-label:a11y.trust">
@@ -887,6 +901,7 @@
       <a href="/escape" data-i18n="nav.escape">Escape Agent</a>
       <a href="/leaderboard" data-i18n="nav.leaderboard">Leaderboard</a>
       <a href="/letter" data-i18n="nav.letter">Agent Letter</a>
+      <a href="/token" data-i18n="nav.token">$RCLAW token</a>
       <a href="/developers" data-i18n="nav.developers">Developers</a>
       <a href="/status" data-i18n="nav.status">Status</a>
       <a href="/gas" data-i18n="nav.gas">Live Gas</a>
@@ -934,7 +949,7 @@
   </form>
 </section>
 
-<script src="/js/i18n-core.js?v=161"></script>
+<script src="/js/i18n-core.js?v=162"></script>
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=3"></script>
 <script src="/js/app.js?v=15"></script>

@@ -61,7 +61,7 @@ reason: **the doors were real and none of them did the thing the leaf names.**
 | Delta-neutral vaults | partial | — | Every door is real and correctly gated; `/arbpair` now SIZES and PRICES the pair over the caller's own linked venues, and still nothing opens, hedges or holds one. The `$1,000` in `/arb` is a module constant accrued against recorded spread snapshots, not a deposit. |
 | Points programs | partial | — | The chip renders, and the product measures, tracks and stores zero points of any kind. Two hits in the whole tree, both the same status-vocabulary literal. |
 | Creator campaigns | partial | — | The row's own evidence sentence concedes it: "a referral/invite program and share tooling, not campaigns". |
-| Ambassador roles | partial | — | One artifact in the entire tree: a rung named `Ambassador`, `state: 'planned'`, whose own `requires` field says it would ride on a token that does not exist. |
+| Ambassador roles | partial | — | One artifact in the entire tree: a rung named `Ambassador`, `state: 'planned'`, whose own `requires` field says it would ride on a token that is minted but not launched. |
 | DAO ambassador/mod programs | partial | — | Same rung. A referral loop is not an ambassador programme. |
 
 ## The map
@@ -802,8 +802,8 @@ so one recruit really does put you both on a squad.
 tracking, no creator leaderboard and no payout. The reward half of the
 referral ladder is explicitly dead, and the code says so itself — three of the
 five REFERRAL_TIERS rows are state:'planned' with a `requires` line reading
-'Not in force yet' or 'Would ride on the $RCLAW token, which does not exist
-yet' (`app/auth.js::REFERRAL_TIERS#"requires: 'Not"`), and the comment above the table states 'This
+'Not in force yet' or 'Would ride on the $RCLAW token, which is minted but not
+launched yet' (`app/auth.js::REFERRAL_TIERS#"requires: 'Not"`), and the comment above the table states 'This
 endpoint still grants nothing: referralTier has one caller, right below, and
 nothing in the tree gates a feature on a referral count' (`app/auth.js::#"endpoint still grants nothing"`). I
 checked that claim: referralTier's only non-test caller is the endpoint that
@@ -1214,7 +1214,7 @@ are granted by the operator through the Telegram bot… online checkout is
 coming later" (`app/public/js/dashboard.js::renderAccount#"online checkout is coming later"`). The $RCLAW tier gate that would enforce a
 paid tier is wired at four call sites but INERT — gate_enabled() needs
 TOKEN_TIER_GATE_ENABLED and RCLAW_MINT, neither of which is set anywhere, and
-`docs/TOKEN_ROADMAP.md::#"No token exists"` says "No token exists. No sale has run." Most
+`docs/TOKEN_ROADMAP.md::#"minted but not launched: no sale has run"` says the token "is minted but not launched: no sale has run and no pool exists." Most
 importantly for this leaf: a USER cannot run a community here at all —
 /channel and /broadcast are gated to a bot admin or a Telegram group
 admin/creator, there is no user-created group, no members list, no dues, no
@@ -1245,7 +1245,7 @@ Duel squad.
 "This endpoint still grants nothing: `referralTier` has one caller, right
 below, and nothing in the tree gates a feature on a referral count." Three of
 the five tiers are state:'planned', two of them explicitly contingent on a
-token that does not exist. There is no commission, no payout ledger, no
+token that is minted but not launched. There is no commission, no payout ledger, no
 attribution of revenue (there is no revenue), and no third-party affiliate
 integration: `app/lib/venue_links.js::venuesFor` builds plain
 Bitget/Bybit/BingX/OKX/Hyperliquid/DexScreener deep links with no referral
@@ -1266,8 +1266,8 @@ at `app/public/js/dashboard.js::renderAccount#"Share on Warpcast"`, GET /api/pub
 
 Exactly one thing: a named rung on the referral ladder. `app/auth.js::REFERRAL_TIERS#"name: 'Ambassador'"` is
 the whole of it — `{ at: 10, name: 'Ambassador', state: 'planned', perk: 'Fee
-credits.', requires: 'Would ride on the $RCLAW token, which does not exist yet
-— no token has launched and no sale has run.' }`. It is computed from a real
+credits.', requires: 'Would ride on the $RCLAW token, which is minted but not
+launched yet — no sale has run and nothing in the product uses it.' }`. It is computed from a real
 referral count by referralTier() (which answers null rather than 'Starter'
 when the count is not a measurement) and rendered by referral-tier-model.js in
 the invite panel, painted muted AND carrying its caveat in words because
@@ -1285,8 +1285,8 @@ marks as planned. The word appears nowhere else in the tree.
 itself says grants nothing. `grep -rni ambassador` over the whole tree
 (excluding node_modules/.git) returns exactly ONE file: app/auth.js. The rung
 is `{ at: 10, name: 'Ambassador', state: 'planned', perk: 'Fee credits.',
-requires: 'Would ride on the $RCLAW token, which does not exist yet — no token
-has launched and no sale has run.' }`. The comment directly above
+requires: 'Would ride on the $RCLAW token, which is minted but not launched yet —
+no sale has run and nothing in the product uses it.' }`. The comment directly above
 REFERRAL_TIERS …
 
 **Premium research/reports** — partial
@@ -1556,7 +1556,7 @@ caveat in WORDS, pinned by app/test/referral_tier_honesty.test.js). There is
 no ambassador application, enrolment, quota, content requirement or reporting
 surface, and no moderator role, mod tooling or mod compensation anywhere in
 the tree. Two of the five rungs ('Ambassador', 'Legend') depend on a token
-that `docs/TOKEN_ROADMAP.md::#"No token exists"` says does not exist.
+that `docs/TOKEN_ROADMAP.md::#"minted but not launched: no sale has run"` says is minted but not launched.
 
 *The verifier refused part of this row.* none — the doors exist and are reachable, but what they serve is a
 referral/invite loop, not an ambassador or moderator program; the rung

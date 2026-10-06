@@ -14,7 +14,7 @@
  *     Your invite link is live — share it to climb.
  *
  * One of those is true today. The other depends on a token whose own roadmap
- * opens "No token exists. No sale has run." That is this repo's signature
+ * then opened "No token exists. No sale has run." That is this repo's signature
  * failure lifted from numbers to promises: THE CODE KNEW AND THE SURFACE DID
  * NOT SAY.
  *
@@ -108,8 +108,8 @@ test('the ladder only goes up', () => {
 const TOKEN_WORDS = /\$?RCLAW|\btoken\b|\brevenue\b|fee credit|\bairdrop\b/i;
 
 test('no live perk depends on the token', () => {
-  // docs/TOKEN_ROADMAP.md: "No token exists. No sale has run." A perk that
-  // needs it cannot be something you already have.
+  // docs/TOKEN_ROADMAP.md: the token is minted but not launched, and no sale
+  // has run. A perk that needs it cannot be something you already have.
   for (const t of REFERRAL_TIERS.filter((x) => x.state === 'live')) {
     assert.ok(!TOKEN_WORDS.test(t.perk),
       `${t.name} is marked live and its perk reads "${t.perk}" — the token is `

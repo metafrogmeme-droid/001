@@ -152,8 +152,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 161,
-    "sha": "ec583176ee616132"
+    "v": 162,
+    "sha": "a95182083680ff92"
   },
   "js/icons.js": {
     "v": 6,
@@ -278,6 +278,10 @@
   "js/thesis-model.js": {
     "v": 2,
     "sha": "0a41f855dcb11f74"
+  },
+  "js/token-page.js": {
+    "v": 1,
+    "sha": "b47173dc36c14391"
   },
   "js/trade-confirm-model.js": {
     "v": 2,
