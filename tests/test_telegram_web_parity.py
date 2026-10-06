@@ -30,7 +30,7 @@ class TestWebDataPull:
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
         calls = []
         monkeypatch.setattr(wdp, "_request",
-                            lambda path, body=None: calls.append(path) or {"ok": 1})
+                            lambda path, body=None, **kw: calls.append(path) or {"ok": 1})
         wdp.fetch_exposure("111")
         wdp.fetch_research("pendle/usdt")           # junk stripped, USDT dropped
         wdp.fetch_networth("111")
@@ -50,7 +50,7 @@ class TestWebDataPull:
     def test_bad_symbol_never_reaches_the_wire(self, monkeypatch):
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
         monkeypatch.setattr(wdp, "_request",
-                            lambda path, body=None: (_ for _ in ()).throw(
+                            lambda path, body=None, **kw: (_ for _ in ()).throw(
                                 AssertionError("must not be called")))
         assert wdp.fetch_research("!!!") is None
         assert wdp.fetch_research("") is None

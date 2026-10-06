@@ -124,7 +124,7 @@ class TestThePull:
     def test_the_paths_carry_the_argument_only_when_given(self, monkeypatch):
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
         calls = []
-        monkeypatch.setattr(wdp, "_request", lambda path, body=None: calls.append(path) or {"ok": 1})
+        monkeypatch.setattr(wdp, "_request", lambda path, body=None, **kw: calls.append(path) or {"ok": 1})
         fetch_web_card("replay", stake="500")
         fetch_web_card("replay", stake=None)
         fetch_web_card("replay")
@@ -159,7 +159,7 @@ class TestThePull:
     def test_the_argument_is_quoted_and_bounded(self, monkeypatch):
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
         calls = []
-        monkeypatch.setattr(wdp, "_request", lambda path, body=None: calls.append(path) or {})
+        monkeypatch.setattr(wdp, "_request", lambda path, body=None, **kw: calls.append(path) or {})
         fetch_web_card("venue_router", base="a&b=c" + "x" * 40)
         # 32 characters survive: the five of "a&b=c" and twenty-seven x's.
         assert calls == ["/api/bot/sync/card/venue_router?base=a%26b%3Dc" + "x" * 27]

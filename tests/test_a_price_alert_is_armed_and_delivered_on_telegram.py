@@ -91,7 +91,7 @@ class TestThePull:
     def test_the_sentence_travels_whole_and_a_wrong_argument_raises(self, monkeypatch):
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
         seen = []
-        monkeypatch.setattr(wdp, "_request", lambda path, body=None: seen.append(path) or {"ok": 1})
+        monkeypatch.setattr(wdp, "_request", lambda path, body=None, **kw: seen.append(path) or {"ok": 1})
         fetch_web_card("alerts", "770001", text=SENTENCE)
         # 33 characters: the 32 that bounds a token cut this one short.
         assert seen[-1] == "/api/bot/sync/card/alerts?telegram_id=770001&text=" + urllib.parse.quote(SENTENCE)
@@ -107,11 +107,11 @@ class TestThePull:
         assert fetch_alert_trips() is None
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
         for answer in (None, "junk", {"error": "x"}, {"trips": "junk"}):
-            monkeypatch.setattr(wdp, "_request", lambda path, body=None, a=answer: a)
+            monkeypatch.setattr(wdp, "_request", lambda path, body=None, a=answer, **kw: a)
             assert fetch_alert_trips() is None, answer
         seen = []
         monkeypatch.setattr(wdp, "_request",
-                            lambda path, body=None: seen.append(path) or {"trips": [{"id": 1}, "x", {"id": 2}]})
+                            lambda path, body=None, **kw: seen.append(path) or {"trips": [{"id": 1}, "x", {"id": 2}]})
         assert fetch_alert_trips(limit=7) == [{"id": 1}, {"id": 2}]
         assert seen == ["/api/bot/sync/alerts/pending?limit=7"]
 
@@ -120,12 +120,12 @@ class TestThePull:
         assert ack_alert_trips([{"id": 1, "ok": True}]) is False
         monkeypatch.setattr(wdp, "SYNC_SECRET", "s" * 48)
         seen = []
-        monkeypatch.setattr(wdp, "_request", lambda path, body=None: seen.append((path, body)) or {"ok": True})
+        monkeypatch.setattr(wdp, "_request", lambda path, body=None, **kw: seen.append((path, body)) or {"ok": True})
         assert ack_alert_trips([]) is False and seen == [], "nothing to ack posts nothing"
         assert ack_alert_trips([{"id": 1, "ok": True}]) is True
         assert seen == [("/api/bot/sync/alerts/ack", {"acks": [{"id": 1, "ok": True}]})]
         for answer in (None, {"ok": False}, {"error": "x"}, "junk"):
-            monkeypatch.setattr(wdp, "_request", lambda path, body=None, a=answer: a)
+            monkeypatch.setattr(wdp, "_request", lambda path, body=None, a=answer, **kw: a)
             assert ack_alert_trips([{"id": 1, "ok": True}]) is False, answer
 
 

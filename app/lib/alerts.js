@@ -575,10 +575,14 @@ async function recordTrip(a, title, body, value) {
  */
 async function pendingTelegramTrips(limit = 50) {
   const n = Math.max(1, Math.min(200, Number(limit) || 50));
+  // `telegram_linked` beside the id: /unlink clears the flag and keeps the
+  // id (it is also the OAuth identity), so a trip delivered on the id alone
+  // reached a chat the account had disconnected.
   const [rows] = await pool.execute(
     `SELECT t.id, t.alert_id, t.title, t.body, t.tripped_at, u.telegram_id
        FROM user_alert_trips t JOIN users u ON u.id = t.user_id
       WHERE t.tg_delivered_at IS NULL AND u.telegram_id IS NOT NULL AND u.telegram_id <> ''
+        AND u.telegram_linked = 1
       ORDER BY t.id ASC LIMIT ${n}`);
   return rows;
 }

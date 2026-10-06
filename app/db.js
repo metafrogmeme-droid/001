@@ -748,12 +748,16 @@ class MemoryDB {
       return [{ affectedRows: 1 }, []];
     }
     if (cmd.includes('FROM USER_ALERT_TRIPS')) {
-      // the pending read: undelivered rows whose person has a telegram id
+      // the pending read: undelivered rows whose person has a telegram id,
+      // and -- when the statement says so, as lib/alerts.js does -- one
+      // that is still LINKED. A disconnected chat gets no trip.
+      const linkedOnly = cmd.includes('TELEGRAM_LINKED = 1')
+        || cmd.includes('TELEGRAM_LINKED = TRUE');
       const rows = this.userAlertTrips
         .filter(t => t.tg_delivered_at === null)
         .map(t => {
           const u = this.users.find(x => x.id === t.user_id);
-          return u && u.telegram_id
+          return u && u.telegram_id && (!linkedOnly || !!u.telegram_linked)
             ? { id: t.id, alert_id: t.alert_id, title: t.title, body: t.body,
                 tripped_at: t.tripped_at, telegram_id: u.telegram_id }
             : null;
@@ -1697,9 +1701,15 @@ class MemoryDB {
       //
       // Found by a test that expected 200 and got 409 — not by reading this.
       const excludeId = cmd.includes('AND ID != ?') || cmd.includes('AND ID <> ?');
+      // `AND telegram_linked = 1` (routes/sync.js webUserFor): a chat the
+      // account has disconnected maps to no account. Honoured here for the
+      // reason above: MySQL honours it.
+      const linkedOnly = cmd.includes('AND TELEGRAM_LINKED = 1')
+        || cmd.includes('AND TELEGRAM_LINKED = TRUE');
       return [this.users.filter(u =>
         String(u.telegram_id) === String(params[0])
-        && (!excludeId || String(u.id) !== String(params[1]))), []];
+        && (!excludeId || String(u.id) !== String(params[1]))
+        && (!linkedOnly || !!u.telegram_linked)), []];
     }
 
     if (cmd.includes('FROM USERS WHERE DISCORD_ID')) {
@@ -1723,7 +1733,12 @@ class MemoryDB {
 
     if (cmd.startsWith('UPDATE USERS SET TELEGRAM_ID')) {
       const user = this.users.find(u => u.id === params[1]);
-      if (user) user.telegram_id = params[0];
+      if (user) {
+        user.telegram_id = params[0];
+        // `, telegram_linked = TRUE` beside the id (the shape a linked
+        // fixture writes): honoured, as MySQL honours it.
+        if (cmd.includes('TELEGRAM_LINKED = TRUE')) user.telegram_linked = true;
+      }
       return [{ affectedRows: user ? 1 : 0 }, []];
     }
 

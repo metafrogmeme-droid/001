@@ -143,7 +143,7 @@ test('airdrops: an unlinked telegram_id gets the public radar, and a linked one 
   // readiness hint — appears, and only for the caller the id maps to. The
   // wallet reader is injected so no RPC is touched.
   const reg = await register('card1@test.io');
-  await pool.execute('UPDATE users SET telegram_id = ? WHERE id = ?', ['770001', reg.user_id]);
+  await pool.execute('UPDATE users SET telegram_id = ?, telegram_linked = TRUE WHERE id = ?', ['770001', reg.user_id]);
   await pool.execute('UPDATE users SET wallet_address = ? WHERE id = ?', ['0x' + 'ab'.repeat(20), reg.user_id]);
   airdrops.setWalletReader(async () => ({ chains: [] }));
   try {

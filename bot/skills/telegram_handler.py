@@ -5439,6 +5439,23 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 "first, then try again. Nothing was read.")
 
     @staticmethod
+    def _timeout_hint(surface: str = "telegram", seconds: float = 0.0) -> str:
+        """The sentence for a card the web app was still rendering when the
+        bot's budget for it ran out — a slow venue read behind the card, on
+        the net-worth and idle-yield doors. The channel answered nothing
+        because it had not finished, which is neither a channel that is down
+        nor a caller who has not linked, so this names the wait and no door.
+        Neither sentence claims anything was read."""
+        secs = f"{seconds:g} s" if seconds and seconds > 0 else "its budget"
+        if surface == "web":
+            return (f"⏱ The web app had not finished this card within {secs} — "
+                    f"the read behind it (a venue or a chain) is slow right now. "
+                    f"Nothing was read; try again in a minute.")
+        return (f"⏱ The web app had not finished this card within {secs} — the "
+                f"read behind it (a venue or a chain) is slow right now. Nothing "
+                f"was read; try again in a minute.")
+
+    @staticmethod
     def _link_hint(surface: str = "telegram") -> str:
         """The sentence for a web-app channel that did not answer, keyed by
         the transport the turn arrived on. The Telegram sentence names

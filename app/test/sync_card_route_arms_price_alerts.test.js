@@ -82,7 +82,7 @@ test.before(async () => {
   linked = rows[0].id;
   const [rows2] = await pool.execute('SELECT id FROM users WHERE email = ?', ['web-only@example.com']);
   unlinkedUser = rows2[0].id;
-  await pool.execute('UPDATE users SET telegram_id = ? WHERE id = ?', [TG, linked]);
+  await pool.execute('UPDATE users SET telegram_id = ?, telegram_linked = TRUE WHERE id = ?', [TG, linked]);
 });
 test.after(() => { if (server) server.close(); alerts.setTickerFetcher(null); });
 

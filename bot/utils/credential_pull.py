@@ -265,7 +265,23 @@ def process_pending(rows, store, validator: Optional[Callable[[dict], Optional[b
     return acks
 
 
-def _request(path: str, data: Optional[dict] = None) -> Optional[dict]:
+#: The sync channel's default budget per request, in seconds.
+REQUEST_TIMEOUT_S = 15
+
+
+def _request(path: str, data: Optional[dict] = None, *,
+             timeout: float = REQUEST_TIMEOUT_S,
+             failure: Optional[dict] = None) -> Optional[dict]:
+    """One request on the sync channel. None when it did not answer.
+
+    ``timeout`` is this request's budget: a card whose rendering waits on a
+    venue read behind the website (net worth: a 25 s venue budget inside a
+    30 s website-to-bot call) needs more than the 15 s every other request
+    gets, or the bot hangs up on an answer that was coming. ``failure``, when
+    given, is written with ``{"kind": "timeout" | "http" | "error"}`` so the
+    caller can say WHICH way the channel did not answer instead of one
+    sentence for all three.
+    """
     url = f"{WEBSITE_URL}{path}"
     headers = {"Accept": "application/json", "User-Agent": "RUNECLAW-Bot/1.0",
                "X-Bot-Secret": SYNC_SECRET}
@@ -277,14 +293,28 @@ def _request(path: str, data: Optional[dict] = None) -> Optional[dict]:
         method = "POST"
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         log.error("credential pull HTTP %s on %s", e.code, path)
+        if failure is not None:
+            failure["kind"] = "http"
         return None
     except Exception as exc:
         log.error("credential pull error on %s: %s", path, exc)
+        if failure is not None:
+            failure["kind"] = "timeout" if _is_timeout(exc) else "error"
         return None
+
+
+def _is_timeout(exc: BaseException) -> bool:
+    """Whether a urlopen failure was the budget running out: a socket timeout
+    raised bare, or wrapped in URLError by urllib."""
+    import socket
+    if isinstance(exc, (socket.timeout, TimeoutError)):
+        return True
+    reason = getattr(exc, "reason", None)
+    return isinstance(reason, (socket.timeout, TimeoutError))
 
 
 def publish_sealing_key(force: bool = False) -> bool:

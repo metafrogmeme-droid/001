@@ -1583,16 +1583,33 @@ router.get('/rwa', async (req, res) => {
  * web-only account was `unlinked` to its own wallet card. null = no account
  * for that identity, never somebody else's row.
  */
+/**
+ * The web account a caller maps to, or null. A `web:<uid>` is its own
+ * account; a Telegram id maps to the account that holds it AND is linked
+ * (`telegram_linked`). The unlink route above clears the flag and keeps
+ * `telegram_id` (it doubles as the Telegram OAuth identity) on the stated
+ * contract that every consumer requires the pair -- routes/credentials.js
+ * and routes/controls.js do. This mapper, a month younger, read the id
+ * alone, and six doors were stacked on it: after /unlink the same chat
+ * still read the account's wallet, DeFi, exposure, net-worth and idle-yield
+ * dollars and still armed alerts on it, while "Unlinked from <email>" had
+ * been said. A disconnected chat is unlinked here too, now.
+ */
 async function webUserFor(tg) {
   const id = String(tg || '').trim();
   if (!id) return null;
   const web = /^web:(\d{1,18})$/.exec(id);
   const [rows] = web
     ? await pool.execute('SELECT id FROM users WHERE id = ?', [Number(web[1])])
-    : await pool.execute('SELECT id FROM users WHERE telegram_id = ?', [id]);
+    : await pool.execute(
+        'SELECT id FROM users WHERE telegram_id = ? AND telegram_linked = 1', [id]);
   return rows.length ? rows[0].id : null;
 }
 const UNLINKED = { reply_html: null, unlinked: true };
+// A `web:<uid>` the website cannot map is an account that is not there; a
+// Telegram id it cannot map is a chat with no (linked) web account, which is
+// still a Telegram user the BOT knows.
+const isWebId = (tg) => /^web:/.test(String(tg || '').trim());
 const cardStake = (q) => {
   const n = parseFloat(String(q.stake ?? ''));
   return Number.isFinite(n) && n > 0 ? n : 1000;
@@ -1651,11 +1668,17 @@ const CHAT_CARDS = {
   // card. The read is that caller's exchange plus their on-chain wallet;
   // paper is labelled simulated and never added in. Nothing here places,
   // confirms, sizes, or closes. Dollars stay on this private card.
+  // A Telegram chat with no linked web account still has a book the bot
+  // holds -- its paper portfolio and the exchange it connected on Telegram
+  // -- and the gateway half of this card is keyed on the Telegram id, not
+  // on a web account. Answering `unlinked` there sent a caller who asked
+  // for net worth to /link a wallet they had not asked about, over a book
+  // one hop away. The card renders with no web account (no wallet half,
+  // and it says so); only an unmapped `web:<uid>` is unlinked.
   networth: async (tg) => {
     const userId = await webUserFor(tg);
-    return userId == null
-      ? UNLINKED
-      : require('../lib/networth').networthChatCard(tg, userId);
+    if (userId == null && isWebId(tg)) return UNLINKED;
+    return require('../lib/networth').networthChatCard(tg, userId);
   },
   // Idle yield left the website's intercept table. Both doors fetch this
   // card. The read is that caller's linked wallet, never the operator's
