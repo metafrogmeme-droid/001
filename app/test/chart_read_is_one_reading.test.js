@@ -50,7 +50,7 @@ function renderer(over) {
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])),
   }, over || {});
   vm.runInNewContext(RAW.slice(a, b)
-    + '\n;globalThis.__x = { paintChartRead, crSay, crWords };', ctx);
+    + '\n;globalThis.__x = { paintChartRead, crSay, crWords, candleReader };', ctx);
   return { fn: ctx.__x, boxes, ctx };
 }
 
@@ -171,15 +171,26 @@ test('the renderer spells NO key and picks NO colour', () => {
   assert.deepEqual(colour, [], 'the renderer picks a verdict colour itself: ' + colour);
 });
 
-test('the modal can tell a failed candle fetch from an empty one', () => {
+test('the modal can tell a failed candle fetch from an empty one', async () => {
   // `candlesAt` answered `[]` for both, so the model could not tell "nothing
-  // to show" from "we could not ask".
-  const s = src();
-  const i = s.indexOf('const candlesAt = async');
-  assert.ok(i > 0);
-  const body = s.slice(i, s.indexOf('const paintTfRow', i));
-  assert.ok(/return ok \? \[\] : null;/.test(body),
-    'the failed read and the empty answer must not collapse into one value');
+  // to show" from "we could not ask". It is `candleReader` now, in the
+  // renderer block, and answers `{ rows, now }`.
+  let answer = null;
+  const r = renderer({ Date, Promise, fetchJSON: async () => {
+    if (answer instanceof Error) throw answer;
+    return answer;
+  } });
+  answer = new Error('ECONNRESET');
+  const failed = await r.fn.candleReader('BTCUSDT')('4h');
+  assert.equal(failed.rows, null, 'a failed fetch is not an empty answer');
+  answer = { ok: false, data: { error: 'Bitget: 40034' } };
+  assert.equal((await r.fn.candleReader('BTCUSDT')('4h')).rows, null);
+  answer = { ok: true, data: { code: '00000', data: [] } };
+  const empty = await r.fn.candleReader('BTCUSDT')('4h');
+  assert.ok(Array.isArray(empty.rows) && empty.rows.length === 0, 'the venue answered: no rows');
+  assert.equal(empty.now, null);
+  // And the modal reads through it.
+  assert.match(src(), /const candlesAt = candleReader\(`\$\{base\}USDT`\);/);
 });
 
 test('dashboard.html loads the model before the script that reads it', () => {

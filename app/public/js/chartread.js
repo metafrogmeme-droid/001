@@ -40,10 +40,16 @@
   }
 
   // Bitget writes `15min`; the engine writes `15m`. Both are one period.
-  // Anything else is unparseable and answers 0 — a caller that did not name
-  // a timeframe is not told the last bar is forming.
+  // A month (`1M`, Bitget's and ccxt's spelling) is not a fixed length, and
+  // folding case made it `1m`, one minute, so a monthly bar read as closed a
+  // minute after it opened. It is matched before the fold and answers 0
+  // here; periodEnd reads it on the calendar. Anything else is unparseable
+  // and answers 0 — a caller that did not name a timeframe is not told the
+  // last bar is forming.
+  var MONTH_RE = /^(\d+)M$/;   // case-sensitive: `1m` is a minute
   function periodMs(gran) {
     if (gran == null) return 0;
+    if (MONTH_RE.test(String(gran).trim())) return 0;
     var m = /^(\d+)(min|m|h|d|w)$/.exec(String(gran).trim().toLowerCase());
     if (!m) return 0;
     var n = Number(m[1]);
@@ -52,28 +58,64 @@
     return n * mult;
   }
 
+  // When the bar that opened at `open` closes, epoch ms; 0 when unknown.
+  // A month closes at the same local midnight n calendar months on. The venue
+  // anchors its day in its own zone (Bitget's plain `1M` opens at 00:00
+  // UTC+8, 16:00 UTC), so the open's own offset from UTC midnight is carried
+  // across the months rather than assumed to be zero.
+  function periodEnd(open, gran) {
+    if (typeof open !== 'number' || !isFinite(open)) return 0;
+    var fixed = periodMs(gran);
+    if (fixed > 0) return open + fixed;
+    var mm = gran == null ? null : MONTH_RE.exec(String(gran).trim());
+    if (!mm) return 0;
+    var n = Number(mm[1]);
+    if (!(n > 0) || !isFinite(n)) return 0;
+    var DAY = 86400000;
+    var shift = (DAY - (((open % DAY) + DAY) % DAY)) % DAY;   // to that zone's midnight
+    var d = new Date(open + shift);
+    d.setUTCMonth(d.getUTCMonth() + n);
+    return d.getTime() - shift;
+  }
+
+  // When a candle response was read: the venue's own stamp (Bitget's
+  // `requestTime`, epoch ms, which the server relays and which survives the
+  // server's cache), else the moment this page received it.
+  function readClock(body, receivedAt) {
+    var rt = body && body.requestTime;
+    var n = (typeof rt === 'number' || (typeof rt === 'string' && /^\d{13}$/.test(rt))) ? Number(rt) : NaN;
+    if (isFinite(n) && n >= 1e12 && n < 1e14) return n;
+    return (typeof receivedAt === 'number' && isFinite(receivedAt)) ? receivedAt : Date.now();
+  }
+
   // The series structure, BOS, CHoCH and VWAP may read.
   //
   // A live candle feed's last row is still forming. Its close is the price
   // right now, not a close, so a wick through a swing prints a BOS that the
   // next refresh takes back. The bar is dropped only when its period has not
-  // elapsed (`now < open + period`), the same comparison as
+  // elapsed (`now < end of period`), the same comparison as
   // `drop_forming_candle`. A feed that already ended on a closed bar is left
   // intact. No timeframe, or one this parser does not know, leaves the series
   // alone: a forming bar and a closed bar are the same row, and guessing
   // would hide a real close.
   //
-  // The clock is the moment of the READ. `opts.now` lets a test plant it;
-  // a page omits it and the comparison is Date.now().
+  // The clock is the moment the rows were READ from the venue (`opts.now`,
+  // from readClock), not the moment they are drawn. A bar that was forming
+  // when it was read stays a partial bar however old the rows get: its close
+  // is the price at the read and its volume a part-period's. Compared with
+  // the render time, it became a closed bar once its period elapsed, through
+  // the pages' 120 s candle caches and the server's 15 s one: the inversion
+  // `drop_forming_candle`'s docstring warns about. Without `opts.now` the
+  // comparison is Date.now(), which is right only for rows read just now.
   function closedCandles(candles, opts) {
     if (!candles || !candles.length) return candles;
     opts = opts || {};
-    var tf = periodMs(opts.gran);
-    if (!(tf > 0)) return candles;
-    var now = (typeof opts.now === 'number' && isFinite(opts.now)) ? opts.now : Date.now();
     var last = candles[candles.length - 1];
     if (!last || typeof last.t !== 'number' || !isFinite(last.t)) return candles;
-    if (now < last.t + tf) return candles.slice(0, -1);
+    var end = periodEnd(last.t, opts.gran);
+    if (!(end > 0)) return candles;
+    var now = (typeof opts.now === 'number' && isFinite(opts.now)) ? opts.now : Date.now();
+    if (now < end) return candles.slice(0, -1);
     return candles;
   }
 
@@ -623,7 +665,7 @@
     };
   }
 
-  var api = { parseCandles: parseCandles, closedCandles: closedCandles, vwap: vwap, structure: structure, findSwings: findSwings, zigzagSwings: zigzagSwings, atrOf: atrOf, svgChart: svgChart, tvSpec: tvSpec, drawInto: drawInto, windowLevels: windowLevels, windowFvgs: windowFvgs, levelMove: levelMove, elliottWavePoints: elliottWavePoints, matchWaveBars: matchWaveBars };
+  var api = { parseCandles: parseCandles, closedCandles: closedCandles, periodEnd: periodEnd, readClock: readClock, vwap: vwap, structure: structure, findSwings: findSwings, zigzagSwings: zigzagSwings, atrOf: atrOf, svgChart: svgChart, tvSpec: tvSpec, drawInto: drawInto, windowLevels: windowLevels, windowFvgs: windowFvgs, levelMove: levelMove, elliottWavePoints: elliottWavePoints, matchWaveBars: matchWaveBars };
   if (typeof window !== 'undefined') window.RCChartRead = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();

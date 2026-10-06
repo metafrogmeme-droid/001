@@ -7,9 +7,11 @@ than as an engine method.
 """
 from __future__ import annotations
 
+import math
+import re
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Optional
-
 
 # Canonical set of scan/analysis timeframes, ascending by duration. The single
 # source of truth for "which timeframes does the bot understand" — command arg
@@ -36,14 +38,89 @@ def resolve_timeframes(timeframe: str) -> list[str]:
 
 def timeframe_to_ms(timeframe: str) -> int:
     """Parse a ccxt timeframe ('5m','1h','4h','1d','1w') to milliseconds; 0 if
-    unparseable."""
+    unparseable.
+
+    ``1M`` is ccxt's month, which has no fixed length, so it answers 0 here
+    and ``period_end_ms`` reads it on the calendar. Folding its case made it
+    ``1m``, one minute, and a monthly bar read as closed a minute after it
+    opened.
+    """
     try:
+        if timeframe[-1] == "M":
+            return 0
         unit = timeframe[-1].lower()
         n = int(timeframe[:-1])
         mult = {"m": 60_000, "h": 3_600_000, "d": 86_400_000, "w": 604_800_000}.get(unit)
         return n * mult if mult else 0
     except Exception:
         return 0
+
+
+_MONTH_RE = re.compile(r"(\d+)M")   # case-sensitive: ``1m`` is a minute
+_DAY_MS = 86_400_000
+
+
+def period_end_ms(open_ms, timeframe) -> float:
+    """When the bar that opened at ``open_ms`` closes, epoch ms; 0.0 if unknown.
+
+    A fixed period adds its length. A month (``1M``, ``3M``) closes at the
+    same local midnight that many calendar months on. The open's own offset
+    from UTC midnight is carried across the months, because a venue anchors
+    its day in its own zone (Bitget's plain ``1M`` opens at 00:00 UTC+8,
+    16:00 UTC). The website's ``chartread.periodEnd`` is the same reading.
+    """
+    if isinstance(open_ms, bool):
+        return 0.0
+    try:
+        start = float(open_ms)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(start):
+        return 0.0
+    fixed = timeframe_to_ms(timeframe) if isinstance(timeframe, str) and timeframe else 0
+    if fixed > 0:
+        return start + fixed
+    m = _MONTH_RE.fullmatch(timeframe.strip()) if isinstance(timeframe, str) else None
+    if not m:
+        return 0.0
+    n = int(m.group(1))
+    if n <= 0:
+        return 0.0
+    shift = (_DAY_MS - (start % _DAY_MS)) % _DAY_MS   # to that zone's midnight
+    try:
+        local = datetime.fromtimestamp((start + shift) / 1000.0, tz=timezone.utc)
+        months = local.month - 1 + n
+        first = datetime(local.year + months // 12, months % 12 + 1, 1, tzinfo=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return 0.0
+    # The day is carried by adding it, so it rolls the way the website's
+    # Date.setUTCMonth does rather than raising on a short month.
+    end = first + timedelta(days=local.day - 1, hours=local.hour,
+                            minutes=local.minute, seconds=local.second,
+                            microseconds=local.microsecond)
+    return end.timestamp() * 1000.0 - shift
+
+
+def bar_is_forming(open_ms, timeframe, now_ms: Optional[float] = None) -> bool:
+    """Whether the bar that opened at ``open_ms`` is still forming at ``now_ms``.
+
+    The one reading of "the last bar is forming", for every consumer:
+    ``drop_forming_candle`` here and the chart's ``closed_overlay_frame``. It
+    honours DROP_UNCLOSED_CANDLE_ENABLED: off, every consumer reads the
+    forming bar (the repaint the flag exists to allow), the chart's overlays
+    included, so a card and the picture attached to it read one series. An
+    unknown period is never forming: a forming bar and a closed bar are the
+    same row, and guessing would hide a real close. ``now_ms`` None is the
+    wall clock.
+    """
+    from bot.config import CONFIG
+    if not getattr(CONFIG.analyzer, "drop_unclosed_candle_enabled", False):
+        return False
+    end = period_end_ms(open_ms, timeframe)
+    if not end > 0:
+        return False
+    clock = time.time() * 1000.0 if now_ms is None else float(now_ms)
+    return clock < end
 
 
 def resample_ohlcv(candles, source_tf: str, target_tf: str):
@@ -102,18 +179,10 @@ def drop_forming_candle(ohlcv, timeframe: str):
     available here — a forming bar's row is byte-identical to a closed one's,
     which is why this reading needs a clock at all.
     """
-    from bot.config import CONFIG
-    if not getattr(CONFIG.analyzer, "drop_unclosed_candle_enabled", False):
-        return ohlcv
     try:
         if not ohlcv or len(ohlcv) < 3:
             return ohlcv
-        tf_ms = timeframe_to_ms(timeframe)
-        if tf_ms <= 0:
-            return ohlcv
-        last_open = float(ohlcv[-1][0])
-        now_ms = time.time() * 1000.0
-        if now_ms < last_open + tf_ms:   # last candle's period not yet closed
+        if bar_is_forming(float(ohlcv[-1][0]), timeframe):
             return ohlcv[:-1]
         return ohlcv
     except Exception:

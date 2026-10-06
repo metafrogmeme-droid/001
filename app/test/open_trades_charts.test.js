@@ -181,8 +181,11 @@ test('symbol modal: timeframe switcher refetches candles, keeps the 4h engine re
   assert.match(dash, /\[\['15min', '15m'\], \['1h', '1H'\], \['4h', '4H'\], \['1d', '1D'\]\]/);
   assert.match(dash, /data-symtf=/);
   assert.match(dash, /let symGran = '4h'/);
-  // Per-granularity candle cache; a stale open or a mid-fetch TF switch drops the paint.
-  assert.match(dash, /candleCache\[gran\]/);
+  // Per-granularity candle cache (candleReader, driven in
+  // a_partial_bar_stays_partial_on_every_chart_read.test.js); a stale open or
+  // a mid-fetch TF switch drops the paint.
+  assert.match(dash, /const candlesAt = candleReader\(`\$\{base\}USDT`\);/);
+  assert.match(dash, /function candleReader\(sym\) \{[\s\S]*?cache\[gran\] = \{/);
   assert.match(dash, /_seq !== _symSeq \|\| symGran !== gran\) return;/);
   // The chips footnote states the TF and that levels/waves stay on the 4h read.
   // The sentence lives in ChartReadModel.W (so it is translated, and so the

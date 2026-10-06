@@ -30,7 +30,7 @@ from typing import Optional
 from bot.core.position_telemetry import price_on_record
 from bot.core.signal_confidence import displayed_confidence
 from bot.formatters.rich_cards import _fmt_price
-from bot.utils.candles import timeframe_to_ms
+from bot.utils.candles import bar_is_forming
 from bot.utils.site_url import site_url
 
 logger = logging.getLogger(__name__)
@@ -162,22 +162,24 @@ def compute_chart_indicators(candles, rsi_length: int = 14,
     return df
 
 
-def _period_ms(timeframe) -> int:
-    """Milliseconds in ``timeframe``, or 0 when it cannot be read.
+def _engine_timeframe(timeframe) -> Optional[str]:
+    """``timeframe`` in the engine's spelling, or None when there is none.
 
     Bitget writes ``15min`` and the engine writes ``15m``. Both name one
     period; the engine parser is the reading, after that one spelling is
-    folded into it. Anything else is unparseable and answers 0, so a caller
-    that did not name a timeframe is not told the last bar is forming.
+    folded into it. Case is otherwise kept: ``1M`` is a month and ``1m`` a
+    minute, and lower-casing every timeframe here read a month as a minute.
+    A caller that did not name a timeframe is not told the last bar is
+    forming.
     """
     if not isinstance(timeframe, str):
-        return 0
-    tf = timeframe.strip().lower()
+        return None
+    tf = timeframe.strip()
     if not tf:
-        return 0
-    if tf.endswith("min") and tf[:-3].isdigit():
+        return None
+    if tf.lower().endswith("min") and tf[:-3].isdigit():
         tf = tf[:-3] + "m"
-    return timeframe_to_ms(tf)
+    return tf
 
 
 def _clock_ms(now_ms) -> Optional[float]:
@@ -231,11 +233,15 @@ def closed_overlay_frame(df, timeframe: Optional[str] = None,
 
     The picture still draws a forming bar. Its close is the price right now,
     so a wick through a swing is not a break until the bar's period has
-    elapsed (``now < open + period``), the same comparison as
-    ``drop_forming_candle``. A feed that already ended on a closed bar is
-    left intact. No timeframe, or one this parser does not know, leaves the
-    frame alone: a forming bar and a closed bar are the same row, and guessing
-    would hide a real close. An unreadable open leaves the frame alone too.
+    elapsed. That judgement is ``bar_is_forming``, the one reading
+    ``drop_forming_candle`` asks too, so the overlays follow
+    DROP_UNCLOSED_CANDLE_ENABLED with every other consumer: with it off the
+    analysis reads the forming bar and so does the picture of it. This was a
+    second copy of the comparison that read no flag. A feed that already
+    ended on a closed bar is left intact. No timeframe, or one this parser
+    does not know, leaves the frame alone: a forming bar and a closed bar are
+    the same row, and guessing would hide a real close. An unreadable open
+    leaves the frame alone too.
     """
     if df is None:
         return df
@@ -244,8 +250,8 @@ def closed_overlay_frame(df, timeframe: Optional[str] = None,
             return df
     except TypeError:
         return df
-    period = _period_ms(timeframe)
-    if period <= 0:
+    tf = _engine_timeframe(timeframe)
+    if tf is None:
         return df
     open_ms = _last_bar_open_ms(df)
     if open_ms is None:
@@ -253,7 +259,7 @@ def closed_overlay_frame(df, timeframe: Optional[str] = None,
     clock = _clock_ms(now_ms)
     if clock is None:
         return df
-    if clock < open_ms + period:
+    if bar_is_forming(open_ms, tf, clock):
         return df.iloc[:-1]
     return df
 
