@@ -101,6 +101,9 @@ router.post('/run', async (req, res) => {
   if (b.signal_confidence != null && b.signal_confidence !== '') {
     body.signal_confidence = parseFloat(b.signal_confidence);
   }
+  // The ATR exits a card was measured with (Safe Scalper's stop and target).
+  if (b.sl_atr_mult != null && b.sl_atr_mult !== '') body.sl_atr_mult = parseFloat(b.sl_atr_mult);
+  if (b.tp_atr_mult != null && b.tp_atr_mult !== '') body.tp_atr_mult = parseFloat(b.tp_atr_mult);
   const r = await relay('POST', '/lab/run', body);
   res.status(r.status).json(r.data);
 });

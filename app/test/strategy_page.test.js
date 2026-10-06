@@ -68,10 +68,14 @@ test('the Lab honours the ?lab_agent= deep link from the public page', () => {
   const dash = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
   assert.match(dash, /URLSearchParams\(location\.search\)\.get\('lab_agent'\)/);
   // it builds the reproduce body from the public catalogue and clears the param.
-  // The object lives in labBodyFromScorecard; the deep link assigns that.
+  // The object is AgentScorecard.labBody, reached through labBodyFromScorecard;
+  // the deep link assigns that, and the page loads the painter before the router.
   assert.match(dash, /\/api\/public\/strategies/);
   assert.match(dash, /_labReproduce = labBodyFromScorecard\(ca\.name, csc\)/);
-  assert.match(dash, /function labBodyFromScorecard\(name, sc\) \{\s*return \{\s*_agent: name,/);
+  assert.match(dash, /function labBodyFromScorecard\(name, sc\) \{\s*return window\.AgentScorecard \? window\.AgentScorecard\.labBody\(name, sc\) : null;/);
+  const dhtml = fs.readFileSync(path.join(__dirname, '..', 'public', 'dashboard.html'), 'utf8');
+  const painterAt = dhtml.indexOf('/js/agent-scorecard.js');
+  assert.ok(painterAt !== -1 && painterAt < dhtml.indexOf('/js/dashboard.js'));
   assert.match(dash, /history\.replaceState\([^)]*'#lab'/);
 });
 

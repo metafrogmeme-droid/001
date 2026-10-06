@@ -142,17 +142,35 @@ test('the primary CTA becomes "Reproduce in Lab" when a scorecard exists', () =>
   const body = dash.slice(start, end);
   assert.equal((body.match(/Every agent is/g) || []).length, 0);
   assert.match(body, /catalogueFoot\(note\)/);
-  // The click handler stashes the EXACT scorecard gates for the Lab to re-run.
+  // The click handler stashes the EXACT scorecard gates for the Lab to re-run,
+  // through the one reading of the card's gate names in agent-scorecard.js.
   assert.match(dash, /_labReproduce = labBodyFromScorecard\(/);
-  assert.match(dash, /function labBodyFromScorecard\(name, sc\)/);
-  assert.match(dash, /volume_spike_min: sc\.gates\.volume_spike_min/);
-  assert.match(dash, /ma_fast: sc\.gates\.ma_fast/);
-  assert.match(dash, /ma_slow: sc\.gates\.ma_slow/);
-  assert.match(dash, /leverage: sc\.gates\.leverage/);
-  assert.match(dash, /regime_filter: sc\.gates\.regime_filter/);
-  assert.match(dash, /rsi_max: sc\.gates\.rsi_max/);
-  assert.match(dash, /rsi_min: sc\.gates\.rsi_min/);
-  assert.match(dash, /direction: sc\.gates\.direction/);
+  assert.match(dash, /function labBodyFromScorecard\(name, sc\) \{\s*return window\.AgentScorecard \? window\.AgentScorecard\.labBody\(name, sc\) : null;/);
+  const { labBody } = require('../public/js/agent-scorecard.js');
+  const gates = {
+    confidence_threshold: 0.75, volume_spike_min: 1.2, regime_filter: 'trend',
+    rsi_max: 70, rsi_min: 30, direction: 'long', ma_fast: 20, ma_slow: 50,
+    ma_timeframe: '4h', ma_symbols: 'ETH', target_weight: 0.5,
+    max_gross_leverage: 2, utilization: 0.8, leverage: 3, signal_confidence: 0.6,
+    sl_atr_mult: 1.5, tp_atr_mult: 2,
+  };
+  const rep = labBody('Agent', { dataset: 'ds', symbols: ['ETH/USDT'], bars: 900, gates });
+  assert.equal(rep._agent, 'Agent');
+  const { ma_target_weight, ma_max_gross_leverage, ma_utilization, ...rest } = rep.body;
+  assert.deepEqual([ma_target_weight, ma_max_gross_leverage, ma_utilization], [0.5, 2, 0.8]);
+  for (const k of Object.keys(gates)) {
+    if (['target_weight', 'max_gross_leverage', 'utilization'].includes(k)) continue;
+    assert.equal(rest[k], gates[k], k);
+  }
+  assert.deepEqual([rest.dataset, rest.symbols, rest.last_bars], ['ds', ['ETH/USDT'], 900]);
+  // An absent gate is left out of the request, never sent as a zero.
+  const bare = labBody('Bare', { dataset: 'ds', gates: { regime_filter: 'trend' } }).body;
+  for (const k of ['confidence_threshold', 'volume_spike_min', 'rsi_max', 'ma_target_weight', 'leverage', 'sl_atr_mult', 'tp_atr_mult']) {
+    assert.equal(bare[k], undefined, k);
+  }
+  // A card with no dataset or no gates has no backtest to reproduce.
+  assert.equal(labBody('X', { gates }), null);
+  assert.equal(labBody('X', { dataset: 'ds' }), null);
   // The Lab auto-runs the stashed body through the shared submit path.
   assert.match(dash, /if \(_labReproduce\)/);
   assert.match(dash, /submitLabRun\(rep\.body/);

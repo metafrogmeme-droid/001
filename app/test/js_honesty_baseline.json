@@ -6,11 +6,11 @@
     "lib",
     "routes"
   ],
-  "total": 145,
+  "total": 144,
   "counts": {
     "or-zero": {
       "public/js/charts2d.js": 2,
-      "public/js/dashboard.js": 20,
+      "public/js/dashboard.js": 19,
       "lib/airdrops.js": 1,
       "lib/daily_rune.js": 1,
       "lib/holdings.js": 2,

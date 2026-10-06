@@ -287,6 +287,12 @@ def scorecard_gates(cfg: dict) -> dict:
         "direction": cfg.get("direction"),
         "symbols": cfg.get("symbols"),
     }
+    # The exit multiples the runner applied (`_gate_args` emits them), so the
+    # Lab can re-run what the card measured. Added only when the preset has
+    # them, so the other cards' gate blocks keep their shape.
+    for key in _EXIT_KEYS:
+        if cfg.get(key) is not None:
+            gates[key] = cfg.get(key)
     fast = cfg.get("fast_period")
     slow = cfg.get("slow_period")
     if (isinstance(fast, int) and not isinstance(fast, bool)
