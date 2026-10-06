@@ -31,7 +31,7 @@
       "bot/core/trade_journal.py": 3,
       "bot/core/ws_feed.py": 9,
       "bot/formatters/rich_cards.py": 10,
-      "bot/formatters/signal_card.py": 21,
+      "bot/formatters/signal_card.py": 20,
       "bot/guardian/authority_redteam.py": 1,
       "bot/learning/readiness.py": 2,
       "bot/llm/shadow_eval.py": 3,
@@ -70,7 +70,7 @@
       "bot/skills/chart_renderer.py": 3,
       "bot/skills/scan_commands.py": 2,
       "bot/skills/scan_skill.py": 4,
-      "bot/skills/skill_registry.py": 3,
+      "bot/skills/skill_registry.py": 2,
       "bot/skills/trading_commands.py": 2,
       "bot/web/dashboard_server.py": 1,
       "bot/web/user_gateway.py": 9

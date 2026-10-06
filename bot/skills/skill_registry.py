@@ -2194,7 +2194,7 @@ class RunStrategySkill(BaseSkill):
         },
         "momentum hunter": {
             "label": "Momentum Hunter", "icon": "\U0001f680",
-            "desc": "All pairs \u2022 vol spike &gt; 3x \u2022 long only",
+            "desc": "All pairs \u2022 vol spike \u2265 3x \u2022 long only",
             # No TREND_UP filter. That label arrives after the move is already
             # a trend, so the spike it kept was the late one — and one of the
             # three fills was a short against the spike. Long the spike itself.
@@ -2424,12 +2424,27 @@ class RunStrategySkill(BaseSkill):
         elif cfg["symbols"] is not None:
             signals = [s for s in signals if s.symbol in set(cfg["symbols"])]
 
+        unmeasured = 0
         if cfg["volume_spike_min"] is not None:
+            # A signal with no measured ratio does not clear the gate, and
+            # the answer says how many were refused for that rather than
+            # for a low ratio: the scanner measures the ratio against three
+            # prior scans of the symbol, so right after a restart every
+            # signal reads unmeasured and "no signals matched" alone would
+            # read as a quiet market.
+            unmeasured = sum(
+                1 for s in signals
+                if getattr(s, "volume_spike_ratio", None) is None)
             signals = [s for s in signals
                        if signal_clears_volume_min(s, cfg["volume_spike_min"])]
 
         if not signals:
-            return f"{cfg['icon']} <b>{cfg['label']}</b>\n\n<i>No signals matched filters</i>"
+            note = ""
+            if unmeasured:
+                note = (f"\n<i>{unmeasured} signal(s) carried no volume ratio yet: "
+                        f"the scanner measures it against three prior scans of "
+                        f"the symbol, so a fresh start reads unmeasured, not quiet.</i>")
+            return f"{cfg['icon']} <b>{cfg['label']}</b>\n\n<i>No signals matched filters</i>{note}"
 
         results = []
         setups: list = []
@@ -2474,7 +2489,10 @@ class RunStrategySkill(BaseSkill):
                 "price": idea.entry_price, "entry": idea.entry_price,
                 "sl": idea.stop_loss, "tp": idea.take_profit,
                 "rr": idea.risk_reward_ratio, "score": idea.confidence,
-                "rsi": 0, "vol_ratio": getattr(sig, "volume_spike_ratio", 0) or 0,
+                # The ratio as the scanner measured it, or None: the card's
+                # renderer omits the stat it cannot read rather than print
+                # a 0x minted here.
+                "rsi": 0, "vol_ratio": getattr(sig, "volume_spike_ratio", None),
             })
         # Stash structured setups so the handler can render the setups card
         # (non-breaking: this method still returns its text).

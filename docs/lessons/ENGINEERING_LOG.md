@@ -828,7 +828,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 657 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 655 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -16417,6 +16417,44 @@ the operator's `/rclaw` card says which mint the gate is configured for.
 (`tests/test_the_token_card_reads_the_one_record.py`,
 `app/test/the_token_page_names_one_mint.test.js`.)
 
+**MOMENTUM HUNTER GATED ON A VOLUME RATIO THE LIVE SCANNER NEVER
+MEASURED, SO ITS DOOR WAS DEAD.** PR 484 replaced the preset's filter,
+`ratio >= min or volume_spike`, with `signal_clears_volume_min(s, 3.0)`,
+which needs a MEASURED `volume_spike_ratio`: the 2x flag is not a 3x
+reading, and the old expression admitted every flagged signal to a gate
+it had not cleared. Right. But the only live producer of a `MarketSignal`,
+`MarketScanner._process_ticker`, computed the flag from the ratio inside
+`_detect_volume_spike` and dropped the ratio, so every live signal carried
+the model's default of `0.0`, the gate refused it, and `/run momentum
+hunter` answered "No signals matched filters" on every run, forever, while
+the marketplace card said "vol spike > 3x". Only the backtest's
+`_bar_to_signal` ever wrote the field; the frozen scorecard was measured on
+a reading the live door never made. The sixty-PR review drove it: a
+signal built exactly as the scanner builds one, `volume_spike=True`, a
+genuine 5x spike behind it, `signal_clears_volume_min(sig, 3.0)` False,
+and a stubbed analyzer that raised if reached was never reached. A field
+whose default is a number is a measurement nobody made, read as one.
+
+The scanner measures the ratio ONCE (`_measure_volume`: this scan's
+turnover over the symbol's rolling average) and the flag is that ratio
+past `SPIKE_RATIO`, never a second computation; the signal carries the
+ratio as measured, and the model's default is `None`. Unmeasured is
+`None`, and `None` clears no gate: fewer than three prior scans of the
+symbol, a zero average, or turnover under `MIN_SPIKE_NOTIONAL_USD`, the
+liquidity floor the flag's own docstring says a multiple is believed
+from — a 4x over a baseline of dust is not a reading, and the ratio the
+gates read agrees with the flag about it. A 1.5x is measured, is not a
+spike, and clears a 1.5x gate; a 0.0 is never minted for "nobody looked".
+The run answer says how many signals were refused for carrying no ratio
+yet rather than for a low one, because the scanner measures against three
+prior scans and a fresh start reads unmeasured, not quiet. The setups
+card's `vol_ratio` carries `None` through to its renderer, which already
+had a word for it, instead of a `0` minted at the stash. The preset's own
+description now says `≥ 3x`, which is the comparison the gate makes.
+(`tests/test_the_scanner_measures_the_ratio_the_presets_gate_on.py`,
+`bot/core/market_scanner.py`, `bot/utils/models.py`,
+`bot/skills/skill_registry.py`.)
+
 **A RISK BUDGET THAT BOUNDED THE NOTIONAL BOUNDED A LOSS FIVE TIMES ITS
 NAME, AND BOTH DECISIONS THE CHAPTER ABOVE FILED WERE MADE THE SAME DAY.**
 The benchmark chapter above measured it: the gate's base was
@@ -19953,7 +19991,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1214** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1215** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
