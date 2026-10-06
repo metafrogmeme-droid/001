@@ -16869,6 +16869,34 @@ expiry.
 (`tests/test_a_signal_states_when_it_stops_being_live.py`,
 `app/test/copy_picks_read_the_bots_stated_window.test.js`.)
 
+**A PRESET WITHDRAWN FROM FOLLOW KEPT SENDING ITS PICKS TO EVERY FOLLOW
+MADE BEFORE THE WITHDRAWAL.** #497 refused new follows of an engine preset
+whose measured profit factor is below 1 (or that has no verdict, or whose
+eligibility record could not be read): `copy_follow` is `false` and the
+follow door answers 403 with the reason. The door was the only reader of the
+flag. `/api/copy/picks` served every followed agent's picks, so a user who
+had followed the preset the week before still saw them in "Following — live
+picks" with a paper-trade button, the push sweep still sent "new pick" to
+their phone, and the lineup card showed only "Not offered for follow" with
+no sign they were subscribed and no way off but the picks panel. A refusal at
+the door is a judgement about the preset, and the picks a follower already
+receives are the same claim. The picks route returns a withheld agent as
+`withheld: true` with its reason and `picks: null` (one reading of the
+reason, `withheldReason`, shared with the door, and an unrecognised reason
+is not passed through); `newPicks` skips any agent whose flag is not `true`,
+so a missing flag is not a grant here either; the panel names the
+withholding ahead of the `picks == null` arm, which would otherwise say the
+live signals could not be read, a failed read nobody had; and the lineup
+card keeps the chip and adds an unfollow-only button for a follower (a
+follow button there would be refused). Unfollow stays open. The sweep's
+fixtures had no flag, the catalogue always sets one, and a fixture missing
+the field the fix reads would have made the offered arm look withheld; they
+carry it now. Five mutants killed.
+(`app/test/copy.test.js`, `app/test/copy_watch.test.js`,
+`app/test/agent_scorecard_metrics.test.js`, `app/routes/copy.js`,
+`app/lib/copy_watch.js`, `app/public/js/agent-scorecard.js`,
+`app/public/js/dashboard.js`.)
+
 **EVERY CANDLE CHART IS A TRADINGVIEW CHART, AND THE FIRST ONE WAS DRAWING
 ANOTHER SYMBOL'S LEVELS.** Asked for by the operator with two screenshots: the
 Markets view drew TradingView Lightweight Charts, and every chart a reader

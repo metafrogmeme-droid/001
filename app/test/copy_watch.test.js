@@ -16,7 +16,9 @@ const path = require('path');
 const { sweepCopy, newPicks, resetCopyWatch, baseSym } = require('../lib/copy_watch');
 
 const CATALOG = [
-  { id: 'dip-sniper', name: 'Dip Sniper', icon: '🎯', scorecard: { gates: { confidence_threshold: 0.7, regime_filter: 'TREND_DOWN' } } },
+  // bot/core/strategy_catalog.py always sets copy_follow; an offered agent.
+  { id: 'dip-sniper', name: 'Dip Sniper', icon: '🎯', copy_follow: true, copy_follow_reason: 'offered',
+    scorecard: { gates: { confidence_threshold: 0.7, regime_filter: 'TREND_DOWN' } } },
 ];
 const SIG = (k, sym, conf, regime, dir = 'LONG') =>
   ({ signal_key: k, symbol: sym, confidence: conf, regime, direction: dir });
@@ -72,6 +74,33 @@ test('a new pick pushes to opted-in followers only, then dedups', async () => {
   const n2 = await sweepCopy(deps, notify);
   assert.strictEqual(n2, 0);
   assert.strictEqual(sends.length, 1);
+});
+
+test('a withheld agent pushes nothing to the followers it had; an offered one still does', async () => {
+  const withheld = { ...CATALOG[0], copy_follow: false, copy_follow_reason: 'below_one' };
+  const sigs = [SIG('s1', 'BTC/USDT', 0.8, 'TREND_DOWN')];
+  assert.strictEqual(newPicks(new Map([[withheld.id, withheld]]), sigs, ['dip-sniper'], new Set()).length, 0);
+  // A missing flag is not a grant either.
+  const { copy_follow, ...absent } = CATALOG[0];
+  assert.strictEqual(newPicks(new Map([[absent.id, absent]]), sigs, ['dip-sniper'], new Set()).length, 0);
+
+  for (const [agent, expect] of [[withheld, 0], [CATALOG[0], 1]]) {
+    resetCopyWatch();
+    const sends = [];
+    let signals = sigs;
+    const deps = {
+      loadFollowedAgentIds: async () => ['dip-sniper'],
+      loadSignals: async () => signals,
+      loadCatalogue: async () => [agent],
+      loadFollowers: async () => [1],
+      loadOptIns: async () => new Set([1]),
+    };
+    const notify = async (p, ids) => { sends.push({ p, ids }); return ids.length; };
+    await sweepCopy(deps, notify);
+    signals = [SIG('s9', 'ETH/USDT', 0.9, 'TREND_DOWN'), ...sigs];
+    await sweepCopy(deps, notify);
+    assert.strictEqual(sends.length, expect, `copy_follow=${agent.copy_follow}`);
+  }
 });
 
 test('no push when nobody who follows the agent opted in', async () => {

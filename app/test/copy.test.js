@@ -197,6 +197,45 @@ test('a profit factor below 1 is not a follow, and a missing flag is not a grant
   assert.deepStrictEqual(r.data.following, ['dip-sniper']);
 });
 
+test('a follow made before the withholding gets no picks, and unfollow still works', async () => {
+  // PR 497 refused NEW follows of a preset below profit factor 1 and kept
+  // serving its picks to every follow made earlier. The catalogue entry is
+  // flipped in place (the cache holds these same objects), as a deploy that
+  // re-measures a preset would.
+  const token = await tokenFor('copy-before-withheld@test.io');
+  const dip = CATALOG.find(a => a.id === 'dip-sniper');
+  let r = await req('POST', '/api/copy/follow', { token, body: { agent_id: 'dip-sniper' } });
+  assert.strictEqual(r.status, 200);
+  r = await req('GET', '/api/copy/picks', { token });
+  // Offered arm: the picks are served.
+  assert.deepStrictEqual(r.data.agents[0].picks.map(p => p.symbol), ['BTC/USDT']);
+  assert.ok(!r.data.agents[0].withheld);
+  try {
+    dip.copy_follow = false;
+    dip.copy_follow_reason = 'below_one';
+    r = await req('GET', '/api/copy/picks', { token });
+    assert.strictEqual(r.status, 200);
+    const g = r.data.agents[0];
+    assert.strictEqual(g.id, 'dip-sniper');
+    assert.strictEqual(g.withheld, true);
+    assert.strictEqual(g.reason, 'below_one');
+    assert.strictEqual(g.picks, null);
+    assert.strictEqual(g.name, 'Dip Sniper');
+    assert.ok(!g.unavailable, 'withheld is not "gates unavailable"');
+    // An unrecognised reason is not passed through.
+    dip.copy_follow_reason = 'something-else';
+    r = await req('GET', '/api/copy/picks', { token });
+    assert.strictEqual(r.data.agents[0].reason, 'not_offered_for_follow');
+    // The way out stays open.
+    r = await req('POST', '/api/copy/unfollow', { token, body: { agent_id: 'dip-sniper' } });
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(r.data.following, []);
+  } finally {
+    dip.copy_follow = true;
+    dip.copy_follow_reason = 'offered';
+  }
+});
+
 test('picks is empty (not an error) when following nobody', async () => {
   const token = await tokenFor('copy3@test.io');
   const r = await req('GET', '/api/copy/picks', { token });
@@ -224,6 +263,33 @@ test('§4: follow/copy never moves funds and copying is user-initiated paper', (
   assert.match(dash, /\/api\/copy\/picks/);
   // the pick's "Paper-trade" button is the existing one-tap paper prefill.
   assert.match(dash, /data-ptrade='\$\{pt\}'/);
+});
+
+test('the picks panel names a withheld agent before it reads its picks', () => {
+  // A withheld group carries `picks: null`. Read by the `picks == null` arm
+  // it would say the live signals could not be read: a failed read nobody
+  // had. The panel renderer is inline in loadAgentPicks with no seam, so its
+  // body is sliced by brace depth on comment-free code and the arms ordered.
+  const { codeOnly } = require('./helpers/code_only');
+  const dash = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8'));
+  const start = dash.indexOf('async function loadAgentPicks()');
+  assert.ok(start >= 0 && dash.indexOf('async function loadAgentPicks()', start + 1) < 0);
+  const open = dash.indexOf('{', start);
+  let depth = 0, end = -1;
+  for (let i = open; i < dash.length; i++) {
+    if (dash[i] === '{') depth++;
+    else if (dash[i] === '}' && --depth === 0) { end = i; break; }
+  }
+  assert.ok(end > open, 'loadAgentPicks body did not close');
+  const body = dash.slice(open, end);
+  const at = (needle) => {
+    const i = body.indexOf(needle);
+    assert.ok(i >= 0 && body.indexOf(needle, i + 1) < 0, `${needle} must appear once`);
+    return i;
+  };
+  assert.ok(at('if (g.withheld)') < at('if (g.unavailable)'));
+  assert.ok(at('if (g.withheld)') < at('if (g.picks == null)'));
+  assert.match(body, /withheldPicksText\(g\.reason\)/);
 });
 
 test('cache-buster bumped so the follow/copy UI ships', () => {

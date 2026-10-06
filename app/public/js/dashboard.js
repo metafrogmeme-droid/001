@@ -7867,6 +7867,12 @@
             <span style="font-size:18px">${esc(g.icon || '🤖')}</span><b>${esc(g.name)}</b>
             ${g.community ? `<span class="chip" style="font-size:10px;color:var(--accent,#3fb6ff)">${esc(T('cp.comm', 'Community'))}</span>` : ''}
             <button class="btn btn--ghost btn--sm" data-agentunfollow="${esc(g.id)}" type="button" style="margin-left:auto">Unfollow</button></div>`;
+        if (g.withheld) {
+          const why = window.AgentScorecard
+            ? window.AgentScorecard.withheldPicksText(g.reason)
+            : 'Not offered for follow. Its picks are no longer shown or pushed. Unfollow to remove it.';
+          return head + `<p class="small muted" data-picks="withheld">${esc(why)}</p>`;
+        }
         if (g.unavailable) {
           const why = g.reason === 'unknown_agent' ? 'this agent is no longer in the catalogue.'
             : g.reason === 'catalogue_unreadable' ? 'the agent catalogue could not be read.'
@@ -8279,6 +8285,9 @@
         } catch (_) {}
         btn.disabled = false;
         // Reflect the lineup follow button + refresh the picks panel.
+        if (!_agentFollows.has(id)) {
+          document.querySelectorAll(`[data-withheld-following="${id}"]`).forEach(el => el.remove());
+        }
         const lineupBtn = document.querySelector(`[data-agentfollow="${id}"]`);
         if (lineupBtn) {
           const on = _agentFollows.has(id);

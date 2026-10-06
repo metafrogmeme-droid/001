@@ -37,7 +37,10 @@ function newPicks(catalogueById, signals, followedAgentIds, seenSet) {
   const out = [];
   for (const agentId of followedAgentIds) {
     const a = catalogueById.get(agentId);
-    if (!a) continue;
+    // A withheld agent (copy_follow not true: profit factor below 1, or no
+    // verdict) is not offered for follow, so its picks are not pushed to the
+    // followers it had before the withholding.
+    if (!a || a.copy_follow !== true) continue;
     const { picks, name, icon } = picksForAgent(a, signals, 20);
     for (const s of picks) {
       const key = `${agentId}|${s.signal_key}`;

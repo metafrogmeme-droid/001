@@ -97,7 +97,7 @@ test('a re-sync does not move the window', async () => {
 
 test('the push sweep reads the live window through its real database read', async () => {
   watch.resetCopyWatch();
-  const CAT = [{ id: 'dip', name: 'Dip', icon: 'd',
+  const CAT = [{ id: 'dip', name: 'Dip', icon: 'd', copy_follow: true,
     scorecard: { gates: { confidence_threshold: 0.7 } } }];
   const sent = [];
   const deps = {
