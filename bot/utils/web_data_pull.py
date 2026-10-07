@@ -76,6 +76,18 @@ def fetch_exposure(telegram_id: str) -> dict | None:
     return fetch_web_card("exposure", telegram_id)
 
 
+def research_base(symbol: object) -> str | None:
+    """The base symbol the research dossier is asked for, or None.
+
+    The one reading of the argument: ``fetch_research`` sends this, and the
+    door says it could not read a symbol when this is None, before any
+    channel is asked. "usdt", "比特币" and "???" are no base.
+    """
+    raw = symbol if isinstance(symbol, str) else ""
+    base = re.sub(r"[^A-Z0-9]", "", raw.upper().strip()).removesuffix("USDT")[:10]
+    return base if _SYMBOL_RE.match(base) else None
+
+
 def fetch_research(symbol: str) -> dict | None:
     """The research dossier card for one base symbol.
 
@@ -89,9 +101,8 @@ def fetch_research(symbol: str) -> dict | None:
     """
     if not SYNC_SECRET:
         return None
-    raw = symbol if isinstance(symbol, str) else ""
-    base = re.sub(r"[^A-Z0-9]", "", raw.upper().strip()).removesuffix("USDT")[:10]
-    if not _SYMBOL_RE.match(base):
+    base = research_base(symbol)
+    if base is None:
         return None
     return fetch_web_card("research", symbol=base)
 

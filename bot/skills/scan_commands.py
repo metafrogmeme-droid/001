@@ -184,7 +184,19 @@ class ScanCommands:
         Telegram and wrong on the page that used to render this card itself.
         The symbol the sentence names is the one dossier. Nothing here
         places, confirms, sizes, or closes a trade.
+
+        A symbol no dossier can be asked for ("usdt", "比特币") is said here,
+        before the channel: the pull refuses it without a request, and its
+        None read as a channel that did not answer and a /link door that
+        changes nothing.
         """
+        from bot.utils.web_data_pull import research_base
+        if research_base(symbol) is None:
+            shown = html.escape(str(symbol).strip()[:24])
+            example = ("<code>research PENDLE</code>" if surface == "web"
+                       else "<code>/research PENDLE</code>")
+            return (f"<i>{shown}</i> is not a coin symbol the research dossier "
+                    f"can read. Name the coin's ticker, e.g. {example}.")
         return await self._web_card_text(
             "research", surface=surface, params={"symbol": symbol},
             keep_markup=(surface == "web"))

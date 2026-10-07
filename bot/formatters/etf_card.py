@@ -50,12 +50,18 @@ def _num(v: Any) -> Optional[float]:
 
 def _fixed(a: float, digits: int, *, grouped: bool = False) -> str:
     """``a`` (not negative) to ``digits`` places, rounded the way the
-    website's ``toFixed`` and ``maximumFractionDigits`` round it: the exact
-    binary value, and an exact tie rounded up. Python's own format rounds a
-    tie to even, so ``3.25`` read ``3.2`` here and ``3.3`` on the website,
-    one figure printed two ways on one reading. ``grouped`` is the
-    ``toLocaleString`` form: thousands commas and no trailing zeros."""
-    d = Decimal(a).quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)
+    website rounds it. Python's own format rounds a tie to even, so ``3.25``
+    read ``3.2`` here and ``3.3`` on the website, one figure printed two ways
+    on one reading.
+
+    The website rounds two ways, and so does this. ``toFixed`` rounds the
+    exact binary value, a tie up: ``1.45`` is ``1.4499999…`` and reads
+    ``1.4``. ``toLocaleString`` (``grouped``: thousands commas, no trailing
+    zeros) rounds the number's SHORTEST decimal spelling, ``1.45``, a tie
+    up, and reads ``1.5``. Rounding the binary value for both printed the
+    coin estimate ``+1.4`` on the picture beside ``+1.5`` on the panel."""
+    exact = Decimal(repr(a)) if grouped else Decimal(a)
+    d = exact.quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)
     if not grouped:
         return f"{d:f}"
     text = f"{d:,f}"

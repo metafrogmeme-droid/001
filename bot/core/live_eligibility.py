@@ -83,6 +83,35 @@ class Eligibility(NamedTuple):
 
 _HASH_CACHE: Optional[str] = None
 
+#: Why the hash could not be taken at process start, or None. Once the
+#: start-time take has failed, no later call hashes the disk: what is on disk
+#: by then may be code a deploy landed after this process started, and a
+#: record filed for that code must not read as this process's own. A restart
+#: takes it again.
+_START_FAILURE: Optional[str] = None
+
+
+class HashNotTakenAtStart(RuntimeError):
+    """The running strategy's hash was not taken when the process started."""
+
+
+def take_strategy_hash_at_start() -> Optional[str]:
+    """Take the running strategy's hash at process start. Never raises.
+
+    None when it was taken; otherwise the exception's class name, which is
+    kept, so every later reading refuses instead of hashing the disk lazily
+    at the first autonomous confirm.
+    """
+    global _START_FAILURE
+    if _START_FAILURE is not None:
+        return _START_FAILURE
+    try:
+        strategy_hash()
+    except Exception as exc:  # noqa: BLE001 -- kept; every later reading refuses
+        _START_FAILURE = type(exc).__name__
+        return _START_FAILURE
+    return None
+
 
 def strategy_hash(root: Optional[Path] = None) -> str:
     """v1: sha256 over every ``.py`` under ``bot/``, path and bytes, sorted.
@@ -96,6 +125,8 @@ def strategy_hash(root: Optional[Path] = None) -> str:
     global _HASH_CACHE
     if root is None and _HASH_CACHE is not None:
         return _HASH_CACHE
+    if root is None and _START_FAILURE is not None:
+        raise HashNotTakenAtStart(_START_FAILURE)
     base = Path(root) if root is not None else REPO_ROOT
     h = hashlib.sha256()
     for path in sorted((base / "bot").rglob("*.py")):
@@ -127,6 +158,11 @@ def read_eligibility(strategy: Optional[str] = None,
     """
     try:
         running = strategy if strategy is not None else strategy_hash(root)
+    except HashNotTakenAtStart as exc:
+        return Eligibility(UNREADABLE,
+                           f"the running strategy was not identified when the bot "
+                           f"started ({exc}); a restart takes it again",
+                           "")
     except Exception as exc:  # noqa: BLE001 -- a hash nobody could take denies
         return Eligibility(UNREADABLE,
                            f"the running strategy could not be identified ({type(exc).__name__})",

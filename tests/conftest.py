@@ -1341,6 +1341,27 @@ def _contain_logging_disable():
 
 
 @pytest.fixture(autouse=True)
+def _contain_the_strategy_hash_start():
+    """Hand the eligibility module's start-time verdict back after every test.
+
+    `RuneClawEngine.__init__` takes the strategy hash, and a take that fails
+    is KEPT in a module global so every later reading refuses (the lazy read
+    of the disk it exists to stop). One bot process builds one engine; a test
+    process builds hundreds, and one test that plants a raising hash would
+    otherwise leave every later test's eligibility reading "not identified
+    when the bot started". Restored, not asserted, for the reason the halt
+    check below gives.
+    """
+    import sys as _sys
+    le = _sys.modules.get("bot.core.live_eligibility")
+    saved = le._START_FAILURE if le is not None else None
+    yield
+    le = _sys.modules.get("bot.core.live_eligibility")
+    if le is not None:
+        le._START_FAILURE = saved
+
+
+@pytest.fixture(autouse=True)
 def _contain_executor_halt_check():
     """Hand the executor's halt check back after every test.
 

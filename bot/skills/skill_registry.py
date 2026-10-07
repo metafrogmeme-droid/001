@@ -2325,7 +2325,11 @@ class RunStrategySkill(BaseSkill):
         lines.append("")
         for key, cfg in cls.PRESETS.items():
             aliases = [a for a, t in cls.ALIASES.items() if t == key]
-            a = f"  <i>/{aliases[0]}</i>" if aliases else ""
+            # The door that reaches this preset, on every surface: "run" and
+            # the alias, as the footer says. It printed "/altsweep", and
+            # "/ethma" and "/volrotation" too, slash commands nothing
+            # registers, so the tap was "unknown command".
+            a = f"  <i>run {aliases[0]}</i>" if aliases else ""
             lines.append(f"  {cfg['icon']} <b>{cfg['label']}</b>{a}")
             lines.append(f"     <i>{cfg['desc']}</i>")
         lines.append("\n<i>\u25b8 Say \"run\" + name \u2022 full risk gate on every entry</i>")

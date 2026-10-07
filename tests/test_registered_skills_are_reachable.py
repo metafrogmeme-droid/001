@@ -193,21 +193,25 @@ def test_claude_md_quotes_the_real_count():
     """A number in prose is the part that rots first.
 
     Same pin as `unreachable_baseline.txt`'s module count, for the same
-    reason: CLAUDE.md is read as the map, and a stale figure there is a
-    confident claim from stale evidence.
+    reason: the engineering log is read as the history this guide was
+    distilled from, and a stale figure there is a confident claim from stale
+    evidence. The sentence moved out of CLAUDE.md with the chapter that held
+    it; the messages name the file read, so a failure sends the reader there.
     """
     import re
 
-    doc = (ROOT / "docs" / "lessons" / "ENGINEERING_LOG.md").read_text(encoding="utf-8")
+    log = ROOT / "docs" / "lessons" / "ENGINEERING_LOG.md"
+    where = log.relative_to(ROOT).as_posix()
+    doc = log.read_text(encoding="utf-8")
     m = re.search(r"\*\*(\d+)\*\* of (\d+) registered skills", doc)
-    assert m, "the registered-skills count sentence is gone from CLAUDE.md"
+    assert m, f"the registered-skills count sentence is gone from {where}"
     claimed_dark, claimed_total = int(m.group(1)), int(m.group(2))
     assert claimed_dark == len(_baseline()), (
-        f"CLAUDE.md says {claimed_dark} unreachable skills, "
+        f"{where} says {claimed_dark} unreachable skills, "
         f"{BASELINE.name} lists {len(_baseline())}"
     )
     assert claimed_total == len(_registered()), (
-        f"CLAUDE.md says {claimed_total} registered skills, "
+        f"{where} says {claimed_total} registered skills, "
         f"the registry builds {len(_registered())}"
     )
 

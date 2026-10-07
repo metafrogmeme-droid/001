@@ -492,7 +492,7 @@ class MarketCommands:
         now = _t.time()
         return render_news_digest(
             radar.recent(8), radar.standdown(held, now) if held else [], now,
-            refresh_failed=_refresh_failed)
+            refresh_failed=_refresh_failed, undated=radar.undated())
 
     @guard("status")
     async def _cmd_news(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

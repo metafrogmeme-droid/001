@@ -7278,6 +7278,25 @@
     await refresh();
   }
 
+  // ── the news radar's undated note: renderer start ─
+  // Headlines whose time the bot could not read list after every dated one,
+  // so the newest-first list shows none of them while dated rows fill it.
+  // The bot counts the ones `recent` leaves out (`undated_unlisted`) and this
+  // says so; a feed that contributes only those is not a feed that
+  // contributed nothing. Not an integer, or zero, is no sentence.
+  function newsUndatedNote(data) {
+    const n = data ? data.undated_unlisted : null;
+    if (!Number.isInteger(n) || n <= 0) return '';
+    const raw = data.undated_unlisted_sources;
+    const srcs = Array.isArray(raw) ? raw.filter((s) => typeof s === 'string' && s) : [];
+    const from = srcs.length ? ` from ${esc(srcs.join(', '))}` : '';
+    const one = n === 1;
+    return `<p class="small muted mt-1">${n} more headline${one ? '' : 's'}${from} `
+      + `${one ? 'carries' : 'carry'} no time the bot can read and ${one ? 'is' : 'are'} `
+      + 'not listed here: an undated headline lists after every dated one.</p>';
+  }
+  // ── the news radar's undated note: renderer end ─
+
   async function renderNews() {
     container.innerHTML = viewHead('News radar',
       'Breaking headlines + high-impact alerts on your positions — advisory only, never trades');
@@ -7392,7 +7411,7 @@
             <div class="small muted">${esc(it.source || '')}${(it.symbols || []).length ? ' · ' + esc((it.symbols || []).join('/')) : ''} · ${when(it)}${it.url ? ` · <a href="${esc(it.url)}" target="_blank" rel="noopener">open</a>` : ''}</div>
           </div>`).join('');
         if (!byon && !pub) return null;
-        return byon + pub;
+        return byon + pub + newsUndatedNote(data);
       }, { empty: { icon: 'icon-globe', text: 'No headlines yet — the radar fills on the next refresh.' } });
     }
 

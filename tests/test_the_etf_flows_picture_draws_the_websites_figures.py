@@ -153,6 +153,36 @@ def test_the_picture_prints_each_figure_as_the_website_does():
     assert not diff, diff
 
 
+# Every tie-shaped figure, not a table of the ones that happened to agree.
+# The coin estimate is `toLocaleString` on the website, which rounds the
+# shortest decimal spelling: 1.45 read "+1.5" there and "+1.4" here. Rounding
+# the binary value, 1,784 of the 7,802 figures below (3,901 magnitudes, each
+# signed both ways) printed differently, while the hand-picked table above
+# passed.
+TIES = sorted({
+    *(round(k * 0.05, 2) for k in range(0, 2001)),            # one-decimal ties under 100
+    *(round(i * 0.001 + 0.0005, 4) for i in range(0, 1000)),  # three-decimal ties under 1
+    *(k + 0.5 for k in range(100, 1000)),                     # whole-coin ties
+})
+
+
+def test_every_tie_shaped_figure_prints_as_the_website_prints_it():
+    values = [*TIES, *(-v for v in TIES)]
+    js = _js_formats(values)
+    py = [[usd_signed(v), coins_signed(v, "BTC")] for v in values]
+    diff = [(v, j, p) for v, j, p in zip(values, js, py) if j != p]
+    assert not diff, (len(diff), diff[:8])
+
+
+@pytest.mark.parametrize("v, want", [
+    (1.45, "≈ +1.5 BTC"), (3.55, "≈ +3.6 BTC"), (-1.95, "≈ -2 BTC"),
+    (0.1235, "≈ +0.124 BTC"), (99.95, "≈ +100 BTC"),
+])
+def test_a_coin_tie_rounds_its_written_value(v, want):
+    """Without node: the readings the website was measured to print."""
+    assert coins_signed(v, "BTC") == want
+
+
 # ── 2. nothing to draw is not a picture ──────────────────────────────────────
 
 class TestNothingToDraw:
