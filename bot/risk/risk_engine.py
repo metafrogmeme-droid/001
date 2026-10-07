@@ -487,6 +487,10 @@ class RiskEngine:
         # it: a drop the realized and unrealized figures explain is a losing
         # book, not a transfer or a wrong reading.
         self._last_live_unrealized: float | None = None
+        # Which field the live equity above came from (`fetch_balance`'s
+        # `equity_source`), or None: not stated. The tier card says "open
+        # positions marked to market included" only when it names one.
+        self._last_live_equity_source: str | None = None
         # Feature: Rolling return correlation (V2)
         # #49: (timestamp, price) points so cross-asset returns align on a common
         # time grid, not by list position. In-memory only (not persisted).
@@ -1508,7 +1512,7 @@ class RiskEngine:
         missing = tuple(getattr(t, "unreadable", ()) or ())
         return f"could not read {', '.join(missing)}" if missing else ""
 
-    def evaluate(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None, live_account: str = "", fill_leverage: Optional[int] = None, live_unrealized_pnl: Optional[float] = None) -> RiskCheck:
+    def evaluate(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None, live_account: str = "", fill_leverage: Optional[int] = None, live_unrealized_pnl: Optional[float] = None, live_equity_source: Optional[str] = None) -> RiskCheck:
         """
         Run all 23 pre-trade checks (16 in-engine + #17 liquidity + #18 macro + #19 MTF + #20 PCA + #21 VaR + #22 taker 3-bar + #23 bid dominance).
         Returns RiskCheck with APPROVED or REJECTED.
@@ -1534,9 +1538,9 @@ class RiskEngine:
         base and the margin-risk cap are measured at that one figure.
         """
         with self._lock:
-            return self._evaluate_locked(idea, atr, live_equity=live_equity, max_position_usd=max_position_usd, live_open_count=live_open_count, as_of=as_of, live_mode=live_mode, live_book=live_book, live_account=live_account, fill_leverage=fill_leverage, live_unrealized_pnl=live_unrealized_pnl)
+            return self._evaluate_locked(idea, atr, live_equity=live_equity, max_position_usd=max_position_usd, live_open_count=live_open_count, as_of=as_of, live_mode=live_mode, live_book=live_book, live_account=live_account, fill_leverage=fill_leverage, live_unrealized_pnl=live_unrealized_pnl, live_equity_source=live_equity_source)
 
-    def _evaluate_locked(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None, live_account: str = "", fill_leverage: Optional[int] = None, live_unrealized_pnl: Optional[float] = None) -> RiskCheck:
+    def _evaluate_locked(self, idea: TradeIdea, atr: Optional[float] = None, live_equity: Optional[float] = None, max_position_usd: Optional[float] = None, live_open_count: Optional[int] = None, as_of: Optional[datetime] = None, live_mode: bool = False, live_book: Optional[Sequence[HeldRow]] = None, live_account: str = "", fill_leverage: Optional[int] = None, live_unrealized_pnl: Optional[float] = None, live_equity_source: Optional[str] = None) -> RiskCheck:
         self._total_checks += 1
         passed: list[str] = []
         failed: list[str] = []
@@ -2337,6 +2341,7 @@ class RiskEngine:
                 # snapshot — reporting ~0% while this gate was refusing trades.
                 self._last_live_equity = live_equity
                 self._last_live_unrealized = live_unrealized_pnl
+                self._last_live_equity_source = live_equity_source
                 if live_equity > self._live_equity_peak:
                     self._live_equity_peak = live_equity
                 _cur_dd = (100.0 * (self._live_equity_peak - live_equity)
@@ -5248,6 +5253,9 @@ class RiskEngine:
                                      if self._live_equity_peak > 0 else None),
                 # Whose peak: the account the live figure was measured on.
                 "live_peak_account": self._live_peak_account or None,
+                # The field that live figure was read from, or None.
+                "live_equity_source": (getattr(self, "_last_live_equity_source", None)
+                                       if live_dd is not None else None),
                 "max_drawdown_pct": float(state.max_drawdown_pct),
                 "effective_limit_pct": float(self._effective_max_drawdown_pct()),
                 "config_live_limit_pct": float(CONFIG.risk.live_max_drawdown_pct),

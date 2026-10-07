@@ -102,6 +102,42 @@ class TestTheLivePathRecords:
         assert 2.9 < e.holding_hours < 3.1
 
 
+class TestAnUnrecordedConfidenceTeachesNothing:
+    """#515: a live close passes no confidence (a live position carries none)
+    and the journal defaulted it to 0.0, so every losing live close earned
+    "Low confidence trade lost" on the weekly card. Absent is None now, and
+    the confidence lessons speak only about a recorded figure."""
+
+    def test_a_losing_live_close_is_not_called_low_confidence(self, tmp_path):
+        j = _journal(tmp_path)
+        eng = _engine_stub()
+        eng.journal = j
+        RuneClawEngine._on_live_position_closed(eng, _Pos(pnl_usd=-5.0, close_price=9.5))
+        e = j._entries[-1]
+        assert e.pnl < 0
+        assert e.confidence is None
+        assert not any("confidence" in lesson.lower() for lesson in e.lessons), e.lessons
+
+    def test_a_recorded_confidence_still_teaches_both_lessons(self, tmp_path):
+        j = _journal(tmp_path)
+        base = dict(symbol="BTC/USDT", direction="LONG", strategy_type="swing",
+                    entry_price=100.0, stop_loss=95.0, take_profit=110.0)
+        lost = j.record_trade(trade_id="t1", exit_price=96.0, pnl=-4.0, confidence=0.5, **base)
+        won = j.record_trade(trade_id="t2", exit_price=108.0, pnl=8.0, confidence=0.9, **base)
+        assert any(lesson.startswith("Low confidence") for lesson in lost.lessons)
+        assert any(lesson.startswith("High confidence") for lesson in won.lessons)
+        # A measured zero is a reading, and a loss at it is low confidence.
+        zero = j.record_trade(trade_id="t3", exit_price=96.0, pnl=-4.0, confidence=0.0, **base)
+        assert any(lesson.startswith("Low confidence") for lesson in zero.lessons)
+
+    def test_an_absent_confidence_survives_a_restart_as_absent(self, tmp_path):
+        j = _journal(tmp_path)
+        j.record_trade(trade_id="t1", symbol="BTC/USDT", direction="LONG", strategy_type="swing",
+                       entry_price=100.0, exit_price=96.0, stop_loss=95.0, take_profit=110.0, pnl=-4.0)
+        again = TradeJournal(journal_file=str(tmp_path / "journal.json"))
+        assert again._entries[-1].confidence is None
+
+
 class TestItStaysFailOpen:
     """A journal write must never cost a close its breaker feed."""
 

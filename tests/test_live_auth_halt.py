@@ -235,6 +235,25 @@ class TestASuccessfulReadClearsTheLatch:
         e.note_venue_auth_reading("40012")
         assert e.live_auth_healthy("") is False
 
+    def test_an_error_payload_with_an_empty_message_is_not_auth_up(self):
+        # `str(TimeoutError())` is "". The docstring says only a dict with no
+        # error is a success; the key is the reading, not its text.
+        e = self._down()
+        e.note_venue_auth_reading({"error": "", "total": 0, "free": 0, "holdings": []})
+        assert e.live_auth_healthy("") is False
+
+    async def test_a_balance_read_that_raised_bare_says_so(self):
+        # The producer never writes an empty error, so every reader that
+        # tests it by truthiness (two here, two in the boot preflight) reads
+        # a failure as a failure.
+        from bot.core.live_executor import LiveExecutor
+        ex = LiveExecutor.__new__(LiveExecutor)
+        ex._get_exchange = AsyncMock(side_effect=TimeoutError())
+        bal = await ex.fetch_balance()
+        assert bal["error"] == "TimeoutError"
+        ex._get_exchange = AsyncMock(side_effect=RuntimeError("40012 rejected"))
+        assert (await ex.fetch_balance())["error"] == "40012 rejected"
+
     def test_an_authenticated_empty_account_is_auth_up(self):
         """No error and total 0 is what the preflight calls authenticated.
         Equity can be zero; that is not a rejected key."""

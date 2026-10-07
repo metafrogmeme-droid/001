@@ -174,7 +174,8 @@ def drawdown_tier(frac: float) -> int:
 
 
 def tier_card(*, frac: float, dd: float, source: Optional[str], limit: float,
-              breaker_open: bool) -> Optional[tuple[str, str, str]]:
+              breaker_open: bool,
+              equity_source: Optional[str] = None) -> Optional[tuple[str, str, str]]:
     """``(title, body, severity)`` for a tier crossed, or None for no card.
 
     The header names the MEASURED fraction of the limit, never the tier
@@ -192,11 +193,22 @@ def tier_card(*, frac: float, dd: float, source: Optional[str], limit: float,
     # and transfers move that equity, and a book of winning closes can still
     # sit under the peak. "Drawdown" alone was read as closed losses. Name the
     # basis; do not say the closes lost.
+    # What the equity includes is the reading's own (`equity_source`, from
+    # the balance the gate read). The coin's wallet balance excludes open
+    # positions, and a reading that does not say gets no claim either way.
     if source == "live":
+        from bot.core.equity_basis import MARKED, WALLET, equity_basis
+        kind = equity_basis(equity_source)
+        if kind == MARKED:
+            includes = ", open positions marked to market included"
+        elif kind == WALLET:
+            includes = (", read from the coin's wallet balance: open positions' "
+                        "unrealized profit and loss is not in it")
+        else:
+            includes = ""
         basis = (
-            "This percent is live account equity versus its high-water mark, "
-            "open positions marked to market included. It is not closed-trade "
-            "profit and loss.\n"
+            "This percent is live account equity versus its high-water mark"
+            f"{includes}. It is not closed-trade profit and loss.\n"
         )
     else:
         basis = ""

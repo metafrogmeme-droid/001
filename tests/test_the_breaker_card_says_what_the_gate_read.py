@@ -403,14 +403,17 @@ class TestTheTierCard:
         risk = _risk(tmp_path)
         peak = 10000.0
         risk.record_live_trade_result(25.0, notional=500.0)
-        risk.evaluate(_idea(), live_equity=peak, live_mode=True, live_account="bitget")
+        risk.evaluate(_idea(), live_equity=peak, live_mode=True, live_account="bitget",
+                      live_equity_source="usdtEquity")
         closes = risk.recent_live_closes(10)
         assert closes == [25.0] and all(p > 0 for p in closes)
         m = ProactiveMonitor(_engine(risk))
         assert m._check_drawdown_tiers() == [], "flat at the peak is not a drawdown"
         marked = 9544.0  # 4.56% under the peak: the open mark, not the close
-        risk.evaluate(_idea(), live_equity=marked, live_mode=True, live_account="bitget")
+        risk.evaluate(_idea(), live_equity=marked, live_mode=True, live_account="bitget",
+                      live_equity_source="usdtEquity")
         st = risk.drawdown_status()
+        assert st["live_equity_source"] == "usdtEquity"
         assert st["drawdown_source"] == "live"
         assert st["drawdown_pct"] == pytest.approx(4.56, abs=1e-9)
         assert risk.circuit_breaker_active is False
@@ -526,3 +529,57 @@ class TestThePureLines:
                                                   breaker_open=False)
         assert title == "Drawdown 120% of limit" and sev == "CRITICAL"
         assert not math.isnan(1.2)
+
+
+
+class TestTheTierCardSaysWhatTheEquityIncludes:
+    """#514: the card said "open positions marked to market included" of every
+    live reading, and `fetch_balance` falls back to the coin's wallet balance,
+    which excludes them. The basis is the reading's own `equity_source`,
+    carried from the balance through the gate to the card. And the sentence
+    is a live-only one: no test held a paper or person card to that."""
+
+    @staticmethod
+    def _body(**kw):
+        from bot.formatters.breaker_card import tier_card
+        card = tier_card(frac=0.65, dd=4.56, limit=7.0, breaker_open=False, **kw)
+        assert card is not None
+        return card[1]
+
+    @pytest.mark.parametrize("field", ["usdtEquity", "accountEquity", "equity"])
+    def test_a_marked_reading_says_marked(self, field):
+        body = self._body(source="live", equity_source=field)
+        assert "open positions marked to market included" in body
+        assert "wallet balance" not in body
+
+    def test_a_wallet_balance_reading_says_open_positions_are_not_in_it(self):
+        body = self._body(source="live", equity_source="wallet_total")
+        assert "marked to market" not in body
+        assert "read from the coin's wallet balance" in body
+        assert "unrealized profit and loss is not in it" in body
+
+    @pytest.mark.parametrize("src", [None, "", "somethingElse"])
+    def test_a_reading_that_does_not_say_makes_no_claim(self, src):
+        body = self._body(source="live", equity_source=src)
+        assert "This percent is live account equity versus its high-water mark." in body
+        assert "marked to market" not in body and "wallet balance" not in body
+
+    @pytest.mark.parametrize("source", ["paper", "person", "paper_in_live", None])
+    def test_only_a_live_card_carries_the_basis_sentence(self, source):
+        body = self._body(source=source, equity_source="usdtEquity")
+        assert "This percent is live account equity" not in body
+        assert "marked to market" not in body
+
+    def test_the_list_is_the_one_fetch_balance_reads(self):
+        # One reading: the producer's loop and the card read the same tuple.
+        import ast
+        from pathlib import Path
+
+        from bot.core.equity_basis import MARKED_EQUITY_FIELDS
+        src = (Path(__file__).resolve().parent.parent / "bot/core/live_executor.py").read_text()
+        fn = next(n for n in ast.walk(ast.parse(src))
+                  if isinstance(n, ast.AsyncFunctionDef) and n.name == "fetch_balance")
+        loops = [n for n in ast.walk(fn) if isinstance(n, ast.For)
+                 and getattr(n.iter, "id", None) == "MARKED_EQUITY_FIELDS"]
+        assert len(loops) == 1
+        assert MARKED_EQUITY_FIELDS == ("usdtEquity", "accountEquity", "equity")

@@ -59,7 +59,11 @@ class JournalEntry:
     regime: str = ""
     session: str = ""
     volatility: str = ""
-    confidence: float = 0.0
+    #: The idea's confidence at entry, or None when nobody recorded one. It
+    #: defaulted to 0.0, and no writer had one to pass (a live position
+    #: carries none; the paper close read an attribute nothing sets), so
+    #: every losing trade earned "Low confidence trade lost".
+    confidence: Optional[float] = None
     signals_used: list = field(default_factory=list)
     #: Base-currency size the R was scored against; ``None`` for an entry
     #: journaled before sizes were recorded, whose stored R is then NOT loaded.
@@ -255,7 +259,7 @@ class TradeJournal:
         stop_loss: float,
         take_profit: float,
         pnl: float,
-        confidence: float = 0.0,
+        confidence: Optional[float] = None,
         signals_used: Optional[list] = None,
         regime: str = "",
         session: str = "",
@@ -482,7 +486,7 @@ class TradeJournal:
         # while reading identically.
         r_mult = kwargs.get("r_multiple")
         exit_reason = kwargs.get("exit_reason", "")
-        confidence = kwargs.get("confidence", 0)
+        confidence = kwargs.get("confidence")
         holding = kwargs.get("holding_hours", 0)
         direction = kwargs.get("direction", "")
         regime = kwargs.get("regime", "")
@@ -495,10 +499,11 @@ class TradeJournal:
         if r_mult is not None and exit_reason == "trailing" and r_mult > 1.0:
             lessons.append("Trailing stop locked profit — good trade management")
 
-        # Confidence analysis
-        if pnl < 0 and confidence < 0.60:
+        # Confidence analysis, only about a confidence somebody recorded.
+        # An absent one is no reading, so it teaches neither lesson.
+        if confidence is not None and pnl < 0 and confidence < 0.60:
             lessons.append("Low confidence trade lost — stick to high-conf setups")
-        if pnl > 0 and confidence >= 0.80:
+        if confidence is not None and pnl > 0 and confidence >= 0.80:
             lessons.append("High confidence = high win rate confirmed")
 
         # Holding time
@@ -622,7 +627,7 @@ class TradeJournal:
             r_multiple=(d.get("r_mult") if d.get("qty") is not None else None),
             holding_hours=d.get("hold_hrs", 0),
             regime=d.get("regime", ""), session=d.get("session", ""),
-            volatility=d.get("vol", ""), confidence=d.get("conf", 0),
+            volatility=d.get("vol", ""), confidence=d.get("conf"),
             signals_used=d.get("signals", []), exit_reason=d.get("exit_reason", ""),
             lessons=d.get("lessons", []), tags=d.get("tags", []),
             timestamp=d.get("ts", 0),

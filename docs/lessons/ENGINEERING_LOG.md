@@ -828,7 +828,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 655 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 653 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -16483,6 +16483,68 @@ else.
 (`tests/test_a_practice_confirm_reads_the_practice_book.py`,
 `bot/core/engine.py`, `bot/core/practice_fill.py`,
 `bot/skills/telegram_handler.py`, `bot/web/user_gateway.py`.)
+
+**SIX SMALL CLAIMS THE REVIEW OF THE SIXTY PRS FOUND ONE STEP OVER FROM A
+FIX.** Each is a sentence or a default that said more than was read.
+
+- **A balance error with no text read as a successful authenticated
+  read.** `fetch_balance` answered `{"error": str(exc)}`, and
+  `str(TimeoutError())` is `""`. `note_venue_auth_reading` tested the error
+  by truthiness, so a bare timeout was a fresh authenticated balance and
+  cleared the venue-auth latch a confirmed 40012 had set. The payload names
+  the exception class when the text is empty, and the auth reading tests the
+  key, as its docstring always said.
+- **The trailing-stop lines printed four decimals.** A coin at a
+  hundred-thousandth of a dollar was "crossed: the trail's stop $0.0000 is
+  at or past the price $0.0000", and the feed card moved a stop from $0.0000
+  to $0.0000. The four lines (crossed, updated, the feed body, not applied)
+  print through `fmt_price`, in the price's own digits.
+- **Every losing trade was "Low confidence trade lost".** The journal's
+  confidence defaulted to 0.0 and no writer had one to pass: a live position
+  carries none, and the paper close read `_confidence`, an attribute nothing
+  sets. An unrecorded confidence is `None` now, end to end (the entry, the
+  write, the load), and teaches neither confidence lesson.
+- **The drawdown tier card said "open positions marked to market included"
+  whatever the gate had read.** `fetch_balance` takes the first marked
+  field the venue states above zero (`usdtEquity`, `accountEquity`,
+  `equity`) and otherwise the coin's wallet balance, which leaves open positions out. It
+  recorded which in `equity_source`, and nothing carried it to the card.
+  The re-check, both risk evaluations and `drawdown_status` carry it now,
+  and the card says what the equity includes, or says nothing about it when
+  the reading did not say. The field names live once, in
+  `bot/core/equity_basis.py`, which the executor's read and the card's
+  sentence both import.
+- **Two practice taps on one symbol stacked two practice rows.** PR 498
+  stopped the wrapper reading the live book for a self-admitted confirm,
+  and read no book in its place, while `PortfolioTracker` has no
+  same-symbol guard of its own. The wrapper asks `confirm_is_practice`, the
+  one reading of whose book a confirm lands on, and reads that practice
+  book's open rows under the same per-symbol lock. A practice-mode opt-in
+  is covered by the same reading: it read the live book before, which is
+  not the book it fills on. The live book's pyramid flag exempts nothing
+  on a practice book, and the skip names the practice position, not an
+  order.
+- **"Price drifted 2.1% since analysis" when the analysis's market had
+  moved 0.8%.** The analysis reads the recorded spelling (the spot book for
+  a listed coin) and the confirm reads the perp the order is placed on, so
+  part of the distance can be the perp's premium. The measurement stays on
+  the perp: it is how far from the analysed entry this order would fill,
+  and the drift re-offer prices on the same perp read, so a spot read here
+  would mix the two the other way. The refusals say that: "from the
+  analysed entry … the perp this order is placed on", never the whole
+  distance as a move since analysis. They also printed `,.2f`, so a sub-cent
+  coin was refused as "$0.00 → $0.00"; the drift, past-stop and R:R
+  sentences print through the card's `_fmt_price`.
+
+Thirty mutants, all killed, and one recorded as equivalent: the
+`JournalEntry.confidence` default, which every writer now passes.
+(`tests/test_live_auth_halt.py`,
+`tests/test_a_trail_stop_the_price_has_crossed_closes_the_position.py`,
+`tests/test_journal_records_live_closes.py`,
+`tests/test_the_breaker_card_says_what_the_gate_read.py`,
+`tests/test_the_drawdown_gate_reads_the_account_marked_to_market.py`,
+`tests/test_duplicate_entry_guard.py`,
+`tests/test_a_resting_limit_drifts_only_when_the_market_moves.py`.)
 
 **THE TOKEN WAS MINTED, AND EVERY SURFACE THAT NAMED IT STILL SAID IT DID NOT
 EXIST.**

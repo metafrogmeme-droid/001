@@ -1846,9 +1846,13 @@ class ProactiveMonitor:
                     breaker_open = bool(self.engine.risk.circuit_breaker_active)
                 except Exception:
                     breaker_open = False
+                try:
+                    eq_src = self.engine.risk.drawdown_status().get("live_equity_source")
+                except Exception:
+                    eq_src = None
                 card = breaker_card.tier_card(
                     frac=frac, dd=float(dd), source=source, limit=float(limit),
-                    breaker_open=breaker_open)
+                    breaker_open=breaker_open, equity_source=eq_src)
                 if card is not None:
                     title, body, sev = card
                     alerts.append(Alert(
