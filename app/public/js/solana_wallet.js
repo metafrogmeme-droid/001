@@ -75,6 +75,12 @@
     return (n && n.userAgent) || '';
   }
 
+  function navigatorTouch() {
+    const n = win().navigator;
+    const t = n && Number(n.maxTouchPoints);
+    return Number.isFinite(t) ? t : 0;
+  }
+
   function pageHref() {
     const loc = win().location;
     return (loc && loc.href) || '';
@@ -97,6 +103,16 @@
   const MOBILE_UA = /Android|iPhone|iPad|iPod|Mobile/i;
 
   /**
+   * A phone or tablet. iPadOS Safari sends a desktop Mac user agent by
+   * default, so the UA alone told an iPad to install a browser extension;
+   * a Mac UA with more than one touch point is an iPad.
+   */
+  function isMobile(ua, touchPoints) {
+    if (MOBILE_UA.test(ua)) return true;
+    return /Macintosh/i.test(ua) && touchPoints > 1;
+  }
+
+  /**
    * What this page can actually see.
    *
    * `provider: true` means an injected Solana provider is present — Connect
@@ -112,7 +128,8 @@
       : available();
     const ua = c.userAgent != null ? String(c.userAgent) : navigatorUA();
     const pageUrl = c.pageUrl != null ? String(c.pageUrl) : pageHref();
-    const mobile = MOBILE_UA.test(ua);
+    const touch = c.maxTouchPoints != null ? Number(c.maxTouchPoints) : navigatorTouch();
+    const mobile = isMobile(ua, Number.isFinite(touch) ? touch : 0);
     if (has) {
       return {
         connect: true,
@@ -127,8 +144,12 @@
         connect: false,
         mobile: true,
         sayInstall: false,
+        // Phantom's in-app browser has its own cookies, so the page opens
+        // signed out there. Said, so the one tap is not mistaken for a
+        // broken link to the login page.
         message: 'This page cannot see a Solana wallet in this browser. '
-          + 'Open this page in Phantom\'s browser to connect and verify.',
+          + 'Open this page in Phantom\'s browser to connect and verify; '
+          + 'it keeps its own sign-in, so you log in there once.',
         openInPhantom: phantomBrowseHref(pageUrl),
       };
     }

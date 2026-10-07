@@ -2067,10 +2067,14 @@ class TradingCommands:
                         "pair": pos.asset.replace("/", ""),
                         "direction": pos.direction.value,
                         "entry": record_level(pos.entry_price),
-                        # 0 rather than the entry price: the card renders an
-                        # unreadable price as "—", and echoing the entry back as
-                        # "NOW" would assert the market is sitting exactly there.
-                        "current": record_level(last_price) if _priced else 0,
+                        # None, never the entry price (that would assert the
+                        # market sits exactly there) and never 0: the photo
+                        # card prints a falsy price as "—", but the text card
+                        # tests `is not None` and printed 0 as a mark of
+                        # $0.000000. `price_unavailable` says why, as the
+                        # live rows do.
+                        "current": record_level(last_price) if _priced else None,
+                        "price_unavailable": not _priced,
                         "pnl_pct": round(pnl_pct, 2) if pnl_pct is not None else None,
                         "sl": record_level(pos.stop_loss),
                         "tp": record_level(pos.take_profit),

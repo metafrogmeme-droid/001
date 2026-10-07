@@ -132,11 +132,17 @@ async function buildDefiPositions(address) {
   try { tickers = await fetchTickers(); } catch (e) { /* lido priced null */ }
 
   const chains = activeChains();
+  // A read that failed is named, not dropped. Each reader answers null for
+  // "no position", and a failure used to be caught to undefined and filtered
+  // out with them, so a wallet whose every RPC failed read as "no Aave, Lido
+  // or Uniswap v3 positions found": a confident negative from no read.
+  const unread = [];
+  const failed = (what) => () => { unread.push(what); return undefined; };
   const [aaveRes, uniRes, lidoRes] = await Promise.all([
-    Promise.all(chains.map(c => readAave(c, address).catch(() => undefined))),
-    Promise.all(chains.map(c => readUniswapCount(c, address).catch(() => undefined))),
+    Promise.all(chains.map(c => readAave(c, address).catch(failed(`Aave v3 · ${c.label}`)))),
+    Promise.all(chains.map(c => readUniswapCount(c, address).catch(failed(`Uniswap v3 · ${c.label}`)))),
     chains.some(c => c.key === 'ethereum')
-      ? readLido(address, tickers).catch(() => undefined) : null,
+      ? readLido(address, tickers).catch(failed('Lido')) : null,
   ]);
 
   const aave = aaveRes.filter(Boolean);
@@ -162,6 +168,7 @@ async function buildDefiPositions(address) {
     aave,
     lido,
     uniswap,
+    unread,
     warnings,
     note: 'Read straight from protocol contracts. RUNECLAW can warn — it can never '
       + 'repay, withdraw, or manage a position; that stays in your wallet. Uniswap LPs '
@@ -234,9 +241,14 @@ async function defiChatCard(userId) {
     for (const u of d.uniswap) {
       parts.push(`<b>Uniswap v3 · ${esc(u.label)}</b><br>${u.positions} LP position(s) — counted, not valued.`);
     }
+    const unread = Array.isArray(d.unread) ? d.unread : [];
+    const unreadLine = unread.length
+      ? `Could not read ${esc(unread.join(', '))} (RPC). That is a failed read, not "no position".` : '';
     if (!parts.length) {
       return {
-        reply_html: `🏦 <b>${short}</b> — no Aave, Lido or Uniswap v3 positions found on the tracked chains.`,
+        reply_html: unread.length
+          ? `🏦 <b>${short}</b> — ${unreadLine}`
+          : `🏦 <b>${short}</b> — no Aave, Lido or Uniswap v3 positions found on the tracked chains.`,
         intent: 'defi',
       };
     }
@@ -245,6 +257,7 @@ async function defiChatCard(userId) {
     return {
       reply_html: `🏦 <b>DeFi positions — ${short}</b> (read-only)<br><br>`
         + parts.join('<br><br>') + warn
+        + (unreadLine ? `<br><br>${unreadLine}` : '')
         + `<br><br><i>${esc(d.note)}</i>`,
       intent: 'defi',
     };

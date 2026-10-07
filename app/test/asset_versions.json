@@ -76,8 +76,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 223,
-    "sha": "01ecd5a700c4cdb3"
+    "v": 224,
+    "sha": "d39b41e4dff65fd1"
   },
   "js/decision-court-model.js": {
     "v": 2,
@@ -252,8 +252,8 @@
     "sha": "4323d7e984b716e8"
   },
   "js/solana_wallet.js": {
-    "v": 3,
-    "sha": "f5b1e62a91808531"
+    "v": 4,
+    "sha": "4321eaebf37b67a2"
   },
   "js/strengthmap.js": {
     "v": 8,

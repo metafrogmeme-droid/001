@@ -33,7 +33,11 @@ class FakeProvider {
   async call(tx) {
     if (this.down) throw new Error('down');
     const h = this.handlers[String(tx.to).toLowerCase()];
-    if (!h) return '0x' + word(0);
+    // An address with nothing there answers zeros in the call's own shape:
+    // six words for Aave's account data, the first of which a balance reads.
+    // One word failed Aave's decode, and that failure used to be dropped as
+    // if it were "no position".
+    if (!h) return '0x' + word(0).repeat(6);
     return h(tx);
   }
   async getNetwork() { return { chainId: 0n }; }
@@ -136,6 +140,9 @@ test('buildDefiPositions: Aave HF + warning, no-debt chain, Lido, Uni count, dea
   assert.equal(d.warnings.length, 1);
   assert.match(d.warnings[0], /CRITICAL.*1\.08.*Ethereum/);
   assert.match(d.note, /never\s+repay, withdraw, or manage/);
+  // ...and it is named, not dropped as if it held nothing.
+  assert.ok(d.unread.includes('Aave v3 · Optimism'), JSON.stringify(d.unread));
+  assert.ok(d.unread.every((u) => /Optimism/.test(u)), JSON.stringify(d.unread));
 });
 
 test('REST: linked wallet gets positions; unlinked honest; anonymous 401', async () => {
@@ -168,6 +175,7 @@ test('the card both doors fetch reports the book; chat no longer answers the sen
   assert.match(card.reply_html, /CRITICAL/);
   assert.match(card.reply_html, /Lido/);
   assert.match(card.reply_html, /counted, not valued/);
+  assert.match(card.reply_html, /Could not read Aave v3 · Optimism.*failed read, not "no position"/);
   assert.equal(typeof defi.maybeHandleDefiChat, 'undefined');
   assert.equal(defi.CHAT_RE, undefined);
 
