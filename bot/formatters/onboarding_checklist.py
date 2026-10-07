@@ -117,14 +117,21 @@ def onboarding_checklist(surface: str, users: object = None,
             "Each row links to its call receipt."
         )
     link = html.escape(link_door(doors)["link"], quote=False)
+    # Only Telegram's /connect probes the key's scope and says whether
+    # withdraw is on (`probe_bitget_key_scope`). The web's Connect an
+    # exchange form stores the key and reads nothing about it, and the step
+    # told web readers that the card they got back would say.
+    scope = ("The card /connect sends back says whether withdraw is on."
+             if doors == "telegram" else
+             "This form does not check whether withdraw is on, so turn it off "
+             "when you create the key.")
     steps = (
         f"1. Watch a signal. {watch}",
         f"2. Open its page. {page}",
         "3. Stage a practice ticket by tapping Confirm on that signal. "
         f"{_practice_sentence(account)} This chat does not stage a ticket.",
         "4. Link keys with withdrawal off (futures read and trade, "
-        f"withdrawal off). {link}. The card you get back says whether "
-        "withdraw is on. This chat does not take keys.",
+        f"withdrawal off). {link}. {scope} This chat does not take keys.",
     )
     body = "\n".join(steps)
     return (

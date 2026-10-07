@@ -414,8 +414,8 @@ def test_the_shared_price_alert_door_is_named_when_the_role_holds_it(monkeypatch
     """The website no longer intercepts "tell me when…". The card still
     names the door, from the command catalogue, and only for a caller the
     gate would actually let through."""
-    from bot.skills.command_catalog import all_entries
-    sentence = all_entries()["price_alert"][2]
+    from bot.nlp.chat_turn import WEB_DOOR_WORDS
+    sentence = WEB_DOOR_WORDS["price_alert"][0]
     ug, h, _asked, _ids = _web(monkeypatch)
     _resp, body = _turn(ug, h, "what can you do")
     assert sentence in body["reply_html"]
@@ -429,9 +429,9 @@ def test_the_shared_letter_door_is_named_when_the_role_holds_it(monkeypatch):
     names the door, from the command catalogue, and only for a caller the
     gate would actually let through."""
     from bot.nlp.chat_turn import SHARED_DOORS
-    from bot.skills.command_catalog import all_entries
     assert "letter" in SHARED_DOORS
-    sentence = all_entries()["letter"][2]
+    from bot.nlp.chat_turn import WEB_DOOR_WORDS
+    sentence = WEB_DOOR_WORDS["letter"][0]
     ug, h, _asked, _ids = _web(monkeypatch)
     _resp, body = _turn(ug, h, "what can you do")
     assert sentence in body["reply_html"]
@@ -445,9 +445,9 @@ def test_the_shared_wallet_door_is_named_when_the_role_holds_it(monkeypatch):
     the door, from the command catalogue, and only for a caller the gate
     would actually let through."""
     from bot.nlp.chat_turn import SHARED_DOORS
-    from bot.skills.command_catalog import all_entries
     assert "wallet" in SHARED_DOORS
-    sentence = all_entries()["wallet"][2]
+    from bot.nlp.chat_turn import WEB_DOOR_WORDS
+    sentence = WEB_DOOR_WORDS["wallet"][0]
     ug, h, _asked, _ids = _web(monkeypatch)
     _resp, body = _turn(ug, h, "what can you do")
     assert sentence in body["reply_html"]
@@ -461,9 +461,9 @@ def test_the_shared_replay_door_is_named_when_the_role_holds_it(monkeypatch):
     names the door, from the command catalogue, and only for a caller the
     gate would actually let through."""
     from bot.nlp.chat_turn import SHARED_DOORS
-    from bot.skills.command_catalog import all_entries
     assert "replay" in SHARED_DOORS
-    sentence = all_entries()["replay"][2]
+    from bot.nlp.chat_turn import WEB_DOOR_WORDS
+    sentence = WEB_DOOR_WORDS["replay"][0]
     ug, h, _asked, _ids = _web(monkeypatch)
     _resp, body = _turn(ug, h, "what can you do")
     assert sentence in body["reply_html"]
@@ -477,9 +477,9 @@ def test_the_shared_rwa_door_is_named_when_the_role_holds_it(monkeypatch):
     the door, from the command catalogue, and only for a caller the gate
     would actually let through."""
     from bot.nlp.chat_turn import SHARED_DOORS
-    from bot.skills.command_catalog import all_entries
     assert "rwa" in SHARED_DOORS
-    sentence = all_entries()["rwa"][2]
+    from bot.nlp.chat_turn import WEB_DOOR_WORDS
+    sentence = WEB_DOOR_WORDS["rwa"][0]
     ug, h, _asked, _ids = _web(monkeypatch)
     _resp, body = _turn(ug, h, "what can you do")
     assert sentence in body["reply_html"]
@@ -493,9 +493,9 @@ def test_the_shared_airdrops_door_is_named_when_the_role_holds_it(monkeypatch):
     the door, from the command catalogue, and only for a caller the gate
     would actually let through."""
     from bot.nlp.chat_turn import SHARED_DOORS
-    from bot.skills.command_catalog import all_entries
     assert "airdrops" in SHARED_DOORS
-    sentence = all_entries()["airdrops"][2]
+    from bot.nlp.chat_turn import WEB_DOOR_WORDS
+    sentence = WEB_DOOR_WORDS["airdrops"][0]
     ug, h, _asked, _ids = _web(monkeypatch)
     _resp, body = _turn(ug, h, "what can you do")
     assert sentence in body["reply_html"]
@@ -509,9 +509,9 @@ def test_the_shared_venue_router_door_is_named_when_the_role_holds_it(monkeypatc
     names the door, from the command catalogue, and only for a caller the
     gate would actually let through."""
     from bot.nlp.chat_turn import SHARED_DOORS
-    from bot.skills.command_catalog import all_entries
     assert "venue_router" in SHARED_DOORS
-    sentence = all_entries()["venue_router"][2]
+    from bot.nlp.chat_turn import WEB_DOOR_WORDS
+    sentence = WEB_DOOR_WORDS["venue_router"][0]
     ug, h, _asked, _ids = _web(monkeypatch)
     _resp, body = _turn(ug, h, "what can you do")
     assert sentence in body["reply_html"]
@@ -525,9 +525,9 @@ def test_the_shared_defi_door_is_named_when_the_role_holds_it(monkeypatch):
     names the door, from the command catalogue, and only for a caller the
     gate would actually let through. The read is that caller's wallet."""
     from bot.nlp.chat_turn import SHARED_DOORS
-    from bot.skills.command_catalog import all_entries
     assert "defi" in SHARED_DOORS
-    sentence = all_entries()["defi"][2]
+    from bot.nlp.chat_turn import WEB_DOOR_WORDS
+    sentence = WEB_DOOR_WORDS["defi"][0]
     ug, h, _asked, _ids = _web(monkeypatch)
     _resp, body = _turn(ug, h, "what can you do")
     assert sentence in body["reply_html"]
@@ -542,9 +542,9 @@ def test_the_shared_exposure_door_is_named_when_the_role_holds_it(monkeypatch):
     would actually let through. The read is that caller's book. Drawdown
     stays the risk engine."""
     from bot.nlp.chat_turn import SHARED_DOORS
-    from bot.skills.command_catalog import all_entries
     assert "exposure" in SHARED_DOORS
-    sentence = all_entries()["exposure"][2]
+    from bot.nlp.chat_turn import WEB_DOOR_WORDS
+    sentence = WEB_DOOR_WORDS["exposure"][0]
     ug, h, _asked, _ids = _web(monkeypatch)
     _resp, body = _turn(ug, h, "what can you do")
     assert sentence in body["reply_html"]
@@ -559,9 +559,9 @@ def test_the_shared_research_door_is_named_when_the_role_holds_it(monkeypatch):
     would actually let through. The dossier is a read. A deep dive stays
     the chart."""
     from bot.nlp.chat_turn import SHARED_DOORS
-    from bot.skills.command_catalog import all_entries
     assert "research" in SHARED_DOORS
-    sentence = all_entries()["research"][2]
+    from bot.nlp.chat_turn import WEB_DOOR_WORDS
+    sentence = WEB_DOOR_WORDS["research"][0]
     ug, h, _asked, _ids = _web(monkeypatch)
     _resp, body = _turn(ug, h, "what can you do")
     assert sentence in body["reply_html"]
@@ -576,9 +576,9 @@ def test_the_shared_networth_door_is_named_when_the_role_holds_it(monkeypatch):
     would actually let through. The read is that caller's book. Drawdown
     stays the risk engine. Nothing here places or confirms."""
     from bot.nlp.chat_turn import SHARED_DOORS
-    from bot.skills.command_catalog import all_entries
     assert "networth" in SHARED_DOORS
-    sentence = all_entries()["networth"][2]
+    from bot.nlp.chat_turn import WEB_DOOR_WORDS
+    sentence = WEB_DOOR_WORDS["networth"][0]
     ug, h, _asked, _ids = _web(monkeypatch)
     _resp, body = _turn(ug, h, "what can you do")
     assert sentence in body["reply_html"]
@@ -593,13 +593,13 @@ def test_the_shared_idleyield_door_is_named_when_the_role_holds_it(monkeypatch):
     would actually let through. The read is that caller's wallet. Stake
     stays the stake door. Nothing here places or confirms."""
     from bot.nlp.chat_turn import SHARED_DOORS
-    from bot.skills.command_catalog import all_entries
-    assert SHARED_DOORS == (
+    assert set(SHARED_DOORS) == {
         "price_alert", "letter", "wallet", "replay", "rwa", "airdrops",
         "venue_router", "meme_radar", "nft", "spot", "defi", "exposure",
         "research", "networth", "idleyield",
-    )
-    sentence = all_entries()["idleyield"][2]
+    }
+    from bot.nlp.chat_turn import WEB_DOOR_WORDS
+    sentence = WEB_DOOR_WORDS["idleyield"][0]
     ug, h, _asked, _ids = _web(monkeypatch)
     _resp, body = _turn(ug, h, "what can you do")
     assert sentence in body["reply_html"]
@@ -613,9 +613,9 @@ def test_the_shared_spot_door_is_named_when_the_role_holds_it(monkeypatch):
     the door, from the command catalogue, and only for a caller the gate
     would actually let through."""
     from bot.nlp.chat_turn import SHARED_DOORS
-    from bot.skills.command_catalog import all_entries
     assert "spot" in SHARED_DOORS
-    sentence = all_entries()["spot"][2]
+    from bot.nlp.chat_turn import WEB_DOOR_WORDS
+    sentence = WEB_DOOR_WORDS["spot"][0]
     ug, h, _asked, _ids = _web(monkeypatch)
     _resp, body = _turn(ug, h, "what can you do")
     assert sentence in body["reply_html"]
@@ -629,9 +629,9 @@ def test_the_shared_nft_door_is_named_when_the_role_holds_it(monkeypatch):
     the door, from the command catalogue, and only for a caller the gate
     would actually let through."""
     from bot.nlp.chat_turn import SHARED_DOORS
-    from bot.skills.command_catalog import all_entries
     assert "nft" in SHARED_DOORS
-    sentence = all_entries()["nft"][2]
+    from bot.nlp.chat_turn import WEB_DOOR_WORDS
+    sentence = WEB_DOOR_WORDS["nft"][0]
     ug, h, _asked, _ids = _web(monkeypatch)
     _resp, body = _turn(ug, h, "what can you do")
     assert sentence in body["reply_html"]
@@ -645,9 +645,9 @@ def test_the_shared_meme_radar_door_is_named_when_the_role_holds_it(monkeypatch)
     the door, from the command catalogue, and only for a caller the gate
     would actually let through."""
     from bot.nlp.chat_turn import SHARED_DOORS
-    from bot.skills.command_catalog import all_entries
     assert "meme_radar" in SHARED_DOORS
-    sentence = all_entries()["meme_radar"][2]
+    from bot.nlp.chat_turn import WEB_DOOR_WORDS
+    sentence = WEB_DOOR_WORDS["meme_radar"][0]
     ug, h, _asked, _ids = _web(monkeypatch)
     _resp, body = _turn(ug, h, "what can you do")
     assert sentence in body["reply_html"]

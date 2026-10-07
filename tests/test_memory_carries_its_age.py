@@ -569,6 +569,8 @@ class TestMemoryNote:
         store.set_summary("alice", "alice watches SOL", at=NOW)
         store.set_summary("bob", "bob left a question", at=NOW)
         store.append("bob", "user", "what about the stop")
+        # The message this turn answers is already in the store when the tool runs.
+        store.append("bob", "user", "what do you remember")
         text = read_note(store, "bob")
         assert text.startswith("READ\n")
         assert "bob left a question" in text
@@ -582,6 +584,7 @@ class TestMemoryNote:
         store = ConversationStore()
         store.append("u", "user", "what about the stop")
         store.append("u", "assistant", "it is on the card")
+        store.append("u", "user", "what do you remember")
         text = read_note(store, "u")
         assert "Open question: ABSENT" in text
         assert "what about the stop" not in text

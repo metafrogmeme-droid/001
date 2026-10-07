@@ -202,8 +202,9 @@ def test_classify_model_list_names_a_missing_model_and_not_an_unreadable_one():
     state, model, tier = classify_model_list(
         ["other:latest"], [("chat", "runeclaw-chat8b")])
     assert (state, model, tier) == ("model_missing", "runeclaw-chat8b", "chat")
-    assert classify_model_list(None, [("scan", "v14-real-14b")])[0] == "ok"
-    assert classify_model_list([], [("scan", "v14-real-14b")])[0] == "ok"
+    # Not missing, and not "served" either: nothing was checked.
+    assert classify_model_list(None, [("scan", "v14-real-14b")])[0] == "list_unreadable"
+    assert classify_model_list([], [("scan", "v14-real-14b")])[0] == "list_empty"
 
 
 def test_two_hosts_page_as_two_faults():

@@ -265,6 +265,14 @@ class UserContext:
     #: builder read an empty string on every turn and the fifty-first message
     #: silently erased the first.
     pending_summary: list[dict] = field(default_factory=list)
+    #: How many of the oldest STORED turns are already in `pending_summary`
+    #: because the token window left them out. The model reads a 6,000-token
+    #: window and the cap keeps fifty rows, so a turn between those two edges
+    #: was in neither the prompt nor the note; the window now queues it, and
+    #: the cap does not queue it a second time when it later prunes it.
+    #: Not persisted: after a restart a turn may be folded twice, never zero
+    #: times.
+    window_queued: int = 0
     mood_hints: list[str] = field(default_factory=list)  # Recent mood signals
     user_name: str = ""  # Display name
     #: What the bot told this user UNPROMPTED, newest last — `{at, kind, text}`
@@ -401,6 +409,10 @@ class ConversationStore:
                 self._conversations.move_to_end(user_id)
             else:
                 self._conversations[user_id] = []
+                # A user evicted from memory comes back with an empty list;
+                # what the window had queued counted rows that are gone.
+                if user_id in self._user_contexts:
+                    self._user_contexts[user_id].window_queued = 0
 
             self._conversations[user_id].append(msg)
 
@@ -418,7 +430,10 @@ class ConversationStore:
                 self._conversations[user_id] = \
                     self._conversations[user_id][-self._max_messages:]
                 ctx = self._user_contexts[user_id]
-                ctx.pending_summary.extend(m.to_summary_turn() for m in overflow)
+                # The window may have queued the oldest of these already.
+                already = min(len(overflow), ctx.window_queued)
+                ctx.window_queued = max(0, ctx.window_queued - len(overflow))
+                ctx.pending_summary.extend(m.to_summary_turn() for m in overflow[already:])
                 if len(ctx.pending_summary) > self.PENDING_SUMMARY_MAX:
                     ctx.pending_summary = \
                         ctx.pending_summary[-self.PENDING_SUMMARY_MAX:]
@@ -517,8 +532,10 @@ class ConversationStore:
             else:
                 rendered.append(msg)
         chosen: list[dict] = []
+        at: list[int] = []          # the stored index each chosen turn came from
         used = 0
-        for msg in reversed(rendered):
+        for i in range(len(rendered) - 1, -1, -1):
+            msg = rendered[i]
             if not isinstance(msg.content, str):
                 placeholder = {
                     "role": msg.role if msg.role in ("user", "assistant") else "user",
@@ -529,6 +546,7 @@ class ConversationStore:
                     break
                 if not chosen or used + cost <= token_budget:
                     chosen.append(placeholder)
+                    at.append(i)
                     used += cost
                 break
             llm = msg.to_llm_message(now)
@@ -538,11 +556,40 @@ class ConversationStore:
             if chosen and used + cost > token_budget:
                 break
             chosen.append(llm)
+            at.append(i)
             used += cost
         chosen.reverse()
+        at.reverse()
         while chosen and chosen[0].get("role") != "user":
             chosen = chosen[1:]
+            at = at[1:]
+        if at:
+            self._queue_left_out(user_id, rows, at[0])
         return chosen
+
+    def _queue_left_out(self, user_id: str, rows: list, first: int) -> None:
+        """Queue for the dated note the stored turns this window left out.
+
+        ``rows[:first]`` are stored and not in the model's view. Only the cap
+        used to queue a turn, so one older than the window and younger than
+        the cap reached neither the prompt nor the note: an instruction given
+        forty rows ago, behind fifteen tool cards, was simply gone. The rows
+        are the snapshot this window was built from; if the store pruned
+        since (its first row is no longer the snapshot's), nothing is queued
+        now and the next window does it.
+        """
+        with self._lock:
+            live = self._conversations.get(user_id) or []
+            if not live or not rows or live[0] is not rows[0]:
+                return
+            ctx = self._user_contexts.setdefault(user_id, UserContext())
+            start = ctx.window_queued
+            if first <= start:
+                return
+            ctx.pending_summary.extend(rows[i].to_summary_turn() for i in range(start, first))
+            if len(ctx.pending_summary) > self.PENDING_SUMMARY_MAX:
+                ctx.pending_summary = ctx.pending_summary[-self.PENDING_SUMMARY_MAX:]
+            ctx.window_queued = first
 
     def get_context(self, user_id: str) -> Optional[UserContext]:
         """Get accumulated user context."""

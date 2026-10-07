@@ -3004,11 +3004,24 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                         "or /positions. Trade analysis keeps the rest."),
                         None, return_meta)
                 if _bound == CHAT_OWN_BOUND:
+                    # "A separate cap" is true only when the thesis has one
+                    # (`thesis_dollar_exhausted`). Without it, analysis is
+                    # bounded by the combined daily total, which chat's own
+                    # spend counts toward.
+                    if getattr(CONFIG.llm, "thesis_budget_usd", None) is not None:
+                        return _chat_ret(_say(
+                            _ui, "chat_own_budget_exhausted",
+                            "Chat has used its own dollar budget for today — try "
+                            "again tomorrow, or use a specific command like /scan "
+                            "or /positions. Trade analysis is on a separate cap."),
+                            None, return_meta)
                     return _chat_ret(_say(
-                        _ui, "chat_own_budget_exhausted",
+                        _ui, "chat_own_budget_exhausted_shared",
                         "Chat has used its own dollar budget for today — try "
                         "again tomorrow, or use a specific command like /scan "
-                        "or /positions. Trade analysis is on a separate cap."),
+                        "or /positions. Trade analysis has no cap of its own "
+                        "and counts against the daily total, chat's spend "
+                        "included."),
                         None, return_meta)
                 return _chat_ret(_say(
                     _ui, "chat_budget_exhausted",

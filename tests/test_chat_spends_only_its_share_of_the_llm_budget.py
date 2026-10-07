@@ -386,4 +386,20 @@ def test_an_own_chat_cap_refuses_chat_and_names_it(monkeypatch):
     answer, asked = _ask(monkeypatch, cost)
     assert not asked
     assert "own dollar budget" in answer
+    # No thesis cap: analysis counts against the daily total chat spent
+    # into, so "a separate cap" would be false here.
+    assert "separate cap" not in answer
+    assert "no cap of its own" in answer
+
+
+def test_an_own_chat_cap_beside_a_thesis_cap_says_the_caps_are_separate(monkeypatch):
+    monkeypatch.setattr(th_mod, "CONFIG", replace(th_mod.CONFIG, llm=replace(
+        th_mod.CONFIG.llm, api_key="", daily_call_limit=500,
+        daily_budget_usd=1.0, chat_budget_share=0.5, chat_budget_usd=0.40,
+        thesis_budget_usd=0.60)))
+    cost = CostTracker()
+    _spend(cost, 0.45, "chat")
+    answer, asked = _ask(monkeypatch, cost)
+    assert not asked
     assert "separate cap" in answer
+    assert "no cap of its own" not in answer

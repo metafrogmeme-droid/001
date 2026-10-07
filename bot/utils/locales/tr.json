@@ -24,6 +24,8 @@
   "cannot_revoke_self": "Kendi erişiminizi kaldıramazsınız.",
   "chat_budget_exhausted": "Bugünkü yapay zekâ bütçesini tükettim. Yarın tekrar deneyin ya da /scan veya /positions gibi belirli bir komut kullanın.",
   "chat_share_exhausted": "Sohbet, bugünkü yapay zekâ bütçesinden kendi payını tüketti. Yarın tekrar deneyin ya da /scan veya /positions gibi belirli bir komut kullanın. Kalanı işlem analizine ayrılır.",
+  "chat_own_budget_exhausted": "Sohbet, bugünkü kendi dolar bütçesini tüketti. Yarın tekrar deneyin ya da /scan veya /positions gibi belirli bir komut kullanın. İşlem analizinin ayrı bir sınırı var.",
+  "chat_own_budget_exhausted_shared": "Sohbet, bugünkü kendi dolar bütçesini tüketti. Yarın tekrar deneyin ya da /scan veya /positions gibi belirli bir komut kullanın. İşlem analizinin kendi sınırı yoktur; sohbet harcaması da dahil olmak üzere günlük toplama sayılır.",
   "chat_deadline": "Herhangi bir model yanıt vermeden beklemeyi bıraktım: bu benim tarafımdaki bir zaman aşımı, bir yanıt değil ve hiçbir şey analiz edilmedi. Birazdan tekrar deneyin ya da /scan veya /positions gibi belirli bir komut kullanın.",
   "chat_empty_completions": "Model yanıt verdi ama hiçbir şey döndürmedi: tüm sağlayıcılar boş döndü; bu bağlantı değil, model ya da prompt sorunudur. Anahtarınız ve uç noktanız sorunsuz. Son hata için /llmstatus deneyin ya da /scan veya /positions gibi belirli bir komut kullanın.",
   "chat_no_model_admin": "Canlı yapay zekâ modeli henüz bağlı değil: bir sağlayıcı eklemek için /setllm çalıştırın. Bu arada temel soruları yanıtlayabilirim: RUNECLAW nedir, riski nasıl yönetir, kaldıraç, likidite süpürmeleri ve hangi borsalar destekleniyor.",

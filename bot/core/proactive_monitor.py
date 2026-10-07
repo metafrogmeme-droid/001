@@ -93,6 +93,28 @@ def _host_of(url: str) -> str:
         return "the configured URL"
 
 
+def effective_tier_model(tier: str) -> str:
+    """The model a routed tier calls: its pinned name, else its provider's default.
+
+    The probe looked only at the pinned name. A tier pinned to a provider
+    with no model named still calls one (`resolve_tier_config` falls back to
+    the catalogue's ``default_model``), and with no name the probe checked
+    nothing and reported the model served. '' when there is no provider to
+    ask either.
+    """
+    name = (os.environ.get(tier_model_env(tier)) or "").strip()
+    if name:
+        return name
+    raw = (os.environ.get(f"LLM_TIER_{str(tier).upper()}_PROVIDER") or "").strip().lower()
+    if not raw:
+        return ""
+    try:
+        from bot.llm.provider import PROVIDER_CATALOG, LLMProvider
+        return str(PROVIDER_CATALOG.get(LLMProvider(raw), {}).get("default_model") or "")
+    except (ImportError, ValueError):
+        return ""
+
+
 def tier_model_env(tier: str) -> str:
     """The env var naming a routed tier's model — e.g. ``LLM_TIER_SCAN_MODEL``.
 
@@ -129,18 +151,28 @@ def _publish_llm_probes(probes: dict[str, dict]) -> None:
     _LATEST_LLM_PROBES = {url: dict(probe) for url, probe in probes.items()}
 
 
+#: Reachable and authenticated, with no model checked: not a fault and not
+#: "the configured model is served". Each has its own words on the card.
+UNCHECKED_PROBE_STATES = frozenset({"list_unreadable", "list_empty", "model_unchecked"})
+
+
 def classify_model_list(served: list[str] | None,
                         wanted: list[tuple[str, str]]) -> tuple[str, str, str]:
     """`(state, missing_model, missing_tier)` for a `/models` body.
 
-    `served is None` means the list could not be read. That is not evidence
-    the model is absent, so the state stays `ok`. An empty list is the same
-    shape the probe already treated as "nothing to contradict the name":
-    only a non-empty list that lacks a wanted model is `model_missing`.
-    `wanted` is `(tier, model)` pairs.
+    `ok` means a wanted model was found in the list, and nothing else does.
+    A list that could not be read, an empty list, and no model name to look
+    for were all `ok`, which the card prints as "configured model is
+    served": three cases where nothing was checked, reported as the one
+    where it was. They are not evidence the model is absent either, so they
+    are not `model_missing`. `wanted` is `(tier, model)` pairs.
     """
-    if not served or not wanted:
-        return "ok", "", ""
+    if not wanted:
+        return "model_unchecked", "", ""
+    if served is None:
+        return "list_unreadable", "", ""
+    if not served:
+        return "list_empty", "", ""
     for tier, model in wanted:
         if not any(ProactiveMonitor._same_model(model, s) for s in served):
             return "model_missing", model, tier
@@ -2103,7 +2135,7 @@ class ProactiveMonitor:
         """One bounded GET of `{url}/models`, with the credential this tier sends."""
         wanted = []
         for tier in tiers:
-            name = (os.environ.get(tier_model_env(tier)) or "").strip()
+            name = effective_tier_model(tier)
             if name:
                 wanted.append((tier, name))
         primary = tiers[0] if tiers else "?"
@@ -2147,7 +2179,8 @@ class ProactiveMonitor:
             logger.debug("llm endpoint probe failed: %s", exc)
 
         fails = int(prev.get("consecutive_failures") or 0)
-        result["consecutive_failures"] = 0 if result["state"] == "ok" else fails + 1
+        reachable = result["state"] == "ok" or result["state"] in UNCHECKED_PROBE_STATES
+        result["consecutive_failures"] = 0 if reachable else fails + 1
         return result
 
     def _check_llm_endpoint(self) -> list[Alert]:
@@ -2188,7 +2221,9 @@ class ProactiveMonitor:
         host = str(p.get("host") or "the configured URL")
         alerted = by_host.get(host, "")
 
-        if state == "ok":
+        # An unchecked state answered and took the key, so for paging it is
+        # reachable: not "no answer from the endpoint".
+        if state == "ok" or state in UNCHECKED_PROBE_STATES:
             if alerted and alerted != "ok":
                 by_host[host] = "ok"
                 self._llm_alerted_state = "ok"
