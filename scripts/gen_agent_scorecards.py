@@ -196,12 +196,14 @@ def _unmodeled(cfg: dict) -> list[str]:
     target, or hard stop is never emitted. A recorded scale-out, risk ratio,
     margin mode or position count has no runner flag, so it stays named.
     Leverage stays named when the fill path cannot size, because that is when
-    ``_gate_args`` does not emit it. The daily rotation names leverage on the
-    card and does not publish a scorecard, so its unmodeled list is the three
-    percent exits only.
+    ``_gate_args`` does not emit it. The daily rotation's list is its own
+    `UNAPPLIED_KEYS`, the knobs its how-line names as recorded and not
+    applied, leverage and utilization among them.
     """
     from bot.core.strategy_catalog import UNAPPLIED_PRESET_KEYS
-    from bot.core.vol_rotation import preset_is_vol_rotation
+    from bot.core.vol_rotation import UNAPPLIED_KEYS, preset_is_vol_rotation
+    if preset_is_vol_rotation(cfg):
+        return [key for key in UNAPPLIED_KEYS if cfg.get(key) is not None]
     emitted = set(_gate_args(cfg))
     out: list[str] = []
     if cfg.get("sl_atr_mult") is not None and "--sl-atr-mult" not in emitted:
@@ -213,8 +215,6 @@ def _unmodeled(cfg: dict) -> list[str]:
         if cfg.get(key) is not None and key not in seen:
             out.append(key)
             seen.add(key)
-    if preset_is_vol_rotation(cfg):
-        return out
     flag_for = {"leverage": "--leverage"}
     for key in UNAPPLIED_PRESET_KEYS:
         if cfg.get(key) is None or key in seen:

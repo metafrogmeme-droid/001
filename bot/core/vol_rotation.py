@@ -34,6 +34,17 @@ _SIGNAL_KEYS = ("momentum_period", "trend_period", "atr_period")
 UNMODELED_EXITS = ("trailing_stop_pct", "take_profit_pct", "hard_stop_loss_pct")
 
 
+#: The knobs a daily-rotation preset records and the engine does not apply,
+#: in the order its how-line names them: the three percent exits, and the
+#: leverage and utilization that do not size a fill. The scorecard
+#: generator's unmodeled list reads this, so the card and its how-line name
+#: the same knobs; the list named the three exits and left leverage out.
+UNAPPLIED_KEYS: tuple[str, ...] = (
+    "trailing_stop_pct", "take_profit_pct", "hard_stop_loss_pct",
+    "leverage", "utilization",
+)
+
+
 def preset_is_vol_rotation(cfg: dict) -> bool:
     """True when this preset's direction is the daily rotation."""
     if not isinstance(cfg, dict):

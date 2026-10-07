@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta
 
+import pytest
+
 from bot.backtest.engine import BacktestEngine
 from bot.backtest.models import BacktestBar, BacktestConfig
 from bot.backtest.portfolio_engine import PortfolioBacktester
@@ -346,3 +348,65 @@ def test_lab_forwards_the_average_and_refuses_a_half_pair():
     assert params["ma_symbols"] == "ETHUSDT"
     with pytest.raises(Exception):
         _ma_gate_args(LabRunRequest(dataset="majors_1h", ma_fast=200, ma_slow=50))
+
+
+# ── the honest fill model reaches the moving-average book (#490 f2) ───────
+
+def _gapped(closes, symbol, gap):
+    """Bars whose open is the previous close plus `gap`, so the signal bar's
+    close and the next bar's open are two different prices."""
+    out = []
+    prev = closes[0]
+    for i, close in enumerate(closes):
+        opn = prev + (gap if i else 0.0)
+        out.append(BacktestBar(
+            timestamp=_T0 + i * _HOUR, open=opn, high=max(opn, close),
+            low=min(opn, close), close=close, volume=1.0, symbol=symbol))
+        prev = close
+    return out
+
+
+def _first_entry(fill_mode, *, portfolio=False):
+    closes = [100.0] * 6 + [130.0] * 6
+    cfg = _cfg(ma_fast=1, ma_slow=2, lookback_size=4, slippage_pct=0.0,
+               fill_mode=fill_mode)
+    bars = _gapped(closes, "ETH/USDT:USDT", gap=3.0)
+    if not portfolio:
+        result = _run(bars, cfg)
+    else:
+        data = {"ETH/USDT:USDT": bars,
+                "BTC/USDT:USDT": _gapped(closes, "BTC/USDT:USDT", gap=3.0)}
+        pb = PortfolioBacktester(cfg, symbols=list(data))
+        try:
+            result = asyncio.run(pb.run(data))
+        finally:
+            pb.cleanup()
+    assert result.trades, "the cross did not trade"
+    return result.trades[0]
+
+
+@pytest.mark.parametrize("portfolio", [False, True], ids=["one-symbol", "portfolio"])
+def test_next_open_fills_the_ma_book_at_the_next_bars_open(portfolio):
+    """It filled at the signal bar's close while the Lab said the honest
+    fill model was applied: the next bar's open is 133, the close 130."""
+    honest = _first_entry("next_open", portfolio=portfolio)
+    assert honest.direction == "LONG"
+    assert honest.entry_price == pytest.approx(133.0)
+    at_close = _first_entry("close", portfolio=portfolio)
+    assert at_close.entry_price == pytest.approx(130.0)
+
+
+def test_a_cross_on_the_last_bar_is_counted_as_pending_not_dropped():
+    """Under the honest model a cross decided on the final bar waits for an
+    open that never comes. The run says one entry was still pending, as it
+    does for a queued signal entry, rather than end as if nothing crossed."""
+    cfg = _cfg(ma_fast=1, ma_slow=2, lookback_size=4, slippage_pct=0.0,
+               fill_mode="next_open")
+    bars = _gapped([100.0] * 6 + [130.0], "ETH/USDT:USDT", gap=3.0)
+    honest = _run(bars, cfg)
+    assert honest.total_entries_pending_at_end == 1
+    assert not honest.trades
+    # The other arm: at the close the same cross fills, so nothing waits.
+    at_close = _run(bars, _cfg(ma_fast=1, ma_slow=2, lookback_size=4, slippage_pct=0.0,
+                               fill_mode="close"))
+    assert at_close.total_entries_pending_at_end == 0

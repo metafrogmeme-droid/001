@@ -198,6 +198,9 @@ class BacktestEngine:
         # construct an engine and reach that builder without calling run() —
         # so a run()-only attribute made the card's own honesty field raise.
         self._pending_entry: tuple | None = None
+        # A moving-average action decided on a closed bar, waiting for the
+        # next bar's open under fill_mode="next_open", as `_pending_entry`.
+        self._pending_ma: tuple | None = None
         # RC-2026-018. Limit entries that have been PLACED but not yet
         # touched. Before this existed, a limit was booked at its own price on
         # the signal bar whether or not any bar traded there — see
@@ -458,6 +461,7 @@ class BacktestEngine:
         ]
 
         self._pending_entry = None
+        self._pending_ma = None
         _breaker_tripped_at: int | None = None
 
         for i in range(lookback_size, len(bars)):
@@ -484,10 +488,7 @@ class BacktestEngine:
             # --- Fill any queued next-open entry at THIS bar's open (audit
             # fix #15) before stop checks, so the freshly opened position is
             # then exposed to this bar's range like a live fill would be. ---
-            if self._pending_entry is not None:
-                _p_idea, _p_risk = self._pending_entry
-                self._pending_entry = None
-                self._execute_fill(_p_idea, _p_risk, current_bar.open, current_bar)
+            self._fill_queued_at_open(current_bar)
 
             # --- Resting limit entries (RC-2026-018): fill on touch, expire
             # or cancel on drift. Before the stop check for the same reason
@@ -578,8 +579,10 @@ class BacktestEngine:
                 return val
         return None
 
-    def _close_ma_book(self, bar: BacktestBar, reason: str) -> bool:
-        """Close this symbol's moving-average position. False if one remains."""
+    def _close_ma_book(self, bar: BacktestBar, reason: str,
+                       price: float | None = None) -> bool:
+        """Close this symbol's moving-average position at ``price`` (this
+        bar's close when None). False if one remains."""
         from bot.core.strategy_gate import _base
         base = _base(bar.symbol)
         ids = []
@@ -590,13 +593,14 @@ class BacktestEngine:
             if _base(getattr(idea, "asset", "")) == base:
                 ids.append(tid)
         for tid in ids:
-            self._close_position(tid, bar.close, bar, reason)
+            self._close_position(tid, bar.close if price is None else price, bar, reason)
             if tid in self._open_bt_positions:
                 return False
         return True
 
-    def _open_ma_position(self, bar: BacktestBar, side: str) -> None:
-        """Open the relationship's side at this bar's close.
+    def _open_ma_position(self, bar: BacktestBar, side: str,
+                          price: float | None = None) -> None:
+        """Open the relationship's side at ``price`` (this bar's close when None).
 
         Size comes from the preset's weight, utilization, gross cap and
         leverage. A missing input does not open. The stop and target exist
@@ -615,7 +619,7 @@ class BacktestEngine:
         )
         if margin is None:
             return
-        price = float(bar.close)
+        price = float(bar.close if price is None else price)
         if price <= 0 or price != price:
             return
         slip = price * (self.config.slippage_pct / 100.0)
@@ -701,11 +705,41 @@ class BacktestEngine:
         side = step["side"]
         if action in ("hold", "stand_aside") or side not in ("LONG", "SHORT"):
             return
-        if action == "reverse" and not self._close_ma_book(bar, "MA_FLIP"):
+        # Under the honest fill model the action waits for the next bar's
+        # open, as every other entry does. It filled at this bar's close,
+        # the price that decided it, while the Lab said the honest model
+        # was applied.
+        if getattr(self.config, "fill_mode", "close") == "next_open":
+            self._pending_ma = (action, side)
+            return
+        self._apply_ma_action(bar, action, side, None)
+
+    def _fill_queued_at_open(self, bar: BacktestBar) -> None:
+        """Fill what the previous bar queued, at this bar's open.
+
+        A queued entry (fill_mode="next_open"), and the moving-average
+        book's action the same way. Both bar loops call this, `_run` and
+        the portfolio engine's, so the honest fill is one reading: the
+        portfolio loop held its own copy of the entry branch, and a second
+        branch added to one loop would have been missing from the other.
+        """
+        if self._pending_entry is not None:
+            _p_idea, _p_risk = self._pending_entry
+            self._pending_entry = None
+            self._execute_fill(_p_idea, _p_risk, bar.open, bar)
+        if self._pending_ma is not None:
+            _m_action, _m_side = self._pending_ma
+            self._pending_ma = None
+            self._apply_ma_action(bar, _m_action, _m_side, bar.open)
+
+    def _apply_ma_action(self, bar: BacktestBar, action: str, side: str,
+                         price: float | None) -> None:
+        """Reverse or enter at ``price`` (this bar's close when None)."""
+        if action == "reverse" and not self._close_ma_book(bar, "MA_FLIP", price):
             return
         if action == "enter" and self._ma_held_side(bar.symbol) is not None:
             return
-        self._open_ma_position(bar, side)
+        self._open_ma_position(bar, side, price)
 
     async def _process_bar(
         self, bar: BacktestBar, window: list[BacktestBar], bar_index: int
@@ -1723,12 +1757,18 @@ class BacktestEngine:
         # preset volume-spike gate (BacktestConfig.volume_spike_min, e.g. the
         # "momentum hunter" > 3x rule) can filter on the same field the live
         # scanner exposes (MarketSignal.volume_spike_ratio).
+        #
+        # No baseline is no ratio. Five zero-volume bars, or fewer than six
+        # bars, gave 0.0, which a published trade row printed as a measured
+        # "no spike"; the live scanner already sends None for it. A zero
+        # volume against a real average is a measured 0.0 and stays one.
+        vol_ratio: float | None
         if len(window) >= 6:
             avg_vol = sum(b.volume for b in window[-6:-1]) / 5
-            vol_ratio = (bar.volume / avg_vol) if avg_vol > 0 else 0.0
-            volume_spike = bar.volume > avg_vol * 2.0
+            vol_ratio = (bar.volume / avg_vol) if avg_vol > 0 else None
+            volume_spike = vol_ratio is not None and bar.volume > avg_vol * 2.0
         else:
-            vol_ratio = 0.0
+            vol_ratio = None
             volume_spike = False
 
         momentum = max(min(change_pct / 10.0, 1.0), -1.0)
@@ -1741,7 +1781,7 @@ class BacktestEngine:
             change_pct_24h=round(change_pct, 2),
             volume_usd_24h=round(bar.volume, 2),
             volume_spike=volume_spike,
-            volume_spike_ratio=round(vol_ratio, 3),
+            volume_spike_ratio=None if vol_ratio is None else round(vol_ratio, 3),
             momentum_score=round(momentum, 3),
             timestamp=bar.timestamp,
         )
@@ -1902,6 +1942,7 @@ class BacktestEngine:
                 + len(self._armed_setups)),
             total_entries_pending_at_end=(
                 (1 if self._pending_entry is not None else 0)
+                + (1 if self._pending_ma is not None else 0)
                 + len(self._pending_limits)),
             # RC-2026-018 honesty fields. A run that does not say how many
             # entries never filled cannot be told apart from one where they

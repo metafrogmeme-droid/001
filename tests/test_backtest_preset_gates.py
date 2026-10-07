@@ -215,3 +215,46 @@ def test_preset_atr_multiples_replace_the_analyzer_levels():
         confidence=0.8, reasoning="x")
     out_s = eng._apply_preset_exits(short, 10.0)
     assert out_s.stop_loss == 115.0 and out_s.take_profit == 80.0
+
+
+# ── no volume baseline is no ratio (review of the sixty PRs, #484) ────────
+
+def _bars(volumes):
+    from datetime import datetime, timedelta, timezone
+
+    from bot.backtest.models import BacktestBar
+    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    return [BacktestBar(timestamp=t0 + timedelta(hours=i), open=100.0, high=101.0,
+                        low=99.0, close=100.0, volume=v) for i, v in enumerate(volumes)]
+
+
+def test_a_window_with_no_volume_baseline_has_no_ratio():
+    """Five zero-volume bars gave 0.0, which a published trade row printed
+    as a measured "no spike". The live scanner sends None for it."""
+    eng = _engine()
+    window = _bars([0, 0, 0, 0, 0, 500])
+    sig = eng._bar_to_signal(window[-1], window)
+    assert sig.volume_spike_ratio is None and sig.volume_spike is False
+    short = _bars([10, 10, 500])
+    assert eng._bar_to_signal(short[-1], short).volume_spike_ratio is None
+
+
+def test_a_measured_ratio_and_a_measured_zero_stay_measured():
+    eng = _engine()
+    spike = _bars([10, 10, 10, 10, 10, 35])
+    sig = eng._bar_to_signal(spike[-1], spike)
+    assert sig.volume_spike_ratio == 3.5 and sig.volume_spike is True
+    quiet = _bars([10, 10, 10, 10, 10, 0])
+    assert eng._bar_to_signal(quiet[-1], quiet).volume_spike_ratio == 0.0
+
+
+def test_no_ratio_is_remembered_as_none_and_does_not_clear_a_gate():
+    eng = _engine(volume_spike_min=3.0)
+    window = _bars([0, 0, 0, 0, 0, 500])
+    sig = eng._bar_to_signal(window[-1], window)
+
+    class _I:
+        id = "TI-1"
+    eng._remember_volume_ratio(_I(), sig)
+    assert eng._volume_ratio_by_idea["TI-1"] is None
+    assert eng._rejected_by_preset_gate(_Idea(), sig, window) is True
