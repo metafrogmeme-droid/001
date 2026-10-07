@@ -118,7 +118,7 @@
     "hero.cta_dashboard": { en: "View the dashboard" },
     "hero.free_note": { en: "Free · paper-trade in your browser instantly · no exchange keys needed." },
     "sec.mkt_h": { en: "The Strategy Agent Marketplace" },
-    "sec.mkt_p": { en: "Browse the engine’s strategy agents — each one a real preset with a verified, reproducible backtest. Follow one, copy its picks on paper, or reproduce its numbers yourself in the Lab." },
+    "sec.mkt_p": { en: "Browse the engine’s strategy agents — each one a preset from the engine’s own config, and its card says when the live engine does not run it. Follow one, copy its picks on paper, or, where a frozen backtest is attached, reproduce its numbers yourself in the Lab." },
     "sec.mkt_loading": { en: "Loading the agent catalogue…" },
     "sec.mkt_cta": { en: "Browse the full marketplace →" },
     "sec.guardian_h": { en: "The safety layer AI trading forgot" },
@@ -636,7 +636,7 @@
     "ag.open_in_app": { en: "Open in app" },
     "ag.h1": { en: "Strategy Agents" },
     "ag.loading": { en: "Loading the agent catalogue…" },
-    "ag.lede": { en: "Each agent is one of the engine's real strategies, backtested on frozen, content-hashed benchmark data — percent and ratio only, never a dollar figure. Open one to follow it, reproduce its numbers in the Lab, or ask it anything." },
+    "ag.lede": { en: "Each agent is a preset from the engine's own config, and its card says when the live engine does not run its rule. Where a frozen backtest on content-hashed benchmark data is attached, it is percent and ratio only, never a dollar figure. Open one to follow it, reproduce its numbers in the Lab, or ask it anything." },
     "lt.lede": { en: "The autonomous desk's weekly letter, composed entirely from <b>recorded trades and snapshots</b> — nothing hand-written, and a losing week reads like one. Counts, win rate, and percent moves only: <b>account size is never published</b>." },
     "lt.loading": { en: "Opening the letter press…" },
     "ac.brand_sub": { en: "Command Core" },
@@ -2190,7 +2190,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"0341d57a","zh":"6a55a031","pt":"fd41ca35","fr":"a15ce9bc","de":"46f5dabd","nl":"5b4a438f","ja":"a6acb002","ko":"9832276f","ru":"df2ad97b","tr":"d83653c1","it":"31f5ca6e","hi":"60c2199e","ar":"fc31e313"};
+  var CHUNKS = {"es":"bb998ea3","zh":"a9248411","pt":"98c4a260","fr":"70522b43","de":"3ecbdc6e","nl":"5d4cfcfb","ja":"cce11ceb","ko":"dbdf73b4","ru":"9ce52729","tr":"3f166a02","it":"d2e5f90c","hi":"d3e89c32","ar":"b19ed817"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

@@ -21239,6 +21239,37 @@ half the total spent are each driven.
 (`tests/test_chat_spends_only_its_share_of_the_llm_budget.py`,
 `bot/core/cost.py`.)
 
+**THE AGENTS INTRO SAID EVERY AGENT WAS BACKTESTED; THE CARDS UNDER IT
+SAID WHICH ONES WERE NOT.** The chapter that made `live_runs` the one
+reading for `/run` and the card left the agents page's translated lede as
+it was: "Each agent is one of the engine's real strategies, backtested on
+frozen, content-hashed benchmark data". Under it, the daily rotation's card
+says the live bot does not run it and no backtest evaluates it either. The
+owner decided on 7 October to rewrite it in all fourteen languages. The
+same claim sat on five more surfaces, which a search for the sentence's
+shapes found, not its words:
+- the landing page's marketplace blurb (`sec.mkt_p`, "each one a real
+  preset with a verified, reproducible backtest");
+- the agents page's three description metas, which search results and link
+  previews show;
+- `agent_seo.genericMeta`;
+- `agent_seo.agentMeta`'s fallback for a card with no tagline;
+- the strategy page's footer under a card with metrics ("Every RUNECLAW
+  agent is one of the engine's real strategies").
+
+Each now says what the catalogue's own lineup sentence (`catalogue_note`)
+already said: an agent is a preset from the engine's own config, its card
+says when the live engine does not run it, and a backtest is named where
+one is attached. The per-agent preview names one only when the card carries
+`scorecard.metrics`. An omitted scorecard is not a backtest, and a missing
+one is not "no backtest", so neither is named. The strategy footer speaks
+for the agent it sits under. Across fourteen scripts a test can check only
+that no language is blank, still carries the old English claim, or is the
+English left untranslated; the sense of each translation is a reviewer's
+check. Ten mutants, all killed.
+(`app/test/the_agents_intro_claims_only_what_a_card_carries.test.js`,
+`app/lib/agent_seo.js`, `app/public/js/i18n.js`.)
+
 ## Deploying so a dead bot cannot look like a live one
 
 **There are TWO processes and only one of them was ever being started.**

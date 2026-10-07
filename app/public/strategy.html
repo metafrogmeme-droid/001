@@ -231,8 +231,8 @@
         : (a.scorecard && a.scorecard.omitted
           ? esc(a.scorecard.omitted) + ' Nothing here is financial advice.'
           : (a.scorecard && a.scorecard.metrics
-            ? 'Every RUNECLAW agent is one of the engine\'s real strategies, backtested on '
-              + 'frozen, content-hashed benchmark data — percent and ratio only, never a dollar figure. '
+            ? 'This agent\'s backtest ran on frozen, content-hashed benchmark data — '
+              + 'percent and ratio only, never a dollar figure. '
               + 'Reproduce the identical backtest yourself in the Lab, or watch verified live ranks on the '
               + '<a href="/leaderboard">leaderboard</a>. Nothing here is financial advice.'
             : 'No track record published. Nothing here is financial advice.'))) + '</p>'
@@ -295,7 +295,7 @@
     .catch(function () { tryCommunity(false); });
 })();
 </script>
-<script src="/js/i18n-core.js?v=163"></script>
+<script src="/js/i18n-core.js?v=164"></script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>
 </html>
