@@ -26,6 +26,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { explicitStateDir } = require('./state_dir');
 
 const MASTER_KEY_BASENAME = '.exchange_secret.key';
 const VAULT_BASENAME = 'secrets_vault.enc';
@@ -41,7 +42,7 @@ const DEFAULT_WEB_KEYS = ['BOT_SYNC_SECRET', 'WEB_GATEWAY_SECRET', 'WEB_CREDS_KE
  */
 function stateDirCandidates() {
   const out = [];
-  const explicit = (process.env.RUNECLAW_STATE_DIR || '').trim();
+  const explicit = explicitStateDir();
   if (explicit) out.push(explicit);
   // app/ runs from the app dir; the vault lives at <repo>/data.
   out.push(path.join(__dirname, '..', '..', 'data'));
@@ -152,4 +153,4 @@ function restoreFromVault(opts = {}) {
   return [];
 }
 
-module.exports = { restoreFromVault, fernetDecrypt, DEFAULT_WEB_KEYS };
+module.exports = { restoreFromVault, fernetDecrypt, DEFAULT_WEB_KEYS, stateDirCandidates };

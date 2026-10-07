@@ -62,11 +62,14 @@
   }
 
   function num(v) {
-    // null before Number: Number(null) is 0, and a missing bound is not
-    // a measured zero. A boolean is not a bound either (Number(true) is 1).
-    if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null;
-    var n = typeof v === 'number' ? v : Number(v);
-    return (typeof n === 'number' && isFinite(n)) ? n : null;
+    // A number, or a string that spells one. Number(null), Number('  ')
+    // and Number([]) are all 0, and a missing or blank bound is not a
+    // measured zero; a boolean is not a bound either (Number(true) is 1).
+    var n;
+    if (typeof v === 'number') n = v;
+    else if (typeof v === 'string' && v.trim() !== '') n = Number(v);
+    else return null;
+    return isFinite(n) ? n : null;
   }
 
   function label(v) {

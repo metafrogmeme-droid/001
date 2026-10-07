@@ -124,6 +124,9 @@ router.get('/stats', async (req, res) => {
       win_rate: resolved > 0 ? Math.round((wins / resolved) * 1000) / 10 : null,
       avg_r: resolved > 0 && Number.isFinite(netR) ? Math.round((netR / resolved) * 100) / 100 : null,
       r_basis: 'gross',
+      // Every resolved row. /analytics publishes a mean R too, over a window;
+      // each says which rows it covers.
+      coverage: { basis: 'all_resolved', rows: resolved },
       by_status: byStatus,
     });
   } catch (err) {
@@ -144,6 +147,43 @@ router.get('/stats', async (req, res) => {
 // signals only. Aggregation runs in-process over a bounded window so it
 // behaves the same on MySQL and the in-memory mock. The mock projects this
 // SELECT: a dimension the query does not name never reaches a cell.
+// The window /analytics reads: the newest resolved signals. /stats reads
+// every resolved row, and both publish a mean R under the same `r_basis`
+// (#510 named this one "the same way /stats rounds avg_r"). Past this many
+// rows the two answer differently about one quantity, so this route says
+// which rows it covers, the way the public track record does.
+const ANALYTICS_WINDOW = 2000;
+
+async function analyticsCoverage(rowsRead) {
+  // How many resolved signals there are in all. Unread is not "all of them":
+  // `complete` is then null, not true.
+  let total = null;
+  try {
+    const [r] = await pool.execute('SELECT COUNT(*) AS resolved FROM signals WHERE pnl IS NOT NULL');
+    // A number, a bigint or a digit string (a driver's BIGINT) is a count.
+    // `Number(null)` is 0, so a NULL is read as nothing, never as zero.
+    const v = r && r[0] ? r[0].resolved : undefined;
+    const n = (typeof v === 'number' || typeof v === 'bigint'
+      || (typeof v === 'string' && /^\d+$/.test(v))) ? Number(v) : NaN;
+    total = Number.isInteger(n) && n >= 0 ? n : null;
+  } catch (err) {
+    console.error('Signal analytics coverage:', err && err.name ? err.name : 'Error');
+  }
+  const complete = total === null ? null : rowsRead >= total;
+  let note;
+  if (total === null) {
+    note = `Covers the newest ${rowsRead} resolved signals, at most ${ANALYTICS_WINDOW}. `
+      + 'How many resolved signals there are in all could not be read.';
+  } else if (complete) {
+    note = `Covers every resolved signal (${rowsRead}).`;
+  } else {
+    note = `Covers the newest ${rowsRead} of ${total} resolved signals. `
+      + `/api/signals/stats covers all ${total}.`;
+  }
+  return { basis: 'newest_resolved', rows: rowsRead, window: ANALYTICS_WINDOW,
+           resolved_total: total, complete, note };
+}
+
 router.get('/analytics', async (req, res) => {
   try {
     let rows;
@@ -152,7 +192,7 @@ router.get('/analytics', async (req, res) => {
         `SELECT symbol, direction, confidence, pattern, regime, signal_type,
                 timeframe, source, pnl
          FROM signals WHERE pnl IS NOT NULL
-         ORDER BY resolved_at DESC LIMIT 2000`
+         ORDER BY resolved_at DESC LIMIT ${ANALYTICS_WINDOW}`
       );
     } catch (err) {
       // The setup-cell dimensions are additive and exploratory. During a
@@ -162,7 +202,7 @@ router.get('/analytics', async (req, res) => {
       [rows] = await pool.execute(
         `SELECT symbol, direction, confidence, pattern, regime, pnl
          FROM signals WHERE pnl IS NOT NULL
-         ORDER BY resolved_at DESC LIMIT 2000`
+         ORDER BY resolved_at DESC LIMIT ${ANALYTICS_WINDOW}`
       );
     }
     // The column is realized R. computeAnalytics names the sum `net_r` and
@@ -179,6 +219,7 @@ router.get('/analytics', async (req, res) => {
     const analytics = computeAnalytics(rows, {
       registrations: loadCellRegistrations(),
     });
+    analytics.coverage = await analyticsCoverage(rows.length);
     try {
       analytics.calibration = readCalibrationCurve();
     } catch (err) {

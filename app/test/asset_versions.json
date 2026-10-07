@@ -40,8 +40,8 @@
     "sha": "b5e9e3bec0ac5f5c"
   },
   "js/calibration-chart.js": {
-    "v": 1,
-    "sha": "6246e07772ca38ed"
+    "v": 2,
+    "sha": "0d66f51488d24183"
   },
   "js/chart-read-model.js": {
     "v": 3,
@@ -232,8 +232,8 @@
     "sha": "550cc931fed16e08"
   },
   "js/setup-cell-reading.js": {
-    "v": 2,
-    "sha": "1043446efa1c8bc0"
+    "v": 3,
+    "sha": "8374a6181d42c0b0"
   },
   "js/shadow-gate-row.js": {
     "v": 2,
@@ -312,8 +312,8 @@
     "sha": "6f0104bc8dc01e88"
   },
   "js/winrate-bar.js": {
-    "v": 6,
-    "sha": "31eb305ca2b408d5"
+    "v": 7,
+    "sha": "e37f80e5f27cd89b"
   },
   "styles.css": {
     "v": 50,

@@ -9,17 +9,21 @@
  * It does not refit, and it does not turn
  * `CONFIDENCE_CALIBRATION_ENABLED` on.
  *
- * A missing file is unmeasured: the calibrator is identity until it has
- * a curve, and identity is not drawn. An unreadable file is unavailable,
- * not a curve of zeros. The first file that exists is the one; a corrupt
- * file is not skipped in favour of a second copy.
+ * A missing file is absent, not unmeasured. The bot writes the document
+ * on every refit, fitted or not, so "not fitted" is a file that says so
+ * (`n_samples` under `min_samples`). No file where this process looks says
+ * only that: the web process may run with another state directory or from
+ * another checkout than the bot. An unreadable file is unavailable, not a
+ * curve of zeros. The first file that exists is the one; a corrupt file is
+ * not skipped in favour of a second copy.
  */
 
 const fs = require('fs');
 const path = require('path');
+const { explicitStateDir } = require('./state_dir');
 
 const {
-  readingFromCurve, unavailableReading, unmeasuredReading,
+  readingFromCurve, unavailableReading, absentReading,
 } = require('../public/js/calibration-chart');
 
 const FILE_NAME = path.join('learning', 'confidence_calibration.json');
@@ -40,7 +44,7 @@ function unique(list) {
  * starts in `app/`), then the process cwd.
  */
 function candidateFiles() {
-  const explicit = (process.env.RUNECLAW_STATE_DIR || '').trim();
+  const explicit = explicitStateDir();
   if (explicit) return [path.join(explicit, FILE_NAME)];
   return unique([
     path.join(__dirname, '..', '..', 'data', FILE_NAME),
@@ -64,7 +68,7 @@ function readCalibrationCurve(opts) {
     found = { file: file, stat: st };
     break;
   }
-  if (!found) return unmeasuredReading(null, null);
+  if (!found) return absentReading();
   if (!found.stat.isFile()) return unavailableReading();
   let text;
   try {

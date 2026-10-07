@@ -37,78 +37,19 @@
  * and it does not blank the scoreboard.
  */
 
-const fs = require('fs');
-const path = require('path');
-
-const REPO = path.join(__dirname, '..', '..');
-
-function readJson(file) {
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (err) {
-    return null;
-  }
-}
-
 /**
- * Strategy grants. A verdict of "survives" is still not a setup cell:
- * the record has no five dimensions this scoreboard publishes.
+ * NO SOURCE EXISTS, SO NOTHING IS READ. This walked the three places above
+ * on every request and returned `[]` from each whatever it found, so the
+ * route paid for file reads that could not change its answer, and the
+ * reads made it look as if a record committed there would be honoured. It
+ * would not: none of those places has a five-dimension schema, and a
+ * second registry is plan C1's to define. Until one is committed, no cell
+ * can read "survives", by construction, and this says so by doing nothing.
+ * `readingForCell` already takes a registration list, so a loader that
+ * reads a committed schema is the one change that opens the arm.
  */
-function registrationsFromEligibility(dir) {
-  let names;
-  try {
-    names = fs.readdirSync(dir);
-  } catch (err) {
-    return [];
-  }
-  for (const name of names) {
-    if (!name.endsWith('.json')) continue;
-    const data = readJson(path.join(dir, name));
-    if (!data || typeof data !== 'object') continue;
-    // Seen, including a verdict of "survives", and not copied. A strategy
-    // grant has no setup cell to attach the word to.
-    if (typeof data.verdict === 'string') continue;
-  }
+function loadCellRegistrations() {
   return [];
-}
-
-/**
- * The POC-retest replay. Its verdict word is an interval claim about one
- * setup the scoreboard does not key. Copying "survives" off a window
- * would be that claim under a different name.
- */
-function registrationsFromPoc(file) {
-  const data = readJson(file);
-  const windows = data && Array.isArray(data.windows) ? data.windows : [];
-  for (const w of windows) {
-    if (!w || typeof w !== 'object') continue;
-    // Seen, and not copied. The replay's verdict is not a five-dimension cell.
-    if (typeof w.verdict === 'string') continue;
-  }
-  return [];
-}
-
-/**
- * Plan C1's directory. Absent today. Present, it is still not parsed:
- * there is no committed schema to read, and a free-text "survives" is
- * not a registration.
- */
-function registrationsFromHypotheses(dir) {
-  try {
-    fs.readdirSync(dir);
-  } catch (err) {
-    return [];
-  }
-  return [];
-}
-
-function loadCellRegistrations(root) {
-  const base = typeof root === 'string' && root ? root : REPO;
-  return [
-    ...registrationsFromEligibility(path.join(base, 'benchmark', 'eligibility')),
-    ...registrationsFromPoc(path.join(base, 'benchmark', 'poc_retest', 'result.json')),
-    ...registrationsFromHypotheses(path.join(base, 'benchmark', 'hypotheses')),
-  ];
 }
 
 module.exports = { loadCellRegistrations };

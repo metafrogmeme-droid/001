@@ -230,26 +230,27 @@ about to change before changing it.
 - L19085: THE SCRUBBER'S UNIT WAS A LINE AND THE CARD'S UNIT IS A FIELD
 - L19123: THREE ABORT CARDS ANNOUNCED A FLATTEN AND NAMED NO CAUSE
 - L19240: THE ALLOWANCE X-RAY PRINTED ✅ OVER GRANTS IT NEVER READ, THREE WAYS — `app/test/allowance_xray_says_what_it_read.test.js`, `app/test/signed_in_is_not_the_operator.test.js`
+- L19263: THREE PUBLIC SIGNAL STATISTICS SAID MORE THAN THEIR ROWS DID — `app/test/both_mean_r_routes_say_which_rows_they_cover.test.js`, `app/test/setup_scoreboard_intervals.test.js`, `app/test/setup_survives_is_preregistered.test.js`, `app/test/the_calibration_chart_says_fitted_not_recorded.test.js`, `app/test/the_setup_board_shows_measured_cells_first.test.js`, `app/test/the_state_dir_is_the_bots_reading.test.js`, `tests/test_the_calibration_file_records_each_bins_trades.py`
 
-## A URL is a surface, and a slash in a path segment does not survive a hop (line 19263)
-
-
-## Verifying a deploy (line 19312)
+## A URL is a surface, and a slash in a path segment does not survive a hop (line 19338)
 
 
-## Writing tests that scan source (line 19357)
-
-- L19799: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
-- L20000: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
-- L20027: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
-
-### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 20261)
+## Verifying a deploy (line 19387)
 
 
-### A module nothing calls is indistinguishable from one that does not work (line 20333)
+## Writing tests that scan source (line 19432)
+
+- L19874: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
+- L20075: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
+- L20102: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
+
+### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 20336)
 
 
-## Deploying so a dead bot cannot look like a live one (line 20524)
+### A module nothing calls is indistinguishable from one that does not work (line 20408)
 
 
-## Operational docs (line 20681)
+## Deploying so a dead bot cannot look like a live one (line 20599)
+
+
+## Operational docs (line 20756)

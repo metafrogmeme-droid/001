@@ -57,6 +57,24 @@ _DEFAULT_MIN_SAMPLES = 30      # below this, calibration is identity
 _DEFAULT_SHRINKAGE = 5.0       # pseudo-count pulling thin bins toward raw confidence
 
 
+def _bin_counts(raw, n: int) -> Optional[list[int]]:
+    """One whole count per stored bin from a saved file, or None.
+
+    None when the file has no counts (one saved before they were), when they
+    do not line up with the bins, or when any entry is not a whole number of
+    at least 0. They are for display only, so an unreadable entry drops the
+    counts; it never fails the load the analyzer depends on.
+    """
+    if not isinstance(raw, list) or len(raw) != n:
+        return None
+    out: list[int] = []
+    for v in raw:
+        if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+            return None
+        out.append(v)
+    return out
+
+
 def _pav(values: list[float], weights: list[float]) -> list[float]:
     """Pool Adjacent Violators — isotonic (non-decreasing) regression.
 
@@ -143,6 +161,12 @@ class ConfidenceCalibrator:
         # Fitted curve: bin centers (x) -> calibrated win-rate (y), monotonic.
         self._x: list[float] = []
         self._y: list[float] = []
+        # What each stored bin rests on: its trades and its recorded wins.
+        # `y` is shrunk toward the bin's centre and pooled with its
+        # neighbours, so it is not the recorded rate; these are, and the
+        # website's chart prints them beside it. Not used to calibrate.
+        self._trades: list[int] = []
+        self._wins: list[int] = []
         self._n_samples: int = 0
         # A fit made in this process is counted under the current rule; one
         # loaded from disk says which rule it was counted under.
@@ -156,6 +180,7 @@ class ConfidenceCalibrator:
         clean = [(min(1.0, max(0.0, float(c))), 1.0 if w else 0.0)
                  for c, w in samples if c is not None]
         self._n_samples = len(clean)
+        self._trades, self._wins = [], []
         if self._n_samples < self.min_samples:
             self._x, self._y = [], []
             return self
@@ -171,6 +196,8 @@ class ConfidenceCalibrator:
         centers: list[float] = []
         rates: list[float] = []
         weights: list[float] = []
+        trades: list[int] = []
+        wins: list[int] = []
         for i in range(self.bins):
             if cnt[i] <= 0:
                 continue
@@ -181,11 +208,14 @@ class ConfidenceCalibrator:
             centers.append(center)
             rates.append(rate)
             weights.append(cnt[i])
+            trades.append(int(cnt[i]))
+            wins.append(int(win[i]))
 
         if not centers:
             self._x, self._y = [], []
             return self
 
+        self._trades, self._wins = trades, wins
         self._x = centers
         self._y = [min(1.0, max(0.0, v)) for v in _pav(rates, weights)]
         return self
@@ -282,6 +312,7 @@ class ConfidenceCalibrator:
     def to_dict(self) -> dict:
         return {"bins": self.bins, "min_samples": self.min_samples,
                 "shrinkage": self.shrinkage, "x": self._x, "y": self._y,
+                "trades": self._trades, "wins": self._wins,
                 "n_samples": self._n_samples,
                 "sample_reading": self.sample_reading}
 
@@ -292,6 +323,13 @@ class ConfidenceCalibrator:
         self.shrinkage = float(d.get("shrinkage", self.shrinkage))
         self._x = [float(v) for v in d.get("x", [])]
         self._y = [float(v) for v in d.get("y", [])]
+        # A file written before the per-bin counts were saved has none.
+        trades = _bin_counts(d.get("trades"), len(self._x))
+        wins = _bin_counts(d.get("wins"), len(self._x))
+        if trades is not None and wins is not None:
+            self._trades, self._wins = trades, wins
+        else:
+            self._trades, self._wins = [], []
         self._n_samples = int(d.get("n_samples", 0))
         return self
 

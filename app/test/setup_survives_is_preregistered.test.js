@@ -276,3 +276,36 @@ test('the analytics route asks the registration loader', () => {
   assert.ok(q.includes('loadCellRegistrations('), 'the route does not read registrations');
   assert.ok(q.includes('registrations:'), 'computeAnalytics is not given them');
 });
+
+// ── a blank bound is not a measured zero; the loader reads nothing ────────
+
+test('a blank or non-numeric bound is published as null, not a measured 0', () => {
+  for (const blank of ['  ', '', [], {}, true, 'n/a', Number.NaN]) {
+    const book = computeAnalytics(rowsAtZ(40, 1, 2.58), {
+      registrations: [registration({ prospective_lo: blank, prospective_hi: 1.2 })],
+    });
+    assert.equal(book.by_setup[0].registrations[0].prospective_lo, null, JSON.stringify(blank));
+    assert.equal(book.by_setup[0].reading, 'exploratory');
+  }
+  // A numeric string is a number, and a measured zero stays zero.
+  const spelled = computeAnalytics(rowsAtZ(40, 1, 2.58), {
+    registrations: [registration({ prospective_lo: ' 0.4 ', prospective_hi: '0' })],
+  });
+  assert.equal(spelled.by_setup[0].registrations[0].prospective_lo, 0.4);
+  assert.equal(spelled.by_setup[0].registrations[0].prospective_hi, 0);
+});
+
+test('the registration loader touches no file: there is no source to read', () => {
+  const calls = [];
+  const saved = {};
+  for (const fn of ['readFileSync', 'readdirSync', 'statSync', 'existsSync']) {
+    saved[fn] = fs[fn];
+    fs[fn] = (...args) => { calls.push(fn); return saved[fn](...args); };
+  }
+  try {
+    assert.deepEqual(loadCellRegistrations(), []);
+  } finally {
+    for (const fn of Object.keys(saved)) fs[fn] = saved[fn];
+  }
+  assert.deepEqual(calls, []);
+});
