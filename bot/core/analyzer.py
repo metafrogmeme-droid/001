@@ -73,7 +73,7 @@ from bot.core.smart_exits import detect_squeeze
 from bot.core.chart_patterns import scan_all_chart_patterns
 from bot.core.order_flow import OrderFlowAnalyzer, book_imbalance_read
 from bot.utils.logger import audit, system_log, trade_log, scan_log
-from bot.utils.models import Direction, MarketSignal, TradeIdea
+from bot.utils.models import ANALYZER_SOURCE, Direction, MarketSignal, TradeIdea
 
 # Module logger. Several exception handlers below (LLM-calibration writer,
 # order-flow / funding / volume-profile / sentiment / supply-demand vote
@@ -2230,6 +2230,10 @@ class Analyzer:
             # Higher-timeframe trend (daily-weighted) for the risk MTF gate.
             # "" when no MTF data was fed this bar (gate then skips).
             htf_trend=(mtf_result.htf_trend if mtf_result is not None else ""),
+            # The producer, named. Left out, the idea carried the field's
+            # default "unknown", and the public setup board filed every
+            # engine signal under it as if it were a recorded source.
+            source=ANALYZER_SOURCE,
             timestamp=datetime.now(UTC),
             order_type=order_type,
             strategy_type=strategy_type,

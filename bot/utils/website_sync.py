@@ -17,6 +17,7 @@ import urllib.error
 from typing import Optional
 
 from bot.core.signal_confidence import displayed_confidence
+from bot.utils.models import REGIME_UNMEASURED, SOURCE_UNSTATED
 from bot.utils.site_url import site_url
 
 log = logging.getLogger(__name__)
@@ -36,19 +37,23 @@ def _attr(obj, key, default=None):
     return val if val is not None else default
 
 
-def _recorded_label(value: object) -> Optional[str]:
+def _recorded_label(value: object, absent: str = "") -> Optional[str]:
     """A setup-cell word the idea stored, or None when it did not.
 
     A missing signal_type, timeframe or source is not a bucket. Stringifying
     a number, or writing ``unknown`` because the attribute was absent, would
-    publish a group the row never named. The word the idea already carries
-    is copied as it stands, including a producer default that is actually
-    set on the object.
+    publish a group the row never named. ``absent`` is the field's own
+    absence word, when it has one: ``TradeIdea.source`` defaults to
+    ``SOURCE_UNSTATED``, which is what a forgotten argument writes, and it
+    was published as a source for every engine signal. It is checked as
+    written, so a different word is never folded into it.
     """
     if not isinstance(value, str):
         return None
     text = value.strip()
-    return text or None
+    if not text or (absent and text == absent):
+        return None
+    return text
 
 
 def _opt_num(obj, key):
@@ -550,13 +555,15 @@ def build_signal_payload(signal_key: str, idea, *, score: float = 0.0,
         "confidence": float(confidence or 0),
         "score": float(score or 0),
         "pattern": _attr(idea, "pattern"),
-        "regime": regime or "",
+        # The risk engine's regime before anything measured one is the word
+        # REGIME_UNMEASURED, and a row tagged with it is a row with no regime.
+        "regime": _recorded_label(regime, REGIME_UNMEASURED) or "",
         # Outside the seal (sync.js stores them beside it). Null when the
         # idea did not record the word — the scoreboard leaves that row out
         # of the setup cell rather than filing a filler.
         "signal_type": _recorded_label(_attr(idea, "signal_type", None)),
         "timeframe": _recorded_label(_attr(idea, "timeframe", None)),
-        "source": _recorded_label(_attr(idea, "source", None)),
+        "source": _recorded_label(_attr(idea, "source", None), SOURCE_UNSTATED),
         "entry_price": entry,
         "stop_loss": sl,
         "take_profit": tp,

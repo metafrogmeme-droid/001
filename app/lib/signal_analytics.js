@@ -67,11 +67,21 @@ function round2(n) { return Math.round(n * 100) / 100; }
  * named. `pattern` is a different column (the scan trigger) and is not a
  * stand-in for `signal_type`.
  */
-function recordedLabel(value) {
+function recordedLabel(value, absent) {
   if (typeof value !== 'string') return null;
   const text = value.trim();
-  return text ? text : null;
+  if (!text || (absent && text === absent)) return null;
+  return text;
 }
+
+// The bot's absence words for two dimensions, as it writes them
+// (`bot/utils/models.py`: SOURCE_UNSTATED, REGIME_UNMEASURED; a Python test
+// holds these to those constants). The bot no longer publishes either, but
+// rows stored before it stopped still carry them, and a filler word is not a
+// recorded source or regime: every engine signal was filed under source
+// "unknown" on the public setup board.
+const SOURCE_UNSTATED = 'unknown';
+const REGIME_UNMEASURED = 'UNKNOWN';
 
 /**
  * The five dimensions of one setup cell, or null when any one was not stored.
@@ -88,9 +98,9 @@ function setupDims(row) {
     : row.direction;
   const dims = {
     setup: recordedLabel(row.signal_type),
-    regime: recordedLabel(row.regime),
+    regime: recordedLabel(row.regime, REGIME_UNMEASURED),
     timeframe: recordedLabel(row.timeframe),
-    source: recordedLabel(row.source),
+    source: recordedLabel(row.source, SOURCE_UNSTATED),
     direction: recordedLabel(direction),
   };
   for (const value of Object.values(dims)) {
@@ -272,4 +282,4 @@ function computeAnalytics(signals, { top = 12, registrations } = {}) {
   };
 }
 
-module.exports = { computeAnalytics, bucketFor, CONF_BUCKETS };
+module.exports = { computeAnalytics, bucketFor, CONF_BUCKETS, SOURCE_UNSTATED, REGIME_UNMEASURED };

@@ -97,6 +97,20 @@ class StateTransition(BaseModel):
 
 # -- AI Analyzer Output --
 
+#: The producer word an idea carries when nobody named its producer: the
+#: field default, so it is what a forgotten ``source=`` argument writes. It
+#: is never a producer, and a reader that publishes a source treats it as
+#: absent (`website_sync.build_signal_payload`, `signal_analytics.js`).
+SOURCE_UNSTATED = "unknown"
+
+#: The producer word the analyzer's own ideas carry.
+ANALYZER_SOURCE = "analyzer"
+
+#: The risk engine's regime before anything measured one. A row tagged with
+#: it has no regime, and the publishers say so rather than file it.
+REGIME_UNMEASURED = "UNKNOWN"
+
+
 class TradeIdea(BaseModel):
     """A fully-formed trade thesis produced by the AI analyzer."""
     id: str = Field(default_factory=lambda: f"TI-{uuid4().hex[:8]}")
@@ -118,7 +132,7 @@ class TradeIdea(BaseModel):
     # engine's MTF-alignment gate can reject counter-trend entries without
     # re-deriving it. "" when no MTF data was available.
     htf_trend: str = ""
-    source: str = "unknown"
+    source: str = SOURCE_UNSTATED
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     order_type: str = "market"  # "market" or "limit"
     strategy_type: str = "swing"  # "scalp" | "intraday" | "swing" | "position"
