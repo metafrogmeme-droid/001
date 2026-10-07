@@ -57,7 +57,7 @@ from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and c
     act_intent_notice, close_intent_notice, forwarded_halt_notice, halt_intent_notice, reply_contract,
     stake_verb, LINK_DOOR, strip_bot_mention, live_account_absence,
     no_live_account_line,
-    skill_failure_notice, thinking_phrase,
+    skill_failure_notice, thinking_phrase, compose_telegram_answer,
 )
 from bot.nlp.intent_router import casual_halt, halt_verb, symbol_mentioned
 from bot.nlp.web_card_args import replay_stake, venue_base, wallet_chain
@@ -4810,21 +4810,10 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         except Exception:
             pass
 
-        # Don't wrap in rigid header for short/social responses
+        # The message the person reads: escaped or kept, headed or not, and
+        # the reading footer. `compose_telegram_answer` is a seam a test drives.
         is_social = intent.is_social if hasattr(intent, 'is_social') else False
-        # Don't escape if LLM produced HTML formatting tags
-        if any(tag in answer for tag in ['<b>', '<i>', '<code>', '<pre>']):
-            formatted = answer
-        else:
-            formatted = html.escape(answer)
-
-        if len(answer) < 80 or is_social:
-            _final = formatted
-        else:
-            # Premium tactical header for substantive responses
-            _final = f"\u2694\ufe0f <b>RUNECLAW</b>\n{'─' * 16}\n\n{formatted}"
-        from bot.nlp.grounding import telegram_read_from_html
-        _final += telegram_read_from_html(_meta)
+        _final = compose_telegram_answer(answer, _meta, is_social=is_social)
         # The streamed message becomes the answer in place; if that edit
         # cannot land (too long, rate-limited, deleted) the answer goes out
         # as a fresh message, as it always did.

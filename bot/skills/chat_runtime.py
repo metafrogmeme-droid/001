@@ -980,6 +980,31 @@ class TelegramStream:
             return "failed"
 
 
+def compose_telegram_answer(answer: str, meta, *, is_social: bool = False) -> str:
+    """The Telegram chat reply as sent: the model's HTML kept or its text
+    escaped, the RUNECLAW header on a substantive reply, and the reading
+    footer (``telegram_read_from_html``) when the turn read something.
+
+    Lifted out of `_handle_message`, where the footer was one line of a
+    long handler and its only test a scan for the call's NAME: dropping the
+    `+=` left the call standing and every test passing while no Telegram
+    user saw the footer.
+    """
+    from bot.nlp.grounding import telegram_read_from_html
+    answer = answer or ""
+    # Don't escape if the model produced HTML formatting tags.
+    if any(tag in answer for tag in ['<b>', '<i>', '<code>', '<pre>']):
+        formatted = answer
+    else:
+        formatted = _html.escape(answer)
+    # No rigid header on a short or social reply.
+    if len(answer) < 80 or is_social:
+        final = formatted
+    else:
+        final = f"\u2694\ufe0f <b>RUNECLAW</b>\n{'─' * 16}\n\n{formatted}"
+    return final + telegram_read_from_html(meta)
+
+
 def _chat_ret(text: str, cfg, return_meta: bool, tool_events=None,
               is_admin: bool = False):
     """Shape _llm_chat's return: plain string (default, every existing caller),

@@ -25,7 +25,7 @@ from bot.nlp.grounding import (
     tools_footer,
 )
 from bot.nlp.tool_reading import parse_reading, render_reading
-from bot.skills.chat_runtime import _chat_ret
+from bot.skills.chat_runtime import _chat_ret, compose_telegram_answer
 
 
 @pytest.fixture(autouse=True)
@@ -120,15 +120,79 @@ def test_a_failed_tool_is_marked_in_the_footer_and_the_html_is_escaped():
     assert "&lt;script&gt;" in html
 
 
-def test_the_telegram_send_path_appends_the_footer():
+def test_the_telegram_send_path_sends_the_composed_answer():
+    """The handler's one remaining line: the message it sends IS the
+    composed answer. The scan this replaced looked for the footer call's
+    name, which survives the `+=` being dropped."""
     src = Path("bot/skills/telegram_handler.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
-    found = False
-    for node in ast.walk(tree):
-        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_handle_message":
-            for sub in ast.walk(node):
-                if (isinstance(sub, ast.Call)
-                        and isinstance(sub.func, ast.Name)
-                        and sub.func.id == "telegram_read_from_html"):
-                    found = True
-    assert found, "the send path does not append the reading footer"
+    handler = next(n for n in ast.walk(tree)
+                   if isinstance(n, ast.AsyncFunctionDef) and n.name == "_handle_message")
+    assigns = [n for n in ast.walk(handler) if isinstance(n, ast.Assign)
+               and any(isinstance(t, ast.Name) and t.id == "_final" for t in n.targets)]
+    assert len(assigns) == 1
+    call = assigns[0].value
+    assert isinstance(call, ast.Call) and getattr(call.func, "id", "") == "compose_telegram_answer"
+    assert [ast.unparse(a) for a in call.args] == ["answer", "_meta"]
+    # Nothing rebinds or extends it before it is sent.
+    assert not [n for n in ast.walk(handler) if isinstance(n, ast.AugAssign)
+                and getattr(n.target, "id", "") == "_final"]
+
+
+class TestTheComposedTelegramAnswer:
+    META = {"read_from": "read: get_portfolio, get_news\u2717"}
+
+    def test_a_turn_that_read_something_carries_the_footer(self):
+        out = compose_telegram_answer("Your equity is $10,000.", self.META)
+        assert out == ("Your equity is $10,000.\n\n<i>read: get_portfolio, "
+                       "get_news\u2717</i>")
+
+    def test_a_turn_that_read_nothing_carries_none(self):
+        assert compose_telegram_answer("Hello there.", {}) == "Hello there."
+        assert compose_telegram_answer("Hello there.", None) == "Hello there."
+
+    def test_a_substantive_reply_is_headed_and_still_footed(self):
+        long = "x" * 120
+        out = compose_telegram_answer(long, self.META)
+        assert out.startswith("\u2694\ufe0f <b>RUNECLAW</b>\n")
+        assert out.endswith("</i>") and "read: get_portfolio" in out
+
+    def test_a_social_reply_is_not_headed(self):
+        long = "x" * 120
+        assert compose_telegram_answer(long, {}, is_social=True) == long
+
+    def test_text_is_escaped_and_the_models_html_is_kept(self):
+        assert compose_telegram_answer("1 < 2 & 3", {}) == "1 &lt; 2 &amp; 3"
+        assert compose_telegram_answer("<b>up</b> today", {}) == "<b>up</b> today"
+
+
+class TestAClockIsNotARatio:
+    """`\\s*:\\s*` read "16:23" as the ratio 16:23 and "Day 1: 25%" as the
+    ratio "1: 25", so a correct reply was scored one-in-three unverified and
+    a fabricated 25% was never checked."""
+
+    CARD = ["Equity $10,000 · Today +0.5%"]
+
+    def test_a_time_of_day_is_not_checked(self):
+        reply = "As of 16:23 UTC your equity is $10,000, up 0.5% today."
+        assert check_reply(reply, self.CARD) == (2, [])
+
+    @pytest.mark.parametrize("reply", [
+        "Checked at 9:30, equity $10,000.",
+        "Since 14:05 your equity is $10,000.",
+        "Equity $10,000 at 16:23:05.",
+        "Equity $10,000 (09:15 am).",
+        "Equity $10,000, stamped 16:23:05.",   # a seconds run, no clock word
+    ])
+    def test_other_clock_shapes_are_not_checked(self, reply):
+        assert check_reply(reply, self.CARD) == (1, [])
+
+    def test_a_list_label_does_not_swallow_the_percent_after_it(self):
+        assert check_reply("Day 1: 25% of the plan. Equity $10,000.", self.CARD) == (2, ["25%"])
+
+    @pytest.mark.parametrize("reply, shown", [
+        ("R:R is 1:2.5 here.", "1:2.5"), ("Target 3:1 on this one.", "3:1"),
+    ])
+    def test_a_ratio_written_tight_is_still_checked(self, reply, shown):
+        assert check_reply(reply, self.CARD) == (1, [shown])
+        assert check_reply(reply, [f"R:R {shown}"]) == (1, [])

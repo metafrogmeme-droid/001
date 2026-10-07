@@ -257,3 +257,40 @@ def test_a_viewer_pressing_stage_registers_nothing(monkeypatch):
     assert engine._pending_ideas == {}
     assert engine.confirmed == []
     assert h.sent and "cannot" in h.sent[0][0].lower()
+
+
+class TestAnExpiredDraftLeavesTheStore:
+    """Nothing removed a draft: every priced ticket stayed in `_DRAFTS` for
+    the bot's lifetime and `offer` walked all of them on every turn. An
+    expired one is pruned when a new one is stored and when one is offered;
+    a live one stays."""
+
+    @staticmethod
+    def _draft(monkeypatch, at, user="user-1", symbol="SOL/USDT"):
+        monkeypatch.setattr(chat_draft, "market_for",
+                            lambda engine, sym: {"read_state": "read", "price": 100.0,
+                                                 "atr": 2.0, "as_of": 1})
+        monkeypatch.setattr(chat_draft, "_now", lambda: at)
+        tag, _ = chat_draft.draft_ticket(_Engine(), user, symbol, "LONG")
+        assert tag == "READ"
+        return max(chat_draft._DRAFTS.values(), key=lambda d: d.created).id
+
+    def test_a_new_draft_prunes_the_expired_ones(self, monkeypatch):
+        old = self._draft(monkeypatch, 1000.0)
+        live = self._draft(monkeypatch, 1000.0 + 600, user="user-2")
+        newest = self._draft(monkeypatch, 1000.0 + chat_draft._TTL_S + 1, user="user-3")
+        assert old not in chat_draft._DRAFTS
+        assert {live, newest} <= set(chat_draft._DRAFTS)
+
+    def test_an_offer_prunes_too_and_still_offers_the_live_one(self, monkeypatch):
+        old = self._draft(monkeypatch, 1000.0, user="user-9")
+        live = self._draft(monkeypatch, 1000.0 + 600)
+        monkeypatch.setattr(chat_draft, "_now", lambda: 1000.0 + chat_draft._TTL_S + 5)
+        card = chat_draft.offer("user-1")
+        assert card is not None and card["id"] == live
+        assert old not in chat_draft._DRAFTS and live in chat_draft._DRAFTS
+
+    def test_a_draft_at_its_ttl_is_still_held(self, monkeypatch):
+        held = self._draft(monkeypatch, 1000.0)
+        monkeypatch.setattr(chat_draft, "_now", lambda: 1000.0 + chat_draft._TTL_S)
+        assert chat_draft.offer("user-1")["id"] == held

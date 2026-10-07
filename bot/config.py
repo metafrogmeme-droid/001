@@ -286,17 +286,27 @@ def _env_switch(key: str, default: bool = False) -> bool:
 # line in a container log nobody reads; this list is what the boot preflight
 # (`boot_health.env_preflight`) prints on EVERY boot, because a warning that
 # fires once is not a surface.
-ENV_UNREAD: list[tuple[str, str, float]] = []
+#
+# The default is None for an OPTIONAL knob, whose junk value is treated as
+# unset: there is no default to name. Naming one printed "the default 0.0 is
+# in force" for a dollar cap whose value in force was None.
+ENV_UNREAD: list[tuple[str, str, Optional[float]]] = []
 
 
-def _note_env_unread(key: str, reason: str, default: float) -> None:
+def _note_env_unread(key: str, reason: str, default: Optional[float]) -> None:
     import logging as _logging
     # The key and the reason, never the raw text: a numeric knob's value is
     # the operator's own, and a value that did not parse is whatever was typed.
-    _logging.getLogger(__name__).warning(
-        "Env var %s is %s — using default %r (the boot preflight will say so)",
-        key, reason, default,
-    )
+    if default is None:
+        _logging.getLogger(__name__).warning(
+            "Env var %s is %s — treated as unset (the boot preflight will say so)",
+            key, reason,
+        )
+    else:
+        _logging.getLogger(__name__).warning(
+            "Env var %s is %s — using default %r (the boot preflight will say so)",
+            key, reason, default,
+        )
     ENV_UNREAD.append((key, reason, default))
 
 
@@ -346,11 +356,11 @@ def _env_budget_opt(key: str) -> Optional[float]:
     try:
         val = float(raw)
     except (TypeError, ValueError):
-        _note_env_unread(key, "not a number", 0.0)
+        _note_env_unread(key, "not a number", None)
         return None
     import math as _math
     if not _math.isfinite(val) or val < 0:
-        _note_env_unread(key, "not a finite number at least zero", 0.0)
+        _note_env_unread(key, "not a finite number at least zero", None)
         return None
     return val
 

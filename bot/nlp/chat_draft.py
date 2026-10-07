@@ -91,6 +91,15 @@ def _clear_drafts() -> None:
     _DRAFTS.clear()
 
 
+def _prune(now: float) -> None:
+    """Drop every draft past its TTL. An expired draft is already unusable
+    (`stage_draft` refuses it, `offer` skips it), and nothing removed one:
+    each priced ticket stayed in process memory for the bot's lifetime, and
+    `offer` walked all of them on every chat turn."""
+    for key in [k for k, d in list(_DRAFTS.items()) if now - d.created > _TTL_S]:
+        _DRAFTS.pop(key, None)
+
+
 def split_tagged(result: str) -> tuple[str, str]:
     """``READ|UNREAD|ABSENT`` plus the prose the model and the store see."""
     head, sep, rest = str(result or "").partition("\n")
@@ -272,6 +281,7 @@ def draft_ticket(engine, user_id: str, symbol: str, direction: str,
         return "ABSENT", why
     draft.user_id = str(user_id or "")
     draft.symbol = str(symbol)
+    _prune(_now())
     _DRAFTS[draft.id] = draft
     gross = "unread" if draft.gross_rr is None else f"{draft.gross_rr:.2f}"
     return "READ", (
@@ -288,8 +298,9 @@ def draft_ticket(engine, user_id: str, symbol: str, direction: str,
 def offer(user_id: str) -> Optional[dict]:
     """The newest unstaged draft for this caller, once, for the Stage button."""
     now = _now()
+    _prune(now)
     found: Optional[Draft] = None
-    for draft in _DRAFTS.values():
+    for draft in list(_DRAFTS.values()):
         if draft.user_id != str(user_id or "") or draft.staged or draft.offered:
             continue
         if now - draft.created > _TTL_S:

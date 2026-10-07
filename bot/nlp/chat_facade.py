@@ -63,6 +63,11 @@ def check_question(question: Any) -> str:
     return text
 
 
+#: The surfaces a facade turn can arrive on, each with doors the onboarding
+#: card and the memory record know.
+FACADE_SURFACES: tuple[str, ...] = ("api", "web", "public", "telegram")
+
+
 async def ask(handler: TelegramHandler, question: str, *, user_id: str = "",
               user_name: str = "", is_admin: bool = False, public: bool = False,
               reply_lang: str = "", surface: str = "api") -> dict[str, Any]:
@@ -78,7 +83,14 @@ async def ask(handler: TelegramHandler, question: str, *, user_id: str = "",
 
     A public turn (``public=True``) is account-free and remembered nowhere,
     exactly as it is on the website.
+
+    ``surface`` must be one this facade knows (`FACADE_SURFACES`). Anything
+    else raises: it was rewritten to "api" in silence, so a caller naming a
+    surface nobody measured got the slash-command doors of another one.
     """
+    if surface not in FACADE_SURFACES:
+        raise ValueError(f"unknown surface {surface!r}; name one of "
+                         f"{', '.join(FACADE_SURFACES)}")
     text = check_question(question)
 
     # THE CAPABILITY ASK, ANSWERED BEFORE THE MODEL. A headless handler has
@@ -106,8 +118,7 @@ async def ask(handler: TelegramHandler, question: str, *, user_id: str = "",
         from bot.formatters.onboarding_checklist import onboarding_checklist
         from bot.nlp.skill_memory import record_routed_turn, routed_answer_memory
         _who = None if public or not user_id else user_id
-        _doors = surface if surface in ("web", "public", "telegram", "api") else "api"
-        _card = onboarding_checklist(_doors, handler.users, _who)
+        _card = onboarding_checklist(surface, handler.users, _who)
         if user_id and not public:
             record_routed_turn(
                 handler.conversations, user_id, text, "onboarding",

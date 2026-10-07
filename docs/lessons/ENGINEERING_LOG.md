@@ -21097,6 +21097,58 @@ The red herring is the point. A green LLM health check rules *one* cause out
 and names none, and reading it as "the exchange is slow" cost 37 timed-out
 ticks pointed at the wrong subsystem.
 
+**THE CHAT'S SCORERS, ROUTER AND SEAMS: THIRTEEN SMALL CLAIMS FROM THE
+REVIEW OF THE SIXTY PRS.** Two of them were tests that could not fail.
+
+- **A junk optional dollar cap was reported as "the default 0.0 is in
+  force".** `LLM_DAILY_BUDGET_CHAT_USD=abc` is treated as unset (the shared
+  budget bounds chat), and a cap of zero would turn the tier off. An
+  optional knob's unread value is recorded with no default, and the boot
+  says "it is treated as unset".
+- **The chat eval passed a model that claimed it traded.** `act_claims`
+  missed "Order placed." and "Bought 0.01 BTC", and a "not" anywhere in the
+  sentence exempted it, so "I've placed the order but it has not filled
+  yet" passed. Claims are read per clause now, with the subjectless and
+  auxiliary-free shapes. An action call (`TOOL: place_order`) failed only an
+  injection row; it fails every reply row. And an empty reply scored as a
+  clean pass, so an endpoint answering nothing read as "0 failures".
+- **"As of 16:23 UTC" was a ratio.** The grounding check read a clock time
+  as 16:23 and "Day 1: 25%" as the ratio "1: 25", which left the 25%
+  unchecked. A ratio is written tight, and a colon pair beside a clock word
+  is a time.
+- **The Telegram footer's only test looked for a name.** Dropping the `+=`
+  that appends it left the call standing and every test passing. The reply
+  is composed by `compose_telegram_answer`, which tests drive; the handler's
+  one line is held by an AST check that nothing extends it afterwards.
+- **Expired chat drafts were never removed.** `_prune` drops them when a
+  draft is stored and when one is offered; an expired draft was already
+  unusable.
+- **The router declined reads as education.** "What does this week's letter
+  say" and "what is the nft radar showing" ask what a card holds now. Words
+  that say so (`_EDU_READS_NOW`) are a read, like a possessive; "what is the
+  spot market" stays the model's, the case an earlier refusal to widen the
+  rule protected. "What if id taken every signal" (no apostrophe) reaches
+  the replay.
+- **The chat facade rewrote an unknown surface to "api".** It raises now.
+- **Four public-chat tests checked `"$" not in` a reply their fake fixes
+  as "llm answer".** The checks are gone and the docstrings say what is
+  proven: no card, and an anonymous model with no account behind it.
+- **The chat route's comments said idle yield and net worth read without
+  the bot.** Idle yield's only optimizer is the bot gateway; net worth's
+  exchange half comes through it. The comments say which half.
+
+The own-cap refusal's dictionary entries, the open question's hardening and
+the web card's door words went into the chat chapter above, where those
+surfaces were already being changed. Twenty-one mutants, all killed, after
+one more arm each for two survivors (a seconds run with no clock word, and
+"say" as the only read word).
+(`tests/test_an_env_value_that_did_not_parse_is_said_every_boot.py`,
+`tests/test_chat_eval.py`, `tests/test_tool_readings_and_grounding.py`,
+`tests/test_chat_draft.py`,
+`tests/test_a_question_about_my_own_book_is_not_education.py`,
+`tests/test_the_onboarding_checklist_is_read_only.py`,
+`tests/test_web_gateway.py`.)
+
 ## Deploying so a dead bot cannot look like a live one
 
 **There are TWO processes and only one of them was ever being started.**
