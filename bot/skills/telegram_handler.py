@@ -186,8 +186,13 @@ def _live_position_row(p, mark) -> str:
     if unread:
         # WHY a field is not on record, when adoption recorded the reason:
         # the bot's record does not hold it because the venue never said.
-        parts.append(f"the venue did not state {', '.join(unread)} at "
-                     "adoption — do not estimate them")
+        # "at adoption" only for a position adoption recorded. A fill whose
+        # leverage the venue did not state names it too, and that was not an
+        # adoption.
+        when = ("at adoption" if origin in ("adopted", "reclaimed")
+                else "for this fill")
+        parts.append(f"the venue did not state {', '.join(unread)} {when} "
+                     "— do not estimate them")
     if entry_is_estimated(p):
         # The figure is on record and it is not a fill: the ticker read before
         # the order, booked because the venue stated no fill price. Said in

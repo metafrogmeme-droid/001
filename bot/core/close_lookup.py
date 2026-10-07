@@ -99,7 +99,12 @@ def client_is_uta(exchange: Any) -> bool:
     family. Read off the client's own options -- the fact that routes every
     ccxt call it makes -- and never inferred from a probe: a stand-in whose
     options are not a dict answers False, so a test double is the classic
-    client it has always been."""
+    client it has always been.
+
+    That is a property of the client, not a reading that the account is
+    unified (``LiveExecutor._is_uta`` is that reading). The one reader of
+    ``options["uta"]``: the executor kept an identical copy
+    (``client_marks_uta``) for its leverage set and its post-fill guard."""
     opts = getattr(exchange, "options", None)
     return isinstance(opts, dict) and opts.get("uta") is True
 

@@ -1979,17 +1979,6 @@ def leverage_set_params(base: dict, *, uta: bool, margin_mode: Any,
     return params
 
 
-def client_marks_uta(exchange: Any) -> bool:
-    """Whether this ccxt client sends Bitget's UTA endpoints.
-
-    The venue constructor sets ``options.uta``. That is a property of the
-    client, not a reading that this account is unified — ``_is_uta`` is
-    that reading. The set has to speak the client's dialect either way.
-    """
-    options = getattr(exchange, "options", None)
-    return isinstance(options, dict) and options.get("uta") is True
-
-
 def governing_fill_leverage(position_leverage: Any, settings: Any, *,
                             uta: bool) -> Optional[int]:
     """The leverage a post-fill guard may flatten on, or None when it may not.
@@ -2699,7 +2688,12 @@ class LiveExecutor:
         one answer; with none given the document is read here.
         """
         document = settings if settings is not None else await self._read_uta_settings()
-        return uta_symbol_leverage(document, symbol, margin_mode)
+        out = dict(uta_symbol_leverage(document, symbol, margin_mode))
+        # Whether the document was read at all. A missing row and a document
+        # nobody could read both answer `value` None; only the first is the
+        # venue stating anything, and the post-fill audit says which.
+        out["document"] = "read" if isinstance(document, dict) else "unread"
+        return out
 
     async def _ensure_leverage(self, symbol: str, side: str = "",
                                idea: Any = None,
@@ -2881,7 +2875,7 @@ class LiveExecutor:
         # to use that same mode, or a cross write confirms 5x while an
         # isolated order fills at the sticky isolated default.
         _order_margin_mode = CONFIG.exchange.margin_mode
-        _set_uta = client_marks_uta(exchange)
+        _set_uta = client_is_uta(exchange)
         try:
             await exchange.set_leverage(
                 _target_leverage, symbol,
@@ -2985,9 +2979,14 @@ class LiveExecutor:
         _lev_verified = False
         _lev_read: dict = {"value": None, "field": None,
                            "governs": None, "mode": None}
-        # Set when fetch_leverage fails because the account is UTA (40085).
-        # The v2 payload does not exist there; the symbol row does.
-        _uta_account = False
+        # Set when fetch_leverage fails because the account is UTA (40085),
+        # and set FROM THE START when the account was already probed unified:
+        # the v2 payload does not exist there; the symbol row does. Starting
+        # at False made a timeout or a 429 from this read on a known unified
+        # account a classic verdict, and the sticky position row then refused
+        # the order before the symbol row was asked. The post-fill guard reads
+        # `_is_uta`; this check now asks the same fact.
+        _uta_account = getattr(self, "_is_uta", None) is True
         # The OBSERVED mode only, read ONCE here. `cfg.margin_mode` is what we
         # asked for, not what the account is, and placing the reading under a
         # requested mode is how a crossed account reads as isolated. Read
@@ -3082,6 +3081,11 @@ class LiveExecutor:
             # account-equity ratio.
             if "40085" in str(_lev_exc):
                 _uta_account = True
+                # The same evidence the hold-mode probe stores: the guard
+                # after the fill reads `_is_uta`, and a probe that failed for
+                # another reason left it None, so the guard read the sticky
+                # position row this check had just declined to read.
+                self._is_uta = True
             logger.debug("Could not verify leverage for %s (fetch_leverage unavailable)", symbol)
 
         # Second confirmation source (live incident: ETHFI 2026-07-21). Some
@@ -4772,9 +4776,28 @@ class LiveExecutor:
                     _reads_note = (f" after {int(_reads)} read(s)"
                                    if isinstance(_reads, int) and _reads > 0
                                    else "")
+                    # On the record, not only in the log: `execute()` audits
+                    # this state as `leverage_unverified_on_fill`, and these
+                    # three fill paths left an info line, so "unverified after
+                    # a limit fill" was the one version of it the audit trail
+                    # could not show. Same action and result as execute(),
+                    # with the verification's own reason when it gave one.
                     logger.info("Leverage unverified on %s fill for %s%s: %s",
                                 context, pos.symbol, _reads_note,
                                 verdict["why"])
+                    _reason = (verify.get("leverage_unread")
+                               or ("position_unread" if verify.get("state") != "found"
+                                   else "no_leverage_stated"))
+                    audit(trade_log,
+                          f"Leverage NOT VERIFIED on {context} fill for {pos.symbol}"
+                          f"{_reads_note}: {verdict['why']}; the overshoot guard did "
+                          f"not run and the record keeps the requested "
+                          f"{int(intended_leverage)}x",
+                          action="leverage_unverified_on_fill", result="UNREAD",
+                          level=logging.WARNING,
+                          data={"trade_id": trade_id, "symbol": pos.symbol,
+                                "requested": int(intended_leverage),
+                                "path": context, "reason": _reason})
                 return None
 
             want, got = int(intended_leverage), actual
@@ -5122,6 +5145,15 @@ class LiveExecutor:
                 _governed = governing_fill_leverage(
                     result.get("leverage"), _settings, uta=True)
                 result["leverage"] = _governed if _governed is not None else 0
+                # Why there is no figure, for the audit and the card: the
+                # document read with no row for this symbol in the order's
+                # mode, or no document read at all. A reader that does not
+                # say is neither.
+                _doc = _settings.get("document") if isinstance(_settings, dict) else None
+                _why_unread = {"read": "no_symbol_row", "unread": "settings_unread"}
+                result["leverage_unread"] = None if _governed is not None else (
+                    _why_unread.get(_doc, "symbol_row_unread")
+                    if isinstance(_doc, str) else "symbol_row_unread")
             # The one place the retry rule lives. `found` breaks here rather
             # than returning above, so the policy decides every exit.
             if not position_read_needs_another_look(
@@ -7912,13 +7944,15 @@ class LiveExecutor:
                            _slip_warn: str = "", _pos_state: Any = None,
                            size_usd: Optional[float] = None,
                            entry_estimated: bool = False,
-                           leverage_unverified: bool = False,
+                           leverage_unverified: Any = False,
                            ) -> str:
         """The card the operator reads after a fill. Pure formatting.
 
         ``leverage_unverified`` is the found-position-no-leverage case: the
         figure on the leverage line is the one the order was sized at, and
-        the line says that nothing has read it back.
+        the line says that nothing has read it back. Truthy, or the reason
+        code: ``settings_unread`` says the venue's settings could not be
+        read rather than that the venue stated none.
 
         Extracted from execute() verbatim (slice 2) — the renderer seam: every
         warning state on this card (unprotected, leverage mismatch kept, mismatch
@@ -7995,7 +8029,10 @@ class LiveExecutor:
             f"- Cost: <code>${cost:.2f}</code>{sizing_line}\n"
             f"- Notional: <code>${fill_price * filled_qty:.2f}</code>\n"
             f"- Leverage: <code>{leverage}x</code>"
-            + (" ⚠️ as requested — the venue stated none, NOT verified\n"
+            + ((" ⚠️ as requested — the venue's leverage settings could not be "
+                "read, NOT verified\n"
+                if leverage_unverified == "settings_unread" else
+                " ⚠️ as requested — the venue stated none, NOT verified\n")
                if leverage_unverified else "\n")
             + f"- SL: <code>${idea.stop_loss:,.4f}</code>{sl_info}\n"
             f"- TP: <code>${idea.take_profit:,.4f}</code>{tp_info}\n"
@@ -8608,7 +8645,8 @@ class LiveExecutor:
             # Set when the venue confirmed the position and stated no
             # leverage the guard may act on: the record below then keeps the
             # REQUESTED figure, and the card and the audit say that it does.
-            _lev_unread = False
+            # The verification's reason (a str) when it is unread, else False.
+            _lev_unread: bool | str = False
             # Set only when the overshoot guard below tried to flatten and the
             # close itself failed. The position is then OPEN and over-levered,
             # so the notification must say that rather than the ordinary
@@ -8659,12 +8697,31 @@ class LiveExecutor:
                     # as if the 5 had been read. The next position sync
                     # corrects the record if the venue states a figure; until
                     # then it is unverified, and says so.
-                    _lev_unread = True
-                    _lev_unread_why = (
-                        "the settings document stated no leverage for it in "
-                        f"{CONFIG.exchange.margin_mode} mode"
-                        if getattr(self, "_is_uta", None) is True
-                        else "the position row stated no leverage")
+                    # The reason is the verification's own: a settings document
+                    # that could not be read is not one that stated nothing,
+                    # and the audit and the card said "stated no leverage"
+                    # for both.
+                    _lev_reason = ((pos_verify.get("leverage_unread") or "symbol_row_unread")
+                                   if getattr(self, "_is_uta", None) is True
+                                   else "position_row_unread")
+                    _lev_unread = _lev_reason
+                    # The record keeps the requested figure, and the chat
+                    # model's evidence row read it as the venue's: "lev 5x"
+                    # with nothing saying no one had read it. Named unread
+                    # until the leverage sync reads one (it calls
+                    # `clear_unread`). Margin stays on record: it is what the
+                    # order was sized at, and the exposure cap reads it.
+                    _unread_now = tuple(getattr(position, "adoption_unread", ()) or ())
+                    if "leverage" not in _unread_now:
+                        setattr(position, "adoption_unread", _unread_now + ("leverage",))
+                    _lev_unread_why = {
+                        "no_symbol_row": ("the settings document stated no leverage "
+                                          f"for it in {CONFIG.exchange.margin_mode} mode"),
+                        "settings_unread": "the settings document could not be read",
+                        "symbol_row_unread": ("no leverage for it could be read from "
+                                              "the settings document"),
+                        "position_row_unread": "the position row stated no leverage",
+                    }.get(_lev_reason, "no leverage for it could be read")
                     audit(trade_log,
                           f"Leverage NOT VERIFIED on fill for {idea.asset}: the "
                           f"position was found but {_lev_unread_why}, so the "
@@ -8674,9 +8731,7 @@ class LiveExecutor:
                           level=logging.WARNING,
                           data={"trade_id": idea.id, "symbol": idea.asset,
                                 "requested": int(leverage),
-                                "reason": ("symbol_row_unread"
-                                           if getattr(self, "_is_uta", None) is True
-                                           else "position_row_unread")})
+                                "reason": _lev_reason})
             elif leverage_went_unverified(
                     pos_verify.get("state"), position_confirmed):
                 # THE GUARD BELOW CANNOT RUN, AND THAT HAS TO BE ON THE RECORD.
@@ -15348,7 +15403,7 @@ class LiveExecutor:
         and one signature. A client without it (a classic venue, a test
         stand-in) answers None and the classic path reads as before.
         """
-        if not client_marks_uta(exchange):
+        if not client_is_uta(exchange):
             return None
         fn = getattr(exchange, "privateUtaGetV3AccountAssets", None)
         if not callable(fn):

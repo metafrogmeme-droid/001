@@ -563,6 +563,9 @@ class Analyzer:
         # Resolve provider config (runtime BYOK overrides .env)
         self._llm_config = self._resolve_llm_config()
         self._llm = self._build_llm_client()
+        # Per-loop twins of the operator clients (`_on_this_loop`).
+        self._client_home: dict = {}
+        self._loop_twins: dict = {}
         # Offline thesis hook (backtest recorded-LLM replay). None in live/paper;
         # set to a callable(signal, indicators, as_of) -> thesis|None by the
         # backtest for deterministic parity. See bot/backtest/recorded_llm.py.
@@ -820,8 +823,50 @@ class Analyzer:
             parts.append(f"tier:{user_tier}")
         return "|".join(parts)
 
+    def _on_this_loop(self, client, cfg):
+        """``client``, or its twin built for the event loop running now.
+
+        The operator clients are built once, in ``__init__``, and an SDK
+        client pools its HTTP connections on the loop that first used them.
+        The background batch analyses on the scan lane's own loop and a
+        user's analysis runs on the engine loop, so a pooled connection
+        reached the other loop and raised "bound to a different event loop".
+        The SDK retried two or three times, a busy batch left more stale
+        connections than that, and the thesis fell back to the rule engine
+        without saying why. The first loop that uses a client keeps it; any
+        other loop gets its own, built from the same config, once.
+        (`MarketScanner._client_on_this_loop` is the same rule for ccxt.)
+        """
+        if client is None or cfg is None:
+            return client
+        try:
+            loop = id(asyncio.get_running_loop())
+        except RuntimeError:
+            return client
+        homes = getattr(self, "_client_home", None)
+        twins = getattr(self, "_loop_twins", None)
+        if homes is None or twins is None:
+            homes, twins = {}, {}
+            self._client_home, self._loop_twins = homes, twins
+        # Keyed by identity, holding the client itself, so an id is never
+        # reused while the entry lives and an unhashable client still works.
+        home_loop, _held = homes.setdefault(id(client), (loop, client))
+        if home_loop == loop:
+            return client
+        key = (loop, id(client))
+        twin = twins.get(key)
+        if twin is None:
+            twin = self._build_client_for_config(cfg)
+            if twin is None:
+                return client
+            twins[key] = twin
+        return twin
+
     def refresh_llm_client(self) -> None:
         """Refresh LLM client after BYOK /setllm change."""
+        # Twins of the clients being replaced are not the new config's.
+        self._client_home = {}
+        self._loop_twins = {}
         self._llm_config = self._resolve_llm_config()
         self._llm = self._build_llm_client()
         # Refresh tier-specific clients
@@ -4180,6 +4225,9 @@ class Analyzer:
                 active_client = self._llm
                 active_cfg = self._resolve_llm_config()
                 model = self.THESIS_MODEL if use_full_model else self.SCAN_MODEL
+        # The operator clients are shared across loops; this loop's own.
+        # (The per-user and per-tier clients below are built per call.)
+        active_client = self._on_this_loop(active_client, active_cfg)
 
         # Per-user BYOK routing (opt-in, default OFF): for a command the user ran
         # by hand, route the thesis through THEIR own provider key. Fail-open —

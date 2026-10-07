@@ -256,24 +256,37 @@ class MarketScanner:
         venue = get_venue()
         if venue.id == "bitget":
             return None
+        slot = f"venue:{venue.id}"
         if self._venue_data_exchange_id != venue.id:
-            old = self._venue_data_exchange
+            # A /venue switch: every loop's client for the old venue goes.
+            for key in [k for k in self._loop_clients
+                        if k[1].startswith("venue:") and k[1] != slot]:
+                old = self._loop_clients.pop(key, None)
+                if old is not None:
+                    try:
+                        await old.close()
+                    except Exception:
+                        pass
             self._venue_data_exchange = None
-            self._venue_data_exchange_id = None
-            if old is not None:
-                try:
-                    await old.close()
-                except Exception:
-                    pass
-        if self._venue_data_exchange is None:
-            self._venue_data_exchange = getattr(ccxt, venue.id)({
+            self._venue_data_exchange_id = venue.id
+
+        def _build():
+            return getattr(ccxt, venue.id)({
                 "aiohttp_trust_env": True,
                 "timeout": CONFIG.market_data_timeout_ms,
                 "enableRateLimit": True,
                 "options": {"defaultType": "swap"},
             })
-            self._venue_data_exchange_id = venue.id
-        return self._venue_data_exchange
+
+        # One client per event loop, the futures client's rule. This one was
+        # shared: the scan lane and the engine loop both read the active
+        # venue's market data through it, and ccxt's session is bound to the
+        # loop that opened it ("Timeout context manager should be used
+        # inside a task" on the second loop).
+        client = await self._client_on_this_loop(slot, _build)
+        if self._venue_data_exchange is None:
+            self._venue_data_exchange = client
+        return client
 
     async def venue_data_exchange(self, venue_id: str) -> ccxt.Exchange:
         """Public (keyless) market-data client for ANY venue, cached per id.
