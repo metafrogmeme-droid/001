@@ -122,10 +122,29 @@ def stop_under_floor(entry: float, stop: float, floor: float) -> bool:
     return abs(entry - stop) / entry < floor
 
 
-#: Steps a recorded stop may take outward to read at the floor. Recording
-#: moves each of the two prices by at most half a unit, so one step clears
-#: the rounding, and a second covers the float noise of the division.
+#: Steps a recorded stop may take outward to read at the floor when the
+#: entry and the stop are recorded on ONE grid. Recording moves each of the
+#: two prices by at most half a unit, so one step clears the rounding, and a
+#: second covers the float noise of the division. `floor_steps` adds what a
+#: coarser entry grid needs.
 FLOOR_STEPS = 3
+
+
+def floor_steps(entry_places: int, stop_places: int) -> int:
+    """How many of the stop's units it may step outward to read at the floor.
+
+    `record_level` keeps significant digits, so a price just above a power
+    of ten keeps one decimal place fewer than one just below it, and a long
+    whose entry sits within 0.4% above one records its entry on a grid ten
+    times coarser than its stop's. The entry's rounding is then up to half
+    of ITS unit, five of the stop's, and three steps could not clear it:
+    the recorded pair still read under the floor and the gate refused the
+    idea. The budget is the one-grid steps plus the entry's half unit
+    counted in stop units. A short's stop is the coarser of the two, so its
+    budget is unchanged.
+    """
+    gap = max(0, int(stop_places) - int(entry_places))
+    return FLOOR_STEPS + math.ceil(0.5 * 10 ** gap) if gap else FLOOR_STEPS
 
 #: How far under the floor, as a fraction of it, a stop may read and still
 #: be one the producer placed AT the floor. Far above float noise (about
@@ -147,7 +166,8 @@ def record_idea_levels(entry: float, stop: float, take_profit: float, *,
     at the gate, and 23 ideas were refused for that alone. So when the
     unrecorded pair was at the floor and the recorded pair reads under it,
     the recorded stop steps outward one recorded unit at a time, up to
-    `FLOOR_STEPS`. A stop the producer placed deliberately under the floor
+    `floor_steps` of them (more when the entry is recorded on a coarser
+    grid than the stop). A stop the producer placed deliberately under the floor
     is left where it is, for the gate to refuse by name.
     """
     e = record_level(entry, min_places)
@@ -158,7 +178,7 @@ def record_idea_levels(entry: float, stop: float, take_profit: float, *,
     if abs(entry - stop) >= floor * entry * (1.0 - FLOOR_NOISE):
         places = level_places(s, min_places)
         unit = 10.0 ** -places
-        for _ in range(FLOOR_STEPS):
+        for _ in range(floor_steps(level_places(e, min_places), places)):
             if not stop_under_floor(e, s, floor):
                 break
             s = round(s - unit if is_long else s + unit, places)

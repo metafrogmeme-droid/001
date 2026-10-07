@@ -825,9 +825,12 @@ def _liquidity_sweep(df):
     try:
         opens = df["Open"].to_numpy() if "Open" in df.columns else None
         volumes = df["Volume"].to_numpy() if "Volume" in df.columns else None
+        # No `lookback`: the detector takes it for the shared scan's uniform
+        # call and discards it, so passing 3 here read as narrowing the
+        # marker's swing window while changing nothing.
         res = detect_liquidity_sweep(
             df["High"].to_numpy(), df["Low"].to_numpy(), df["Close"].to_numpy(),
-            lookback=3, opens=opens, volumes=volumes,
+            opens=opens, volumes=volumes,
         )
         if not res:
             return None

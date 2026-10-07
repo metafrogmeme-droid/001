@@ -96,10 +96,10 @@ def test_catalog_attaches_scorecard_with_provenance():
         cfg = by_slug[card["id"]]
         if not publishes_scorecard(cfg):
             assert isinstance(s, dict) and s.get("omitted"), card["id"]
-            assert "recorded and not applied" in s["omitted"]
+            assert "not applied" in s["omitted"]
             assert "backtest pending" not in s["omitted"].lower()
             assert "metrics" not in s
-            assert "recorded and not applied" in card["how"]
+            assert "not applied" in card["how"]
             continue
         if not preset_universe_covered(cfg, _WINDOW):
             assert isinstance(s, dict) and s.get("omitted"), card["id"]

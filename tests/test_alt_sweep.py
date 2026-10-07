@@ -330,7 +330,11 @@ def test_the_generator_does_not_run_the_majors_window(monkeypatch):
             "benchmark/majors_1h",
             "BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT",
             1500, preset="alt-sweep")
-    assert "No scorecard was written" in str(exc.value)
+    # Refused before the window is read: its recorded knobs do not size a
+    # fill, so a run of it on any dataset is a zero-trade book
+    # (`strategy_catalog.publishes_scorecard`, the card's own reading).
+    assert "no scorecard is published" in str(exc.value)
+    assert "not applied" in str(exc.value)
 
 
 def test_a_clear_direction_does_not_invent_a_fill():

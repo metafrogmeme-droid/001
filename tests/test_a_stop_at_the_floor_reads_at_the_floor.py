@@ -29,7 +29,14 @@ import pytest
 import bot.core.analyzer as an
 import bot.core.signal_levels as sl
 from bot.core.engine import RuneClawEngine
-from bot.core.signal_levels import FLOOR_STEPS, level_places, record_idea_levels, record_level, stop_under_floor
+from bot.core.signal_levels import (
+    FLOOR_STEPS,
+    floor_steps,
+    level_places,
+    record_idea_levels,
+    record_level,
+    stop_under_floor,
+)
 from bot.risk.portfolio import PortfolioTracker
 from bot.risk.risk_engine import RiskEngine
 from bot.utils.models import Direction, TradeIdea
@@ -102,7 +109,8 @@ class TestTheSeam:
                 assert s2 <= base
             else:
                 assert s2 >= base
-            assert abs(s2 - base) <= FLOOR_STEPS * unit * (1 + 1e-9)
+            budget = floor_steps(level_places(record_level(p)), level_places(base))
+            assert abs(s2 - base) <= budget * unit * (1 + 1e-9)
             if s2 != base:
                 stepped += 1
         assert stepped > 0
@@ -297,3 +305,53 @@ class TestTheCallSites:
         src = inspect.getsource(re_mod.RiskEngine)
         assert "stop_under_floor(idea.entry_price, idea.stop_loss, _stop_floor)" in src
         assert "if _stop_dist < _stop_floor" not in src
+
+
+# ── an entry recorded on a coarser grid than its stop ──────────────────────
+# `record_level` keeps significant digits, so a long whose entry sits within
+# 0.4% above a power of ten records the entry with one decimal place fewer
+# than its stop. The entry's rounding is then up to five of the stop's
+# units, and three steps could not clear it: driven over 20,000 such longs,
+# about one in five still read under the floor and the gate refused it.
+
+#: Entries in [10^k, 1.004 * 10^k), the band where the two grids differ,
+#: with digits past the entry's grid: a round entry records exactly and has
+#: no rounding for the stop to clear. Seeded, so every run reads the same.
+_rng = __import__("random").Random(466)
+_BAND = [10.0 ** k * (1 + _rng.random() * 0.004) for k in range(-7, -1) for _ in range(60)]
+
+
+@pytest.mark.parametrize("min_places", [6, 8])
+@pytest.mark.parametrize("direction", [Direction.LONG, Direction.SHORT])
+def test_a_floored_stop_reads_at_the_floor_across_a_power_of_ten(direction, min_places, monkeypatch):
+    long = direction == Direction.LONG
+    band = _BAND
+
+    def under():
+        n = 0
+        for p in band:
+            s = _floored(p, direction)
+            e, s2, _ = record_idea_levels(p, s, _target(p, direction), is_long=long,
+                                          floor=F, min_places=min_places)
+            n += stop_under_floor(e, s2, F)
+        return n
+
+    assert under() == 0
+    if long:
+        # The fixture can produce the state: on the one-grid budget it can't.
+        monkeypatch.setattr(sl, "floor_steps", lambda e, s: FLOOR_STEPS)
+        assert under() > 0
+
+
+def test_the_budget_counts_the_entrys_half_unit_in_stop_units():
+    assert floor_steps(6, 6) == FLOOR_STEPS
+    assert floor_steps(8, 7) == FLOOR_STEPS        # a short: the stop is the coarser
+    assert floor_steps(7, 8) == FLOOR_STEPS + 5
+
+
+def test_the_reviews_idea_passes_the_gate(tmp_path):
+    entry = 0.01000044
+    stop = _floored(entry, Direction.LONG)
+    e, s2, t = record_idea_levels(entry, stop, entry * 1.03, is_long=True, floor=F)
+    passed, failed = _gate(tmp_path, e, s2, t)
+    assert failed == [] and passed, (e, s2, failed)

@@ -170,3 +170,83 @@ test('the other arm: a heartbeat on a loaded process still stamps and stores the
     assert.equal(stored(db).entry_cards.length, 1);
   });
 });
+
+// ── a read that failed and then recovered ───────────────────────────────────
+// One heartbeat during a failed read left `latestScan = {heartbeat_at}`, and
+// the restart guard tested `latestScan`, so the saved scan was never loaded
+// for the life of the process: the cards stayed off the dashboard after the
+// database recovered, and the next cycle summary replaced the row without
+// them. The guard asks whether the row was READ now, and retries until it is.
+
+const A_SUMMARY = { circuit_breaker: { equity: 140.5, total_trades: 3, live_mode: true },
+                    regime: { label: 'RISK_ON', gate: 64000 } };
+
+test('a beat during a failed read does not hide the saved scan once the read recovers', async () => {
+  const db = makeDb();
+  await withServer(db, async (port) => { await post(port, A_REAL_SCAN); });
+  db.readFails = true;
+  await withServer(db, async (port) => {
+    await post(port, { heartbeat: true });
+    db.readFails = false;
+    const g = await get(port);
+    assert.equal(g.data.scan.entry_cards.length, 1, 'the saved cards are read once the row reads');
+    assert.ok(g.data.scan.heartbeat_at, 'and the beat kept in memory is laid over them');
+    await post(port, A_SUMMARY);
+    const row = stored(db);
+    assert.equal(row.entry_cards.length, 1, 'the cycle summary carried the saved cards forward');
+    assert.deepEqual(row.circuit_breaker, A_SUMMARY.circuit_breaker);
+  });
+});
+
+test('a cycle summary that arrives while the saved row is unread is kept in memory, not written', async () => {
+  const db = makeDb();
+  await withServer(db, async (port) => { await post(port, A_REAL_SCAN); });
+  const saved = db.scan_json;
+  db.readFails = true;
+  await withServer(db, async (port) => {
+    await post(port, A_SUMMARY);
+    assert.equal(db.scan_json, saved, 'no REPLACE of a row this process could not read');
+    // Nor does a heartbeat write the in-memory summary over it.
+    await post(port, { heartbeat: true });
+    assert.equal(db.scan_json, saved);
+    // The read recovers: the saved cards under the newer summary and beat.
+    db.readFails = false;
+    const g = await get(port);
+    assert.equal(g.data.scan.entry_cards.length, 1);
+    assert.deepEqual(g.data.scan.circuit_breaker, A_SUMMARY.circuit_breaker);
+    assert.ok(g.data.scan.heartbeat_at);
+  });
+});
+
+test('a real scan pushed while the saved row is unread is the newer scan and is written', async () => {
+  const db = makeDb();
+  await withServer(db, async (port) => { await post(port, A_REAL_SCAN); });
+  db.readFails = true;
+  const fresh = { ...A_REAL_SCAN, entry_cards: [{ ...A_REAL_SCAN.entry_cards[0], symbol: 'ETH' }] };
+  await withServer(db, async (port) => {
+    await post(port, fresh);
+    assert.equal(stored(db).entry_cards[0].symbol, 'ETH');
+    // It is the saved scan now; a summary after it carries its cards.
+    await post(port, A_SUMMARY);
+    assert.equal(stored(db).entry_cards[0].symbol, 'ETH');
+    assert.deepEqual(stored(db).circuit_breaker, A_SUMMARY.circuit_breaker, 'and the summary is written');
+  });
+});
+
+test('GET /scan says a saved scan it could not read is unreadable, and an empty one is empty', async () => {
+  const unread = makeDb();
+  await withServer(unread, async (port) => { await post(port, A_REAL_SCAN); });
+  unread.readFails = true;
+  await withServer(unread, async (port) => {
+    const g = await get(port);
+    assert.equal(g.status, 503);
+    assert.equal(g.data.scan, undefined);
+  });
+  const empty = makeDb();
+  await withServer(empty, async (port) => {
+    const g = await get(port);
+    assert.equal(g.status, 200);
+    assert.equal(g.data.scan, null);
+    assert.match(g.data.message, /No scan data yet/);
+  });
+});

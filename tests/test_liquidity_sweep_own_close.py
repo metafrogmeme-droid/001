@@ -254,3 +254,20 @@ class TestTheScanHandsTheSweepItsMeasurements:
         opens = np.ones(n)
         scan_all_chart_patterns(opens, opens + 1, opens - 0.5, opens.copy())
         assert seen["volumes"] is None
+
+
+def test_the_chart_marker_does_not_pass_a_lookback_the_detector_discards():
+    # `detect_liquidity_sweep` takes `lookback` only so the shared scan can
+    # call every detector alike, and `del`s it. The chart passed 3, which
+    # read as narrowing the marker's swing window. A shape no drive can see:
+    # the result is the same with or without it. Raw source, parsed: an AST
+    # has no comments to quote the keyword back.
+    import ast
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "bot/skills/chart_renderer.py").read_text()
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef) and n.name == "_liquidity_sweep")
+    calls = [c for c in ast.walk(fn) if isinstance(c, ast.Call)
+             and getattr(c.func, "id", None) == "detect_liquidity_sweep"]
+    assert len(calls) == 1
+    assert "lookback" not in {k.arg for k in calls[0].keywords}
