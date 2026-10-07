@@ -3,8 +3,9 @@
  * /token paints the one $RCLAW record and invents nothing.
  *
  * The token was minted on Solana mainnet on 2026-09-30. The facts live in one
- * file, token/config/rclaw.mainnet.json, which the bot's /rclaw card reads as
- * well, so the two surfaces cannot name two mints. Three values for every
+ * file, token/config/rclaw.mainnet.json, which the bot's /rclaw card reads;
+ * the website reads its byte-identical copy in app/content/ (the web deploy
+ * ships app/ alone), so the two surfaces cannot name two mints. Three values for every
  * field a chain can leave empty: a null authority is "none (revoked)", a null
  * presale term is "not announced yet", and a record that did not arrive paints
  * NO address — a guessed mint is worse than none.
@@ -43,9 +44,13 @@ function get(port) {
 
 // ── the record ───────────────────────────────────────────────────────────
 
-test('the record is the file the bot reads', () => {
-  assert.strictEqual(rclaw.RECORD_PATH,
-    path.join(APP, '..', 'token', 'config', 'rclaw.mainnet.json'));
+test('the record is the website\'s copy of the file the bot reads, byte for byte', () => {
+  // The web deploy ships app/ alone, so the website reads its copy
+  // (app/scripts/sync_content.js); reading ../../token/ answered 503 live.
+  assert.strictEqual(rclaw.RECORD_PATH, path.join(APP, 'content', 'rclaw.mainnet.json'));
+  assert.ok(fs.readFileSync(rclaw.RECORD_PATH).equals(
+    fs.readFileSync(path.join(APP, '..', 'token', 'config', 'rclaw.mainnet.json'))),
+  'run `node app/scripts/sync_content.js`');
   const r = rclaw.readRecord();
   assert.strictEqual(r.mint, MINT);
   assert.strictEqual(r.token_program, 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');

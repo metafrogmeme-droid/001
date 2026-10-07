@@ -16577,6 +16577,40 @@ the operator's `/rclaw` card says which mint the gate is configured for.
 (`tests/test_the_token_card_reads_the_one_record.py`,
 `app/test/the_token_page_names_one_mint.test.js`.)
 
+**THE LIVE /token PAGE COULD NOT READ THE RECORD: THE WEB DEPLOY SHIPS
+`app/` ALONE.** Reported by the owner with a screenshot on 2026-10-07, and
+read off the live site: `GET /api/token` answered 503
+`{"error":"token_record_unreadable","exception":"Error"}` while
+`/api/version` answered 200 from #533's merge, which carries the page. The
+route had run, so the not-ready gate was not it (that answers
+`starting`); the class was the bare `Error` of a read that found no file, not
+the `SyntaxError` or `TokenRecordInvalid` a bad file throws.
+`rclaw_token.js` read `../../token/config/rclaw.mainnet.json`, and the web
+host serves a bundle of `app/` with nothing beside it. The same reach broke
+the Study Room silently: `learn_lessons.js` read `../../docs/learn/` and
+answered `[]` for a folder it could not open, so `GET /api/learn/lessons`
+said `{"lessons": []}` live and the command deck counted "0 / 0". The 503
+was the honest half; the empty list was the defect this repo is built
+against, a failed read rendered as a measurement. The website now reads
+copies under `app/content/`, written by `app/scripts/sync_content.js`, and
+a web test holds every copy byte-identical to its original (the bot still
+reads `token/config/`, and lessons are still written in `docs/learn/`), so
+a record edited for the presale and not synced fails CI instead of showing
+two mints. A test copies `rclaw_token.js` and `learn_lessons.js` into an
+`app/`-only tree and reads through them, which is the deploy shape that
+failed; without the content the same tree refuses. An unreadable shelf
+throws (and is not cached), the two lesson routes answer 503
+`lessons_unreadable` with the class, the deck's total is null and prints a
+dash, and the room says the lessons could not be read, in all fourteen
+languages. Other readers that reach the repo root (`state_dir`,
+`env_file`, `version`, `boot_log`, the data and calibration files) read
+runtime state, not content the deploy is meant to carry. Seven mutants, all
+killed on the first round.
+(`app/test/the_website_carries_what_it_serves.test.js`,
+`app/test/the_token_page_names_one_mint.test.js`,
+`app/scripts/sync_content.js`, `app/lib/rclaw_token.js`,
+`app/lib/learn_lessons.js`, `app/routes/learn.js`.)
+
 **MOMENTUM HUNTER GATED ON A VOLUME RATIO THE LIVE SCANNER NEVER
 MEASURED, SO ITS DOOR WAS DEAD.** PR 484 replaced the preset's filter,
 `ratio >= min or volume_spike`, with `signal_clears_volume_min(s, 3.0)`,

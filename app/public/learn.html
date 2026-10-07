@@ -124,7 +124,7 @@
   This is a study aid, not investment advice.</p>
 </div>
 
-<script src="/js/i18n-core.js?v=162"></script>
+<script src="/js/i18n-core.js?v=163"></script>
 <script src="/js/learn-hall.js?v=1" defer></script>
 <script>
 (function () {
@@ -348,8 +348,18 @@
 
   async function loadLessons() {
     try {
-      var r = await fetch('/api/learn/lessons').then(function (x) { return x.json(); });
-      LESSONS = (r && r.lessons) || [];
+      var resp = await fetch('/api/learn/lessons');
+      var r = await resp.json().catch(function () { return null; });
+      // A shelf the server could not read says so. Painting `[]` here showed
+      // an empty room for lessons that had not been deployed, and the tutor
+      // (which answers only from the lessons) stays hidden with them.
+      if (!resp.ok || !r || !Array.isArray(r.lessons)) {
+        LESSONS = [];
+        $('lessons').innerHTML = '<p class="note">' + esc(T('ln.lessons_unread',
+          'The lessons could not be read right now — try again in a minute.')) + '</p>';
+        return;
+      }
+      LESSONS = r.lessons;
       if (tok) {
         var p = await api('/progress');
         ((p.ok && p.data && p.data.done) || []).forEach(function (s) { DONE[s] = true; });

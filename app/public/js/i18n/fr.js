@@ -1817,6 +1817,7 @@
   ["ln.no_trades", "Aucun paper trade clôturé aujourd’hui — un jour sans trade mérite aussi une ligne : qu’est-ce qui vous a tenu à l’écart ?"],
   ["ln.lessons_h", "Leçons"],
   ["ln.lessons_note", "Les leçons sont en anglais pour l’instant — les commandes de la salle parlent votre langue."],
+  ["ln.lessons_unread", "Les leçons n’ont pas pu être lues pour l’instant — réessayez dans une minute."],
   ["ln.progress", "{d}/{t} lues"],
   ["ln.mark_read", "Marquer comme lue"],
   ["ln.back", "Toutes les leçons"],

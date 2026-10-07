@@ -1859,6 +1859,7 @@
     "ln.no_trades": { en: "No paper trades closed today — a no-trade day is worth a line too: what kept you out?" },
     "ln.lessons_h": { en: "Lessons" },
     "ln.lessons_note": { en: "Lessons are written in English for now — the room’s controls speak your language." },
+    "ln.lessons_unread": { en: "The lessons could not be read right now — try again in a minute." },
     "ln.progress": { en: "{d}/{t} read" },
     "ln.mark_read": { en: "Mark as read" },
     "ln.back": { en: "All lessons" },
@@ -2189,7 +2190,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"bc4e620a","zh":"6717374d","pt":"89af6927","fr":"0e6ecf87","de":"eb2c192d","nl":"f1239761","ja":"8401c1e3","ko":"1882cc6b","ru":"b4675912","tr":"f5cf7fae","it":"2fde28f0","hi":"8c5755a0","ar":"497f8bc2"};
+  var CHUNKS = {"es":"0341d57a","zh":"6a55a031","pt":"fd41ca35","fr":"a15ce9bc","de":"46f5dabd","nl":"5b4a438f","ja":"a6acb002","ko":"9832276f","ru":"df2ad97b","tr":"d83653c1","it":"31f5ca6e","hi":"60c2199e","ar":"fc31e313"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

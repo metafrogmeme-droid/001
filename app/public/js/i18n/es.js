@@ -1817,6 +1817,7 @@
   ["ln.no_trades", "Ninguna operación de papel cerrada hoy: un día sin operar también merece una línea: ¿qué te mantuvo fuera?"],
   ["ln.lessons_h", "Lecciones"],
   ["ln.lessons_note", "Las lecciones están en inglés por ahora; los controles de la sala hablan tu idioma."],
+  ["ln.lessons_unread", "No se pudieron leer las lecciones ahora mismo — inténtalo de nuevo en un minuto."],
   ["ln.progress", "{d}/{t} leídas"],
   ["ln.mark_read", "Marcar como leída"],
   ["ln.back", "Todas las lecciones"],

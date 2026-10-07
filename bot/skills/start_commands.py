@@ -118,9 +118,10 @@ class StartCommands:
     async def _cmd_rclaw(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/rclaw — the $RCLAW mint, its fixed-supply facts and the presale status.
 
-        Read from the one record the website's /token page reads too
-        (``token/config/rclaw.mainnet.json``), so the two surfaces cannot name
-        two mints. Not ``/token``: that is the contract detective for any
+        Read from the one record (``token/config/rclaw.mainnet.json``); the
+        website's /token page reads its byte-identical copy in
+        ``app/content/``, so the two surfaces cannot name two mints. Not
+        ``/token``: that is the contract detective for any
         EVM address, and its bare usage reply points here. An unreadable record is said, by exception class, and no
         address is shown in its place. The operator also sees what the tier
         gate's ``RCLAW_MINT`` names, since a gate reading another mint is a

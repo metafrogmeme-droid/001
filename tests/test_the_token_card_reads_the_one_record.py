@@ -5,7 +5,8 @@ surface here said "No token exists", and the one place that described the
 standard (`bot/token/tier_gate.py`) said Token-2022, which is what the plan
 proposed and not what was minted. The facts now live in one file,
 `token/config/rclaw.mainnet.json`, which the website's /token page reads as
-well; the bot's /rclaw card renders it and invents nothing
+a byte-identical copy in `app/content/`; the bot's /rclaw card renders it and
+invents nothing
 (/token stays the contract detective for any EVM address):
 
 - a null authority is "none (revoked)", the fact a holder wants;

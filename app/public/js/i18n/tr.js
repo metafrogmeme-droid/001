@@ -1817,6 +1817,7 @@
   ["ln.no_trades", "Bugün kapanan kâğıt işlem yok — işlemsiz gün de bir satırı hak eder: seni dışarıda tutan neydi?"],
   ["ln.lessons_h", "Dersler"],
   ["ln.lessons_note", "Dersler şimdilik İngilizce — odanın kontrolleri senin dilini konuşur."],
+  ["ln.lessons_unread", "Dersler şu anda okunamadı — bir dakika sonra yeniden deneyin."],
   ["ln.progress", "{d}/{t} okundu"],
   ["ln.mark_read", "Okundu işaretle"],
   ["ln.back", "Tüm dersler"],

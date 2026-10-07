@@ -17,7 +17,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const LESSONS_DIR = path.join(__dirname, '..', '..', 'docs', 'learn');
+// The website's copy of docs/learn/ (`app/scripts/sync_content.js`): the web
+// deploy ships `app/` alone, and the live room listed no lessons while it
+// read `../../docs/learn/`.
+const LESSONS_DIR = path.join(__dirname, '..', 'content', 'learn');
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
@@ -72,13 +75,15 @@ function renderMd(src) {
 
 let cache = null;
 /** All lessons, ordered by filename. Cached after the first read — lesson
- *  files ship with the code, so a deploy is what changes them. */
+ *  files ship with the code, so a deploy is what changes them.
+ *
+ *  A directory that cannot be read THROWS and is not cached. It was read as
+ *  `[]`, and the live room showed no lessons and the command deck "0 / 0"
+ *  for a folder that had not been deployed: a missing folder is not a
+ *  measurement of zero lessons. An empty folder that did read is `[]`. */
 function listLessons() {
   if (cache) return cache;
-  let files = [];
-  try {
-    files = fs.readdirSync(LESSONS_DIR).filter((f) => f.endsWith('.md')).sort();
-  } catch (e) { files = []; }
+  const files = fs.readdirSync(LESSONS_DIR).filter((f) => f.endsWith('.md')).sort();
   cache = files.map((f) => {
     const src = fs.readFileSync(path.join(LESSONS_DIR, f), 'utf8');
     const slug = f.replace(/^\d+-/, '').replace(/\.md$/, '');

@@ -1817,6 +1817,7 @@
   ["ln.no_trades", "Heute kein Paper-Trade geschlossen — auch ein Tag ohne Trade ist eine Zeile wert: Was hat dich draußen gehalten?"],
   ["ln.lessons_h", "Lektionen"],
   ["ln.lessons_note", "Die Lektionen sind vorerst auf Englisch — die Bedienung des Raums spricht deine Sprache."],
+  ["ln.lessons_unread", "Die Lektionen konnten gerade nicht gelesen werden — versuche es in einer Minute erneut."],
   ["ln.progress", "{d}/{t} gelesen"],
   ["ln.mark_read", "Als gelesen markieren"],
   ["ln.back", "Alle Lektionen"],
