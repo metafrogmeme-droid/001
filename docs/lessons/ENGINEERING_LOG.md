@@ -16378,6 +16378,55 @@ account whose type nobody had measured.
 (`tests/test_the_sync_reads_the_row_the_guard_reads.py`,
 `bot/core/live_executor.py`.)
 
+**THE UNIFIED-ACCOUNT FIX LEFT FIVE PLACES THAT STILL GUESSED, AND TWO
+CLIENTS THAT CROSSED EVENT LOOPS.** The review of the sixty PRs, read
+against the chapter above.
+
+- **A known unified account read as classic when one read failed.** The
+  pre-order check started `_uta_account` at False and set it only on a
+  40085, so a timeout or a 429 from the v2 read on an account the hold-mode
+  probe had already measured as unified was a classic verdict, and the
+  sticky position row refused the order before the symbol row was asked.
+  It starts from `_is_uta` now. And a 40085 stores the evidence on
+  `_is_uta`, as the probe does, because the post-fill guard reads that
+  field and found it None after a probe that failed for another reason.
+- **"Stated no leverage" for a settings document nobody could read.**
+  `_read_uta_symbol_leverage` says whether the document was read, the fill
+  path names the reason (`no_symbol_row`, `settings_unread`,
+  `symbol_row_unread`, `position_row_unread`), and the audit and the card
+  say "could not be read" where that is what happened.
+- **The three non-`execute` fill paths left "unverified" in a log line.**
+  A limit fill, a reclaimed fill and an adoption-time fill whose leverage
+  went unverified now audit `leverage_unverified_on_fill` with the path and
+  the reason, so the audit trail can show every version of the state.
+- **The record kept the requested leverage with nothing saying no one had
+  read it.** The chat model's evidence row printed "lev 5x" as the venue's
+  figure. The fill names `leverage` in `adoption_unread` until the leverage
+  sync reads one (`clear_unread`), and the row says "for this fill", not
+  "at adoption", where it was not an adoption. Margin stays on record: it
+  is what the order was sized at, and `position_size_basis` and the
+  exposure cap read it, not the unread list.
+- **Two readers of one client option.** `client_marks_uta` was a copy of
+  `close_lookup.client_is_uta`; the executor asks the one reader.
+
+**And two clients were shared across event loops.** An SDK client pools
+its HTTP connections on the loop that first used it. The analyzer's
+operator LLM clients were built once and used by the scan lane's loop and
+the engine loop, so a pooled connection reached the other loop and raised
+"bound to a different event loop"; the SDK retried, a busy batch left more
+stale connections than its retries, and the thesis fell back to the rule
+engine without saying why. The active venue's market-data client had the
+same shape for ccxt. Each loop gets its own twin now, built once from the
+same config (`Analyzer._on_this_loop`, `MarketScanner._client_on_this_loop`);
+a `/setllm` change drops the twins, and a `/venue` switch closes every
+loop's client for the old venue. Sixteen mutants, all killed on the first
+round.
+(`tests/test_an_unread_settings_document_is_not_a_venue_that_stated_none.py`,
+`tests/test_a_known_unified_account_stays_unified_when_a_read_fails.py`,
+`tests/test_one_reader_of_the_clients_uta_option.py`,
+`tests/test_an_llm_client_is_used_on_the_loop_that_owns_it.py`,
+`tests/test_the_venue_data_client_belongs_to_one_loop.py`.)
+
 **A PRACTICE CONFIRM WAS SIZED AND GATED ON THE OPERATOR'S LIVE ACCOUNT,
 AND THE MODE CARD SAID LIVE OVER IT.** PR 498 (plan item F8) made a
 self-admitted account's confirm a PRACTICE row on its own paper book, and
@@ -20462,7 +20511,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1231** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1236** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

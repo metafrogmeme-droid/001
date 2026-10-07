@@ -35,6 +35,7 @@ class LeverageDrive:
         self.uta_reads: int = 0
         self.uta_modes: list = []
         self.target_asks: list = []
+        self.executor: Any = None
 
     @property
     def hold_sides(self) -> list:
@@ -58,6 +59,7 @@ def drive_ensure_leverage(
     monkeypatch: Any = None,
     uta_settings: Any = None,
     client_uta: bool = False,
+    is_uta: Any = None,
 ) -> LeverageDrive:
     """Run `_ensure_leverage` against a stub venue and return what happened.
 
@@ -140,6 +142,10 @@ def drive_ensure_leverage(
     # short a seam is a fixture that cannot see the thing it is driving.
     ex._actual_margin_mode = margin_mode
     ex._margin_mode_unread_warned = set()
+    # What the hold-mode probe stored about the account: None is not probed.
+    if is_uta is not None:
+        ex._is_uta = is_uta
+    out.executor = ex
 
     ex_obj = _Exchange()
 
