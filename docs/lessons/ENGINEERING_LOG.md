@@ -20861,7 +20861,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1242** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1243** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -21391,6 +21391,71 @@ that failed the hex check never reached the parent rule, so it now plants a
 real `main` commit that is not the parent.
 
 (`benchmark/majors_1h/result.json`, `docs/FROZEN_BENCHMARK.md`.)
+
+**A DRAWDOWN WAS PAINTED AS A GAIN, A PROFIT FACTOR OF 0 AS BREAK-EVEN,
+AND THE RADAR DOORS LEFT PHRASINGS BEHIND.** Found in the same reading of
+#479–#482. Each surface below made a claim that one surface over was
+already made correctly, and none of them asked the reading that was right.
+
+Three surfaces printed a scorecard's figures with their own reading, after
+`AgentScorecard.readings` had become the one reading for the agent card:
+- The compare page coloured max drawdown with the return's rule. ETH MA
+  trend's 15.86% drawdown showed as a green "+15.86%". A drawdown is a
+  magnitude below peak and takes no sign and no colour.
+- Reproduce in Lab coloured the profit factor with `(pf || 1) - 1`, so a
+  measured 0 (Safe Scalper, ETH MA trend) read as missing and showed
+  break-even green. It painted every drawdown red. And it escaped
+  `ddLabel`'s markup a second time, so since the drawdown-theatre chapter
+  the Lab printed the tag itself, `<span class="muted small">this
+  backtest</span>`, as text under the figure. The guard that checks a
+  tile row's caption is rendered checked that the consumer bound and
+  wrote it, not that it wrote it as markup.
+- The public track-record tile classed `(pf || 1) >= 1` as a gain. Its
+  classes were `up`/`down`, which nothing on the dashboard styles, so the
+  wrong answer was never visible. It now paints with the classes that are.
+
+All three now ask `AgentScorecard.readings`. The Lab and the card set side
+by side by "Reproduce in Lab" paint one run identically, and a test holds
+them equal cell by cell.
+
+The agent card's drawdown caption said "this leader's record" over a frozen
+backtest, in a caption under all six figures that did not say which one it
+qualified. `copyLeader` had no other reader, so the kind is `agentBacktest`
+now, in all fourteen languages, and the caption names "Max DD".
+
+The airdrops card sent people to "the dashboard Hub" for checklists and
+wallet hints that only the Markets page draws. The Hub has a chip that asks
+chat, which needs the bot the sentence was there to route around.
+
+Three phrasings were left behind when the radars moved onto the shared
+doors:
+- `_EDU` declines every sentence that opens "how is/are". So "how are rwa
+  tokens doing" reached the model and "how is rwa doing vs btc" a BTC
+  chart; the website's RWA shortcut had caught both. A rule above the
+  chart's now routes the sector words followed by doing / performing /
+  looking. What RWA is stays the model's.
+- The venue rule spelled its words with single spaces, so "best  venue for
+  BTC" reached the model. The Node pattern it replaced took `\s+`.
+- The venue reader took the first two-to-ten letters after "for" or "to".
+  The card answered "No cross-venue funding data for GO" (from "to go long
+  btc"), for ING (from "for longing eth") and for TRADE. It now reads the
+  verb and the determiner as words of their own, and asks the router's
+  `_NOT_A_TICKER` list (`is_not_a_ticker`) rather than keep a copy. A word
+  that is not an asset names none, and the card is the top five rather than
+  a lookup of a verb.
+
+`rwa_card_text` kept its own copy of the web-card fetch, which never
+learned that a fetch that ran out of its budget is a wait. It reported a
+slow radar read as a channel that did not answer. It goes through
+`_web_card_text` now. `/etf` had the same branch, one command over, and
+names the wait too.
+
+Driven: the compare cell, the Lab tiles, the track-record tiles and the
+agent card are each cut out by their own markers and run on the frozen
+cards; the router through `classify_rules`; the venue reader both doors
+call; `/rwa` on both surfaces and `/etf`.
+(`app/test/a_drawdown_is_a_magnitude_and_a_zero_profit_factor_is_a_loss.test.js`,
+`tests/test_the_radar_doors_take_their_phrasings.py`.)
 
 ## Deploying so a dead bot cannot look like a live one
 

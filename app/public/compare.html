@@ -53,7 +53,7 @@
   <p class="foot-note" data-i18n="cmp.foot">Engine metrics come from frozen, content-hashed benchmark backtests (reproduce them in the Lab). Live records are forward-only paper trades members copied, sealed at open. A missing number renders as “—”, never as zero.</p>
 </div>
 
-<script src="/js/agent-scorecard.js?v=5"></script>
+<script src="/js/agent-scorecard.js?v=6"></script>
 <script>
 (function () {
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -88,7 +88,6 @@
       .then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
   }
 
-  var fmtPct = function (v) { return v == null ? null : (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%'; };
   var cellNum = function (v, cls) {
     if (v == null) return '<span class="dim">—</span>';
     return '<span class="num ' + (cls || '') + '">' + esc(v) + '</span>';
@@ -154,15 +153,27 @@
           + '<div class="tg"><a href="/agents/' + encodeURIComponent(col.slug) + '">' + esc(T('cmp.view', 'view page')) + ' →</a></div>';
       }
 
+      // ── compare metric cell ──
+      // Each row is the cell the agent's own page paints: AgentScorecard is
+      // the one reading. Max drawdown is a magnitude below peak, so it takes
+      // no sign and no colour (this page printed it as a green "+15.86%"), and
+      // a profit factor breaks even at 1, so a measured 0 is a loss.
+      var READING = { total_return_pct: 'return', profit_factor: 'profit-factor',
+        win_rate: 'win-rate', max_drawdown_pct: 'max-dd' };
+      // Called by the reading with a finite number only.
+      var tone = function (n) {
+        if (typeof n !== 'number' || !isFinite(n)) return '';
+        return n >= 0 ? 'pos' : 'neg';
+      };
       function metric(col, key) {
         var m = col.engine && col.engine.scorecard && col.engine.scorecard.metrics;
-        if (!m || m[key] == null) return cellNum(null);
-        if (key === 'total_return_pct' || key === 'max_drawdown_pct') {
-          return cellNum(fmtPct(m[key]), m[key] >= 0 ? 'pos' : 'neg');
-        }
-        if (key === 'win_rate') return cellNum((m[key] * 100).toFixed(0) + '%');
-        return cellNum(Number(m[key]).toFixed(2));
+        if (!m || !window.AgentScorecard) return cellNum(null);
+        var c = window.AgentScorecard.readings(m, tone).cells
+          .filter(function (x) { return x.key === READING[key]; })[0];
+        if (!c || !c.read) return cellNum(null);
+        return cellNum(c.text, c.cls);
       }
+      // ── compare metric cell end ──
 
       function rulesCell(col) {
         if (col.comm) {
@@ -224,7 +235,7 @@
     });
 })();
 </script>
-<script src="/js/i18n-core.js?v=164"></script>
+<script src="/js/i18n-core.js?v=165"></script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>
 </html>

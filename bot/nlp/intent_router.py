@@ -326,6 +326,13 @@ def symbol_mentioned(text: str) -> Optional[str]:
     return _extract_symbol(text)
 
 
+def is_not_a_ticker(word: str) -> bool:
+    """Whether a word is one this router never reads as an asset
+    (`_NOT_A_TICKER`): a determiner, a filler word, or a noun another rule
+    owns as its object. The venue reader asks this rather than keep a copy."""
+    return bool(re.fullmatch(rf"(?:{_NOT_A_TICKER})", str(word or "").strip(), re.IGNORECASE))
+
+
 def casual_halt(text: str) -> bool:
     """Whether a routed halt-shaped message reached the door BECAUSE of a
     social lead — "bro stop the bot" rather than "stop the bot" — so the
@@ -1681,7 +1688,17 @@ _rule(_EDU + r"\b(net\s?worth|networth|total (?:balance|holdings|equity)(?: acro
       r"|balance across (?:all )?(?:exchanges|venues|accounts|everything)"
       r"|everything i (?:own|hold)|how much am i worth)\b",
       "networth", explanation="Net worth across the caller's own accounts")
-_rule(_EDU + r"\b(rwas?|real[- ]world assets?|tokeni[sz]ed (?:assets?|treasuries|rwas?))\b",
+_RWA_WORDS = r"rwas?|real[- ]world assets?|tokeni[sz]ed (?:assets?|treasuries|rwas?)"
+# "how is rwa doing" asks how the sector stands now, not what RWA is.
+# `_EDU` declines every sentence that opens "how is/are", so once the
+# website's own RWA shortcut left (#479) "how are rwa tokens doing" was
+# answered by the model and "how is rwa doing vs btc" by a BTC chart. A
+# sector word and then doing / performing / looking is the radar's
+# question on both doors. Registered above the chart's "how is X doing".
+_rule(r"^\s*" + _EDU_LEAD + r"how(?:.?s|\s+(?:is|are))\s+(?:the\s+)?(?:" + _RWA_WORDS
+      + r")(?:\s+(?:tokens?|coins?|sector|market|space))?\s+(?:doing|performing|looking|going)\b",
+      "rwa", explanation="Tokenized real-world-asset sector radar")
+_rule(_EDU + r"\b(" + _RWA_WORDS + r")\b",
       "rwa", explanation="Tokenized real-world-asset sector radar")
 # Anchored like the intercept: the whole message is the ask and its object.
 # `needs_symbol` so a bare "research" is answered with WHICH asset rather
@@ -1809,10 +1826,12 @@ _rule(r"^" + _EDU_DECLINE +
       explanation="A price alert — armed on the website's alert engine, delivered here too (/price_alert)")
 # The venue router left the website's intercept table. Both doors route
 # these words to /venue_router. The asset the sentence names narrows the
-# card; an unnamed asset is the top five.
-_rule(r"\b((?:best|cheapest) (?:venue|exchange)"
-      r"(?: (?:for|to) (?:be )?(?:long|short)?\s*\$?[a-z0-9]{2,10})?"
-      r"|venue router|cheapest funding)\b",
+# card; an unnamed asset is the top five. The asset is read by
+# `web_card_args.venue_base`, the one copy of that slot; this rule only
+# routes. Any whitespace between the words: the Node pattern it replaced
+# took `\s+`, and "best  venue for BTC" reached the model.
+_rule(r"\b((?:best|cheapest)\s+(?:venue|exchange)s?"
+      r"|venue\s+router|cheapest\s+funding)\b",
       "venue_router", explanation="Cheapest venue by funding cost (the website's card, /venue_router)")
 # The meme radar left the website's intercept table. Both doors route
 # these words to /meme_radar. An education question ("what is a meme

@@ -412,7 +412,11 @@ class TestTheOtherSeams:
         """
         import bot.utils.web_data_pull as wdp
         monkeypatch.setattr(wdp, "fetch_web_card", lambda name, *a, **k: None)
-        h = NS(_link_hint=TelegramHandler._link_hint)
+        # The real helpers, bound: a stand-in forgets the next one.
+        h = NS(_link_hint=TelegramHandler._link_hint,
+               _unlinked_hint=TelegramHandler._unlinked_hint,
+               _timeout_hint=TelegramHandler._timeout_hint)
+        h._web_card_text = TelegramHandler._web_card_text.__get__(h)
         tg = asyncio.run(TelegramHandler.rwa_card_text(h))
         web = asyncio.run(TelegramHandler.rwa_card_text(h, surface="web"))
         assert tg == TelegramHandler._WEB_LINK_HINT and "/link" in tg
@@ -441,6 +445,15 @@ class TestTheOtherSeams:
                             lambda name, *a, **k: asked.append(name) or None)
         asyncio.run(TelegramHandler.rwa_card_text(h))
         assert asked == ["rwa"]
+        # A card still rendering when the fetch ran out of its budget is a
+        # wait on both surfaces, never the channel-down sentence. The seam's
+        # own copy of the branch printed /link for it.
+        monkeypatch.setattr(wdp, "fetch_web_card",
+                            lambda name, *a, **k: {"reply_html": None, "timed_out": 15.0})
+        for surface in ("telegram", "web"):
+            slow = asyncio.run(TelegramHandler.rwa_card_text(h, surface=surface))
+            assert slow == TelegramHandler._timeout_hint(surface, 15.0), slow
+            assert "15 s" in slow and "/link" not in slow
 
     def test_the_research_seam_fetches_the_rendered_card(self, monkeypatch):
         """One renderer. The website keeps its markup; Telegram strips it.

@@ -160,9 +160,9 @@ def fetch_web_card(name: str, telegram_id: str = "", **params: object) -> dict |
     not map to a web account.
 
     ``telegram_id`` is passed for the cards with a per-person half: the
-    airdrops card adds the caller's wallet-readiness hints when their
-    Telegram account is linked to a web account and answers the public radar
-    otherwise; the wallet, DeFi, exposure, net-worth and idle-yield cards
+    airdrops card adds the caller's wallet-readiness hints when the identity
+    maps to a web account (a linked Telegram id, or a web caller's own
+    ``web:<uid>``) and answers the public radar otherwise; the wallet, DeFi, exposure, net-worth and idle-yield cards
     ARE the caller's own book and answer `unlinked` instead. The research card is
     public and takes the symbol the sentence names. ``params`` are the
     card's own arguments

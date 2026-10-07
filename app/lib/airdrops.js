@@ -243,7 +243,9 @@ async function airdropChatCard(userId) {
         + `${r.campaigns.length} tracked campaigns, ${live.length} live.<br>`
         + lines.join('<br>')
         + `<br><br><i>${ANTI_SYBIL_NOTE}</i>`
-        + '<br><i>Checklists and wallet-readiness live in the dashboard Hub — you sign everything yourself.</i>',
+        // The steps and the hints are drawn by the dashboard's Markets page
+        // (the airdrop radar panel). The Hub has only a chip that asks chat.
+        + '<br><i>Checklists and wallet-readiness hints are on the dashboard\'s Markets page — you sign everything yourself.</i>',
       intent: 'airdrops',
     };
   } catch (e) {

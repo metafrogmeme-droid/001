@@ -80,9 +80,11 @@
       short: { key: 'dd.et_k_rep_s', en: 'the agent’s record' },
       long: { key: 'dd.et_k_rep_l', en: 'Deepest fall from peak on the agent’s reputation record — not your account.' },
     },
-    copyLeader: {
-      short: { key: 'dd.et_k_copy_s', en: 'this leader’s record' },
-      long: { key: 'dd.et_k_copy_l', en: 'Deepest fall from peak on this leader’s record — not your account.' },
+    // The strategy-agent card's frozen backtest. It was `copyLeader`, "this
+    // leader's record", which named a live record over a backtest.
+    agentBacktest: {
+      short: { key: 'dd.et_k_agentbt_s', en: 'the agent’s backtest' },
+      long: { key: 'dd.et_k_agentbt_l', en: 'Deepest fall from peak in the agent’s backtest on frozen historical data — nothing here was traded.' },
     },
     yourEquity: {
       short: { key: 'dd.et_k_equity_s', en: 'your equity snapshots' },

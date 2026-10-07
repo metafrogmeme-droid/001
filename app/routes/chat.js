@@ -82,7 +82,7 @@ const INTERCEPTS = [
   // still readable while the bot process is down.
   // The airdrop radar left this table. Both doors route "airdrop radar"
   // to the shared airdrops seam, which fetches this process's own card
-  // for the caller the turn names. The Hub panel and /api/airdrops still
+  // for the caller the turn names. The Markets panel and /api/airdrops still
   // run here, so the radar is still readable while the bot process is down.
   // The venue router left this table. Both doors route "best venue for
   // BTC" to the shared venue_router seam, which fetches this process's

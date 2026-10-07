@@ -881,8 +881,8 @@
     "dd.et_k_lab_l": { en: "Deepest fall in a backtest of the rules you configured, over frozen historical data — nothing here was traded." },
     "dd.et_k_rep_s": { en: "the agent’s record" },
     "dd.et_k_rep_l": { en: "Deepest fall from peak on the agent’s reputation record — not your account." },
-    "dd.et_k_copy_s": { en: "this leader’s record" },
-    "dd.et_k_copy_l": { en: "Deepest fall from peak on this leader’s record — not your account." },
+    "dd.et_k_agentbt_s": { en: "the agent’s backtest" },
+    "dd.et_k_agentbt_l": { en: "Deepest fall from peak in the agent’s backtest on frozen historical data — nothing here was traded." },
     "dd.et_k_equity_s": { en: "your equity snapshots" },
     "dd.et_k_equity_l": { en: "Deepest fall below the running peak of your recorded equity — a history, not the limit the engine enforces." },
     "dd.et_k_gate_s": { en: "the engine’s live gate" },
@@ -2190,7 +2190,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"bb998ea3","zh":"a9248411","pt":"98c4a260","fr":"70522b43","de":"3ecbdc6e","nl":"5d4cfcfb","ja":"cce11ceb","ko":"dbdf73b4","ru":"9ce52729","tr":"3f166a02","it":"d2e5f90c","hi":"d3e89c32","ar":"b19ed817"};
+  var CHUNKS = {"es":"b07124d4","zh":"69b16a93","pt":"0f3be6de","fr":"c5861b2a","de":"8144699f","nl":"41eac6d1","ja":"722713b2","ko":"8a5ce5ea","ru":"273702ad","tr":"38a3378e","it":"a56992e0","hi":"2ed72a63","ar":"cd5cd099"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

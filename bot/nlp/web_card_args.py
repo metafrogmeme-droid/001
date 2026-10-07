@@ -27,9 +27,24 @@ from typing import Optional
 _STAKE_TOKEN = re.compile(r"^\$?(\d[\d,]*\.?\d*)\s*(k|m)?$", re.I)
 _REPLAY_STAKE = re.compile(
     r"(?:every|all|each)\s+(?:signal|trade|position)s?\b.*?\$?(\d[\d,]*\.?\d*)\s*(k|m)?\b", re.I)
+#: The asset slot after "best venue for/to". The verb and the determiner
+#: are read as words of their own, so "to go long btc" is BTC and "for
+#: longing eth" is ETH. The slot used to take the first two-to-ten letters
+#: after "for" or "to", so the card answered "No cross-venue funding data
+#: for GO", for ING (the tail of "longing") and for TRADE.
 _VENUE_BASE = re.compile(
-    r"\b(?:best|cheapest)\s+(?:venue|exchange)"
-    r"(?:\s+(?:for|to)\s+(?:be\s+)?(?:long|short)?\s*\$?([a-z0-9]{2,10}))?", re.I)
+    r"\b(?:best|cheapest)\s+(?:venue|exchange)s?\s+(?:for|to)"
+    r"(?:\s+(?:go|going|be|get|getting))?"
+    r"(?:\s+(?:long(?:ing)?|short(?:ing)?|buy(?:ing)?|sell(?:ing)?|trad(?:e|ing)|hold(?:ing)?))?"
+    r"(?:\s+(?:the|my|a|an|some))?"
+    r"\s+\$?([a-z0-9]{2,10})\b", re.I)
+#: What a venue ask names that is not an asset: the market kind and the cost
+#: the card ranks by.
+_VENUE_NOT_AN_ASSET = frozenset({
+    "perp", "perps", "perpetual", "perpetuals", "futures", "spot", "funding",
+    "fees", "fee", "rates", "rate", "crypto", "coins", "coin", "tokens", "token",
+    "longs", "shorts", "long", "short", "me", "us", "you",
+})
 _WALLET_CHAIN = re.compile(
     r"\b(?:my wallet|wallet (?:balance|portfolio|holdings)|on[- ]chain (?:balance|portfolio|holdings))\b"
     r"(?:\s+on\s+([a-z]+))?", re.I)
@@ -63,11 +78,18 @@ def replay_stake(text: str) -> Optional[float]:
 
 def venue_base(text: str) -> str:
     """The asset a routing ask names ("best venue for BTC" → "BTC", "…to short
-    ethusdt" → "ETH"), '' when it names none."""
+    ethusdt" → "ETH", "…to go long btc" → "BTC"), '' when it names none. A
+    word that is not an asset ("trade on", "for perps") names none, so the
+    card is the top five rather than a lookup of a verb."""
     m = _VENUE_BASE.search(str(text or ""))
     if not m or not m.group(1):
         return ""
-    base = m.group(1).upper()
+    word = m.group(1)
+    # Lazy: the router imports nothing from here, and this keeps it that way.
+    from bot.nlp.intent_router import is_not_a_ticker
+    if is_not_a_ticker(word) or word.lower() in _VENUE_NOT_AN_ASSET:
+        return ""
+    base = word.upper()
     return base[:-4] if base.endswith("USDT") and len(base) > 4 else base
 
 
