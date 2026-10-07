@@ -97,7 +97,7 @@
   on every read. Locked simply means the records don't show it yet. Education and practice, not investment advice.</p>
 </div>
 
-<script src="/js/i18n-core.js?v=162"></script>
+<script src="/js/i18n-core.js?v=163"></script>
 <script src="/js/learn-hall.js?v=1" defer></script>
 <script src="/js/rune-card.js?v=1" defer></script>
 <script>
@@ -143,7 +143,9 @@
           d.arena.discipline_level ? T('arena.disc_' + d.arena.discipline_level, d.arena.discipline_level) : '')
         + stat(T('cd.s_diary', 'Diary streak'), '📖 ' + d.study.diary_streak,
           fill(T('cd.s_entries', '{t} entries'), { t: d.study.diary_total }))
-        + stat(T('cd.s_lessons', 'Lessons'), d.study.lessons_done + ' / ' + d.study.lessons_total, '')
+        // A shelf that could not be read is a dash, not a count of zero.
+        + stat(T('cd.s_lessons', 'Lessons'), d.study.lessons_done + ' / '
+          + (d.study.lessons_total == null ? '—' : d.study.lessons_total), '')
         // A duel accuracy of null means nothing has settled yet — shown as a
         // dash, never as 0%, which would report a measured failure instead of
         // an absence.

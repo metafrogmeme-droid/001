@@ -28,15 +28,35 @@ const router = express.Router();
 const LESSONS_NOTE = 'Lessons are written in English for now; the room’s '
   + 'controls speak all supported languages.';
 
+// A shelf that could not be read is a 503 naming the exception class, never
+// `{"lessons": []}`: the live room listed no lessons for a folder the deploy
+// had not shipped, and an empty list says "there are none".
+function shelfUnread(res, err) {
+  const name = err && err.name ? String(err.name) : 'Error';
+  console.error('Lessons unreadable:', name);
+  return res.status(503).json({ error: 'lessons_unreadable', exception: name });
+}
+
 router.get('/lessons', (req, res) => {
+  let all;
+  try {
+    all = lessons.listLessons();
+  } catch (err) {
+    return shelfUnread(res, err);
+  }
   res.json({
-    lessons: lessons.listLessons().map(({ slug, title }) => ({ slug, title })),
+    lessons: all.map(({ slug, title }) => ({ slug, title })),
     note: LESSONS_NOTE,
   });
 });
 
 router.get('/lessons/:slug', (req, res) => {
-  const l = lessons.getLesson(req.params.slug);
+  let l;
+  try {
+    l = lessons.getLesson(req.params.slug);
+  } catch (err) {
+    return shelfUnread(res, err);
+  }
   if (!l) return res.status(404).json({ error: 'No such lesson' });
   res.json({ slug: l.slug, title: l.title, html: l.html, quiz: l.quiz || [], note: LESSONS_NOTE });
 });

@@ -1817,6 +1817,7 @@
   ["ln.no_trades", "Geen papertrades vandaag gesloten — een dag zonder trades is ook een regel waard: wat hield je buiten?"],
   ["ln.lessons_h", "Lessen"],
   ["ln.lessons_note", "De lessen zijn voorlopig in het Engels — de bediening van de kamer spreekt jouw taal."],
+  ["ln.lessons_unread", "De lessen konden nu niet worden gelezen — probeer het over een minuut opnieuw."],
   ["ln.progress", "{d}/{t} gelezen"],
   ["ln.mark_read", "Markeren als gelezen"],
   ["ln.back", "Alle lessen"],

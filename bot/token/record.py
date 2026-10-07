@@ -5,8 +5,11 @@ mainnet for the mint (address, token program, decimals, supply, the two
 revoked authorities) and what has been announced about the presale. Today
 that is nothing: every presale field is ``null``, and every reader renders
 ``null`` as *not announced yet* -- never as a date of 0, an empty cell or a
-placeholder. The website reads the same file (``app/lib/rclaw_token.js``),
-so the bot's /token card and the /token page cannot name two mints.
+placeholder. The website reads a byte-identical copy
+(``app/content/rclaw.mainnet.json``, written by
+``app/scripts/sync_content.js``; the web deploy ships ``app/`` alone), and a
+web test fails when the two differ, so the bot's /token card and the /token
+page cannot name two mints.
 
 A record that cannot be read RAISES. The mint address is the one thing a
 caller comes for, and a guessed or defaulted address is worse than none:

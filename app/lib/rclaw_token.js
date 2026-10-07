@@ -13,12 +13,18 @@
  * visitor comes for, and a guessed or defaulted address is worse than none:
  * the route answers 503 with the exception class and the page paints its
  * unread state with no address in it.
+ *
+ * The website reads its COPY, `app/content/rclaw.mainnet.json`, because the
+ * web deploy ships `app/` alone: reading `../../token/config/` answered 503
+ * on the live site for a file that was never deployed. The copy is written
+ * by `app/scripts/sync_content.js`, and a test fails when it differs from
+ * the original the bot reads.
  */
 
 const fs = require('node:fs');
 const path = require('node:path');
 
-const RECORD_PATH = path.join(__dirname, '..', '..', 'token', 'config', 'rclaw.mainnet.json');
+const RECORD_PATH = path.join(__dirname, '..', 'content', 'rclaw.mainnet.json');
 
 const REQUIRED_KEYS = [
   'name', 'symbol', 'chain', 'cluster', 'mint', 'token_program', 'standard',

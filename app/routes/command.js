@@ -61,7 +61,9 @@ router.get('/', async (req, res) => {
     const streak = computeStreak(trades);
     const quests = weeklyQuests(trades);
     const dStreak = diaryStreak(diaryDays);
-    const lessonsTotal = lessons.listLessons().length;
+    // null when the shelf could not be read: "0 lessons" would be a count.
+    let lessonsTotal = null;
+    try { lessonsTotal = lessons.listLessons().length; } catch (e) { lessonsTotal = null; }
     const lessonsDone = (progressRows || []).length;
 
     // The rune: a chain read that answers null when unreadable — the deck
