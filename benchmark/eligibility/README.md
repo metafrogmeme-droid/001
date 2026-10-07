@@ -38,6 +38,29 @@ The gate reads those four fields:
 A file that is missing, empty, will not parse, or carries a value this build
 does not know is refused, and the trade log says which.
 
+## A preset's record (copy and follow)
+
+A different record, for a different door. A strategy preset whose committed
+scorecard has a profit factor below 1 is withheld from copy and follow unless
+`benchmark/eligibility/presets/<slug>.json` says it survives. `<slug>` is the
+preset's id (`full-scan`, `dip-sniper`, …), and the record names itself: its
+`strategy_hash` is `presets/<slug>`, the path it is filed under, not a code
+hash. The other three fields are the ones above. The live gate never reads
+this directory; a preset record grants a listing, never a live order.
+
+```json
+{
+  "schema": 1,
+  "strategy_hash": "presets/full-scan",
+  "verdict": "survives",
+  "stage": "minimum"
+}
+```
+
+A record that names another preset, or carries a value this build does not
+know, is refused, and the card says a record was refused rather than that
+none exists.
+
 ## What the hash covers, and what it does not
 
 Version 1 hashes the path and bytes of every `.py` file under `bot/`. Any code

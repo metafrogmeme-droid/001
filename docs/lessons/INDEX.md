@@ -240,23 +240,23 @@ about to change before changing it.
 ## A URL is a surface, and a slash in a path segment does not survive a hop (line 19860)
 
 
-## Verifying a deploy (line 19909)
+## Verifying a deploy (line 19957)
 
 
-## Writing tests that scan source (line 19954)
+## Writing tests that scan source (line 20002)
 
-- L20396: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
-- L20597: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
-- L20624: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
+- L20444: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
+- L20645: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
+- L20672: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
 
-### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 20858)
-
-
-### A module nothing calls is indistinguishable from one that does not work (line 20930)
-
-- L21173: CHAT'S OWN DOLLAR CAP NEVER ASKED THE DAILY TOTAL — `tests/test_chat_spends_only_its_share_of_the_llm_budget.py`
-
-## Deploying so a dead bot cannot look like a live one (line 21194)
+### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 20906)
 
 
-## Operational docs (line 21351)
+### A module nothing calls is indistinguishable from one that does not work (line 20978)
+
+- L21221: CHAT'S OWN DOLLAR CAP NEVER ASKED THE DAILY TOTAL — `tests/test_chat_spends_only_its_share_of_the_llm_budget.py`
+
+## Deploying so a dead bot cannot look like a live one (line 21242)
+
+
+## Operational docs (line 21399)

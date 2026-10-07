@@ -5431,7 +5431,11 @@
     // a positive BTC anchor says BTC was read, so this panel used to print
     // the seed as a measured NEUTRAL beside a BTC anchor of $0.
     renderPanel(C('eregime'), async () => {
-      if (!scan?.regime) return null;
+      // No scan is the offline state. A scan the bot pushed with no regime
+      // in it is the reading's own "carried no regime", beside the key call
+      // it did carry: it rendered as offline, so the sentence never showed
+      // while the context row on the same page said it.
+      if (!scan || typeof scan !== 'object') return null;
       const CX = self.ContextChipsModel;
       if (!CX) throw new Error('context model unavailable');
       const rr = CX.regimeReading(scan);

@@ -98,7 +98,8 @@ router.post('/follow', writeLimit, async (req, res) => {
 // Why an engine agent is not offered for follow. One reading for the follow
 // door and the picks panel: a door that refuses a follow must not keep
 // serving the picks of a follow made before the refusal.
-const WITHHELD_REASONS = new Set(['below_one', 'no_verdict', 'eligibility_unreadable']);
+const WITHHELD_REASONS = new Set(['below_one', 'no_verdict', 'eligibility_unreadable',
+  'eligibility_refused']);
 function withheldReason(agent) {
   return WITHHELD_REASONS.has(agent && agent.copy_follow_reason)
     ? agent.copy_follow_reason : 'not_offered_for_follow';

@@ -224,3 +224,61 @@ def test_a_card_the_live_bot_does_not_run_says_who_runs_it():
     assert "A backtest of it opens nothing" in alt["how"]
     assert "because a run of it does not size a fill" in alt["how"]
     assert "for this universe" not in alt["how"]
+
+
+# ── a refused record is not "no record" (review of the sixty PRs, #497) ──
+
+
+def test_a_refused_record_is_said_as_refused():
+    from bot.core.live_eligibility import MALFORMED, MISMATCH, NO_STAGE, NOT_SURVIVES
+    zero = {"metrics": {"profit_factor": 0, "total_trades": 1}, "data_mark": "discovery"}
+    assert sc.follow_listing(zero, MISMATCH) == (False, "eligibility_refused")
+    assert sc.follow_listing(zero, MALFORMED) == (False, "eligibility_refused")
+    # A record that says the preset does not survive is the "no record says
+    # it survives" sentence, which is true of it.
+    assert sc.follow_listing(zero, NOT_SURVIVES) == (False, "below_one")
+    assert sc.follow_listing(zero, NO_STAGE) == (False, "below_one")
+    # Profit factor at or above 1 never asks.
+    one = {"metrics": {"profit_factor": 1.1, "total_trades": 9}, "data_mark": "discovery"}
+    assert sc.follow_listing(one, MISMATCH) == (True, "offered")
+
+
+def test_a_record_written_by_the_readme_is_honoured_and_a_code_hash_is_refused(tmp_path, monkeypatch):
+    """The README now says what the preset record names: itself."""
+    import re as _re
+    from pathlib import Path as _Path
+
+    readme = (_Path(__file__).resolve().parents[1] / "benchmark" / "eligibility"
+              / "README.md").read_text(encoding="utf-8")
+    block = readme[readme.index("## A preset's record"):]
+    example = json.loads(_re.search(r"```json\n(.*?)```", block, _re.S).group(1))
+    assert example["strategy_hash"] == "presets/full-scan"
+    monkeypatch.setattr(sc, "_ELIGIBILITY_ROOT", str(tmp_path))
+    path = record_path("presets/full-scan", tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(example))
+    assert sc._preset_eligibility_state("full-scan") == ELIGIBLE
+    path.write_text(json.dumps({**example, "strategy_hash": "a" * 64}))
+    assert sc._preset_eligibility_state("full-scan") == "mismatch"
+
+
+def test_the_three_lists_of_withheld_reasons_are_one_list():
+    """The producer, the copy door's set and the painter's sentences."""
+    import ast
+    import re as _re
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parents[1]
+    tree = ast.parse((root / "bot/core/strategy_catalog.py").read_text(encoding="utf-8"))
+    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+              and n.name == "follow_listing")
+    produced = {n.value.elts[1].value for n in ast.walk(fn)
+                if isinstance(n, ast.Return) and isinstance(n.value, ast.Tuple)
+                and isinstance(n.value.elts[1], ast.Constant)} - {"offered"}
+    copy_js = (root / "app/routes/copy.js").read_text(encoding="utf-8")
+    listed = set(_re.findall(r"'(\w+)'", _re.search(
+        r"WITHHELD_REASONS = new Set\(\[(.*?)\]\)", copy_js, _re.S).group(1)))
+    painter = (root / "app/public/js/agent-scorecard.js").read_text(encoding="utf-8")
+    worded = set(_re.findall(r"reason === '(\w+)'", painter))
+    assert produced == listed == worded, (produced, listed, worded)
+    assert "eligibility_refused" in produced

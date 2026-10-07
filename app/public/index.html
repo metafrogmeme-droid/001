@@ -958,6 +958,9 @@
 <script src="/js/chat-caption.js?v=1" defer></script>
 <script src="/js/chat.js?v=38" defer></script>
 <script src="/js/theater.js?v=2" defer></script>
+<!-- Before the inline script below: its catalogue fetch can answer before the
+     parser reaches a later tag, and the cards then painted with no painter. -->
+<script src="/js/agent-scorecard.js?v=5"></script>
 <script>
 // Hero email-capture: the primary conversion action lives above the fold. It
 // does NOT duplicate any auth logic — it prefills the real register form's email,
@@ -2051,7 +2054,6 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
      download it at all, and (b) it's deferred to idle so it never competes with
      first paint / LCP. mascot3d self-mounts on import (autoMount at module end).
      The importmap in <head> is already parsed by the time this runs. -->
-<script src="/js/agent-scorecard.js?v=4"></script>
 <script>
 (function () {
     try {

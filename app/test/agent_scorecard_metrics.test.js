@@ -440,3 +440,23 @@ test('the public strategy page uses the same reading and a 3-column grid', () =>
   const dash = dashHtml.indexOf('/js/dashboard.js');
   assert.ok(model > 0 && model < dash, 'dashboard.js reads AgentScorecard at paint time');
 });
+
+test('the landing page loads the painter before the script that fetches the catalogue', () => {
+  // The fetch can answer from a warm cache before the parser reaches a later
+  // tag: the cards then painted "Trades —" and "Folds unmeasured" and were
+  // never painted again. A synchronous tag before the inline script is
+  // loaded and run before that script starts.
+  const index = fs.readFileSync(path.join(APP, 'public', 'index.html'), 'utf8');
+  const painter = index.indexOf('<script src="/js/agent-scorecard.js');
+  const fetchAt = index.indexOf("fetch('/api/public/strategies'");
+  assert.ok(painter > 0 && fetchAt > painter, 'the painter tag must precede the fetch');
+  const tag = index.slice(painter, index.indexOf('>', painter) + 1);
+  assert.doesNotMatch(tag, /\b(defer|async)\b/, 'a deferred painter runs after the inline script');
+});
+
+test('a refused eligibility record is said as refused, not as none', () => {
+  const text = Score.withheldText('eligibility_refused');
+  assert.match(text, /record filed for this preset was refused/);
+  assert.doesNotMatch(text, /no eligibility record/i);
+  assert.match(Score.withheldText('below_one'), /no eligibility record says this preset survives/);
+});
