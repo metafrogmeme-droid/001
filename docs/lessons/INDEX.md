@@ -254,8 +254,9 @@ about to change before changing it.
 
 ### A module nothing calls is indistinguishable from one that does not work (line 20930)
 
+- L21173: CHAT'S OWN DOLLAR CAP NEVER ASKED THE DAILY TOTAL — `tests/test_chat_spends_only_its_share_of_the_llm_budget.py`
 
-## Deploying so a dead bot cannot look like a live one (line 21173)
+## Deploying so a dead bot cannot look like a live one (line 21194)
 
 
-## Operational docs (line 21330)
+## Operational docs (line 21351)

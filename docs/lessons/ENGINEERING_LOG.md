@@ -21170,6 +21170,27 @@ one more arm each for two survivors (a seconds run with no clock word, and
 `tests/test_the_onboarding_checklist_is_read_only.py`,
 `tests/test_web_gateway.py`.)
 
+**CHAT'S OWN DOLLAR CAP NEVER ASKED THE DAILY TOTAL.** `chat_budget_bound`
+returned as soon as chat was under `LLM_DAILY_BUDGET_CHAT_USD`, before the
+line that compares the combined spend with `LLM_DAILY_BUDGET_USD`. So with a
+total of 1.00 and a chat cap of 0.40, analysis could spend 0.99 and chat
+still answered until its own 0.40, taking the day to about 1.39; a chat cap
+set above the total let chat alone pass it. The design had said "chat uses
+only its own cap" (the improvement plan's thesis floor). The owner decided
+the other way on 7 October: the daily total is a ceiling on every LLM
+dollar. The total is now checked first, for the reply and for the
+rolling-note fold, which share the one reading, and a cap above the total
+is reached at the total. The refusal is then the whole-budget sentence, not
+"chat has used its own dollar budget", because that is the bound reached.
+The thesis guard has the same shape when `LLM_DAILY_BUDGET_THESIS_USD` is
+set (it compares only non-chat spend with its cap); changing that moves
+when analysis falls to the rule engine, which is a trading decision, so it
+is left as it is and raised with the owner. One mutant (the old order),
+killed by six tests; a cap above the total and a chat day that starts with
+half the total spent are each driven.
+(`tests/test_chat_spends_only_its_share_of_the_llm_budget.py`,
+`bot/core/cost.py`.)
+
 ## Deploying so a dead bot cannot look like a live one
 
 **There are TWO processes and only one of them was ever being started.**
