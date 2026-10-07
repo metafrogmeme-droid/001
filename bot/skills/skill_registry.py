@@ -2404,9 +2404,8 @@ class RunStrategySkill(BaseSkill):
 
         # The moving-average preset is a reading, not a scan of the house
         # ideas. This command does not open, resize, or close a position.
-        from bot.core.ma_trend import preset_is_ma_trend
-        from bot.core.vol_rotation import preset_is_vol_rotation
-        if preset_is_ma_trend(cfg) or preset_is_vol_rotation(cfg):
+        from bot.core.strategy_catalog import live_runs
+        if not live_runs(cfg):
             from bot.core.strategy_catalog import _how_it_trades
             return (
                 f"{cfg['icon']} <b>{cfg['label']}</b>\n"

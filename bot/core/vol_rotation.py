@@ -290,7 +290,7 @@ def how_line(cfg: dict) -> str:
     else:
         bar_sentence = ""
     return (
-        f"Trades only {universe}, long only when the close is above the"
+        f"The rule covers only {universe}: long only when the close is above the"
         f" {trend_n}-bar average of closes and the momentum ratio over"
         f" {mom_n} closed {target} bars is at least {thr}. That ratio is the"
         f" close divided by the close {mom_n} {target} bars earlier, minus"

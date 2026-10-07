@@ -93,23 +93,25 @@ _META: dict[str, dict[str, str]] = {
         "horizon": "adaptive",
     },
     "eth ma trend": {
-        "tagline": "Follows ETHUSDT in the direction of a closed-bar 50/200 "
-                   "moving average, and reverses only when that relationship changes.",
+        "tagline": "A closed-bar 50/200 moving-average rule for ETHUSDT that reverses "
+                   "only when that relationship changes. The frozen backtest runs it; "
+                   "the live bot does not.",
         "regime": "ETH trend",
         "risk": "tight",
         "horizon": "position",
     },
     "daily vol rotation": {
-        "tagline": "Longs one of six markets on a closed daily bar when momentum "
-                   "and the trend average both qualify. No frozen track record "
-                   "is published.",
+        "tagline": "A daily-momentum rotation over six markets, written down and "
+                   "not run: no scan, confirm or backtest evaluates its rule. No "
+                   "frozen track record is published.",
         "regime": "Daily momentum",
         "risk": "balanced",
         "horizon": "swing",
     },
     "alt sweep": {
-        "tagline": "Follows fifteen alt markets in the direction of a closed-bar "
-                   "36/144 moving average, and reverses only when that relationship changes.",
+        "tagline": "A closed-bar 36/144 moving-average rule over fifteen alt markets, "
+                   "written down and not run: its sizing knobs are not applied, so "
+                   "no book is opened.",
         "regime": "Alt trend",
         "risk": "aggressive",
         "horizon": "",
@@ -168,6 +170,23 @@ def _unapplied_knobs(cfg: dict[str, Any]) -> str:
     return sentence[:1].upper() + sentence[1:]
 
 
+def publishes_scorecard(cfg: dict[str, Any]) -> bool:
+    """Whether a frozen-benchmark scorecard may be written for this preset.
+
+    The one reading, for the generator and for the card's own "no
+    scorecard is published" sentence. A preset whose recorded knobs do not
+    size a fill (`_unapplied_knobs`) opens no book the runner can measure:
+    ALT Sweep's moving-average run gets no sizing flags, the engine opens
+    nothing, and a card written for it would be a zero-trade book, printed
+    as "+0.00%, profit factor 0.00, 0 trades" under a how-line saying no
+    card is published. The generator decided by universe coverage alone, so
+    the first snapshot holding its fifteen symbols would have written one.
+    The daily rotation is refused for its bar size too.
+    """
+    from bot.core.vol_rotation import publishes_scorecard as _rotation_publishes
+    return _rotation_publishes(cfg) and not _unapplied_knobs(cfg)
+
+
 def _unapplied_clause(cfg: dict[str, Any]) -> str:
     """Preset knobs this book records and does not apply. Empty when none."""
     knobs = _unapplied_knobs(cfg)
@@ -175,7 +194,8 @@ def _unapplied_clause(cfg: dict[str, Any]) -> str:
         return ""
     return (
         " " + knobs
-        + " No frozen-benchmark scorecard is published for this universe."
+        + " No frozen-benchmark scorecard is published, because a run of it"
+        " does not size a fill."
     )
 
 
@@ -183,7 +203,8 @@ def catalogue_note() -> str:
     """The one lineup sentence. Percent and ratio, a missing record stays
     missing, and verified live ranks are on the leaderboard."""
     return (
-        "Every agent is one of the engine's real strategies. "
+        "Every agent is a preset from the engine's own config, and a card "
+        "says when the engine does not run its rule. "
         "Where a frozen backtest is attached, it is percent and ratio only, "
         "never a dollar figure, and Reproduce in Lab re-runs that backtest. "
         "A card with no track record has none. "
@@ -233,13 +254,42 @@ def _slug(key: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", str(key).lower()).strip("-")
 
 
+def live_runs(cfg: dict[str, Any]) -> bool:
+    """Whether the live bot runs this preset's rule.
+
+    The one reading, for `/run` and for the card. A moving-average or
+    rotation preset is a reading, not a scan: `/run` shows its how-line and
+    places nothing, and no scan or confirm evaluates it. The cards said
+    "Trades only ETHUSDT" and "Follows fifteen alt markets" over that.
+    """
+    from bot.core.ma_trend import preset_is_ma_trend
+    from bot.core.vol_rotation import preset_is_vol_rotation
+    return not (preset_is_ma_trend(cfg) or preset_is_vol_rotation(cfg))
+
+
+#: The how-line's first sentence for a preset the live bot does not run.
+NOT_RUN_LIVE = ("The live bot does not run this rule: /run shows this text "
+                "and places nothing.")
+
+
+def _not_run_sentence(cfg: dict[str, Any]) -> str:
+    """Who evaluates a preset the live bot does not run, if anyone."""
+    from bot.core.vol_rotation import preset_is_vol_rotation
+    if preset_is_vol_rotation(cfg):
+        return NOT_RUN_LIVE + " No backtest evaluates it either."
+    if _unapplied_knobs(cfg):
+        return (NOT_RUN_LIVE + " A backtest of it opens nothing, because the "
+                "knobs below do not size a fill.")
+    return NOT_RUN_LIVE + " The frozen backtest runs it."
+
+
 def _how_it_trades(cfg: dict[str, Any]) -> str:
     """Human 'how it trades' line derived from the preset's real config, so it
     stays honest to actual behaviour. No numbers are invented — only the
     thresholds the engine actually applies are surfaced."""
     from bot.core.vol_rotation import how_line, preset_is_vol_rotation
     if preset_is_vol_rotation(cfg):
-        return how_line(cfg)
+        return _not_run_sentence(cfg) + " " + how_line(cfg)
     parts: list[str] = []
     sym = cfg.get("symbols")
     if sym == "top3_volume":
@@ -320,7 +370,10 @@ def _how_it_trades(cfg: dict[str, Any]) -> str:
         if tp is not None:
             bits.append(f"{tp:g}-ATR target")
         parts.append(" / ".join(bits))
-    text = "Trades " + ", ".join(parts) + "."
+    if live_runs(cfg):
+        text = "Trades " + ", ".join(parts) + "."
+    else:
+        text = _not_run_sentence(cfg) + " The rule covers " + ", ".join(parts) + "."
     text += _unapplied_clause(cfg)
     if (fast_ok and slow_ok
             and isinstance(source_tf, str) and isinstance(target_tf, str)

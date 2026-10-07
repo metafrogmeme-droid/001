@@ -16585,6 +16585,67 @@ stamps and stores the beat.
 (`app/test/a_heartbeat_after_a_restart_keeps_the_saved_scan.test.js`,
 `app/routes/sync.js`.)
 
+**AND THE BEAT KEPT IN MEMORY THEN HID THE SAVED SCAN FOR THE LIFE OF THE
+PROCESS.** The fix above left `latestScan = {heartbeat_at}` when the first
+read failed, and the guard tested `latestScan`: truthy, so the saved row was
+never asked for again. Driven on `main`: a saved scan, a restart whose read
+fails, one heartbeat, the database recovers, and the dashboard still showed
+no cards; the next cycle summary then replaced the row without them. "A
+read that fails leaves it empty, as before" was that path, named and left.
+The saved scan has one load now (`getLatestScan`), which the push, `GET
+/scan` and `GET /portfolio` all call instead of three copies. It records
+whether the row was READ (found or not found) and retries until it is;
+what arrived in memory meanwhile is laid over the row when it reads. While
+the row is unread, a cycle summary and a heartbeat stay in memory, because
+neither carries the cards a write would replace; a push with its own scan
+is the newer scan and is written. And `GET /scan` answers 503 for a saved
+scan it could not read, where it said "No scan data yet", a confident
+negative from no read. Eight mutants, all killed.
+
+**Four smaller claims from the same review.**
+
+- **A floored long stop still read under the floor across a power of ten.**
+  `record_level` keeps significant digits, so a long whose entry sits
+  within 0.4% above a power of ten records its entry on a grid ten times
+  coarser than its stop's. The entry's rounding is then up to five of the
+  stop's units, and `FLOOR_STEPS` (3) could not clear it: over 20,000 such
+  longs about one in five still read under the floor and the gate refused
+  the idea, the defect #466 removed, in a narrower band. The budget is
+  `floor_steps`, the one-grid steps plus the entry's half unit counted in
+  stop units. The test's band is seeded and non-round, because a round
+  entry records exactly and has nothing to clear; on the old budget it
+  refuses some, so it can produce the state it names.
+- **Three cards described rules the live bot does not run.** `/run` shows
+  a moving-average or rotation preset's how-line and places nothing, and
+  the cards said "Trades only ETHUSDT", "Follows fifteen alt markets" and
+  "Longs one of six markets". `live_runs` is the one reading for `/run` and
+  the card; a card it says no to opens with that, and says who does run
+  the rule: the frozen backtest for ETH MA trend, nobody for the daily
+  rotation, and for ALT Sweep a backtest that opens nothing. A test holds
+  "the frozen backtest runs it" to the card's own track record. The agents
+  page's translated lede ("each agent is one of the engine's real
+  strategies") is left as it is; the bot's own catalogue note now says a
+  card states when the engine does not run its rule.
+- **ALT Sweep's "no scorecard" was prose; the generator would have written
+  one.** The card's sentence came from its unapplied knobs, and the
+  generator decided by universe coverage alone, so the first snapshot
+  holding its fifteen symbols would have produced a zero-trade card.
+  `strategy_catalog.publishes_scorecard` is the one reading for both.
+- **The chart's sweep marker passed `lookback=3` to a detector that
+  discards it**, which read as narrowing the marker's swing window. It is
+  gone, held by an AST check, since no drive can see an argument nobody
+  reads.
+
+The scorecards reproduce and the majors benchmark is unchanged on this
+branch (129 trades, net −$1,456.34, as on `main`). Nineteen mutants, all
+killed; the card round needed a second pass, for the three sentences that
+say who runs a rule.
+(`app/test/a_heartbeat_after_a_restart_keeps_the_saved_scan.test.js`,
+`tests/test_a_stop_at_the_floor_reads_at_the_floor.py`,
+`tests/test_strategy_catalog.py`, `tests/test_alt_sweep.py`,
+`tests/test_liquidity_sweep_own_close.py`, `app/routes/sync.js`,
+`bot/core/signal_levels.py`, `bot/core/strategy_catalog.py`.)
+
 **/UNLINK CLOSED THE WEBSITE'S DOORS AND LEFT THE BOT'S OPEN, AND THE
 NET-WORTH DOOR HUNG UP ON ITS OWN ANSWER.** Four findings on the shared
 doors, one PR. (1) The website's unlink route clears `telegram_linked` and

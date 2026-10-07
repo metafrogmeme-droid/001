@@ -180,11 +180,12 @@ _PERCENT_EXIT_KEYS = ("trailing_stop_pct", "take_profit_pct", "hard_stop_loss_pc
 def publishes_scorecard(cfg: dict) -> bool:
     """Whether ``generate`` writes a frozen card for this preset.
 
-    Daily volatility rotation's exits are recorded and not applied, and its
-    bar size is daily. A majors 1h house run is not its track record, so the
-    file stays absent.
+    ``strategy_catalog.publishes_scorecard``: the card's own sentence and
+    this decision are one reading. A preset whose recorded knobs do not
+    size a fill gets no card (ALT Sweep would be a zero-trade book), and
+    the daily rotation's bar size is not a majors 1h run's either.
     """
-    from bot.core.vol_rotation import publishes_scorecard as _publishes
+    from bot.core.strategy_catalog import publishes_scorecard as _publishes
     return _publishes(cfg)
 
 
@@ -443,10 +444,13 @@ def generate(dataset: str, symbols: str, last_bars: int,
         matched = True
         if not publishes_scorecard(cfg):
             if want:
+                from bot.core.strategy_catalog import _unapplied_knobs
+                from bot.core.vol_rotation import preset_is_vol_rotation
+                daily = (" A majors 1h run is not this daily book."
+                         if preset_is_vol_rotation(cfg) else "")
                 raise SystemExit(
-                    f"{key}: no scorecard is published. The percent exits are "
-                    "recorded and not applied, and a majors 1h run is not "
-                    "this daily book.")
+                    f"{key}: no scorecard is published. "
+                    f"{_unapplied_knobs(cfg)}{daily}")
             continue
         if not preset_universe_covered(cfg, sym_list):
             print(f"  [{key}] omitted: this run's symbols are not its universe. "

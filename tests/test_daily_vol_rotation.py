@@ -278,4 +278,5 @@ def test_the_generator_does_not_publish_a_majors_card():
     with pytest.raises(SystemExit) as raised:
         generate(dataset, "BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT", 10,
                  preset="daily-vol-rotation")
-    assert "recorded and not applied" in str(raised.value)
+    assert "not applied" in str(raised.value)
+    assert "not this daily book" in str(raised.value)

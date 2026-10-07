@@ -86,6 +86,15 @@ const AUTHORIZED_BOT_USER_ID = parseInt(process.env.BOT_USER_ID) || 1;
 
 // -- In-memory stores (persist within same cold start) --
 let latestScan = null;
+// Whether this process has READ the saved scan row (found one or found none)
+// or written its own over it. Until then `latestScan` may hold only what
+// arrived in memory while the row could not be read (a heartbeat, a cycle
+// summary), which is not the saved scan, and `getLatestScan` tries again.
+// Testing `latestScan` for that made one heartbeat during a failed read
+// mask the saved scan for the life of the process: the cards stayed off the
+// dashboard after the database recovered, and the next cycle summary
+// replaced the row without them.
+let savedScanRead = false;
 // Said once per process: a heartbeat that found no saved scan to stamp.
 let heartbeatUnstoredSaid = false;
 let latestPortfolio = null; // { equity, open_count, net_pnl, total_trades, win_rate, updated_at }
@@ -182,18 +191,13 @@ function scanFor(operator, scan) {
 
 router.get('/scan', optionalAuth, async (req, res) => {
   const operator = await isOperator(req);
+  await getLatestScan();
   if (latestScan) {
     return res.json({ scan: scanFor(operator, latestScan) });
   }
-  // Cold start: try to load from DB
-  try {
-    const [rows] = await pool.execute('SELECT scan_json, updated_at FROM scan_cache WHERE id = 1');
-    if (rows.length > 0 && rows[0].scan_json) {
-      latestScan = JSON.parse(rows[0].scan_json);
-      return res.json({ scan: scanFor(operator, latestScan) });
-    }
-  } catch (err) {
-    console.error('Scan cache load error:', err.stack || err.message);
+  // A saved scan this process could not read is not "no scan yet".
+  if (!savedScanRead) {
+    return res.status(503).json({ error: 'The saved scan could not be read right now.' });
   }
   return res.json({ scan: null, message: 'No scan data yet. Run /scan in Telegram.' });
 });
@@ -228,14 +232,7 @@ router.get('/portfolio-summary', optionalAuth, async (req, res) => {
     return res.json({ portfolio: summaryFor(operator, latestPortfolio) });
   }
   // Try to build from persisted scan data (circuit_breaker has live exchange data)
-  if (!latestScan) {
-    try {
-      const [rows] = await pool.execute('SELECT scan_json FROM scan_cache WHERE id = 1');
-      if (rows.length > 0 && rows[0].scan_json) {
-        latestScan = JSON.parse(rows[0].scan_json);
-      }
-    } catch (err) { /* ignore */ }
-  }
+  await getLatestScan();
   const cb = latestScan?.circuit_breaker;
   if (cb && (cb.equity != null || cb.total_trades != null || cb.live_unavailable)) {
     latestPortfolio = {
@@ -955,14 +952,14 @@ router.post('/scan', async (req, res) => {
     // the cards, symbols, scan_at, deepscan and breaker block were gone
     // until the next manual /scan. The guard two statements down had been
     // written for exactly that replace, one branch over.
-    if (!latestScan) await getLatestScan();
+    await getLatestScan();
     // A cadence stamp from a batch that is still working. It must not
     // replace the stored scan: no cards, no balances, no "we scanned and
     // found nothing". The status line reads heartbeat_at while it is a
     // real time, and a stopped batch simply stops posting it.
     if (incoming.heartbeat === true) {
       const beat = new Date().toISOString();
-      if (latestScan && typeof latestScan === 'object') {
+      if (latestScan && typeof latestScan === 'object' && savedScanRead) {
         latestScan = { ...latestScan, heartbeat_at: beat };
         try {
           await pool.execute(
@@ -976,8 +973,9 @@ router.post('/scan', async (req, res) => {
         // Nothing loaded: no saved scan, or a read that failed. The beat
         // lives in memory for the status line and is NOT written, because
         // a REPLACE here is the only statement that can turn a saved scan
-        // this process could not read into a row holding one timestamp.
-        latestScan = { heartbeat_at: beat };
+        // this process could not read into a row holding one timestamp --
+        // or into a cycle summary kept in memory while it was unread.
+        latestScan = { ...(latestScan || {}), heartbeat_at: beat };
         if (!heartbeatUnstoredSaid) {
           heartbeatUnstoredSaid = true;
           console.warn('Scan heartbeat kept in memory only: no saved scan was loaded, '
@@ -1031,14 +1029,23 @@ router.post('/scan', async (req, res) => {
       ...(scanAt ? { scan_at: scanAt } : {}),
       received_at: new Date().toISOString(),
     };
-    // Persist to DB so it survives cold starts
-    try {
-      await pool.execute(
-        'REPLACE INTO scan_cache (id, scan_json) VALUES (1, ?)',
-        [JSON.stringify(latestScan)]
-      );
-    } catch (dbErr) {
-      console.error('Scan cache write error:', dbErr.message);
+    // Persist to DB so it survives cold starts -- unless the saved row could
+    // not be read and this push does not carry a scan of its own. A cycle
+    // summary carries the cards forward from the saved row, and with that row
+    // unread it has none to carry: writing it would replace saved cards this
+    // process never saw. It stays in memory, and the next push retries the
+    // read. A push that carries its own scan is the newer scan either way.
+    const ownScan = Object.prototype.hasOwnProperty.call(incoming, 'entry_cards');
+    if (savedScanRead || ownScan) {
+      try {
+        await pool.execute(
+          'REPLACE INTO scan_cache (id, scan_json) VALUES (1, ?)',
+          [JSON.stringify(latestScan)]
+        );
+        savedScanRead = true;
+      } catch (dbErr) {
+        console.error('Scan cache write error:', dbErr.message);
+      }
     }
     // Update portfolio summary from circuit_breaker if present
     const cb = latestScan.circuit_breaker;
@@ -1876,14 +1883,22 @@ module.exports.readReports = readReports;
 // DB (scan_cache) on cold start — so a web restart (every deploy on an
 // ephemeral host) doesn't reset the scan to "no data" while the last engine
 // push is still sitting in the DB. Mirrors getLatestReports().
+// The one load of the saved scan, for every reader. Retried until a read
+// answers (a row, or no row). What arrived in memory while it could not be
+// read is newer than the row and is laid over it; the row supplies what
+// that left out (the cards a cycle summary carries forward).
 async function getLatestScan() {
-  if (latestScan) return latestScan;
+  if (savedScanRead) return latestScan;
   try {
     const [rows] = await pool.execute('SELECT scan_json FROM scan_cache WHERE id = 1');
-    if (rows.length > 0 && rows[0].scan_json) {
-      latestScan = JSON.parse(rows[0].scan_json);
+    const saved = (rows.length > 0 && rows[0].scan_json) ? JSON.parse(rows[0].scan_json) : null;
+    savedScanRead = true;
+    if (saved && typeof saved === 'object') {
+      latestScan = latestScan ? { ...saved, ...latestScan } : saved;
     }
-  } catch (err) { /* cold-start miss / table absent is fine */ }
+  } catch (err) {
+    console.error('Scan cache load error:', err && err.name ? err.name : 'Error');
+  }
   return latestScan;
 }
 module.exports.getLatestScan = getLatestScan;

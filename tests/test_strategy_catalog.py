@@ -36,7 +36,14 @@ def test_every_card_has_the_marketplace_shape():
         for field in ("id", "name", "icon", "tagline", "how", "regime",
                       "risk", "risk_label", "horizon", "run"):
             assert field in c, f"card missing {field}: {c}"
-        assert c["id"] and c["how"].startswith("Trades ")
+        # A preset the live bot runs says what it trades; one it does not
+        # run says that first (`live_runs`, the reading /run asks).
+        cfg = {sc._slug(k): v for k, v in RunStrategySkill.PRESETS.items()}[c["id"]]
+        if sc.live_runs(cfg):
+            assert c["id"] and c["how"].startswith("Trades ")
+        else:
+            assert c["how"].startswith(sc.NOT_RUN_LIVE), c["how"]
+            assert "Trades " not in c["how"]
         # The run alias is a real chat/Telegram shortcut for this agent.
         assert c["run"]
 
@@ -192,3 +199,28 @@ def test_public_gateway_route_is_registered_no_auth():
     # Public by construction — no per-user guard, and it serves the catalogue.
     assert "_guard_user" not in h
     assert "strategy_catalog.catalog()" in h
+
+
+def test_a_card_the_live_bot_does_not_run_says_who_runs_it():
+    # The sentence is a claim about a backtest, so it is held to the card's
+    # own track record: "the frozen backtest runs it" only beside one, and a
+    # preset without one says why there is none.
+    by_slug = {sc._slug(k): v for k, v in RunStrategySkill.PRESETS.items()}
+    seen = set()
+    for c in sc.catalog():
+        cfg = by_slug[c["id"]]
+        if sc.live_runs(cfg):
+            assert sc.NOT_RUN_LIVE not in c["how"]
+            continue
+        seen.add(c["id"])
+        measured = isinstance(c.get("scorecard"), dict) and "metrics" in c["scorecard"]
+        assert ("The frozen backtest runs it." in c["how"]) is measured, c["id"]
+        if not measured:
+            assert c["scorecard"] and c["scorecard"].get("omitted"), c["id"]
+    assert seen == {"eth-ma-trend", "alt-sweep", "daily-vol-rotation"}
+    rotation = sc.get_agent("daily-vol-rotation")
+    assert "No backtest evaluates it either." in rotation["how"]
+    alt = sc.get_agent("alt-sweep")
+    assert "A backtest of it opens nothing" in alt["how"]
+    assert "because a run of it does not size a fill" in alt["how"]
+    assert "for this universe" not in alt["how"]
