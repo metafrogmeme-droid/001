@@ -231,29 +231,29 @@ about to change before changing it.
 - L19137: AND A GUARD HAD PINNED THE HALF-FIX AS THE CONTRACT
 - L19163: A MARKER IS THE DEFINITION, AND FIVE PIECES OF PROSE DESCRIBED IT WRONG
 - L19234: THE SCRUBBER'S UNIT WAS A LINE AND THE CARD'S UNIT IS A FIELD
-- L19272: THREE ABORT CARDS ANNOUNCED A FLATTEN AND NAMED NO CAUSE
-- L19389: THE ALLOWANCE X-RAY PRINTED ✅ OVER GRANTS IT NEVER READ, THREE WAYS — `app/test/allowance_xray_says_what_it_read.test.js`, `app/test/signed_in_is_not_the_operator.test.js`
-- L19412: THREE PUBLIC SIGNAL STATISTICS SAID MORE THAN THEIR ROWS DID — `app/test/both_mean_r_routes_say_which_rows_they_cover.test.js`, `app/test/setup_scoreboard_intervals.test.js`, `app/test/setup_survives_is_preregistered.test.js`, `app/test/the_calibration_chart_says_fitted_not_recorded.test.js`, `app/test/the_setup_board_shows_measured_cells_first.test.js`, `app/test/the_state_dir_is_the_bots_reading.test.js`, `tests/test_the_calibration_file_records_each_bins_trades.py`
+- L19272: THREE ABORT CARDS ANNOUNCED A FLATTEN AND NAMED NO CAUSE — `app/test/a_chain_read_that_failed_says_why.test.js`, `app/test/defi.test.js`, `app/test/solana_wallet_detect.test.js`, `tests/test_an_unpriced_paper_mark_is_absent_not_zero.py`
+- L19440: THE ALLOWANCE X-RAY PRINTED ✅ OVER GRANTS IT NEVER READ, THREE WAYS — `app/test/allowance_xray_says_what_it_read.test.js`, `app/test/signed_in_is_not_the_operator.test.js`
+- L19463: THREE PUBLIC SIGNAL STATISTICS SAID MORE THAN THEIR ROWS DID — `app/test/both_mean_r_routes_say_which_rows_they_cover.test.js`, `app/test/setup_scoreboard_intervals.test.js`, `app/test/setup_survives_is_preregistered.test.js`, `app/test/the_calibration_chart_says_fitted_not_recorded.test.js`, `app/test/the_setup_board_shows_measured_cells_first.test.js`, `app/test/the_state_dir_is_the_bots_reading.test.js`, `tests/test_the_calibration_file_records_each_bins_trades.py`
 
-## A URL is a surface, and a slash in a path segment does not survive a hop (line 19487)
-
-
-## Verifying a deploy (line 19536)
+## A URL is a surface, and a slash in a path segment does not survive a hop (line 19538)
 
 
-## Writing tests that scan source (line 19581)
-
-- L20023: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
-- L20224: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
-- L20251: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
-
-### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 20485)
+## Verifying a deploy (line 19587)
 
 
-### A module nothing calls is indistinguishable from one that does not work (line 20557)
+## Writing tests that scan source (line 19632)
+
+- L20074: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
+- L20275: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
+- L20302: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
+
+### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 20536)
 
 
-## Deploying so a dead bot cannot look like a live one (line 20748)
+### A module nothing calls is indistinguishable from one that does not work (line 20608)
 
 
-## Operational docs (line 20905)
+## Deploying so a dead bot cannot look like a live one (line 20799)
+
+
+## Operational docs (line 20956)

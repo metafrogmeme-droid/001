@@ -196,7 +196,7 @@ test('the account page renders the offer and posts the watch body unchanged', ()
   const watch = dash.slice(
     dash.indexOf("closest('#solWatch')"),
     dash.indexOf("closest('#solUnwatch')"));
-  assert.ok(watch.includes('watchOnlyPostBody'));
+  assert.ok(watch.includes('solanaWatchBody(window.RCSolanaWallet'));
   assert.match(watch, /body: watched\.body/);
   assert.doesNotMatch(watch, /signature|signMessage|signAndSend/);
 });
@@ -217,4 +217,63 @@ test('the page global exposes the detection reading', () => {
     'prepareWatchOnly', 'watchOnlyPostBody', 'phantomBrowseHref']) {
     assert.strictEqual(typeof sandboxWindow.RCSolanaWallet[fn], 'function', fn);
   }
+});
+
+
+// ── iPad, the Phantom sign-in, and an address nobody could check ──────────
+
+const IPAD_DESKTOP_CLASS = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 '
+  + '(KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+
+test('an iPad sending a Mac user agent is a tablet, not a desktop told to install', () => {
+  const ipad = W.detectionState({ provider: false, userAgent: IPAD_DESKTOP_CLASS,
+    pageUrl: PAGE, maxTouchPoints: 5 });
+  assert.strictEqual(ipad.mobile, true);
+  assert.strictEqual(ipad.sayInstall, false);
+  assert.strictEqual(W.solanaLinkOffer(ipad).primary.kind, 'open');
+  // The same UA on a Mac, which has no touch points, may still say install.
+  const mac = W.detectionState({ provider: false, userAgent: IPAD_DESKTOP_CLASS,
+    pageUrl: PAGE, maxTouchPoints: 0 });
+  assert.strictEqual(mac.mobile, false);
+  assert.strictEqual(mac.sayInstall, true);
+});
+
+test('the touch points are read off the page when the caller does not pass them', () => {
+  global.window = { navigator: { userAgent: IPAD_DESKTOP_CLASS, maxTouchPoints: 5 },
+    location: { href: PAGE } };
+  assert.strictEqual(W.detectionState({ provider: false }).mobile, true);
+  global.window = { navigator: { userAgent: IPAD_DESKTOP_CLASS, maxTouchPoints: 0 },
+    location: { href: PAGE } };
+  assert.strictEqual(W.detectionState({ provider: false }).mobile, false);
+});
+
+test('the Phantom offer says its browser signs in on its own', () => {
+  const offer = W.solanaLinkOffer(W.detectionState({ provider: false, userAgent: IPHONE, pageUrl: PAGE }));
+  assert.match(offer.intro, /keeps its own sign-in, so you log in there once/);
+});
+
+function watchSeam() {
+  const vm = require('node:vm');
+  const raw = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
+  const a = raw.indexOf('// ── the watch-only answer: renderer start ─');
+  const b = raw.indexOf('// ── the watch-only answer: renderer end ─');
+  assert.ok(a > 0 && b > a, 'the watch-only answer lost its markers');
+  const ctx = { out: null };
+  vm.runInNewContext(raw.slice(a, b) + '\nout = { solanaWatchBody, solanaWatchRefusal };', ctx);
+  return ctx.out;
+}
+
+test('an address the missing wallet script could not check is not called invalid', () => {
+  const { solanaWatchBody, solanaWatchRefusal } = watchSeam();
+  const tr = (k, en) => en;
+  const unchecked = solanaWatchBody(undefined, GOOD);
+  assert.deepStrictEqual({ ...unchecked }, { post: false, reason: 'unchecked' });
+  assert.match(solanaWatchRefusal(unchecked, tr), /did not load, so the address was not checked/);
+  assert.doesNotMatch(solanaWatchRefusal(unchecked, tr), /not a Solana address/);
+  // With the script, the module's own answer, both arms.
+  assert.strictEqual(solanaWatchBody(W, GOOD).post, true);
+  const bad = solanaWatchBody(W, PARTIAL);
+  assert.strictEqual(bad.post, false);
+  assert.match(solanaWatchRefusal(bad, tr), /That is not a Solana address/);
+  assert.match(solanaWatchRefusal(solanaWatchBody(W, ''), tr), /Paste a Solana address first/);
 });

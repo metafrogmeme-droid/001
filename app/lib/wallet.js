@@ -210,6 +210,20 @@ function exceptionClass(e) {
   return 'Error';
 }
 
+// Why a chain read failed, for the person reading the row: the class, then
+// the library's error CODE when it has one. ethers v6 builds every provider
+// error as a plain `Error` with a `code` (NETWORK_ERROR, SERVER_ERROR,
+// TIMEOUT, CALL_EXCEPTION, UNSUPPORTED_OPERATION), so the class alone printed
+// "rpc unreadable — Error" for a 429, a bad URL and blocked egress alike:
+// the three states holdings.js carries the detail to tell apart. A code is
+// a fixed enum token (Node's ECONNREFUSED is one too), not a message, and
+// carries no URL or host; anything that is not such a token is left out.
+function errorReason(e) {
+  const cls = exceptionClass(e);
+  const code = e && typeof e === 'object' ? e.code : null;
+  return (typeof code === 'string' && /^[A-Z][A-Z0-9_]{1,40}$/.test(code)) ? `${cls} ${code}` : cls;
+}
+
 const FORMAT_MISSING = Symbol('formatMissing');
 
 // ethers v6: `formatEther` / `formatUnits` on the module (and on the `ethers`
@@ -296,13 +310,13 @@ async function readChain(chain, address, tickers) {
     return { chain: chain.key, label: chain.label, assets: [], total_usd: 0, unpriced: 0, error: 'rpc unavailable' };
   }
   let sawError = false;
-  let errorDetail = null;   // exception class, never the message.
+  let errorDetail = null;   // class and code (errorReason), never the message.
   // A test factory hands back a plain provider; the default hands back a
   // rotating wrapper. Accept both.
   const active = () => (provider && provider.current) ? provider.current : provider;
   const note = (e) => {
     if (errorDetail) return;
-    errorDetail = exceptionClass(e);
+    errorDetail = errorReason(e);
   };
   // Try the current endpoint; on failure move to the next configured one and
   // try once more. Without this a single rate-limited public RPC blanks the
@@ -471,6 +485,7 @@ async function walletChatCard(userId, chainFilter) {
 }
 
 module.exports = {
+  errorReason,
   TOKENS,
   CHAINS,
   activeChains,

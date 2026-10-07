@@ -19386,6 +19386,57 @@ the public letter of exactly those weeks and no others.
 `/api/stream` has no auth by design (a "refresh now" signal), and the close
 nudge carried `pnl`. The page only toasts; the figure is gone from the nudge.
 
+**A FAILED CHAIN READ HAD ONE NAME FOR EVERY CAUSE, AND THE DEFI CARD HAD
+NONE.** From the sixty-PR review, two private surfaces and one bot card.
+
+- **"rpc unreadable — Error" for every RPC failure.** #504 replaced the
+  error's message with its class, which is right for a person-facing line,
+  but ethers v6 builds every provider error as a plain `Error` carrying a
+  `code`. A 429, a bad URL and blocked egress all read the same, which is
+  the detail `holdings.js` carries the field to tell apart. The detail is
+  `errorReason`: the class, then the code when it is an enum token
+  (`SERVER_ERROR`, `ECONNREFUSED`). A code that is not such a token is left
+  out, and so is the message, which can hold the RPC URL and its key.
+- **The DeFi composite read a wallet whose every RPC failed as holding
+  nothing.** Each protocol reader answers null for "no position", and a
+  failure was caught to `undefined` and filtered out with them, so the card
+  and the panel said "no Aave, Lido or Uniswap v3 positions found", a
+  confident negative from no read. Each failed read is named now (`unread`,
+  per protocol and chain) on the chat card and the dashboard panel, alone
+  or beside what was read.
+- **The paper `/positions` row sent `current: 0` for a mark it could not
+  read.** The photo card prints a falsy price as a dash, but the text card
+  tests `is not None` and printed a mark of $0.000000. The row sends None
+  and `price_unavailable`, the way the live rows do, and the flag is not
+  decoration: `open_book_return` reads it to say why a row is left out of
+  the book's return, so the header now names "no readable mark" where it
+  named no cause.
+
+**Twelve mutants, all killed, after a second round.** The first left four:
+the Uniswap failure (the test checked Aave and Lido by name and nothing
+else), the all-failed chat card (never driven), the panel's partial
+failure, and the paper row's flag. The panel was held only by a source
+shape inside a `renderPanel` closure; it is `defiPanelHtml` between markers
+now, driven for nothing read, everything failed and a mix. The flag looked
+like an equivalent mutant, since every card that tests it also tests a P&L
+that is None whenever the mark is, until a search for its readers found the
+book's coverage note.
+(`app/test/a_chain_read_that_failed_says_why.test.js`,
+`app/test/defi.test.js`,
+`tests/test_an_unpriced_paper_mark_is_absent_not_zero.py`,
+`app/lib/wallet.js`, `app/lib/defi.js`, `app/public/js/dashboard.js`,
+`bot/skills/trading_commands.py`.)
+
+**And the Solana link offer, three lows.** An iPad sends a desktop Mac user
+agent by default, so it was told to install a browser extension; a Mac UA
+with more than one touch point is a tablet now. "Open in Phantom" opens the
+page in Phantom's own browser, which keeps its own cookies, so it lands
+signed out; the offer says you log in there once. And when
+`solana_wallet.js` did not load, the dashboard's fallback called a valid
+pasted address "not a Solana address": an address nothing checked is said
+as unchecked (`solanaWatchBody`, `solanaWatchRefusal`, driven). Four
+mutants, all killed. (`app/test/solana_wallet_detect.test.js`.)
+
 **THE ALLOWANCE X-RAY PRINTED ✅ OVER GRANTS IT NEVER READ, THREE WAYS.**
 The read was encoded by ethers, which production resolves to a stub whose
 `encodeFunctionData` answers `'0x'` -- the revoke calldata beside it had
@@ -20411,7 +20462,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1230** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1231** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

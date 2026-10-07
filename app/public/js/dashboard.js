@@ -120,6 +120,28 @@
     return v >= 0 ? 'up' : 'down';
   }
 
+  // ── the watch-only answer: renderer start ─
+  // The address check lives in solana_wallet.js. When that script did not
+  // load (a stale cache, a blocked script), nothing checked the address, and
+  // a valid one was told "That is not a Solana address". Unchecked is its
+  // own answer. Module scope so a test can drive it.
+  function solanaWatchBody(api, raw) {
+    if (!api || typeof api.watchOnlyPostBody !== 'function') {
+      return { post: false, reason: 'unchecked' };
+    }
+    return api.watchOnlyPostBody(raw);
+  }
+  function solanaWatchRefusal(watched, tr) {
+    const reason = watched && watched.reason;
+    if (reason === 'empty') return tr('dd.t_need_sol_addr', 'Paste a Solana address first.');
+    if (reason === 'unchecked') {
+      return 'The wallet script did not load, so the address was not checked. '
+        + 'Reload the page — nothing was linked.';
+    }
+    return 'That is not a Solana address — nothing was linked.';
+  }
+  // ── the watch-only answer: renderer end ─
+
   // ── the ETF flows panel: renderer start ─
   // The body of the Markets panel, from the payload `app/lib/etf_flows.js`
   // builds (the reading Telegram's /etf draws as a picture). Module scope so
@@ -253,6 +275,47 @@
     return '<span class="hfmeter hfmeter--' + cls + '" aria-hidden="true">'
       + '<span class="hfmeter-fill" style="width:' + Math.round(frac * 100) + '%"></span></span>';
   }
+
+  // ── the DeFi panel: renderer start ─
+  // The body of the DeFi panel for a linked wallet, from `/api/defi`
+  // (`app/lib/defi.js buildDefiPositions`). Module scope so a test can drive
+  // it. null is "nothing read and nothing failed", which the panel paints as
+  // its "no positions found" empty state; a protocol read that failed is
+  // named instead, alone or beside what was read, because "no positions" is
+  // a claim the failed reads cannot make.
+  function defiPanelHtml(d) {
+    const bits = [];
+    const protoCard = (glyph, name, chip, body) => `
+        <div class="w3-card">
+          <span class="tok" aria-hidden="true">${glyph}</span>
+          <span class="w3-name">${name}</span>
+          <span class="chip chip--info">${chip}</span>
+          <b class="num w3-val">${body}</b>
+        </div>`;
+    for (const a of (d.aave || [])) {
+      const hfCls = a.health_factor === null ? '' : a.health_factor < 1.1 ? 'down' : a.health_factor < 1.5 ? 'chip--warn' : 'up';
+      bits.push(protoCard('🏦', `Aave v3 · ${esc(a.label)}`, 'lending',
+        `$${fmt(a.collateral_usd, 0)} coll · $${fmt(a.debt_usd, 0)} debt ·
+          ${a.health_factor === null ? '<span class="muted small">no debt</span>' : `HF <span class="${hfCls}">${a.health_factor}</span>${hfMeter(a.health_factor)}`}`));
+    }
+    if (d.lido) {
+      bits.push(protoCard('🌊', 'Lido stETH', 'staking',
+        `${Number(d.lido.steth_amount).toLocaleString('en-US', { maximumFractionDigits: 4 })} — ${d.lido.usd != null ? '$' + fmt(d.lido.usd, 2) : 'unpriced'}`));
+    }
+    for (const u of (d.uniswap || [])) {
+      bits.push(protoCard('🦄', `Uniswap v3 · ${esc(u.label)}`, 'LP',
+        `${u.positions} LP position${u.positions === 1 ? '' : 's'} <span class="muted small">counted, not valued</span>`));
+    }
+    const unread = Array.isArray(d.unread) ? d.unread : [];
+    const unreadHtml = unread.length
+      ? `<p class="muted small" style="margin-top:var(--s1)">Could not read ${esc(unread.join(', '))} (RPC). That is a failed read, not "no position".</p>` : '';
+    if (!bits.length) return unread.length ? unreadHtml : null;
+    const warn = (d.warnings || []).map(w =>
+      `<p class="small" style="color:var(--down);margin-top:var(--s1)">⚠️ ${esc(w)}</p>`).join('');
+    return bits.join('') + warn + unreadHtml
+      + `<p class="small muted" style="margin-top:var(--s2)">${esc(d.note)}</p>`;
+  }
+  // ── the DeFi panel: renderer end ─
 
   // ── Shared data caches ────────────────────────────────────────────────
   // scanOk is TRI-state and it matters: null = never attempted, true = the
@@ -4962,33 +5025,7 @@
         return `<p class="muted">No wallet linked — link one in the <a href="#account">Account view</a>
           and your Aave, Lido and Uniswap positions appear here with liquidation-risk warnings.</p>`;
       }
-      const bits = [];
-      const protoCard = (glyph, name, chip, body) => `
-        <div class="w3-card">
-          <span class="tok" aria-hidden="true">${glyph}</span>
-          <span class="w3-name">${name}</span>
-          <span class="chip chip--info">${chip}</span>
-          <b class="num w3-val">${body}</b>
-        </div>`;
-      for (const a of (d.aave || [])) {
-        const hfCls = a.health_factor === null ? '' : a.health_factor < 1.1 ? 'down' : a.health_factor < 1.5 ? 'chip--warn' : 'up';
-        bits.push(protoCard('🏦', `Aave v3 · ${esc(a.label)}`, 'lending',
-          `$${fmt(a.collateral_usd, 0)} coll · $${fmt(a.debt_usd, 0)} debt ·
-          ${a.health_factor === null ? '<span class="muted small">no debt</span>' : `HF <span class="${hfCls}">${a.health_factor}</span>${hfMeter(a.health_factor)}`}`));
-      }
-      if (d.lido) {
-        bits.push(protoCard('🌊', 'Lido stETH', 'staking',
-          `${Number(d.lido.steth_amount).toLocaleString('en-US', { maximumFractionDigits: 4 })} — ${d.lido.usd != null ? '$' + fmt(d.lido.usd, 2) : 'unpriced'}`));
-      }
-      for (const u of (d.uniswap || [])) {
-        bits.push(protoCard('🦄', `Uniswap v3 · ${esc(u.label)}`, 'LP',
-          `${u.positions} LP position${u.positions === 1 ? '' : 's'} <span class="muted small">counted, not valued</span>`));
-      }
-      if (!bits.length) return null;
-      const warn = (d.warnings || []).map(w =>
-        `<p class="small" style="color:var(--down);margin-top:var(--s1)">⚠️ ${esc(w)}</p>`).join('');
-      return bits.join('') + warn
-        + `<p class="small muted" style="margin-top:var(--s2)">${esc(d.note)}</p>`;
+      return defiPanelHtml(d);
     }, { timeoutMs: 27000, empty: { icon: 'icon-shield', text: 'No Aave, Lido or Uniswap v3 positions found on the tracked chains.' } });
 
     // What-if replay: mirror every closed agent trade at a fixed stake.
@@ -6064,13 +6101,10 @@
       if (e.target.closest('#solWatch')) {
         // Pasted address only. No provider, no signature, no transaction.
         // An invalid address does not post, and is not rewritten into one.
-        const watched = window.RCSolanaWallet && RCSolanaWallet.watchOnlyPostBody
-          ? RCSolanaWallet.watchOnlyPostBody(document.getElementById('solAddr')?.value)
-          : { post: false, reason: 'invalid' };
+        const watched = solanaWatchBody(window.RCSolanaWallet,
+          document.getElementById('solAddr')?.value);
         if (!watched.post) {
-          toast(watched.reason === 'empty'
-            ? T('dd.t_need_sol_addr', 'Paste a Solana address first.')
-            : 'That is not a Solana address — nothing was linked.');
+          toast(solanaWatchRefusal(watched, T));
           return;
         }
         const v = await fetchJSON('/api/auth/wallet/solana', { method: 'POST', body: watched.body }).catch(() => null);
