@@ -110,6 +110,10 @@
       rate: rate,
       n: n === null ? null : Math.max(0, Math.round(n)),
       rated: false,
+      // At or over the sample floor, with a readable count. Position on the
+      // board is decided by this, not by colour: a setup cell is never
+      // coloured, and its sample still decides where it stands.
+      floored: false,
       reason: null,
       detail: typeof g.detail === 'string' ? g.detail : '',
       // The gate's word. A planted "survives" on the payload is not copied:
@@ -141,6 +145,7 @@
       return out;
     }
     out.rated = true;
+    out.floored = true;
     // Colour is the established verdict. A setup cell does not carry it,
     // whether the word is exploratory or survives. A pattern column has
     // neither mark and keeps the sample-floor colour.
@@ -152,6 +157,7 @@
     // floor were ever read differently. A thin cell is not established.
     if (setup && SetupReading && out.reading === SetupReading.TOO_THIN) {
       out.rated = false;
+      out.floored = false;
     }
     return out;
   }
@@ -244,9 +250,15 @@
   /**
    * Build the rows for one column.
    *
-   * RATED GROUPS SORT FIRST, and this is a claim too: a list ordered by
-   * percentage alone puts `100% ×1` at the top, which is exactly the ranking
-   * the sample floor exists to refuse. Within each band the order is by rate.
+   * GROUPS AT THE SAMPLE FLOOR SORT FIRST, and this is a claim too: a list
+   * ordered by percentage alone puts `100% ×1` at the top, which is exactly
+   * the ranking the sample floor exists to refuse. The band was "rated"
+   * (coloured), and #513 took the colour off every setup cell, so the setup
+   * board became one band ordered by win rate: six one-trade 100% cells
+   * filled the six rows and every cell with a sample was cut. The floor
+   * decides the band; colour orders within it; over the floor the order is
+   * by rate. Under it a rate is not a ranking, so the order is by sample,
+   * then rate.
    */
   function buildRows(groups, key, opts) {
     opts = opts || {};
@@ -254,7 +266,13 @@
     if (!list.length) return '';
     var rows = list.map(function (g) { return classify(g, key); });
     rows.sort(function (a, b) {
+      if (a.floored !== b.floored) return a.floored ? -1 : 1;
       if (a.rated !== b.rated) return a.rated ? -1 : 1;
+      if (!a.floored) {
+        var an = a.n === null ? -1 : a.n;
+        var bn = b.n === null ? -1 : b.n;
+        if (an !== bn) return bn - an;
+      }
       var ar = a.rate === null ? -1 : a.rate;
       var br = b.rate === null ? -1 : b.rate;
       return br - ar;
@@ -280,15 +298,29 @@
     if (g.mean_r == null) return label;
     var mean = Number(g.mean_r);
     if (!Number.isFinite(mean)) return label;
-    return label + ' · ' + mean + 'R';
+    return label + ' · ' + shown(mean) + 'R';
+  }
+
+  /**
+   * A measured figure for the eye: four decimal places with the trailing
+   * zeros dropped, and two significant figures under a thousandth, so a
+   * small q-value is not printed as 0. It printed `String(n)`, so a hit rate
+   * of 8 in 12 read "0.6666666666666666" and its Wilson bound and q-value
+   * the same sixteen digits. The payload keeps every digit; this is only
+   * what the row shows.
+   */
+  function shown(n) {
+    if (n === 0) return '0';
+    var a = Math.abs(n);
+    var text = a >= 0.001 ? a.toFixed(4).replace(/\.?0+$/, '') : a.toPrecision(2);
+    return (n < 0 ? '-' : '') + text;
   }
 
   /** A ratio for the row, or null when the field was not a measurement. */
   function ratioText(v) {
     var n = num(v);
     if (n === null) return null;
-    if (n === 0) return '0';
-    return String(n);
+    return shown(n);
   }
 
   /**
@@ -308,9 +340,9 @@
     var hit = ratioText(cell.hit_rate);
     var wlo = ratioText(cell.wilson_lo);
     var whi = ratioText(cell.wilson_hi);
-    var mean = num(cell.mean_r);
-    var lo = num(cell.mean_r_lo);
-    var hi = num(cell.mean_r_hi);
+    var mean = ratioText(cell.mean_r);
+    var lo = ratioText(cell.mean_r_lo);
+    var hi = ratioText(cell.mean_r_hi);
     var q = ratioText(cell.q_value);
     return [
       'n ' + (n === null ? 'unavailable' : String(Math.round(n))),

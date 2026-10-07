@@ -33,6 +33,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { explicitStateDir } = require('../lib/state_dir');
 const Module = require('module');
 
 const SLOW_MS = Number(process.env.DIAG_SLOW_MS || 250);
@@ -118,7 +119,7 @@ process.on('exit', (code) => {
 function probeFsSync() {
   const { spawnSync } = require('child_process');
   const cands = [
-    process.env.RUNECLAW_STATE_DIR,
+    explicitStateDir(),
     path.join(__dirname, '..', '..', 'data'),
     path.join(process.cwd(), 'data'),
     path.join(process.cwd(), '..', 'data'),

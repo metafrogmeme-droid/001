@@ -137,8 +137,10 @@ test('the file reader returns the saved bins and does not invent a curve', () =>
   assert.equal(reading.n_samples, 40);
   assert.deepEqual(reading.bins, [{ x: 0.65, y: 0.18 }, { x: 0.75, y: 0 }]);
 
+  // No file where this process looks is not "not fitted": the bot writes
+  // the document on every refit, so this says where the server looked.
   const missing = readCalibrationCurve({ file: path.join(dir, 'absent.json') });
-  assert.equal(missing.state, 'unmeasured');
+  assert.equal(missing.state, 'absent');
   assert.deepEqual(missing.bins, []);
 
   fs.writeFileSync(file, '{');

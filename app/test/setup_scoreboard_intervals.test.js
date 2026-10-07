@@ -386,3 +386,80 @@ test('the board shows the payload numbers and does not paint an unestablished ce
   const pattern = WR.buildRows([{ pattern: 'flag', win_rate: 61, n: 47 }], 'pattern');
   assert.match(pattern, /wr-pos/);
 });
+
+// ── pyRound is Python's round, on every value a sweep can name ────────────
+
+function python() {
+  return ['python3.11', 'python3'].find((name) => spawnSync(name, ['-c',
+    'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'],
+  { encoding: 'utf8' }).status === 0);
+}
+
+test('pyRound answers what Python round answers, ties and all', () => {
+  // It scaled by 10^digits in floating point first: 0.00375 is 0.0037499…
+  // exactly and Python answers 0.0037, while 0.00375 * 10000 is 37.5 and
+  // this answered 0.0038. Over this sweep the old rounding differed from
+  // Python on 9,939 of 80,000 values at four places.
+  const vals = [];
+  for (let k = 0; k < 20000; k += 1) vals.push(k / 20000, -(k / 20000), k * 0.00005 + 0.000025, k / 80000);
+  vals.push(0.03125, -0.03125, 0.00375, 0.00045, 2.5, 0.5, 1.5, 5e-324);
+  const bin = python();
+  assert.ok(bin, 'no Python >= 3.11 on PATH');
+  const run = spawnSync(bin, ['-c',
+    'import json,sys; v=json.load(sys.stdin); print(json.dumps([[round(x,4),round(x,2),round(x,0)] for x in v]))'],
+  { input: JSON.stringify(vals), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  assert.equal(run.status, 0, run.stderr);
+  const py = JSON.parse(run.stdout);
+  const differ = [];
+  vals.forEach((v, i) => {
+    [4, 2, 0].forEach((d, j) => {
+      if (inf.pyRound(v, d) !== py[i][j] && !(inf.pyRound(v, d) === 0 && py[i][j] === 0)) {
+        differ.push([v, d, py[i][j], inf.pyRound(v, d)]);
+      }
+    });
+  });
+  assert.deepEqual(differ.slice(0, 5), []);
+});
+
+test('an exact binary tie goes to the even neighbour, both signs', () => {
+  assert.equal(inf.pyRound(0.03125, 4), 0.0312);   // 625 / 20000, exact in binary
+  assert.equal(inf.pyRound(-0.03125, 4), -0.0312);
+  assert.equal(inf.pyRound(0.09375, 4), 0.0938);   // the tie whose even side is up
+  assert.equal(inf.pyRound(2.5, 0), 2);
+  assert.equal(inf.pyRound(0.00375, 4), 0.0037);
+  assert.equal(inf.pyRound(Number.NaN, 4), null);
+});
+
+test('the interval of the finding prints the bot\'s ends', () => {
+  // Two rows at 0.00375R: the bot's mean_r_interval gives (0.0037, 0.0037).
+  assert.deepEqual(inf.meanRInterval(2, 0.0075, 0.000028125), [0.0037, 0.0037]);
+});
+
+test('the detail line shows each figure in four places, not sixteen digits', () => {
+  // Twelve rows, 8 at +2R and 4 at -1R: the payload's own figures.
+  const line = WR.setupDetail({
+    n: 12, hit_rate: 0.6666666666666666, wilson_lo: 0.3906175873976139,
+    wilson_hi: 0.8618821601026386, mean_r: 1, mean_r_lo: 0.16430000000000003,
+    mean_r_hi: 1.8357, q_value: 0.019016436081129573,
+  });
+  assert.equal(line,
+    'n 12 · hit 0.6667 · Wilson 0.3906 to 0.8619 · mean 1R · interval 0.1643 to 1.8357 · q 0.019');
+});
+
+test('a small figure keeps two significant figures, a zero stays 0, a sign stays', () => {
+  const line = WR.setupDetail({
+    n: 40, hit_rate: 0, wilson_lo: 0, wilson_hi: 0.0875, mean_r: -0.33333333333333337,
+    mean_r_lo: -0.75, mean_r_hi: 0.08333333333333331, q_value: 0.000012345,
+  });
+  assert.match(line, /hit 0 · Wilson 0 to 0\.0875 · mean -0\.3333R · interval -0\.75 to 0\.0833 · q 0\.000012$/);
+});
+
+test('the cell label shows its mean in four places too', () => {
+  const html = WR.setupScoreboard([{
+    setup: 'breakout', regime: 'trend', timeframe: '1h', source: 'scan', direction: 'LONG',
+    n: 40, win_rate: 55, hit_rate: 0.55, mean_r: 0.33333333333333337,
+    mean_r_lo: 0.1, mean_r_hi: 0.6, q_value: 0.2,
+  }]);
+  assert.match(html, /LONG · 0\.3333R/);
+  assert.equal(html.includes('0.33333333'), false);
+});

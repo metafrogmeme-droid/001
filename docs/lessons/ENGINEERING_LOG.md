@@ -19260,6 +19260,81 @@ strict comparison exists to survive.
 (`app/test/signed_in_is_not_the_operator.test.js`,
 `app/test/allowance_xray_says_what_it_read.test.js`.)
 
+**THREE PUBLIC SIGNAL STATISTICS SAID MORE THAN THEIR ROWS DID.** From the
+sixty-PR review, one rule each time: a figure says what it rests on.
+
+- **The setup board ranked one-trade cells first.** Its rows sorted the
+  coloured (rated) band first, then by win rate. #513 took the colour off
+  every setup cell, which is right, since colour is a verdict and a setup
+  cell is exploratory. But it also made the board one band ordered by rate:
+  six one-trade 100% cells filled the six rows and every cell with a sample
+  was cut. The band is decided by the sample floor now (`floored`), not by
+  colour. Over the floor the order is by rate; under it a rate is not a
+  ranking, so the order is by sample, then rate.
+- **The calibration chart called the fitted rate "the recorded rate".** The
+  calibrator shrinks each bin's recorded rate toward its stated confidence by
+  `shrinkage` pseudo-trades and pools it with its neighbours, so a bin that
+  won 0 of 3 drew at 0.16 and a one-trade bin at 0.96, and the file held no
+  per-bin count that could say so. The bot saves each stored bin's `trades`
+  and `wins` (not used to calibrate; the curve is unchanged), the caption
+  says "fitted", and each label prints the record beside the fitted value.
+  An older file has no counts and its labels say nothing of them. A count in
+  the file that is not a whole number drops the counts rather than failing
+  the load, because the analyzer loads the same file and `load` catches only
+  JSON and OS errors. And a missing file was drawn as "not fitted", but the
+  bot writes the file on every refit, fitted or not, so no file where the web
+  process looks says only where it looked: the web process may run from
+  another state directory. It is its own state, `absent`, with that sentence.
+- **Two routes publish a mean R under one `r_basis` over different rows.**
+  `/stats` reads every resolved signal and `/analytics` the newest 2000; past
+  2000 they disagree about one quantity, and #510 called the second "the same
+  way /stats rounds avg_r". Each carries a `coverage` block now, the way the
+  public track record does, and `/analytics` counts the whole set to say
+  whether its window is complete. A count it could not read leaves
+  `complete` null, never true.
+
+**The mutation round found the shape this repo is named for, in the fix.**
+The count was read as `Number(r[0].resolved)`, and `Number(null)` is 0, a
+whole number, so a NULL count was a total of zero and the window read as
+"complete". The thrown-query test passed; only a count that answered with no
+number reached it. A count is a number, a bigint or a digit string now, and
+anything else is unread. Twenty-one mutants: twenty killed, one equivalent
+(the setup board's too-thin branch can only fire if the gate and the board
+read the floor differently, and a non-whole count is caught as unavailable
+before it).
+(`app/test/the_setup_board_shows_measured_cells_first.test.js`,
+`app/test/the_calibration_chart_says_fitted_not_recorded.test.js`,
+`app/test/both_mean_r_routes_say_which_rows_they_cover.test.js`,
+`tests/test_the_calibration_file_records_each_bins_trades.py`,
+`app/public/js/winrate-bar.js`, `app/public/js/calibration-chart.js`,
+`app/lib/calibration_curve.js`, `app/routes/signals.js`,
+`bot/learning/confidence_calibration.py`.)
+
+**Five more, low, on the same board.**
+- *The calibration curve was looked for where the bot does not write it.*
+  The bot anchors a relative `RUNECLAW_STATE_DIR` at the repo root
+  (`state_path`); the web joined it onto its own cwd, usually `app/`, in
+  three places. `app/lib/state_dir.js` is the one reading now, and a test
+  holds that nothing else in `app/` reads the variable.
+- *An interval end rounded the other way from the bot.* `pyRound` scaled by
+  10^digits in floating point before rounding, which is not the value
+  Python rounds: 0.00375 is 0.0037499… exactly, so Python says 0.0037 and
+  this said 0.0038, on 9,939 of 80,000 values of a sweep at four places.
+  It rounds `toFixed`'s exact reading now and moves only an exact binary tie
+  to even; the sweep against Python's `round` differs on none.
+- *The detail line printed sixteen digits.* "hit 0.6666666666666666 · q
+  0.019016436081129573": four places now, two significant figures under a
+  thousandth, the payload untouched.
+- *A blank bound was a measured zero.* `Number('  ')` and `Number([])` are
+  0; a bound is a number or a string that spells one.
+- *The registration loader read three places and returned nothing from
+  each.* No five-dimension registry exists, so it reads nothing and says so;
+  "survives" is closed by construction until one is committed.
+Eight more mutants, all killed.
+(`app/test/the_state_dir_is_the_bots_reading.test.js`,
+`app/test/setup_scoreboard_intervals.test.js`,
+`app/test/setup_survives_is_preregistered.test.js`.)
+
 ## A URL is a surface, and a slash in a path segment does not survive a hop
 
 **Every symbol this product names has a slash in it, and two panels sent the
@@ -20187,7 +20262,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1219** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1220** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

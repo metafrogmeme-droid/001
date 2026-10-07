@@ -14,7 +14,15 @@
  * says that, and it stays muted. Colour would be a verdict. A heuristic
  * is not one.
  *
- * An unreadable bin is omitted. A measured 0 stays 0.00, on the axis.
+ * `y` is the calibrator's fitted rate: each bin's recorded rate shrunk
+ * toward the bin's stated confidence by `shrinkage` pseudo-trades, then
+ * pooled with its neighbours so the curve rises. It is not the recorded
+ * rate, and the caption said it was: a bin that won 0 of 3 drew at 0.16,
+ * and a one-trade bin at 0.96. Where the file saves each bin's `trades`
+ * and `wins`, the label prints them beside the fitted value. An older file
+ * has neither, and the label says nothing it cannot read.
+ *
+ * An unreadable bin is omitted. A 0 in the file stays 0.00, on the axis.
  * Exposed as window.RCCalibration; module.exports in node so it can be tested.
  */
 (function (root, factory) {
@@ -30,7 +38,16 @@
   // C3's own default, not a stronger claim. No percent sign.
   var CAPTION = 'Provisional. Stated confidence is a rung word or unmeasured, '
     + 'not a probability. Each point is the fitted curve\'s own bin: '
-    + 'stated confidence, then the recorded rate.';
+    + 'stated confidence, then the fitted rate, which is shrunk toward the '
+    + 'stated confidence and pooled with its neighbours. It is not the '
+    + 'recorded win rate; where the file holds them, a bin\'s recorded wins '
+    + 'and trades follow it.';
+
+  // No calibration file where this server looks. The bot writes one on
+  // every refit, fitted or not, so its absence here says where this server
+  // looked, not what the calibrator holds.
+  var ABSENT_TEXT = 'no calibration file where this server looks; '
+    + 'not a reading of the bot\'s calibrator';
 
   function finite(v) {
     if (v === null || v === undefined) return null;
@@ -72,6 +89,10 @@
     return blank('unavailable');
   }
 
+  function absentReading() {
+    return blank('absent');
+  }
+
   function unmeasuredReading(n, need) {
     return {
       state: 'unmeasured',
@@ -90,6 +111,28 @@
     var py = finite(y);
     if (px === null || py === null) return null;
     return { x: px, y: py };
+  }
+
+  /** A whole count of at least 0, or null. */
+  function countOf(v) {
+    var n = finite(v);
+    if (n === null || n < 0 || Math.round(n) !== n) return null;
+    return n;
+  }
+
+  /**
+   * The bin's own trades and recorded wins, onto the point, when the file
+   * holds both and they make sense together. Otherwise the point is left
+   * as it was: no count is better than a guessed one.
+   */
+  function withRecord(p, trades, wins) {
+    var t = countOf(trades);
+    var w = countOf(wins);
+    if (p && t !== null && w !== null && t > 0 && w <= t) {
+      p.trades = t;
+      p.wins = w;
+    }
+    return p;
   }
 
   /**
@@ -113,9 +156,12 @@
     // The calibrator's own gate: a curve with no points, or fewer
     // samples than it required, is not applied. Do not draw identity.
     if (!(n >= need) || xs.length === 0) return unmeasuredReading(n, need);
+    var ts = Array.isArray(doc.trades) && doc.trades.length === xs.length ? doc.trades : null;
+    var ws = Array.isArray(doc.wins) && doc.wins.length === xs.length ? doc.wins : null;
     var bins = [];
     for (var i = 0; i < xs.length; i++) {
       var p = pointOf(xs[i], ys[i]);
+      if (p && ts && ws) withRecord(p, ts[i], ws[i]);
       if (p) bins.push(p);
     }
     if (!bins.length) return unavailableReading();
@@ -176,7 +222,9 @@
     // bin is the same spelling summary() prints, not an escaped second one.
     var labels = bins.map(function (p) {
       var text = binText(p);
-      return '<li data-bin="' + text + '">' + text + '</li>';
+      var record = p.trades == null ? ''
+        : ' · fitted; recorded ' + formatCount(p.wins) + ' of ' + formatCount(p.trades) + ' won';
+      return '<li data-bin="' + text + '">' + text + record + '</li>';
     }).join('');
     var aria = 'Calibration curve, provisional. ' + bins.map(binText).join(', ');
     var svg = '<svg viewBox="0 0 ' + PLOT.w + ' ' + PLOT.h
@@ -195,13 +243,17 @@
    * The chart, or the C3 word when there is no curve to draw.
    *
    * `unavailable` is a curve that could not be read. `unmeasured` is a
-   * curve the calibrator has not fitted. Neither is a line at 0.
+   * curve the calibrator has not fitted. `absent` is no file where this
+   * server looked. None of them is a line at 0.
    */
   function chart(reading) {
     if (!reading || typeof reading !== 'object') {
       return stateHtml('unavailable', '<p class="muted small">unavailable</p>');
     }
     if (reading.state === 'unmeasured') return unmeasuredHtml(reading);
+    if (reading.state === 'absent') {
+      return stateHtml('absent', '<p class="muted small">' + esc(ABSENT_TEXT) + '</p>');
+    }
     if (reading.state !== 'fitted') {
       return stateHtml('unavailable', '<p class="muted small">unavailable</p>');
     }
@@ -211,7 +263,7 @@
       var row = raw[i];
       if (!row || typeof row !== 'object') continue;
       var p = pointOf(row.x, row.y);
-      if (p) bins.push(p);
+      if (p) bins.push(withRecord(p, row.trades, row.wins));
     }
     if (!bins.length) {
       return stateHtml('unavailable', '<p class="muted small">unavailable</p>');
@@ -225,6 +277,8 @@
     chart: chart,
     readingFromCurve: readingFromCurve,
     unavailableReading: unavailableReading,
+    absentReading: absentReading,
+    ABSENT_TEXT: ABSENT_TEXT,
     unmeasuredReading: unmeasuredReading,
     formatRate: formatRate,
     dotY: dotY,

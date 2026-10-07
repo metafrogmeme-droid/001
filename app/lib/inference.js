@@ -82,20 +82,52 @@ function meanMoments(n, sumR, sumR2) {
   return { mean, se };
 }
 
-/** Python 3 `round` (half to even) at `digits` decimal places. */
+/**
+ * Whether `a` (finite, > 0) lies EXACTLY halfway between two multiples of
+ * 10^-digits, in its binary value. `a` is M * 2^E exactly; a * 2 * 10^d is
+ * an odd integer exactly when E is negative and the power of two left over
+ * after M's own factors of two and the d + 1 of 2 * 10^d is none.
+ */
+function exactTie(a, digits) {
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, a);
+  const hi = view.getUint32(0);
+  const lo = view.getUint32(4);
+  const field = (hi >>> 20) & 0x7ff;
+  let mant = (BigInt(hi & 0xfffff) << 32n) | BigInt(lo);
+  let exp;
+  if (field === 0) exp = -1074;
+  else { mant |= 1n << 52n; exp = field - 1075; }
+  if (mant === 0n || exp >= 0) return false;
+  let twos = 0;
+  while ((mant & 1n) === 0n) { mant >>= 1n; twos += 1; }
+  return twos + digits + 1 === -exp;
+}
+
+/**
+ * Python's `round(x, digits)` for a float. It rounds the EXACT binary value,
+ * and an exact tie to even. This scaled by 10^digits in floating point
+ * first, which is not the value Python rounds: 0.00375 is 0.0037499999…
+ * exactly and Python answers 0.0037, while 0.00375 * 10000 is 37.5 and this
+ * answered 0.0038, so an interval end printed one way here and the other
+ * way by the bot. `toFixed` is specified on the exact value too (and picks
+ * the larger of a tie), so it is the reading, and only an exact binary tie
+ * is moved to the even neighbour.
+ */
 function pyRound(x, digits) {
   if (!Number.isFinite(x)) return null;
-  const neg = x < 0;
-  const factor = 10 ** digits;
-  const scaled = Math.abs(x) * factor;
-  const base = Math.floor(scaled);
-  const frac = scaled - base;
-  let whole;
-  if (frac > 0.5) whole = base + 1;
-  else if (frac < 0.5) whole = base;
-  else whole = (base % 2 === 0) ? base : base + 1;
-  const out = whole / factor;
-  return neg ? -out : out;
+  const a = Math.abs(x);
+  if (a >= 1e21) return x;
+  let text = a.toFixed(digits);
+  if (a > 0 && exactTie(a, digits)) {
+    const units = BigInt(text.replace('.', ''));
+    if (units % 2n === 1n) {
+      const even = (units - 1n).toString().padStart(digits + 1, '0');
+      text = digits > 0 ? `${even.slice(0, -digits)}.${even.slice(-digits)}` : even;
+    }
+  }
+  const out = Number(text);
+  return x < 0 ? -out : out;
 }
 
 /**
@@ -199,4 +231,5 @@ module.exports = {
   meanRInterval,
   meanRPValue,
   bhQValues,
+  pyRound,
 };
