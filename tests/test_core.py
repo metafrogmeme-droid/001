@@ -4874,23 +4874,30 @@ class TestChartPatterns:
                 assert result["signal"] == "neutral"
 
     def test_liquidity_sweep(self):
-        """Wick below swing low with close above → bullish sweep."""
+        """Wick below a swing low that closes back above it: a bullish sweep.
+
+        It asserted only `if result is not None`, on a fixture the one sweep
+        definition does not fire on, so it passed with the detector's body
+        replaced by `return None`. The fixture fires, and both arms are held:
+        the same bar closing below the swing low is no sweep.
+        """
         from bot.core.chart_patterns import detect_liquidity_sweep
         n = 40
         closes = np.full(n, 100.0)
-        highs = np.full(n, 101.0)
-        lows = np.full(n, 99.0)
-        # Create a swing low at bar 20
-        lows[20] = 97.0
-        closes[20] = 98.0
-        # Last bar: wick below 97 but close above
-        lows[-1] = 96.5
-        closes[-1] = 100.5
-        highs[-1] = 101.0
-        result = detect_liquidity_sweep(highs, lows, closes, lookback=3)
-        if result is not None:
-            assert result["signal"] == "bullish"
-            assert "Sweep" in result["name"]
+        opens = np.full(n, 100.0)
+        volumes = np.full(n, 10.0)
+        highs = np.full(n, 100.5)
+        lows = np.full(n, 100.0)
+        lows[15] = 99.0                     # the swing low
+        lows[37], highs[37] = 98.7, 100.4   # a wick through it...
+        opens[37] = 100.2
+        closes[37] = 99.5                   # ...that closes back above it
+        result = detect_liquidity_sweep(highs, lows, closes, opens=opens, volumes=volumes)
+        assert result is not None
+        assert result["signal"] == "bullish"
+        assert "Sweep" in result["name"]
+        closes[37] = 98.9                   # closes below the swing low
+        assert detect_liquidity_sweep(highs, lows, closes, opens=opens, volumes=volumes) is None
 
     def test_elliott_partial(self):
         """Basic swing structure that could form Elliott waves."""

@@ -18526,6 +18526,56 @@ in every fold; that snapshot holds no sub-cent asset.
 (`tests/test_a_sub_cent_level_is_recorded_in_significant_digits.py`,
 `bot/core/signal_levels.py`.)
 
+**THREE DETECTORS STILL WROTE A NUMBER THEY HAD NOT MEASURED.** From the
+sixty-PR review, one detector over from each fix it followed.
+
+- **The Fibonacci extensions and the ending diagonal's convergence point
+  were still on a cent grid.** #509 sent every pattern's sentence through
+  `fmt_price`, but the `key_levels` beside it kept `round(x, 2)`, and those
+  levels, not the sentence, are what the analyzer harvests as limit-entry
+  candidates (it keeps one only above zero) and what `/api/patterns`
+  forwards. On a sub-cent symbol every extension was 0.0 and dropped
+  without a word; on a sub-dollar one each was off by up to half a cent and
+  could bind as the limit price. They are `record_level` now, and a rule
+  over `chart_patterns.py` refuses a `round()` on any key that is not a
+  named ratio or confidence.
+- **An unreadable volume read as a 1.0x average.** #508 gave the sweep
+  detector a None path for absent volume and kept the old fallback beside
+  it: a NaN anywhere in the window makes the mean NaN, `nan > 0` is False,
+  and the ratio became 1.0, recorded as `volume_ratio` and printed "vol 1.0x
+  avg" where an absent volume prints a dash. A zero average took the same
+  fallback. Both are unmeasured now, on both sides of the book; the
+  detector computes the ratio twice, once per side.
+- **The whale voter dropped out of the score when the last ten windows
+  were quiet.** The consistency amplifier divided by the count of active
+  recent windows; with none it raised ZeroDivisionError, the caller's broad
+  handler swallowed it, and the voter was gone without a trace. No active
+  window is no consistency reading, and the flow from older windows stands.
+
+**Seven mutants, all killed after a second round.** The first left two:
+the convergence point and the high-side sweep, neither driven (the fib
+test drove only the extensions, the sweep test only the low side). Both
+are driven now, on planted swings and on the bear side of the fixture. The
+five committed scorecards reproduce on this branch
+(`test_committed_scorecards_are_the_rerun_of_these_rules`), and the majors
+benchmark run on `main` and on this branch is identical fold for fold
+(129 trades, net −$1,456.34), so no recorded figure moves. That run also
+shows `main` itself no longer reproduces the committed record (−$1,440.41
+at `b8c36630`). A bisect over the merges since the record pins the move to
+#508, the one sweep definition, which re-recorded the strategy scorecards
+but not this file; re-recording it is the owner's call.
+(`tests/test_pattern_levels_are_recorded_not_rounded_to_the_cent.py`,
+`tests/test_an_unreadable_volume_is_not_an_average_bar.py`,
+`tests/test_a_quiet_recent_whale_window_does_not_drop_the_voter.py`,
+`bot/core/chart_patterns.py`, `bot/core/liquidity_sweep.py`,
+`bot/core/smart_money.py`.)
+
+And one test that could not fail. `tests/test_core.py::test_liquidity_sweep`
+asserted inside `if result is not None:`, on bars the one sweep definition
+does not fire on, so it passed with the detector replaced by `return None`.
+It fires on its fixture now and holds the other arm, the same wick closing
+below the swing low.
+
 **A STOP THE ANALYZER FLOORED TO THE MINIMUM DISTANCE WAS REFUSED FOR BEING
 UNDER IT, ABOUT HALF THE TIME.** The analyzer widens a too-tight stop to
 exactly `MIN_STOP_DISTANCE_PCT` (0.40%) of the entry, and main's floor at the
@@ -18972,6 +19022,17 @@ card's door words), each killed on the first round.
 `tests/test_a_chat_ticket_is_priced_from_the_analyzers_leg.py`,
 `tests/test_chat_spends_only_its_share_of_the_llm_budget.py`,
 `tests/test_every_chat_refusal_is_in_the_users_language.py`.)
+
+**A SLOW TEST IS NOT A HUNG ONE.** The gate gives every test 60 s
+(`scripts/ci_test_gate.py`), a limit for a test that hangs.
+`test_committed_scorecards_are_the_rerun_of_these_rules` reruns every
+published preset's backtest in a subprocess, one after another, and took
+64.7-66.5 s on a 4-core container on 2026-10-07, so the local preflight
+failed it on every run, alone or not, while CI's faster runners passed it.
+The flake filter cannot help a test that is slow by construction: it fails
+alone too. It carries its own `@pytest.mark.timeout(300)`, as the
+preflight's subprocess test carries 120. A test forgiven by a faster box is
+one the next added preset breaks on CI.
 
 ## Public-surface rules
 
@@ -20350,7 +20411,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1227** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1230** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

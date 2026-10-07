@@ -38,6 +38,7 @@ import numpy as np
 
 from bot.core.liquidity_sweep import SweepSignal, detect_sweeps
 from bot.core.multi_timeframe import _find_swings
+from bot.core.signal_levels import record_level
 from bot.formatters.price_text import fmt_price
 
 
@@ -1181,8 +1182,8 @@ def detect_elliott_diagonal(
                         "key_levels": {
                             "w1_start": sl[0][1], "w1_top": sh[0][1],
                             "w3_top": sh[1][1], "w5_top": sh[2][1],
-                            "convergence_point": round(
-                                sh[2][1] + (sh[2][1] - sh[1][1]) * 0.5, 2),
+                            "convergence_point": record_level(
+                                sh[2][1] + (sh[2][1] - sh[1][1]) * 0.5),
                         },
                     }
 
@@ -1759,12 +1760,17 @@ def detect_fibonacci_extensions(
                     f"Fib extensions from impulse {fmt_price(start_low[1])}"
                     f" -> {fmt_price(impulse_high[1])}, retrace {fmt_price(retrace_low[1])}"
                 ),
+                # Levels as they are recorded (record_level), not on a cent
+                # grid: these are the limit-entry candidates the analyzer
+                # harvests and the levels /api/patterns forwards. round(x, 2)
+                # put every sub-cent extension at 0.0, which the harvest drops
+                # without a word, and moved a sub-dollar one by up to half a cent.
                 "key_levels": {
-                    "ext_1.000": round(ext_base + impulse * 1.000, 2),
-                    "ext_1.272": round(ext_base + impulse * 1.272, 2),
-                    "ext_1.618": round(ext_base + impulse * 1.618, 2),
-                    "ext_2.000": round(ext_base + impulse * 2.000, 2),
-                    "ext_2.618": round(ext_base + impulse * 2.618, 2),
+                    "ext_1.000": record_level(ext_base + impulse * 1.000),
+                    "ext_1.272": record_level(ext_base + impulse * 1.272),
+                    "ext_1.618": record_level(ext_base + impulse * 1.618),
+                    "ext_2.000": record_level(ext_base + impulse * 2.000),
+                    "ext_2.618": record_level(ext_base + impulse * 2.618),
                 },
             }
 
@@ -1788,11 +1794,11 @@ def detect_fibonacci_extensions(
                     f" -> {fmt_price(impulse_low[1])}, retrace {fmt_price(retrace_high[1])}"
                 ),
                 "key_levels": {
-                    "ext_1.000": round(ext_base - impulse * 1.000, 2),
-                    "ext_1.272": round(ext_base - impulse * 1.272, 2),
-                    "ext_1.618": round(ext_base - impulse * 1.618, 2),
-                    "ext_2.000": round(ext_base - impulse * 2.000, 2),
-                    "ext_2.618": round(ext_base - impulse * 2.618, 2),
+                    "ext_1.000": record_level(ext_base - impulse * 1.000),
+                    "ext_1.272": record_level(ext_base - impulse * 1.272),
+                    "ext_1.618": record_level(ext_base - impulse * 1.618),
+                    "ext_2.000": record_level(ext_base - impulse * 2.000),
+                    "ext_2.618": record_level(ext_base - impulse * 2.618),
                 },
             }
 

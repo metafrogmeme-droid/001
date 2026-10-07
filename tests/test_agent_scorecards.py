@@ -9,6 +9,8 @@ import glob
 import json
 import os
 
+import pytest
+
 from bot.core import strategy_catalog as sc
 from bot.skills.skill_registry import RunStrategySkill
 
@@ -152,6 +154,12 @@ def test_generator_gate_args_map_preset_filters():
     assert _gate_args(RunStrategySkill.PRESETS["full scan"]) == []
 
 
+# It reruns every published preset's backtest in a subprocess, one after
+# another, so it outlives the gate's 60 s per-test limit on a slower box:
+# 64.7-66.5 s on a 4-core container on 2026-10-07, over five presets. The
+# limit is for a hung test; this one is slow by construction, as the
+# preflight's own subprocess test is.
+@pytest.mark.timeout(300)
 def test_committed_scorecards_are_the_rerun_of_these_rules():
     """The six stats on the Agents card are this preset, on this frozen window.
 
