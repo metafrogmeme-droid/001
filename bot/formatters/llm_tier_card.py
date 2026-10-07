@@ -103,6 +103,9 @@ class TierRow:
 #: credential, and the routing icon above already spent the ticks.
 _PROBE_TEXT = {
     "ok": "reachable, configured model is served",
+    "list_unreadable": "reachable, its model list could not be read",
+    "list_empty": "reachable, the endpoint listed no models",
+    "model_unchecked": "reachable, no model name to check it for",
     "model_missing": "reachable, configured model is not served",
     "forbidden": "reachable, key refused",
     "unreachable": "no answer from the endpoint",

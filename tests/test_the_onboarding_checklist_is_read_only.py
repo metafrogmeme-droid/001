@@ -120,6 +120,18 @@ def test_each_surface_names_only_its_own_doors():
         onboarding_checklist("nonsense")
 
 
+def test_only_the_door_that_probes_the_key_says_it_reports_withdraw():
+    # Telegram's /connect probes the key's scope and says whether withdraw
+    # is on. The web form stores the key and reads nothing about it, and the
+    # web card promised a readout the form never gives.
+    tg = onboarding_checklist("telegram")
+    assert "The card /connect sends back says whether withdraw is on." in tg
+    for surface in ("web", "public"):
+        card = onboarding_checklist(surface)
+        assert "says whether withdraw is on" not in card
+        assert "This form does not check whether withdraw is on" in card
+
+
 def _web(monkeypatch, *, get):
     from bot.nlp.conversation_store import ConversationStore
     from bot.web import user_gateway as ug

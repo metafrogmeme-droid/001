@@ -205,6 +205,25 @@ _STRINGS: dict[str, dict[str, str]] = {
                "keeps the rest."),
         "zh": "聊天已用完今天 AI 預算中屬於它的份額 — 明天再試，或使用 /scan、/positions 等指令。其餘預算留給交易分析。",
     },
+    # Chat's own dollar cap, two ways: whether trade analysis has a cap of
+    # its own decides which sentence is true (`chat_own_budget_exhausted` when
+    # it does). The call site holds the same English.
+    "chat_own_budget_exhausted": {
+        "en": ("Chat has used its own dollar budget for today — try again tomorrow, "
+               "or use a specific command like /scan or /positions. Trade analysis "
+               "is on a separate cap."),
+        "zh": ("聊天已用完今天它自己的美元預算 — 明天再試，"
+               "或使用 /scan、/positions 等指令。交易分析有另一個上限。"),
+    },
+    "chat_own_budget_exhausted_shared": {
+        "en": ("Chat has used its own dollar budget for today — try again tomorrow, "
+               "or use a specific command like /scan or /positions. Trade analysis "
+               "has no cap of its own and counts against the daily total, chat's "
+               "spend included."),
+        "zh": ("聊天已用完今天它自己的美元預算 — 明天再試，"
+               "或使用 /scan、/positions 等指令。"
+               "交易分析沒有自己的上限，計入每日總額，其中也包括聊天的花費。"),
+    },
     "chat_deadline": {
         "en": ("I stopped waiting before any model answered — that's a "
                "timeout on my side, not an answer, and nothing was analyzed. "

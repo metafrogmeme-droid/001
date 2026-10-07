@@ -128,10 +128,30 @@ def _atr(rows: list) -> Optional[float]:
     return value
 
 
+#: The leg a ticket is priced from: the analyzer's own timeframe
+#: (`RuneClawEngine._analyze_signal`'s default; a test pins the two). The
+#: strategy stop and target multiples are tuned for an ATR on this bar.
+ANALYZER_TIMEFRAME = "1h"
+
+
+def _leg_timeframe(key) -> Optional[str]:
+    """The timeframe in an `_ohlcv_cache` key (``{symbol}:{tf}:{limit}``)."""
+    parts = str(key).rsplit(":", 2)
+    return parts[1] if len(parts) == 3 else None
+
+
 def market_for(engine, symbol: str) -> dict:
     """Price and ATR from candles the engine already cached. A miss is unread.
 
     This does not fetch. A cold cache is not a 2% stand-in for ATR.
+
+    ONE LEG: the analyzer's timeframe. The engine caches 15m, 1h, 4h and 1d
+    legs for one symbol, and this took whichever was stamped last: mostly
+    the 15m, with hours on the 4h and the 1d as their TTLs rolled. The entry
+    was then that leg's last closed close (a day old on the 1d) and the stop
+    and target that leg's ATR times multiples tuned for the 1h, ten times
+    wider or narrower by which leg the sweep refetched last; and a manual
+    limit ticket skips the confirm's drift check. No 1h leg is unread.
     """
     unread = {"price": None, "atr": None, "as_of": None, "read_state": "unread"}
     cache = getattr(engine, "_ohlcv_cache", None)
@@ -145,6 +165,8 @@ def market_for(engine, symbol: str) -> dict:
     best_t = -1.0
     for key, val in cache.items():
         if not str(key).startswith(needle):
+            continue
+        if _leg_timeframe(key) != ANALYZER_TIMEFRAME:
             continue
         if not isinstance(val, tuple) or len(val) < 2:
             continue

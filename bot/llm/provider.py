@@ -1748,6 +1748,24 @@ def _parse_tool_args(raw) -> dict | None:
     return None
 
 
+def _returned_a_reading(out) -> bool:
+    """Whether a tool's answer says it read something.
+
+    The reading line the model is handed decides the mark. ``run_tool``
+    RETURNS, rather than raises, for a timeout, a name not offered, a tool
+    not wired up, bad arguments and a ticket the user did not ask for, each
+    under a ``read_state`` other than ``read``. Counting every return as a
+    success footed "read: get_portfolio" under a reply that said the book
+    could not be read. An answer with no reading line is the executor's own
+    text, and a return is all it can say.
+    """
+    from bot.nlp.tool_reading import parse_reading
+    row = parse_reading(str(out)) if out is not None else None
+    if not isinstance(row, dict):
+        return True
+    return row.get("read_state") == "read"
+
+
 def _bound_tool_result(text: str) -> str:
     text = (text or "").strip()
     if not text:
@@ -1838,7 +1856,7 @@ async def llm_complete_with_tools(
                     except Exception:
                         text = _TOOL_RAISED
                     else:
-                        ev["ok"] = True
+                        ev["ok"] = _returned_a_reading(out)
                         text = _bound_tool_result(
                             str(out) if out is not None else "")
             return text, ev

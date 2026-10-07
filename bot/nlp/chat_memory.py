@@ -81,10 +81,29 @@ def _open_question(conversations: Optional[ConversationStore],
         return ("Open question: UNREADABLE — the conversation store could not be read",
                 "unread")
     rows = conversations.get_recent(user_id, limit=10**6)
-    if not rows or rows[-1].role != "user":
-        return ("Open question: ABSENT — no question is still open", "absent")
-    body = _announced_cut(rows[-1].content, _QUESTION_MAX)
-    return (f"Open question, {when_words(rows[-1].timestamp)}: {body}", "read")
+    # The newest user row is the message this turn is answering: both
+    # transports append it before the model runs, and this is read only as
+    # the model's tool. It was reported as the open question, so every call
+    # told the user that the sentence they had just typed was unanswered,
+    # and an earlier question that never got a reply did not surface. An
+    # open question is a user row before that one with no reply after it.
+    # A tool record is what a tool said, not a reply.
+    live = next((i for i in range(len(rows) - 1, -1, -1) if rows[i].role == "user"), None)
+    if live is not None:
+        for row in reversed(rows[:live]):
+            if row.role == "user":
+                # Stored raw, as every user turn is. Read back to the model it
+                # goes through the seam both live transports use (defang
+                # what the firewall flags, then the denylist), as replayed
+                # history does: it reached the model with "Ignore previous
+                # instructions" and any hidden characters intact.
+                from bot.guardian.firewall import hardened_prompt, scan
+                body = _announced_cut(
+                    hardened_prompt(row.content, scan(row.content)), _QUESTION_MAX)
+                return (f"Open question, {when_words(row.timestamp)}: {body}", "read")
+            if row.role == "assistant" and not row.is_tool_record():
+                break
+    return ("Open question: ABSENT — no question is still open", "absent")
 
 
 class MemoryNoteSkill(BaseSkill):

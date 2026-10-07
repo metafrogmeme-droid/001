@@ -18885,6 +18885,94 @@ all three gates), each killed by the test named for it.
 (`tests/test_a_baseline_total_is_the_sum_of_its_counts.py`,
 `tests/test_rerecord_never_blesses_a_regression.py`.)
 
+**TEN CHAT SENTENCES THAT CLAIMED A CHECK NOBODY MADE.** From the sixty-PR
+review, each a place where the chat, its footer or its setup card said more
+than its inputs held, or handed the model more than it had checked.
+
+- **The tool footer counted every return as a read.** `run_tool` returns,
+  rather than raises, for a timeout, a tool not offered or not wired up, bad
+  arguments and a ticket nobody asked for, each with a reading line whose
+  `read_state` says so. The provider set `ok` on any return, so the footer
+  printed "read: get_portfolio" under a reply that said the book could not
+  be read. The reading line decides now; an executor that hands back its own
+  text has no reading line, and a return is all it can say.
+- **The model probe reported "configured model is served" without checking
+  one.** `classify_model_list` answered `ok` for a list it could not read, an
+  empty list, and a tier with no model name; and the name it looked for was
+  only the pinned `LLM_TIER_<T>_MODEL`, while a tier pinned to a provider
+  calls that provider's default. Each unchecked case has its own state and
+  words now, the probe checks the model the tier really calls, and an
+  unchecked answer counts as reachable for paging (it answered and took the
+  key) without being called served.
+- **The web's setup card promised a check the web never makes.** Step 4 said
+  "the card you get back says whether withdraw is on"; only Telegram's
+  `/connect` probes the key's scope. The web form stores the key, so its
+  card tells the reader to turn withdraw off when they create the key.
+- **The memory note's open question was the message being answered.** Both
+  transports append the user's row before the model runs, so the newest user
+  row is the live one, and every note told the user the sentence they had
+  just typed was unanswered while an earlier unanswered question never
+  surfaced. The open question is a user row before the live one with no
+  reply after it, and a tool record is not a reply.
+- **The open question reached the model raw.** Every user turn is stored
+  as typed, and replayed history goes through the sanitizer on the way back;
+  the note's open question did not, so "Ignore previous instructions" and a
+  zero-width character the firewall flags reached the model through the
+  tool. It goes through `hardened_prompt` with a fresh scan now, the seam
+  both live transports use.
+- **A turn older than the token window and younger than the cap reached
+  neither the prompt nor the note.** Only the cap's prune queued turns for
+  the summary. The window queues what it leaves out now, the cap does not
+  queue those a second time, and the count resets when an evicted user comes
+  back. After a restart a turn may be folded twice, never zero times.
+- **The capability card's door list was a hand-written copy** grown in step
+  with the web dispatcher's seam across fifteen PRs and pinned only to its
+  own literal. It is read off `WEB_ROUTED_PERMISSION` now, minus `status`.
+- **The card's door lines were Telegram's.** It printed each door's
+  command-catalogue line, so the web card told a viewer to type
+  "/wallet [chain]", a slash command the web chat cannot open, and listed
+  idle yield as the operator's "cross-source best-rate scan" over the
+  viewer's linked-wallet card. `WEB_DOOR_WORDS` holds each door's web words
+  and one sentence that reaches it; a test routes every sentence through the
+  router and requires words for every door the gate lists.
+- **A chat ticket was priced from whichever candle leg was cached last.**
+  The engine caches 15m, 1h, 4h and 1d legs per symbol; `market_for` took
+  the newest-stamped one, so the entry could be a day-old 1d close and the
+  stop a 1d ATR times multiples tuned for the 1h. It reads the analyzer's
+  1h leg only, and no 1h leg is unread.
+- **"Trade analysis is on a separate cap" was true only with a thesis
+  budget set.** Without `thesis_budget_usd`, analysis is bounded by the
+  combined daily total that chat's own spend counts toward, and the refusal
+  says that. Both sentences are in every dictionary language now: the
+  own-cap key shipped with no entry, so `_say` fell back to English for a
+  user the share-cap refusal had answered in their own language. A test
+  walks every `_say` call in `bot/` and holds each key to every language the
+  oldest refusal carries, with the call site's English.
+
+**Twenty-two mutants, all killed, after a second round.** The first left
+five standing, and all five were real gaps: the no-reading-line branch of
+the footer (every test executor was `run_tool`, which always writes one), an
+unchecked probe's effect on the failure count, and three in the history
+fold. The fold's three are the ones worth naming. A reply cut at the
+window's front is dropped because a window must open on a user turn, and the
+queue has to start from where the view actually opens; a user evicted from
+memory comes back with an empty list and a stale count; and a window built
+on a snapshot the store has since pruned must queue nothing. The
+exactly-once property test could not reach any of them: it never evicts a
+user, never races a prune, and none of its windows happened to end on a
+dropped reply. Each now has its own drive. Six more for the later three
+additions (the missing dictionary entries, the unhardened question, the
+card's door words), each killed on the first round.
+(`tests/test_a_tool_that_read_nothing_is_not_footed_read.py`,
+`tests/test_a_probe_that_checked_nothing_does_not_say_served.py`,
+`tests/test_the_onboarding_checklist_is_read_only.py`,
+`tests/test_the_open_question_is_not_the_one_being_asked.py`,
+`tests/test_a_turn_outside_the_window_reaches_the_note.py`,
+`tests/test_the_capability_card_reads_the_doors_the_web_dispatches.py`,
+`tests/test_a_chat_ticket_is_priced_from_the_analyzers_leg.py`,
+`tests/test_chat_spends_only_its_share_of_the_llm_budget.py`,
+`tests/test_every_chat_refusal_is_in_the_users_language.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -20262,7 +20350,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1220** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1227** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
