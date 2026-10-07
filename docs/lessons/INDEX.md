@@ -220,38 +220,39 @@ about to change before changing it.
 - L18778: A TEST THAT TWO FIGURES AGREE IS NOT ONE FIGURE — `tests/test_a_baseline_total_is_the_sum_of_its_counts.py`, `tests/test_rerecord_never_blesses_a_regression.py`
 - L18814: A FILTER THAT MATCHES NOTHING IS ONE PASSING TEST — `app/test/js_honesty_ratchet.test.js`, `tests/test_a_baseline_total_is_the_sum_of_its_counts.py`, `tests/test_rerecord_never_blesses_a_regression.py`
 - L18888: TEN CHAT SENTENCES THAT CLAIMED A CHECK NOBODY MADE — `tests/test_a_chat_ticket_is_priced_from_the_analyzers_leg.py`, `tests/test_a_probe_that_checked_nothing_does_not_say_served.py`, `tests/test_a_tool_that_read_nothing_is_not_footed_read.py`, `tests/test_a_turn_outside_the_window_reaches_the_note.py`, `tests/test_chat_spends_only_its_share_of_the_llm_budget.py`, `tests/test_every_chat_refusal_is_in_the_users_language.py`, `tests/test_the_capability_card_reads_the_doors_the_web_dispatches.py`, `tests/test_the_onboarding_checklist_is_read_only.py`, `tests/test_the_open_question_is_not_the_one_being_asked.py`
+- L18976: A SLOW TEST IS NOT A HUNG ONE
 
-## Public-surface rules (line 18976)
+## Public-surface rules (line 18987)
 
-- L18984: THE GUARD ASKED WHICH FILES ARE PUBLIC AND THE ANSWER IS PER ROUTE — `tests/command_gates.py`
-- L18998: THE FIX REACHED THE VERDICT AND NOT THE ROWS BESIDE IT — `tests/test_the_public_report_carries_no_dollar.py`
-- L19024: A HANDLER-BOUNDED SCAN WAS THE OBVIOUS FIX AND IS WORSE
-- L19076: AND A GUARD HAD PINNED THE HALF-FIX AS THE CONTRACT
-- L19102: A MARKER IS THE DEFINITION, AND FIVE PIECES OF PROSE DESCRIBED IT WRONG
-- L19173: THE SCRUBBER'S UNIT WAS A LINE AND THE CARD'S UNIT IS A FIELD
-- L19211: THREE ABORT CARDS ANNOUNCED A FLATTEN AND NAMED NO CAUSE
-- L19328: THE ALLOWANCE X-RAY PRINTED ✅ OVER GRANTS IT NEVER READ, THREE WAYS — `app/test/allowance_xray_says_what_it_read.test.js`, `app/test/signed_in_is_not_the_operator.test.js`
-- L19351: THREE PUBLIC SIGNAL STATISTICS SAID MORE THAN THEIR ROWS DID — `app/test/both_mean_r_routes_say_which_rows_they_cover.test.js`, `app/test/setup_scoreboard_intervals.test.js`, `app/test/setup_survives_is_preregistered.test.js`, `app/test/the_calibration_chart_says_fitted_not_recorded.test.js`, `app/test/the_setup_board_shows_measured_cells_first.test.js`, `app/test/the_state_dir_is_the_bots_reading.test.js`, `tests/test_the_calibration_file_records_each_bins_trades.py`
+- L18995: THE GUARD ASKED WHICH FILES ARE PUBLIC AND THE ANSWER IS PER ROUTE — `tests/command_gates.py`
+- L19009: THE FIX REACHED THE VERDICT AND NOT THE ROWS BESIDE IT — `tests/test_the_public_report_carries_no_dollar.py`
+- L19035: A HANDLER-BOUNDED SCAN WAS THE OBVIOUS FIX AND IS WORSE
+- L19087: AND A GUARD HAD PINNED THE HALF-FIX AS THE CONTRACT
+- L19113: A MARKER IS THE DEFINITION, AND FIVE PIECES OF PROSE DESCRIBED IT WRONG
+- L19184: THE SCRUBBER'S UNIT WAS A LINE AND THE CARD'S UNIT IS A FIELD
+- L19222: THREE ABORT CARDS ANNOUNCED A FLATTEN AND NAMED NO CAUSE
+- L19339: THE ALLOWANCE X-RAY PRINTED ✅ OVER GRANTS IT NEVER READ, THREE WAYS — `app/test/allowance_xray_says_what_it_read.test.js`, `app/test/signed_in_is_not_the_operator.test.js`
+- L19362: THREE PUBLIC SIGNAL STATISTICS SAID MORE THAN THEIR ROWS DID — `app/test/both_mean_r_routes_say_which_rows_they_cover.test.js`, `app/test/setup_scoreboard_intervals.test.js`, `app/test/setup_survives_is_preregistered.test.js`, `app/test/the_calibration_chart_says_fitted_not_recorded.test.js`, `app/test/the_setup_board_shows_measured_cells_first.test.js`, `app/test/the_state_dir_is_the_bots_reading.test.js`, `tests/test_the_calibration_file_records_each_bins_trades.py`
 
-## A URL is a surface, and a slash in a path segment does not survive a hop (line 19426)
-
-
-## Verifying a deploy (line 19475)
+## A URL is a surface, and a slash in a path segment does not survive a hop (line 19437)
 
 
-## Writing tests that scan source (line 19520)
-
-- L19962: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
-- L20163: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
-- L20190: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
-
-### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 20424)
+## Verifying a deploy (line 19486)
 
 
-### A module nothing calls is indistinguishable from one that does not work (line 20496)
+## Writing tests that scan source (line 19531)
+
+- L19973: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
+- L20174: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
+- L20201: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
+
+### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 20435)
 
 
-## Deploying so a dead bot cannot look like a live one (line 20687)
+### A module nothing calls is indistinguishable from one that does not work (line 20507)
 
 
-## Operational docs (line 20844)
+## Deploying so a dead bot cannot look like a live one (line 20698)
+
+
+## Operational docs (line 20855)

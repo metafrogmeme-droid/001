@@ -18973,6 +18973,17 @@ card's door words), each killed on the first round.
 `tests/test_chat_spends_only_its_share_of_the_llm_budget.py`,
 `tests/test_every_chat_refusal_is_in_the_users_language.py`.)
 
+**A SLOW TEST IS NOT A HUNG ONE.** The gate gives every test 60 s
+(`scripts/ci_test_gate.py`), a limit for a test that hangs.
+`test_committed_scorecards_are_the_rerun_of_these_rules` reruns every
+published preset's backtest in a subprocess, one after another, and took
+64.7-66.5 s on a 4-core container on 2026-10-07, so the local preflight
+failed it on every run, alone or not, while CI's faster runners passed it.
+The flake filter cannot help a test that is slow by construction: it fails
+alone too. It carries its own `@pytest.mark.timeout(300)`, as the
+preflight's subprocess test carries 120. A test forgiven by a faster box is
+one the next added preset breaks on CI.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
