@@ -44,4 +44,11 @@ read as a track record.
 
 ## Decision
 
-Decision: pending operator.
+Decision: (a), practice only. Decided by the owner on 2026-10-07: a
+self-admitted account's confirm opens a practice row on its own paper book
+and is never placed live, whatever keys it links or flags it holds, until an
+admin vouches for it with `/approve`. The engine enforces it at one choke
+point (`RuneClawEngine.confirm_is_practice`), which reads an account as
+self-admitted from its role or from an `admitted_by="auto-accept"` stamp,
+and refuses a live fill when the account's record could not be read
+(`tests/test_a_self_admitted_confirm_is_never_placed_live.py`).

@@ -2565,10 +2565,12 @@ class AppConfig:
     # designed as a zero-friction on-ramp and a manual gate in front of virtual
     # funds is friction that buys nothing.
     #
-    # It grants BOT ACCESS ONLY. Live trading is a separate authority
-    # (_can_trade_live) that a self-admitted user cannot satisfy: it requires
-    # PER_USER_LIVE_ENABLED and their OWN linked exchange keys, so nothing here
-    # can put a stranger near the operator's balance.
+    # It grants BOT ACCESS ONLY. A self-admitted user never trades live: the
+    # engine opens their confirms on their own practice book
+    # (`confirm_is_practice`), whatever keys they link and whatever the live
+    # flags say, until an admin vouches for them with /approve (owner's
+    # decision, 2026-10-07). Nothing here can put a stranger near any live
+    # balance, the operator's or their own.
     #
     # The admission is recorded with admitted_by="auto-accept" rather than an
     # admin id, so /users still distinguishes a person a human vouched for from

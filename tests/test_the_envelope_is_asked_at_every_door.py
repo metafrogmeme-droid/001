@@ -110,7 +110,11 @@ def _engine(tmp_path, own, *, symbol="SOL", margin=500.0):
     engine._executor_for = lambda uid, venue=None: own
     engine._live_recheck_context = AsyncMock(
         return_value=_LiveRecheck(50000.0, 0, 50000.0, [], "bitget"))
+    # `get` answers the record a vouched trader has: the engine reads the
+    # admission before a live fill and refuses a store it cannot ask
+    # (`practice_fill.admission_unread`).
     engine._user_store = types.SimpleNamespace(
+        get=lambda u: {"role": "trader", "admitted_by": "999"},
         can_trade_live=lambda u: True, max_margin=lambda u: None,
         live_trading_revoked=lambda u: False)
     return engine, idea
