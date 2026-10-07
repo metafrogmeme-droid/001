@@ -116,6 +116,60 @@ class TestBuildSignalPayload:
         assert blank["timeframe"] is None
         assert blank["source"] is None
 
+    def test_a_producer_default_is_not_a_recorded_source_or_regime(self):
+        # #511: the analyzer built its TradeIdea with no ``source``, so it
+        # carried the field default "unknown", and the risk engine's regime
+        # before any measurement is "UNKNOWN". Both were published as
+        # recorded dimensions, and every engine signal's setup cell was
+        # filed under source "unknown". The real model, both arms.
+        from bot.utils.models import (
+            ANALYZER_SOURCE,
+            REGIME_UNMEASURED,
+            SOURCE_UNSTATED,
+            Direction,
+            TradeIdea,
+        )
+        idea = TradeIdea(asset="BTC/USDT", direction=Direction.LONG, entry_price=100.0,
+                         stop_loss=95.0, take_profit=110.0, confidence=0.7, reasoning="r",
+                         signal_type="vwap_reversion", timeframe="1h")
+        assert idea.source == SOURCE_UNSTATED
+        row = ws.build_signal_payload("k-default", idea, regime=REGIME_UNMEASURED)
+        assert row["source"] is None
+        assert row["regime"] == ""
+        named = idea.model_copy(update={"source": ANALYZER_SOURCE})
+        row2 = ws.build_signal_payload("k-named", named, regime="RANGE")
+        assert row2["source"] == ANALYZER_SOURCE
+        assert row2["regime"] == "RANGE"
+        # The word is checked as written: another case is another word.
+        row3 = ws.build_signal_payload("k-case", idea.model_copy(update={"source": "Unknown"}),
+                                       regime="unknown")
+        assert row3["source"] == "Unknown" and row3["regime"] == "unknown"
+
+    def test_the_analyzer_names_its_own_producer(self):
+        # Its TradeIdea( is inside a coroutine behind a thesis model; the
+        # keyword is the shape a drive cannot reach cheaply. Raw source, AST.
+        import ast
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "bot/core/analyzer.py").read_text()
+        calls = [n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Call)
+                 and getattr(n.func, "id", None) == "TradeIdea"]
+        assert calls, "the analyzer builds a TradeIdea"
+        for call in calls:
+            kw = {k.arg: k.value for k in call.keywords}
+            assert "source" in kw, f"TradeIdea( at line {call.lineno} names no producer"
+            assert getattr(kw["source"], "id", None) == "ANALYZER_SOURCE"
+
+    def test_the_website_reads_the_same_two_absence_words(self):
+        # signal_analytics.js keeps a copy for rows stored before the bot
+        # stopped publishing them. One reading: the copy equals the bot's.
+        import re
+        from pathlib import Path
+
+        from bot.utils.models import REGIME_UNMEASURED, SOURCE_UNSTATED
+        js = (Path(__file__).resolve().parent.parent / "app/lib/signal_analytics.js").read_text()
+        got = dict(re.findall(r"const (SOURCE_UNSTATED|REGIME_UNMEASURED) = '([^']*)';", js))
+        assert got == {"SOURCE_UNSTATED": SOURCE_UNSTATED, "REGIME_UNMEASURED": REGIME_UNMEASURED}
+
     def test_rr_computed_when_absent(self):
         idea = {"asset": "ETH/USDT", "direction": "LONG", "confidence": 0.5,
                 "entry_price": 100.0, "stop_loss": 90.0, "take_profit": 120.0}

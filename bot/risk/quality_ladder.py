@@ -331,8 +331,10 @@ def auto_confirm_refusal(idea: Any) -> Optional[str]:
 
     NO SOURCE LIST, IN EITHER DIRECTION, and that is measured rather than
     preferred. The autonomous path's own idea (`analyzer.py`'s ``TradeIdea(``)
-    sets no ``source`` at all and carries the field's default ``"unknown"``, so
-    an allowlist would have to admit the value a forgotten argument produces --
+    set no ``source`` until #511's review and carried the field's default
+    ``"unknown"`` (it names ``ANALYZER_SOURCE`` now); any producer that forgets
+    the argument still does, so an allowlist would have to admit the value a
+    forgotten argument produces --
     the one value that must never be the value a mistake makes. A denylist
     naming ``"manual"`` is the `/setllm` ten-of-eleven shape, where the source
     added tomorrow is the one missing from it, and it would be a THIRD copy of

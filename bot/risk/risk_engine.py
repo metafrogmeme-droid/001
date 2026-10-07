@@ -113,7 +113,7 @@ from bot.risk.quality_ladder import (
 from bot.utils.atomic_write import atomic_write_json
 from bot.utils.durable_io import fsync_dir
 from bot.utils.logger import audit, risk_log
-from bot.utils.models import RiskCheck, RiskVerdict, TradeIdea
+from bot.utils.models import REGIME_UNMEASURED, RiskCheck, RiskVerdict, TradeIdea
 from bot.utils.paths import state_path
 
 
@@ -395,7 +395,7 @@ class RiskEngine:
         self._macro_provider = macro_provider  # v2: enhanced macro-event provider
         self._order_flow = order_flow_analyzer  # Gate 2 + Rule 20
         # Regime-aware risk (Feature #3)
-        self._current_regime: str = "UNKNOWN"
+        self._current_regime: str = REGIME_UNMEASURED
         self._current_vol_state: str = "NORMAL"
         # v2: macro size multiplier from last evaluation
         self._last_macro_size_multiplier: float = 1.0

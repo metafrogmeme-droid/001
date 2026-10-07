@@ -17036,6 +17036,32 @@ and the follow verdict reads it as no verdict. Thirteen mutants killed
 `scripts/gen_agent_scorecards.py`, `bot/core/strategy_catalog.py`,
 `app/public/js/agent-scorecard.js`.)
 
+**EVERY ENGINE SIGNAL'S SETUP CELL WAS FILED UNDER SOURCE "UNKNOWN".** #511
+published a setup cell only "when all five dimensions were recorded", and
+`_recorded_label` refused a missing or blank word. But the analyzer built its
+`TradeIdea` with no `source`, so it carried the field's default, the word
+"unknown", and a non-blank filler passes a blank check. The public analytics
+payload (`/api/signals/analytics`, no auth) and the dashboard then printed
+`vwap_reversion · RANGE · 1h · unknown · LONG`, a cell whose source no row
+named. The regime had the same shape: the risk engine's regime before any
+measurement is the word "UNKNOWN", and the outcome tag falls back to it.
+
+A field's default is what a forgotten argument writes, so the publisher has
+to know the word, not just whether one is there. Both words are constants
+where the defaults live (`models.SOURCE_UNSTATED`, `REGIME_UNMEASURED`), the
+publish step reads them as absent (checked as written, so another spelling
+is another word), and the analyzer names itself (`ANALYZER_SOURCE`), so its
+cells survive with a source that is true. The website keeps a copy of the
+two words for rows stored before the bot stopped sending them, and a Python
+test holds the copy to the constants. The quality ladder's docstring, which
+argued from "the analyzer sets no source", now says when that stopped being
+true; its argument against a source list still stands for any producer that
+forgets the argument. Eight mutants, all killed on the first round.
+(`tests/test_website_signal_sync.py`,
+`app/test/signal_analytics_absence.test.js`, `bot/utils/models.py`,
+`bot/utils/website_sync.py`, `bot/core/analyzer.py`,
+`app/lib/signal_analytics.js`.)
+
 **EVERY CANDLE CHART IS A TRADINGVIEW CHART, AND THE FIRST ONE WAS DRAWING
 ANOTHER SYMBOL'S LEVELS.** Asked for by the operator with two screenshots: the
 Markets view drew TradingView Lightweight Charts, and every chart a reader

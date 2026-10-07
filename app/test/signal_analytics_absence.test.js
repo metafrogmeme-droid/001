@@ -288,3 +288,23 @@ test('the setup board omits a missing group and does not paint a null mean as 0R
   assert.ok(!/by_setup \|\| \[\]/.test(src),
     'a missing setup group is filled with an empty list and then painted');
 });
+
+// ── a producer's absence word is not a setup dimension (#511) ──────────────
+test('rows stored with the bot\'s absence words are not filed in a setup cell', () => {
+  const { SOURCE_UNSTATED, REGIME_UNMEASURED } = require('../lib/signal_analytics');
+  const row = (pnl, over) => ({ pnl, symbol: 'BTC/USDT', direction: 'LONG', confidence: 0.7,
+    signal_type: 'vwap_reversion', regime: 'RANGE', timeframe: '1h', source: 'analyzer', ...over });
+  const named = computeAnalytics([row(2), row(-1)]);
+  assert.strictEqual(named.by_setup.length, 1);
+  assert.strictEqual(named.by_setup[0].source, 'analyzer');
+  // The filler source, or the unmeasured regime: no cell, and the rows still
+  // count in the overall figure.
+  for (const over of [{ source: SOURCE_UNSTATED }, { regime: REGIME_UNMEASURED }]) {
+    const a = computeAnalytics([row(2, over), row(-1, over)]);
+    assert.deepStrictEqual(a.by_setup, [], JSON.stringify(over));
+    assert.strictEqual(a.overall.resolved, 2);
+  }
+  // Another spelling is another word, not folded into the absence word.
+  const other = computeAnalytics([row(2, { source: 'Unknown' })]);
+  assert.strictEqual(other.by_setup.length, 1);
+});
