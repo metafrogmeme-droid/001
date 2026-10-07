@@ -217,14 +217,19 @@ class WhaleFlowTracker:
         # it.
         recent = list(hist)[-min(10, len(hist)):]
         active = [(b, s) for b, s in recent if b + s > 0]
-        buy_share = sum(1 for b, s in active if b > s) / len(active)
-        sell_share = sum(1 for b, s in active if s > b) / len(active)
+        # No whale in the last ten windows (the flow above came from older
+        # ones) is no consistency reading at all. Dividing by it raised
+        # ZeroDivisionError, the caller's broad handler swallowed it, and the
+        # whale voter dropped out of the score without a trace.
+        if active:
+            buy_share = sum(1 for b, s in active if b > s) / len(active)
+            sell_share = sum(1 for b, s in active if s > b) / len(active)
 
-        # Consistency amplifier: 8/10 sessions with whale buying > selling is strong
-        if buy_share > 0.7:
-            bias *= 1.3
-        elif sell_share > 0.7:
-            bias *= 1.3  # consistent selling is also strong
+            # Consistency amplifier: 8/10 sessions with whale buying > selling is strong
+            if buy_share > 0.7:
+                bias *= 1.3
+            elif sell_share > 0.7:
+                bias *= 1.3  # consistent selling is also strong
 
         return round(float(np.clip(bias, -1, 1)), 4)
 

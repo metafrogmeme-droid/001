@@ -176,7 +176,12 @@ def detect_sweeps(
                     if v is None or bar_vol is None or avg_vol is None:
                         vol_ratio = None
                     else:
-                        vol_ratio = bar_vol / avg_vol if avg_vol > 0 else 1.0
+                        # An average that is not above zero is no volume to
+                        # compare against: NaN (an unreadable bar anywhere in
+                        # the window) and 0 both fail `> 0`. The ratio is
+                        # unmeasured. It was 1.0, recorded and printed as
+                        # "vol 1.0x avg" where an absent volume prints a dash.
+                        vol_ratio = bar_vol / avg_vol if avg_vol > 0 else None
 
                     # Count prior touches of this level
                     touches = _count_touches(l[:sw_idx], sw_price)
@@ -250,7 +255,12 @@ def detect_sweeps(
                     if v is None or bar_vol is None or avg_vol is None:
                         vol_ratio = None
                     else:
-                        vol_ratio = bar_vol / avg_vol if avg_vol > 0 else 1.0
+                        # An average that is not above zero is no volume to
+                        # compare against: NaN (an unreadable bar anywhere in
+                        # the window) and 0 both fail `> 0`. The ratio is
+                        # unmeasured. It was 1.0, recorded and printed as
+                        # "vol 1.0x avg" where an absent volume prints a dash.
+                        vol_ratio = bar_vol / avg_vol if avg_vol > 0 else None
                     touches = _count_touches(h[:sw_idx], sw_price)
 
                     conf = 0.50
