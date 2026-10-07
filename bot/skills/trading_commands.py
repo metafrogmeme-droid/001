@@ -611,23 +611,27 @@ class TradingCommands:
                     "Could not save the selection \u2014 nothing changed. Try again.")
                 return
             _cfg = _RS.PRESETS[_key]
-            _enf = []
-            if isinstance(_cfg.get("symbols"), (list, tuple)) and _cfg.get("symbols"):
-                _enf.append("symbols")
-            if _cfg.get("confidence_threshold") is not None:
-                _enf.append(f"confidence \u2265 {_cfg['confidence_threshold'] * 100:.0f}%")
-            _scan = [g for g in ("rsi_threshold", "regime", "volume_spike_min")
-                     if _cfg.get(g) is not None]
+            # The split the confirm gate enforces (describe_gates), not a
+            # copy of it: a copy missed the side rule and RSI floor that
+            # Dip Sniper, Momentum Hunter and Safe Scalper carry.
+            from bot.core.strategy_gate import backtest_gates, describe_gates, gate_words
+            _enf, _scan = describe_gates(_cfg)
+            _bt = backtest_gates(_cfg)
             _lines = [
                 f"{_cfg.get('icon', '')} <b>{html.escape(_cfg.get('label', _key))}</b> "
                 "is now YOUR strategy.",
-                "Trades you confirm that break its rules will be refused "
+                "Trades you confirm that break its confirm-time rules will be refused "
                 "(tighten-only \u2014 it never places trades).",
-                ("Enforced at confirm: " + ", ".join(_enf)) if _enf
+                ("Enforced at confirm: " + ", ".join(gate_words(_cfg, g) for g in _enf))
+                if _enf
                 else "This preset carries no confirm-time gate \u2014 it filters in the scan only.",
             ]
             if _scan:
-                _lines.append("Applied in the scan (not at confirm): " + ", ".join(_scan) + ".")
+                _lines.append("Applied when /run scans (not at confirm): "
+                              + ", ".join(gate_words(_cfg, g) for g in _scan) + ".")
+            if _bt:
+                _lines.append("Checked in the backtest only (not by /run, not at confirm): "
+                              + ", ".join(gate_words(_cfg, g) for g in _bt) + ".")
             _lines.append("/mystrategy off clears it any time \u2014 revocable is the point.")
             await self._reply(update, "\n".join(_lines))
             return

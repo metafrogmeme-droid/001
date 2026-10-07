@@ -246,17 +246,23 @@ def test_confirm_keeps_the_universe_and_does_not_pretend_to_apply_exits():
     refused = check_confirm("daily vol rotation", cfg, "DOGE/USDT:USDT", 0.9)
     assert refused["ok"] is False
     assert "symbols" in refused["enforced"]
-    allowed = check_confirm("daily vol rotation", cfg, "AVAX/USDT:USDT", None)
+    from bot.utils.models import Direction
+    allowed = check_confirm("daily vol rotation", cfg, "AVAX/USDT:USDT", None,
+                            Direction.LONG)
     assert allowed["ok"] is True
     assert "momentum_period" in allowed["scan_only"]
     assert "trailing_stop_pct" not in allowed["scan_only"]
+    # Long only is a side the confirm reads, so it is enforced there.
+    short = check_confirm("daily vol rotation", cfg, "AVAX/USDT:USDT", None,
+                          Direction.SHORT)
+    assert short["ok"] is False and "long-only" in short["reason"]
     confirm, scan = describe_gates(cfg)
-    assert confirm == ["symbols"]
+    assert confirm == ["symbols", "direction"]
     assert "momentum_period" in scan and "bar_timeframe" in scan
     assert "trailing_stop_pct" not in scan
     assert "leverage" not in scan and "utilization" not in scan
     dip_confirm, _dip_scan = describe_gates(RunStrategySkill.PRESETS["dip sniper"])
-    assert dip_confirm == ["confidence>=70%"]
+    assert dip_confirm == ["direction", "confidence>=70%"]
 
 
 def test_the_generator_does_not_publish_a_majors_card():

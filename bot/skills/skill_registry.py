@@ -42,7 +42,7 @@ from bot.formatters.thesis_text import provenance_tag, split_counter_case, thesi
 
 from bot.config import CONFIG, TRADFI_PERPETUALS
 from bot.core.engine import RuneClawEngine
-from bot.core.strategy_gate import signal_clears_volume_min
+from bot.core.strategy_gate import idea_side, side_rule, signal_clears_volume_min
 from bot.utils.logger import audit, system_log
 from bot.utils.candles import ohlc_on_record, volume_on_record as _vol_on_record
 
@@ -2183,7 +2183,8 @@ class RunStrategySkill(BaseSkill):
     PRESETS: dict[str, dict[str, Any]] = {
         "dip sniper": {
             "label": "Dip Sniper", "icon": "\U0001f3af",
-            "desc": "All pairs \u2022 TREND_DOWN \u2022 RSI \u2265 35 \u2022 short only \u2022 conf \u2265 70%",
+            "desc": ("All pairs \u2022 TREND_DOWN \u2022 short only \u2022 conf \u2265 70% "
+                     "\u2022 RSI \u2265 35 in the backtest only"),
             # RSI at or above 35, not below it. The old ceiling kept only the
             # oversold shorts, and every one of those stopped out: selling
             # capitulation is the bounce. The short waits until RSI has lifted.
@@ -2205,7 +2206,8 @@ class RunStrategySkill(BaseSkill):
         },
         "safe scalper": {
             "label": "Safe Scalper", "icon": "\u26a1",
-            "desc": "Top 3 vol \u2022 RSI \u2265 35 \u2022 tight SL 1.5 ATR \u2022 conf \u2265 75%",
+            "desc": ("Top 3 vol \u2022 tight SL 1.5 ATR \u2022 conf \u2265 75% "
+                     "\u2022 RSI \u2265 35 in the backtest only"),
             "symbols": "top3_volume", "rsi_threshold": None, "rsi_min": 35,
             "regime": None, "confidence_threshold": 0.75,
             "direction": None, "volume_spike_min": None,
@@ -2464,14 +2466,13 @@ class RunStrategySkill(BaseSkill):
                 _pc = displayed_confidence(idea)
                 if not _pc.clears(ct):
                     continue
-            # Same side and regime the frozen scorecard gates on. RSI still
+            # Same side and regime the frozen scorecard gates on, through the
+            # side reading the confirm gate and the backtest share. RSI still
             # needs the candle window, which this scan does not hold; the
-            # backtest gate is where rsi_min binds.
-            _side = str(cfg.get("direction") or "").strip().lower().replace("-", "_")
-            if _side in ("long_only", "long", "short_only", "short"):
-                _need = "LONG" if _side.startswith("long") else "SHORT"
-                if idea.direction.value != _need:
-                    continue
+            # backtest gate is where rsi_min binds, and the desc says so.
+            _need = side_rule(cfg.get("direction"))
+            if _need is not None and idea_side(idea.direction) != _need:
+                continue
             _regime_want = str(cfg.get("regime") or "").strip().upper()
             if _regime_want:
                 _regimes = getattr(getattr(engine, "analyzer", None),

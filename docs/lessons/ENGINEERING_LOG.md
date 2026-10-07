@@ -20832,7 +20832,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1240** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1241** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -21269,6 +21269,49 @@ English left untranslated; the sense of each translation is a reviewer's
 check. Ten mutants, all killed.
 (`app/test/the_agents_intro_claims_only_what_a_card_carries.test.js`,
 `app/lib/agent_seo.js`, `app/public/js/i18n.js`.)
+
+**A SHORT-ONLY STRATEGY DID NOT REFUSE A LONG AT CONFIRM, AND A LONG-ONLY
+COMMUNITY STRATEGY REFUSED EVERY LONG.** Found when the five PRs the sixty-PR
+review could not read (#479–#483) were read on 7 October. #483 made Dip
+Sniper short-only and Momentum Hunter long-only, and `/mystrategy` told
+whoever armed one that "trades you confirm that break its rules will be
+refused". The confirm gate filed `direction` under `scan_only`, and the
+engine never handed it the idea's side. So a LONG confirmed under Dip
+Sniper went on to execution, live when live is on, although a TradeIdea
+carries its side and the gate's own rule is to enforce what the
+confirm-time facts can evaluate. The community gate did read the side, but
+wrongly. `Direction` is a `(str, Enum)`, and `str(Direction.LONG).upper()`
+is `"DIRECTION.LONG"`, not `"LONG"`. A long-only community strategy
+therefore refused every LONG it allowed. Every test passed the string
+`"LONG"`, so none of them could see it.
+
+`strategy_gate.side_rule` and `idea_side` are now the one reading of a side
+rule and of an idea's side. The preset gate, the community gate, `/run`
+and the backtest all use them; `/run` and the backtest each had their own
+copy before. A rule that is set but spelled wrong, or an idea whose side
+cannot be read, is refused. Neither is admitted both ways.
+
+The same PR's RSI floors were claimed where nothing checked them. The
+`/run` list read "RSI ≥ 35", the card's how-line said it trades "RSI at or
+above 35", and `/mystrategy` put RSI under "applied in the scan". But
+`/run` holds no candle window and an idea carries no RSI, so only the
+backtest reads the floor. RSI is now named as the backtest's on all three
+surfaces (`strategy_gate.BACKTEST_ONLY_GATES`). `/mystrategy` used to keep
+its own third copy of the gate list, which missed the side and the RSI
+floor; it now prints `describe_gates`' own split.
+
+Driven through the real `confirm_trade` with live mode on:
+- a LONG under Dip Sniper is refused, with nothing placed;
+- a LONG under Momentum Hunter is placed live;
+- a LONG under a long-only community strategy is placed live;
+- a LONG under a short-only community strategy is refused.
+`/run momentum hunter` offers the LONG and drops the SHORT. Twelve mutants,
+all killed.
+
+Left with the owner: the scorecards' "trades" count partial-exit legs, not
+positions (audit B4-04). Changing that moves every recorded figure.
+(`tests/test_a_chosen_side_is_enforced_at_confirm.py`,
+`bot/core/strategy_gate.py`.)
 
 ## Deploying so a dead bot cannot look like a live one
 

@@ -8,12 +8,14 @@ never create one, and it never touches the operator's global stance.
 
 Honesty rules (the same contract the web Authority Envelope carries):
 - Only gates the confirm-time facts can truly evaluate are enforced.
-  A TradeIdea carries its asset and its confidence; it does NOT carry the
-  scan-time RSI, regime or volume-spike readings. So `confidence_threshold`
-  and an explicit `symbols` list enforce here; `rsi_threshold`, `regime`,
-  `volume_spike_min` and the "top3_volume" symbol rule apply in the SCAN
-  (where those facts exist) and are reported as `scan_only` — the gate
-  never claims more protection than it delivers.
+  A TradeIdea carries its asset, its confidence and its side; it does NOT
+  carry the scan-time regime or volume-spike readings, or any RSI. So
+  `confidence_threshold`, an explicit `symbols` list and a `direction` rule
+  enforce here; `regime`, `volume_spike_min` and the "top3_volume" symbol
+  rule apply when `/run` scans (where those facts exist) and are reported
+  as `scan_only`; `rsi_threshold` and `rsi_min` bind only in the backtest,
+  because `/run` holds no candle window either, and are reported as
+  `backtest_only`. The gate never claims more protection than it delivers.
 - Every refusal names its rule with the numbers that tripped it.
 - No selection → ok (an unselected user confirms exactly as before).
 
@@ -31,6 +33,62 @@ def _base(sym: str) -> str:
     if s.endswith("USDT") and len(s) > 4:
         s = s[:-4]
     return s
+
+
+#: Read only by the backtest: no idea and no `/run` scan carries an RSI.
+BACKTEST_ONLY_GATES = ("rsi_threshold", "rsi_min")
+#: Applied when `/run` scans, never at confirm.
+SCAN_GATES = ("regime", "volume_spike_min",
+              "fast_period", "slow_period", "ma_timeframe",
+              "momentum_period", "trend_period", "atr_period", "momentum_threshold",
+              "bar_timeframe")
+
+
+def side_rule(raw: Any) -> Optional[str]:
+    """The side a preset or community rule allows.
+
+    ``"LONG"`` or ``"SHORT"`` for ``long_only`` / ``short_only`` (also
+    ``long`` / ``short``, any case, ``-`` for ``_``); None when no rule is
+    set; ``""`` when a rule is set but its spelling is not one of those, which
+    every caller refuses instead of admitting both sides. The one reading for
+    the confirm gates, ``/run`` and the backtest.
+    """
+    key = str(raw or "").strip().lower().replace("-", "_")
+    if not key:
+        return None
+    return {"long_only": "LONG", "long": "LONG",
+            "short_only": "SHORT", "short": "SHORT"}.get(key, "")
+
+
+def idea_side(direction: Any) -> Optional[str]:
+    """An idea's side, ``"LONG"`` or ``"SHORT"``, or None when it cannot be read.
+
+    ``Direction`` is a ``(str, Enum)``: ``str(Direction.LONG)`` is
+    ``"Direction.LONG"``, so the value is read, never the ``str()``. Reading the
+    ``str()`` made a long-only community strategy refuse every LONG.
+    """
+    v = getattr(direction, "value", direction)
+    if not isinstance(v, str):
+        return None
+    v = v.strip().upper()
+    return v if v in ("LONG", "SHORT") else None
+
+
+def _side_refusal(label: str, rule: Any, direction: Any) -> Optional[str]:
+    """The refusal sentence when ``direction`` breaks ``rule``, else None."""
+    want = side_rule(rule)
+    if want is None:
+        return None
+    if not want:
+        return (f"{label}: this strategy's side rule ({rule!r}) could not be "
+                "read — refused (unreadable is never assumed to pass).")
+    got = idea_side(direction)
+    if got is None:
+        return (f"{label}: this idea's side could not be read — refused "
+                "(unreadable is never assumed to pass).")
+    if got != want:
+        return f"{label}: this strategy is {want.lower()}-only — {got} refused."
+    return None
 
 
 def volume_ratio_clears(ratio: Any, minimum: Any) -> bool:
@@ -67,23 +125,48 @@ def resolve_key(raw, presets, aliases) -> Optional[str]:
 
 def describe_gates(preset: dict) -> tuple[list[str], list[str]]:
     """(confirm_gates, scan_gates) — the SAME split check_confirm enforces,
-    exported so every surface states it identically and none can overclaim."""
+    exported so every surface states it identically and none can overclaim.
+    The RSI gates are in neither list: `backtest_gates` names them."""
     confirm: list[str] = []
-    scan: list[str] = []
-    for g in ("rsi_threshold", "rsi_min", "regime", "volume_spike_min", "direction",
-              "fast_period", "slow_period", "ma_timeframe",
-              "momentum_period", "trend_period", "atr_period", "momentum_threshold",
-              "bar_timeframe"):
-        if preset.get(g) is not None:
-            scan.append(g)
+    scan: list[str] = [g for g in SCAN_GATES if preset.get(g) is not None]
     syms = preset.get("symbols")
     if isinstance(syms, (list, tuple)) and syms:
         confirm.append("symbols")
     elif isinstance(syms, str) and syms:
         scan.append(f"symbols:{syms}")
+    if side_rule(preset.get("direction")) is not None:
+        confirm.append("direction")
     if preset.get("confidence_threshold") is not None:
         confirm.append(f"confidence>={float(preset['confidence_threshold']) * 100:.0f}%")
     return confirm, scan
+
+
+def gate_words(preset: dict, gate: str) -> str:
+    """A gate name from `describe_gates` or `backtest_gates`, in words, with
+    the preset's own value: what `/mystrategy` prints for each one."""
+    if gate == "symbols":
+        return "its symbols (" + ", ".join(str(s) for s in preset.get("symbols") or ()) + ")"
+    if gate == "direction":
+        side = side_rule(preset.get("direction"))
+        return f"{side.lower()} only" if side else "its side rule"
+    if gate.startswith("confidence>="):
+        return "confidence \u2265 " + gate.split(">=", 1)[1]
+    if gate.startswith("symbols:"):
+        return gate.split(":", 1)[1].replace("_", " ")
+    if gate == "regime":
+        return f"regime {preset.get('regime')}"
+    if gate == "volume_spike_min":
+        return f"volume spike \u2265 {float(preset['volume_spike_min']):g}\u00d7"
+    if gate == "rsi_min":
+        return f"RSI \u2265 {preset.get('rsi_min')}"
+    if gate == "rsi_threshold":
+        return f"RSI below {preset.get('rsi_threshold')}"
+    return gate.replace("_", " ")
+
+
+def backtest_gates(preset: dict) -> list[str]:
+    """The gates only the backtest reads: no idea or `/run` scan holds an RSI."""
+    return [g for g in BACKTEST_ONLY_GATES if preset.get(g) is not None]
 
 
 def check_custom(entry: Optional[dict], asset: str, confidence: Any,
@@ -120,14 +203,12 @@ def check_custom(entry: Optional[dict], asset: str, confidence: Any,
         if base in {_base(x) for x in deny}:
             return {"ok": False, "enforced": enforced, "scan_only": scan_only,
                     "reason": f"{label}: {base} is on this strategy's blocked list."}
-    d = g.get("direction")
-    if d in ("long_only", "short_only"):
+    if side_rule(g.get("direction")) is not None:
         enforced.append("direction")
-        got = str(direction or "").upper()
-        want = "LONG" if d == "long_only" else "SHORT"
-        if got and got != want:
+        refusal = _side_refusal(str(label), g.get("direction"), direction)
+        if refusal:
             return {"ok": False, "enforced": enforced, "scan_only": scan_only,
-                    "reason": f"{label}: this strategy is {want.lower()}-only — {got} refused."}
+                    "reason": refusal}
     thr = g.get("confidence_threshold")
     if thr is not None:
         enforced.append("confidence")
@@ -145,8 +226,12 @@ def check_custom(entry: Optional[dict], asset: str, confidence: Any,
 
 
 def check_confirm(preset_key: str, preset: Optional[dict],
-                  asset: str, confidence: Any) -> dict:
-    """→ {ok, reason (when refused), enforced: [..], scan_only: [..]}.
+                  asset: str, confidence: Any, direction: Any = None) -> dict:
+    """→ {ok, reason (when refused), enforced: [..], scan_only: [..],
+    backtest_only: [..]}.
+
+    ``direction`` is the idea's side. A preset with a side rule refuses an
+    idea whose side breaks it, or whose side cannot be read.
 
     `preset is None` means the stored selection names a preset that no
     longer exists — that is an ARMED gate that cannot be evaluated, and it
@@ -162,26 +247,34 @@ def check_confirm(preset_key: str, preset: Optional[dict],
                            "/mystrategy off disarms it.")}
 
     enforced: list[str] = []
-    scan_only: list[str] = []
-    for g in ("rsi_threshold", "rsi_min", "regime", "volume_spike_min", "direction",
-              "fast_period", "slow_period", "ma_timeframe",
-              "momentum_period", "trend_period", "atr_period", "momentum_threshold",
-              "bar_timeframe"):
-        if preset.get(g) is not None:
-            scan_only.append(g)
+    scan_only: list[str] = [g for g in SCAN_GATES if preset.get(g) is not None]
+    backtest_only = backtest_gates(preset)
+    label = preset.get("label", preset_key)
+
+    def verdict(reason: Optional[str] = None) -> dict:
+        out = {"ok": reason is None, "enforced": enforced, "scan_only": scan_only,
+               "backtest_only": backtest_only}
+        if reason is not None:
+            out["reason"] = reason
+        return out
 
     syms = preset.get("symbols")
     if isinstance(syms, (list, tuple)) and syms:
         enforced.append("symbols")
         allow = {_base(s) for s in syms}
         if _base(asset) not in allow:
-            return {"ok": False, "enforced": enforced, "scan_only": scan_only,
-                    "reason": (f"{preset.get('label', preset_key)}: {_base(asset)} is outside "
-                               f"this strategy's symbols ({', '.join(sorted(allow))}).")}
+            return verdict(f"{label}: {_base(asset)} is outside "
+                           f"this strategy's symbols ({', '.join(sorted(allow))}).")
     elif isinstance(syms, str) and syms:
         # e.g. "top3_volume" — a scan-time universe rule; confirm-time has no
         # volume ranking to evaluate, so it is stated, never silently claimed.
         scan_only.append(f"symbols:{syms}")
+
+    if side_rule(preset.get("direction")) is not None:
+        enforced.append("direction")
+        refusal = _side_refusal(label, preset.get("direction"), direction)
+        if refusal:
+            return verdict(refusal)
 
     thr = preset.get("confidence_threshold")
     if thr is not None:
@@ -189,13 +282,11 @@ def check_confirm(preset_key: str, preset: Optional[dict],
         try:
             conf = float(confidence)
         except (TypeError, ValueError):
-            return {"ok": False, "enforced": enforced, "scan_only": scan_only,
-                    "reason": (f"{preset.get('label', preset_key)}: this idea carries no readable "
-                               "confidence — refused (unreadable is never assumed to pass).")}
+            return verdict(f"{label}: this idea carries no readable "
+                           "confidence — refused (unreadable is never assumed to pass).")
         if conf < float(thr):
-            return {"ok": False, "enforced": enforced, "scan_only": scan_only,
-                    "reason": (f"{preset.get('label', preset_key)}: confidence "
-                               f"{conf * 100:.0f}% is below your strategy's "
-                               f"{float(thr) * 100:.0f}% floor.")}
+            return verdict(f"{label}: confidence "
+                           f"{conf * 100:.0f}% is below your strategy's "
+                           f"{float(thr) * 100:.0f}% floor.")
 
-    return {"ok": True, "enforced": enforced, "scan_only": scan_only}
+    return verdict()

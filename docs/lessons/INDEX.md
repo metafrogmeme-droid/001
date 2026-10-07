@@ -254,9 +254,9 @@ about to change before changing it.
 
 ### A module nothing calls is indistinguishable from one that does not work (line 20978)
 
-- L21221: CHAT'S OWN DOLLAR CAP NEVER ASKED THE DAILY TOTAL — `app/test/the_agents_intro_claims_only_what_a_card_carries.test.js`, `tests/test_chat_spends_only_its_share_of_the_llm_budget.py`
+- L21221: CHAT'S OWN DOLLAR CAP NEVER ASKED THE DAILY TOTAL — `app/test/the_agents_intro_claims_only_what_a_card_carries.test.js`, `tests/test_a_chosen_side_is_enforced_at_confirm.py`, `tests/test_chat_spends_only_its_share_of_the_llm_budget.py`
 
-## Deploying so a dead bot cannot look like a live one (line 21273)
+## Deploying so a dead bot cannot look like a live one (line 21316)
 
 
-## Operational docs (line 21430)
+## Operational docs (line 21473)
