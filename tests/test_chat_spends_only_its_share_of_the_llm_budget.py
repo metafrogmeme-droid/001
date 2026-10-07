@@ -403,3 +403,127 @@ def test_an_own_chat_cap_beside_a_thesis_cap_says_the_caps_are_separate(monkeypa
     assert not asked
     assert "separate cap" in answer
     assert "no cap of its own" not in answer
+
+
+# ---------------------------------------------------------------------------
+# Chat's own cap sits inside the combined daily total (#469, owner's call).
+#
+# `chat_budget_bound` returned "" as soon as chat was under its own cap, so
+# the combined total was never asked for chat: total $1.00, chat cap $0.40,
+# analysis at $0.99, and chat kept answering to about $1.39. A cap set above
+# the total let chat alone pass it. The total is now checked first.
+# ---------------------------------------------------------------------------
+
+def _caps(monkeypatch, *, chat_cap, thesis_cap=None, usd=1.0):
+    monkeypatch.setattr(th_mod, "CONFIG", replace(th_mod.CONFIG, llm=replace(
+        th_mod.CONFIG.llm, api_key="", daily_call_limit=500,
+        daily_budget_usd=usd, chat_budget_share=0.5, chat_budget_usd=chat_cap,
+        thesis_budget_usd=thesis_cap)))
+
+
+class TestAnOwnChatCapSitsInsideTheTotal:
+    def _cfg(self, **kw):
+        base = dict(daily_call_limit=10, daily_budget_usd=1.0,
+                    chat_budget_share=0.5, chat_budget_usd=0.40)
+        base.update(kw)
+        return SimpleNamespace(**base)
+
+    def _snap(self, *, chat, thesis):
+        s = CostSummary(llm_cost_usd=chat + thesis, llm_calls=1)
+        s.cost_by_category["chat"] = chat
+        s.cost_by_category["thesis"] = thesis
+        return s
+
+    def test_the_total_reached_refuses_chat_under_its_own_cap(self):
+        from bot.core.cost import chat_budget_bound
+        assert chat_budget_bound(self._snap(chat=0.10, thesis=0.90),
+                                 self._cfg()) == "daily dollar budget"
+
+    def test_under_the_total_and_under_its_cap_chat_answers(self):
+        from bot.core.cost import chat_budget_bound
+        assert chat_budget_bound(self._snap(chat=0.10, thesis=0.50),
+                                 self._cfg()) == ""
+
+    def test_its_own_cap_reached_first_is_still_named(self):
+        from bot.core.cost import CHAT_OWN_BOUND, chat_budget_bound
+        assert chat_budget_bound(self._snap(chat=0.40, thesis=0.10),
+                                 self._cfg()) == CHAT_OWN_BOUND
+
+    def test_a_cap_above_the_total_is_reached_at_the_total(self):
+        from bot.core.cost import chat_budget_bound
+        cfg = self._cfg(chat_budget_usd=2.0)
+        assert chat_budget_bound(self._snap(chat=1.0, thesis=0.0), cfg) \
+            == "daily dollar budget"
+        assert chat_budget_bound(self._snap(chat=0.99, thesis=0.0), cfg) == ""
+
+
+def test_a_turn_with_its_cap_left_stops_at_the_daily_total(monkeypatch):
+    """The sentence is the whole-budget one: chat's own cap is not what was
+    reached, so "own dollar budget" would name the wrong bound."""
+    _caps(monkeypatch, chat_cap=0.40)
+    cost = CostTracker()
+    _spend(cost, 0.95, "thesis")
+    _spend(cost, 0.05, "chat")
+    answer, asked = _ask(monkeypatch, cost)
+    assert not asked
+    assert "used up today's AI budget" in answer
+    assert "own dollar budget" not in answer
+
+
+def test_a_turn_under_the_total_with_its_cap_left_is_answered(monkeypatch):
+    _caps(monkeypatch, chat_cap=0.40)
+    cost = CostTracker()
+    _spend(cost, 0.50, "thesis")
+    _spend(cost, 0.05, "chat")
+    _, asked = _ask(monkeypatch, cost)
+    assert asked
+
+
+def test_the_total_binds_chat_beside_a_thesis_cap_too(monkeypatch):
+    _caps(monkeypatch, chat_cap=0.40, thesis_cap=0.60)
+    cost = CostTracker()
+    _spend(cost, 0.95, "thesis")
+    _spend(cost, 0.05, "chat")
+    answer, asked = _ask(monkeypatch, cost)
+    assert not asked
+    assert "used up today's AI budget" in answer
+
+
+def test_a_fold_with_its_cap_left_stops_at_the_daily_total(monkeypatch):
+    seen: list[str] = []
+    monkeypatch.setattr(th_mod, "audit", lambda log, msg, **kw: seen.append(msg))
+    _caps(monkeypatch, chat_cap=0.40)
+    cost = CostTracker()
+    _spend(cost, 0.95, "thesis")
+    _spend(cost, 0.05, "chat")
+    wrote, asked, store = _fold(monkeypatch, cost)
+    assert not wrote and not asked
+    assert len(store.take_pending_summary("u")) == 2, "the turns were lost"
+    assert any("daily dollar budget" in m for m in seen), seen
+
+
+def test_a_fold_under_the_total_with_its_cap_left_is_asked(monkeypatch):
+    _caps(monkeypatch, chat_cap=0.40)
+    cost = CostTracker()
+    _spend(cost, 0.50, "thesis")
+    _spend(cost, 0.05, "chat")
+    wrote, asked, _ = _fold(monkeypatch, cost)
+    assert wrote and asked
+
+
+def test_a_chat_day_with_its_own_cap_stops_at_the_total(monkeypatch):
+    """Half the total already spent on analysis, chat capped at $0.80: chat
+    used to run to its cap and take the day to $1.30. Each turn books $0.15."""
+    _caps(monkeypatch, chat_cap=0.80)
+    cost = CostTracker()
+    _spend(cost, 0.50, "thesis")
+    answered = 0
+    for _ in range(20):
+        _, asked = _ask(monkeypatch, cost,
+                        on_call=lambda: _spend(cost, 0.15, "chat"))
+        if not asked:
+            break
+        answered += 1
+    # 0.50 + 4 x 0.15 = 1.10: the fourth turn starts at 0.95 and is the last.
+    assert answered == 4
+    assert cost.snapshot().llm_cost_usd < 1.0 + 0.15 + 1e-9

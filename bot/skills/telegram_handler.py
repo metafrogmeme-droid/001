@@ -2983,8 +2983,9 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         #
         # Chat also stops at its SHARE of the dollar budget, unless
         # LLM_DAILY_BUDGET_CHAT_USD is set, in which case that cap is chat's
-        # and the thesis cap is separate. With neither cap set, the thesis
-        # guard still reads the combined total.
+        # and the thesis cap is separate. Either way chat stops at the
+        # combined daily total first if that is reached. With neither cap
+        # set, the thesis guard still reads the combined total.
         if hasattr(self.engine, 'cost'):
             snap = self.engine.cost.snapshot()
             _own = CONFIG.llm.chat_budget_usd

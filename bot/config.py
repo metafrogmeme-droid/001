@@ -1338,8 +1338,10 @@ class LLMConfig:
     chat_budget_share: float = _env_float_bounded("LLM_CHAT_BUDGET_SHARE", 0.5, 0.0, 1.0)
     # Absolute caps. None means unset: chat still stops at `chat_budget_share`
     # of `daily_budget_usd`, and the thesis guard still reads the combined
-    # total. Set either one to give that side its own dollar cap. In-house
-    # models book zero dollars, so these bind hosted fallbacks.
+    # total. Set either one to give that side its own dollar cap. Chat's cap
+    # sits inside `daily_budget_usd`: chat stops at whichever it reaches
+    # first (`cost.chat_budget_bound`). In-house models book zero dollars, so
+    # these bind hosted fallbacks.
     chat_budget_usd: Optional[float] = _env_budget_opt("LLM_DAILY_BUDGET_CHAT_USD")
     thesis_budget_usd: Optional[float] = _env_budget_opt("LLM_DAILY_BUDGET_THESIS_USD")
     est_cost_per_analysis: float = _env_float("LLM_EST_COST_PER_ANALYSIS", 0.003)  # for backtest projection

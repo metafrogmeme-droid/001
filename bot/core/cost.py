@@ -282,18 +282,21 @@ def chat_budget_bound(snap: CostSummary, llm_cfg) -> str:
     was false of the calls made after every reply. `llm_cfg` is the caller's
     `CONFIG.llm`, handed in so this module reads no global.
 
-    ``chat_budget_usd`` set replaces the share and the combined dollar total
-    for chat. Unset keeps both, so an existing install does not change.
+    The combined dollar total is a ceiling on every LLM dollar, chat's
+    included, so it is checked first. ``chat_budget_usd`` set replaces only
+    the share: chat stops at its own cap or at the combined total, whichever
+    comes first. A cap set above the total is reached at the total. Unset
+    keeps the share, so an existing install does not change.
     """
     if chat_call_count(snap) >= llm_cfg.daily_call_limit:
         return "daily call limit"
+    if snap.llm_cost_usd >= llm_cfg.daily_budget_usd:
+        return "daily dollar budget"
     own = getattr(llm_cfg, "chat_budget_usd", None)
     if own is not None:
         if chat_spend_usd(snap) >= float(own):
             return CHAT_OWN_BOUND
         return ""
-    if snap.llm_cost_usd >= llm_cfg.daily_budget_usd:
-        return "daily dollar budget"
     if chat_spend_usd(snap) >= llm_cfg.daily_budget_usd * llm_cfg.chat_budget_share:
         return CHAT_SHARE_BOUND
     return ""
