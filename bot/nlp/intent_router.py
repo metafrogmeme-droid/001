@@ -1651,8 +1651,13 @@ _rule(r"^scan$",
 #: rules. Widening this list to greetings would leave that untouched while
 #: hiding it. Recorded rather than resolved.
 _EDU_LEAD = r"(?:(?:and|but|so|ok|okay|also|well|actually|just|then|anyway|btw)[,\s]+)*"
+#: Words that ask for what a card holds NOW, not what a thing is. "what
+#: does this week's letter say" and "what is the nft radar showing" were
+#: declined as education and answered by a model with no card behind it;
+#: "what is an nft" and "what is the nft radar" stay the model's.
+_EDU_READS_NOW = r"(?:my|our|this week'?s|today'?s|latest|right now|showing|says?|saying)"
 _EDU_DECLINE = (r"(?!\s*" + _EDU_LEAD + r"(?:what|how)\s+(?:is|are|do|does)\b"
-                r"(?!.*\b(?:my|our)\b))")
+                r"(?!.*\b" + _EDU_READS_NOW + r"\b))")
 _EDU = r"^" + _EDU_DECLINE + r".*?"
 
 
@@ -1718,7 +1723,8 @@ _rule(r"^\s*(?:can you |could you |please |pls )?(?:do (?:some |a )?)?(?:researc
 # `wallet` — the website's mirror of the caller's linked wallet — never had
 # a rule: two words, greeted.
 _rule(r"\b(what[- ]if replay|replay(?:ed|ing)? (?:every|all|each) (?:signal|trade|position)s?"
-      r"|what if i(?:'d| had|'ve| would have)? (?:taken|took|traded|mirrored|copied) "
+      # "id" and "ive": the apostrophe a phone keyboard leaves out.
+      r"|what if i(?:'d|d| had|'ve|ve| would have)? (?:taken|took|traded|mirrored|copied) "
       r"(?:every|all|each) (?:signal|trade|position)s?)\b"
       r"|^\s*replay\s*[?!.]*$",
       "replay", explanation="What-if replay of every recorded agent trade (the website's card, /replay)")

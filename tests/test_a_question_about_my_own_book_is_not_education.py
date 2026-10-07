@@ -332,17 +332,39 @@ def test_a_comparison_naming_the_callers_own_order_gets_the_listing(router):
 
 
 def test_a_definite_object_with_no_possessive_is_still_declined(router):
-    """The other known miss, and it is the letter's.
+    """Definiteness is still not the discriminator: "what is the spot market"
+    is education with a definite article, and stays the model's.
 
-    "this week's letter" reaches the letter; "what is this week's letter"
-    does not, because the possessive is the whole discriminator and there is
-    none. Widening it to demonstratives was considered and refused: "what is
-    the spot market" is education with a definite article, so definiteness
-    does not separate the two, and a rule that cannot be stated in one
-    sentence is a rule nobody can check. The row's three other phrasings
-    reach it.
+    The letter's miss is resolved by a different rule, stated in one
+    sentence: words that ask what a card holds NOW (`_EDU_READS_NOW`: this
+    week's, today's, latest, right now, showing, says) are a read, like a
+    possessive. "what is this week's letter" and "what does this week's
+    letter say" were answered by a model with no letter behind it.
     """
     assert route(router, "this week's letter") == "letter"
     assert route(router, "weekly letter") == "letter"
     assert route(router, "agent letter") == "letter"
-    assert route(router, "what is this week's letter") == "MODEL"
+    assert route(router, "what is this week's letter") == "letter"
+    assert route(router, "what does this week's letter say") == "letter"
+    assert route(router, "what does the agent letter say") == "letter"   # "say" alone
+    assert route(router, "what is the agent letter") == "MODEL"
+    assert route(router, "what is the spot market") == "MODEL"
+    assert route(router, "what is the nft radar") == "MODEL"
+    assert route(router, "what is the nft radar showing") == "nft"
+    assert route(router, "what is the latest on the rwa radar") == "rwa"
+
+
+def test_a_read_now_word_does_not_turn_education_into_a_card(router):
+    for text in ("what is an nft", "what are airdrops", "what is a stop loss",
+                 "how does defi work", "what does replay mean", "what is a letter"):
+        assert route(router, text) == "MODEL", text
+
+
+def test_a_contraction_typed_without_its_apostrophe_reaches_the_replay(router):
+    """A phone keyboard leaves it out: "what if id taken every signal" was
+    intercepted by the website's old regex and reached nothing here."""
+    for text in ("what if id taken every signal with $1k",
+                 "what if ive traded every signal",
+                 "what if i'd taken every signal with $1k"):
+        assert route(router, text) == "replay", text
+    assert route(router, "what if bitcoin drops") != "replay"

@@ -97,3 +97,38 @@ class TestTheBootSaysSo:
         assert 'if _pf["unread"]:' in src
         block = src[src.index('if _pf["unread"]:'):]
         assert 'result="ENV_UNREAD"' in block and "print(" in block.split("run_telegram()")[0]
+
+
+class TestAnOptionalKnobHasNoDefaultToName:
+    """A junk optional dollar cap is treated as unset: the shared budget
+    bounds the tier. It was recorded with a 0.0 default, so the boot said
+    "the default 0.0 is in force" over a value in force that was None, and
+    a cap of zero would turn the tier off."""
+
+    @pytest.mark.parametrize("raw, reason", [
+        ("abc", "not a number"), ("-1", "not a finite number at least zero"),
+        ("nan", "not a finite number at least zero"),
+    ])
+    def test_a_junk_cap_is_unset_and_said_as_unset(self, monkeypatch, caplog, clean_record,
+                                                    raw, reason):
+        monkeypatch.setenv("LLM_DAILY_BUDGET_CHAT_USD", raw)
+        with caplog.at_level(logging.WARNING, logger="bot.config"):
+            assert config._env_budget_opt("LLM_DAILY_BUDGET_CHAT_USD") is None
+        assert clean_record == [("LLM_DAILY_BUDGET_CHAT_USD", reason, None)]
+        (rec,) = [r for r in caplog.records if "LLM_DAILY_BUDGET_CHAT_USD" in r.getMessage()]
+        assert "treated as unset" in rec.getMessage()
+        assert "default" not in rec.getMessage()
+
+    def test_the_boot_says_unset_and_names_no_default(self):
+        report = boot_health.env_preflight(
+            {}, unread=[("LLM_DAILY_BUDGET_CHAT_USD", "not a number", None),
+                        ("MAX_POSITION_PCT", "not a number", 13.0)])
+        assert report["unread"] == [
+            "LLM_DAILY_BUDGET_CHAT_USD is not a number; it is treated as unset",
+            "MAX_POSITION_PCT is not a number; the default 13.0 is in force",
+        ]
+
+    def test_a_valid_cap_records_nothing(self, monkeypatch, clean_record):
+        monkeypatch.setenv("LLM_DAILY_BUDGET_CHAT_USD", "0.5")
+        assert config._env_budget_opt("LLM_DAILY_BUDGET_CHAT_USD") == 0.5
+        assert clean_record == []

@@ -135,16 +135,18 @@ const INTERCEPTS = [
   // Nothing here places, confirms, sizes, or closes. "what's my drawdown",
   // "am I over my exposure", "check my risk" and "what's my max exposure"
   // stay the risk engine. Dollars stay on this private card. /api/networth
-  // still runs here, so the read is still available while the bot process
-  // is down.
+  // still runs here, and half of it reads without the bot: with the bot
+  // process down the on-chain wallet still reads and the exchange half,
+  // which comes through the bot gateway, says it could not be read.
   // Idle yield left this table. Both doors route "my idle usdc" to the
   // shared idleyield seam, which fetches this process's own card for the
   // caller the turn names. The read is that caller's linked wallet, never
   // the operator's exchange book — Telegram's /idleyield stays that admin
   // scan. Nothing here places, confirms, sizes, or stakes. "stake my usdc"
   // stays the stake door. Dollars stay on this private card. /api/idleyield
-  // still runs here, so the read is still available while the bot process
-  // is down.
+  // still runs here, but its only optimizer is the bot gateway
+  // (`postGateway('/idleyield')` in app/lib/idle_yield.js): with the bot
+  // process down the panel says the scanner is unavailable, not a rate.
 ];
 
 /**

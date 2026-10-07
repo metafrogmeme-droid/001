@@ -254,7 +254,7 @@ about to change before changing it.
 ### A module nothing calls is indistinguishable from one that does not work (line 20909)
 
 
-## Deploying so a dead bot cannot look like a live one (line 21100)
+## Deploying so a dead bot cannot look like a live one (line 21152)
 
 
-## Operational docs (line 21257)
+## Operational docs (line 21309)

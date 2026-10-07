@@ -336,3 +336,30 @@ async def test_telegram_answers_both_accounts_and_calls_no_executor(tmp_path):
     assert "opens a PRACTICE row" not in h.sent[1]
     assert h.engine.confirm_calls == []
     h.registry.dispatch.assert_not_called()
+
+
+@pytest.mark.parametrize("question", ["im new what now", "how is BTC looking today"])
+@pytest.mark.parametrize("surface", ["nonsense", "", "Telegram", None])
+def test_an_unmeasured_surface_raises_before_anything_is_answered(surface, question):
+    """It was rewritten to "api" in silence, so a caller naming a surface
+    nobody measured got another surface's slash-command doors."""
+    from bot.nlp import chat_facade
+    called: list = []
+
+    async def _llm(question, **kw):
+        called.append(question)
+        return "improvised"
+
+    h = chat_facade.headless_handler(NS())
+    h._llm_chat = _llm
+    with pytest.raises(ValueError, match="unknown surface"):
+        _run(chat_facade.ask(h, question, user_id="111", surface=surface))
+    assert called == [] and h.conversations.get_recent("111", limit=10) == []
+
+
+@pytest.mark.parametrize("surface", ["api", "web", "public", "telegram"])
+def test_every_facade_surface_answers_its_own_card(surface):
+    from bot.nlp import chat_facade
+    h = chat_facade.headless_handler(NS())
+    out = _run(chat_facade.ask(h, "im new what now", user_id="111", surface=surface))
+    assert out["answered_by"] == "none" and "places nothing" in out["reply_html"]

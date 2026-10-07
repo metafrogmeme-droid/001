@@ -809,7 +809,13 @@ async def test_public_chat_does_not_open_the_letter_door(monkeypatch):
 async def test_public_chat_does_not_open_the_wallet_door(monkeypatch):
     """Anonymous chat stays tool-free and history-free. "my wallet" is a
     signed-in door onto the caller's own book; here it is an ordinary
-    question, with no wallet card and no dollar amount."""
+    question: no wallet card, and the model is asked anonymously, in public
+    mode, so no account is behind its answer.
+
+    What this and its three siblings do NOT test is what the model says. A
+    `"$" not in` check stood in each against a fake that answers "llm
+    answer", which holds no dollar sign, so it passed whatever the public
+    path did; the equality above it is the assertion that can fail."""
     monkeypatch.setattr(ug, "_GATEWAY_SECRET", SECRET)
     handler = FakeHandler(users={})
     engine = FakeEngine()
@@ -821,7 +827,6 @@ async def test_public_chat_does_not_open_the_wallet_door(monkeypatch):
         data = await r.json()
         assert data["intent"] == "chat"
         assert data["reply_html"] == "llm answer"
-        assert "$" not in data["reply_html"]
         assert "pending_trade" not in data
     assert len(handler.llm_calls) == 1
     assert handler.llm_calls[0][1] == ""
@@ -845,7 +850,6 @@ async def test_public_chat_does_not_open_the_replay_door(monkeypatch):
         data = await r.json()
         assert data["intent"] == "chat"
         assert data["reply_html"] == "llm answer"
-        assert "$" not in data["reply_html"]
         assert "pending_trade" not in data
     assert len(handler.llm_calls) == 1
     assert handler.llm_calls[0][1] == ""
@@ -930,7 +934,7 @@ async def test_public_chat_does_not_open_the_venue_router_door(monkeypatch):
 async def test_public_chat_does_not_open_the_exposure_door(monkeypatch):
     """Anonymous chat stays tool-free and history-free. "my exposure" is a
     signed-in door onto the caller's own book; here it is an ordinary
-    question, with no exposure card, no dollars and no account. Nothing is
+    question, with no exposure card and no account behind the answer. Nothing is
     resized, hedged or closed."""
     monkeypatch.setattr(ug, "_GATEWAY_SECRET", SECRET)
     handler = FakeHandler(users={})
@@ -945,7 +949,6 @@ async def test_public_chat_does_not_open_the_exposure_door(monkeypatch):
         assert data["reply_html"] == "llm answer"
         assert "pending_trade" not in data
         assert "Your exposure" not in data["reply_html"]
-        assert "$" not in data["reply_html"]
     assert len(handler.llm_calls) == 1
     assert handler.llm_calls[0][1] == ""
     assert handler.llm_calls[0][3] is True
@@ -956,7 +959,7 @@ async def test_public_chat_does_not_open_the_exposure_door(monkeypatch):
 async def test_public_chat_does_not_open_the_defi_door(monkeypatch):
     """Anonymous chat stays tool-free and history-free. "my defi positions"
     is a signed-in door onto the caller's own Aave, Lido and Uniswap book;
-    here it is an ordinary question, with no positions card, no dollars and
+    here it is an ordinary question, with no positions card and
     no account. Nothing is repaid, withdrawn or managed."""
     monkeypatch.setattr(ug, "_GATEWAY_SECRET", SECRET)
     handler = FakeHandler(users={})
@@ -971,7 +974,6 @@ async def test_public_chat_does_not_open_the_defi_door(monkeypatch):
         assert data["reply_html"] == "llm answer"
         assert "pending_trade" not in data
         assert "DeFi positions" not in data["reply_html"]
-        assert "$" not in data["reply_html"]
     assert len(handler.llm_calls) == 1
     assert handler.llm_calls[0][1] == ""
     assert handler.llm_calls[0][3] is True

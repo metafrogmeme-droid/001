@@ -39,7 +39,7 @@ thin shell.
 
 from __future__ import annotations
 
-from typing import Iterable, Mapping
+from typing import Iterable, Mapping, Optional
 
 # Without this the bot cannot start at all — Telegram never connects.
 CRITICAL_ENV: tuple[str, ...] = ("TELEGRAM_BOT_TOKEN",)
@@ -71,7 +71,7 @@ def missing_env(names: Iterable[str], env: Mapping[str, str]) -> list[str]:
 
 
 def env_preflight(env: Mapping[str, str],
-                  unread: Iterable[tuple[str, str, float]] = ()) -> dict[str, list[str]]:
+                  unread: Iterable[tuple[str, str, Optional[float]]] = ()) -> dict[str, list[str]]:
     """Classify the environment once, loudly. Returns
     ``{"critical": [...], "important": [...], "unread": [...]}`` — the missing
     names in each tier, and every numeric value that did not parse
@@ -84,7 +84,9 @@ def env_preflight(env: Mapping[str, str],
     return {
         "critical": missing_env(CRITICAL_ENV, env),
         "important": missing_env(IMPORTANT_ENV, env),
-        "unread": [f"{key} is {reason}; the default {default!r} is in force"
+        # A None default is an optional knob read as unset: no default to name.
+        "unread": [(f"{key} is {reason}; it is treated as unset" if default is None
+                    else f"{key} is {reason}; the default {default!r} is in force")
                    for key, reason, default in unread],
     }
 

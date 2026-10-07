@@ -20,7 +20,23 @@ _FIGURE = re.compile(
     r"\$\s*-?\d[\d,]*(?:\.\d+)?"
     r"|-?\d[\d,]*(?:\.\d+)?\s*%"
     r"|-?\d+(?:\.\d+)?\s*R\b"
-    r"|\b\d+(?:\.\d+)?\s*:\s*\d+(?:\.\d+)?\b",
+    # A ratio is written tight, "1:2.5". With spaces allowed, "Day 1: 25%"
+    # was read as the ratio "1: 25" and the percent after it went unchecked.
+    # Not part of a longer colon run: "16:23:05" is a clock.
+    r"|(?<![\d:.])\d+(?:\.\d+)?:\d+(?:\.\d+)?\b(?!:\d)",
+    re.IGNORECASE,
+)
+
+# A colon pair that is a time of day, by the words around it: "16:23 UTC",
+# "as of 9:30". A clock is not a figure this check can call unverified.
+_CLOCK_AFTER = re.compile(
+    r"\s*(?:utc|gmt|z\b|am\b|pm\b|a\.m\.|p\.m\.|hrs?\b|h\b"
+    r"|[ecmp][sd]?t\b|cet\b|cest\b|bst\b|jst\b|hkt\b|sgt\b|kst\b)",
+    re.IGNORECASE,
+)
+_CLOCK_BEFORE = re.compile(
+    r"(?:\bat|\bas of|\bsince|\buntil|\btill|\bby|\bbefore|\bafter|\baround"
+    r"|\bfrom|\bto)\s*$",
     re.IGNORECASE,
 )
 
@@ -189,10 +205,15 @@ def _pct(rate_value: float) -> str:
 
 def _figures(text: str) -> list[Figure]:
     out: list[Figure] = []
-    for m in _FIGURE.finditer(text or ""):
+    text = text or ""
+    for m in _FIGURE.finditer(text):
         fig = _parse_figure(m.group(0))
-        if fig is not None:
-            out.append(fig)
+        if fig is None:
+            continue
+        if fig.kind == "ratio" and (_CLOCK_AFTER.match(text, m.end())
+                                    or _CLOCK_BEFORE.search(text[:m.start()])):
+            continue
+        out.append(fig)
     return out
 
 
