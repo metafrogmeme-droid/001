@@ -558,6 +558,16 @@ class UserStore:
         with self._lock:
             return self._users.get(str(telegram_id))
 
+    def load_failed(self) -> bool:
+        """Whether users.json failed to load, so `get` answers None for
+        everyone: "no record" and "could not read" look the same through it.
+        The engine asks this before a live fill (`practice_fill.admission_unread`).
+
+        Not `unreadable`: `VenueScan.unreadable` has that name, and a name two
+        classes share is one `tests/test_no_new_unreachable_functions.py`
+        cannot check."""
+        return bool(getattr(self, "_load_failed", False))
+
     def register(self, telegram_id: int | str, name: str = "",
                  auto_role: str = "") -> dict:
         """Register a new user or return existing.

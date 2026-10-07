@@ -9,7 +9,7 @@ is not paper either: the live door keeps refusing, and nothing is placed.
 """
 from __future__ import annotations
 
-from bot.utils.user_store import SELF_ADMISSION_ROLE
+from bot.utils.user_store import SELF_ADMISSION_BY, SELF_ADMISSION_ROLE
 
 #: Stamped on the paper row a self-admitted confirm opens. Not a count.
 PRACTICE_FILL = "PRACTICE"
@@ -24,7 +24,17 @@ PRACTICE_MODE_REASON = (
 
 
 def is_self_admitted_paper(user: object) -> bool:
-    """True only when the stored role is the self-admission role.
+    """True when nobody vouched for this account: the stored role is the
+    self-admission role, or the record still carries the self-admission
+    stamp under any role but ``admin``.
+
+    The stamp is the second half because the role alone missed records
+    written before `authorize()` clamped self-admission: a stranger let in
+    as ``trader`` with ``admitted_by="auto-accept"`` read as vouched, and
+    fixing that waited on a migration someone had to run. An admin's
+    ``/approve`` rewrites ``admitted_by`` to the admin's id, so the stamp
+    never outlives a vouch. ``admin`` is excluded because `seed_admin`
+    promotes the operator's own record without touching ``admitted_by``.
 
     A missing record, a non-dict, or a role that is not a string is not
     paper. Callers that could not read the store must not pass that failure
@@ -35,7 +45,9 @@ def is_self_admitted_paper(user: object) -> bool:
     role = user.get("role")
     if not isinstance(role, str):
         return False
-    return role == SELF_ADMISSION_ROLE
+    if role == SELF_ADMISSION_ROLE:
+        return True
+    return role != "admin" and user.get("admitted_by") == SELF_ADMISSION_BY
 
 
 def self_admitted_paper_caller(users: object, user_id: object) -> bool:
@@ -55,6 +67,39 @@ def self_admitted_paper_caller(users: object, user_id: object) -> bool:
     except Exception:
         return False
     return is_self_admitted_paper(record)
+
+
+def admission_unread(users: object, user_id: object) -> bool:
+    """Whether this person's admission could not be read.
+
+    True when the store failed to load or reading the record raised: the
+    question "did anyone vouch for this account" has no answer, which
+    `self_admitted_paper_caller` reports as "not paper". That is right for
+    a card naming the mode and wrong for a live fill, which the engine
+    refuses on it. Only a person's id is asked; ``"auto"`` and ``""`` have
+    no record. No store at all is not unread: an engine not wired to the
+    user store (a detached reader, a test) has no admissions to read.
+    """
+    if users is None or user_id is None or user_id == "" or user_id == "auto":
+        return False
+    probe = getattr(users, "load_failed", None)
+    if callable(probe):
+        # `is True`: the real store answers a bool. A stand-in that answers
+        # anything else has said nothing about the file, and the read below
+        # still runs.
+        try:
+            if probe() is True:
+                return True
+        except Exception:
+            return True
+    getter = getattr(users, "get", None)
+    if not callable(getter):
+        return True
+    try:
+        getter(user_id)
+    except Exception:
+        return True
+    return False
 
 
 def is_practice_fill(trade: object) -> bool:

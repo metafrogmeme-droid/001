@@ -16484,6 +16484,27 @@ else.
 `bot/core/engine.py`, `bot/core/practice_fill.py`,
 `bot/skills/telegram_handler.py`, `bot/web/user_gateway.py`.)
 
+**THE SEAM ABOVE IS DECIDED: A SELF-ADMITTED CONFIRM IS NEVER PLACED LIVE.**
+The owner chose practice only on 2026-10-07 (ADR 0005). Keeping the engine's
+rule needed no new clause, but two shapes still reached the live fill past
+it. The reading asked the role alone, so a record admitted before
+`authorize()` clamped self-admission (`role: trader`,
+`admitted_by: "auto-accept"`) read as vouched until someone ran the
+migration script; the stamp now counts too, under any role but `admin`,
+because `seed_admin` promotes the operator's own record without rewriting
+it, and an admin's `/approve` always rewrites it. And a store that failed to
+load answers None for everyone, which the reading reported as "not
+practice", so the confirm went on as a live fill for a person whose
+admission nobody could read. The doors refused that first; the engine now
+refuses it at the choke point (`UserStore.load_failed`,
+`practice_fill.admission_unread`), and a stand-in store counts as unread
+only when it answers a literal True. Whether every `web:` account is
+self-admitted is a different question (it would close the web live gate)
+and is left open. Seven mutants, all killed on the first round.
+(`tests/test_a_self_admitted_confirm_is_never_placed_live.py`,
+`bot/core/practice_fill.py`, `bot/utils/user_store.py`,
+`bot/core/engine.py`, `docs/adr/0005-practice-fills-for-paper-users.md`.)
+
 **SIX SMALL CLAIMS THE REVIEW OF THE SIXTY PRS FOUND ONE STEP OVER FROM A
 FIX.** Each is a sentence or a default that said more than was read.
 
@@ -20763,7 +20784,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1239** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1240** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

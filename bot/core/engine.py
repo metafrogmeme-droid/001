@@ -46,6 +46,7 @@ from bot.core.order_flow import OrderFlowAnalyzer
 from bot.core.position_telemetry import entered_at, price_on_record
 from bot.core.practice_fill import (
     PRACTICE_FILL,
+    admission_unread,
     close_trains_engine,
     practice_book_refusal,
     self_admitted_paper_caller,
@@ -8203,6 +8204,12 @@ class RuneClawEngine:
         """
         return self_admitted_paper_caller(getattr(self, "_user_store", None), user_id)
 
+    def _admission_unread(self, user_id: str) -> bool:
+        """Whether this person's admission could not be read off the store.
+        `confirm_is_practice` reads that as "not practice"; a live fill is
+        refused on it instead (`practice_fill.admission_unread`)."""
+        return admission_unread(getattr(self, "_user_store", None), user_id)
+
     def confirm_is_practice(self, user_id: str) -> bool:
         """Whether this caller's confirm opens a PRACTICE row rather than a
         live order: a self-admitted account, or a practice-mode opt-in under
@@ -8659,6 +8666,18 @@ class RuneClawEngine:
         # never written by a practice evaluation.
         _practice = self.confirm_is_practice(user_id)
         _live_fill = CONFIG.is_live() and not _practice
+
+        # A SELF-ADMITTED CONFIRM IS NEVER PLACED LIVE (#498, decided by the
+        # owner on 2026-10-07). `confirm_is_practice` answers "not practice"
+        # for a store that failed to load, which the mode cards can say and a
+        # live fill cannot act on: whether anybody vouched for this person is
+        # unknown, so nothing is placed. The doors refuse first today; this is
+        # the choke point, so the next door cannot be the one that forgets.
+        if _live_fill and self._admission_unread(user_id):
+            self._pending_pyramid.pop(trade_id, None)
+            self._transition(AgentState.IDLE, f"admission unread for {trade_id}")
+            return ("Trade REJECTED: this account's record could not be read, so "
+                    "whether it may trade live is unknown. Nothing was placed.")
 
         # A caller whose linked venue has no executor is refused HERE, in the
         # venue's own words. Left to the re-check below, the same None surfaced

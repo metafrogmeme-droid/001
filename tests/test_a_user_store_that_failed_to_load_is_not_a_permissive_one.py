@@ -153,7 +153,12 @@ class TestTheEngineRefusesRatherThanReadingPermission:
         def _boom(uid):
             raise RuntimeError("cap unreadable")
 
+        # `get` answers the record a vouched trader has: the engine reads the
+        # admission before a live fill and refuses a store it cannot ask
+        # (`practice_fill.admission_unread`), which would refuse one step
+        # before the cap read this test is about.
         engine._user_store = types.SimpleNamespace(
+            get=lambda u: {"role": "trader", "admitted_by": "999"},
             can_trade_live=lambda u: True, live_trading_revoked=lambda u: False, max_margin=_boom)
         result = _confirm(engine, idea)
         assert result.startswith("Trade REJECTED") and "cap unreadable" in result, result
