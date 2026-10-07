@@ -29,6 +29,8 @@ from datetime import datetime, timedelta
 
 from types import SimpleNamespace as NS
 
+import pytest
+
 from bot.compat import UTC
 from bot.core.engine import RuneClawEngine
 from bot.core.trade_journal import TradeJournal
@@ -302,3 +304,79 @@ class TestTheUntrackedCloseIsJournaledWhenPriced:
         })()
         book_untracked_exchange_close(eng, ledger, _live())
         assert len(ledger.closed_positions) == 1
+
+
+class TestTheCloseButtonsBookingIsDriven:
+    """The handler's call sat inside a 400-line `_handle_callback` no test
+    runs: restoring a bare `executor._append_closed_trade` there left every
+    test in this file passing. The booking is `record_exchange_direct_close`
+    now, driven here, and the handler's one call to it is held below."""
+
+    @staticmethod
+    def _book(eng, ledger, *, net=-2.92, side="LONG", now=None):
+        from bot.skills.callback_handler import record_exchange_direct_close
+        return record_exchange_direct_close(
+            eng, ledger, ep={"timestamp": 1_790_000_000_000}, ep_sym="ICP/USDT:USDT",
+            ep_clean="ICPUSDT", side=side, entry_price=10.0, contracts=1.0,
+            margin=2.0, leverage=5, fill_price=None if net is None else 9.0,
+            gross_pnl=None if net is None else -1.0,
+            commission=None if net is None else 1.92, net_pnl=net, now=now)
+
+    def test_a_priced_close_is_ledgered_and_journaled(self, tmp_path):
+        ledger = _Ledger()
+        eng = _wired(tmp_path, ledger)
+        assert self._book(eng, ledger) is True
+        (row,) = ledger._closed_trades
+        assert row.pnl_usd == -2.92 and row.close_price == 9.0
+        assert row.trade_id.startswith("TI-manual-ICPUSDT-")
+        assert eng.journal._entries[-1].pnl == -2.92
+
+    def test_an_unpriced_close_is_ledgered_and_not_journaled(self, tmp_path):
+        ledger = _Ledger()
+        eng = _wired(tmp_path, ledger)
+        assert self._book(eng, ledger, net=None) is True
+        (row,) = ledger._closed_trades
+        assert row.pnl_usd is None and row.close_price is None
+        assert eng.journal._entries == []
+
+    def test_a_close_reconciliation_just_recorded_is_not_booked_twice(self, tmp_path):
+        ledger = _Ledger()
+        now = datetime.now(UTC)
+        ledger._closed_trades.append(NS(symbol="ICP/USDT:USDT", direction="LONG",
+                                        closed_at=now - timedelta(seconds=120)))
+        eng = _wired(tmp_path, ledger)
+        assert self._book(eng, ledger, now=now) is False
+        assert len(ledger._closed_trades) == 1 and eng.journal._entries == []
+
+    @pytest.mark.parametrize("row", [
+        dict(symbol="ICP/USDT:USDT", direction="SHORT", seconds=120),   # other side
+        dict(symbol="ICP/USDT:USDT", direction="LONG", seconds=301),    # too old
+        dict(symbol="INJ/USDT:USDT", direction="LONG", seconds=10),     # other symbol
+    ], ids=["other-side", "older-than-five-minutes", "other-symbol"])
+    def test_another_recorded_close_does_not_stop_this_one(self, tmp_path, row):
+        ledger = _Ledger()
+        now = datetime.now(UTC)
+        ledger._closed_trades.append(NS(symbol=row["symbol"], direction=row["direction"],
+                                        closed_at=now - timedelta(seconds=row["seconds"])))
+        eng = _wired(tmp_path, ledger)
+        assert self._book(eng, ledger, now=now) is True
+        assert len(ledger._closed_trades) == 2 and len(eng.journal._entries) == 1
+
+    def test_the_handler_books_through_the_seam_and_nowhere_else(self):
+        import ast
+        from pathlib import Path
+
+        tree = ast.parse(Path("bot/skills/callback_handler.py").read_text(encoding="utf-8"))
+        handler = next(n for n in ast.walk(tree)
+                       if isinstance(n, ast.AsyncFunctionDef) and n.name == "_handle_callback")
+        called = [n.func.id for n in ast.walk(handler)
+                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)]
+        assert called.count("record_exchange_direct_close") == 1
+        appends = [fn.name for fn in tree.body if isinstance(fn, ast.FunctionDef)
+                   for n in ast.walk(fn) if isinstance(n, ast.Call)
+                   and isinstance(n.func, ast.Attribute) and n.func.attr == "_append_closed_trade"]
+        inside_classes = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)
+                          for c in ast.walk(n) if isinstance(c, ast.Call)
+                          and isinstance(c.func, ast.Attribute)
+                          and c.func.attr == "_append_closed_trade"]
+        assert appends == ["book_untracked_exchange_close"] and inside_classes == []

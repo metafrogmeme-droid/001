@@ -180,3 +180,48 @@ def test_the_reader_keeps_a_bool_and_refuses_everything_else():
     assert read_per_user_live_enabled(_FlagConfig("true")) is None
     assert read_per_user_live_enabled(_FlagConfig(_RAISE)) is None
     assert read_per_user_live_enabled(_Bare()) is None
+
+
+# ── /exchange, the sibling card, reads the same switch the same way ────────
+
+
+class _ReadableStore(_Store):
+    def credential_state(self, tg_id):
+        return "readable"
+
+
+def _exchange_card(monkeypatch, flag_config):
+    monkeypatch.setattr(ec, "get_credential_store", lambda: _ReadableStore())
+    monkeypatch.setattr(account_commands, "CONFIG", flag_config)
+    stub = _Stub()
+    asyncio.run(TelegramHandler._cmd_exchange(stub, _Update(), _Ctx()))
+    (out,) = stub.sent
+    (line,) = [ln for ln in out.splitlines() if ln.startswith("Per-user live trading:")]
+    return line
+
+
+@pytest.mark.parametrize("flag, state", [
+    (True, "enabled"),
+    (False, "preparing (not yet live)"),
+])
+def test_the_exchange_card_says_a_read_flag(monkeypatch, flag, state):
+    assert _exchange_card(monkeypatch, _FlagConfig(flag)) == (
+        f"Per-user live trading: <code>{state}</code>")
+
+
+@pytest.mark.parametrize("flag", [1, 0, "true", None, _RAISE],
+                         ids=["one", "zero", "string", "none", "raises"])
+def test_the_exchange_card_does_not_call_an_unreadable_flag_a_state(monkeypatch, flag):
+    """It read `getattr(CONFIG, ..., False)` and truthiness: 1 printed
+    "enabled" and 0 the shipped default, while /connect, a moment earlier,
+    said the same switch could not be read."""
+    assert _exchange_card(monkeypatch, _FlagConfig(flag)) == (
+        "Per-user live trading: <code>could not be read</code>")
+
+
+def test_the_exchange_card_does_not_call_an_absent_flag_off(monkeypatch):
+    class _BareWithExchange(_Bare):
+        exchange = CONFIG.exchange
+
+    assert _exchange_card(monkeypatch, _BareWithExchange()) == (
+        "Per-user live trading: <code>could not be read</code>")

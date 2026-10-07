@@ -830,11 +830,17 @@ class RuneClawEngine:
         # at start (cached per process), not at the first autonomous confirm:
         # a `git reset --hard` landing new code and its record before that
         # confirm would otherwise let the old code read the new record.
+        # A take that fails is KEPT (`take_strategy_hash_at_start`): every
+        # later reading refuses rather than hashing the disk at the first
+        # autonomous confirm, which is the lazy read this take exists to stop.
         try:
-            from bot.core.live_eligibility import strategy_hash
-            strategy_hash()
-        except Exception as exc:  # noqa: BLE001 -- the mint refuses on its own
-            logger.warning("strategy hash not taken at start (%s)", type(exc).__name__)
+            from bot.core.live_eligibility import take_strategy_hash_at_start
+            _hash_fault = take_strategy_hash_at_start()
+        except Exception as exc:  # noqa: BLE001 -- the mint's own read refuses
+            _hash_fault = type(exc).__name__
+        if _hash_fault is not None:
+            logger.warning("strategy hash not taken at start (%s): autonomous live "
+                           "orders refuse until a restart", _hash_fault)
         # Wire the shared WS feed so degradation reads true price-staleness, not
         # the coarse per-tick shadow clock (avoids false "feed disconnected"
         # pauses during calm-market cycles where the scan tick > pause threshold).

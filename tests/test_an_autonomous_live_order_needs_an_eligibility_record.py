@@ -188,6 +188,64 @@ class TestTheStrategyHash:
         monkeypatch.setattr(le, "strategy_hash", _boom)
         RuneClawEngine()
 
+    def _deployed(self, tmp_path, monkeypatch):
+        """A repo root whose code on disk has an eligible record filed for it:
+        what a deploy that lands new code and its record looks like to a
+        process that is still running the old code."""
+        (tmp_path / "bot").mkdir()
+        (tmp_path / "bot" / "a.py").write_text("x = 2\n")
+        monkeypatch.setattr(le, "REPO_ROOT", tmp_path)
+        monkeypatch.setattr(le, "_HASH_CACHE", None)
+        monkeypatch.setattr(le, "record_path", lambda s, root=None: tmp_path / f"{s}.json")
+        _record(tmp_path, le.strategy_hash(tmp_path))
+        real = le.strategy_hash
+        failing = {"on": True}
+
+        def _flaky(root=None):
+            if failing["on"]:
+                raise OSError("disk")
+            return real(root)
+
+        monkeypatch.setattr(le, "strategy_hash", _flaky)
+        return failing
+
+    def test_a_hash_that_failed_at_start_is_never_taken_from_the_disk_later(
+            self, tmp_path, monkeypatch):
+        """It was: the first autonomous confirm hashed the NEW code on disk,
+        found the record filed for it, and minted a live order for the OLD
+        code still running."""
+        failing = self._deployed(tmp_path, monkeypatch)
+        assert le.take_strategy_hash_at_start() == "OSError"
+        failing["on"] = False            # the disk reads fine by the confirm
+        got = le.read_eligibility()
+        assert got.state == le.UNREADABLE and not got.eligible
+        assert got.reason == ("the running strategy was not identified when the bot "
+                              "started (OSError); a restart takes it again")
+        assert le._HASH_CACHE is None
+
+    def test_a_hash_taken_at_start_reads_the_record_filed_for_it(self, tmp_path, monkeypatch):
+        """The other arm: the same deploy, a take that worked, an eligible record."""
+        failing = self._deployed(tmp_path, monkeypatch)
+        failing["on"] = False
+        assert le.take_strategy_hash_at_start() is None
+        assert le.read_eligibility().state == le.ELIGIBLE
+
+    def test_the_engine_keeps_a_failed_take_for_the_mint(self, tmp_path, monkeypatch):
+        failing = self._deployed(tmp_path, monkeypatch)
+        RuneClawEngine()
+        failing["on"] = False
+        _flag(monkeypatch, True)
+        assert RuneClawEngine._autonomous_live_refusal() == (
+            "the running strategy was not identified when the bot started (OSError); "
+            "a restart takes it again")
+
+    def test_a_second_take_keeps_the_first_failure(self, monkeypatch):
+        monkeypatch.setattr(le, "_HASH_CACHE", None)
+        monkeypatch.setattr(le, "_START_FAILURE", "OSError")
+        assert le.take_strategy_hash_at_start() == "OSError"
+        with pytest.raises(le.HashNotTakenAtStart):
+            le.strategy_hash()
+
     def test_no_record_ships_for_the_running_strategy(self):
         """Every deployment today is ineligible, by construction: a record is
         added by a reviewed commit, never by the bot."""

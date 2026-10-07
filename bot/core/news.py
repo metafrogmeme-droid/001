@@ -30,6 +30,8 @@ import re
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from enum import Enum
 from typing import Iterable, Optional
 from xml.etree import ElementTree as ET
@@ -275,12 +277,23 @@ def headline_view(item: NewsItem, now: float) -> dict:
     }
 
 
+def unlisted_undated(undated: Iterable[NewsItem],
+                     shown: Iterable[NewsItem]) -> tuple[int, list[str]]:
+    """How many of the held undated headlines ``shown`` leaves out, and
+    their sources. They list after every dated one, so a card of the newest
+    rows lists none of them while dated rows fill it. Both surfaces ask this."""
+    listed = {id(it) for it in shown}
+    left = [it for it in undated if id(it) not in listed]
+    return len(left), sorted({it.source for it in left if it.source})
+
+
 def _esc(s: str) -> str:
     return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def render_news_digest(recent, standdown_recs, now, limit=6,
-                       refresh_failed: bool = False) -> str:
+                       refresh_failed: bool = False,
+                       undated: Iterable[NewsItem] = ()) -> str:
     """Pure Telegram-HTML digest: stand-down nudges for held positions first
     (advisory), then the freshest headlines with their impact flag. No I/O.
 
@@ -290,6 +303,10 @@ def render_news_digest(recent, standdown_recs, now, limit=6,
     the radar fills on the next refresh": a promise, printed at the moment
     the refresh had just failed, and repeated forever while the feeds stayed
     down. Absent is never a measurement.
+
+    ``undated`` is the radar's held undated headlines (``NewsRadar.undated``).
+    The ones this card does not list are counted, with their sources, so a
+    feed that contributes only those is not a feed that contributed nothing.
     """
     lines = ["📰 <b>News radar</b>"]
 
@@ -312,6 +329,15 @@ def render_news_digest(recent, standdown_recs, now, limit=6,
             lines.append(
                 f"{icon} {_esc(it.title)[:130]}"
                 f"\n    <i>{_esc(it.source)}{syms} · {_age_phrase(it, now)}</i>")
+        _n, _srcs = unlisted_undated(undated, items)
+        if _n:
+            _from = f" from {_esc(', '.join(_srcs))}" if _srcs else ""
+            _one = _n == 1
+            lines.append(
+                f"<i>{_n} more headline{'' if _one else 's'}{_from} "
+                f"{'carries' if _one else 'carry'} no time this bot can read and "
+                f"{'is' if _one else 'are'} not listed here: an undated headline "
+                f"lists after every dated one.</i>")
     elif not standdown_recs:
         if refresh_failed:
             lines.append(
@@ -423,7 +449,25 @@ def _parse_pubdate(raw: str) -> float:
     raw = (raw or "").strip()
     if not raw:
         return 0.0
-    # RFC-822: "Mon, 21 Jul 2026 15:04:05 GMT"
+    # RFC 822 / 2822, the RSS spelling, read by the standard library. Seconds
+    # are optional in it and a zone may be numeric. The pattern below read
+    # "15:04 GMT" as no time at all, so a feed spelling its dates that way
+    # contributed only undated rows, and "15:04:05 -0400" as UTC, four hours
+    # off. Then ISO-8601, the Atom spelling, offset and fraction included.
+    dt = None
+    try:
+        dt = parsedate_to_datetime(raw)
+    except (TypeError, ValueError, IndexError):
+        try:
+            dt = datetime.fromisoformat(raw)
+        except ValueError:
+            dt = None
+    if dt is not None:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        ts = dt.timestamp()
+        return float(ts) if ts > 0 else 0.0
+    # A date inside other text. RFC-822: "Mon, 21 Jul 2026 15:04:05 GMT"
     m = re.search(r"(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{2}):(\d{2}):(\d{2})", raw)
     if m:
         day, mon, yr, hh, mm, ss = m.groups()
@@ -456,18 +500,28 @@ def _recency_key(item: NewsItem) -> tuple:
 class NewsRadar:
     """Holds recent, de-duplicated news items and answers per-symbol / holdings
     queries. The store is newest-first by publication time. Fetching is gated
-    + best-effort; the store is pure in-memory."""
+    + best-effort; the store is pure in-memory.
+
+    Undated headlines are kept APART, newest arrival first. Ranked against the
+    dated ones they sorted last and were the first the cap dropped, so once
+    the store filled, a feed whose dates this bot could not read contributed
+    nothing and nothing said so. They still list after every dated headline,
+    and the card says how many it did not list."""
     max_items: int = 200
+    max_undated: int = 50
     _items: deque = field(default_factory=lambda: deque(maxlen=200))
+    _undated: deque = field(default_factory=lambda: deque(maxlen=50))
     _seen: set = field(default_factory=set)
     _last_fetch: float = 0.0
 
     def ingest(self, items: Iterable[NewsItem]) -> int:
-        """Add new items (de-duped by url|title). Returns the count added.
+        """Add new items (de-duped by url|title). Returns the count KEPT.
 
         Feeds list the newest item first. Pushing each one onto the front
         reversed that page, so the oldest rows of the last feed were what
-        "Latest headlines" showed.
+        "Latest headlines" showed. The count is the rows this call left in
+        the store: a dated row older than everything at the cap is dropped
+        on arrival, and it used to be counted as added.
         """
         fresh: list[NewsItem] = []
         for it in items:
@@ -478,30 +532,45 @@ class NewsRadar:
             fresh.append(it)
         if not fresh:
             return 0
+        dated = [it for it in fresh if it.published_ts > 0]
+        undated = [it for it in fresh if not it.published_ts > 0]
         ranked = sorted(
-            [*fresh, *self._items], key=_recency_key, reverse=True)
+            [*dated, *self._items], key=_recency_key, reverse=True)
         cap = self.max_items
-        self._items = deque(ranked[:cap], maxlen=cap)
+        kept = ranked[:cap]
+        self._items = deque(kept, maxlen=cap)
+        ucap = self.max_undated
+        self._undated = deque([*undated, *self._undated][:ucap], maxlen=ucap)
         # Dropped rows stay in _seen so the next refresh of the same page
         # does not put them back. The set is rebuilt only when it dwarfs
         # the cap, same bound as before.
-        if len(self._seen) > cap * 4:
-            self._seen = {(it.url or "") + "|" + it.title for it in self._items}
-        return len(fresh)
+        if len(self._seen) > (cap + ucap) * 4:
+            self._seen = {(it.url or "") + "|" + it.title for it in self._all()}
+        kept_ids = {id(it) for it in kept}
+        return (sum(1 for it in dated if id(it) in kept_ids)
+                + min(len(undated), ucap))
+
+    def _all(self) -> list[NewsItem]:
+        """Every held row: dated by publication time, then undated."""
+        return [*self._items, *self._undated]
 
     def recent(self, limit: int = 20) -> list[NewsItem]:
-        """Newest dated headlines first. An unreadable clock sorts last."""
-        return list(self._items)[:limit]
+        """Newest dated headlines first. An unreadable clock lists last."""
+        return self._all()[:limit]
+
+    def undated(self) -> list[NewsItem]:
+        """The held headlines whose time could not be read, newest arrival first."""
+        return list(self._undated)
 
     def for_symbol(self, symbol: str, limit: int = 10) -> list[NewsItem]:
         base = _base_asset(symbol)
-        return [it for it in self._items if base in it.symbols][:limit]
+        return [it for it in self._all() if base in it.symbols][:limit]
 
     def high_impact(self, limit: int = 10) -> list[NewsItem]:
-        return [it for it in self._items if it.impact == Impact.HIGH][:limit]
+        return [it for it in self._all() if it.impact == Impact.HIGH][:limit]
 
     def standdown(self, held_symbols: Iterable[str], now: float) -> list[dict]:
-        return standdown_for_holdings(self._items, held_symbols, now)
+        return standdown_for_holdings(self._all(), held_symbols, now)
 
     @staticmethod
     def enabled() -> bool:

@@ -96,3 +96,42 @@ test('the BYON key gateway routes are registered bot-side', () => {
   assert.match(gw, /add_post\("\/news\/key\/clear",\s*handle_news_key_clear\)/);
   assert.match(gw, /add_get\("\/news\/key\/status",\s*handle_news_key_status\)/);
 });
+
+// ── the undated note: driven, not scanned ──
+
+const vm = require('vm');
+
+function undatedNote() {
+  const a = dash.indexOf("// ── the news radar's undated note: renderer start ─");
+  const b = dash.indexOf("// ── the news radar's undated note: renderer end ─");
+  assert.ok(a > 0 && b > a, 'the undated note lost its markers; this harness slices between them');
+  const ctx = {
+    esc: (v) => String(v == null ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'),
+    out: null,
+  };
+  vm.runInNewContext(dash.slice(a, b) + '\nout = newsUndatedNote;', ctx, { timeout: 5000 });
+  return ctx.out;
+}
+
+test('undated headlines the list leaves out are counted, with their feeds', () => {
+  const note = undatedNote();
+  const two = note({ undated_unlisted: 2, undated_unlisted_sources: ['blind.example', '<x>'] });
+  assert.match(two, /2 more headlines from blind\.example, &lt;x&gt; carry no time the bot can read and are not listed here/);
+  const one = note({ undated_unlisted: 1, undated_unlisted_sources: [] });
+  assert.match(one, /^<p class="small muted mt-1">1 more headline carries no time the bot can read and is not listed here/);
+});
+
+test('no count, a zero, or a count that is not an integer is no sentence', () => {
+  const note = undatedNote();
+  for (const data of [null, {}, { undated_unlisted: 0 }, { undated_unlisted: '3' },
+    { undated_unlisted: 2.5 }, { undated_unlisted: -1 }, { undated_unlisted: null }]) {
+    assert.strictEqual(note(data), '', JSON.stringify(data));
+  }
+});
+
+test('the feed panel appends the note to the headlines it lists', () => {
+  const start = dash.indexOf('async function renderNews()');
+  const end = dash.indexOf('async function drawShare()');
+  assert.match(codeOnly(dash.slice(start, end)), /return byon \+ pub \+ newsUndatedNote\(data\);/);
+});

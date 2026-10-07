@@ -900,8 +900,17 @@ class AccountCommands:
                 "Re-link to fix it:\n"
                 "<code>/connect &lt;api_key&gt; &lt;api_secret&gt; &lt;passphrase&gt;</code>")
             return
-        per_user = getattr(CONFIG, "per_user_live_enabled", False)
-        live_state = "enabled" if per_user else "preparing (not yet live)"
+        # The /connect card's reading of the same switch: an unreadable one
+        # (missing, a raised read, a value that is not a bool) is neither
+        # state. `getattr(..., False)` printed it as the shipped default,
+        # and a 1 as "enabled", so the two cards gave one user two verdicts.
+        per_user = read_per_user_live_enabled()
+        if per_user is True:
+            live_state = "enabled"
+        elif per_user is False:
+            live_state = "preparing (not yet live)"
+        else:
+            live_state = "could not be read"
         await self._send(update,
             "<b>Your exchange link</b>\n\n"
             "Status: <code>connected</code>\n"

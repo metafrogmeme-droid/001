@@ -170,6 +170,55 @@ def book_untracked_exchange_close(engine, executor, pos) -> None:
     RuneClawEngine.journal_live_close(engine, pos, uid)
 
 
+def record_exchange_direct_close(engine, executor, *, ep, ep_sym, ep_clean, side,
+                                 entry_price, contracts, margin, leverage,
+                                 fill_price, gross_pnl, commission, net_pnl,
+                                 now=None) -> bool:
+    """Book the Close button's exchange-direct close. True when it booked.
+
+    Lifted out of `_handle_callback` so a test can drive it: the call that
+    journals a priced close sat inside a 400-line handler no test runs, and
+    restoring a bare `executor._append_closed_trade` there would have passed
+    every test. A close reconciliation already recorded for the same symbol
+    and side in the last five minutes is not booked a second time under a
+    different trade id. Unpriced figures stay None (see
+    `book_untracked_exchange_close`).
+    """
+    from datetime import datetime, timezone
+
+    from bot.core.live_executor import LivePosition
+
+    now = now or datetime.now(timezone.utc)
+    for ct in executor._closed_trades:
+        ct_clean = ct.symbol.replace("/", "").replace(":USDT", "")
+        if ct_clean == ep_clean and ct.direction == side:
+            ct_closed = ct.closed_at
+            if ct_closed and (now - ct_closed).total_seconds() < 300:
+                return False
+    ts = ep.get("timestamp")
+    opened_at = datetime.fromtimestamp(ts / 1000, tz=timezone.utc) if ts else now
+    closed_pos = LivePosition(
+        trade_id=f"TI-manual-{ep_clean}-{int(now.timestamp())}",
+        symbol=ep_sym,
+        direction=side,
+        entry_price=entry_price,
+        quantity=contracts,
+        cost_usd=margin,
+        stop_loss=0,
+        take_profit=0,
+        leverage=leverage,
+        status="closed",
+        close_price=fill_price,
+        gross_pnl=(None if gross_pnl is None else round(gross_pnl, 4)),
+        commission=(None if commission is None else round(commission, 4)),
+        pnl_usd=(None if net_pnl is None else round(net_pnl, 4)),
+        opened_at=opened_at,
+        closed_at=now,
+    )
+    book_untracked_exchange_close(engine, executor, closed_pos)
+    return True
+
+
 class CallbackHandler:
     """Every button tap, authenticated and routed. Host contract below; methods after."""
 
@@ -1418,46 +1467,16 @@ class CallbackHandler:
                                                   exit_rate_pct()))
                                     net_pnl = gross_pnl - commission
 
-                                # Record trade in closed_trades.json via executor
-                                # First, check if this position was already closed by reconciliation
-                                # to avoid double-counting with a different trade_id.
-                                from datetime import datetime, timezone
-                                from bot.core.live_executor import LivePosition
-                                already_recorded = False
-                                for ct in executor._closed_trades:
-                                    ct_clean = ct.symbol.replace("/", "").replace(":USDT", "")
-                                    if ct_clean == ep_clean and ct.direction == side:
-                                        # Check if closed within the last 5 minutes
-                                        ct_closed = ct.closed_at
-                                        if ct_closed and (datetime.now(timezone.utc) - ct_closed).total_seconds() < 300:
-                                            already_recorded = True
-                                            break
-                                if not already_recorded:
-                                    ts = ep.get("timestamp")
-                                    opened_at = datetime.fromtimestamp(ts / 1000, tz=timezone.utc) if ts else datetime.now(timezone.utc)
-                                    closed_pos = LivePosition(
-                                        trade_id=f"TI-manual-{ep_clean}-{int(datetime.now(timezone.utc).timestamp())}",
-                                        symbol=ep_sym,
-                                        direction=side,
-                                        entry_price=entry_price,
-                                        quantity=contracts,
-                                        cost_usd=margin,
-                                        stop_loss=0,
-                                        take_profit=0,
-                                        leverage=leverage,
-                                        status="closed",
-                                        close_price=fill_price,
-                                        gross_pnl=(None if gross_pnl is None
-                                                   else round(gross_pnl, 4)),
-                                        commission=(None if commission is None
-                                                    else round(commission, 4)),
-                                        pnl_usd=(None if net_pnl is None
-                                                 else round(net_pnl, 4)),
-                                        opened_at=opened_at,
-                                        closed_at=datetime.now(timezone.utc),
-                                    )
-                                    book_untracked_exchange_close(
-                                        self.engine, executor, closed_pos)
+                                # Record the close in the executor's ledger, and
+                                # the journal when priced: `record_exchange_direct_close`,
+                                # a seam a test drives (this handler is not).
+                                record_exchange_direct_close(
+                                    self.engine, executor, ep=ep, ep_sym=ep_sym,
+                                    ep_clean=ep_clean, side=side,
+                                    entry_price=entry_price, contracts=contracts,
+                                    margin=margin, leverage=leverage,
+                                    fill_price=fill_price, gross_pnl=gross_pnl,
+                                    commission=commission, net_pnl=net_pnl)
 
                                 # Colour is a claim: green says "in profit" as
                                 # loudly as the number does, and an unread fill

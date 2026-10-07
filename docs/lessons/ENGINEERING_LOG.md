@@ -19232,6 +19232,75 @@ alone too. It carries its own `@pytest.mark.timeout(300)`, as the
 preflight's subprocess test carries 120. A test forgiven by a faster box is
 one the next added preset breaks on CI.
 
+**SEVEN SMALL CLAIMS ON THE BOT'S OWN CARDS, FROM THE REVIEW OF THE SIXTY
+PRS.** Each card or gate said more than it had read, or a call no test ran
+held the fix.
+
+- **`/exchange` gave the per-user live switch a second reading.** `/connect`
+  asks `read_per_user_live_enabled` (True, False, or None for a missing,
+  raised or non-bool value) and says "could not be read" for None.
+  `/exchange` read `getattr(CONFIG, "per_user_live_enabled", False)` by
+  truthiness, so a `1` printed "enabled" and a missing flag the shipped
+  default, a moment after `/connect` called the same switch unreadable. It
+  asks the same reading now.
+- **The `/run` preset list printed slash commands nothing registers.**
+  "ALT Sweep `/altsweep`", and `/ethma` and `/volrotation`: the tap was
+  "unknown command". The list prints the door its own footer names, "run"
+  and the alias, which reaches the preset on every surface; a test reads the
+  registered command table and fails on any printed `/name` not in it.
+- **`/research usdt` was told the web app was down.** `fetch_research`
+  strips "usdt", "比特币" or "???" to no base and returns None without a
+  request, and the door read that None as every other: "the web app isn't
+  reachable … /link your account". `research_base` is the one reading of
+  the argument; the door asks it first and says the symbol is not one a
+  dossier can read.
+- **A start-time hash that failed was taken from the disk later.** The
+  engine takes the strategy hash at start so a deploy that lands new code
+  and its eligibility record cannot be read as the old process's. When that
+  take raised, nothing was cached, and the first autonomous confirm hashed
+  the NEW code on disk and found its record. `take_strategy_hash_at_start`
+  keeps the failure, `strategy_hash` refuses to read the disk after it
+  (`HashNotTakenAtStart`), and the mint says "not identified when the bot
+  started; a restart takes it again". The module global is restored by
+  `tests/conftest.py`, like the executor's halt check: one test planting a
+  raising hash would otherwise refuse every later eligibility reading.
+- **An undated headline was dropped, not shown as "time unreadable".**
+  Ranked last against dated rows, it never reached a card while three feeds
+  filled the first twelve rows, and once the store hit its cap it was
+  dropped on arrival and still counted as added. Undated rows are held
+  apart now (fifty, newest arrival first) and still list after every dated
+  one; both cards say how many they left out and from which feed
+  (`unlisted_undated`); `ingest` counts the rows it kept. The parser was
+  half the cause: RSS dates are RFC 822, where seconds are optional and a
+  zone may be numeric, and the pattern read "15:04 GMT" as no time and
+  "15:04:05 -0400" as UTC, four hours off. The standard library's
+  `parsedate_to_datetime`, then `datetime.fromisoformat`, read them now.
+- **The Close button's exchange-direct booking sat in a call no test ran.**
+  It is `record_exchange_direct_close`, lifted out of `_handle_callback`:
+  the five-minute reconciliation de-duplication, the ledger row and the
+  journal row for a priced close are driven, and one AST check holds the
+  handler's single call to it and that nothing else in the module calls
+  `_append_closed_trade`.
+- **The ETF picture rounded the coin estimate the other way.** The website
+  prints it with `toLocaleString`, which rounds the shortest decimal
+  spelling (1.45 reads "+1.5"); the picture rounded the exact binary value
+  (1.4499…, "+1.4"). The agreement test's table held only values where the
+  two coincided. The picture rounds the written value for that path, and
+  the test runs both formatters over every tie shape under 1,000 coins:
+  1,784 of 7,802 printed differently before.
+
+The skills-count test also names the file it reads: the sentence moved to
+this log, and its failure message still sent the reader to CLAUDE.md.
+Twenty-five mutants, all killed.
+(`tests/test_the_connect_card_reads_per_user_live.py`,
+`tests/test_the_preset_list_names_doors_that_open.py`,
+`tests/test_a_symbol_no_dossier_reads_is_said_as_such.py`,
+`tests/test_an_autonomous_live_order_needs_an_eligibility_record.py`,
+`tests/test_an_undated_headline_is_counted_not_dropped.py`,
+`app/test/news_web_ui.test.js`,
+`tests/test_journal_records_live_closes.py`,
+`tests/test_the_etf_flows_picture_draws_the_websites_figures.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -20660,7 +20729,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1236** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1239** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

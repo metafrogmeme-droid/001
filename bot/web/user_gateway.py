@@ -3226,7 +3226,7 @@ async def handle_news(request: web.Request) -> web.Response:
     READ-ONLY / advisory: nothing here moves, sizes, or blocks a trade."""
     import time as _time
 
-    from bot.core.news import NewsRadar, headline_view
+    from bot.core.news import NewsRadar, headline_view, unlisted_undated
     engine = request.app["engine"]
     tg_handler = request.app["tg_handler"]
     tg_id = str(request.query.get("telegram_id") or "").strip()
@@ -3283,10 +3283,16 @@ async def handle_news(request: web.Request) -> web.Response:
     except Exception as exc:
         system_log.debug("byon news enrich failed: %s", exc)
 
+    recent = radar.recent(12)
+    _unlisted, _unlisted_from = unlisted_undated(radar.undated(), recent)
     return web.json_response({
         "enabled": enabled,
         "read_only": True,
-        "recent": [headline_view(i, now) for i in radar.recent(12)],
+        "recent": [headline_view(i, now) for i in recent],
+        # Held headlines whose time could not be read, not in `recent`: they
+        # list after every dated one. A count, so the page can say so.
+        "undated_unlisted": _unlisted,
+        "undated_unlisted_sources": _unlisted_from,
         "high_impact": [headline_view(i, now) for i in radar.high_impact(8)],
         "standdown": radar.standdown(held, now) if held else [],
         "byon": byon,
