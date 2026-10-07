@@ -41,6 +41,8 @@ from bot.utils.money import fmt, to_money
 from bot.utils.models import Direction, TradeIdea
 from bot.utils.trailing import make_trailing_state, update_trailing_stop
 from bot.utils.close_reason import stop_exit_label
+from bot.formatters.price_text import fmt_price
+from bot.core.equity_basis import MARKED_EQUITY_FIELDS, WALLET_BALANCE
 from bot.core.order_rules import (
     is_market_open, is_weekend_queued, adjust_sl_for_gap_risk,
     adjust_size_for_weekend, should_defer_tp_sl,
@@ -10900,7 +10902,7 @@ class LiveExecutor:
                                 exit_price=price, trailing_active=trailing_active)
                             audit(trade_log,
                                   f"Trailing stop crossed for {pos.symbol}: the trail's stop "
-                                  f"${new_sl:.4f} is at or past the price ${price:.4f} and "
+                                  f"{fmt_price(new_sl)} is at or past the price {fmt_price(price)} and "
                                   f"cannot rest on the venue; closing at market as {reason}",
                                   action="trailing_sl", result="CROSSED",
                                   level=logging.WARNING,
@@ -10929,7 +10931,8 @@ class LiveExecutor:
                                     pos.stop_loss = new_sl
                                     self._save_positions()
                                     audit(trade_log,
-                                          f"Trailing SL updated: {pos.symbol} SL ${old_sl:.4f} -> ${new_sl:.4f}",
+                                          f"Trailing SL updated: {pos.symbol} SL "
+                                          f"{fmt_price(old_sl)} -> {fmt_price(new_sl)}",
                                           action="trailing_sl", result="UPDATED",
                                           data={"trade_id": trade_id, "old_sl": old_sl,
                                                 "new_sl": new_sl, "price": price,
@@ -10942,7 +10945,7 @@ class LiveExecutor:
                                             FEED.emit(
                                                 "sl_move",
                                                 f"Trailing stop moved — {pos.symbol}",
-                                                body=f"${old_sl:,.4f} → ${new_sl:,.4f}",
+                                                body=f"{fmt_price(old_sl)} → {fmt_price(new_sl)}",
                                                 symbol=pos.symbol,
                                                 data={"old_sl": old_sl,
                                                       "new_sl": new_sl})
@@ -10955,8 +10958,8 @@ class LiveExecutor:
                                     # (old_sl). Never claim protection we don't have.
                                     audit(trade_log,
                                           f"Trailing SL NOT applied for {pos.symbol}: exchange "
-                                          f"update failed, local stop preserved at ${old_sl:.4f} "
-                                          f"(wanted ${new_sl:.4f}) — no over-report",
+                                          f"update failed, local stop preserved at {fmt_price(old_sl)} "
+                                          f"(wanted {fmt_price(new_sl)}) — no over-report",
                                           action="trailing_sl", result="EXCHANGE_UPDATE_FAILED",
                                           level=logging.WARNING,
                                           data={"trade_id": trade_id, "old_sl": old_sl,
@@ -15501,7 +15504,7 @@ class LiveExecutor:
             # field is only wallet balance (free + used) and excludes unrealized.
             wallet_total = float(usdt.get("total", 0))
             equity = wallet_total  # default: wallet balance
-            equity_source = "wallet_total"
+            equity_source = WALLET_BALANCE
             unrealized: Optional[float] = None
             raw_info = balance.get("info", {})
             raw_data = raw_info.get("data", []) if isinstance(raw_info, dict) else []
@@ -15511,7 +15514,7 @@ class LiveExecutor:
                 if not isinstance(item, dict):
                     continue
                 # Try multiple field names Bitget uses for equity
-                for key in ("usdtEquity", "accountEquity", "equity"):
+                for key in MARKED_EQUITY_FIELDS:
                     val = item.get(key)
                     if val is not None:
                         try:
@@ -15566,8 +15569,12 @@ class LiveExecutor:
                 "equity_source": equity_source,
             }
         except Exception as exc:
-            return {"error": str(exc), "free": 0, "used": 0, "total": 0, "holdings": [],
-                    "unrealized_pnl": None}
+            # Never an empty error: `str(TimeoutError())` is "", and every
+            # reader of this payload tests the error by truthiness, so a
+            # bare exception read as a successful authenticated balance and
+            # cleared a venue-auth latch a confirmed 40012 had set.
+            return {"error": str(exc) or type(exc).__name__, "free": 0, "used": 0,
+                    "total": 0, "holdings": [], "unrealized_pnl": None}
 
     @property
     def open_positions(self) -> list[LivePosition]:

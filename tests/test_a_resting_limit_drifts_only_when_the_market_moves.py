@@ -357,8 +357,9 @@ class TestTheConfirmReadsTheMarketTheAnalysisSaw:
                             market_at_signal=100.0)
         engine, handed = _pending(tmp_path, idea, 104.0)
         answer = _confirm(engine, idea)
-        assert answer.startswith("Trade REJECTED: the market moved 4.0% since analysis")
-        assert "$100.00 → $104.00" in answer and "limit at $97.20" in answer
+        assert answer.startswith("Trade REJECTED: the market moved 4.0% from the price at analysis")
+        assert "$100.00 → $104.00, the perp this limit rests on" in answer
+        assert "limit at $97.20" in answer
         assert handed == []
         (row,) = _by(audits, "price_drift")
         assert row["result"] == "REJECTED"
@@ -406,7 +407,41 @@ class TestTheConfirmReadsTheMarketTheAnalysisSaw:
                             order_type="market", market_at_signal=100.0)
         engine, handed = _pending(tmp_path, idea, 104.0)
         answer = _confirm(engine, idea)
-        assert answer.startswith("Trade REJECTED: price drifted 4.0% since analysis")
+        assert answer.startswith("Trade REJECTED: price drifted 4.0% from the analysed entry")
+        assert "$100.00 → $104.00, the perp this order is placed on" in answer
+        assert handed == []
+
+    def test_a_sub_cent_drift_is_said_in_its_own_digits(self, tmp_path, audits):
+        """It printed two decimals: a coin at a hundred-thousandth of a dollar
+        was refused as "$0.00 → $0.00", a drift between two zeros."""
+        idea = _engine_idea(entry_price=0.0000125, stop_loss=0.0000120,
+                            take_profit=0.0000140, order_type="market",
+                            market_at_signal=0.0000125)
+        engine, handed = _pending(tmp_path, idea, 0.0000130)
+        answer = _confirm(engine, idea)
+        assert answer.startswith("Trade REJECTED: price drifted 4.0% from the analysed entry")
+        assert "$0.00001250 → $0.00001300" in answer
+        assert "$0.00 " not in answer and handed == []
+
+    def test_a_sub_cent_stop_the_perp_is_through_is_said_in_its_own_digits(self, tmp_path, audits):
+        idea = _engine_idea(entry_price=0.0000125, stop_loss=0.0000124,
+                            take_profit=0.0000140, order_type="market",
+                            market_at_signal=0.0000125)
+        engine, handed = _pending(tmp_path, idea, 0.0000123)
+        answer = _confirm(engine, idea)
+        assert answer == ("Trade REJECTED: price $0.00001230 already below SL "
+                          "$0.00001240 — would be instantly stopped out.")
+        assert handed == []
+
+    def test_a_sub_cent_stop_the_market_ate_into_is_said_in_its_own_digits(self, tmp_path, audits):
+        """Inside the drift band and short of the stop, past half its distance."""
+        idea = _engine_idea(entry_price=0.0000125, stop_loss=0.0000124,
+                            take_profit=0.0000140, order_type="market",
+                            market_at_signal=0.0000125)
+        engine, handed = _pending(tmp_path, idea, 0.00001244)
+        answer = _confirm(engine, idea)
+        assert answer.startswith("Trade REJECTED: price moved 60% toward SL")
+        assert "($0.00001244 vs entry $0.00001250)" in answer
         assert handed == []
 
 

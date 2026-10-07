@@ -339,7 +339,10 @@ class TestConfirmReadsTheAccountItPlacesOn:
 
     @staticmethod
     def _confirm(eng, uid="u7"):
-        with patch.object(eng_mod, "CONFIG", SimpleNamespace(is_live=lambda: True)):
+        # The wrapper asks `confirm_is_practice` first, which reads the
+        # practice opt-in flag; off, as it ships.
+        with patch.object(eng_mod, "CONFIG", SimpleNamespace(
+                is_live=lambda: True, paper_sim_opt_in_enabled=False)):
             return asyncio.run(eng.confirm_trade("T7", user_id=uid))
 
     _HELD = SimpleNamespace(symbol="BTC/USDT", status="open")

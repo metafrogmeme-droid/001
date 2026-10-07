@@ -690,6 +690,8 @@ class _LiveRecheck(NamedTuple):
     # The venue's own unrealized PnL off that same payload, or None: unread.
     # The drawdown trip reason attributes a drop to open positions with it.
     unrealized_usd: Optional[float] = None
+    # The field the equity was read from (`fetch_balance`'s equity_source).
+    equity_source: Optional[str] = None
 
 
 class RuneClawEngine:
@@ -1465,7 +1467,8 @@ class RuneClawEngine:
                                 _live_executor_mod.held_rows(
                                     self.live_executor.open_positions),
                                 account=_executor_account(self.live_executor),
-                                unrealized_usd=_bal.get("unrealized_pnl"))
+                                unrealized_usd=_bal.get("unrealized_pnl"),
+                                equity_source=_bal.get("equity_source"))
         # Per-user regular path — the user's OWN account.
         bal = await self.get_user_live_equity(user_id)
         live_eq = bal.get("total", 0.0) if bal else None
@@ -1475,7 +1478,8 @@ class RuneClawEngine:
                             size_bounds.available_from_balance(bal or {}),
                             _live_executor_mod.held_rows(ex.open_positions),
                             account=_executor_account(ex),
-                            unrealized_usd=(bal or {}).get("unrealized_pnl"))
+                            unrealized_usd=(bal or {}).get("unrealized_pnl"),
+                            equity_source=(bal or {}).get("equity_source"))
 
     @staticmethod
     def _critique_book(recheck_engine, rc: "_LiveRecheck", *, practice: bool = False):
@@ -2902,7 +2906,9 @@ class RuneClawEngine:
         this method never marks an account down. A cache hit must not call
         it; the caller passes the payload it just fetched.
         """
-        if not isinstance(bal, dict) or bal.get("error"):
+        # The KEY, as this docstring says: a failure payload always carries
+        # one, and a success never does. Its text can be empty.
+        if not isinstance(bal, dict) or "error" in bal:
             return
         book = getattr(self, "_live_auth_ok", None)
         if not isinstance(book, dict):
@@ -7851,7 +7857,7 @@ class RuneClawEngine:
         # holds nothing a live fill wrote).
         live_book = (_live_executor_mod.held_rows(self.live_executor.open_positions)
                      if CONFIG.is_live() else None)
-        risk_check = self.risk.evaluate(idea, atr=atr_value, live_equity=live_eq, max_position_usd=exec_cap, live_open_count=live_open, live_mode=CONFIG.is_live(), live_book=live_book, live_account=_executor_account(self.live_executor) if CONFIG.is_live() else "", live_unrealized_pnl=live_unreal)
+        risk_check = self.risk.evaluate(idea, atr=atr_value, live_equity=live_eq, max_position_usd=exec_cap, live_open_count=live_open, live_mode=CONFIG.is_live(), live_book=live_book, live_account=_executor_account(self.live_executor) if CONFIG.is_live() else "", live_unrealized_pnl=live_unreal, live_equity_source=(_bal_now.get("equity_source") if CONFIG.is_live() else None))
 
         # Log risk evaluation to scan log
         audit(scan_log, f"Risk evaluation: {risk_check.verdict.value} for {idea.asset}",
@@ -8235,12 +8241,21 @@ class RuneClawEngine:
         key = normalize_symbol(idea.asset)
         lock = self._symbol_entry_locks.setdefault(key, asyncio.Lock())
         async with lock:
-            # A self-admitted paper confirm never reads the live book. The
-            # operator holding the symbol is not this person's position, and
-            # the read below resolves an executor.
-            if (CONFIG.is_live() and hasattr(self, "live_executor")
-                    and not self._pending_pyramid.get(trade_id)
-                    and not self._self_admitted_practice(user_id)):
+            # The symbols open on the book THIS confirm lands on. A practice
+            # confirm lands on the caller's practice book, so that is the book
+            # read: the operator holding the symbol is not this person's
+            # position. It read no book at all, so two practice taps on one
+            # symbol stacked two rows on the practice book.
+            _held: list = []
+            _what = "an open/pending order"
+            if self.confirm_is_practice(user_id):
+                # The pyramid flag exempts nothing here: it was read off the
+                # live book (`_same_symbol_verdict`), and the practice fill
+                # drops it and opens a plain row.
+                _held = self._practice_book_symbols(user_id)
+                _what = "an open practice position"
+            elif (CONFIG.is_live() and hasattr(self, "live_executor")
+                    and not self._pending_pyramid.get(trade_id)):
                 # The book of the account THIS confirm places on. It read the
                 # operator's for every caller, so under per-user live a linked
                 # trader whose own account was flat was told "already have an
@@ -8252,18 +8267,38 @@ class RuneClawEngine:
                     _book = self._executor_for(user_id) or self.live_executor
                 except Exception:
                     _book = self.live_executor
-                for lp in _book.open_positions:  # open + pending_fill
-                    if normalize_symbol(lp.symbol) == key:
-                        self._drop_pending_idea(trade_id)
-                        self._pending_atr.pop(trade_id, None)
-                        audit(trade_log,
-                              f"Duplicate entry suppressed for {idea.asset} — an "
-                              f"open/pending order already exists",
-                              action="dup_entry", result="SUPPRESSED",
-                              data={"trade_id": trade_id, "symbol": idea.asset})
-                        return (f"⏭️ Skipped {idea.asset}: already have an "
-                                f"open/pending order for it (duplicate suppressed).")
+                _held = [lp.symbol for lp in _book.open_positions]  # open + pending_fill
+            for _sym in _held:
+                if normalize_symbol(_sym) == key:
+                    self._drop_pending_idea(trade_id)
+                    self._pending_atr.pop(trade_id, None)
+                    audit(trade_log,
+                          f"Duplicate entry suppressed for {idea.asset} — "
+                          f"{_what} already exists",
+                          action="dup_entry", result="SUPPRESSED",
+                          data={"trade_id": trade_id, "symbol": idea.asset})
+                    return (f"⏭️ Skipped {idea.asset}: already have "
+                            f"{_what} for it (duplicate suppressed).")
             return await self._confirm_trade_inner(trade_id, user_id)
+
+    def _practice_book_symbols(self, user_id: str) -> list:
+        """The symbols open on this caller's practice book.
+
+        A book that cannot be read answers an empty list HERE only because
+        the practice fill this confirm goes on to reach reads the same book
+        and opens nothing on one it cannot read (a self-admitted account is
+        told so by ``practice_book_refusal``). This is not a reading of "no
+        positions" for any other caller.
+        """
+        try:
+            book = self.user_portfolios.get(user_id)
+            rows = book.open_positions if book is not None else []
+        except Exception as exc:
+            logger.warning("Practice book for %s could not be read for the "
+                           "duplicate check (%s); the practice fill refuses on it",
+                           user_id, type(exc).__name__)
+            return []
+        return [row.asset for row in rows]
 
     async def _pyramid_move_existing_sl_to_breakeven(
             self, executor, asset: str, new_trade_id: str) -> None:
@@ -8393,6 +8428,17 @@ class RuneClawEngine:
             # (`market_price`); the recorded spelling asked the spot book. A
             # ticker that states no price REFUSES, like a read that failed:
             # it used to skip the drift, past-stop and R:R checks and place.
+            #
+            # Every check below measures the ORDER: how far from the analysed
+            # entry it would fill, and where the perp stands against its stop.
+            # The analysis read the recorded spelling (the spot book for a
+            # listed coin), so part of a distance can be the perp's premium
+            # rather than a move. That is still a fill that far from the plan,
+            # and a drift re-offer prices on this same perp read, so reading
+            # the spot book here would mix the two the other way. What is
+            # measured is said: the refusals name the perp and do not call the
+            # whole distance a move since analysis.
+            from bot.formatters.rich_cards import _fmt_price
             _read = await self.market_price(idea.asset)
             if _read is None:
                 audit(trade_log, "Price drift check: the ticker stated no price (rejecting)",
@@ -8408,7 +8454,8 @@ class RuneClawEngine:
                 is_limit = getattr(idea, 'order_type', '') == 'limit'
                 if not is_manual and not is_limit and drift_pct > max_drift:
                     audit(trade_log,
-                          f"Price drift {drift_pct:.2f}% exceeds {max_drift}% threshold",
+                          f"Price drift {drift_pct:.2f}% from the analysed entry, read "
+                          f"on the perp, exceeds {max_drift}% threshold",
                           action="price_drift", result="REJECTED",
                           data={"trade_id": trade_id, "asset": idea.asset,
                                 "idea_entry": idea.entry_price,
@@ -8416,8 +8463,10 @@ class RuneClawEngine:
                                 "drift_pct": round(drift_pct, 2)})
                     self._pending_pyramid.pop(trade_id, None)
                     self._transition(AgentState.IDLE, f"price drift for {trade_id}")
-                    return (f"Trade REJECTED: price drifted {drift_pct:.1f}% since analysis "
-                            f"(${idea.entry_price:,.2f} → ${current_price:,.2f}). Re-analyze.")
+                    return (f"Trade REJECTED: price drifted {drift_pct:.1f}% from the "
+                            f"analysed entry ({_fmt_price(idea.entry_price)} → "
+                            f"{_fmt_price(current_price)}, the perp this order is "
+                            f"placed on). Re-analyze.")
                 # The same rule for a LIMIT idea, measured from the market the
                 # analysis was made at: a limit's entry is a level away from the
                 # market by design, so its distance from the entry says nothing
@@ -8428,10 +8477,10 @@ class RuneClawEngine:
                 if is_limit and _mas is not None and not levels_as_shown(idea):
                     _since = abs(current_price - _mas) / _mas * 100
                     if _since > max_drift:
-                        from bot.formatters.rich_cards import _fmt_price
                         audit(trade_log,
-                              f"Market moved {_since:.2f}% since analysis, over the "
-                              f"{max_drift}% threshold (limit idea)",
+                              f"Market moved {_since:.2f}% from the price at analysis, "
+                              f"read on the perp, over the {max_drift}% threshold "
+                              f"(limit idea)",
                               action="price_drift", result="REJECTED",
                               data={"trade_id": trade_id, "asset": idea.asset,
                                     "market_at_signal": _mas,
@@ -8439,10 +8488,11 @@ class RuneClawEngine:
                                     "drift_pct": round(_since, 2), "order_type": "limit"})
                         self._pending_pyramid.pop(trade_id, None)
                         self._transition(AgentState.IDLE, f"price drift for {trade_id}")
-                        return (f"Trade REJECTED: the market moved {_since:.1f}% since "
-                                f"analysis ({_fmt_price(_mas)} → {_fmt_price(current_price)}), "
-                                f"so the limit at {_fmt_price(idea.entry_price)} is a stale "
-                                f"level. Re-analyze.")
+                        return (f"Trade REJECTED: the market moved {_since:.1f}% from the "
+                                f"price at analysis ({_fmt_price(_mas)} → "
+                                f"{_fmt_price(current_price)}, the perp this limit rests "
+                                f"on), so the limit at {_fmt_price(idea.entry_price)} is "
+                                f"a stale level. Re-analyze.")
 
                 # ── Validate price hasn't already blown through SL ──
                 # If market price is already past the SL, the trade would be
@@ -8450,13 +8500,13 @@ class RuneClawEngine:
                 if idea.direction.value == "LONG" and current_price <= idea.stop_loss:
                     self._pending_pyramid.pop(trade_id, None)
                     self._transition(AgentState.IDLE, f"price past SL for {trade_id}")
-                    return (f"Trade REJECTED: price ${current_price:,.4f} already below "
-                            f"SL ${idea.stop_loss:,.4f} — would be instantly stopped out.")
+                    return (f"Trade REJECTED: price {_fmt_price(current_price)} already below "
+                            f"SL {_fmt_price(idea.stop_loss)} — would be instantly stopped out.")
                 elif idea.direction.value == "SHORT" and current_price >= idea.stop_loss:
                     self._pending_pyramid.pop(trade_id, None)
                     self._transition(AgentState.IDLE, f"price past SL for {trade_id}")
-                    return (f"Trade REJECTED: price ${current_price:,.4f} already above "
-                            f"SL ${idea.stop_loss:,.4f} — would be instantly stopped out.")
+                    return (f"Trade REJECTED: price {_fmt_price(current_price)} already above "
+                            f"SL {_fmt_price(idea.stop_loss)} — would be instantly stopped out.")
 
                 # ── Validate remaining R:R hasn't deteriorated ──
                 # If price has eaten more than 50% of the SL distance, the setup
@@ -8474,7 +8524,7 @@ class RuneClawEngine:
                             self._pending_pyramid.pop(trade_id, None)
                             self._transition(AgentState.IDLE, f"R:R deteriorated for {trade_id}")
                             return (f"Trade REJECTED: price moved {consumed_pct:.0%} toward SL "
-                                    f"(${current_price:,.4f} vs entry ${idea.entry_price:,.4f}). "
+                                    f"({_fmt_price(current_price)} vs entry {_fmt_price(idea.entry_price)}). "
                                     f"R:R no longer favorable — re-analyze.")
         except Exception as exc:
             # H-08 FIX: fail-closed — reject if exchange is unreachable
@@ -8657,7 +8707,7 @@ class RuneClawEngine:
             # context sync may have copied the shared engine's regime) so this
             # idea's symbol regime is authoritative for the executed-size recheck.
             self._apply_regime_to(recheck_engine, idea.asset)
-            recheck = recheck_engine.evaluate(idea, atr=stored_atr, live_equity=live_eq_recheck, max_position_usd=recheck_cap, live_open_count=live_open_recheck, live_mode=_live_fill, live_book=_rc.book, live_account=_rc.account, live_unrealized_pnl=_rc.unrealized_usd)
+            recheck = recheck_engine.evaluate(idea, atr=stored_atr, live_equity=live_eq_recheck, max_position_usd=recheck_cap, live_open_count=live_open_recheck, live_mode=_live_fill, live_book=_rc.book, live_account=_rc.account, live_unrealized_pnl=_rc.unrealized_usd, live_equity_source=_rc.equity_source)
         except Exception as exc:
             # Fix 6: if re-check raises, do NOT silently lose the idea.
             # Log it as a failed re-check and return a clear message.
@@ -10803,7 +10853,9 @@ class RuneClawEngine:
                         take_profit=c.take_profit,
                         quantity=_journal_quantity(c),
                         pnl=c.pnl,
-                        confidence=getattr(c, '_confidence', 0),
+                        # Absent unless recorded: nothing sets it today, and
+                        # 0 here was read as a low-confidence trade.
+                        confidence=getattr(c, '_confidence', None),
                         signals_used=getattr(c, '_signals_used', []),
                         regime=getattr(self.risk, '_current_regime', ''),
                         holding_hours=((c.closed_at - c.opened_at).total_seconds() / 3600) if getattr(c, 'closed_at', None) and getattr(c, 'opened_at', None) else 0,

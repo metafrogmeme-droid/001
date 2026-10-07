@@ -313,10 +313,30 @@ class TestTheRecheckRowCarriesTheUnrealizedFigure:
         return eng
 
     def test_off_the_same_payload_the_equity_came_from(self, live):
-        eng = self._engine({"total": 135.10, "free": 122.74, "unrealized_pnl": -12.36})
+        eng = self._engine({"total": 135.10, "free": 122.74, "unrealized_pnl": -12.36,
+                            "equity_source": "usdtEquity"})
         _rc = asyncio.run(eng._live_recheck_context(""))
         assert _rc.equity == pytest.approx(135.10)
         assert _rc.unrealized_usd == pytest.approx(-12.36)
+        # And what that equity includes, for the tier card's basis sentence.
+        assert _rc.equity_source == "usdtEquity"
+        wallet = self._engine({"total": 135.10, "free": 122.74, "equity_source": "wallet_total"})
+        assert asyncio.run(wallet._live_recheck_context("")).equity_source == "wallet_total"
+
+    def test_every_live_gate_call_carries_the_equity_source_beside_the_unrealized_figure(self):
+        # The two live evaluate() calls sit inside handlers no test runs. They
+        # hand the gate the equity, its unrealized figure and its source off
+        # one payload; a call that passes the figure and not the source would
+        # leave the tier card claiming nothing, or the last reading's basis.
+        import ast
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "bot/core/engine.py").read_text()
+        calls = [n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Call)
+                 and getattr(n.func, "attr", None) == "evaluate"
+                 and any(k.arg == "live_unrealized_pnl" for k in n.keywords)]
+        assert len(calls) == 2, [c.lineno for c in calls]
+        for c in calls:
+            assert any(k.arg == "live_equity_source" for k in c.keywords), c.lineno
 
     def test_a_payload_without_one_hands_the_gate_none_not_zero(self, live):
         eng = self._engine({"total": 135.10, "free": 122.74})

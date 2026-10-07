@@ -229,6 +229,44 @@ class TestACrossedTrailCloses:
         assert kw["data"]["price"] == 104.0
 
     @pytest.mark.asyncio
+    async def test_a_sub_cent_crossing_states_both_levels(self, monkeypatch):
+        # The same crossing at a PEPE-class price. `.4f` printed "the trail's
+        # stop $0.0000 is at or past the price $0.0000": two zeros for two
+        # measured levels. The structured data always held them; the line
+        # the operator reads now does too.
+        from bot.formatters.price_text import fmt_price
+        seen = []
+        real = le.audit
+
+        def _audit(logger, message, **kw):
+            seen.append((message, kw))
+            return real(logger, message, **kw)
+
+        monkeypatch.setattr(le, "audit", _audit)
+        ex, box, moves, closes = _executor(monkeypatch)
+        k = 1e-7
+        _position(ex, "LONG", 100.0 * k, 98.0 * k, 120.0 * k)
+        # The trail rests near 103e-7 at this scale; 101e-7 is under it.
+        await _ticks(ex, box, [106.5 * k, 101.0 * k])
+        crossed = [(m, kw) for m, kw in seen if kw.get("result") == "CROSSED"]
+        assert len(crossed) == 1, [m for m, _ in seen]
+        message, kw = crossed[0]
+        assert not __import__("re").search(r"\$0\.0000(?!\d)", message), message
+        assert fmt_price(kw["data"]["trail_sl"]) in message
+        assert fmt_price(kw["data"]["price"]) in message
+        # The refused move's line on the way there says it the same way.
+        zero = __import__("re").compile(r"\$0\.0000(?!\d)")
+        assert not [m for m, _ in seen if zero.search(m)]
+        # And an accepted move's line.
+        seen.clear()
+        ex2, box2, _m2, _c2 = _executor(monkeypatch, refuse=False)
+        _position(ex2, "LONG", 100.0 * k, 98.0 * k, 120.0 * k)
+        await _ticks(ex2, box2, [106.5 * k])
+        updated = [m for m, kw in seen if kw.get("result") == "UPDATED"]
+        assert len(updated) == 1 and not zero.search(updated[0]), updated
+        assert fmt_price(98.0 * k) in updated[0]
+
+    @pytest.mark.asyncio
     async def test_the_trail_asks_the_one_reading(self, monkeypatch):
         """Plant a reading that says every stop rests: the crossed stop is
         sent again and nothing is closed, so the trail's decision is the
