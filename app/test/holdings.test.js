@@ -8,8 +8,12 @@
 process.env.JWT_SECRET = 'j'.repeat(64);
 process.env.WEB3_CHAINS = 'ethereum';   // single-chain FakeProvider
 process.env.WEB_GATEWAY_SECRET = 'g'.repeat(40);   // set BEFORE requiring routes
-const GW_PORT = 39878;
-process.env.BOT_GATEWAY_URL = `http://127.0.0.1:${GW_PORT}`;
+// The stand-in gateway listens on a port the OS picks, and lib/gateway reads
+// BOT_GATEWAY_URL once, when it is first required (auth, db and wallet all
+// load it). So those modules are required in `startGateway`, after the port
+// is known. A fixed port sat in the ephemeral range and lost a race to
+// another test file's socket: EADDRINUSE on 39878 in #546's CI.
+const GATEWAY_MODULE = require.resolve('../lib/gateway');
 delete process.env.DATABASE_URL;
 
 const test = require('node:test');
@@ -20,6 +24,7 @@ const express = require('express');
 // Fake bot gateway (the /gateway/holdings upstream): two connected venues,
 // one readable and one erroring.
 let gwServer;
+let authModule, pool, wallet, USDC_ADDR;
 let gwResponse = {
   read_only: true,
   venues: [
@@ -32,21 +37,25 @@ let gwResponse = {
 };
 let gwStatus = 200;
 
-test.before(async () => {
+// Called first by the one `before` below: top-level `before` hooks start as
+// soon as they are registered, so two of them would race each other.
+async function startGateway() {
   gwServer = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.statusCode = gwStatus;
     res.end(JSON.stringify(gwResponse));
   });
-  await new Promise((r) => gwServer.listen(GW_PORT, '127.0.0.1', r));
-});
-
-const authModule = require('../auth');
-const { pool } = require('../db');
-const wallet = require('../lib/wallet');
+  await new Promise((r) => gwServer.listen(0, '127.0.0.1', r));
+  process.env.BOT_GATEWAY_URL = `http://127.0.0.1:${gwServer.address().port}`;
+  assert.ok(!(GATEWAY_MODULE in require.cache),
+    'lib/gateway.js was loaded before the stand-in gateway had a port');
+  authModule = require('../auth');
+  ({ pool } = require('../db'));
+  wallet = require('../lib/wallet');
+  USDC_ADDR = wallet.TOKENS.find(t => t.symbol === 'USDC').address;
+}
 
 // Fake chain: 1 ETH @ $2,500 + 500 USDC = $3,000.
-const USDC_ADDR = wallet.TOKENS.find(t => t.symbol === 'USDC').address;
 class FakeProvider {
   async getBalance() { return 10n ** 18n; }
   async call(tx) {
@@ -61,6 +70,7 @@ class FakeProvider {
 let server, base;
 
 test.before(async () => {
+  await startGateway();
   wallet.setProviderFactory(() => new FakeProvider());
   wallet.setTickerFetcher(async () => ({ ETHUSDT: { price: 2500, change: 0, volume: 1 } }));
   const app = express();

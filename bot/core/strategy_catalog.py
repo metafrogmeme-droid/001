@@ -470,11 +470,17 @@ def follow_listing(scorecard: Optional[dict], eligibility_state: str) -> tuple[b
     if pf is None or trades is None or mark not in _VERDICT_MARKS:
         return False, "no_verdict"
     if pf < 1:
-        from bot.core.live_eligibility import ELIGIBLE, UNREADABLE
+        from bot.core.live_eligibility import ELIGIBLE, MALFORMED, MISMATCH, UNREADABLE
         if eligibility_state == ELIGIBLE:
             return True, "offered"
         if eligibility_state == UNREADABLE:
             return False, "eligibility_unreadable"
+        # A record is filed and was refused: it names another preset, or
+        # carries a field this build does not read. "No eligibility record
+        # says this preset survives" was said over it, and a reviewer who
+        # filed one by the README was told none existed.
+        if eligibility_state in (MISMATCH, MALFORMED):
+            return False, "eligibility_refused"
         return False, "below_one"
     return True, "offered"
 

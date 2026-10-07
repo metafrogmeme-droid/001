@@ -151,6 +151,10 @@
     if (reason === 'eligibility_unreadable') {
       return 'Not offered for follow. The eligibility record could not be read.';
     }
+    if (reason === 'eligibility_refused') {
+      return 'Not offered for follow. The eligibility record filed for this preset was refused: '
+        + 'it names another preset, or carries a field this build does not read.';
+    }
     return 'Not offered for follow.';
   }
 

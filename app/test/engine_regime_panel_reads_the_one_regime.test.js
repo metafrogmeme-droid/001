@@ -118,8 +118,16 @@ test('a word the page does not know is named, not coloured', async () => {
   assert.ok(!html.includes('chip--up') && !html.includes('chip--down'), html);
 });
 
-test('no regime block is the empty state', async () => {
-  assert.equal(await render({}), null);
+test('no scan is the empty state', async () => {
+  assert.equal(await render(null), null);
+  assert.equal(await render(undefined), null);
+});
+
+test('a pushed scan with no regime says so, beside the key call it carried', async () => {
+  const html = await render({ timestamp: '2026-10-06T12:00:00Z', key_call: 'Range day, wait for the break.' });
+  assert.ok(html.includes('NOT REPORTED'), html);
+  assert.ok(html.includes('the scan carried no regime'), html);
+  assert.ok(html.includes('Range day, wait for the break.'), html);
 });
 
 test('every reason the reading can give has a literal T() call in the panel', () => {

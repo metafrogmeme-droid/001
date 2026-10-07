@@ -19906,6 +19906,54 @@ not break — and the query form gains a case a path segment cannot have, an
 ABSENT symbol, which falls to the same `_SYMBOL_RE` that rejects every other
 junk value rather than to a default ticker.
 
+**THREE WEB SURFACES SAID LESS THAN THEY HELD, FROM THE REVIEW OF THE SIXTY
+PRS.**
+- *The landing page painted its strategy cards before it had the painter.*
+  The catalogue fetch can answer from a warm cache before the parser reaches
+  a later `<script>` tag, and the cards then read "Trades —" and "Folds
+  unmeasured" and were never painted again. `agent-scorecard.js` loads
+  before the inline script that fetches, and a test holds the order and
+  that the tag is neither deferred nor async.
+- *A preset record written by the README was refused, and the card said none
+  existed.* A preset's record names itself (`presets/<slug>`), which nothing
+  documented; and a record that names another preset or carries a value
+  this build does not know was told "no eligibility record says this preset
+  survives". The README documents the preset record, and a refused one reads
+  `eligibility_refused` in the producer, the copy door's set and the
+  painter's sentence, which a test holds to one list.
+- *The Engine view's regime panel could not say "the scan carried no
+  regime".* It went to the offline state for any scan without a regime, so
+  the reading's own sentence was unreachable and the key call the scan did
+  carry was dropped, while the context row on the same page said it. No scan
+  is offline; a pushed scan with no regime says so.
+- *Three web tests started their stand-in gateway on a fixed port the OS
+  hands out.* `holdings`, `networth` and `idleyield` listened on 39878, 39877
+  and 39879, inside Linux's ephemeral range. `node --test` runs files in
+  parallel, so another file's socket can be given one of those first. #546's
+  CI lost that race: `holdings.test.js` died on `EADDRINUSE` before its first
+  subtest, on a change that touched nothing under `app/`. Each now listens on
+  port 0, and `lib/gateway.js` reads its URL once at load, so the modules
+  that load it are required after the port is known. A guard says so if one
+  is ever required earlier. Top-level `before` hooks start as soon as they
+  are registered, so the gateway starts inside the one hook, not a second
+  that would race it. A scan refuses a fixed ephemeral port in any web test;
+  no run can show this race on demand.
+- *The web job's failure re-print printed nothing.* The job re-prints
+  failures at the end of its log, because the Actions log API serves only
+  the last ~344KB. It grepped for TAP's `not ok`, but the suite prints the
+  spec reporter's ✔/✖ lines, so on #546 the re-print was empty, and the
+  EADDRINUSE above took a full log fetch to find. `app/scripts/reprint_failures.js`
+  reads both shapes. A file that died is printed from the previous result
+  line to its own `✖ test/<file>` line, read above the closing summary that
+  repeats it, and a log with no failure block says so. Its test feeds it
+  #546's log as printed.
+Fifteen mutants, all killed.
+(`app/test/agent_scorecard_metrics.test.js`,
+`tests/test_strategy_catalog.py`,
+`app/test/engine_regime_panel_reads_the_one_regime.test.js`,
+`app/test/no_test_listens_on_a_port_the_os_hands_out.test.js`,
+`app/test/the_failure_reprint_reaches_a_file_that_died.test.js`.)
+
 ## Verifying a deploy
 
 `/api/version` carries two content hashes, computed by `app/lib/version.js`.

@@ -8,8 +8,8 @@
     "sha": "d368ad38000f60e0"
   },
   "js/agent-scorecard.js": {
-    "v": 4,
-    "sha": "fc49917a82b055d8"
+    "v": 5,
+    "sha": "ff6aa316e358dad7"
   },
   "js/ambient.js": {
     "v": 3,
@@ -76,8 +76,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 225,
-    "sha": "95f495d357b94f0d"
+    "v": 226,
+    "sha": "748a0c53e51ad7d1"
   },
   "js/decision-court-model.js": {
     "v": 2,
