@@ -79,7 +79,7 @@ function genericMeta(origin) {
   const o = normOrigin(origin);
   return metaBlock({
     title: 'RUNECLAW — Strategy Agents',
-    desc: 'Real engine presets, each with a verified, reproducible backtest. '
+    desc: 'Presets from the engine\'s own config, with a reproducible backtest where one is attached. '
       + 'Follow one, reproduce its numbers in the Lab, or ask it anything.',
     url: o + '/agents',
     image: o + DEFAULT_IMAGE,
@@ -88,6 +88,8 @@ function genericMeta(origin) {
 }
 
 // Per-agent card: name + tagline + how-it-trades, design/regime only, no $.
+// A backtest is named only when this card carries its metrics: a preset
+// with no frozen run, or one whose scorecard is withheld, claims none.
 function agentMeta(agent, origin, slug) {
   const o = normOrigin(origin);
   const name = (agent && agent.name) ? String(agent.name) : slug;
@@ -95,7 +97,10 @@ function agentMeta(agent, origin, slug) {
   const how = (agent && agent.how) ? String(agent.how) : '';
   const base = tagline || ((agent && agent.community)
     ? ('The ' + name + ' strategy — a community-authored RUNECLAW config (intent rules, no dollar figures).')
-    : ('The ' + name + ' strategy agent — a real RUNECLAW engine preset with a verified, reproducible backtest.'));
+    : ('The ' + name + ' strategy agent — a RUNECLAW engine preset'
+      + ((agent && agent.scorecard && agent.scorecard.metrics)
+        ? ' with a frozen backtest you can reproduce in the Lab.'
+        : '.')));
   const desc = clamp(how ? (base + ' ' + how) : base, MAX_DESC);
   return metaBlock({
     title: 'RUNECLAW — ' + name,
