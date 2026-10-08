@@ -20861,7 +20861,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1241** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1242** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -21341,6 +21341,56 @@ Left with the owner: the scorecards' "trades" count partial-exit legs, not
 positions (audit B4-04). Changing that moves every recorded figure.
 (`tests/test_a_chosen_side_is_enforced_at_confirm.py`,
 `bot/core/strategy_gate.py`.)
+
+**THE BENCHMARK OF RECORD WAS STAMPED AT A COMMIT THAT DOES NOT EXIST.**
+`benchmark/majors_1h/result.json` named `b8c36630`, the commit its run was
+measured at. That was a branch commit, and a rebase replaced it before it
+merged. Four more of `docs/FROZEN_BENCHMARK.md`'s re-record stamps had the same
+history (`afec9d2a`, `cbbf9348`, `d8b0f7d6`, `facb316b`), so nobody could check
+out the code a published figure came from. The record also no longer
+reproduced on `main`: #508's one sweep definition moved it from −$1,440.41 to
+−$1,456.34, and that PR re-recorded the strategy scorecards but not this file.
+The owner approved the re-record on 7 October.
+
+It was run from a clean checkout of `main` after the backtest lows landed, and
+committed on top: 129 trades, 66/63, PF 0.62, 1 of 6 folds profitable, the
+same trades fold for fold as before. Each lost stamp is mapped to the commit
+on `main` that carries its change. Before the mapping was written down, each
+of those commits was re-run, and each reproduced its stamp's recorded figure to
+the cent. A map that had only been reasoned out would be a second guess.
+
+Momentum Hunter's card had the same defect one file over. It was stamped
+`baecea5b`, whose runner has no `--direction` flag and so cannot run the
+card's own long-only gate. The merge that last wrote the card (`06e1fcc1`)
+has `baecea5b` as its first parent, which is what the projection test's
+stamp rule accepts. Regenerated at `main` with `--preset "momentum hunter"`,
+it reproduces every figure; the landing checks that only `code_sha` and
+`recorded_at` moved.
+
+A shallow clone hid two more stamps. This session's checkout could not resolve
+`73740a1a` or `0701fb0a` either, and both are on `main`; `git fetch --unshallow`
+found them. So a missing commit in a shallow clone is not a measurement.
+The new test skips its citation check in a shallow local clone, saying why,
+and fails it under GitHub Actions, whose checkout is `fetch-depth: 0`.
+
+`tests/test_the_benchmark_record_names_a_commit_main_carries.py` holds three
+things:
+- the record's stamp is the parent of the commit that last wrote it (the rule
+  the scorecard projection test already applies);
+- every commit the page cites resolves on HEAD's history, or is mapped to one
+  that does;
+- the paragraph that names the stamp carries the record's own trades, net and
+  PF.
+
+Ten mutants, all killed. On the first round two survived, and one
+redundancy explained both. The test's `cat-file` type check repeated what
+`merge-base --is-ancestor` already does, which is refuse a tree and an absent
+hash, so dropping the ancestor check changed nothing a test could see. The
+type check is gone, and that mutant is now killed. Separately, a planted stamp
+that failed the hex check never reached the parent rule, so it now plants a
+real `main` commit that is not the parent.
+
+(`benchmark/majors_1h/result.json`, `docs/FROZEN_BENCHMARK.md`.)
 
 ## Deploying so a dead bot cannot look like a live one
 
