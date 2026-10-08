@@ -86,10 +86,10 @@ export const STATS: readonly Stat[] = [
   // which fails the build the day the code moves and the number does not. A
   // figure typed here and checked by nobody is the $72,669 shape again.
   {
-    value: '8',
+    value: '9',
     label: 'venue adapters',
     source: 'bot/core/venues.py — the _VENUES table',
-    caveat: 'Adapters, not equals: native stop orders and the withdrawal-scope probe exist for Bitget only.',
+    caveat: 'Adapters, not equals: 4 of them place orders, the rest read balances only. Native stop orders and the withdrawal-scope probe exist for Bitget only.',
   },
   {
     value: '6',

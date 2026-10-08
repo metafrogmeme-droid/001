@@ -20861,7 +20861,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1245** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1246** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -21641,6 +21641,91 @@ here, so the SQL has not run on the real engine), and the real ack route on
 the in-memory store with a refusal for one venue beside a connected other.
 Eleven mutants, all killed.
 (`app/test/one_venue_s_status_never_rewrites_another.test.js`, `app/db.js`.)
+
+**A BYBIT EU KEY IS NOT A BYBIT KEY, AND A VENUE THAT TAKES NO ORDER MUST
+NOT TAKE THE TRADING SLOT.** The same report, a third time. The operator's
+key still answered 10003 on bybit.com after the environment fix, and it was a
+Bybit EU key. Bybit EU (bybit.eu, api.bybit.eu) is Bybit's entity for the
+European Economic Area. As of October 2026 it offers spot, spot margin and
+Earn, and no perpetual futures, which are all this bot trades. Its keys are
+its own: each Bybit answers the other's key with 10003.
+
+So a 10003 on bybit.com is now retried on api.bybit.eu, first, purely to
+diagnose, and a key that answers there is named: "This is a Bybit EU key.
+Bybit EU offers spot trading only, not the perpetual futures this bot trades."
+That is not an instruction to fix the key, because nothing about the key is
+wrong; the venue cannot take this bot's orders. A host that does not answer
+(api.bybit.eu refuses whole regions through CloudFront, this harness's among
+them) is not the key answering, and the diagnosis goes on to testnet and Demo
+Trading as before.
+
+Bybit EU is also a venue now, `bybiteu`, linked and read and never traded, as
+OKX, Gate, KuCoin and Paradex already were. Three readings had to move with it:
+
+- **Its refusal is its own sentence.** `per_user_execution_refusal` said "its
+  order path has not been driven against a real account" for every
+  balances-only venue. For Bybit EU that is false in the hopeful direction: no
+  amount of driving adds a market the venue does not list.
+  `Venue.balances_only_reason` carries the true one.
+- **Its balance is not its USDT line.** A Bybit EU wallet may hold euros and
+  MiCA-compliant stablecoins rather than USDT, so the figure every other venue
+  reads would have read an empty account. It is read as Bybit's own USD
+  valuation of the wallet, `totalEquity`, from the raw reply ccxt keeps under
+  `info`. Absent, empty or unparseable is None, never 0.00. Its clients load
+  spot markets alone, because ccxt's Bybit loads linear, inverse and option
+  markets by default and `fetch_balance` loads markets first.
+- **`/scan bybiteu` reads Bybit EU.** The keyless scan client was ccxt's class
+  for the venue id with `defaultType: swap` and no host, so it would have read
+  bybit.com's perps under Bybit EU's name. `Venue.data_client_config` gives the
+  venue's own host and market type.
+
+The defect on the way in was older than Bybit EU. `set_venue` made every
+just-linked venue the ACTIVE one ("submitting keys for a venue is the user
+saying trade here"), and the engine builds no executor for a balances-only
+venue and returns None rather than fall back to the operator's. So a user
+trading Bitget who linked OKX to read its balance stopped trading, and the
+connect card said only that OKX places no order. A balances-only venue now
+takes the slot only as a user's first venue, where there is nothing to take.
+
+The website said the same thing in two more places. Every connected venue was
+listed under "Venues that trade" with nothing beside it, so `orders` on each
+venue in `app/lib/venues.js` now says whether an order can route there, the
+status route carries it per row, and the picker adds "linked for balances
+only". The two lists are held equal to the bot's (`_VENUE_FIELDS`,
+`PER_USER_EXECUTION_VENUES`). And the landing page's "perps across 8 venues"
+counts the perps venues: `market` is 'spot' for Bybit EU, which is
+connectable and not one of the eight.
+
+Driven: ccxt's own Bybit client with only `fetch_balance` replaced by a
+stand-in that answers by the host ccxt built, the real credential store, the
+real `_executor_for`, `/connect`, `/setexchange` and the keyless scan client;
+on the web, the real status route on the in-memory store and the picker model.
+Nothing has reached Bybit EU's servers. Thirty mutants, all
+killed: twenty-one in the bot, nine on the website.
+(`tests/test_a_bybit_eu_key_is_named_and_read_for_balances.py`,
+`app/test/a_balances_only_venue_says_so.test.js`.)
+
+**THE WEBSITE'S OWN "NOT READY" READ AS "NOT CONNECTED TO THE BOT".** The
+same afternoon, a screenshot of the Account page: Profile, Membership, Wallet
+link, Push notifications and Invite friends each said "This site is not
+connected to the trading bot — the operator needs to finish that setup", with
+no Retry, while the bot answered `/connect` and `/exchange` in Telegram that
+minute. Profile reads `/api/auth/me` and nothing else, and the one 503 that
+route can give is server.js's not-ready gate: until the schema is migrated,
+every `/api/` route answers `503 {error: 'starting', reason}` with
+Retry-After. The panel model had no row for `starting`, so it fell to the 503
+row, which is the bot-not-configured sentence with no button: a transient
+state of the website, named as a permanent fault of something else. The
+previous change is the likely trigger, since adding a table to the fast path's
+list makes the next deploy run the whole migration block, which this file
+already records as minutes on a serverless cluster.
+
+The Telegram Link card made the second claim from the same failed read. It
+reads `linked` off `/api/auth/me`, a failed read left it false, and it walked
+an already-linked user through generating a link token. `starting` has its
+own sentence now, with Retry, and the card guards on the read before it says
+anything about the link. Five mutants, all killed.
+(`app/test/the_site_s_own_not_ready_is_not_the_bot.test.js`.)
 
 ## Deploying so a dead bot cannot look like a live one
 

@@ -6421,6 +6421,11 @@
     }, 300);
 
     renderPanel(C('atg'), async () => {
+      // GUARD, not omit: `linked` is read off /api/auth/me, and a failed read
+      // left it false, so on 8 October this card walked an already-linked
+      // user through generating a link token while the site's database was
+      // not ready. Not linked and not known are different facts.
+      mustRead(me);
       if (linked) {
         return `<div class="section-note" style="border-style:solid;border-color:var(--up);color:var(--up)">
           <svg class="icon" aria-hidden="true"><use href="#icon-check"></use></svg>
@@ -6668,7 +6673,9 @@
       const rows = st.rows.map((r) => `
         <label class="switch"><input type="checkbox" class="venuePick" value="${esc(r.venue)}"
           ${r.checked ? 'checked' : ''}><span class="track"></span>
-          <code>${esc(r.venue.toUpperCase())}</code>${r.unknown ? ' <span class="muted small">— connection unread</span>' : ''}${r.disconnected
+          <code>${esc(r.venue.toUpperCase())}</code>${r.balancesOnly
+            ? ` <span class="muted small">— ${esc(T('venue.balances_only', 'linked for balances only; this bot places no order there'))}</span>`
+            : ''}${r.unknown ? ' <span class="muted small">— connection unread</span>' : ''}${r.disconnected
             ? ` <span class="muted small">— ${esc(T('venue.not_connected', 'selected but not connected; nothing is routed there'))}</span>`
             : ''}</label>`).join('');
       return `<hr class="sep">

@@ -317,9 +317,14 @@ def test_the_usage_card_names_the_balances_only_venues(monkeypatch):
     out = _connect(monkeypatch)
     for v in sorted(set(valid_venue_ids()) - PER_USER_EXECUTION_VENUES):
         assert get_venue(v).display_name in out.split("linked for balances only")[0], v
+    # Whole names, not substrings: "Bybit" is inside "Bybit EU", which IS
+    # balances only, and a substring check read that as Bybit listed there.
+    line = next(ln for ln in out.split("\n") if "linked for balances only" in ln)
+    listed = line.split(":")[0].lstrip("• ").split(", ")
+    for v in sorted(set(valid_venue_ids()) - PER_USER_EXECUTION_VENUES):
+        assert get_venue(v).display_name in listed, (v, listed)
     for v in PER_USER_EXECUTION_VENUES:
-        line = next(ln for ln in out.split("\n") if "linked for balances only" in ln)
-        assert get_venue(v).display_name not in line, v
+        assert get_venue(v).display_name not in listed, (v, listed)
 
 
 # ── B6: the prose says what the resolver does ──────────────────────────────

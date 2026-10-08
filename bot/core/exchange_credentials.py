@@ -31,7 +31,7 @@ import os
 import re
 import threading
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from bot.core.margin_clamp import read_money_field
 from bot.utils.atomic_write import atomic_write_json
@@ -51,6 +51,8 @@ _KEY_FILE = os.path.join(_STATE_DIR, ".exchange_secret.key")
 _VENUE_FIELDS: dict[str, tuple[str, ...]] = {
     "bitget": ("api_key", "api_secret", "passphrase"),
     "bybit": ("api_key", "api_secret"),
+    # Balances only: Bybit EU lists no perpetual futures (venues.BybitEuVenue).
+    "bybiteu": ("api_key", "api_secret"),
     "bingx": ("api_key", "api_secret"),
     "okx": ("api_key", "api_secret", "passphrase"),
     "gate": ("api_key", "api_secret"),
@@ -449,15 +451,26 @@ class ExchangeCredentialStore:
             raise ValueError(f"missing {venue} credential field(s): {missing}")
         c = self._cipher()
         enc = {f: c.encrypt(str(fields[f]).encode()).decode() for f in expected}
+        from bot.core.venues import per_user_execution_refusal
+        balances_only = per_user_execution_refusal(venue) is not None
         with self._lock:
             # MERGE into the user's venue map (multi-venue): connecting Bybit
             # must never wipe Bitget's stored keys. The just-connected venue
             # becomes the ACTIVE one — submitting keys for a venue is the user
             # saying "trade here", and the executor rebuild check follows the
             # active view. set_active() switches back without re-entering keys.
+            #
+            # Except a venue no order routes to. Linking Bybit EU (or OKX,
+            # Gate, KuCoin, Paradex) to read its balance made it active, and
+            # the engine builds no executor for it, so the user's live trading
+            # on the venue they already had stopped, with nothing on the
+            # connect card saying so. It is active only as a user's first
+            # venue, where the new record is created with it active and there
+            # was nothing to take over.
             rec = self._normalize(self._enc.get(str(telegram_id)) or {"active": venue, "venues": {}})
             rec["venues"][venue] = enc
-            rec["active"] = venue
+            if not balances_only:
+                rec["active"] = venue
             self._enc[str(telegram_id)] = rec
             self._save()
         log.info("Stored encrypted %s credentials for user %s", venue, telegram_id)
@@ -1042,14 +1055,19 @@ async def validate_hyperliquid_credentials(
 async def _keysecret_balance_probe(exchange_id: str, api_key: str,
                                    api_secret: str, sandbox: bool, *,
                                    demo: bool = False,
+                                   client_config: Optional[dict] = None,
+                                   detail_of: Optional[Callable[[Any], str]] = None,
                                    refusal: Optional[dict] = None) -> tuple[bool, str]:
     """Read-only balance fetch for a plain key+secret ccxt venue (Bybit, BingX).
 
     Both are USDT-margined swap exchanges that authenticate with apiKey/secret
     only. Returns (ok, detail). Never places an order. ``demo`` points a Bybit
-    client at Demo Trading (api-demo.bybit.com). ``refusal``, when given, gets
-    ``{"code": <retCode>}`` from a Bybit refusal, so the caller can say what it
-    means without parsing the display string."""
+    client at Demo Trading (api-demo.bybit.com). ``client_config`` is merged
+    over the client's construction (Bybit EU's host and market type), and
+    ``detail_of`` turns a successful reply into the detail instead of the
+    USDT line. ``refusal``, when given, gets ``{"code": <retCode>}`` from a
+    Bybit refusal, so the caller can say what it means without parsing the
+    display string."""
     client = None
     try:
         import ccxt.async_support as ccxt
@@ -1065,6 +1083,7 @@ async def _keysecret_balance_probe(exchange_id: str, api_key: str,
             "timeout": 15000,
             "enableRateLimit": True,
             "options": {"defaultType": "swap"},
+            **(client_config or {}),
         })
         try:
             client.set_sandbox_mode(sandbox)
@@ -1074,6 +1093,8 @@ async def _keysecret_balance_probe(exchange_id: str, api_key: str,
         if demo:
             client.enable_demo_trading(True)
         bal = await client.fetch_balance()
+        if detail_of is not None:
+            return True, detail_of(bal)
         free = 0.0
         try:
             free = float((bal.get("USDT") or {}).get("free", 0.0) or 0.0)
@@ -1119,17 +1140,53 @@ _BYBIT_TESTNET_KEY = ("These are Bybit testnet keys, and this bot trades Bybit m
                       "Create the key in your main account on bybit.com (API Management).")
 _BYBIT_DEMO_KEY = ("These are Bybit Demo Trading keys, and this bot trades Bybit mainnet. "
                    "Create the key in your main account, not inside Demo Trading.")
+# Reported 8 October: the operator's key answered 10003 on bybit.com because it
+# was a Bybit EU key. Bybit EU lists no perpetual futures, so this is not a key
+# to fix: the venue cannot take this bot's orders. It can be linked to read.
+_BYBIT_EU_KEY = ("This is a Bybit EU key. Bybit EU offers spot trading only, not the "
+                 "perpetual futures this bot trades. Connect it as Bybit EU to read its balance.")
+# The two refusals that read differently on Bybit EU; the rest are Bybit's.
+_BYBIT_EU_REFUSALS: dict[int, str] = {
+    10003: ("Bybit EU does not know this API key (code 10003). A key from bybit.com "
+            "is not a Bybit EU key: connect that one as Bybit."),
+    10005: ("Bybit EU says this key lacks permission (code 10005). Read permission is "
+            "enough: Bybit EU is linked for balances only."),
+}
+
+
+def _bybit_total_equity(bal: Any) -> Optional[float]:
+    """Bybit's own USD valuation of the whole wallet (``totalEquity``), or None.
+
+    Read from the raw wallet-balance reply ccxt keeps under ``info``. A Bybit EU
+    wallet may hold euros and MiCA-compliant stablecoins rather than USDT, so
+    its USDT line, the figure every other venue reads, is not its balance.
+    Absent, empty or unparseable is None: a reply with no figure is not an
+    empty account.
+    """
+    try:
+        rows = bal["info"]["result"]["list"]
+        return read_money_field(rows[0], "totalEquity") if rows else None
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+def _bybit_equity_detail(bal: Any) -> str:
+    equity = _bybit_total_equity(bal)
+    if equity is None:
+        return "authenticated, but no readable total equity in Bybit EU's reply"
+    return f"{equity:.2f} USD total equity"
 
 
 async def validate_bybit_credentials(api_key: str, api_secret: str,
                                      sandbox: bool = False) -> tuple[bool, str]:
     """Read-only-validate a Bybit key, and say what a refusal means.
 
-    A 10003 on mainnet is retried on testnet and on Demo Trading, purely to
-    diagnose, as Bitget's 40099 is: a key that answers there is still refused
-    here, with the environment it belongs to named. Never stores anything and
-    never places an order.
+    A 10003 on mainnet is retried on Bybit EU, on testnet and on Demo Trading,
+    purely to diagnose, as Bitget's 40099 is: a key that answers there is
+    still refused here, with the place it belongs to named. Never stores
+    anything and never places an order.
     """
+    from bot.core.venues import bybit_eu_client_config
     seen: dict = {}
     ok, detail = await _keysecret_balance_probe("bybit", api_key, api_secret, sandbox,
                                                 refusal=seen)
@@ -1137,11 +1194,32 @@ async def validate_bybit_credentials(api_key: str, api_secret: str,
     if ok or code not in _BYBIT_REFUSALS:
         return ok, detail
     if code == 10003 and not sandbox:
+        if (await _keysecret_balance_probe("bybit", api_key, api_secret, False,
+                                           client_config=bybit_eu_client_config()))[0]:
+            return False, _BYBIT_EU_KEY
         if (await _keysecret_balance_probe("bybit", api_key, api_secret, True))[0]:
             return False, _BYBIT_TESTNET_KEY
         if (await _keysecret_balance_probe("bybit", api_key, api_secret, False, demo=True))[0]:
             return False, _BYBIT_DEMO_KEY
     return False, _BYBIT_REFUSALS[code].format(env="testnet" if sandbox else "mainnet")
+
+
+async def validate_bybit_eu_credentials(api_key: str, api_secret: str) -> tuple[bool, str]:
+    """Read-only-validate a Bybit EU key, on api.bybit.eu, for balances.
+
+    Success says the wallet's total equity in USD. A refusal is said as an
+    instruction; Bybit EU has no testnet, so nothing else is asked. Never
+    stores anything and never places an order.
+    """
+    from bot.core.venues import bybit_eu_client_config
+    seen: dict = {}
+    ok, detail = await _keysecret_balance_probe(
+        "bybit", api_key, api_secret, False, client_config=bybit_eu_client_config(),
+        detail_of=_bybit_equity_detail, refusal=seen)
+    code = seen.get("code")
+    if ok or code not in _BYBIT_REFUSALS:
+        return ok, detail
+    return False, _BYBIT_EU_REFUSALS.get(code) or _BYBIT_REFUSALS[code].format(env="EU")
 
 
 async def _ccxt_keysecret_probe(ccxt_id: str, api_key: str, api_secret: str,
@@ -1268,6 +1346,8 @@ async def validate_venue_credentials(venue: str, fields: dict,
     if venue == "bybit":
         return await validate_bybit_credentials(
             fields["api_key"], fields["api_secret"], sandbox)
+    if venue == "bybiteu":
+        return await validate_bybit_eu_credentials(fields["api_key"], fields["api_secret"])
     if venue == "bingx":
         return await _keysecret_balance_probe(
             venue, fields["api_key"], fields["api_secret"], sandbox)
@@ -1355,11 +1435,21 @@ async def balance_snapshot(venue: str, fields: dict,
     except Exception as exc:  # pragma: no cover - import guard
         return {"ok": False, "venue": venue, "equity_usd": None,
                 "detail": f"ccxt unavailable: {exc}"}
-    currency = "USDC" if venue in ("hyperliquid", "paradex") else "USDT"
+    # Bybit EU is read as Bybit's own USD valuation of the wallet
+    # (`_bybit_total_equity`): its USDT line is not its balance.
+    currency = ("USDC" if venue in ("hyperliquid", "paradex")
+                else "USD" if venue == "bybiteu" else "USDT")
     try:
         if sandbox is None:
             sandbox = venue_sandbox(venue)
-        if venue == "bitget":
+        if venue == "bybiteu":
+            from bot.core.venues import bybit_eu_client_config
+            client = ccxt.bybit({
+                "apiKey": fields["api_key"], "secret": fields["api_secret"],
+                "timeout": 15000, "enableRateLimit": True,
+                **bybit_eu_client_config(),
+            })
+        elif venue == "bitget":
             client = ccxt.bitget({
                 "apiKey": fields["api_key"], "secret": fields["api_secret"],
                 "password": fields["passphrase"], "timeout": 15000,
@@ -1401,7 +1491,8 @@ async def balance_snapshot(venue: str, fields: dict,
                 raise
         params = {"type": "swap"} if venue == "bitget" else {}
         bal = await client.fetch_balance(params)
-        equity = _balance_total(bal, currency)
+        equity = (_bybit_total_equity(bal) if venue == "bybiteu"
+                  else _balance_total(bal, currency))
         if equity is None:
             # Auth SUCCEEDED — the venue answered. It just did not answer with
             # a figure for this currency, and `ok` reports authentication, not
@@ -1434,7 +1525,7 @@ def basic_venue_format_ok(venue: str, fields: dict) -> bool:
     if venue in ("hyperliquid", "paradex"):
         return basic_hl_format_ok(
             fields.get("wallet_address", ""), fields.get("agent_private_key", ""))
-    if venue in ("bybit", "bingx", "gate"):
+    if venue in ("bybit", "bybiteu", "bingx", "gate"):
         ak, sec = fields.get("api_key", ""), fields.get("api_secret", "")
         for v in (ak, sec):
             if not v or " " in v or "\n" in v:

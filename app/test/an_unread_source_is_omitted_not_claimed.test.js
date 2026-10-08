@@ -58,8 +58,8 @@ test('the venue picker: an unread connection list is a fourth state, not "nothin
   const status = { venues: ['bitget', 'bybit'], venues_pending: null, venues_mode: 'multi' };
   const unread = Picker.pickerState(status, null);
   assert.deepStrictEqual(unread.rows, [
-    { venue: 'bitget', checked: true, disconnected: false, unknown: true },
-    { venue: 'bybit', checked: true, disconnected: false, unknown: true },
+    { venue: 'bitget', checked: true, disconnected: false, unknown: true, balancesOnly: false },
+    { venue: 'bybit', checked: true, disconnected: false, unknown: true, balancesOnly: false },
   ], 'the ticks are real (the selection); the connection is simply not known');
   assert.strictEqual(unread.notice.tone, 'unknown');
   assert.match(unread.notice.text, /could not be read/);
@@ -72,7 +72,8 @@ test('the venue picker: an unread connection list is a fourth state, not "nothin
   assert.strictEqual(none.canSave, false);
   // and a real connection is unchanged
   const live = Picker.pickerState(status, [{ venue: 'bitget', connected: true }]);
-  assert.deepStrictEqual(live.rows[0], { venue: 'bitget', checked: true, disconnected: false, unknown: false });
+  assert.deepStrictEqual(live.rows[0], { venue: 'bitget', checked: true, disconnected: false, unknown: false,
+    balancesOnly: false });
   assert.strictEqual(live.canSave, true);
 });
 

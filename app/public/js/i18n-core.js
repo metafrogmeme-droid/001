@@ -691,6 +691,7 @@
     "dd.err_not_approved": { en: "Your account is not approved on the trading bot yet. Send /start to it in Telegram — the operator gets the request." },
     "dd.err_not_registered": { en: "Not registered on the trading bot yet. Send /start to it in Telegram to register." },
     "dd.err_bot_unlinked": { en: "This site is not connected to the trading bot — the operator needs to finish that setup." },
+    "dd.err_starting": { en: "The website’s database is not ready yet, so this cannot be read. Try again in a minute." },
     "dd.err_operator_only": { en: "This panel is for the operator account only." },
     "dd.err_rate_limited": { en: "Too many requests just now — wait a moment and try again." },
     "dd.err_unreadable_body": { en: "The server answered, but the reply couldn’t be read — try again in a moment." },
@@ -1552,6 +1553,7 @@
     "venue.f.agent_private_key": { en: "Agent private key" },
     "venue.help.bitget": { en: "Create USDT-M futures API keys with read + trade permission. Keep withdrawals disabled." },
     "venue.help.bybit": { en: "USDT perpetuals. Create API keys with derivatives trade permission; account must be in ONE-WAY position mode." },
+    "venue.help.bybiteu": { en: "Balances only. Bybit EU offers spot, not the perpetual futures this bot trades, so no order is placed there. Create a read-only API key on bybit.eu; keep withdrawals disabled." },
     "venue.help.bingx": { en: "USDT perpetuals ($2 min notional). Create API keys with perpetual-futures trade permission; account must be in ONE-WAY position mode." },
     "venue.help.okx": { en: "USDT perpetual swaps. Create API keys with trade permission and set an API passphrase; keep withdrawals disabled." },
     "venue.help.gate": { en: "USDT perpetual swaps. Create API keys with futures trade permission; keep withdrawals disabled." },
@@ -1560,6 +1562,7 @@
     "venue.help.paradex": { en: "On-chain perps DEX (StarkEx L2). Create an API (agent) wallet and use ITS private key — never your main wallet key." },
     "venue.connected": { en: "connected" },
     "venue.not_connected": { en: "not connected" },
+    "venue.balances_only": { en: "linked for balances only; this bot places no order there" },
     "venue.rejected": { en: "rejected" },
     "venue.applying": { en: "applying {venue}…" },
     "venue.waited": { en: "waiting {min} min" },
@@ -2192,7 +2195,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"bf5b21cf","zh":"c24ec654","pt":"6aa3bf34","fr":"1e72f72f","de":"baeab122","nl":"b40ffe73","ja":"35b49070","ko":"978913fc","ru":"8a5b79b7","tr":"1b53d051","it":"f680b720","hi":"0dbaf7eb","ar":"1f28e34f"};
+  var CHUNKS = {"es":"2cbaa586","zh":"8ef46f71","pt":"4c630cff","fr":"a35fb284","de":"c26ab9ca","nl":"a9224c0b","ja":"77d304e3","ko":"2a6f339f","ru":"29c33aed","tr":"9ff2f526","it":"6b4c022c","hi":"0a59c31e","ar":"7b29eb89"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};
