@@ -3,7 +3,7 @@
   "version": "0.1.0-draft",
   "private": true,
   "type": "module",
-  "description": "DRAFT / DEVNET-ONLY tooling to mint/verify the $RCLAW SPL Token-2022 and run a Metaplex Genesis fixed-price presale. Not for mainnet without the legal review + audit gates in docs/TOKEN_ROADMAP.md.",
+  "description": "DRAFT / DEVNET-ONLY tooling to mint/verify the $RCLAW SPL Token-2022 and run a Metaplex Genesis fixed-price presale. Not for mainnet without the legal review + audit gates in docs/TOKEN_ROADMAP.md. Also holds the read-only plan and verify commands for the Smithii presale (the venue of record): the verify command reads mainnet, and nothing in either signs or sends.",
   "license": "BUSL-1.1",
   "scripts": {
     "create": "node scripts/create_token.mjs",
@@ -31,7 +31,9 @@
     "programs:inventory": "node scripts/program_inventory.mjs",
     "programs:baseline": "node scripts/program_inventory.mjs --update",
     "e2e:whitelist": "node e2e/whitelist_e2e.mjs",
-    "presale:verify": "node presale/genesis_presale.mjs verify"
+    "presale:verify": "node presale/genesis_presale.mjs verify",
+    "presale:smithii-plan": "node presale/smithii_plan.mjs",
+    "presale:smithii-verify": "node presale/smithii_verify.mjs"
   },
   "engines": {
     "node": ">=24.21.0"

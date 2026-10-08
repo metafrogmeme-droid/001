@@ -1,34 +1,43 @@
-# `$RCLAW` presale — setup runbook (DRAFT / DEVNET)
+# `$RCLAW` presale — setup runbook
 
-Operational steps for standing up the `$RCLAW` presale. Recommended primary venue:
-**Metaplex Genesis**; fallback: **Smithii**. Full rationale and the venue comparison are in
+Operational steps for the `$RCLAW` presale. **Venue of record: Smithii (Path B), decided
+2026-10-08.** The documented alternative is **Metaplex Genesis (Path A)**, which is devnet-only
+and not used for this sale. Full rationale and the venue comparison are in
 [`docs/TOKEN_ROADMAP.md` §6](../../docs/TOKEN_ROADMAP.md#6-launch-venue-comparison--recommendation).
 
-> ⚠️ Devnet dry-run only. **Do not run the presale on mainnet** until Phase 0 Guardrails are
-> cleared: legal review per jurisdiction, smart-contract/presale audit, disclosures published
-> (roadmap §8, §10–§11). Config values are a proposed baseline to ratify (§13).
+> ⚠️ **Path A is a devnet dry-run only. Path B is a mainnet sale.** Do not press Create until
+> Phase 0 Guardrails are cleared: legal review per jurisdiction, the published disclosures
+> (roadmap §8, §10–§11). Create is a mainnet transaction that moves the presale tokens into a
+> vault owned by an upgradeable program, and nothing in the program can take a payment back.
+> Config values are a proposed baseline to ratify (§13).
 
 ## Config files
 
 | File | Venue | Notes |
 |---|---|---|
-| `metaplex-genesis.config.json` | Metaplex Genesis (primary) | Fixed-price presale + TGE, on-chain/trustless |
-| `smithii.config.json` | Smithii (fallback) | No-code; ~0.1 SOL + % of sales |
+| `smithii.config.json` | Smithii (venue of record) | No-code form; 0.1 SOL to create + 2.5% of each purchase, paid by the creator. Read by `smithii_plan.mjs`, `smithii_verify.mjs` and the tests |
+| `metaplex-genesis.config.json` | Metaplex Genesis (alternative) | Fixed-price presale + TGE, on-chain; consumed by `genesis_presale.mjs` |
 
-Both encode the same economics: 150M presale allocation, **1,000 SOL soft / 5,000 SOL hard
-cap**, 0.25–25 SOL per wallet, whitelist (48h) → public (72h), **33% TGE + 2-month linear**
-vesting, **66.67% of raise → Raydium liquidity**, LP locked permanently (never-claim).
+The two share the **economics** — 150M presale allocation, **1,000 SOL soft / 5,000 SOL hard
+cap**, 0.25–25 SOL per wallet, a 72h public phase, **66.67% of the raise → Raydium
+liquidity**. They differ in what the **program enforces**, and the differences are declared,
+not accidental: Genesis vests buyers (33% at TGE then linear over 2 months), keeps a wallet
+whitelist, and creates the pool with a never-claim LP lock; the Smithii program does none of
+those (no vesting, no wallet list, the operator creates the pool and burns the LP).
+`venue_parity.test.mjs` checks the shared terms agree, every difference is declared with a
+reason, and the published docs state the chosen venue's terms.
 
-## Prerequisites
+## Prerequisites (Path A)
 
 1. Mint exists on devnet — run `token/` tooling first (`npm run create`), then copy the mint
    address from `token/.artifacts/token.devnet.json` into the `token.mint` field of the chosen
-   presale config.
+   presale config. (Path B needs no such step: the mint is on mainnet and recorded in
+   `token/config/rclaw.mainnet.json`.)
 2. Whitelist collected (wallet allowlist) for the OG round.
 3. Treasury **Squads multisig** created; presale proceeds and unsold tokens flow to it.
 4. Legal sign-off + audit report links ready to publish (Phase 0 exit criteria).
 
-## Path A — Metaplex Genesis (recommended) — real SDK integration
+## Path A — Metaplex Genesis (alternative; not this sale's venue) — real SDK integration
 
 This path is wired against the real **`@metaplex-foundation/genesis`** SDK
 (`token/presale/genesis_presale.mjs`, built on Umi). Parameters are derived from
@@ -121,34 +130,93 @@ itself (self-contained demo); `transfer` reuses the mint from the `token/` tooli
   confirm the pool-creation/finalize flow end-to-end on devnet before mainnet.
 - **Publish** — genesis account, bucket, mint, whitelist root, LP-lock proof, audit report.
 
-## Path B — Smithii (fallback)
+## Path B — Smithii (venue of record)
 
-> **The fallback is not automatically equivalent to Path A.** `smithii.config.json` used to
-> claim it "mirrors the Metaplex Genesis params so the two are interchangeable" while three
-> values diverged — refund promise, liquidity share of the raise, and LP lock duration — so
-> which venue the operator happened to use silently changed what buyers were told. The values
-> are corrected and `venue_parity.test.mjs` now checks the full key set, but two of the three
-> depend on what Smithii's contract can actually do, and **nothing in this repository has read
-> that contract**. Steps 3-4 below are blocking for that reason.
+> **The Smithii program does less than Path A, by design, and this section used to say
+> otherwise.** It has five instructions — initialize, edit, buy, claim, withdraw — so it cannot
+> vest buyers, keep a wallet whitelist, refund, or create or lock liquidity, and it never reads
+> the soft cap. The two checks this section used to call BLOCKING are **answered** (2026-10-08,
+> from CoinFabrik's audit, Smithii's SDK and live mainnet transactions; recorded in
+> `smithii.config.json`): a **permanent LP lock is not expressible** — the program never
+> touches liquidity, so the operator creates the pool and burns the LP — and a **refund is not
+> possible**, because each purchase pays the creator directly. The fee placeholder is resolved
+> too: **0.1 SOL to create** (0.2 with a whitelist phase, per the audit) and **2.5% of each
+> purchase, taken from the creator's side** (observed: a 0.5 SOL buy moved 0.4875 SOL to the
+> creator and 0.0125 SOL to Smithii; the buyer was credited the full 0.5). Whatever the program
+> does not enforce is the operator's action — checkable afterwards, enforced by nothing — and
+> must be published as exactly that.
 
-1. Open Smithii's Solana launchpad, select **devnet**.
-2. Enter the values from `smithii.config.json` (caps, whitelist phase, vesting, auto-list %).
-   If the auto-list field takes only an integer, enter **67**, not 66 — rounding up sends more
-   SOL to the pool, which opens it higher and deeper, the recoverable side of the sizing
-   decision (`metaplex-genesis.config.json` → `liquidity._liquidityPricing_comment`).
-3. **BLOCKING — permanent LP lock.** Genesis uses `createNeverClaimSchedule()`: the LP is
-   never claimable, with no expiry. Confirm Smithii can express that. If it can only offer a
-   fixed duration, the fallback is a **materially different product** and must be re-ratified
-   and published as such before the sale — not discovered by a holder reading the pool
-   afterwards.
-4. **BLOCKING — refund.** `refundIfSoftCapMissed` is `false` at both venues. Do not enable a
-   refund in Smithii's UI or in published terms unless the refund has been executed on devnet
-   and the transaction published, exactly as Path A requires of itself.
-5. Confirm the exact **% of sales** platform fee in-app (placeholder in config).
-6. Run the same devnet dry-run (contribute → finalize → auto-list → claim).
-7. Publish the same proof artifacts, plus the outcome of steps 3 and 4.
+### Before Create
 
-## The one decision point: `presale:trigger` may refuse
+1. **Gates.** Legal sign-off, the jurisdiction decision and the published disclosures
+   (roadmap §10) come first. Create moves the presale tokens — **150,001,500 RCLAW** at the
+   hard cap — out of the signing wallet into a vault owned by an upgradeable program.
+2. **The offline plan.** `cd token && npm ci && npm run presale:smithii-plan`. It prints what
+   to type into each field, what the form must show back (**"Sending" ≈ 150,001,500.015
+   RCLAW**, total fees 0.1 SOL), what the sale pays at each cap, the pool the operator will
+   have to create, and every disclosure. It exits 1 on a config that cannot describe a coherent
+   sale, and CI runs it.
+3. **The signing wallet.** Create is signed by the wallet that holds the tokens — today only
+   one does. It becomes the launch authority: it receives about 97.5% of every purchase the
+   moment it happens and alone can edit the launch and withdraw unsold tokens. Use a
+   hardware-backed wallet, not an exchange's in-app browser, and plan to move the proceeds to
+   the Squads multisig after the sale.
+4. **Lock the rest first.** The other ~850,000,000 RCLAW: vesting streams for team, advisors
+   and community, the multisig for treasury and reserve, every address published (roadmap §11).
+   The sale program locks and vests nothing, and scanners show one holder with everything
+   unlocked until this is done.
+5. **Rehearse on a throwaway token** with tiny caps: Create, one buy from a second wallet,
+   claim, withdraw, create a pool, burn the LP. About 0.1 SOL plus dust. Nothing in this
+   repository has run a Smithii sale of its own, and no Smithii guide read here mentions a
+   devnet, so do not assume one.
+6. **Have the pool ready**: the SOL and RCLAW to open it at the sale price (the plan prints
+   the amounts for the soft and hard caps) and the transaction prepared. Claims open the moment
+   the sale ends, and anyone holding claimed tokens can create a pool of their own.
+
+### Create (Smithii's four-step form)
+
+1. **Step 1** — type exactly what `presale:smithii-plan` prints, digits only (a locale that
+   prints `30.000` for thirty thousand can misread `5.000` as five). Check the "Sending" line
+   against the plan before continuing.
+2. **Step 2** — leave the whitelist phase **off** (a whitelist price of 0 disables it).
+   Turning it on doubles the creation fee and adds only an earlier time window that is open to
+   everyone. Set the public phase's start and end: **start at least 24–48 hours after Create**,
+   because `edit` stops working once the first phase starts, and that window is when
+   `presale:smithii-verify` can still be acted on.
+3. **Step 3** — name, description, images, socials. Do not say "audited", and do not promise a
+   refund, vesting, a locked LP, or returns. State the disclosures.
+4. **Step 4** — preview, then Create.
+
+### After Create, before the first phase starts
+
+```bash
+cd token
+npm run presale:smithii-verify -- --authority <the wallet that signed Create>
+```
+
+Read-only. It reads the Launch account, the vault, the program and the mint off mainnet and
+compares each with `smithii.config.json`. **Exit 0** — everything read matches; **1** — a row
+FAILED; **3** — something could not be read, and nothing is claimed about it. A FAIL is fixable
+with Smithii's `edit` only until the first phase starts. The first run also settles the one
+assumption nothing earlier can: that the site rounds the price like Smithii's SDK (expect
+**33,333 lamports per token**). Then publish the launch address, the program id, its upgrade
+authority, the audit's scope, and the disclosures.
+
+### During and after the sale
+
+- The signing wallet receives the SOL as buyers buy. Do not spend it until the rule for a raise
+  below the soft cap (roadmap §13) is decided and published.
+- When the sale ends or the hard cap is reached, buyers can claim. **Create the pool in that
+  same window**, at the sale price, with 66.67% of the gross raise; then **burn the LP tokens**
+  and publish the pool address and the burn transaction.
+- Call `withdraw` **once** to recover unsold tokens (a second call is refused), and move them
+  to the reserve allocation as the config states.
+- Move the proceeds to the multisig.
+
+## The one decision point (Path A): `presale:trigger` may refuse
+
+*Genesis alternative only — the Smithii sale has no trigger and no sized pool; the operator
+creates the pool after the raise at whatever size honours the sale price.*
 
 `presale:trigger` reads the realised raise from the bucket
 (`quoteTokenDepositTotal`) and compares the pool's opening price against the
@@ -181,7 +249,10 @@ sale, publish the raise level the listing price depends on
 cancel-and-refund procedure ready if the terms promise one. This guard exists to
 make sure that conversation happens before the button, not after.
 
-## Rehearse it for free, on a local validator
+## Rehearse it for free, on a local validator (Path A)
+
+*Genesis alternative only. The Smithii sale has no local rehearsal: its program is not in this
+repository, so the rehearsal is the throwaway-token run described under Path B.*
 
 Devnet SOL is faucet-limited to 10 SOL per 8 hours. Rehearse against a local
 validator instead — it costs nothing and can be reset as often as you like, so
@@ -205,9 +276,16 @@ buyer funds — identify it and its upgrade authority before you continue.
 
 ## Post-sale checklist (both paths)
 
-- [ ] LP burned or locked ≥ 12 months, proof link published.
-- [ ] `npm run programs:inventory` clean — no unattributed program in the money path.
-- [ ] Mint + freeze authority already revoked (verified via `token` `npm run verify`).
+- [ ] LP burned (Smithii: the operator's burn transaction) or never-claim locked (Genesis),
+      proof link published. The old "burned or locked ≥ 12 months" baseline is superseded:
+      only a permanent burn or lock counts.
+- [ ] Path A: `npm run programs:inventory` clean — no unattributed program in the money path.
+      Path B: the program in the money path is Smithii's (`program.id` in the config), its
+      upgrade authority and last-deploy slot re-read on launch day by `presale:smithii-verify`.
+- [ ] Mint + freeze authority revoked (Path A: `npm run verify`; Path B: a row of
+      `presale:smithii-verify`).
+- [ ] Path B: `presale:smithii-verify` passed after Create and before the first phase started;
+      unsold tokens withdrawn once; proceeds moved to the multisig.
 - [ ] Treasury/team/advisor allocations on-chain-verifiable as locked.
 - [ ] Claim window open and tested end-to-end.
 - [ ] KPIs wired (participation, LP depth, holders) — roadmap §12.
@@ -217,4 +295,5 @@ buyer funds — identify it and its upgrade authority before you continue.
 
 Every value traces to [`docs/TOKEN_ROADMAP.md`](../../docs/TOKEN_ROADMAP.md) §4 (allocation),
 §5 (presale mechanics), §7 (liquidity). Change them there first, then mirror into these config
-files, so the roadmap stays the single source of truth.
+files and the GitBook page, so the roadmap stays the single source of truth —
+`venue_parity.test.mjs` fails when the config, the roadmap and the GitBook disagree.

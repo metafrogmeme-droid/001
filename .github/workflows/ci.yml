@@ -802,6 +802,16 @@ jobs:
         working-directory: token
         run: npm run presale:plan
 
+      # The same job for the VENUE OF RECORD (Smithii). smithii.config.json is
+      # transcribed into a web form by a person, so nothing downstream can reject
+      # a wrong value; this derives the form's numbers from it and exits non-zero
+      # on a config that cannot describe a coherent sale — a price that floats one
+      # lamport low, a soft cap above the hard cap, a promised refund or vesting
+      # the program cannot deliver, a second mint. Offline: no RPC, no keypair.
+      - name: Presale plan — Smithii (offline derivation)
+        working-directory: token
+        run: npm run presale:smithii-plan
+
       # SCA — deliberately a RATCHET, not `npm audit --audit-level=high`.
       #
       # This tree carries 0 critical and 8 high advisories today (11 in total),

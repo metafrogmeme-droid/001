@@ -32,7 +32,7 @@ The token is the **last** piece, gated behind everything below.
 | Field | Proposed |
 |---|---|
 | Ticker | **`$RCLAW`** |
-| Chain | **Solana** (SPL Token-2022 + Metaplex metadata) |
+| Chain | **Solana** (classic SPL Token, minted 2026-09-30) |
 | Supply | **1,000,000,000, fixed** (decimals 9) |
 | Authorities | **Mint + freeze revoked**; treasury via Squads multisig |
 | Transfer tax | None (DEX-friendly) |
@@ -77,46 +77,60 @@ Full spec, worked examples, anti-gaming analysis, and the phased implementation 
 | Bucket | % | Tokens |
 |---|---:|---:|
 | Public presale | 15% | 150M |
-| DEX liquidity | 10% | 100M |
+| DEX liquidity | 2.0001% | 20.001M |
 | Community & ecosystem | 25% | 250M |
 | Team & contributors | 15% | 150M |
 | Treasury / DAO | 20% | 200M |
 | Partnerships & MM | 8% | 80M |
 | Advisors | 2% | 20M |
-| Reserve / insurance | 5% | 50M |
+| Reserve / insurance + post-TGE liquidity | 12.9999% | 129.999M |
 | **Total** | **100%** | **1,000M** |
 
-Team, treasury, advisors, and reserve are **fully locked at TGE**; presale vests 33% at TGE
-then linear over 2 months.
+The sale program locks and vests **nothing** — that is the team's job, and it is not done yet.
+The plan is vesting streams for team, advisors and community and a multisig for treasury and
+reserve, with every address published **before the sale opens**. **Presale buyers are not
+vested:** they can claim everything the moment the sale ends.
+
+The pool is created by the team after the raise, so it is sized then. Opening at the sale price
+it needs about **20.0M RCLAW at the soft cap and 100.0M at the hard cap**. Whether the table
+above returns to a 10% / 5% liquidity / reserve split is an open decision (roadmap §13).
 
 ## Presale (proposed)
 
-- Soft cap **1,000 SOL** / hard cap **5,000 SOL**. The soft cap is enforced
-  **operationally** — a Metaplex Genesis fixed-price presale has no native soft-cap/refund
-  field, so the cancel-and-refund path is published before the sale rather than assumed.
-- Min **0.25 SOL** / max **25 SOL** per wallet (anti-whale).
-- Whitelist round (48h) → public round (72h or until cap).
-- **66.67% of raised SOL → DEX liquidity**; LP **permanently locked** (never-claim).
-- The pool's **token** side is deliberately thin — **20,001,000 $RCLAW**, sized for the *soft*
-  cap, not the 100M DEX-liquidity bucket. The token side is frozen when the bucket is created
-  while the SOL side is whatever is raised, so sizing for a full raise would open the pool
-  **below** the presale price on any smaller one, permanently and with no refund. Sized this
-  way it opens at the presale price at 1,000 SOL and above it from there. The remaining
-  79,999,000 is earmarked in reserve for post-TGE depth once the raise is known.
+The sale runs on **Smithii's launchpad** (its Mantis program on Solana mainnet). That program
+is simpler than the Genesis design this page used to describe, so the terms below are what it
+actually does — including what it does **not** do.
+
+| Term | What happens |
+|---|---|
+| Price | Fixed, the same for everyone: **30,000.3 RCLAW per SOL** as the program stores it (33,333 lamports per token) |
+| Soft cap / hard cap | Soft cap **1,000 SOL** is a target, not a floor — the program never reads it. The hard cap **5,000 SOL** ends the sale |
+| Per wallet | Min **0.25 SOL**, max **25 SOL** per wallet (a wallet, not a person: more wallets get around it) |
+| Public sale | 72 hours or until the hard cap. There is no whitelist round: the program has no wallet list |
+| Buyer vesting | **None.** Every buyer can claim 100% of what they bought when the sale ends |
+| Refund | **None.** Each purchase is paid straight to the team's wallet; nothing is held back to return |
+| Proceeds | Paid directly to the team's launch wallet at each purchase, less Smithii's 2.5%. The plan is a hardware-backed wallet, with proceeds moved to the multisig after the sale |
+| Liquidity | **The team creates the pool** on Raydium after the sale — 66.67% of the gross raise, opened at the sale price — and burns the LP tokens, publishing both transactions. The program does neither |
+| Unsold tokens | Come back to the team's wallet in one `withdraw` call; the team intends to move them to the reserve allocation and publish that transaction |
+| Program | Smithii's, **upgradeable**: its upgrade authority `CyTc…7KTC` is an off-curve address (program-controlled; who can sign for it is not visible). CoinFabrik's 2024 audit covers Smithii's program, not RUNECLAW |
+
+If the raise ends below the soft cap the sale still ends and the team still holds the SOL. What
+the team will do then is an open decision (roadmap §13) and must be published before the sale
+opens, because the contract will not make it.
 
 ## Launch venue
 
-| Venue | Fit for a vesting utility token |
+| Venue | Role in this sale |
 |---|---|
-| **Metaplex Genesis** | **Best** — on-chain, trustless, audit-aligned → **chosen; integrated in draft (devnet)** |
-| **Smithii Launchpad** | Good — no-code, ~0.1 SOL + % → **fallback** |
+| **Smithii Launchpad** | **Chosen** (2026-10-08) — no-code, 0.1 SOL + 2.5% of sales, an audited program; but it has **no vesting, no wallet whitelist, no refund and no liquidity** |
+| **Metaplex Genesis** | **Alternative** — on-chain vesting, whitelist and LP lock; integrated in draft (devnet only) and not used for this sale |
 | **Pump.fun / LetsBonk** | Poor — no caps/whitelist/vesting → **not for the raise** |
 
 ## Roadmap phases
 
 0. **Foundations & Guardrails** — legal review, audit, disclosures, tokenomics finalized.
 1. **Pre-launch** — mint, revoke authorities, multisig, whitelist, publish audit.
-2. **Presale & TGE** — whitelist → public → finalize → seed + lock liquidity → claim.
+2. **Presale & TGE** — public sale → claim → the team creates the Raydium pool and burns the LP.
 3. **Utility activation** — staking tiers, governance voting, buyback-and-burn.
 4. **Ecosystem** — marketplace/copy-trading splits, vaults, MCP/x402 settlement.
 5. **Sustainability** — insurance fund, proof-of-reserves, CEX listings, DAO handoff.
@@ -124,10 +138,15 @@ then linear over 2 months.
 ## Build status — and what is actually proven
 
 Draft, devnet-only reference implementations now exist for most of the mechanics above:
-the SPL Token-2022 mint tooling, a real **Metaplex Genesis** presale integration (whitelist,
-liquidity with a permanent LP lock, withdraw/refund), an end-to-end lifecycle harness, an
-Anchor **staking program**, a Wormhole **NTT bridge** script, and the wallet/tier-gate
-plumbing. None of it is a launch — the project remains in **Phase 0**.
+the SPL Token-2022 mint tooling, a real **Metaplex Genesis** presale integration (the
+alternative venue: whitelist, liquidity with a permanent LP lock, withdraw/refund), an
+end-to-end lifecycle harness, an Anchor **staking program**, a Wormhole **NTT bridge**
+script, and the wallet/tier-gate plumbing. None of it is a launch — the project remains in
+**Phase 0**.
+
+The sale itself runs on **Smithii**. Its numbers are derived offline from one config
+(`npm run presale:smithii-plan`), and once the launch is created it is read back off mainnet and
+compared with that config before the sale opens (`npm run presale:smithii-verify`).
 
 **An adversarial review of that code found 10 real defects, all fixed.** The most serious was
 **critical**: the staking program bound stakes to no mint, so an attacker could stake a
@@ -141,6 +160,7 @@ What that still does **not** mean:
 |---|---|
 | Staking program executes; attack rejected; 8 tests pass | **No independent audit**; no SBF runtime; never on devnet/mainnet |
 | Presale params derive correctly offline | No presale transaction has ever been sent |
+| Smithii's program: CoinFabrik audited it in 2024 (for Smithii); what it does was read from its SDK and live mainnet transactions | The deployed code is not proven to be the audited code; **team, treasury and advisor locks do not exist yet** — one wallet holds all 1,000,000,000 |
 | Bridge + TS specs typecheck | Never deployed or executed |
 
 The gaps are environmental — the authoring environment blocks Solana devnet and the Anchor/

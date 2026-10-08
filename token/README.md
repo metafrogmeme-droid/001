@@ -49,15 +49,26 @@ mint address, ATA, and tx signatures. `verify` reads that file (or `MINT=<addres
 | `npm run presale:claim` | `presale/genesis_presale.mjs` | `claimPresaleV2` — claim vested tokens |
 | `npm run presale:withdraw` | `presale/genesis_presale.mjs` | `withdrawPresaleV1` — depositor cancel/refund |
 | `npm run presale:withdraw-unsold` | `presale/genesis_presale.mjs` | `withdrawUnsoldPresaleV1` — operator recovers unsold |
+| `npm run presale:smithii-plan` | `presale/smithii_plan.mjs` | **Offline** — what to type into Smithii's form, what it should show back, what the sale pays, the pool to create, every disclosure (exits 1 on an incoherent config) |
+| `npm run presale:smithii-verify -- --authority <wallet>` | `presale/smithii_verify.mjs` | **Read-only, reads mainnet** — compare the created launch, vault, program and mint with `smithii.config.json` (exit 0 verified / 1 mismatch / 3 could not be read) |
 
-## Metaplex Genesis presale (real SDK)
+## Smithii presale (venue of record)
+
+The sale runs on Smithii's launchpad, whose program has five instructions and so cannot vest
+buyers, keep a wallet whitelist, refund, or create or lock liquidity. `presale/smithii.config.json`
+is what an operator types into the form; `presale/smithii_lib.mjs` derives every number from it
+and decodes the program's Launch account; the two commands above are the offline plan and the
+read-back after Create. Nothing in them signs or sends. The steps, and what the program does not
+enforce, are under Path B in [`presale/RUNBOOK.md`](presale/RUNBOOK.md).
+
+## Metaplex Genesis presale (real SDK) — the alternative
 
 `presale/genesis_presale.mjs` integrates the real **`@metaplex-foundation/genesis`** SDK
 (Umi-based) for a fixed-price presale, driven entirely by
-`presale/metaplex-genesis.config.json`. Start with `npm run presale:plan` (offline preview),
-then `presale:create` on devnet. Full walkthrough and the operational steps not in the script
-(Raydium liquidity, Merkle whitelist, soft-cap/refund) are in
-[`presale/RUNBOOK.md`](presale/RUNBOOK.md).
+`presale/metaplex-genesis.config.json`. It is **not** the venue of this sale. Start with
+`npm run presale:plan` (offline preview), then `presale:create` on devnet. Full walkthrough and
+the operational steps not in the script (Raydium liquidity, Merkle whitelist, soft-cap/refund)
+are in [`presale/RUNBOOK.md`](presale/RUNBOOK.md).
 
 ## Wormhole NTT bridge (Solana ↔ Base)
 
