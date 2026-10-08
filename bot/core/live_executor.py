@@ -72,7 +72,7 @@ from bot.core.trade_costs import (
     exit_rate_pct,
     round_trip_pct,
 )
-from bot.core.time_exits import in_profit_after_fees, thesis_recorded
+from bot.core.time_exits import UNRECORDED_ORIGINS, in_profit_after_fees, thesis_recorded
 from bot.core.position_telemetry import entered_at, price_on_record
 from bot.core.order_state import (
     CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, NOTHING_TO_CLOSE, first_reading,
@@ -11229,7 +11229,9 @@ class LiveExecutor:
         closes on breach — but the END-STATE GUARANTEE is now the same as the
         market path: the position is protected, closed, or the operator gets an
         URGENT manual-close message. Never silently "unprotected (monitoring
-        active)". (Previously the ladder stopped at an unprotected-marker whose
+        active)". The one exception is an ADOPTED or RECLAIMED order's fill:
+        it is flagged and reported, never flattened (RC-AUD-022).
+        (Previously the ladder stopped at an unprotected-marker whose
         claimed remediation — the grace branch — never engaged for limit fills
         because opened_at was placement time, always past the 90s gate.)
 
@@ -11298,6 +11300,25 @@ class LiveExecutor:
                 # Grace got the exchange stop on — protected; clear the marker.
                 setattr(pos, "unprotected", False)
                 return pos.sl_order_id, (pos.tp_order_id or tp_id), None
+            if getattr(pos, "origin", "executed") in UNRECORDED_ORIGINS:
+                # An ADOPTED or RECLAIMED order filled: the bot did not place
+                # it, and its stop is the safety pair `_fill_in_missing_levels`
+                # gave it. RC-AUD-022 (adopt_exchange_positions): an adopted
+                # position is never auto-closed because its safety stop would
+                # not place; it may be intentional. It stays flagged: the
+                # per-tick check still closes on a breach of the level, the
+                # periodic self-heal re-places the stop, and the unprotected
+                # alert names the level.
+                audit(trade_log,
+                      f"ADOPTED fill UNPROTECTED: stop-loss could not be placed for "
+                      f"{pos.symbol} (SL=${pos.stop_loss:.4f}) — not flattened, "
+                      f"adopted positions are never auto-closed",
+                      action="sl_tp_failed", result="UNPROTECTED_ADOPTED",
+                      data={"trade_id": trade_id, "symbol": pos.symbol,
+                            "stop_loss": pos.stop_loss,
+                            "origin": getattr(pos, "origin", None)})
+                self._record_warning("adopt_unprotected")
+                return None, (pos.tp_order_id or tp_id), None
             # Grace exhausted with no protection and no breach: RC-AUD-001
             # parity with the market path — FLATTEN rather than leave a live,
             # leveraged position with no exchange stop.
@@ -11576,10 +11597,11 @@ class LiveExecutor:
                 st_label = getattr(pos, 'strategy_type', 'swing').upper()
                 sl_tp_warn = ""
                 if sl_id is None and pos.stop_loss > 0:
-                    # Defense-in-depth only: with the escalation ladder above this
-                    # is unreachable for an intended stop (the ladder protects,
-                    # closes, or returns an URGENT message). Never fires for
-                    # sl=0 (no stop intended).
+                    # The bot's own fill never reaches this: the escalation ladder
+                    # above protects, closes, or returns an URGENT message. An
+                    # adopted or reclaimed fill does: the ladder flags it and never
+                    # flattens it (RC-AUD-022). Not for sl=0, which is left only
+                    # when no stop could be sized; the unprotected alert covers it.
                     sl_tp_warn = "\n⚠️ STOP-LOSS not placed — position unprotected (monitoring active)!"
                 # Filled before a cancel could reach it: the position exists
                 # and is managed like any other, and the card says the order

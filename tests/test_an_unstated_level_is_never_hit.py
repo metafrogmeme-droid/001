@@ -131,7 +131,12 @@ def test_an_adopted_limit_fill_is_not_closed_on_the_next_tick(direction, monkeyp
 
     first = asyncio.run(ex.check_positions())
     assert any("LIMIT FILLED" in m for m in first), first
-    assert p.status == "open" and p.stop_loss == 0 and p.take_profit == 0
+    # The fill no longer keeps 0/0: it takes adoption's 3%/6% safety pair off
+    # the fill (test_a_fill_with_no_stop_on_record_gets_one.py). The pair is on
+    # the right sides, so the tick after, at the fill price, still closes nothing.
+    sl, tp = (2425.0, 2650.0) if direction == "LONG" else (2575.0, 2350.0)
+    assert p.status == "open"
+    assert (p.stop_loss, p.take_profit) == (pytest.approx(sl), pytest.approx(tp))
     asyncio.run(ex.check_positions())
     assert ex.close_position.await_args_list == []
 

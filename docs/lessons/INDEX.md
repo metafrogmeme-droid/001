@@ -262,7 +262,7 @@ about to change before changing it.
 - L21708: THE WEBSITE'S OWN "NOT READY" READ AS "NOT CONNECTED TO THE BOT" — `app/test/the_site_s_own_not_ready_is_not_the_bot.test.js`
 - L21730: ONE ACCOUNT, TWO EXECUTORS, AND A STOP OF 0 READ AS "NONE WANTED" — `tests/test_a_fill_with_no_stop_on_record_gets_one.py`, `tests/test_one_account_one_executor.py`
 
-## Deploying so a dead bot cannot look like a live one (line 21775)
+## Deploying so a dead bot cannot look like a live one (line 21787)
 
 
-## Operational docs (line 21932)
+## Operational docs (line 21944)

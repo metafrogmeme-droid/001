@@ -171,6 +171,57 @@ def test_the_bots_own_limit_keeps_its_levels(tmp_path):
     assert asked[0] == (0.1120, 0.1020)
 
 
+# ── a refused stop, through the real ladder ─────────────────────────────────
+
+def _refused_fill(tmp_path, pos):
+    """The real `_check_pending_limit` and the real post-fill ladder, with a
+    venue that refuses every stop. Returns the fill's message and the closes
+    the ladder asked for."""
+    closes: list = []
+    ex = LiveExecutor(state_dir=str(tmp_path))
+    ex._venue = get_venue("bitget")
+    ex._hedge_mode = False
+    venue = _Venue(ENTRY)
+    ex._exchange = venue
+    ex._positions[pos.trade_id] = pos
+
+    async def _refuse(self_, exchange, symbol, direction, qty, sl, tp):
+        return (None, None)
+
+    async def _close(trade_id, reason=None, **k):
+        closes.append(reason)
+        return f"CLOSED {trade_id}"
+
+    ex.close_position = _close
+    with patch.object(le, "audit", lambda *a, **k: None), \
+            patch.object(type(CONFIG), "is_live", return_value=True), \
+            patch.object(LiveExecutor, "_place_sl_tp", _refuse), \
+            patch.object(LiveExecutor, "_guard_fill_leverage", AsyncMock(return_value=None)):
+        msg = asyncio.run(ex._check_pending_limit(venue, pos.trade_id, pos))
+    return str(msg or ""), closes
+
+
+@pytest.mark.parametrize("origin", ["adopted", "reclaimed"])
+def test_an_adopted_fill_whose_stop_is_refused_is_flagged_never_flattened(tmp_path, origin):
+    # RC-AUD-022: an adopted position is never auto-closed because its safety
+    # stop would not place. The fill-in gives an adopted limit adoption's
+    # safety pair, so its fill keeps adoption's rule.
+    pos = _record(origin=origin)
+    msg, closes = _refused_fill(tmp_path, pos)
+    assert closes == [], f"the ladder flattened an order the bot did not place: {msg}"
+    assert pos.status == "open" and getattr(pos, "unprotected", False) is True
+    assert pos.stop_loss == pytest.approx(ENTRY * 1.03)
+    assert "STOP-LOSS not placed" in msg and "ENTRY ABORTED" not in msg
+
+
+def test_the_bots_own_fill_whose_stop_is_refused_is_still_flattened(tmp_path):
+    # The other arm: RC-AUD-001 parity is unchanged for an order the bot placed.
+    pos = _record(sl=0.1120, tp=0.1020, origin="executed")
+    msg, closes = _refused_fill(tmp_path, pos)
+    assert closes == ["sl_placement_failed"], msg
+    assert "ENTRY ABORTED" in msg
+
+
 # ── the self-heal, driven ───────────────────────────────────────────────────
 
 def _heal(tmp_path, pos):

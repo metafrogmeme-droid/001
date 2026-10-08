@@ -21760,15 +21760,27 @@ Three readings changed:
   on every pass. `_fill_in_missing_levels` gives such a record the levels it
   came from, else adoption's own 3%/6% pair, before the fill's placement and
   before the self-heal's. A record that names stop orders keeps its levels.
+  This retires the unstated-level chapter's "an unstated level now leaves the
+  position open and unprotected" for a fill: the fill takes the pair, and the
+  next tick at the fill price still closes nothing.
+- **An adopted fill keeps adoption's rule.** The first full gate run caught
+  what the slice's own suites did not: with a stop now on record, a refused
+  placement sent the post-fill ladder to its flatten, which would close an
+  order the bot never placed. RC-AUD-022 (`adopt_exchange_positions`) already
+  says an adopted position is never auto-closed because its safety stop would
+  not place. The ladder now asks `UNRECORDED_ORIGINS`, the set the time exits
+  already read: an adopted or reclaimed fill is flagged unprotected and
+  reported, never flattened. The bot's own fill is still flattened.
 - **The alert says which it is.** A stop of 0 printed as "$0.0000" over a
   promise that self-heal was retrying. It now says "no stop on record", that
   self-heal cannot place a stop it has no level for, and that a position the
   exchange does not show is a stale record, not a live one.
 
 Driven: the real `/connect`, web-pull validator, `_executor_for`,
-`check_operator_account_links`, `_check_pending_limit`, `verify_and_fix_sltp`
-and `_check_unprotected_positions`; only Bitget's account-info reply, the venue
-and `_place_sl_tp` are stand-ins. Twenty-one mutants, all killed.
+`check_operator_account_links`, `_check_pending_limit` and its post-fill
+ladder, `verify_and_fix_sltp` and `_check_unprotected_positions`; only
+Bitget's account-info reply, the venue and `_place_sl_tp` are stand-ins.
+Twenty-three mutants, all killed.
 (`tests/test_one_account_one_executor.py`,
 `tests/test_a_fill_with_no_stop_on_record_gets_one.py`.)
 
