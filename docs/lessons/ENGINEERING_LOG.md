@@ -21863,6 +21863,40 @@ and the key says whose it is. Six mutants, all killed.
 (`tests/test_a_key_check_never_reads_a_missing_balance_as_zero.py`,
 `tests/test_the_exchange_card_names_every_linked_venue.py`.)
 
+**THE KEYS CARD WAS A COPY OF THE WEBSITE'S OWN LAST ACK.** Twice on 8
+October it said the opposite of the bot: Bitget "connected" while the bot held
+no key file at all, then "not connected" once the key was re-linked with
+`/connect` in Telegram. The website learned a venue's state only by answering
+a key submitted on the website, so nothing done in Telegram, and nothing lost
+on the bot, ever reached it. The owner chose the reading: the card shows what
+the bot holds.
+
+The bot now sends a held-venues report after each credential pull
+(`credential_pull.report_held_venues`): every user its store holds, each venue
+"held" or "unreadable", never a key. It is read at most every two minutes, sent
+when it changes and every half hour regardless, and at once after an ack. A
+store FILE that could not be read sends nothing: its map is empty, and
+reporting that would say nobody holds a key, which nobody measured. The timer
+read passes `log_failure=False`, or an undecryptable record would be logged
+every two minutes.
+
+The website (`/api/bot/sync/credentials/state`) takes it COMPLETE OR NOTHING.
+A report that does not say it covers every user, or carries one entry the
+route cannot read, is refused whole, because a skipped entry would read as a
+user the bot holds nothing for and turn their cards off. Held is connected;
+unreadable is not connected, and says why; not held is not connected. A
+linked account the report does not mention at all is swept to not connected.
+A venue with a submission in flight is left to its ack, an account that
+unlinked Telegram is left alone, a refusal the bot sent stays beside it, and a
+row is written only when it changes.
+
+Twenty-three mutants, all killed. Three survived the first round, and each
+named a test nobody had written: a change made inside the two-minute window
+waiting for it, two pulls in a row with nothing pending sending one report
+and not two, and an in-flight venue that the report itself names.
+(`tests/test_the_bot_reports_the_venues_it_holds.py`,
+`app/test/the_keys_card_shows_what_the_bot_holds.test.js`.)
+
 ## Deploying so a dead bot cannot look like a live one
 
 **There are TWO processes and only one of them was ever being started.**
