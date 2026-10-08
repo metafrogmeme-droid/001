@@ -137,7 +137,6 @@ def default_validator(creds: dict):
     import asyncio as _asyncio
 
     try:
-        from bot.config import CONFIG
         from bot.core.exchange_credentials import _VENUE_FIELDS, validate_venue_credentials
     except Exception as exc:                       # noqa: BLE001
         log.warning("credential validation unavailable (%s) — leaving the row queued", exc)
@@ -152,9 +151,9 @@ def default_validator(creds: dict):
     fields = {k: creds.get(k) for k in required}
 
     try:
-        ok, detail = _asyncio.run(
-            validate_venue_credentials(venue, fields,
-                                       sandbox=CONFIG.exchange.sandbox))
+        # No sandbox argument: checked where this venue's client trades
+        # (venue_sandbox), not under the Bitget demo flag.
+        ok, detail = _asyncio.run(validate_venue_credentials(venue, fields))
     except RuntimeError as exc:
         # "asyncio.run() cannot be called from a running event loop" — the
         # caller offloaded wrongly. NOT a verdict about the keys.

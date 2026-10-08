@@ -5688,6 +5688,18 @@
     }
   }
 
+  // ── venue chip: start
+  // The state a user reads to know whether their key took effect, named for
+  // the EXCHANGE. The pending branch filled {venue} with the pending ACTION,
+  // so a Bybit key waiting on the bot read "applying connect…".
+  function venueChip({ connected, pending, rejected, label }) {
+    return connected ? `<span class="chip chip--up">✓ ${esc(T('venue.connected', 'connected'))}</span>`
+      : pending ? `<span class="chip chip--warn">${esc(TF('venue.applying', 'applying {venue}…', { venue: label }))}</span>`
+      : rejected ? `<span class="chip chip--down">✕ ${esc(T('venue.rejected', 'rejected'))}</span>`
+      : `<span class="chip">${esc(T('venue.not_connected', 'not connected'))}</span>`;
+  }
+  // ── venue chip: end
+
   /* ═══════════════ ACCOUNT ═══════════════ */
   async function renderAccount() {
     container.innerHTML = viewHead('Account', 'Profile, connections, and live-trading controls');
@@ -6566,10 +6578,7 @@
         // account and had nothing to act on. The reason is the venue's own
         // words, carried through the bot's ack.
         const rejected = (!connected && !pending && st && st.last_error) ? st.last_error : null;
-        const chip = connected ? `<span class="chip chip--up">✓ ${esc(T('venue.connected', 'connected'))}</span>`
-          : pending ? `<span class="chip chip--warn">${esc(TF('venue.applying', 'applying {venue}…', { venue: pending }))}</span>`
-          : rejected ? `<span class="chip chip--down">✕ ${esc(T('venue.rejected', 'rejected'))}</span>`
-          : `<span class="chip">${esc(T('venue.not_connected', 'not connected'))}</span>`;
+        const chip = venueChip({ connected, pending, rejected, label: v.label });
         const why = rejected
           ? `<p class="small" style="color:var(--down,#f05252);margin:var(--s2) 0 0">${esc(rejected)}</p>`
           : '';
