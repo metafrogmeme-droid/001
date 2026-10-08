@@ -39,7 +39,7 @@ from datetime import datetime
 from pathlib import Path
 
 from bot.backtest.benchmark_record import code_sha
-from bot.backtest.runner import public_trade_breakdown
+from bot.backtest.runner import public_row
 from bot.backtest.snapshot import benchmark_root, default_benchmark_dir
 from bot.compat import UTC
 
@@ -268,8 +268,10 @@ def _breakdown_rows(runner: dict) -> list[dict]:
             self.pnl_pct = raw.get("pnl_pct")
             self.confidence = raw.get("confidence")
             self.volume_spike_ratio = raw.get("volume_spike_ratio")
+            self.fills = raw.get("fills")
 
-    return public_trade_breakdown(_Row(r) if isinstance(r, dict) else r for r in rows)
+    # The runner's rows are positions already; this only re-projects them.
+    return [public_row(_Row(r) if isinstance(r, dict) else r) for r in rows]
 
 
 def scorecard_gates(cfg: dict) -> dict:

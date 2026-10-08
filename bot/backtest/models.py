@@ -207,8 +207,13 @@ class BacktestResult(BaseModel):
     funding_state: str = "unpriced"
     net_pnl: float
 
-    # Trade stats
+    # Trade stats. A trade is a POSITION (audit B4-04): every fill the
+    # partial-TP ladder made of it is one row in `trades` and one in
+    # `total_fills`, and one position here.
     total_trades: int
+    #: The fill rows behind `total_trades`. None when the producer did not
+    #: count them, which is not "no fills".
+    total_fills: Optional[int] = None
     winning_trades: int
     losing_trades: int
     win_rate: float

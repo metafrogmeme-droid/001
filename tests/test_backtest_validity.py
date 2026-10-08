@@ -96,10 +96,15 @@ def test_backtest_independent_of_wall_clock(monkeypatch):
 
 # ── BT-L: metric-convention fixes (Sharpe ddof, Calmar annualized, breakeven) ──
 
+_ids = iter(range(10**6))
+
+
 def _make_trade(net_pnl):
     from bot.backtest.models import BacktestTrade
+    # One position each: the result counts positions (audit B4-04), and rows
+    # sharing a `trade_id` are the fills of one position.
     return BacktestTrade(
-        trade_id="t", symbol="BTC/USDT", direction="LONG", entry_price=100.0,
+        trade_id=f"t{next(_ids)}", symbol="BTC/USDT", direction="LONG", entry_price=100.0,
         exit_price=101.0, entry_time=datetime(2025, 1, 1, tzinfo=UTC),
         exit_time=datetime(2025, 1, 1, 4, tzinfo=UTC), quantity=1.0, size_usd=100.0,
         pnl_usd=net_pnl, pnl_pct=0.0, commission_usd=0.0, slippage_usd=0.0,

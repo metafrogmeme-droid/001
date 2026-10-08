@@ -19,6 +19,7 @@ from bot.backtest.models import (
 from bot.backtest.funding import combine as funding_combine
 from bot.backtest.funding import funding_for_position
 from bot.backtest.metrics import PF_UNDEFINED
+from bot.backtest.positions import position_rr, positions
 from bot.config import CONFIG
 from bot.core.analyzer import Analyzer
 from bot.core.leverage import apply_margin_risk_cap
@@ -154,7 +155,9 @@ class BacktestEngine:
         # so the trail reads that ATR instead of backing it out of the stop.
         self._preset_atr_by_idea: dict[str, float] = {}
         self._equity_curve: list[EquityPoint] = []
-        self._rr_values: list[float] = []  # realized R:R for each closed trade
+        # Realized R:R per fill as (trade_id, R, quantity); `position_rr`
+        # reads one R per position from them.
+        self._rr_values: list[tuple[str, float, float]] = []
         self._signals_generated = 0
         self._ideas_generated = 0
         self._ideas_rejected_risk = 0
@@ -1418,14 +1421,15 @@ class BacktestEngine:
         self._trades.append(bt_trade)
 
         # Record realized R:R using actual entry/SL risk distance
-        # Signed: positive when trade moved in the right direction
+        # Signed: positive when trade moved in the right direction. Kept per
+        # fill with its quantity; `_compile_result` reads one R per position.
         risk_dist = abs(bt_meta["adjusted_entry"] - idea.stop_loss)
         if risk_dist > 0:
             if idea.direction == Direction.LONG:
                 reward_dist = adjusted_exit - bt_meta["adjusted_entry"]
             else:
                 reward_dist = bt_meta["adjusted_entry"] - adjusted_exit
-            self._rr_values.append(reward_dist / risk_dist)
+            self._rr_values.append((trade_id, reward_dist / risk_dist, closed.quantity))
 
         audit(trade_log, f"[BT] Closed {idea.asset} reason={reason} PnL=${net_pnl:.2f}",
               action="backtest_close", result=reason,
@@ -1725,14 +1729,15 @@ class BacktestEngine:
         )
         self._trades.append(bt_trade)
 
-        # Realized R:R for this scale-out (reward measured to the ladder fill).
+        # Realized R:R for this scale-out (reward measured to the ladder fill),
+        # with the quantity it closed: one position, one R (`position_rr`).
         risk_dist = abs(bt_meta["adjusted_entry"] - idea.stop_loss)
         if risk_dist > 0:
             if idea.direction == Direction.LONG:
                 reward_dist = adjusted_exit - bt_meta["adjusted_entry"]
             else:
                 reward_dist = bt_meta["adjusted_entry"] - adjusted_exit
-            self._rr_values.append(reward_dist / risk_dist)
+            self._rr_values.append((tid, reward_dist / risk_dist, close_qty))
 
         audit(trade_log, f"[BT] Partial {idea.asset} {reason} qty={close_qty:.6f} PnL=${net_pnl:.2f}",
               action="backtest_partial_close", result=reason,
@@ -1789,16 +1794,23 @@ class BacktestEngine:
     def _compile_result(self, bars: list[BacktestBar], duration: float) -> BacktestResult:
         """Compute all metrics from recorded trades and equity curve."""
         snap = self.portfolio.snapshot()
+        # `trades` are the FILL rows: dollar totals below sum over them.
+        # Every count, win/loss, average, streak and the profit factor reads
+        # POSITIONS (audit B4-04). A position the partial-TP ladder closed in
+        # three fills was three trades here, two of them winners by
+        # construction, so every --honest win rate and trade count leaned
+        # toward the ladder's legs.
         trades = self._trades
+        held = positions(trades)
 
         # Basic stats
-        total = len(trades)
+        total = len(held)
         # BT-L: treat exact-breakeven (net_pnl == 0) as neither win nor loss,
         # matching the risk engine's neutral handling. Previously net_pnl <= 0
         # counted breakeven as a loss, depressing win rate / inflating the
         # consecutive-loss streak.
-        winners = [t for t in trades if t.net_pnl_usd > 0]
-        losers = [t for t in trades if t.net_pnl_usd < 0]
+        winners = [t for t in held if t.net_pnl_usd > 0]
+        losers = [t for t in held if t.net_pnl_usd < 0]
         win_rate = len(winners) / total if total > 0 else 0
 
         # C2-40 FIX: Renamed from gross_profit/gross_loss — these values use
@@ -1811,14 +1823,14 @@ class BacktestEngine:
         largest_win = max((t.net_pnl_usd for t in winners), default=0)
         largest_loss = min((t.net_pnl_usd for t in losers), default=0)
 
-        # Duration
-        durations = [(t.exit_time - t.entry_time).total_seconds() / 3600 for t in trades]
+        # Duration: entry to the position's final fill.
+        durations = [(t.exit_time - t.entry_time).total_seconds() / 3600 for t in held]
         avg_duration = sum(durations) / len(durations) if durations else 0
 
-        # Consecutive losses
+        # Consecutive losses, in the order positions closed
         max_consec = 0
         current_consec = 0
-        for t in trades:
+        for t in held:
             if t.net_pnl_usd < 0:  # BT-L: breakeven does not extend a loss streak
                 current_consec += 1
                 max_consec = max(max_consec, current_consec)
@@ -1879,8 +1891,9 @@ class BacktestEngine:
         total_comm = sum(t.commission_usd for t in trades)
         total_slip = sum(t.slippage_usd for t in trades)
 
-        # Average R:R -- use realized values computed at trade close time
-        avg_rr = sum(self._rr_values) / len(self._rr_values) if self._rr_values else 0
+        # Average R:R -- realized at close, one R per position (`position_rr`)
+        rr = position_rr(self._rr_values)
+        avg_rr = sum(rr) / len(rr) if rr else 0
 
         # Date range
         start_date = bars[0].timestamp.strftime("%Y-%m-%d") if bars else ""
@@ -1910,6 +1923,7 @@ class BacktestEngine:
             funding_state=funding_combine([t.funding_state for t in trades]),
             net_pnl=round(sum(t.net_pnl_usd for t in trades), 2),
             total_trades=total,
+            total_fills=len(trades),
             winning_trades=len(winners),
             losing_trades=len(losers),
             win_rate=round(win_rate, 4),

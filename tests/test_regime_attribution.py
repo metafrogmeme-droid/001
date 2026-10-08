@@ -14,12 +14,16 @@ from bot.backtest.runner import (
 )
 from bot.compat import UTC
 
+_ids = iter(range(10**6))
+
 
 def _trade(net, regime="TREND_UP", setup="swing", direction="LONG",
            signal_type="momentum_confluence"):
     t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    # One position each (audit B4-04): rows sharing a `trade_id` are the
+    # fills of one position, and the readings count positions.
     return BacktestTrade(
-        trade_id="x", symbol="BTC/USDT", direction=direction,
+        trade_id=f"x{next(_ids)}", symbol="BTC/USDT", direction=direction,
         entry_price=100.0, exit_price=101.0, entry_time=t0,
         exit_time=t0 + timedelta(hours=1), quantity=1.0, size_usd=100.0,
         pnl_usd=net, pnl_pct=net, commission_usd=0.0, slippage_usd=0.0,

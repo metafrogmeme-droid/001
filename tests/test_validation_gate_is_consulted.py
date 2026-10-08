@@ -310,9 +310,23 @@ def test_enforce_is_not_the_default():
 
 # ── The recorder, and the one run it must refuse ──────────────────────────
 
-class _Trade:
-    def __init__(self, setup, pnl):
-        self.setup, self.pnl_usd = setup, pnl
+_ids = iter(range(10**6))
+
+
+def _Trade(setup, pnl):
+    """A real fill row, one position each. The recorder counts positions
+    (audit B4-04); a stand-in carrying only the two attributes it used to read
+    forgets the ones the position reading asks for."""
+    from datetime import datetime, timezone
+
+    from bot.backtest.models import BacktestTrade
+    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    return BacktestTrade(
+        trade_id=f"v{next(_ids)}", symbol="BTC/USDT:USDT", direction="LONG",
+        entry_price=100.0, exit_price=101.0, entry_time=t0, exit_time=t0,
+        quantity=1.0, size_usd=100.0, pnl_usd=pnl, pnl_pct=0.0, commission_usd=0.0,
+        slippage_usd=0.0, net_pnl_usd=pnl, exit_reason="TP", confidence=0.8,
+        risk_verdict="APPROVED", setup=setup)
 
 
 class _Result:
@@ -360,7 +374,9 @@ def test_trades_without_a_strategy_are_not_recorded_under_a_blank_name(
     from bot.backtest import runner
     gate = BacktestValidationGate(tmp_path / "v.json")
     monkeypatch.setattr("bot.core.validation_gate.get_validation_gate", lambda: gate)
-    runner._record_validations(_Result([_Trade("", 1.0), _Trade(None, 2.0)]),
+    # `setup` is a str on the real row, so the second blank is whitespace,
+    # not None: a None the model cannot hold is no case a run produces.
+    runner._record_validations(_Result([_Trade("", 1.0), _Trade("   ", 2.0)]),
                                used_synthetic=False, data_source="bitget_real")
     assert not gate.has_any_records()
 

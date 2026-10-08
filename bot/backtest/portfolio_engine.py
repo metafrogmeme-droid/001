@@ -28,6 +28,7 @@ import time
 
 from bot.backtest.engine import BacktestEngine
 from bot.backtest.models import BacktestConfig, BacktestResult, EquityPoint
+from bot.backtest.positions import positions
 from bot.config import CONFIG
 from bot.utils.logger import system_log, audit
 
@@ -230,16 +231,7 @@ class PortfolioBacktester:
         result = first._compile_result(longest, time.time() - start_time)
         result.symbol = "+".join(sorted(streams))
 
-        # Per-symbol breakdown for reporting.
-        self.per_symbol = {}
-        for sym in streams:
-            st = [t for t in merged_trades if t.symbol == sym]
-            wins = sum(1 for t in st if t.net_pnl_usd > 0)
-            self.per_symbol[sym] = {
-                "trades": len(st),
-                "net_pnl": round(sum(t.net_pnl_usd for t in st), 2),
-                "win_rate": round(wins / len(st), 4) if st else 0.0,
-            }
+        self.per_symbol = per_symbol_table(merged_trades, streams)
 
         audit(system_log,
               f"Portfolio backtest complete: {result.total_trades} trades, "
@@ -247,6 +239,23 @@ class PortfolioBacktester:
               action="portfolio_backtest_complete",
               data={"per_symbol": self.per_symbol})
         return result
+
+
+def per_symbol_table(trades, symbols) -> dict[str, dict]:
+    """The per-symbol breakdown, one row per POSITION (audit B4-04): the
+    partial-TP ladder's fills of one position are one trade, and its outcome
+    is their sum."""
+    held = positions(trades)
+    out: dict[str, dict] = {}
+    for sym in symbols:
+        st = [t for t in held if t.symbol == sym]
+        wins = sum(1 for t in st if t.net_pnl_usd > 0)
+        out[sym] = {
+            "trades": len(st),
+            "net_pnl": round(sum(t.net_pnl_usd for t in st), 2),
+            "win_rate": round(wins / len(st), 4) if st else 0.0,
+        }
+    return out
 
 
 async def portfolio_walk_forward(
