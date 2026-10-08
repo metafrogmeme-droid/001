@@ -42,6 +42,21 @@ test('venue adapters: the _VENUES table in bot/core/venues.py', () => {
   assert.equal(STATS['venue adapters'], String(n));
 });
 
+test('venue adapters that place orders: PER_USER_EXECUTION_VENUES in bot/core/venues.py', () => {
+  // The caveat says how many of the adapters trade. Four of eight never
+  // placed an order, and Bybit EU (spot only, balances) made it five of nine;
+  // "venue adapters" alone read as nine places to trade.
+  const py = read('bot/core/venues.py');
+  const set = py.match(/^PER_USER_EXECUTION_VENUES = frozenset\(\{([^}]*)\}\)/m);
+  assert.ok(set, 'PER_USER_EXECUTION_VENUES not found');
+  const n = [...set[1].matchAll(/"[a-z]+"/g)].length;
+  assert.ok(n > 0);
+  const src = read('site/src/facts.ts');
+  const caveat = src.slice(src.indexOf("label: 'venue adapters'")).match(/caveat:\s*'([^']*)'/);
+  assert.ok(caveat, 'the venue adapters stat lost its caveat');
+  assert.match(caveat[1], new RegExp(`\\b${n} of them place orders`));
+});
+
 test('Guardian surfaces: the page routes in app/server.js', () => {
   const js = read('app/server.js');
   const routes = ['flight', 'stress', 'sentinel', 'firewall', 'escape', 'intent']
