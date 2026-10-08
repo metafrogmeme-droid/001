@@ -5692,11 +5692,34 @@
   // The state a user reads to know whether their key took effect, named for
   // the EXCHANGE. The pending branch filled {venue} with the pending ACTION,
   // so a Bybit key waiting on the bot read "applying connect…".
-  function venueChip({ connected, pending, rejected, label }) {
+  function venueChip({ connected, pending, rejected, label, waitedS }) {
     return connected ? `<span class="chip chip--up">✓ ${esc(T('venue.connected', 'connected'))}</span>`
-      : pending ? `<span class="chip chip--warn">${esc(TF('venue.applying', 'applying {venue}…', { venue: label }))}</span>`
+      : pending ? `<span class="chip chip--warn">${esc(TF('venue.applying', 'applying {venue}…', { venue: label }))}${venueWaited(waitedS)}</span>`
       : rejected ? `<span class="chip chip--down">✕ ${esc(T('venue.rejected', 'rejected'))}</span>`
       : `<span class="chip">${esc(T('venue.not_connected', 'not connected'))}</span>`;
+  }
+
+  // How long a request has waited on the bot, said as a fact. The bot picks
+  // requests up after an engine tick, so "applying" with no age could not tell
+  // a minute's normal wait from a bot that never calls. Absent or unreadable
+  // says nothing, and under a minute says nothing new.
+  function venueWaited(waitedS) {
+    const s = (waitedS == null || waitedS === '') ? NaN : Number(waitedS);
+    if (!Number.isFinite(s) || s < 60) return '';
+    return ' · ' + esc(TF('venue.waited', 'waiting {min} min', { min: Math.floor(s / 60) }));
+  }
+
+  // Past this, the card says what MIGHT be wrong. A tick is a scan plus
+  // SCAN_INTERVAL (60 s by default), and a full 200-symbol sweep at the
+  // ~3.3 s/symbol bot/config.py records is about eleven minutes, so fifteen
+  // clears an ordinary slow tick. A possibility, never a verdict.
+  const VENUE_STUCK_AFTER_S = 15 * 60;
+
+  function venueStuckNote(waitedS) {
+    const s = (waitedS == null || waitedS === '') ? NaN : Number(waitedS);
+    if (!Number.isFinite(s) || s < VENUE_STUCK_AFTER_S) return '';
+    return `<p class="small muted" style="margin:var(--s2) 0 0">${esc(T('venue.stuck',
+      'Still waiting for the bot. It picks keys up after each scan; if this does not change, the bot may not be reaching the website.'))}</p>`;
   }
   // ── venue chip: end
 
@@ -6578,10 +6601,11 @@
         // account and had nothing to act on. The reason is the venue's own
         // words, carried through the bot's ack.
         const rejected = (!connected && !pending && st && st.last_error) ? st.last_error : null;
-        const chip = venueChip({ connected, pending, rejected, label: v.label });
+        const waitedS = pending ? c.pending_age_s : null;
+        const chip = venueChip({ connected, pending, rejected, label: v.label, waitedS });
         const why = rejected
           ? `<p class="small" style="color:var(--down,#f05252);margin:var(--s2) 0 0">${esc(rejected)}</p>`
-          : '';
+          : venueStuckNote(waitedS);
         const disc = connected
           ? `<button class="btn btn--danger btn--sm" data-discvenue="${esc(v.id)}" type="button">${esc(T('venue.disconnect', 'Disconnect'))}</button>` : '';
         // Disconnect stays available while connect is off: removing keys is

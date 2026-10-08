@@ -28,7 +28,7 @@ function loadChip() {
     (w, key) => (map && map[key] != null ? String(map[key]) : w));
   const esc = (s) => String(s).replace(/[&<>"]/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const ctx = { T, TF, esc, String };
+  const ctx = { T, TF, esc, String, Number, Math };
   vm.runInNewContext(DASH.slice(a, b) + '\nglobalThis.venueChip = venueChip;', ctx);
   return ctx.venueChip;
 }
@@ -58,6 +58,6 @@ test('the keys card hands the chip the venue label', () => {
   const src = codeOnly(DASH);
   const start = src.indexOf('async function renderAccount()');
   assert.ok(start > 0, 'renderAccount moved');
-  assert.ok(src.indexOf('venueChip({ connected, pending, rejected, label: v.label })', start) > start,
+  assert.ok(src.indexOf('venueChip({ connected, pending, rejected, label: v.label, waitedS })', start) > start,
     'the keys card no longer asks venueChip with the venue label');
 });

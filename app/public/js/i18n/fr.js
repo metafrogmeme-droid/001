@@ -1520,6 +1520,8 @@
   ["venue.not_connected", "non connecté"],
   ["venue.rejected", "refusé"],
   ["venue.applying", "application de {venue}…"],
+  ["venue.waited", "en attente depuis {min} min"],
+  ["venue.stuck", "Toujours en attente du bot. Il récupère les clés après chaque analyse ; si rien ne change, le bot n’atteint peut-être pas le site."],
   ["venue.disconnect", "Déconnecter"],
   ["venue.connect_x", "Connecter {venue}"],
   ["venue.encrypt_note", "Les clés sont chiffrées au repos en AES-256-GCM et récupérées par le bot via un canal authentifié. Les permissions de retrait ne sont jamais requises. Connectez autant de plateformes que vous voulez — chacune est indépendante, et le routage intelligent par paire se construira là-dessus."],

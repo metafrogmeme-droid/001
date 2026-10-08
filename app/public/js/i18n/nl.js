@@ -1520,6 +1520,8 @@
   ["venue.not_connected", "niet verbonden"],
   ["venue.rejected", "geweigerd"],
   ["venue.applying", "{venue} toepassen…"],
+  ["venue.waited", "wacht al {min} min"],
+  ["venue.stuck", "Nog steeds wachten op de bot. Hij haalt sleutels op na elke scan; verandert dit niet, dan bereikt de bot de website misschien niet."],
   ["venue.disconnect", "Ontkoppelen"],
   ["venue.connect_x", "{venue} verbinden"],
   ["venue.encrypt_note", "Sleutels worden in rust versleuteld met AES-256-GCM en door de bot opgehaald via een geauthenticeerd kanaal. Opnamerechten zijn nooit nodig. Verbind zoveel exchanges als je wilt — elke is onafhankelijk, en slimme routing per paar bouwt hierop voort."],

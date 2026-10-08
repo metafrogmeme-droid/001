@@ -1520,6 +1520,8 @@
   ["venue.not_connected", "sin conectar"],
   ["venue.rejected", "rechazado"],
   ["venue.applying", "aplicando {venue}…"],
+  ["venue.waited", "esperando desde hace {min} min"],
+  ["venue.stuck", "Todavía esperando al bot. Recoge las claves tras cada escaneo; si esto no cambia, puede que el bot no llegue al sitio web."],
   ["venue.disconnect", "Desconectar"],
   ["venue.connect_x", "Conectar {venue}"],
   ["venue.encrypt_note", "Las claves se cifran en reposo con AES-256-GCM y el bot las obtiene por un canal autenticado. Nunca hacen falta permisos de retiro. Conecta todos los exchanges que quieras — cada uno es independiente, y sobre esto se construye el enrutamiento inteligente por par."],

@@ -1520,6 +1520,8 @@
   ["venue.not_connected", "연결 안 됨"],
   ["venue.rejected", "거부됨"],
   ["venue.applying", "{venue} 적용 중…"],
+  ["venue.waited", "{min}분째 대기 중"],
+  ["venue.stuck", "아직 봇을 기다리는 중입니다. 봇은 스캔할 때마다 키를 가져갑니다. 계속 바뀌지 않으면 봇이 웹사이트에 연결되지 않는 것일 수 있습니다."],
   ["venue.disconnect", "연결 해제"],
   ["venue.connect_x", "{venue} 연결"],
   ["venue.encrypt_note", "키는 저장 시 AES-256-GCM으로 암호화되며 봇이 인증된 채널로 가져갑니다. 출금 권한은 전혀 필요하지 않습니다. 원하는 만큼 거래소를 연결하세요 — 각각 독립적이며, 페어별 스마트 venue 라우팅이 그 위에 얹힙니다."],

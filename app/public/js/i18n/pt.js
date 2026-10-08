@@ -1520,6 +1520,8 @@
   ["venue.not_connected", "não ligado"],
   ["venue.rejected", "rejeitado"],
   ["venue.applying", "a aplicar {venue}…"],
+  ["venue.waited", "à espera há {min} min"],
+  ["venue.stuck", "Ainda à espera do bot. Ele recolhe as chaves após cada análise; se isto não mudar, o bot pode não estar a chegar ao site."],
   ["venue.disconnect", "Desligar"],
   ["venue.connect_x", "Ligar {venue}"],
   ["venue.encrypt_note", "As chaves são cifradas em repouso com AES-256-GCM e obtidas pelo bot através de um canal autenticado. Nunca são necessárias permissões de levantamento. Ligue quantas exchanges quiser — cada uma é independente, e o encaminhamento inteligente por par constrói-se sobre isto."],

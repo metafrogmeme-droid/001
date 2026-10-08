@@ -1520,6 +1520,8 @@
   ["venue.not_connected", "bağlı değil"],
   ["venue.rejected", "reddedildi"],
   ["venue.applying", "{venue} uygulanıyor…"],
+  ["venue.waited", "{min} dakikadır bekliyor"],
+  ["venue.stuck", "Bot hâlâ bekleniyor. Anahtarları her taramadan sonra alır; bu değişmezse bot web sitesine ulaşamıyor olabilir."],
   ["venue.disconnect", "Bağlantıyı kes"],
   ["venue.connect_x", "{venue} bağla"],
   ["venue.encrypt_note", "Anahtarlar beklerken AES-256-GCM ile şifrelenir ve bot bunları kimliği doğrulanmış bir kanal üzerinden alır. Para çekme izni hiçbir zaman gerekmez. İstediğiniz kadar borsa bağlayın — her biri bağımsızdır ve akıllı parite bazlı yönlendirme bunun üzerine kurulur."],

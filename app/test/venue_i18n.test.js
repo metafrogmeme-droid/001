@@ -90,7 +90,8 @@ test('the client translates help and field labels by key, not by markup', () => 
 test('the connection chrome is translated too', () => {
   for (const k of ['venue.connected', 'venue.not_connected', 'venue.applying',
     'venue.disconnect', 'venue.connect_x', 'venue.encrypt_note', 'venue.unavailable',
-    'venue.encrypting', 'venue.queued', 'venue.failed', 'venue.rejected']) full(k);
+    'venue.encrypting', 'venue.queued', 'venue.failed', 'venue.rejected',
+    'venue.waited', 'venue.stuck']) full(k);
   // The states a user reads to know whether their key took effect. `rejected`
   // is the third one and it used to be missing: a key the exchange refused
   // rendered as the same neutral "not connected" chip as a key nobody had
@@ -108,6 +109,13 @@ test('templated venue strings keep their slot in every language', () => {
       assert.match(String(e[c]), /\{venue\}/,
         `${k}:${c} dropped {venue} — the message would not say which exchange`);
     }
+  }
+});
+
+test('the wait keeps its minutes in every language', () => {
+  const e = full('venue.waited');
+  for (const c of codes) {
+    assert.match(String(e[c]), /\{min\}/, `venue.waited:${c} dropped {min} — the chip would not say how long`);
   }
 });
 
