@@ -2576,6 +2576,14 @@ class RuneClawEngine:
             if requested:
                 return None
             return self.live_executor
+        # ONE ACCOUNT, ONE EXECUTOR. Keys found to open the operator's own
+        # Bitget account (`check_operator_account_links`) build no second
+        # executor for it: two executors on one account took each other's
+        # orders for strangers, with no stop on record (8 October). The
+        # operator's own ask is the operator's book, which IS that account;
+        # anyone else's gets none, and never the operator's.
+        if venue == "bitget" and str(user_id) in getattr(self, "_operator_account_users", ()):
+            return self.live_executor if self._is_operator_user(user_id) else None
         # MULTI-VENUE, Phase 4 (SHADOW). Record where this order WOULD go if
         # the user's venue selection were being routed on, without changing
         # where it actually goes. This is the entire point of a shadow mode —
@@ -3657,6 +3665,58 @@ class RuneClawEngine:
                 cleared[str(key)] = info
         return cleared
 
+    #: How often stored Bitget links are re-checked against the operator's
+    #: account (`check_operator_account_links`); also run once at boot.
+    OPERATOR_LINK_CHECK_EVERY_S = 6 * 3600.0
+
+    async def check_operator_account_links(self, *, probe=None) -> set:
+        """Mark stored Bitget keys that open the operator's OWN account.
+
+        Linking is refused for these since 8 October (`/connect`, the website
+        pull), but a key linked before that, or before the operator's own
+        keys changed, is still in the store, and `_executor_for` would build a
+        second executor for the operator's account from it. Each marked user
+        has its executor dropped and is said once, as an audit and a log
+        line; `_executor_for` then routes the operator to the operator's
+        book and refuses anyone else. A UID that could not be read is not a
+        match: nothing is marked on a guess. Returns the marked ids.
+        """
+        from bot.core.exchange_credentials import (
+            get_credential_store,
+            same_bitget_account_as_operator,
+        )
+        try:
+            store = get_credential_store()
+            ids = [str(u) for u in store.user_ids()]
+        except Exception as exc:
+            logger.warning("operator-account link check skipped: %s", type(exc).__name__)
+            return set(getattr(self, "_operator_account_users", set()))
+        found: set = set()
+        for uid in ids:
+            try:
+                fields = store.get_for_venue(uid, "bitget")
+            except Exception:
+                fields = None
+            if not fields:
+                continue
+            kw = {"probe": probe} if probe is not None else {}
+            if await same_bitget_account_as_operator(fields, **kw) is True:
+                found.add(uid)
+        before = set(getattr(self, "_operator_account_users", set()))
+        self._operator_account_users = found
+        for uid in sorted(found - before):
+            try:
+                self.invalidate_user_executor(uid)
+            except Exception:
+                pass
+            audit(system_log,
+                  f"Linked Bitget keys of {uid} open the operator's own account: "
+                  f"no second executor is built for them. Remove the link with "
+                  f"/disconnect; the operator keys already trade that account.",
+                  action="operator_account_link", result="DUPLICATE",
+                  data={"user": uid}, level=logging.WARNING)
+        return found
+
     def _rehydrate_user_executors(self) -> None:
         """Rebuild per-user executors for all linked users at startup so their
         PERSISTED live positions resume being monitored after a restart (per-user
@@ -4457,6 +4517,15 @@ class RuneClawEngine:
         # accepting any new signals. Catches positions closed/opened
         # during downtime or crashes.
         if CONFIG.is_live():
+            # Keys that open the operator's own account first, so no second
+            # executor for it is rebuilt below (one account, one executor).
+            if getattr(CONFIG, "per_user_live_enabled", False):
+                try:
+                    await self.check_operator_account_links()
+                    self._operator_link_checked_at = time.monotonic()
+                except Exception as exc:
+                    logger.warning("operator-account link check failed at boot: %s",
+                                   type(exc).__name__)
             # Rebuild per-user executors so their persisted positions are
             # reconciled/monitored from startup (no-op while per-user is off).
             self._rehydrate_user_executors()
@@ -4540,6 +4609,15 @@ class RuneClawEngine:
                 # key, which is what turns its connect form on.
                 await self._with_maintenance_cap(
                     self._maybe_pull_web_credentials(), "web credential pull")
+                # One account, one executor: re-check stored Bitget links
+                # against the operator's account now and then (a key linked
+                # before the refusal existed, or operator keys that changed).
+                if (getattr(CONFIG, "per_user_live_enabled", False)
+                        and time.monotonic() - getattr(self, "_operator_link_checked_at", 0.0)
+                        >= self.OPERATOR_LINK_CHECK_EVERY_S):
+                    self._operator_link_checked_at = time.monotonic()
+                    await self._with_maintenance_cap(
+                        self.check_operator_account_links(), "operator-account link check")
                 # Web wallet (3b): process any emergency-stop flatten requests
                 # (close the user's live positions via THEIR own executor). Async,
                 # fail-open, throttled; guarded so it never touches another

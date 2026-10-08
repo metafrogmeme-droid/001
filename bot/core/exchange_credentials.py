@@ -874,18 +874,31 @@ def bitget_ip_allowlist(info: Any) -> Optional[list]:
     return None
 
 
+def bitget_account_uid(info: Any) -> Optional[str]:
+    """Bitget's ``userId`` from an account-info reply, or None when absent."""
+    if not isinstance(info, dict):
+        return None
+    uid = str(info.get("userId") or "").strip()
+    return uid or None
+
+
 async def probe_bitget_key_scope(api_key: str, api_secret: str, passphrase: str,
                                  sandbox: bool = False) -> dict:
     """Observe a Bitget key's granted scope. READ-ONLY, and never raises.
 
-    Returns ``{"withdraw": "on"|"off"|"unknown", "ip_allowlist": [...]|None}``.
-    No withdrawal is attempted and no order is placed — the scope is *asked for*,
-    never *tested*. Every failure path (ccxt missing, endpoint absent on this
-    ccxt version, HTTP error, a response shape we do not recognise) lands on
-    ``"unknown"``/``None``, so the worst case is exactly the information we had
-    before calling it.
+    Returns ``{"withdraw": "on"|"off"|"unknown", "ip_allowlist": [...]|None,
+    "account_uid": str|None}``. No withdrawal is attempted and no order is
+    placed — the scope is *asked for*, never *tested*. Every failure path (ccxt
+    missing, endpoint absent on this ccxt version, HTTP error, a response shape
+    we do not recognise) lands on ``"unknown"``/``None``, so the worst case is
+    exactly the information we had before calling it.
+
+    ``account_uid`` is Bitget's ``userId`` for the account the key opens: a
+    sub-account has its own, and it is the same whichever API key opens it.
+    It is how two different keys are recognised as one account
+    (`same_bitget_account_as_operator`).
     """
-    out: dict = {"withdraw": "unknown", "ip_allowlist": None}
+    out: dict = {"withdraw": "unknown", "ip_allowlist": None, "account_uid": None}
     client = None
     try:
         import ccxt.async_support as ccxt
@@ -913,6 +926,7 @@ async def probe_bitget_key_scope(api_key: str, api_secret: str, passphrase: str,
             return out
         out["withdraw"] = bitget_withdraw_scope(data.get("authorities"))
         out["ip_allowlist"] = bitget_ip_allowlist(data)
+        out["account_uid"] = bitget_account_uid(data)
         return out
     except Exception:
         # A key without spot-account read permission answers 401/403 here while
@@ -925,6 +939,65 @@ async def probe_bitget_key_scope(api_key: str, api_secret: str, passphrase: str,
                 await client.close()
             except Exception:
                 pass
+
+
+# ── one account, one executor ────────────────────────────────────────────────
+#
+# 8 October: the operator linked NEW API credentials for the SAME Bitget
+# sub-account with /connect. The operator's executor (the .env keys) and a
+# per-user executor (the linked keys) then managed one account. Each took the
+# other's orders for strangers: one adopted the other's resting OPEN/USDT limit
+# with no stop on record, booked its fill with stop 0, and kept that record
+# "open" after the other executor closed the position, so the unprotected
+# alert told a person to place a stop on a position that no longer existed.
+# Adopting a position also places a default stop, and placing one cancels the
+# trigger orders it finds, so the two could take each other's stops off.
+#
+# Keys are not the identity: rotated credentials differ while the account is
+# the same. Bitget's account UID is the identity.
+OPERATOR_ACCOUNT_REFUSAL = (
+    "These keys open the operator's own Bitget account, which the bot already "
+    "trades. Linking it again would put two executors on one account. Nothing "
+    "was stored.")
+
+
+def _operator_bitget_fields(cfg: Any = None) -> Optional[dict]:
+    """The operator's Bitget keys from the running config, or None when unset."""
+    if cfg is None:
+        from bot.config import CONFIG
+        cfg = CONFIG.exchange
+    key = str(getattr(cfg, "api_key", "") or "")
+    secret = str(getattr(cfg, "api_secret", "") or "")
+    passphrase = str(getattr(cfg, "passphrase", "") or "")
+    if not (key and secret and passphrase):
+        return None
+    return {"api_key": key, "api_secret": secret, "passphrase": passphrase}
+
+
+async def same_bitget_account_as_operator(fields: dict, *, cfg: Any = None,
+                                          probe=None) -> Optional[bool]:
+    """Whether ``fields`` open the operator's own Bitget account.
+
+    True or False when both accounts' UIDs were read; None when either could
+    not be (no operator keys, a key without account-read permission, a venue
+    outage). None is not False: the callers say what they could not check
+    rather than call the account a different one. Read-only, never raises.
+    """
+    probe = probe or probe_bitget_key_scope
+    op = _operator_bitget_fields(cfg)
+    if op is None:
+        return None
+    sandbox = venue_sandbox("bitget", cfg)
+    try:
+        theirs = (await probe(fields["api_key"], fields["api_secret"],
+                              fields["passphrase"], sandbox=sandbox)).get("account_uid")
+        ours = (await probe(op["api_key"], op["api_secret"], op["passphrase"],
+                            sandbox=sandbox)).get("account_uid")
+    except Exception:
+        return None
+    if not theirs or not ours:
+        return None
+    return str(theirs) == str(ours)
 
 
 async def validate_bitget_credentials(
