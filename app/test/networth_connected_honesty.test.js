@@ -2,7 +2,7 @@
 // "I cannot reach the bot" and "you have no exchange" are different answers.
 //
 // Net worth gets exchange EQUITY from the bot gateway, but whether an exchange
-// is CONNECTED is the web's own fact — it lives in exchange_status, and the
+// is CONNECTED is the web's own fact — it lives in exchange_venue_status, and the
 // venues panel reads it directly. When the gateway could not answer, net worth
 // said "🏦 Exchange — none connected — connect keys here" while the panel
 // directly above it said "BITGET connected", and the link sent a user off to
@@ -19,7 +19,7 @@ const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'networth.js'), 'u
 const dash = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
 
 test('a gateway failure does not become "no exchange connected"', () => {
-  assert.match(src, /SELECT exchange FROM exchange_status WHERE user_id = \? AND connected = 1/,
+  assert.match(src, /SELECT exchange FROM exchange_venue_status WHERE user_id = \? AND connected = 1/,
     'net worth never consults the web’s own record of connected venues');
   assert.match(src, /connected: true,\s*\n\s*ok: false,/,
     'a connected-but-unreadable exchange must report connected, not absent');
@@ -65,7 +65,7 @@ test('the lookup failing leaves the original answer alone', () => {
   // Asking whether the body is EMPTY is both robust to rewording and stronger.
   // The defect this guards is a catch that assigns something — a fabricated
   // `connected: false` written over a gateway that had already answered.
-  assert.strictEqual(catchBodyAfter(src, 'SELECT exchange FROM exchange_status'), '',
+  assert.strictEqual(catchBodyAfter(src, 'SELECT exchange FROM exchange_venue_status'), '',
     'the catch does something now — a failed DB read must not invent a '
     + "connection state over the gateway's answer");
 });
@@ -87,12 +87,12 @@ test('"none connected" survives only for a genuinely empty account', () => {
 // "FUNDS BY VENUE & WALLET" reads /api/holdings, a different endpoint from the
 // net-worth card, and it carried the identical bug: an empty (or absent)
 // gateway venue list rendered as "none connected — connect keys here" while
-// exchange_status held a working Bitget connection.
+// exchange_venue_status held a working Bitget connection.
 
 const holdings = fs.readFileSync(path.join(__dirname, '..', 'lib', 'holdings.js'), 'utf8');
 
-test('holdings consults exchange_status before claiming none connected', () => {
-  assert.match(holdings, /SELECT exchange FROM exchange_status WHERE user_id = \? AND connected = 1/,
+test('holdings consults exchange_venue_status before claiming none connected', () => {
+  assert.match(holdings, /SELECT exchange FROM exchange_venue_status WHERE user_id = \? AND connected = 1/,
     'the funds-by-venue panel still trusts the gateway alone');
   assert.match(holdings, /if \(!venues\.length\)/,
     'the fallback must only run when the gateway listed no venue');
@@ -108,7 +108,7 @@ test('a failed lookup leaves the gateway answer untouched', () => {
   // catch and the identical comment, and the identical test matched the same
   // prose — so both would have gone quiet together. CLAUDE.md: ask which OTHER
   // surface makes the same claim.
-  assert.strictEqual(catchBodyAfter(holdings, 'SELECT exchange FROM exchange_status'), '',
+  assert.strictEqual(catchBodyAfter(holdings, 'SELECT exchange FROM exchange_venue_status'), '',
     'holdings now writes something on a failed DB read');
 });
 

@@ -231,6 +231,7 @@ class MemoryDB {
   static USER_SCOPED_STORES = {
     pending_credentials: { field: 'pendingCreds' },
     exchange_status: { field: 'exchangeStatus', key: 'user_id' },
+    exchange_venue_status: { field: 'exchangeStatus', key: 'user_id' },
     pending_controls: { field: 'pendingControls' },
     user_controls: { field: 'userControls', key: 'user_id' },
     pending_flatten: { field: 'pendingFlatten' },
@@ -1566,7 +1567,7 @@ class MemoryDB {
       }
       return [[...this.pendingCreds].sort((a, b) => a.created_at - b.created_at), []];
     }
-    if (cmd.includes('INSERT INTO EXCHANGE_STATUS')) {
+    if (cmd.includes('INSERT INTO EXCHANGE_VENUE_STATUS')) {
       // params: user_id, exchange(venue), connected, [last_error] — upsert per
       // (user, venue) so multiple connected exchanges coexist. The success
       // path writes a literal NULL in the SQL and passes 3 params; the
@@ -1587,7 +1588,7 @@ class MemoryDB {
       }
       return [{ affectedRows: 1 }, []];
     }
-    if (cmd.includes('FROM EXCHANGE_STATUS')) {
+    if (cmd.includes('FROM EXCHANGE_VENUE_STATUS')) {
       const rows = this.exchangeStatus[String(params[0])];
       return [Array.isArray(rows)
         ? rows.map(r => ({ connected: r.connected, exchange: r.exchange || 'bitget',
@@ -2408,6 +2409,7 @@ const EXPECTED_TABLES = Object.freeze([
   'bot_sealing_key',
   'pending_credentials',
   'exchange_status',
+  'exchange_venue_status',
   'pending_controls',
   'user_controls',
   'pending_flatten',
@@ -2451,6 +2453,49 @@ async function schemaIsCurrent() {
     return EXPECTED_TABLES.every((t) => have.has(t.toLowerCase()));
   } catch (e) {
     return false;
+  }
+}
+
+/**
+ * The per-(user, venue) connection status, in a table BORN keyed that way.
+ *
+ * `exchange_status` was created keyed on user_id alone, and the migration
+ * that re-keyed it could not run on TiDB (see migrate()). A new table needs
+ * no ALTER, no DROP PRIMARY KEY and no RENAME, so it is created the same way
+ * on every engine, and the legacy table is left exactly as it is.
+ *
+ * Seeded ONCE, from the legacy table, while it is still empty: INSERT IGNORE,
+ * so a pair already present is never overwritten. Through query(), the text
+ * protocol, as all DDL here is. A failed seed is logged with its code and
+ * not thrown: the table is a mirror of what the bot acked, and an empty one
+ * reads "not connected" until the next ack, which is honest; a website that
+ * will not boot over it is not.
+ */
+// The parameter is named `pool` on purpose: migration_ddl.test.js finds every
+// CREATE TABLE by `pool.query(`, and this one must be held to the same checks.
+async function ensureVenueStatusTable(pool) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS exchange_venue_status (
+      user_id INT NOT NULL,
+      exchange VARCHAR(16) NOT NULL DEFAULT 'bitget',
+      connected BOOLEAN DEFAULT FALSE,
+      last_error VARCHAR(200) DEFAULT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, exchange)
+    )
+  `);
+  try {
+    const [rows] = await pool.query('SELECT COUNT(*) AS n FROM exchange_venue_status');
+    const n = Number(rows && rows[0] && rows[0].n);
+    if (n === 0) {
+      await pool.query(`
+        INSERT IGNORE INTO exchange_venue_status (user_id, exchange, connected, last_error, updated_at)
+        SELECT user_id, COALESCE(NULLIF(exchange, ''), 'bitget'), connected, last_error, updated_at
+        FROM exchange_status
+      `);
+    }
+  } catch (e) {
+    console.error('exchange_venue_status seed failed (%s): %s', e.code || e.name, e.message);
   }
 }
 
@@ -2532,12 +2577,14 @@ async function migrate() {
     try {
       await pool.execute('ALTER TABLE users ADD COLUMN x_id VARCHAR(64) DEFAULT NULL');
     } catch (e) { /* exists */ }
-    // Multi-venue exchange keys: exchange_status becomes one row per
-    // (user, venue) so several connected exchanges coexist. DROP+ADD in one
-    // statement is idempotent — re-running recreates the same composite key.
-    try {
-      await pool.execute('ALTER TABLE exchange_status DROP PRIMARY KEY, ADD PRIMARY KEY (user_id, exchange)');
-    } catch (e) { /* already composite / column constraints — fine */ }
+    // Multi-venue exchange keys used to re-key exchange_status here with
+    // `ALTER TABLE ... DROP PRIMARY KEY, ADD PRIMARY KEY (user_id, exchange)`
+    // inside a catch that swallowed every failure. TiDB cannot drop a
+    // clustered integer primary key, so on the production database it never
+    // ran, the table kept PRIMARY KEY (user_id), and every ack's
+    // `ON DUPLICATE KEY UPDATE exchange = ...` rewrote a user's ONE row: a
+    // refused Bybit key overwrote a connected Bitget row. The per-venue table
+    // below is created with its key instead (ensureVenueStatusTable).
     // Alerts 2.0: recurring mode + cooldown on pre-existing deployments.
     try {
       await pool.execute("ALTER TABLE user_alerts ADD COLUMN mode VARCHAR(12) NOT NULL DEFAULT 'once'");
@@ -2983,6 +3030,7 @@ async function migrate() {
     try {
       await pool.execute('ALTER TABLE exchange_status ADD COLUMN last_error VARCHAR(200) DEFAULT NULL');
     } catch (e) { /* column already exists — fine */ }
+    await ensureVenueStatusTable(pool);
     // Pending per-user live-control changes (flags/numbers, not secrets — no
     // encryption). The web queues a change; the bot pulls + applies it via the
     // UserStore (live on/off, per-trade margin cap, pause-to-paper), then acks.
@@ -3471,7 +3519,7 @@ async function withTransaction(fn) {
 
 module.exports = {
   pool, migrate, lastStatement, describeSql, backend, withTransaction,
-  EXPECTED_TABLES, schemaIsCurrent,
+  EXPECTED_TABLES, schemaIsCurrent, ensureVenueStatusTable,
   // Exported for tests. The URL it normalises is the one thing in this process
   // that cannot be exercised end-to-end without a live database, so the string
   // handling is tested directly instead of being trusted.

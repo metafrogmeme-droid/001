@@ -154,7 +154,7 @@ router.get('/status', async (req, res) => {
     const uid = req.user.user_id;
     const u = await _userRow(uid);
     const [st] = await pool.execute(
-      'SELECT connected, exchange, last_error FROM exchange_status WHERE user_id = ?', [uid]);
+      'SELECT connected, exchange, last_error FROM exchange_venue_status WHERE user_id = ?', [uid]);
     const [pend] = await pool.execute(
       `SELECT action, exchange, created_at,
               TIMESTAMPDIFF(SECOND, created_at, CURRENT_TIMESTAMP) AS pending_age_s
@@ -300,7 +300,7 @@ router.delete('/', credLimit, async (req, res) => {
     }
     if (!venue) {
       const [st] = await pool.execute(
-        'SELECT connected, exchange FROM exchange_status WHERE user_id = ?', [uid]);
+        'SELECT connected, exchange FROM exchange_venue_status WHERE user_id = ?', [uid]);
       const first = st.find(r => !!r.connected) || st[0];
       venue = (first && first.exchange) || 'bitget';
     }
