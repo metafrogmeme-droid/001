@@ -206,8 +206,23 @@ class TestThePooledBlock:
     guard only reads back from the committed file is a block whose
     arithmetic nothing checks."""
 
+    _n = 0
+
     def _trade(self, net):
-        return NS(net_pnl_usd=net)
+        # A real fill row, one position each: `pooled_stats` counts positions
+        # (B4-04), and a stand-in shaped like the assertion forgets the next
+        # attribute the reading asks for.
+        from datetime import datetime, timezone
+
+        from bot.backtest.models import BacktestTrade
+        TestThePooledBlock._n += 1
+        t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        return BacktestTrade(
+            trade_id=f"pos-{TestThePooledBlock._n}", symbol="BTC/USDT:USDT", direction="LONG",
+            entry_price=100.0, exit_price=101.0, entry_time=t0, exit_time=t0,
+            quantity=1.0, size_usd=100.0, pnl_usd=net, pnl_pct=net, commission_usd=0.0,
+            slippage_usd=0.0, net_pnl_usd=net, exit_reason="TP", confidence=0.8,
+            risk_verdict="APPROVED")
 
     def test_no_losing_trade_is_no_ratio_and_a_flat_is_neither_side(self):
         from bot.backtest.runner import pooled_stats

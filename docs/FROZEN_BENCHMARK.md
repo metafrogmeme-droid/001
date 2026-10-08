@@ -223,7 +223,8 @@ It carries `data_source` (the frozen dataset's hash — the reader refuses an
 artefact whose hash is not the one in the `manifest.json` beside it, naming
 both, and a test pins the committed pair), `recorded_at`, `code_sha` (the commit it was measured
 at), the fold table and the POOLED figures as data (`pooled`: trades, wins,
-losses, net, win rate, PF — PF is `null` with no losing trade, never `inf`).
+losses, net, win rate, PF — PF is `null` with no losing trade, never `inf` —
+and the fills those trades closed in, `fills`).
 The parity card prints the commit and the date, so an artefact the code has
 moved past reads as old rather than as current; re-run the command and commit
 the file to re-baseline. **This is the "written file" the note above asks
@@ -232,6 +233,15 @@ for**, and the 2026-09-21 artefact reproduced that note exactly: mean OOS
 re-recorded on 2026-09-24 at `73740a1a`, the commit that holds the analyzer's
 limits to the minimum reward:risk (below): mean OOS −0.55%, 0 of 6 folds
 profitable, 129 pooled trades, PF 0.58, on the same `dataset_hash`.
+
+**Every trade count on this page recorded before 2026-10-08 counts fills, not
+positions.** Where the partial-TP ladder ran, a position that reached TP1
+closed in two or three fills, and each fill was counted as a trade and scored
+as a win or a loss on its own. The pooled block now counts positions
+(`trades`) and states the fills beside them (`fills`); the 2026-10-08 record
+below is the first on that basis. Dollar figures are the same on either basis.
+Trade counts, wins, losses and win rates are not, and neither is a profit
+factor wherever one position held both a winning and a losing fill.
 
 **Re-recorded again on 2026-09-26 at `0701fb0a`, the commit that makes TP1's
 breakeven lock breakeven AFTER FEES.** The partial-TP ladder put its post-TP1
@@ -305,6 +315,17 @@ scorecards but not this file (the bisect is in the engineering log). The trades 
 fold's count, and every symbol's count and win rate, match the record above.
 Only the nets of the first and fourth folds moved, by $15.93 in all. DOGE
 moved most, from +$6.86 to −$6.11 in the first fold.
+
+**Re-recorded on 2026-10-08 at `3a550fe2`, the commit that counts positions,
+not fills (audit B4-04).** 125 pooled trades from 129 fills, 62/63, net
+−$1,456.34, PF 0.62, 1 of 6 folds profitable, mean OOS −2.43%, worst −4.58%, on
+the same `dataset_hash`. These are the same fills as the record above, counted
+as the positions they closed. The four fills that are no longer trades of their
+own were winning legs of winning positions, so the wins fall from 66 to 62 and
+the win rate from 51.2% to 49.6%. No position held both a winning and a losing
+fill, so the gross win, the gross loss and the profit factor are unchanged.
+Fold by fold the trades are 50, 8, 21, 11, 22 and 13, from 52, 8, 22, 11, 23
+and 13 fills.
 
 **The stamps above were taken on branches that were rebased before they
 merged.** `afec9d2a`, `cbbf9348`, `d8b0f7d6`, `b8c36630` and `facb316b` do not

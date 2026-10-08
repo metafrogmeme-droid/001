@@ -25,6 +25,7 @@ from bot.backtest.data_loader import DataLoader
 from bot.backtest.engine import BacktestEngine
 from bot.backtest.funding import funding_figure, funding_note
 from bot.backtest.models import BacktestConfig
+from bot.backtest.positions import positions
 from bot.utils.paths import state_path
 
 
@@ -44,7 +45,7 @@ def _format_result_summary(result) -> str:
             f"dur={t.exit_time - t.entry_time}"
         )
     if len(trades) > 20:
-        trade_lines.append(f"  ... and {len(trades) - 20} more trades")
+        trade_lines.append(f"  ... and {len(trades) - 20} more fills")
 
     # Equity curve sparkline (terminal-safe)
     sparkline = _ascii_equity_curve(result.equity_curve)
@@ -135,7 +136,7 @@ def _format_result_summary(result) -> str:
 
 {sparkline}
 
-── TRADE LOG ──────────────────────────────────────────────────────────────
+── TRADE LOG (one line per fill; a laddered position has one per leg) ──────
 
 {chr(10).join(trade_lines) if trade_lines else "  No trades executed."}
 
@@ -217,26 +218,34 @@ def _text_or_none(v):
     return str(v)
 
 
-def public_trade_breakdown(trades) -> list[dict]:
-    """Percent/ratio rows a public scorecard may keep.
+def public_row(t) -> dict:
+    """One public row: percent/ratio fields only.
 
-    Direction, regime, setup, signal type, exit reason, the position's own
-    ``pnl_pct``, confidence, and the entry bar's volume/average. Dollar
-    fields on the trade stay off this list.
+    Direction, regime, setup, signal type, exit reason, the row's own
+    ``pnl_pct``, confidence, the entry bar's volume/average, and how many
+    fills closed the position. Dollar fields on the trade stay off this list.
     """
-    rows: list[dict] = []
-    for t in trades or []:
-        rows.append({
-            "direction": _text_or_none(getattr(t, "direction", None)),
-            "regime": _text_or_none(getattr(t, "entry_regime", None)),
-            "setup": _text_or_none(getattr(t, "setup", None)),
-            "signal_type": _text_or_none(getattr(t, "signal_type", None)),
-            "exit_reason": _text_or_none(getattr(t, "exit_reason", None)),
-            "pnl_pct": _num_or_none(getattr(t, "pnl_pct", None)),
-            "confidence": _num_or_none(getattr(t, "confidence", None)),
-            "volume_spike_ratio": _num_or_none(getattr(t, "volume_spike_ratio", None)),
-        })
-    return rows
+    fills = getattr(t, "fills", None)
+    return {
+        "direction": _text_or_none(getattr(t, "direction", None)),
+        "regime": _text_or_none(getattr(t, "entry_regime", None)),
+        "setup": _text_or_none(getattr(t, "setup", None)),
+        "signal_type": _text_or_none(getattr(t, "signal_type", None)),
+        "exit_reason": _text_or_none(getattr(t, "exit_reason", None)),
+        "pnl_pct": _num_or_none(getattr(t, "pnl_pct", None)),
+        "confidence": _num_or_none(getattr(t, "confidence", None)),
+        "volume_spike_ratio": _num_or_none(getattr(t, "volume_spike_ratio", None)),
+        "fills": fills if isinstance(fills, int) and not isinstance(fills, bool) else None,
+    }
+
+
+def public_trade_breakdown(trades) -> list[dict]:
+    """Percent/ratio rows a public scorecard may keep, one per POSITION.
+
+    A row per fill made a position the partial-TP ladder closed in three
+    fills three rows, two of them winners by construction (audit B4-04).
+    """
+    return [public_row(p) for p in positions(trades)]
 
 
 def _curve_points(result, max_points: int = 300) -> list[dict]:
@@ -411,7 +420,9 @@ def _record_validations_from(all_trades, *, sharpe: float, max_dd: float,
     pooled OOS trades and a per-fold Sharpe rather than one BacktestResult, and
     a second copy of a reading is a second answer.
     """
-    trades = [t for t in all_trades
+    # One record per POSITION (audit B4-04): a laddered position's fills were
+    # two or three rows here, the ladder's legs winners by construction.
+    trades = [t for t in positions(all_trades)
               if str(getattr(t, "setup", "") or "").strip()]
     if not trades:
         print("  Validation gate: NOT recorded — no trade carried a strategy_type.")
@@ -885,8 +896,8 @@ def _trend_alignment(trade) -> str:
 def _risk_adjusted(result) -> dict:
     """Sortino + Calmar from the trade series and equity curve. Sharpe already
     lives on the result. Sortino uses downside deviation of per-trade net PnL;
-    Calmar = total return % / max drawdown %."""
-    pnls = [t.net_pnl_usd for t in result.trades]
+    Calmar = total return % / max drawdown %. One PnL per position."""
+    pnls = [t.net_pnl_usd for t in positions(result.trades)]
     sortino = 0.0
     if len(pnls) >= 2:
         import statistics
@@ -911,10 +922,12 @@ _ATTRIB_DIMENSIONS = (
 def _bucket_lines(trades) -> list[str]:
     """Render the per-dimension P&L buckets (regime / setup / signal type /
     trend alignment) for a trade set. Shared by the single-run report and the
-    pooled walk-forward report so both surface the same cuts."""
+    pooled walk-forward report so both surface the same cuts. Counted per
+    position: the fills of one position are one row in a bucket."""
     lines: list[str] = []
+    held = positions(trades)
     for title, key_fn in _ATTRIB_DIMENSIONS:
-        stats = _group_stats(trades, key_fn)
+        stats = _group_stats(held, key_fn)
         if not stats or (len(stats) == 1 and "(unknown)" in stats):
             continue
         lines.append(f"  {title}:")
@@ -953,15 +966,22 @@ def pooled_stats(trades) -> dict:
     print ``inf`` there, which reads as a measurement of infinite edge; the
     parity card had the same ``inf`` one module over (`parity._pf`), and both
     answer None now. ``mean_net_usd`` is the per-trade mean the parity verdict
-    compares the live book against."""
-    n = len(trades)
-    nets = [float(t.net_pnl_usd) for t in trades]
+    compares the live book against.
+
+    A trade is a POSITION (audit B4-04); ``fills`` counts the rows behind it.
+    The live book records one outcome per position, so the parity verdict
+    compared a per-position live mean with a per-fill benchmark mean."""
+    rows = list(trades or [])
+    held = positions(rows)
+    n = len(held)
+    nets = [float(t.net_pnl_usd) for t in held]
     wins = sum(1 for x in nets if x > 0)
     losses = sum(1 for x in nets if x < 0)
     gross_win = sum(x for x in nets if x > 0)
     gross_loss = sum(-x for x in nets if x < 0)
     return {
         "trades": n,
+        "fills": len(rows),
         "wins": wins,
         "losses": losses,
         "flat": n - wins - losses,
@@ -1149,7 +1169,9 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
                 "profitable_folds": prof,
                 "mean_oos_return_pct": mean_oos,
                 "worst_oos_return_pct": min(rets) if rets else None,
-                "pooled_trades": len(pooled),
+                # Positions, not fills (audit B4-04): `pooled.fills` counts
+                # the rows behind them.
+                "pooled_trades": pooled_stats(pooled)["trades"],
                 # The same reading the console printed above, as data.
                 "pooled": pooled_stats(pooled),
                 "data_source": data_source,

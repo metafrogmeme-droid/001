@@ -225,14 +225,15 @@ test('Momentum Hunter grids the frozen figures, and a thin sample stays marked',
   assert.equal(cell(parsed, 'Return').text, '+0.45%');
   assert.equal(pf.text, '1.80');
   gain(pf.cls);
-  assert.equal(cell(parsed, 'Win rate').text, '60%');
+  assert.equal(cell(parsed, 'Win rate').text, '33%');
   neutral(cell(parsed, 'Win rate').cls);
   assert.equal(dd.text, '0.57%');
   neutral(dd.cls);
   assert.equal(sh.text, '-0.49');
   loss(sh.cls);
-  assert.equal(cell(parsed, 'Trades').text, '5');
-  assert.match(html, /low sample · 5 trades/);
+  // Positions, not the ladder's fills (B4-04): it closed 3 positions in 5 fills.
+  assert.equal(cell(parsed, 'Trades').text, '3');
+  assert.match(html, /low sample · 3 trades/);
   assert.doesNotMatch(parsed.grid, /backtest</);
 });
 
@@ -350,7 +351,7 @@ test('the public strategy page uses the same reading and a 3-column grid', () =>
   assert.equal(stratCell(mom, 'profit-factor').cls, 'up');
   assert.equal(stratCell(mom, 'sharpe').cls, 'down');
   assert.equal(stratCell(mom, 'max-dd').cls, '');
-  assert.match(mom, /low sample · 5 trades/);
+  assert.match(mom, /low sample · 3 trades/);
 
   const unread = strategyBlock({
     metrics: { profit_factor: '', sharpe_ratio: null, max_drawdown_pct: NaN,

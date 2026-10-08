@@ -181,10 +181,12 @@ def _fold(k, trades=5, ret=0.5, sharpe=1.2, dd=1.0):
     return {"fold": k, "oos_start": "a", "oos_end": "b", "trades": trades,
             "return_pct": ret, "win_rate": 0.6, "max_dd_pct": dd,
             "profit_factor": 1.3, "sharpe": sharpe, "per_symbol": {},
-            "_trades": [_trade("swing")] * trades}
+            # One position each: the pooled count is of positions (B4-04),
+            # so a fold of N trades is N distinct `trade_id`s.
+            "_trades": [_trade("swing", tid=f"f{k}-{i}") for i in range(trades)]}
 
 
-def _trade(setup, pnl=1.0):
+def _trade(setup, pnl=1.0, tid=None):
     """A real BacktestTrade, not a stub.
 
     The first draft used a hand-rolled object carrying only the two attributes
@@ -193,7 +195,7 @@ def _trade(setup, pnl=1.0):
     rather than like the type can pass for a reason unrelated to the rule.
     """
     return BacktestTrade(
-        trade_id=f"t-{setup or 'none'}-{pnl}", symbol=SYMS[0], direction="LONG",
+        trade_id=tid or f"t-{setup or 'none'}-{pnl}", symbol=SYMS[0], direction="LONG",
         entry_price=100.0, exit_price=101.0,
         entry_time=datetime(2026, 1, 1, tzinfo=UTC),
         exit_time=datetime(2026, 1, 1, 4, tzinfo=UTC),
@@ -370,6 +372,24 @@ def test_the_walk_forward_records_oos_evidence(frozen, gate, monkeypatch, tmp_pa
     _run(_args(dataset="ds", walk_forward=2, output=out))
     assert [r["strategy_name"] for r in gate.recorded] == ["swing"]
     assert gate.recorded[0]["total_trades"] == 10      # pooled across folds
+
+
+def test_the_pooled_count_is_of_positions_not_fills(frozen, gate, monkeypatch, tmp_path):
+    """Audit B4-04: a position the partial-TP ladder closed in two fills is
+    one pooled trade, in the record's top line and in its pooled block, and
+    the fills behind it are stated beside it."""
+    fold = _fold(0, trades=2)
+    fold["_trades"] = [_trade("swing", 2.0, tid="p1"), _trade("swing", -1.0, tid="p1"),
+                       _trade("swing", -3.0, tid="p2")]
+    _folds(monkeypatch, [fold])
+    out, p = _written(tmp_path)
+    _run(_args(dataset="ds", walk_forward=1, output=out))
+    d = json.loads(p.read_text())
+    assert d["pooled_trades"] == 2
+    assert (d["pooled"]["trades"], d["pooled"]["fills"]) == (2, 3)
+    # p1 netted +1.0 over its two fills: one win, one loss, not 1W/2L.
+    assert (d["pooled"]["wins"], d["pooled"]["losses"]) == (1, 1)
+    assert gate.recorded[0]["total_trades"] == 2
 
 
 def test_the_mean_oos_sharpe_excludes_folds_that_never_traded(frozen, gate, monkeypatch,

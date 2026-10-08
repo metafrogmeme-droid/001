@@ -20861,7 +20861,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1243** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1244** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -21456,6 +21456,68 @@ cards; the router through `classify_rules`; the venue reader both doors
 call; `/rwa` on both surfaces and `/etf`.
 (`app/test/a_drawdown_is_a_magnitude_and_a_zero_profit_factor_is_a_loss.test.js`,
 `tests/test_the_radar_doors_take_their_phrasings.py`.)
+
+**A BACKTEST COUNTED THE LADDER'S FILLS AS TRADES.** Audit B4-04, left with
+the owner in the side-gate chapter above and taken up on 8 October. Every
+`--honest` run turns on the partial-TP ladder (`BACKTEST_PARTIAL_TP`). A
+position that reaches TP1 closes in two or three fills: TP1 banks half at
++1.5R, TP2 three tenths at +2.5R, and the runner closes the rest. Each fill is
+a `BacktestTrade` row carrying the position's `trade_id`, and every count read
+those rows. TP1 and TP2 fire only in profit, so a position that reached TP1
+put one or two extra winning rows in, while a position stopped before TP1 put
+one losing row in. Read over fills:
+- the trade count, the win rate, the average and largest win, and the average R;
+- the loss streak, which a TP1 fill inside a losing position broke;
+- the profit factor, wherever one position held both a winning and a losing
+  fill;
+- the attribution buckets, the Sortino ratio, the validation gate's per-setup
+  counts, the portfolio's per-symbol table and the scorecard's public
+  breakdown.
+
+Momentum Hunter's card said 5 trades at a 60% win rate. It held 3 positions,
+and one of them won.
+
+`bot/backtest/positions.py::positions` is now the one reading. It groups the
+fills by `trade_id` and orders the positions by their final fill, the moment
+each outcome is known, so a streak read in that order is a streak of outcomes.
+A position wins when its fills' net PnL sums above zero, loses below and is
+flat at exactly zero, the engine's BT-L rule. Its R is its fills' R weighted by
+the quantity each closed (`position_rr`). Dollar totals are the same either
+way. The fills stay on record: the result carries `total_fills`, the pooled
+block `fills`, each public breakdown row `fills`, and the trade log prints one
+line per fill and now says so.
+
+Re-run at the commit that made the change, on the same `dataset_hash`es:
+- the majors record: 129 trades became 125 positions from the same 129 fills,
+  66/63 became 62/63, and the win rate fell from 51.2% to 49.6%. Net
+  −$1,456.34, PF 0.62 and the folds' returns are unchanged.
+- Full Scan: 11 trades at 36% became 9 at 22%; PF 0.21 unchanged.
+- Momentum Hunter: 5 trades at 60% became 3 at 33%; PF 1.80 unchanged.
+- Dip Sniper, ETH MA trend and Safe Scalper closed no position in more than one
+  fill, and read as before.
+
+Every count published before this change is a count of fills, and
+`docs/FROZEN_BENCHMARK.md` says so above its records. The validation gate
+still scores a setup's wins on gross `pnl_usd`, now per position. Whether it
+should read net is the owner's call.
+
+Seven test files built their trades with one shared `trade_id`, or with a
+stand-in that had none. Under the new reading each of those fixtures was a
+single position, and eleven tests failed on the fixture, not on the code. Each
+row now carries its own id, which is what the engine writes. A fixture has to
+be able to produce the state it names, and here that state was "many trades".
+
+Driven: `tests/test_a_backtest_counts_positions_not_fills.py` runs the real
+ladder through `_check_ladder_intrabar` and `_close_position`. It covers a
+position whose TP1 fill won and whose runner gapped through the stop (one
+loss, not a win and a loss) and a position whose runner gave back part of TP1
+(one win, no loss). Twenty mutants each put one reading back on fills. On the
+first round two survived. The average-R test computed its expected value with
+`position_rr` itself, so a `position_rr` that ignored quantity moved both
+sides of the assertion. And no fixture had a winning position holding a
+losing fill, so counting losers over fills changed nothing. Both have tests of
+their own now, with figures worked out by hand, and both mutants are killed.
+(`bot/backtest/positions.py`, `tests/test_a_backtest_counts_positions_not_fills.py`.)
 
 ## Deploying so a dead bot cannot look like a live one
 

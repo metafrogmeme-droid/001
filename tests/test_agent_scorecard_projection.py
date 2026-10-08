@@ -13,7 +13,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from bot.backtest.runner import public_trade_breakdown
+from bot.backtest.runner import public_row
 from scripts.gen_agent_scorecards import (
     PUBLIC_METRICS,
     build_card,
@@ -41,7 +41,7 @@ def _runner(**over):
             {"direction": "SHORT", "regime": "TREND_DOWN", "setup": "swing",
              "signal_type": "regime_trend", "exit_reason": "SL",
              "pnl_pct": -1.2, "confidence": 0.81, "volume_spike_ratio": 2.4,
-             "pnl_usd": -8.0, "size_usd": 100.0},
+             "fills": 3, "pnl_usd": -8.0, "size_usd": 100.0},
             {"direction": "LONG", "regime": "TREND_DOWN", "setup": "scalp",
              "signal_type": "vwap_reversion", "exit_reason": "TP",
              "pnl_pct": 0.4, "confidence": 0.9, "volume_spike_ratio": None},
@@ -88,6 +88,10 @@ def test_public_metrics_are_a_projection_of_the_runner_json():
     assert card["trades"][0]["pnl_pct"] == -1.2
     assert card["trades"][0]["volume_spike_ratio"] == 2.4
     assert card["trades"][1]["volume_spike_ratio"] is None
+    # A row is a position (audit B4-04) and says how many fills closed it. A
+    # row that did not say is not one fill and not none.
+    assert card["trades"][0]["fills"] == 3
+    assert card["trades"][1]["fills"] is None
 
 
 def test_a_missing_metric_is_not_written_as_zero():
@@ -128,12 +132,14 @@ def test_breakdown_drops_dollar_fields_and_keeps_a_missing_ratio():
         volume_spike_ratio = None
         pnl_usd = -15.0
         size_usd = 200.0
+        fills = 2
 
-    rows = public_trade_breakdown([_Trade()])
+    rows = [public_row(_Trade())]
     assert rows == [{
         "direction": "SHORT", "regime": "TREND_DOWN", "setup": "swing",
         "signal_type": "regime_trend", "exit_reason": "SL",
         "pnl_pct": -0.4, "confidence": 0.72, "volume_spike_ratio": None,
+        "fills": 2,
     }]
     assert "pnl_usd" not in rows[0]
 

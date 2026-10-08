@@ -1,7 +1,7 @@
 {
   "agent_id": "momentum-hunter",
   "bars": 1500,
-  "code_sha": "3d819d1adefe6476d684698119051b1b39290e23",
+  "code_sha": "3a550fe2c30e64f3e824b4c51b3e5d0dfa01b5ed",
   "dataset": "majors_1h",
   "dataset_hash": "8dbe73514ce8d2aeecd767a193c005cd1a179221bdce5df2cbe4ded2886bde36",
   "engine": "runeclaw.backtest",
@@ -23,8 +23,8 @@
     "sharpe_ratio": -0.49,
     "sortino_ratio": -0.1,
     "total_return_pct": 0.45,
-    "total_trades": 5,
-    "win_rate": 0.6
+    "total_trades": 3,
+    "win_rate": 0.3333
   },
   "metrics": {
     "calmar_ratio": 4.57,
@@ -33,12 +33,12 @@
     "sharpe_ratio": -0.49,
     "sortino_ratio": -0.1,
     "total_return_pct": 0.45,
-    "total_trades": 5,
-    "win_rate": 0.6
+    "total_trades": 3,
+    "win_rate": 0.3333
   },
   "note": "Design backtest on FROZEN benchmark data \u2014 percent/ratio only, never a dollar figure. Re-run the identical backtest in the Strategy Lab to reproduce.",
   "preset": "momentum hunter",
-  "recorded_at": "2026-10-08T04:04:08+00:00",
+  "recorded_at": "2026-10-08T07:40:10+00:00",
   "symbols": [
     "BTC/USDT:USDT",
     "ETH/USDT:USDT",
@@ -48,28 +48,9 @@
     {
       "confidence": 0.64,
       "direction": "LONG",
-      "exit_reason": "TP1",
-      "pnl_pct": 1.78,
-      "regime": "RANGE",
-      "setup": "swing",
-      "signal_type": "volume_spike",
-      "volume_spike_ratio": 3.032
-    },
-    {
-      "confidence": 0.64,
-      "direction": "LONG",
-      "exit_reason": "TP2",
-      "pnl_pct": 2.99,
-      "regime": "RANGE",
-      "setup": "swing",
-      "signal_type": "volume_spike",
-      "volume_spike_ratio": 3.032
-    },
-    {
-      "confidence": 0.64,
-      "direction": "LONG",
       "exit_reason": "TRAILING_SL",
-      "pnl_pct": 2.72,
+      "fills": 3,
+      "pnl_pct": 2.33,
       "regime": "RANGE",
       "setup": "swing",
       "signal_type": "volume_spike",
@@ -79,6 +60,7 @@
       "confidence": 0.81,
       "direction": "LONG",
       "exit_reason": "SL",
+      "fills": 1,
       "pnl_pct": 0.1,
       "regime": "TREND_UP",
       "setup": "swing",
@@ -89,6 +71,7 @@
       "confidence": 0.7,
       "direction": "LONG",
       "exit_reason": "SL",
+      "fills": 1,
       "pnl_pct": -1.08,
       "regime": "TREND_UP",
       "setup": "swing",
