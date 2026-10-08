@@ -379,3 +379,68 @@ def test_a_check_on_testnet_names_testnet_and_asks_nowhere_else(monkeypatch):
     ok, detail = asyncio.run(ec.validate_bybit_credentials(KEY, SECRET, sandbox=True))
     assert ok is False and seen == ["testnet"]
     assert "Bybit testnet does not know this API key (code 10003)" in detail
+
+
+# ── Bitget's refusals, said as instructions ──────────────────────────────────
+
+def _bitget(monkeypatch, answer) -> list:
+    """Bitget answering every probe with ``answer``: "ok", a code, or an exception."""
+    seen: list = []
+
+    async def fetch_balance(self, params=None):
+        seen.append(_in_sandbox(self))
+        if answer == "ok":
+            return {"USDT": {"free": 5.0, "used": 0.0}}
+        if isinstance(answer, BaseException):
+            raise answer
+        raise AuthenticationError('bitget {"code":"%d","msg":"refused","requestTime":1,"data":null}'
+                                  % answer)
+
+    monkeypatch.setattr(ccxt_async.bitget, "fetch_balance", fetch_balance)
+    return seen
+
+
+@pytest.mark.parametrize("code,words", [
+    (40006, "does not know this API key"),
+    (40037, "has no such API key"),
+    (40009, "this API secret is not the key's"),
+    (40010, "this API secret is not the key's"),
+    (40012, "not the account password"),
+    (40014, "lacks permission"),
+    (40018, "this server's IP"),
+    (40004, "this server's clock is off"),
+    (40008, "this server's clock is off"),
+])
+def test_each_bitget_refusal_says_what_to_fix(monkeypatch, code, words):
+    seen = _bitget(monkeypatch, code)
+    ok, detail = asyncio.run(ec.validate_bitget_credentials(*_CREDS["bitget"].values()))
+    assert ok is False and seen == [False], "only 40099 asks the other environment"
+    assert words in detail and f"code {code}" in detail
+    assert '"code"' not in detail and "{" not in detail
+
+
+def test_a_bitget_refusal_with_no_sentence_keeps_bitget_s_words(monkeypatch):
+    _bitget(monkeypatch, 40013)
+    ok, detail = asyncio.run(ec.validate_bitget_credentials(*_CREDS["bitget"].values()))
+    assert ok is False and "40013" in detail
+    _bitget(monkeypatch, NetworkError("bitget timed out"))
+    ok, detail = asyncio.run(ec.validate_bitget_credentials(*_CREDS["bitget"].values()))
+    assert ok is False and detail.startswith("NetworkError")
+
+
+def test_every_bitget_sentence_fits_the_website_s_ack():
+    for s in ec._BITGET_REFUSALS.values():
+        assert len(s) <= 180, (len(s), s)
+
+
+def test_connect_says_bitget_s_refusal_and_stores_nothing(monkeypatch):
+    from bot.skills.telegram_handler import TelegramHandler
+    _bitget(monkeypatch, 40012)
+    monkeypatch.setattr(ec, "get_credential_store", lambda: _Store())
+    _Store.saved = None
+    host = _ConnectHost()
+    asyncio.run(TelegramHandler._cmd_connect(
+        host, _update(), SimpleNamespace(args=list(_CREDS["bitget"].values()))))
+    assert _Store.saved is None
+    assert "Nothing was stored" in host.sent[-1]
+    assert "not the account password" in host.sent[-1] and "requestTime" not in host.sent[-1]
