@@ -1,41 +1,83 @@
 {
-  "_comment": "PROPOSED BASELINE for the FALLBACK venue (Smithii no-code launchpad). Devnet/draft. Ratify before launch — docs/TOKEN_ROADMAP.md §6, §13. NOT read by any code: an operator transcribes these values into Smithii's UI (RUNBOOK Path B), which is exactly why a wrong value here becomes a published sale term with nothing in between.",
-  "_parityNote": "CORRECTION 2026-07-27. This file used to claim it 'Mirrors the Metaplex Genesis params so the two are interchangeable'. It did not, and they were not. Three values diverged, each making the fallback venue's terms differ from the primary one's: refundIfSoftCapMissed was true against Genesis's false, autoListPercentOfRaise was 60 against 6667 bps (66.67%), and lpLockMonths was 12 against a permanent never-claim lock. The refund one mattered most — metaplex-genesis.config.json documents that flag as a promise that must not ship, and derivePresaleParams() THROWS if it is flipped, so the primary venue could not publish it even by mistake while the fallback published it by default. venue_parity.test.mjs now machine-checks every shared field, so 'mirrors' is a checked claim rather than a comment.",
+  "_comment": "VENUE OF RECORD for the $RCLAW presale since 2026-10-08 (operator decision: stay on Smithii's no-code launchpad, which runs the Mantis Protocol program on Solana mainnet-beta). The sale itself reads none of this: an operator transcribes these values into Smithii's form (RUNBOOK Path B), so a wrong value here becomes a published sale term with nothing in between. What DOES read it: smithii_lib.mjs derives every number the form should show (npm run presale:smithii-plan); smithii_verify.mjs reads the created launch back off the chain and compares it with this file (npm run presale:smithii-verify); venue_parity.test.mjs holds every published term to what the program enforces. WHAT CHANGED: until 2026-10-08 this file was the fallback and claimed to mirror Metaplex Genesis - buyer vesting of 33% at TGE then linear over two months, a 48h whitelist round, 66.67% of the raise auto-listed into a never-claim LP. CoinFabrik's audit of the program, Smithii's published SDK and live mainnet transactions show the program enforces none of those four things, so this file now says what the program does. See disclosures, docs/TOKEN_ROADMAP.md section 6 and the engineering log.",
   "venue": "smithii-launchpad",
-  "cluster": "devnet",
+  "cluster": "mainnet-beta",
+  "program": {
+    "name": "Smithii Mantis Protocol",
+    "id": "mntsCeVAzanrbTT3gZZzkeJMNJjeXAnPqy5AQhBUkVU",
+    "instructions": ["initialize", "edit", "buy", "claim", "withdraw"],
+    "_instructionsNote": "The five instructions the audit's scope lists (src/instructions/buy, claim, edit, initialize, withdraw) and Smithii's SDK wraps. There is no refund, vest, allowlist or liquidity instruction, which is where the 'not possible' rows in disclosures come from. A program can contain instructions an SDK does not wrap; the audit's file list says this one does not.",
+    "upgradeAuthority": "CyTc1wUKbuDd8ba7bsJrFaqXbhnBPbCte8FxSs2p7KTC",
+    "upgradeAuthorityIsPda": true,
+    "lastDeployedSlot": 274731729,
+    "lastDeployedAt": "2024-06-29T18:27:54Z",
+    "measuredAt": "2026-10-08",
+    "_measuredNote": "getAccountInfo(program) names the ProgramData account; getAccountInfo(ProgramData) gives the upgrade authority and the deploy slot; getBlockTime(slot) gives the date - all on api.mainnet-beta.solana.com, read at slot 454606166. 'Is a PDA' means the 32 bytes do not decompress to an ed25519 point, so no private key exists for them; the test was checked in both directions against a real token account (the derived ATA of the RCLAW holder equalled the on-chain account) before it was relied on. The signer threshold and members behind it are not observable. Re-run npm run presale:smithii-verify before launch: both values moving would change what the disclosures say."
+  },
   "platformFee": {
-    "baseSol": 0.1,
-    "percentOfSales": "<CONFIRM_ON_SMITHII>"
+    "creationSol": 0.1,
+    "creationSolWithWhitelistPhase": 0.2,
+    "percentOfEachPurchase": 2.5,
+    "receiver": "5KgfWjGePnbFgDAuCqxB5oymuFxQskvCtrw6eYfDa7fj",
+    "_note": "OBSERVED on mainnet, not read from a doc. Creation: an initialize transaction on 2026-10-06 (no whitelist phase) moved exactly 0.1 SOL to the receiver. Purchase: on 2026-09-25 a buy of 0.5 SOL moved 0.4875 SOL to the launch authority and 0.0125 SOL (2.5%) to the receiver in the same transaction, and the buyer's recorded purchase was the full 0.5 SOL - so the 2.5% comes out of the CREATOR's proceeds and the buyer is credited the gross amount. CoinFabrik's report says the fee is 'paid by the buyer'; the transaction is better evidence than the prose. creationSolWithWhitelistPhase is from the audit's text (200,000,000 against 100,000,000 lamports) and has not been observed. How odd amounts round has not been observed either."
   },
   "token": {
     "symbol": "RCLAW",
-    "mint": "<FILL_FROM token/.artifacts/token.devnet.json>",
-    "decimals": 9
+    "mint": "rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71qBK2CaNe",
+    "decimals": 9,
+    "standard": "SPL Token (classic)",
+    "_note": "The mint is read from token/config/rclaw.mainnet.json, the one record the website and the bot read; venue_parity.test.mjs fails if this copy differs. Per the audit the program is not compatible with Token-2022 (its audit also lists 'legacy token accounts' as unsupported, and the SDK reads the signer's balance from the signer's ASSOCIATED token account, so the balance must sit there). RCLAW is a classic SPL Token and its whole supply sits in one ATA (read 2026-10-08), with mint and freeze authority both revoked. The live program enforces both requirements: between 2026-02-27 and 2026-10-08 its Initialize refused 43 mints with an active freeze authority (FreezeAuthorityError, 6025) and 3 with an active mint authority (MintAuthorityError, 6026), and refused Token-2022 mints (AccountOwnedByWrongProgram, 3007; it expects the classic Token program)."
   },
   "sale": {
+    "paymentCurrency": "SOL",
+    "priceSol": "0.00003333333",
+    "_priceNote": "Exactly what is typed into Sale Price. The program stores a price as a whole number of lamports per token, and Smithii's SDK (whose comments say it preserves the site's behaviour where it can) computes Math.floor(price * 1e9): 0.00003333333 SOL is 33,333.33 lamports and is stored as 33,333 = 0.000033333 SOL, which is 30,000.30 RCLAW per SOL, not the 30,000 that the form's Sale Rate line shows (it divides 1 by the typed price: 30,000.003). Rounding to nearest gives the same 33,333 here, so only a round-UP would differ. That is 0.001% in the buyer's favour and immaterial, but the PUBLISHED rate must be the stored one. The first presale:smithii-verify after Create confirms the site stored what the SDK predicts.",
     "presaleAllocation": "150000000",
     "softCapSol": 1000,
     "hardCapSol": 5000,
     "minContributionSol": 0.25,
     "maxContributionSol": 25,
+    "_perWalletNote": "Cumulative per wallet per phase, not per purchase, going by the live program's own refusals in failed Buy transactions (read 2026-10-08): UserReachMaxAmountError ('You've reached the maximum purchase amount available in this phase') and MaxAmountError ('The purchase amount must be lower than the quantity left you have available to buy'), thrown at src/state/launch.rs:200 and :203. The messages say it; no over-limit purchase was attempted here to prove it. Per wallet, not per person: a buyer with more wallets is not limited.",
     "refundIfSoftCapMissed": false,
-    "_refundNote": "FALSE, and it may not be flipped on the strength of a venue feature list. It read true here while metaplex-genesis.config.json carried a proven finding that there is NO refund instruction for a V2 presale (withdrawPresaleV1 and withdrawUnsoldPresaleV1 both reject a V2 genesis account, 0x2f) and a derivePresaleParams() guard that throws if the flag is set. Whether SMITHII's contract can refund is a separate and UNVERIFIED question — nothing in this repository has executed a refund on Smithii or read its program. Treat it exactly as the primary venue treats its own: the promise ships only after the refund path is executed on devnet and the transaction published. Until then the terms must not promise a refund at either venue, so switching venues cannot silently change what buyers were told."
+    "_softCapNote": "DESCRIPTIVE. The program stores softcap and never reads it (CoinFabrik: 'the softcap value is not used in this version of the protocol'; nothing in buy, claim or withdraw is conditional on it). A sale that ends below it still ends, buyers can still claim, and the operator holds whatever was raised.",
+    "_refundNote": "MUST stay false. Each purchase pays the creator directly (see platformFee._note), so no program account holds buyers' SOL and the program has no instruction that returns a payment. A refund would be the operator sending SOL by hand, and could not return Smithii's 2.5% unless the operator paid it from their own funds."
   },
   "whitelist": {
-    "enabled": true,
-    "phaseHours": 48
+    "enabled": false,
+    "_note": "The program has no wallet whitelist. Its 'whitelist phase' is an earlier time window with its own price, per-buyer minimum and maximum and a total limit; buy() takes an amount and nothing else - no proof, no list - so anyone can buy during it (CoinFabrik: 'there is no real list of users, it's as public as the public phase'; confirmed against the SDK's buy payload). Turning it on also raises the creation fee to 0.2 SOL (per the audit; not observed). A whitelist phase with price 0 is switched off, which is how this sale runs. The 48h early round the roadmap used to describe is dropped, not folded into the public phase."
   },
   "publicPhaseHours": 72,
   "vesting": {
-    "tgeUnlockPercent": 33,
-    "linearMonthsAfterTge": 2
+    "enabled": false,
+    "tgeUnlockPercent": 100,
+    "linearMonthsAfterTge": 0,
+    "_note": "The program cannot vest. claim() takes no arguments and runs once per buyer: when the public phase ends or the hard cap is reached, every buyer can claim 100% of what they bought. The 33%-at-TGE-then-linear schedule exists only in metaplex-genesis.config.json."
   },
   "liquidity": {
-    "autoListPercentOfRaise": 66.67,
-    "_autoListNote": "Was 60. Genesis encodes raisedSolToLiquidityBps: 6667 on chain, so 60 here would have sent 6.67pp less of the raise to the pool at the fallback venue than at the primary one — a thinner pool and a lower opening price for the same raise, decided by which venue the operator happened to use. If Smithii's field only accepts an integer, enter 67 and record the rounding: UP is the buyer-safe direction (more SOL against a fixed token side opens the pool HIGHER and deeper), and metaplex-genesis.config.json's liquidity._liquidityPricing_comment explains why the above-presale-price side is the recoverable one.",
+    "createdBy": "the operator, after the sale, on Raydium",
+    "enforcedByProgram": false,
     "dex": "raydium",
-    "lpLock": "never-claim (permanent)",
-    "lpLockMonths": null,
-    "_lpLockNote": "Was 12 months. Genesis uses createNeverClaimSchedule() — a PERMANENT lock with no expiry — and 'the LP unlocks in a year' is a materially different product from 'the LP is never claimable', not a config detail. UNVERIFIED: nothing here has confirmed Smithii's launchpad can express a permanent lock. If it cannot, the fallback is NOT equivalent to the primary venue, and the difference must be re-ratified and published before the sale rather than discovered by a holder reading the pool afterwards. RUNBOOK Path B makes this a blocking check."
+    "launchPriceSol": "0.00003333333",
+    "_launchPriceNote": "What is typed into LP Launch Price. It is NOT an on-chain field - initialize carries the hard cap, soft cap, payment method, the two phases and the whitelist limit and nothing else - so it is a statement on the sale page that the program cannot keep. It is set equal to the sale price on purpose: a pool opening below what buyers paid is the one outcome docs/TOKEN_ROADMAP.md section 4 calls unrecoverable, and the operator, who creates the pool after the raise is known, can honour parity at any raise.",
+    "intendedPercentOfGrossRaise": 66.67,
+    "lpDisposition": "burn",
+    "lpLock": "burned by the operator after the pool is created; not enforced by the program",
+    "lpLockMonths": null
+  },
+  "unsold": {
+    "mechanism": "withdraw: one call by the launch authority once the sale has ended; a second call is refused (the withdrawal-observer account)",
+    "destination": "the signing wallet; the operator intends to move it to the reserve allocation and publish that transaction",
+    "_note": "Create escrows hard cap / price tokens in a vault owned by the launch - verified on a live third-party sale, where a 140 SOL hard cap at 400 lamports per token held 350,000,000 tokens. Whatever is not sold comes back through withdraw, so a short raise strands nothing, unlike the Genesis path, which needed a rollover behaviour for that."
+  },
+  "disclosures": {
+    "_comment": "Facts about THIS sale that Smithii's form and marketing do not state, each established by reading the audit, the SDK or the chain rather than by assumption. presale:smithii-plan prints them in full so the sale cannot be planned without them being seen, and each must appear in the published terms (venue_parity.test.mjs checks the GitBook states them). Do not delete an entry because it is unflattering - that is the entire point of the block. Measured 2026-10-08.",
+    "noRefund": "There is no refund, at any raise level, and the operator cannot add one inside the program. Each purchase sends Smithii's 2.5% to Smithii and the rest straight to the wallet that signed Create (observed 2026-09-25: a 0.5 SOL purchase moved 0.4875 SOL to the sale's creator and 0.0125 SOL to Smithii's fee wallet in one transaction), so no program account holds buyers' SOL, and the program's five instructions (initialize, edit, buy, claim, withdraw) include none that returns a payment. Any refund RUNECLAW chose to make would be the operator sending SOL by hand, and could not return Smithii's 2.5% unless the operator paid it from their own funds. Published terms must not promise a refund of any kind.",
+    "softCapNotEnforced": "sale.softCapSol is DESCRIPTIVE. The program stores it and never reads it (CoinFabrik: 'the softcap value is not used in this version of the protocol'), so a sale that ends below it still ends, buyers can still claim, and the operator holds whatever was raised. Published terms must call it a target and must not describe it as a floor. What the operator will do if the raise ends below it is a decision to make and publish BEFORE the sale; the contract will not make it.",
+    "noBuyerVesting": "There is no buyer vesting. claim() takes no arguments and runs once per buyer: when the public phase ends or the hard cap is reached, every buyer can claim 100% of what they bought. At the hard cap that is about 150.0 million RCLAW (15% of supply) that can be sold into the pool the moment it exists. The 33%-at-TGE-then-linear schedule this roadmap used to publish exists only on the Genesis path.",
+    "noWalletWhitelist": "There is no wallet whitelist. The program's 'whitelist phase' is an earlier time window with its own price and limits, and buy() takes only an amount, so anyone can buy during it. This sale runs without one, and so without an early round for chosen wallets; per-wallet limits are per wallet, not per person, and are bypassable by using more wallets.",
+    "liquidityIsAnOperatorAction": "The program never touches liquidity. It has no instruction that creates a pool, and the form's LP Launch Price is not an on-chain field. The operator creates the pool on Raydium after the sale, from SOL the operator received and RCLAW the operator holds, and burns the LP tokens. Both are verifiable on-chain afterwards; neither is enforced beforehand, and the LP price shown on the sale page is a promise the program cannot keep. The operator must publish the pool address and the burn transaction.",
+    "programIsUpgradeable": "The sale runs on Smithii's Mantis program (mntsCeVAzanrbTT3gZZzkeJMNJjeXAnPqy5AQhBUkVU), which is UPGRADEABLE. Its upgrade authority is CyTc1wUKbuDd8ba7bsJrFaqXbhnBPbCte8FxSs2p7KTC, an off-curve address - program-controlled rather than a bare key, consistent with a multisig vault; the signer threshold and members are not observable and not ours to set. The program holds the presale tokens in a vault from Create until buyers claim, so its authority can replace the code governing them at any time, with no change to this repository and no signal to holders. It was last deployed on 2024-06-29, three days before CoinFabrik's fix review (2024-07-02); the live program does enforce the audit's CR-02 fix (it refuses a mint with an active mint or freeze authority, seen in 46 failed Initialize transactions between 2026-02-27 and 2026-10-08), which is consistent with the deployed bytecode being the audited fix commit but does not prove it, so whether it is that commit is UNVERIFIED: the audit names the repository (github.com/SmithiiDev/mantis_protocol, fix commit ee36cbb) but it could not be read without authentication - on 2026-10-08 unauthenticated requests for eight paths at that commit all returned 404, where a public repository returns 200 - so the deployed bytecode could not be compared with the audited source. Read 2026-10-08 at slot 454606166; re-read before launch.",
+    "auditScope": "CoinFabrik audited Smithii's Mantis Protocol (report 2024-06-18, fixes reviewed 2024-07-02 on commit ee36cbb97f299e989437f4f8b65ab37cdef09085): two critical, one high and one minor finding, all resolved. That audits Smithii's program - not RUNECLAW, its token or these terms - and the report's own disclaimer says it is not a security warranty. Do not describe RUNECLAW or this sale as audited. The report's prose says the 2.5% fee is 'paid by the buyer'; the chain shows it is taken out of the creator's side, and the transaction is the better evidence.",
+    "proceedsGoToTheSigningWallet": "Whichever wallet signs Create is the launch authority: it receives about 97.5% of every purchase the moment it happens, alone can edit the launch until the first phase starts, and alone can withdraw the unsold tokens. RCLAW sat in a single wallet when this was written (Jupiter's token index: holderCount 1, 2026-10-08), and Create moves the presale tokens out of the signer's own token account, so that wallet is the only candidate today. It must be a wallet the operator controls properly - hardware-backed, with proceeds moved to the multisig after the sale."
   }
 }

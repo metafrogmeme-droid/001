@@ -17106,6 +17106,67 @@ and on twenty baseline rows the narrowed rule no longer finds, because the
 baseline is two-way.
 (`tests/test_the_agent_feeds_thesis_states_the_signal_rows_confidence.py`.)
 
+**THE SMITHII PRESALE WAS CONFIGURED TO MATCH GENESIS, AND SMITHII'S PROGRAM HAD NONE OF IT.**
+`token/presale/smithii.config.json` described the Smithii launchpad as 33% at
+TGE then linear, a 48h whitelist round, and 66.67% of the raise auto-listed
+into a never-claim LP, and a parity test (`venue_parity.test.mjs`) existed to
+keep it equal to the Genesis config. Nothing had read the program: the file
+was a feature list transcribed into JSON, and the 2026-07-27 correction fixed
+three values and strengthened the test without asking whether the venue could
+do what the values said. On 2026-10-08 the operator was on Smithii's form and
+chose to stay, so the program was read three ways: CoinFabrik's audit of it
+("Smithii Mantis Protocol", June 2024), Smithii's published SDK (0.3.5), and
+live mainnet transactions and accounts. It has five instructions: initialize,
+edit, buy, claim, withdraw. No buyer vesting (`claim` takes no arguments and
+runs once). No wallet whitelist (the "whitelist phase" is a time window and
+`buy` takes only an amount). No refund (a purchase pays the creator directly:
+a 0.5 SOL buy moved 0.4875 SOL to the creator and 0.0125 to Smithii in one
+transaction, and the buyer was credited the full 0.5). No liquidity (the
+form's "LP Launch Price" is not an on-chain field). And a soft cap that is
+stored and never read. Four of the things the config claimed were impossible,
+and the test that "proved" parity had been holding them in place: it matched
+two files to each other, and neither was ever matched to a program.
+
+Three things the prose got wrong and the chain got right, each worth keeping.
+The audit says the 2.5% fee is "paid by the buyer"; the transaction and the
+buyer's on-chain account show it is taken out of the creator's side. The
+price is stored as a whole number of lamports per token, so the typed
+0.00003333333 SOL is held as 33,333 lamports (30,000.30 per SOL, not 30,000),
+and float arithmetic can store a price one lamport low (`0.000000015 * 1e9`
+is 14.999…). And Create escrows hard cap divided by price, not the allocation:
+a live 140 SOL / 400-lamport sale held exactly 350,000,000 tokens, which is
+the form's "Sending" line. The program is also upgradeable, by an off-curve
+address, and was last deployed three days before the audit's fix review;
+whether the deployed bytecode is the audited commit cannot be checked, because
+the audited repository could not be read (unauthenticated 404s at that commit).
+
+The config now says what the program does and carries eight measured
+disclosures. `venue_parity.test.mjs` asks a different question: not "do the
+two venues match" but "does any published term exceed what the chosen venue's
+program can enforce". Shared terms agree; every difference is declared with a
+reason; every published field is compared or exempted with a reason; each
+config's claims are held against a capability table whose Smithii row is
+derived from the program's instruction list; and the GitBook states each
+disclosure in its own table row. Along the way the GitBook's allocation table
+turned out to be a third drifted copy (10% / 5% against the ratified
+2.0001% / 12.9999%), and its "SPL Token-2022" is not what the mint is; the
+test now compares the two tables. `smithii_lib.mjs` derives what the form
+should show; its decoder is tested against a real mainnet Launch account whose
+authority and mint equal a real `buy` transaction's accounts and whose tag
+equals `sha256("account:Launch")[0..8]`; `smithii_verify.mjs` reads the
+created launch back, with "no such account" a FAIL and an unanswered read
+UNVERIFIED (exit 1 and exit 3). Mutation rounds: 48 mutants of the library and
+the verify tool and 46 of the docs and config, all killed.
+
+Not proven: that the site rounds the price like the SDK (the first read-back
+after Create settles it), that the deployed program is the audited commit, how
+odd fee amounts round, the 0.2 SOL whitelist-phase fee (audit text only), and
+that anything here has run a Smithii sale of its own. The rule: read the
+program a config describes before writing the config, and compare the config
+with the program's capabilities, not with a sibling config.
+(`token/presale/venue_parity.test.mjs`, `token/presale/smithii_sale.test.mjs`,
+`token/presale/smithii_verify.test.mjs`.)
+
 **THE FOLLOW FEATURE SELECTED SIGNALS BY A STATUS NO PRODUCER EVER WROTE.**
 `/api/copy/picks` (the dashboard's "Following — live picks" panel) and the
 copy push sweep (`copy_watch`, which notifies a follower when an agent they
