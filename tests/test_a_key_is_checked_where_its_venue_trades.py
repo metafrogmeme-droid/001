@@ -73,7 +73,12 @@ def bitget_demo():
 
 
 def _host_of(ex) -> str:
-    """Which Bybit environment a ccxt client points at, from its own URLs."""
+    """Which Bybit environment a ccxt client points at, from its own URLs.
+
+    Bybit EU is the same class on another host: ccxt keeps the URL templated
+    (`https://api.{hostname}`) and fills ``hostname`` in at request time."""
+    if getattr(ex, "hostname", "") == "bybit.eu":
+        return "eu"
     api = ex.urls["api"]
     url = next(iter(api.values())) if isinstance(api, dict) else str(api)
     if "api-testnet." in url:
@@ -118,6 +123,7 @@ def _in_sandbox(ex) -> bool:
 _CREDS = {
     "bitget": {"api_key": "k" * 12, "api_secret": "s" * 24, "passphrase": "p" * 8},
     "bybit": {"api_key": KEY, "api_secret": SECRET},
+    "bybiteu": {"api_key": KEY, "api_secret": SECRET},
     "bingx": {"api_key": "k" * 12, "api_secret": "s" * 24},
     "okx": {"api_key": "k" * 12, "api_secret": "s" * 24, "passphrase": "p" * 8},
     "gate": {"api_key": "k" * 12, "api_secret": "s" * 24},
@@ -201,7 +207,7 @@ def test_setexchange_names_a_testnet_key_and_stores_nothing(monkeypatch, operato
     sent: list = []
     asyncio.run(_setexchange_host(sent)._cmd_setexchange(
         _update(), SimpleNamespace(args=["bybit", KEY, SECRET])))
-    assert seen == ["mainnet", "testnet"]
+    assert seen == ["mainnet", "eu", "testnet"]
     assert operator == {}
     assert "Nothing was changed" in sent[-1]
     assert "Bybit testnet keys" in sent[-1]
@@ -287,14 +293,14 @@ def _validate(monkeypatch, answers):
 def test_a_demo_trading_key_is_named(monkeypatch):
     ok, detail, seen = _validate(monkeypatch, {"demo": "ok"})
     assert ok is False
-    assert seen == ["mainnet", "testnet", "demo"]
+    assert seen == ["mainnet", "eu", "testnet", "demo"]
     assert detail == ec._BYBIT_DEMO_KEY
 
 
 def test_a_key_no_environment_knows_is_told_what_10003_means(monkeypatch):
     ok, detail, seen = _validate(monkeypatch, {})
     assert ok is False
-    assert seen == ["mainnet", "testnet", "demo"]
+    assert seen == ["mainnet", "eu", "testnet", "demo"]
     assert "Bybit mainnet does not know this API key (code 10003)" in detail
     assert "Demo Trading" in detail and "regional" in detail
     assert "retCode" not in detail and "{" not in detail

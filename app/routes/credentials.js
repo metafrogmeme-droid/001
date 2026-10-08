@@ -30,7 +30,7 @@ const { pool } = require('../db');
 const { authMiddleware } = require('../auth');
 const creds = require('../lib/creds_crypto');
 const sealing = require('../lib/sealing_key');
-const { isVenue, venueFields } = require('../lib/venues');
+const { isVenue, venueFields, venueTakesOrders } = require('../lib/venues');
 const { rateLimit, userKey } = require('../lib/rate_limit');
 const { stepUpBlock } = require('../lib/stepup');
 const { uidKey } = require('../lib/second_factor_lockout');
@@ -166,8 +166,11 @@ router.get('/status', async (req, res) => {
       // Multi-venue: every exchange's own state, side by side. `last_error`
       // rides along so a REJECTED key reads as rejected-and-why rather than
       // as "not connected", which is what an untried key also looks like.
+      // `orders` is whether this bot can place an order there (false: linked
+      // for balances only; null: a venue this site does not know).
       venues: st.map(r => ({ venue: r.exchange || 'bitget', connected: !!r.connected,
-                             last_error: r.last_error || null })),
+                             last_error: r.last_error || null,
+                             orders: venueTakesOrders(r.exchange || 'bitget') })),
       // Legacy single-venue fields (older clients): the first connected one.
       connected: connectedRows.length > 0,
       venue: connectedRows.length > 0 ? (connectedRows[0].exchange || 'bitget') : null,

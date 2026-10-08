@@ -84,6 +84,17 @@
       fallback: 'Live trading and exchange keys need a linked Telegram account — '
         + 'link it under Account → Telegram first. Paper trading works without it.',
     },
+    // The website's OWN not-ready gate (server.js): until its database is
+    // migrated, every /api/ route answers 503 {error: 'starting', reason} with
+    // Retry-After. It fell to the 503 row below, so on 8 October the Account
+    // page said "not connected to the trading bot" on five panels with no
+    // Retry, about a bot that was answering in Telegram the same minute. It
+    // is not the bot and it is not permanent: 'retry'.
+    starting: {
+      key: 'dd.err_starting', action: 'retry', icon: 'icon-offline',
+      fallback: 'The website’s database is not ready yet, so this cannot be read. '
+        + 'Try again in a minute.',
+    },
     rate_limited: {
       key: 'dd.err_rate_limited', action: 'retry', icon: 'icon-offline',
       fallback: 'Too many requests just now — wait a moment and try again.',
@@ -108,7 +119,8 @@
 
   // Status-derived, for the causes that carry no code of their own. 503 is the
   // website's own `isConfigured()` refusal: it never reached the bot, so no
-  // amount of retrying changes it and the operator is the one who can.
+  // amount of retrying changes it and the operator is the one who can. (The
+  // not-ready gate's 503 carries `starting` and is answered above.)
   const BY_STATUS = {
     401: {
       key: 'dd.session_expired', action: 'signin', icon: 'icon-offline',

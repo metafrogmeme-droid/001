@@ -305,11 +305,14 @@ class MarketScanner:
         client = self._venue_clients.get(venue.id)
         if client is None:
             factory = getattr(ccxt, getattr(venue, "ccxt_id", "") or venue.id)
+            # The venue's own host and market type: Bybit EU is ccxt's Bybit
+            # class on api.bybit.eu, reading spot. Without it `/scan bybiteu`
+            # read bybit.com's perps under Bybit EU's name.
             client = factory({
                 "aiohttp_trust_env": True,
                 "timeout": CONFIG.market_data_timeout_ms,
                 "enableRateLimit": True,
-                "options": {"defaultType": "swap"},
+                **venue.data_client_config(),
             })
             self._venue_clients[venue.id] = client
         return client

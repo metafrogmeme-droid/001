@@ -91,7 +91,7 @@ test('the connection chrome is translated too', () => {
   for (const k of ['venue.connected', 'venue.not_connected', 'venue.applying',
     'venue.disconnect', 'venue.connect_x', 'venue.encrypt_note', 'venue.unavailable',
     'venue.encrypting', 'venue.queued', 'venue.failed', 'venue.rejected',
-    'venue.waited', 'venue.stuck']) full(k);
+    'venue.waited', 'venue.stuck', 'venue.balances_only']) full(k);
   // The states a user reads to know whether their key took effect. `rejected`
   // is the third one and it used to be missing: a key the exchange refused
   // rendered as the same neutral "not connected" chip as a key nobody had

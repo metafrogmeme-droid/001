@@ -170,6 +170,15 @@ class Venue:
     supports_hedge_mode: bool = False   # venue can run hedge (two-sided) mode
     supports_native_triggers: bool = False  # Bitget v3 strategy-order channel
     market_order_needs_price: bool = False  # ccxt needs price on market orders
+    #: Why no order routes here, for a venue that can never take one from this
+    #: bot whatever is driven (Bybit EU has no perpetual futures). Empty for
+    #: the rest; `per_user_execution_refusal` reads it.
+    balances_only_reason: str = ""
+
+    def data_client_config(self) -> dict:
+        """ccxt constructor config for a KEYLESS market-data client of this
+        venue (`/scan <venue>`), merged over the timeout and rate limit."""
+        return {"options": {"defaultType": "swap"}}
 
     # ── construction / credentials ────────────────────────────────
     def create_exchange(self, cfg: Any,
@@ -724,6 +733,78 @@ class BybitVenue(Venue):
         return {"clientOrderId": coid}
 
 
+#: Bybit EU's API host: ccxt builds https://api.bybit.eu from it. A bybit.com
+#: key and a Bybit EU key are different keys, and each host answers the other's
+#: with 10003 (https://bybit-exchange.github.io/docs/v5/guide).
+BYBIT_EU_HOSTNAME = "bybit.eu"
+
+
+def bybit_eu_client_config() -> dict:
+    """What every Bybit EU client is built with, keyed or keyless: its host,
+    and spot, the only market it offers. Markets are loaded for spot alone,
+    because ccxt's Bybit loads linear, inverse and option markets by default
+    and fetch_balance loads markets first. One reading for the adapter, the
+    key check and the balance reader."""
+    return {"hostname": BYBIT_EU_HOSTNAME,
+            "options": {"defaultType": "spot", "fetchMarkets": {"types": ["spot"]}}}
+
+
+class BybitEuVenue(Venue):
+    """Bybit EU (bybit.eu), linked for balances only.
+
+    Bybit EU is Bybit's entity for the European Economic Area. As of October
+    2026 it offers spot trading, spot margin and Earn, and no perpetual
+    futures, which are all this bot trades. So it is not in
+    `PER_USER_EXECUTION_VENUES`, and its refusal says why in its own words
+    (`balances_only_reason`) instead of "not driven yet": no amount of driving
+    adds a market the venue does not list. A linked account reads its balance.
+
+    It has its own host and its own keys (`BYBIT_EU_HOSTNAME`); its client
+    reads spot. There are no operator keys for it: the operator trades
+    elsewhere, and `/venue bybiteu` refuses for want of them.
+    """
+
+    id = "bybiteu"
+    display_name = "Bybit EU"
+    ccxt_id = "bybit"   # ccxt's Bybit class, pointed at the EU host
+    quote = "USDT"
+    balance_coin = "USDT"
+    min_notional_usd = 5.0
+    balances_only_reason = ("Bybit EU offers spot trading only, not the "
+                            "perpetual futures this bot trades")
+
+    def create_exchange(self, cfg: Any,
+                        credentials: Optional[dict] = None) -> ccxt.Exchange:
+        creds = credentials or {}
+        api_key = str(creds.get("api_key", "") or "")
+        api_secret = str(creds.get("api_secret", "") or "")
+        if not api_key or not api_secret:
+            raise RuntimeError(
+                self.missing_credentials_error(per_user=bool(credentials)))
+        return ccxt.bybit({
+            "aiohttp_trust_env": True,
+            "apiKey": api_key,
+            "secret": api_secret,
+            "timeout": 30000,
+            "enableRateLimit": True,
+            **bybit_eu_client_config(),
+        })
+
+    def uses_sandbox(self, cfg: Any) -> bool:
+        # Bybit EU has no testnet this client could be pointed at.
+        return False
+
+    def missing_credentials_error(self, per_user: bool) -> str:
+        return ("Bybit EU is linked for balances only, with your own keys: "
+                "/connect bybiteu <api_key> <api_secret>.")
+
+    def has_operator_credentials(self, cfg: Any) -> bool:
+        return False
+
+    def data_client_config(self) -> dict:
+        return bybit_eu_client_config()
+
+
 class BingxVenue(Venue):
     """BingX USDT perpetuals via ccxt.
 
@@ -927,6 +1008,7 @@ _VENUES: dict[str, Venue] = {
     "bitget": BitgetVenue(),
     "hyperliquid": HyperliquidVenue(),
     "bybit": BybitVenue(),
+    "bybiteu": BybitEuVenue(),
     "bingx": BingxVenue(),
     "okx": OkxVenue(),
     "gate": GateVenue(),
@@ -969,6 +1051,9 @@ def per_user_execution_refusal(venue_id: Optional[str]) -> Optional[str]:
         return None
     v = _VENUES.get(vid)
     label = v.display_name if v is not None else (vid or "that venue")
+    if v is not None and v.balances_only_reason:
+        return (f"{label} is linked for balances only. {v.balances_only_reason}, "
+                f"so this bot places no order there.")
     reason = (" — it counts perp orders in contracts where this bot sends coins"
               if isinstance(v, _KeySecretPerpVenue) else "")
     return (f"{label} is linked for balances only. Its order path has not been "

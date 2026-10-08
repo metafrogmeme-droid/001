@@ -76,8 +76,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 229,
-    "sha": "41f414cf30f987d1"
+    "v": 231,
+    "sha": "7911c6d2883c40ab"
   },
   "js/decision-court-model.js": {
     "v": 2,
@@ -152,8 +152,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 166,
-    "sha": "e0040152297485be"
+    "v": 168,
+    "sha": "ea175f83f3d971f6"
   },
   "js/icons.js": {
     "v": 6,
@@ -200,8 +200,8 @@
     "sha": "09bd8620572d17f3"
   },
   "js/panel-error-model.js": {
-    "v": 3,
-    "sha": "301378d481241821"
+    "v": 4,
+    "sha": "f47f2bb930b14a99"
   },
   "js/radar3d.js": {
     "v": 3,
@@ -300,8 +300,8 @@
     "sha": "b0690b36b0422b9b"
   },
   "js/venue-picker-model.js": {
-    "v": 2,
-    "sha": "761e89248a87aeb5"
+    "v": 3,
+    "sha": "6f0caf3b4af02777"
   },
   "js/venue-rows.js": {
     "v": 1,

@@ -7,12 +7,23 @@
  * render the right form per venue without hardcoding field lists in the client.
  *
  * `fields[].type` drives the input type (password vs text). No secrets here.
+ *
+ * `market` is what the venue lists for this bot: 'perps', or 'spot' for Bybit
+ * EU, which has no perpetual futures. The landing page's "perps across N
+ * venues" counts the perps venues and no other.
+ *
+ * `orders` says whether an order from this bot can route there. It mirrors the
+ * bot's `PER_USER_EXECUTION_VENUES` (bot/core/venues.py), and
+ * app/test/a_balances_only_venue_says_so.test.js holds the two equal. False is
+ * "linked for balances only": the keys are stored and the balance is read.
  */
 
 const VENUES = [
   {
     id: 'bitget',
     label: 'Bitget',
+    market: 'perps',
+    orders: true,
     balance_coin: 'USDT',
     help: 'Create USDT-M futures API keys with read + trade permission. Keep withdrawals disabled.',
     fields: [
@@ -24,6 +35,8 @@ const VENUES = [
   {
     id: 'bybit',
     label: 'Bybit',
+    market: 'perps',
+    orders: true,
     balance_coin: 'USDT',
     help: 'USDT perpetuals. Create API keys with derivatives trade permission; account must be in ONE-WAY position mode.',
     fields: [
@@ -32,8 +45,22 @@ const VENUES = [
     ],
   },
   {
+    id: 'bybiteu',
+    label: 'Bybit EU',
+    market: 'spot',
+    orders: false,
+    balance_coin: 'USD',
+    help: 'Balances only. Bybit EU offers spot, not the perpetual futures this bot trades, so no order is placed there. Create a read-only API key on bybit.eu; keep withdrawals disabled.',
+    fields: [
+      { key: 'api_key', label: 'API key', type: 'text' },
+      { key: 'api_secret', label: 'API secret', type: 'password' },
+    ],
+  },
+  {
     id: 'bingx',
     label: 'BingX',
+    market: 'perps',
+    orders: true,
     balance_coin: 'USDT',
     help: 'USDT perpetuals ($2 min notional). Create API keys with perpetual-futures trade permission; account must be in ONE-WAY position mode.',
     fields: [
@@ -44,6 +71,8 @@ const VENUES = [
   {
     id: 'okx',
     label: 'OKX',
+    market: 'perps',
+    orders: false,
     balance_coin: 'USDT',
     help: 'USDT perpetual swaps. Create API keys with trade permission and set an API passphrase; keep withdrawals disabled.',
     fields: [
@@ -55,6 +84,8 @@ const VENUES = [
   {
     id: 'gate',
     label: 'Gate.io',
+    market: 'perps',
+    orders: false,
     balance_coin: 'USDT',
     help: 'USDT perpetual swaps. Create API keys with futures trade permission; keep withdrawals disabled.',
     fields: [
@@ -65,6 +96,8 @@ const VENUES = [
   {
     id: 'kucoin',
     label: 'KuCoin Futures',
+    market: 'perps',
+    orders: false,
     balance_coin: 'USDT',
     help: 'USDT perpetual futures. Create Futures API keys with trade permission and set an API passphrase; keep withdrawals disabled.',
     fields: [
@@ -76,6 +109,8 @@ const VENUES = [
   {
     id: 'hyperliquid',
     label: 'Hyperliquid (DEX)',
+    market: 'perps',
+    orders: true,
     balance_coin: 'USDC',
     help: 'On-chain perps DEX. Create an API (agent) wallet and use ITS private key — never your main wallet key.',
     fields: [
@@ -86,6 +121,8 @@ const VENUES = [
   {
     id: 'paradex',
     label: 'Paradex (DEX)',
+    market: 'perps',
+    orders: false,
     balance_coin: 'USDC',
     help: 'On-chain perps DEX (StarkEx L2). Create an API (agent) wallet and use ITS private key — never your main wallet key.',
     fields: [
@@ -106,4 +143,10 @@ function venueFields(id) {
   return (byId[id]?.fields || []).map((f) => f.key);
 }
 
-module.exports = { VENUES, byId, isVenue, venueFields };
+// Whether an order from this bot can route to the venue: true, false, or null
+// for an id this list does not know (unknown is not "balances only").
+function venueTakesOrders(id) {
+  return isVenue(id) ? byId[id].orders === true : null;
+}
+
+module.exports = { VENUES, byId, isVenue, venueFields, venueTakesOrders };

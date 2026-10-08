@@ -33,6 +33,10 @@ const path = require('node:path');
 
 const PUB = path.join(__dirname, '..', 'public');
 const { VENUES } = require('../lib/venues');
+// The strip sits under "perps across N venues", so N and the strip are the
+// PERPS venues. Bybit EU (`market: 'spot'`) is connectable for balances, and
+// putting it on the strip, or in N, would say it lists perps. It does not.
+const PERPS = VENUES.filter((v) => v.market === 'perps');
 const index = fs.readFileSync(path.join(PUB, 'index.html'), 'utf8');
 const i18n = fs.readFileSync(path.join(PUB, 'js', 'i18n.js'), 'utf8');
 
@@ -49,10 +53,10 @@ function chipsOnPage() {
     .map((m) => ({ id: m[1], label: m[2] }));
 }
 
-test('every connectable venue appears on the landing page', () => {
+test('every connectable perps venue appears on the landing page', () => {
   const chips = chipsOnPage();
   const onPage = chips.map((c) => c.id);
-  const known = VENUES.map((v) => v.id);
+  const known = PERPS.map((v) => v.id);
   assert.deepStrictEqual(onPage, known,
     'the landing page and app/lib/venues.js disagree about which venues '
     + `exist.\n  page:      ${onPage.join(', ')}\n  venues.js: ${known.join(', ')}`);
@@ -62,7 +66,7 @@ test('each chip carries the venue\'s own label, not a paraphrase', () => {
   // "Hyperliquid (DEX)" and "KuCoin Futures" say something a trimmed name
   // does not — which product, and whether custody is involved.
   const chips = chipsOnPage();
-  for (const v of VENUES) {
+  for (const v of PERPS) {
     const c = chips.find((x) => x.id === v.id);
     assert.ok(c, `${v.id} is missing from the page`);
     assert.strictEqual(c.label, v.label,
@@ -75,7 +79,7 @@ test('the venue count in the headline matches the real count', () => {
   // ninth venue must not leave "Eight venues" standing.
   const WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven',
     'eight', 'nine', 'ten', 'eleven', 'twelve'];
-  const n = VENUES.length;
+  const n = PERPS.length;
   const word = WORDS[n];
   assert.ok(word, `no word for ${n} venues — extend WORDS`);
 
@@ -89,7 +93,7 @@ test('the venue count in the headline matches the real count', () => {
   const digits = eb[1].match(/\b(\d+)\b/);
   assert.ok(digits, `the hero eyebrow "${eb[1]}" states no venue count`);
   assert.strictEqual(Number(digits[1]), n,
-    `the hero eyebrow says ${digits[1]} venues; venues.js has ${n}`);
+    `the hero eyebrow says ${digits[1]} perps venues; venues.js has ${n}`);
 });
 
 test('the hero no longer names a single exchange as the whole product', () => {
@@ -149,8 +153,22 @@ test('the sweep is measuring something', () => {
   assert.ok(VENUES.length >= 2,
     `venues.js exports ${VENUES.length} venue(s) — with fewer than two the `
     + 'whole multi-venue claim is false and every test above is vacuous');
-  assert.strictEqual(chipsOnPage().length, VENUES.length);
+  assert.strictEqual(chipsOnPage().length, PERPS.length);
   // The chip parser is the load-bearing derivation; if the markup shape
   // changes it returns [] and three tests above pass against nothing.
   assert.ok(chipsOnPage().every((c) => c.id && c.label));
+});
+
+test('every venue says what it lists, and only a perps venue is on the strip', () => {
+  // `market` is read above to count; a venue that forgot it would drop out of
+  // the count without a word, so a missing or new value fails here.
+  for (const v of VENUES) {
+    assert.ok(['perps', 'spot'].includes(v.market), `${v.id} has market ${v.market}`);
+  }
+  const onPage = chipsOnPage().map((c) => c.id);
+  const others = VENUES.filter((v) => v.market !== 'perps');
+  assert.ok(others.some((v) => v.id === 'bybiteu'), 'Bybit EU is listed as spot');
+  for (const v of others) {
+    assert.ok(!onPage.includes(v.id), `${v.id} lists no perps and sits on the perps strip`);
+  }
 });

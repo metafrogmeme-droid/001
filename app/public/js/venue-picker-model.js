@@ -45,6 +45,14 @@
     const conn = (connected || [])
       .filter((v) => v && v.connected)
       .map((v) => String(v.venue || 'bitget').toLowerCase());
+    // `orders: false` on a status row: this bot places no order there (Bybit
+    // EU lists no perps; OKX, Gate, KuCoin and Paradex were never driven).
+    // Listed under "Venues that trade" with nothing beside it, a linked
+    // balance read as a venue that trades. Only an explicit false says so;
+    // a row that does not carry the field says nothing either way.
+    const balancesOnly = new Set((connected || [])
+      .filter((v) => v && v.orders === false)
+      .map((v) => String(v.venue || 'bitget').toLowerCase()));
 
     const applied = Array.isArray(st.venues) ? st.venues.map(String) : [];
     // null means "nothing in flight" — distinct from [] which means "a request
@@ -64,12 +72,14 @@
       // working". It appears as a problem, never as an unticked option.
       disconnected: false,
       unknown: false,
+      balancesOnly: balancesOnly.has(v),
     }));
     for (const v of shown) {
       if (!conn.includes(v)) {
         // Unread: the tick is real (it is the selection); the connection is
         // simply not known — never "not connected".
-        rows.push({ venue: v, checked: true, disconnected: !unread, unknown: unread });
+        rows.push({ venue: v, checked: true, disconnected: !unread, unknown: unread,
+          balancesOnly: balancesOnly.has(v) });
       }
     }
 
