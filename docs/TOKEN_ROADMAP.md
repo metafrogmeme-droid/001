@@ -38,6 +38,16 @@
 > The token is minted but not launched: no sale has run and no pool exists. Legal review
 > and the audit in §10–§11 still gate the presale, and every number below remains a baseline
 > to ratify.
+>
+> **Venue decision (2026-10-08): the sale runs on Smithii, not Metaplex Genesis.** The
+> operator chose to stay on Smithii's launchpad. Reading CoinFabrik's audit of Smithii's
+> program, its published SDK and live mainnet transactions showed it enforces **less** than
+> the Genesis-shaped design this document described: **no buyer vesting, no wallet
+> whitelist, no refund, and it never touches liquidity**. §4–§7, §10, §11 and §13 now describe
+> the Smithii sale; the Genesis design is kept as the documented alternative (Path A in
+> [`token/presale/RUNBOOK.md`](../token/presale/RUNBOOK.md)). Every Smithii fact below was
+> measured on 2026-10-08, and how is recorded in
+> [`token/presale/smithii.config.json`](../token/presale/smithii.config.json).
 
 ---
 
@@ -155,8 +165,8 @@ tune before launch, not a fixed parameter:
 
 | Bucket | % | Tokens | Vesting |
 |---|---:|---:|---|
-| Public presale | 15% | 150,000,000 | 33% at TGE, then linear over 2 months |
-| DEX liquidity | 2.0001% | 20,001,000 | Paired with raised SOL; LP locked forever (never-claim) |
+| Public presale | 15% | 150,000,000 | **None** — claimable in full when the sale ends (Smithii's `claim` runs once per buyer) |
+| DEX liquidity | 2.0001% | 20,001,000 | Paired with raised SOL by the operator after the sale; LP burned by the operator (not enforced by the program) |
 | Community & ecosystem (staking emissions, airdrops, rewards) | 25% | 250,000,000 | Released over 36 months — **Streamflow stream**, daily periods from TGE |
 | Team & contributors | 15% | 150,000,000 | 12-month cliff, then 24-month linear — **Streamflow stream** |
 | Treasury / DAO | 20% | 200,000,000 | DAO-controlled multisig, time-locked |
@@ -164,6 +174,14 @@ tune before launch, not a fixed parameter:
 | Advisors | 2% | 20,000,000 | 6-month cliff, then 18-month linear — **Streamflow stream** |
 | Reserve / insurance fund **+ post-TGE liquidity** | 12.9999% | 129,999,000 | Locked; governance-unlockable only |
 | **Total** | **100%** | **1,000,000,000** | — |
+
+> **Venue note (2026-10-08).** The pool-sizing argument below — the F-25 decision — was forced
+> by Metaplex Genesis, whose LP token side is fixed when the bucket is created. Smithii's program
+> never creates the pool: the operator does, after the raise is known, so that trap does not
+> exist on the sale actually being run. Opening at the sale price the pool needs about **20.0M
+> RCLAW at the soft cap and 100.0M at the hard cap** (`npm run presale:smithii-plan`). The
+> 2.0001% / 12.9999% table above is still the **ratified** one; whether it returns to 10% / 5%
+> is open (§13).
 
 **The DEX liquidity row moved from 10% to 2.0001% on 2026-07-26, and the 79,999,000
 difference is in the reserve row, earmarked.** This is the F-25 decision and it is
@@ -202,10 +220,13 @@ reads the realised raise from the bucket and **refuses** to open the pool below
 the presale price unless `--accept-below-presale` is passed, and
 `config.disclosures.softCapNotEnforced` says so publicly.
 
-**Circulating supply at TGE (approx):** presale unlock (33% of 150M ≈ 49.5M) + DEX liquidity
-(20.001M) + any airdrop TGE tranche. Team, treasury, advisors, and reserve are **fully locked at
-TGE**, so initial float is a small fraction of supply — reducing early sell pressure. A full
-**emissions / circulating-supply-over-time chart** should be published before the presale.
+**Circulating supply at TGE (approx):** the whole presale — buyers claim 100% when the sale
+ends, up to ≈ 150.0M at the hard cap — plus the pool's RCLAW (≈ 20.0M at the soft cap, ≈ 100.0M
+at the hard cap) plus any airdrop TGE tranche: about **a quarter of supply at the hard cap**,
+against the ≈ 7% the 33%-unlock design gave. Team, treasury, advisors and reserve are locked at
+TGE **only once the team has created those locks**, which is not done (§11); until then one
+wallet holds them. A full **emissions / circulating-supply-over-time chart** should be
+published before the presale.
 
 > **Reminder:** these percentages, vesting schedules, and the total supply are a **proposed
 > baseline**. Finalize them with legal and market-maker input (see §13) before any mint.
@@ -216,24 +237,30 @@ TGE**, so initial float is a small fraction of supply — reducing early sell pr
 
 | Parameter | Proposed value |
 |---|---|
-| Soft cap | **1,000 SOL** |
+| Soft cap | **1,000 SOL** — a target: the program stores it and never reads it (§10) |
 | Hard cap | **5,000 SOL** |
-| Presale allocation | 150,000,000 `$RCLAW` (15%) |
+| Presale allocation | 150,000,000 `$RCLAW` (15%); Create escrows hard cap ÷ stored price = 150,001,500 |
+| Price | 0.00003333333 typed → **33,333 lamports per token stored = 30,000.3 `$RCLAW` per SOL** |
 | Min contribution | **0.25 SOL / wallet** |
-| Max contribution | **25 SOL / wallet** (anti-whale) |
-| Round 1 — Whitelist / OG | 48 hours, **priority access at the same fixed price** |
-| Round 2 — Public | 72 hours or until hard cap, same fixed price |
-| Buyer vesting | **33% at TGE**, then linear over 2 months |
-| Deposit window | Automated start/end timestamps |
-| Claim window | Opens at TGE, automated |
-| Anti-abuse | Anti-bot / anti-snipe at TGE; per-wallet caps; optional whitelist KYC (see §10) |
+| Max contribution | **25 SOL / wallet** (per wallet, not per person) |
+| Public sale | 72 hours or until the hard cap; **no whitelist round** — the program has no wallet list |
+| Buyer vesting | **None** — every buyer can claim 100% when the sale ends |
+| Deposit window | Start and end set at Create; **editable only until the first phase starts** |
+| Claim window | Opens when the sale ends or the hard cap is reached; one claim per buyer, no deadline |
+| Anti-abuse | Per-wallet caps only (bypassable with more wallets); no anti-snipe; no on-chain KYC or geofence (§10) |
 
 **Worked price example (illustrative).** At the **5,000 SOL hard cap** against the
-150,000,000-token presale allocation, the effective presale price is **≈ 0.0000333 SOL per
-`$RCLAW`** (≈ 30,000 `$RCLAW` per SOL). **Both rounds transact at this price.** Round 1
-confers earlier access to a shared cap, not a lower price. At an assumed SOL reference price, this implies a small, transparent
-initial FDV — publish the exact SOL→USD assumption and resulting FDV alongside the sale so
-buyers see it up front.
+150,000,000-token presale allocation the price is **≈ 0.0000333 SOL per `$RCLAW`** (≈ 30,000
+per SOL). Smithii stores a price as a whole number of lamports, so the typed 0.00003333333
+becomes **33,333 lamports = 30,000.3 per SOL** — 0.001% in the buyer's favour, and it is that
+stored rate that must be published. **There is one round, at one price.** At that price the fully
+diluted value is 33,333 SOL, about **$3.59M at SOL = $107.82** (Crypto.com `SOL_USDT` last,
+2026-10-08 16:57 UTC — re-measure before publishing). Publish the exact SOL→USD assumption and
+the resulting FDV alongside the sale so buyers see it up front.
+
+> **Venue note (2026-10-08).** The rest of this section — buckets, end behaviours,
+> `presale:create`, `presale:trigger`, the Genesis authority — describes the **Genesis path
+> (Path A)**. The Smithii sale has none of it; §10 lists what it has instead.
 
 > **Correction (2026-07-26).** Two claims above previously described behaviour the
 > implementation does not have, and were rewritten rather than left to be discovered at
@@ -250,7 +277,10 @@ buyers see it up front.
 >   `refundIfSoftCapMissed` is now `false` and `derivePresaleParams()` throws if it is set
 >   to `true`, so the promise cannot ship unimplemented.
 
-**If the soft cap is not met**, the sale is cancelled and contributions are **refundable**.
+**If the soft cap is not met**, nothing happens on chain: the sale ends, buyers can claim, and
+the operator holds the SOL. Smithii's program has no cancellation and no refund path (§10) —
+nor does the Genesis fixed-price bucket of the alternative path; what the operator does then is
+a decision to publish before the sale (§13).
 
 > **Correction (from building it).** This was written as *"a hard requirement of whichever
 > venue is chosen"* — an assumption that did not survive contact with the SDK. A Metaplex
@@ -260,9 +290,11 @@ buyers see it up front.
 > min-raise extension, and the chosen mechanism must be settled and disclosed *before* the
 > sale opens — not assumed. Tracked in §13.
 
-**Liquidity split of raised SOL:** **66.67% → DEX liquidity pool** (paired with the 100M
-liquidity allocation), remainder to audit, operations, and treasury. Exact split ratified in
-§13.
+**Liquidity split of raised SOL:** **66.67% of the gross raise → the DEX pool**, which the
+operator creates after the sale (the Smithii program never does); the remainder goes to audit,
+operations and treasury. Smithii's 2.5% comes out of that remainder, so it is **30.83% of gross,
+not 33.33%** (975 SOL of the 1,000 SOL soft cap reaches the operator; 308.3 SOL is left after
+the pool). Exact split ratified in §13.
 
 > **Encoded on-chain and publicly verifiable (2026-07-26).** `presale:create` attaches a
 > `SendQuoteTokenPercentage` end behavior to the presale bucket, naming the liquidity bucket
@@ -326,33 +358,46 @@ is guarded at trigger time and disclosed in §10 rather than papered over.
 
 ## 6. Launch venue comparison + recommendation
 
+The Smithii column is what its program does, read on 2026-10-08 from CoinFabrik's audit, the
+published SDK and live mainnet transactions (§14). An earlier version of this table gave
+Smithii ✅ for whitelist phases and vesting; both were a feature list, not the contract.
+
 | Dimension | **Smithii Launchpad** | **Metaplex Genesis** | **Pump.fun / LetsBonk** |
 |---|---|---|---|
-| Model | No-code hosted launchpad | On-chain smart-contract + SDK | Bonding-curve fair launch |
-| Caps (soft/hard) | ✅ Configurable | ✅ Configurable | ❌ None |
-| Whitelist phases | ✅ | ✅ | ❌ |
-| Vesting / claim windows | ✅ | ✅ (TGE, fixed-price, auctions) | ❌ (instant) |
-| Trust model | Hosted / semi-custodial config | **Trustless, on-chain, auditable** | Trustless but no controls |
-| Cost | ~**0.1 SOL + % of sales** | Program/deploy + audit effort | Minimal, curve fee |
+| Model | No-code hosted launchpad on a five-instruction program | On-chain smart-contract + SDK | Bonding-curve fair launch |
+| Caps (soft/hard) | Hard cap enforced; **soft cap stored, never read** | ✅ Configurable (soft cap descriptive on a fixed-price bucket) | ❌ None |
+| Whitelist phases | ❌ A time window only — **no wallet list** | ✅ Merkle allowlist | ❌ |
+| Vesting / claim windows | ❌ One `claim`, **100% when the sale ends** | ✅ (TGE, fixed-price, auctions) | ❌ (instant) |
+| Refund | ❌ None; buyers' SOL goes straight to the operator | ❌ None on a fixed-price bucket (✅ on LaunchPool) | ❌ |
+| Liquidity | ❌ The operator creates the pool and burns the LP | ✅ In-program Raydium bucket, never-claim LP | n/a |
+| Trust model | Program holds the tokens until claim; **upgradeable** (the authority is a PDA); SOL reaches the operator at each buy | **Trustless, on-chain, auditable**; upgradeable by a third party | Trustless but no controls |
+| Cost | **0.1 SOL** (0.2 with a whitelist phase) + **2.5% of each purchase**, paid by the creator | Program/deploy + audit effort | Minimal, curve fee |
 | Dev effort | **Lowest** | Higher (SDK/contract integration) | Lowest |
-| Dump risk | Controlled via vesting | Controlled via vesting | **High** (no vesting/caps) |
-| Fit for a **vesting utility token** | Good | **Best** | Poor |
+| Dump risk | **Uncontrolled**: buyers hold 100% at the end | Controlled via vesting | **High** (no vesting/caps) |
+| Fit for a **vesting utility token** | Poor (no vesting); fine for a plain sale | **Best** | Poor |
 
-**Decided: Metaplex Genesis, and now integrated in draft.** The recommendation below has
-been acted on — `token/presale/` drives a real Genesis presale (`initializeV2`,
-`addPresaleBucketV2`, `depositPresaleV2`, `claimPresaleV2`) from config, on devnet, refusing
-mainnet. Smithii remains the documented fallback but is no longer the expected path.
+**Decided 2026-10-08: Smithii.** The operator chose to stay on Smithii's launchpad. This
+supersedes the earlier "Decided: Metaplex Genesis", and with it the claim that Smithii
+"supports the same caps/whitelist/vesting controls": it does not. The program has five
+instructions — initialize, edit, buy, claim, withdraw — so it **cannot vest buyers, keep a
+wallet whitelist, refund, or create or lock liquidity**, and it never reads the soft cap. The
+terms in §4, §5, §7 and §10 are the Smithii sale's terms.
 
-**Why Metaplex Genesis is the primary presale venue.** Its on-chain, trustless
-fixed-price presale and TGE tooling is the **best aligned with RUNECLAW's Guardrails** —
-*"proof over promises,"* non-custodial, and verifiable on-chain — which is exactly the posture
-the rest of the platform already takes (non-custodial keys, on-chain-anchored track record).
-The trade-off is more integration and a contract audit, both of which are required anyway
-under §10–§11.
+What staying on Smithii costs, against the design this document used to prefer: buyers hold
+100% at the end of the sale (about a quarter of supply tradeable at TGE at the hard cap, not
+about 7%); the pool and the LP burn are the operator's actions, verifiable afterwards but not
+enforced; buyers' SOL reaches the operator at every purchase; and the program is upgradeable by
+Smithii. What it buys: a program that was audited (2024, for Smithii), no integration code to
+maintain, and an **edit window** — until the first phase starts, a wrong value can still be
+fixed, which is why `npm run presale:smithii-verify` exists.
 
-**Smithii Launchpad is the recommended fallback** if timelines demand the lowest-effort path:
-it supports the same caps/whitelist/vesting controls with a no-code setup at ~0.1 SOL + a
-percentage of sales, at the cost of a more hosted (less trustless) configuration surface.
+**The Metaplex Genesis path is kept as the documented alternative.** `token/presale/` still
+drives a real Genesis presale on devnet (`initializeV2`, `addPresaleBucketV2`,
+`depositPresaleV2`, `claimPresaleV2`), refusing mainnet, and it still has the on-chain vesting,
+wallet whitelist and never-claim LP that the Smithii sale lacks. Its case — *"proof over
+promises,"* non-custodial and verifiable on-chain, the posture the rest of the platform takes —
+has not weakened; it is simply not the venue of this sale. Moving back is the operator's
+decision, behind the legal and audit gates of §10–§11.
 
 **Do not use a pure Pump.fun / LetsBonk fair launch for the raise.** With no whitelist, no
 vesting, and no caps, it is structurally wrong for a *utility token with a vesting schedule*
@@ -366,22 +411,27 @@ experiment) — **never** the utility-token TGE.
 
 - **Pool:** seed a `$RCLAW`/SOL pool on **Raydium** (or **Orca**), routable by **Jupiter** so
   every Solana aggregator picks it up.
-- **Depth:** 20,001,000 `$RCLAW` (the 2.0001% liquidity allocation) paired with 66.67% of raised
-  SOL (§5). Worked FDV/price example carries over from §4–§5. **This is deliberately thin, and
-  the reason is in §4:** the token side is frozen at bucket creation while the SOL side is
-  whatever gets raised, so sizing it for a full raise guarantees an underwater pool on anything
-  less — permanently, with no refund. Sized for the soft cap instead, the pool opens at or above
-  the presale price from 1,000 SOL up.
-- **Post-TGE depth is a funded, deliberate follow-up, not an afterthought.** The 79,999,000
-  freed by that sizing sits in the reserve bucket earmarked for it. Once the raise is known the
-  right depth is knowable, and adding liquidity is a governance action that can be taken; the
-  opposite mistake cannot be undone. Publish the intent alongside the sale terms so a thin
-  opening pool is not read as a rug.
-- **LP safety:** LP **permanently locked** — the Genesis path adds the pool via
-  `addRaydiumCpmmBucketV2` with `createNeverClaimSchedule()`, so the LP position can never be
-  claimed at all. This supersedes the earlier *"burned or locked for at least 12 months"*
-  baseline: a permanent never-claim lock is strictly stronger than a 12-month one. Lock proof
-  published at TGE.
+- **Depth (the Smithii sale):** the **operator creates the pool after the sale**, when the raise
+  is known, at the sale price and with 66.67% of the gross raise: about **20.0M `$RCLAW` against
+  666.7 SOL at the soft cap, about 100.0M against 3,333.5 SOL at the hard cap**
+  (`npm run presale:smithii-plan` derives both). Never below the sale price — a pool that opens
+  under what buyers paid is the one outcome §4 calls unrecoverable, and because the pool is
+  created after the raise, the operator can honour parity at any raise. The 20,001,000 sizing
+  and its "deliberately thin" argument were forced by the Genesis path, whose token side is
+  frozen at bucket creation (§4); they do not apply here.
+- **Post-TGE depth** beyond the opening pool is a governance action from the reserve bucket
+  (§4). Publish the intent alongside the sale terms.
+- **LP safety (the Smithii sale):** the operator **burns the LP tokens** right after creating
+  the pool and publishes the pool address and the burn transaction. A burn is as permanent as a
+  never-claim lock, but **nothing enforces it beforehand** — the program never touches
+  liquidity, and the form's "LP Launch Price" is not an on-chain field — so it is a promise
+  that is checkable afterwards, not a guarantee (§10). Create the pool in the same window claims
+  open: claims start the moment the sale ends.
+- **LP safety (the Genesis alternative):** LP **permanently locked** — that path adds the pool
+  via `addRaydiumCpmmBucketV2` with `createNeverClaimSchedule()`, so the LP position can never be
+  claimed at all, enforced in-program. This supersedes the earlier *"burned or locked for at
+  least 12 months"* baseline: a permanent never-claim lock is strictly stronger than a 12-month
+  one. Lock proof published at TGE.
 - **Market making:** the 8% partnerships/MM bucket funds a market maker to keep spreads tight
   in the first weeks; terms deal-by-deal (§4).
 - **CEX path:** Bitget and other CEX listings are a **Phase 5** item (§8), gated on volume,
@@ -417,19 +467,24 @@ Clear the existing Guardrails gate before anything is minted.
 ### Phase 1 — Pre-launch
 - Mint SPL Token-2022 supply; **revoke mint + freeze authority**; set Metaplex metadata.
 - Stand up **Squads multisig** treasury + time-lock.
-- Whitelist & community campaign; MM engagement; venue (Metaplex Genesis) setup.
-- Publish audit report and LP-lock plan.
-- *Draft exists:* the mint and presale steps are scripted end-to-end on devnet, and the
-  whitelist is a Merkle allowlist (`presale:whitelist` → root applied at `presale:create`,
-  proofs presented automatically during the whitelist window).
-- **Exit:** audit passed, authorities revoked **on mainnet**, whitelist filled, venue
-  configured. Nothing on devnet counts toward this.
+- Community campaign; MM engagement; venue (**Smithii**) setup. There is no whitelist to fill:
+  the program has no wallet list (§10).
+- Publish the audit report **with its scope** — Smithii's program, not RUNECLAW (§10) — and the
+  LP burn plan.
+- *Draft exists:* for Smithii, `presale:smithii-plan` (offline numbers) and
+  `presale:smithii-verify` (read-back from mainnet); for the Genesis alternative, the mint and
+  presale steps scripted end-to-end on devnet, with a Merkle allowlist (`presale:whitelist` →
+  root applied at `presale:create`, proofs presented automatically during the whitelist window).
+- **Exit:** audit passed, authorities revoked **on mainnet** (done 2026-09-30), venue
+  configured and `presale:smithii-verify` passing. Nothing on devnet counts toward this.
 
 ### Phase 2 — Presale & TGE
-- Whitelist Round 1 → Public Round 2 → finalize. (No automatic soft-cap refund exists —
-  see the correction below and `metaplex-genesis.config.json`.)
-- Seed DEX liquidity; **burn/lock LP**; open claim window.
-- **Exit:** liquidity live, LP locked, tokens claimable, contract addresses published.
+- Create → `presale:smithii-verify` → public sale (72h or until the hard cap) → claims open.
+  (No refund exists and the soft cap is descriptive — §10. On the Genesis alternative the
+  sequence is whitelist Round 1 → public Round 2 → finalize.)
+- The operator creates the DEX pool and **burns the LP**, publishing both transactions.
+- **Exit:** liquidity live, LP burned (transaction published), tokens claimable, contract
+  addresses published.
 
 ### Phase 3 — Utility activation
 - Staking tiers live in bot/app: fee discounts, compute allowances, priority agents.
@@ -494,7 +549,15 @@ section to read before trusting any of it.
   liquidity with a permanent LP lock** (`addRaydiumCpmmBucketV2` + `createNeverClaimSchedule` →
   `presale:liquidity`), and **withdraw/refund** paths (`withdrawPresaleV1` /
   `withdrawUnsoldPresaleV1`). Offline `presale:plan` previews it all; everything is driven by
-  `metaplex-genesis.config.json` (§5–§6). Smithii config + runbook remain the fallback.
+  `metaplex-genesis.config.json` (§5–§6). This is the documented **alternative**, not the venue
+  of this sale.
+- `token/presale/smithii.config.json` + `smithii_lib.mjs` + `smithii_plan.mjs` +
+  `smithii_verify.mjs` — the **venue of record** (§6). The config is what an operator types into
+  Smithii's form; the library derives every number the form should show and decodes the
+  program's Launch account (tested against a real mainnet account); `npm run
+  presale:smithii-plan` prints the plan and every disclosure offline (and runs in CI), and `npm
+  run presale:smithii-verify -- --authority <wallet>` reads the created launch back off mainnet
+  and compares it with the config. Read-only: nothing in them signs or sends.
 - `bot/token/tier_gate.py` — the staking-tier gate (§3), OFF by default via
   `TOKEN_TIER_GATE_ENABLED`; gates `/scalp` `/intraday` `/swing`. When
   `RCLAW_STAKING_PROGRAM` is set it derives tiers from **staked** balance (read via
@@ -531,7 +594,10 @@ and the BUSL-1.1 license.
 - **Legal review per jurisdiction** before any token, vault, or revenue-share goes live.
 - **Jurisdiction-aware access + KYC tiers** for the presale and for higher live limits;
   **exclude restricted jurisdictions** (e.g., US persons / sanctioned regions) as counsel
-  advises. Geofencing at the sale and app layer.
+  advises. Geofencing at the sale and app layer. **On Smithii the sale program is
+  permissionless — no KYC, no geofence — so an exclusion can only be a statement on RUNECLAW's
+  own pages; the contract cannot refuse a buyer.** Ask counsel what that means for each target
+  jurisdiction, for example under the EU's MiCA rules on public offers of crypto-assets.
 - **Non-custodial by default** — users keep their keys; the protocol never takes custody it
   doesn't need. This matches the platform's existing posture.
 - **Plain risk disclosures** — leverage, drawdown, smart-contract, and token-volatility risk
@@ -616,9 +682,43 @@ the 294 tokens the deposit bought left behind. `presale:trigger` reads
 `baseTokenBalance` either side and fails if the numbers do not balance or if the
 behavior moved nothing while unsold tokens remain.
 
-### Mandatory sale-terms disclosures
+### Mandatory sale-terms disclosures — the Smithii sale (venue of record)
 
-Three facts about *this* sale are not visible from its marketing surface and are
+Eight facts about the sale the operator is running are not visible from Smithii's form or
+marketing and are not optional to publish. Each was established on 2026-10-08 by reading the
+audit, the SDK or the chain, and each is held in one place —
+`token/presale/smithii.config.json` → `disclosures` — which `npm run presale:smithii-plan`
+prints in full on every run, and which `token/presale/venue_parity.test.mjs` requires the
+GitBook to state. The full wording lives in the config; in short:
+
+1. **No refund**, at any raise level. A purchase is paid straight to the operator's wallet —
+   observed on mainnet: a 0.5 SOL buy moved 0.4875 SOL to the creator and 0.0125 SOL (2.5%) to
+   Smithii in one transaction — and the program has no instruction that returns one. A refund
+   would be the operator sending SOL by hand, and could not return Smithii's 2.5%.
+2. **The soft cap is descriptive.** The program stores it and never reads it.
+3. **No buyer vesting.** `claim` runs once per buyer: 100% when the sale ends.
+4. **No wallet whitelist.** The "whitelist phase" is a time window open to everyone.
+5. **Liquidity is an operator action.** The program never creates a pool, and the form's LP
+   Launch Price is not an on-chain field.
+6. **The program is upgradeable.** Authority `CyTc1wUKbuDd8ba7bsJrFaqXbhnBPbCte8FxSs2p7KTC`,
+   an off-curve address (program-controlled; threshold and members not observable). Last
+   deployed 2024-06-29, three days before CoinFabrik's fix review (2024-07-02). The live program
+   does enforce the audit's CR-02 fix — it refuses a mint with an active mint or freeze
+   authority — which is consistent with the deployed code being the audited fix commit but does
+   not prove it, so that is **unverified**. It holds the presale tokens from Create until
+   buyers claim.
+7. **The audit is Smithii's, not ours.** It covers Smithii's program, disclaims being a
+   warranty, and its prose ("fee paid by the buyer") disagrees with the chain (the creator pays
+   it). Never describe RUNECLAW or this sale as audited.
+8. **Proceeds go to the signing wallet** — about 97.5% of every purchase, instantly, and it
+   alone can edit the launch and withdraw unsold tokens. RCLAW sat in a single wallet when this
+   was written (Jupiter holderCount 1, 2026-10-08).
+
+Counsel should review the wording. The facts are measured and not negotiable.
+
+### If the sale moves to Genesis (Path A)
+
+Three facts about the Genesis sale are not visible from its marketing surface and are
 not optional to publish. Each was established by executing the thing rather than
 reading about it, and each is held in one place —
 `token/presale/metaplex-genesis.config.json` → `disclosures` — which
@@ -733,6 +833,28 @@ Counsel should review the wording. The facts are measured and not negotiable.
 - [ ] **Verifiable on-chain reserves** before any deposit/vault product (Phase 4–5).
 - [ ] Team/treasury/advisor allocations **on-chain-verifiable as locked** at TGE.
 
+**The Smithii sale adds these** (§10 has the reasons):
+
+- [ ] **The wallet that signs Create is chosen on purpose.** It receives about 97.5% of every
+      purchase the moment it happens and alone can edit the launch and withdraw unsold tokens:
+      hardware-backed, with proceeds moved to the Squads multisig after the sale. Create moves
+      the presale tokens out of the signer's own token account, so today it can only be the
+      wallet that holds RCLAW.
+- [ ] **The other ~850,000,000 are locked or vested before the sale opens**, and every
+      address is published. The sale program locks and vests nothing, and on 2026-10-08 one
+      wallet held all 1,000,000,000 (Jupiter token index, holderCount 1).
+- [ ] **`npm run presale:smithii-verify -- --authority <wallet>` passes right after Create and
+      before the first phase starts.** It is the only window in which `edit` can still fix a
+      wrong value, and it settles the one assumption nothing else can: that the site rounds the
+      price the way Smithii's SDK does.
+- [ ] **The pool is created and the LP burned in the window claims open**, and both
+      transactions are published. Nothing enforces either.
+- [ ] **The program's upgrade authority and last-deploy slot are re-read on launch day**
+      (`presale:smithii-verify` does it). If either moved, §10 no longer describes the program.
+- [ ] **A rehearsal on a throwaway token** — Create, one buy from a second wallet, claim,
+      withdraw, pool, burn — before the real Create. No Smithii guide read here mentions a
+      devnet, so do not assume one; nothing here has run a Smithii sale of its own.
+
 ---
 
 ## 12. KPIs, community & go-to-market
@@ -767,8 +889,9 @@ Everything below is a **proposed default that the team must ratify** — nothing
   Reasoning and the two-failure-mode asymmetry in §4; the arithmetic is pinned in
   `token/presale/lp_parity.test.mjs` and the number is enforced at trigger time.
 - **Soft/hard caps, min/max contribution, round durations, presale price** (§5).
-- **Liquidity split of raised SOL** (**66.67%**, ratified 2026-07-26 — see below). ~~LP lock vs burn~~ — **settled:**
-  permanent never-claim lock (§7).
+- **Liquidity split of raised SOL** (**66.67%**, ratified 2026-07-26 — see below). ~~LP lock vs burn~~ — **settled for the Genesis
+  path only:** permanent never-claim lock. **On the Smithii sale it is a burn by the operator**
+  (§7), which nothing enforces.
 - ~~**Staking lock-up period**~~ — **settled:** **30 days**, ratified 2026-07-26.
   `LOCKUP_SECONDS` in `programs/rclaw_staking/src/lib.rs`. Without a lock the tier is a live
   spot balance, so one position can be unstaked and re-staked to another wallet in the same
@@ -776,13 +899,37 @@ Everything below is a **proposed default that the team must ratify** — nothing
   hold. It is read at stake time and written into each record's `unlock_at`, so changing it
   later applies to **new deposits only** — existing positions keep the unlock they were
   promised. Safe to change freely today because nothing is deployed.
-- ~~**Primary venue**~~ — **settled:** Metaplex Genesis, integrated in draft (§6). Smithii
-  remains a documented fallback only.
-- **Jurisdiction exclusions and KYC threshold** (counsel-driven).
-- **SOL→USD reference** used for any published FDV/price.
+- ~~**Primary venue**~~ — **settled 2026-10-08: Smithii** (operator decision), superseding
+  Metaplex Genesis (§6). Genesis stays as the documented alternative.
+- **Jurisdiction exclusions and KYC threshold** (counsel-driven). The Smithii program has no
+  KYC and no geofence (§10).
+- **SOL→USD reference** used for any published FDV/price. One measurement exists: SOL =
+  $107.82 on 2026-10-08 16:57 UTC (Crypto.com `SOL_USDT` last), FDV at the sale price ≈ $3.59M
+  (§5). It is a measurement, not a reference — re-take it the day the terms are published.
 - **Wormhole bridge timing** and whether Base settlement is in scope for v1 (§9).
 
-**Opened by building the integration — these did not exist as questions before:**
+**Opened by choosing Smithii (2026-10-08) — all open:**
+
+- **LP sizing and the allocation table.** The ratified 2.0001% / 12.9999% table exists because
+  Genesis fixes the LP token side at bucket creation (§4). On Smithii the pool is created after
+  the raise, and opening at the sale price it needs about 20.0M RCLAW at the soft cap and
+  100.0M at the hard cap — the old 10% / 5% shape. Decide which table is true, then make this
+  document, the GitBook and `metaplex-genesis.config.json` agree. Until then the GitBook and
+  this document both carry the ratified 2.0001% / 12.9999%.
+- **What the operator does if the raise ends below the soft cap.** The program will not decide
+  it (§10). Publish a rule before the sale: proceed to listing, hold the SOL, or return it by
+  hand — which cannot return Smithii's 2.5% unless the operator adds it.
+- **An early window.** The 48h whitelist round is dropped: the program has no wallet list. A
+  time-window "early" phase would be open to everyone, costs 0.2 SOL instead of 0.1 (per the
+  audit) and buys nothing the public phase does not; the public phase stays 72h.
+- **Smithii's 2.5% in the budget.** At the hard cap it is 125 SOL, so "remainder to audit,
+  operations and treasury" is 30.83% of the gross raise, not 33.33% (§5).
+- **Where unsold tokens go.** They come back to the signing wallet; the config states the
+  intent to move them to the reserve allocation and publish that transaction. Ratify it.
+
+**Opened by building the Genesis integration — these did not exist as questions before** (on
+the Smithii sale the answers are in §10: no refund, a descriptive soft cap, an upgradeable
+program):
 
 - ~~**Sale structure: fixed-price vs refundable launch pool**~~ — **settled
   2026-07-26: fixed-price presale kept.** Investigated after discovering the
@@ -907,6 +1054,7 @@ disclosed.
 | e2e harness | **Full lifecycle green** against a local validator, and previously against devnet. The **gated round is proven too** (`npm run e2e:whitelist`): invited wallet admitted, uninvited wallet refused, uninvited admitted after expiry — two wallets, on chain | Never run against a public cluster; no concurrency coverage beyond the two-wallet allowlist test |
 | Wormhole bridge | Script resolves + typechecks | No NTT deployment, no transfer |
 | Anchor TS spec | `npm run typecheck` passes | **Never executed** — needs the Anchor/Solana CLIs |
+| Smithii sale (venue of record) | CoinFabrik's audit text read; the SDK's (0.3.5) instruction set and account layouts read; the money flow, fees, escrow formula and Launch-account layout **observed on live mainnet transactions and accounts** (2026-10-08); the derivation, the decoder (against a real account) and the read-back are node-tested, and mutation-tested | **We have not run a Smithii sale ourselves** — no Create, buy, claim or withdraw of ours. Not proven: that the site rounds the price like the SDK (the first `presale:smithii-verify` after Create settles it); that the deployed bytecode is the audited commit; how odd fee amounts round; the 0.2 SOL whitelist-phase fee (audit only); that Smithii offers a devnet |
 
 ### Why the gaps exist
 

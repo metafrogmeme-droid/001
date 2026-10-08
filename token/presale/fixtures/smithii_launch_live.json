@@ -1,0 +1,43 @@
+{
+  "_comment": [
+    "A REAL Smithii Mantis `Launch` account, read from Solana mainnet-beta on 2026-10-08 (slot 454609758) with getAccountInfo(encoding=base64).",
+    "It belongs to a THIRD PARTY's sale, not ours; it is public chain data kept only so the decoder in smithii_lib.mjs is tested against real bytes instead of bytes this repo wrote itself.",
+    "Why this is trusted as a fixture, each point observed independently of the decoder: (1) the first 8 bytes equal sha256('account:Launch')[0..8], the Anchor tag for that account name; (2) the authority and mint fields equal the launchAuthority and mint accounts listed by a real `buy` transaction against this launch; (3) sold_amount equals the 0.5 SOL that buy paid; (4) this launch's vault token account held 350000000000000 raw units of a 6-decimal token, which is hardcap 140 SOL / price 400 lamports per token \u2014 the escrow formula tokens = hardcap_lamports * 10^decimals / price_lamports.",
+    "The 7 bytes after payment_method are zero; the SDK's documented layout ends at byte 185 and the account is 192 bytes, so the decoder ignores the tail and a test records that it was all zero."
+  ],
+  "launch": "FQyRPyiDNvcowcfPJfkp8V1QEJfgtQRRWsv4qm1EnPau",
+  "program": "mntsCeVAzanrbTT3gZZzkeJMNJjeXAnPqy5AQhBUkVU",
+  "slot": 454609758,
+  "dataBase64": "kDMzo85V1SZ7rGg9BPUTTf+5HEL0/rIaIX0sDlAngcXjGJ6ZDj4T1VsPNXSa5erYwiyeGqTu0S/NaiJtCIXFYsnagLtwHgwmAHimmCAAAAAA8gUqAQAAAABlzR0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAkAEAAAAAAAAg67ZqAAAAAEB6y2oAAAAAAGXNHQAAAAAA8gUqAQAAAAAAAAAAAAAA",
+  "vault": {
+    "rawAmount": "350000000000000",
+    "decimals": 6,
+    "address": "DtUbhgiPAMKyAhsZNvtHECCctwASR5cE95nwiUR5NNyJ",
+    "_note": "getTokenAccountsByOwner(launch, mint) on 2026-10-08 returned this single token account; it is the associated token account of the launch PDA (owner off-curve)."
+  },
+  "expected": {
+    "discriminatorHex": "903333a3ce55d526",
+    "authority": "9KmdEBpow2CxggJeRgqwcnD27vMALUsgaDHm9KQGxRvC",
+    "mint": "78TYyPb9cpv9742nZrcKgYf1G6CM6C8p6eiuVGPgJmV7",
+    "hardcap": "140000000000",
+    "softcap": "5000000000",
+    "soldAmount": "500000000",
+    "whitelistPhase": {
+      "price": "0",
+      "startDate": "0",
+      "endDate": "0",
+      "minAmount": "0",
+      "maxAmount": "0"
+    },
+    "whitelistLimit": "0",
+    "publicPhase": {
+      "price": "400",
+      "startDate": "1790372640",
+      "endDate": "1791720000",
+      "minAmount": "500000000",
+      "maxAmount": "5000000000"
+    },
+    "paymentMethod": 0,
+    "trailingBytes": 7
+  }
+}
