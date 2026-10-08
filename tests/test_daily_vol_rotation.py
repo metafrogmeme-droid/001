@@ -277,8 +277,14 @@ def test_the_generator_does_not_publish_a_majors_card():
     assert "--ma-utilization" not in args
     assert "0.08" not in args and "0.05" not in args and "0.04" not in args
     assert _gate_args(RunStrategySkill.PRESETS["full scan"]) == []
-    assert set(_unmodeled(cfg)) == {
-        "trailing_stop_pct", "take_profit_pct", "hard_stop_loss_pct"}
+    # Every knob the how-line names as recorded and not applied, leverage
+    # and utilization included.
+    assert _unmodeled(cfg) == [
+        "trailing_stop_pct", "take_profit_pct", "hard_stop_loss_pct",
+        "leverage", "utilization"]
+    from bot.core.vol_rotation import how_line
+    line = how_line(cfg)
+    assert "Leverage 5\u00d7 and utilization 0.95 are recorded" in line
     assert _unmodeled(RunStrategySkill.PRESETS["eth ma trend"]) == []
     dataset = os.path.join(_REPO, "benchmark", "majors_1h")
     with pytest.raises(SystemExit) as raised:

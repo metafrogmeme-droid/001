@@ -19999,6 +19999,35 @@ Unreadable is not a measurement, here as everywhere else.
 A moved `assets` still is not a *fetched* file — browsers cache on the `?v=`
 in the script tag. **Bump it in every page that references a changed bundle.**
 
+**THREE BACKTEST READINGS FROM THE REVIEW OF THE SIXTY PRS, NONE OF WHICH
+MOVES A RECORDED NUMBER.**
+- *The honest fill model did not reach the moving-average book.* Under
+  `--honest` (`fill_mode="next_open"`) every entry waits for the next bar's
+  open; the MA book's entries and reversals filled at the close of the bar
+  that decided them, while the Lab said the honest model was applied. The
+  action is queued now and filled at the next open. And the queued fill is
+  one method, `_fill_queued_at_open`, which `_run` and the portfolio
+  engine both call: the portfolio loop held its own copy of the entry
+  branch, and the MA branch added to one loop was missing from the other,
+  which is where a multi-symbol Lab run goes. The ETH trend card's one
+  trade re-measures to the same figures on 1h bars, where the next open
+  sits on the signal close, so the committed card stands (re-stamping it
+  would name a commit main does not carry).
+- *No volume baseline was a measured 0.0.* Five zero-volume bars, or fewer
+  than six, gave the backtest signal a ratio of 0.0, which a trade row
+  prints as "no spike"; the live scanner sends None. No baseline is None
+  now; a zero volume against a real average is still 0.0. No committed
+  record held a 0.0, and both read the same at the volume gate.
+- *The daily rotation's unmodeled list left out what its how-line names.*
+  `vol_rotation.UNAPPLIED_KEYS` is the one list: the three percent exits,
+  and the leverage and utilization that do not size a fill.
+Eight mutants, all killed. A first round of five passed; a second, on the
+tree that lands, found a line no test reached. A cross decided on the last
+bar was not counted as pending, and a test now holds that it is. The
+committed scorecards re-run identically.
+(`tests/test_eth_ma_trend.py`, `tests/test_backtest_preset_gates.py`,
+`tests/test_daily_vol_rotation.py`.)
+
 ## Writing tests that scan source
 
 Strip comments first. A comment that quotes the string it forbids is

@@ -243,20 +243,20 @@ about to change before changing it.
 ## Verifying a deploy (line 19957)
 
 
-## Writing tests that scan source (line 20002)
+## Writing tests that scan source (line 20031)
 
-- L20444: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
-- L20645: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
-- L20672: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
+- L20473: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
+- L20674: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
+- L20701: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
 
-### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 20906)
-
-
-### A module nothing calls is indistinguishable from one that does not work (line 20978)
-
-- L21221: CHAT'S OWN DOLLAR CAP NEVER ASKED THE DAILY TOTAL — `app/test/the_agents_intro_claims_only_what_a_card_carries.test.js`, `tests/test_a_chosen_side_is_enforced_at_confirm.py`, `tests/test_chat_spends_only_its_share_of_the_llm_budget.py`
-
-## Deploying so a dead bot cannot look like a live one (line 21316)
+### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 20935)
 
 
-## Operational docs (line 21473)
+### A module nothing calls is indistinguishable from one that does not work (line 21007)
+
+- L21250: CHAT'S OWN DOLLAR CAP NEVER ASKED THE DAILY TOTAL — `app/test/the_agents_intro_claims_only_what_a_card_carries.test.js`, `tests/test_a_chosen_side_is_enforced_at_confirm.py`, `tests/test_chat_spends_only_its_share_of_the_llm_budget.py`
+
+## Deploying so a dead bot cannot look like a live one (line 21345)
+
+
+## Operational docs (line 21502)

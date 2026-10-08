@@ -148,6 +148,7 @@ class PortfolioBacktester:
         last_close: dict[str, float] = {}
         for eng in self._engines.values():
             eng._pending_entry = None
+            eng._pending_ma = None
         # MTF parity (mirrors BacktestEngine.run): full raw history per symbol
         # so _process_bar can resample closed 4h/1d groups.
         for sym, bars in streams.items():
@@ -172,11 +173,9 @@ class PortfolioBacktester:
                 if i < lookback:
                     continue  # warmup — indicators need history
 
-                # Same per-bar pipeline as BacktestEngine.run():
-                if eng._pending_entry is not None:
-                    _p_idea, _p_risk = eng._pending_entry
-                    eng._pending_entry = None
-                    eng._execute_fill(_p_idea, _p_risk, bar.open, bar)
+                # Same per-bar pipeline as BacktestEngine.run(), the queued
+                # fills through the same method.
+                eng._fill_queued_at_open(bar)
 
                 # Resting limits: fill on touch, expire, or cancel on drift --
                 # before the stop check, as run() does. Missing here, a limit
