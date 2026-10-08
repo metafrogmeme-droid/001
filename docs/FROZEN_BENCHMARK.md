@@ -297,10 +297,42 @@ gate refused 202 of those ideas on STOP_DISTANCE, 23 for that reason alone.
 With the fix it refuses none of them. The net moves from −$1,456.42 to
 −$1,440.41 and the profit factor from 0.61 to 0.63.
 
+**Re-recorded on 2026-10-07 at `3d819d1a`, a commit on `main`.** 129 pooled
+trades, 66/63, net −$1,456.34, PF 0.62, 1 of 6 folds profitable, mean OOS
+−2.43%, worst −4.58%, on the same `dataset_hash`. `main` has given this figure
+since #508, the one sweep definition, which re-recorded the strategy
+scorecards but not this file (the bisect is in the engineering log). The trades are the same trades: every
+fold's count, and every symbol's count and win rate, match the record above.
+Only the nets of the first and fourth folds moved, by $15.93 in all. DOGE
+moved most, from +$6.86 to −$6.11 in the first fold.
+
+**The stamps above were taken on branches that were rebased before they
+merged.** `afec9d2a`, `cbbf9348`, `d8b0f7d6`, `b8c36630` and `facb316b` do not
+resolve in this repository. Each change is on `main` as the commit below.
+Re-run there on 2026-10-07 (`--honest --walk-forward 6`), each reproduces the
+figure recorded for its stamp to the cent:
+
+| stamp cited above | on `main` | re-run there |
+|---|---|---|
+| `afec9d2a` | `e453a5aa` | 117 trades, net −$1,456.39 |
+| `cbbf9348` | `91f6dc4d` | 117 trades, net −$1,456.38 |
+| `d8b0f7d6` | `7f216d8f` | 117 trades, net −$1,456.42 |
+| `b8c36630` | `a80df4ac` | 129 trades, net −$1,440.41 |
+| `facb316b` | `c9241690`, the commit before `e453a5aa` | 117 trades, net −$342.80 at 1x and −$1,751.85 at 5x |
+
+`facb316b` was the branch with main's stop floor merged in and the old sizing.
+On `main`, `c9241690` is the last commit before the sizing changed, and it
+reproduces both of that stamp's rows.
+
 `code_sha` names the commit the measurement was taken AT, which is why the
 artefact lands in the commit AFTER the one that changed the code: an artefact
 whose sha is the commit containing it cannot exist. `73740a1a` above set the
-same precedent.
+same precedent. The commit it names must also be one `main` carries, so a
+re-record runs from a clean checkout of `main`, never from a branch that will
+be rebased. `tests/test_the_benchmark_record_names_a_commit_main_carries.py`
+holds both: the stamp is the parent of the commit that last wrote the file,
+and every commit this page cites resolves here or is mapped in the table
+above.
 
 ## Is live tracking the benchmark? (`bot.backtest.parity`)
 
