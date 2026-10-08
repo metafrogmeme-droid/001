@@ -56,7 +56,7 @@ async function buildHoldings(ident, userId) {
   }
 
   // Same correction as lib/networth: whether a venue is CONNECTED is the web's
-  // own fact (exchange_status), not the gateway's. A gateway that answered with
+  // own fact (exchange_venue_status), not the gateway's. A gateway that answered with
   // an empty list, or could not answer at all, must not render as "none
   // connected — connect keys here" while the venues panel two cards up says
   // BITGET connected and the keys are sitting in the database.
@@ -64,7 +64,7 @@ async function buildHoldings(ident, userId) {
     try {
       const { pool } = require('../db');
       const [rows] = await pool.execute(
-        'SELECT exchange FROM exchange_status WHERE user_id = ? AND connected = 1', [userId]);
+        'SELECT exchange FROM exchange_venue_status WHERE user_id = ? AND connected = 1', [userId]);
       for (const r of (rows || [])) {
         venues.push({
           venue: String(r.exchange || 'bitget'),

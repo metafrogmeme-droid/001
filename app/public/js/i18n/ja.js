@@ -1520,6 +1520,8 @@
   ["venue.not_connected", "未接続"],
   ["venue.rejected", "拒否されました"],
   ["venue.applying", "{venue} を適用中…"],
+  ["venue.waited", "{min} 分待機中"],
+  ["venue.stuck", "まだボットを待っています。ボットはスキャンごとにキーを取得します。変わらない場合、ボットがウェブサイトに接続できていない可能性があります。"],
   ["venue.disconnect", "切断"],
   ["venue.connect_x", "{venue} を接続"],
   ["venue.encrypt_note", "鍵は保存時に AES-256-GCM で暗号化され、ボットは認証済みチャネル経由で取得します。出金権限は一切不要です。取引所はいくつでも接続できます — それぞれ独立していて、今後のペアごとの賢い venue ルーティングもこの上に築かれます。"],

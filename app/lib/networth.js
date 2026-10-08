@@ -46,19 +46,19 @@ async function buildNetWorth(ident, userId) {
   }
 
   // The gateway is the only source of exchange EQUITY, but not of whether an
-  // exchange is connected — the web stores that itself in exchange_status, and
+  // exchange is connected — the web stores that itself in exchange_venue_status, and
   // the venues panel reads it. When the gateway cannot answer, saying "none
   // connected" contradicts the panel directly above it and sends a user who
   // already linked Bitget off to re-enter keys that are sitting right there.
   //
   // "I cannot reach the bot" and "you have no exchange" are different answers.
-  // `userId == null` is a caller with no web account: no exchange_status row
+  // `userId == null` is a caller with no web account: no exchange_venue_status row
   // and no wallet can be theirs, and neither lookup is made.
   if (sections.cex && !sections.cex.connected) {
     if (userId != null) try {
       const { pool } = require('../db');
       const [rows] = await pool.execute(
-        'SELECT exchange FROM exchange_status WHERE user_id = ? AND connected = 1 LIMIT 1',
+        'SELECT exchange FROM exchange_venue_status WHERE user_id = ? AND connected = 1 LIMIT 1',
         [userId]);
       if (rows && rows.length) {
         sections.cex = {

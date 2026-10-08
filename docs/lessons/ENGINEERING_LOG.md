@@ -21571,6 +21571,77 @@ old behaviour back in one place, all killed on the first round.
 (`tests/test_a_key_is_checked_where_its_venue_trades.py`,
 `app/test/the_venue_chip_names_the_exchange.test.js`.)
 
+**"APPLYING" HAD NO AGE, AND BITGET'S REFUSALS WERE STILL JSON.** The same
+report, one card and one venue over.
+
+The exchange-keys chip read "applying Bybit…" for as long as the request sat
+in the queue. The bot picks a request up after an engine tick, and a tick is
+a scan plus SCAN_INTERVAL: sixty seconds by default, and a full 200-symbol
+sweep at the ~3.3 s/symbol `bot/config.py` records is about eleven minutes. So
+a wait is normal, and the chip could not tell a minute's ordinary wait from a
+bot that never calls. `/api/credentials/status` returns `pending_age_s` now,
+read off one clock: the database computes it against its own
+CURRENT_TIMESTAMP, and the in-memory store, which stamped `created_at` from
+this process's clock, subtracts from that. Comparing a database timestamp
+with `Date.now()` would have read a timezone gap between two hosts as a wait.
+A negative or unparseable age is null, never zero. The chip adds "· waiting N
+min" from a minute on. Past fifteen minutes, which clears an ordinary slow
+tick, the card adds that the bot may not be reaching the website. That is a
+possibility, not a verdict.
+
+Bybit's refusals became instructions in the previous change. Bitget is the
+default venue and its replies were still its body, "bitget
+{"code":"40012","msg":"apikey/password is incorrect",...}".
+`_BITGET_REFUSALS` covers 40006, 40037, 40009, 40010, 40012, 40014, 40018,
+40004 and 40008, with the meanings ccxt's bitget driver maps to them. The code
+is read off the probe's own detail, as the 40099 environment diagnosis already
+reads it, so 40099 keeps its diagnosis and a code with no sentence keeps
+Bitget's words.
+
+Driven: the status route on the in-memory store, with a row aged twenty
+minutes by its own clock; the age reading on both sources; the chip and the
+note cut out of dashboard.js by their markers; Bitget's refusals through
+ccxt's real client and through `/connect`. Seventeen mutants, all killed.
+One more was equivalent and not counted: dropping the empty-value guard in
+the chip changes nothing, because `Number('')` and `Number(null)` are 0,
+which is already under a minute.
+(`app/test/a_pending_key_says_how_long_it_has_waited.test.js`,
+`tests/test_a_key_is_checked_where_its_venue_trades.py`.)
+
+**A REFUSED BYBIT KEY REWROTE A CONNECTED BITGET ROW, BECAUSE A MIGRATION
+NEVER RAN AND SAID NOTHING.** Reported on 8 October: after the bot refused a
+Bybit key, the website's Bitget card went from "connected" to "not
+connected". The operator's database answered why. Production's
+`exchange_status` still had `PRIMARY KEY (user_id)`. The July change that made
+it one row per (user, venue) did so with `ALTER TABLE ... DROP PRIMARY KEY, ADD
+PRIMARY KEY (user_id, exchange)` inside a `catch` that swallowed every
+failure, and TiDB cannot drop a clustered integer primary key. The schema fast
+path then skipped the whole DDL block on every boot, so the migration never
+had a second chance. Every ack wrote `ON DUPLICATE KEY UPDATE exchange =
+VALUES(exchange)`, and the duplicate was the user's one row. At 09:04 UTC the
+Bybit refusal turned user 1's Bitget row into Bybit's.
+
+`exchange_venue_status` is created keyed (user_id, exchange) from birth. That
+needs no ALTER, no DROP PRIMARY KEY and no RENAME, so it is created the same
+way on every engine, and the legacy table is left as it is. It is seeded once,
+while empty, from the legacy rows (INSERT IGNORE, a NULL venue read as
+bitget). A failed seed is logged with its code rather than stopping the
+website. Every reader and writer moved to it, the upsert names no venue, and
+the erasure list removes both. Adding it to the expected tables is what makes
+the fast path run the DDL block once more.
+
+The bot's side had a second fact. Its per-user store had no file at all and
+its log had no stored key, so the green "connected" this card showed for
+Bitget had been a copy of an old ack that nothing ever checked against the
+bot. A status the website keeps by itself can drift from the bot without
+limit; reconciling the two is the owner's call.
+
+Driven: `ensureVenueStatusTable` against a recording pool (no MySQL or TiDB
+here, so the SQL has not run on the real engine), and the real ack route on
+the in-memory store with a refusal for one venue beside a connected other.
+Eleven mutants, all killed.
+(`app/test/one_venue_s_status_never_rewrites_another.test.js`, `app/db.js`.)
+
 ## Deploying so a dead bot cannot look like a live one
 
 **There are TWO processes and only one of them was ever being started.**

@@ -124,15 +124,41 @@ const OFF_DETAIL = {
     + 'This is a fault on our side — please try again shortly.',
 };
 
+/**
+ * How long a queued request has waited on the bot, in whole seconds, or null.
+ *
+ * ONE CLOCK. The database computes it against its own CURRENT_TIMESTAMP when
+ * it can (`pending_age_s`), because `created_at` is stamped by that clock and
+ * comparing it with this process's `Date.now()` would read a timezone or skew
+ * between the two hosts as a wait. The in-memory store evaluates no SQL, but
+ * it stamped `created_at` from this process's clock, so the subtraction is
+ * one clock there too. Anything else is unreadable and returns null: the card
+ * then shows no wait at all rather than "0 min".
+ */
+function pendingAgeSeconds(row) {
+  if (!row) return null;
+  if (row.pending_age_s != null) {
+    const s = Number(row.pending_age_s);
+    return Number.isFinite(s) && s >= 0 ? Math.floor(s) : null;
+  }
+  if (row.created_at instanceof Date) {
+    const s = (Date.now() - row.created_at.getTime()) / 1000;
+    return Number.isFinite(s) && s >= 0 ? Math.floor(s) : null;
+  }
+  return null;
+}
+
 // GET /api/credentials/status -> { linked, connected, pending }
 router.get('/status', async (req, res) => {
   try {
     const uid = req.user.user_id;
     const u = await _userRow(uid);
     const [st] = await pool.execute(
-      'SELECT connected, exchange, last_error FROM exchange_status WHERE user_id = ?', [uid]);
+      'SELECT connected, exchange, last_error FROM exchange_venue_status WHERE user_id = ?', [uid]);
     const [pend] = await pool.execute(
-      'SELECT action, exchange FROM pending_credentials WHERE user_id = ?', [uid]);
+      `SELECT action, exchange, created_at,
+              TIMESTAMPDIFF(SECOND, created_at, CURRENT_TIMESTAMP) AS pending_age_s
+       FROM pending_credentials WHERE user_id = ?`, [uid]);
     const connectedRows = st.filter(r => !!r.connected);
     const prot = await protection();
     res.json({
@@ -147,6 +173,10 @@ router.get('/status', async (req, res) => {
       venue: connectedRows.length > 0 ? (connectedRows[0].exchange || 'bitget') : null,
       pending: pend.length > 0 ? pend[0].action : null,
       pending_venue: pend.length > 0 ? (pend[0].exchange || 'bitget') : null,
+      // How long that request has waited on the bot (seconds, or null when
+      // unreadable). The bot picks requests up after an engine tick, so a
+      // wait is normal; a wait that only grows is the card's to say.
+      pending_age_s: pend.length > 0 ? pendingAgeSeconds(pend[0]) : null,
       // THREE-VALUED. `false` is a claim — "this form is off" — and an
       // unreadable key store has not earned it, so that case reads null and
       // says why in crypto_reason. `crypto_ready` was `creds.isConfigured()`,
@@ -270,7 +300,7 @@ router.delete('/', credLimit, async (req, res) => {
     }
     if (!venue) {
       const [st] = await pool.execute(
-        'SELECT connected, exchange FROM exchange_status WHERE user_id = ?', [uid]);
+        'SELECT connected, exchange FROM exchange_venue_status WHERE user_id = ?', [uid]);
       const first = st.find(r => !!r.connected) || st[0];
       venue = (first && first.exchange) || 'bitget';
     }
@@ -290,3 +320,4 @@ router.delete('/', credLimit, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.pendingAgeSeconds = pendingAgeSeconds;

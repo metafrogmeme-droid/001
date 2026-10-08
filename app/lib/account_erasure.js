@@ -45,6 +45,7 @@ const USER_SCOPED_TABLES = [
   // credentials and anything that could move value
   'pending_credentials',
   'exchange_status',
+  'exchange_venue_status',
   'pending_controls',
   'user_controls',
   'pending_flatten',

@@ -125,7 +125,7 @@ test('you cannot select a venue you have not connected', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'controls.js'), 'utf8');
   const i = src.indexOf("router.post('/venues'");
   const body = src.slice(i, src.indexOf('router.post', i + 10));
-  assert.match(body, /FROM exchange_status WHERE user_id = \? AND connected = 1/,
+  assert.match(body, /FROM exchange_venue_status WHERE user_id = \? AND connected = 1/,
     'the route does not check which venues are actually connected');
   assert.match(body, /connect these before selecting them/);
 });

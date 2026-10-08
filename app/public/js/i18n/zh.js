@@ -1520,6 +1520,8 @@
   ["venue.not_connected", "未連接"],
   ["venue.rejected", "已拒絕"],
   ["venue.applying", "正在套用 {venue}…"],
+  ["venue.waited", "已等待 {min} 分钟"],
+  ["venue.stuck", "仍在等待机器人。它在每次扫描后读取密钥；如果这里一直不变，机器人可能无法连接到网站。"],
   ["venue.disconnect", "中斷連接"],
   ["venue.connect_x", "連接 {venue}"],
   ["venue.encrypt_note", "金鑰以 AES-256-GCM 加密靜態儲存，並由機器人透過已驗證的通道取用。從不需要提幣權限。你想連接多少交易所都可以 — 每個都是獨立的，後續的智慧交易對路由也建立在此之上。"],

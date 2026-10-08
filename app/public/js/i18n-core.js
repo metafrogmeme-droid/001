@@ -1562,6 +1562,8 @@
     "venue.not_connected": { en: "not connected" },
     "venue.rejected": { en: "rejected" },
     "venue.applying": { en: "applying {venue}…" },
+    "venue.waited": { en: "waiting {min} min" },
+    "venue.stuck": { en: "Still waiting for the bot. It picks keys up after each scan; if this does not change, the bot may not be reaching the website." },
     "venue.disconnect": { en: "Disconnect" },
     "venue.connect_x": { en: "Connect {venue}" },
     "venue.encrypt_note": { en: "Keys are AES-256-GCM encrypted at rest and pulled by the bot over an authenticated channel. Withdrawal permissions are never required. Connect as many exchanges as you like — each is independent, and smart per-pair venue routing builds on this next." },
@@ -2190,7 +2192,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"b07124d4","zh":"69b16a93","pt":"0f3be6de","fr":"c5861b2a","de":"8144699f","nl":"41eac6d1","ja":"722713b2","ko":"8a5ce5ea","ru":"273702ad","tr":"38a3378e","it":"a56992e0","hi":"2ed72a63","ar":"cd5cd099"};
+  var CHUNKS = {"es":"bf5b21cf","zh":"c24ec654","pt":"6aa3bf34","fr":"1e72f72f","de":"baeab122","nl":"b40ffe73","ja":"35b49070","ko":"978913fc","ru":"8a5b79b7","tr":"1b53d051","it":"f680b720","hi":"0dbaf7eb","ar":"1f28e34f"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

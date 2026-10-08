@@ -182,7 +182,7 @@ router.post('/venues', ctlLimit, async (req, res) => {
     // its OWN credential store, which is the source of truth. This is the web
     // half of the gate, not the whole of it.
     const [st] = await pool.execute(
-      'SELECT exchange FROM exchange_status WHERE user_id = ? AND connected = 1', [uid]);
+      'SELECT exchange FROM exchange_venue_status WHERE user_id = ? AND connected = 1', [uid]);
     const have = new Set(st.map((r) => String(r.exchange || 'bitget').toLowerCase()));
     const missing = parsed.venues.filter((v) => !have.has(v));
     if (missing.length) {

@@ -1520,6 +1520,8 @@
   ["venue.not_connected", "non collegato"],
   ["venue.rejected", "rifiutato"],
   ["venue.applying", "applicazione di {venue}…"],
+  ["venue.waited", "in attesa da {min} min"],
+  ["venue.stuck", "Ancora in attesa del bot. Prende le chiavi dopo ogni scansione; se non cambia, il bot potrebbe non raggiungere il sito."],
   ["venue.disconnect", "Scollega"],
   ["venue.connect_x", "Collega {venue}"],
   ["venue.encrypt_note", "Le chiavi sono cifrate a riposo con AES-256-GCM e prelevate dal bot su un canale autenticato. I permessi di prelievo non servono mai. Collega tutti gli exchange che vuoi — ognuno è indipendente, e su questo si costruirà il routing intelligente per coppia."],

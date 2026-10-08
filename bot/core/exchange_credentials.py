@@ -698,6 +698,46 @@ class ExchangeCredentialStore:
 # demo-trading key hitting the live API (or a live key hitting demo).
 _WRONG_ENV_CODE = "40099"
 
+# Bitget's other refusals of a key, as instructions. The reply was Bitget's
+# body ("AuthenticationError: bitget {"code":"40012","msg":"apikey/password is
+# incorrect",...}"). The codes and their meaning are Bitget's, as ccxt's
+# bitget driver maps them (40006 "Invalid ACCESS_KEY", 40009/40010 "sign
+# signature error", 40012 "apikey/password is incorrect", 40014 "Incorrect
+# permissions", 40018 "Invalid IP", 40037 "Apikey does not exist", 40004/40008
+# "Request timestamp expired"). Each fits the 180 characters the website's ack
+# carries to the card.
+_BITGET_REFUSALS: dict[int, str] = {
+    40006: ("Bitget does not know this API key (code 40006). Check it was copied whole "
+            "from Bitget's API Management page."),
+    40037: ("Bitget has no such API key (code 40037): it was mistyped or deleted. "
+            "Create a new one in API Management."),
+    40009: ("Bitget refused the signature (code 40009): this API secret is not the key's. "
+            "Check the key and secret were not swapped."),
+    40010: ("Bitget refused the signature (code 40010): this API secret is not the key's. "
+            "Check the key and secret were not swapped."),
+    40012: ("Bitget refused this key with this passphrase (code 40012). The passphrase is "
+            "the one set when the key was made, not the account password."),
+    40014: ("Bitget says this key lacks permission (code 40014). It needs read and trade "
+            "permission on USDT-M futures."),
+    40018: ("Bitget refused this server's IP (code 40018): the key is bound to IP addresses "
+            "and this server's is not one of them."),
+    40004: ("Bitget refused the request's timestamp (code 40004): this server's clock is off. "
+            "That is the bot operator's to fix, not your key."),
+    40008: ("Bitget refused the request's timestamp (code 40008): this server's clock is off. "
+            "That is the bot operator's to fix, not your key."),
+}
+
+
+def _bitget_refusal(detail: str) -> str:
+    """Bitget's refusal said as an instruction, or ``detail`` unchanged.
+
+    The code is read off the probe's own detail, as the 40099 path above reads
+    it, so a probe stand-in that returns Bitget's body is translated the same
+    way the real one is."""
+    m = re.search(r'"code"\s*:\s*"?(\d+)', str(detail or ""))
+    code = int(m.group(1)) if m else None
+    return _BITGET_REFUSALS.get(code, detail) if code is not None else detail
+
 
 async def _bitget_balance_probe(api_key: str, api_secret: str,
                                 passphrase: str, sandbox: bool) -> tuple[bool, str]:
@@ -890,8 +930,10 @@ async def validate_bitget_credentials(
     without ever storing a wrong-environment key.
     """
     ok, detail = await _bitget_balance_probe(api_key, api_secret, passphrase, sandbox)
-    if ok or _WRONG_ENV_CODE not in detail:
+    if ok:
         return ok, detail
+    if _WRONG_ENV_CODE not in detail:
+        return False, _bitget_refusal(detail)
     # 40099: diagnose which environment the key actually belongs to.
     other_ok, _ = await _bitget_balance_probe(api_key, api_secret, passphrase,
                                               not sandbox)

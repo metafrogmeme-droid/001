@@ -1520,6 +1520,8 @@
   ["venue.not_connected", "nicht verbunden"],
   ["venue.rejected", "abgelehnt"],
   ["venue.applying", "{venue} wird angewendet…"],
+  ["venue.waited", "wartet seit {min} Min."],
+  ["venue.stuck", "Noch wartet die Anfrage auf den Bot. Er holt Schlüssel nach jedem Scan ab; ändert sich das nicht, erreicht der Bot die Website womöglich nicht."],
   ["venue.disconnect", "Trennen"],
   ["venue.connect_x", "{venue} verbinden"],
   ["venue.encrypt_note", "Schlüssel werden im Ruhezustand mit AES-256-GCM verschlüsselt und vom Bot über einen authentifizierten Kanal abgeholt. Auszahlungsrechte sind nie erforderlich. Verbinde so viele Börsen wie du willst — jede ist unabhängig, und das smarte Venue-Routing pro Paar baut darauf auf."],

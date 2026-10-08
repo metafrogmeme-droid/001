@@ -1361,6 +1361,12 @@ router.post('/credentials/ack', async (req, res) => {
         'SELECT exchange FROM pending_credentials WHERE user_id = ?', [uid]);
       const venue = String(a.venue || (prow[0] && prow[0].exchange) || 'bitget').toLowerCase();
       await pool.execute('DELETE FROM pending_credentials WHERE user_id = ?', [uid]);
+      // ONE ROW PER (USER, VENUE), and nothing here may move a row to another
+      // venue. These writes said `ON DUPLICATE KEY UPDATE exchange = ...`; on a
+      // table still keyed on user_id alone (production's, until the per-venue
+      // table) the duplicate was the user's OTHER venue, and a refused Bybit
+      // key rewrote a connected Bitget row as Bybit's. exchange_venue_status is
+      // keyed (user_id, exchange) from birth, and the update names no venue.
 
       if (!a.ok) {
         // Not connected, and SAY WHY. The reason is the venue's own words as
@@ -1368,9 +1374,9 @@ router.post('/credentials/ack', async (req, res) => {
         // the boundary that writes it to a column and serves it to a browser.
         const why = String(a.error || 'the exchange rejected these keys').slice(0, 200);
         await pool.execute(
-          `INSERT INTO exchange_status (user_id, exchange, connected, last_error)
+          `INSERT INTO exchange_venue_status (user_id, exchange, connected, last_error)
            VALUES (?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE exchange = VALUES(exchange),
+           ON DUPLICATE KEY UPDATE
              connected = VALUES(connected), last_error = VALUES(last_error),
              updated_at = CURRENT_TIMESTAMP`,
           [uid, venue, false, why]
@@ -1381,9 +1387,9 @@ router.post('/credentials/ack', async (req, res) => {
 
       const connected = a.action === 'disconnect' ? false : true;
       await pool.execute(
-        `INSERT INTO exchange_status (user_id, exchange, connected, last_error)
+        `INSERT INTO exchange_venue_status (user_id, exchange, connected, last_error)
          VALUES (?, ?, ?, NULL)
-         ON DUPLICATE KEY UPDATE exchange = VALUES(exchange),
+         ON DUPLICATE KEY UPDATE
            connected = VALUES(connected), last_error = NULL,
            updated_at = CURRENT_TIMESTAMP`,
         [uid, venue, connected]
