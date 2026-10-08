@@ -178,3 +178,38 @@ def test_a_failing_report_never_breaks_the_pull(tmp_path, site, monkeypatch):
 
     monkeypatch.setattr(cp, "report_held_venues", _boom)
     assert cp.pull_and_apply(store=_store(tmp_path)) == 0
+
+
+# ── the operator's own keys are the operator's card ─────────────────────────
+
+def _config(chat_id="", admin_ids="", **exchange):
+    from types import SimpleNamespace
+    ex = {"api_key": "", "api_secret": "", "passphrase": "", "sandbox": False,
+          "bybit_api_key": "", "bybit_api_secret": "", "bingx_api_key": "", "bingx_api_secret": "",
+          "hyperliquid_wallet_address": "", "hyperliquid_private_key": ""}
+    ex.update(exchange)
+    return SimpleNamespace(telegram=SimpleNamespace(chat_id=chat_id, admin_ids=admin_ids),
+                           exchange=SimpleNamespace(**ex))
+
+
+def test_the_operator_s_ids_hold_the_operator_s_venues(tmp_path):
+    """One account, one executor: the operator's account is never a per-user
+    link, so after the duplicate link is removed the operator's card must
+    still read connected off the operator keys."""
+    s = _store(tmp_path)
+    s.set_venue("1001", "bybiteu", EU)                    # the operator's own EU link
+    s.set_venue("1001", "bitget", BITGET)
+    s._enc["1001"]["venues"]["bitget"]["api_key"] = "not-a-token"   # unreadable link
+    cfg = _config(chat_id="1001", admin_ids="1002, 1003",
+                  api_key="k" * 12, api_secret="s" * 12, passphrase="p")
+    users = {u["telegram_id"]: u["venues"] for u in cp.held_venues(s, cfg)}
+    assert users["1001"] == {"bitget": "held", "bybiteu": "held"}, \
+        "the operator keys hold Bitget whatever the per-user link reads"
+    assert users["1002"] == {"bitget": "held"} and users["1003"] == {"bitget": "held"}
+
+
+def test_no_operator_keys_adds_nothing(tmp_path):
+    s = _store(tmp_path)
+    s.set_venue("7", "bitget", BITGET)
+    users = cp.held_venues(s, _config(chat_id="1001"))
+    assert users == [{"telegram_id": "7", "venues": {"bitget": "held"}}]

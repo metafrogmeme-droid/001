@@ -402,10 +402,41 @@ def publish_sealing_key(force: bool = False) -> bool:
     return ok
 
 
-def held_venues(store) -> Optional[list]:
-    """Every user this store holds keys for, and per venue whether it can use
+def _operator_held(config=None) -> tuple[list, list]:
+    """``(operator Telegram ids, venues the operator's own keys open)``.
+
+    The operator's book is the OPERATOR keys (.env or the vault), not a
+    per-user link: one account, one executor, so the operator's own account
+    is never linked as a per-user venue (engine.check_operator_account_links).
+    Their website card follows those keys, or unlinking the duplicate link
+    would turn the card off while the operator keys keep trading the account.
+    """
+    if config is None:
+        from bot.config import CONFIG as config
+    ids: set = set()
+    for raw in (config.telegram.chat_id, config.telegram.admin_ids):
+        ids |= {x.strip() for x in str(raw or "").split(",") if x.strip()}
+    venues: list = []
+    try:
+        from bot.core.venues import get_venue, valid_venue_ids
+        for vid in valid_venue_ids():
+            try:
+                if get_venue(vid).has_operator_credentials(config.exchange):
+                    venues.append(vid)
+            except Exception:   # noqa: BLE001 — one venue's reading, not the report
+                continue
+    except Exception:            # noqa: BLE001
+        venues = []
+    return sorted(ids), venues
+
+
+def held_venues(store, config=None) -> Optional[list]:
+    """Every user the bot holds keys for, and per venue whether it can use
     them: ``[{"telegram_id": "123", "venues": {"bitget": "held",
     "bybiteu": "unreadable"}}]``. Venue names and states only, never a key.
+
+    The per-user store's links, and the operator's own keys for the
+    operator's ids (`_operator_held`), which are held whatever the store says.
 
     None when the store FILE could not be read. Its map is then empty, and
     reporting that would tell the website nobody holds anything, which is the
@@ -413,13 +444,19 @@ def held_venues(store) -> Optional[list]:
     """
     if store.load_failed:
         return None
-    out = []
+    by_tg: dict = {}
     for tg in sorted(str(t) for t in store.user_ids()):
         states = store.venue_states(tg, log_failure=False)
-        out.append({"telegram_id": tg,
-                    "venues": {v: ("held" if st == "readable" else "unreadable")
-                               for v, st in sorted(states.items())}})
-    return out
+        by_tg[tg] = {v: ("held" if st == "readable" else "unreadable")
+                     for v, st in states.items()}
+    op_ids, op_venues = _operator_held(config)
+    if op_venues:
+        for tg in op_ids:
+            vs = by_tg.setdefault(tg, {})
+            for v in op_venues:
+                vs[v] = "held"
+    return [{"telegram_id": tg, "venues": dict(sorted(by_tg[tg].items()))}
+            for tg in sorted(by_tg)]
 
 
 def report_held_venues(store=None, *, force: bool = False,

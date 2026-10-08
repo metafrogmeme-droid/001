@@ -21878,7 +21878,10 @@ when it changes and every half hour regardless, and at once after an ack. A
 store FILE that could not be read sends nothing: its map is empty, and
 reporting that would say nobody holds a key, which nobody measured. The timer
 read passes `log_failure=False`, or an undecryptable record would be logged
-every two minutes.
+every two minutes. The operator's ids also hold the venues the operator's
+own keys open: the operator's account is never a per-user link (one account,
+one executor), so without them, removing the duplicate link would have turned
+the operator's card off while those keys kept trading the account.
 
 The website (`/api/bot/sync/credentials/state`) takes it COMPLETE OR NOTHING.
 A report that does not say it covers every user, or carries one entry the
