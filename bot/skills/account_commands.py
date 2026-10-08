@@ -361,8 +361,9 @@ class AccountCommands:
 
         await self._send(update,
             f"⏳ Validating your {label} credentials (read-only balance check)…")
-        ok, detail = await validate_venue_credentials(
-            venue, fields, sandbox=CONFIG.exchange.sandbox)
+        # No sandbox argument: the key is checked in the environment this
+        # venue's client trades in (exchange_credentials.venue_sandbox).
+        ok, detail = await validate_venue_credentials(venue, fields)
         if not ok:
             await self._send(update,
                 f"🔴 Could not authenticate with {label}. Nothing was stored.\n"
@@ -379,10 +380,10 @@ class AccountCommands:
         scope: dict = {"withdraw": "unknown", "ip_allowlist": None}
         if venue == "bitget":
             try:
-                from bot.core.exchange_credentials import probe_bitget_key_scope
+                from bot.core.exchange_credentials import probe_bitget_key_scope, venue_sandbox
                 scope = await probe_bitget_key_scope(
                     fields["api_key"], fields["api_secret"], fields["passphrase"],
-                    sandbox=CONFIG.exchange.sandbox)
+                    sandbox=venue_sandbox("bitget"))
             except Exception:
                 pass   # stays "unknown" — the line below says so out loud
 
@@ -503,8 +504,9 @@ class AccountCommands:
 
         await self._send(update,
             f"⏳ Validating the operator {label} keys (read-only balance check)…")
-        ok, detail = await validate_venue_credentials(
-            venue, fields, sandbox=CONFIG.exchange.sandbox)
+        # Checked where this venue's client trades (venue_sandbox), not under
+        # BITGET_SANDBOX: a Bybit key used to be probed on Bybit's testnet.
+        ok, detail = await validate_venue_credentials(venue, fields)
         if not ok:
             await self._send(update,
                 f"🔴 Could not authenticate with {label}. Nothing was changed.\n"

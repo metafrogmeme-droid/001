@@ -28,6 +28,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 from pathlib import Path
 from typing import Any, Optional
@@ -997,11 +998,16 @@ async def validate_hyperliquid_credentials(
 
 
 async def _keysecret_balance_probe(exchange_id: str, api_key: str,
-                                   api_secret: str, sandbox: bool) -> tuple[bool, str]:
+                                   api_secret: str, sandbox: bool, *,
+                                   demo: bool = False,
+                                   refusal: Optional[dict] = None) -> tuple[bool, str]:
     """Read-only balance fetch for a plain key+secret ccxt venue (Bybit, BingX).
 
     Both are USDT-margined swap exchanges that authenticate with apiKey/secret
-    only. Returns (ok, detail). Never places an order."""
+    only. Returns (ok, detail). Never places an order. ``demo`` points a Bybit
+    client at Demo Trading (api-demo.bybit.com). ``refusal``, when given, gets
+    ``{"code": <retCode>}`` from a Bybit refusal, so the caller can say what it
+    means without parsing the display string."""
     client = None
     try:
         import ccxt.async_support as ccxt
@@ -1023,6 +1029,8 @@ async def _keysecret_balance_probe(exchange_id: str, api_key: str,
         except Exception:
             if sandbox:
                 raise
+        if demo:
+            client.enable_demo_trading(True)
         bal = await client.fetch_balance()
         free = 0.0
         try:
@@ -1031,6 +1039,9 @@ async def _keysecret_balance_probe(exchange_id: str, api_key: str,
             free = 0.0
         return True, f"{free:.2f} USDT free"
     except Exception as exc:
+        if refusal is not None:
+            m = re.search(r'"retCode"\s*:\s*(\d+)', str(exc))
+            refusal["code"] = int(m.group(1)) if m else None
         return False, _safe_venue_detail(exc)
     finally:
         if client is not None:
@@ -1038,6 +1049,57 @@ async def _keysecret_balance_probe(exchange_id: str, api_key: str,
                 await client.close()
             except Exception:
                 pass
+
+
+# ── Bybit's refusals, as instructions ────────────────────────────────────────
+#
+# Bybit answers a key it will not take with a JSON body whose retCode says why,
+# and that body was the whole reply: "AuthenticationError: bybit
+# {"retCode":10003,"retMsg":"API key is invalid.",...}". The codes are Bybit's
+# own (https://bybit-exchange.github.io/docs/v5/error). 10003 reads in full
+# "API key is invalid. Check whether the key and domain are matched, there are
+# 4 env: mainnet, testnet, mainnet-demo, testnet-demo"; the regional sites
+# (bybit.tr, .kz, .ae, .eu, bybitgeorgia.ge, …) have API hosts of their own
+# (https://bybit-exchange.github.io/docs/v5/guide). Each sentence fits the 180
+# characters the website's ack carries to the card.
+_BYBIT_REFUSALS: dict[int, str] = {
+    10003: ("Bybit {env} does not know this API key (code 10003). Keys from another "
+            "environment (testnet, Demo Trading) or a regional Bybit (EU, TR, KZ, AE…) fail here."),
+    10004: ("Bybit refused the signature (code 10004): this API secret is not the key's. "
+            "Check the key and secret were not swapped."),
+    10005: ("Bybit says this key lacks permission (code 10005). It needs read and trade "
+            "permission on derivatives (contracts)."),
+    10010: ("Bybit refused this server's IP (code 10010): the key is bound to IP addresses "
+            "and this server's is not one of them."),
+    33004: "This Bybit API key has expired (code 33004). Create a new one.",
+}
+_BYBIT_TESTNET_KEY = ("These are Bybit testnet keys, and this bot trades Bybit mainnet. "
+                      "Create the key in your main account on bybit.com (API Management).")
+_BYBIT_DEMO_KEY = ("These are Bybit Demo Trading keys, and this bot trades Bybit mainnet. "
+                   "Create the key in your main account, not inside Demo Trading.")
+
+
+async def validate_bybit_credentials(api_key: str, api_secret: str,
+                                     sandbox: bool = False) -> tuple[bool, str]:
+    """Read-only-validate a Bybit key, and say what a refusal means.
+
+    A 10003 on mainnet is retried on testnet and on Demo Trading, purely to
+    diagnose, as Bitget's 40099 is: a key that answers there is still refused
+    here, with the environment it belongs to named. Never stores anything and
+    never places an order.
+    """
+    seen: dict = {}
+    ok, detail = await _keysecret_balance_probe("bybit", api_key, api_secret, sandbox,
+                                                refusal=seen)
+    code = seen.get("code")
+    if ok or code not in _BYBIT_REFUSALS:
+        return ok, detail
+    if code == 10003 and not sandbox:
+        if (await _keysecret_balance_probe("bybit", api_key, api_secret, True))[0]:
+            return False, _BYBIT_TESTNET_KEY
+        if (await _keysecret_balance_probe("bybit", api_key, api_secret, False, demo=True))[0]:
+            return False, _BYBIT_DEMO_KEY
+    return False, _BYBIT_REFUSALS[code].format(env="testnet" if sandbox else "mainnet")
 
 
 async def _ccxt_keysecret_probe(ccxt_id: str, api_key: str, api_secret: str,
@@ -1124,11 +1186,33 @@ async def _wallet_balance_probe(ccxt_id: str, currency: str, wallet_address: str
                 pass
 
 
+def venue_sandbox(venue: str, cfg: Any = None) -> bool:
+    """Whether ``venue``'s client runs in its test or demo environment.
+
+    The adapter's own reading (``Venue.uses_sandbox``), so a key is checked,
+    and a balance read, where the venue's client will trade. ``cfg`` defaults
+    to the running ``CONFIG.exchange``. The callers used to pass
+    ``CONFIG.exchange.sandbox`` (BITGET_SANDBOX) for every venue, which Bybit's
+    and BingX's clients never read and Hyperliquid's reads under its own flag.
+    """
+    if cfg is None:
+        from bot.config import CONFIG
+        cfg = CONFIG.exchange
+    from bot.core.venues import venue_uses_sandbox
+    return venue_uses_sandbox(venue, cfg)
+
+
 async def validate_venue_credentials(venue: str, fields: dict,
-                                     sandbox: bool = False) -> tuple[bool, str]:
+                                     sandbox: Optional[bool] = None) -> tuple[bool, str]:
     """Read-only-validate a user's credentials for ``venue`` (dispatches to the
-    per-venue probe). Returns (ok, detail). Never places an order."""
+    per-venue probe). Returns (ok, detail). Never places an order.
+
+    ``sandbox=None``, the default, checks the key in the environment the
+    venue's client trades in (``venue_sandbox``). An explicit bool is for a
+    caller asking about the other environment on purpose."""
     venue = str(venue).lower().strip()
+    if sandbox is None:
+        sandbox = venue_sandbox(venue)
     if venue == "bitget":
         return await validate_bitget_credentials(
             fields["api_key"], fields["api_secret"], fields["passphrase"], sandbox)
@@ -1139,7 +1223,10 @@ async def validate_venue_credentials(venue: str, fields: dict,
         return await _wallet_balance_probe(
             "paradex", "USDC", fields["wallet_address"],
             fields["agent_private_key"], sandbox)
-    if venue in ("bybit", "bingx"):
+    if venue == "bybit":
+        return await validate_bybit_credentials(
+            fields["api_key"], fields["api_secret"], sandbox)
+    if venue == "bingx":
         return await _keysecret_balance_probe(
             venue, fields["api_key"], fields["api_secret"], sandbox)
     if venue in _CCXT_ID:   # okx, gate, kucoin (kucoin → kucoinfutures)
@@ -1205,7 +1292,7 @@ def _balance_total(bal: dict, currency: str) -> Optional[float]:
 
 
 async def balance_snapshot(venue: str, fields: dict,
-                           sandbox: bool = False) -> dict:
+                           sandbox: Optional[bool] = None) -> dict:
     """READ-ONLY equity snapshot for a user's stored venue credentials.
 
     One fetch_balance — the exact same call the connect-time validators
@@ -1213,6 +1300,11 @@ async def balance_snapshot(venue: str, fields: dict,
     ``{ok, venue, currency, equity_usd, detail}``. Never raises, never
     writes, never places an order; credentials are used in-process only
     and never appear in the returned dict.
+
+    ``sandbox=None``, the default, reads the environment the venue's client
+    trades in (``venue_sandbox``). It used to default to live for every
+    venue, so under Bitget demo trading a user's Bitget card read the live
+    account their demo key does not open.
     """
     venue = str(venue).lower().strip()
     client = None
@@ -1223,6 +1315,8 @@ async def balance_snapshot(venue: str, fields: dict,
                 "detail": f"ccxt unavailable: {exc}"}
     currency = "USDC" if venue in ("hyperliquid", "paradex") else "USDT"
     try:
+        if sandbox is None:
+            sandbox = venue_sandbox(venue)
         if venue == "bitget":
             client = ccxt.bitget({
                 "apiKey": fields["api_key"], "secret": fields["api_secret"],

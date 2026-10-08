@@ -20861,7 +20861,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1244** reach for source text through `source_scan`, `code_only`
+Driven, **478 of 1245** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 478 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -21518,6 +21518,58 @@ sides of the assertion. And no fixture had a winning position holding a
 losing fill, so counting losers over fills changed nothing. Both have tests of
 their own now, with figures worked out by hand, and both mutants are killed.
 (`bot/backtest/positions.py`, `tests/test_a_backtest_counts_positions_not_fills.py`.)
+
+**A BYBIT KEY WAS CHECKED ON BYBIT'S TESTNET AND TRADED ON ITS MAINNET.**
+Reported on 8 October with two screenshots. `/setexchange bybit` answered
+"Could not authenticate with Bybit" over Bybit's raw body,
+`{"retCode":10003,"retMsg":"API key is invalid."...}`, and the website's Bybit
+card read "applying connect…".
+
+Bybit's own text for 10003 is "API key is invalid. Check whether the key and
+domain are matched, there are 4 env: mainnet, testnet, mainnet-demo,
+testnet-demo". The key checks behind `/connect`, `/setexchange` and the
+website's credential pull all passed `sandbox=CONFIG.exchange.sandbox`.
+That flag is BITGET_SANDBOX, Bitget's demo-trading switch, and it reached
+every venue:
+- Bybit's and BingX's clients never read it, and trade mainnet. Under Bitget
+  demo trading their keys were checked on api-testnet.bybit.com and BingX's
+  VST host, so a mainnet key was refused with exactly that 10003, and a testnet
+  key would have passed and then failed at its first order.
+- Hyperliquid's client reads HYPERLIQUID_TESTNET. Its key check read the
+  Bitget flag.
+- ccxt has no sandbox for KuCoin futures. Its client swallowed the failed
+  switch and read live; its key check raised on it and refused every KuCoin
+  key.
+- The balance reader went the other way: it defaulted to live for every
+  venue, so under Bitget demo trading a Bitget card read the live account its
+  demo key does not open.
+
+`Venue.uses_sandbox` is now the one reading. Each adapter's `create_exchange`
+asks it, and so do the key check and the balance reader, through
+`exchange_credentials.venue_sandbox`. Their `sandbox` argument defaults to
+None, meaning the venue's own environment, and the four callers that passed
+the Bitget flag pass nothing.
+
+The reply was the venue's JSON. Bybit's refusals are now instructions
+(`_BYBIT_REFUSALS`, 10003, 10004, 10005, 10010, 33004, each short enough for
+the 180 characters the website's ack carries). A 10003 on mainnet is retried
+on testnet and Demo Trading to diagnose, as Bitget's 40099 already was, and a
+key that answers there is still refused, with its environment named. A
+regional account (Bybit EU, TR, KZ, AE, …) has an API host of its own, which
+this bot does not call; the 10003 sentence says so rather than guessing which.
+
+The card's chip filled its `{venue}` slot with the pending ACTION, so a Bybit
+key waiting on the bot read "applying connect…". `venueChip` names the
+exchange.
+
+Driven: `/setexchange`, `/connect`, the web pull's validator and
+`balance_snapshot` run for real down to ccxt's clients. Only `fetch_balance`
+is replaced, by a stand-in that answers by the host the client was pointed
+at. Every venue's client and key check are held to the same environment under
+all four flag combinations. Twenty-two mutants, each putting the
+old behaviour back in one place, all killed on the first round.
+(`tests/test_a_key_is_checked_where_its_venue_trades.py`,
+`app/test/the_venue_chip_names_the_exchange.test.js`.)
 
 ## Deploying so a dead bot cannot look like a live one
 

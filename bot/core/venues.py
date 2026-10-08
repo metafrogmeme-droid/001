@@ -182,6 +182,18 @@ class Venue:
     def has_operator_credentials(self, cfg: Any) -> bool:
         raise NotImplementedError
 
+    def uses_sandbox(self, cfg: Any) -> bool:
+        """Whether this venue's client runs in its test or demo environment.
+
+        The one reading. ``create_exchange`` asks it, and so do the key check
+        and the balance reader (``exchange_credentials.venue_sandbox``). Bybit's
+        and BingX's key checks used to follow BITGET_SANDBOX while their clients
+        ignored it, so under Bitget demo trading a mainnet Bybit key was
+        checked on api-testnet.bybit.com and refused with 10003 ("check whether
+        the key and domain are matched").
+        """
+        raise NotImplementedError
+
     # ── symbols ───────────────────────────────────────────────────
     def swap_symbol(self, symbol: str) -> str:
         """Map an internal symbol ("UNI/USDT", "UNI/USDT:USDT", "UNI") to
@@ -345,9 +357,12 @@ class BitgetVenue(Venue):
         # constructor "sandbox" key was silently ignored by older ccxt, which
         # made BITGET_SANDBOX dead config; set_sandbox_mode is version-stable
         # and matches the key-validation path in exchange_credentials.
-        if cfg.sandbox:
+        if self.uses_sandbox(cfg):
             exchange.set_sandbox_mode(True)
         return exchange
+
+    def uses_sandbox(self, cfg: Any) -> bool:
+        return bool(getattr(cfg, "sandbox", False))   # BITGET_SANDBOX: demo trading
 
     def missing_credentials_error(self, per_user: bool) -> str:
         if per_user:
@@ -470,9 +485,12 @@ class HyperliquidVenue(Venue):
         # The role is a reading a test (and a later log) can ask. A field
         # written and read by nobody is the thing this check would become.
         exchange.options["runeclaw_key_role"] = role
-        if getattr(cfg, "hyperliquid_testnet", False):
+        if self.uses_sandbox(cfg):
             exchange.set_sandbox_mode(True)
         return exchange
+
+    def uses_sandbox(self, cfg: Any) -> bool:
+        return bool(getattr(cfg, "hyperliquid_testnet", False))   # HYPERLIQUID_TESTNET
 
     def missing_credentials_error(self, per_user: bool) -> str:
         if per_user:
@@ -567,12 +585,15 @@ class ParadexVenue(Venue):
             "enableRateLimit": True,
             "options": {"defaultType": "swap"},
         })
-        if getattr(cfg, "sandbox", False):
+        if self.uses_sandbox(cfg):
             try:
                 exchange.set_sandbox_mode(True)
             except Exception:
                 pass
         return exchange
+
+    def uses_sandbox(self, cfg: Any) -> bool:
+        return bool(getattr(cfg, "sandbox", False))
 
     def missing_credentials_error(self, per_user: bool) -> str:
         return ("Paradex connect needs a wallet_address and an API (agent) wallet "
@@ -655,6 +676,11 @@ class BybitVenue(Venue):
                 "defaultType": "swap",
             },
         })
+
+    def uses_sandbox(self, cfg: Any) -> bool:
+        # No switch: this client trades Bybit mainnet (api.bybit.com) whatever
+        # BITGET_SANDBOX says, so a key is checked there too.
+        return False
 
     def missing_credentials_error(self, per_user: bool) -> str:
         if per_user:
@@ -744,6 +770,11 @@ class BingxVenue(Venue):
             },
         })
 
+    def uses_sandbox(self, cfg: Any) -> bool:
+        # No switch: this client trades BingX live (open-api), never its VST
+        # demo host, whatever BITGET_SANDBOX says.
+        return False
+
     def missing_credentials_error(self, per_user: bool) -> str:
         if per_user:
             return ("BingX connect needs an api_key and api_secret — reconnect "
@@ -825,12 +856,15 @@ class _KeySecretPerpVenue(Venue):
         if self.needs_passphrase:
             opts["password"] = passphrase
         exchange = factory(opts)
-        if getattr(cfg, "sandbox", False):
+        if self.uses_sandbox(cfg):
             try:
                 exchange.set_sandbox_mode(True)
             except Exception:
                 pass
         return exchange
+
+    def uses_sandbox(self, cfg: Any) -> bool:
+        return bool(getattr(cfg, "sandbox", False))
 
     def missing_credentials_error(self, per_user: bool) -> str:
         pw = " <passphrase>" if self.needs_passphrase else ""
@@ -881,6 +915,13 @@ class KucoinVenue(_KeySecretPerpVenue):
     needs_passphrase = True
     min_notional_usd = 5.0
 
+    def uses_sandbox(self, cfg: Any) -> bool:
+        # ccxt's kucoinfutures has no sandbox (set_sandbox_mode raises, and
+        # create_exchange swallows it), so this client reads KuCoin live. The
+        # key check used to follow BITGET_SANDBOX into that same raise and
+        # refuse every KuCoin key under Bitget demo trading.
+        return False
+
 
 _VENUES: dict[str, Venue] = {
     "bitget": BitgetVenue(),
@@ -896,6 +937,14 @@ _VENUES: dict[str, Venue] = {
 
 def valid_venue_ids() -> list[str]:
     return sorted(_VENUES)
+
+
+def venue_uses_sandbox(venue_id: Optional[str], cfg: Any) -> bool:
+    """Whether ``venue_id``'s client runs in its test or demo environment
+    under ``cfg`` (``Venue.uses_sandbox``). An unknown venue has no client
+    and reads False; the callers refuse it on their own terms."""
+    v = _VENUES.get(str(venue_id or "").strip().lower())
+    return bool(v is not None and v.uses_sandbox(cfg))
 
 
 #: The venues a per-user EXECUTOR may be built for: the ones whose entry,
