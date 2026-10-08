@@ -8393,7 +8393,8 @@ class RuneClawEngine:
                         from bot.skills.skill_registry import RunStrategySkill
                         _preset = RunStrategySkill.PRESETS.get(_skey)
                         _g = strategy_gate.check_confirm(
-                            _skey, _preset, idea.asset, idea.confidence)
+                            _skey, _preset, idea.asset, idea.confidence,
+                            idea.direction)
                 except Exception as _exc:
                     _g = {"ok": False, "reason": (
                         f"Your chosen strategy '{_skey}' could not be evaluated — "

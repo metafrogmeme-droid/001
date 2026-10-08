@@ -3435,7 +3435,7 @@ async def handle_user_strategy_get(request: web.Request) -> web.Response:
     if err is not None:
         return err
     from bot.core import user_strategy_store
-    from bot.core.strategy_gate import describe_gates
+    from bot.core.strategy_gate import backtest_gates, describe_gates
     from bot.skills.skill_registry import RunStrategySkill
     try:
         entry = user_strategy_store.get_entry(tg_id)
@@ -3455,6 +3455,7 @@ async def handle_user_strategy_get(request: web.Request) -> web.Response:
             "label": cfg.get("label", key), "icon": cfg.get("icon", ""),
             "desc": cfg.get("desc", ""),
             "confirm_gates": confirm, "scan_gates": scan,
+            "backtest_gates": backtest_gates(cfg),
         })
     sel_cfg = RunStrategySkill.PRESETS.get(selected) if selected else None
     if isinstance(entry, dict):

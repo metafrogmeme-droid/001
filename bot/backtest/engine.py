@@ -24,7 +24,7 @@ from bot.core.analyzer import Analyzer
 from bot.core.leverage import apply_margin_risk_cap
 from bot.core.limit_entry import resting_limit_drift
 from bot.core.partial_tp import _tp1_lock, _tp2_lock
-from bot.core.strategy_gate import signal_clears_volume_min
+from bot.core.strategy_gate import side_rule, signal_clears_volume_min
 from bot.risk.risk_engine import RiskEngine
 from bot.risk.portfolio import PortfolioTracker
 from bot.utils.logger import audit, system_log, trade_log
@@ -60,10 +60,10 @@ def _env_bool(key: str, default: bool = False) -> bool:
 
 def _preset_direction(raw: str) -> str:
     """``long_only`` / ``LONG`` → ``LONG``. Empty is not a side. An unknown
-    spelling returns ``""`` so the gate fails closed instead of admitting both."""
-    key = str(raw or "").strip().lower().replace("-", "_")
-    return {"long_only": "LONG", "long": "LONG",
-            "short_only": "SHORT", "short": "SHORT"}.get(key, "")
+    spelling returns ``""`` so the gate fails closed instead of admitting both.
+    The reading is ``strategy_gate.side_rule``, which the confirm gates and
+    ``/run`` share."""
+    return side_rule(raw) or ""
 
 
 class BacktestEngine:

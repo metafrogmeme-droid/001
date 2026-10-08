@@ -343,13 +343,16 @@ def _how_it_trades(cfg: dict[str, Any]) -> str:
     regime = cfg.get("regime")
     if regime:
         parts.append(f"only in {str(regime).replace('_', ' ').lower()}")
+    # RSI binds only in the backtest: neither `/run` nor the confirm gate
+    # holds a candle window (strategy_gate.BACKTEST_ONLY_GATES), so the
+    # clause says where it is checked.
     rsi = cfg.get("rsi_threshold")
     if rsi is not None:
-        parts.append(f"RSI below {rsi}")
+        parts.append(f"RSI below {rsi} (checked in the backtest only)")
     rsi_min = cfg.get("rsi_min")
     if rsi_min is not None:
-        parts.append(f"RSI at or above {rsi_min:g}" if isinstance(rsi_min, float)
-                     else f"RSI at or above {rsi_min}")
+        parts.append((f"RSI at or above {rsi_min:g}" if isinstance(rsi_min, float)
+                      else f"RSI at or above {rsi_min}") + " (checked in the backtest only)")
     side = cfg.get("direction")
     if side == "long_only":
         parts.append("long only")

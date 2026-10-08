@@ -3,9 +3,10 @@
 - a selection must name a REAL preset (alias-resolved by the command);
   anything else is refused, never stored;
 - the gate is tighten-only: it can refuse a confirm, never create one;
-- only confirm-time facts enforce (symbols list, confidence floor) — the
-  scan-time gates (RSI/regime/volume, top3_volume universe) are STATED as
-  scan-only, never silently claimed;
+- only confirm-time facts enforce (symbols list, side rule, confidence
+  floor) — the scan-time gates (regime/volume, top3_volume universe) are
+  STATED as scan-only and the RSI gates as backtest-only, never silently
+  claimed;
 - every refusal names its rule with the numbers that tripped it;
 - a stored selection whose preset cannot be read fails CLOSED (a missing
   preferences file, by contrast, just means "no selection");
@@ -21,6 +22,7 @@ import pytest
 
 from bot.core import strategy_gate, user_strategy_store
 from bot.skills.skill_registry import RunStrategySkill
+from bot.utils.models import Direction
 
 
 VALID = RunStrategySkill.PRESETS.keys()
@@ -61,19 +63,23 @@ def test_gate_no_selection_is_open():
 
 def test_gate_confidence_floor_refuses_with_numbers():
     preset = RunStrategySkill.PRESETS["dip sniper"]     # conf >= 0.70
-    v = strategy_gate.check_confirm("dip sniper", preset, "BTC/USDT:USDT", 0.61)
+    v = strategy_gate.check_confirm("dip sniper", preset, "BTC/USDT:USDT", 0.61,
+                                    Direction.SHORT)
     assert v["ok"] is False
     assert "61%" in v["reason"] and "70%" in v["reason"]
-    ok = strategy_gate.check_confirm("dip sniper", preset, "BTC/USDT:USDT", 0.83)
+    ok = strategy_gate.check_confirm("dip sniper", preset, "BTC/USDT:USDT", 0.83,
+                                     Direction.SHORT)
     assert ok["ok"] is True
     assert "confidence" in ok["enforced"]
 
 
 def test_gate_states_scan_only_gates_instead_of_claiming_them():
     v = strategy_gate.check_confirm(
-        "dip sniper", RunStrategySkill.PRESETS["dip sniper"], "BTC/USDT:USDT", 0.9)
-    assert "rsi_min" in v["scan_only"] and "regime" in v["scan_only"]
-    assert "direction" in v["scan_only"]
+        "dip sniper", RunStrategySkill.PRESETS["dip sniper"], "BTC/USDT:USDT", 0.9,
+        Direction.SHORT)
+    assert "regime" in v["scan_only"] and v["backtest_only"] == ["rsi_min"]
+    # The side is a confirm-time fact: it is enforced, not stated as scan-only.
+    assert "direction" in v["enforced"] and "direction" not in v["scan_only"]
     v2 = strategy_gate.check_confirm(
         "safe scalper", RunStrategySkill.PRESETS["safe scalper"], "ETHUSDT", 0.9)
     assert "symbols:top3_volume" in v2["scan_only"]
@@ -96,8 +102,9 @@ def test_gate_unreadable_selection_fails_closed():
     assert "/mystrategy off" in v["reason"]
     # unreadable confidence is refused too — never assumed to pass
     bad = strategy_gate.check_confirm(
-        "dip sniper", RunStrategySkill.PRESETS["dip sniper"], "BTCUSDT", None)
-    assert bad["ok"] is False
+        "dip sniper", RunStrategySkill.PRESETS["dip sniper"], "BTCUSDT", None,
+        Direction.SHORT)
+    assert bad["ok"] is False and "no readable confidence" in bad["reason"]
 
 
 def test_engine_applies_veto_to_user_confirms_only():
@@ -122,13 +129,15 @@ def test_resolve_key_accepts_slug_alias_and_key():
 
 
 def test_describe_gates_matches_the_veto_split():
-    from bot.core.strategy_gate import describe_gates
+    from bot.core.strategy_gate import backtest_gates, describe_gates
     confirm, scan = describe_gates(RunStrategySkill.PRESETS["dip sniper"])
-    assert confirm == ["confidence>=70%"]
-    assert "rsi_min" in scan and "regime" in scan and "direction" in scan
+    assert confirm == ["direction", "confidence>=70%"]
+    assert scan == ["regime"]
+    assert backtest_gates(RunStrategySkill.PRESETS["dip sniper"]) == ["rsi_min"]
     confirm2, scan2 = describe_gates(RunStrategySkill.PRESETS["safe scalper"])
-    assert "symbols:top3_volume" in scan2 and "rsi_min" in scan2
+    assert scan2 == ["symbols:top3_volume"]
     assert confirm2 == ["confidence>=75%"]
+    assert backtest_gates(RunStrategySkill.PRESETS["safe scalper"]) == ["rsi_min"]
 
 
 def test_web_gateway_mirrors_mystrategy():
