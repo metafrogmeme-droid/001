@@ -258,8 +258,9 @@ about to change before changing it.
 - L21345: THE BENCHMARK OF RECORD WAS STAMPED AT A COMMIT THAT DOES NOT EXIST — `app/test/a_drawdown_is_a_magnitude_and_a_zero_profit_factor_is_a_loss.test.js`, `tests/test_the_benchmark_record_names_a_commit_main_carries.py`, `tests/test_the_radar_doors_take_their_phrasings.py`
 - L21460: A BACKTEST COUNTED THE LADDER'S FILLS AS TRADES — `tests/test_a_backtest_counts_positions_not_fills.py`
 - L21522: A BYBIT KEY WAS CHECKED ON BYBIT'S TESTNET AND TRADED ON ITS MAINNET — `app/test/the_venue_chip_names_the_exchange.test.js`, `tests/test_a_key_is_checked_where_its_venue_trades.py`
+- L21574: "APPLYING" HAD NO AGE, AND BITGET'S REFUSALS WERE STILL JSON — `app/test/a_pending_key_says_how_long_it_has_waited.test.js`, `tests/test_a_key_is_checked_where_its_venue_trades.py`
 
-## Deploying so a dead bot cannot look like a live one (line 21574)
+## Deploying so a dead bot cannot look like a live one (line 21611)
 
 
-## Operational docs (line 21731)
+## Operational docs (line 21768)
