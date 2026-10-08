@@ -513,7 +513,7 @@ class ExchangeCredentialStore:
     # itself perfectly readable.
 
     def _decrypt_fields(self, venue: str, fields_enc: dict,
-                        telegram_id="") -> Optional[dict]:
+                        telegram_id="", log_failure: bool = True) -> Optional[dict]:
         """The venue's plaintext fields, or None when this store cannot produce
         them. THE one test — every reading below and both getters derive their
         answer from this call, so no two of them can disagree about a record.
@@ -529,16 +529,19 @@ class ExchangeCredentialStore:
             c = self._cipher()
             return {f: c.decrypt(fields_enc[f].encode()).decode() for f in field_names}
         except Exception as exc:  # InvalidToken, missing field, missing crypto
-            log.error("Failed to decrypt %s credentials for %s: %s",
-                      venue, telegram_id or "<unknown user>", exc)
+            if log_failure:
+                log.error("Failed to decrypt %s credentials for %s: %s",
+                          venue, telegram_id or "<unknown user>", exc)
             return None
 
-    def venue_states(self, telegram_id) -> dict:
+    def venue_states(self, telegram_id, *, log_failure: bool = True) -> dict:
         """``{venue: "readable" | "unreadable"}`` for every venue stored.
 
         Empty when nothing is stored — which is the third state, expressed by
         the map being empty rather than by a word, because "this user has no
-        venues" is not a property of any venue.
+        venues" is not a property of any venue. ``log_failure=False`` is for a
+        reader that asks on a timer (the website report), which would
+        otherwise log the same undecryptable record every two minutes.
         """
         with self._lock:
             enc = self._enc.get(str(telegram_id))
@@ -547,7 +550,8 @@ class ExchangeCredentialStore:
         out = {}
         for venue, fields_enc in self._normalize(enc)["venues"].items():
             out[venue] = ("readable"
-                          if self._decrypt_fields(venue, fields_enc, telegram_id)
+                          if self._decrypt_fields(venue, fields_enc, telegram_id,
+                                                  log_failure=log_failure)
                           else "unreadable")
         return out
 
@@ -587,6 +591,13 @@ class ExchangeCredentialStore:
         `readable_venues()` for anything that decides where an order goes."""
         with self._lock:
             return str(telegram_id) in self._enc
+
+    @property
+    def load_failed(self) -> bool:
+        """True when the store FILE could not be read (see ``_load``). The map
+        is then empty, and that is not "nobody linked a key": a reader that
+        reports on every user must say nothing rather than report none."""
+        return bool(getattr(self, "_load_failed", False))
 
     def user_ids(self) -> list:
         """All Telegram ids with stored credentials. Used at startup to rehydrate

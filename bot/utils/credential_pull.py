@@ -67,6 +67,20 @@ def _fresh_publish_state() -> dict:
 
 _published: dict = _fresh_publish_state()
 
+#: How often the store is read for the website's held-venues report, and how
+#: often an UNCHANGED report is sent again (a website whose database was reset
+#: or re-seeded would otherwise keep a stale card until something changed).
+STATE_CHECK_EVERY_S = 120.0
+STATE_RESEND_EVERY_S = 1800.0
+
+
+def _fresh_state_report() -> dict:
+    """The held-venues reporter's whole memory (tests reset it)."""
+    return {"digest": None, "sent": 0.0, "checked": None, "warned": False}
+
+
+_state_report: dict = _fresh_state_report()
+
 
 def _load_key() -> Optional[bytes]:
     """The legacy shared AES key (WEB_CREDS_KEY): base64 (standard or url-safe) 32 bytes."""
@@ -388,6 +402,73 @@ def publish_sealing_key(force: bool = False) -> bool:
     return ok
 
 
+def held_venues(store) -> Optional[list]:
+    """Every user this store holds keys for, and per venue whether it can use
+    them: ``[{"telegram_id": "123", "venues": {"bitget": "held",
+    "bybiteu": "unreadable"}}]``. Venue names and states only, never a key.
+
+    None when the store FILE could not be read. Its map is then empty, and
+    reporting that would tell the website nobody holds anything, which is the
+    one thing nobody measured.
+    """
+    if store.load_failed:
+        return None
+    out = []
+    for tg in sorted(str(t) for t in store.user_ids()):
+        states = store.venue_states(tg, log_failure=False)
+        out.append({"telegram_id": tg,
+                    "venues": {v: ("held" if st == "readable" else "unreadable")
+                               for v, st in sorted(states.items())}})
+    return out
+
+
+def report_held_venues(store=None, *, force: bool = False,
+                       now: Optional[float] = None) -> bool:
+    """Tell the website which venues the bot holds keys for, per user.
+
+    THE WEBSITE'S KEYS CARD WAS A COPY OF ITS OWN LAST ACK. It learned a
+    venue's state only by answering a key submitted on the website, so a key
+    linked with /connect in Telegram never reached it, and neither did one
+    removed with /disconnect or lost with a wiped data/ (8 October: the card
+    showed Bitget connected while the bot held no file at all, then showed it
+    not connected after the user re-linked it in Telegram).
+
+    The report is COMPLETE: every user the store holds, so the website can
+    turn off a card whose keys the bot no longer has. Read at most every
+    STATE_CHECK_EVERY_S, sent when it changed and every STATE_RESEND_EVERY_S
+    regardless; ``force`` (after an ack) skips the clocks. Returns whether a
+    report was accepted.
+    """
+    if not is_configured():
+        return False
+    t = time.monotonic() if now is None else now
+    if (not force and _state_report["checked"] is not None
+            and t - _state_report["checked"] < STATE_CHECK_EVERY_S):
+        return False
+    _state_report["checked"] = t
+    if store is None:
+        from bot.core.exchange_credentials import get_credential_store
+        store = get_credential_store()
+    users = held_venues(store)
+    if users is None:
+        if not _state_report["warned"]:
+            log.warning("credential store unreadable: no held-venues report goes to "
+                        "the website until it is repaired")
+            _state_report["warned"] = True
+        return False
+    _state_report["warned"] = False
+    body = {"complete": True, "users": users}
+    digest = json.dumps(body, sort_keys=True)
+    if (not force and digest == _state_report["digest"]
+            and t - _state_report["sent"] < STATE_RESEND_EVERY_S):
+        return False
+    resp = _request("/api/bot/sync/credentials/state", body)
+    if resp and resp.get("ok"):
+        _state_report["digest"], _state_report["sent"] = digest, t
+        return True
+    return False
+
+
 def pull_and_apply(store=None, validator=None, on_change=None) -> int:
     """Fetch pending credential requests, apply them, ack. Returns #acked.
 
@@ -400,12 +481,17 @@ def pull_and_apply(store=None, validator=None, on_change=None) -> int:
     publish_sealing_key()
     resp = _request("/api/bot/sync/credentials/pending")
     rows = (resp or {}).get("pending", []) if resp else []
-    if not rows:
-        return 0
     if store is None:
         from bot.core.exchange_credentials import get_credential_store
         store = get_credential_store()
-    acks = process_pending(rows, store, validator=validator, on_change=on_change)
-    if acks:
-        _request("/api/bot/sync/credentials/ack", {"acks": acks})
+    acks: list = []
+    if rows:
+        acks = process_pending(rows, store, validator=validator, on_change=on_change)
+        if acks:
+            _request("/api/bot/sync/credentials/ack", {"acks": acks})
+    # After the acks, so the report already counts what they applied.
+    try:
+        report_held_venues(store, force=bool(acks))
+    except Exception as exc:   # noqa: BLE001 — a report never blocks the pull
+        log.warning("held-venues report failed: %s", type(exc).__name__)
     return len(acks)
