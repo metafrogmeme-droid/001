@@ -106,6 +106,10 @@ test('the card carries the anti-sybil line, and this module no longer matches th
   assert.equal(card.intent, 'airdrops');
   assert.match(card.reply_html, /One human, one wallet/);
   assert.match(card.reply_html, /never do it|guided-only/i);
+  // The steps and the hints are drawn by the Markets page's radar panel. The
+  // Hub has only a chip that asks chat, which needs the bot.
+  assert.match(card.reply_html, /Markets page/);
+  assert.doesNotMatch(card.reply_html, /\bHub\b/);
   assert.equal(typeof airdrops.maybeHandleAirdropChat, 'undefined');
   assert.equal(airdrops.CHAT_RE, undefined);
 });

@@ -1570,8 +1570,9 @@ router.get('/rwa', async (req, res) => {
  * lookup on a prototype.
  *
  * `telegram_id` is read only by the cards with a per-person half. The
- * airdrops card adds the caller's wallet-readiness hints WHEN their Telegram
- * account is linked to a web account and answers the public radar otherwise;
+ * airdrops card adds the caller's wallet-readiness hints WHEN the identity
+ * maps to a web account (a linked Telegram id, or a web caller's own
+ * `web:<uid>`; see `webUserFor`) and answers the public radar otherwise;
  * the wallet, DeFi, exposure, net-worth and idle-yield cards ARE the caller's own book,
  * so a caller nobody could map gets `unlinked` (a fact the bot puts into
  * its own words) and never a guessed wallet. The research card is public and takes the

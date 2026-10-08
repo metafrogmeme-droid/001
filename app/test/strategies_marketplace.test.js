@@ -125,9 +125,13 @@ test('agent cards render a verified scorecard stat block with provenance', () =>
   const dash = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
   assert.match(dash, /function scoreBlock\(sc\)/);
   assert.match(dash, /a\.scorecard/);
-  assert.match(dash, /total_return_pct/);
-  assert.match(dash, /profit_factor/);
-  assert.match(dash, /max_drawdown_pct/);
+  // The stat block's figures are read by the one reading the card, the
+  // compare page and the Lab share, so the field names live there.
+  assert.match(dash, /window\.AgentScorecard\.readings\(sc\.metrics, pnlClass\)/);
+  const reading = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'agent-scorecard.js'), 'utf8');
+  assert.match(reading, /total_return_pct/);
+  assert.match(reading, /profit_factor/);
+  assert.match(reading, /max_drawdown_pct/);
   assert.match(dash, /Frozen backtest ·/);          // provenance line
   assert.match(dash, /low sample/);                  // low-trade-count guard
 });

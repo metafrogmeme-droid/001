@@ -90,23 +90,19 @@ class MarketCommands:
         `null` upstream was what crashed the reader downstream. One renderer
         now, over the card route nine other website cards already use.
 
-        The fetch runs off the event loop (blocking urllib). ``surface`` keys
-        the sentence for a channel that did not answer: the Telegram one
-        names `/link`, which a web caller cannot run. ``surface="web"`` keeps
-        the card's own markup. Telegram's tag strip turns ``<br>`` into a
-        newline a browser collapses, which is right on Telegram and wrong on
-        the page that used to render this card itself.
+        The fetch is `_web_card_text`, the helper the other rendered cards
+        use: off the event loop, with one sentence for a channel that did not
+        answer and another for a card still rendering when the bot hung up.
+        This seam kept its own copy of that branch, and the copy never
+        learned the second sentence, so a slow radar read was reported as a
+        channel that did not answer. ``surface`` keys the sentences: the
+        Telegram one names `/link`, which a web caller cannot run.
+        ``surface="web"`` keeps the card's own markup. Telegram's tag strip
+        turns ``<br>`` into a newline a browser collapses, which is right on
+        Telegram and wrong on the page that used to render this card itself.
         """
-        import asyncio as _aio
-        from bot.utils.web_data_pull import fetch_web_card, web_card_text
-        payload = await _aio.to_thread(fetch_web_card, "rwa")
-        if surface == "web":
-            raw = payload.get("reply_html") if isinstance(payload, dict) else None
-            if isinstance(raw, str) and raw.strip():
-                return raw
-            return self._link_hint(surface)
-        text = web_card_text(payload)
-        return text if text else self._link_hint(surface)
+        return await self._web_card_text("rwa", surface=surface,
+                                         keep_markup=(surface == "web"))
 
     @guard("etf")
     async def _cmd_etf(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -122,8 +118,15 @@ class MarketCommands:
         import asyncio as _aio
 
         from bot.formatters.etf_card import render_etf_card
-        from bot.utils.web_data_pull import fetch_web_card, web_card_text
+        from bot.utils.web_data_pull import fetch_web_card, web_card_text, web_card_timed_out
         payload = await _aio.to_thread(fetch_web_card, "etf_flows")
+        # A card still rendering when the fetch ran out of its budget is a
+        # wait, not a channel that did not answer (`_web_card_text`'s rule;
+        # this command fetches for itself because it also draws the picture).
+        _after = web_card_timed_out(payload)
+        if _after is not None:
+            await self._send(update, self._timeout_hint("telegram", _after))
+            return
         text = web_card_text(payload)
         if not text:
             await self._send(update, self._link_hint("telegram"))

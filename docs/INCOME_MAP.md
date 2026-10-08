@@ -626,7 +626,7 @@ blanking the radar (`app/lib/airdrops.js::loadCatalog`). Five doors render it.
 Asking from chat is the shared `airdrops` door on both surfaces
 (`bot/web/user_gateway.py::_WEB_SEAM#"airdrops"`,
 `bot/skills/market_commands.py::MarketCommands.airdrops_card_text`), not a
-website intercept of its own. The Hub panel and /api/airdrops still serve the
+website intercept of its own. The Markets panel and /api/airdrops still serve the
 radar while the bot process is down. The card restates the anti-sybil line
 itself, and /airdrops on Telegram is that same card, fetched rendered over
 the bot-secret sync channel (market_commands.py), so the line reaches
@@ -2366,8 +2366,12 @@ half of the measurement that says where the measurement stops.
 - The Telegram /rwa door is CONDITIONAL in a way the row does not show:
   rwa_card_text fetches the card over the web app's card route. On a deployment
   where the web app is unreachable or WEBSITE_URL is unset it sends the
-  channel-down sentence and no radar. The web panel and the chat intercept do
-  not have that dependency. ANSWERED since: the fetch answers None for a
+  channel-down sentence and no radar. The web panel does not have that
+  dependency. Website chat does now: its RWA intercept is gone, so chat on
+  both doors fetches the same card over the same route. A fetch that ran out
+  of its budget is named as a wait on both, not as a channel that did not
+  answer (`bot/skills/market_commands.py::MarketCommands.rwa_card_text`
+  goes through `_web_card_text`). ANSWERED since: the fetch answers None for a
   non-200 and `web_card_text` answers None for a payload with no card string,
   so the command says which surface did not answer rather than rendering an
   empty card. (It used to pull the PAYLOAD and format it here, in a second

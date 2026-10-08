@@ -4290,6 +4290,30 @@
     }).filter(Boolean).join(',');
   }
 
+  // ── public record tiles ──────────────────────────────────────────────
+  // The engine's public record, ratios only. `note` names the BOOK the figure
+  // describes: a label passed to a renderer that ignores it is written on
+  // every branch and read by nobody.
+  //
+  // The profit factor is read the way the agent cards read it, break-even at
+  // 1, so a measured 0 is a loss. `(pf || 1) >= 1` read 0 as missing and
+  // classed it a gain. The drawdown is a magnitude below peak and takes no
+  // colour. The classes were `up`/`down`, which nothing on this page styles.
+  function prevTrackTiles(s) {
+    const tile = (k, v, cls, note) => `<div class="stat"><div class="k">${k}</div><div class="v num ${cls || ''}">${v}</div>`
+      + (note ? `<div class="d">${note}</div>` : '') + `</div>`;
+    const pf = window.AgentScorecard
+      ? window.AgentScorecard.readings({ profit_factor: s.profit_factor }, pnlClass)
+        .cells.find((c) => c.key === 'profit-factor')
+      : null;
+    const pfText = pf ? pf.text : (typeof s.profit_factor === 'number' ? s.profit_factor.toFixed(2) : '—');
+    return tile('Profit factor', esc(pfText), pf ? pf.cls : '')
+      + tile('Win rate', s.win_rate_pct == null ? '—' : s.win_rate_pct.toFixed(1) + '%')
+      + tile('Closed trades', s.trades ?? '—')
+      + tile('Max drawdown', s.max_drawdown_pct == null ? '—' : s.max_drawdown_pct.toFixed(1) + '%', '', ddLabel('agentRecord'));
+  }
+  // ── public record tiles end ──────────────────────────────────────────
+
   async function renderPortfolio() {
     container.innerHTML = viewHead('Portfolio', 'Your equity, history, and journal');
     if (!LOGGED_IN) {
@@ -4322,18 +4346,7 @@
         mustRead(r);
         const s = r.ok && r.data && r.data.stats;
         if (!s) return null;
-        // `note` names the BOOK the figure describes. It was added with the
-        // call site below and the parameter with it: a label passed to a
-        // renderer that ignores it is written on every branch and read by
-        // nobody, which is the defect this labelling exists to end.
-        const tile = (k, v, cls, note) => `<div class="stat"><div class="k">${k}</div><div class="v num ${cls || ''}">${v}</div>`
-          + (note ? `<div class="d">${note}</div>` : '') + `</div>`;
-        return `<div class="row" style="gap:var(--s3);flex-wrap:wrap">
-            ${tile('Profit factor', s.profit_factor == null ? '—' : s.profit_factor.toFixed(2), (s.profit_factor || 1) >= 1 ? 'up' : 'down')}
-            ${tile('Win rate', s.win_rate_pct == null ? '—' : s.win_rate_pct.toFixed(1) + '%')}
-            ${tile('Closed trades', s.trades ?? '—')}
-            ${tile('Max drawdown', s.max_drawdown_pct == null ? '—' : s.max_drawdown_pct.toFixed(1) + '%', 'down', ddLabel('agentRecord'))}
-          </div>
+        return `<div class="row" style="gap:var(--s3);flex-wrap:wrap">${prevTrackTiles(s)}</div>
           <p class="small muted" style="margin-top:var(--s2)">${esc(r.data.mode || '')} · every figure re-derivable from sealed fills —
           this is the engine's record, and your account gets the same honest cockpit for yours.</p>`;
       }, { timeoutMs: 16000, empty: { icon: 'icon-chart', text: 'The public record is unavailable right now — see /track.' } });
@@ -7735,13 +7748,15 @@
       ['Return', by.return.text, by.return.cls],
       ['Profit factor', by['profit-factor'].text, by['profit-factor'].cls],
       ['Win rate', by['win-rate'].text, by['win-rate'].cls],
-      ['Max DD', by['max-dd'].text, by['max-dd'].cls, ddLabel('copyLeader')],
+      // The card is a frozen backtest, not a leader's record, and the caption
+      // sits under all six figures, so it names the figure it qualifies.
+      ['Max DD', by['max-dd'].text, by['max-dd'].cls, ddLabel('agentBacktest')],
       ['Sharpe', by.sharpe.text, by.sharpe.cls],
       ['Trades', by.trades.text, by.trades.cls],
     ];
     const books = [];
     const grid = tiles.map(([k, v, cls, note]) => {
-      if (note) books.push(note);
+      if (note) books.push('<span class="muted small">' + esc(k) + ': </span>' + note);
       return '<div class="agent-metric" data-metric="' + esc(k) + '" style="min-width:0">'
         + '<span class="muted agent-metric-k" style="display:block;font-size:10px;'
         + 'text-transform:uppercase;letter-spacing:.03em">' + esc(k) + '</span>'
@@ -7770,6 +7785,36 @@
       + '<p class="muted" style="font-size:10px;margin:4px 0 0">' + folds + ' ' + mark + '</p>';
   }
   // ── agent scorecard: renderer end ────────────────────────────────────
+
+  // ── lab result tiles ─────────────────────────────────────────────────
+  // A Lab run reports the scorecard's six metrics under the same keys, and
+  // "Reproduce in Lab" exists to set one beside the other, so the Lab reads
+  // them through the card's reading. A measured profit factor of 0 is a
+  // loss: `(pf || 1) - 1` read it as missing and painted it break-even
+  // green. A drawdown is a magnitude, so it takes no colour; the Lab painted
+  // every one red. Net PnL is the Lab's own (a private run, in dollars),
+  // handed in formatted by the Lab's own `usd`.
+  // Returns the tiles' markup, or null when the reading did not load.
+  function labTiles(res, netPnlText) {
+    if (!window.AgentScorecard) return null;
+    const by = {};
+    window.AgentScorecard.readings(res, pnlClass).cells.forEach((c) => { by[c.key] = c; });
+    const tiles = [
+      ['Return', by.return.text, by.return.cls],
+      ['Net PnL', netPnlText, pnlClass(res.net_pnl)],
+      ['Profit factor', by['profit-factor'].text, by['profit-factor'].cls],
+      ['Win rate', by['win-rate'].text, by['win-rate'].cls],
+      ['Max drawdown', by['max-dd'].text, by['max-dd'].cls, ddLabel('backtestLab')],
+      ['Sharpe', by.sharpe.text, by.sharpe.cls],
+      ['Trades', by.trades.text, by.trades.cls],
+    ];
+    // `note` is ddLabel's markup, escaped inside ddLabel. Escaping it again
+    // printed the tag itself under the figure.
+    return tiles.map(([k, v, c, note]) => `<div class="stat"><div class="k">${esc(k)}</div>`
+      + `<div class="v num ${c}" data-lab-metric="${esc(k)}">${esc(String(v))}</div>`
+      + (note ? `<div class="d">${note}</div>` : '') + `</div>`).join('');
+  }
+  // ── lab result tiles end ─────────────────────────────────────────────
 
   /* ═══════ Strategy Agents (marketplace — public, read-only, §4-safe) ═══════ */
   // A browsable catalogue of the engine's named strategy agents. Every card is
@@ -8637,17 +8682,12 @@
       const host = C('labres');
       if (!panel || !host || !res) return;
       panel.hidden = false;
-      const pct = v => (v == null ? '—' : `${v >= 0 ? '+' : ''}${(+v).toFixed(2)}%`);
       const usd = v => (v == null ? '—' : `${v < 0 ? '-' : ''}$${Math.abs(+v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`);
-      const tiles = [
-        ['Return', pct(res.total_return_pct), pnlClass(res.total_return_pct)],
-        ['Net PnL', usd(res.net_pnl), pnlClass(res.net_pnl)],
-        ['Profit factor', res.profit_factor?.toFixed(2) ?? '—', pnlClass((res.profit_factor || 1) - 1)],
-        ['Win rate', res.win_rate != null ? `${(res.win_rate * 100).toFixed(0)}%` : '—', ''],
-        ['Max drawdown', res.max_drawdown_pct != null ? `${res.max_drawdown_pct.toFixed(2)}%` : '—', 'neg', ddLabel('backtestLab')],
-        ['Sharpe', res.sharpe_ratio?.toFixed(2) ?? '—', ''],
-        ['Trades', res.total_trades ?? '—', ''],
-      ];
+      const tiles = labTiles(res, usd(res.net_pnl));
+      if (!tiles) {
+        host.innerHTML = '<p class="muted small">The result could not be painted. The run finished; this is not an empty result.</p>';
+        return;
+      }
       const curve = res.equity_curve_points || [];
       let curveSvg = '';
       if (curve.length >= 2) {
@@ -8663,8 +8703,7 @@
       host.innerHTML = `
         <p class="muted small">${esc(params?.dataset || '')} · ${esc((params?.symbols || []).join(', '))} · ${esc(String(params?.last_bars || ''))} bars · honest fees/fills · frozen data</p>
         <div class="grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:var(--s2);margin-top:var(--s3)">
-          ${tiles.map(([k, v, c, note]) => `<div class="stat"><div class="k">${esc(k)}</div><div class="v num ${c}">${esc(String(v))}</div>`
-            + (note ? `<div class="d">${esc(note)}</div>` : '') + `</div>`).join('')}
+          ${tiles}
         </div>
         ${curveSvg}
         ${perSym.length ? `<div class="tbl-wrap mt-3"><table class="tbl">

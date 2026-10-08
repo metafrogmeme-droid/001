@@ -146,7 +146,7 @@ test('the footnote renders the sample, and nothing when there is none', () => {
 test('ddLabel names the book, and an unknown kind RAISES rather than printing bare', () => {
   const r = renderer();
   assert.match(r.fn.ddLabel('yourClosed'), /your closed trades/);
-  assert.match(r.fn.ddLabel('copyLeader'), /this leader/);
+  assert.match(r.fn.ddLabel('agentBacktest'), /the agent’s backtest/);
   assert.notEqual(r.fn.ddLabel('agentRecord'), r.fn.ddLabel('yourEquity'));
   assert.throws(() => r.fn.ddLabel('maxDrawdown'), /no such drawdown kind/);
 });

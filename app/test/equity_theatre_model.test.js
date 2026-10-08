@@ -27,7 +27,7 @@ test('every drawdown on the site has a kind, and each names a different book', (
   // One row per quantity the site renders. Five of them were labelled
   // identically before this table existed.
   assert.deepEqual(names.sort(), [
-    'agentRecord', 'agentReputation', 'backtestLab', 'copyLeader', 'engineGate',
+    'agentBacktest', 'agentRecord', 'agentReputation', 'backtestLab', 'engineGate',
     'replayWhatIf', 'yourClosed', 'yourEquity',
   ]);
   for (const n of names) {

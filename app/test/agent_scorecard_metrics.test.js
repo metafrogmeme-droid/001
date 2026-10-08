@@ -202,13 +202,15 @@ test('Dip Sniper keeps the frozen figures, in a 3-column grid, caption outside',
   assert.match(ret.inner, /agent-metric-k" style="display:block/);
   assert.match(ret.inner, /data-metric-value style="display:block/);
 
-  assert.doesNotMatch(parsed.grid, /leader/, 'caption sat inside the metric grid');
+  assert.doesNotMatch(parsed.grid, /backtest</, 'caption sat inside the metric grid');
   for (const c of parsed.cells) {
-    assert.doesNotMatch(c.inner, /leader/, c.label + ' contains the book caption');
+    assert.doesNotMatch(c.inner, /backtest</, c.label + ' contains the book caption');
   }
   const after = html.slice(html.indexOf(parsed.grid) + parsed.grid.length);
   assert.match(after, /agent-metrics-caption/);
-  assert.match(after, /this leader/);
+  // A frozen backtest, not a leader's record, and the caption names its figure.
+  assert.match(after, /Max DD: <\/span><span class="muted small">the agent’s backtest/);
+  assert.doesNotMatch(html, /leader/);
   assert.match(html, /Frozen backtest · majors_1h · 1500 bars · #8dbe73514ce8/);
   assert.doesNotMatch(html, /low sample/);
   assert.ok(!html.includes('$'), 'public card rendered a dollar');
@@ -231,7 +233,7 @@ test('Momentum Hunter grids the frozen figures, and a thin sample stays marked',
   loss(sh.cls);
   assert.equal(cell(parsed, 'Trades').text, '5');
   assert.match(html, /low sample · 5 trades/);
-  assert.doesNotMatch(parsed.grid, /leader/);
+  assert.doesNotMatch(parsed.grid, /backtest</);
 });
 
 test('a gain is green, break-even profit factor follows pnlClass, drawdown stays uncoloured', () => {

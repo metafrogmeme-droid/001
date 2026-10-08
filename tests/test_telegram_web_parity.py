@@ -114,7 +114,7 @@ class TestFormatters:
         # records the fix. CLAUDE.md's own "strip comments first", in the test
         # written for the deletion.
         src = code_only(inspect.getsource(TelegramHandler.rwa_card_text))
-        assert "fetch_web_card" in src and '"rwa"' in src
+        assert "_web_card_text" in src and '"rwa"' in src
         assert "_format" not in src, "the card must not be re-formatted here"
 
 
@@ -131,16 +131,15 @@ def test_commands_registered_and_guarded():
 
 def test_commands_fetch_off_the_event_loop():
     # The sync-channel fetch is blocking urllib — it must run in a thread so a
-    # slow website can never stall the Telegram event loop. /research and
-    # /rwa fetch inside the seam their routed intents share, so the seam is
-    # what is read.
-    for meth in ("rwa_card_text",):
-        src = inspect.getsource(getattr(TelegramHandler, meth))
-        assert "to_thread" in src, f"{meth} must not block the loop"
-    # /exposure and /research fetch inside `_web_card_text`, the same helper
-    # the other rendered cards use. The command itself must not format a
-    # second copy.
-    for meth in ("exposure_card_text", "research_card_text", "networth_card_text"):
+    # slow website can never stall the Telegram event loop. The helper the
+    # rendered cards share is where the thread is, so it is what is read.
+    assert "to_thread" in inspect.getsource(TelegramHandler._web_card_text)
+    # /exposure, /research and /rwa fetch inside `_web_card_text`. The
+    # command itself must not format a second copy. /rwa kept its own copy of
+    # the fetch until it reported a slow read as a channel that did not
+    # answer.
+    for meth in ("exposure_card_text", "research_card_text", "networth_card_text",
+                 "rwa_card_text"):
         src = inspect.getsource(getattr(TelegramHandler, meth))
         assert "_web_card_text" in src and "to_thread" not in src, meth
     assert "to_thread" in inspect.getsource(TelegramHandler._web_card_text)
