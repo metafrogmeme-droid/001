@@ -2443,7 +2443,23 @@ class StockTradingConfig:
     - Earnings/macro event sensitivity
     - Correlation to indices (SPY/QQQ)
     """
-    enabled: bool = _env_bool("STOCK_TRADING_ENABLED", True)
+    # WHETHER THE ENGINE AUTO-TRADES equity perps (Stock, ETF, Pre-IPO:
+    # `stock_trading.EQUITY_PERP_CLASSES`). Off by default. Scans, idea cards
+    # and a person's Confirm tap are untouched: every class is still scanned
+    # and analysed, and a tapped stock idea is placed. Only the autonomous
+    # confirm (`autonomous_class_refusal`) withholds them.
+    #
+    # Evidence (live `/parity`, 2026-10-09, 232 strategy exits; 183 of them
+    # ticker-priced, so approximate): Stock 52 trades, 23% won, PF 0.19;
+    # ETF 11 trades, PF 0.03; Crypto 159 trades, 45% won, PF 0.73. No
+    # benchmark has ever held an equity perp. Stocks' earlier sample said the
+    # opposite (`/classpf` 2026-07-12: PF 1.23 on 18, recorded beside the
+    # SCAN_CLASS_* switches), so this is a default, not a verdict:
+    # STOCK_TRADING_ENABLED=1 turns autonomous equity trading back on.
+    #
+    # It was read nowhere before this: a switch named for stock trading that
+    # turned nothing off.
+    enabled: bool = _env_bool("STOCK_TRADING_ENABLED", False)
     # Risk parameters tuned for stock volatility
     volatility_guard_atr_pct: float = _env_float("STOCK_VOL_GUARD_ATR_PCT", 4.0)
     min_risk_reward: float = _env_float("STOCK_MIN_RR", 1.5)

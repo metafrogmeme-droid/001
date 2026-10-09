@@ -9130,7 +9130,8 @@ class RuneClawEngine:
             _cat = category_for_symbol(idea.asset)
         except Exception:
             _cat = "Crypto"
-        if _cat in ("Stock", "ETF", "Pre-IPO"):
+        from bot.core.stock_trading import EQUITY_PERP_CLASSES
+        if _cat in EQUITY_PERP_CLASSES:
             from bot.core.stock_trading import get_market_session
             _sess = get_market_session()
             if _sess.size_multiplier <= 0.0:
@@ -10347,12 +10348,21 @@ class RuneClawEngine:
         trade log, and only one of them is the operator waiting for a tap.
         """
         why = auto_confirm_refusal(idea)
+        result = "SUPPRESSED_UNMEASURED"
+        if why is None:
+            # The asset class, asked second and recorded apart: the idea's
+            # confidence IS a measurement here, so it is not
+            # `auto_confirm_refusal`'s answer, which the learners read too
+            # (`confidence_basis`).
+            from bot.core.stock_trading import autonomous_class_refusal
+            why = autonomous_class_refusal(getattr(idea, "asset", ""))
+            result = "SUPPRESSED_CLASS"
         if why is None:
             return False
         audit(trade_log,
               f"Auto-confirm SUPPRESSED for {getattr(idea, 'asset', '?')} — "
               f"{why}. The Confirm button on its card is the door.",
-              action="auto_confirm", result="SUPPRESSED_UNMEASURED",
+              action="auto_confirm", result=result,
               data={"trade_id": trade_id, "why": why,
                     "source": getattr(idea, "source", None)})
         return True

@@ -275,10 +275,44 @@ def autoconfirm_placement_line(engine, *, is_live: bool) -> str:
     except Exception as exc:  # noqa: BLE001 -- a failed read is said, not passed
         why = f"the live gate could not be read ({type(exc).__name__})"
     if why is None:
-        return "Live: an idea that clears the bar is placed with no tap."
+        line = "Live: an idea that clears the bar is placed with no tap."
+        from bot.core.stock_trading import EQUITY_PERP_CLASSES
+        if not CONFIG.stocks.enabled:
+            names = (", ".join(EQUITY_PERP_CLASSES[:-1])
+                     + " or " + EQUITY_PERP_CLASSES[-1])
+            line += (f" Not a {names} perp: STOCK_TRADING_ENABLED is off, so "
+                     f"its card waits for a tap.")
+        return line
     return (f"\u26d4 Live: no order is placed without a tap, because "
             f"{_html.escape(str(why))}. The Confirm button on each card is "
             f"the door.")
+
+
+def autoconfirm_status_line(engine, threshold: float, *, is_live: bool) -> str:
+    """The /autoconfirm card's headline, then what an idea that clears the bar
+    does (`autoconfirm_placement_line`).
+
+    GREEN SAID IT PLACED ORDERS. A live bot with no eligibility record read a
+    green "ON -- ideas with confidence >= 90% are confirmed with no tap" over
+    the line saying no order is placed without a tap. The colour is a claim,
+    and it was the false one. Green is said only when an order is placed with
+    no tap: live, with the live gate open. A threshold that is set and held
+    (by the gate, or in paper mode, which places nothing) is yellow, and so
+    is a gate that could not be read.
+    """
+    if threshold >= 1.0:
+        return "\U0001f534 <b>OFF</b> — all trades require manual confirmation"
+    places = False
+    if is_live:
+        try:
+            places = engine._autonomous_live_refusal() is None
+        except Exception:  # noqa: BLE001 -- unread is not "placing"
+            places = False
+    pct = f"<b>{threshold*100:.0f}%</b>"
+    head = (f"\U0001f7e2 <b>ON</b> — ideas with confidence \u2265 {pct}"
+            if places else
+            f"\U0001f7e1 <b>SET</b> at {pct}, placing nothing on its own")
+    return head + "\n" + autoconfirm_placement_line(engine, is_live=is_live)
 
 
 def forcescan_withheld_line(result: dict) -> Optional[str]:
@@ -988,10 +1022,8 @@ class EngineOpsCommands:
             if threshold >= 1.0:
                 status = "\U0001f534 <b>OFF</b> — all trades require manual confirmation"
             else:
-                status = (f"\U0001f7e2 <b>ON</b> — ideas with confidence \u2265 "
-                          f"<b>{threshold*100:.0f}%</b> are confirmed with no tap\n"
-                          + autoconfirm_placement_line(
-                              self.engine, is_live=CONFIG.is_live()))
+                status = autoconfirm_status_line(
+                    self.engine, threshold, is_live=CONFIG.is_live())
             await self._send(update,
                 f"\U0001f916 <b>Auto-Confirm Status</b>\n\n"
                 f"{status}\n\n"
@@ -1025,10 +1057,9 @@ class EngineOpsCommands:
                   action="autoconfirm", result="SET",
                   data={"user": self._get_tg_id(update), "threshold": new_threshold})
             await self._send(update,
-                f"\U0001f916 <b>Auto-Confirm Updated</b>\n\n"
-                f"Threshold: <b>{new_threshold*100:.0f}%</b>\n"
-                f"Ideas with confidence \u2265 {new_threshold*100:.0f}% are confirmed with no tap.\n"
-                + autoconfirm_placement_line(self.engine, is_live=CONFIG.is_live())
+                "\U0001f916 <b>Auto-Confirm Updated</b>\n\n"
+                + autoconfirm_status_line(self.engine, new_threshold,
+                                          is_live=CONFIG.is_live())
                 + "\nLower confidence ideas still require manual confirmation.")
         except ValueError:
             await self._send(update,

@@ -20950,9 +20950,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **479 of 1251** reach for source text through `source_scan`, `code_only`
+Driven, **480 of 1253** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 479 is a FLOOR and the honest shape is
+source scan that rule does not see, so 480 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -21928,6 +21928,47 @@ nothing pending sending one report and not two, and an in-flight venue that the
 report itself names.
 (`tests/test_the_bot_reports_the_venues_it_holds.py`,
 `app/test/the_keys_card_shows_what_the_bot_holds.test.js`.)
+
+**A SWITCH NAMED FOR STOCK TRADING TURNED NOTHING OFF.** Live `/parity` on 9
+October, 232 strategy exits: Stock 52 trades, 23% won, PF 0.19; ETF 11
+trades, PF 0.03; Crypto 159 trades, 45% won, PF 0.73. No benchmark has ever
+held an equity perp. The owner chose that the house strategy stops
+auto-trading stocks and ETFs, and that every class stays scannable and
+tradeable by hand. `STOCK_TRADING_ENABLED` already existed, defaulted on, and
+was read nowhere.
+
+The first candidate was the scan's own class switch (`SCAN_CLASS_STOCKS=0`).
+It would have hidden stocks from the scan, the cards and a person's Confirm
+tap along with the engine, the opposite of what was asked. The confirm path
+was the second candidate and is wrong too: a stock idea card would have kept
+its Confirm button and refused the tap behind it. What was asked is narrower,
+the autonomous confirm, and it has one reading already:
+`_auto_confirm_suppressed`, asked by the tick and by `/forcescan`.
+`autonomous_class_refusal` is asked there now, beside the stamp rule and
+recorded apart from it (`SUPPRESSED_CLASS`), because the stamp rule is also
+the learners' (`confidence_basis`) and a stock's confidence is a measurement.
+The class is `category_for_symbol`'s, the reading `/parity`'s asset-class rows
+take, so the gate and the evidence agree about what a stock is. The session
+gate reads the same class tuple (`EQUITY_PERP_CLASSES`), and the `/autoconfirm`
+card names the exception while it holds. Off by default; the earlier stock
+sample said the opposite (PF 1.23 on 18 in July), so it is recorded as a
+default, not a verdict. What it does not do today, said so nobody reads it
+as more: an autonomous live order also needs an eligibility record
+(`live_eligibility`, none ships), so every live order since 29 September
+is a tap, and the backtest executes every approved idea without asking
+this. It takes effect with autonomy. Ten mutants, all killed.
+(`tests/test_the_house_does_not_auto_trade_stocks.py`.)
+
+**THE SAME CARD WAS GREEN FOR AN ORDER IT DID NOT PLACE.** The operator's
+`/autoconfirm` on that live bot read "🟢 ON -- ideas with confidence >= 90% are
+confirmed with no tap" over "⛔ Live: no order is placed without a tap, because
+no eligibility record exists". The second line was right and the colour said
+the opposite. `autoconfirm_status_line` decides the headline for the status
+card and for the reply to `/autoconfirm 0.75`: green only when live and the
+gate is open; yellow when the threshold is set and nothing is placed on its own
+(the gate refuses, the gate could not be read, or paper mode); red when off.
+Five mutants, all killed.
+(`tests/test_the_autoconfirm_card_is_green_only_when_it_places.py`.)
 
 ## Deploying so a dead bot cannot look like a live one
 
