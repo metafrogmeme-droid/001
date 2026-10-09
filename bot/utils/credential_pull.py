@@ -442,7 +442,7 @@ def held_venues(store, config=None) -> Optional[list]:
     reporting that would tell the website nobody holds anything, which is the
     one thing nobody measured.
     """
-    if store.load_failed:
+    if store.file_unreadable:
         return None
     by_tg: dict = {}
     for tg in sorted(str(t) for t in store.user_ids()):

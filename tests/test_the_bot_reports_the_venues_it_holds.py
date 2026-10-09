@@ -76,7 +76,7 @@ def test_an_empty_store_is_a_report_that_nobody_holds_anything(tmp_path):
 def test_an_unreadable_store_file_is_no_report_at_all(tmp_path, site, caplog):
     (tmp_path / "creds.enc").write_text("{not json")
     s = _store(tmp_path)
-    assert s.load_failed is True
+    assert s.file_unreadable is True
     assert cp.held_venues(s) is None
     with caplog.at_level(logging.WARNING):
         assert cp.report_held_venues(s, force=True) is False

@@ -593,7 +593,7 @@ class ExchangeCredentialStore:
             return str(telegram_id) in self._enc
 
     @property
-    def load_failed(self) -> bool:
+    def file_unreadable(self) -> bool:
         """True when the store FILE could not be read (see ``_load``). The map
         is then empty, and that is not "nobody linked a key": a reader that
         reports on every user must say nothing rather than report none."""
