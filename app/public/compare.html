@@ -53,7 +53,7 @@
   <p class="foot-note" data-i18n="cmp.foot">Engine metrics come from frozen, content-hashed benchmark backtests (reproduce them in the Lab). Live records are forward-only paper trades members copied, sealed at open. A missing number renders as “—”, never as zero.</p>
 </div>
 
-<script src="/js/agent-scorecard.js?v=6"></script>
+<script src="/js/agent-scorecard.js?v=7"></script>
 <script>
 (function () {
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -130,6 +130,8 @@
             t.push(AgentScorecard.foldHtml(sc.folds));
             var mark = AgentScorecard.discoveryHtml(sc.data_mark);
             if (mark) t.push(mark);
+            var brk = AgentScorecard.breakerHtml(sc.breaker, true);
+            if (brk) t.push(brk);
           }
         }
         if (col.comm) t.push('<span class="tier cf">🧩 ' + esc(T('cmp.t_config', 'Member config')) + '</span>');

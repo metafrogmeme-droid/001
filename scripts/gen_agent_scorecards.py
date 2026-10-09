@@ -63,6 +63,14 @@ PUBLIC_METRICS = (
 # passes them to the runner.
 _EXIT_KEYS = ("sl_atr_mult", "tp_atr_mult")
 
+#: The breaker reset the published cards model: a tripped circuit breaker is
+#: reset after this many bars (a day of 1h bars), as an operator would. Without
+#: it the house card measured the halt, not the strategy: Full Scan's run
+#: tripped once and refused the next 86 ideas at the breaker for the rest of
+#: the window. Every card records the value and its trip count beside its
+#: figures (``breaker``), and the Lab's reproduce passes the card's own value.
+CARD_BREAKER_RESET_BARS = 24
+
 
 def _slug(key: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", str(key).lower()).strip("-")
@@ -364,9 +372,37 @@ def scorecard_note(cfg: dict) -> str:
     return note
 
 
+def breaker_args(reset_bars: int) -> list[str]:
+    """The runner flag for a card's breaker reset; none at 0 (the runner's own
+    default). Kept out of ``_gate_args``: the reset is how the run is
+    measured, not a gate of the preset, and the Lab forwards it the same way
+    (`bot/api/lab.py`)."""
+    n = int(reset_bars)
+    if n < 0:
+        raise ValueError(f"breaker_reset_bars {n} < 0")
+    return ["--breaker-reset-bars", str(n)] if n else []
+
+
+def breaker_block(runner: dict, requested_reset_bars: int) -> dict:
+    """The card's ``breaker``: the reset the run modelled and how many times the
+    breaker opened, both as the runner reported them. A runner that did not
+    report them, or ran a different reset from the one asked for, is refused:
+    the portfolio loop once accepted the flag and ignored it."""
+    reset = runner.get("breaker_reset_bars")
+    trips = runner.get("breaker_trips")
+    for name, v in (("breaker_reset_bars", reset), ("breaker_trips", trips)):
+        if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+            raise ValueError(f"runner reported no {name} ({v!r})")
+    if reset != int(requested_reset_bars):
+        raise ValueError(f"runner ran breaker_reset_bars={reset}, "
+                         f"the card asked for {requested_reset_bars}")
+    return {"reset_bars": reset, "trips": trips}
+
+
 def build_card(*, preset_key: str, cfg: dict, runner: dict, dataset_name: str,
                dataset_hash: str, symbols: list[str], last_bars: int,
-               code_sha_value: str | None, recorded_at: str) -> dict:
+               code_sha_value: str | None, recorded_at: str,
+               breaker_reset_bars: int = CARD_BREAKER_RESET_BARS) -> dict:
     """One scorecard. Metrics are ``project_metrics(runner)`` and nothing else."""
     rows = _breakdown_rows(runner)
     n = _as_number(runner.get("total_trades"))
@@ -389,6 +425,7 @@ def build_card(*, preset_key: str, cfg: dict, runner: dict, dataset_name: str,
         # block; editing one percent without the other fails the check.
         "measured": measured,
         "metrics": project_metrics(runner),
+        "breaker": breaker_block(runner, breaker_reset_bars),
         "trades": rows,
         "engine": "runeclaw.backtest",
         "honest": True,
@@ -399,7 +436,7 @@ def build_card(*, preset_key: str, cfg: dict, runner: dict, dataset_name: str,
 
 
 def _run_one(preset_key: str, cfg: dict, dataset: str, symbols: str,
-             last_bars: int) -> dict:
+             last_bars: int, breaker_reset_bars: int = 0) -> dict:
     with tempfile.NamedTemporaryFile("r", suffix=".json", delete=False) as tf:
         out_path = tf.name
     cmd = [
@@ -407,7 +444,7 @@ def _run_one(preset_key: str, cfg: dict, dataset: str, symbols: str,
         "--dataset", dataset, "--symbols", symbols,
         "--last-bars", str(last_bars), "--honest", "--strict-data",
         "-o", out_path,
-    ] + _gate_args(cfg)
+    ] + _gate_args(cfg) + breaker_args(breaker_reset_bars)
     print(f"  [{preset_key}] {' '.join(cmd[4:])}", flush=True)
     proc = subprocess.run(cmd, cwd=str(REPO), timeout=1800)
     if proc.returncode != 0:
@@ -419,7 +456,8 @@ def _run_one(preset_key: str, cfg: dict, dataset: str, symbols: str,
 
 
 def generate(dataset: str, symbols: str, last_bars: int,
-             preset: str = "") -> list[str]:
+             preset: str = "",
+             breaker_reset_bars: int = CARD_BREAKER_RESET_BARS) -> list[str]:
     from bot.backtest.snapshot import load_manifest_multi
     from bot.skills.skill_registry import RunStrategySkill
 
@@ -458,19 +496,22 @@ def generate(dataset: str, symbols: str, last_bars: int,
             print(f"  [{key}] omitted: this run's symbols are not its universe. "
                   "No scorecard written.", flush=True)
             continue
-        res = _run_one(key, cfg, dataset, symbols, last_bars)
+        res = _run_one(key, cfg, dataset, symbols, last_bars,
+                       breaker_reset_bars=breaker_reset_bars)
         card = build_card(
             preset_key=key, cfg=cfg, runner=res,
             dataset_name=dataset_name, dataset_hash=dataset_hash,
             symbols=sym_list, last_bars=last_bars,
             code_sha_value=stamped_sha, recorded_at=stamped_at,
+            breaker_reset_bars=breaker_reset_bars,
         )
         path = out_dir / f"{card['agent_id']}.json"
         path.write_text(json.dumps(card, indent=2, sort_keys=True) + "\n")
         written.append(str(path.relative_to(REPO)))
         m = card["metrics"]
         print(f"    -> {path.name}: ret {m.get('total_return_pct')}% "
-              f"PF {m.get('profit_factor')} trades {m.get('total_trades')}",
+              f"PF {m.get('profit_factor')} trades {m.get('total_trades')} "
+              f"breaker trips {card['breaker']['trips']}",
               flush=True)
     if want and not written:
         if matched:
@@ -489,10 +530,15 @@ def main() -> None:
     ap.add_argument("--last-bars", type=int, default=1500)
     ap.add_argument("--preset", default="",
                     help="Only this preset key or slug. Other scorecards are left as they are.")
+    ap.add_argument("--breaker-reset-bars", type=int, default=CARD_BREAKER_RESET_BARS,
+                    help="Reset a tripped breaker after N bars (0 = never, as live). "
+                         "Recorded on every card it writes.")
     args = ap.parse_args()
     print(f"Generating agent scorecards on {args.dataset} "
-          f"({args.symbols}, {args.last_bars} bars)…")
-    written = generate(args.dataset, args.symbols, args.last_bars, preset=args.preset)
+          f"({args.symbols}, {args.last_bars} bars, breaker reset "
+          f"{args.breaker_reset_bars} bars)…")
+    written = generate(args.dataset, args.symbols, args.last_bars, preset=args.preset,
+                       breaker_reset_bars=args.breaker_reset_bars)
     print(f"\nWrote {len(written)} scorecards:\n  " + "\n  ".join(written))
 
 

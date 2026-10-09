@@ -104,6 +104,14 @@ router.post('/run', async (req, res) => {
   // The ATR exits a card was measured with (Safe Scalper's stop and target).
   if (b.sl_atr_mult != null && b.sl_atr_mult !== '') body.sl_atr_mult = parseFloat(b.sl_atr_mult);
   if (b.tp_atr_mult != null && b.tp_atr_mult !== '') body.tp_atr_mult = parseFloat(b.tp_atr_mult);
+  // The breaker reset the card's run modelled. The bot refuses anything that
+  // is not a count, so a value that does not parse is forwarded as written
+  // and refused there: `Number('x')` is NaN, which JSON writes as null, and
+  // null is "no reset", a run at 0 under the card's name.
+  if (b.breaker_reset_bars != null && b.breaker_reset_bars !== '') {
+    const n = Number(b.breaker_reset_bars);
+    body.breaker_reset_bars = Number.isFinite(n) ? n : String(b.breaker_reset_bars).slice(0, 16);
+  }
   const r = await relay('POST', '/lab/run', body);
   res.status(r.status).json(r.data);
 });

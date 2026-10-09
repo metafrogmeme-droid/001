@@ -93,7 +93,7 @@
   <div id="ag-root"><div class="empty" data-i18n="ag.loading">Loading the agent catalogue…</div></div>
 </div>
 
-<script src="/js/agent-scorecard.js?v=6"></script>
+<script src="/js/agent-scorecard.js?v=7"></script>
 <script>
 (function () {
   var esc = function (s) {
@@ -203,6 +203,7 @@
       ? '<div><div class="k">Trades</div><div class="v" data-trades>' + esc(AgentScorecard.tradesText(cardSc)) + '</div></div>'
         + '<div><div class="k">Folds</div><div class="v">' + AgentScorecard.foldHtml(cardSc.folds) + '</div></div>'
         + AgentScorecard.discoveryHtml(cardSc.data_mark)
+        + AgentScorecard.breakerHtml(cardSc.breaker, true)
       : '';
     var mx = (cardSc && cardSc.omitted)
       ? '<div class="mx"><div class="k">' + esc(cardSc.omitted) + '</div></div>'

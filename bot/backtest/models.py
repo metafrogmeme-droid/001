@@ -253,6 +253,13 @@ class BacktestResult(BaseModel):
     total_ideas_rejected_preset: int = 0
     total_ideas_timing_unfilled: int = 0
     total_entries_pending_at_end: int = 0
+    # The circuit breaker over the run: how many times it opened, from any cause
+    # (`RiskEngine.stats["circuit_breaker_trips"]`, the risk engine's own
+    # count), and the reset the run modelled (`breaker_reset_bars`, 0 = never,
+    # as live). A figure measured with an operator's reset modelled says so
+    # beside itself; one measured without it says how often it halted.
+    breaker_trips: int = 0
+    breaker_reset_bars: int = 0
     # RC-2026-018. The limit-entry lifecycle, reported because the number that
     # NEVER filled is what tells a strategy's edge apart from its fill
     # assumption. The engine used to book every limit at its own price on the

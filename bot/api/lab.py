@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt
 
 lab_router = APIRouter()
 
@@ -114,6 +114,12 @@ class LabRunRequest(BaseModel):
     # 1.5-ATR stop and 2.0-ATR target). Unset is the analyzer's own levels.
     sl_atr_mult: Optional[float] = None
     tp_atr_mult: Optional[float] = None
+    # The breaker reset a card's run modelled (`breaker.reset_bars`): a tripped
+    # breaker reset after this many bars. Unset is the runner's own 0, as live.
+    # A card measured with a reset and re-run without one is a different
+    # backtest under the card's name, so "Reproduce in Lab" forwards it.
+    # Strict: a JSON `true` is not a count of bars (lax parsing reads it as 1).
+    breaker_reset_bars: Optional[StrictInt] = None
 
 
 def _datasets() -> dict[str, dict]:
@@ -167,6 +173,21 @@ def _exit_args(req: LabRunRequest) -> tuple[list[str], dict]:
         args += [flag, str(float(raw))]
         params[name] = float(raw)
     return args, params
+
+
+def _breaker_args(req: LabRunRequest) -> tuple[list[str], dict]:
+    """The runner flag for the breaker reset a card was measured with.
+
+    How the run is measured, not a gate. 0 is the runner's default and adds
+    no flag; a count outside a week of 1h bars is refused rather than clamped,
+    because a clamped value would reproduce a run nobody recorded.
+    """
+    raw = req.breaker_reset_bars
+    if raw is None:
+        return [], {}
+    if isinstance(raw, bool) or not isinstance(raw, int) or not 0 <= raw <= 168:
+        raise HTTPException(status_code=400, detail="Invalid breaker_reset_bars.")
+    return (["--breaker-reset-bars", str(raw)] if raw else []), {"breaker_reset_bars": raw}
 
 
 def _ma_gate_args(req: LabRunRequest) -> tuple[list[str], dict]:
@@ -282,6 +303,9 @@ def _preset_gate_args(req: LabRunRequest) -> tuple[list[str], dict]:
     ma_args, ma_params = _ma_gate_args(req)
     gate_args += ma_args
     gate_params.update(ma_params)
+    breaker_args, breaker_params = _breaker_args(req)
+    gate_args += breaker_args
+    gate_params.update(breaker_params)
     return gate_args, gate_params
 
 

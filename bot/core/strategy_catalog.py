@@ -447,6 +447,24 @@ def _folds(card: dict) -> Optional[dict]:
     }
 
 
+def _breaker(card: dict) -> Optional[dict]:
+    """The breaker the card's run modelled: ``{"reset_bars", "trips"}``, or
+    None when the card does not carry both as counts.
+
+    A card recorded before the block existed is not "never tripped" and not
+    "no reset": it says nothing, and the card prints nothing about it. A
+    measured 0 is kept on both.
+    """
+    raw = card.get("breaker")
+    if not isinstance(raw, dict):
+        return None
+    reset = _count(raw.get("reset_bars"))
+    trips = _count(raw.get("trips"))
+    if reset is None or trips is None:
+        return None
+    return {"reset_bars": reset, "trips": trips}
+
+
 def follow_listing(scorecard: Optional[dict], eligibility_state: str) -> tuple[bool, str]:
     """Whether this preset is listed for copy/follow, and why.
 
@@ -560,6 +578,7 @@ def _load_scorecard(agent_id: str) -> Optional[dict]:
             "total_trades": metrics.get("total_trades"),
         },
         "folds": _folds(card),
+        "breaker": _breaker(card),
         "data_mark": _data_mark(card),
     }
 
