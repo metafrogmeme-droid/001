@@ -263,6 +263,8 @@
   "val_ok": "OK",
   "val_paper": "تجريبي",
   "val_peak_of": "ذروة",
+  "val_peak_at": "الذروة في",
+  "val_last_run": "آخر تشغيل",
   "val_signals_done": "إشارة جُرّبت قبل الإلغاء",
   "val_sltp_backstop": "انتهت الدورة مبكراً — راقبت شبكة الأمان أوامر الوقف",
   "val_sltp_backstop_failed": "فشلت شبكة الأمان — المراكز المفتوحة دون مراقبة",

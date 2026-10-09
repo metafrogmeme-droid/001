@@ -263,6 +263,8 @@
   "val_ok": "OK",
   "val_paper": "पेपर",
   "val_peak_of": "शिखर:",
+  "val_peak_at": "चरम समय",
+  "val_last_run": "पिछला रन",
   "val_signals_done": "सिग्नल रद्द होने से पहले आज़माए गए",
   "val_sltp_backstop": "टिक जल्दी खत्म हुआ — बैकस्टॉप ने स्टॉप पर नज़र रखी",
   "val_sltp_backstop_failed": "बैकस्टॉप विफल — खुली पोज़िशन बिना निगरानी",

@@ -5778,14 +5778,23 @@ class RuneClawEngine:
         """
         try:
             prev = self._phase_durations.get(what) or {}
+            prev_peak = float(prev.get("peak_s") or 0.0)
             self._phase_durations[what] = {
                 "last_s": float(elapsed),
-                "peak_s": max(float(elapsed), float(prev.get("peak_s") or 0.0)),
+                "peak_s": max(float(elapsed), prev_peak),
+                # WHEN the peak was, on the wall clock. A peak since boot with
+                # no time beside it cannot tell one slow cycle hours ago from
+                # every cycle running at the cap, and that is the question the
+                # line is read to answer.
+                "peak_at": (time.time() if float(elapsed) >= prev_peak or not prev
+                            else prev.get("peak_at")),
                 "cap_s": float(cap),
                 "at": time.monotonic(),
                 # Sticky: one timeout in the window is what an operator needs
                 # to see, and a later success does not un-happen it.
                 "timed_out": bool(timed_out) or bool(prev.get("timed_out")),
+                # The LAST run's own: its figure is a floor when it was cut off.
+                "last_timed_out": bool(timed_out),
             }
         except Exception:  # instrumentation must never break a tick
             pass
@@ -5797,7 +5806,7 @@ class RuneClawEngine:
         needs to know whether anything is near the edge, and one number they
         will actually read beats three they will not.
         """
-        worst = None
+        worst: Optional[dict[str, Any]] = None
         for name, rec in (self._phase_durations or {}).items():
             cap = float(rec.get("cap_s") or 0.0)
             peak = float(rec.get("peak_s") or 0.0)
@@ -5808,7 +5817,9 @@ class RuneClawEngine:
                 worst = {"phase": name, "peak_s": peak, "cap_s": cap,
                          "last_s": float(rec.get("last_s") or 0.0),
                          "used_ratio": used,
-                         "timed_out": bool(rec.get("timed_out"))}
+                         "timed_out": bool(rec.get("timed_out")),
+                         "peak_at": rec.get("peak_at"),
+                         "last_timed_out": bool(rec.get("last_timed_out"))}
         return worst
 
     async def _with_maintenance_cap(self, coro, what: str):

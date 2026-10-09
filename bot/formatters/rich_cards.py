@@ -1474,6 +1474,31 @@ def position_watch_line(watch: Optional[dict], lang: str = "en",
     return f"\u26aa {t('lbl_sltp_monitor', lang)}: {t('val_sltp_unknown', lang)}"
 
 
+def _headroom_when(headroom: Optional[dict], lang: str = "en") -> str:
+    """When the slowest phase's peak was, and what its last run took.
+
+    The line reported the peak since boot and nothing else, so one slow cycle
+    hours ago and every cycle running at the cap read the same: "analyze 282s
+    peak of 300s (94%)". Which of the two it is decides whether anyone acts.
+    Each part is said only when it was recorded, never guessed, and a last run
+    that was cut off at the cap is a floor ("≥"), as the peak's is.
+    """
+    headroom = headroom or {}
+    parts = []
+    at = headroom.get("peak_at")
+    if at is not None:
+        try:
+            when = datetime.fromtimestamp(float(at), tz=timezone.utc)
+            parts.append(f"{t('val_peak_at', lang)} {when.strftime('%Y-%m-%d %H:%M')} UTC")
+        except (TypeError, ValueError, OverflowError, OSError):
+            pass
+    last = headroom.get("last_s")
+    if isinstance(last, (int, float)) and not isinstance(last, bool):
+        floor = "≥" if headroom.get("last_timed_out") else ""
+        parts.append(f"{t('val_last_run', lang)} {floor}{float(last):.0f}s")
+    return "".join(f" · {p}" for p in parts)
+
+
 def _batch_outcome_note(progress: Optional[dict], lang: str = "en") -> str:
     """" -- 9 analysed, 16 gave up at the per-symbol cap, 12 cancelled", or
     nothing.
@@ -1698,7 +1723,8 @@ def render_status_card(
             f"{float(phase_headroom['cap_s']):.0f}s "
             f"({float(phase_headroom['used_ratio']) * 100:.0f}%"
             + (f" — {t('val_cap_hit', lang)}"
-               if phase_headroom.get("timed_out") else "") + ")"]),
+               if phase_headroom.get("timed_out") else "") + ")"
+            + _headroom_when(phase_headroom, lang)]),
         *([] if not _watch_line else [f"- {_watch_line}"]),
         "",
         f"<b>{t('hdr_capital', lang)}</b>",

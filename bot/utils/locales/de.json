@@ -263,6 +263,8 @@
   "val_ok": "OK",
   "val_paper": "PAPER",
   "val_peak_of": "Spitze von",
+  "val_peak_at": "Spitze um",
+  "val_last_run": "letzter Lauf",
   "val_signals_done": "Signale versucht, bevor abgebrochen wurde",
   "val_sltp_backstop": "Tick endete vorzeitig — das Sicherheitsnetz hat die Stops überwacht",
   "val_sltp_backstop_failed": "Sicherheitsnetz FEHLGESCHLAGEN — offene Positionen unbeobachtet",

@@ -263,6 +263,8 @@
   "val_ok": "OK",
   "val_paper": "PAPER",
   "val_peak_of": "picco di",
+  "val_peak_at": "picco alle",
+  "val_last_run": "ultima esecuzione",
   "val_signals_done": "segnali tentati prima dell'annullamento",
   "val_sltp_backstop": "tick terminato in anticipo — la rete di sicurezza ha sorvegliato gli stop",
   "val_sltp_backstop_failed": "rete di sicurezza FALLITA — posizioni aperte non sorvegliate",

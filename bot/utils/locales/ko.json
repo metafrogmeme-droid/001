@@ -263,6 +263,8 @@
   "val_ok": "OK",
   "val_paper": "모의",
   "val_peak_of": "최고:",
+  "val_peak_at": "최고치 시각",
+  "val_last_run": "최근 실행",
   "val_signals_done": "개 시그널을 취소 전에 시도",
   "val_sltp_backstop": "틱이 조기 종료됨 — 백스톱이 스탑을 감시함",
   "val_sltp_backstop_failed": "백스톱 실패 — 보유 포지션이 감시되지 않음",

@@ -1234,6 +1234,8 @@ _STRINGS: dict[str, dict[str, str]] = {
                "請在日誌中搜尋 <code>Engine tick error</code>。"),
     },
     "val_peak_of": {"en": "peak of", "zh": "峰值／上限"},
+    "val_peak_at": {"en": "peak at", "zh": "峰值時間"},
+    "val_last_run": {"en": "last run", "zh": "最近一次"},
     "val_cap_hit": {"en": "cap hit, tick cancelled", "zh": "已達上限，循環取消"},
     "val_signals_done": {"en": "signals attempted before it was cancelled",
                          "zh": "在取消前已嘗試分析的訊號"},

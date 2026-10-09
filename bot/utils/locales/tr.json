@@ -263,6 +263,8 @@
   "val_ok": "OK",
   "val_paper": "PAPER",
   "val_peak_of": "zirve:",
+  "val_peak_at": "zirve zamanı",
+  "val_last_run": "son çalışma",
   "val_signals_done": "sinyal iptalden önce denendi",
   "val_sltp_backstop": "tick erken bitti — yedek mekanizma stopları izledi",
   "val_sltp_backstop_failed": "yedek mekanizma BAŞARISIZ — açık pozisyonlar izlenmiyor",

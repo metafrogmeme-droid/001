@@ -274,5 +274,6 @@ about to change before changing it.
 
 ## Deploying so a dead bot cannot look like a live one (line 22221)
 
+- L22378: A PEAK WITH NO TIME BESIDE IT CANNOT SAY WHETHER TO ACT — `tests/test_phase_headroom.py`
 
-## Operational docs (line 22378)
+## Operational docs (line 22394)
