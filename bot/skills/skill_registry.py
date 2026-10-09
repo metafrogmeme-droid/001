@@ -940,7 +940,13 @@ class AnalyzeAssetSkill(BaseSkill):
             conf_ring = "\u2012"
         thesis_bq = _thesis_bq(idea.reasoning, 250, tail="\n\n")
         _record = _setup_record_line(engine, idea)
-        record_line = f"{_esc(_record)}\n\n" if _record else ""
+        # Beside the setup's record, what every card offering an idea carries
+        # for the person deciding (`idea_context_lines`): their own live record
+        # in the class, and whether the turn is confirmed on the closed bars.
+        from bot.formatters.idea_context import idea_context_lines
+        _ctx = idea_context_lines(engine, kwargs.get("user_id"), idea)
+        _rec_lines = [_esc(x) for x in [_record, *_ctx] if x]
+        record_line = ("\n".join(_rec_lines) + "\n\n") if _rec_lines else ""
 
         return (
             f"{d_icon} <b>{d}  {_esc(idea.asset)}</b>\n{SEP}\n\n"

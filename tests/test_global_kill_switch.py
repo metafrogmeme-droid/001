@@ -66,6 +66,7 @@ def _engine(operator, user_execs=None, shared_risk=None, user_risk=None):
     eng._pending_ideas = {"t1": object(), "t2": object()}
     eng._pending_atr = {"t1": 1.0}
     eng._pending_timing = {"t1": (True, "")}
+    eng._pending_turn = {"t1": ("not_confirmed", "awaiting bullish trigger bar", "1h")}
     eng._pending_pyramid = {"t1": True}
     return eng
 
@@ -131,6 +132,7 @@ class TestEmergencyHaltAll:
             assert summary["pending_cleared"] == 2
             assert eng._pending_ideas == {} and eng._pending_atr == {} and eng._pending_pyramid == {}
             assert eng._pending_timing == {}   # emergency halt drops pending timing state too
+            assert eng._pending_turn == {}     # and the cards' turn reading with it
             assert {a["account"] for a in summary["accounts"]} == {"operator", "alice"}
             assert op.closed_reason == "kill" and alice.closed_reason == "kill"
         finally:

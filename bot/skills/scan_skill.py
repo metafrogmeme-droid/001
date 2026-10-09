@@ -1714,6 +1714,16 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
     btn_text, rows = scan_action_rows(top_setups, _gate, _caller)
     buttons = [[InlineKeyboardButton(label, callback_data=data) for label, data in row]
                for row in rows]
+    if buttons:
+        # The caller's own record in each class the offered rows belong to
+        # (`class_lines_for`), in the text that reaches them on both paths:
+        # one line per class, since the record is the class's, not the row's.
+        import html as _html
+
+        from bot.formatters.idea_context import class_lines_for
+        _offered = [r["sym"] for r in top_setups if r.get("idea_id")]
+        for _line in class_lines_for(engine, _caller, _offered):
+            btn_text += f"\n{_html.escape(_line)}"
 
     kb = InlineKeyboardMarkup(buttons) if buttons else None
 
@@ -1851,6 +1861,13 @@ async def _scan_single(update: Update, context: ContextTypes.DEFAULT_TYPE,
             # The ATR the card's risk verdict above was evaluated with.
             _atrs[idea.id] = _atr
         _owner = str(update.effective_user.id) if getattr(update, "effective_user", None) else ""
+        # What every card offering an idea carries for the person deciding
+        # (`idea_context_lines`), only where the card offers it.
+        import html as _html
+
+        from bot.formatters.idea_context import idea_context_lines
+        for _line in idea_context_lines(engine, _owner, idea):
+            text += f"\n{_html.escape(_line)}"
         kb = InlineKeyboardMarkup([[
             InlineKeyboardButton("\u2705 Confirm", callback_data=f"confirm:{idea.id}:{_owner}"),
             InlineKeyboardButton("\u274c Reject", callback_data=f"reject:{idea.id}:{_owner}"),

@@ -19445,6 +19445,98 @@ Twenty-five mutants, all killed.
 `tests/test_journal_records_live_closes.py`,
 `tests/test_the_etf_flows_picture_draws_the_websites_figures.py`.)
 
+**AN IDEA CARD OFFERED A TAP WITHOUT THE CLASS'S RECORD BESIDE IT.** Live
+`/parity` on 9 October: Stock 52 trades, 23% won, PF 0.19; ETF 11 trades, PF
+0.03; Crypto 159 trades, 45% won, PF 0.73. Every live order is a tap (no
+eligibility record ships), so the evidence that could change a decision
+belongs on the card with the Confirm button. It was on an admin-only report
+two commands away. `class_record_line` puts one line on the card: "📈 Stock on
+your live book: 12 of 52 won · PF 0.19". It is on the analyze card, the pushed
+signal image's caption and `/latest_signal`'s text card.
+
+- **One reading of a class's record.** The line is `/parity`'s own row:
+  `parity.class_rows` over the executor's closed positions in the writer's
+  shape (`closed_trade_row`), and `/parity` prints the same function now. The
+  first draft counted its own wins and profit factor beside parity's `_row`.
+  The arithmetic agreed that day, and it would have been a second answer the
+  first day either changed. `/classpf` still counts every filled close,
+  execution aborts included, so its counts can run higher. It is left as it
+  is and said here: moving it changes a card a person reads for its unpriced
+  closes.
+- **Whose book.** `live_view` decides, and under per-user live off it hands
+  every caller the operator's executor. So an `"operator"` scope is shown only
+  to a caller `_is_operator_user` names, and no caller is nobody's book, never
+  the operator's. The pushed image goes to every watching chat, so its caption
+  is built per recipient (`_signal_caption_for`). The other two cards take the
+  caller's id. With the operator's chat configured, a member's `/latest_signal`
+  shows the card without the operator's record.
+- **What it does not say.** Under `MIN_TRADES` (10) strategy exits in the
+  class there is no line. A record read in part says so. No losing trade is
+  "PF —", not a ratio.
+
+Eighteen mutants, all killed.
+(`tests/test_an_idea_card_carries_its_class_live_record.py`.)
+
+**EVERY CARD WITH A CONFIRM BUTTON CARRIES IT, THROUGH ONE READING.** The
+analyze card, the pushed caption and `/latest_signal` were the first three.
+Five other cards offered a Confirm button without the line: `/scan`'s rows,
+`/scan SYM`, a hand-typed `/trade` ticket, a staged chat draft and the drift
+re-offer, so a stock tap from any of them was as uninformed as before.
+
+- **One reading.** `idea_context_lines(engine, user_id, idea)` is what a card
+  offering an idea carries for the person deciding: the class record, then the
+  timing. Every card takes it, and none composes the two itself, which a scan
+  of the card modules holds. A card that called the two helpers on its own
+  could carry one and forget the other.
+- **`/scan` rows: one line per class.** `class_lines_for` gives one line per
+  class among the offered rows, because the record is the class's, not the
+  row's. It goes in the text that reaches the caller on both the image and the
+  text path, and only when there are buttons.
+- **Cards that were never analysed carry the record alone.** The manual
+  ticket, the staged draft, the drift re-offer and the scan rows have no
+  timing reading. For the re-offer, the original idea's reading describes the
+  old analysis, not the offer.
+- **What does not carry it.** The proactive text alert goes to the same chats
+  as the pushed image that already carries both lines, so adding them there
+  would say each twice. The website card is not on this line yet.
+
+Each card is driven with the reading replaced by a recorder, which shows what
+the card was handed and that it prints what comes back, escaped, only where it
+offers the idea. The drift re-offer sits past the live gates inside the confirm
+callback, so it is held by its AST: the card it sends hands the new idea and
+the caller to the reading. Fourteen mutants, all killed.
+(`tests/test_every_card_offering_an_idea_carries_its_context.py`.)
+
+**THE TURN CHECK THE BOT RAN FOR EVERY IDEA REACHED NOBODY WHO TAPS.** For
+every idea it analyses, the engine checks whether the sub-degree turn is
+confirmed: a confirmed ZigZag pullback pivot, then a with-trade trigger bar on
+the last closed candle. It used the answer to defer autonomous entries in
+TREND_DOWN, and every live order since 29 September has been a tap. The
+reading is on the card now: "⏱ Entry timing (1h, closed bars): turn not
+confirmed yet (structure turned, awaiting bullish trigger bar)". It is on the
+analyze card, the pushed signal caption and `/latest_signal`. It is
+information, not a gate and not a default: the frozen-benchmark re-measure
+split by window.
+
+- **Three values, not two.** The gates ask a two-valued question, whether to
+  fire, and "insufficient sub-degree history" and "confirmation check error"
+  both answered no. That is right for a gate and wrong for a sentence to a
+  person: a check that could not be made is not a turn that has not happened.
+  `entry_timing.turn_reading` returns confirmed, not confirmed, or not read,
+  and `subdegree_turn_confirmed` is that reading collapsed for the gates,
+  output for output.
+- **In every regime.** The gate's record (`_pending_timing`) says only "gate
+  inactive" outside ENTRY_TIMING_REGIMES. `_record_turn` keeps the reading
+  itself, on the analysed timeframe's closed bars, with the timeframe. It is
+  cleared with the gate's record at the kill switch and the scan's drop.
+- **An idea the engine never analysed has no reading,** and its card says
+  nothing about timing.
+
+The scan-time drop of a reading is not counted among the mutants. An id is
+never reused and the 500 backstop bounds the map, so a stale entry is never
+read: an equivalent mutant. Fourteen mutants, all killed.
+(`tests/test_an_idea_card_says_whether_its_turn_is_confirmed.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -20127,7 +20219,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 264 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 265 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -20950,9 +21042,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **480 of 1255** reach for source text through `source_scan`, `code_only`
+Driven, **483 of 1258** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 480 is a FLOOR and the honest shape is
+source scan that rule does not see, so 483 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
