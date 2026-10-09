@@ -1404,6 +1404,127 @@ router.post('/credentials/ack', async (req, res) => {
 });
 
 /**
+ * POST /api/bot/sync/credentials/state
+ * The bot's held-venues report: every user its key store holds, per venue
+ * "held" or "unreadable" (bot/utils/credential_pull.py report_held_venues).
+ * Bot-secret authed. Venue names and states only; no key ever crosses here.
+ *
+ * THE KEYS CARD WAS A COPY OF THIS SITE'S OWN LAST ACK. It learned a venue's
+ * state only by answering a key submitted here, so a key linked with /connect
+ * in Telegram never reached it, nor one removed with /disconnect or lost with
+ * a wiped data dir. On 8 October it showed Bitget connected while the bot
+ * held no key file at all, then not connected after the key was re-linked in
+ * Telegram. This reconciles exchange_venue_status with what the bot holds:
+ *
+ *   held        -> connected, no error
+ *   unreadable  -> not connected, and why (stored on the bot, not readable)
+ *   not held    -> not connected, no error
+ *
+ * COMPLETE OR NOTHING. A report that does not say it covers every user, or
+ * that carries one entry this route cannot read, is refused whole: an entry
+ * skipped here would read as a user the bot holds nothing for, and turn their
+ * cards off. A venue with a key submission in flight is left to its ack, and
+ * a row is written only when it changes.
+ */
+const HELD_UNREADABLE = 'The bot has these keys stored but cannot read them '
+  + '(its encryption key changed). Connect them again to fix it.';
+
+function readReport(body) {
+  if (!body || body.complete !== true || !Array.isArray(body.users)
+      || body.users.length > 20000) return null;
+  const held = new Map();
+  for (const u of body.users) {
+    const tg = String((u && u.telegram_id) ?? '').trim();
+    if (!/^-?\d{1,20}$/.test(tg) || !u.venues || typeof u.venues !== 'object'
+        || Array.isArray(u.venues) || held.has(tg)) return null;
+    const entries = Object.entries(u.venues);
+    if (entries.length > 32) return null;
+    const vs = new Map();
+    for (const [v, st] of entries) {
+      if (st !== 'held' && st !== 'unreadable') return null;
+      // A venue this site does not list (a newer bot's) has no card to set.
+      if (isVenue(v)) vs.set(v, st);
+    }
+    held.set(tg, vs);
+  }
+  return held;
+}
+
+async function setVenueStatus(uid, venue, connected, why) {
+  if (why) {
+    await pool.execute(
+      `INSERT INTO exchange_venue_status (user_id, exchange, connected, last_error)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         connected = VALUES(connected), last_error = VALUES(last_error),
+         updated_at = CURRENT_TIMESTAMP`,
+      [uid, venue, connected, why]);
+  } else {
+    await pool.execute(
+      `INSERT INTO exchange_venue_status (user_id, exchange, connected, last_error)
+       VALUES (?, ?, ?, NULL)
+       ON DUPLICATE KEY UPDATE
+         connected = VALUES(connected), last_error = NULL,
+         updated_at = CURRENT_TIMESTAMP`,
+      [uid, venue, connected]);
+  }
+}
+
+async function venueInFlight(uid) {
+  const [p] = await pool.execute('SELECT exchange FROM pending_credentials WHERE user_id = ?', [uid]);
+  return p.length ? String(p[0].exchange || 'bitget').toLowerCase() : null;
+}
+
+router.post('/credentials/state', async (req, res) => {
+  try {
+    const held = readReport(req.body);
+    if (!held) return res.status(400).json({ error: 'incomplete_report' });
+    const out = { connected: 0, disconnected: 0, unreadable: 0 };
+    const want = async (uid, venue, row, connected, why) => {
+      const same = row && !!row.connected === connected && (row.last_error ?? null) === (why ?? null);
+      if (same) return;
+      await setVenueStatus(uid, venue, connected, why);
+      if (connected) out.connected += 1;
+      else if (why) out.unreadable += 1;
+      else out.disconnected += 1;
+    };
+    // Every reported user with a linked account on this site.
+    for (const [tg, vs] of held) {
+      const uid = await webUserFor(tg);
+      if (uid == null) continue;
+      const inFlight = await venueInFlight(uid);
+      const [rows] = await pool.execute(
+        'SELECT connected, exchange, last_error FROM exchange_venue_status WHERE user_id = ?', [uid]);
+      const have = new Map(rows.map((r) => [r.exchange || 'bitget', r]));
+      for (const [v, st] of vs) {
+        if (v === inFlight) continue;
+        if (st === 'held') await want(uid, v, have.get(v), true, null);
+        else await want(uid, v, have.get(v), false, HELD_UNREADABLE);
+      }
+      for (const [v, r] of have) {
+        if (r.connected && !vs.has(v) && v !== inFlight) await want(uid, v, r, false, null);
+      }
+    }
+    // Linked accounts the report does not hold at all: the bot has no key for
+    // them, so a card still reading "connected" is the stale copy this fixes.
+    const [live] = await pool.execute(
+      `SELECT s.user_id, s.exchange, u.telegram_id
+       FROM exchange_venue_status s JOIN users u ON u.id = s.user_id
+       WHERE s.connected = 1 AND u.telegram_linked = 1`);
+    for (const r of live) {
+      if (held.has(String(r.telegram_id))) continue;
+      const v = r.exchange || 'bitget';
+      if (v === await venueInFlight(r.user_id)) continue;
+      await want(r.user_id, v, { connected: true, last_error: null }, false, null);
+    }
+    res.json({ ok: true, ...out });
+  } catch (err) {
+    console.error('Cred state error:', err.stack || err.message);
+    res.status(500).json({ error: 'Failed to apply the held-venues report' });
+  }
+});
+
+/**
  * GET /api/bot/sync/controls/pending
  * Bot pulls pending live-control changes (live on/off, margin cap, pause).
  * Bot-secret authed.
