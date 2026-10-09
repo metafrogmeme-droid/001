@@ -21970,6 +21970,37 @@ gate is open; yellow when the threshold is set and nothing is placed on its own
 Five mutants, all killed.
 (`tests/test_the_autoconfirm_card_is_green_only_when_it_places.py`.)
 
+**A REPLAY WAS ONE DAY LONG, AND THE FLAG THAT REOPENS A HALTED RUN DID
+NOTHING ON A PORTFOLIO.** The house strategy's card (Full Scan, `majors_1h`,
+BTC/ETH/SOL, the last 1,500 bars, honest) read -4.15% on 9 trades, flat for
+the last three quarters of the run. Re-run with the gate rejections printed:
+a five-loss streak tripped the breaker after the ninth trade, and
+CIRCUIT_BREAKER refused the next 86 ideas. A streak trip is manual-reset live;
+a replay has no operator, so the card measured the strategy up to its first
+losing streak. Two defects sat under that.
+
+`PortfolioTracker` keyed its daily P&L by `datetime.now(UTC)`, in the writer
+and the reader, and a two-month replay runs in seconds, so every close landed
+on one "today". The risk engine already read the day in bar time
+(`set_sim_time`), and its day-rollover reset cleared the daily-loss breaker
+only for the book to re-trip it on the run's total: with the streak trip
+lifted, DAILY_LOSS refused 74 ideas on the same window. The tracker has the
+same `set_sim_time` now and one day rule, `_today_key`, for both ends.
+
+`--breaker-reset-bars`, the option that emulates an operator resetting a
+tripped breaker, lived in `BacktestEngine.run()`. `PortfolioBacktester`, which
+every `--symbols` and `--dataset` run takes, accepted it and ignored it: the
+card with `--breaker-reset-bars 24` refused the same 86 ideas.
+`test_breaker_reset_bars.py` drove the single-symbol loop only. Both loops ask
+one `BreakerResetClock` now.
+
+Neither moves a recorded figure: the reset defaults to 0, and the record and
+every committed scorecard reproduce unchanged with the fix. What the fixed
+runs measure, and the signal-family A/B they made possible, is recorded in
+`docs/FROZEN_BENCHMARK.md` as discovery data. Whether a card should model an
+operator's reset is the owner's call. Twelve mutants, all killed.
+(`tests/test_a_replay_s_day_is_the_bar_s_day.py`.)
+
 ## Deploying so a dead bot cannot look like a live one
 
 **There are TWO processes and only one of them was ever being started.**

@@ -1416,6 +1416,127 @@ a fold's compounded return, the pooled net's per-trade weights and the
 profit factor (0.57 to 0.61) move with the leverage, which is what the
 section above says about `corr_dense_1h` with numbers on this snapshot.
 
+### The record halts on its first losing streak, and a replay was one day long (2026-10-09)
+
+Full Scan's card (`majors_1h`, BTC/ETH/SOL, the last 1,500 bars, `--honest`)
+reads −4.15%, PF 0.21 on 9 trades, flat for the last three quarters of the
+run. Re-run with the gate rejections printed: a five-loss streak tripped the
+breaker after the ninth trade, and CIRCUIT_BREAKER refused the next 86 ideas.
+A streak trip is manual-reset live (`/resume`); a replay has no operator, so
+the card measures the strategy up to its first losing streak. Two defects sat
+under it, fixed in the same change as this section:
+
+- **A replay was one day long.** `PortfolioTracker` keyed its daily P&L by the
+  wall clock, so a two-month replay was one "today" and the 5% daily-loss cap
+  covered the whole run. With the streak trip lifted after 24 bars, DAILY_LOSS
+  refused 74 ideas on the same window. The tracker now keys by the bar.
+- **`--breaker-reset-bars` changed nothing on a portfolio run.** The reset
+  lived in `BacktestEngine.run()` only; every `--symbols`/`--dataset` run
+  takes `PortfolioBacktester`. The card with `--breaker-reset-bars 24`
+  refused the same 86 ideas.
+
+Neither moves a recorded figure: the reset defaults to 0, and the record and
+every committed scorecard reproduce unchanged with the tracker fixed.
+
+**With both fixed and a 24-bar reset** (an operator who resumes a day later;
+it also lifts drawdown trips, which live never does unattended, so this is an
+upper bound on trading, not live). Discovery data, every window already read:
+
+| run | trades | PF | mean OOS (profitable folds) |
+|---|---:|---:|---|
+| card window, as recorded | 9 | 0.21 | −4.15% (one window) |
+| card window, de-halted | 40 | 0.88 | −1.75% (one window) |
+| `majors_1h`, as recorded | 125 | 0.62 | −2.43% (1/6) |
+| `majors_1h`, de-halted | 339 | 0.73 | −4.94% (2/6) |
+
+The halts were hiding trades and capping losses at once: de-halted, the
+profit factor rises and the return falls. The strategy still loses per trade.
+
+**By signal family, de-halted, six snapshots.** `momentum_confluence` is the
+analyzer's fallback label: an idea that is not a volume spike, not a VWAP
+reversion in a range, and not a trend regime with ADX above 30. It lost on
+every snapshot (profit factor `majors_1h` 0.39, `alts_1h` 0.69, `majors_1h_v2`
+0.42, `alts_1h_v2` 0.55, `majors_1h_v3` 0.52, `alts_1h_v3` 0.34; 621 trades).
+The regime split did not hold: TREND_UP entries lost on v1 and v2 and won on
+both v3 snapshots (PF 1.39, 1.37), so a regime gate tuned to the card's
+window would have encoded the opposite of v3.
+
+**A/B, `SKIP_SIGNAL_TYPES=momentum_confluence`**, de-halted, `--walk-forward 6`:
+
+| snapshot | mean OOS on → off | profitable folds |
+|---|---|---|
+| `majors_1h` | −4.94% → −1.54% | 2 → 2 |
+| `alts_1h` | −2.36% → −0.80% | 2 → 3 |
+| `majors_1h_v2` | −4.91% → −1.33% | 2 → 3 |
+| `alts_1h_v2` | −5.49% → −6.64% | 1 → 1 |
+| `majors_1h_v3` | +1.37% → +2.13% | 1 → 2 |
+| `alts_1h_v3` | −0.79% → −0.18% | 2 → 2 |
+
+`ab_flag.py`'s rule (mean OOS up ≥ +0.15pp, profitable folds not down) passes
+on five of six and fails on `alts_1h_v2`. With the family off the strategy
+still loses on four of six. It is a loss reduction on discovery data, not an
+edge, and the six snapshots overlap in time. Not changed here: live closes a
+`momentum_confluence` trade after 8h (`smart_exits`), which the backtest does
+not model, so the live family is not the one measured. `/parity` buckets
+live closes by signal type, and on 2026-10-09 (232 strategy exits) it
+reversed the order: `momentum_confluence` PF 0.75 over 134, `regime_trend`
+PF 0.52 over 98. The family is not gated.
+
+### Where the losses are: the original stop, and it is not too tight (2026-10-09)
+
+The six snapshots above, de-halted, with a per-position dump (fill, the idea's
+levels, every exit) joined to the bars. A stop-out here is the ORIGINAL stop:
+one exit labelled SL, at least 0.8R down from the fill. A stop the trail had
+moved into profit is also labelled SL under the ladder and is not one.
+
+| snapshot | stop-outs | their net | everything else | stop / ATR14 (median) | reached +1R first | out within 2 bars |
+|---|---:|---:|---:|---:|---:|---:|
+| `majors_1h` | 32% | −$9,567 | +$6,604 | 1.72 | 0 | 28% |
+| `alts_1h` | 27% | −$11,001 | +$9,587 | 1.63 | 0 | 39% |
+| `majors_1h_v2` | 30% | −$9,815 | +$6,867 | 1.80 | 1 | 29% |
+| `alts_1h_v2` | 25% | −$6,963 | +$3,671 | 1.66 | 0 | 46% |
+| `majors_1h_v3` | 25% | −$4,565 | +$5,386 | 1.79 | 2 | 43% |
+| `alts_1h_v3` | 28% | −$3,941 | +$3,466 | 1.58 | 1 | 45% |
+
+The original stop is the whole loss on every snapshot, and the stop is not
+what is wrong with it: 1.6–1.8 ATR wide, under 1 ATR on 1–5% of stop-outs, the
+0.4% floor binding on a minority, each one closing near −1.0R from the fill.
+The trades that reach it are wrong from the start (the median best excursion
+before the stop is 0.17–0.23R; at most two per snapshot ever reached +1R), and
+a quarter to a half are out within two bars. No breakeven or trail rule
+rescues a trade that never goes the trade's way; the entry is the lever. Wider
+stops (≥2.5 ATR) netted positive on three snapshots and negative on two, so
+that is not one. Live agrees in shape: `/parity` on 2026-10-09 had 72 stop
+exits at −$343 and every other exit class net positive.
+
+The fill taken was a median 2.0× the risk the size was computed for on every
+snapshot, which is the next-open fill on the limit's levels recorded above.
+Live rests the limit at its price, so a live stop-out loses nearer 1× its
+budget than this backtest's does.
+
+### Entry timing, re-measured on a run that does not halt (2026-10-09)
+
+`docs/ENTRY_TIMING_AB.md` set today's default (`ENTRY_TIMING_REGIMES=TREND_DOWN`)
+with `--breaker-reset-bars 24` "so the only variable is entry-timing", and that
+flag did nothing on a portfolio run (fixed beside this section). Re-measured,
+de-halted, `--walk-forward 6`, mean OOS (profitable folds):
+
+| snapshot | off | TREND_DOWN (default) | all regimes |
+|---|---|---|---|
+| `majors_1h` | −7.52% (1/6) | −4.94% (2/6) | +2.99% (3/6) |
+| `alts_1h` | −2.24% (2/6) | −2.36% (2/6) | +3.00% (5/6) |
+| `majors_1h_v2` | −4.79% (2/6) | −4.91% (2/6) | −0.48% (3/6) |
+| `alts_1h_v2` | +1.97% (4/6) | −5.49% (1/6) | −1.23% (3/6) |
+| `majors_1h_v3` | −3.20% (1/6) | +1.37% (1/6) | −0.02% (2/6) |
+| `alts_1h_v3` | +0.06% (3/6) | −0.79% (2/6) | −0.96% (1/6) |
+
+The default is not better than off: better on two snapshots, worse on two
+(`alts_1h_v2` by 7.5pp), flat on two. All regimes against the default passes
+`ab_flag.py`'s rule on four of six (both v1 and both v2, +4.3 to +7.9pp,
+profitable folds never down) and fails on both v3, the newest data (−1.39pp
+and −0.17pp). It trades about 40% less. Discovery data throughout; the default
+is not changed here.
+
 ## Refreshing the snapshot
 
 Re-run step 1 to fetch a newer window (e.g. quarterly). This changes the
