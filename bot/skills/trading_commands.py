@@ -1680,6 +1680,12 @@ class TradingCommands:
                         + (f"\n<i>{html.escape(_why[:150])}</i>" if _why is not None else "")
                         + (f"\n⚖️ Against: {html.escape(_against[:150])}" if _against is not None else "")
                     )
+                    # The caller's own live record in this class, as the image
+                    # path's caption carries it (`class_record_line`).
+                    from bot.formatters.class_record import class_record_line
+                    _cls = class_record_line(self.engine, uid, idea.asset)
+                    if _cls:
+                        msg += f"\n{html.escape(_cls)}"
                     await self._send(update, msg, reply_markup=kb)
             except Exception as exc:
                 system_log.debug("latest_signal: skipped idea %s render: %s",

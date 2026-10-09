@@ -343,6 +343,19 @@ def _group(trades: list[dict], key: str,
     return dict(sorted(out.items(), key=lambda kv: kv[1]["net"], reverse=True))
 
 
+def class_rows(trades: list[dict]) -> dict[str, dict]:
+    """The record by asset class: the strategy exits (`strategy_exits`, the
+    headline's own population), bucketed by `category_for_symbol` and scored
+    by `_row`. `/parity` prints these rows and an idea card quotes its class's
+    row (`bot/formatters/class_record.py`), so the two cannot count different
+    trades under one class name."""
+    from bot.core.market_scanner import category_for_symbol
+
+    rows = [{**t, "asset_class": category_for_symbol(t.get("symbol", "") or "")}
+            for t in strategy_exits(trades)]
+    return _group(rows, "asset_class")
+
+
 def _by_exit_reason(trades: list[dict]) -> dict[str, dict]:
     rows = []
     for t in trades:

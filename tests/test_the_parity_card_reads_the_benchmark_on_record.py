@@ -502,12 +502,7 @@ class TestTheAbortsAreKeptApart:
             "a row cannot be both never-filled and flattened after filling"
 
     def test_the_asset_class_bucket_is_over_the_same_rows(self):
-        rows = _card_shaped_rows()
-        from bot.core.market_scanner import category_for_symbol
-        filled = parity.strategy_exits(rows)
-        for tr in filled:
-            tr["asset_class"] = category_for_symbol(tr.get("symbol", "") or "")
-        bucket = parity._group(filled, "asset_class")
+        bucket = parity.class_rows(_card_shaped_rows())
         assert sum(g["trades"] for g in bucket.values()) == 183
 
 

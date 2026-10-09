@@ -89,7 +89,7 @@ def owner_chat_id(owner) -> Optional[int]:
     return int(s) if s.isdigit() else None
 
 
-def signal_card_caption(idea) -> str:
+def signal_card_caption(idea, record_line: Optional[str] = None) -> str:
     """Caption a signal image with the same confidence the image renders.
 
     THE SIBLING CAPTION, in the other file. `telegram_handler`'s
@@ -105,8 +105,11 @@ def signal_card_caption(idea) -> str:
                  else str(idea.direction))
     strategy = getattr(idea, "strategy_type", "").upper()
     strategy_text = f" [{strategy}]" if strategy else ""
-    return (f"<b>{pair} {direction}</b>{strategy_text} | Conf "
-            f"{displayed_confidence(idea).pct()}")
+    cap = (f"<b>{pair} {direction}</b>{strategy_text} | Conf "
+           f"{displayed_confidence(idea).pct()}")
+    # The recipient's own live record in this idea's asset class
+    # (`class_record_line`), computed by the sender, which knows who that is.
+    return cap + (f"\n{html.escape(record_line)}" if record_line else "")
 
 
 class AlertsMonitor:
@@ -138,6 +141,16 @@ class AlertsMonitor:
                              text: str) -> None: ...
 
         async def _fetch_chart_timeframes(self, asset: str, primary_data: dict | None) -> dict: ...
+
+    def _signal_caption_for(self, chat_id: str, idea) -> str:
+        """The signal image's caption for THIS recipient: the shared caption,
+        with the recipient's own live record in the idea's asset class
+        (`class_record_line`). The record is per recipient because the image
+        goes to every watching chat, and the operator's record is the
+        operator's to see."""
+        from bot.formatters.class_record import class_record_line
+        return signal_card_caption(
+            idea, class_record_line(self.engine, chat_id, idea.asset))
 
     async def start_monitor(self, bot) -> None:
         """Start the proactive monitor background task.
@@ -287,7 +300,7 @@ class AlertsMonitor:
                         InlineKeyboardButton(t("btn_skip", _sc_lang),
                             callback_data=f"reject:{idea.id}:{uid}"),
                     ]])
-                    cap = signal_card_caption(idea)
+                    cap = self._signal_caption_for(chat_id, idea)
                     await _bot_ref.send_photo(
                         chat_id=int(chat_id), photo=buf,
                         caption=cap, parse_mode="HTML",

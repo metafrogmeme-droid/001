@@ -940,7 +940,14 @@ class AnalyzeAssetSkill(BaseSkill):
             conf_ring = "\u2012"
         thesis_bq = _thesis_bq(idea.reasoning, 250, tail="\n\n")
         _record = _setup_record_line(engine, idea)
-        record_line = f"{_esc(_record)}\n\n" if _record else ""
+        # The viewer's own live record in this idea's asset class, beside the
+        # setup's (`class_record_line`: the operator's book to the operator
+        # only, a linked user's own book, otherwise nothing).
+        from bot.formatters.class_record import class_record_line
+        _uid = kwargs.get("user_id")
+        _class = class_record_line(engine, _uid, idea.asset) if _uid else None
+        _rec_lines = [_esc(x) for x in (_record, _class) if x]
+        record_line = ("\n".join(_rec_lines) + "\n\n") if _rec_lines else ""
 
         return (
             f"{d_icon} <b>{d}  {_esc(idea.asset)}</b>\n{SEP}\n\n"

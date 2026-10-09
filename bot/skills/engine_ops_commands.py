@@ -961,10 +961,9 @@ class EngineOpsCommands:
             return
         import asyncio as _aio
         import html as _html
-        from bot.backtest.parity import (_bucket_lines, _group,
+        from bot.backtest.parity import (_bucket_lines, class_rows,
                                          format_report, load_closed_trades,
-                                         parity_summary, strategy_exits)
-        from bot.core.market_scanner import category_for_symbol
+                                         parity_summary)
 
         path = self.engine.live_executor._closed_trades_file
         try:
@@ -987,12 +986,9 @@ class EngineOpsCommands:
         # execution aborts each excluded there) — because this bucket used to
         # apply its own copy of the filter, and a bucket over a different
         # population than the headline it sits under is a second answer to
-        # "how many trades" (25 vs 18, once).
-        filled = strategy_exits(trades)
-        for tr in filled:
-            tr["asset_class"] = category_for_symbol(tr.get("symbol", "") or "")
-        cls_lines = _bucket_lines("By asset class",
-                                  _group(filled, "asset_class"))
+        # "how many trades" (25 vs 18, once). `class_rows` is that reading,
+        # and the idea cards quote it too.
+        cls_lines = _bucket_lines("By asset class", class_rows(trades))
         if cls_lines:
             report += "\n" + "\n".join(cls_lines)
         text = f"📏 <b>Live ↔ backtest parity</b>\n<pre>{_html.escape(report)}</pre>"
