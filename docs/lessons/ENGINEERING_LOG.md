@@ -20922,7 +20922,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **479 of 1250** reach for source text through `source_scan`, `code_only`
+Driven, **479 of 1251** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 479 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -21893,10 +21893,11 @@ A venue with a submission in flight is left to its ack, an account that
 unlinked Telegram is left alone, a refusal the bot sent stays beside it, and a
 row is written only when it changes.
 
-Twenty-three mutants, all killed. Three survived the first round, and each
-named a test nobody had written: a change made inside the two-minute window
-waiting for it, two pulls in a row with nothing pending sending one report
-and not two, and an in-flight venue that the report itself names.
+Twenty-seven mutants, all killed, four of them on the operator's keys. Three
+survived the first round, and each named a test nobody had written: a change
+made inside the two-minute window waiting for it, two pulls in a row with
+nothing pending sending one report and not two, and an in-flight venue that the
+report itself names.
 (`tests/test_the_bot_reports_the_venues_it_holds.py`,
 `app/test/the_keys_card_shows_what_the_bot_holds.test.js`.)
 
