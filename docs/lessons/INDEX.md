@@ -261,8 +261,9 @@ about to change before changing it.
 - L21583: A BYBIT KEY WAS CHECKED ON BYBIT'S TESTNET AND TRADED ON ITS MAINNET — `app/test/the_venue_chip_names_the_exchange.test.js`, `tests/test_a_key_is_checked_where_its_venue_trades.py`
 - L21635: "APPLYING" HAD NO AGE, AND BITGET'S REFUSALS WERE STILL JSON — `app/test/a_balances_only_venue_says_so.test.js`, `app/test/a_pending_key_says_how_long_it_has_waited.test.js`, `app/test/one_venue_s_status_never_rewrites_another.test.js`, `tests/test_a_bybit_eu_key_is_named_and_read_for_balances.py`, `tests/test_a_key_is_checked_where_its_venue_trades.py`
 - L21769: THE WEBSITE'S OWN "NOT READY" READ AS "NOT CONNECTED TO THE BOT" — `app/test/the_site_s_own_not_ready_is_not_the_bot.test.js`
+- L21791: ONE ACCOUNT, TWO EXECUTORS, AND A STOP OF 0 READ AS "NONE WANTED" — `tests/test_a_fill_with_no_stop_on_record_gets_one.py`, `tests/test_one_account_one_executor.py`
 
-## Deploying so a dead bot cannot look like a live one (line 21791)
+## Deploying so a dead bot cannot look like a live one (line 21848)
 
 
-## Operational docs (line 21948)
+## Operational docs (line 22005)

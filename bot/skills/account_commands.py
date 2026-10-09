@@ -386,6 +386,27 @@ class AccountCommands:
                     sandbox=venue_sandbox("bitget"))
             except Exception:
                 pass   # stays "unknown" — the line below says so out loud
+            # ONE ACCOUNT, ONE EXECUTOR. New credentials for the operator's own
+            # sub-account made a second executor for it (8 October), and each
+            # adopted the other's orders with no stop on record. Keys differ;
+            # the account UID does not. None (could not read both) links as
+            # before: an unread UID is not proof of a different account, and
+            # it is not proof of the same one either.
+            from bot.core.exchange_credentials import (
+                OPERATOR_ACCOUNT_REFUSAL,
+                same_bitget_account_as_operator,
+            )
+            try:
+                _same = await same_bitget_account_as_operator(fields)
+            except Exception:
+                _same = None
+            if _same is True:
+                audit(system_log, "Refused /connect: the keys open the operator's own "
+                      "Bitget account", action="connect", result="REFUSED",
+                      data={"user": self._get_tg_id(update), "venue": venue,
+                            "reason": "operator_account"})
+                await self._send(update, f"🔴 {html.escape(OPERATOR_ACCOUNT_REFUSAL)}")
+                return
 
         tg_id = self._get_tg_id(update)
         store = get_credential_store()

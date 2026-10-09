@@ -72,7 +72,7 @@ from bot.core.trade_costs import (
     exit_rate_pct,
     round_trip_pct,
 )
-from bot.core.time_exits import in_profit_after_fees, thesis_recorded
+from bot.core.time_exits import UNRECORDED_ORIGINS, in_profit_after_fees, thesis_recorded
 from bot.core.position_telemetry import entered_at, price_on_record
 from bot.core.order_state import (
     CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, NOTHING_TO_CLOSE, first_reading,
@@ -5439,6 +5439,53 @@ class LiveExecutor:
         if messages:
             self._save_positions()
         return messages
+
+    def _fill_in_missing_levels(self, pos: "LivePosition", price: float) -> bool:
+        """Give a perp position with NO STOP ON RECORD a protective pair, before
+        anything tries to place one. Returns True when it set levels.
+
+        A stop of 0 is "none on record", never "none wanted": the risk gate
+        refuses a live idea without a stop, so a record reaches the executor
+        with 0 only by adoption (an orphan limit order or position) or a lost
+        local record. It used to be read as "no stop intended" after a limit
+        fill: the placement asked for sl=0, the side check refused it, and the
+        post-fill ladder skipped its retry, its flag and its flatten (8 October,
+        OPEN/USDT short, 41 minutes with no venue stop).
+
+        The levels the record came from win (`_find_adoption_level_donor`),
+        else the same 3%/6% safety pair adoption already uses, off ``price``
+        (the fill, or the entry). Nothing to size from (``price`` <= 0) sets
+        nothing; the unprotected alert is then the answer.
+        """
+        if getattr(pos, "is_spot", False) or pos.stop_loss > 0 or not price or price <= 0:
+            return False
+        donor = None
+        try:
+            donor = self._find_adoption_level_donor(pos.symbol, pos.direction, price)
+        except Exception:  # noqa: BLE001 — the default below still protects
+            donor = None
+        if donor is not None and donor is not pos and donor.stop_loss > 0:
+            pos.stop_loss = donor.stop_loss
+            if pos.take_profit <= 0 and donor.take_profit > 0:
+                pos.take_profit = donor.take_profit
+            source = "inherited"
+        else:
+            source = "default"
+        is_long = pos.direction == "LONG"
+        if pos.stop_loss <= 0:
+            pos.stop_loss = round(price * (1 - 0.03) if is_long else price * (1 + 0.03), 8)
+        if pos.take_profit <= 0:
+            pos.take_profit = round(price * (1 + 0.06) if is_long else price * (1 - 0.06), 8)
+        setattr(pos, "sl_tp_source", source)
+        audit(trade_log,
+              f"No stop on record for {pos.symbol} {pos.direction}: "
+              f"{'inherited' if source == 'inherited' else 'safety'} levels "
+              f"SL={pos.stop_loss} TP={pos.take_profit} off {price}",
+              action="missing_levels", result=source.upper(),
+              data={"trade_id": pos.trade_id, "symbol": pos.symbol,
+                    "stop_loss": pos.stop_loss, "take_profit": pos.take_profit,
+                    "origin": getattr(pos, "origin", None)})
+        return True
 
     def _find_adoption_level_donor(self, symbol: str, direction: str,
                                    entry_price: float):
@@ -11182,7 +11229,9 @@ class LiveExecutor:
         closes on breach — but the END-STATE GUARANTEE is now the same as the
         market path: the position is protected, closed, or the operator gets an
         URGENT manual-close message. Never silently "unprotected (monitoring
-        active)". (Previously the ladder stopped at an unprotected-marker whose
+        active)". The one exception is an ADOPTED or RECLAIMED order's fill:
+        it is flagged and reported, never flattened (RC-AUD-022).
+        (Previously the ladder stopped at an unprotected-marker whose
         claimed remediation — the grace branch — never engaged for limit fills
         because opened_at was placement time, always past the 90s gate.)
 
@@ -11220,8 +11269,9 @@ class LiveExecutor:
             # then run the bounded grace sub-loop NOW (both callers execute on
             # the single monitor task, satisfying its no-double-close-race
             # constraint): each pass re-attempts the exchange stop and closes
-            # on breach. (sl=0 means no stop was intended — never flagged and
-            # never flattened, matching the rest of the executor.)
+            # on breach. (sl=0 here means none could be sized: a fill with no
+            # stop on record is given one by `_fill_in_missing_levels` before
+            # its first placement, so 0 is left only when there was no price.)
             setattr(pos, "unprotected", True)
             audit(trade_log,
                   f"UNPROTECTED position {pos.symbol}: stop-loss not placed post-fill "
@@ -11250,6 +11300,25 @@ class LiveExecutor:
                 # Grace got the exchange stop on — protected; clear the marker.
                 setattr(pos, "unprotected", False)
                 return pos.sl_order_id, (pos.tp_order_id or tp_id), None
+            if getattr(pos, "origin", "executed") in UNRECORDED_ORIGINS:
+                # An ADOPTED or RECLAIMED order filled: the bot did not place
+                # it, and its stop is the safety pair `_fill_in_missing_levels`
+                # gave it. RC-AUD-022 (adopt_exchange_positions): an adopted
+                # position is never auto-closed because its safety stop would
+                # not place; it may be intentional. It stays flagged: the
+                # per-tick check still closes on a breach of the level, the
+                # periodic self-heal re-places the stop, and the unprotected
+                # alert names the level.
+                audit(trade_log,
+                      f"ADOPTED fill UNPROTECTED: stop-loss could not be placed for "
+                      f"{pos.symbol} (SL=${pos.stop_loss:.4f}) — not flattened, "
+                      f"adopted positions are never auto-closed",
+                      action="sl_tp_failed", result="UNPROTECTED_ADOPTED",
+                      data={"trade_id": trade_id, "symbol": pos.symbol,
+                            "stop_loss": pos.stop_loss,
+                            "origin": getattr(pos, "origin", None)})
+                self._record_warning("adopt_unprotected")
+                return None, (pos.tp_order_id or tp_id), None
             # Grace exhausted with no protection and no breach: RC-AUD-001
             # parity with the market path — FLATTEN rather than leave a live,
             # leveraged position with no exchange stop.
@@ -11440,6 +11509,10 @@ class LiveExecutor:
                 # Recalculate cost
                 pos.cost_usd = margin_at_fill(fill_price * filled_qty, pos.leverage)
 
+                # A record with no stop on record (an adopted or reclaimed
+                # limit order) gets one before the placement below asks for it.
+                self._fill_in_missing_levels(pos, fill_price)
+
                 # Initialize trailing state now that we have a real fill
                 if (trail_starts_for(getattr(pos, "strategy_type", "swing"))
                         and pos.atr_at_entry > 0):
@@ -11524,10 +11597,11 @@ class LiveExecutor:
                 st_label = getattr(pos, 'strategy_type', 'swing').upper()
                 sl_tp_warn = ""
                 if sl_id is None and pos.stop_loss > 0:
-                    # Defense-in-depth only: with the escalation ladder above this
-                    # is unreachable for an intended stop (the ladder protects,
-                    # closes, or returns an URGENT message). Never fires for
-                    # sl=0 (no stop intended).
+                    # The bot's own fill never reaches this: the escalation ladder
+                    # above protects, closes, or returns an URGENT message. An
+                    # adopted or reclaimed fill does: the ladder flags it and never
+                    # flattens it (RC-AUD-022). Not for sl=0, which is left only
+                    # when no stop could be sized; the unprotected alert covers it.
                     sl_tp_warn = "\n⚠️ STOP-LOSS not placed — position unprotected (monitoring active)!"
                 # Filled before a cancel could reach it: the position exists
                 # and is managed like any other, and the card says the order
@@ -15735,6 +15809,13 @@ class LiveExecutor:
         exchange = await self._get_exchange()
         fixed = 0
         for pos in open_pos:
+            # A stop of 0 with no stop order on record is none on record:
+            # size one before asking the venue for it. Placing sl=0 was
+            # refused by the side check on every pass of this loop, for the
+            # life of the position. A record that names stop orders keeps its
+            # levels: those orders are live at levels it does not hold.
+            if pos.stop_loss <= 0 and not pos.sl_order_id:
+                self._fill_in_missing_levels(pos, pos.entry_price)
             # Check if SL/TP IDs look valid
             needs_fix = False
             if not pos.sl_order_id and not pos.tp_order_id:

@@ -165,6 +165,20 @@ def default_validator(creds: dict):
         log.warning("credential validation for %s could not complete: %s", venue, exc)
         return None, "could not reach the exchange"
 
+    if ok and venue == "bitget":
+        # One account, one executor: the keys must not open the operator's own
+        # account (exchange_credentials.same_bitget_account_as_operator).
+        # Unreadable is not a refusal, as on /connect.
+        try:
+            from bot.core.exchange_credentials import (
+                OPERATOR_ACCOUNT_REFUSAL,
+                same_bitget_account_as_operator,
+            )
+            if _asyncio.run(same_bitget_account_as_operator(fields)) is True:
+                return False, OPERATOR_ACCOUNT_REFUSAL
+        except Exception as exc:                   # noqa: BLE001
+            log.warning("operator-account check could not run (%s) — linking as before",
+                        type(exc).__name__)
     if ok:
         return True, ""
     # The venue's own words, bounded. Never the key material — `detail` comes

@@ -20922,9 +20922,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **478 of 1246** reach for source text through `source_scan`, `code_only`
+Driven, **479 of 1248** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 478 is a FLOOR and the honest shape is
+source scan that rule does not see, so 479 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -21787,6 +21787,63 @@ an already-linked user through generating a link token. `starting` has its
 own sentence now, with Retry, and the card guards on the read before it says
 anything about the link. Five mutants, all killed.
 (`app/test/the_site_s_own_not_ready_is_not_the_bot.test.js`.)
+
+**ONE ACCOUNT, TWO EXECUTORS, AND A STOP OF 0 READ AS "NONE WANTED".** 8
+October, 18:09: "POSITION UNPROTECTED — NO EXCHANGE STOP. OPEN/USDT:USDT SHORT
+open 41 min. Intended stop: $0.0000. Stop placement was refused: side-sanity:
+non-positive SL/TP (sl=0, tp=0). Self-heal keeps retrying." The position had
+closed at 18:05 with +$0.48; the second "TRADE CLOSED" card for it came at
+18:11, and `/livepositions` showed nothing open.
+
+The operator had linked NEW API credentials for the SAME Bitget sub-account
+with `/connect`. The operator's executor (the .env keys) and a per-user
+executor (the linked keys) then managed one account, and each took the other's
+orders for strangers. One adopted the other's resting OPEN/USDT limit with no
+stop on record, booked its fill with stop 0, kept that record "open" after the
+other executor closed the position, and booked the close a second time.
+Adopting a position also places a default stop, and placing one cancels the
+trigger orders it finds, so the two could take each other's stops off.
+
+Three readings changed:
+
+- **The account is the identity, not the key.** Rotated keys differ; Bitget's
+  `userId` (`probe_bitget_key_scope` now returns it as `account_uid`) does
+  not. `/connect` and the website pull refuse keys whose UID is the operator
+  account's. A link stored before the refusal is found at boot, before the
+  rehydrate, and every six hours (`check_operator_account_links`): its
+  executor is dropped, and `_executor_for` hands the operator the operator's
+  book and anyone else none. An unread UID marks nothing and refuses nothing:
+  a key without account-read permission is not proof of either account.
+- **A stop of 0 is "none on record", never "none wanted".** The risk gate
+  refuses a live idea without a stop, so 0 reaches the executor only by
+  adoption or a lost record. The post-fill ladder read it as "no stop was
+  intended" (no retry, no flag, no flatten) and the self-heal asked for sl=0
+  on every pass. `_fill_in_missing_levels` gives such a record the levels it
+  came from, else adoption's own 3%/6% pair, before the fill's placement and
+  before the self-heal's. A record that names stop orders keeps its levels.
+  This retires the unstated-level chapter's "an unstated level now leaves the
+  position open and unprotected" for a fill: the fill takes the pair, and the
+  next tick at the fill price still closes nothing.
+- **An adopted fill keeps adoption's rule.** The first full gate run caught
+  what the slice's own suites did not: with a stop now on record, a refused
+  placement sent the post-fill ladder to its flatten, which would close an
+  order the bot never placed. RC-AUD-022 (`adopt_exchange_positions`) already
+  says an adopted position is never auto-closed because its safety stop would
+  not place. The ladder now asks `UNRECORDED_ORIGINS`, the set the time exits
+  already read: an adopted or reclaimed fill is flagged unprotected and
+  reported, never flattened. The bot's own fill is still flattened.
+- **The alert says which it is.** A stop of 0 printed as "$0.0000" over a
+  promise that self-heal was retrying. It now says "no stop on record", that
+  self-heal cannot place a stop it has no level for, and that a position the
+  exchange does not show is a stale record, not a live one.
+
+Driven: the real `/connect`, web-pull validator, `_executor_for`,
+`check_operator_account_links`, `_check_pending_limit` and its post-fill
+ladder, `verify_and_fix_sltp` and `_check_unprotected_positions`; only
+Bitget's account-info reply, the venue and `_place_sl_tp` are stand-ins.
+Twenty-three mutants, all killed.
+(`tests/test_one_account_one_executor.py`,
+`tests/test_a_fill_with_no_stop_on_record_gets_one.py`.)
 
 ## Deploying so a dead bot cannot look like a live one
 

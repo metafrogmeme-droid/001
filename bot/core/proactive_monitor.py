@@ -2842,6 +2842,20 @@ class ProactiveMonitor:
                     tid = getattr(pos, "trade_id", sym)
                     sl = getattr(pos, "stop_loss", 0.0) or 0.0
                     direction = getattr(pos, "direction", "")
+                    # A stop of 0 is NONE ON RECORD, not a price. It printed as
+                    # "Intended stop: $0.0000" above "Self-heal keeps retrying",
+                    # and self-heal cannot place a stop it has no level for
+                    # (8 October: a stale record of a position another executor
+                    # had already closed). Say which of the two this is.
+                    if sl > 0:
+                        stop_line = f"- Intended stop: <code>${sl:,.4f}</code>\n"
+                        heal_line = ("- Self-heal keeps retrying and the local price check is the "
+                                     "only backstop — a gap/outage could run it unbounded.\n")
+                    else:
+                        stop_line = "- No stop on record: the bot has no level to place.\n"
+                        heal_line = ("- Self-heal cannot place a stop it has no level for. If the "
+                                     "exchange shows no such position, this is a stale record, "
+                                     "not a live one.\n")
                     # Surface the LAST venue rejection reason for this symbol so
                     # the operator can tell a transient retry apart from a hard
                     # rejection (min-size / wrong-symbol / bad tick) that needs a
@@ -2881,10 +2895,7 @@ class ProactiveMonitor:
                             "────────────────\n"
                             f"- {sym} <b>{direction}</b> "
                             f"open <code>{age/60:.0f} min</code> with NO venue stop-loss.\n"
-                            f"- Intended stop: <code>${sl:,.4f}</code>\n"
-                            + reason +
-                            "- Self-heal keeps retrying and the local price check is the "
-                            "only backstop — a gap/outage could run it unbounded.\n"
+                            + stop_line + reason + heal_line +
                             "────────────────\n"
                             "\U0001f449 Place a stop on Bitget manually now.\n"
                             "\U0001f449 /livepositions — review · /health — vitals"),
