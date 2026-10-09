@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import inspect
 from datetime import datetime, timezone
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -124,13 +123,16 @@ async def test_classpf_buckets_by_asset_class(monkeypatch):
     handler = TelegramHandler(engine)
     handler.users.seed_admin(str(6307156912))
 
-    fake_trades = [
-        SimpleNamespace(symbol="BTC/USDT:USDT", pnl_usd=10.0),
-        SimpleNamespace(symbol="ETH/USDT:USDT", pnl_usd=-4.0),
-        SimpleNamespace(symbol="XAU/USDT:USDT", pnl_usd=3.0),
-        SimpleNamespace(symbol="TSLA/USDT:USDT", pnl_usd=-2.0),
-        SimpleNamespace(symbol="QQQ/USDT:USDT", pnl_usd=1.0),
-    ]
+    from bot.core.live_executor import LivePosition
+
+    def _closed(symbol, pnl, i):
+        return LivePosition(trade_id=f"T-{i}", symbol=symbol, direction="LONG",
+                            entry_price=100.0, quantity=1.0, cost_usd=10.0,
+                            stop_loss=95.0, take_profit=110.0, leverage=1,
+                            status="closed", pnl_usd=pnl, close_reason="TP HIT")
+    fake_trades = [_closed(s, p, i) for i, (s, p) in enumerate([
+        ("BTC/USDT:USDT", 10.0), ("ETH/USDT:USDT", -4.0), ("XAU/USDT:USDT", 3.0),
+        ("TSLA/USDT:USDT", -2.0), ("QQQ/USDT:USDT", 1.0)])]
     monkeypatch.setattr(type(engine.live_executor), "closed_positions",
                         property(lambda self: fake_trades))
     update, ctx = _make_update()
@@ -138,7 +140,7 @@ async def test_classpf_buckets_by_asset_class(monkeypatch):
     text = _replies(update)
     assert "by asset class" in text
     assert "Crypto" in text and "Metal" in text and "Stock" in text and "ETF" in text
-    assert "PF" in text and "5 filled trades" in text
+    assert "PF" in text and "5 strategy exits" in text
 
 
 @pytest.mark.asyncio
