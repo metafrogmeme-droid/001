@@ -153,6 +153,7 @@ function cardFrom(file) {
     bars: raw.bars,
     unmodeled: raw.unmodeled,
     metrics: raw.metrics,
+    breaker: raw.breaker,
   };
 }
 
@@ -488,6 +489,14 @@ test('a card says how often its breaker tripped and the reset it modelled', () =
       assert.doesNotMatch(html, /data-breaker-trips|Breaker/, name + ' ' + JSON.stringify(absent));
     }
   }
+});
+
+test('the frozen cards print the breaker they were recorded with', () => {
+  // Full Scan tripped twice on its window with the 24-bar reset; the four
+  // other presets never did. A drawn number, from the cards this branch ships.
+  assert.match(strategyBlock(cardFrom('full-scan.json')),
+    /data-breaker-trips="2">Breaker tripped 2 times, reset after 24 bars as an operator would</);
+  assert.match(scoreBlock(cardFrom('dip-sniper.json')), /data-breaker-trips="0">Breaker never tripped</);
 });
 
 test('the compact cards carry the same reading as a chip', () => {

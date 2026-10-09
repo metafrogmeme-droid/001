@@ -22012,6 +22012,45 @@ recorded in `docs/FROZEN_BENCHMARK.md` as discovery data. Whether a card should
 model an operator's reset is the owner's call. Thirteen mutants, all killed.
 (`tests/test_a_replay_s_day_is_the_bar_s_day.py`.)
 
+**A CARD MEASURED WITH AN OPERATOR'S RESET HAS TO SAY SO, AND REPRODUCE WITH
+IT.** The owner chose that the strategy cards model an operator who resets a
+tripped breaker a day later (`CARD_BREAKER_RESET_BARS`, 24 bars). Re-recorded
+on 9 October, only the house card moved: Full Scan from -4.15%, PF 0.21 on 9
+trades to -1.75%, PF 0.88 on 40, its breaker tripped twice. The other four
+never tripped and read as before.
+
+A figure measured under an assumption is a different claim from one measured
+without it, so the assumption travels with the figure:
+
+- **The count is the risk engine's own.** `BacktestResult.breaker_trips` is
+  `RiskEngine.stats["circuit_breaker_trips"]`. The portfolio loop compiles
+  through its first engine, whose risk engine every symbol shares, so it is
+  the whole run's count on both loops.
+- **The generator writes what the runner reported, or nothing.**
+  `breaker_block` refuses a runner that did not report the two fields, and one
+  that ran another reset than the card asked for: the portfolio loop once
+  accepted the flag and ran 0.
+- **The catalogue passes the block through.** A card without one says nothing
+  about the breaker: it is not "never tripped".
+- **Every card surface prints it through one reading**
+  (`AgentScorecard.breakerReading`): the full sentence on the dashboard and
+  the strategy page, a chip on the Agents grid, the landing page and Compare.
+- **"Reproduce in Lab" forwards the card's own reset**, in all four hops:
+  `labBody`, the Lab route, `LabRunRequest` and the runner flag. Without them a
+  card measured at 24 re-ran at 0 under its name, and Full Scan would have
+  reproduced as 9 trades beside a card that says 40.
+  - The request field is a strict int, because lax parsing reads a JSON `true`
+    as 1.
+  - The route forwards a value that does not parse as written, for the bot to
+    refuse. `Number('x')` is NaN, which JSON writes as null, and null is a run
+    at 0.
+
+The cards are committed in the commit after the code that measured them
+(`code_sha`). (`tests/test_a_card_says_how_often_its_breaker_tripped.py`,
+`app/test/the_lab_forwards_the_cards_breaker_reset.test.js`,
+`app/test/agent_scorecard_metrics.test.js`,
+`tests/test_reproduce_in_lab_runs_the_cards_backtest.py`.)
+
 ## Deploying so a dead bot cannot look like a live one
 
 **There are TWO processes and only one of them was ever being started.**
