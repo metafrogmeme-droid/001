@@ -4680,7 +4680,7 @@ class RiskEngine:
         self._circuit_open = True
         self._circuit_breaker_trips += 1
         self._circuit_trip_cause = "state_unreadable"
-        self._circuit_trip_day = datetime.now(UTC).strftime("%Y-%m-%d")
+        self._circuit_trip_day = self._utc_day()
         self._circuit_trip_at = self._now()
         if rescue:
             kept = ""
@@ -5145,8 +5145,12 @@ class RiskEngine:
             self._circuit_breaker_trips += 1
             # Record the owning cause + UTC day so a daily-loss trip can
             # auto-reset at rollover while drawdown/streak/manual stay manual.
+            # The day is the engine's own clock (`_utc_day`): the bar's day
+            # under a replay, which is what the rollover compares it with. The
+            # wall clock's day here never equalled a replayed bar's, so a
+            # daily-loss trip in a backtest cleared at the next idea.
             self._circuit_trip_cause = cause
-            self._circuit_trip_day = datetime.now(UTC).strftime("%Y-%m-%d")
+            self._circuit_trip_day = self._utc_day()
             self._circuit_trip_at = self._now()
             audit(risk_log, f"CIRCUIT BREAKER TRIPPED: {reason}",
                   action="circuit_breaker", result="HALTED",

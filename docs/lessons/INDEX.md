@@ -267,7 +267,7 @@ about to change before changing it.
 - L21932: A SWITCH NAMED FOR STOCK TRADING TURNED NOTHING OFF — `tests/test_the_house_does_not_auto_trade_stocks.py`
 - L21962: THE SAME CARD WAS GREEN FOR AN ORDER IT DID NOT PLACE — `tests/test_a_replay_s_day_is_the_bar_s_day.py`, `tests/test_the_autoconfirm_card_is_green_only_when_it_places.py`
 
-## Deploying so a dead bot cannot look like a live one (line 22004)
+## Deploying so a dead bot cannot look like a live one (line 22013)
 
 
-## Operational docs (line 22161)
+## Operational docs (line 22170)

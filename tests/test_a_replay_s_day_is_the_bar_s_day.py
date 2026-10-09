@@ -199,3 +199,41 @@ def test_zero_never_resets():
     for i in range(100):
         clock.step(risk, i)
     assert risk.resets == 0
+
+
+# ── the breaker's trip day is the engine's clock's day ──────────────────────
+
+def _risk(tmp_path):
+    from bot.risk.risk_engine import RiskEngine
+    return RiskEngine(PortfolioTracker(initial_balance=10_000.0),
+                      state_file=str(tmp_path / "risk_state.json"))
+
+
+def _idea():
+    from bot.utils.models import Direction, TradeIdea
+    return TradeIdea(asset="BTC/USDT", direction=Direction.LONG, entry_price=100.0,
+                     stop_loss=97.0, take_profit=106.0, confidence=0.7,
+                     reasoning="x", source="unknown")
+
+
+def test_a_replayed_daily_loss_trip_holds_until_the_bar_s_day_ends(tmp_path):
+    # The trip day was the wall clock's, which never equals a replayed bar's
+    # day, so the rollover cleared a backtest's daily-loss trip at the next idea.
+    r = _risk(tmp_path)
+    r.set_sim_time(DAY1)
+    r._trip_circuit_breaker("test: daily loss", cause="daily_loss")
+    assert r._circuit_trip_day == "2026-05-07"
+    later = DAY1 + timedelta(hours=3)
+    r.set_sim_time(later)
+    r.evaluate(_idea(), as_of=later)
+    assert r.circuit_breaker_active is True, "cleared inside the day it tripped"
+    nextday = DAY1 + timedelta(days=1)
+    r.set_sim_time(nextday)
+    r.evaluate(_idea(), as_of=nextday)
+    assert r.circuit_breaker_active is False, "held past the replayed day's end"
+
+
+def test_live_stamps_the_wall_clock_s_day(tmp_path):
+    r = _risk(tmp_path)
+    r._trip_circuit_breaker("test: daily loss", cause="daily_loss")
+    assert r._circuit_trip_day == datetime.now(timezone.utc).date().isoformat()

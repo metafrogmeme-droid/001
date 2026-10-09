@@ -1423,8 +1423,8 @@ reads −4.15%, PF 0.21 on 9 trades, flat for the last three quarters of the
 run. Re-run with the gate rejections printed: a five-loss streak tripped the
 breaker after the ninth trade, and CIRCUIT_BREAKER refused the next 86 ideas.
 A streak trip is manual-reset live (`/resume`); a replay has no operator, so
-the card measures the strategy up to its first losing streak. Two defects sat
-under it, fixed in the same change as this section:
+the card measures the strategy up to its first losing streak. Three defects
+sat under it, fixed in the same change as this section:
 
 - **A replay was one day long.** `PortfolioTracker` keyed its daily P&L by the
   wall clock, so a two-month replay was one "today" and the 5% daily-loss cap
@@ -1434,9 +1434,14 @@ under it, fixed in the same change as this section:
   lived in `BacktestEngine.run()` only; every `--symbols`/`--dataset` run
   takes `PortfolioBacktester`. The card with `--breaker-reset-bars 24`
   refused the same 86 ideas.
+- **The breaker's trip day was the wall clock's.** The rollover compares it
+  with the bar's day, which it never equalled in a replay, so a daily-loss
+  trip cleared at the next idea. The risk engine stamps its own clock's day
+  now (the bar's in a replay).
 
-Neither moves a recorded figure: the reset defaults to 0, and the record and
-every committed scorecard reproduce unchanged with the tracker fixed.
+None of the three moves a recorded figure: the reset defaults to 0, and the
+record (six folds, 125 pooled trades) and every committed scorecard reproduce
+unchanged with all three fixed, re-run on 9 October.
 
 **With both fixed and a 24-bar reset** (an operator who resumes a day later;
 it also lifts drawdown trips, which live never does unattended, so this is an
