@@ -21931,6 +21931,17 @@ is a tap, and the backtest executes every approved idea without asking
 this. It takes effect with autonomy. Ten mutants, all killed.
 (`tests/test_the_house_does_not_auto_trade_stocks.py`.)
 
+**THE SAME CARD WAS GREEN FOR AN ORDER IT DID NOT PLACE.** The operator's
+`/autoconfirm` on that live bot read "🟢 ON -- ideas with confidence >= 90% are
+confirmed with no tap" over "⛔ Live: no order is placed without a tap, because
+no eligibility record exists". The second line was right and the colour said
+the opposite. `autoconfirm_status_line` decides the headline for the status
+card and for the reply to `/autoconfirm 0.75`: green only when live and the
+gate is open; yellow when the threshold is set and nothing is placed on its own
+(the gate refuses, the gate could not be read, or paper mode); red when off.
+Five mutants, all killed.
+(`tests/test_the_autoconfirm_card_is_green_only_when_it_places.py`.)
+
 ## Deploying so a dead bot cannot look like a live one
 
 **There are TWO processes and only one of them was ever being started.**

@@ -265,8 +265,9 @@ about to change before changing it.
 - L21848: "BALANCE: 0.00 USDT FREE" WAS A READING NOBODY MADE — `tests/test_a_key_check_never_reads_a_missing_balance_as_zero.py`, `tests/test_the_exchange_card_names_every_linked_venue.py`
 - L21866: THE KEYS CARD WAS A COPY OF THE WEBSITE'S OWN LAST ACK — `app/test/the_keys_card_shows_what_the_bot_holds.test.js`, `tests/test_the_bot_reports_the_venues_it_holds.py`
 - L21904: A SWITCH NAMED FOR STOCK TRADING TURNED NOTHING OFF — `tests/test_the_house_does_not_auto_trade_stocks.py`
+- L21934: THE SAME CARD WAS GREEN FOR AN ORDER IT DID NOT PLACE — `tests/test_the_autoconfirm_card_is_green_only_when_it_places.py`
 
-## Deploying so a dead bot cannot look like a live one (line 21934)
+## Deploying so a dead bot cannot look like a live one (line 21945)
 
 
-## Operational docs (line 22091)
+## Operational docs (line 22102)
