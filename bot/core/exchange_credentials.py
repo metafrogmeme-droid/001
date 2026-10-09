@@ -73,6 +73,24 @@ _DEFAULT_VENUE = "bitget"
 _FIELDS = _VENUE_FIELDS[_DEFAULT_VENUE]
 
 
+def _free_detail(bal: Any, currency: str) -> str:
+    """The balance line a key check reports: ``"52.56 USDT free"``, or that the
+    venue answered without a readable figure.
+
+    Every probe read ``float(bal["USDT"]["free"] or 0.0)`` and fell back to 0.0
+    on a missing entry or an unparseable value, so a key whose account holds
+    USDC (a Bybit or Bitget unified account can) was linked with "Balance: 0.00
+    USDT free" on the card, a measurement of an empty account made from a line
+    the reply never carried. ``read_money_field`` is the one reading of a
+    money field: a real 0 stays 0, absent and unreadable are None.
+    """
+    row = bal.get(currency) if isinstance(bal, dict) else None
+    free = read_money_field(row, "free")
+    if free is None:
+        return f"authenticated, but no readable {currency} balance in the reply"
+    return f"{free:.2f} {currency} free"
+
+
 def _fingerprint(key: bytes) -> str:
     """Twelve hex chars of sha256(key). Enough to answer "is the key I pinned
     the one in force?", short of being the disclosure itself."""
@@ -784,12 +802,7 @@ async def _bitget_balance_probe(api_key: str, api_secret: str,
             if sandbox:
                 raise
         bal = await client.fetch_balance({"type": "swap"})
-        free = 0.0
-        try:
-            free = float((bal.get("USDT") or {}).get("free", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            free = 0.0
-        return True, f"{free:.2f} USDT free"
+        return True, _free_detail(bal, "USDT")
     except Exception as exc:
         return False, _safe_venue_detail(exc)
     finally:
@@ -1066,12 +1079,7 @@ async def _hyperliquid_balance_probe(wallet_address: str, agent_private_key: str
             if sandbox:
                 raise
         bal = await client.fetch_balance()
-        free = 0.0
-        try:
-            free = float((bal.get("USDC") or {}).get("free", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            free = 0.0
-        return True, f"{free:.2f} USDC free"
+        return True, _free_detail(bal, "USDC")
     except Exception as exc:
         return False, _safe_venue_detail(exc)
     finally:
@@ -1168,12 +1176,7 @@ async def _keysecret_balance_probe(exchange_id: str, api_key: str,
         bal = await client.fetch_balance()
         if detail_of is not None:
             return True, detail_of(bal)
-        free = 0.0
-        try:
-            free = float((bal.get("USDT") or {}).get("free", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            free = 0.0
-        return True, f"{free:.2f} USDT free"
+        return True, _free_detail(bal, "USDT")
     except Exception as exc:
         if refusal is not None:
             m = re.search(r'"retCode"\s*:\s*(\d+)', str(exc))
@@ -1323,12 +1326,7 @@ async def _ccxt_keysecret_probe(ccxt_id: str, api_key: str, api_secret: str,
             if sandbox:
                 raise
         bal = await client.fetch_balance()
-        free = 0.0
-        try:
-            free = float((bal.get("USDT") or {}).get("free", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            free = 0.0
-        return True, f"{free:.2f} USDT free"
+        return True, _free_detail(bal, "USDT")
     except Exception as exc:
         return False, _safe_venue_detail(exc)
     finally:
@@ -1363,12 +1361,7 @@ async def _wallet_balance_probe(ccxt_id: str, currency: str, wallet_address: str
             if sandbox:
                 raise
         bal = await client.fetch_balance()
-        free = 0.0
-        try:
-            free = float((bal.get(currency) or {}).get("free", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            free = 0.0
-        return True, f"{free:.2f} {currency} free"
+        return True, _free_detail(bal, currency)
     except Exception as exc:
         return False, _safe_venue_detail(exc)
     finally:

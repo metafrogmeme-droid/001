@@ -934,10 +934,24 @@ class AccountCommands:
             live_state = "preparing (not yet live)"
         else:
             live_state = "could not be read"
+        # Every linked venue, by name. The card printed one fingerprint and
+        # named no venue, so with Bitget and Bybit EU both linked it read as
+        # one account, and nothing said which one orders go to. The key below
+        # is the active venue's.
+        from bot.core.venues import per_user_execution_refusal
+        active = store.get_venue(tg_id)
+
+        def _linked(v: str) -> str:
+            tags = (["active"] if v == active else []) + (
+                ["balances only"] if per_user_execution_refusal(v) else [])
+            return _venue_label(v) + (f" ({', '.join(tags)})" if tags else "")
+
+        linked = " · ".join(html.escape(_linked(v)) for v in store.list_venues(tg_id))
         await self._send(update,
             "<b>Your exchange link</b>\n\n"
             "Status: <code>connected</code>\n"
-            f"Key: <code>{store.fingerprint(tg_id)}</code>\n"
+            + (f"Linked: {linked}\n" if linked else "") +
+            f"Key: <code>{store.fingerprint(tg_id)}</code> ({html.escape(_venue_label(active))})\n"
             f"Environment: <code>{bitget_env}</code>\n"
             f"Per-user live trading: <code>{live_state}</code>\n\n"
             "Use <code>/disconnect</code> to remove your keys.")

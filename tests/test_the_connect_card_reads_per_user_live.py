@@ -189,6 +189,13 @@ class _ReadableStore(_Store):
     def credential_state(self, tg_id):
         return "readable"
 
+    # The card names the linked venues and which one is active.
+    def list_venues(self, tg_id):
+        return ["bitget"]
+
+    def get_venue(self, tg_id):
+        return "bitget"
+
 
 def _exchange_card(monkeypatch, flag_config):
     monkeypatch.setattr(ec, "get_credential_store", lambda: _ReadableStore())

@@ -828,7 +828,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 653 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 643 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -20922,7 +20922,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **479 of 1248** reach for source text through `source_scan`, `code_only`
+Driven, **479 of 1250** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 479 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -21844,6 +21844,24 @@ Bitget's account-info reply, the venue and `_place_sl_tp` are stand-ins.
 Twenty-three mutants, all killed.
 (`tests/test_one_account_one_executor.py`,
 `tests/test_a_fill_with_no_stop_on_record_gets_one.py`.)
+
+**"BALANCE: 0.00 USDT FREE" WAS A READING NOBODY MADE.** The connect card
+carries the key check's own detail as its Balance line, and all five probes
+(Bitget, Hyperliquid, Bybit and BingX, OKX/Gate/KuCoin, Paradex) read it as
+`float(bal["USDT"]["free"] or 0.0)`, falling back to 0.0 on a missing entry or
+an unparseable value. A key whose account holds USDC, which a Bybit or Bitget
+unified account can, was linked with "Balance: 0.00 USDT free": an empty
+account, measured from a line the reply never carried. `_free_detail` is the
+one reading now, through `read_money_field`: a real 0 is "0.00 USDT free",
+absent or unreadable says the venue answered without a readable figure. The
+honesty ratchet fell by ten, both shapes at all five sites.
+
+`/exchange` named no venue: one fingerprint under "connected". With Bitget and
+Bybit EU both linked it read as one account, and nothing said which one orders
+go to. It carries "Linked: Bitget (active) · Bybit EU (balances only)" now,
+and the key says whose it is. Six mutants, all killed.
+(`tests/test_a_key_check_never_reads_a_missing_balance_as_zero.py`,
+`tests/test_the_exchange_card_names_every_linked_venue.py`.)
 
 ## Deploying so a dead bot cannot look like a live one
 
