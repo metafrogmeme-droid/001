@@ -45,12 +45,16 @@ export function renderPlan(cfg, record) {
   line(`  ${dot('Hardcap')}${cfg.sale.hardCapSol} SOL`);
   line('  Type digits only — no thousands separators.');
   line();
-  line('THE FORM SHOULD SHOW BACK');
-  line(`  ${dot('Sending')}${rclaw(d.escrowAtCreateBase)}   (hard cap / price, moved into the program's vault at Create; NO pool tokens are included)`);
+  line('THE FORM SHOULD SHOW BACK (as read off the live form, 2026-10-09: fixtures/smithii_form_reading.json)');
+  line(`  ${dot('Sending')}${rclaw(d.formSendingBase, 0)}   (hard cap / the price AS TYPED; the form groups digits with "." and may print ${formatUnits(d.formSendingBase / 10n ** BigInt(d.decimals), 0).replaceAll(',', '.')})`);
   const formRate = 1 / Number(d.price.typed);
-  line(`  ${dot('Sale rate')}${formRate.toLocaleString('en-US', { maximumFractionDigits: 3 })} per SOL on the form (1 / the typed price)`);
-  line(`  ${dot('Stored on chain')}${d.price.sdkLamports} lamports per token = ${d.price.storedSol} SOL = ${d.price.tokensPerSol.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${cfg.token.symbol} per SOL — publish THIS rate`);
+  line(`  ${dot('Sale rate')}${Math.floor(formRate).toLocaleString('en-US')} per SOL on the form (1 / the typed price is ${formRate.toLocaleString('en-US', { maximumFractionDigits: 3 })}; the form prints the whole number, "${Math.floor(formRate).toLocaleString('en-US').replaceAll(',', '.')}")`);
   line(`  ${dot('Total fees')}${d.creationFeeSol} SOL${cfg.whitelist.enabled ? '' : ' (no whitelist phase; a whitelist phase would make it 0.2)'}`);
+  line();
+  line('ON CHAIN once Create is signed — expected, and not yet measured on this sale');
+  line(`  ${dot('Stored price')}${d.price.sdkLamports} lamports per token = ${d.price.storedSol} SOL = ${d.price.tokensPerSol.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${cfg.token.symbol} per SOL — publish THIS rate`);
+  const more = d.escrowAtCreateBase - d.formSendingBase;
+  line(`  ${dot('Vault')}${rclaw(d.escrowAtCreateBase)}   (hard cap / the STORED price: ${formatUnits(more, d.decimals, 0)} more than the form's Sending line. Your wallet's preview before you sign shows what will actually move, and presale:smithii-verify reads the vault afterwards; NO pool tokens are included)`);
   if (d.price.subLamportDigits) {
     line(`  Note: the typed price has digits below one lamport; the program drops them (${d.price.typed} -> ${d.price.storedSol}).`);
   }

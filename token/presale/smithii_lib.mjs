@@ -18,10 +18,16 @@
 //     33,333 lamports and sells 30,000.30 RCLAW per SOL, not the 30,000 the
 //     roadmap says. `priceReading` states both, and flags the case where float
 //     arithmetic lands a lamport BELOW the decimal the operator typed.
-//   * Create moves hard cap / price tokens out of the signer's account into a
-//     vault — the form's "Sending" line. Checked against a live third-party
-//     sale (140 SOL hard cap, 400 lamports per token, 6 decimals: the vault held
-//     exactly 350,000,000 tokens); see fixtures/smithii_launch_live.json.
+//   * Create moves hard cap / STORED price tokens out of the signer's account
+//     into a vault. Checked against a live third-party sale (140 SOL hard cap,
+//     400 lamports per token, 6 decimals: the vault held exactly 350,000,000
+//     tokens); see fixtures/smithii_launch_live.json. That is NOT the form's
+//     "Sending" line, which divides the hard cap by the price AS TYPED: the live
+//     form printed 150.000.015 for 5,000 SOL at 0.00003333333, where the stored
+//     price gives 150,001,500.015 (fixtures/smithii_form_reading.json). They
+//     differ by the price's lamport rounding, 0.001% here, which is why a vault
+//     read-back is compared with `escrowAtCreateBase` and never with the number
+//     on the form. This file used to call the two the same line.
 //   * The 2.5% fee comes out of the creator's side, so what the operator
 //     receives at each cap is derived here rather than recalled.
 //
@@ -172,6 +178,12 @@ export function deriveSmithiiSale(cfg) {
 
   const hard = lamports(cfg.sale.hardCapSol);
   const soft = lamports(cfg.sale.softCapSol);
+  // The form's own "Sending" line: the hard cap divided by the price EXACTLY AS TYPED, with no
+  // flooring to a lamport (the live form, 2026-10-09: fixtures/smithii_form_reading.json). The
+  // program takes `escrowAtCreateBase` instead. A typed price is held at 20 decimal places, so a
+  // lamport is 10^11 of its units; a price of 0 yields 0n here and is refused by `tokens()` below.
+  const typedUnits = decimalToUnits(cfg.sale.priceSol, 20).units;
+  const formSendingBase = typedUnits > 0n ? (hard * 10n ** BigInt(decimals) * 10n ** 11n) / typedUnits : 0n;
   return {
     decimals,
     price,
@@ -182,6 +194,7 @@ export function deriveSmithiiSale(cfg) {
     hardCap: at(hard),
     softCap: at(soft),
     escrowAtCreateBase: tokens(hard),
+    formSendingBase,
     allocationBase: BigInt(cfg.sale.presaleAllocation) * 10n ** BigInt(decimals),
     creationFeeSol: cfg.whitelist.enabled
       ? cfg.platformFee.creationSolWithWhitelistPhase
@@ -232,7 +245,7 @@ export function validateSmithiiConfig(cfg, { record } = {}) {
     bad(`LP launch price ${cfg.liquidity.launchPriceSol} is below the stored sale price ${d.price.storedSol}: a pool opening under what buyers paid is the unrecoverable case`);
   }
 
-  // The escrow the form will show should be the allocation the roadmap names,
+  // The escrow the program will take should be the allocation the roadmap names,
   // give or take the lamport rounding of the price (0.001% here).
   const diff = d.escrowAtCreateBase > d.allocationBase ? d.escrowAtCreateBase - d.allocationBase : d.allocationBase - d.escrowAtCreateBase;
   if (diff * 10000n > d.allocationBase) {
@@ -330,10 +343,18 @@ export function compareLaunch(cfg, launch, { authority, nowSeconds }) {
   return rows;
 }
 
-/** The vault's balance against the "Sending" figure: hard cap / price tokens. */
+/**
+ * The vault's balance against what Create should have moved in: hard cap / the STORED price.
+ * Not the form's "Sending" line, which divides by the typed price and is slightly lower.
+ */
 export function compareVault(cfg, vaultRawAmount, { started }) {
   const d = deriveSmithiiSale(cfg);
-  const detail = `${formatUnits(vaultRawAmount, d.decimals)} RCLAW in the vault; Create should escrow ${formatUnits(d.escrowAtCreateBase, d.decimals)}`;
+  let detail = `${formatUnits(vaultRawAmount, d.decimals)} RCLAW in the vault; Create should escrow ${formatUnits(d.escrowAtCreateBase, d.decimals)}`;
+  // A vault holding exactly the figure the FORM printed means the price is not stored the way this
+  // file assumes. Say so, or the number on the form would read as the right answer.
+  if (vaultRawAmount === d.formSendingBase && d.formSendingBase !== d.escrowAtCreateBase) {
+    detail += `; that is the figure the form printed (hard cap / the typed price), so the price may not be stored as ${d.price.sdkLamports} lamports: read the 'sale price' row`;
+  }
   if (vaultRawAmount === d.escrowAtCreateBase) return [row('vault holds hard cap / price tokens', true, detail)];
   if (started && vaultRawAmount < d.escrowAtCreateBase) {
     return [{ check: 'vault holds hard cap / price tokens', status: 'WARN', detail: `${detail}; the sale has started, so claims or a withdraw may have moved some` }];

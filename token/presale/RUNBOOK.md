@@ -149,13 +149,16 @@ itself (self-contained demo); `transfer` reuses the mint from the `token/` tooli
 ### Before Create
 
 1. **Gates.** Legal sign-off, the jurisdiction decision and the published disclosures
-   (roadmap §10) come first. Create moves the presale tokens — **150,001,500 RCLAW** at the
-   hard cap — out of the signing wallet into a vault owned by an upgradeable program.
+   (roadmap §10) come first. Create moves the presale tokens — about **150,001,500 RCLAW** at
+   the hard cap (hard cap ÷ the *stored* price; expected, not yet measured on this sale) — out
+   of the signing wallet into a vault owned by an upgradeable program.
 2. **The offline plan.** `cd token && npm ci && npm run presale:smithii-plan`. It prints what
-   to type into each field, what the form must show back (**"Sending" ≈ 150,001,500.015
-   RCLAW**, total fees 0.1 SOL), what the sale pays at each cap, the pool the operator will
-   have to create, and every disclosure. It exits 1 on a config that cannot describe a coherent
-   sale, and CI runs it.
+   to type into each field, what the form must show back (**"Sending" 150,000,015 RCLAW** — the
+   hard cap divided by the price *as typed*, as read off the live form on 2026-10-09 — and
+   total fees 0.1 SOL), what the program is expected to take (the vault line, **150,001,500.015**,
+   which is 1,485 more because the program floors the price to whole lamports), what the sale
+   pays at each cap, the pool the operator will have to create, and every disclosure. It exits 1
+   on a config that cannot describe a coherent sale, and CI runs it.
 3. **The signing wallet.** Create is signed by the wallet that holds the tokens — today only
    one does. It becomes the launch authority: it receives about 97.5% of every purchase the
    moment it happens and alone can edit the launch and withdraw unsold tokens. Use a
@@ -176,8 +179,10 @@ itself (self-contained demo); `transfer` reuses the mint from the `token/` tooli
 ### Create (Smithii's four-step form)
 
 1. **Step 1** — type exactly what `presale:smithii-plan` prints, digits only (a locale that
-   prints `30.000` for thirty thousand can misread `5.000` as five). Check the "Sending" line
-   against the plan before continuing.
+   prints `30.000` for thirty thousand can misread `5.000` as five; Smithii's own form does:
+   its "Sale Rate" read `30.000` and its "Sending" read `150.000.015`). Check the "Sending"
+   line against the plan's **Sending** line before continuing: it is the typed-price figure,
+   not the vault figure.
 2. **Step 2** — leave the whitelist phase **off** (a whitelist price of 0 disables it).
    Turning it on doubles the creation fee and adds only an earlier time window that is open to
    everyone. Set the public phase's start and end: **start at least 24–48 hours after Create**,
@@ -185,7 +190,10 @@ itself (self-contained demo); `transfer` reuses the mint from the `token/` tooli
    `presale:smithii-verify` can still be acted on.
 3. **Step 3** — name, description, images, socials. Do not say "audited", and do not promise a
    refund, vesting, a locked LP, or returns. State the disclosures.
-4. **Step 4** — preview, then Create.
+4. **Step 4** — preview, then Create. Before you sign, compare the token amount your wallet
+   shows moving out with the plan's **Vault** line (about 150,001,500 RCLAW, 1,485 more than the
+   form's "Sending"). A figure that is neither that nor the form's, or that is further from them
+   than the price's lamport rounding (0.001%), is a stop: do not sign it.
 
 ### After Create, before the first phase starts
 

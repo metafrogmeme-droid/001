@@ -17134,8 +17134,9 @@ price is stored as a whole number of lamports per token, so the typed
 0.00003333333 SOL is held as 33,333 lamports (30,000.30 per SOL, not 30,000),
 and float arithmetic can store a price one lamport low (`0.000000015 * 1e9`
 is 14.999…). And Create escrows hard cap divided by price, not the allocation:
-a live 140 SOL / 400-lamport sale held exactly 350,000,000 tokens, which is
-the form's "Sending" line. The program is also upgradeable, by an off-curve
+a live 140 SOL / 400-lamport sale held exactly 350,000,000 tokens. (This
+paragraph first called that figure the form's "Sending" line, and it is not;
+see the addendum.) The program is also upgradeable, by an off-curve
 address, and was last deployed three days before the audit's fix review;
 whether the deployed bytecode is the audited commit cannot be checked, because
 the audited repository could not be read (unauthenticated 404s at that commit).
@@ -17166,6 +17167,33 @@ program a config describes before writing the config, and compare the config
 with the program's capabilities, not with a sibling config.
 (`token/presale/venue_parity.test.mjs`, `token/presale/smithii_sale.test.mjs`,
 `token/presale/smithii_verify.test.mjs`.)
+
+**Addendum, 2026-10-09: the number called "the form's Sending line" was not on the form.**
+The chapter above, `smithii_lib.mjs`, `smithii_plan.mjs`, the runbook and two
+test names said the form's "Sending" line shows hard cap divided by the
+*stored* price, 150,001,500.015. A photograph of the live form showed
+**150.000.015** (it groups digits with "."; its Sale Rate read 30.000, which a
+runbook line had already warned about): the hard cap divided by the price *as
+typed*, 5,000 / 0.00003333333 = 150,000,015.0000015. The vault figure, hard cap
+divided by the stored 33,333 lamports, is 1,485 tokens higher (0.001%) and is
+still an expectation, not a measurement: the form never prints it. The error
+was a name from one surface given to a number from another. The vault formula
+had been checked against a live sale and the SDK; the form had not been looked
+at, and its label was attached to the result anyway. Fixed so the two cannot be
+confused: `deriveSmithiiSale` returns both (`formSendingBase`,
+`escrowAtCreateBase`), the plan prints them on separate lines, the vault row of
+`smithii_verify` still compares with the stored-price figure and now says so
+when a vault holds the form's figure instead, and the runbook has the operator
+compare the wallet's preview with the Vault line before signing. The oracle is
+the reading itself, kept as data (`fixtures/smithii_form_reading.json`, with its
+date and basis, and the note that step 3's photo shows outputs only, so the
+inputs are the plan's and were not read). The rule: a label belongs to a
+screen, so it is a claim about that screen; read the screen before borrowing
+its name for a number. The same day a tokenomics image for the sale page was
+added under `docs/assets/presale/`, with its figures written into the PNG and
+held against the roadmap table by `token/presale/tokenomics_image.test.mjs`, so
+that the second copy of the allocation cannot drift quietly.
+(`token/presale/smithii_sale.test.mjs`, `token/presale/tokenomics_image.test.mjs`.)
 
 **THE FOLLOW FEATURE SELECTED SIGNALS BY A STATUS NO PRODUCER EVER WROTE.**
 `/api/copy/picks` (the dashboard's "Following — live picks" panel) and the
