@@ -1588,6 +1588,25 @@ class MemoryDB {
       }
       return [{ affectedRows: 1 }, []];
     }
+    if (cmd.includes('FROM EXCHANGE_VENUE_STATUS S JOIN USERS U')) {
+      // routes/sync.js /credentials/state: connected rows, with the account's
+      // Telegram id. Each clause is honoured only when the statement carries
+      // it, as MySQL does, so a statement that dropped one reads differently
+      // here too.
+      const connectedOnly = cmd.includes('S.CONNECTED = 1');
+      const linkedOnly = cmd.includes('U.TELEGRAM_LINKED = 1');
+      const out = [];
+      for (const [uid, rows] of Object.entries(this.exchangeStatus)) {
+        const u = this.users.find((x) => String(x.id) === String(uid));
+        if (!u || !Array.isArray(rows) || (linkedOnly && !u.telegram_linked)) continue;
+        for (const r of rows) {
+          if (!connectedOnly || r.connected) {
+            out.push({ user_id: u.id, exchange: r.exchange || 'bitget', telegram_id: u.telegram_id });
+          }
+        }
+      }
+      return [out, []];
+    }
     if (cmd.includes('FROM EXCHANGE_VENUE_STATUS')) {
       const rows = this.exchangeStatus[String(params[0])];
       return [Array.isArray(rows)
