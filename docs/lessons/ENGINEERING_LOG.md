@@ -22046,7 +22046,11 @@ without it, so the assumption travels with the figure:
     at 0.
 
 The cards are committed in the commit after the code that measured them
-(`code_sha`). (`tests/test_a_card_says_how_often_its_breaker_tripped.py`,
+(`code_sha`). Twenty-one mutants, all killed. The one that survived the first
+round was `generate` running a card without its reset: the builder would have
+refused that card at the next re-record, and no test drove `generate` to see
+it. A stand-in runner that records what it was handed drives it now.
+(`tests/test_a_card_says_how_often_its_breaker_tripped.py`,
 `app/test/the_lab_forwards_the_cards_breaker_reset.test.js`,
 `app/test/agent_scorecard_metrics.test.js`,
 `tests/test_reproduce_in_lab_runs_the_cards_backtest.py`.)

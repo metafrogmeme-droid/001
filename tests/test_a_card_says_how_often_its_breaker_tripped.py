@@ -95,6 +95,37 @@ def test_the_cards_model_a_day_of_1h_bars_and_the_flag_says_so():
         breaker_args(-1)
 
 
+def test_generate_runs_each_card_at_the_reset_it_records(monkeypatch, tmp_path):
+    # The runner stands in, recording what it was handed and reporting the
+    # reset it ran, as the real one does; the card is written by the real
+    # builder into a scratch directory.
+    import json
+
+    from scripts import gen_agent_scorecards as gen
+
+    handed: list[int] = []
+
+    def _runner(key, cfg, dataset, symbols, last_bars, breaker_reset_bars=0):
+        handed.append(breaker_reset_bars)
+        return {"total_return_pct": 1.0, "profit_factor": 1.2, "win_rate": 0.5,
+                "max_drawdown_pct": 1.0, "sharpe_ratio": 0.3, "sortino_ratio": 0.4,
+                "calmar_ratio": 0.5, "total_trades": 0, "trade_breakdown": [],
+                "breaker_reset_bars": breaker_reset_bars, "breaker_trips": 1}
+
+    monkeypatch.setattr(gen, "_run_one", _runner)
+    monkeypatch.setattr(gen, "REPO", tmp_path)
+    monkeypatch.setattr(gen, "_scorecard_dir", lambda: tmp_path / "scorecards")
+    monkeypatch.setattr("bot.backtest.snapshot.load_manifest_multi",
+                        lambda _d: {"dataset_hash": "abc"})
+    written = gen.generate("benchmark/majors_1h",
+                           "BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT", 1500,
+                           preset="full scan")
+    assert handed == [CARD_BREAKER_RESET_BARS]
+    assert written == ["scorecards/full-scan.json"]
+    card = json.loads((tmp_path / written[0]).read_text())
+    assert card["breaker"] == {"reset_bars": 24, "trips": 1}
+
+
 # ── the catalogue passes it through; absent is not zero ─────────────────────
 
 def test_the_catalogue_passes_the_block_through():
