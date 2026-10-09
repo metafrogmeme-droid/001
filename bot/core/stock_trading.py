@@ -34,6 +34,38 @@ from bot.config import CONFIG, US_STOCK_SYMBOLS
 logger = logging.getLogger(__name__)
 
 
+#: The asset classes that track a US equity: the session rules
+#: (`_confirm_trade_inner`) and the autonomous switch below both read this.
+EQUITY_PERP_CLASSES: tuple[str, ...] = ("Stock", "ETF", "Pre-IPO")
+
+
+def autonomous_class_refusal(asset: str) -> Optional[str]:
+    """Why the engine may not AUTO-confirm an idea on ``asset`` for its asset
+    class, or None when it may.
+
+    STOCK_TRADING_ENABLED decides it, and only for the autonomous confirm:
+    the scan, the analysis and a person's Confirm tap reach every class. The
+    class is `market_scanner.category_for_symbol`'s, the reading the scan's
+    class switches and `/parity`'s asset-class rows already take, so a symbol
+    is never one class here and another on the card that measured it.
+
+    A class that cannot be read is refused: an autonomous order with nobody
+    looking is the one place an unread value must not pass for "crypto".
+    The Confirm button on the card still places it.
+    """
+    if CONFIG.stocks.enabled:
+        return None
+    try:
+        from bot.core.market_scanner import category_for_symbol
+        category = category_for_symbol(str(asset or ""))
+    except Exception as exc:  # noqa: BLE001 -- refused, and said why
+        return f"its asset class could not be read ({type(exc).__name__})"
+    if category in EQUITY_PERP_CLASSES:
+        return (f"{category} perps are not auto-traded "
+                f"(STOCK_TRADING_ENABLED is off)")
+    return None
+
+
 # ── US Market Session Detection ──────────────────────────────────────
 
 @dataclass

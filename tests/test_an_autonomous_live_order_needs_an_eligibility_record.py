@@ -599,7 +599,9 @@ class TestTheCards:
         _flag(monkeypatch, True)
         _eligible(monkeypatch)
         line = eoc.autoconfirm_placement_line(RuneClawEngine, is_live=True)
-        assert line == "Live: an idea that clears the bar is placed with no tap."
+        # The stock/ETF exception may follow it while STOCK_TRADING_ENABLED is
+        # off (the default): both arms are in test_the_house_does_not_auto_trade_stocks.
+        assert line.startswith("Live: an idea that clears the bar is placed with no tap.")
 
     def test_the_flag_off_is_named(self, monkeypatch):
         _flag(monkeypatch, False)

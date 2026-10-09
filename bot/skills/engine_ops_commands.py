@@ -275,7 +275,14 @@ def autoconfirm_placement_line(engine, *, is_live: bool) -> str:
     except Exception as exc:  # noqa: BLE001 -- a failed read is said, not passed
         why = f"the live gate could not be read ({type(exc).__name__})"
     if why is None:
-        return "Live: an idea that clears the bar is placed with no tap."
+        line = "Live: an idea that clears the bar is placed with no tap."
+        from bot.core.stock_trading import EQUITY_PERP_CLASSES
+        if not CONFIG.stocks.enabled:
+            names = (", ".join(EQUITY_PERP_CLASSES[:-1])
+                     + " or " + EQUITY_PERP_CLASSES[-1])
+            line += (f" Not a {names} perp: STOCK_TRADING_ENABLED is off, so "
+                     f"its card waits for a tap.")
+        return line
     return (f"\u26d4 Live: no order is placed without a tap, because "
             f"{_html.escape(str(why))}. The Confirm button on each card is "
             f"the door.")
