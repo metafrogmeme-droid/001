@@ -19474,9 +19474,38 @@ signal image's caption and `/latest_signal`'s text card.
   class there is no line. A record read in part says so. No losing trade is
   "PF —", not a ratio.
 
-Not yet on the line: `/scan`'s rows, `/scan SYM`, the drift re-offer, the
-manual ticket's review card and the website. Eighteen mutants, all killed.
+Eighteen mutants, all killed.
 (`tests/test_an_idea_card_carries_its_class_live_record.py`.)
+
+**EVERY CARD WITH A CONFIRM BUTTON CARRIES IT, THROUGH ONE READING.** The
+analyze card, the pushed caption and `/latest_signal` were the first three.
+Five other cards offered a Confirm button without the line: `/scan`'s rows,
+`/scan SYM`, a hand-typed `/trade` ticket, a staged chat draft and the drift
+re-offer, so a stock tap from any of them was as uninformed as before.
+
+- **One reading.** `idea_context_lines(engine, user_id, idea)` is what a card
+  offering an idea carries for the person deciding: the class record, then the
+  timing. Every card takes it, and none composes the two itself, which a scan
+  of the card modules holds. A card that called the two helpers on its own
+  could carry one and forget the other.
+- **`/scan` rows: one line per class.** `class_lines_for` gives one line per
+  class among the offered rows, because the record is the class's, not the
+  row's. It goes in the text that reaches the caller on both the image and the
+  text path, and only when there are buttons.
+- **Cards that were never analysed carry the record alone.** The manual
+  ticket, the staged draft, the drift re-offer and the scan rows have no
+  timing reading. For the re-offer, the original idea's reading describes the
+  old analysis, not the offer.
+- **What does not carry it.** The proactive text alert goes to the same chats
+  as the pushed image that already carries both lines, so adding them there
+  would say each twice. The website card is not on this line yet.
+
+Each card is driven with the reading replaced by a recorder, which shows what
+the card was handed and that it prints what comes back, escaped, only where it
+offers the idea. The drift re-offer sits past the live gates inside the confirm
+callback, so it is held by its AST: the card it sends hands the new idea and
+the caller to the reading. Fourteen mutants, all killed.
+(`tests/test_every_card_offering_an_idea_carries_its_context.py`.)
 
 **THE TURN CHECK THE BOT RAN FOR EVERY IDEA REACHED NOBODY WHO TAPS.** For
 every idea it analyses, the engine checks whether the sub-degree turn is
@@ -20190,7 +20219,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 264 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 265 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21013,9 +21042,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **482 of 1257** reach for source text through `source_scan`, `code_only`
+Driven, **483 of 1258** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 482 is a FLOOR and the honest shape is
+source scan that rule does not see, so 483 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

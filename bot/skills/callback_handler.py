@@ -1713,6 +1713,11 @@ class CallbackHandler:
                 f"{review_card_html(rev)}\n"
                 f"<i>Nothing is placed until you confirm.</i>"
             )
+            # The person's own record in the class (`idea_context_lines`); a
+            # draft was never analysed, so there is no timing to say.
+            from bot.formatters.idea_context import idea_context_lines
+            for _line in idea_context_lines(self.engine, owner, staged):
+                card += f"\n{html.escape(_line)}"
             kb = InlineKeyboardMarkup([[
                 InlineKeyboardButton("\u2705 Confirm",
                                      callback_data=f"confirm:{staged.id}:{owner}"),
@@ -1835,8 +1840,11 @@ class CallbackHandler:
                                 InlineKeyboardButton(t("btn_skip", _lang),
                                     callback_data=f"reject:{new_idea.id}:{_uid}"),
                             ]])
+                            from bot.formatters.idea_context import idea_context_lines
                             await self._send(update,
-                                render_reanalyzed_offer(original_idea, new_idea),
+                                render_reanalyzed_offer(original_idea, new_idea)
+                                + "".join(f"\n{html.escape(x)}" for x in
+                                          idea_context_lines(self.engine, _uid, new_idea)),
                                 reply_markup=kb)
                             audit(system_log,
                                   f"Drift re-analysis offered for {new_idea.asset} "

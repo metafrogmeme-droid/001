@@ -149,10 +149,8 @@ class AlertsMonitor:
         (`entry_timing_line`). The record is per recipient because the image
         goes to every watching chat, and the operator's record is the
         operator's to see; the timing is the idea's, the same for everyone."""
-        from bot.formatters.class_record import class_record_line
-        from bot.formatters.timing_line import entry_timing_line
-        lines = [x for x in (class_record_line(self.engine, chat_id, idea.asset),
-                             entry_timing_line(self.engine, idea)) if x]
+        from bot.formatters.idea_context import idea_context_lines
+        lines = idea_context_lines(self.engine, chat_id, idea)
         return signal_card_caption(idea, "\n".join(lines) or None)
 
     async def start_monitor(self, bot) -> None:

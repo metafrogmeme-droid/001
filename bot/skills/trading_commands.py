@@ -1311,6 +1311,12 @@ class TradingCommands:
             f"{'━' * 30}\n"
             f"<i>{t('trade_reduced_checks', lang)}</i>"
         )
+        # A hand-typed ticket was never analysed, so it carries the class
+        # record alone (`idea_context_lines`): the line a person typing a stock
+        # ticket most needs beside its Confirm.
+        from bot.formatters.idea_context import idea_context_lines
+        for _line in idea_context_lines(self.engine, uid, idea):
+            card += f"\n{html.escape(_line)}"
 
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("\u2705 " + t('confirm', lang), callback_data=f"confirm:{idea.id}:{uid}"),
@@ -1680,15 +1686,12 @@ class TradingCommands:
                         + (f"\n<i>{html.escape(_why[:150])}</i>" if _why is not None else "")
                         + (f"\n⚖️ Against: {html.escape(_against[:150])}" if _against is not None else "")
                     )
-                    # The caller's own live record in this class and the idea's
-                    # entry timing, as the image path's caption carries them
-                    # (`class_record_line`, `entry_timing_line`).
-                    from bot.formatters.class_record import class_record_line
-                    from bot.formatters.timing_line import entry_timing_line
-                    for _line in (class_record_line(self.engine, uid, idea.asset),
-                                  entry_timing_line(self.engine, idea)):
-                        if _line:
-                            msg += f"\n{html.escape(_line)}"
+                    # What every card offering an idea carries for the person
+                    # deciding, as the image path's caption does
+                    # (`idea_context_lines`).
+                    from bot.formatters.idea_context import idea_context_lines
+                    for _line in idea_context_lines(self.engine, uid, idea):
+                        msg += f"\n{html.escape(_line)}"
                     await self._send(update, msg, reply_markup=kb)
             except Exception as exc:
                 system_log.debug("latest_signal: skipped idea %s render: %s",

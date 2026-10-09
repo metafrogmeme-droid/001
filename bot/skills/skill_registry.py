@@ -940,17 +940,12 @@ class AnalyzeAssetSkill(BaseSkill):
             conf_ring = "\u2012"
         thesis_bq = _thesis_bq(idea.reasoning, 250, tail="\n\n")
         _record = _setup_record_line(engine, idea)
-        # The viewer's own live record in this idea's asset class, beside the
-        # setup's (`class_record_line`: the operator's book to the operator
-        # only, a linked user's own book, otherwise nothing).
-        from bot.formatters.class_record import class_record_line
-        from bot.formatters.timing_line import entry_timing_line
-        _uid = kwargs.get("user_id")
-        _class = class_record_line(engine, _uid, idea.asset) if _uid else None
-        # Whether the turn is confirmed on the analysed closed bars: the check
-        # the autonomous gate takes, as information for the person tapping.
-        _timing = entry_timing_line(engine, idea)
-        _rec_lines = [_esc(x) for x in (_record, _class, _timing) if x]
+        # Beside the setup's record, what every card offering an idea carries
+        # for the person deciding (`idea_context_lines`): their own live record
+        # in the class, and whether the turn is confirmed on the closed bars.
+        from bot.formatters.idea_context import idea_context_lines
+        _ctx = idea_context_lines(engine, kwargs.get("user_id"), idea)
+        _rec_lines = [_esc(x) for x in [_record, *_ctx] if x]
         record_line = ("\n".join(_rec_lines) + "\n\n") if _rec_lines else ""
 
         return (
