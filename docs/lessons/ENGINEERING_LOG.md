@@ -20950,7 +20950,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **480 of 1253** reach for source text through `source_scan`, `code_only`
+Driven, **480 of 1254** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 480 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -21969,6 +21969,48 @@ gate is open; yellow when the threshold is set and nothing is placed on its own
 (the gate refuses, the gate could not be read, or paper mode); red when off.
 Five mutants, all killed.
 (`tests/test_the_autoconfirm_card_is_green_only_when_it_places.py`.)
+
+**A REPLAY WAS ONE DAY LONG, AND THE FLAG THAT REOPENS A HALTED RUN DID
+NOTHING ON A PORTFOLIO.** The house strategy's card (Full Scan, `majors_1h`,
+BTC/ETH/SOL, the last 1,500 bars, honest) read -4.15% on 9 trades, flat for
+the last three quarters of the run. Re-run with the gate rejections printed:
+a five-loss streak tripped the breaker after the ninth trade, and
+CIRCUIT_BREAKER refused the next 86 ideas. A streak trip is manual-reset live;
+a replay has no operator, so the card measured the strategy up to its first
+losing streak. Three defects sat under that.
+
+`PortfolioTracker` keyed its daily P&L by `datetime.now(UTC)`, in the writer
+and the reader, and a two-month replay runs in seconds, so every close landed
+on one "today". The risk engine already read the day in bar time
+(`set_sim_time`), and its day-rollover reset cleared the daily-loss breaker
+only for the book to re-trip it on the run's total: with the streak trip
+lifted, DAILY_LOSS refused 74 ideas on the same window. The tracker has the
+day pinned the same way now (`pin_replay_day`, named apart from the risk
+engine's `set_sim_time` so the reachability sweep can resolve both) and one
+day rule, `_today_key`, for both ends.
+
+`--breaker-reset-bars`, the option that emulates an operator resetting a
+tripped breaker, lived in `BacktestEngine.run()`. `PortfolioBacktester`, which
+every `--symbols` and `--dataset` run takes, accepted it and ignored it: the
+card with `--breaker-reset-bars 24` refused the same 86 ideas.
+`test_breaker_reset_bars.py` drove the single-symbol loop only. Both loops ask
+one `BreakerResetClock` now.
+
+The breaker stamped its own trip day from the wall clock too
+(`_trip_circuit_breaker`), and the rollover compares it with the bar's day.
+The two never matched in a replay, so a backtest's daily-loss trip cleared at
+the next idea instead of at the end of its day. The stamp is the engine's
+clock now (`_utc_day`), the bar's day in a replay and the wall clock's live.
+The state-unreadable trip takes the same rule; it happens only at a live boot,
+where the two are the same day, so its mutant is equivalent and not counted.
+
+None of the three moves a recorded figure: the reset defaults to 0, and the
+record (the six-fold walk-forward, 125 pooled trades) and every committed
+scorecard reproduce unchanged with all three fixes, re-run on 9 October. What
+the fixed runs measure, and the signal-family A/B they made possible, is
+recorded in `docs/FROZEN_BENCHMARK.md` as discovery data. Whether a card should
+model an operator's reset is the owner's call. Thirteen mutants, all killed.
+(`tests/test_a_replay_s_day_is_the_bar_s_day.py`.)
 
 ## Deploying so a dead bot cannot look like a live one
 

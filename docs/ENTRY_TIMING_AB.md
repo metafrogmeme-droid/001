@@ -70,3 +70,20 @@ alts and hurts RANGE.
   unambiguous across all four datasets.
 - This is a live entry-behaviour change. It stays OFF by default; enabling it is
   an operator decision (set the env var above on the deployment).
+
+## Re-measured, 2026-10-09: this A/B's halts were not neutralised
+
+The method above relied on `--breaker-reset-bars 24`, and on every run here
+(all `--dataset` runs take the portfolio engine) that flag did nothing: the
+reset lived in the single-symbol loop only. The daily-loss cap also covered
+whole runs, because the backtest's book keyed "today" by the wall clock. Both
+are fixed (`docs/FROZEN_BENCHMARK.md`, "The record halts on its first losing
+streak"). The caveat above that the OFF arms "tripped path-dependent
+circuit-breakers" was this; the 508 → 29 trades on `alts_1h` was the halt, not
+the gate.
+
+Re-measured on six snapshots with both fixed (`docs/FROZEN_BENCHMARK.md`,
+"Entry timing, re-measured"): the TREND_DOWN-only default is not better than
+the gate off (better on two, worse on two, flat on two), and the gate in all
+regimes beats the default on both v1 and both v2 snapshots and loses slightly
+on both v3. The "improves in every dataset" reading above does not survive.

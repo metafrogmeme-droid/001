@@ -67,6 +67,36 @@ def _preset_direction(raw: str) -> str:
     return side_rule(raw) or ""
 
 
+class BreakerResetClock:
+    """``breaker_reset_bars``: emulate an operator resetting a tripped breaker
+    after N bars, so one early losing streak does not silently halt a
+    months-long unattended run. A no-op at 0 (the halt-preserving default).
+
+    One reading for both bar loops. The portfolio loop, which every
+    ``--symbols`` and ``--dataset`` run takes, had no copy at all, so the
+    flag was accepted there and changed nothing: a three-symbol card run with
+    ``--breaker-reset-bars 24`` refused the same 86 ideas at CIRCUIT_BREAKER
+    as one without it.
+    """
+
+    def __init__(self, reset_bars: int) -> None:
+        self.reset_bars = int(reset_bars)
+        self._tripped_at: int | None = None
+
+    def step(self, risk: RiskEngine, i: int) -> None:
+        """Call once per bar (``i`` counts bars) before the bar is processed."""
+        if self.reset_bars <= 0:
+            return
+        if risk.circuit_breaker_active:
+            if self._tripped_at is None:
+                self._tripped_at = i
+            elif i - self._tripped_at >= self.reset_bars:
+                risk.reset_circuit_breaker()
+                self._tripped_at = None
+        else:
+            self._tripped_at = None
+
+
 class BacktestEngine:
     """
     Event-driven backtesting engine.
@@ -465,7 +495,7 @@ class BacktestEngine:
 
         self._pending_entry = None
         self._pending_ma = None
-        _breaker_tripped_at: int | None = None
+        _breaker_reset = BreakerResetClock(self.config.breaker_reset_bars)
 
         for i in range(lookback_size, len(bars)):
             current_bar = bars[i]
@@ -474,19 +504,10 @@ class BacktestEngine:
             # guards (cooldown-after-loss) measure simulated elapsed time —
             # wall-clock would keep the cooldown armed for months of bars.
             self.risk.set_sim_time(current_bar.timestamp)
+            self.portfolio.pin_replay_day(current_bar.timestamp)
 
-            # Optional breaker auto-reset (breaker_reset_bars > 0): emulate an
-            # operator resetting a tripped breaker after N bars, so one early
-            # losing streak doesn't silently halt a months-long run.
-            if self.config.breaker_reset_bars > 0:
-                if self.risk.circuit_breaker_active:
-                    if _breaker_tripped_at is None:
-                        _breaker_tripped_at = i
-                    elif i - _breaker_tripped_at >= self.config.breaker_reset_bars:
-                        self.risk.reset_circuit_breaker()
-                        _breaker_tripped_at = None
-                else:
-                    _breaker_tripped_at = None
+            # Optional breaker auto-reset (BreakerResetClock).
+            _breaker_reset.step(self.risk, i)
 
             # --- Fill any queued next-open entry at THIS bar's open (audit
             # fix #15) before stop checks, so the freshly opened position is

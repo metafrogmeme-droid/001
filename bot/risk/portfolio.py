@@ -106,6 +106,9 @@ class PortfolioTracker:
         self._positions: dict[str, TradeExecution] = {}
         self._history: list[TradeExecution] = []
         self._daily_pnl: dict[str, float] = {}  # date-string -> pnl
+        # The replayed bar's UTC day while a backtest drives this tracker
+        # (`pin_replay_day`); None live, where the day is the wall clock's.
+        self._sim_day: Optional[str] = None
         self._on_trade_close = on_trade_close  # callback for risk engine streak tracking
         self._lock = threading.RLock()
         # STRATEGY: trailing stop after 1R profit
@@ -503,8 +506,7 @@ class PortfolioTracker:
 
         wins = [t for t in self._history if t.pnl > 0]
         total = len(self._history)
-        # M5 fix: use UTC date, not local timezone
-        today_key = datetime.now(UTC).date().isoformat()
+        today_key = self._today_key()
 
         # M-08 FIX: Reset daily realized PnL when the date rolls over
         if self._last_daily_reset is not None and self._last_daily_reset != today_key:
@@ -556,9 +558,33 @@ class PortfolioTracker:
 
     # -- Internal --
 
+    def pin_replay_day(self, when: datetime) -> None:
+        """Pin the day the daily P&L is keyed by to a replayed bar (backtest
+        only). Live never calls this, so live keys by the wall clock as before.
+        Named apart from `RiskEngine.set_sim_time`, which pins a clock and not a
+        day: one name on two classes is a call the reachability sweep cannot
+        resolve (`tests/unreachable_methods_baseline.txt`).
+
+        A REPLAY WAS ONE DAY LONG. The writer and the reader both keyed by
+        `datetime.now(UTC)`, and a two-month replay runs in seconds, so every
+        close landed on the same "today": the 5% daily-loss cap became a
+        cap on the whole run, and the breaker's day rollover (which the risk
+        engine already reads in bar time) cleared it only for this reader to
+        re-trip it on the run's total. The risk engine's clock is pinned the
+        same way (`RiskEngine.set_sim_time`).
+        """
+        self._sim_day = when.astimezone(UTC).date().isoformat()
+
+    def _today_key(self) -> str:
+        """The UTC day the daily P&L is keyed by: the replayed bar's under a
+        backtest, the wall clock's otherwise. One rule for the writer
+        (`_record_daily_pnl`) and the reader (`_snapshot_locked`)."""
+        if self._sim_day is not None:
+            return self._sim_day
+        return datetime.now(UTC).date().isoformat()  # M5: UTC, not local
+
     def _record_daily_pnl(self, pnl: float) -> None:
-        # M5 fix: use UTC date, not local timezone
-        key = datetime.now(UTC).date().isoformat()
+        key = self._today_key()
         self._daily_pnl[key] = self._daily_pnl.get(key, 0.0) + pnl
         # L6 fix: prune entries older than 30 days to prevent unbounded growth
         if len(self._daily_pnl) > 30:
