@@ -50,7 +50,7 @@ def _idea(asset="BTC/USDT:USDT", confidence=0.95, source="unknown"):
 def _host():
     """A stand-in `self` carrying the dict, the set and the real methods."""
     host = SimpleNamespace(analyzer=None, _pending_ideas={}, _pending_atr={},
-                           _pending_pyramid={}, _pending_timing={},
+                           _pending_pyramid={}, _pending_timing={}, _pending_turn={},
                            _engine_idea_ids=set())
     for name in ("_auto_confirm_batch", "_auto_confirm_gate_value",
                  "_auto_confirm_suppressed", "_engine_pending_ids",

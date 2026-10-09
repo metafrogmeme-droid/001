@@ -59,6 +59,67 @@ def timing_active(regime: str = "") -> bool:
         r.strip().upper() for r in regs.split(",") if r.strip()}
 
 
+# States of `turn_reading`. Three values, not two: a check that could not be
+# made is not a turn that has not happened.
+TURN_CONFIRMED = "confirmed"
+TURN_NOT_CONFIRMED = "not_confirmed"
+TURN_UNREAD = "unread"
+
+
+def turn_reading(
+    direction: str,
+    highs: Sequence[float],
+    lows: Sequence[float],
+    closes: Sequence[float],
+    opens: Optional[Sequence[float]] = None,
+    zigzag_atr_mult: float = 1.5,
+) -> tuple[str, str]:
+    """The sub-degree turn in ``direction``: ``(state, reason)``.
+
+    ``state`` is `TURN_CONFIRMED` when BOTH the structural condition (newest
+    confirmed ZigZag pivot opposes the pullback: a low for LONG, a high for
+    SHORT) and the trigger candle (last closed bar takes out the prior bar's
+    extreme in the trade direction) hold; `TURN_NOT_CONFIRMED` when the series
+    was read and either does not; `TURN_UNREAD` when it could not be read
+    (too little history, or the check failed). Never raises.
+    """
+    try:
+        from bot.core.elliott import atr_zigzag_pivots
+
+        n = len(closes)
+        if n < 10:
+            return TURN_UNREAD, "insufficient sub-degree history"
+        h = np.asarray(highs, dtype=float)
+        lo = np.asarray(lows, dtype=float)
+        c = np.asarray(closes, dtype=float)
+        piv = atr_zigzag_pivots(h, lo, c, atr_mult=zigzag_atr_mult)
+        swing_highs = piv.get("swing_highs") or []
+        swing_lows = piv.get("swing_lows") or []
+        if not (swing_highs or swing_lows):
+            return TURN_NOT_CONFIRMED, "no confirmed structural pivot yet"
+        last_high_i = swing_highs[-1][0] if swing_highs else -1
+        last_low_i = swing_lows[-1][0] if swing_lows else -1
+
+        is_long = direction == "LONG"
+        # 1. STRUCTURE: newest pivot must oppose the pullback.
+        if is_long and last_low_i <= last_high_i:
+            return TURN_NOT_CONFIRMED, "sub-degree pullback low not confirmed yet"
+        if (not is_long) and last_high_i <= last_low_i:
+            return TURN_NOT_CONFIRMED, "sub-degree pullback high not confirmed yet"
+
+        # 2. TRIGGER: last closed bar takes out the prior bar's extreme.
+        o_last = float(opens[-1]) if opens is not None else float(c[-2])
+        if is_long:
+            if c[-1] > o_last and c[-1] > h[-2]:
+                return TURN_CONFIRMED, "pullback low confirmed + bullish trigger bar"
+            return TURN_NOT_CONFIRMED, "structure turned, awaiting bullish trigger bar"
+        if c[-1] < o_last and c[-1] < lo[-2]:
+            return TURN_CONFIRMED, "pullback high confirmed + bearish trigger bar"
+        return TURN_NOT_CONFIRMED, "structure turned, awaiting bearish trigger bar"
+    except Exception:  # noqa: BLE001 — a timing helper must never raise
+        return TURN_UNREAD, "confirmation check error"
+
+
 def subdegree_turn_confirmed(
     direction: str,
     highs: Sequence[float],
@@ -69,46 +130,13 @@ def subdegree_turn_confirmed(
 ) -> tuple[bool, str]:
     """True when the sub-degree series confirms the turn in ``direction``.
 
-    Requires BOTH the structural condition (newest confirmed ZigZag pivot
-    opposes the pullback: a low for LONG, a high for SHORT) and the
-    trigger candle (last closed bar takes out the prior bar's extreme in
-    the trade direction). Returns (confirmed, reason).
+    `turn_reading` collapsed to two values for the gates, which only ask
+    whether to fire: anything but a confirmed turn is False. Returns
+    (confirmed, reason).
     """
-    try:
-        from bot.core.elliott import atr_zigzag_pivots
-
-        n = len(closes)
-        if n < 10:
-            return False, "insufficient sub-degree history"
-        h = np.asarray(highs, dtype=float)
-        lo = np.asarray(lows, dtype=float)
-        c = np.asarray(closes, dtype=float)
-        piv = atr_zigzag_pivots(h, lo, c, atr_mult=zigzag_atr_mult)
-        swing_highs = piv.get("swing_highs") or []
-        swing_lows = piv.get("swing_lows") or []
-        if not (swing_highs or swing_lows):
-            return False, "no confirmed structural pivot yet"
-        last_high_i = swing_highs[-1][0] if swing_highs else -1
-        last_low_i = swing_lows[-1][0] if swing_lows else -1
-
-        is_long = direction == "LONG"
-        # 1. STRUCTURE: newest pivot must oppose the pullback.
-        if is_long and last_low_i <= last_high_i:
-            return False, "sub-degree pullback low not confirmed yet"
-        if (not is_long) and last_high_i <= last_low_i:
-            return False, "sub-degree pullback high not confirmed yet"
-
-        # 2. TRIGGER: last closed bar takes out the prior bar's extreme.
-        o_last = float(opens[-1]) if opens is not None else float(c[-2])
-        if is_long:
-            if c[-1] > o_last and c[-1] > h[-2]:
-                return True, "pullback low confirmed + bullish trigger bar"
-            return False, "structure turned, awaiting bullish trigger bar"
-        if c[-1] < o_last and c[-1] < lo[-2]:
-            return True, "pullback high confirmed + bearish trigger bar"
-        return False, "structure turned, awaiting bearish trigger bar"
-    except Exception:  # noqa: BLE001 — a timing helper must never raise
-        return False, "confirmation check error"
+    state, reason = turn_reading(direction, highs, lows, closes, opens=opens,
+                                 zigzag_atr_mult=zigzag_atr_mult)
+    return state == TURN_CONFIRMED, reason
 
 
 def auto_entry_allowed(

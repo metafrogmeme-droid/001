@@ -971,6 +971,11 @@ class RuneClawEngine:
         # candles (scoped to ENTRY_TIMING_REGIMES). The auto-confirm loops DEFER
         # an unconfirmed autonomous entry; capped so it can never grow unbounded.
         self._pending_timing: dict[str, tuple] = {}
+        # The same check as information for the person deciding, in every
+        # regime: `entry_timing.turn_reading` on the analysed timeframe's closed
+        # bars, ``(state, reason, timeframe)``, three-valued. The cards read it
+        # (`bot/formatters/timing_line.py`); no gate does.
+        self._pending_turn: dict[str, tuple] = {}
         self._pending_pyramid: dict[str, bool] = {}  # Track pyramid add flags
         # Single-flight scan lock. With PTB concurrent_updates ON, two Telegram
         # updates (two 'Latest Signal' taps, or a tap + /forcescan) can enter
@@ -3611,6 +3616,7 @@ class RuneClawEngine:
             self._manual_margin_override.clear()
         self._pending_atr.clear()
         self._pending_timing.clear()
+        self._pending_turn.clear()
         self._pending_pyramid.clear()
         accounts = await self.flatten_all_positions(reason=reason)
         audit(system_log, f"GLOBAL KILL-SWITCH engaged: {reason}",
@@ -8126,6 +8132,8 @@ class RuneClawEngine:
             self._pending_timing[idea.id] = (True, "fail-safe")
         if len(self._pending_timing) > 500:  # backstop; ids are unique per idea
             self._pending_timing.clear()
+        # The turn itself, in every regime, for the card a person taps from.
+        self._record_turn(idea, ohlcv, timeframe)
 
         # MTF entry refinement: zoom into 15m for better entry within zone
         _t0 = time.monotonic()
@@ -8134,6 +8142,28 @@ class RuneClawEngine:
         self._stage_add("refine", time.monotonic() - _t0)
 
         return idea
+
+    def _record_turn(self, idea: TradeIdea, ohlcv, timeframe: str) -> None:
+        """Record whether the sub-degree turn is confirmed for ``idea`` on the
+        candles it was analysed on: ``_pending_turn[idea.id] = (state, reason,
+        timeframe)``, `entry_timing.turn_reading`'s three values.
+
+        The autonomous gate (`_pending_timing`) asks the same check only in
+        ENTRY_TIMING_REGIMES and fails open. This is not a gate: it is read by
+        the cards a person taps from (`bot/formatters/timing_line.py`), in
+        every regime, and "not read" is its own state there. Never raises.
+        """
+        from bot.core.entry_timing import TURN_UNREAD, turn_reading
+        try:
+            state, why = turn_reading(
+                getattr(idea.direction, "value", "") or str(idea.direction),
+                [float(r[2]) for r in ohlcv], [float(r[3]) for r in ohlcv],
+                [float(r[4]) for r in ohlcv], opens=[float(r[1]) for r in ohlcv])
+            self._pending_turn[idea.id] = (state, why, timeframe)
+        except Exception:
+            self._pending_turn[idea.id] = (TURN_UNREAD, "confirmation check error", timeframe)
+        if len(self._pending_turn) > 500:  # the same backstop as the gate's
+            self._pending_turn.clear()
 
     @staticmethod
     def _human_confirmed(user_id: str) -> bool:
@@ -9759,6 +9789,7 @@ class RuneClawEngine:
             self._drop_pending_idea(_eid)
             self._pending_atr.pop(_eid, None)
             self._pending_timing.pop(_eid, None)
+            self._pending_turn.pop(_eid, None)
             self._pending_pyramid.pop(_eid, None)
         self._engine_idea_ids.clear()
         self._cooldown_until = 0.0

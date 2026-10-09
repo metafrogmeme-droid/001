@@ -19478,6 +19478,36 @@ Not yet on the line: `/scan`'s rows, `/scan SYM`, the drift re-offer, the
 manual ticket's review card and the website. Eighteen mutants, all killed.
 (`tests/test_an_idea_card_carries_its_class_live_record.py`.)
 
+**THE TURN CHECK THE BOT RAN FOR EVERY IDEA REACHED NOBODY WHO TAPS.** For
+every idea it analyses, the engine checks whether the sub-degree turn is
+confirmed: a confirmed ZigZag pullback pivot, then a with-trade trigger bar on
+the last closed candle. It used the answer to defer autonomous entries in
+TREND_DOWN, and every live order since 29 September has been a tap. The
+reading is on the card now: "⏱ Entry timing (1h, closed bars): turn not
+confirmed yet (structure turned, awaiting bullish trigger bar)". It is on the
+analyze card, the pushed signal caption and `/latest_signal`. It is
+information, not a gate and not a default: the frozen-benchmark re-measure
+split by window.
+
+- **Three values, not two.** The gates ask a two-valued question, whether to
+  fire, and "insufficient sub-degree history" and "confirmation check error"
+  both answered no. That is right for a gate and wrong for a sentence to a
+  person: a check that could not be made is not a turn that has not happened.
+  `entry_timing.turn_reading` returns confirmed, not confirmed, or not read,
+  and `subdegree_turn_confirmed` is that reading collapsed for the gates,
+  output for output.
+- **In every regime.** The gate's record (`_pending_timing`) says only "gate
+  inactive" outside ENTRY_TIMING_REGIMES. `_record_turn` keeps the reading
+  itself, on the analysed timeframe's closed bars, with the timeframe. It is
+  cleared with the gate's record at the kill switch and the scan's drop.
+- **An idea the engine never analysed has no reading,** and its card says
+  nothing about timing.
+
+The scan-time drop of a reading is not counted among the mutants. An id is
+never reused and the 500 backstop bounds the map, so a stale entry is never
+read: an equivalent mutant. Fourteen mutants, all killed.
+(`tests/test_an_idea_card_says_whether_its_turn_is_confirmed.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -20985,7 +21015,7 @@ the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
 Driven, **480 of 1255** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 480 is a FLOOR and the honest shape is
+source scan that rule does not see, so 481 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next

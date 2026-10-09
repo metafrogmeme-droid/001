@@ -944,9 +944,13 @@ class AnalyzeAssetSkill(BaseSkill):
         # setup's (`class_record_line`: the operator's book to the operator
         # only, a linked user's own book, otherwise nothing).
         from bot.formatters.class_record import class_record_line
+        from bot.formatters.timing_line import entry_timing_line
         _uid = kwargs.get("user_id")
         _class = class_record_line(engine, _uid, idea.asset) if _uid else None
-        _rec_lines = [_esc(x) for x in (_record, _class) if x]
+        # Whether the turn is confirmed on the analysed closed bars: the check
+        # the autonomous gate takes, as information for the person tapping.
+        _timing = entry_timing_line(engine, idea)
+        _rec_lines = [_esc(x) for x in (_record, _class, _timing) if x]
         record_line = ("\n".join(_rec_lines) + "\n\n") if _rec_lines else ""
 
         return (
