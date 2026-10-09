@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import time
 
-from bot.backtest.engine import BacktestEngine
+from bot.backtest.engine import BacktestEngine, BreakerResetClock
 from bot.backtest.models import BacktestConfig, BacktestResult, EquityPoint
 from bot.backtest.positions import positions
 from bot.config import CONFIG
@@ -159,9 +159,14 @@ class PortfolioBacktester:
             ]
 
         snap_counter = 0
-        for ts in timeline:
-            # Simulated clock: cooldown-after-loss must elapse in BAR time.
+        breaker_reset = BreakerResetClock(self.config.breaker_reset_bars)
+        for step, ts in enumerate(timeline):
+            # Simulated clock: cooldown-after-loss must elapse in BAR time,
+            # and the daily P&L must roll over on the BAR's day.
             self._risk.set_sim_time(ts)
+            self._portfolio.set_sim_time(ts)
+            # One step per timeline bar, as run() takes one per bar.
+            breaker_reset.step(self._risk, step)
             for sym, bars in streams.items():
                 i = idx[sym]
                 if i >= len(bars) or bars[i].timestamp != ts:
