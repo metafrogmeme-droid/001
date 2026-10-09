@@ -21901,6 +21901,36 @@ report itself names.
 (`tests/test_the_bot_reports_the_venues_it_holds.py`,
 `app/test/the_keys_card_shows_what_the_bot_holds.test.js`.)
 
+**A SWITCH NAMED FOR STOCK TRADING TURNED NOTHING OFF.** Live `/parity` on 9
+October, 232 strategy exits: Stock 52 trades, 23% won, PF 0.19; ETF 11
+trades, PF 0.03; Crypto 159 trades, 45% won, PF 0.73. No benchmark has ever
+held an equity perp. The owner chose that the house strategy stops
+auto-trading stocks and ETFs, and that every class stays scannable and
+tradeable by hand. `STOCK_TRADING_ENABLED` already existed, defaulted on, and
+was read nowhere.
+
+The first candidate was the scan's own class switch (`SCAN_CLASS_STOCKS=0`).
+It would have hidden stocks from the scan, the cards and a person's Confirm
+tap along with the engine, the opposite of what was asked. The confirm path
+was the second candidate and is wrong too: a stock idea card would have kept
+its Confirm button and refused the tap behind it. What was asked is narrower,
+the autonomous confirm, and it has one reading already:
+`_auto_confirm_suppressed`, asked by the tick and by `/forcescan`.
+`autonomous_class_refusal` is asked there now, beside the stamp rule and
+recorded apart from it (`SUPPRESSED_CLASS`), because the stamp rule is also
+the learners' (`confidence_basis`) and a stock's confidence is a measurement.
+The class is `category_for_symbol`'s, the reading `/parity`'s asset-class rows
+take, so the gate and the evidence agree about what a stock is. The session
+gate reads the same class tuple (`EQUITY_PERP_CLASSES`), and the `/autoconfirm`
+card names the exception while it holds. Off by default; the earlier stock
+sample said the opposite (PF 1.23 on 18 in July), so it is recorded as a
+default, not a verdict. What it does not do today, said so nobody reads it
+as more: an autonomous live order also needs an eligibility record
+(`live_eligibility`, none ships), so every live order since 29 September
+is a tap, and the backtest executes every approved idea without asking
+this. It takes effect with autonomy. Ten mutants, all killed.
+(`tests/test_the_house_does_not_auto_trade_stocks.py`.)
+
 ## Deploying so a dead bot cannot look like a live one
 
 **There are TWO processes and only one of them was ever being started.**
