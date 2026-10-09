@@ -186,12 +186,16 @@ def test_committed_scorecards_are_the_rerun_of_these_rules():
         with open(os.path.join(_SC_DIR, f"{slug}.json"), encoding="utf-8") as fh:
             card = json.loads(fh.read())
         assert card["gates"] == scorecard_gates(cfg), slug
-        res = _run_one(key, cfg, dataset, symbols, 1500)
+        # Re-run with the breaker reset the card records, and the trip count
+        # is part of what reproduces.
+        res = _run_one(key, cfg, dataset, symbols, 1500,
+                       breaker_reset_bars=card["breaker"]["reset_bars"])
         got = {}
         for mk in _METRIC_KEYS:
             v = res.get(mk)
             got[mk] = round(v, 4) if isinstance(v, (int, float)) else v
         assert got == card["metrics"], (slug, got, card["metrics"])
+        assert res["breaker_trips"] == card["breaker"]["trips"], slug
 
 
 def test_lab_run_request_accepts_preset_gates():

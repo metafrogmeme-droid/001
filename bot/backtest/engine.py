@@ -1986,6 +1986,11 @@ class BacktestEngine:
             total_limits_filled_same_bar=self._limits_filled_same_bar,
             total_limits_expired=self._limits_expired,
             total_limits_cancelled_drift=self._limits_cancelled_drift,
+            # The portfolio loop compiles through its first engine, whose
+            # risk engine is the one every symbol shares, so this is the
+            # whole run's count on both loops.
+            breaker_trips=int(self.risk.stats["circuit_breaker_trips"]),
+            breaker_reset_bars=int(self.config.breaker_reset_bars),
             rejections_by_gate=dict(self._rejections_by_gate),
             stateful_rejections=sum(
                 c for g, c in self._rejections_by_gate.items()

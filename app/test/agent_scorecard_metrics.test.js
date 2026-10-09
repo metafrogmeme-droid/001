@@ -153,6 +153,7 @@ function cardFrom(file) {
     bars: raw.bars,
     unmodeled: raw.unmodeled,
     metrics: raw.metrics,
+    breaker: raw.breaker,
   };
 }
 
@@ -462,4 +463,60 @@ test('a refused eligibility record is said as refused, not as none', () => {
   assert.match(text, /record filed for this preset was refused/);
   assert.doesNotMatch(text, /no eligibility record/i);
   assert.match(Score.withheldText('below_one'), /no eligibility record says this preset survives/);
+});
+
+test('a card says how often its breaker tripped and the reset it modelled', () => {
+  // The cards model an operator's reset after 24 bars
+  // (scripts/gen_agent_scorecards.py::CARD_BREAKER_RESET_BARS). A figure
+  // measured with that assumption says so beside itself, with the trip count.
+  const m = {
+    total_return_pct: -1, profit_factor: 0.9, win_rate: 0.4,
+    max_drawdown_pct: 2, sharpe_ratio: -0.2, total_trades: 40,
+  };
+  const card = (breaker) => ({ dataset: 'majors_1h', bars: 1500, dataset_hash: 'abc', metrics: m, breaker });
+  for (const [name, render] of [['dashboard', scoreBlock], ['strategy page', strategyBlock]]) {
+    const three = render(card({ reset_bars: 24, trips: 3 }));
+    assert.match(three, /data-breaker-trips="3"/, name);
+    assert.match(three, /Breaker tripped 3 times, reset after 24 bars as an operator would/, name);
+    assert.match(render(card({ reset_bars: 24, trips: 1 })), /Breaker tripped once, reset after 24 bars/, name);
+    // A measured 0 is a count.
+    assert.match(render(card({ reset_bars: 24, trips: 0 })), /data-breaker-trips="0">Breaker never tripped</, name);
+    assert.match(render(card({ reset_bars: 0, trips: 1 })), /Breaker tripped once, no reset modelled/, name);
+    // A card recorded before the block, or with a block that is not two
+    // counts, says nothing about the breaker: not "never tripped".
+    for (const absent of [undefined, null, { reset_bars: 24 }, { reset_bars: 24, trips: '3' }, { reset_bars: true, trips: 3 }]) {
+      const html = render(card(absent));
+      assert.doesNotMatch(html, /data-breaker-trips|Breaker/, name + ' ' + JSON.stringify(absent));
+    }
+  }
+});
+
+test('the frozen cards print the breaker they were recorded with', () => {
+  // Full Scan tripped twice on its window with the 24-bar reset; the four
+  // other presets never did. A drawn number, from the cards this branch ships.
+  assert.match(strategyBlock(cardFrom('full-scan.json')),
+    /data-breaker-trips="2">Breaker tripped 2 times, reset after 24 bars as an operator would</);
+  assert.match(scoreBlock(cardFrom('dip-sniper.json')), /data-breaker-trips="0">Breaker never tripped</);
+});
+
+test('the compact cards carry the same reading as a chip', () => {
+  assert.equal(Score.breakerHtml({ reset_bars: 24, trips: 3 }, true),
+    '<span class="chip" data-breaker-trips="3">Breaker 3× · reset 24 bars</span>');
+  assert.equal(Score.breakerHtml({ reset_bars: 0, trips: 1 }, true),
+    '<span class="chip" data-breaker-trips="1">Breaker 1× · no reset</span>');
+  assert.equal(Score.breakerHtml({ reset_bars: 24, trips: 0 }, true),
+    '<span class="chip" data-breaker-trips="0">Breaker never tripped</span>');
+  assert.equal(Score.breakerHtml(undefined, true), '');
+  // The Agents grid, the landing page and Compare render inline in their
+  // pages; the shape a drive does not reach is that each hands the card's own
+  // block to the shared reading.
+  const { codeOnly } = require('./helpers/code_only');
+  for (const [file, call] of [
+    ['agents.html', 'AgentScorecard.breakerHtml(cardSc.breaker, true)'],
+    ['index.html', 'AgentScorecard.breakerHtml(a.scorecard && a.scorecard.breaker, true)'],
+    ['compare.html', 'AgentScorecard.breakerHtml(sc.breaker, true)'],
+  ]) {
+    const src = codeOnly(fs.readFileSync(path.join(APP, 'public', file), 'utf8'));
+    assert.equal(src.split(call).length - 1, 1, file);
+  }
 });

@@ -1419,8 +1419,9 @@ section above says about `corr_dense_1h` with numbers on this snapshot.
 ### The record halts on its first losing streak, and a replay was one day long (2026-10-09)
 
 Full Scan's card (`majors_1h`, BTC/ETH/SOL, the last 1,500 bars, `--honest`)
-reads −4.15%, PF 0.21 on 9 trades, flat for the last three quarters of the
-run. Re-run with the gate rejections printed: a five-loss streak tripped the
+read −4.15%, PF 0.21 on 9 trades, flat for the last three quarters of the
+run. (Re-recorded on 9 October with a 24-bar breaker reset: see "The cards
+model an operator's reset" below.) Re-run with the gate rejections printed: a five-loss streak tripped the
 breaker after the ninth trade, and CIRCUIT_BREAKER refused the next 86 ideas.
 A streak trip is manual-reset live (`/resume`); a replay has no operator, so
 the card measures the strategy up to its first losing streak. Three defects
@@ -1449,8 +1450,8 @@ upper bound on trading, not live). Discovery data, every window already read:
 
 | run | trades | PF | mean OOS (profitable folds) |
 |---|---:|---:|---|
-| card window, as recorded | 9 | 0.21 | −4.15% (one window) |
-| card window, de-halted | 40 | 0.88 | −1.75% (one window) |
+| card window, as recorded before 9 October (no reset) | 9 | 0.21 | −4.15% (one window) |
+| card window, de-halted (the card since 9 October) | 40 | 0.88 | −1.75% (one window) |
 | `majors_1h`, as recorded | 125 | 0.62 | −2.43% (1/6) |
 | `majors_1h`, de-halted | 339 | 0.73 | −4.94% (2/6) |
 
@@ -1541,6 +1542,30 @@ The default is not better than off: better on two snapshots, worse on two
 profitable folds never down) and fails on both v3, the newest data (−1.39pp
 and −0.17pp). It trades about 40% less. Discovery data throughout; the default
 is not changed here.
+
+### The cards model an operator's reset (2026-10-09)
+
+The owner chose that the strategy cards model an operator who resets a tripped
+breaker a day later: `scripts/gen_agent_scorecards.py` runs every card with
+`--breaker-reset-bars 24` (`CARD_BREAKER_RESET_BARS`). Each card records the
+reset and how often the breaker opened (`breaker`), every card surface prints
+both, and "Reproduce in Lab" re-runs with the card's own reset. Same window as
+before (`majors_1h`, BTC/ETH/SOL, the last 1,500 bars, honest):
+
+| card | before (no reset) | re-recorded (24-bar reset) | breaker trips |
+|---|---|---|---:|
+| Full Scan | −4.15%, PF 0.21, 9 trades | −1.75%, PF 0.88, 40 trades | 2 |
+| Dip Sniper | +3.24%, PF 1.62, 13 trades | unchanged | 0 |
+| Momentum Hunter | +0.45%, PF 1.80, 3 trades | unchanged | 0 |
+| Safe Scalper | −0.18%, PF 0.00, 1 trade | unchanged | 0 |
+| ETH MA trend | −2.50%, PF 0.00, 1 trade | unchanged | 0 |
+
+Only the house card moves, because only its run tripped. Its max drawdown
+rises from 4.39% to 5.32%. It still loses per trade, so it stays withheld
+from follow (profit factor below 1). The reset is an assumption about an
+operator, not live behaviour: live, a streak or drawdown trip waits for
+`/resume`. The frozen record (`benchmark/majors_1h/result.json`) is not a
+card and is not re-recorded.
 
 ## Refreshing the snapshot
 

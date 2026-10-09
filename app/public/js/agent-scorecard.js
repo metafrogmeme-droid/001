@@ -121,6 +121,38 @@
     return '<span data-folds="' + state + '">Folds ' + esc(read.text) + '</span>';
   }
 
+  /**
+   * The circuit breaker the card's run modelled: how many times it opened and
+   * the reset the run assumed. Absent, or a block that is not two integer
+   * counts, is null and prints nothing: a card recorded before the block is
+   * not "never tripped". A measured 0 is a real count.
+   */
+  function breakerReading(breaker) {
+    if (breaker == null || typeof breaker !== 'object') return null;
+    const reset = count(breaker.reset_bars);
+    const trips = count(breaker.trips);
+    if (reset === null || trips === null) return null;
+    let text;
+    let short;
+    if (trips === 0) {
+      text = 'Breaker never tripped';
+      short = text;
+    } else {
+      text = 'Breaker tripped ' + (trips === 1 ? 'once' : trips + ' times')
+        + (reset > 0 ? ', reset after ' + reset + ' bars as an operator would' : ', no reset modelled');
+      short = 'Breaker ' + trips + '× · ' + (reset > 0 ? 'reset ' + reset + ' bars' : 'no reset');
+    }
+    return { text: text, short: short, reset_bars: reset, trips: trips };
+  }
+
+  /** The sentence for a provenance line, or with `compact` the chip a tile row carries. */
+  function breakerHtml(breaker, compact) {
+    const read = breakerReading(breaker);
+    if (!read) return '';
+    return '<span' + (compact ? ' class="chip"' : '') + ' data-breaker-trips="' + read.trips + '">'
+      + esc(compact ? read.short : read.text) + '</span>';
+  }
+
   function discoveryHtml(mark) {
     if (mark !== 'discovery') return '';
     return '<span class="chip" data-mark="discovery">discovery data</span>';
@@ -228,6 +260,10 @@
         signal_confidence: g.signal_confidence,
         sl_atr_mult: g.sl_atr_mult,
         tp_atr_mult: g.tp_atr_mult,
+        // How the card's run was measured, not a gate: the breaker reset it
+        // modelled. Absent on a card recorded before it, and left out then,
+        // so the Lab runs its default (0), which is what that card ran.
+        breaker_reset_bars: breakerReading(sc.breaker) ? sc.breaker.reset_bars : undefined,
       },
     };
   }
@@ -250,6 +286,8 @@
     count: count,
     foldReading: foldReading,
     foldHtml: foldHtml,
+    breakerReading: breakerReading,
+    breakerHtml: breakerHtml,
     discoveryHtml: discoveryHtml,
     tradesText: tradesText,
     followOffer: followOffer,

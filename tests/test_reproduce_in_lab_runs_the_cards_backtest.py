@@ -25,7 +25,7 @@ import pytest
 
 from bot.api.lab import LabRunRequest, _preset_gate_args
 from bot.skills.skill_registry import RunStrategySkill
-from scripts.gen_agent_scorecards import _gate_args, _slug, scorecard_gates
+from scripts.gen_agent_scorecards import _gate_args, _slug, breaker_args, scorecard_gates
 
 ROOT = Path(__file__).resolve().parent.parent
 CARDS = sorted((ROOT / "benchmark" / "scorecards").glob("*.json"))
@@ -69,8 +69,10 @@ def _lab_flags(body: dict) -> dict:
     return flags
 
 
-def _generator_flags(cfg: dict) -> dict:
-    flags = _flags(_gate_args(cfg))
+def _generator_flags(cfg: dict, card: dict) -> dict:
+    """The flags the generator ran this card with: the preset's gates and the
+    breaker reset the card records (`breaker.reset_bars`)."""
+    flags = _flags(_gate_args(cfg) + breaker_args(card["breaker"]["reset_bars"]))
     flags.setdefault("--confidence-threshold", 0.0)   # the runner's default
     return flags
 
@@ -86,9 +88,9 @@ def test_every_card_is_a_preset_and_carries_the_gates_it_was_measured_with():
 def test_the_lab_request_runs_the_generators_flags_for_every_card():
     cards = [json.loads(p.read_text()) for p in CARDS]
     bodies = _lab_bodies(cards)
-    for path, body in zip(CARDS, bodies):
+    for path, card, body in zip(CARDS, cards, bodies):
         assert body is not None, f"{path.stem}: the card builds no Lab request"
-        assert _lab_flags(body) == _generator_flags(_PRESETS[path.stem]), path.stem
+        assert _lab_flags(body) == _generator_flags(_PRESETS[path.stem], card), path.stem
 
 
 def test_the_two_presets_that_dropped_out_now_carry_their_runs():
@@ -121,3 +123,35 @@ def test_an_ma_run_without_its_sizing_is_refused_not_reported_as_zero_trades():
         dataset="x", ma_fast=50, ma_slow=200, ma_target_weight=1.0,
         ma_max_gross_leverage=1.0, ma_utilization=1.0, signal_confidence=0.7))
     assert "--ma-target-weight" in args and "--ma-signal-confidence" in args
+
+
+def test_the_lab_runs_the_breaker_reset_the_card_was_measured_with():
+    # A card measured with a 24-bar reset and re-run at 0 halts at the first
+    # trip: Full Scan's 40 trades would reproduce as 9 under the card's name.
+    cards = [json.loads(p.read_text()) for p in CARDS]
+    for card, body in zip(cards, _lab_bodies(cards)):
+        reset = card["breaker"]["reset_bars"]
+        assert body["breaker_reset_bars"] == reset, card["agent_id"]
+        flags = _lab_flags(body)
+        assert flags.get("--breaker-reset-bars") == (float(reset) if reset else None)
+    # A card from before the block sends nothing, so the Lab runs 0, as it did.
+    old = dict(cards[0])
+    old.pop("breaker")
+    (body,) = _lab_bodies([old])
+    assert "breaker_reset_bars" not in body
+    assert "--breaker-reset-bars" not in _lab_flags(body)
+
+
+def test_the_lab_refuses_a_breaker_reset_that_is_not_a_count():
+    from fastapi import HTTPException
+    from pydantic import ValidationError
+    for bad in (-1, 169):
+        with pytest.raises(HTTPException):
+            _preset_gate_args(LabRunRequest(dataset="x", breaker_reset_bars=bad))
+    for not_a_count in (True, 1.5, "24"):
+        with pytest.raises(ValidationError):
+            LabRunRequest(dataset="x", breaker_reset_bars=not_a_count)
+    assert _preset_gate_args(LabRunRequest(dataset="x", breaker_reset_bars=24)) == (
+        ["--breaker-reset-bars", "24"], {"breaker_reset_bars": 24})
+    assert _preset_gate_args(LabRunRequest(dataset="x", breaker_reset_bars=0)) == (
+        [], {"breaker_reset_bars": 0})

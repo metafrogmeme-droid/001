@@ -7819,10 +7819,11 @@
       + 'gap:10px 12px;align-items:start';
     const folds = window.AgentScorecard.foldHtml(sc.folds);
     const mark = window.AgentScorecard.discoveryHtml(sc.data_mark);
+    const breaker = window.AgentScorecard.breakerHtml(sc.breaker);
     return '<div class="agent-metrics" style="' + gridStyle + '">' + grid + '</div>'
       + book + low
       + '<p class="muted" style="font-size:10px;margin:4px 0 0">' + prov + unmodeled + '</p>'
-      + '<p class="muted" style="font-size:10px;margin:4px 0 0">' + folds + ' ' + mark + '</p>';
+      + '<p class="muted" style="font-size:10px;margin:4px 0 0">' + folds + (breaker ? ' · ' + breaker : '') + ' ' + mark + '</p>';
   }
   // ── agent scorecard: renderer end ────────────────────────────────────
 

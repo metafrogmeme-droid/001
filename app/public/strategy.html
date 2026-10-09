@@ -53,7 +53,7 @@
   <div id="sa-root"><div class="empty" data-i18n="st.loading">Loading strategy agent…</div></div>
 </div>
 
-<script src="/js/agent-scorecard.js?v=6"></script>
+<script src="/js/agent-scorecard.js?v=7"></script>
 <script>
 (function () {
   var esc = function (s) {
@@ -146,9 +146,10 @@
       + (sc.dataset_hash ? ' · #' + esc(sc.dataset_hash) : '');
     var folds = window.AgentScorecard.foldHtml(sc.folds);
     var mark = window.AgentScorecard.discoveryHtml(sc.data_mark);
+    var breaker = window.AgentScorecard.breakerHtml(sc.breaker);
     return '<div class="sc"><div class="sc-grid">' + grid + '</div>' + low
       + '<p class="prov">' + prov + '</p>'
-      + '<p class="prov">' + folds + ' ' + mark + '</p></div>';
+      + '<p class="prov">' + folds + (breaker ? ' · ' + breaker : '') + ' ' + mark + '</p></div>';
   }
   // ── strategy scorecard renderer end ──
 

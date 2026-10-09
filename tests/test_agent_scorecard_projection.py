@@ -37,6 +37,10 @@ def _runner(**over):
         "total_trades": 2,
         "net_pnl": -12.5,
         "final_equity": 9987.5,
+        # The breaker, as the runner reports it (`BacktestResult`), at the
+        # reset the cards model.
+        "breaker_reset_bars": 24,
+        "breaker_trips": 2,
         "trade_breakdown": [
             {"direction": "SHORT", "regime": "TREND_DOWN", "setup": "swing",
              "signal_type": "regime_trend", "exit_reason": "SL",

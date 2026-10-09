@@ -960,7 +960,7 @@
 <script src="/js/theater.js?v=2" defer></script>
 <!-- Before the inline script below: its catalogue fetch can answer before the
      parser reaches a later tag, and the cards then painted with no painter. -->
-<script src="/js/agent-scorecard.js?v=6"></script>
+<script src="/js/agent-scorecard.js?v=7"></script>
 <script>
 // Hero email-capture: the primary conversion action lives above the fold. It
 // does NOT duplicate any auth logic — it prefills the real register form's email,
@@ -1149,6 +1149,7 @@
           + (window.AgentScorecard ? AgentScorecard.foldHtml(a.scorecard && a.scorecard.folds) : '<span data-folds="unmeasured">Folds unmeasured</span>')
           + '</span></div>'
           + (window.AgentScorecard ? AgentScorecard.discoveryHtml(a.scorecard && a.scorecard.data_mark) : '')
+          + (window.AgentScorecard ? AgentScorecard.breakerHtml(a.scorecard && a.scorecard.breaker, true) : '')
           + '</div>' : '';
         return '<a class="feature mkt-card" href="/agents/' + encodeURIComponent(a.id) + '">'
           + '<div class="mkt-h"><span class="mkt-emo">'
