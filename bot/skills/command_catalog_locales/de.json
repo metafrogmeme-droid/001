@@ -143,6 +143,7 @@
     "shadow": "kontrafaktisches Schattenbuch",
     "audit": "nächtlicher Selbst-Audit-Bericht",
     "parity": "Parität Live ↔ Backtest",
+    "duplicates": "doppelt gebuchte Schließungen in den Büchern des Betreibers",
     "attribution": "welche Indikatoren die Gewinne treiben",
     "slippage": "Slippage-Statistiken",
     "accounts": "Risiko-Snapshot pro Konto",

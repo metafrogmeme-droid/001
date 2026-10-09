@@ -21042,7 +21042,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **483 of 1258** reach for source text through `source_scan`, `code_only`
+Driven, **483 of 1259** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 483 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -21964,6 +21964,59 @@ Bitget's account-info reply, the venue and `_place_sl_tp` are stand-ins.
 Twenty-three mutants, all killed.
 (`tests/test_one_account_one_executor.py`,
 `tests/test_a_fill_with_no_stop_on_record_gets_one.py`.)
+
+**AND THE CLOSE IT BOOKED TWICE STAYED BOOKED TWICE.** Refusing the second
+executor stopped a new duplicate; it took back nothing already written. The
+OPEN/USDT short closed once, and two books recorded it. At 18:05 the Close
+button resolved `_caller_executor` to the per-user book, which did not hold the
+position, so its exchange-direct path wrote a `TI-manual-…` row into
+`closed_trades_<id>.json` and the journal under the operator's id. At 18:11 the
+operator book's adopted record booked its own close: the ledger, the journal,
+the learning store, the risk feed and the public channels. Each ledger held one
+row, so neither ledger's guard (`_is_duplicate_close_booking`, which compares a
+booking with its own book) could see the other. The journal held both, and its
+weekly review sums every account. The per-user ledger outlives `/disconnect`
+(only the cached executor is dropped), so any book built for that id later
+would load the operator account's trade as its own.
+
+`/duplicates` (`bot.core.duplicate_closes`) reads the operator's ledger as the
+reference and searches only books of the operator's account: one whose keys
+`check_operator_account_links` found open it, or an operator id's book with no
+keys linked now (after `/disconnect`), which the card says so the operator can
+judge. An operator id's book still holding keys that check did not find open the
+operator's account may be a second account of the operator's own, where the
+same trade is a second trade; it is not compared, and the card names it. The
+first draft searched every operator id's book and printed "its keys are not
+linked now" without asking the store, a sentence about a key nobody read. A
+follower's copy of the same trade at the same price is a second trade on
+another account, and is never searched. A record read in part
+compares nothing: a row missing from it would make its twin look like the only
+copy. The match (`same_exchange_close`) is the booking guard's own thresholds,
+now named once in the executor (`SAME_CLOSE_ENTRY_TOL`, `SAME_CLOSE_WINDOW_S`):
+same symbol and side, closes within two hours, neither entered after the other
+closed (`entered_at`: a limit is held from its fill, not its placement), and the
+entries within 0.05% or both holding periods known. Only filled
+closes are compared, on both sides (`is_filled_close`): every ledger also holds
+the limits that expired or were cancelled, and the first draft compared those
+too, so a real close in a second book read as the duplicate of an order that
+expired at its price in the operator's, and one tap would have struck the only
+record of a trade. A re-read of the draft against what a live ledger holds
+found it; no fixture had an expired row in it. A tap
+strikes one duplicate after reading the books again. Its ledger row (through
+the live executor when one holds the book, so its next save cannot write it
+back) and its journal row (`TradeJournal.strike`, exact owner only) move to
+`struck_closes.json`, with what they duplicated, who struck them and when. A
+row that could not be kept there is not taken out. Both files are written
+through `update_json_store`, so a file that will not read is never written
+over, and rows the ledger could not parse are written back as they were.
+
+Driven: the 8 October books in the executor's own file format, the real
+journal, and the real `/duplicates` command and `dupstrike:` button through
+`TelegramHandler`. Twenty-seven mutants, all killed; the first round left three
+standing on fixtures that could not tell them apart (a "too far apart" case
+the re-entry check also caught, a re-entry the window also caught, and an
+unreadable row that happened to be a dict).
+(`tests/test_a_close_booked_twice_is_struck_once.py`.)
 
 **"BALANCE: 0.00 USDT FREE" WAS A READING NOBODY MADE.** The connect card
 carries the key check's own detail as its Balance line, and all five probes

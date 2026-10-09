@@ -645,6 +645,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/shadow` | counterfactual shadow book — /shadow ladder and /shadow bounds for what the size controls would have done |
 | `/audit` | nightly self-audit report |
 | `/parity` | live ↔ backtest parity |
+| `/duplicates` | closes booked twice across the operator's books |
 | `/attribution` | which indicators drive wins |
 | `/slippage` | slippage statistics |
 | `/accounts` | risk snapshot per account |

@@ -143,6 +143,7 @@
     "shadow": "반사실적 섀도 장부",
     "audit": "야간 자체 감사 보고서",
     "parity": "실거래 ↔ 백테스트 정합성",
+    "duplicates": "운영자 장부에 두 번 기록된 청산",
     "attribution": "수익을 이끄는 지표",
     "slippage": "슬리피지 통계",
     "accounts": "계정별 리스크 스냅샷",

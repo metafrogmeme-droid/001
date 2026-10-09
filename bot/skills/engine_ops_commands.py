@@ -996,6 +996,23 @@ class EngineOpsCommands:
             text = text[:3990] + "\n…</pre>"
         await self._send(update, text)
 
+    async def _cmd_duplicates(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """Admin only: /duplicates — a close booked in the operator's book AND
+        in a second book of the operator's account (8 October: keys for the
+        same sub-account linked with /connect). Lists each with what it
+        duplicates; a tap strikes it (`dupstrike:`), which re-reads the books
+        first. The reading and the strike are `bot.core.duplicate_closes`."""
+        if not self._is_admin(update):
+            await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
+            return
+        from bot.core.duplicate_closes import duplicates_card, find_duplicate_closes
+
+        text, buttons = duplicates_card(find_duplicate_closes(self.engine))
+        kb = (InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data=f"dupstrike:{tok}")]
+                                    for label, tok in buttons])
+              if buttons else None)
+        await self._send(update, text, reply_markup=kb)
+
     @guard("admin")
     async def _cmd_autoconfirm(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/autoconfirm — view or set auto-confirm threshold.

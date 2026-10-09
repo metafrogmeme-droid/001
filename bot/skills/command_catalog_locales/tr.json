@@ -143,6 +143,7 @@
     "shadow": "karşı-olgusal gölge defter",
     "audit": "gecelik öz denetim raporu",
     "parity": "canlı ↔ geriye dönük test paritesi",
+    "duplicates": "operatörün defterlerinde iki kez kaydedilen kapanışlar",
     "attribution": "kazançları hangi göstergeler sürüklüyor",
     "slippage": "kayma istatistikleri",
     "accounts": "hesap başına risk anlık görüntüsü",

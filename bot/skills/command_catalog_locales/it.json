@@ -143,6 +143,7 @@
     "shadow": "libro ombra controfattuale",
     "audit": "report notturno di auto-audit",
     "parity": "parità live ↔ backtest",
+    "duplicates": "chiusure registrate due volte nei registri dell'operatore",
     "attribution": "quali indicatori guidano le vincite",
     "slippage": "statistiche di slippage",
     "accounts": "istantanea del rischio per account",

@@ -552,8 +552,8 @@ class TradeJournal:
             tags.append("swing")
 
         return tags
-    def _save(self) -> None:
-        """Persist journal to disk.
+    def _save(self) -> bool:
+        """Persist journal to disk. True when the write landed.
 
         A FAILED READ MUST NOT BE WRITTEN OVER. This wrote the in-memory list
         with open("w") whatever the load had managed: one row missing a key
@@ -583,26 +583,57 @@ class TradeJournal:
             # records, which is all that is known of their age.
             data = list(self._unreadable_rows)
             for e in self._entries[-KEEPS:]:
-                data.append({
-                    "trade_id": e.trade_id, "symbol": e.symbol,
-                    "direction": e.direction, "strategy_type": e.strategy_type,
-                    "entry": e.entry_price, "exit": e.exit_price,
-                    "sl": e.stop_loss, "tp": e.take_profit,
-                    "pnl": e.pnl, "pnl_pct": e.pnl_pct,
-                    "r_mult": e.r_multiple, "hold_hrs": e.holding_hours,
-                    "regime": e.regime, "session": e.session,
-                    "vol": e.volatility, "conf": e.confidence,
-                    "signals": e.signals_used, "exit_reason": e.exit_reason,
-                    "lessons": e.lessons, "tags": e.tags, "ts": e.timestamp,
-                    "venue": e.venue, "uid": e.user_id,
-                    "qty": e.quantity,
-                })
+                data.append(self._entry_to_row(e))
             # Compact, as it always was; atomic, as it was not.
             atomic_write_json(self._journal_file, data, separators=(", ", ": "))
+            return True
         except Exception as exc:
             # WARNING, not DEBUG: a journal write that did not land is a close
             # missing from the record, and at DEBUG nobody would ever see it.
             logger.warning("Journal save failed: %s", exc)
+            return False
+
+    @staticmethod
+    def _entry_to_row(e: "JournalEntry") -> dict:
+        """One entry as it is written to the file: the one shape `_save` and
+        `strike` both write."""
+        return {
+            "trade_id": e.trade_id, "symbol": e.symbol,
+            "direction": e.direction, "strategy_type": e.strategy_type,
+            "entry": e.entry_price, "exit": e.exit_price,
+            "sl": e.stop_loss, "tp": e.take_profit,
+            "pnl": e.pnl, "pnl_pct": e.pnl_pct,
+            "r_mult": e.r_multiple, "hold_hrs": e.holding_hours,
+            "regime": e.regime, "session": e.session,
+            "vol": e.volatility, "conf": e.confidence,
+            "signals": e.signals_used, "exit_reason": e.exit_reason,
+            "lessons": e.lessons, "tags": e.tags, "ts": e.timestamp,
+            "venue": e.venue, "uid": e.user_id,
+            "qty": e.quantity,
+        }
+
+    def strike(self, trade_id: str, *, user_id: str) -> Optional[dict]:
+        """Take out the entry recorded for ``trade_id`` under exactly
+        ``user_id``, and return it as written; None when there is none, or
+        when the journal without it could not be saved (it is then put back).
+
+        For a close the journal holds twice (`bot.core.duplicate_closes`).
+        The owner match is exact, unlike `find_trade`'s: an entry with no
+        owner, or another account's, is never taken out under this one.
+        """
+        tid, uid = str(trade_id or ""), str(user_id or "")
+        if not tid:
+            return None
+        for i in range(len(self._entries) - 1, -1, -1):
+            e = self._entries[i]
+            if e.trade_id != tid or str(e.user_id or "") != uid:
+                continue
+            del self._entries[i]
+            if not self._save():
+                self._entries.insert(i, e)
+                return None
+            return self._entry_to_row(e)
+        return None
 
     @staticmethod
     def _row_to_entry(d: dict) -> "JournalEntry":
