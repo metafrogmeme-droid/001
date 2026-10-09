@@ -504,7 +504,7 @@ class BacktestEngine:
             # guards (cooldown-after-loss) measure simulated elapsed time —
             # wall-clock would keep the cooldown armed for months of bars.
             self.risk.set_sim_time(current_bar.timestamp)
-            self.portfolio.set_sim_time(current_bar.timestamp)
+            self.portfolio.pin_replay_day(current_bar.timestamp)
 
             # Optional breaker auto-reset (BreakerResetClock).
             _breaker_reset.step(self.risk, i)

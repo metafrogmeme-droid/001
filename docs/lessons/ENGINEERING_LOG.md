@@ -21985,7 +21985,9 @@ on one "today". The risk engine already read the day in bar time
 (`set_sim_time`), and its day-rollover reset cleared the daily-loss breaker
 only for the book to re-trip it on the run's total: with the streak trip
 lifted, DAILY_LOSS refused 74 ideas on the same window. The tracker has the
-same `set_sim_time` now and one day rule, `_today_key`, for both ends.
+day pinned the same way now (`pin_replay_day`, named apart from the risk
+engine's `set_sim_time` so the reachability sweep can resolve both) and one
+day rule, `_today_key`, for both ends.
 
 `--breaker-reset-bars`, the option that emulates an operator resetting a
 tripped breaker, lived in `BacktestEngine.run()`. `PortfolioBacktester`, which

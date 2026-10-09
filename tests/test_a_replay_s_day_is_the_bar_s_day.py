@@ -37,11 +37,11 @@ DAY1 = datetime(2026, 5, 7, 12, 0, tzinfo=timezone.utc)
 
 def test_a_replay_keys_the_daily_pnl_by_the_bar_s_day():
     t = PortfolioTracker(initial_balance=10_000.0)
-    t.set_sim_time(DAY1)
+    t.pin_replay_day(DAY1)
     t._record_daily_pnl(-600.0)
     assert t.snapshot().daily_pnl == -600.0
     # The next replayed day starts at zero; the loss stays on its own day.
-    t.set_sim_time(DAY1 + timedelta(hours=13))
+    t.pin_replay_day(DAY1 + timedelta(hours=13))
     assert t.snapshot().daily_pnl == 0.0
     t._record_daily_pnl(-100.0)
     assert t.snapshot().daily_pnl == -100.0
@@ -59,7 +59,7 @@ def test_live_keeps_the_wall_clock_s_day():
 def test_the_bar_s_day_is_its_utc_day():
     t = PortfolioTracker(initial_balance=10_000.0)
     # 23:30 at UTC-5 is 04:30 the next day in UTC.
-    t.set_sim_time(datetime(2026, 5, 7, 23, 30, tzinfo=timezone(timedelta(hours=-5))))
+    t.pin_replay_day(datetime(2026, 5, 7, 23, 30, tzinfo=timezone(timedelta(hours=-5))))
     t._record_daily_pnl(-1.0)
     assert list(t._daily_pnl) == ["2026-05-08"]
 

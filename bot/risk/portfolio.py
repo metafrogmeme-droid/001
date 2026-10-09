@@ -107,7 +107,7 @@ class PortfolioTracker:
         self._history: list[TradeExecution] = []
         self._daily_pnl: dict[str, float] = {}  # date-string -> pnl
         # The replayed bar's UTC day while a backtest drives this tracker
-        # (`set_sim_time`); None live, where the day is the wall clock's.
+        # (`pin_replay_day`); None live, where the day is the wall clock's.
         self._sim_day: Optional[str] = None
         self._on_trade_close = on_trade_close  # callback for risk engine streak tracking
         self._lock = threading.RLock()
@@ -558,9 +558,12 @@ class PortfolioTracker:
 
     # -- Internal --
 
-    def set_sim_time(self, when: datetime) -> None:
+    def pin_replay_day(self, when: datetime) -> None:
         """Pin the day the daily P&L is keyed by to a replayed bar (backtest
         only). Live never calls this, so live keys by the wall clock as before.
+        Named apart from `RiskEngine.set_sim_time`, which pins a clock and not a
+        day: one name on two classes is a call the reachability sweep cannot
+        resolve (`tests/unreachable_methods_baseline.txt`).
 
         A REPLAY WAS ONE DAY LONG. The writer and the reader both keyed by
         `datetime.now(UTC)`, and a two-month replay runs in seconds, so every

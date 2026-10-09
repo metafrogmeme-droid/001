@@ -164,7 +164,7 @@ class PortfolioBacktester:
             # Simulated clock: cooldown-after-loss must elapse in BAR time,
             # and the daily P&L must roll over on the BAR's day.
             self._risk.set_sim_time(ts)
-            self._portfolio.set_sim_time(ts)
+            self._portfolio.pin_replay_day(ts)
             # One step per timeline bar, as run() takes one per bar.
             breaker_reset.step(self._risk, step)
             for sym, bars in streams.items():
