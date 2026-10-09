@@ -174,7 +174,8 @@ export async function verifySmithii({ cfg, record, authority, launchHint, rpcCal
     }
   }
 
-  // 4. The vault: the "Sending" figure, on chain. getAccountInfo rather than
+  // 4. The vault: hard cap / the STORED price, on chain (not the form's "Sending" figure, which
+  // divides by the typed price and is slightly lower). getAccountInfo rather than
   // getTokenAccountBalance, because a missing token account is an RPC ERROR on
   // the second and a clean `null` on the first — and "no vault" must not be
   // filed under "could not read".

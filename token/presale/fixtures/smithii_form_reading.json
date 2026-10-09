@@ -1,0 +1,15 @@
+{
+  "_comment": "A reading of Smithii's Create form, kept as data so the derivation is tested against what the form DID rather than against what the code expects. smithii_sale.test.mjs holds deriveSmithiiSale().formSendingBase to it.",
+  "measuredAt": "2026-10-09",
+  "basis": "A photograph of the form at step 3 of 4, sent by the operator. Step 3 shows only outputs. The inputs below are step 1's, as presale:smithii-plan told the operator to type them; they are NOT visible in the photo, so they are an assumption the outputs are consistent with (5,000 SOL / 0.00003333333 = 150,000,015.0000015; 1 / 0.00003333333 = 30,000.003).",
+  "inputs": {
+    "priceSol": "0.00003333333",
+    "hardCapSol": "5000"
+  },
+  "shown": {
+    "sending": "150.000.015 RCLAW",
+    "saleRate": "30.000 RCLAW/SOL",
+    "totalFees": "0.1 SOL"
+  },
+  "reading": "The form groups digits with '.', so 150.000.015 is 150,000,015 and 30.000 is 30,000 (a price of 0.0000333 SOL cannot sell 30 per SOL). 'Sending' is the hard cap divided by the price AS TYPED. It is not hard cap / the stored price (150,001,500.015), which is what the program is expected to move: that figure is not shown on the form and has not been measured on this sale."
+}

@@ -44,6 +44,7 @@ import {
   unitsToDecimal,
   validateSmithiiConfig,
 } from './smithii_lib.mjs';
+import { renderPlan } from './smithii_plan.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'smithii_launch_live.json'), 'utf8'));
@@ -125,7 +126,7 @@ test('Create escrows hard cap / price tokens: proven on a real third-party sale'
 test('what the form shows and what the sale pays, at the soft cap and the hard cap', () => {
   const d = deriveSmithiiSale(cfg());
   assert.equal(d.creationFeeSol, 0.1, 'no whitelist phase, so the 0.1 SOL creation fee');
-  assert.equal(d.escrowAtCreateBase, 150001500015000150n, 'the form\'s "Sending" line');
+  assert.equal(d.escrowAtCreateBase, 150001500015000150n, 'what the program takes: hard cap / the STORED price, not the form\'s "Sending" line');
   assert.equal(formatUnits(d.escrowAtCreateBase, d.decimals), '150,001,500.015');
 
   assert.equal(d.hardCap.smithiiFeeLamports, 125n * SOL);
@@ -156,6 +157,47 @@ test('the escrow is within a rounding step of the 150,000,000 allocation, and no
   const extra = d.escrowAtCreateBase - d.allocationBase;
   assert.ok(extra > 0n, 'a floored price sells slightly MORE than the round allocation');
   assert.equal(extra / 10n ** 9n, 1500n, '1,500 tokens: 0.001% of the allocation');
+});
+
+// ── the form's "Sending" line is not the vault figure ────────────────────────
+//
+// This file's expectations used to be computed from the SDK and the chain alone, and called the
+// form's "Sending" line the vault figure. A photograph of the live form (2026-10-09) showed
+// 150.000.015 instead: the hard cap divided by the price as TYPED. The oracle below is that
+// reading, held as data; the Python fractions in the comments are what it is checked against.
+
+const formReading = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'smithii_form_reading.json'), 'utf8'));
+
+test('the form\'s "Sending" line is hard cap / the price AS TYPED: read off the live form on 2026-10-09', () => {
+  const c = cfg();
+  assert.equal(c.sale.priceSol, formReading.inputs.priceSol, 'the reading was taken with the price this config types');
+  assert.equal(String(c.sale.hardCapSol), formReading.inputs.hardCapSol);
+  const d = deriveSmithiiSale(c);
+  // The form groups digits with ".": "150.000.015 RCLAW" is 150,000,015 and "30.000 RCLAW/SOL" is 30,000.
+  const shownSending = BigInt(formReading.shown.sending.replace(/ RCLAW$/, '').replaceAll('.', ''));
+  assert.equal(d.formSendingBase / 10n ** 9n, shownSending, 'the whole tokens the form printed');
+  // floor(Fraction(5000e9 * 1e9) / (Fraction("0.00003333333") * 1e9)) in Python:
+  assert.equal(d.formSendingBase, 150000015000001500n, 'hard cap / the typed price, to the base unit');
+  assert.equal(String(Math.floor(1 / Number(c.sale.priceSol))), formReading.shown.saleRate.replace(/ RCLAW\/SOL$/, '').replaceAll('.', ''),
+    'Sale Rate is 1 / the typed price');
+  assert.equal(d.creationFeeSol, Number(formReading.shown.totalFees.replace(/ SOL$/, '')));
+  // Decimals scale the base units and nothing else: the same 150,000,015.0000015 tokens at 6
+  // decimals is floor(150000015.0000015 * 10^6) = 150000015000001 raw units (Python fractions).
+  const six = cfg();
+  six.token.decimals = 6;
+  assert.equal(deriveSmithiiSale(six).formSendingBase, 150000015000001n, 'the form figure follows the token\'s decimals');
+});
+
+test('the program is expected to take 1,485 RCLAW more than the form prints, and the plan says both', () => {
+  const d = deriveSmithiiSale(cfg());
+  assert.notEqual(d.escrowAtCreateBase, d.formSendingBase, 'one is floored to a lamport and the other is not');
+  assert.equal((d.escrowAtCreateBase - d.formSendingBase) / 10n ** 9n, 1485n, '1,485.01...: 0.00099% of the allocation');
+  const plan = renderPlan(cfg(), record);
+  assert.match(plan, /Sending \.+ 150,000,015 RCLAW/, 'the form figure sits on the Sending line');
+  assert.match(plan, /Vault \.+ 150,001,500\.015 RCLAW/, 'the program figure sits on the Vault line');
+  assert.match(plan, /1,485 more than the form's Sending line/);
+  assert.doesNotMatch(plan, /Sending \.+ 150,001,500/, 'the vault figure must not be presented as what the form shows');
+  assert.match(plan, /150\.000\.015/, 'the dotted form the operator will actually see');
 });
 
 // ── the config, validated ───────────────────────────────────────────────────
@@ -319,13 +361,26 @@ test('after the start the edit window is a WARN and sold-so-far is information, 
   assert.deepEqual(failing(rows), []);
 });
 
-test('the vault must hold exactly the "Sending" figure; less is a WARN only once the sale has started', () => {
+test('the vault must hold exactly hard cap / the stored price; less is a WARN only once the sale has started', () => {
   const want = deriveSmithiiSale(cfg()).escrowAtCreateBase;
   assert.equal(compareVault(cfg(), want, { started: false })[0].status, 'PASS');
   assert.equal(compareVault(cfg(), want - 1n, { started: false })[0].status, 'FAIL');
   assert.equal(compareVault(cfg(), want - 1n, { started: true })[0].status, 'WARN');
   assert.equal(compareVault(cfg(), want + 1n, { started: true })[0].status, 'FAIL', 'more than escrowed is never explained by a claim');
   assert.equal(compareVault(cfg(), 0n, { started: false })[0].status, 'FAIL', 'an empty vault before the start is a failure, not a zero');
+});
+
+test('a vault holding the figure the FORM printed fails, and the row says where that number came from', () => {
+  const d = deriveSmithiiSale(cfg());
+  const onForm = compareVault(cfg(), d.formSendingBase, { started: false })[0];
+  assert.equal(onForm.status, 'FAIL', 'the form\'s number is not the vault figure');
+  assert.match(onForm.detail, /the figure the form printed/);
+  assert.match(onForm.detail, /'sale price' row/);
+  for (const other of [d.escrowAtCreateBase - 1n, d.formSendingBase + 1n, 0n]) {
+    assert.doesNotMatch(compareVault(cfg(), other, { started: false })[0].detail, /the figure the form printed/,
+      'the note appears for that one figure only');
+  }
+  assert.doesNotMatch(compareVault(cfg(), d.escrowAtCreateBase, { started: false })[0].detail, /figure the form printed/);
 });
 
 test('the program rows: executable, the disclosed upgrade authority, and not redeployed', () => {
