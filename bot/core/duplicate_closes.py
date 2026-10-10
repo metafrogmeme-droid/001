@@ -155,6 +155,12 @@ class DuplicateReport:
     #: Operator ids' books holding keys not found to open the operator's
     #: account: not compared.
     not_compared: list = field(default_factory=list)
+    #: Book id -> (why it was not compared, whether that is a verdict). A
+    #: verdict is "another account"; anything else is "could not tell".
+    why_not_compared: dict = field(default_factory=dict)
+    #: The exception class when `/duplicates`' fresh link check could not run:
+    #: the books were then placed by the last check, and the card says so.
+    link_check_failed: str = ""
     #: The operator's own record was read in part: nothing is compared.
     operator_read_failed: bool = False
     books_compared: int = 0
@@ -226,6 +232,49 @@ def _standing(engine: Any, book: str) -> Optional[str]:
     except Exception:
         return None
     return UNLINKED if _bitget_linked(book) is False else UNCONFIRMED
+
+
+#: Whose account ID would not read, in the card's words.
+_UNREAD_SIDE = {"theirs": "its keys", "operator": "the operator's own keys",
+                "both": "either set of keys"}
+
+
+def _why_not_compared(engine: Any, book: str) -> tuple[str, bool]:
+    """(why an UNCONFIRMED book was not compared, whether that is a verdict).
+
+    The card used to say "keys not found to open the operator's account"
+    for every case. That sentence fits three different facts, and only one
+    of them (another account) means leave the book alone: a key the check
+    never read, or one Bitget refused the account read, is "could not tell",
+    and the operator's next step differs."""
+    from bot.core.exchange_credentials import LINK_OTHER_ACCOUNT
+
+    if _bitget_linked(book) is None:
+        return "the credential store would not read, so its link could not be checked", False
+    reading = (getattr(engine, "_operator_link_readings", None) or {}).get(book)
+    if reading is None:
+        return ("its Bitget keys have not been checked against the operator's "
+                "account"), False
+    if reading.verdict == LINK_OTHER_ACCOUNT:
+        return ("its Bitget keys open a different account (the account IDs differ), "
+                "where the same trade would be a second trade"), True
+    who = _UNREAD_SIDE.get(reading.unread, "the keys")
+    return (f"the account ID behind {who} could not be read "
+            f"({reading.cause or 'no reason given'}), so it is not known whether "
+            f"they open the operator's account"), False
+
+
+async def refresh_operator_links(engine: Any) -> str:
+    """Re-read the operator ids' Bitget links now, before a search places
+    their books. The marks were set at boot and every six hours, and only
+    with per-user live on; a link the card calls unconfirmed may never have
+    been read. Returns "" when the check ran, else the exception class: the
+    books are then placed by the last check, and the card says so."""
+    try:
+        await engine.check_operator_account_links(operators_only=True)
+    except Exception as exc:
+        return type(exc).__name__
+    return ""
 
 
 def _live_book(engine: Any, path: str) -> Any:
@@ -307,6 +356,7 @@ def find_duplicate_closes(engine: Any) -> DuplicateReport:
             standing[book] = _standing(engine, book)
             if standing[book] == UNCONFIRMED:
                 report.not_compared.append(book)
+                report.why_not_compared[book] = _why_not_compared(engine, book)
         return standing[book]
 
     for book in _book_ids(engine):
@@ -522,10 +572,19 @@ def duplicates_card(report: DuplicateReport) -> tuple[str, list]:
     for book, n in sorted(report.only_in_book.items()):
         lines.append(f"\nBook {html.escape(book)} also holds {n} close(s) the operator's "
                      "record does not; they are not duplicates and are left as they are.")
+    could_not_tell = False
     for book in report.not_compared:
-        lines.append(f"\nBook {html.escape(book)} holds keys not found to open the "
-                     "operator's account, so it may be another account and was not "
-                     "compared.")
+        why, verdict = report.why_not_compared.get(
+            book, ("its keys were not found to open the operator's account", False))
+        could_not_tell = could_not_tell or not verdict
+        lines.append(f"\nBook {html.escape(book)} was not compared: {html.escape(why)}.")
+    if could_not_tell:
+        lines.append("If those keys trade the operator's account, /disconnect removes "
+                     "the link and /duplicates then searches that book.")
+    if report.link_check_failed:
+        lines.append(f"\n⚠️ The link check could not run now "
+                     f"({html.escape(report.link_check_failed)}); books are placed by "
+                     "the last one.")
     for book in report.unread:
         lines.append(f"\n⚠️ Book {html.escape(book)} was read in part: a row it could "
                      "not read was not compared.")

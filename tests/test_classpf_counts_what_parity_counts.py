@@ -120,3 +120,11 @@ def test_a_record_with_nothing_left_out_says_nothing_about_it(tmp_path):
     said = _classpf(ex)
     assert "Left out" not in said
     assert "(2 strategy exits," in said
+    assert "<b>Crypto</b>: 2 trades ·" in said
+
+
+def test_one_trade_is_one_trade(tmp_path):
+    """10 October: "Commodity: 1 trades" on the operator's card."""
+    ex = LiveExecutor(state_dir=str(tmp_path))
+    ex._closed_trades = [_close(CRYPTO, 5.0)]
+    assert "<b>Crypto</b>: 1 trade · PF" in _classpf(ex)

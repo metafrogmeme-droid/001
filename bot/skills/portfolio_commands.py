@@ -255,8 +255,9 @@ class PortfolioCommands:
         for cat, r in classes.items():
             pf_s = "—" if r["pf"] is None else f"{r['pf']:.2f}"
             unpriced_s = f" · {unpriced[cat]} unpriced" if unpriced.get(cat) else ""
+            n = r["trades"]
             lines.append(
-                f"{category_icon(cat)} <b>{cat}</b>: {r['trades']} trades · "
+                f"{category_icon(cat)} <b>{cat}</b>: {n} trade{'' if n == 1 else 's'} · "
                 f"PF <b>{pf_s}</b> · WR {100.0 * r['win_rate']:.0f}% · "
                 f"net ${r['net']:+.2f}{unpriced_s}")
         for cat in [c for c in unpriced if c not in classes]:

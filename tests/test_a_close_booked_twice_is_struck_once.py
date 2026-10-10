@@ -107,6 +107,9 @@ def books(tmp_path, monkeypatch):
     engine = NS(live_executor=op, journal=journal, _user_executors={},
                 _operator_account_users=set(), _user_store=None)
     engine._is_operator_user = RuneClawEngine._is_operator_user.__get__(engine)
+    # `/duplicates` re-reads the operator ids' links first: the real method.
+    engine.check_operator_account_links = (
+        RuneClawEngine.check_operator_account_links.__get__(engine))
     engine.store = store
     return engine
 
@@ -206,7 +209,7 @@ def test_an_operator_id_s_book_holding_other_keys_is_not_compared(books):
     r = dc.find_duplicate_closes(books)
     assert r.strays == [] and r.not_compared == [OP] and r.books_compared == 0
     text, buttons = dc.duplicates_card(r)
-    assert f"Book {OP} holds keys not found to open the operator's account" in text
+    assert f"Book {OP} was not compared: its Bitget keys have not been checked" in text
     assert buttons == []
     # Found to open the operator's account, it is compared, and said proven.
     books._operator_account_users = {OP}

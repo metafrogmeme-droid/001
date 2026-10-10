@@ -21060,7 +21060,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **483 of 1260** reach for source text through `source_scan`, `code_only`
+Driven, **483 of 1261** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 483 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -22035,6 +22035,35 @@ standing on fixtures that could not tell them apart (a "too far apart" case
 the re-entry check also caught, a re-entry the window also caught, and an
 unreadable row that happened to be a dict).
 (`tests/test_a_close_booked_twice_is_struck_once.py`.)
+
+**AND THE CARD COULD NOT SAY WHY IT LEFT THE OPERATOR'S OWN BOOK ALONE.** 10
+October, the first `/duplicates` after the deploy: "Book 6307156912 holds keys
+not found to open the operator's account, so it may be another account and
+was not compared." The operator's own book. That sentence fits three facts and
+only one of them means leave the book: the keys open another account; the
+check never read them (it ran at boot and every six hours, and only with
+per-user live on); or Bitget would not hand over the account ID (the UID comes
+from the SPOT account-info endpoint, a futures-only key is refused it, and the
+probe threw the reason away). The operator's next step differs for each, and
+the card printed one sentence for all three. Now the operator's own API key
+stored again is the operator's account without asking Bitget anything (a key
+opens one account); every other link keeps a reading, a verdict or whose
+account ID did not read and why, as an exception class and never a message;
+`/duplicates` re-reads the operator ids' links before it places their books;
+and the card names the reason per book, offering `/disconnect` only where the
+check could not tell.
+
+The defect found on the way was worse than the card. Each re-check REPLACED
+the marks with what that pass could prove, so a proven link that failed one
+read lost its mark, and the next ask built the second executor on the
+operator's account again: the 8 October failure, from a Bitget timeout at the
+six-hour re-check. An unread UID now keeps the mark it had; only a verdict (the
+link removed, or the UID read and found to differ) moves it. The rule is the
+one this file opens with, applied to a set: a reading that could not be made
+is not a reading of "no".
+
+`/classpf` printed "1 trades" on the same day; one trade is one trade.
+Sixteen mutants, all killed. (`tests/test_the_link_check_says_why_it_could_not_prove.py`.)
 
 **"BALANCE: 0.00 USDT FREE" WAS A READING NOBODY MADE.** The connect card
 carries the key check's own detail as its Balance line, and all five probes
