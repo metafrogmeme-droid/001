@@ -37,11 +37,14 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
+import bot.core.session_aware as session_aware
+from bot.compat import UTC
 from bot.compliance.compliance_engine import Permission
 from bot.config import CONFIG
 from bot.core.practice_fill import PRACTICE_FILL, PRACTICE_MODE_REASON
@@ -71,12 +74,24 @@ def _uid() -> str:
     return str(424242000 + uuid.uuid4().int % 10**6)
 
 
+_LONDON = datetime(2026, 9, 22, 10, 0, tzinfo=UTC)
+
+
+def _at_london(now=None, _real=session_aware.get_current_session):
+    return _real(_LONDON if now is None else now)
+
+
 def _confirm(host, engine, idea, *, uid: str, operator_count: int = 0):
-    """One confirm through the real path, live mode on, sim opt-in off."""
+    """One confirm through the real path, live mode on, sim opt-in off,
+    measured at London. The session multiplier reads the wall clock, and a
+    size under the cap scaled by x0.80 (late NY) or a weekend cut rounds to
+    the cent apart from twice its half: 2 x $506.67 against $1,013.33 on a
+    Saturday at 03:00 UTC, red on CI with no change to sizing."""
     was = CONFIG.paper_sim_opt_in_enabled
     object.__setattr__(CONFIG, "paper_sim_opt_in_enabled", False)
     try:
         with patch.object(type(CONFIG), "is_live", return_value=True), \
+             patch.object(session_aware, "get_current_session", _at_london), \
              patch("bot.core.engine.get_exchange_position_count",
                    new=AsyncMock(return_value=operator_count)), \
              patch("bot.core.engine.invalidate_position_count_cache"):
