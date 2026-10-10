@@ -277,5 +277,6 @@ about to change before changing it.
 ## Deploying so a dead bot cannot look like a live one (line 22348)
 
 - L22505: A PEAK WITH NO TIME BESIDE IT CANNOT SAY WHETHER TO ACT — `tests/test_phase_headroom.py`
+- L22521: THE NUDGE READ 110,529 ROWS FOR EVERY IDEA, AND THE STALL HAD NO NAME — `tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`
 
-## Operational docs (line 22521)
+## Operational docs (line 22574)

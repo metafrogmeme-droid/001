@@ -134,54 +134,28 @@ class LearningOrchestrator:
         """Scan for recurring market patterns."""
         return self.patterns.detect_patterns()
 
-    def get_learning_context(
+    def setup_record(
         self,
         symbol: str = "",
         market_regime: str = "",
-        macro_state: str = "",
         direction: str = "",
-    ) -> dict:
-        """Get AI learning context for a trade decision.
+    ) -> tuple[int, Optional[float]]:
+        """(similar completed setups, their average PnL or None when there are
+        none): what the engine's confidence nudge reads, once per trade idea.
 
-        This context enriches the decision but does NOT override
-        risk engine or create trade signals. When ``direction`` is provided,
-        similar-setup stats are scoped to that side — long and short outcomes on
-        the same symbol/regime can diverge sharply, so conflating them would
-        muddy the signal.
-        """
+        It replaced `get_learning_context`, which the nudge was the only
+        caller of: that assembled patterns, model agreement and feedback with
+        these two figures, re-reading three more files on the scan lane for
+        fields nothing read, and was deleted with the pattern lookup only it
+        called."""
         similar = self.experience.get_similar_setups(
             symbol=symbol,
             market_regime=market_regime,
             direction=direction,
         )
-        patterns = self.patterns.get_relevant_patterns(
-            symbol=symbol,
-            market_regime=market_regime,
-            macro_state=macro_state,
-        )
-        model_summary = self.models.get_accuracy_summary()
-        feedback_summary = self.feedback.get_feedback_summary()
-
-        return {
-            "similar_past_setups": len(similar),
-            "avg_past_pnl": (
-                sum(s.pnl_result or 0 for s in similar) / len(similar)
-                if similar else None
-            ),
-            "relevant_patterns": [
-                {
-                    "type": p.pattern_type,
-                    "confidence": p.confidence,
-                    "sample_size": p.sample_size,
-                    "experimental": p.is_experimental,
-                    "win_rate": p.historical_win_rate,
-                }
-                for p in patterns[:5]
-            ],
-            "model_agreement_rate": model_summary.get("agreement_rate"),
-            "feedback_positive_rate": feedback_summary.get("positive_rate"),
-            "may_override_risk_engine": False,  # ALWAYS False
-        }
+        if not similar:
+            return 0, None
+        return len(similar), sum(s.pnl_result or 0 for s in similar) / len(similar)
 
     # ── Step 8-9: Validate & Approve Proposals ────────────────────
 

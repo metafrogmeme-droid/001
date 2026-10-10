@@ -164,19 +164,20 @@ class ExperienceMemory:
         direction: str,
         limit: int = 10,
     ) -> list[DecisionMemory]:
-        """Find similar past setups for learning context."""
-        decisions = self._store.get_decisions(symbol=symbol, limit=500)
-        similar = [
-            d for d in decisions
-            # Regime/direction are optional filters (empty = match any). With the
-            # sparse data a live bot accumulates, scoping by symbol+direction
-            # already isolates the dominant signal (e.g. longs-on-X losing);
-            # requiring an exact regime match would starve the sample.
-            if (not market_regime or d.market_regime == market_regime)
-            and (not direction or d.direction == direction)
-            and d.pnl_result is not None  # only completed trades
-        ]
-        return similar[-limit:]
+        """Find similar past setups for learning context: the completed rows
+        (``pnl_result`` read) of this direction and regime among the symbol's
+        last 500 decisions, the last ``limit``.
+
+        Regime/direction are optional filters (empty = match any). With the
+        sparse data a live bot accumulates, scoping by symbol+direction
+        already isolates the dominant signal (e.g. longs-on-X losing);
+        requiring an exact regime match would starve the sample.
+
+        Read through the store's index (`LearningStore.similar_decisions`),
+        which parses each line of the file once: this is asked once per trade
+        idea, and it re-read the whole file each time."""
+        return self._store.similar_decisions(
+            symbol, market_regime, direction, window=500, limit=limit)
 
     def get_rejection_patterns(self, symbol: Optional[str] = None, limit: int = 50) -> list[DecisionMemory]:
         """Get rejected trades to learn from."""

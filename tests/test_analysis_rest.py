@@ -47,6 +47,7 @@ sentence. `skipped_resting` is counted separately so no reader has to guess.
 from __future__ import annotations
 
 import asyncio
+import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -58,8 +59,11 @@ from bot.core.symbol_rest import coverage_sentence, rest_note, rest_seconds
 from tests.source_scan import code_only
 
 SRC = Path("bot/core/engine.py").read_text(encoding="utf-8")
-BATCH = code_only(SRC[SRC.index("async def _analyze_signals_batched"):
-                      SRC.index("async def _analyze_signal(self")])
+# The batch function by its node, not "up to the next method": a method placed
+# after it fell inside that slice, which then would not tokenize, so
+# `code_only` kept its comments and a comment's `await asyncio.gather(...)`
+# was read as the gather.
+BATCH = code_only(inspect.getsource(RuneClawEngine._analyze_signals_batched))
 
 
 @pytest.fixture(autouse=True)

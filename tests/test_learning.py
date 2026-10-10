@@ -654,12 +654,6 @@ class TestOrchestrator:
         refl = orchestrator.review_rejection(d)
         assert "REJECTED" in refl.what_happened
 
-    def test_learning_context(self, orchestrator):
-        ctx = orchestrator.get_learning_context(
-            symbol="BTCUSDT", market_regime="TREND_UP",
-        )
-        assert ctx["may_override_risk_engine"] is False  # ALWAYS False
-
     def test_compute_learning_score(self, orchestrator):
         score = orchestrator.compute_learning_score()
         assert "composite_score" in score
@@ -727,10 +721,6 @@ class TestSafetyInvariants:
         for pt in PatternType:
             p = PatternRecord(pattern_type=pt.value)
             assert p.may_override_risk is False
-
-    def test_learning_context_never_overrides_risk(self, orchestrator):
-        ctx = orchestrator.get_learning_context(symbol="BTCUSDT")
-        assert ctx["may_override_risk_engine"] is False
 
     def test_macro_context_never_creates_trade(self, store):
         ml = MacroLearner(store)
