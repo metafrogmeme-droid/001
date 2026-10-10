@@ -10,8 +10,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
+import threading
 from pathlib import Path
-from typing import Optional, Type, TypeVar
+from typing import NamedTuple, Optional, Type, TypeVar
 
 from pydantic import BaseModel
 
@@ -34,6 +36,127 @@ T = TypeVar("T", bound=BaseModel)
 
 # Default data directory
 DEFAULT_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "learning")
+
+
+class _DecisionKey(NamedTuple):
+    """Where one decision row sits in the file, and the fields similar-setup
+    selection reads. The row itself is parsed again only when it is picked."""
+    offset: int
+    length: int
+    direction: str
+    market_regime: str
+    completed: bool
+
+
+class _DecisionIndex:
+    """Similar-setup selection over the decision file, each line parsed ONCE.
+
+    The engine's confidence nudge asks for a symbol's similar setups once per
+    trade idea, on the scan lane, and the ask re-read and re-validated the
+    whole file: a row per idea the risk gate rejects, never rotated. On 10
+    October it held 110,529 rows, and the nudge (which also read the file a
+    second time for patterns it threw away) cost 4 s of a stopped lane per
+    idea, about 81 s a sweep, inside an analyze phase at 91% of its cap.
+
+    This keeps, per line, only where it sits and the three fields selection
+    reads (about 15 MB at that size; the parsed rows were 502 MB), and parses
+    in full only the rows it answers. A re-read parses only the lines
+    appended since the last one. A file that shrank, was replaced (another
+    inode) or was rewritten in place (its first bytes changed) is read from
+    the start, and one that is gone is empty. A final line with no newline
+    yet is read as the full read read it, and kept only once it is whole.
+    Reads are serialized by a lock: the nudge runs in a worker thread.
+    """
+
+    #: How much of the file's start is kept to recognise a rewrite in place.
+    HEAD_BYTES = 256
+
+    def __init__(self, path: Path):
+        self._path = path
+        self._lock = threading.Lock()
+        self._reset(None)
+
+    def _reset(self, ident) -> None:
+        self._ident = ident
+        self._head = b""
+        self._offset = 0
+        self._line_num = 0
+        self._all: list[_DecisionKey] = []
+        self._by_symbol: dict[str, list[_DecisionKey]] = {}
+
+    def _parse(self, line: bytes, line_num: Optional[int]) -> Optional[DecisionMemory]:
+        try:
+            return DecisionMemory.model_validate_json(line)
+        except Exception as e:
+            if line_num is not None:
+                logger.warning("Skipping corrupt line %d in %s: %s", line_num, self._path, e)
+            return None
+
+    @staticmethod
+    def _key(rec: DecisionMemory, offset: int, length: int) -> _DecisionKey:
+        return _DecisionKey(offset, length, sys.intern(str(rec.direction)),
+                            sys.intern(str(rec.market_regime)), rec.pnl_result is not None)
+
+    def similar(self, symbol: str, market_regime: str, direction: str,
+                window: int, limit: int) -> list[DecisionMemory]:
+        """The last ``limit`` completed rows matching ``market_regime`` and
+        ``direction`` (empty = any) among the last ``window`` rows of
+        ``symbol`` (empty = every symbol): `get_decisions(symbol, window)`
+        filtered, without parsing the file each time."""
+        with self._lock:
+            try:
+                with open(self._path, "rb") as f:
+                    st = os.fstat(f.fileno())
+                    ident = (st.st_dev, st.st_ino)
+                    head = f.read(min(self.HEAD_BYTES, st.st_size))
+                    if (ident != self._ident or st.st_size < self._offset
+                            or head[:len(self._head)] != self._head):
+                        self._reset(ident)
+                    if not self._head:
+                        self._head = head
+                    # One line at a time, so the cold read of a large file
+                    # holds one line and the index, never the file.
+                    f.seek(self._offset)
+                    pos, tail = self._offset, b""
+                    for raw in f:
+                        if not raw.endswith(b"\n"):
+                            tail = raw.strip()      # still being written
+                            break
+                        self._line_num += 1
+                        at, pos = pos, pos + len(raw)
+                        body = raw.strip()
+                        rec = self._parse(body, self._line_num) if body else None
+                        if rec is None:
+                            continue
+                        key = self._key(rec, at, len(raw))
+                        self._all.append(key)
+                        self._by_symbol.setdefault(rec.symbol, []).append(key)
+                    self._offset = pos
+                    keys = list(self._by_symbol.get(symbol, []) if symbol else self._all)
+                    tail_rec = self._parse(tail, None) if tail else None
+                    if tail_rec is not None and (not symbol or tail_rec.symbol == symbol):
+                        keys.append(self._key(tail_rec, -1, 0))
+                    picked = [k for k in keys[-window:]
+                              if (not market_regime or k.market_regime == market_regime)
+                              and (not direction or k.direction == direction)
+                              and k.completed][-limit:]
+                    out: list[DecisionMemory] = []
+                    for k in picked:
+                        if k.offset < 0:
+                            rec = tail_rec
+                        else:
+                            f.seek(k.offset)
+                            rec = self._parse(f.read(k.length).strip(), None)
+                        if rec is not None:
+                            out.append(rec)
+                    return out
+            except FileNotFoundError:
+                self._reset(None)
+                return []
+            except OSError as e:
+                logger.error("Failed to read %s: %s", self._path, e)
+                self._reset(None)
+                return []
 
 
 class LearningStore:
@@ -63,6 +186,7 @@ class LearningStore:
             "feedback": self._dir / "human_feedback.jsonl",
             "backlog": self._dir / "improvement_backlog.json",
         }
+        self._similar = _DecisionIndex(self._files["decision"])
 
     # ── Append (JSONL) ─────────────────────────────────────────────
 
@@ -143,6 +267,13 @@ class LearningStore:
         if symbol:
             records = [r for r in records if r.symbol == symbol]
         return records[-limit:]
+
+    def similar_decisions(self, symbol: str, market_regime: str, direction: str,
+                          window: int = 500, limit: int = 10) -> list[DecisionMemory]:
+        """`get_decisions(symbol, window)` filtered to completed rows of that
+        regime and direction (empty = any), the last ``limit``: read through
+        an index that parses each line of the file once (`_DecisionIndex`)."""
+        return self._similar.similar(symbol, market_regime, direction, window, limit)
 
     # ── Public API: Reflection Memory ──────────────────────────────
 

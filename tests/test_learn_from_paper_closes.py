@@ -43,12 +43,12 @@ class TestPaperFeedsLearning:
         orch.record_closed_outcome(
             symbol="ETH/USDT", direction="LONG", pnl_result=12.0,
             market_regime="TREND_UP", source="paper_outcome")
-        ctx = orch.get_learning_context(
+        n, avg = orch.setup_record(
             symbol="ETH/USDT", market_regime="TREND_UP", direction="LONG")
         # The READ side (get_similar_setups) filters on pnl_result, not source,
-        # so a paper outcome contributes to the learning context.
-        assert ctx["similar_past_setups"] >= 1
-        assert ctx["avg_past_pnl"] == 12.0
+        # so a paper outcome contributes to the setup record.
+        assert n >= 1
+        assert avg == 12.0
 
 
 class TestEngineWiring:

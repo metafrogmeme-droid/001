@@ -8,7 +8,8 @@ records had no symbol/direction). So the loop was open on both ends.
 After:
   * record_closed_outcome writes a COMPLETE, queryable outcome record.
   * get_similar_setups matches on symbol (+ optional direction/regime) and finds
-    those outcomes -> get_learning_context.avg_past_pnl is real.
+    those outcomes -> the setup record's average PnL is real (`setup_record`,
+    which replaced the context the engine read, 10 October).
   * the engine applies a small, capped, asymmetric, opt-in confidence nudge.
 """
 
@@ -30,9 +31,9 @@ class TestLoopWriteAndRead:
         for _ in range(6):
             orch.record_closed_outcome(symbol="FOO/USDT", direction="LONG",
                                        pnl_result=-12.0, trade_id="t")
-        ctx = orch.get_learning_context(symbol="FOO/USDT", direction="LONG")
-        assert ctx["similar_past_setups"] == 6
-        assert ctx["avg_past_pnl"] == pytest.approx(-12.0)
+        n, avg = orch.setup_record(symbol="FOO/USDT", direction="LONG")
+        assert n == 6
+        assert avg == pytest.approx(-12.0)
 
     def test_direction_is_scoped(self):
         orch = _orch()
@@ -40,18 +41,18 @@ class TestLoopWriteAndRead:
             orch.record_closed_outcome(symbol="BAR/USDT", direction="LONG", pnl_result=-20.0)
         for _ in range(5):
             orch.record_closed_outcome(symbol="BAR/USDT", direction="SHORT", pnl_result=+8.0)
-        long_ctx = orch.get_learning_context(symbol="BAR/USDT", direction="LONG")
-        short_ctx = orch.get_learning_context(symbol="BAR/USDT", direction="SHORT")
-        assert long_ctx["avg_past_pnl"] < 0
-        assert short_ctx["avg_past_pnl"] > 0
+        _, long_avg = orch.setup_record(symbol="BAR/USDT", direction="LONG")
+        _, short_avg = orch.setup_record(symbol="BAR/USDT", direction="SHORT")
+        assert long_avg < 0
+        assert short_avg > 0
 
     def test_regime_filter_is_optional(self):
         orch = _orch()
         orch.record_closed_outcome(symbol="BAZ/USDT", direction="LONG",
                                    pnl_result=-5.0, market_regime="STRONG_TREND_DOWN")
         # Querying with no regime ("") still finds the outcome.
-        ctx = orch.get_learning_context(symbol="BAZ/USDT", direction="LONG", market_regime="")
-        assert ctx["similar_past_setups"] == 1
+        n, _ = orch.setup_record(symbol="BAZ/USDT", direction="LONG", market_regime="")
+        assert n == 1
 
 
 class TestNudgeRule:
@@ -99,7 +100,9 @@ class TestConfigSafeDefaults:
 class TestEngineWiring:
     def test_consumer_is_flag_gated(self):
         from bot.core.engine import RuneClawEngine
-        src = inspect.getsource(RuneClawEngine._analyze_signal)
+        assert "await self._learning_nudge(idea)" in inspect.getsource(
+            RuneClawEngine._analyze_signal)
+        src = inspect.getsource(RuneClawEngine._learning_nudge)
         assert "CONFIG.learning.adaptive_confidence_enabled" in src
         assert "learning_confidence_nudge" in src
 

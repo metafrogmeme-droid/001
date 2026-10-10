@@ -313,12 +313,6 @@ class TestPromptSafety:
 class TestOrchestratorSafety:
     """The orchestrator must never produce context that allows risk override."""
 
-    def test_learning_context_blocks_override(self):
-        from bot.learning.orchestrator import LearningOrchestrator
-        orch = LearningOrchestrator()
-        ctx = orch.get_learning_context()
-        assert ctx["may_override_risk_engine"] is False
-
     def test_process_blocked_proposal_rejected(self):
         """BLOCKED proposals must be rejected, never applied."""
         from bot.learning.orchestrator import LearningOrchestrator

@@ -130,28 +130,6 @@ class PatternLearner:
 
         return patterns
 
-    def get_relevant_patterns(
-        self,
-        symbol: str = "",
-        market_regime: str = "",
-        macro_state: str = "",
-    ) -> list[PatternRecord]:
-        """Get patterns relevant to current market conditions.
-
-        Used to add learning context to trade decisions without
-        overriding risk engine.
-        """
-        all_patterns = self.detect_patterns()
-        relevant = []
-        for p in all_patterns:
-            if market_regime and p.market_regime == market_regime:
-                relevant.append(p)
-            elif macro_state and p.market_regime == macro_state:
-                relevant.append(p)
-            elif symbol and p.symbol == symbol:
-                relevant.append(p)
-        return relevant
-
     @staticmethod
     def _group_by(decisions: list[DecisionMemory], field: str) -> dict[str, list[DecisionMemory]]:
         groups: dict[str, list[DecisionMemory]] = defaultdict(list)

@@ -20335,7 +20335,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 265 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 266 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21158,9 +21158,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **483 of 1261** reach for source text through `source_scan`, `code_only`
+Driven, **484 of 1262** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 483 is a FLOOR and the honest shape is
+source scan that rule does not see, so 484 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -22517,6 +22517,59 @@ recorded is left out rather than printed as zero. The runbook says how to read
 the two. Annotating `phase_headroom`'s result type took one `operator` error
 off the mypy baseline (500 → 499). Nine mutants, all killed.
 (`tests/test_phase_headroom.py`.)
+
+**THE NUDGE READ 110,529 ROWS FOR EVERY IDEA, AND THE STALL HAD NO NAME.** 10
+October, `/status`: "Slowest tick phase: ⚠ analyze 274s peak of 300s (91%) ·
+last run 273s", every cycle, with 37 stock and ETF symbols already skipped. The
+newest `analyze_stages` line: 20 signals, 4 concurrent, wall 178 s, stages
+fetch 88.4 s, mtf 27.3 s, analyze 363.8 s, refine 0. The stages sum to 479.5 s,
+about 120 s of wall at 4 concurrent, so about 58 s of the batch sat in no stage.
+
+That is where the engine's learning nudge ran: once per trade idea, on the scan
+lane, synchronously, between the stage markers. It asked for the whole learning
+context, which re-read and re-validated `data/learning/decision_memory.jsonl`
+(a row for every idea the risk gate rejects, never rotated: 110,529 rows, 94
+MB), then read it a second time for patterns, and read the model-comparison and
+feedback files too, for figures the nudge threw away. Driven at that size: 4.05
+s of a stopped lane per idea, about 81 s a 20-idea sweep, and 426 MB allocated
+and freed on every call. While it read, every in-flight analysis's timer kept
+running, so the stall was also booked into the other symbols' stages, where the
+report could not tell it from fetching.
+
+Three changes, each driven:
+
+* The nudge asks for the setup record alone (`LearningOrchestrator.setup_record`:
+  count and average PnL of the similar completed setups). `get_learning_context`,
+  whose one caller the nudge was, is deleted with the pattern lookup only it
+  called (`get_relevant_patterns`): the unreachable-methods ratchet named both.
+* Similar-setup selection reads through `_DecisionIndex`, which parses each line
+  of the file once and keeps, per line, where it sits and the three fields the
+  selection reads. It parses in full only the rows it answers, and it streams
+  the cold read, so the peak is the index (19 MB at 110,529 rows). A file that
+  shrank, was replaced (another inode) or was rewritten in place (its first
+  bytes changed) is read from the start; a line still being written is read
+  once it is whole.
+* The nudge runs in a worker thread (`asyncio.to_thread`), so even the cold
+  read after a restart never stops the lane.
+
+At 110,529 rows: 0.1 ms per idea after one cold read of about a second. The
+first attempt kept the parsed rows instead of an index; it was fast and held
+502 MB resident, which is why the index stores offsets. `get_decisions` still
+reads the whole file; its callers (the voter-weight, calibration and
+expectancy learners) load once and refit on their own schedule, and none of
+them is asked per idea. Sixteen mutants, all killed; the first round left two
+standing on a fixture where the head check caught every rewrite, so the inode
+and size checks each have their own case now.
+
+The first full run found the trap this file names under writing tests. Seven
+slices in two test files cut `_analyze_signals_batched` out of the source "up
+to `async def _analyze_signal(self`", and `_learning_nudge` was placed between
+the two. The slice then ended in a method at an indent it had never opened, so
+it would not tokenize; `code_only` fell back to the raw text, kept the comments,
+and a comment's "`await asyncio.gather(...)` returns" was read as the gather,
+failing the rest test's ordering check against code nobody changed. Each slice
+takes the function by its node now (`inspect.getsource`).
+(`tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`.)
 
 ## Operational docs
 

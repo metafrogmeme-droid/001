@@ -19,22 +19,26 @@ So the batch records progress as it goes, the timeout handler reads it after
 the batch's own frames are gone, and /status shows it.
 """
 
+import inspect
 import time
 from types import SimpleNamespace
 
 import pytest
 
+from bot.core.engine import RuneClawEngine
 from bot.formatters.rich_cards import render_status_card
 from tests.source_scan import code_only
 
 ENGINE = code_only(open("bot/core/engine.py", encoding="utf-8").read())
+# The batch function by its node, not "up to the next method", which took in
+# whatever method was placed after it.
+BATCH = code_only(inspect.getsource(RuneClawEngine._analyze_signals_batched))
 
 
 # ── the batch records how far it got ──────────────────────────────────────
 
 def test_progress_is_initialised_with_the_batch_size():
-    block = ENGINE[ENGINE.index("async def _analyze_signals_batched"):
-                   ENGINE.index("async def _analyze_signal(self")]
+    block = BATCH
     assert '"of": len(signals)' in block
     assert '"done": 0' in block
     assert '"started": time.monotonic()' in block
@@ -43,16 +47,14 @@ def test_progress_is_initialised_with_the_batch_size():
 def test_every_outcome_counts_toward_progress():
     """The question is "how far did the batch get", not "how many
     succeeded" — so it increments in `finally`, past every return path."""
-    block = ENGINE[ENGINE.index("async def _analyze_signals_batched"):
-                   ENGINE.index("async def _analyze_signal(self")]
+    block = BATCH
     assert "finally:" in block
     tail = block[block.index("finally:"):]
     assert '_p["done"] += 1' in tail
 
 
 def test_the_counter_cannot_break_the_batch():
-    block = ENGINE[ENGINE.index("async def _analyze_signals_batched"):
-                   ENGINE.index("async def _analyze_signal(self")]
+    block = BATCH
     tail = block[block.index("finally:"):]
     assert "except Exception:" in tail, (
         "a counter that can raise inside `finally` would replace the "
@@ -62,8 +64,7 @@ def test_the_counter_cannot_break_the_batch():
 def test_it_lives_on_the_engine_not_the_batch_frame():
     """wait_for cancels the gather; the batch's locals are gone by the time
     the timeout handler runs. The record has to outlive them."""
-    block = ENGINE[ENGINE.index("async def _analyze_signals_batched"):
-                   ENGINE.index("async def _analyze_signal(self")]
+    block = BATCH
     assert "self._analyze_progress = {" in block
 
 
@@ -208,15 +209,13 @@ def test_the_engine_declares_the_attribute_up_front():
 # where the phase was dying.
 
 def test_the_record_is_tagged_with_its_batch():
-    block = ENGINE[ENGINE.index("async def _analyze_signals_batched"):
-                   ENGINE.index("async def _analyze_signal(self")]
+    block = BATCH
     assert "_analyze_batch_seq" in block
     assert '"seq": _seq' in block
 
 
 def test_only_the_owning_batch_increments():
-    block = ENGINE[ENGINE.index("async def _analyze_signals_batched"):
-                   ENGINE.index("async def _analyze_signal(self")]
+    block = BATCH
     tail = block[block.index("finally:"):]
     assert '_p.get("seq") == _seq' in tail, (
         "without the check, a cancelled batch's unwinding tasks corrupt the "
