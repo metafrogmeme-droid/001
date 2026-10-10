@@ -21158,7 +21158,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **484 of 1262** reach for source text through `source_scan`, `code_only`
+Driven, **484 of 1267** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 484 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -22580,6 +22580,40 @@ takes the function by its node now (`inspect.getsource`).
 - `scripts/systemd/README.md` — supervising the two processes, and why
   `systemctl status` cannot answer whether they are healthy
 - `scripts/cloudflared/` — named-tunnel procedure for the bot gateway
+
+**THE FREEZER LOST A BAR A PAGE, AND EVERY BACKTEST READ ACROSS THE HOLE.**
+10 October, found while replicating two GetAgent playbooks on our own frozen
+bars: every symbol of `benchmark/limit_scanner_1h` held 5,993 bars where 6,000
+were asked, and the six it lacked sat at the same hours in every file, one
+every 201 hours from 13 August. Bitget still serves them.
+
+`DataLoader.from_bitget` pages past the 200-bar cap of the futures candles by
+walking forward with `since`, and started each page one bar past the last bar
+it held. Bitget answers `since` two ways: its history candles include the bar
+at `since`, and its recent candles (about the last two months) return only the
+bars after it. So every recent page lost its first bar, and nothing said so:
+the series was contiguous everywhere else, the manifest counted what it got,
+and `verify_dataset` proved the files were what the manifest said. Every
+dataset ever frozen carries it: 474 missing bars across the seven committed
+before this, six per symbol, in each one's last two months. A backtest read
+each hole as an hour that never happened: the next bar's open jumped from the
+last bar's close, and the stop and the targets were never asked about the
+hour between.
+
+The pager is one function now, `data_loader.fetch_closed_ohlcv`, and each page
+starts at the last bar already held: an inclusive answer repeats it and the
+repeat is de-duplicated, an exclusive one starts after it, and neither loses a
+bar. Re-read live, 6,000 ETH bars come back as 5,999 closed ones with no hole,
+and the 5,992 bars both reads hold are identical. A hole the venue itself
+leaves (an outage) cannot be filled by paging, so the freezer names it: each
+manifest entry carries `missing`, the open times between its first bar and
+its last with no bar, and `verify_dataset` holds the file to it both ways. The
+committed manifests name their 474 holes now; their candles are unchanged, so
+no dataset hash and no published card moves. Re-freezing them would move
+every card, which is the operator's decision, not a side effect of this fix.
+Six mutants, all killed, the old page start among them (caught on the
+recent-candles arm alone, as it should be).
+(`tests/test_the_freezer_keeps_every_bar_of_every_page.py`.)
 
 **THE LIMIT ENTRY SCANNER, PORTED: ITS FIRST CARD MEASURED SOMEONE ELSE'S
 EXITS, AND ITS PLAYBOOK SCORED WHAT IT NEVER READ.** 10 October, the
