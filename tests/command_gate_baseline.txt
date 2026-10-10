@@ -50,6 +50,7 @@ dip guard
 disconnect guard
 drawdownlimit is_admin
 duel guard
+duplicates is_admin
 emergency_stop guard
 enforcing guard
 equitycurve is_admin

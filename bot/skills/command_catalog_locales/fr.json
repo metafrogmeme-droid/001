@@ -143,6 +143,7 @@
     "shadow": "livre fantôme contrefactuel",
     "audit": "rapport d'auto-audit nocturne",
     "parity": "parité réel ↔ backtest",
+    "duplicates": "clôtures enregistrées deux fois dans les registres de l'opérateur",
     "attribution": "quels indicateurs génèrent les gains",
     "slippage": "statistiques de slippage",
     "accounts": "instantané du risque par compte",

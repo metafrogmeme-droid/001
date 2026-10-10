@@ -265,12 +265,13 @@ about to change before changing it.
 - L21755: "APPLYING" HAD NO AGE, AND BITGET'S REFUSALS WERE STILL JSON — `app/test/a_balances_only_venue_says_so.test.js`, `app/test/a_pending_key_says_how_long_it_has_waited.test.js`, `app/test/one_venue_s_status_never_rewrites_another.test.js`, `tests/test_a_bybit_eu_key_is_named_and_read_for_balances.py`, `tests/test_a_key_is_checked_where_its_venue_trades.py`
 - L21889: THE WEBSITE'S OWN "NOT READY" READ AS "NOT CONNECTED TO THE BOT" — `app/test/the_site_s_own_not_ready_is_not_the_bot.test.js`
 - L21911: ONE ACCOUNT, TWO EXECUTORS, AND A STOP OF 0 READ AS "NONE WANTED" — `tests/test_a_fill_with_no_stop_on_record_gets_one.py`, `tests/test_one_account_one_executor.py`
-- L21968: "BALANCE: 0.00 USDT FREE" WAS A READING NOBODY MADE — `tests/test_a_key_check_never_reads_a_missing_balance_as_zero.py`, `tests/test_the_exchange_card_names_every_linked_venue.py`
-- L21986: THE KEYS CARD WAS A COPY OF THE WEBSITE'S OWN LAST ACK — `app/test/the_keys_card_shows_what_the_bot_holds.test.js`, `tests/test_the_bot_reports_the_venues_it_holds.py`
-- L22024: A SWITCH NAMED FOR STOCK TRADING TURNED NOTHING OFF — `tests/test_the_house_does_not_auto_trade_stocks.py`
-- L22054: THE SAME CARD WAS GREEN FOR AN ORDER IT DID NOT PLACE — `app/test/agent_scorecard_metrics.test.js`, `app/test/the_lab_forwards_the_cards_breaker_reset.test.js`, `tests/test_a_card_says_how_often_its_breaker_tripped.py`, `tests/test_a_replay_s_day_is_the_bar_s_day.py`, `tests/test_reproduce_in_lab_runs_the_cards_backtest.py`, `tests/test_the_autoconfirm_card_is_green_only_when_it_places.py`
+- L21968: AND THE CLOSE IT BOOKED TWICE STAYED BOOKED TWICE — `tests/test_a_close_booked_twice_is_struck_once.py`
+- L22021: "BALANCE: 0.00 USDT FREE" WAS A READING NOBODY MADE — `tests/test_a_key_check_never_reads_a_missing_balance_as_zero.py`, `tests/test_the_exchange_card_names_every_linked_venue.py`
+- L22039: THE KEYS CARD WAS A COPY OF THE WEBSITE'S OWN LAST ACK — `app/test/the_keys_card_shows_what_the_bot_holds.test.js`, `tests/test_the_bot_reports_the_venues_it_holds.py`
+- L22077: A SWITCH NAMED FOR STOCK TRADING TURNED NOTHING OFF — `tests/test_the_house_does_not_auto_trade_stocks.py`
+- L22107: THE SAME CARD WAS GREEN FOR AN ORDER IT DID NOT PLACE — `app/test/agent_scorecard_metrics.test.js`, `app/test/the_lab_forwards_the_cards_breaker_reset.test.js`, `tests/test_a_card_says_how_often_its_breaker_tripped.py`, `tests/test_a_replay_s_day_is_the_bar_s_day.py`, `tests/test_reproduce_in_lab_runs_the_cards_backtest.py`, `tests/test_the_autoconfirm_card_is_green_only_when_it_places.py`
 
-## Deploying so a dead bot cannot look like a live one (line 22150)
+## Deploying so a dead bot cannot look like a live one (line 22203)
 
 
-## Operational docs (line 22307)
+## Operational docs (line 22360)

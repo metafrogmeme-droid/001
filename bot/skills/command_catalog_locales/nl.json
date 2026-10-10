@@ -143,6 +143,7 @@
     "shadow": "contrafeitelijk schaduwboek",
     "audit": "nachtelijk zelfauditrapport",
     "parity": "pariteit live ↔ backtest",
+    "duplicates": "dubbel geboekte sluitingen in de boeken van de operator",
     "attribution": "welke indicatoren de winsten drijven",
     "slippage": "slippage-statistieken",
     "accounts": "risicomomentopname per account",

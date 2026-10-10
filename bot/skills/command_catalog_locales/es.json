@@ -143,6 +143,7 @@
     "shadow": "libro sombra contrafactual",
     "audit": "informe de autoauditoría nocturna",
     "parity": "paridad real ↔ backtest",
+    "duplicates": "cierres registrados dos veces en los libros del operador",
     "attribution": "qué indicadores impulsan las ganancias",
     "slippage": "estadísticas de slippage",
     "accounts": "instantánea de riesgo por cuenta",

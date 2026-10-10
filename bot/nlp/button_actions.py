@@ -50,6 +50,7 @@ BUTTON_ACTIONS: tuple[str, ...] = (
     "closeall_confirm",
     "confirm:",
     "duel:",
+    "dupstrike:",
     "emergency_cancel",
     "emergency_confirm",
     "lang:",
@@ -205,6 +206,8 @@ CALLBACK_NO_PERMISSION: dict[str, str] = {
     "confirm:": "gated in the branch by the owner tag, `_is_admin` and H-18 "
                 "`_can_trade_live` -- the OPEN door",
     "duel:": "a pick in the caller's own duel round",
+    "dupstrike:": "admin-gated in the branch (`_is_admin`); the strike re-reads "
+                  "the books first, keeps the row it takes out, and is audited",
     "emergency_cancel": "a cancellation: it changes nothing",
     "lang:": "the caller's own display language",
     "latest_signal": "delegates to `_cmd_latest_signal`, which carries its own "

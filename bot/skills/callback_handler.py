@@ -798,6 +798,29 @@ class CallbackHandler:
                   action="close_all", result="OK")
             return
 
+        if data.startswith("dupstrike:"):
+            # /duplicates' tap: strike one close booked in a second book of
+            # the operator's account. Admin only; the strike re-reads every
+            # book before it takes anything out, and is audited.
+            if not self._is_admin(update):
+                await self._send(update, "\ud83d\udd12 Admin only.", edit=True)
+                return
+            from bot.core.duplicate_closes import (
+                duplicates_card,
+                find_duplicate_closes,
+                strike_duplicate,
+                strike_outcome_line,
+            )
+            outcome = strike_duplicate(self.engine, data.removeprefix("dupstrike:"),
+                                       struck_by=self._get_tg_id(update))
+            rest, buttons = duplicates_card(find_duplicate_closes(self.engine))
+            dup_kb = (InlineKeyboardMarkup(
+                [[InlineKeyboardButton(label, callback_data=f"dupstrike:{tok}")]
+                 for label, tok in buttons]) if buttons else None)
+            await self._send(update, f"{strike_outcome_line(outcome)}\n\n{rest}",
+                             reply_markup=dup_kb, edit=True)
+            return
+
         if data == "closeall_cancel":
             await self._send(update,
                 "\u21a9\ufe0f Close-all cancelled. All positions untouched.",

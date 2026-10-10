@@ -1209,6 +1209,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("classpf", self._cmd_classpf),
             ("funding", self._cmd_funding),
             ("parity", self._cmd_parity), ("shadow", self._cmd_shadow),
+            ("duplicates", self._cmd_duplicates),
             ("audit", self._cmd_audit),
             ("grant_live", self._cmd_grant_live), ("revoke_live", self._cmd_revoke_live),
             ("set_tier", self._cmd_set_tier),

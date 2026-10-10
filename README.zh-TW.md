@@ -598,6 +598,7 @@ python -m bot.main --mode scan
 | `/shadow` | 反事實影子帳本 — /shadow ladder 與 /shadow bounds 看倉位控制本來會怎麼做 |
 | `/audit` | 每夜自我稽核報告 |
 | `/parity` | 實盤 ↔ 回測一致性 |
+| `/duplicates` | 營運者帳本間被記兩次的平倉 |
 | `/attribution` | 哪些指標帶來獲利 |
 | `/slippage` | 滑價統計 |
 | `/accounts` | 各帳戶風險快照 |

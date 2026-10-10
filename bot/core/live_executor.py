@@ -528,6 +528,12 @@ _CLOSED_TRADES_FILE = os.path.join(
     os.environ.get("RUNECLAW_STATE_DIR", "data"), "closed_trades.json"
 )
 _MAX_CLOSED_TRADES = 500  # Cap closed trade history
+#: The signature of one exchange close recorded twice: entries this close
+#: (fraction of the entry) and closes this near in time. One reading, asked by
+#: the booking guard (`LiveExecutor._is_duplicate_close_booking`) and by the
+#: search across the operator's books (`bot.core.duplicate_closes`).
+SAME_CLOSE_ENTRY_TOL = 0.0005
+SAME_CLOSE_WINDOW_S = 7200
 # Submissions the venue never confirmed either way (a send that timed out,
 # and order lists that could not be read after it), kept beside the positions
 # file until the venue says what became of each -- see
@@ -14930,7 +14936,7 @@ class LiveExecutor:
                 if _norm(ct.symbol) != sym or ct.direction != pos.direction:
                     continue
                 ct_entry = float(ct.entry_price or 0.0)
-                if ct_entry <= 0 or abs(ct_entry - entry) / entry > 0.0005:
+                if ct_entry <= 0 or abs(ct_entry - entry) / entry > SAME_CLOSE_ENTRY_TOL:
                     continue
                 if ct.closed_at is None:
                     continue
@@ -14939,7 +14945,7 @@ class LiveExecutor:
                     ct_closed = ct_closed.replace(tzinfo=UTC)
                 if opened is not None and opened > ct_closed:
                     continue  # opened after that close: a new position
-                if abs((now - ct_closed).total_seconds()) <= 7200:
+                if abs((now - ct_closed).total_seconds()) <= SAME_CLOSE_WINDOW_S:
                     return True
         except Exception:
             return False
