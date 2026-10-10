@@ -270,14 +270,15 @@ about to change before changing it.
 - L22098: ONE ACCOUNT, TWO EXECUTORS, AND A STOP OF 0 READ AS "NONE WANTED" — `tests/test_a_fill_with_no_stop_on_record_gets_one.py`, `tests/test_one_account_one_executor.py`
 - L22155: AND THE CLOSE IT BOOKED TWICE STAYED BOOKED TWICE — `tests/test_a_close_booked_twice_is_struck_once.py`
 - L22208: AND THE CARD COULD NOT SAY WHY IT LEFT THE OPERATOR'S OWN BOOK ALONE — `tests/test_the_link_check_says_why_it_could_not_prove.py`
-- L22237: "BALANCE: 0.00 USDT FREE" WAS A READING NOBODY MADE — `tests/test_a_key_check_never_reads_a_missing_balance_as_zero.py`, `tests/test_the_exchange_card_names_every_linked_venue.py`
-- L22255: THE KEYS CARD WAS A COPY OF THE WEBSITE'S OWN LAST ACK — `app/test/the_keys_card_shows_what_the_bot_holds.test.js`, `tests/test_the_bot_reports_the_venues_it_holds.py`
-- L22293: A SWITCH NAMED FOR STOCK TRADING TURNED NOTHING OFF — `tests/test_the_house_does_not_auto_trade_stocks.py`
-- L22323: THE SAME CARD WAS GREEN FOR AN ORDER IT DID NOT PLACE — `app/test/agent_scorecard_metrics.test.js`, `app/test/the_lab_forwards_the_cards_breaker_reset.test.js`, `tests/test_a_card_says_how_often_its_breaker_tripped.py`, `tests/test_a_replay_s_day_is_the_bar_s_day.py`, `tests/test_reproduce_in_lab_runs_the_cards_backtest.py`, `tests/test_the_autoconfirm_card_is_green_only_when_it_places.py`
+- L22237: AND THEN IT COULD NOT SAY WHOSE — `tests/test_the_link_check_reads_each_key_once.py`
+- L22273: "BALANCE: 0.00 USDT FREE" WAS A READING NOBODY MADE — `tests/test_a_key_check_never_reads_a_missing_balance_as_zero.py`, `tests/test_the_exchange_card_names_every_linked_venue.py`
+- L22291: THE KEYS CARD WAS A COPY OF THE WEBSITE'S OWN LAST ACK — `app/test/the_keys_card_shows_what_the_bot_holds.test.js`, `tests/test_the_bot_reports_the_venues_it_holds.py`
+- L22329: A SWITCH NAMED FOR STOCK TRADING TURNED NOTHING OFF — `tests/test_the_house_does_not_auto_trade_stocks.py`
+- L22359: THE SAME CARD WAS GREEN FOR AN ORDER IT DID NOT PLACE — `app/test/agent_scorecard_metrics.test.js`, `app/test/the_lab_forwards_the_cards_breaker_reset.test.js`, `tests/test_a_card_says_how_often_its_breaker_tripped.py`, `tests/test_a_replay_s_day_is_the_bar_s_day.py`, `tests/test_reproduce_in_lab_runs_the_cards_backtest.py`, `tests/test_the_autoconfirm_card_is_green_only_when_it_places.py`
 
-## Deploying so a dead bot cannot look like a live one (line 22419)
+## Deploying so a dead bot cannot look like a live one (line 22455)
 
-- L22576: A PEAK WITH NO TIME BESIDE IT CANNOT SAY WHETHER TO ACT — `tests/test_phase_headroom.py`
-- L22592: THE NUDGE READ 110,529 ROWS FOR EVERY IDEA, AND THE STALL HAD NO NAME — `tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`
+- L22612: A PEAK WITH NO TIME BESIDE IT CANNOT SAY WHETHER TO ACT — `tests/test_phase_headroom.py`
+- L22628: THE NUDGE READ 110,529 ROWS FOR EVERY IDEA, AND THE STALL HAD NO NAME — `tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`
 
-## Operational docs (line 22645)
+## Operational docs (line 22681)

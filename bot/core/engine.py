@@ -3722,6 +3722,12 @@ class RuneClawEngine:
             except Exception:
                 return False
 
+        # Account UIDs read, by a digest of the key: a key opens one account
+        # for its life, so a re-check asks Bitget about a key it has not read.
+        known: Optional[dict[str, str]] = getattr(self, "_bitget_account_uids", None)
+        if known is None:
+            known = {}
+            self._bitget_account_uids = known
         readings: dict[str, LinkReading] = {}
         for uid in ids:
             if not _in_scope(uid):
@@ -3730,17 +3736,16 @@ class RuneClawEngine:
                 linked = "bitget" in store.list_venues(uid)
                 fields = store.get_for_venue(uid, "bitget") if linked else None
             except Exception as exc:
-                readings[uid] = LinkReading(LINK_UNREAD, unread="theirs",
-                                            cause=type(exc).__name__)
+                readings[uid] = LinkReading(LINK_UNREAD, their_cause=type(exc).__name__)
                 continue
             if not linked:
                 continue
             if not fields:
-                readings[uid] = LinkReading(LINK_UNREAD, unread="theirs",
-                                            cause="the stored keys would not decrypt")
+                readings[uid] = LinkReading(LINK_UNREAD,
+                                            their_cause="the stored keys would not decrypt")
                 continue
             kw = {"probe": probe} if probe is not None else {}
-            readings[uid] = await bitget_link_reading(fields, **kw)
+            readings[uid] = await bitget_link_reading(fields, known=known, **kw)
         before = set(getattr(self, "_operator_account_users", set()))
         found = {u for u, r in readings.items() if r.same is True}
         held = {u for u in before if u in readings and readings[u].same is None}

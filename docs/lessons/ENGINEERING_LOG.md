@@ -21206,7 +21206,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **484 of 1263** reach for source text through `source_scan`, `code_only`
+Driven, **484 of 1264** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 484 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -22233,6 +22233,42 @@ is not a reading of "no".
 
 `/classpf` printed "1 trades" on the same day; one trade is one trade.
 Sixteen mutants, all killed. (`tests/test_the_link_check_says_why_it_could_not_prove.py`.)
+
+**AND THEN IT COULD NOT SAY WHOSE.** 10 October, with that card deployed:
+"Book 6307156912 was not compared: the account ID behind either set of keys
+could not be read (ExchangeError / DDoSProtection), so it is not known whether
+they open the operator's account." Two reasons and one subject. The linked
+key's read was refused (ExchangeError); the operator's, made a moment after
+it, met Bitget's rate limit (DDoSProtection). ExchangeError is the class ccxt
+gives every Bitget code it does not map, so the one fact that tells a
+permission from an IP list, the code, went with the message. A rate limit is a
+refusal for load, which one read a moment later settles, and the check gave up
+on it. And every re-check asked Bitget for both account IDs again, back to
+back, though a key opens one account for its life: the second read was the one
+the limit met.
+
+Each side keeps its own reason now (`LinkReading.their_cause`, `our_cause`),
+and whose read failed is which reason is set; `unread` and `cause` were fields a
+caller could set to disagree. A derived `unread` property was written and taken
+out again: the first full run counted it as the 42nd method name the
+unreachable-methods sweep cannot tell apart by receiver, and renamed, the sweep
+saw that nothing outside the tests read it. The card names each reason against
+its own keys
+("its keys: …; the operator's own keys: …"). A raised read carries Bitget's
+code after the class ("PermissionDenied, Bitget code 40014"), never the
+message. The operator's account ID is read first. A refusal for load (rate
+limit, timeout, network, venue unavailable) is read once more after two
+seconds; a refusal for the key never is, and neither is a class ccxt could not
+name. An account ID read is kept per key for the life of the process
+(`engine._bitget_account_uids`, under a digest of the key, never the key), so a
+re-check asks Bitget only about a key it has not read, and a failed read is
+never kept. That also takes a proven link out of the six-hour re-check's
+outage, the path that cost the mark on 8 October; the mark held through an
+unread UID stays for a key not yet read.
+Twenty-three mutants, all killed; the first round left one standing, a
+side's reason kept after its ID read, which could not differ: the reader
+returns no reason with an ID, so the guard it removed was redundant and is gone.
+(`tests/test_the_link_check_reads_each_key_once.py`.)
 
 **"BALANCE: 0.00 USDT FREE" WAS A READING NOBODY MADE.** The connect card
 carries the key check's own detail as its Balance line, and all five probes
