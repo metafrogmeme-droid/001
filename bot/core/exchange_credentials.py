@@ -25,11 +25,13 @@ separately (see PER_USER_LIVE_ENABLED and docs/LIVE_TRADING_ENABLEMENT.md).
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
 import os
 import re
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -911,22 +913,29 @@ async def probe_bitget_key_scope(api_key: str, api_secret: str, passphrase: str,
     """Observe a Bitget key's granted scope. READ-ONLY, and never raises.
 
     Returns ``{"withdraw": "on"|"off"|"unknown", "ip_allowlist": [...]|None,
-    "account_uid": str|None}``. No withdrawal is attempted and no order is
-    placed — the scope is *asked for*, never *tested*. Every failure path (ccxt
-    missing, endpoint absent on this ccxt version, HTTP error, a response shape
-    we do not recognise) lands on ``"unknown"``/``None``, so the worst case is
-    exactly the information we had before calling it.
+    "account_uid": str|None, "account_uid_error": str|None}``. No withdrawal
+    is attempted and no order is placed — the scope is *asked for*, never
+    *tested*. Every failure path (ccxt missing, endpoint absent on this ccxt
+    version, HTTP error, a response shape we do not recognise) lands on
+    ``"unknown"``/``None``, so the worst case is exactly the information we
+    had before calling it.
 
     ``account_uid`` is Bitget's ``userId`` for the account the key opens: a
     sub-account has its own, and it is the same whichever API key opens it.
     It is how two different keys are recognised as one account
-    (`same_bitget_account_as_operator`).
+    (`bitget_link_reading`). When it is None, ``account_uid_error`` says why:
+    an exception CLASS or a short phrase, never a message, because it reaches
+    the operator's `/duplicates` card. A futures-only key is refused the spot
+    account read and lands here; that is "could not look", not "another
+    account".
     """
-    out: dict = {"withdraw": "unknown", "ip_allowlist": None, "account_uid": None}
+    out: dict = {"withdraw": "unknown", "ip_allowlist": None, "account_uid": None,
+                 "account_uid_error": None}
     client = None
     try:
         import ccxt.async_support as ccxt
-    except Exception:
+    except Exception as exc:
+        out["account_uid_error"] = type(exc).__name__
         return out
     try:
         client = ccxt.bitget({
@@ -938,24 +947,31 @@ async def probe_bitget_key_scope(api_key: str, api_secret: str, passphrase: str,
         })
         try:
             client.set_sandbox_mode(sandbox)
-        except Exception:
+        except Exception as exc:
             if sandbox:
+                out["account_uid_error"] = type(exc).__name__
                 return out
         fetch = getattr(client, "privateSpotGetV2SpotAccountInfo", None)
         if fetch is None:
-            return out          # ccxt version without the endpoint — not a failure
+            # ccxt version without the endpoint — not a failure
+            out["account_uid_error"] = "no account-info endpoint in this ccxt"
+            return out
         resp = await fetch({})
         data = resp.get("data") if isinstance(resp, dict) else None
         if not isinstance(data, dict):
+            out["account_uid_error"] = "a reply this bot does not recognise"
             return out
         out["withdraw"] = bitget_withdraw_scope(data.get("authorities"))
         out["ip_allowlist"] = bitget_ip_allowlist(data)
         out["account_uid"] = bitget_account_uid(data)
+        if out["account_uid"] is None:
+            out["account_uid_error"] = "no account ID in Bitget's reply"
         return out
-    except Exception:
+    except Exception as exc:
         # A key without spot-account read permission answers 401/403 here while
         # being a perfectly good futures key. That is "we could not look", not
         # "it cannot withdraw".
+        out["account_uid_error"] = type(exc).__name__
         return out
     finally:
         if client is not None:
@@ -998,30 +1014,82 @@ def _operator_bitget_fields(cfg: Any = None) -> Optional[dict]:
     return {"api_key": key, "api_secret": secret, "passphrase": passphrase}
 
 
+#: How a stored Bitget link stands against the operator's own account.
+LINK_SAME_KEY = "same_key"              # the operator's own API key, stored again
+LINK_SAME_ACCOUNT = "same_account"      # another key; both read one account UID
+LINK_OTHER_ACCOUNT = "other_account"    # both UIDs read, and they differ
+LINK_UNREAD = "unread"                  # a UID could not be read: no verdict
+
+
+@dataclass(frozen=True)
+class LinkReading:
+    """One stored Bitget link read against the operator's account.
+
+    THREE VALUES, not two. ``same`` is True or False only on a verdict; an
+    unread UID is None, and the callers say they could not check rather than
+    call the account a different one. ``unread`` names whose account ID did
+    not read ("theirs", "operator", "both") and ``cause`` why: an exception
+    class or a short phrase, never a message, because it reaches a card."""
+
+    verdict: str
+    unread: str = ""
+    cause: str = ""
+
+    @property
+    def same(self) -> Optional[bool]:
+        if self.verdict in (LINK_SAME_KEY, LINK_SAME_ACCOUNT):
+            return True
+        if self.verdict == LINK_OTHER_ACCOUNT:
+            return False
+        return None
+
+
+async def bitget_link_reading(fields: dict, *, cfg: Any = None, probe=None) -> LinkReading:
+    """How ``fields`` stand against the operator's own Bitget account.
+
+    The operator's own API key stored again IS the operator's account, read
+    without asking Bitget anything: a key opens one account. Any other key is
+    the same account only when both account UIDs read and match (rotated keys
+    differ while the account is the same). Read-only, never raises.
+    """
+    op = _operator_bitget_fields(cfg)
+    if op is None:
+        return LinkReading(LINK_UNREAD, unread="operator", cause="no operator keys configured")
+    try:
+        theirs_key = str(fields["api_key"] or "").encode()
+    except Exception as exc:
+        return LinkReading(LINK_UNREAD, unread="theirs", cause=type(exc).__name__)
+    if theirs_key and hmac.compare_digest(theirs_key, op["api_key"].encode()):
+        return LinkReading(LINK_SAME_KEY)
+    probe = probe or probe_bitget_key_scope
+    sandbox = venue_sandbox("bitget", cfg)
+    try:
+        t = await probe(fields["api_key"], fields["api_secret"],
+                        fields["passphrase"], sandbox=sandbox) or {}
+        o = await probe(op["api_key"], op["api_secret"], op["passphrase"],
+                        sandbox=sandbox) or {}
+    except Exception as exc:
+        return LinkReading(LINK_UNREAD, unread="both", cause=type(exc).__name__)
+    theirs, ours = t.get("account_uid"), o.get("account_uid")
+    if theirs and ours:
+        return LinkReading(LINK_SAME_ACCOUNT if str(theirs) == str(ours) else LINK_OTHER_ACCOUNT)
+    side = "both" if not (theirs or ours) else ("theirs" if not theirs else "operator")
+    causes = [str(r.get("account_uid_error") or "") for r, uid in ((t, theirs), (o, ours))
+              if not uid]
+    cause = " / ".join(dict.fromkeys(c for c in causes if c)) or "no account ID read"
+    return LinkReading(LINK_UNREAD, unread=side, cause=cause)
+
+
 async def same_bitget_account_as_operator(fields: dict, *, cfg: Any = None,
                                           probe=None) -> Optional[bool]:
     """Whether ``fields`` open the operator's own Bitget account.
 
-    True or False when both accounts' UIDs were read; None when either could
-    not be (no operator keys, a key without account-read permission, a venue
+    True or False on a verdict (`bitget_link_reading`); None when it could not
+    be read (no operator keys, a key without account-read permission, a venue
     outage). None is not False: the callers say what they could not check
     rather than call the account a different one. Read-only, never raises.
     """
-    probe = probe or probe_bitget_key_scope
-    op = _operator_bitget_fields(cfg)
-    if op is None:
-        return None
-    sandbox = venue_sandbox("bitget", cfg)
-    try:
-        theirs = (await probe(fields["api_key"], fields["api_secret"],
-                              fields["passphrase"], sandbox=sandbox)).get("account_uid")
-        ours = (await probe(op["api_key"], op["api_secret"], op["passphrase"],
-                            sandbox=sandbox)).get("account_uid")
-    except Exception:
-        return None
-    if not theirs or not ours:
-        return None
-    return str(theirs) == str(ours)
+    return (await bitget_link_reading(fields, cfg=cfg, probe=probe)).same
 
 
 async def validate_bitget_credentials(

@@ -3675,7 +3675,8 @@ class RuneClawEngine:
     #: account (`check_operator_account_links`); also run once at boot.
     OPERATOR_LINK_CHECK_EVERY_S = 6 * 3600.0
 
-    async def check_operator_account_links(self, *, probe=None) -> set:
+    async def check_operator_account_links(self, *, probe=None,
+                                           operators_only: bool = False) -> set:
         """Mark stored Bitget keys that open the operator's OWN account.
 
         Linking is refused for these since 8 October (`/connect`, the website
@@ -3686,10 +3687,25 @@ class RuneClawEngine:
         line; `_executor_for` then routes the operator to the operator's
         book and refuses anyone else. A UID that could not be read is not a
         match: nothing is marked on a guess. Returns the marked ids.
+
+        AN UNREAD UID KEEPS THE MARK IT HAD. This replaced the marks with
+        what one pass could prove, so a proven link that failed one read (a
+        Bitget outage at the six-hour re-check) lost its mark, and the next
+        ask built the second executor on the operator's account again: the
+        8 October failure, from a timeout. A mark is lost only to a verdict
+        (the link removed, or its UID read and found to differ).
+
+        Each link's reading is kept (`_operator_link_readings`) so `/duplicates`
+        can say why a book was not compared: another account, or whose
+        account ID would not read and why. ``operators_only`` re-reads the
+        operator ids' links alone, and leaves every other mark and reading as
+        it was.
         """
         from bot.core.exchange_credentials import (
+            LINK_UNREAD,
+            LinkReading,
+            bitget_link_reading,
             get_credential_store,
-            same_bitget_account_as_operator,
         )
         try:
             store = get_credential_store()
@@ -3697,19 +3713,45 @@ class RuneClawEngine:
         except Exception as exc:
             logger.warning("operator-account link check skipped: %s", type(exc).__name__)
             return set(getattr(self, "_operator_account_users", set()))
-        found: set = set()
-        for uid in ids:
+
+        def _in_scope(uid: str) -> bool:
+            if not operators_only:
+                return True
             try:
-                fields = store.get_for_venue(uid, "bitget")
+                return bool(self._is_operator_user(uid))
             except Exception:
-                fields = None
+                return False
+
+        readings: dict[str, LinkReading] = {}
+        for uid in ids:
+            if not _in_scope(uid):
+                continue
+            try:
+                linked = "bitget" in store.list_venues(uid)
+                fields = store.get_for_venue(uid, "bitget") if linked else None
+            except Exception as exc:
+                readings[uid] = LinkReading(LINK_UNREAD, unread="theirs",
+                                            cause=type(exc).__name__)
+                continue
+            if not linked:
+                continue
             if not fields:
+                readings[uid] = LinkReading(LINK_UNREAD, unread="theirs",
+                                            cause="the stored keys would not decrypt")
                 continue
             kw = {"probe": probe} if probe is not None else {}
-            if await same_bitget_account_as_operator(fields, **kw) is True:
-                found.add(uid)
+            readings[uid] = await bitget_link_reading(fields, **kw)
         before = set(getattr(self, "_operator_account_users", set()))
-        self._operator_account_users = found
+        found = {u for u, r in readings.items() if r.same is True}
+        held = {u for u in before if u in readings and readings[u].same is None}
+        self._operator_account_users = found | held | {u for u in before if not _in_scope(u)}
+        self._operator_link_readings = {
+            **{u: r for u, r in (getattr(self, "_operator_link_readings", None) or {}).items()
+               if not _in_scope(u)},
+            **readings}
+        for uid in sorted(held):
+            logger.warning("Bitget link of %s could not be re-read (%s); it keeps its mark "
+                           "as the operator's account", uid, readings[uid].cause)
         for uid in sorted(found - before):
             try:
                 self.invalidate_user_executor(uid)
@@ -3721,7 +3763,7 @@ class RuneClawEngine:
                   f"/disconnect; the operator keys already trade that account.",
                   action="operator_account_link", result="DUPLICATE",
                   data={"user": uid}, level=logging.WARNING)
-        return found
+        return found | held
 
     def _rehydrate_user_executors(self) -> None:
         """Rebuild per-user executors for all linked users at startup so their
