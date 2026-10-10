@@ -377,6 +377,11 @@ class Snapshot:
     taker_ratio: Optional[float] = None
 
 
+#: Closed 1h bars one snapshot is read from: the day (25), the ATR span and
+#: room to spare. The backtest's pass and the live scan read the same window.
+SNAPSHOT_BARS = 64
+
+
 def snapshot_from_bars(symbol: str, rows: Sequence[Sequence[Any]],
                        params: ScannerParams, **live: Optional[float]) -> Snapshot:
     """The 24h reading over the last closed 1h ``rows`` ([ts, o, h, l, c, v]).

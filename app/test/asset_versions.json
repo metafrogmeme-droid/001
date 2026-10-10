@@ -255,6 +255,10 @@
     "v": 4,
     "sha": "4321eaebf37b67a2"
   },
+  "js/strategy-scan.js": {
+    "v": 1,
+    "sha": "aeb04e2eca0e6990"
+  },
   "js/strengthmap.js": {
     "v": 8,
     "sha": "bdc0a2b104d65974"

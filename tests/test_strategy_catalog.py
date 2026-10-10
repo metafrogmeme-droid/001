@@ -217,7 +217,8 @@ def test_a_card_the_live_bot_does_not_run_says_who_runs_it():
         assert ("The frozen backtest runs it." in c["how"]) is measured, c["id"]
         if not measured:
             assert c["scorecard"] and c["scorecard"].get("omitted"), c["id"]
-    assert seen == {"eth-ma-trend", "alt-sweep", "daily-vol-rotation", "limit-scanner"}
+    assert seen == {"eth-ma-trend", "alt-sweep", "daily-vol-rotation", "limit-scanner",
+                    "multi-trend"}
     rotation = sc.get_agent("daily-vol-rotation")
     assert "No backtest evaluates it either." in rotation["how"]
     alt = sc.get_agent("alt-sweep")

@@ -105,9 +105,14 @@ def test_catalog_attaches_scorecard_with_provenance():
         cfg = by_slug[card["id"]]
         if not publishes_scorecard(cfg):
             assert isinstance(s, dict) and s.get("omitted"), card["id"]
-            assert "not applied" in s["omitted"]
             assert "backtest pending" not in s["omitted"].lower()
             assert "metrics" not in s
+            from bot.core.momentum_trend import preset_is_momentum_trend
+            if preset_is_momentum_trend(cfg):
+                # No runner reads its rule yet: that is the reason, not a knob.
+                assert "no frozen backtest runs this rule yet" in s["omitted"]
+                continue
+            assert "not applied" in s["omitted"]
             assert "not applied" in card["how"]
             continue
         if not preset_universe_covered(cfg, card_window(cfg)[1]):
@@ -135,7 +140,7 @@ def test_catalog_scorecard_is_failsoft(monkeypatch):
     assert cat
     for card in cat:
         slot = card["scorecard"]
-        if card["id"] in ("daily-vol-rotation", "alt-sweep"):
+        if card["id"] in ("daily-vol-rotation", "alt-sweep", "multi-trend"):
             assert slot["omitted"]
             assert "No track record published" in slot["omitted"]
             assert "metrics" not in slot

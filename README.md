@@ -537,6 +537,11 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/momentum` | momentum scan |
 | `/dip` | dip scan |
 | `/scalp` | 5m scalp scan |
+| `/limitscan` | Limit Entry Scanner now — its board and the limit it would rest, places nothing |
+| `/multitrend` | Multi-Symbol Momentum Trend now — each market's signal, places nothing |
+| `/altsweep` | ALT Sweep now — each alt's moving-average side, places nothing |
+| `/ethma` | ETH Moving-Average Trend now — its moving-average side, places nothing |
+| `/volrotation` | daily rotation now — the market it would hold, places nothing |
 | `/intraday` | 15m intraday scan |
 | `/swing` | 4h swing scan |
 | `/stockscan` | tokenized US stock perps |

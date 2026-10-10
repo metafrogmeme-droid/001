@@ -291,7 +291,7 @@ class PortfolioBacktester:
         and a regime's half size halves the gate's size. A symbol that holds
         a position or a resting limit is scored and not placed again.
         """
-        from bot.core.limit_scanner import scan_classes, snapshot_from_bars
+        from bot.core.limit_scanner import SNAPSHOT_BARS, scan_classes, snapshot_from_bars
         from bot.core.strategy_gate import _base
 
         params = self._scanner
@@ -301,7 +301,7 @@ class PortfolioBacktester:
         for sym in fresh:
             eng = self._engines[sym]
             eng._signals_generated += 1
-            snaps.append(snapshot_from_bars(sym, eng._all_raw[max(0, idx[sym] - 64):idx[sym]],
+            snaps.append(snapshot_from_bars(sym, eng._all_raw[max(0, idx[sym] - SNAPSHOT_BARS):idx[sym]],
                                             params))
         held = frozenset(
             [_base(p.asset) for p in self._portfolio._positions.values()]

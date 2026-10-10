@@ -490,6 +490,11 @@ python -m bot.main --mode scan
 | `/momentum` | 動能掃描 |
 | `/dip` | 回調掃描 |
 | `/scalp` | 5 分鐘短打掃描 |
+| `/limitscan` | 限價進場掃描：當前盤面與擬掛限價（不下單） |
+| `/multitrend` | 多幣動能趨勢：各市場當前訊號（不下單） |
+| `/altsweep` | 山寨掃描：各幣均線方向（不下單） |
+| `/ethma` | ETH 均線趨勢：均線方向（不下單） |
+| `/volrotation` | 日線輪動：當前會持有的市場（不下單） |
 | `/intraday` | 15 分鐘日內掃描 |
 | `/swing` | 4 小時波段掃描 |
 | `/stockscan` | 美股代幣化永續 |

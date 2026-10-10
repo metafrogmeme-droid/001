@@ -134,8 +134,8 @@ DEFAULT_CARD_BARS = 1500
 
 
 def _ccxt_symbol(sym: str) -> str:
-    from bot.core.strategy_gate import _base
-    return f"{_base(sym)}/USDT:USDT"
+    from bot.core.strategy_gate import perp_symbol
+    return perp_symbol(sym)
 
 
 def card_window(cfg: dict) -> tuple[str, list[str], int]:

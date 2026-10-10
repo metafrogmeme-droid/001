@@ -2312,6 +2312,27 @@ class RunStrategySkill(BaseSkill):
             "max_portfolio_positions": 8,
             "minimum_target_positions": 6,
         },
+        # The GetAgent "1h Multi-Symbol Momentum Trend Perpetuals" playbook as
+        # its page states it (`bot/core/momentum_trend.py`). The live bot does
+        # not run it and no frozen backtest evaluates it; /multitrend scans it
+        # on the last closed bars. Its page hid the fast period: 9 is a
+        # reading, fixed before any result of it was measured. Its 20x
+        # leverage is recorded and not applied.
+        "multi trend": {
+            "label": "Multi-Symbol Momentum Trend", "icon": "\U0001f4c8",
+            "desc": ("5 perpetuals \u2022 closed 1h bars \u2022 the 9/21 average and "
+                     "3-bar momentum agree on a side \u2022 stop 1.2%, target 2.4%, an "
+                     "opposite signal closes \u2022 leverage 20\u00d7 recorded and not "
+                     "applied \u2022 the live bot does not run it"),
+            "symbols": ["PONSUSDT", "BTCUSDT", "BTWUSDT", "SOLUSDT", "ETHUSDT"],
+            "rsi_threshold": None, "rsi_min": None,
+            "regime": None, "confidence_threshold": None,
+            "direction": None, "volume_spike_min": None,
+            "sl_atr_mult": None, "tp_atr_mult": None,
+            "momentum_trend": {"fast_period": 9, "slow_period": 21, "momentum_period": 3,
+                               "stop_loss_pct": 1.2, "take_profit_pct": 2.4},
+            "leverage": 20,
+        },
         # The RUNECLAW Limit Entry Scanner playbook, ported onto closed 1h
         # bars: its rules are `bot/core/limit_scanner.py`, one reading for the
         # frozen backtest and the confirm gate. BTC is the regime leader and
@@ -2381,6 +2402,7 @@ class RunStrategySkill(BaseSkill):
         "volrotation": "daily vol rotation",
         "altsweep": "alt sweep",
         "limitscan": "limit scanner",
+        "multitrend": "multi trend",
     }
 
     @classmethod
@@ -2400,6 +2422,12 @@ class RunStrategySkill(BaseSkill):
             # "/ethma" and "/volrotation" too, slash commands nothing
             # registers, so the tap was "unknown command".
             a = f"  <i>run {aliases[0]}</i>" if aliases else ""
+            # A rule the live bot does not run has a scan door: its alias as
+            # a command, reading the last closed bars (`strategy_scan`).
+            from bot.core.strategy_scan import scan_command
+            door = scan_command(key)
+            if door:
+                a += f" \u2022 /{door} scans it now"
             lines.append(f"  {cfg['icon']} <b>{cfg['label']}</b>{a}")
             lines.append(f"     <i>{cfg['desc']}</i>")
         lines.append("\n<i>\u25b8 Say \"run\" + name \u2022 full risk gate on every entry</i>")
