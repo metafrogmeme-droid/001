@@ -203,6 +203,16 @@ class PortfolioTracker:
 
         self.balance -= size_usd
         self._positions[idea.id] = trade
+        # A NEW POSITION IS MARKED AT ITS FILL until a fresher price arrives.
+        # The book kept an asset's last mark after its position closed and
+        # valued the next position in that asset at it: a backtest's ETH long
+        # filled at 1,670 was marked at 2,329, a price from a position closed
+        # months before, and `_update_peak` kept that fake +39% as the
+        # high-water mark. The drawdown gate then read 10-15% against a peak
+        # the book never had and refused every entry for the last 94 days of
+        # the run. The fill is the newest price this book has for the asset.
+        self._last_prices[idea.asset] = idea.entry_price
+        self._last_price_at[idea.asset] = time.time()
 
         # STRATEGY: trailing stop after 1R profit -- initialize tracking
         initial_risk = abs(idea.entry_price - idea.stop_loss)
