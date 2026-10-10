@@ -263,6 +263,8 @@
   "val_ok": "OK",
   "val_paper": "PAPER",
   "val_peak_of": "pic de",
+  "val_peak_at": "pic à",
+  "val_last_run": "dernière exécution",
   "val_signals_done": "signaux tentés avant l'annulation",
   "val_sltp_backstop": "tick terminé prématurément — le filet de sécurité a surveillé les stops",
   "val_sltp_backstop_failed": "le filet de sécurité a ÉCHOUÉ — positions ouvertes non surveillées",

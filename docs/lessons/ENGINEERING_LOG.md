@@ -22375,6 +22375,22 @@ in `scripts/systemd/` are SYSTEM units (`User=mulerun`, installed to
 `/etc/systemd/system`), whose cgroups do not hold a login shell, so the
 question does not arise for them.
 
+**A PEAK WITH NO TIME BESIDE IT CANNOT SAY WHETHER TO ACT.** 8 October,
+`/status`: "Slowest tick phase: ⚠ analyze 282s peak of 300s (94%)". The peak is
+the slowest run since the bot started, which is the right figure for a cap (the
+tail trips it), and it was the only one printed. One slow cycle hours ago and
+every cycle running at the cap read the same, so the line could not answer the
+question it is read for. The engine already kept the last run's figure; it
+never reached the card. The record now keeps when the peak happened on the
+wall clock (`peak_at`, moved only by a new peak) and whether the last run was
+itself cut off at the cap (`last_timed_out`, not sticky, where `timed_out`
+stays sticky). The line reads "… peak of 300s (94%) · peak at 2026-10-09 14:05
+UTC · last run 61s", a cut-off last run reads "≥300s", and a part that was not
+recorded is left out rather than printed as zero. The runbook says how to read
+the two. Annotating `phase_headroom`'s result type took one `operator` error
+off the mypy baseline (500 → 499). Nine mutants, all killed.
+(`tests/test_phase_headroom.py`.)
+
 ## Operational docs
 
 - `docs/LIVE_HARDENING_RUNBOOK.md` — boot probes, engine triage, the caps

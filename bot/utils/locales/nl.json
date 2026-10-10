@@ -263,6 +263,8 @@
   "val_ok": "OK",
   "val_paper": "PAPER",
   "val_peak_of": "piek van",
+  "val_peak_at": "piek om",
+  "val_last_run": "laatste run",
   "val_signals_done": "signalen geprobeerd voordat werd geannuleerd",
   "val_sltp_backstop": "tick eindigde vroegtijdig — het vangnet bewaakte de stops",
   "val_sltp_backstop_failed": "vangnet MISLUKT — open posities onbewaakt",

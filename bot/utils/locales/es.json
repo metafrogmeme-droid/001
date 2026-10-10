@@ -263,6 +263,8 @@
   "val_ok": "OK",
   "val_paper": "PAPER",
   "val_peak_of": "pico de",
+  "val_peak_at": "pico a las",
+  "val_last_run": "última ejecución",
   "val_signals_done": "señales intentadas antes de cancelarse",
   "val_sltp_backstop": "el tick terminó antes de tiempo — la red de seguridad vigiló los stops",
   "val_sltp_backstop_failed": "la red de seguridad FALLÓ — posiciones abiertas sin vigilancia",

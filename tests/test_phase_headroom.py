@@ -104,6 +104,32 @@ def test_phase_records_on_the_success_path():
     assert block.index("_record_phase_duration") < block.index("except asyncio.TimeoutError")
 
 
+def test_the_peak_keeps_the_time_it_happened(eng, monkeypatch):
+    """A peak since boot with no time beside it cannot tell one slow cycle
+    hours ago from every cycle at the cap."""
+    import bot.core.engine as engine_mod
+    now = {"t": 0.0}
+    monkeypatch.setattr(engine_mod.time, "time", lambda: now["t"])
+
+    def run(at, seconds):
+        now["t"] = at
+        eng._record_phase_duration("analyze", seconds, 300.0)
+    run(1000.0, 280.0)                                        # the peak
+    run(2000.0, 12.0)                                         # faster: keeps 1000
+    assert eng.phase_headroom()["peak_at"] == 1000.0
+    run(3000.0, 290.0)                                        # a new peak
+    assert eng.phase_headroom()["peak_at"] == 3000.0
+
+
+def test_a_last_run_cut_off_at_the_cap_is_a_floor_and_the_next_is_not(eng):
+    eng._record_phase_duration("analyze", 300.0, 300.0, timed_out=True)
+    h = eng.phase_headroom()
+    assert h["last_timed_out"] and h["timed_out"]
+    eng._record_phase_duration("analyze", 61.0, 300.0)
+    h = eng.phase_headroom()
+    assert not h["last_timed_out"] and h["timed_out"], "the breach stays said"
+
+
 # ── the card ──────────────────────────────────────────────────────────────
 
 def _card(**kw):
@@ -126,6 +152,30 @@ def test_the_card_reports_peak_against_cap():
     assert "analyze" in out
     assert "128s" in out and "300s" in out
     assert "43%" in out
+
+
+def _headroom_line(**kw):
+    out = _card(phase_headroom={"phase": "analyze", "peak_s": 282.0, "cap_s": 300.0,
+                                "used_ratio": 0.94, **kw})
+    return out.split("Slowest tick phase")[1].split("\n")[0]
+
+
+def test_the_card_says_when_the_peak_was_and_what_the_last_run_took():
+    from datetime import datetime, timezone
+    at = datetime(2026, 10, 9, 14, 5, tzinfo=timezone.utc).timestamp()
+    line = _headroom_line(peak_at=at, last_s=61.0)
+    assert line.endswith("282s peak of 300s (94%) · peak at 2026-10-09 14:05 UTC · last run 61s"), line
+
+
+def test_a_last_run_cut_off_is_said_as_a_floor():
+    line = _headroom_line(last_s=300.0, last_timed_out=True)
+    assert line.endswith("· last run ≥300s"), line
+
+
+def test_what_was_not_recorded_is_left_out_not_guessed():
+    line = _headroom_line()
+    assert line.endswith("282s peak of 300s (94%)"), line
+    assert "peak at" not in _headroom_line(peak_at="not a time", last_s=61.0)
 
 
 def test_the_card_flags_a_phase_near_its_cap():

@@ -469,13 +469,16 @@ frequently (key='engine_tick_failure')
 Read that as the breaker doing its job. The thing it is protecting the account
 from is the loop, not the market.
 
-**`Slowest tick phase: <phase> Ns peak of Ns (N%)`** — the headroom, reported
-whether or not anything has broken. This exists because the cap used to be a
-cliff: 299s of a 300s budget looked identical to 30s right up until the tick
-died, so the first signal anyone ever got was a run of failures. Peak rather
-than mean, because the tail is what trips a cap; ranked by ratio rather than
-seconds, because a 40s phase against a 45s cap is in more danger than a 100s
-one against 300s.
+**`Slowest tick phase: <phase> Ns peak of Ns (N%) · peak at <UTC time> · last run Ns`**
+— the headroom, reported whether or not anything has broken. This exists
+because the cap used to be a cliff: 299s of a 300s budget looked identical to
+30s right up until the tick died, so the first signal anyone ever got was a run
+of failures. Peak rather than mean, because the tail is what trips a cap;
+ranked by ratio rather than seconds, because a 40s phase against a 45s cap is
+in more danger than a 100s one against 300s. The peak is since the bot started,
+so read the two figures after it before acting: a peak hours ago with a short
+last run was one slow cycle; a last run near the cap is every cycle. A last run
+cut off at the cap reads `≥`.
 
 ⚠️ **The percentage scales with the universe.** `TOP_MOVERS_COUNT` sets how
 many symbols each cycle analyses. Roughly triple the universe, roughly triple

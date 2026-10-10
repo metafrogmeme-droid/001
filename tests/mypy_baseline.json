@@ -15,7 +15,7 @@
     "name-defined": 2,
     "no-any-return": 94,
     "no-redef": 3,
-    "operator": 41,
+    "operator": 40,
     "return-value": 7,
     "union-attr": 127,
     "var-annotated": 13

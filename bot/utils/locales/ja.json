@@ -263,6 +263,8 @@
   "val_ok": "OK",
   "val_paper": "ペーパー",
   "val_peak_of": "ピーク:",
+  "val_peak_at": "ピーク時刻",
+  "val_last_run": "直近の実行",
   "val_signals_done": "件のシグナルを中止前に試行",
   "val_sltp_backstop": "ティックが早期終了 — バックストップがストップを監視",
   "val_sltp_backstop_failed": "バックストップが失敗 — 保有ポジションが監視されていません",
