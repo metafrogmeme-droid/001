@@ -64,7 +64,8 @@
     "dex": "raydium",
     "launchPriceSol": "0.00003333333",
     "_launchPriceNote": "What is typed into LP Launch Price. It is NOT an on-chain field - initialize carries the hard cap, soft cap, payment method, the two phases and the whitelist limit and nothing else - so it is a statement on the sale page that the program cannot keep. It is set equal to the sale price on purpose: a pool opening below what buyers paid is the one outcome docs/TOKEN_ROADMAP.md section 4 calls unrecoverable, and the operator, who creates the pool after the raise is known, can honour parity at any raise.",
-    "intendedPercentOfGrossRaise": 66.67,
+    "intendedPercentOfGrossRaise": 80,
+    "_percentNote": "The operator's decision of 2026-10-10: 80% of the gross raise goes into the pool (it was 66.67%, ratified 2026-07-26). With Smithii's 2.5% taken from the creator's side, 17.5% of the gross raise is left for audit, legal, operations and the treasury: 175 SOL at the soft cap, 875 SOL at the hard cap. The LP is burned, so the pool's SOL is locked for good. The pool's RCLAW comes from the DEX-liquidity bucket and, above it, from the reserve's post-TGE-liquidity earmark: about 24.0M at the soft cap and 120.0M at the hard cap (npm run presale:smithii-plan).",
     "lpDisposition": "burn",
     "lpLock": "burned by the operator after the pool is created; not enforced by the program",
     "lpLockMonths": null

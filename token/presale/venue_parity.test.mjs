@@ -87,11 +87,6 @@ const SHARED = [
   ['public phase opens', () => genesis.timeline.publicStart, () => smithii.schedule.startUtc, ['schedule.startUtc']],
   ['public phase closes', () => genesis.timeline.depositEnd, () => smithii.schedule.endUtc, ['schedule.endUtc']],
   ['liquidity.dex', () => genesis.liquidity.dex, () => smithii.liquidity.dex, ['liquidity.dex']],
-  // bps -> percent. Genesis ENCODES this on chain; on Smithii it is an intention.
-  // The number is shared; whether anything enforces it is declared in B.
-  ['pool share of the gross raise (%)',
-    () => genesis.liquidity.raisedSolToLiquidityBps / 100,
-    () => smithii.liquidity.intendedPercentOfGrossRaise, ['liquidity.intendedPercentOfGrossRaise']],
 ];
 
 test('A: the terms both venues share agree', () => {
@@ -137,6 +132,11 @@ const DECLARED_DIFFERENCES = [
     holds: () => /never-claim/.test(genesis.liquidity.lpLock) && smithii.liquidity.enforcedByProgram === false
       && smithii.liquidity.lpDisposition === 'burn' && smithii.liquidity.lpLockMonths === null && !/never-claim/.test(smithii.liquidity.lpLock),
     reason: 'Genesis creates the pool and locks the LP in-program. Smithii\'s program never touches liquidity: the operator creates the pool and burns the LP, which nothing enforces.',
+  },
+  {
+    keys: ['liquidity.intendedPercentOfGrossRaise'],
+    holds: () => smithii.liquidity.intendedPercentOfGrossRaise > genesis.liquidity.raisedSolToLiquidityBps / 100,
+    reason: 'The operator raised Smithii\'s pool share above the 66.67% both venues shared (80% from 2026-10-10). On Smithii the pool is the operator\'s action, sized once the raise is known. Genesis encodes its split at create and prices its LP token side against it (lp_parity.test.mjs), so the alternative nobody is running keeps the share it was priced for.',
   },
   {
     keys: ['unsold.mechanism', 'unsold.destination'],

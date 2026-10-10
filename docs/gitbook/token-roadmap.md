@@ -103,7 +103,7 @@ with approvals, not a time lock. **Presale buyers are not vested:** they can cla
 everything the moment the sale ends.
 
 The pool is created by the team after the raise, so it is sized then. Opening at the sale price
-it needs about **20.0M RCLAW at the soft cap and 100.0M at the hard cap**. Whether the table
+it needs about **24.0M RCLAW at the soft cap and 120.0M at the hard cap**. Whether the table
 above returns to a 10% / 5% liquidity / reserve split is an open decision (roadmap §13).
 
 ## Presale (proposed)
@@ -121,7 +121,7 @@ actually does — including what it does **not** do.
 | Buyer vesting | **None.** Every buyer can claim 100% of what they bought when the sale ends |
 | Refund | **None.** Each purchase is paid straight to the team's wallet; nothing is held back to return |
 | Proceeds | Paid directly to the team's launch wallet at each purchase, less Smithii's 2.5%. The plan is a hardware-backed wallet, with proceeds moved to the multisig after the sale |
-| Liquidity | **The team creates the pool** on Raydium after the sale — 66.67% of the gross raise, opened at the sale price — and burns the LP tokens, publishing both transactions. The program does neither |
+| Liquidity | **The team creates the pool** on Raydium after the sale — 80% of the gross raise, opened at the sale price — and burns the LP tokens, publishing both transactions. The program does neither |
 | Unsold tokens | Come back to the team's wallet in one `withdraw` call; the team intends to move them to the reserve allocation and publish that transaction |
 | Program | Smithii's, **upgradeable**: its upgrade authority `CyTc…7KTC` is an off-curve address (program-controlled; who can sign for it is not visible). CoinFabrik's 2024 audit covers Smithii's program, not RUNECLAW |
 

@@ -108,8 +108,8 @@ test('the dates and whole-token amounts of each step are the ones computed indep
 test('the funding table: what each wallet holds before the sale opens, and that it adds up to the supply', () => {
   const f = fundingPlan({ cfg, rows: table(), record, locks: deriveLocks(plan(), ctx()) });
   assert.equal(f.sale.escrow, 150_001_500_015_000_150n, 'hard cap / the stored price, in base units');
-  assert.equal(f.sale.pool, 100_006_000_060_000_600n, '66.67% of the hard cap at the stored price');
-  assert.equal(f.sale.total, 250_007_500_075_000_750n);
+  assert.equal(f.sale.pool, 120_001_200_012_000_120n, '80% of the hard cap at the stored price');
+  assert.equal(f.sale.total, 270_002_700_027_000_270n);
   assert.deepEqual(f.locks.map((l) => [l.bucket, l.base]), [
     ['Community & ecosystem', 250_000_000_000_000_000n],
     ['Team & contributors', 150_000_000_000_000_000n],
@@ -117,8 +117,8 @@ test('the funding table: what each wallet holds before the sale opens, and that 
   ]);
   assert.equal(f.multisig.treasury, 200_000_000_000_000_000n);
   assert.equal(f.multisig.partners, 80_000_000_000_000_000n);
-  assert.equal(f.multisig.total, 329_992_499_924_999_250n);
-  assert.equal(f.multisig.reserve, 49_992_499_924_999_250n);
+  assert.equal(f.multisig.total, 309_997_299_972_999_730n);
+  assert.equal(f.multisig.reserve, 29_997_299_972_999_730n);
   const all = f.sale.total + f.locks.reduce((a, l) => a + l.base, 0n) + f.multisig.total;
   assert.equal(all, f.supply, 'nothing is counted twice and nothing is missing');
 });
@@ -234,8 +234,8 @@ test('the printed plan carries the form entries, the local clock times on reques
   assert.match(plain, /Period 3 \.+ End Date 2029-04-29 14:00 UTC · 25%  → "Tokens available to Claim on end date" 112,500,000/);
   assert.match(plain, /ONE vesting per wallet per token/);
   assert.match(plain, /do not call these locks audited/);
-  assert.match(plain, /Sale wallet \.+ 250,007,500\.075 RCLAW/);
-  assert.match(plain, /Multisig \.+ 329,992,499\.924 RCLAW/);
+  assert.match(plain, /Sale wallet \.+ 270,002,700\.027 RCLAW/);
+  assert.match(plain, /Multisig \.+ 309,997,299\.972 RCLAW/);
   assert.doesNotMatch(plain, /\(UTC\+[12]\)/, 'no local times unless a zone is asked for');
   const ams = renderLocksPlan(p, ctx(), { tz: 'Europe/Amsterdam' });
   assert.match(ams, /Period 1 \.+ End Date 2026-10-29 14:00 UTC {3}\(29 Oct 2026, 15:00 \(UTC\+1\)\)/);
