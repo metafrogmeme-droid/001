@@ -83,6 +83,9 @@ const SHARED = [
   ['public phase (h)',
     () => hoursBetween(genesis.timeline.publicStart, genesis.timeline.depositEnd),
     () => smithii.publicPhaseHours, ['publicPhaseHours']],
+  // The same window as instants: the length alone would pass a sale shifted by a day.
+  ['public phase opens', () => genesis.timeline.publicStart, () => smithii.schedule.startUtc, ['schedule.startUtc']],
+  ['public phase closes', () => genesis.timeline.depositEnd, () => smithii.schedule.endUtc, ['schedule.endUtc']],
   ['liquidity.dex', () => genesis.liquidity.dex, () => smithii.liquidity.dex, ['liquidity.dex']],
   // bps -> percent. Genesis ENCODES this on chain; on Smithii it is an intention.
   // The number is shared; whether anything enforces it is declared in B.
@@ -230,6 +233,12 @@ test('D: the Genesis config claims nothing its program cannot enforce', () => {
 /** The text of a markdown table row, found by the row's own label. */
 const rowOf = (text, label) => new RegExp(`^\\|\\s*${label}\\s*\\|(.*)$`, 'm').exec(text)?.[1];
 
+/** The sale window as the docs write it, derived from the config's two instants: "15 Oct → 29 Oct 2026". */
+function saleWindowText() {
+  const day = (iso, year) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(year ? { year: 'numeric' } : {}), timeZone: 'UTC' });
+  return `${day(smithii.schedule.startUtc, false)} → ${day(smithii.schedule.endUtc, true)}`;
+}
+
 test('E: the GitBook names the venue the config says the sale runs on', () => {
   assert.equal(smithii.venue, 'smithii-launchpad');
   assert.match(rowOf(gitbook, '\\*\\*Smithii Launchpad\\*\\*') ?? '', /\*\*Chosen\*\*/, 'the Smithii row must say Chosen');
@@ -259,6 +268,7 @@ test('E: the GitBook\'s numbers are the config\'s', () => {
   assert.ok(price.includes(`${Number(sale.price.sdkLamports).toLocaleString('en-US')} lamports per token`), `Price row must state ${sale.price.sdkLamports} lamports: ${price}`);
 
   assert.ok((rowOf(gitbook, 'Public sale') ?? '').includes(`${smithii.publicPhaseHours} hours`), 'Public sale row must state the phase length');
+  assert.ok((rowOf(gitbook, 'Public sale') ?? '').includes(saleWindowText()), `Public sale row must state the window the config sets: ${saleWindowText()}`);
   assert.ok((rowOf(gitbook, 'Liquidity') ?? '').includes(`${smithii.liquidity.intendedPercentOfGrossRaise}% of the gross raise`), 'Liquidity row must state the pool share');
   assert.ok((rowOf(gitbook, 'Program') ?? '').includes(`\`${short(smithii.program.upgradeAuthority)}\``), 'Program row must name the upgrade authority');
 
@@ -342,6 +352,9 @@ test('F: the numbers the roadmap quotes are the ones the plan derives', () => {
     `${Number(sale.price.sdkLamports).toLocaleString('en-US')} SOL`,
     unitsToDecimal(sale.price.sdkLamports, 9) === '0.000033333' ? '33,333 lamports' : 'UNREACHABLE',
   ]) assert.ok(roadmap.includes(s), `the roadmap does not state ${s}`);
+  const publicSale = rowOf(roadmap, 'Public sale') ?? '';
+  assert.ok(publicSale.includes(saleWindowText()) && publicSale.includes(`${smithii.publicPhaseHours} hours`),
+    `the roadmap's Public sale row must state ${saleWindowText()} and ${smithii.publicPhaseHours} hours: ${publicSale}`);
 });
 
 test('F: the allocation tables in the roadmap and the GitBook agree, and each sums to 100%', () => {

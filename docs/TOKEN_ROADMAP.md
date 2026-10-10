@@ -167,13 +167,29 @@ tune before launch, not a fixed parameter:
 |---|---:|---:|---|
 | Public presale | 15% | 150,000,000 | **None** — claimable in full when the sale ends (Smithii's `claim` runs once per buyer) |
 | DEX liquidity | 2.0001% | 20,001,000 | Paired with raised SOL by the operator after the sale; LP burned by the operator (not enforced by the program) |
-| Community & ecosystem (staking emissions, airdrops, rewards) | 25% | 250,000,000 | Released over 36 months — **Streamflow stream**, daily periods from TGE |
-| Team & contributors | 15% | 150,000,000 | 12-month cliff, then 24-month linear — **Streamflow stream** |
+| Community & ecosystem (staking emissions, airdrops, rewards) | 25% | 250,000,000 | 5 unlocks of 20%: at TGE, then every 9 months (the last at month 36) — **Smithii Vesting** (Cliffs) |
+| Team & contributors | 15% | 150,000,000 | 12-month cliff, then 4 unlocks of 25% every 6 months (the last at month 36) — **Smithii Vesting** (Cliffs) |
 | Treasury / DAO | 20% | 200,000,000 | DAO-controlled multisig, time-locked |
 | Partnerships & market makers | 8% | 80,000,000 | Deal-by-deal, 6–12 months |
-| Advisors | 2% | 20,000,000 | 6-month cliff, then 18-month linear — **Streamflow stream** |
+| Advisors | 2% | 20,000,000 | 6-month cliff, then 3 unlocks (33%, 33%, 34%) every 6 months (the last at month 24) — **Smithii Vesting** (Cliffs) |
 | Reserve / insurance fund **+ post-TGE liquidity** | 12.9999% | 129,999,000 | Locked; governance-unlockable only |
 | **Total** | **100%** | **1,000,000,000** | — |
+
+> **Locks note (2026-10-10).** The three vested buckets are created in Smithii's Token Vesting
+> tool, not as Streamflow streams, and that tool has **no linear mode**: a schedule is a
+> **staircase of at most five dated unlocks**, each a whole percent, claimable in full once its
+> date has passed. "Cliff, then linear" therefore became steps placed on the old line and never
+> above it (team: 25% by month 18, 50% by 24, 75% by 30, 100% by 36). Months count from T0, the
+> sale's scheduled end. One vesting exists per wallet per token, so each lock has its own wallet,
+> and only that wallet can claim; nothing can cancel or edit a lock. The tool's program is
+> **upgradeable**, by the same off-curve authority as Smithii's sale program (who can sign for it
+> is not visible), and was last deployed (2025-02-03) before its audit's fixes (April 2025), so
+> **the locks are not called audited**. Treasury, partners and the rest of the reserve are
+> **not** locked by the tool: it cannot hand a lock to a multisig, so they are to sit in the
+> multisig (not yet created), which is custody with approvals and a planned execution delay, not
+> a time lock.
+> `token/presale/locks.plan.json` is the schedule; `npm run presale:locks-plan` prints the dates,
+> the form entries and who must hold which tokens before anything is created.
 
 > **Venue note (2026-10-08).** The pool-sizing argument below — the F-25 decision — was forced
 > by Metaplex Genesis, whose LP token side is fixed when the bucket is created. Smithii's program
@@ -243,7 +259,7 @@ published before the presale.
 | Price | 0.00003333333 typed → **33,333 lamports per token stored = 30,000.3 `$RCLAW` per SOL** |
 | Min contribution | **0.25 SOL / wallet** |
 | Max contribution | **25 SOL / wallet** (per wallet, not per person) |
-| Public sale | 72 hours or until the hard cap; **no whitelist round** — the program has no wallet list |
+| Public sale | 15 Oct → 29 Oct 2026 (336 hours) or until the hard cap; **no whitelist round** — the program has no wallet list |
 | Buyer vesting | **None** — every buyer can claim 100% when the sale ends |
 | Deposit window | Start and end set at Create; **editable only until the first phase starts** |
 | Claim window | Opens when the sale ends or the hard cap is reached; one claim per buyer, no deadline |
@@ -479,7 +495,7 @@ Clear the existing Guardrails gate before anything is minted.
   configured and `presale:smithii-verify` passing. Nothing on devnet counts toward this.
 
 ### Phase 2 — Presale & TGE
-- Create → `presale:smithii-verify` → public sale (72h or until the hard cap) → claims open.
+- Create → `presale:smithii-verify` → public sale (15–29 Oct 2026, 336 h, or until the hard cap) → claims open.
   (No refund exists and the soft cap is descriptive — §10. On the Genesis alternative the
   sequence is whitelist Round 1 → public Round 2 → finalize.)
 - The operator creates the DEX pool and **burns the LP**, publishing both transactions.
@@ -881,7 +897,10 @@ Everything below is a **proposed default that the team must ratify** — nothing
 - **Final ticker** (`$RCLAW` assumed; confirm no Solana collision before mint).
 - **Total supply & decimals** (1B / 9 assumed).
 - **Allocation percentages and all vesting schedules** (§4) — except the two rows below,
-  which are now settled.
+  which are now settled. The three schedules are the steps in `token/presale/locks.plan.json`,
+  proposed 2026-10-10: community unlocks 20% at TGE (a staircase of five cannot start at zero
+  and end at month 36 in equal steps), and the clock time of the sale window, 14:00 UTC, is
+  unconfirmed (`smithii.config.json` → `schedule`).
 - ~~**DEX liquidity allocation**~~ — **settled: 20,001,000 (2.0001%)**, ratified 2026-07-26,
   with the 79,999,000 difference moved to the reserve bucket and earmarked for post-TGE
   liquidity. This was F-25 and it had to be decided before `presale:create`, because the LP
@@ -921,7 +940,7 @@ Everything below is a **proposed default that the team must ratify** — nothing
   hand — which cannot return Smithii's 2.5% unless the operator adds it.
 - **An early window.** The 48h whitelist round is dropped: the program has no wallet list. A
   time-window "early" phase would be open to everyone, costs 0.2 SOL instead of 0.1 (per the
-  audit) and buys nothing the public phase does not; the public phase stays 72h.
+  audit) and buys nothing the public phase does not; the public phase is the 336 h of 15–29 Oct 2026.
 - **Smithii's 2.5% in the budget.** At the hard cap it is 125 SOL, so "remainder to audit,
   operations and treasury" is 30.83% of the gross raise, not 33.33% (§5).
 - **Where unsold tokens go.** They come back to the signing wallet; the config states the

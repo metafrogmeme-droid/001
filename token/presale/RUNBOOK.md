@@ -17,9 +17,10 @@ and not used for this sale. Full rationale and the venue comparison are in
 |---|---|---|
 | `smithii.config.json` | Smithii (venue of record) | No-code form; 0.1 SOL to create + 2.5% of each purchase, paid by the creator. Read by `smithii_plan.mjs`, `smithii_verify.mjs` and the tests |
 | `metaplex-genesis.config.json` | Metaplex Genesis (alternative) | Fixed-price presale + TGE, on-chain; consumed by `genesis_presale.mjs` |
+| `locks.plan.json` | Smithii Token Vesting | The three time locks (community, team, advisors) as staircases of at most five unlocks; read by `locks_lib.mjs`, `locks_plan.mjs` and the tests |
 
 The two share the **economics** — 150M presale allocation, **1,000 SOL soft / 5,000 SOL hard
-cap**, 0.25–25 SOL per wallet, a 72h public phase, **66.67% of the raise → Raydium
+cap**, 0.25–25 SOL per wallet, a 336 h public phase (15 → 29 Oct 2026), **66.67% of the raise → Raydium
 liquidity**. They differ in what the **program enforces**, and the differences are declared,
 not accidental: Genesis vests buyers (33% at TGE then linear over 2 months), keeps a wallet
 whitelist, and creates the pool with a never-claim LP lock; the Smithii program does none of
@@ -146,6 +147,25 @@ itself (self-contained demo); `transfer` reuses the mint from the `token/` tooli
 > does not enforce is the operator's action — checkable afterwards, enforced by nothing — and
 > must be published as exactly that.
 
+### The dated plan (15 → 29 Oct 2026)
+
+The operator's dates (2026-10-10): the public phase opens on **15 Oct 2026** and closes on **29 Oct
+2026**, with no whitelist round. The clock time, 14:00 UTC, is a placeholder: set the real one in
+`smithii.config.json` → `schedule` and everything derived follows (the plan, the read-back rows, the
+locks' dates, the cards). Working back from the opening:
+
+| When | What |
+|---|---|
+| now → Sun 11 Oct | Confirm the clock time. Clear the gates below. Make four wallets: the sale's signing wallet and one each for the community, team and advisor locks; hardware-backed, about 0.5 SOL each (the signing wallet also needs the 0.1 SOL creation fee) |
+| Mon 12 Oct | Move the tokens, a small test first: the amounts under "who holds what" in `npm run presale:locks-plan`. Rehearse the vesting tool once on a throwaway wallet |
+| Mon 12 → Tue 13 Oct | Create the three locks; publish each certificate link and wallet address |
+| Tue 13 Oct, by 14:00 UTC | Create the sale (the form's four steps), then `presale:smithii-verify`; fix anything with Smithii's `edit`. 48 hours before the opening is the latest that leaves a day to fix |
+| Wed 14 Oct | Buffer. Announce: the site and the bot read `token/config/rclaw.mainnet.json` → `presale`, so flip it when you announce, not before; its tests pin "coming soon", so that is a change with its own test update |
+| Thu 15 Oct, 14:00 UTC | The sale opens |
+| Thu 29 Oct, 14:00 UTC | The sale ends: claims open and the community's first unlock is available. Create the pool in the same hour, burn the LP, `withdraw` the unsold tokens once, move the proceeds to the multisig. If the hard cap sells out sooner, claims open then and the pool steps start then, but the locks' dates do not move: the first unlock still waits for this date |
+
+The dates are proposals; the checks do not depend on them.
+
 ### Before Create
 
 1. **Gates.** Legal sign-off, the jurisdiction decision and the published disclosures
@@ -164,10 +184,18 @@ itself (self-contained demo); `transfer` reuses the mint from the `token/` tooli
    moment it happens and alone can edit the launch and withdraw unsold tokens. Use a
    hardware-backed wallet, not an exchange's in-app browser, and plan to move the proceeds to
    the Squads multisig after the sale.
-4. **Lock the rest first.** The other ~850,000,000 RCLAW: vesting streams for team, advisors
-   and community, the multisig for treasury and reserve, every address published (roadmap §11).
-   The sale program locks and vests nothing, and scanners show one holder with everything
-   unlocked until this is done.
+4. **Lock the rest first.** The other ~850,000,000 RCLAW. Three buckets are time locks made in
+   Smithii's Token Vesting tool (method Cliffs): `npm run presale:locks-plan` prints, for each,
+   what to type, every date, the amount the tool must show back at each step, and who must hold
+   which tokens before anything is created. What that tool is and is not (read 2026-10-09,
+   recorded in `locks.plan.json`): a staircase of at most five unlocks and no linear mode; **one
+   vesting per wallet per token**, so three locks need three wallets, and the sale's signing wallet
+   is a fourth; only the creating wallet can claim; no cancel and no edit; 0.4 SOL each; an
+   upgradeable program, last deployed before its audit's fixes, so never "audited". Rehearse
+   once on a throwaway wallet (3 RCLAW, three steps ten minutes apart, claim after each).
+   Treasury, partners and the reserve are not locked by it; they go to the multisig. Publish
+   every address (roadmap §11). The sale program locks and vests nothing, and scanners show one
+   holder with everything unlocked until this is done.
 5. **Rehearse on a throwaway token** with tiny caps: Create, one buy from a second wallet,
    claim, withdraw, create a pool, burn the LP. About 0.1 SOL plus dust. Nothing in this
    repository has run a Smithii sale of its own, and no Smithii guide read here mentions a
@@ -185,9 +213,14 @@ itself (self-contained demo); `transfer` reuses the mint from the `token/` tooli
    not the vault figure.
 2. **Step 2** — leave the whitelist phase **off** (a whitelist price of 0 disables it).
    Turning it on doubles the creation fee and adds only an earlier time window that is open to
-   everyone. Set the public phase's start and end: **start at least 24–48 hours after Create**,
-   because `edit` stops working once the first phase starts, and that window is when
-   `presale:smithii-verify` can still be acted on.
+   everyone. Set the public phase's start and end to the two INSTANTS the plan prints under "the
+   sale window" (15 Oct 2026 14:00 UTC → 29 Oct 2026 14:00 UTC today). The form's date picker
+   uses your browser's clock, not UTC: run `npm run presale:smithii-plan -- --tz <your IANA
+   zone>` for the clock times to type, and mind a clock change between the two dates (Europe's
+   is on 25 Oct 2026: the same clock time on both dates is 337 hours, and the read-back flags
+   the end). **Create at least 24–48 hours before the start**, because `edit` stops working once
+   the first phase starts, and that window is when `presale:smithii-verify` can still be acted
+   on.
 3. **Step 3** — name, description, images, socials. Do not say "audited", and do not promise a
    refund, vesting, a locked LP, or returns. State the disclosures.
 4. **Step 4** — preview, then Create. Before you sign, compare the token amount your wallet
@@ -204,7 +237,9 @@ npm run presale:smithii-verify -- --authority <the wallet that signed Create>
 
 Read-only. It reads the Launch account, the vault, the program and the mint off mainnet and
 compares each with `smithii.config.json`. **Exit 0** — everything read matches; **1** — a row
-FAILED; **3** — something could not be read, and nothing is claimed about it. A FAIL is fixable
+FAILED; **3** — something could not be read, and nothing is claimed about it. It compares the on-chain
+start and end of the public phase with `smithii.config.json` → `schedule`, to the minute: a gap of
+whole hours there means the form was filled in local time, not UTC. A FAIL is fixable
 with Smithii's `edit` only until the first phase starts. The first run also settles the one
 assumption nothing earlier can: that the site rounds the price like Smithii's SDK (expect
 **33,333 lamports per token**). Then publish the launch address, the program id, its upgrade

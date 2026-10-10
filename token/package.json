@@ -33,7 +33,8 @@
     "e2e:whitelist": "node e2e/whitelist_e2e.mjs",
     "presale:verify": "node presale/genesis_presale.mjs verify",
     "presale:smithii-plan": "node presale/smithii_plan.mjs",
-    "presale:smithii-verify": "node presale/smithii_verify.mjs"
+    "presale:smithii-verify": "node presale/smithii_verify.mjs",
+    "presale:locks-plan": "node presale/locks_plan.mjs"
   },
   "engines": {
     "node": ">=24.21.0"

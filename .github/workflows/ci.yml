@@ -812,6 +812,17 @@ jobs:
         working-directory: token
         run: npm run presale:smithii-plan
 
+      # The same for the three LOCKS (Smithii's Token Vesting). locks.plan.json is
+      # typed into a second web form, three times, with dates that move whenever
+      # the sale's end moves. This derives the dates, the whole-token amounts per
+      # step and the wallet funding from the roadmap's table and the sale's
+      # schedule, and exits non-zero on a plan the tool cannot create (a sixth
+      # step, percents that do not sum to 100, a step above the published line,
+      # a reserve that would be negative). Offline: no RPC, no keypair.
+      - name: Presale locks plan — Smithii Vesting (offline derivation)
+        working-directory: token
+        run: npm run presale:locks-plan
+
       # SCA — deliberately a RATCHET, not `npm audit --audit-level=high`.
       #
       # This tree carries 0 critical and 8 high advisories today (11 in total),

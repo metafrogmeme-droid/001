@@ -87,9 +87,20 @@ Full spec, worked examples, anti-gaming analysis, and the phased implementation 
 | **Total** | **100%** | **1,000M** |
 
 The sale program locks and vests **nothing** — that is the team's job, and it is not done yet.
-The plan is vesting streams for team, advisors and community and a multisig for treasury and
-reserve, with every address published **before the sale opens**. **Presale buyers are not
-vested:** they can claim everything the moment the sale ends.
+The plan is three time locks made with Smithii's Token Vesting tool, each in its own wallet,
+with every address published **before the sale opens**:
+
+- **Community & ecosystem:** 5 unlocks of 20%: at TGE, then every 9 months (the last at month 36)
+- **Team & contributors:** 12-month cliff, then 4 unlocks of 25% every 6 months (the last at month 36)
+- **Advisors:** 6-month cliff, then 3 unlocks (33%, 33%, 34%) every 6 months (the last at month 24)
+
+That tool has no linear mode, so each schedule is a staircase: a step's share can be claimed in
+full once its date has passed. A lock cannot be cancelled or edited, but the tool's program is
+upgradeable by an off-curve authority (the same one as the sale program; who can sign for it is
+not visible) and was last deployed before its audit's fixes, so these locks are not called
+audited. Treasury, partners and the rest of the reserve sit in a multisig, which is custody
+with approvals, not a time lock. **Presale buyers are not vested:** they can claim
+everything the moment the sale ends.
 
 The pool is created by the team after the raise, so it is sized then. Opening at the sale price
 it needs about **20.0M RCLAW at the soft cap and 100.0M at the hard cap**. Whether the table
@@ -106,7 +117,7 @@ actually does — including what it does **not** do.
 | Price | Fixed, the same for everyone: **30,000.3 RCLAW per SOL** as the program stores it (33,333 lamports per token) |
 | Soft cap / hard cap | Soft cap **1,000 SOL** is a target, not a floor — the program never reads it. The hard cap **5,000 SOL** ends the sale |
 | Per wallet | Min **0.25 SOL**, max **25 SOL** per wallet (a wallet, not a person: more wallets get around it) |
-| Public sale | 72 hours or until the hard cap. There is no whitelist round: the program has no wallet list |
+| Public sale | 15 Oct → 29 Oct 2026 (336 hours) or until the hard cap. There is no whitelist round: the program has no wallet list |
 | Buyer vesting | **None.** Every buyer can claim 100% of what they bought when the sale ends |
 | Refund | **None.** Each purchase is paid straight to the team's wallet; nothing is held back to return |
 | Proceeds | Paid directly to the team's launch wallet at each purchase, less Smithii's 2.5%. The plan is a hardware-backed wallet, with proceeds moved to the multisig after the sale |
@@ -129,7 +140,7 @@ opens, because the contract will not make it.
 ## Roadmap phases
 
 0. **Foundations & Guardrails** — legal review, audit, disclosures, tokenomics finalized.
-1. **Pre-launch** — mint, revoke authorities, multisig, whitelist, publish audit.
+1. **Pre-launch** — mint, revoke authorities, multisig, locks, publish disclosures.
 2. **Presale & TGE** — public sale → claim → the team creates the Raydium pool and burns the LP.
 3. **Utility activation** — staking tiers, governance voting, buyback-and-burn.
 4. **Ecosystem** — marketplace/copy-trading splits, vaults, MCP/x402 settlement.

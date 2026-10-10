@@ -18,6 +18,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -40,11 +41,13 @@ import {
   loadSmithiiConfig,
   loadTokenRecord,
   priceReading,
+  scheduleInstants,
+  scheduleProblems,
   tokensForLamports,
   unitsToDecimal,
   validateSmithiiConfig,
 } from './smithii_lib.mjs';
-import { renderPlan } from './smithii_plan.mjs';
+import { renderPlan, zoneClock, zoneOffsetMinutes } from './smithii_plan.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'smithii_launch_live.json'), 'utf8'));
@@ -230,6 +233,18 @@ const MUTATIONS = [
   ['a disclosure removed', (c) => { delete c.disclosures.noRefund; }, /disclosures\.noRefund is missing/],
   ['a non-address program id', (c) => { c.program.id = 'not-an-address'; }, /program\.id is not a base58 address/],
   ['a zero public phase', (c) => { c.publicPhaseHours = 0; }, /publicPhaseHours must be a positive integer/],
+  ['hours that are not the schedule\'s length', (c) => { c.publicPhaseHours = 337; }, /schedule runs 336 hours .* but publicPhaseHours says 337/],
+  ['a sale that ends before it starts', (c) => { c.schedule.endUtc = '2026-10-14T14:00:00Z'; }, /ends \(2026-10-14T14:00:00Z\) before it starts/],
+  ['a start typed as local time, with no Z', (c) => { c.schedule.startUtc = '2026-10-15T16:00:00+02:00'; }, /schedule\.startUtc .* is not a UTC instant/],
+  ['an end with seconds', (c) => { c.schedule.endUtc = '2026-10-29T14:00:30Z'; }, /schedule\.endUtc .* is not a UTC instant/],
+  ['no schedule at all', (c) => { delete c.schedule; }, /schedule is missing/],
+  ['a month that does not exist', (c) => { c.schedule.startUtc = '2026-13-01T14:00:00Z'; }, /schedule\.startUtc .* is not a UTC instant/],
+  ['31 November, which JavaScript would read as 1 December', (c) => { c.schedule.endUtc = '2026-11-31T14:00:00Z'; }, /schedule\.endUtc .* is not a UTC instant/],
+  ['29 February in a year that has none', (c) => { c.schedule.endUtc = '2027-02-29T14:00:00Z'; }, /schedule\.endUtc .* is not a UTC instant/],
+  ['an hour that does not exist', (c) => { c.schedule.startUtc = '2026-10-15T25:00:00Z'; }, /schedule\.startUtc .* is not a UTC instant/],
+  ['24:00, which JavaScript would read as the next midnight', (c) => { c.schedule.startUtc = '2026-10-15T24:00:00Z'; }, /schedule\.startUtc .* is not a UTC instant/],
+  ['an instant that is not a string', (c) => { c.schedule.endUtc = 1793282400; }, /schedule\.endUtc 1793282400 is not a UTC instant/],
+  ['an instant wrapped in a list, which JavaScript would read as the string inside it', (c) => { c.schedule.startUtc = ['2026-10-15T14:00:00Z']; }, /schedule\.startUtc \["2026-10-15T14:00:00Z"\] is not a UTC instant/],
 ];
 
 for (const [name, mutate, expected] of MUTATIONS) {
@@ -287,7 +302,8 @@ test('the decoder refuses an account too short to be a Launch, and reads base58 
 // ── the comparators, row by row ─────────────────────────────────────────────
 
 const AUTH = 'So11111111111111111111111111111111111111112';
-const START = 1_800_000_000;
+const WINDOW = scheduleInstants(loadSmithiiConfig());
+const START = WINDOW.startSec;
 
 function matchingLaunch(c) {
   const wl = { price: 0n, startDate: 0n, endDate: 0n, minAmount: 0n, maxAmount: 0n };
@@ -302,8 +318,8 @@ function matchingLaunch(c) {
     whitelistLimit: 0n,
     publicPhase: {
       price: 33333n,
-      startDate: BigInt(START),
-      endDate: BigInt(START + 72 * 3600),
+      startDate: BigInt(WINDOW.startSec),
+      endDate: BigInt(WINDOW.endSec),
       minAmount: 250000000n,
       maxAmount: 25n * SOL,
     },
@@ -320,6 +336,7 @@ test('a launch that matches the config passes every row', () => {
   assert.deepEqual(failing(rows), []);
   assert.equal(exitCodeFor(rows), 0);
   assert.ok(rows.length >= 12, 'the rows were not silently dropped');
+  assert.ok(rows.every((r) => !/local time/.test(r.detail)), 'an instant that matches carries no hint that the form was filled in local time');
   assert.ok(rows.some((r) => r.check === 'edit window' && r.status === 'INFO'));
 });
 
@@ -333,7 +350,8 @@ const LAUNCH_MUTATIONS = [
   ['sale price', (l) => { l.publicPhase.price = 33334n; }],
   ['minimum buy', (l) => { l.publicPhase.minAmount = 200000000n; }],
   ['maximum buy', (l) => { l.publicPhase.maxAmount = 26n * SOL; }],
-  ['public phase length', (l) => { l.publicPhase.endDate += 3600n; }],
+  ['public phase starts', (l) => { l.publicPhase.startDate += 3600n; }],
+  ['public phase ends', (l) => { l.publicPhase.endDate += 3600n; }],
   ['whitelist phase is off', (l) => { l.whitelistPhase.price = 1n; }],
   // The phase is "off" only when price AND both dates are zero; the program uses
   // price > 0 as its existence flag, but a date left behind is a half-configured phase.
@@ -413,4 +431,179 @@ test('exit codes: a failure is 1, a reading that did not happen is 3, and a fail
   assert.equal(exitCodeFor([r('FAIL'), r('PASS')]), 1);
   assert.equal(exitCodeFor([r('FAIL'), r('UNVERIFIED')]), 1);
   assert.equal(exitCodeFor([]), 0);
+});
+
+// ── the sale window ─────────────────────────────────────────────────────────
+
+test('the real schedule is two UTC instants whose length is publicPhaseHours: 15 -> 29 Oct 2026, 336 hours', () => {
+  const c = cfg();
+  assert.deepEqual(scheduleProblems(c), []);
+  const w = scheduleInstants(c);
+  assert.equal(w.hours, 336);
+  assert.equal(w.hours, c.publicPhaseHours);
+  assert.equal(c.schedule.startUtc.slice(0, 10), '2026-10-15');
+  assert.equal(c.schedule.endUtc.slice(0, 10), '2026-10-29');
+  assert.equal(c.whitelist.enabled, false, 'no whitelist round: the operator said so on 2026-10-10');
+  assert.equal(w.startSec, Date.UTC(2026, 9, 15, 14, 0, 0) / 1000, 'the seconds are the instants, recomputed here');
+});
+
+test('a form filled in the operator\'s LOCAL clock fails the start and end rows, and says why', () => {
+  // The operator's browser is on Central European time: UTC+2 on 15 Oct 2026, UTC+1 from 25 Oct.
+  // Typing 16:00 on both days is what a person does: it starts on time and ends an hour late.
+  const c = cfg();
+  const l = matchingLaunch(c);
+  l.publicPhase.endDate = BigInt(Date.UTC(2026, 9, 29, 15, 0, 0) / 1000);
+  const rows = compareLaunch(c, l, { authority: AUTH, nowSeconds: before });
+  assert.deepEqual(failing(rows), ['public phase ends']);
+  const ends = rows.find((r) => r.check === 'public phase ends');
+  assert.match(ends.detail, /2026-10-29T15:00:00Z on chain, 2026-10-29T14:00:00Z in config/);
+  assert.match(ends.detail, /\+1 h: the form was probably filled in local time, not UTC/);
+  assert.match(ends.detail, /337 h on chain, 336 h in config/);
+  // Typing the UTC figures as if they were local clock times shifts BOTH ends by the offset.
+  const l2 = matchingLaunch(c);
+  l2.publicPhase.startDate -= 7200n;
+  l2.publicPhase.endDate -= 3600n;
+  const rows2 = compareLaunch(c, l2, { authority: AUTH, nowSeconds: before });
+  assert.deepEqual(failing(rows2), ['public phase starts', 'public phase ends']);
+  assert.match(rows2.find((r) => r.check === 'public phase starts').detail, /-2 h: the form was probably filled in local time/);
+  // A gap that is not a whole number of hours gets no such hint.
+  const l3 = matchingLaunch(c);
+  l3.publicPhase.startDate += 90n;
+  assert.doesNotMatch(compareLaunch(c, l3, { authority: AUTH, nowSeconds: before }).find((r) => r.check === 'public phase starts').detail, /local time/);
+});
+
+test('zone offsets: Amsterdam is +2 h on 15 Oct and +1 h on 29 Oct 2026; a half-hour zone and UTC read right; a bad zone throws', () => {
+  const at = (iso) => Date.parse(iso);
+  assert.equal(zoneOffsetMinutes(at('2026-10-15T14:00:00Z'), 'Europe/Amsterdam'), 120);
+  assert.equal(zoneOffsetMinutes(at('2026-10-29T14:00:00Z'), 'Europe/Amsterdam'), 60);
+  assert.equal(zoneOffsetMinutes(at('2026-10-15T14:00:00Z'), 'UTC'), 0);
+  assert.equal(zoneOffsetMinutes(at('2026-10-15T14:00:00Z'), 'Asia/Kolkata'), 330);
+  assert.equal(zoneClock(at('2026-10-15T14:00:00Z'), 'Europe/Amsterdam'), '15 Oct 2026, 16:00 (UTC+2)');
+  assert.equal(zoneClock(at('2026-10-15T14:00:00Z'), 'Asia/Kolkata'), '15 Oct 2026, 19:30 (UTC+5:30)');
+  assert.equal(zoneOffsetMinutes(at('2026-10-15T14:00:00Z'), 'America/Los_Angeles'), -420);
+  assert.equal(zoneOffsetMinutes(at('2026-10-15T14:00:00Z'), 'America/St_Johns'), -150);
+  assert.equal(zoneClock(at('2026-10-15T14:00:00Z'), 'America/Los_Angeles'), '15 Oct 2026, 07:00 (UTC-7)', 'a zone behind UTC prints a minus');
+  assert.equal(zoneClock(at('2026-10-15T14:00:00Z'), 'America/St_Johns'), '15 Oct 2026, 11:30 (UTC-2:30)', 'and a half-hour zone behind UTC keeps its minutes');
+  assert.throws(() => zoneOffsetMinutes(at('2026-10-15T14:00:00Z'), 'Not/AZone'), RangeError);
+});
+
+test('the plan prints the window in UTC, the clock times to type in the operator\'s zone, and the clock-change trap', () => {
+  const c = cfg();
+  const plain = renderPlan(c, record);
+  assert.match(plain, /Public phase starts \.+ 2026-10-15 14:00 UTC/);
+  assert.match(plain, /Public phase ends \.+ 2026-10-29 14:00 UTC {3}\(336 hours = 14 days\)/);
+  assert.match(plain, /Whitelist phase \.+ off/);
+  assert.match(plain, /--tz <your IANA zone>/, 'without a zone it says how to get one');
+  assert.doesNotMatch(plain, /clock offset changes/);
+  const ams = renderPlan(c, record, { tz: 'Europe/Amsterdam' });
+  assert.match(ams, /starts 15 Oct 2026, 16:00 \(UTC\+2\) · ends 29 Oct 2026, 15:00 \(UTC\+1\)/);
+  assert.match(ams, /clock offset changes by 1 h between the two dates in Europe\/Amsterdam.* 1 h late/);
+  const utc = renderPlan(c, record, { tz: 'UTC' });
+  assert.match(utc, /starts 15 Oct 2026, 14:00 \(UTC\+0\) · ends 29 Oct 2026, 14:00 \(UTC\+0\)/);
+  assert.doesNotMatch(utc, /clock offset changes/, 'a zone that does not change offset has no trap to warn about');
+  // The other direction: a window across the spring change (28 Mar 2027) ends an hour EARLY if the start's clock time is typed twice.
+  const spring = cfg();
+  spring.schedule.startUtc = '2027-03-20T14:00:00Z';
+  spring.schedule.endUtc = '2027-04-03T14:00:00Z';
+  const springPlan = renderPlan(spring, record, { tz: 'Europe/Amsterdam' });
+  assert.match(springPlan, /starts 20 Mar 2027, 15:00 \(UTC\+1\) · ends 3 Apr 2027, 16:00 \(UTC\+2\)/);
+  assert.match(springPlan, /clock offset changes by 1 h between the two dates in Europe\/Amsterdam.* 1 h early/);
+});
+
+test('the plan command: a zone that does not exist exits 2 and prints nothing; a real one prints the clock times', () => {
+  const run = (...args) => spawnSync(process.execPath, [path.join(HERE, 'smithii_plan.mjs'), ...args], { encoding: 'utf8' });
+  const bad = run('--tz', 'Not/AZone');
+  assert.equal(bad.status, 2);
+  assert.match(bad.stderr, /--tz needs an IANA zone name such as Europe\/Amsterdam, not "Not\/AZone"/);
+  assert.equal(bad.stdout, '', 'a request that could not be answered prints no plan');
+  const ok = run('--tz', 'Europe/Amsterdam');
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.match(ok.stdout, /In Europe\/Amsterdam the form needs: starts 15 Oct 2026, 16:00 \(UTC\+2\) · ends 29 Oct 2026, 15:00 \(UTC\+1\)/);
+});
+
+// ── the window as the docs state it ─────────────────────────────────────────
+// The sale window is written out in prose in several places. Each is a second copy of schedule.startUtc and
+// endUtc, and a copy that says 16–30 Oct while the form says 15–29 is the one a buyer reads. So every date range
+// these documents state is held to the config, and the runbook's dated plan is derived from it.
+
+const REPO = path.join(HERE, '..', '..');
+const WINDOW_DOCS = ['docs/TOKEN_ROADMAP.md', 'docs/gitbook/token-roadmap.md', 'docs/assets/presale/README.md', 'token/presale/RUNBOOK.md'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+// The three ways these documents write a range: "15 Oct → 29 Oct 2026", "15–29 Oct 2026" and "15 → 29 Oct 2026".
+const RANGE = /\b(\d{1,2})(?: ([A-Z][a-z]{2}))?(?: → |–)(\d{1,2}) ([A-Z][a-z]{2}) (\d{4})\b/g;
+
+const dayOf = (iso) => {
+  const d = new Date(iso);
+  return { day: d.getUTCDate(), month: MONTHS[d.getUTCMonth()], year: d.getUTCFullYear() };
+};
+
+/** How many date ranges `text` states, and a sentence for each one that is not the config's window. */
+export function windowStatements(text, c) {
+  const a = dayOf(c.schedule.startUtc);
+  const b = dayOf(c.schedule.endUtc);
+  const bad = [];
+  let found = 0;
+  for (const [whole, d1, m1, d2, m2, y] of text.matchAll(RANGE)) {
+    found += 1;
+    const same = Number(d1) === a.day && (m1 ?? m2) === a.month && Number(d2) === b.day && m2 === b.month && Number(y) === b.year;
+    if (!same) bad.push(`"${whole}" is not the window the config sets (${a.day} ${a.month} → ${b.day} ${b.month} ${b.year})`);
+  }
+  return { found, bad };
+}
+
+/** What the runbook's dated plan must say for the schedule in the config: weekday, date and clock time of each row. */
+export function runbookDates(c) {
+  const w = scheduleInstants(c);
+  const DAY = 86400000;
+  const at = (ms) => {
+    const d = new Date(ms);
+    return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+  };
+  const clock = (iso) => `${iso.slice(11, 16)} UTC`;
+  const stamp = (iso) => `${dayOf(iso).day} ${dayOf(iso).month} ${dayOf(iso).year} ${clock(iso)}`;
+  const [weekday3, dayOfMonth3] = at(w.startMs - 3 * DAY).split(' ');
+  return [
+    `| now → ${at(w.startMs - 4 * DAY)} |`,
+    `| ${at(w.startMs - 3 * DAY)} |`,
+    `| ${weekday3} ${dayOfMonth3} → ${at(w.startMs - 2 * DAY)} |`,
+    `| ${at(w.startMs - 2 * DAY)}, by ${clock(c.schedule.startUtc)} |`,
+    `| ${at(w.startMs - DAY)} |`,
+    `| ${at(w.startMs)}, ${clock(c.schedule.startUtc)} |`,
+    `| ${at(w.endMs)}, ${clock(c.schedule.endUtc)} |`,
+    `(${stamp(c.schedule.startUtc)} → ${stamp(c.schedule.endUtc)} today)`,
+  ];
+}
+
+test('every date range the docs state is the sale window the config sets (both arms)', () => {
+  for (const rel of WINDOW_DOCS) {
+    const { found, bad } = windowStatements(fs.readFileSync(path.join(REPO, rel), 'utf8'), cfg());
+    assert.ok(found >= 1, `${rel} states no date range, so the scan held nothing to the config: the pattern or the document changed`);
+    assert.deepEqual(bad, [], rel);
+  }
+  const c = cfg();
+  for (const s of ['15 Oct → 29 Oct 2026', '15–29 Oct 2026', '15 → 29 Oct 2026']) {
+    assert.deepEqual(windowStatements(`The sale runs ${s}.`, c), { found: 1, bad: [] }, `${s} is the window and must pass`);
+  }
+  for (const s of ['16 Oct → 29 Oct 2026', '15 Oct → 30 Oct 2026', '15–30 Oct 2026', '16 → 29 Oct 2026', '15 Oct → 29 Nov 2026', '15 Oct → 29 Oct 2027', '14 Oct → 29 Oct 2026', '15 Sep → 29 Oct 2026']) {
+    assert.equal(windowStatements(`The sale runs ${s}.`, c).bad.length, 1, `${s} is not the window and must be caught`);
+  }
+});
+
+test('the runbook\'s dated plan is derived from the schedule: weekdays, dates and clock times (both arms)', () => {
+  // 15 Oct 2026 and 29 Oct 2026 are Thursdays (a calendar, not this library).
+  assert.deepEqual(runbookDates(cfg()), [
+    '| now → Sun 11 Oct |', '| Mon 12 Oct |', '| Mon 12 → Tue 13 Oct |', '| Tue 13 Oct, by 14:00 UTC |', '| Wed 14 Oct |',
+    '| Thu 15 Oct, 14:00 UTC |', '| Thu 29 Oct, 14:00 UTC |', '(15 Oct 2026 14:00 UTC → 29 Oct 2026 14:00 UTC today)',
+  ]);
+  const runbook = fs.readFileSync(path.join(REPO, 'token/presale/RUNBOOK.md'), 'utf8');
+  for (const s of runbookDates(cfg())) assert.ok(runbook.includes(s), `the runbook's dated plan should contain ${JSON.stringify(s)}`);
+  const moved = cfg();
+  moved.schedule.startUtc = '2026-10-16T14:00:00Z';
+  moved.schedule.endUtc = '2026-10-30T14:00:00Z';
+  assert.ok(runbookDates(moved).some((s) => !runbook.includes(s)), 'a window moved by a day must not be satisfied by the runbook as written');
+  const later = cfg();
+  later.schedule.startUtc = '2026-10-15T16:00:00Z';
+  later.schedule.endUtc = '2026-10-29T16:00:00Z';
+  assert.ok(runbookDates(later).some((s) => !runbook.includes(s)), 'a clock time moved by two hours must not be satisfied by the runbook as written');
 });

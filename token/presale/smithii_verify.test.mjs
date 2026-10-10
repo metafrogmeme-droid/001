@@ -17,13 +17,14 @@ import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 
 import { MAINNET_GENESIS } from '../scripts/lib.mjs';
-import { deriveSmithiiSale, exitCodeFor, loadSmithiiConfig, loadTokenRecord, LAUNCH_DISCRIMINATOR_HEX } from './smithii_lib.mjs';
+import { deriveSmithiiSale, exitCodeFor, loadSmithiiConfig, loadTokenRecord, scheduleInstants, LAUNCH_DISCRIMINATOR_HEX } from './smithii_lib.mjs';
 import { makeRpc, renderRows, verifySmithii } from './smithii_verify.mjs';
 
 const cfg = () => structuredClone(loadSmithiiConfig());
 const record = loadTokenRecord();
 const AUTHORITY = 'EEoMVamYkEvZEDXe7cyMGCLg5BUGNAuvSXC1w2LWELVy';
-const START = 1_800_000_000;
+const WINDOW = scheduleInstants(loadSmithiiConfig());
+const START = WINDOW.startSec;
 const before = START - 86400;
 
 const programId = new PublicKey(cfg().program.id);
@@ -35,7 +36,7 @@ const PROGRAM_DATA = 'BvDccYscP3NHWbFV6xSgYzar5wcbYo83J15gSTU7B4dk';
 
 /** The bytes of a Launch account, written by the documented offsets. */
 function launchBytes({ authority = AUTHORITY, mint = cfg().token.mint, hardcap = 5000n * 10n ** 9n, softcap = 1000n * 10n ** 9n,
-  sold = 0n, price = 33333n, start = BigInt(START), end = BigInt(START + 72 * 3600), min = 250000000n, max = 25n * 10n ** 9n,
+  sold = 0n, price = 33333n, start = BigInt(WINDOW.startSec), end = BigInt(WINDOW.endSec), min = 250000000n, max = 25n * 10n ** 9n,
   wlPrice = 0n, payment = 0 } = {}) {
   const b = Buffer.alloc(192);
   Buffer.from(LAUNCH_DISCRIMINATOR_HEX, 'hex').copy(b, 0);
@@ -124,10 +125,10 @@ test('a chain that matches the config verifies: exit 0, and every account was ac
     `getAccountInfo:${PROGRAM_DATA}`, `getAccountInfo:${launchKey.toBase58()}`, `getAccountInfo:${vaultKey.toBase58()}`]) {
     assert.ok(chain.calls.includes(want), `never asked for ${want}`);
   }
-  // 1 cluster + 5 mint + 3 program + 1 ownership + 13 launch + 1 vault. An exact
-  // count, so a dropped check and a silently ADDED one both stop here and are
-  // decided on purpose.
-  assert.equal(rows.length, 24, `the rows moved: ${rows.map((r) => r.check).join(' | ')}`);
+  // 1 cluster + 5 mint + 3 program + 1 ownership + 14 launch (the sale window is two rows, its
+  // start and its end) + 1 vault. An exact count, so a dropped check and a silently ADDED one
+  // both stop here and are decided on purpose.
+  assert.equal(rows.length, 25, `the rows moved: ${rows.map((r) => r.check).join(' | ')}`);
 });
 
 test('the launch address is derived from the program, the mint and the authority — and the hint is checked against it', async () => {

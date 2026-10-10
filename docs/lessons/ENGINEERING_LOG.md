@@ -17191,9 +17191,10 @@ inputs are the plan's and were not read). The rule: a label belongs to a
 screen, so it is a claim about that screen; read the screen before borrowing
 its name for a number. The same day a tokenomics image for the sale page was
 added under `docs/assets/presale/`, with its figures written into the PNG and
-held against the roadmap table by `token/presale/tokenomics_image.test.mjs`, so
-that the second copy of the allocation cannot drift quietly.
-(`token/presale/smithii_sale.test.mjs`, `token/presale/tokenomics_image.test.mjs`.)
+held against the roadmap table by `token/presale/tokenomics_image.test.mjs` (since
+folded into `token/presale/sale_page_images.test.mjs`, see the chapter on the
+locks), so that the second copy of the allocation cannot drift quietly.
+(`token/presale/smithii_sale.test.mjs`, `token/presale/sale_page_images.test.mjs`.)
 
 **THE FOLLOW FEATURE SELECTED SIGNALS BY A STATUS NO PRODUCER EVER WROTE.**
 `/api/copy/picks` (the dashboard's "Following — live picks" panel) and the
@@ -19554,6 +19555,103 @@ every field, so they build real `LivePosition`s now. Driven: the real `/classpf`
 and the real `/parity` over one executor file holding every kind of row the
 partition names. Ten mutants, all killed.
 (`tests/test_classpf_counts_what_parity_counts.py`.)
+
+**THE ROADMAP PROMISED STREAMS THE LOCK TOOL CANNOT MAKE, AND THE SALE'S DATES LIVED IN PROSE.**
+On 2026-10-10 the operator set the sale to open on 15 Oct and close on 29 Oct
+2026, with no whitelist, and asked what else Smithii's pages could carry. The
+roadmap said the team, advisor and community buckets were Streamflow streams:
+"12-month cliff, then linear". Smithii's Token Vesting tool was read the way
+the presale program was (its widget code, its program client, and two real
+vestings on mainnet-beta, not its marketing) and it has no linear mode. Method
+Cliffs is a staircase of at most five whole-percent steps that sum to 100,
+each released as a lump sum after its end date. There is one vesting per
+creating wallet per token, so three locks need three wallets and the sale's
+signing wallet is a fourth; only the creating wallet can claim (receivers are
+ordinary wallets, never a multisig vault); there is no cancel and no edit;
+amounts are whole tokens; it costs 0.4 SOL each; and the program is
+upgradeable by the same off-curve authority as the presale program, last
+deployed 2025-02-03, before its audit's April 2025 fixes, so the locks must
+not be called audited. `locks.plan.json` records the tool and the three
+schedules, each a staircase on or below the published line. Community's 20% at
+TGE is the one place above it: five equal steps cannot start at zero and still
+end at month 36, and the plan says so. `locks_lib.mjs` derives the dates, the
+per-step amounts, the wallet funding and the sentences; `locks_plan.mjs`
+prints what to type into the tool; the roadmap table and the GitBook state
+each schedule in the words the code derives, which a test compares. A plan
+that asks for a sixth step, a percent that is not whole, a first unlock inside
+the cliff, a step above the published line or a reserve below zero is refused,
+and CI runs the command.
+
+**The dates would have been typed into four documents.** The window is two
+UTC instants in `smithii.config.json` (`schedule`); `publicPhaseHours` is
+derived from them and checked (336); the clock time, 14:00 UTC, is a recorded
+placeholder the operator has not confirmed. Instants, not clock times, because
+the form's date inputs are probably read in the browser's zone (inferred from
+the vesting tool, not observed on the sale form) and Europe changes its offset
+on 25 Oct, so the same local time on both days is a 337-hour sale.
+`presale:smithii-plan --tz <zone>` prints the clock times to type and names the
+trap; `presale:smithii-verify` compares the on-chain start and end with the
+instants to the minute and says a whole-hour gap is probably local time. Every
+date range in the roadmap, the GitBook, the runbook and the artwork README is
+scanned and held to the config, and the runbook's dated plan (the weekday, date
+and clock time of each step) is derived. The venue-parity test gained two rows
+for the shared window, because a sale shifted by a day with its length intact
+passed the old one; the Genesis placeholder timeline moved to the real window
+for that reason.
+
+**Three images are second copies, and each says what it was drawn from.** The
+1500x750 tokenomics and roadmap cards (URLs on the sale form) and the 1000x1000
+tokenomics card (an upload in the vesting tool) carry a `tEXt` record that
+`sale_page_images.test.mjs` holds to the roadmap table, the sale config, the
+locks plan and the token record. A card that names a file claims it exists: the
+plan told the operator to upload "the tokenomics card" when nothing in the
+repository held one; it now names the path, and a test checks the file is there
+at the size the tool asks. The roadmap card ticks only what the token record
+supports, and its phase-2 line said "Raydium pool" where the roadmap says
+"Raydium (or Orca)"; it says "DEX pool".
+
+**The mutation round, 134 mutants over the code, config, docs, images and the
+guards themselves, found a defect in the first version.** 106 of 121 died on
+the first round; the 15 that did not were the work. Writing the test for one
+survivor ("an unparseable instant is not refused") showed that the instant
+check accepted `2026-11-31T14:00:00Z` and `T24:00:00Z`, because `Date.parse`
+reads them as 1 December and the next midnight: an instant must now print back
+as itself. The rest were tests that did not exist: a zone behind UTC, the exit
+codes of both commands (CI runs them, and `locks_plan.mjs` gained `--plan
+<file>` so a refused plan can be driven), a bucket name that fits two rows, a
+description over the tool's box, an uneven lock's one-line note, and five
+comparisons in the image guard that no both-arm case reached. One assertion
+matched any of three locks: `Step amount .... 4` was satisfied by the advisors'
+block when the team's was wrong, so it reads each block now. Final: 133 killed,
+one equivalent (`typeof s !== 'string'` in the instant check, redundant with the
+strict equality of the round trip, kept for the reader).
+
+**The staking question.** The operator asked whether to lock the rest in
+staking instead. Smithii's staking program (`smithii_token_staking`, deployed
+2024-08-21, upgradeable by the same off-curve authority) is a rewards pool, not
+a lock: a pool pays a reward token per staked token per day from a pre-funded
+account, with a minimum stake and a minimum number of days after which anyone
+leaves freely, and its authority can change the lock days, the reward rate and
+the minimum stake after launch (`edit_pool`) although the documentation calls
+them fixed. It cannot stand in for the vesting, and a published reward rate is
+the profit-expectation framing roadmap section 10 tells marketing to avoid.
+The recommendation recorded, not a decision: locks for the vested buckets, and
+staking at most as a holder reward after TGE, funded from the community bucket
+and cleared with counsel. The repository's own `programs/rclaw_staking` stays
+unaudited and not for deployment.
+
+Not proven: that the sale form reads its dates in the browser's zone (the
+read-back after Create settles it); that this repository has made a Smithii
+vesting (the runbook rehearses one on a throwaway wallet); that the deployed
+vesting program carries its audit's fixes; and that 14:00 UTC is the clock time
+the operator wants. Not covered: the treasury, the partners and the reserve are
+locked by none of this, and their roadmap words (multisig, time-locked) are
+intentions until the multisig exists. The rule: a plan is data and the
+documents follow it, so derive the dates, the amounts and the sentences from one
+file and compare each document with what the code derives; and read a tool
+before promising what it does.
+(`token/presale/locks_plan.test.mjs`, `token/presale/smithii_sale.test.mjs`,
+`token/presale/sale_page_images.test.mjs`, `token/presale/venue_parity.test.mjs`.)
 
 ## Public-surface rules
 
