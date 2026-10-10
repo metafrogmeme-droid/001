@@ -22665,9 +22665,9 @@ Four things the port would have got wrong by copying:
 * **A limit decided at a bar's close cannot fill inside that bar.** The honest
   path fills a queued idea at the next open, a market fill, which for a
   strategy built on not chasing measures chasing. The scanner's limit rests
-  from the next bar (`BacktestEngine._rest_limit`). Of 829 placed over the
-  card's run, 163 filled, 638 expired and 28 were cancelled
-  on drift. The portfolio run had reported those counts from its first
+  from the next bar (`BacktestEngine._rest_limit`). It rested 853 limits over
+  the card's run: 164 filled, 657 expired, 31 were cancelled on drift, and one
+  was still resting when the bars ran out. The portfolio run had reported those counts from its first
   symbol's engine alone; they are every engine's now.
 * **The first card measured the house's exits.** With the scanner's entries
   and the house ladder, the card read -7.75% on 52 trades, and 30 of those
@@ -22694,33 +22694,38 @@ Four things the port would have got wrong by copying:
   Copper returned no bars and is not listed.
 
 Measured on a new frozen universe, `benchmark/limit_scanner_1h` (the 28
-playbook markets and six metals, 5,993 1h bars each to 10 October; the house
-window's BTC, ETH and SOL would be three of them and BTC is a gate): -7.62%,
-profit factor 0.57, 163 positions, 31% won, a worst drawdown of 8.88% and 14
-breaker trips. ETH took 48 of the positions and silver 91; the other two dozen
-were XAUT, PAXG and nothing else. The volume dimension scores a member against
-the busiest market in its class, so each class's busiest takes its 15 points
-and the rest score near nothing: of the plans each class put to the gate, the
-crypto class's were ETH 755 times of 763 and the metals class's silver 1,351
-times of 1,589, while platinum and palladium were admitted by the metals floor
-and never chosen. The floor decides who is scored; the volume normalisation
-decides who wins, and that is a rule of the playbook's, reported and not
-changed. 144 of the 163 positions were closed by the four-hour pullback stop,
-12 at their stop and 7 at a stepped lock; one reached the +3.5% scale-out. The
-card therefore hangs on how that time stop is read (v0.1 closed every position
-at its age), and the card says the +5% share is a reading too. Most of the
-gate's refusals were the house's loss governors (the performance pause, the
-loss streak and the breaker), not anything about the market. The card is
-published as measured; it is withheld from copy/follow by its profit factor,
-and the live bot does not run the rule, so the confirm gate refuses to arm it.
-A card measured on its own universe needed `card_window`, and "Reproduce in
-Lab" runs every one of its symbols (the house limit of four would be a
-different backtest). The Lab's request arrives from a browser, where 5.0 is 5,
-so the scanner's numbers are serialised one way for the generator and the Lab
-(`scanner_config_arg`). Forty-four mutants, all killed, across the rules, the
-exits, the classes, the backtest's wiring, the Lab and the card. The first
-round left the minimum score standing, because the only fixture under the bar
-also failed to price, and the bar has its own case both ways now.
+playbook markets and six metals, 5,999 closed 1h bars each to 10 October,
+frozen by the pager that keeps every page's first bar; the house window's BTC,
+ETH and SOL would be three of them and BTC is a gate): -6.41%, profit factor
+0.62, 164 positions, 32% won, a worst drawdown of 7.71% and 13 breaker trips.
+ETH took 46 of the positions and silver 92; the other 26 were XAUT and PAXG.
+The volume dimension scores a member against the busiest market in its class,
+so each class's busiest takes its 15 points and the rest score near nothing:
+of the plans each class put to the gate, the crypto class's were ETH 762 times
+of 771 and the metals class's silver 1,340 times of 1,582, while platinum and
+palladium were admitted by the metals floor and never chosen. The floor
+decides who is scored; the volume normalisation decides who wins, and that is
+a rule of the playbook's, reported and not changed. 146 of the 164 positions
+were closed by the four-hour pullback stop, 11 at their stop and 7 at a
+stepped lock; one reached the +3.5% scale-out. The card therefore hangs on how
+that time stop is read (v0.1 closed every position at its age), and the card
+says the +5% share is a reading too. Most of the gate's refusals were the
+house's loss governors (the performance pause, the loss streak and the
+breaker), not anything about the market. The same rule read -7.62% on the bars
+with the pager's holes, and -3.71% on gap-free bars before the fill-mark fix,
+when its drawdown gate, frozen by a fake peak, refused every entry after 8
+July: a book that trips its limits is path-dependent, and a card is one path,
+not an estimate. The card is published as measured; it is withheld from
+copy/follow by its profit factor, and the live bot does not run the rule, so
+the confirm gate refuses to arm it; A card measured on its own universe needed
+`card_window`, and "Reproduce in Lab" runs every one of its symbols (the house
+limit of four would be a different backtest). The Lab's request arrives from a
+browser, where 5.0 is 5, so the scanner's numbers are serialised one way for
+the generator and the Lab (`scanner_config_arg`). Forty-four mutants, all
+killed, across the rules, the exits, the classes, the backtest's wiring, the
+Lab and the card. The first round left the minimum score standing, because the
+only fixture under the bar also failed to price, and the bar has its own case
+both ways now.
 (`tests/test_the_limit_scanner_scores_only_what_it_read.py`,
 `tests/test_the_scanner_backtest_rests_its_limit_from_the_next_bar.py`,
 `tests/test_the_limit_scanner_exits_are_its_own.py`,
