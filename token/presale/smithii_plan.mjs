@@ -18,12 +18,32 @@ import {
   formatUnits,
   loadSmithiiConfig,
   loadTokenRecord,
+  scheduleInstants,
   validateSmithiiConfig,
 } from './smithii_lib.mjs';
 
 const short = (a) => `${a.slice(0, 4)}…${a.slice(-4)}`;
+const utcStamp = (ms) => `${new Date(ms).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 
-export function renderPlan(cfg, record) {
+/** Minutes the zone `tz` is ahead of UTC at the instant `ms` (a RangeError for a zone that does not exist). */
+export function zoneOffsetMinutes(ms, tz) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(ms);
+  const v = Object.fromEntries(parts.filter((p) => p.type !== 'literal').map((p) => [p.type, Number(p.value)]));
+  return Math.round((Date.UTC(v.year, v.month - 1, v.day, v.hour, v.minute, v.second) - Math.floor(ms / 1000) * 1000) / 60000);
+}
+
+/** "15 Oct 2026, 16:00 (UTC+2)" — the clock reading of an instant in `tz`. */
+export function zoneClock(ms, tz) {
+  const off = zoneOffsetMinutes(ms, tz);
+  const f = new Intl.DateTimeFormat('en-GB', { timeZone: tz, day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const sign = off < 0 ? '-' : '+';
+  const abs = Math.abs(off);
+  return `${f.format(ms).replace(' at ', ', ')} (UTC${sign}${Math.floor(abs / 60)}${abs % 60 ? `:${String(abs % 60).padStart(2, '0')}` : ''})`;
+}
+
+export function renderPlan(cfg, record, { tz } = {}) {
   const d = deriveSmithiiSale(cfg);
   const sol = (u) => `${formatUnits(u, 9)} SOL`;
   const rclaw = (u, frac = 3) => `${formatUnits(u, d.decimals, frac)} ${cfg.token.symbol}`;
@@ -44,6 +64,24 @@ export function renderPlan(cfg, record) {
   line(`  ${dot('Softcap')}${cfg.sale.softCapSol} SOL   (descriptive: the program never reads it)`);
   line(`  ${dot('Hardcap')}${cfg.sale.hardCapSol} SOL`);
   line('  Type digits only — no thousands separators.');
+  line();
+  const w = scheduleInstants(cfg);
+  line("FORM — the sale window (type INSTANTS: the form's date picker uses your browser's clock, not UTC)");
+  line(`  ${dot('Public phase starts')}${utcStamp(w.startMs)}`);
+  line(`  ${dot('Public phase ends')}${utcStamp(w.endMs)}   (${w.hours} hours = ${w.hours / 24} days)`);
+  line(`  ${dot('Whitelist phase')}off: leave its price and dates empty (a whitelist phase would also raise the creation fee to 0.2 SOL)`);
+  if (tz) {
+    const oS = zoneOffsetMinutes(w.startMs, tz);
+    const oE = zoneOffsetMinutes(w.endMs, tz);
+    line(`  In ${tz} the form needs: starts ${zoneClock(w.startMs, tz)} · ends ${zoneClock(w.endMs, tz)}`);
+    if (oS !== oE) {
+      const gap = (oS - oE) / 60;
+      line(`  The clock offset changes by ${Math.abs(gap)} h between the two dates in ${tz}: typing the start's clock time on the end date as well would end the sale ${Math.abs(gap)} h ${gap > 0 ? 'late' : 'early'}.`);
+    }
+  } else {
+    line('  Not on UTC? Re-run with  --tz <your IANA zone>  (for example Europe/Amsterdam) to see the clock times to type.');
+  }
+  line('  After Create, presale:smithii-verify compares the on-chain start and end with these two instants, to the minute.');
   line();
   line('THE FORM SHOULD SHOW BACK (as read off the live form, 2026-10-09: fixtures/smithii_form_reading.json)');
   line(`  ${dot('Sending')}${rclaw(d.formSendingBase, 0)}   (hard cap / the price AS TYPED; the form groups digits with "." and may print ${formatUnits(d.formSendingBase / 10n ** BigInt(d.decimals), 0).replaceAll(',', '.')})`);
@@ -88,7 +126,17 @@ function main() {
   const cfg = loadSmithiiConfig();
   const record = loadTokenRecord();
   const problems = validateSmithiiConfig(cfg, { record });
-  console.log(renderPlan(cfg, record));
+  const at = process.argv.indexOf('--tz');
+  const tz = at > -1 ? process.argv[at + 1] : undefined;
+  if (at > -1) {
+    try {
+      zoneOffsetMinutes(Date.now(), tz);
+    } catch {
+      console.error(`--tz needs an IANA zone name such as Europe/Amsterdam, not ${JSON.stringify(tz)}`);
+      process.exit(2);
+    }
+  }
+  console.log(renderPlan(cfg, record, { tz }));
   if (problems.length) {
     console.log('\nTHE CONFIG IS NOT SANE:');
     for (const p of problems) console.log(`  - ${p}`);

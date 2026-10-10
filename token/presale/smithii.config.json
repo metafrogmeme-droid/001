@@ -46,7 +46,12 @@
     "enabled": false,
     "_note": "The program has no wallet whitelist. Its 'whitelist phase' is an earlier time window with its own price, per-buyer minimum and maximum and a total limit; buy() takes an amount and nothing else - no proof, no list - so anyone can buy during it (CoinFabrik: 'there is no real list of users, it's as public as the public phase'; confirmed against the SDK's buy payload). Turning it on also raises the creation fee to 0.2 SOL (per the audit; not observed). A whitelist phase with price 0 is switched off, which is how this sale runs. The 48h early round the roadmap used to describe is dropped, not folded into the public phase."
   },
-  "publicPhaseHours": 72,
+  "schedule": {
+    "startUtc": "2026-10-15T14:00:00Z",
+    "endUtc": "2026-10-29T14:00:00Z",
+    "_note": "The operator's dates (2026-10-10): the public phase opens on 15 Oct 2026 and closes on 29 Oct 2026, with no whitelist round. The CLOCK TIME, 14:00 UTC, is a placeholder the operator has not confirmed: change it here and everything derived follows (publicPhaseHours, the plan, the verify rows, the locks' dates). These are INSTANTS, not clock times: the form's date picker uses the browser's time zone, and a zone that changes its offset between the two dates (Europe does on 2026-10-25) makes the same clock time on both days 337 hours, not 336. presale:smithii-verify compares the on-chain start and end with these two instants, to the minute."
+  },
+  "publicPhaseHours": 336,
   "vesting": {
     "enabled": false,
     "tgeUnlockPercent": 100,

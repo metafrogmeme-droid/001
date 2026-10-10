@@ -1,0 +1,58 @@
+{
+  "_comment": "THE LOCKS: how the three vested buckets of docs/TOKEN_ROADMAP.md section 4 are created in Smithii's Token Vesting tool. This file is the one place the schedules are written down; locks_lib.mjs derives the dates, the per-step token amounts and the funding from it, locks_plan.mjs prints what to type into the tool, and the roadmap's table, the cards and the engineering log must say what it derives. Until 2026-10-09 the roadmap said these were Streamflow streams with linear release. Smithii's tool has no linear mode, so each schedule is a STAIRCASE of at most five dated unlocks, placed on the published line (never above it) wherever the line was 'cliff, then linear'.",
+  "tool": {
+    "name": "Smithii Token Vesting",
+    "url": "https://tools.smithii.io/token-vesting/solana",
+    "method": "Cliffs",
+    "program": "vesFcnNXtfS9JMtspbe9SkMJiRiSPwsywuWMjYwxQ2K",
+    "programUpgradeAuthority": "CyTc1wUKbuDd8ba7bsJrFaqXbhnBPbCte8FxSs2p7KTC",
+    "programLastDeployed": "2025-02-03",
+    "measuredAt": "2026-10-09",
+    "limits": {
+      "maxSteps": 5,
+      "feeSol": 0.4,
+      "slugMaxLength": 30,
+      "descriptionMaxLength": 500
+    },
+    "_note": "READ on 2026-10-09 from the tool's own code (tools.smithii.io, the Token Vesting widget and its program client), and from real vestings on mainnet-beta, not from its marketing. (1) Cliffs is a staircase: Step amount 1 to 5 (the program refuses a sixth: 'at most five unlock periods'), each step an End Date and a WHOLE-number percent that is added to the running total; they must sum to exactly 100. There is no linear or monthly mode. (2) Observed on chain: two real Cliffs vestings paid exactly their step percentages, as lump sums, the first claim a day after its first step ended; so a step is a cliff, and nothing accrues between steps. (3) One vesting per creating wallet per token (the vesting account is derived from the mint and the creator, and the tool refuses a second). (4) With receivers off, only the creating wallet can claim; receivers (up to 50, each a normal wallet, never a multisig vault) share equally and cost 0.1 SOL more. (5) No cancel and no edit instruction exists. (6) The amount must be whole tokens, held in the creating wallet's own token account; the mint's freeze authority must be revoked (RCLAW's is). (7) Fee 0.3 SOL, plus 0.1 SOL for Cliffs. (8) The program is UPGRADEABLE by the same off-curve authority as Smithii's presale program, and was last deployed 2025-02-03, before Halborn's audit window of March-April 2025 and its fixes of April 2025: whether those fixes are live is not established, so these locks must not be called audited."
+  },
+  "t0": "The sale's scheduled end: smithii.config.json schedule.endUtc. Steps are calendar months after it, in UTC, at the same clock time. If the hard cap sells out early, TGE comes earlier than T0 and the locks simply run a little longer than the sale's own clock.",
+  "locks": [
+    {
+      "bucket": "Community & ecosystem",
+      "slug": "rclaw-community",
+      "target": { "releaseMonths": 36 },
+      "steps": [
+        { "months": 0, "percent": 20 },
+        { "months": 9, "percent": 20 },
+        { "months": 18, "percent": 20 },
+        { "months": 27, "percent": 20 },
+        { "months": 36, "percent": 20 }
+      ],
+      "_note": "The roadmap has no cliff here: emissions start at TGE. Five equal unlocks, the first at T0, the last at month 36. This is the one schedule that sits ABOVE the old straight line at TGE (20% against 0%): a staircase of five cannot start at zero and still end at month 36 with equal steps. To start later is to add a cliff, which changes what the roadmap promises: change the roadmap's words and `target` with the months."
+    },
+    {
+      "bucket": "Team & contributors",
+      "slug": "rclaw-team",
+      "target": { "cliffMonths": 12, "linearMonths": 24 },
+      "steps": [
+        { "months": 18, "percent": 25 },
+        { "months": 24, "percent": 25 },
+        { "months": 30, "percent": 25 },
+        { "months": 36, "percent": 25 }
+      ],
+      "_note": "Nothing before month 18. After the 12-month cliff the old line released 1/24 a month: 25% by month 18, 50% by 24, 75% by 30, 100% by 36. The steps sit on that line at those four dates and below it in between."
+    },
+    {
+      "bucket": "Advisors",
+      "slug": "rclaw-advisors",
+      "target": { "cliffMonths": 6, "linearMonths": 18 },
+      "steps": [
+        { "months": 12, "percent": 33 },
+        { "months": 18, "percent": 33 },
+        { "months": 24, "percent": 34 }
+      ],
+      "_note": "Nothing before month 12. After the 6-month cliff the old line released 1/18 a month: 33.3% by month 12, 66.7% by 18, 100% by 24. Whole percents cannot split a third, so the steps are 33, 33, 34: never above the line until the last."
+    }
+  ]
+}

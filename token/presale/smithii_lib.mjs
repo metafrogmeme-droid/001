@@ -203,6 +203,44 @@ export function deriveSmithiiSale(cfg) {
   };
 }
 
+// ── the sale window ─────────────────────────────────────────────────────────
+// One reading: `schedule` holds the two instants the operator types into the form, in UTC.
+// publicPhaseHours is the length those instants make, kept because the docs and the cards
+// state it, and checked against them here so the two cannot drift.
+
+const UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00Z$/;
+
+/** A real UTC instant to the minute: it has the shape, it parses, and it prints back as itself. JavaScript reads 2026-11-31 as 1 December and 24:00 as the next midnight, so parsing alone would let a typo become another day. */
+const isUtcInstant = (s) => {
+  if (typeof s !== 'string' || !UTC_INSTANT.test(s)) return false;
+  const ms = Date.parse(s);
+  return Number.isFinite(ms) && `${new Date(ms).toISOString().slice(0, 19)}Z` === s;
+};
+
+/** The window as numbers: milliseconds and seconds since the epoch, and its length in hours. */
+export function scheduleInstants(cfg) {
+  const startMs = Date.parse(cfg.schedule.startUtc);
+  const endMs = Date.parse(cfg.schedule.endUtc);
+  return { startMs, endMs, startSec: Math.floor(startMs / 1000), endSec: Math.floor(endMs / 1000), hours: (endMs - startMs) / 3600000 };
+}
+
+/** What is wrong with the sale window, as sentences. */
+export function scheduleProblems(cfg) {
+  const s = cfg.schedule;
+  if (!s || typeof s !== 'object') return ['schedule is missing: the sale window must be two UTC instants (startUtc, endUtc)'];
+  const out = [];
+  for (const k of ['startUtc', 'endUtc']) {
+    if (!isUtcInstant(s[k])) {
+      out.push(`schedule.${k} ${JSON.stringify(s[k])} is not a UTC instant to the minute, like 2026-10-15T14:00:00Z`);
+    }
+  }
+  if (out.length) return out;
+  const { startMs, endMs, hours } = scheduleInstants(cfg);
+  if (endMs <= startMs) out.push(`the sale ends (${s.endUtc}) before it starts (${s.startUtc})`);
+  else if (hours !== cfg.publicPhaseHours) out.push(`schedule runs ${hours} hours (${s.startUtc} to ${s.endUtc}) but publicPhaseHours says ${cfg.publicPhaseHours}`);
+  return out;
+}
+
 /**
  * Everything wrong with the config, as sentences; empty means sane. `record`
  * is token/config/rclaw.mainnet.json — the one record the site and bot read —
@@ -258,6 +296,7 @@ export function validateSmithiiConfig(cfg, { record } = {}) {
   if (cfg.whitelist.enabled !== false) bad('a whitelist phase is not modelled here (and the program has no wallet list): whitelist.enabled must be false');
   if (cfg.liquidity.enforcedByProgram !== false) bad('liquidity.enforcedByProgram must be false: the program never touches liquidity');
   if (!(Number.isInteger(cfg.publicPhaseHours) && cfg.publicPhaseHours > 0)) bad('publicPhaseHours must be a positive integer');
+  for (const p of scheduleProblems(cfg)) bad(p);
 
   for (const k of REQUIRED_DISCLOSURES) {
     const v = cfg.disclosures?.[k];
@@ -310,6 +349,16 @@ export function decodeLaunch(bytes) {
 
 const row = (check, ok, detail) => ({ check, status: ok ? 'PASS' : 'FAIL', detail });
 
+const isoSeconds = (sec) => new Date(Number(sec) * 1000).toISOString().replace('.000Z', 'Z');
+
+/** An on-chain instant against the configured one. A whole-hour gap is the signature of a form filled in local time. */
+function instantDetail(onChainSec, configUtc, configSec) {
+  const gap = Number(onChainSec) - configSec;
+  let d = `${isoSeconds(onChainSec)} on chain, ${configUtc} in config`;
+  if (gap !== 0 && gap % 3600 === 0) d += ` (${gap / 3600 > 0 ? '+' : ''}${gap / 3600} h: the form was probably filled in local time, not UTC)`;
+  return d;
+}
+
 export function compareLaunch(cfg, launch, { authority, nowSeconds }) {
   const d = deriveSmithiiSale(cfg);
   const lam = (sol) => decimalToUnits(sol, 9).units;
@@ -318,6 +367,7 @@ export function compareLaunch(cfg, launch, { authority, nowSeconds }) {
   const wl = launch.whitelistPhase;
   const hours = Number(pub.endDate - pub.startDate) / 3600;
   const started = nowSeconds >= Number(pub.startDate);
+  const want = scheduleInstants(cfg);
 
   const rows = [
     row('account is a Launch', launch.discriminatorHex === LAUNCH_DISCRIMINATOR_HEX, `tag ${launch.discriminatorHex}`),
@@ -329,7 +379,8 @@ export function compareLaunch(cfg, launch, { authority, nowSeconds }) {
     row('sale price', pub.price === d.price.sdkLamports, `${pub.price} lamports per token on chain; the typed ${d.price.typed} predicts ${d.price.sdkLamports} by the SDK's Math.floor(price*1e9)`),
     row('minimum buy', pub.minAmount === d.perWalletLamports.min, `${sol(pub.minAmount)} on chain, ${cfg.sale.minContributionSol} SOL in config`),
     row('maximum buy', pub.maxAmount === d.perWalletLamports.max, `${sol(pub.maxAmount)} on chain, ${cfg.sale.maxContributionSol} SOL in config`),
-    row('public phase length', hours === cfg.publicPhaseHours, `${hours} h on chain, ${cfg.publicPhaseHours} h in config`),
+    row('public phase starts', pub.startDate === BigInt(want.startSec), instantDetail(pub.startDate, cfg.schedule.startUtc, want.startSec)),
+    row('public phase ends', pub.endDate === BigInt(want.endSec), `${instantDetail(pub.endDate, cfg.schedule.endUtc, want.endSec)}; ${hours} h on chain, ${cfg.publicPhaseHours} h in config`),
     cfg.whitelist.enabled
       ? row('whitelist phase', false, 'enabled in the config, which this tool does not model')
       : row('whitelist phase is off', wl.price === 0n && wl.startDate === 0n && wl.endDate === 0n, `price ${wl.price}, start ${wl.startDate}, end ${wl.endDate}`),

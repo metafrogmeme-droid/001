@@ -37,11 +37,11 @@
   },
   "timeline": {
     "_comment": "RFC3339 UTC. Placeholders — set at launch. Converted to unix-second TimeAbsolute conditions by the script.",
-    "whitelistStart": "2026-09-01T15:00:00Z",
-    "publicStart": "2026-09-03T15:00:00Z",
-    "depositEnd": "2026-09-06T15:00:00Z",
-    "tge": "2026-09-08T15:00:00Z",
-    "claimEnd": "2027-09-08T15:00:00Z"
+    "whitelistStart": "2026-10-13T14:00:00Z",
+    "publicStart": "2026-10-15T14:00:00Z",
+    "depositEnd": "2026-10-29T14:00:00Z",
+    "tge": "2026-10-31T14:00:00Z",
+    "claimEnd": "2027-10-31T14:00:00Z"
   },
   "vesting": {
     "_comment": "33% unlocked at TGE (cliff), remainder linear over 2 months. Maps to createClaimSchedule({cliffAmountBps, startTime, endTime, cliffTime, period}).",
