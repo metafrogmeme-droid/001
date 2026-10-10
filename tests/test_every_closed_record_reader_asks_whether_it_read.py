@@ -301,7 +301,7 @@ def test_classpf_orders_classes_by_net_and_unpriced_last():
     cats = [category_for_symbol(r.symbol) for r in rows]
     assert len(set(cats)) == 3, cats      # three classes, or the order says nothing
     said = _classpf(_book(rows, partial=False))
-    body = [x for x in said.splitlines() if "<b>" in x and "trades ·" in x]
+    body = [x for x in said.splitlines() if "PF <b>" in x]
     order = [next(c for c in cats if f"<b>{c}</b>" in x) for x in body]
     assert order == [cats[1], cats[0], cats[2]], (order, cats)
 

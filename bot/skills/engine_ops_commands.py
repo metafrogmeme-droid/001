@@ -1001,13 +1001,25 @@ class EngineOpsCommands:
         in a second book of the operator's account (8 October: keys for the
         same sub-account linked with /connect). Lists each with what it
         duplicates; a tap strikes it (`dupstrike:`), which re-reads the books
-        first. The reading and the strike are `bot.core.duplicate_closes`."""
+        first. The reading and the strike are `bot.core.duplicate_closes`.
+
+        The operator ids' Bitget links are re-read first: a book is searched
+        only when its keys are proven to open the operator's account, and the
+        proof was otherwise only taken at boot and every six hours, and only
+        with per-user live on."""
         if not self._is_admin(update):
             await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
             return
-        from bot.core.duplicate_closes import duplicates_card, find_duplicate_closes
+        from bot.core.duplicate_closes import (
+            duplicates_card,
+            find_duplicate_closes,
+            refresh_operator_links,
+        )
 
-        text, buttons = duplicates_card(find_duplicate_closes(self.engine))
+        failed = await refresh_operator_links(self.engine)
+        report = find_duplicate_closes(self.engine)
+        report.link_check_failed = failed
+        text, buttons = duplicates_card(report)
         kb = (InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data=f"dupstrike:{tok}")]
                                     for label, tok in buttons])
               if buttons else None)
