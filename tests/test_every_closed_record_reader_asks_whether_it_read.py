@@ -224,19 +224,19 @@ def test_a_row_with_no_reason_is_named():
 
 # ── the cards, driven ───────────────────────────────────────────────────
 
-class _Row:
-    def __init__(self, pnl, symbol="BTC/USDT", closed_at=None, reason="TP HIT", tid="T-1"):
-        from datetime import datetime, timezone
-        self.pnl_usd = pnl
-        self.symbol = symbol
-        self.trade_id = tid
-        self.close_reason = reason
-        self.closed_at = closed_at or datetime.now(timezone.utc)
-        self.direction = "LONG"
-        self.entry_price = 100.0
-        self.close_price = 110.0
-        self.commission = None
-        self.gross_pnl = pnl
+def _Row(pnl, symbol="BTC/USDT", closed_at=None, reason="TP HIT", tid="T-1"):
+    """A closed position, the real one: `/classpf` reads it through the
+    writer's own row (`closed_trade_row`), and a stand-in carrying only the
+    fields one reader used forgot the next."""
+    from datetime import datetime, timezone
+
+    from bot.core.live_executor import LivePosition
+    return LivePosition(
+        trade_id=tid, symbol=symbol, direction="LONG", entry_price=100.0,
+        quantity=1.0, cost_usd=10.0, stop_loss=95.0, take_profit=110.0, leverage=1,
+        status="closed", close_price=110.0, pnl_usd=pnl, gross_pnl=pnl,
+        commission=None, close_reason=reason,
+        closed_at=closed_at or datetime.now(timezone.utc))
 
 
 def _book(rows, partial):

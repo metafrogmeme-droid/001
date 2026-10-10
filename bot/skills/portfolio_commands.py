@@ -195,8 +195,16 @@ class PortfolioCommands:
     async def _cmd_classpf(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Live performance bucketed by asset class (Crypto / Metal /
         Commodity / ETF / Pre-IPO / Stock) — the evidence base for growing
-        or pruning the non-crypto universe. Computed from the executor's
-        closed trades; nothing surfaced this breakdown before."""
+        or pruning the non-crypto universe.
+
+        ONE POPULATION. The rows are `/parity`'s own: `parity.class_rows` over
+        the caller's closed positions in the shape the executor writes them
+        (`closed_trade_row`), which is `strategy_exits` (filled, priced, not an
+        execution abort). This card counted every filled close, execution
+        aborts included, so its Stock row could say 60 trades beside
+        `/parity`'s 52 and the idea card's line quoting it. What it leaves out
+        is counted in its header (`parity.partition`), and a class's unpriced
+        closes are said on its line, never scored either way."""
         from bot.core.market_scanner import category_for_symbol, category_icon
 
         # The book THIS caller may view, not the operator's. `live_view` is the
@@ -220,63 +228,41 @@ class PortfolioCommands:
                                            "per-class stats appear after the first close."))
             return
 
-        from bot.backtest.benchmark_record import profit_factor
-        from bot.utils.close_reason import is_filled_close
-        from bot.utils.win_rate import trade_pnl, win_stats
+        from bot.backtest.parity import class_rows, partition
+        from bot.core.live_executor import closed_trade_row
 
-        # Per class, the filled closes themselves, read through the one P&L
-        # reading (`trade_pnl`, None for a close nobody priced). The P&L was
-        # read as `float(pnl_usd or 0)`, so an unpriced close counted as a
-        # measured break-even in the class's win-rate denominator, the shape
-        # `win_stats` exists to refuse.
-        buckets: dict[str, list] = {}
-        skipped_non_fills = 0
-        for tr in trades:
-            try:
-                pnl = trade_pnl(tr)
-                if not is_filled_close(getattr(tr, "close_reason", None), pnl):
-                    skipped_non_fills += 1
-                    continue  # never filled — no capital was at risk
-                cat = category_for_symbol(getattr(tr, "symbol", "") or "")
-            except Exception:
-                continue
-            buckets.setdefault(cat, []).append(tr)
+        rows = [closed_trade_row(p) for p in trades]
+        parts = partition(rows)
+        classes = class_rows(rows)
+        unpriced: dict[str, int] = {}
+        for row in parts["unscored"]:
+            cat = category_for_symbol(row.get("symbol", "") or "")
+            unpriced[cat] = unpriced.get(cat, 0) + 1
 
-        def _priced(rows: list) -> list[float]:
-            return [x for x in (trade_pnl(r) for r in rows) if x is not None]
-
-        def _net(rows: list) -> Optional[float]:
-            priced = _priced(rows)
-            return sum(priced) if priced else None
-
-        n_filled = sum(len(v) for v in buckets.values())
+        n_exits = sum(r["trades"] for r in classes.values())
         lines = ["📊 <b>Live performance by asset class</b>",
-                 f"({n_filled} filled trades, net PnL"
-                 + (f"; {skipped_non_fills} never-filled records excluded)"
-                    if skipped_non_fills else ")")]
+                 f"({n_exits} strategy exits, net PnL: the trades /parity counts)"]
+        left_out = [f"{n} {word}" for n, word in (
+            (len(parts["aborts"]), "execution aborts"),
+            (len(parts["unscored"]), "unpriced"),
+            (len(parts["non_fills"]), "never filled")) if n]
+        if left_out:
+            lines.append("Left out: " + " · ".join(left_out))
         if partial:
             lines.append(f"<i>{CLOSED_RECORD_UNREAD}</i>")
-        # Classes with a readable net first, largest first; a class nobody
-        # could price last, because it has no place on that scale.
-        nets = {c: _net(rows) for c, rows in buckets.items()}
-        priced_nets = {c: n for c, n in nets.items() if n is not None}
-        order = (sorted(priced_nets, key=lambda c: -priced_nets[c])
-                 + [c for c in buckets if nets[c] is None])
-        for cat in order:
-            rows = buckets[cat]
-            ws = win_stats(rows)
-            priced = _priced(rows)
-            net = nets[cat]
-            # No losing trade is not an infinite edge, and no trade that
-            # could be priced is not a profit factor of 0.
-            pf = profit_factor(priced)
-            pf_s = "—" if pf is None else f"{pf:.2f}"
-            wr_s = "—" if ws["rate"] is None else f"{100.0 * ws['rate']:.0f}%"
-            net_s = "—" if net is None else f"${net:+.2f}"
-            unpriced_s = f" · {ws['unscored']} unpriced" if ws["unscored"] else ""
+        # `class_rows` comes largest net first; a class nobody could price
+        # last, because it has no place on that scale.
+        for cat, r in classes.items():
+            pf_s = "—" if r["pf"] is None else f"{r['pf']:.2f}"
+            unpriced_s = f" · {unpriced[cat]} unpriced" if unpriced.get(cat) else ""
             lines.append(
-                f"{category_icon(cat)} <b>{cat}</b>: {len(rows)} trades · "
-                f"PF <b>{pf_s}</b> · WR {wr_s} · net {net_s}{unpriced_s}")
+                f"{category_icon(cat)} <b>{cat}</b>: {r['trades']} trades · "
+                f"PF <b>{pf_s}</b> · WR {100.0 * r['win_rate']:.0f}% · "
+                f"net ${r['net']:+.2f}{unpriced_s}")
+        for cat in [c for c in unpriced if c not in classes]:
+            lines.append(
+                f"{category_icon(cat)} <b>{cat}</b>: 0 priced trades · PF <b>—</b> · "
+                f"WR — · net — · {unpriced[cat]} unpriced")
         lines.append("")
         lines.append("PF &gt; 1 = profitable class. Small samples lie — "
                      "judge classes on 20+ trades.")

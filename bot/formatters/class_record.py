@@ -10,9 +10,8 @@ ONE READING OF A TRADE. The row is `/parity`'s own: `parity.class_rows` over
 the executor's closed positions in the shape its file holds (`closed_trade_row`),
 which is `strategy_exits` (filled, priced, not an execution abort) bucketed by
 `category_for_symbol` and scored by parity's `_row`. A card that counted a
-different population from the report it quotes would be a second answer.
-`/classpf` still counts every filled close (execution aborts included), so its
-trade counts can run higher than this line's.
+different population from the report it quotes would be a second answer, and
+`/classpf` reads the same rows.
 
 WHOSE BOOK. `live_view(user_id)` is the reading every record card takes. Under
 per-user live off (the default) it hands every caller the operator's

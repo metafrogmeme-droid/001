@@ -19537,6 +19537,24 @@ never reused and the 500 backstop bounds the map, so a stale entry is never
 read: an equivalent mutant. Fourteen mutants, all killed.
 (`tests/test_an_idea_card_says_whether_its_turn_is_confirmed.py`.)
 
+**AND `/CLASSPF` COUNTS THE SAME TRADES NOW.** The class-record chapter left
+`/classpf` counting every filled close, execution aborts included, beside
+`/parity`'s asset-class rows and the idea card's line quoting them: three
+surfaces, two answers to "how many stock trades". The owner chose one. It is
+`parity.class_rows` over the caller's closed positions in the writer's shape
+(`closed_trade_row`), the reading the card already takes, and what that leaves
+out is counted in the header from `parity.partition`: "Left out: 2 execution
+aborts · 1 unpriced · 1 never filled". What the old card was read for stays: a
+class's unpriced closes are said on its line and scored neither way, and a
+class nobody could price keeps a line with no figures, last.
+
+The tests that drove the old card built its rows from stand-ins carrying only
+the fields that card read (`symbol`, `pnl_usd`), and the writer's row reads
+every field, so they build real `LivePosition`s now. Driven: the real `/classpf`
+and the real `/parity` over one executor file holding every kind of row the
+partition names. Ten mutants, all killed.
+(`tests/test_classpf_counts_what_parity_counts.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -21042,7 +21060,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **483 of 1259** reach for source text through `source_scan`, `code_only`
+Driven, **483 of 1260** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 483 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
