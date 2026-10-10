@@ -361,7 +361,25 @@ def _preset_gate_kwargs(args: argparse.Namespace) -> dict:
         "ma_max_gross_leverage": getattr(args, "ma_max_gross_leverage", None),
         "ma_utilization": getattr(args, "ma_utilization", None),
         "ma_signal_confidence": getattr(args, "ma_signal_confidence", None),
+        "scanner": getattr(args, "scanner", "") or "",
+        "scanner_config": _scanner_config(args),
     }
+
+
+def _scanner_config(args: argparse.Namespace) -> dict:
+    """``--scanner-config`` as a dict. Text that is not a JSON object stops
+    the run: the scanner would otherwise run on numbers nobody asked for."""
+    raw = getattr(args, "scanner_config", "") or ""
+    if not raw.strip():
+        return {}
+    try:
+        cfg = json.loads(raw)
+    except ValueError:
+        cfg = None
+    if not isinstance(cfg, dict):
+        print("  ERROR: --scanner-config is not a JSON object.")
+        sys.exit(2)
+    return cfg
 
 
 def _record_validations(result, used_synthetic: bool, data_source: str) -> None:
@@ -739,6 +757,12 @@ Examples:
                              help="Scales the margin with the target weight.")
     trade_group.add_argument("--ma-signal-confidence", type=float, default=None,
                              help="Stated confidence stamped on the signal. Not a gate.")
+    trade_group.add_argument("--scanner", choices=("", "limit_entry"), default="",
+                             help="Run the Limit Entry Scanner in place of the analyzer "
+                                  "(portfolio runs: --symbols or --dataset).")
+    trade_group.add_argument("--scanner-config", type=str, default="", metavar="JSON",
+                             help="The scanner preset's own numbers, as a JSON object "
+                                  "(bot.core.limit_scanner.params_from_preset).")
     trade_group.add_argument("--fill-mode", choices=("close", "next_open"), default="close",
                              help="Entry fill convention: same-bar close (legacy, optimistic) "
                                   "or next-bar open (conservative; audit fix #15). Run both "
@@ -845,6 +869,9 @@ def main() -> None:
     if args.symbols.strip():
         asyncio.run(_run_portfolio(args))
         return
+    if getattr(args, "scanner", ""):
+        print("  ERROR: --scanner ranks a universe; give it --symbols or --dataset.")
+        sys.exit(2)
     if args.walk_forward and args.walk_forward > 0:
         asyncio.run(_run_walk_forward(args))
     else:
@@ -1210,10 +1237,17 @@ async def _run_portfolio(args: argparse.Namespace) -> None:
               f"win {row['win_rate']:.0%}")
     print(_attribution_report(result))
     print(_narrative(result, pb.per_symbol))
+    if pb.scanner_passes:
+        print("  Scanner passes: " + "; ".join(
+            f"{n} {why}" for why, n in sorted(pb.scanner_passes.items(), key=lambda kv: -kv[1])))
+        print(f"  Its limits: {result.total_limits_filled} filled, "
+              f"{result.total_limits_expired} expired, "
+              f"{result.total_limits_cancelled_drift} cancelled on drift")
     if args.output:
         _write_json(args.output, {
             **result.model_dump(mode="json", exclude={"equity_curve", "trades"}),
             "per_symbol": pb.per_symbol,
+            "scanner_passes": pb.scanner_passes,
             "universe": universe,
             "equity_curve_points": _curve_points(result),
             # The public card's trade list. The full ``trades`` dump is

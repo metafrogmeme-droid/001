@@ -378,9 +378,10 @@ directions, and the live record's in live mode, upward only (a losing streak
 raises the bar, a winning one never lowers it: the operator's decision);
 suppressible in live mode. Operators tune it
 with /autoconfirm, halt it with /halt //pause //emergency_stop, and inspect it
-with /risk, /gates, /shadow, /enforcing, /parity. Users get seven named
+with /risk, /gates, /shadow, /enforcing, /parity. Users get eight named
 strategy presets (Dip Sniper, Momentum Hunter, Safe Scalper, Full Scan,
-ETH Moving-Average Trend, Daily Volatility Rotation, ALT Sweep —
+ETH Moving-Average Trend, Daily Volatility Rotation, ALT Sweep, Limit Entry
+Scanner —
 `bot/skills/skill_registry.py::RunStrategySkill.PRESETS`) runnable via /run, /momentum, /dip, and pinnable to
 their own confirms as a tighten-only veto (/mystrategy →
 `bot/core/user_strategy_store.py::set_pref`, mirrored on the web at /api/bot-strategy). Research
@@ -2021,8 +2022,11 @@ app/public/strategy.html), GET /agents/compare (`app/server.js::get('/agents/com
 public/compare.html), GET /a claimed agents (`app/server.js::get('/a')`); backed by
 app/lib/agent_catalogue.js → bot gateway /public/strategies →
 RunStrategySkill.PRESETS, and by committed scorecards
-benchmark/scorecards/{dip-sniper,eth-ma-trend,full-scan,momentum-hunter,safe-scalper}.json
-produced by scripts/gen_agent_scorecards.py. Daily Volatility Rotation is in
+benchmark/scorecards/{dip-sniper,eth-ma-trend,full-scan,limit-scanner,momentum-hunter,safe-scalper}.json
+produced by scripts/gen_agent_scorecards.py. The Limit Entry Scanner's card is
+measured on its own frozen universe, benchmark/limit_scanner_1h
+(`scripts/gen_agent_scorecards.py::card_window`), by its own pass in place of the
+analyzer (`bot/backtest/portfolio_engine.py::PortfolioBacktester._scanner_pass`). Daily Volatility Rotation is in
 that preset table and publishes no scorecard
 (`scripts/gen_agent_scorecards.py::publishes_scorecard`): its percent exits
 are recorded and not applied, and a majors 1h fill is not its daily book.

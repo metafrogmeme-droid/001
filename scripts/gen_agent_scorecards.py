@@ -128,11 +128,55 @@ def project_metrics(runner: dict) -> dict:
     return out
 
 
+#: The window a card is measured on unless its preset names its own.
+DEFAULT_CARD_SYMBOLS = ("BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT")
+DEFAULT_CARD_BARS = 1500
+
+
+def _ccxt_symbol(sym: str) -> str:
+    from bot.core.strategy_gate import _base
+    return f"{_base(sym)}/USDT:USDT"
+
+
+def card_window(cfg: dict) -> tuple[str, list[str], int]:
+    """(dataset directory, symbols, bars) this preset's card is measured on.
+
+    The house window is the majors snapshot's BTC, ETH and SOL over the last
+    1,500 bars. A preset that ranks its own universe names its own snapshot
+    (``scorecard_window``) and is measured on every symbol it lists; the
+    house window would cover three of them, which is not the book.
+    """
+    win = cfg.get("scorecard_window") if isinstance(cfg, dict) else None
+    if isinstance(win, dict) and isinstance(win.get("dataset"), str) and win["dataset"]:
+        bars = win.get("last_bars")
+        if isinstance(bars, bool) or not isinstance(bars, int) or bars < 1:
+            raise ValueError(f"scorecard_window.last_bars is not a bar count: {bars!r}")
+        syms = cfg.get("symbols")
+        if not isinstance(syms, (list, tuple)) or not syms:
+            raise ValueError("a preset with its own window names its symbols")
+        root = benchmark_root()
+        if not root.is_absolute():
+            root = REPO / root
+        return (str(root / win["dataset"]), [_ccxt_symbol(x) for x in syms], bars)
+    return (default_benchmark_dir(), list(DEFAULT_CARD_SYMBOLS), DEFAULT_CARD_BARS)
+
+
 def _gate_args(cfg: dict) -> list[str]:
     """Map a preset's real filters onto the runner's flags.
     Exit multiples are emitted because the runner applies them. A multiple
     this does not emit stays in ``unmodeled``."""
+    from bot.core.limit_scanner import (
+        SCANNER_NAME,
+        preset_is_limit_scanner,
+        scanner_config,
+        scanner_config_arg,
+    )
     args: list[str] = []
+    if preset_is_limit_scanner(cfg):
+        # The scanner is the whole entry rule: its own numbers, as one JSON
+        # object, which the runner reads back through `params_from_preset`.
+        return ["--scanner", SCANNER_NAME, "--scanner-config",
+                scanner_config_arg(scanner_config(cfg))]
     if cfg.get("confidence_threshold") is not None:
         args += ["--confidence-threshold", str(cfg["confidence_threshold"])]
     if cfg.get("volume_spike_min") is not None:
@@ -320,6 +364,10 @@ def scorecard_gates(cfg: dict) -> dict:
         gates["leverage"] = cfg.get("leverage")
         gates["signal_confidence"] = cfg.get("signal_confidence")
         gates["schedule_hours"] = cfg.get("schedule_hours")
+    from bot.core.limit_scanner import SCANNER_NAME, preset_is_limit_scanner, scanner_config
+    if preset_is_limit_scanner(cfg):
+        gates["scanner"] = SCANNER_NAME
+        gates["scanner_config"] = scanner_config(cfg)
     # A knob the runner was not asked to apply is not a gate of the number.
     for key in _unmodeled(cfg):
         gates.pop(key, None)
@@ -331,6 +379,11 @@ def scorecard_note(cfg: dict) -> str:
     note = ("Design backtest on FROZEN benchmark data — percent/ratio "
             "only, never a dollar figure. Re-run the identical backtest "
             "in the Strategy Lab to reproduce.")
+    from bot.core.limit_scanner import BACKTEST_READS, preset_is_limit_scanner
+    if preset_is_limit_scanner(cfg):
+        return (note + " The Limit Entry Scanner's pass replaces the analyzer: "
+                + BACKTEST_READS + " After a fill the position runs the scanner's own exits, "
+                "never the house's.")
     fast = cfg.get("fast_period")
     slow = cfg.get("slow_period")
     if not (isinstance(fast, int) and not isinstance(fast, bool)
@@ -524,16 +577,24 @@ def generate(dataset: str, symbols: str, last_bars: int,
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--dataset", default=default_benchmark_dir())
-    ap.add_argument("--symbols",
-                    default="BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT")
-    ap.add_argument("--last-bars", type=int, default=1500)
+    ap.add_argument("--dataset", default=None,
+                    help="Default: the preset's own window (card_window), else the majors.")
+    ap.add_argument("--symbols", default=None)
+    ap.add_argument("--last-bars", type=int, default=None)
     ap.add_argument("--preset", default="",
                     help="Only this preset key or slug. Other scorecards are left as they are.")
     ap.add_argument("--breaker-reset-bars", type=int, default=CARD_BREAKER_RESET_BARS,
                     help="Reset a tripped breaker after N bars (0 = never, as live). "
                          "Recorded on every card it writes.")
     args = ap.parse_args()
+    from bot.skills.skill_registry import RunStrategySkill
+    want = args.preset.strip().lower().replace("-", " ")
+    own = next((cfg for key, cfg in RunStrategySkill.PRESETS.items()
+                if want and want in (key, _slug(key).replace("-", " "))), {})
+    dataset, symbols, bars = card_window(own)
+    args.dataset = args.dataset or dataset
+    args.symbols = args.symbols or ",".join(symbols)
+    args.last_bars = args.last_bars or bars
     print(f"Generating agent scorecards on {args.dataset} "
           f"({args.symbols}, {args.last_bars} bars, breaker reset "
           f"{args.breaker_reset_bars} bars)…")

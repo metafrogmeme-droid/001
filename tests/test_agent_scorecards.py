@@ -50,6 +50,7 @@ _WINDOW = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT"]
 
 def test_a_scorecard_exists_for_every_preset_the_frozen_window_covers():
     from scripts.gen_agent_scorecards import (
+        card_window,
         preset_universe_covered,
         publishes_scorecard,
     )
@@ -60,12 +61,19 @@ def test_a_scorecard_exists_for_every_preset_the_frozen_window_covers():
         if not publishes_scorecard(cfg):
             assert name not in files, f"{key} must not publish a track record"
             continue
-        if preset_universe_covered(cfg, _WINDOW):
+        dataset, symbols, bars = card_window(cfg)
+        if preset_universe_covered(cfg, symbols):
             published.append(name)
             assert name in files, f"missing scorecard for {key}"
+            card = json.load(open(os.path.join(_SC_DIR, name), encoding="utf-8"))
+            # Measured on its own window: the dataset, every symbol, every bar.
+            assert (card["dataset"], card["symbols"], card["bars"]) == (
+                os.path.basename(dataset), symbols, bars), key
         else:
             assert name not in files, f"{key} must not publish this window"
     assert published
+    # The house window stays the majors' BTC, ETH and SOL.
+    assert card_window(RunStrategySkill.PRESETS["full scan"])[1] == _WINDOW
 
 
 def test_scorecards_are_section4_safe_percent_ratio_only():
@@ -87,6 +95,7 @@ def test_scorecards_are_section4_safe_percent_ratio_only():
 
 def test_catalog_attaches_scorecard_with_provenance():
     from scripts.gen_agent_scorecards import (
+        card_window,
         preset_universe_covered,
         publishes_scorecard,
     )
@@ -101,7 +110,7 @@ def test_catalog_attaches_scorecard_with_provenance():
             assert "metrics" not in s
             assert "not applied" in card["how"]
             continue
-        if not preset_universe_covered(cfg, _WINDOW):
+        if not preset_universe_covered(cfg, card_window(cfg)[1]):
             assert isinstance(s, dict) and s.get("omitted"), card["id"]
             assert "No track record published" in s["omitted"]
             assert "pending" not in s["omitted"].lower()
@@ -170,15 +179,16 @@ def test_committed_scorecards_are_the_rerun_of_these_rules():
     from scripts.gen_agent_scorecards import (
         _METRIC_KEYS,
         _run_one,
+        card_window,
         preset_universe_covered,
         publishes_scorecard,
         scorecard_gates,
     )
-    dataset = os.path.join(_REPO, "benchmark", "majors_1h")
-    symbols = "BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT"
-    window = [s.strip() for s in symbols.split(",")]
     for key, cfg in RunStrategySkill.PRESETS.items():
         slug = sc._slug(key)
+        # Each card on its own window: the majors' BTC, ETH and SOL over the
+        # last 1,500 bars, or the snapshot a preset names for its universe.
+        dataset, window, bars = card_window(cfg)
         if (not publishes_scorecard(cfg)
                 or not preset_universe_covered(cfg, window)):
             assert not os.path.exists(os.path.join(_SC_DIR, f"{slug}.json"))
@@ -188,7 +198,7 @@ def test_committed_scorecards_are_the_rerun_of_these_rules():
         assert card["gates"] == scorecard_gates(cfg), slug
         # Re-run with the breaker reset the card records, and the trip count
         # is part of what reproduces.
-        res = _run_one(key, cfg, dataset, symbols, 1500,
+        res = _run_one(key, cfg, dataset, ",".join(window), bars,
                        breaker_reset_bars=card["breaker"]["reset_bars"])
         got = {}
         for mk in _METRIC_KEYS:

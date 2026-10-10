@@ -260,6 +260,10 @@
         signal_confidence: g.signal_confidence,
         sl_atr_mult: g.sl_atr_mult,
         tp_atr_mult: g.tp_atr_mult,
+        // The Limit Entry Scanner's own run: its name and its numbers, as
+        // the card carries them. Absent on every other card, and left out.
+        scanner: g.scanner || '',
+        scanner_config: g.scanner_config,
         // How the card's run was measured, not a gate: the breaker reset it
         // modelled. Absent on a card recorded before it, and left out then,
         // so the Lab runs its default (0), which is what that card ran.

@@ -2312,6 +2312,67 @@ class RunStrategySkill(BaseSkill):
             "max_portfolio_positions": 8,
             "minimum_target_positions": 6,
         },
+        # The RUNECLAW Limit Entry Scanner playbook, ported onto closed 1h
+        # bars: its rules are `bot/core/limit_scanner.py`, one reading for the
+        # frozen backtest and the confirm gate. BTC is the regime leader and
+        # is never traded. Every number here is the scanner's own, its exits
+        # included; its playbook's leverage and budget are not on this preset
+        # until the engine applies them to it.
+        "limit scanner": {
+            "label": "Limit Entry Scanner", "icon": "\U0001fa9d",
+            "desc": ("27 crypto perpetuals behind BTC and 5 metals behind gold \u2022 "
+                     "each leader is a gate, never traded \u2022 scored out of 100, 70 to "
+                     "act \u2022 one pullback limit a pass per class, long or short"),
+            "symbols": [
+                "BTCUSDT", "ETHUSDT", "SOLUSDT", "LABUSDT", "ZECUSDT", "XRPUSDT",
+                "DOGEUSDT", "TAOUSDT", "HYPEUSDT", "BNBUSDT", "SUIUSDT", "ADAUSDT",
+                "LINKUSDT", "ENAUSDT", "ONDOUSDT", "BCHUSDT", "AVAXUSDT", "NEARUSDT",
+                "AAVEUSDT", "WLDUSDT", "XPLUSDT", "XLMUSDT", "TRUMPUSDT", "MUSDT",
+                "INJUSDT", "SEIUSDT", "PEPEUSDT", "SHIBUSDT",
+                "XAUUSDT", "XAGUSDT", "XPTUSDT", "XPDUSDT", "PAXGUSDT", "XAUTUSDT",
+            ],
+            "rsi_threshold": None, "rsi_min": None,
+            "regime": None, "confidence_threshold": None,
+            "direction": None, "volume_spike_min": None,
+            "sl_atr_mult": None, "tp_atr_mult": None,
+            "scanner": "limit_entry",
+            # Each class behind its own leader, with its own volume floor. The
+            # metals floor is 0.25M USDT a day: XPT and XPD trade a median of
+            # 0.9M and 0.5M on Bitget (measured 10 October), thin markets.
+            "classes": [
+                {"name": "crypto", "leader": "BTCUSDT", "min_quote_volume": 10_000_000,
+                 "members": [
+                     "ETHUSDT", "SOLUSDT", "LABUSDT", "ZECUSDT", "XRPUSDT", "DOGEUSDT",
+                     "TAOUSDT", "HYPEUSDT", "BNBUSDT", "SUIUSDT", "ADAUSDT", "LINKUSDT",
+                     "ENAUSDT", "ONDOUSDT", "BCHUSDT", "AVAXUSDT", "NEARUSDT", "AAVEUSDT",
+                     "WLDUSDT", "XPLUSDT", "XLMUSDT", "TRUMPUSDT", "MUSDT", "INJUSDT",
+                     "SEIUSDT", "PEPEUSDT", "SHIBUSDT"]},
+                {"name": "metals", "leader": "XAUUSDT", "min_quote_volume": 250_000,
+                 "members": ["XAGUSDT", "XPTUSDT", "XPDUSDT", "PAXGUSDT", "XAUTUSDT"]},
+            ],
+            "min_score": 70,
+            "max_vwap_ext_pct": 5.0,
+            "atr_limit_mult": 0.5,
+            "limit_chase_pct": 3.0,
+            "funding_skip_bps": 30,
+            "tp1_pct": 5.0,
+            "stop_floor_pct": {"BTC": 1.5, "ETH": 1.5, "SOL": 1.2, "BNB": 1.2},
+            "alt_stop_floor_pct": 2.5,
+            "allow_short": True,
+            # Its own exits: a 35% scale-out at +3.5%, half the rest at TP1,
+            # the rest at TP2, step locks, a 2-ATR trail after the scale-out,
+            # and two time stops (`limit_scanner.step_exit`).
+            "scale_out_trigger_pct": 3.5,
+            "scale_out_fraction": 0.35,
+            "tp1_fraction": 0.5,
+            "tp2_pct": 20.0,
+            "trail_atr_mult": 2.0,
+            "step_locks": [[2.0, 1.5], [4.0, 3.0], [6.0, 4.5]],
+            "pullback_time_stop_hours": 4,
+            "time_stop_hours": 12,
+            # Where its card is measured: its own frozen universe, every bar.
+            "scorecard_window": {"dataset": "limit_scanner_1h", "last_bars": 6000},
+        },
     }
     ALIASES: dict[str, str] = {
         "dip": "dip sniper", "momentum": "momentum hunter",
@@ -2319,6 +2380,7 @@ class RunStrategySkill(BaseSkill):
         "ethma": "eth ma trend",
         "volrotation": "daily vol rotation",
         "altsweep": "alt sweep",
+        "limitscan": "limit scanner",
     }
 
     @classmethod

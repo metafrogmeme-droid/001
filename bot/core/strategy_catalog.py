@@ -108,6 +108,15 @@ _META: dict[str, dict[str, str]] = {
         "risk": "balanced",
         "horizon": "swing",
     },
+    "limit scanner": {
+        "tagline": "Waits for BTC (gold, for metals) to set the side, scores 27 crypto "
+                   "and 5 metals perpetuals out of 100, and rests one limit per class on a "
+                   "pullback to the best one's average price instead of chasing it. The "
+                   "frozen backtest runs it; the live bot does not yet.",
+        "regime": "Leader-led pullbacks",
+        "risk": "balanced",
+        "horizon": "intraday",
+    },
     "alt sweep": {
         "tagline": "A closed-bar 36/144 moving-average rule over fifteen alt markets, "
                    "written down and not run: its sizing knobs are not applied, so "
@@ -262,9 +271,11 @@ def live_runs(cfg: dict[str, Any]) -> bool:
     places nothing, and no scan or confirm evaluates it. The cards said
     "Trades only ETHUSDT" and "Follows fifteen alt markets" over that.
     """
+    from bot.core.limit_scanner import preset_is_limit_scanner
     from bot.core.ma_trend import preset_is_ma_trend
     from bot.core.vol_rotation import preset_is_vol_rotation
-    return not (preset_is_ma_trend(cfg) or preset_is_vol_rotation(cfg))
+    return not (preset_is_ma_trend(cfg) or preset_is_vol_rotation(cfg)
+                or preset_is_limit_scanner(cfg))
 
 
 #: The how-line's first sentence for a preset the live bot does not run.
@@ -287,9 +298,13 @@ def _how_it_trades(cfg: dict[str, Any]) -> str:
     """Human 'how it trades' line derived from the preset's real config, so it
     stays honest to actual behaviour. No numbers are invented — only the
     thresholds the engine actually applies are surfaced."""
+    from bot.core import limit_scanner
     from bot.core.vol_rotation import how_line, preset_is_vol_rotation
     if preset_is_vol_rotation(cfg):
         return _not_run_sentence(cfg) + " " + how_line(cfg)
+    if limit_scanner.preset_is_limit_scanner(cfg):
+        return (_not_run_sentence(cfg) + " " + limit_scanner.how_line(cfg)
+                + " " + limit_scanner.BACKTEST_READS)
     parts: list[str] = []
     sym = cfg.get("symbols")
     if sym == "top3_volume":
