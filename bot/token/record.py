@@ -2,13 +2,13 @@
 
 ``token/config/rclaw.mainnet.json`` holds what was read back from Solana
 mainnet for the mint (address, token program, decimals, supply, the two
-revoked authorities) and what has been announced about the presale. Today
-that is nothing: every presale field is ``null``, and every reader renders
-``null`` as *not announced yet* -- never as a date of 0, an empty cell or a
-placeholder. The website reads a byte-identical copy
+revoked authorities) and what has been announced about the presale: since
+2026-10-10 the Smithii sale's terms. A presale field still ``null`` is
+rendered *not announced yet* by every reader -- never as a date of 0, an
+empty cell or a placeholder. The website reads a byte-identical copy
 (``app/content/rclaw.mainnet.json``, written by
 ``app/scripts/sync_content.js``; the web deploy ships ``app/`` alone), and a
-web test fails when the two differ, so the bot's /token card and the /token
+web test fails when the two differ, so the bot's /rclaw card and the /token
 page cannot name two mints.
 
 A record that cannot be read RAISES. The mint address is the one thing a

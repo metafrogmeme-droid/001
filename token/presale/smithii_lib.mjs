@@ -241,6 +241,61 @@ export function scheduleProblems(cfg) {
   return out;
 }
 
+// ── the sale, as the website and the bot print it ───────────────────────────
+// token/config/rclaw.mainnet.json carries the announced terms as sentences, because both
+// readers (the /token page and the bot's /rclaw card) print a term exactly as written. Those
+// sentences are a second copy of this config, so they are derived here and
+// the_record_states_the_sale.test.mjs holds the record to them: a config edit not carried into
+// the record fails CI instead of the site and the bot showing the old terms.
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * The record's presale terms, key by key. Throws for a config these sentences cannot describe
+ * (a whitelist phase, buyer vesting, a refund, a pool not at the sale price) rather than print a
+ * sentence that is no longer true. The dates carry no clock time: the 14:00 UTC in `schedule`
+ * is a placeholder the operator has not confirmed.
+ */
+export function recordTerms(cfg) {
+  const problems = scheduleProblems(cfg);
+  if (problems.length) throw new Error(problems.join('; '));
+  if (cfg.venue !== 'smithii-launchpad' || cfg.cluster !== 'mainnet-beta') {
+    throw new Error(`no sentence for venue ${cfg.venue} on ${cfg.cluster}`);
+  }
+  if (cfg.whitelist.enabled !== false) throw new Error('a whitelist phase has no sentence here');
+  if (cfg.vesting.enabled !== false || cfg.vesting.tgeUnlockPercent !== 100) {
+    throw new Error('buyer vesting has no sentence here');
+  }
+  if (cfg.sale.refundIfSoftCapMissed !== false) throw new Error('the program has no refund to describe');
+  const liq = cfg.liquidity;
+  if (liq.enforcedByProgram !== false || liq.lpDisposition !== 'burn' || liq.launchPriceSol !== cfg.sale.priceSol) {
+    throw new Error('the after-sale sentence says the team pools at the sale price and burns the LP');
+  }
+  const d = deriveSmithiiSale(cfg);
+  const sol = (v) => formatUnits(decimalToUnits(v, 9).units, 9, 9);
+  const day = (iso) => {
+    const t = new Date(iso);
+    return { dm: `${t.getUTCDate()} ${MONTHS[t.getUTCMonth()]}`, y: t.getUTCFullYear() };
+  };
+  const a = day(cfg.schedule.startUtc);
+  const b = day(cfg.schedule.endUtc);
+  const window = a.y === b.y ? `${a.dm} → ${b.dm} ${b.y}` : `${a.dm} ${a.y} → ${b.dm} ${b.y}`;
+  const perSol = tokensForLamports(10n ** 9n, d.price.sdkLamports, d.decimals);
+  return {
+    date: `${window}, or until the hard cap`,
+    price: `${formatUnits(perSol, d.decimals, 1)} ${cfg.token.symbol} per SOL`,
+    venue: 'Smithii launchpad (Solana)',
+    allocation_tokens: String(cfg.sale.presaleAllocation),
+    hard_cap: `${sol(cfg.sale.hardCapSol)} SOL (soft cap ${sol(cfg.sale.softCapSol)} SOL: a target, not enforced)`,
+    per_wallet: `${sol(cfg.sale.minContributionSol)}–${sol(cfg.sale.maxContributionSol)} SOL`,
+    whitelist: 'None',
+    claim: '100% when the sale ends. No vesting for buyers',
+    refunds: 'None',
+    after_sale: `The team creates the pool at the sale price with ${unitsToDecimal(decimalToUnits(liq.intendedPercentOfGrossRaise, 2).units, 2)}% `
+      + 'of the SOL raised and burns the LP. The sale contract does not do this.',
+  };
+}
+
 /**
  * Everything wrong with the config, as sentences; empty means sane. `record`
  * is token/config/rclaw.mainnet.json — the one record the site and bot read —
