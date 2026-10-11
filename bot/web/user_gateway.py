@@ -2954,7 +2954,7 @@ def _live_position_row(pos) -> dict:
         unprotected = sl_order == "manual"
     sl_unknown = sl_order == "unknown" and not marked
     sl_d, tp_d = _protection_dists(entry, sl, tp)
-    from bot.core.live_executor import entry_estimated_state
+    from bot.core.live_executor import entry_estimated_state, scale_out_reading
     from bot.core.position_telemetry import entered_at
     # When the POSITION opened, which for a limit entry is its fill.
     opened = entered_at(pos)
@@ -2969,6 +2969,10 @@ def _live_position_row(pos) -> dict:
         "entry_estimated": entry_estimated_state(pos),
         "stop_loss": round(sl, 6) if sl is not None else None,
         "take_profit": round(tp, 6) if tp is not None else None,
+        # Where the position SCALES OUT when its take-profit is the ladder's
+        # backstop (`live_executor.scale_out_reading`), else None: the venue's
+        # TP alone would read as a 4R target.
+        "scale_out": scale_out_reading(pos),
         "sl_dist_pct": sl_d,
         "tp_dist_pct": tp_d,
         "size_usd": round(cost, 2),

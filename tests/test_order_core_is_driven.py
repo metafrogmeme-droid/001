@@ -668,7 +668,9 @@ async def test_a_post_close_bookkeeping_failure_still_reports_the_close(ex, audi
 
 
 def _position():
-    return SimpleNamespace(sl_order_id="stale", tp_order_id="stale")
+    # `take_profit` is the POSITION's target, which the entry stops place: the
+    # idea's own unless the ladder's backstop was armed on the record.
+    return SimpleNamespace(sl_order_id="stale", tp_order_id="stale", take_profit=104.0)
 
 
 @pytest.mark.asyncio

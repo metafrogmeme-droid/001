@@ -43,6 +43,12 @@ test('both arms of the condition: false hides it, true and absent keep it', () =
 });
 
 test('the page loads the dashboard bundle this changed', () => {
+  // v233 is the bundle that first carried the gated button; a later bump
+  // carries it too, so the page must load 233 or newer, not exactly 233 (a
+  // literal broke on the next change to the bundle). The cache-buster ratchet
+  // holds the page to the version recorded for the file.
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'dashboard.html'), 'utf8');
-  assert.match(html, /dashboard\.js\?v=233/);
+  const m = html.match(/dashboard\.js\?v=(\d+)/);
+  assert.ok(m, 'the page loads no versioned dashboard bundle');
+  assert.ok(Number(m[1]) >= 233, `the page loads dashboard.js v${m[1]}, older than the button`);
 });

@@ -67,6 +67,7 @@ from bot.core.leverage import (
     venue_leverage,
     venue_margin,
 )
+from bot.core.partial_tp import scale_out_levels, venue_backstop
 from bot.core.size_trace import note_size_step, size_basis
 from bot.core.signal_levels import record_level
 from bot.core import bounds_shadow, size_bounds
@@ -1267,6 +1268,41 @@ def note_sized_leverage(pos: Any, value: Any) -> None:
         pass
 
 
+def scale_out_reading(pos: Any) -> Optional[dict]:
+    """``{"tp1", "tp2", "plan_take_profit"}`` for a position whose
+    take-profit is the ladder's backstop, else None. The one reading the
+    cards (`take_profit_note`) and the website's row both print."""
+    plan = _num_or_none(getattr(pos, "plan_take_profit", None))
+    risk = _num_or_none(getattr(pos, "ladder_risk", None))
+    entry = _num_or_none(getattr(pos, "entry_price", None))
+    if plan is None or risk is None or entry is None:
+        return None
+    levels = scale_out_levels(str(getattr(pos, "direction", "") or ""), entry, risk)
+    if levels is None:
+        return None
+    return {"tp1": levels[0], "tp2": levels[1], "plan_take_profit": plan}
+
+
+def take_profit_note(pos: Any) -> str:
+    """What a card says beside a position's TP when that TP is the ladder's
+    backstop: where the position scales out, and that the venue's order is
+    the backstop. Empty for a position whose TP is its idea's own target.
+
+    THE CARD NAMED ONE TARGET, AND IT IS NOT WHERE THE POSITION TAKES PROFIT
+    once the backstop is armed (`LiveExecutor._arm_take_profit_backstop`):
+    the ladder takes half at TP1 and 30% at TP2 and trails the rest, and the
+    venue's TP sits beyond it for the bot's absence. A card printing the
+    backstop alone would say a 5x trade aims at 4R.
+    """
+    reading = scale_out_reading(pos)
+    if reading is None:
+        return ""
+    cfg = CONFIG.partial_tp
+    return (f" (the backstop: {cfg.tp1_close_pct:g}% closes at TP1 ${reading['tp1']:,.4f}, "
+            f"{cfg.tp2_close_pct:g}% at TP2 ${reading['tp2']:,.4f}, the rest trails; "
+            f"the plan's target was ${reading['plan_take_profit']:,.4f})")
+
+
 def restore_provenance(pos: Any, pdata: dict) -> None:
     """Re-attach the runtime markers `_save_positions` wrote for a position.
 
@@ -1304,6 +1340,11 @@ def restore_provenance(pos: Any, pdata: dict) -> None:
     if authorized is not None:
         setattr(pos, "authorized_notional_usd", authorized)
     note_sized_leverage(pos, pdata.get("sized_leverage"))
+    plan_tp = placement_price(pdata.get("plan_take_profit"))
+    ladder_risk = placement_price(pdata.get("ladder_risk"))
+    if plan_tp is not None and ladder_risk is not None:
+        setattr(pos, "plan_take_profit", plan_tp)
+        setattr(pos, "ladder_risk", ladder_risk)
     vwap = placement_price(pdata.get("entry_vwap"))
     if vwap is not None:
         setattr(pos, "entry_vwap", vwap)
@@ -8152,6 +8193,100 @@ class LiveExecutor:
                            idea.asset, _lev_guard_exc)
         return None, _lev_close_failed
 
+    def _ladder_slice_placeable(self, exchange: Any, symbol: str, qty: float) -> bool:
+        """Whether a ladder slice of ``qty`` is an order this market takes.
+
+        The rounding `_partial_close` applies (ccxt raises for an amount that
+        truncates to nothing), and the market's own minimum amount, which the
+        venue refuses below. Unread is not placeable: arming a backstop for a
+        ladder that cannot bank would leave the position with neither."""
+        sym = self._venue.order_symbol(symbol)
+        try:
+            raw = exchange.amount_to_precision(sym, qty)
+            q = float(raw) if raw is not None else float(qty)
+        except Exception:
+            return False
+        if not (q > 0):
+            return False
+        market = None
+        try:
+            market = (getattr(exchange, "markets", None) or {}).get(sym)
+            if not isinstance(market, dict):
+                market = exchange.market(sym)
+        except Exception:
+            market = None
+        if not isinstance(market, dict):
+            return False
+        minimum = ((market.get("limits") or {}).get("amount") or {}).get("min")
+        if isinstance(minimum, (int, float)) and not isinstance(minimum, bool) and q < minimum:
+            return False
+        return True
+
+    def _arm_take_profit_backstop(self, exchange: Any, position: "LivePosition",
+                                  idea: TradeIdea, quantity: float) -> Optional[str]:
+        """Move the venue's take-profit beyond the ladder, or say why not.
+
+        THE LADDER NEVER RAN LIVE. The exchange TP was placed at the idea's
+        target, 1.25-1.67R, and the partial ladder takes 50% at 1.5R, 30% at
+        2.5R and trails the rest: so the venue closed the whole position
+        before TP1, every time, and every card -- whose backtest runs the
+        ladder and ignores that target -- measured an exit the live bot never
+        made (operator decision 11 October: make live match the cards).
+
+        Armed, ``position.take_profit`` is the backstop
+        (`partial_tp.venue_backstop`, `PARTIAL_TP_BACKSTOP_R` R from entry),
+        and the plan's target and the 1R it was measured with ride beside it,
+        saved. Every reader of the position's target -- the placement, the
+        stop moves that re-send it, the local check, reconcile -- then reads
+        the one value. Returns the reason the backstop was NOT armed (the
+        position keeps the idea's target, as before), or None.
+        """
+        cfg = CONFIG.partial_tp
+        why: Optional[str] = None
+        backstop: Optional[float] = None
+        entry = _to_float(getattr(position, "entry_price", None))
+        stop = _to_float(getattr(idea, "stop_loss", None))
+        is_long = getattr(position, "direction", "") == "LONG"
+        risk = (abs(entry - stop) if entry is not None and stop is not None
+                and entry > 0 and stop > 0 and (stop < entry if is_long else stop > entry)
+                else None)
+        if not cfg.enabled:
+            why = "the partial take-profit ladder is off"
+        elif str(getattr(idea, "source", "") or "") == "manual":
+            why = "a typed ticket keeps the target it was typed with"
+        elif risk is None or entry is None:
+            why = "its stop does not sit on the loss side of entry, so no 1R can be measured"
+        else:
+            backstop = venue_backstop(position.direction, entry, risk,
+                                      position.take_profit)
+            if backstop is None:
+                why = (f"PARTIAL_TP_BACKSTOP_R ({cfg.venue_backstop_r:g}) does not clear "
+                       f"TP2 at {cfg.tp2_r_multiple:g}R")
+            elif not all(self._ladder_slice_placeable(exchange, position.symbol,
+                                                       quantity * pct / 100.0)
+                         for pct in (cfg.tp1_close_pct, cfg.tp2_close_pct)):
+                why = ("the ladder's slices do not reach this market's minimum at this "
+                       "size, so it cannot scale out")
+                backstop = None
+        if backstop is None:
+            audit(trade_log,
+                  f"Take-profit for {position.symbol} stays at the idea's target: {why}",
+                  action="tp_backstop", result="NOT_ARMED",
+                  data={"trade_id": position.trade_id, "why": why,
+                        "take_profit": position.take_profit})
+            return why
+        plan = position.take_profit
+        position.take_profit = backstop
+        setattr(position, "plan_take_profit", plan)
+        setattr(position, "ladder_risk", risk)
+        audit(trade_log,
+              f"Take-profit for {position.symbol} is the ladder's backstop at "
+              f"{backstop:.6g} (plan target {plan:.6g})",
+              action="tp_backstop", result="ARMED",
+              data={"trade_id": position.trade_id, "backstop": backstop,
+                    "plan_take_profit": plan, "ladder_risk": risk})
+        return None
+
     async def _place_entry_stops(self, exchange: ccxt.Exchange, idea: TradeIdea, filled_qty: float,
                                  position: LivePosition, defer_tp_sl: bool, is_pending_limit: bool,
                                  asset_class: str) -> tuple[Optional[str], Any, Any]:
@@ -8172,9 +8307,11 @@ class LiveExecutor:
                   action="defer_tp_sl", result="DEFERRED",
                   data={"symbol": idea.asset, "class": asset_class})
         else:
+            # The POSITION's target: the ladder's backstop when one was armed,
+            # the idea's own otherwise (`_arm_take_profit_backstop`).
             sl_id, tp_id = await self._place_sl_tp(
                 exchange, idea.asset, idea.direction,
-                filled_qty, idea.stop_loss, idea.take_profit
+                filled_qty, idea.stop_loss, position.take_profit
             )
             # RC-AUD-001: a missing STOP-LOSS (not merely a missing TP) leaves a
             # live, leveraged position with no downside protection. Retry once;
@@ -8192,7 +8329,7 @@ class LiveExecutor:
                 try:
                     sl_id, tp_id = await self._protect_legs(
                         exchange, idea.asset, idea.direction, filled_qty,
-                        idea.stop_loss, idea.take_profit, sl_id, tp_id)
+                        idea.stop_loss, position.take_profit, sl_id, tp_id)
                 except Exception as _sl_exc:
                     logger.warning("SL retry raised for %s: %s",
                                    idea.asset, type(_sl_exc).__name__)
@@ -8276,6 +8413,7 @@ class LiveExecutor:
                            size_usd: Optional[float] = None,
                            entry_estimated: bool = False,
                            leverage_unverified: Any = False,
+                           position: Any = None,
                            ) -> str:
         """The card the operator reads after a fill. Pure formatting.
 
@@ -8292,6 +8430,11 @@ class LiveExecutor:
         """
         sl_info = f" | SL order: {sl_id}" if sl_id else " | SL: pending"
         tp_info = f" | TP order: {tp_id}" if tp_id else " | TP: pending"
+        # The POSITION's target when the card is handed one: the ladder's
+        # backstop, with where the position scales out.
+        _tp_price = (position.take_profit if position is not None
+                     else idea.take_profit)
+        _tp_note = take_profit_note(position) if position is not None else ""
 
         lev_info = f" | {leverage}x" if leverage > 1 else ""
         mode_label = "FUTURES" if is_futures else "SPOT"
@@ -8366,7 +8509,7 @@ class LiveExecutor:
                 " ⚠️ as requested — the venue stated none, NOT verified\n")
                if leverage_unverified else "\n")
             + f"- SL: <code>${idea.stop_loss:,.4f}</code>{sl_info}\n"
-            f"- TP: <code>${idea.take_profit:,.4f}</code>{tp_info}\n"
+            f"- TP: <code>${_tp_price:,.4f}</code>{tp_info}{_tp_note}\n"
             f"- Order: <code>{order_id}</code>{fee_line}\n"
             f"- Risk: ✅ APPROVED{trail_info}\n"
             f"- {verify_line}\n"
@@ -8935,6 +9078,13 @@ class LiveExecutor:
                 setattr(position, "entry_vwap", _vwap)
             self._recent_local_opens[normalize_symbol(idea.asset)] = time.time()
 
+            # THE VENUE'S TAKE-PROFIT IS THE LADDER'S BACKSTOP (see
+            # _arm_take_profit_backstop): decided here, on the position and
+            # before it is saved, so the placement below, a resting limit's
+            # placement at its fill, every re-placement and the local check
+            # all read the one `position.take_profit`.
+            self._arm_take_profit_backstop(active_exchange, position, idea, filled_qty)
+
             # F-07 FIX: persist after opening
             self._save_positions()
 
@@ -8980,7 +9130,8 @@ class LiveExecutor:
                     f"- Qty: <code>{filled_qty:.6f}</code>\n"
                     f"- Cost: <code>${cost:.2f}</code>\n"
                     f"- SL: <code>${idea.stop_loss:,.4f}</code>\n"
-                    f"- TP: <code>${idea.take_profit:,.4f}</code>\n"
+                    f"- TP: <code>${position.take_profit:,.4f}</code>"
+                    f"{take_profit_note(position)}\n"
                     f"- Order: <code>{order_id}</code>\n"
                     f"- Status: {RESTING_ANSWER}\n"
                     f"{rests_line}"
@@ -9227,7 +9378,7 @@ class LiveExecutor:
                 exchange_fees, _lev_mismatch, _lev_close_failed, _slip_warn,
                 pos_verify.get("state"), size_usd=size_usd,
                 entry_estimated=(fill_price_source == ENTRY_ESTIMATED),
-                leverage_unverified=_lev_unread)
+                leverage_unverified=_lev_unread, position=position)
 
         except ccxt.InsufficientFunds as exc:
             self.record_api_error()
@@ -11928,7 +12079,8 @@ class LiveExecutor:
                 # (Regression: this printed sl_id/tp_id — 19-digit order ids —
                 # where the operator expects the price, e.g. "SL: 0.32808".)
                 protection = self._fmt_fill_protection(
-                    pos.stop_loss, pos.take_profit, sl_id, tp_id, pos.trailing_state)
+                    pos.stop_loss, pos.take_profit, sl_id, tp_id, pos.trailing_state,
+                    tp_note=take_profit_note(pos))
                 st_label = getattr(pos, 'strategy_type', 'swing').upper()
                 sl_tp_warn = ""
                 if sl_id is None and pos.stop_loss > 0:
@@ -12448,7 +12600,8 @@ class LiveExecutor:
               data={"trade_id": trade_id, "context": context,
                     "filled": filled_qty, "fill_price": fill_price})
         protection = self._fmt_fill_protection(
-            pos.stop_loss, pos.take_profit, sl_id, tp_id, pos.trailing_state)
+            pos.stop_loss, pos.take_profit, sl_id, tp_id, pos.trailing_state,
+            tp_note=take_profit_note(pos))
         return (f"LIMIT {context.upper()} — PARTIAL FILL ADOPTED as OPEN: "
                 f"{pos.direction} {pos.symbol}\n"
                 f"Fill: ${fill_price:,.4f} | Qty: {filled_qty:.6f}{protection}")
@@ -15192,7 +15345,7 @@ class LiveExecutor:
 
     @staticmethod
     def _fmt_fill_protection(stop_loss: float, take_profit: float,
-                            sl_id, tp_id, trailing) -> str:
+                            sl_id, tp_id, trailing, tp_note: str = "") -> str:
         """The ' | SL: .. | TP: .. | Trailing: armed' suffix for a fill notice.
 
         Shows the PRICE levels the stop/target sit at — NOT the exchange order
@@ -15202,7 +15355,7 @@ class LiveExecutor:
         order was not placed, so its price is omitted.
         """
         sl = f" | SL: {stop_loss:.6g}" if (sl_id and stop_loss) else ""
-        tp = f" | TP: {take_profit:.6g}" if (tp_id and take_profit) else ""
+        tp = f" | TP: {take_profit:.6g}{tp_note}" if (tp_id and take_profit) else ""
         tr = " | Trailing: armed" if trailing else ""
         return f"{sl}{tp}{tr}"
 
@@ -16343,6 +16496,11 @@ class LiveExecutor:
                     # 10x position's venue margin against caps written at 5x,
                     # and the book held half its notional on every cap.
                     "sized_leverage": sized_leverage_on_record(pos),
+                    # THE PLAN'S TARGET AND ITS 1R, beside the venue's backstop.
+                    # Unsaved, a restart showed the backstop as the target and
+                    # lost where the position scales out.
+                    "plan_take_profit": getattr(pos, "plan_take_profit", None),
+                    "ladder_risk": getattr(pos, "ladder_risk", None),
                     # The VWAP this position's analysis read, which its
                     # VWAP-reversion exit is measured from. Unsaved, a restart
                     # left that exit with nothing to measure against.

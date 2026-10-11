@@ -283,8 +283,8 @@ about to change before changing it.
 - L22705: A PEAK WITH NO TIME BESIDE IT CANNOT SAY WHETHER TO ACT — `tests/test_phase_headroom.py`
 - L22721: THE NUDGE READ 110,529 ROWS FOR EVERY IDEA, AND THE STALL HAD NO NAME — `tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`
 - L22774: THE LLM CHOSE EVERY LIVE DIRECTION, AND NOTHING HAD MEASURED IT — `tests/test_the_rule_engine_decides_and_the_llm_narrates.py`
-- L22820: TEN TIMES LEVERAGE, THE SAME TRADE: AN ORDER HAS TWO LEVERAGES NOW — `tests/leverage_worlds.py`, `tests/test_ten_x_keeps_the_five_x_trade.py`
+- L22820: TEN TIMES LEVERAGE, THE SAME TRADE: AN ORDER HAS TWO LEVERAGES NOW — `app/test/a_backstop_take_profit_says_where_it_scales_out.test.js`, `tests/leverage_worlds.py`, `tests/test_ten_x_keeps_the_five_x_trade.py`, `tests/test_the_venue_take_profit_is_the_ladders_backstop.py`
 
-## Operational docs (line 22913)
+## Operational docs (line 22953)
 
-- L22923: THE FREEZER LOST A BAR A PAGE, AND EVERY BACKTEST READ ACROSS THE HOLE — `tests/test_a_new_position_is_marked_at_its_fill.py`, `tests/test_the_freezer_keeps_every_bar_of_every_page.py`
+- L22963: THE FREEZER LOST A BAR A PAGE, AND EVERY BACKTEST READ ACROSS THE HOLE — `tests/test_a_new_position_is_marked_at_its_fill.py`, `tests/test_the_freezer_keeps_every_bar_of_every_page.py`
