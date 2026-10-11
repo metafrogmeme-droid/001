@@ -60,7 +60,7 @@ router.post('/fixed', execLimit, async (req, res) => {
       'SELECT totp_enabled, totp_secret FROM users WHERE id = ?',
       [req.user.user_id]);
     const u = rows[0] || {};
-    const blk = stepUpBlock(u.totp_enabled, u.totp_secret, b.totp_code,
+    const blk = await stepUpBlock(u.totp_enabled, u.totp_secret, b.totp_code,
       'Enter your 6-digit authenticator code to lock funds.',
       uidKey(req.user.user_id));
     if (blk) return res.status(blk.status).json(blk.body);

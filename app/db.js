@@ -306,6 +306,8 @@ class MemoryDB {
   }
 
   constructor() {
+    this.authAttempts = {};  // attempt_key -> { fails, first_at, locked_until } (lib/durable_attempts)
+    this.oauthStates = {};   // state_key -> { kind, payload, expires_at } (lib/oauth_state_store)
     this.users = [];
     this.trades = [];
     this.snapshots = [];
@@ -370,6 +372,78 @@ class MemoryDB {
   }
 
   // Minimal query interface matching mysql2 pool.execute() return format
+  /** The statements lib/durable_attempts.js and lib/oauth_state_store.js send, answered as MySQL would. */
+  _sharedStateStatement(flat, params, sql) {
+    const A = this.authAttempts;
+    const O = this.oauthStates;
+    const stale = (r, cutoff, now) => Number(r.first_at) < cutoff && (r.locked_until == null || Number(r.locked_until) < now);
+    const prefixOf = (like) => String(like).replace(/%$/, '');
+    switch (flat) {
+      case 'SELECT FAILS, FIRST_AT, LOCKED_UNTIL FROM AUTH_ATTEMPTS WHERE ATTEMPT_KEY = ?': {
+        const r = A[params[0]];
+        return [r ? [{ ...r }] : [], []];
+      }
+      case 'DELETE FROM AUTH_ATTEMPTS WHERE ATTEMPT_KEY = ? AND FIRST_AT < ? AND (LOCKED_UNTIL IS NULL OR LOCKED_UNTIL < ?)': {
+        const r = A[params[0]];
+        if (r && stale(r, params[1], params[2])) { delete A[params[0]]; return [{ affectedRows: 1 }, []]; }
+        return [{ affectedRows: 0 }, []];
+      }
+      case 'INSERT INTO AUTH_ATTEMPTS (ATTEMPT_KEY, FAILS, FIRST_AT, LOCKED_UNTIL) VALUES (?, 1, ?, NULL) ON DUPLICATE KEY UPDATE FAILS = FAILS + 1': {
+        const r = A[params[0]];
+        if (r) { r.fails = Number(r.fails) + 1; return [{ affectedRows: 2 }, []]; }
+        A[params[0]] = { fails: 1, first_at: params[1], locked_until: null };
+        return [{ affectedRows: 1 }, []];
+      }
+      case 'UPDATE AUTH_ATTEMPTS SET LOCKED_UNTIL = ? WHERE ATTEMPT_KEY = ? AND FAILS >= ?': {
+        const r = A[params[1]];
+        if (r && Number(r.fails) >= Number(params[2])) { r.locked_until = params[0]; return [{ affectedRows: 1 }, []]; }
+        return [{ affectedRows: 0 }, []];
+      }
+      case 'DELETE FROM AUTH_ATTEMPTS WHERE ATTEMPT_KEY = ?': {
+        const had = Object.prototype.hasOwnProperty.call(A, params[0]);
+        delete A[params[0]];
+        return [{ affectedRows: had ? 1 : 0 }, []];
+      }
+      case 'DELETE FROM AUTH_ATTEMPTS WHERE ATTEMPT_KEY LIKE ? AND FIRST_AT < ? AND (LOCKED_UNTIL IS NULL OR LOCKED_UNTIL < ?)': {
+        let n = 0;
+        for (const k of Object.keys(A)) {
+          if (k.startsWith(prefixOf(params[0])) && stale(A[k], params[1], params[2])) { delete A[k]; n += 1; }
+        }
+        return [{ affectedRows: n }, []];
+      }
+      case 'DELETE FROM AUTH_ATTEMPTS WHERE ATTEMPT_KEY LIKE ?': {
+        let n = 0;
+        for (const k of Object.keys(A)) if (k.startsWith(prefixOf(params[0]))) { delete A[k]; n += 1; }
+        return [{ affectedRows: n }, []];
+      }
+      case 'REPLACE INTO AUTH_ATTEMPTS (ATTEMPT_KEY, FAILS, FIRST_AT, LOCKED_UNTIL) VALUES (?, ?, ?, ?)':
+        A[params[0]] = { fails: params[1], first_at: params[2], locked_until: params[3] };
+        return [{ affectedRows: 1 }, []];
+      case 'REPLACE INTO OAUTH_STATES (STATE_KEY, KIND, PAYLOAD, EXPIRES_AT) VALUES (?, ?, ?, ?)':
+        O[params[0]] = { kind: params[1], payload: params[2], expires_at: params[3] };
+        return [{ affectedRows: 1 }, []];
+      case 'SELECT KIND, PAYLOAD, EXPIRES_AT FROM OAUTH_STATES WHERE STATE_KEY = ?': {
+        const r = O[params[0]];
+        return [r ? [{ ...r }] : [], []];
+      }
+      case 'DELETE FROM OAUTH_STATES WHERE STATE_KEY = ? AND KIND = ?': {
+        const r = O[params[0]];
+        if (r && r.kind === params[1]) { delete O[params[0]]; return [{ affectedRows: 1 }, []]; }
+        return [{ affectedRows: 0 }, []];
+      }
+      case 'DELETE FROM OAUTH_STATES WHERE EXPIRES_AT < ?': {
+        let n = 0;
+        for (const k of Object.keys(O)) if (Number(O[k].expires_at) < Number(params[0])) { delete O[k]; n += 1; }
+        return [{ affectedRows: n }, []];
+      }
+      default: {
+        const err = new Error(`MemoryDB has no handler for: ${describeSql(sql) || 'unrecognised statement'} (shared-state tables).`);
+        err.code = 'ER_MEMORYDB_UNIMPLEMENTED';
+        throw err;
+      }
+    }
+  }
+
   async execute(sql, params = []) {
     const cmd = sql.trim().toUpperCase();
 
@@ -409,6 +483,15 @@ class MemoryDB {
     // liveness read, answered the way MySQL answers it. The shim is an
     // in-process store, so a read of it that reaches here came back.
     if (/^SELECT 1$/.test(cmd)) return [[{ 1: 1 }], []];
+
+    // Shared failure counters (lib/durable_attempts.js) and OAuth handoff
+    // state (lib/oauth_state_store.js). Matched EXACTLY on the normalised
+    // statement, and every other statement naming these tables throws below:
+    // the stores' correctness is their SQL, so the shim answers only the SQL
+    // they send, the way MySQL would.
+    if (cmd.includes('AUTH_ATTEMPTS') || cmd.includes('OAUTH_STATES')) {
+      return this._sharedStateStatement(cmd.replace(/\s+/g, ' '), params, sql);
+    }
 
     // ACCOUNT ERASURE — every `DELETE FROM <t> WHERE user_id = ?` in one place.
     //
@@ -2413,6 +2496,8 @@ const EXPECTED_TABLES = Object.freeze([
   'scan_cache',
   'wallet_link_codes',
   'wallet_link_nonces',
+  'auth_attempts',
+  'oauth_states',
   'signals',
   'push_subscriptions',
   'copy_subscriptions',
@@ -2753,6 +2838,27 @@ async function migrate() {
       CREATE TABLE IF NOT EXISTS wallet_link_nonces (
         address VARCHAR(64) PRIMARY KEY,
         message TEXT NOT NULL,
+        expires_at BIGINT NOT NULL
+      )
+    `);
+    // Shared by every web instance: the host replaces its instance about every
+    // 70 seconds, with overlap, so per-process state does not survive. Failure
+    // counters for the login and second-factor limits (lib/durable_attempts;
+    // the key is a hash, never an email or address) and the OAuth handoff
+    // between /start and /callback (lib/oauth_state_store). Times are epoch ms.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS auth_attempts (
+        attempt_key VARCHAR(96) PRIMARY KEY,
+        fails INT NOT NULL,
+        first_at BIGINT NOT NULL,
+        locked_until BIGINT NULL
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS oauth_states (
+        state_key VARCHAR(128) PRIMARY KEY,
+        kind VARCHAR(8) NOT NULL,
+        payload TEXT NOT NULL,
         expires_at BIGINT NOT NULL
       )
     `);

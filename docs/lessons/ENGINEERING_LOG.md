@@ -20391,6 +20391,50 @@ committed scorecards re-run identically.
 (`tests/test_eth_ma_trend.py`, `tests/test_backtest_preset_gates.py`,
 `tests/test_daily_vol_rotation.py`.)
 
+**THE WEB HOST REPLACES ITS INSTANCE EVERY SEVENTY SECONDS, AND THE LOGIN
+LIMITS LIVED IN ONE OF THEM.** On 2026-10-11, checking a deploy, `/api/version`
+reported an uptime that never passed about 60 seconds. Sampled every 30
+seconds: started 11:49:50, then 11:51:04; this morning 03:12:53, 03:14:05,
+03:15:14. One sample answered from an instance 186 seconds old while
+younger ones had started, so instances overlap; the operator confirmed it is
+the managed page host rotating instances, that no app code stops itself, and
+that requests every 15 seconds do not prevent it. A custom domain in front does
+not change it, and the website cannot move.
+
+Everything the web app kept in a process's memory therefore lasts about a
+minute and is not seen by the instance beside it. Read for what that breaks:
+the per-account failure budget shared by login and every second-factor check
+(`lib/second_factor_lockout.js`, 8 per 15 minutes) and the per-IP login limit
+in `auth.js` (10 per 15 minutes) restarted at zero on every rotation and were
+counted separately on each overlapping instance, so a guesser had a fresh
+budget about every minute. Both files said so in advance: "a shared store is
+the fix if this is ever fronted by more than one process". The OAuth state and
+PKCE verifier between `/start` and `/callback`, and the one-time link key, were
+two Maps, so a callback landing on another instance was refused as "invalid or
+expired". The phone wallet link had already met this and moved to the database
+(`lib/wallet_link_store.js`); these had not.
+
+Both counters now live in `auth_attempts` through `lib/durable_attempts.js`:
+the increment is one `INSERT ... ON DUPLICATE KEY UPDATE`, so two instances
+failing at once both count, and the row key is a SHA-256 of the counter's name
+and the caller's key, so no email or address is stored. While the database
+does not answer, a counter keeps counting in its process (the old behaviour),
+and a check refuses when either the shared or the local count says so. The
+OAuth records live in `oauth_states` through `lib/oauth_state_store.js`, single
+use: a claim is one DELETE that only one racer can win, the TTL is checked on
+read, and the kind is part of the claim. `stepUpBlock` and the lockout are
+async because of it, and every call site awaits them. Driven across instances
+by loading every per-process module again over the same database: a lockout
+reached on one instance holds on the next, failures on two add up, the per-IP
+limit carries over, and a login started on one completes on the other once.
+Fifteen mutants, all killed; the first round left the TTL check standing,
+because `put` prunes expired rows and the test went through `put`, so a test
+now plants an expired row as another instance would leave it. Still per
+instance: the per-route limits (`lib/rate_limit.js`) and the timed jobs, which
+cannot run on a schedule longer than an instance lives; both are the next
+change. (`app/test/auth_state_is_shared_by_every_instance.test.js`,
+`app/test/second_factor_lockout.test.js`.)
+
 ## Writing tests that scan source
 
 Strip comments first. A comment that quotes the string it forbids is
