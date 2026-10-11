@@ -571,7 +571,7 @@ def closed_trade_row(pos) -> dict:
     every real row summed as a break-even close. A hand-written fixture in
     the reader's test would have had the same wrong keys as the reader.
     """
-    return {
+    row = {
         "trade_id": pos.trade_id,
         "symbol": pos.symbol,
         "direction": pos.direction,
@@ -613,6 +613,18 @@ def closed_trade_row(pos) -> dict:
         "strategy_type": pos.strategy_type,
         "signal_type": pos.signal_type,
     }
+    # The decision's facts, when they were recorded (see `entry_facts_for`). Written
+    # only when present, so a row for a position that has none is byte-identical
+    # to the row an earlier build wrote.
+    _facts = getattr(pos, "entry_facts", None)
+    if isinstance(_facts, dict) and _facts:
+        row["entry_facts"] = _facts
+    _partials = getattr(pos, "partial_fills", None)
+    if isinstance(_partials, list) and _partials:
+        row["partial_fills"] = list(_partials)
+    return row
+
+
 def _num_or_none(v) -> Optional[float]:
     """A venue field as a number, or None when it is not one. Bitget spells
     its numbers as strings; an absent or empty field is an absence, never 0."""
@@ -623,6 +635,101 @@ def _num_or_none(v) -> Optional[float]:
     except (TypeError, ValueError):
         return None
     return f if f == f else None
+
+
+# ── What the decision looked like, kept for the life of the position ────────
+#
+# `closed_trade_row` has always carried the position's CURRENT stop and target,
+# and `pos.stop_loss` is overwritten in place by the break-even lock, the trail
+# and the ladder. So a closed row could say what the stop was when the trade ended
+# and not what it was when the trade began, and every question that needs the
+# risk the trade was SIZED on (R, fee in R, slippage in R, how far a limit fill
+# sat from the decision price) had to be answered from somewhere else, or not
+# at all. These helpers record the facts at the moment they are true. They are
+# RECORDING ONLY: nothing reads them to decide anything, and a failure to record
+# is swallowed, because losing an annotation must never cost a trade.
+
+def entry_facts_for(idea, *, order_type: str, order_id: Optional[str] = None) -> dict:
+    """The decision as it stood when the order went out.
+
+    `decision_price` is the scan's price when the idea kept it (`market_at_signal`;
+    a resting limit's `entry_price` is shifted away from it) and the idea's entry
+    otherwise. `intended_entry` is where the order was placed. The initial stop and
+    target are what the position was sized and risk-approved on."""
+    try:
+        entry = _num_or_none(getattr(idea, "entry_price", None))
+        return {
+            "v": 1,
+            "decision_price": _num_or_none(getattr(idea, "market_at_signal", None)) or entry,
+            "intended_entry": entry,
+            "initial_stop_loss": _num_or_none(getattr(idea, "stop_loss", None)),
+            "initial_take_profit": _num_or_none(getattr(idea, "take_profit", None)),
+            "placed_order_type": str(order_type) if order_type else None,
+            "order_id": str(order_id) if order_id else None,
+            "fills": [],
+        }
+    except Exception:
+        return {}
+
+
+def stamp_entry_facts(pos, facts: dict) -> None:
+    """Attach the decision's facts to a position, once. A second stamp is ignored:
+    the first is the decision, and a later path must not rewrite it."""
+    try:
+        if facts and not isinstance(getattr(pos, "entry_facts", None), dict):
+            setattr(pos, "entry_facts", facts)
+    except Exception:
+        pass
+
+
+def note_fill_facts(pos, *, path: str, fill_price, quantity, **extra) -> None:
+    """Record one entry fill: where it filled, how much, and the stop and target
+    standing AT the fill (after any re-anchoring), which is the risk the position
+    actually began with. Appended, so a resting partial fill followed by a market
+    chase shows both."""
+    try:
+        facts = getattr(pos, "entry_facts", None)
+        if not isinstance(facts, dict):
+            facts = {"v": 1, "fills": []}
+            setattr(pos, "entry_facts", facts)
+        row = {"path": str(path), "price": _num_or_none(fill_price),
+               "qty": _num_or_none(quantity),
+               "stop_at_fill": _num_or_none(getattr(pos, "stop_loss", None)),
+               "target_at_fill": _num_or_none(getattr(pos, "take_profit", None)),
+               "at": datetime.now(UTC).isoformat()}
+        for k, v in extra.items():
+            row[k] = _num_or_none(v) if isinstance(v, (int, float)) else v
+        facts.setdefault("fills", []).append(row)
+    except Exception:
+        pass
+
+
+def note_partial_close(pos, *, stage: str, qty, ref_price, order_id: str = "") -> None:
+    """Record a ladder slice that closed part of the position. `ref_price` is the
+    price the stage was triggered at, not the fill (the close helper reports a
+    quantity only); it prices the slice approximately until the fill is read."""
+    try:
+        rows = getattr(pos, "partial_fills", None)
+        if not isinstance(rows, list):
+            rows = []
+            setattr(pos, "partial_fills", rows)
+        rows.append({"stage": str(stage), "qty": _num_or_none(qty),
+                     "ref_price": _num_or_none(ref_price),
+                     "order_id": str(order_id) if order_id else None,
+                     "at": datetime.now(UTC).isoformat()})
+    except Exception:
+        pass
+
+
+def restore_entry_facts(pos, src: dict) -> None:
+    """Re-attach what `_save_positions` / `closed_trade_row` wrote. Set only what
+    was recorded: a row written before these keys carries nothing to restore."""
+    facts = src.get("entry_facts")
+    if isinstance(facts, dict) and facts:
+        setattr(pos, "entry_facts", facts)
+    partials = src.get("partial_fills")
+    if isinstance(partials, list) and partials:
+        setattr(pos, "partial_fills", list(partials))
 
 
 #: What a close card prints where a number would go when nothing could be read.
@@ -1158,6 +1265,7 @@ def restore_provenance(pos: Any, pdata: dict) -> None:
     unread = pdata.get("adoption_unread")
     if unread:
         setattr(pos, "adoption_unread", tuple(str(n) for n in unread))
+    restore_entry_facts(pos, pdata)
     if pdata.get("unprotected") is True:
         setattr(pos, "unprotected", True)
     entry_src = pdata.get("entry_source")
@@ -8584,6 +8692,19 @@ class LiveExecutor:
                 status="pending_fill" if is_pending_limit else "open",
             )
             self._positions[idea.id] = position
+            # RECORDING ONLY: the decision as it stood when the order went out,
+            # and (for a fill that is already known) the fill. See entry_facts_for.
+            try:
+                _ef = entry_facts_for(idea, order_type=order_type, order_id=order_id)
+                if _ef:
+                    _ef["placed_price"] = _num_or_none(limit_price) if use_limit else None
+                    _ef["market_at_order"] = _num_or_none(current_price)
+                stamp_entry_facts(position, _ef)
+                if not is_pending_limit:
+                    note_fill_facts(position, path=str(order_type),
+                                    fill_price=fill_price, quantity=filled_qty)
+            except Exception:
+                pass
             if fill_price_source is not None:
                 setattr(position, "entry_source", fill_price_source)
             # THE IDEA'S PROVENANCE, on the position it opens. The idea is
@@ -10295,6 +10416,8 @@ class LiveExecutor:
                         exchange, pos, qty, act.stage)
                     if fill_source == "filled" and closed_qty > 0:
                         pos.quantity = max(0.0, pos.quantity - closed_qty)
+                        note_partial_close(pos, stage=act.stage, qty=closed_qty,
+                                           ref_price=price, order_id=order_id)
                         changed = True
                         audit(trade_log,
                               f"Partial TP {act.stage} for {pos.symbol}: closed {closed_qty} "
@@ -11518,6 +11641,8 @@ class LiveExecutor:
                 # A record with no stop on record (an adopted or reclaimed
                 # limit order) gets one before the placement below asks for it.
                 self._fill_in_missing_levels(pos, fill_price)
+                note_fill_facts(pos, path="limit_fill", fill_price=fill_price,
+                                quantity=filled_qty)
 
                 # Initialize trailing state now that we have a real fill
                 if (trail_starts_for(getattr(pos, "strategy_type", "swing"))
@@ -12062,6 +12187,8 @@ class LiveExecutor:
         pos.order_type = "limit"
         pos.limit_order_id = None
         pos.cost_usd = margin_at_fill(fill_price * filled_qty, pos.leverage)
+        note_fill_facts(pos, path=f"partial_adopt:{context}", fill_price=fill_price,
+                        quantity=filled_qty)
 
         if (trail_starts_for(getattr(pos, "strategy_type", "swing"))
                 and pos.atr_at_entry > 0):
@@ -12359,6 +12486,11 @@ class LiveExecutor:
                     pos.take_profit = round(fill_price * (1 + tp_dist_pct), 8)
                 else:
                     pos.take_profit = round(fill_price * (1 - tp_dist_pct), 8)
+
+            note_fill_facts(pos, path="drift_fallback", fill_price=fill_price,
+                            quantity=filled_qty, placed_entry=old_entry,
+                            chase_pct=(100.0 * (fill_price - old_entry) / old_entry
+                                       if old_entry else None))
 
             # Initialize trailing state
             if (trail_starts_for(getattr(pos, "strategy_type", "swing"))
@@ -15930,6 +16062,8 @@ class LiveExecutor:
                 # and had never once been reached.
                 if pos.status not in ("open", "pending_fill", "closing"):
                     continue
+                _ef = getattr(pos, "entry_facts", None)
+                _pf = getattr(pos, "partial_fills", None)
                 data[tid] = {
                     "trade_id": pos.trade_id,
                     "symbol": pos.symbol,
@@ -16006,6 +16140,13 @@ class LiveExecutor:
                     # all along; the open store never did.
                     "strategy_type": pos.strategy_type,
                     "signal_type": pos.signal_type,
+                    # THE DECISION'S FACTS (`entry_facts_for`): the initial stop
+                    # and target, the fills, the ladder slices. A restart mid-trade
+                    # would otherwise lose the only copy of the stop the position
+                    # was sized on, because `stop_loss` above is overwritten in
+                    # place. Written only when recorded.
+                    **({"entry_facts": _ef} if isinstance(_ef, dict) and _ef else {}),
+                    **({"partial_fills": list(_pf)} if isinstance(_pf, list) and _pf else {}),
                     # WHICH VENUE THIS ROW IS A POSITION ON. Unwritten, a
                     # user's bitget and bybit executors shared one file and
                     # each loaded the other's positions as its own: a bybit
@@ -16384,6 +16525,7 @@ class LiveExecutor:
         filled = _datetime_or_none(item.get("filled_at"))
         if filled is not None:
             setattr(pos, "filled_at", filled)
+        restore_entry_facts(pos, item)
         return pos
 
     def _load_closed_trades(self) -> None:
