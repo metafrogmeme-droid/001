@@ -960,14 +960,16 @@ async function migrateWithRetry() {
   for (let attempt = 0; ; attempt += 1) {
     const began = Date.now();
     try {
-      await migrateOnce();
+      const how = await migrateOnce();
       readiness.markReady();
       console.log('Database migrated successfully');
-      // How long the check took, and how long after the process started this
-      // instance became ready: every /api/ call it got before then was refused
-      // `starting`, so these two numbers are the rotation's cost (/diagz).
-      bootLog.record('migration_ok', `after_attempts=${attempt} check_ms=${Date.now() - began}`
-        + ` ready_after_ms=${Math.round(process.uptime() * 1000)}`);
+      // Which way the attempt went (fast: every table was there; ddl: the
+      // statements ran; memory: no database), how long it took, and how long
+      // after the process started this instance became ready: every /api/ call
+      // it got before then was refused `starting`, so these are the rotation's
+      // cost (/diagz).
+      bootLog.record('migration_ok', `after_attempts=${attempt} path=${how || 'unknown'}`
+        + ` check_ms=${Date.now() - began} ready_after_ms=${Math.round(process.uptime() * 1000)}`);
       return true;
     } catch (err) {
       // Coarse category only — the full error goes to the server log (operator

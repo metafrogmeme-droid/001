@@ -98,7 +98,7 @@ router.use(framable);
  * it. farcaster-ready.js is what lifts the Mini App splash and what the share
  * button talks to: a page without it hangs behind a splash screen forever.
  */
-const COMMON_JS = ['/js/api-retry.js?v=1', '/js/farcaster-ready.js?v=3'];
+const COMMON_JS = ['/js/api-retry.js?v=2', '/js/farcaster-ready.js?v=3'];
 
 /**
  * `deps` is per-page ON PURPOSE. It used to be one hardcoded list, which was
