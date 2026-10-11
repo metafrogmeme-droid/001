@@ -367,8 +367,9 @@ execution on a real venue.
 
 The whole product is an algo bot and every layer is reachable. `bot/main.py::run_telegram._run_all`
 starts engine.run(), the scan→analyze→risk→execute FSM; market_scanner feeds
-analyzer, which runs an LLM thesis plus a weighted confluence vote over ~20
-signal modules; RiskEngine (`bot/risk/risk_engine.py::RiskEngine`) is the fail-closed pre-
+analyzer, which runs a rule-engine thesis plus a weighted confluence vote over ~20
+signal modules (the LLM is asked beside it as a shadow and decides only under
+LLM_DECIDES, `bot/core/analyzer.py::Analyzer._llm_thesis#"THE RULE ENGINE DECIDES"`); RiskEngine (`bot/risk/risk_engine.py::RiskEngine`) is the fail-closed pre-
 trade gate whose whole enforcing set /enforcing lists. `bot/core/engine.py::RuneClawEngine._tick#"auto_threshold = RUNTIME.auto_confirm_threshold"`
 auto-confirms any idea at or above RUNTIME.auto_confirm_threshold
 (default 0.85, `bot/config.py::AppConfig.auto_confirm_threshold`) with no human in the loop, and places it live only

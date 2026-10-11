@@ -10,7 +10,7 @@
       "bot/backtest/data_loader.py": 1,
       "bot/backtest/engine.py": 2,
       "bot/core/alpha_card.py": 2,
-      "bot/core/analyzer.py": 9,
+      "bot/core/analyzer.py": 8,
       "bot/core/arb_tracker.py": 2,
       "bot/core/chart_patterns.py": 1,
       "bot/core/engine.py": 2,

@@ -538,6 +538,69 @@ def _compute_limit_entry(
 __all__ = ["Analyzer", "Regime", "_ema", "_compute_adx", "_sanitize_symbol"]
 
 
+def _calibration_llm_fields(thesis: dict) -> dict:
+    """The calibration row's model fields: the LLM's own call, and who decided.
+
+    The production readout's source split, the recorded-LLM replay and the
+    C2 study read `llm_*` as the model's call. Under LLM_DECIDES off the
+    thesis is the rule engine's, so those fields come from the shadow call;
+    with no shadow they describe the thesis, as every rule-engine row always
+    has.
+    """
+    row = thesis.get("shadow_llm") or thesis
+    conf = row.get("confidence")
+    try:
+        conf_f = max(0.0, min(1.0, float(conf))) if conf is not None else 0.0
+    except (TypeError, ValueError):
+        conf_f = 0.0
+    return {
+        "llm_model": row.get("model_used", "rule_engine"),
+        "llm_source": row.get("source", "unknown"),
+        "llm_direction": row.get("direction"),
+        "llm_confidence_raw": round(conf_f, 4),
+        "decided_by": thesis.get("source", "unknown"),
+        "decision_direction": thesis.get("direction"),
+        "prompt_hash": row.get("prompt_hash", ""),
+    }
+
+
+def _shadow_narration(thesis: dict) -> str:
+    """The LLM's read on an idea the rule engine decided, marked as such.
+
+    Empty when the LLM decided (its reasoning is the thesis's own) or when no
+    LLM call was made. Its side is named, so a read that disagrees with the
+    decision says so instead of reading as the decision's argument.
+    """
+    shadow = thesis.get("shadow_llm") if isinstance(thesis, dict) else None
+    if not isinstance(shadow, dict):
+        return ""
+    text = str(shadow.get("reasoning") or "").strip()
+    if not text:
+        return ""
+    side = shadow.get("direction") or "no side"
+    agree = "agrees" if side == thesis.get("direction") else "disagrees"
+    return f" | Model's read ({side}, {agree}; not used to decide): {text}"
+
+
+def _llm_confidence_on_record(thesis: dict) -> Optional[float]:
+    """The LLM's own confidence, or None when the LLM did not give one.
+
+    Under LLM_DECIDES off the thesis is the rule engine's, so its confidence
+    is not the LLM's; the shadow call's is. A thesis the LLM decided carries
+    its own, as before; a rule-engine thesis with no LLM behind it (a
+    backtest) keeps the value it always recorded here.
+    """
+    if thesis.get("source") == "RULE_ENGINE_DECIDES":
+        shadow = thesis.get("shadow_llm")
+        if not isinstance(shadow, dict) or shadow.get("confidence") is None:
+            return None
+        try:
+            return round(float(shadow["confidence"]), 4)
+        except (TypeError, ValueError):
+            return None
+    return round(float(thesis.get("confidence", 0.0)), 4)
+
+
 class Analyzer:
     """Produces TradeIdea objects from raw market signals.
 
@@ -1551,21 +1614,16 @@ class Analyzer:
         # of rule-engine rows to the operator's calibration study file.
         if as_of is None:
             try:
-                _raw_llm_conf = max(0.0, min(1.0, thesis.get("confidence", 0.0)))
                 _cal_entry = {
                     "ts": datetime.now(UTC).isoformat(),
                     "symbol": signal.symbol,
-                    "llm_model": thesis.get("model_used", "rule_engine"),
-                    "llm_source": thesis.get("source", "unknown"),
-                    "llm_direction": thesis.get("direction"),
-                    "llm_confidence_raw": round(_raw_llm_conf, 4),
+                    **_calibration_llm_fields(thesis),
                     "confluence_score": round(confluence, 4),
                     "confluence_direction": "LONG" if confluence > 0.55 else ("SHORT" if confluence < 0.45 else "NEUTRAL"),
                     "blended_confidence": round(blended_confidence, 4),
                     "regime": regime.value,
                     "strategy_type": strategy_type,
                     "counter_trend_penalty": counter_trend_penalty,
-                    "prompt_hash": thesis.get("prompt_hash", ""),
                 }
                 import json as _json_cal
                 _cal_path = Path(__file__).resolve().parent.parent.parent / "data" / "learning" / "llm_calibration.jsonl"
@@ -2225,6 +2283,7 @@ class Analyzer:
             reasoning=(
                 f"[{source}|{regime.value}|{mode_tag}|{strategy_type}|C={confluence:.2f}"
                 f"{mtf_tag}{sm_tag}] {thesis.get('reasoning', '')}"
+                f"{_shadow_narration(thesis)}"
             ),
             signals_used=list(indicators.keys()),
             # Higher-timeframe trend (daily-weighted) for the risk MTF gate.
@@ -2240,7 +2299,7 @@ class Analyzer:
             signal_type=signal_type,
             # Provenance + evidence (audit fix #18)
             timeframe=timeframe,
-            llm_confidence=round(float(thesis.get("confidence", 0.0)), 4),
+            llm_confidence=_llm_confidence_on_record(thesis),
             confluence_score=round(float(confluence), 4),
             model_provider=thesis.get("model") or thesis.get("source"),
             prompt_hash=thesis.get("prompt_hash") or None,
@@ -4040,7 +4099,7 @@ class Analyzer:
 
     # -- LLM Reasoning --
 
-    async def _llm_thesis(self, signal: MarketSignal, indicators: dict, order_flow=None, is_admin: bool = False, user_id=None, user_tier=None, as_of=None, background: bool = False) -> Optional[dict]:
+    async def _llm_thesis(self, signal: MarketSignal, indicators: dict, order_flow=None, is_admin: bool = False, user_id=None, user_tier=None, as_of=None, background: bool = False, _shadow: bool = False) -> Optional[dict]:
         """Ask the LLM for a directional call with reasoning.
 
         Token optimization pipeline:
@@ -4071,6 +4130,29 @@ class Analyzer:
                 return None
             result["source"] = "RULE_ENGINE"
             return result
+
+        # THE RULE ENGINE DECIDES unless LLM_DECIDES is on. Beside each
+        # decision the LLM is asked through the same pipeline as before (the
+        # call below, as a shadow, under the same budget, tiering and sweep
+        # valve), so its calibration rows keep coming; only its say changes.
+        # A rule engine with no side (the neutral zone) makes no idea, so the
+        # LLM is not asked there, and that spend stops.
+        if not _shadow and not CONFIG.analyzer.llm_decides:
+            decision = self._rule_based_thesis(signal, indicators)
+            if decision is None:
+                return None
+            decision["source"] = "RULE_ENGINE_DECIDES"
+            shadow = await self._llm_thesis(
+                signal, indicators, order_flow=order_flow, is_admin=is_admin,
+                user_id=user_id, user_tier=user_tier, as_of=as_of,
+                background=background, _shadow=True)
+            # Only the LLM's own call is its view: a shadow the pipeline sent
+            # to the rule engine (budget, tier 1, throttle) is not.
+            if shadow is not None and str(shadow.get("source", "")).startswith("LLM_"):
+                decision["shadow_llm"] = {
+                    k: shadow.get(k) for k in ("direction", "confidence", "reasoning",
+                                               "model_used", "source", "prompt_hash")}
+            return decision
 
         # LLM_BACKGROUND_SCANS=off: route BACKGROUND sweep analyses (no
         # user_id — engine-initiated) to the rule engine while keeping every

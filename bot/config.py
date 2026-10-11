@@ -1372,6 +1372,16 @@ class AnalyzerConfig:
     # tuned from evidence without a code change. Defaults preserve the prior
     # hardcoded 0.6 / 0.4.
     llm_weight: float = _env_float_bounded("LLM_BLEND_WEIGHT", 0.6, 0.0, 1.0)
+    # WHETHER THE LLM DECIDES A TRADE (default OFF, the operator's decision of
+    # 11 October). Off, the decision is the rule engine's thesis -- the one the
+    # frozen backtest and every card measure -- and the LLM is still asked
+    # wherever it was asked before, as a SHADOW: its direction and confidence
+    # go to the calibration log (the C2 measurement) and its reasoning rides on
+    # the idea marked as not used to decide. Nothing had measured whether the
+    # LLM's call helps; it chose the direction and carried up to 40% of the
+    # score. On, the old path: the LLM thesis decides, under the guard below.
+    # Read with _env_switch so "off" means off.
+    llm_decides: bool = _env_switch("LLM_DECIDES", False)
     confluence_weight: float = _env_float_bounded("CONFLUENCE_BLEND_WEIGHT", 0.4, 0.0, 1.0)
     # Uncalibrated-LLM weight cap (default ON; audit fix #2). The LLM drives
     # `llm_weight` (0.6) of the blended confidence, but until confidence
