@@ -2237,6 +2237,17 @@ class CostBreakdownSkill(BaseSkill):
                 f"{_WARN} {b['unpriced_calls']} call(s) used a model with no "
                 "price on record. Their cost is unknown, so every dollar "
                 "figure below is a floor.\n")
+        # What the day's figures cover: the whole day, or only since a start.
+        from bot.core.cost import SPEND_OFF, SPEND_UNREADABLE
+        _kept = getattr(engine.cost, "persistence", None)
+        if _kept == SPEND_UNREADABLE:
+            lines.append(
+                f"{_WARN} Today's spend before the last restart could not be "
+                "read, so these figures count from that restart, and today's "
+                "caps can be spent past their budget.\n")
+        elif _kept == SPEND_OFF:
+            lines.append("<i>These figures are this process's own, counted "
+                         "from its start.</i>\n")
         lines.extend([
             "\u26a1 <b>LLM</b>",
             f"- Spent: <code>{floor}${cost.llm_cost_usd:,.4f}</code> "
