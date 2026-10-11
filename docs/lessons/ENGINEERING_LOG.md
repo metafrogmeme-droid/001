@@ -21158,7 +21158,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **484 of 1262** reach for source text through `source_scan`, `code_only`
+Driven, **484 of 1263** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 484 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -22570,6 +22570,44 @@ and a comment's "`await asyncio.gather(...)` returns" was read as the gather,
 failing the rest test's ordering check against code nobody changed. Each slice
 takes the function by its node now (`inspect.getsource`).
 (`tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`.)
+
+**"WHY DIDN'T WE TRADE?" READ ONLY THE RISK GATE'S REFUSALS.** `/whynot` and its
+chat tool read `engine._last_rejections`, which is filled only when the risk
+gate refuses an idea. The analyzer ends most
+analyses before the gate: below the bar, at the regime gate, at the direction
+guard. It recorded each skip per symbol (`Analyzer._record_no_trade`) and nothing
+read that record (`get_no_trade_reason` is on the unreachable-methods baseline),
+so a day of skips was answered "No trades rejected since the bot last started",
+under a tool description that promised "the gate that rejected or skipped it".
+Three skip paths did not reach even that record: no thesis, the regime hard gate
+and the order-flow veto wrote only the one-slot `_last_rejection_diag`.
+
+`bot/core/why_not.py` keeps one row per analysis. The analyzer writes it where it
+decides, at `_record_no_trade` or under the idea's id, and the engine amends the
+row of an idea it drops itself (the same-symbol guard, the liquidity gate, the
+risk gate), so each analysis is counted once, at the stage that ended it. The
+card now opens "Of 85 analyses in the last 6h: 61 below the bar, 14 regime gate,
+6 direction guard, 4 risk gate", and the risk gate's detail card follows under
+its own name. What a row may carry was decided per stage. The risk gate's row
+names the failed checks and drops their figures, which are the operator's
+drawdown and exposure. The liquidity row keeps the stage only, because the
+guard's sentence carries the idea's size. A confirm that placed nothing is kept
+with the id of whoever confirmed and shown only to them, and the engine's own
+`auto` confirms only to the operator. Its words come from a column on
+`confirm_result`'s refusal table, not from the answer, because the answer can
+carry an account figure. The record is bounded (a day, at most 30,000 rows) and
+lives in the bot's memory, so a reading states its window and, when the record
+does not reach back that far, where it starts. A process that is not the bot
+answers that the record was not read there. The chat tool's reading line is now
+the record's own state (read, absent or unread), where any return used to be
+footed "read". The engine attaches the record to its own analyzer, so a
+backtest's analyzer keeps none. `get_no_trade_reason` stays on the baseline:
+the card reads the new record, and a second reader of the same write would be a
+second answer. The runbook said "structured no-trade reasons now back" `/whynot`.
+That was true of the store and not of the card, and it is true of both now.
+Thirty mutants, all killed on the first round.
+(`tests/test_why_no_trade_counts_every_analysis_by_the_stage_that_ended_it.py`,
+`bot/core/why_not.py`.)
 
 ## Operational docs
 

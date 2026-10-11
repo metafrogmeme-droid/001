@@ -33,7 +33,10 @@ from bot.core.cost import thesis_dollar_exhausted
 from bot.core.position_telemetry import price_on_record
 from bot.core.signal_levels import (atr_on_record, record_atr,
                                      record_idea_levels, record_level)
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from bot.core.why_not import WhyNotLog
 
 # AG-H1: Symbol validation regex — uppercase alphanumeric, optional /pair, optional :settle
 # C2-17 FIX: Allow ':' suffix for futures/swap symbols (e.g., XAU/USDT:USDT, NATGAS/USDT:USDT)
@@ -657,6 +660,10 @@ class Analyzer:
         # skip path records WHY, so callers (/whynot, dashboard, learning) can
         # enumerate skip reasons instead of scraping the audit log.
         self._no_trade_reasons: dict[str, dict] = {}
+        # Every analysis's outcome, by symbol and time (bot/core/why_not.py).
+        # None until the bot's engine attaches one: a backtest's or a script's
+        # analyzer keeps no record nobody reads.
+        self.why_not: Optional["WhyNotLog"] = None
         # Regime persistence: smooth out single-bar whipsaw changes
         self._regime_history: list[tuple[str, str]] = []  # (symbol, regime_value)
         self._current_regimes: dict[str, Regime] = {}  # per-symbol smoothed regime
@@ -674,6 +681,8 @@ class Analyzer:
             }
             self._no_trade_reasons[symbol] = entry
             self._last_rejection_diag = {**entry, "at": time.time()}
+            if self.why_not is not None:
+                self.why_not.analysed(symbol, stage, reason)
         except Exception:
             pass
 
@@ -1398,15 +1407,12 @@ class Analyzer:
         thesis = await self._llm_thesis(signal, indicators, order_flow=order_flow, is_admin=is_admin, user_id=user_id, user_tier=user_tier, as_of=as_of, background=background)
 
         if thesis is None:
-            self._last_rejection_diag = {"at": time.time(),
-                "symbol": signal.symbol, "regime": regime.value,
-                "confluence": round(confluence, 3),
-                "reason": (
-                    "Ambiguous signal — confluence in neutral zone, "
-                    "no strong directional bias from RSI or MACD"
-                ),
-                "source": "no_thesis",
-            }
+            self._record_no_trade(
+                signal.symbol, "no_thesis",
+                "Ambiguous signal — confluence in neutral zone, "
+                "no strong directional bias from RSI or MACD",
+                regime=regime.value, confluence=round(confluence, 3),
+                source="no_thesis")
             return None
 
         # C-07 SAFETY: reject if LLM/rule thesis returned without a valid direction.
@@ -1476,14 +1482,10 @@ class Analyzer:
             _adx = float(indicators.get("adx", 0) or 0)
             _gate_reason = self._regime_hard_gate_reason(regime, direction, _adx)
             if _gate_reason:
-                self._last_rejection_diag = {"at": time.time(),
-                    "symbol": signal.symbol,
-                    "stage": "regime_hard_gate",
-                    "regime": regime.value,
-                    "direction": direction.value,
-                    "adx": round(_adx, 1),
-                    "reason": _gate_reason,
-                }
+                self._record_no_trade(
+                    signal.symbol, "regime_hard_gate", _gate_reason,
+                    regime=regime.value, direction=direction.value,
+                    adx=round(_adx, 1))
                 audit(trade_log,
                       f"Regime hard gate: {signal.symbol} skipped — {_gate_reason}",
                       action="analyze", result="REJECTED_REGIME_GATE",
@@ -1628,13 +1630,11 @@ class Analyzer:
                                 "direction": direction.value,
                                 "of_bias": round(of_bias, 3),
                                 "of_confidence": round(of_conf, 3)})
-                    self._last_rejection_diag = {"at": time.time(),
-                        "symbol": signal.symbol, "regime": regime.value,
-                        "confluence": round(confluence, 3),
-                        "direction": direction.value,
-                        "reason": f"Order-flow veto: microstructure opposes {direction.value}",
-                        "source": "order_flow_veto",
-                    }
+                    self._record_no_trade(
+                        signal.symbol, "order_flow_veto",
+                        f"Order-flow veto: microstructure opposes {direction.value}",
+                        regime=regime.value, confluence=round(confluence, 3),
+                        direction=direction.value, source="order_flow_veto")
                     return None
                 blended_confidence -= 0.15 * opposition * of_conf
         except Exception as _of_exc:
@@ -2303,6 +2303,11 @@ class Analyzer:
         audit(trade_log, f"Trade idea: {idea.direction.value} {idea.asset}",
               action="analyze", result="IDEA",
               data=idea.model_dump(mode="json"))
+        if self.why_not is not None:
+            try:
+                self.why_not.analysed(signal.symbol, "idea", ref=idea.id)
+            except Exception:
+                pass  # the record is a reading; it never costs the idea
         return idea
 
     # -- Strategy Type Classification --

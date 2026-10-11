@@ -132,8 +132,13 @@ CHAT_TOOLS: tuple[ChatTool, ...] = (
         "Today's LLM/API spend against the daily budget, by category."),
     ChatTool(
         "whynot",
-        "Why the engine did not take a trade: the gate that rejected or skipped "
-        "it, optionally for one symbol.",
+        "Why the engine did not take a trade: every analysis of the last six "
+        "hours counted by the stage that ended it (below the bar, the regime "
+        "gate, the direction guard, the risk gate, ...), the latest few with "
+        "their reason, the caller's own confirms that placed nothing, then the "
+        "risk gate's last refusal in detail. Optionally for one symbol. Quote "
+        "the counts and the window it states; a window with no analysis on "
+        "record is not a refusal, and an unread record is not an empty one.",
         _schema({"symbol": _SYMBOL_PARAM})),
     ChatTool(
         "rejected_trades",
@@ -206,6 +211,13 @@ CHAT_TOOLS: tuple[ChatTool, ...] = (
 
 #: name -> tool, for O(1) lookup at execution time.
 _BY_NAME: dict[str, ChatTool] = {t.name: t for t in CHAT_TOOLS}
+
+#: Tools whose answer opens with its own READ / UNREAD / ABSENT line
+#: (`chat_draft.split_tagged`), so the reading line the model gets says what
+#: the tool measured rather than "read" for any return. `whynot` also answers
+#: a slash command, where no tag belongs, so it is asked for one here.
+_TAGGED_RESULTS = frozenset({"draft_trade", "memory_note", "whynot"})
+_ASKED_FOR_A_TAG = frozenset({"whynot"})
 
 
 def tools_for(users, user_id: str, surface: str = "telegram") -> list[ChatTool]:
@@ -474,6 +486,8 @@ async def run_tool(handler, user_id: str, name: str, args: dict,
         kwargs["user_text"] = user_text
     if name == "memory_note":
         kwargs["conversations"] = getattr(handler, "conversations", None)
+    if name in _ASKED_FOR_A_TAG:
+        kwargs["tagged"] = True
     conversations = getattr(handler, "conversations", None)
     try:
         from bot.core import user_memory_store as _user_memory
@@ -507,7 +521,7 @@ async def run_tool(handler, user_id: str, name: str, args: dict,
         raise RuntimeError("tool failed") from None
     remembered = result
     read_state = None
-    if name in ("draft_trade", "memory_note"):
+    if name in _TAGGED_RESULTS:
         from bot.nlp.chat_draft import split_tagged
         read_state, remembered = split_tagged(str(result))
     record = skill_result_memory(name, remembered)

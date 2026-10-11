@@ -135,7 +135,8 @@ SKILL_SAYS: dict[str, str] = {
     "run_strategy": "one strategy run against the current market",
     "scan_market": "a live scan of the exchange for movers and volume anomalies",
     "walk_forward": "a walk-forward validation of a strategy",
-    "whynot": "why the engine did not take a trade on a symbol",
+    "whynot": "why the engine did not trade: each analysis of the last six "
+              "hours by the stage that stopped it, for one symbol or all",
     "check_event_risk": "macro-event risk for one symbol over the next window",
     "compliance_status": "restricted jurisdictions and the consent ledger "
                          "summary",
