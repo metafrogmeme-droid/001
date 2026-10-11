@@ -57,7 +57,7 @@ from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and c
     tools_rule_for, cannot_act_rule,
     act_intent_notice, close_intent_notice, forwarded_halt_notice, halt_intent_notice, reply_contract,
     stake_verb, LINK_DOOR, strip_bot_mention, live_account_absence,
-    no_live_account_line,
+    no_live_account_line, fallback_door,
     skill_failure_notice, thinking_phrase, compose_telegram_answer,
 )
 from bot.nlp.intent_router import casual_halt, halt_verb, symbol_mentioned
@@ -2724,6 +2724,12 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # The dictionary language for everything the CHAT says around the
         # answer. The model follows `reply_lang` itself, further below.
         _ui = ui_lang(reply_lang)
+        # What still works when no model answers is the SURFACE's own
+        # (`chat_runtime.LINK_DOOR`): commands on Telegram, words on the web,
+        # signing in for an anonymous visitor. Public is its own surface here
+        # whatever transport name it arrived with.
+        _door_surface = "public" if public else surface
+        _what_works = " " + fallback_door(_door_surface, _ui)
 
         # Resolve active LLM config (BYOK runtime > .env)
         env_config = LLMConfig(
@@ -3024,8 +3030,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     return _chat_ret(_say(
                         _ui, "chat_share_exhausted",
                         "Chat has used its share of today's AI budget — try "
-                        "again tomorrow, or use a specific command like /scan "
-                        "or /positions. Trade analysis keeps the rest."),
+                        "again tomorrow. Trade analysis keeps the rest.") + _what_works,
                         None, return_meta)
                 if _bound == CHAT_OWN_BOUND:
                     # "A separate cap" is true only when the thesis has one
@@ -3036,21 +3041,20 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                         return _chat_ret(_say(
                             _ui, "chat_own_budget_exhausted",
                             "Chat has used its own dollar budget for today — try "
-                            "again tomorrow, or use a specific command like /scan "
-                            "or /positions. Trade analysis is on a separate cap."),
+                            "again tomorrow. Trade analysis is on a separate "
+                            "cap.") + _what_works,
                             None, return_meta)
                     return _chat_ret(_say(
                         _ui, "chat_own_budget_exhausted_shared",
                         "Chat has used its own dollar budget for today — try "
-                        "again tomorrow, or use a specific command like /scan "
-                        "or /positions. Trade analysis has no cap of its own "
+                        "again tomorrow. Trade analysis has no cap of its own "
                         "and counts against the daily total, chat's spend "
-                        "included."),
+                        "included.") + _what_works,
                         None, return_meta)
                 return _chat_ret(_say(
                     _ui, "chat_budget_exhausted",
-                    "I've used up today's AI budget — try again tomorrow, "
-                    "or use a specific command like /scan or /positions."),
+                    "I've used up today's AI budget — try again "
+                    "tomorrow.") + _what_works,
                     None, return_meta)
 
         # Try each config in order, under ONE wall-clock deadline.
@@ -3304,8 +3308,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 _ui, "chat_deadline",
                 "I stopped waiting before any model answered — that's a "
                 "timeout on my side, not an answer, and nothing was analyzed. "
-                "Try again in a moment, or use a specific command like /scan "
-                "or /positions."),
+                "Try again in a moment.") + _what_works,
                 None, return_meta)
         audit(system_log, f"All chat LLM providers failed. Last: {last_error}",
               action="chat_error", result="ALL_FAILED")
@@ -3322,14 +3325,19 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # counts one, the except branches the other); only the message folded
         # them together. Different faults, different next step: unreachable is
         # infrastructure, empty is the model or its prompt.
+        #
+        # "Your key and endpoint are fine" went to every reader, and the key
+        # was the operator's: a member or a visitor gave none. What every
+        # provider answering DOES establish about the keys is said to the
+        # operator only, beside the door they can open (/llmstatus, on
+        # Telegram), and each surface gets its own next step.
         if _empty_completions and _empty_completions >= _tried:
             return _chat_ret(_say(
                 _ui, "chat_empty_completions",
                 "The model answered but returned nothing — every provider "
                 "came back empty, which is a model or prompt problem rather "
-                "than a connection one. Your key and endpoint are fine. "
-                "Try /llmstatus for the last error, or a specific command "
-                "like /scan or /positions."),
+                "than a connection one.") + " " + fallback_door(
+                    _door_surface, _ui, operator=is_admin),
                 None, return_meta)
         return _chat_ret(_say(
             _ui, "chat_unavailable",

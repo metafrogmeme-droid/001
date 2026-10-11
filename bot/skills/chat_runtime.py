@@ -192,16 +192,40 @@ _CHAT_CANNOT_ACT_RULE = (
 #: string every surface reads, and its first draft said "linked with
 #: /connect" — the guard against exactly that shape caught it on the full
 #: run, and no suite the slice had been running could have.
+#:
+#: TWO MORE KEYS, and they are DICTIONARY KEYS rather than sentences, because
+#: what they name reaches a person in their own language, not the model:
+#: ``fallback`` is what still works on that surface when no chat model
+#: answered (the budget, deadline and empty-reply messages end with it), and
+#: ``diagnose`` is the operator's own next step for an empty reply, or "" on a
+#: surface where none can be taken. Those messages told web and public
+#: visitors to use /scan, /positions and /llmstatus (admin only, and no slash
+#: command runs in a web chat), and every reader that "your key and endpoint
+#: are fine", a key most of them never gave.
 LINK_DOOR: dict[str, dict[str, str]] = {
     "web": {"link": "the dashboard's Account > Connect an exchange step links "
                     "exchange keys",
             "state": "the dashboard's Account > API keys page shows the key "
                      "state, and re-entering the keys there replaces them",
-            "linked": "on the dashboard's Account > Connect an exchange step"},
+            "linked": "on the dashboard's Account > Connect an exchange step",
+            "fallback": "chat_door_words",
+            "diagnose": ""},
     "telegram": {"link": "/connect links exchange keys",
                  "state": "/exchange shows the key state, and re-linking with "
                           "/connect replaces them",
-                 "linked": "with /connect"},
+                 "linked": "with /connect",
+                 "fallback": "chat_door_commands",
+                 "diagnose": "chat_empty_operator_note"},
+    # The anonymous website visitor (`_llm_chat(public=True)`): no account, no
+    # command, no read of their own until they sign in.
+    "public": {"link": "signing in (free), then the dashboard's Account > "
+                       "Connect an exchange step, links exchange keys",
+               "state": "after signing in, the dashboard's Account > API keys "
+                        "page shows the key state",
+               "linked": "on the dashboard's Account > Connect an exchange "
+                         "step, after signing in",
+               "fallback": "chat_door_public",
+               "diagnose": ""},
 }
 
 
@@ -210,6 +234,22 @@ def link_door(surface: str) -> dict[str, str]:
     (the api bridge, an empty string) gets Telegram's commands, as the
     no-account block always has: the bridge is the operator's."""
     return LINK_DOOR.get(surface, LINK_DOOR["telegram"])
+
+
+def fallback_door(surface: str, lang: str = "en", *, operator: bool = False) -> str:
+    """What still works on this surface when no chat model answered, in the
+    reader's dictionary language (`ui_lang`).
+
+    ``operator`` adds the surface's ``diagnose`` step first, for the reader
+    who can take it (the caller decides: the empty-reply message, to an
+    admin). A surface with no such step adds nothing, so a web admin is not
+    sent to a slash command either.
+    """
+    door = link_door(surface)
+    out = t(door["fallback"], lang)
+    if operator and door["diagnose"]:
+        out = t(door["diagnose"], lang) + " " + out
+    return out
 
 def live_account_absence(user_id: str) -> str:
     """WHY the engine mapped this caller to no live account: ``"absent"``
