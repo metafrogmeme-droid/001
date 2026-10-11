@@ -37,7 +37,7 @@ UID = "4242"
 
 
 def test_the_lists_are_the_ones_this_names():
-    assert UNRUN == ["alt sweep", "daily vol rotation", "eth ma trend"]
+    assert UNRUN == ["alt sweep", "daily vol rotation", "eth ma trend", "limit scanner"]
     assert "full scan" in RUN
 
 
