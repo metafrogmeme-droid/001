@@ -21158,7 +21158,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **485 of 1264** reach for source text through `source_scan`, `code_only`
+Driven, **485 of 1265** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 485 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -22570,6 +22570,99 @@ and a comment's "`await asyncio.gather(...)` returns" was read as the gather,
 failing the rest test's ordering check against code nobody changed. Each slice
 takes the function by its node now (`inspect.getsource`).
 (`tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`.)
+
+**THREE CARDS SAID MORE THAN THEY READ.** From a read-only audit of
+650680b4. Each card named something it never measured, and two of them
+printed the operator's book to people whose book it was not.
+
+**`/patterns` named groups after patterns nobody looked for.** The learning
+store's regime groups were relabelled by threshold. A trend group that won
+over 55% of five closes became `TREND_CONTINUATION`. A range or chop group
+that won under 40% became `BREAKOUT_FAILURE`, although no trade in it was
+checked to be a breakout. The "confidence" was `min(win_rate, 0.85)`. The
+card printed that confidence, a win rate with no interval, and an average in
+dollars taken over every account's closes, because `_on_live_position_closed`
+writes per-user closes into the store with no owner. Viewers, self-admitted
+paper users and web chat all held `patterns`.
+
+`PatternLearner.outcome_groups` now names each group by the dimension it was
+cut on (regime, a macro state other than NORMAL, low volatility). It reports
+every group with five scored closes, not only the striking ones, because
+picking the remarkable rates is how a five-trade coincidence reads as a
+finding. Counts use `win_rate.outcome_of`, so a 0.0 close is flat and a NaN
+is unscored. Each rate carries its 95% Wilson interval. That interval is
+`readiness.wilson_interval`, the helper parity already used privately, so
+there is one copy of the arithmetic. No return figure is printed: the outcome
+rows carry dollars with no stop and no size, so they cannot give R or
+percent. The card says which window it read (the newest 1,000 decision rows)
+and says when that log could not be read (`get_decisions(strict=True)`).
+Every other reader keeps the old behaviour. `patterns` is now held by no role
+but admin, and the card also asks `engine._is_operator_user` itself.
+
+The first round left two mutants standing. Both were in the card's own
+identity rule: it refuses an empty id, and it treats a check that raises as
+"no". Both survived because the engine's real reading already says no to "".
+The card's rule should not depend on the engine's, so a stand-in that says
+yes to everything now drives both. Eighteen mutants, all killed.
+(`tests/test_a_group_of_closes_is_named_for_what_it_measured.py`.)
+
+**`/costs` subtracted one person's bill from another person's balance.**
+"Net" was the caller's equity minus the operator's operating cost: a stock
+minus one day's flow, from two different books. "Per Trade" was the
+operator's cost divided by the caller's trade count. The breakdown walked
+five categories and skipped `chat`, while the total included it. The chat
+tool promised "against the daily budget", and the card showed no budget.
+`cost.chat_cap_usd` is now the one reading of chat's cap. The gate and the
+reply's audit line used to compute it inline. `cost.budget_reading` builds
+the budget lines from the gate functions themselves. Chat's remaining spend
+is clipped to the daily total, because the gate clips it. The analysis cap
+is not clipped, because `thesis_dollar_exhausted` does not clip it; the owner
+already holds that decision. Every booked category prints, so the parts add
+up to the total. An unpriced call turns every spent figure into "at least"
+and every remaining figure into "at most".
+
+The same claim appeared one card over in two places. The status card's
+"Net" is gone, and its spend rows show only to the operator. The paper
+portfolio waterfall now stops at the book's own Trading line, with no LLM,
+Infra, NET or Per Trd rows, and its tally says All-time, because the book
+persists. `costs` is admin-only. Twenty-three mutants, all killed.
+
+The methods ratchet then flagged `CacheStats.total_lookups`. Its only "caller"
+had been an unused local variable with the same name in the old card. A
+name-based sweep acquitted a method because of a variable's spelling. The
+method is deleted.
+(`tests/test_the_costs_card_is_the_operators_spend_against_its_budget.py`.)
+
+**`explain_trade` said "pending or historical" and searched only the pending
+book.** Its MCP description promised "omit to list pending ideas", but an
+omitted id answered "Trade  not found". Its "Signals:" line printed
+`idea.signals_used`, which the analyzer fills with
+`list(indicators.keys())`, so `session_high` and `_top_votes` appeared as if
+they were the signals behind the call. `signals_used` keeps that content,
+because the risk gate's HTF fallback, the journal, the flight recorder and
+the backtest all read it. The card now prints the idea's own
+`_confluence_votes` through `flight_recorder.compact_votes`, made public for
+this, so the card and the sealed record name the same voters. Three cases
+get three sentences: no breakdown on the idea, a breakdown where no vote
+moved the score, and the votes themselves. An omitted id lists the engine's
+own pending ideas. A person's ticket has no owner this skill could check a
+caller against, so tickets are counted but not listed. The description now
+says pending only. Fourteen mutants, all killed.
+(`tests/test_an_explanation_names_the_votes_that_drove_the_call.py`.)
+
+**Recorded, not changed.**
+
+- `/optimize` still prints the operator's estimated LLM savings in dollars to
+  trader and paper roles.
+- `SKILL_SAYS` calls it "parameter optimisation" over a card titled "Token
+  optimizer".
+- The learning dashboard still describes the patterns module as "Candle
+  pattern recognition".
+- `bot/main.py`'s console mode dispatches skills with no user id, so both
+  operator cards refuse it. No caller is nobody.
+- Neither chat surface can explain a pending idea. `SKILL_PERMISSION` is
+  derived from a command's `@guard`, and `explain_trade` has no command, so
+  giving it a permission is the owner's decision, not a table edit.
 
 ## Operational docs
 

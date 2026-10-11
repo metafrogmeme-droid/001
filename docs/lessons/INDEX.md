@@ -278,5 +278,6 @@ about to change before changing it.
 
 - L22505: A PEAK WITH NO TIME BESIDE IT CANNOT SAY WHETHER TO ACT — `tests/test_phase_headroom.py`
 - L22521: THE NUDGE READ 110,529 ROWS FOR EVERY IDEA, AND THE STALL HAD NO NAME — `tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`
+- L22574: THREE CARDS SAID MORE THAN THEY READ — `tests/test_a_group_of_closes_is_named_for_what_it_measured.py`, `tests/test_an_explanation_names_the_votes_that_drove_the_call.py`, `tests/test_the_costs_card_is_the_operators_spend_against_its_budget.py`
 
-## Operational docs (line 22574)
+## Operational docs (line 22667)

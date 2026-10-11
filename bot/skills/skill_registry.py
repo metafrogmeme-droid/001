@@ -1434,12 +1434,68 @@ class ExecutePaperTradeSkill(BaseSkill):
             return "Provide a trade_id to confirm."
         return await engine.confirm_trade(trade_id)
 
+#: The votes the explain card prints, strongest first. The analyzer hands
+#: the model its top six (`_top_votes`); the card shows the same depth.
+_EXPLAIN_VOTES = 6
+
+
+def _explain_votes_line(idea: Any) -> str:
+    """The voters that drove this call, or what is known about why none print.
+
+    Read off the idea's own breakdown (`_confluence_votes`, which the analyzer
+    attaches and the flight recorder seals) through the recorder's ranking, so
+    the card and the sealed record name the same voters. Three cases, three
+    sentences: no breakdown on the idea (a hand-typed ticket, or an idea made
+    before the analyzer attached one), a breakdown in which no vote moved the
+    score, and the votes.
+    """
+    from bot.guardian.flight_recorder import compact_votes
+    raw = getattr(idea, "_confluence_votes", None)
+    if raw is None:
+        return "- Votes: <i>not recorded on this idea</i>\n"
+    rows = compact_votes(raw)
+    if not rows:
+        return "- Votes: <i>recorded, and none moved the score</i>\n"
+    shown = rows[:_EXPLAIN_VOTES]
+    more = f" \u00b7 +{len(rows) - len(shown)} more" if len(rows) > len(shown) else ""
+    votes = " \u00b7 ".join(f"{_esc(r['name'])} {r['contribution']:+.2f}" for r in shown)
+    return (f"- Votes that drove it (vote \u00d7 weight, strongest first): "
+            f"<code>{votes}</code>{more}\n")
+
+
 class ExplainTradeSkill(BaseSkill):
+    """One PENDING idea, explained from what the analyzer recorded on it.
+
+    It claimed more than it did. The MCP tool, its one door, said "a pending
+    or historical trade idea" and "omit to list pending ideas": the skill
+    searched the pending book only, and an omitted id answered "Trade  not
+    found". Its "Signals:" line printed `idea.signals_used`, which the
+    analyzer fills with `list(indicators.keys())`: every key it computed,
+    `session_high` and `_top_votes` among them, not the signals behind the
+    call. The votes that were behind it are on the idea, and
+    `_explain_votes_line` prints them. `signals_used` itself is unchanged:
+    the risk gate's HTF fallback, the journal, the flight recorder and the
+    backtest read it.
+
+    Pending only, and said so. A closed trade's record is the post-mortem,
+    which reads the caller's own book; this skill is reached with no caller
+    identity (the MCP adapter passes none), so it reaches for no book.
+    An omitted id lists the ENGINE's own pending ideas: a ticket a person
+    opened carries no owner this skill could check a caller against.
+    """
     name = "explain_trade"
-    description = "Explain a trade idea"
+    description = "Explain a pending trade idea (omit the id to list the engine's)"
+
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
-        trade_id = kwargs.get("trade_id", "")
-        for idea in engine.pending_ideas:
+        trade_id = str(kwargs.get("trade_id") or "").strip()
+        try:
+            pending = list(engine.pending_ideas)
+        except Exception as exc:
+            return (f"{_BAD} The pending ideas could not be read "
+                    f"({type(exc).__name__}).")
+        if not trade_id:
+            return self._list(engine, pending)
+        for idea in pending:
             if idea.id == trade_id:
                 d_icon = _OK if idea.direction.value == "LONG" else _BAD
                 # The card whose entire subject is the reason. It quoted the
@@ -1454,7 +1510,7 @@ class ExplainTradeSkill(BaseSkill):
                     f"  {d_icon} {_pill(idea.id)}\n"
                     f"  {idea.direction.value} {_esc(idea.asset)}\n\n"
                     f"- Confidence: <code>{displayed_confidence(idea).pct()}</code>\n"
-                    f"- Signals: <code>{', '.join(idea.signals_used)}</code>\n"
+                    + _explain_votes_line(idea)
                     + (f"- Provenance: <code>{_esc(tag)}</code>\n" if tag else "")
                     + "\n"
                     + (prose_bq or
@@ -1462,7 +1518,37 @@ class ExplainTradeSkill(BaseSkill):
                        "the model returned a direction and a confidence "
                        "without one.</i>")
                 )
-        return f"\u2718 Trade {_pill(_esc(trade_id))} not found."
+        return (f"\u2718 No pending idea {_pill(_esc(trade_id))}. Only an idea "
+                "still pending is explained here; one that was confirmed, "
+                "skipped or expired has left the pending book, and a closed "
+                "trade's record is <code>/postmortem</code>.")
+
+    @staticmethod
+    def _list(engine: Any, pending: list) -> str:
+        """The engine's own pending ideas, by id, for the caller to pick one."""
+        head = f"{_BOOK} <b>PENDING IDEAS</b>\n{SEP}\n"
+        try:
+            mine = set(engine._engine_pending_ids())
+        except Exception as exc:
+            return (f"{head}\n{_BAD} Could not tell the engine's ideas from "
+                    f"people's tickets ({type(exc).__name__}), so none are "
+                    "listed. An idea can still be explained by its id.")
+        ideas = [i for i in pending if i.id in mine]
+        others = len(pending) - len(ideas)
+        lines = [head]
+        if not ideas:
+            lines.append("No idea of the engine's is pending right now.")
+        for i in ideas:
+            d_icon = _OK if i.direction.value == "LONG" else _BAD
+            lines.append(f"  {d_icon} <code>{_esc(i.id)}</code> "
+                         f"{i.direction.value} {_esc(i.asset)} \u00b7 "
+                         f"{displayed_confidence(i).pct()}")
+        if others:
+            lines.append(f"\n<i>{others} pending ticket(s) opened by a person "
+                         "are not listed: each is theirs.</i>")
+        if ideas:
+            lines.append("\nExplain one by its id.")
+        return "\n".join(lines)
 
 
 # ══════════════════════════════════════════════════════════════
