@@ -93,11 +93,12 @@ function framable(req, res, next) {
 router.use(framable);
 
 /**
- * Every page here loads this: it is what lifts the Mini App splash and what
- * the share button talks to. A page without it hangs behind a splash screen
- * forever — see farcaster-ready.js.
+ * Every page here loads these. api-retry.js first, so the gate's `starting`
+ * answer during an instance rotation is retried before any page script sees
+ * it. farcaster-ready.js is what lifts the Mini App splash and what the share
+ * button talks to: a page without it hangs behind a splash screen forever.
  */
-const COMMON_JS = ['/js/farcaster-ready.js?v=3'];
+const COMMON_JS = ['/js/api-retry.js?v=1', '/js/farcaster-ready.js?v=3'];
 
 /**
  * `deps` is per-page ON PURPOSE. It used to be one hardcoded list, which was
