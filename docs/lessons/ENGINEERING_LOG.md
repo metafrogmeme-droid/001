@@ -21206,7 +21206,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **484 of 1264** reach for source text through `source_scan`, `code_only`
+Driven, **484 of 1265** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 484 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -22718,6 +22718,7 @@ its last with no bar, and `verify_dataset` holds the file to it both ways. The
 committed manifests name their 474 holes now; their candles are unchanged, so
 no dataset hash and no published card moves. Re-freezing them would move
 every card, which is the operator's decision, not a side effect of this fix.
-Six mutants, all killed, the old page start among them (caught on the
-recent-candles arm alone, as it should be).
+Seven mutants, all killed, the old page start among them (caught on the
+recent-candles arm alone, as it should be) and a verifier that checks one
+direction only (a manifest naming a hole the file does not have).
 (`tests/test_the_freezer_keeps_every_bar_of_every_page.py`.)

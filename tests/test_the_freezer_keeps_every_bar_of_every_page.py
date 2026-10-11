@@ -119,6 +119,13 @@ def test_the_manifest_names_each_hole_and_the_verifier_holds_it(tmp_path):
     (tmp_path / "manifest.json").write_text(json.dumps(man, indent=2) + "\n")
     ok, problems = snap.verify_dataset(tmp_path)
     assert not ok and problems == ["ETH/USDT:USDT: missing bars differ from manifest"]
+    # And one that names a hole the file does not have.
+    man["symbols"]["ETH/USDT:USDT"]["missing"] = [
+        "2026-01-05T04:00:00+00:00", "2026-01-05T05:00:00+00:00"]
+    man["symbols"]["BTC/USDT:USDT"]["missing"] = ["2026-01-05T04:00:00+00:00"]
+    (tmp_path / "manifest.json").write_text(json.dumps(man, indent=2) + "\n")
+    ok, problems = snap.verify_dataset(tmp_path)
+    assert not ok and problems == ["BTC/USDT:USDT: missing bars differ from manifest"]
 
 
 def test_the_committed_datasets_name_their_holes():
