@@ -20435,6 +20435,37 @@ cannot run on a schedule longer than an instance lives; both are the next
 change. (`app/test/auth_state_is_shared_by_every_instance.test.js`,
 `app/test/second_factor_lockout.test.js`.)
 
+**AND THE TIMED JOBS RAN ONLY IF AN INSTANCE OUTLIVED THEIR FIRST TICK.** Every
+background job in the web app was a `setInterval` in one process. On instances
+that live about 70 seconds: the pattern watch (every 2 minutes, nothing at
+boot) never ran; the board watch and the copy watch spend their first run
+recording a silent baseline "so a restart never replays old news", and no
+instance lived to a second run, so neither ever pushed anything; the arena
+watch forgot which positions it had warned, so the next instance could warn
+again; the hourly letter and board sweeps ran at every boot; the "every 5
+minutes" on-chain alert read ran every minute. Each comment described the
+schedule; none could see that the process would not last it.
+
+A job now claims its turn in `job_runs` (`lib/shared_schedule.js`): every
+instance looks every 15 seconds, and one conditional `UPDATE ... WHERE
+last_started <= now - interval` lets exactly one of them run a due job, so it
+runs on its interval as long as any instance is alive. What a job remembers
+lives in `job_state` (`lib/job_state.js`, JSON) and is saved before anything is
+sent, so a crash mid-send never re-sends. Reads say which of three things they
+found: a saved state, nothing yet (the baseline case), or a database that did
+not answer, when the job falls back to this process's copy (the old
+behaviour). Driven across instances: a two-minute job run under mock timers
+over six 70-second instances runs every two minutes (before: never); the
+board and copy watches take up the previous instance's baseline and announce
+the next change; the arena and pattern watches do not repeat themselves; the
+on-chain read is not repeated inside five minutes (which needed the DeFi
+reader loaded fresh too: its 60-second position cache hid the repeat, and the
+first version of that test passed against the old code); every job the server
+starts claims a row. Eighteen mutants: seventeen killed, one equivalent (the
+claim's "row exists" read before the INSERT, which the duplicate key answers
+anyway; kept so a tick does not attempt a failing INSERT for every job).
+(`app/test/jobs_run_on_one_schedule_across_instances.test.js`.)
+
 ## Writing tests that scan source
 
 Strip comments first. A comment that quotes the string it forbids is

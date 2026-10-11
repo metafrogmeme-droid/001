@@ -18,6 +18,13 @@ const { getTickers } = require('./tickers');
 const { liqPrice } = require('./arena');
 const push = require('./push');
 const health = require('./watch_health').register('arena_watch');
+const jobState = require('./job_state');
+const schedule = require('./shared_schedule');
+
+// The positions already warned, shared by every instance (lib/job_state). Held
+// in a variable, each new 70-second instance forgot them, and a position still
+// inside the band was warned again.
+const STATE = 'arena_watch';
 
 const dirSign = (direction) => (direction === 'SHORT' ? -1 : 1);
 
@@ -55,7 +62,6 @@ function evaluate(positions, marks, warned) {
   return { notify, warned: next };
 }
 
-let warnedSet = new Set();
 let timer = null;
 
 // `deps` is for tests: the ticker read and the push are the two things that
@@ -68,15 +74,16 @@ async function runOnce(deps = {}) {
   try {
     const [positions] = await pool.execute(
       'SELECT id, user_id, symbol, direction, entry, margin, leverage FROM arena_positions');
-    if (!positions.length) { warnedSet = new Set(); health.ok(); return; }
+    if (!positions.length) { await jobState.save(STATE, []); health.ok(); return; }
     let marks;
     try { marks = await readTickers(); } catch (e) {
       // No data → no verdicts, and SAID: this used to be a bare return, so
       // a dead feed ended every liquidation warning and looked like calm.
       health.failed(e); return;
     }
-    const { notify, warned } = evaluate(positions, marks, warnedSet);
-    warnedSet = warned;
+    const saved = await jobState.load(STATE);
+    const { notify, warned } = evaluate(positions, marks, new Set(saved.found ? saved.value || [] : []));
+    await jobState.save(STATE, Array.from(warned));   // before sending: a crash mid-send never re-warns
     for (const n of notify) {
       const p = n.position;
       const pct = Math.max(0, n.prox * 100).toFixed(1);
@@ -95,8 +102,10 @@ async function runOnce(deps = {}) {
 
 function startArenaWatch(intervalMs = 60_000) {
   if (timer) return;
-  timer = setInterval(() => { runOnce().catch(() => {}); }, intervalMs);
-  if (timer.unref) timer.unref();
+  timer = schedule.every('arena_watch', intervalMs, () => runOnce());
 }
 
-module.exports = { startArenaWatch, runOnce, evaluate, proximity, WARN_AT, REARM };
+/** Forget the warned positions (tests). */
+function resetArenaWatch() { return jobState.clear(STATE); }
+
+module.exports = { startArenaWatch, runOnce, evaluate, proximity, resetArenaWatch, WARN_AT, REARM };

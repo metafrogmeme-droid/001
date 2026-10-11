@@ -69,21 +69,29 @@ function transitions(hits, interests, seen, now = Date.now()) {
   return { notify, seen: next };
 }
 
-let seenMap = new Map();
+// What was announced, key -> when (12 h silence window), shared by every
+// instance (lib/job_state). The two-minute schedule never ran at all on
+// 70-second instances; run on the shared schedule, a variable here would be
+// forgotten by each new instance and every pattern announced again.
+const jobState = require('./job_state');
+const STATE = 'pattern_watch';
 let timer = null;
 
 const health = require('./watch_health').register('pattern_watch');
 
-async function runOnce() {
-  if (!push.isConfigured()) { health.skipped('push not configured'); return; }
+// `deps` is for tests, as in lib/arena_watch.js: the push and the synced scan
+// are the two things this reads from outside.
+async function runOnce(deps = {}) {
+  const pushMod = deps.push || push;
+  if (!pushMod.isConfigured()) { health.skipped('push not configured'); return; }
   let scan;
   try {
     // Lazy require: routes/sync owns the synced scan cache; requiring at
     // call time avoids any boot-order cycle.
-    scan = await require('../routes/sync').getLatestScan();
+    scan = await (deps.getLatestScan || (() => require('../routes/sync').getLatestScan()))();
   } catch (e) { health.failed(e); return; }
   try {
-    await _sweepPatterns(scan);
+    await _sweepPatterns(scan, pushMod);
     health.ok();
   } catch (e) {
     health.failed(e);
@@ -91,7 +99,7 @@ async function runOnce() {
   }
 }
 
-async function _sweepPatterns(scan) {
+async function _sweepPatterns(scan, pushMod) {
   const hits = scan && scan.deepscan && scan.deepscan.hits;
   if (!hits || !hits.length) return;
   const [positions] = await pool.execute(
@@ -105,13 +113,15 @@ async function _sweepPatterns(scan) {
   // key makes the position phrasing win.
   const interests = positions.concat(watchers);
   if (!interests.length) return;
-  const { notify, seen } = transitions(hits, interests, seenMap);
-  seenMap = seen;
+  const saved = await jobState.load(STATE);
+  const seenBefore = new Map(Object.entries(saved.found ? saved.value || {} : {}).map(([k, t]) => [k, Number(t)]));
+  const { notify, seen } = transitions(hits, interests, seenBefore);
+  await jobState.save(STATE, Object.fromEntries(seen));   // before sending: a crash mid-send never re-announces
   for (const n of notify) {
     const why = n.direction
       ? `you have a ${n.direction} open`
       : `it's on your watchlist`;
-    await push.notifySubscribers({
+    await pushMod.notifySubscribers({
       title: '🧭 Engine pattern on your symbol',
       body: `${n.symbol}: ${n.name} (${Math.round(n.confidence * 100)}%, ${n.signal}) — `
         + `${why}. See the chart in the Arena.`,
@@ -122,8 +132,10 @@ async function _sweepPatterns(scan) {
 
 function startPatternWatch(intervalMs = 120_000) {
   if (timer) return;
-  timer = setInterval(() => { runOnce().catch(() => {}); }, intervalMs);
-  if (timer.unref) timer.unref();
+  timer = require('./shared_schedule').every('pattern_watch', intervalMs, () => runOnce());
 }
 
-module.exports = { startPatternWatch, runOnce, transitions, MIN_CONFIDENCE, TTL_MS, MAX_PER_SYMBOL };
+/** Forget what was announced (tests). */
+function resetPatternWatch() { return jobState.clear(STATE); }
+
+module.exports = { startPatternWatch, runOnce, transitions, resetPatternWatch, MIN_CONFIDENCE, TTL_MS, MAX_PER_SYMBOL };

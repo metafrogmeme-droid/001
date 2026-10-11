@@ -308,6 +308,8 @@ class MemoryDB {
   constructor() {
     this.authAttempts = {};  // attempt_key -> { fails, first_at, locked_until } (lib/durable_attempts)
     this.oauthStates = {};   // state_key -> { kind, payload, expires_at } (lib/oauth_state_store)
+    this.jobRuns = {};       // job -> { last_started } (lib/shared_schedule)
+    this.jobState = {};      // job -> { state, updated_at } (lib/job_state)
     this.users = [];
     this.trades = [];
     this.snapshots = [];
@@ -372,7 +374,10 @@ class MemoryDB {
   }
 
   // Minimal query interface matching mysql2 pool.execute() return format
-  /** The statements lib/durable_attempts.js and lib/oauth_state_store.js send, answered as MySQL would. */
+  /**
+   * The statements lib/durable_attempts.js, lib/oauth_state_store.js,
+   * lib/shared_schedule.js and lib/job_state.js send, answered as MySQL would.
+   */
   _sharedStateStatement(flat, params, sql) {
     const A = this.authAttempts;
     const O = this.oauthStates;
@@ -436,6 +441,41 @@ class MemoryDB {
         for (const k of Object.keys(O)) if (Number(O[k].expires_at) < Number(params[0])) { delete O[k]; n += 1; }
         return [{ affectedRows: n }, []];
       }
+      case 'UPDATE JOB_RUNS SET LAST_STARTED = ? WHERE JOB = ? AND LAST_STARTED <= ?': {
+        const r = this.jobRuns[params[1]];
+        if (r && Number(r.last_started) <= Number(params[2])) { r.last_started = params[0]; return [{ affectedRows: 1 }, []]; }
+        return [{ affectedRows: 0 }, []];
+      }
+      case 'SELECT LAST_STARTED FROM JOB_RUNS WHERE JOB = ?': {
+        const r = this.jobRuns[params[0]];
+        return [r ? [{ ...r }] : [], []];
+      }
+      case 'INSERT INTO JOB_RUNS (JOB, LAST_STARTED) VALUES (?, ?)': {
+        if (Object.prototype.hasOwnProperty.call(this.jobRuns, params[0])) {
+          const err = new Error(`Duplicate entry '${params[0]}' for key 'PRIMARY'`);
+          err.code = 'ER_DUP_ENTRY'; err.errno = 1062;
+          throw err;
+        }
+        this.jobRuns[params[0]] = { last_started: params[1] };
+        return [{ affectedRows: 1 }, []];
+      }
+      case 'DELETE FROM JOB_RUNS WHERE JOB = ?': {
+        const had = Object.prototype.hasOwnProperty.call(this.jobRuns, params[0]);
+        delete this.jobRuns[params[0]];
+        return [{ affectedRows: had ? 1 : 0 }, []];
+      }
+      case 'SELECT STATE FROM JOB_STATE WHERE JOB = ?': {
+        const r = this.jobState[params[0]];
+        return [r ? [{ state: r.state }] : [], []];
+      }
+      case 'REPLACE INTO JOB_STATE (JOB, STATE, UPDATED_AT) VALUES (?, ?, ?)':
+        this.jobState[params[0]] = { state: params[1], updated_at: params[2] };
+        return [{ affectedRows: 1 }, []];
+      case 'DELETE FROM JOB_STATE WHERE JOB = ?': {
+        const had = Object.prototype.hasOwnProperty.call(this.jobState, params[0]);
+        delete this.jobState[params[0]];
+        return [{ affectedRows: had ? 1 : 0 }, []];
+      }
       default: {
         const err = new Error(`MemoryDB has no handler for: ${describeSql(sql) || 'unrecognised statement'} (shared-state tables).`);
         err.code = 'ER_MEMORYDB_UNIMPLEMENTED';
@@ -489,7 +529,8 @@ class MemoryDB {
     // statement, and every other statement naming these tables throws below:
     // the stores' correctness is their SQL, so the shim answers only the SQL
     // they send, the way MySQL would.
-    if (cmd.includes('AUTH_ATTEMPTS') || cmd.includes('OAUTH_STATES')) {
+    if (cmd.includes('AUTH_ATTEMPTS') || cmd.includes('OAUTH_STATES')
+        || cmd.includes('JOB_RUNS') || cmd.includes('JOB_STATE')) {
       return this._sharedStateStatement(cmd.replace(/\s+/g, ' '), params, sql);
     }
 
@@ -2498,6 +2539,8 @@ const EXPECTED_TABLES = Object.freeze([
   'wallet_link_nonces',
   'auth_attempts',
   'oauth_states',
+  'job_runs',
+  'job_state',
   'signals',
   'push_subscriptions',
   'copy_subscriptions',
@@ -2860,6 +2903,23 @@ async function migrate() {
         kind VARCHAR(8) NOT NULL,
         payload TEXT NOT NULL,
         expires_at BIGINT NOT NULL
+      )
+    `);
+    // Timed jobs, for the same reason: when each job last started, claimed by
+    // one conditional UPDATE so exactly one instance runs it when it is due
+    // (lib/shared_schedule), and what each job remembers between runs, as JSON
+    // (lib/job_state). Times are epoch ms.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS job_runs (
+        job VARCHAR(64) PRIMARY KEY,
+        last_started BIGINT NOT NULL
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS job_state (
+        job VARCHAR(64) PRIMARY KEY,
+        state MEDIUMTEXT NOT NULL,
+        updated_at BIGINT NOT NULL
       )
     `);
     // Global signal stream (every generated signal, taken or not). signal_key is

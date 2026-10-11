@@ -133,7 +133,7 @@ test('health-factor tripwire: slow cadence, fires below threshold via defi reads
   assert.ok(r.ok, r.error);
 
   sent.length = 0;
-  alerts.__testResetOnchainSweep();
+  await alerts.__testResetOnchainSweep();
   assert.equal(await alerts.runOnce(notify), 1, 'HF 1.2 < 1.5 → fires');
   assert.match(sent[0].payload.title, /DeFi risk/);
   assert.match(sent[0].payload.body, /1\.2/);
