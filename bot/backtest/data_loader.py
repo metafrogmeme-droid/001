@@ -23,6 +23,76 @@ logger = logging.getLogger(__name__)
 from bot.backtest.models import BacktestBar
 
 
+async def fetch_closed_ohlcv(exchange, symbol: str, timeframe: str, limit: int) -> list:
+    """The newest ``limit`` closed bars of ``symbol``, as ccxt rows.
+
+    Pages past the venue's per-call cap by walking forward with ``since``;
+    batches are de-duplicated by timestamp and trimmed to the most recent
+    ``limit`` rows. A ``limit`` within one page is one call. The newest row
+    of a window that ends now is still forming, so it is dropped here, at the
+    fetch, where the clock that decides it is the right one.
+
+    EACH PAGE STARTS AT THE LAST BAR ALREADY HELD. Bitget answers ``since``
+    two ways: its history candles include the bar at ``since``, and its
+    recent candles (about the last two months) return only bars after it.
+    Starting the next page one bar past the last one held lost that bar on
+    every recent page: every frozen dataset carried six missing bars per
+    symbol, one every 201 hours, and the backtest read across each hole as
+    if the hour had not happened. Starting at the last bar held is right
+    under either answer: an inclusive page repeats it, and the repeat is
+    de-duplicated.
+    """
+    from bot.utils.candles import drop_forming_candle
+
+    # Bitget spot candles allow 1000/page; the futures (mix) endpoint
+    # rejects large paged windows — 200/page is reliably accepted.
+    _page_cap = 200 if ":" in symbol else 1000
+    per_call = min(_page_cap, max(1, limit))
+    if limit <= per_call:
+        raw = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+    else:
+        tf_ms = int(exchange.parse_timeframe(timeframe)) * 1000
+        since = exchange.milliseconds() - limit * tf_ms
+        seen: dict[int, list] = {}
+        while len(seen) < limit:
+            # Bitget's futures (mix) candles endpoint rejects a bare
+            # startTime — page with an explicit until as well.
+            _until = min(since + per_call * tf_ms, exchange.milliseconds())
+            batch = await exchange.fetch_ohlcv(
+                symbol, timeframe, since=since, limit=per_call,
+                params={"until": _until})
+            if not batch:
+                break
+            for c in batch:
+                seen[int(c[0])] = c
+            new_since = int(batch[-1][0])
+            if new_since <= since:   # no forward progress — stop
+                break
+            since = new_since
+            if len(batch) < per_call and since + tf_ms >= exchange.milliseconds():
+                break
+        raw = [seen[k] for k in sorted(seen)][-limit:]
+    # The newest bar of a window that ends NOW is still forming, so every
+    # backtest's last decision and its final mark-to-market were taken on a
+    # part-period bar. Both branches land here, and a window that ends in the
+    # past is left intact (the helper drops only a bar whose period has not
+    # elapsed).
+    closed: list = drop_forming_candle(raw, timeframe)
+    return closed
+
+
+def missing_bars(rows, timeframe_ms: int) -> list[int]:
+    """Open times (ms) of the bars absent between the first row and the last.
+
+    A frozen series with a hole reads across it as if the hour never
+    happened; the freezer records these so the hole is named, not silent.
+    """
+    stamps = sorted({int(r[0]) for r in rows})
+    out: list[int] = []
+    for a, b in zip(stamps, stamps[1:]):
+        out.extend(range(a + timeframe_ms, b, timeframe_ms))
+    return out
+
 def _open_text(path: str, mode: str) -> IO[str]:
     """Open a CSV path for text I/O, transparently gzip-decoding/encoding a
     ``.gz`` suffix. Lets the committed benchmark snapshot stay compact on disk
@@ -117,15 +187,11 @@ class DataLoader:
     ) -> list[BacktestBar]:
         """Fetch historical OHLCV from Bitget via ccxt.
 
-        Paginates past the exchange's ~1000-bars-per-call cap by walking
-        forward with ``since``, so deep-history backtests (e.g. 5000+ 1h bars,
-        ~7 months) work with a plain ``limit``. Batches are de-duplicated by
-        timestamp and trimmed to the most recent ``limit`` bars. A ``limit``
-        within one page behaves exactly like the old single-call fetch.
+        Deep-history backtests (e.g. 5000+ 1h bars, ~7 months) work with a
+        plain ``limit``: ``fetch_closed_ohlcv`` pages past the per-call cap,
+        each page starting at the last bar already held.
         """
         import ccxt.async_support as ccxt
-
-        from bot.utils.candles import drop_forming_candle
 
         # Historical OHLCV is PUBLIC data from the venue the live bot trades
         # on. Never inherit CONFIG.exchange.sandbox here: Bitget's demo
@@ -142,41 +208,8 @@ class DataLoader:
             "aiohttp_trust_env": True,
         })
         try:
-            # Bitget spot candles allow 1000/page; the futures (mix) endpoint
-            # rejects large paged windows — 200/page is reliably accepted.
-            _page_cap = 200 if ":" in symbol else 1000
-            per_call = min(_page_cap, max(1, limit))
-            if limit <= per_call:
-                raw = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
-            else:
-                tf_ms = int(exchange.parse_timeframe(timeframe)) * 1000
-                since = exchange.milliseconds() - limit * tf_ms
-                seen: dict[int, list] = {}
-                while len(seen) < limit:
-                    # Bitget's futures (mix) candles endpoint rejects a bare
-                    # startTime — page with an explicit until as well.
-                    _until = min(since + per_call * tf_ms, exchange.milliseconds())
-                    batch = await exchange.fetch_ohlcv(
-                        symbol, timeframe, since=since, limit=per_call,
-                        params={"until": _until})
-                    if not batch:
-                        break
-                    for c in batch:
-                        seen[int(c[0])] = c
-                    new_since = int(batch[-1][0]) + tf_ms
-                    if new_since <= since:   # no forward progress — stop
-                        break
-                    since = new_since
-                    if len(batch) < per_call and since >= exchange.milliseconds():
-                        break
-                raw = [seen[k] for k in sorted(seen)][-limit:]
-            # The newest bar of a window that ends NOW is still forming, so
-            # every backtest's last decision and its final mark-to-market were
-            # taken on a part-period bar. Both branches land here, and a window
-            # that ends in the past is left intact (the helper drops only a bar
-            # whose period has not elapsed).
-            return DataLoader.from_ohlcv_list(
-                drop_forming_candle(raw, timeframe), symbol)
+            raw = await fetch_closed_ohlcv(exchange, symbol, timeframe, limit)
+            return DataLoader.from_ohlcv_list(raw, symbol)
         finally:
             await exchange.close()
 
