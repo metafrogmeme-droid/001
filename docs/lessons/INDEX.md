@@ -283,4 +283,4 @@ about to change before changing it.
 
 ## Operational docs (line 22681)
 
-- L22691: THE FREEZER LOST A BAR A PAGE, AND EVERY BACKTEST READ ACROSS THE HOLE — `tests/test_the_freezer_keeps_every_bar_of_every_page.py`
+- L22691: THE FREEZER LOST A BAR A PAGE, AND EVERY BACKTEST READ ACROSS THE HOLE — `tests/test_a_new_position_is_marked_at_its_fill.py`, `tests/test_the_freezer_keeps_every_bar_of_every_page.py`
