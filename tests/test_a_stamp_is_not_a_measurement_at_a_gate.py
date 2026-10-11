@@ -156,7 +156,9 @@ def _call_naming(method, marker: str, must_name: str):
 
 def _overconfidence(idea):
     r = TradeCritique().evaluate(idea, _rc(), _snap())
-    return [c for c in r.concerns if "high confidence" in c], r
+    # By the rule behind each concern, not by its wording: the sentence
+    # changed ("heuristic", no blame on the model) and the rule did not.
+    return [c for c, rule in zip(r.concerns, r.rules) if rule == "high_confidence"], r
 
 
 class TestTheCritiqueFlagsWhatTheModelSaid:

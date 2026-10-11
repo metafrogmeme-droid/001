@@ -324,7 +324,7 @@ class TestTradeCritique:
         assert any("REDUCE" in c or "macro" in c.lower() for c in result.concerns)
 
     def test_tight_stop_triggers_concern(self):
-        """Stop loss < 1% from entry triggers stop hunt concern."""
+        """Stop loss < 1% from entry triggers the tight-stop concern."""
         # SL 0.5% from entry
         idea = _make_idea(
             entry_price=100_000.0,
@@ -335,7 +335,8 @@ class TestTradeCritique:
         risk_check = MagicMock()
 
         result = self.critic.evaluate(idea, risk_check, snapshot)
-        assert any("stop" in c.lower() and "hunt" in c.lower() for c in result.concerns)
+        assert result.rules == ["tight_stop"]
+        assert any("stop loss" in c.lower() and "heuristic" in c for c in result.concerns)
 
     def test_four_concerns_produces_halt(self):
         """4+ concerns produces HALT verdict (MAX_CONCERNS_FOR_HALT = 4)."""

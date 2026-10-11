@@ -59,7 +59,7 @@
 
 **RUNECLAW** is an AI trading command system built by **Humanoid Traders** for the Bitget AI Base Camp · Hackathon S1. It merges multi-timeframe analysis, confluence scoring, regime detection, order-flow microstructure, and risk-first logic into a disciplined framework -- all controllable through a Telegram bot interface.
 
-The system operates in **simulation-first mode by default**. Every trade idea must pass the full pre-trade risk gate — strict fail-closed rules, a fail-open liquidity guard, and advisory rules that skip when their data is unavailable (`config/risk_manifest.yaml` is the authoritative list) — an adversarial self-critique gate, and receive explicit human confirmation before execution unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`) — both off in the shipped `.env.example`, on in the code default when no `.env` is present.
+The system operates in **simulation-first mode by default**. Every trade idea must pass the full pre-trade risk gate — strict fail-closed rules, a fail-open liquidity guard, and advisory rules that skip when their data is unavailable (`config/risk_manifest.yaml` is the authoritative list) — a pre-trade critique of heuristic concerns, and receive explicit human confirmation before execution unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`) — both off in the shipped `.env.example`, on in the code default when no `.env` is present.
 
 > **Shield risk engine available as MCP server -- any GetClaw agent can call it.** See `bot/mcp/server.py`.
 
@@ -204,12 +204,12 @@ flash crashes, liquidity drains, correlated selloffs, stale data injection, conf
 R:R gaming, circuit breaker evasion, zero/negative values, direction inversion, and max position flooding.
 Red-team testing framework included -- runs 28 adversarial scenarios to verify risk gate behavior. Includes ATR=0 bad-data test.
 
-### Adversarial Self-Critique Gate (NEW)
-Pre-trade bear-case analysis that runs on every confirmed trade before execution:
-- 7 heuristic checks: overconfidence (>90%), marginal R:R (<1.5x), directional crowding (3+ same-direction), same-asset double-down, portfolio heat (4+ open), macro headwind, tight stop (<1% from entry)
-- **HALT** verdict at 3+ concerns blocks execution with full explanation
+### Pre-Trade Critique (heuristic concerns)
+Rule-based concerns asked on every confirmed trade before execution (`bot/core/critique.py`):
+- 5 heuristic checks: a confidence score above 90, R:R under 1.5, 4+ open positions on the book, a macro REDUCE state, a stop under 1% from entry
+- **HALT** verdict at 4+ concerns blocks execution, a trade a person confirmed included; none of the rules has been backtested, and `scripts/critique_replay.py` measures what the halt would remove on a frozen benchmark
 - **WARN** verdict logs concerns but allows trade to proceed
-- Fail-open design: critique errors never block trades (unlike fail-closed risk engine)
+- A critique error proceeds with a warning in paper and refuses the trade in live
 
 ### Portfolio Value at Risk (NEW)
 Parametric VaR as risk check #21:
