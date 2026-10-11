@@ -40,15 +40,17 @@ def test_a_reopened_asset_is_valued_at_its_new_fill_not_the_old_mark(tmp_path):
     assert state.current_drawdown_pct == round((peak - state.equity_usd) / peak * 100, 2)
 
 
-def test_a_short_reopened_below_the_old_mark_is_not_a_fake_loss(tmp_path):
+def test_a_short_reopened_over_the_old_mark_is_not_a_fake_gain(tmp_path):
+    """A short opened at 2,329 and valued at the old 1,670 mark reads +28%."""
     book = _book(tmp_path)
     first = book.open_position(_idea(1_670.0, Direction.SHORT), 500.0, leverage=5)
     book.mark_to_market({"ETH/USDT:USDT": 1_670.0})
     book.close_position(first.trade_id, 1_670.0)
+    peak = book._peak_equity
     book.open_position(_idea(2_329.0, Direction.SHORT), 500.0, leverage=5)
     state = book.snapshot()
     assert state.equity_usd == round(book.balance + 500.0, 2)
-    assert state.current_drawdown_pct < 1.0
+    assert book._peak_equity == peak, "the high-water mark moved on a mark nobody saw"
 
 
 def test_a_fresher_mark_still_moves_the_position(tmp_path):
@@ -59,3 +61,20 @@ def test_a_fresher_mark_still_moves_the_position(tmp_path):
     state = book.snapshot()
     assert state.equity_usd > book.balance + 500.0
     assert book._peak_equity == pytest.approx(state.equity_usd, abs=0.01)
+
+
+def test_the_fill_mark_reads_as_current_to_the_chat(tmp_path):
+    """`paper_mark` prints the mark's age beside it in the chat prompt. The
+    fill is a price taken now, so it must read as current, not as the age of
+    the old position's last mark (back-dated here to months before)."""
+    book = _book(tmp_path)
+    first = book.open_position(_idea(2_329.0), 500.0, leverage=5)
+    book.mark_to_market({"ETH/USDT:USDT": 2_329.0})
+    book.close_position(first.trade_id, 2_329.0)
+    book._last_price_at["ETH/USDT:USDT"] -= 90 * 86_400
+    stale_price, stale_age = book.paper_mark("ETH/USDT:USDT")
+    assert (stale_price, stale_age > 80 * 86_400) == (2_329.0, True), "the fixture is not stale"
+    book.open_position(_idea(1_670.0), 500.0, leverage=5)
+    price, age = book.paper_mark("ETH/USDT:USDT")
+    assert price == 1_670.0
+    assert age is not None and age < 60, f"a fill made now read as {age}s old"

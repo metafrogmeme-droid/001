@@ -22637,7 +22637,10 @@ regenerated; only the stamps differ, so they are not re-recorded): their
 positions are marked every bar before the peak is read. The scanner's card is
 measured after this fix. (`tests/test_a_new_position_is_marked_at_its_fill.py`:
 a long reopened under its old mark and a short reopened over it are worth
-their margin and leave the peak alone; a fresher mark still moves them.)
+their margin and leave the peak alone; a fresher mark still moves them; the
+fill's mark reads as current to the chat, which prints its age. Three mutants,
+all killed; the first round left the stamp standing because no test asked the
+age.)
 
 **THE LIMIT ENTRY SCANNER, PORTED: ITS FIRST CARD MEASURED SOMEONE ELSE'S
 EXITS, AND ITS PLAYBOOK SCORED WHAT IT NEVER READ.** 10 October, the
