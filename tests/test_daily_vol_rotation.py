@@ -243,19 +243,15 @@ def test_the_public_card_has_no_track_record_and_no_dollars():
 
 def test_confirm_keeps_the_universe_and_does_not_pretend_to_apply_exits():
     cfg = _preset()
-    refused = check_confirm("daily vol rotation", cfg, "DOGE/USDT:USDT", 0.9)
-    assert refused["ok"] is False
-    assert "symbols" in refused["enforced"]
     from bot.utils.models import Direction
-    allowed = check_confirm("daily vol rotation", cfg, "AVAX/USDT:USDT", None,
-                            Direction.LONG)
-    assert allowed["ok"] is True
-    assert "momentum_period" in allowed["scan_only"]
-    assert "trailing_stop_pct" not in allowed["scan_only"]
-    # Long only is a side the confirm reads, so it is enforced there.
-    short = check_confirm("daily vol rotation", cfg, "AVAX/USDT:USDT", None,
-                          Direction.SHORT)
-    assert short["ok"] is False and "long-only" in short["reason"]
+    # The live bot does not run the rotation, so no confirm is its trade,
+    # in its universe or out of it, on either side.
+    for asset, side in (("DOGE/USDT:USDT", None), ("AVAX/USDT:USDT", Direction.LONG),
+                        ("AVAX/USDT:USDT", Direction.SHORT)):
+        refused = check_confirm("daily vol rotation", cfg, asset, None, side)
+        assert refused["ok"] is False and "does not run" in refused["reason"]
+        assert "momentum_period" in refused["scan_only"]
+        assert "trailing_stop_pct" not in refused["scan_only"]
     confirm, scan = describe_gates(cfg)
     assert confirm == ["symbols", "direction"]
     assert "momentum_period" in scan and "bar_timeframe" in scan
