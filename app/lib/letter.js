@@ -701,9 +701,9 @@ async function sweepLetters(notify) {
 let sweepTimer = null;
 function startLetterSweep(intervalMs = 3_600_000) {
   if (sweepTimer) return;
-  sweepLetters().catch(() => {});
-  sweepTimer = setInterval(() => { sweepLetters().catch(() => {}); }, intervalMs);
-  if (sweepTimer.unref) sweepTimer.unref();
+  // One schedule across instances (lib/shared_schedule): hourly, not at every
+  // 70-second instance's boot. The letter row already makes the push fire once.
+  sweepTimer = require('./shared_schedule').every('letter_sweep', intervalMs, () => sweepLetters());
 }
 
 /**

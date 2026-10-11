@@ -20,11 +20,15 @@
 const { isConfigured: gatewayConfigured, getGateway } = require('./gateway');
 const { picksForAgent } = require('./agent_match');
 
-let seen = null;                 // Set<"agentId|signal_key">; null until baseline
+// The picks already announced ("agentId|signal_key"), shared by every instance
+// (lib/job_state). Held in a variable, every 70-second instance's first sweep
+// was the silent baseline and none lived to a second, so no pick was pushed.
+const jobState = require('./job_state');
+const STATE = 'copy_watch';
 const MAX_SEEN = 5000;
 
-/** Reset the baseline (tests + restarts). */
-function resetCopyWatch() { seen = null; }
+/** Reset the baseline (tests, and a deliberate re-baseline). */
+function resetCopyWatch() { return jobState.clear(STATE); }
 
 function baseSym(sym) { return String(sym || '').toUpperCase().replace(/[:/].*$/, ''); }
 
@@ -71,15 +75,18 @@ async function sweepCopy(deps = {}, notify) {
     if (!catalogue || !catalogue.length) { health.ok(); return 0; }
     const byId = new Map(catalogue.map(a => [a.id, a]));
 
-    if (seen === null) {                       // baseline: record, never notify
-      seen = new Set(newPicks(byId, signals, followed, new Set()).map(p => p.key));
+    const saved = await jobState.load(STATE);
+    if (!saved.found) {                        // baseline: record, never notify
+      await jobState.save(STATE, newPicks(byId, signals, followed, new Set()).map(p => p.key));
       return 0;
     }
+    let seen = new Set(saved.value || []);
 
     const fresh = newPicks(byId, signals, followed, seen);
     if (!fresh.length) return 0;
     fresh.forEach(p => seen.add(p.key));
     if (seen.size > MAX_SEEN) seen = new Set(Array.from(seen).slice(-Math.floor(MAX_SEEN / 2)));
+    await jobState.save(STATE, Array.from(seen));   // before sending: a crash mid-send never re-sends
 
     const optIns = await (deps.loadOptIns || dbOptIns)();     // Set<user_id>
     const send = notify || defaultNotify;
@@ -160,9 +167,11 @@ function defaultNotify(payload, userIds) {
  * while it was live is a push that never happened. */
 function startCopyWatch(intervalMs = 60 * 1000) {
   const push = require('./push');
-  const tick = () => { if (push.isConfigured() && gatewayConfigured()) sweepCopy().catch(() => {}); };
-  setTimeout(tick, 30 * 1000);            // first real sweep after boot settles
-  return setInterval(tick, intervalMs);
+  // One schedule across instances (lib/shared_schedule); returns a stop function.
+  return require('./shared_schedule').every('copy_watch', intervalMs, () => sweepCopy(), {
+    firstDelayMs: 10 * 1000,              // first look after boot settles
+    when: () => push.isConfigured() && gatewayConfigured(),
+  });
 }
 
 module.exports = { sweepCopy, newPicks, resetCopyWatch, startCopyWatch, baseSym };

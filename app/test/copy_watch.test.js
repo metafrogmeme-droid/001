@@ -35,7 +35,7 @@ test('newPicks returns only matches not already seen', () => {
 });
 
 test('baseline sweep records current picks and notifies nobody', async () => {
-  resetCopyWatch();
+  await resetCopyWatch();
   const sends = [];
   const deps = {
     loadFollowedAgentIds: async () => ['dip-sniper'],
@@ -50,7 +50,7 @@ test('baseline sweep records current picks and notifies nobody', async () => {
 });
 
 test('a new pick pushes to opted-in followers only, then dedups', async () => {
-  resetCopyWatch();
+  await resetCopyWatch();
   const sends = [];
   const notify = async (p, ids) => { sends.push({ p, ids }); return ids.length; };
   let signals = [SIG('s1', 'BTC/USDT', 0.8, 'TREND_DOWN')];
@@ -85,7 +85,7 @@ test('a withheld agent pushes nothing to the followers it had; an offered one st
   assert.strictEqual(newPicks(new Map([[absent.id, absent]]), sigs, ['dip-sniper'], new Set()).length, 0);
 
   for (const [agent, expect] of [[withheld, 0], [CATALOG[0], 1]]) {
-    resetCopyWatch();
+    await resetCopyWatch();
     const sends = [];
     let signals = sigs;
     const deps = {
@@ -104,7 +104,7 @@ test('a withheld agent pushes nothing to the followers it had; an offered one st
 });
 
 test('no push when nobody who follows the agent opted in', async () => {
-  resetCopyWatch();
+  await resetCopyWatch();
   const sends = [];
   let signals = [SIG('s1', 'BTC/USDT', 0.8, 'TREND_DOWN')];
   const deps = {
@@ -122,7 +122,7 @@ test('no push when nobody who follows the agent opted in', async () => {
 });
 
 test('§4: the push payload carries no dollar figure', async () => {
-  resetCopyWatch();
+  await resetCopyWatch();
   let signals = [SIG('s1', 'BTC/USDT', 0.8, 'TREND_DOWN')];
   const deps = {
     loadFollowedAgentIds: async () => ['dip-sniper'],

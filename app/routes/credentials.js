@@ -231,7 +231,7 @@ router.post('/', credLimit, async (req, res) => {
     // victim's engine would place their live orders on the attacker's
     // account, while the account they had connected stopped being reconciled.
     // DELETE below is the same door pointed at availability.
-    const blk = stepUpBlock(u.totp_enabled, u.totp_secret, (req.body || {}).totp_code,
+    const blk = await stepUpBlock(u.totp_enabled, u.totp_secret, (req.body || {}).totp_code,
       'Enter your 6-digit authenticator code to connect exchange keys.',
       uidKey(uid));
     if (blk) { secLog('creds_connect_2fa', req); return res.status(blk.status).json(blk.body); }

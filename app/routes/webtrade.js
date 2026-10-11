@@ -145,7 +145,7 @@ router.post('/confirm', tradeLimit, async (req, res) => {
         liveCapable = !(lm && lm.status === 200 && lm.data && lm.data.live_allowed === false);
       } catch (_) { /* keep liveCapable = true: no answer requires the code */ }
       if (liveCapable) {
-        const blk = stepUpBlock(urow.totp_enabled, urow.totp_secret,
+        const blk = await stepUpBlock(urow.totp_enabled, urow.totp_secret,
           (req.body || {}).totp_code,
           'Enter your 6-digit authenticator code to confirm a live trade.',
           uidKey(req.user.user_id));

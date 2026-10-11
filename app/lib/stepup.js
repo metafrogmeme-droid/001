@@ -6,10 +6,12 @@
  * When an account has 2FA enrolled, the sensitive action must carry a fresh
  * TOTP code — the same verifier the login and fixed-term-staking flows use.
  *
- * This is a PURE check: the caller passes the `totp_enabled` / `totp_secret`
- * it already read from the user row (no extra DB round-trip), so it is trivial
- * to unit-test. Fail-CLOSED: an enrolled account with a missing or wrong code
- * is blocked; a non-enrolled account passes (nothing to check).
+ * The caller passes the `totp_enabled` / `totp_secret` it already read from
+ * the user row, so the code check needs no extra read. It is ASYNC because
+ * the failure count is shared by every web instance through the database
+ * (lib/second_factor_lockout.js): callers `await` it. Fail-CLOSED: an enrolled
+ * account with a missing or wrong code is blocked; a non-enrolled account
+ * passes (nothing to check).
  */
 
 const totp = require('./totp');
@@ -26,11 +28,11 @@ const lockout = require('./second_factor_lockout');
  *   work the six-digit space for days, and a stolen session is the exact
  *   threat the docstring above says this exists to stop. Every call site in
  *   app/ passes it, pinned by app/test/second_factor_lockout.test.js.
- * @returns {null | {status:number, body:object}} null = allowed; object = send it
+ * @returns {Promise<null | {status:number, body:object}>} null = allowed; object = send it
  */
-function stepUpBlock(enrolled, secret, code, detail, accountKey) {
+async function stepUpBlock(enrolled, secret, code, detail, accountKey) {
   if (!enrolled) return null;               // 2FA not enrolled — nothing to gate
-  if (accountKey && !lockout.checkAccountLockout(accountKey)) {
+  if (accountKey && !(await lockout.checkAccountLockout(accountKey))) {
     return {
       status: 429,
       body: {
@@ -55,7 +57,7 @@ function stepUpBlock(enrolled, secret, code, detail, accountKey) {
     };
   }
   if (!totp.verifyTotp(secret, c)) {
-    lockout.recordAccountFailure(accountKey);
+    await lockout.recordAccountFailure(accountKey);
     return {
       status: 401,
       body: {
@@ -64,7 +66,7 @@ function stepUpBlock(enrolled, secret, code, detail, accountKey) {
       },
     };
   }
-  lockout.clearAccountFailures(accountKey);
+  await lockout.clearAccountFailures(accountKey);
   return null;                               // valid fresh code — allowed
 }
 

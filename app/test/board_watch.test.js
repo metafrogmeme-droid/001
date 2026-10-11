@@ -25,7 +25,7 @@ const { pool } = require('../db');
 const bw = require('../lib/board_watch');
 
 test('first sweep is baseline-only; moves push one digest; quiet board pushes nothing', async () => {
-  bw.resetBoardWatch();
+  await bw.resetBoardWatch();
   const pushes = [];
   const notify = async (p) => { pushes.push(p); };
   const board = [
@@ -62,7 +62,7 @@ test('first sweep is baseline-only; moves push one digest; quiet board pushes no
 });
 
 test('fetch failure never throws and never pushes', async () => {
-  bw.resetBoardWatch();
+  await bw.resetBoardWatch();
   const pushes = [];
   assert.equal(await bw.sweepBoard(async () => { throw new Error('gateway down'); },
     async (p) => pushes.push(p)), false);
