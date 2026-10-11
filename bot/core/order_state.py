@@ -437,16 +437,23 @@ _VENUE_REFUSAL_WORDS: dict[str, str] = {
 #: minimum) answers: more than is held, or under the market's size rules.
 SIZE_REFUSALS = frozenset({"25231", "25610"})
 
+#: A stop refused for the position's size. The unified account's stop names
+#: no size (``tpslMode: "full"``): the venue sizes it to the whole position
+#: and refused that, so no retry places it.
+STOP_REFUSED_FOR_SIZE = "25610"
+
 
 def venue_code(exc) -> Optional[str]:
     """The venue's refusal code in an order error, or None when it states none.
 
-    Read from the JSON's ``"code"`` field, never as a substring of the whole
-    text: ``requestTime`` is thirteen digits, and five of them can spell any
-    code.
+    Read from the JSON's ``"code"`` field, or from the ``"25610: …"`` form the
+    stop placer records, never as a substring of the whole text:
+    ``requestTime`` is thirteen digits, and five of them can spell any code.
     """
     try:
-        m = re.search(r'"code"\s*:\s*"?(\d{4,6})', str(exc))
+        text = str(exc)
+        m = (re.search(r'"code"\s*:\s*"?(\d{4,6})', text)
+             or re.match(r'\s*(\d{4,6})\s*:', text))
     except Exception:
         return None
     return m.group(1) if m else None

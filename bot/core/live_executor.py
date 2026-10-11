@@ -81,7 +81,7 @@ from bot.core.time_exits import UNRECORDED_ORIGINS, in_profit_after_fees, thesis
 from bot.core.position_telemetry import entered_at, price_on_record
 from bot.core.order_state import (
     CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, NOTHING_TO_CLOSE, SIZE_REFUSALS,
-    amount_to_send, first_reading, flash_close_applied, flatten_outcome, held_on_side,
+    STOP_REFUSED_FOR_SIZE, amount_to_send, first_reading, flash_close_applied, flatten_outcome, held_on_side,
     order_status, pending_cancel_verdict,
     position_presence, read_amount, refusal_text, rows_for_side, stop_attached, venue_code,
 )
@@ -11622,6 +11622,43 @@ class LiveExecutor:
                             closed_messages.append(msg)
                             continue
 
+                    # ── Size-by-rejection: the venue will not let it carry a stop ──
+                    # The same shape as the breach above, for the other refusal
+                    # no retry can answer. 25610 on the unified account's stop,
+                    # which names no size: the venue sized it to the whole
+                    # position and refused that (live, M/USDT, 11 October: under
+                    # the 5 USDT minimum order value). It was retried every
+                    # scan, and the alert below asked the person to place the
+                    # same refused stop by hand. RC-AUD-001's end state applies,
+                    # as it does after a fill: protected, closed, or URGENT. So
+                    # it is flattened, through the close's flash-close fallback,
+                    # at most once per alert interval. An adopted or reclaimed
+                    # position is never auto-closed (RC-AUD-022): it keeps the
+                    # alert.
+                    _stop_size_refused = (
+                        not pos.sl_order_id and pos.stop_loss > 0
+                        and venue_code(self._last_sltp_reason(pos.symbol))
+                        == STOP_REFUSED_FOR_SIZE)
+                    if (_stop_size_refused
+                            and getattr(pos, "origin", "executed") not in UNRECORDED_ORIGINS):
+                        _now_ts = time.time()
+                        _last_try = getattr(pos, "_size_flatten_at", None)  # None: never tried
+                        if (_last_try is None or _now_ts - _last_try
+                                >= CONFIG.execution.unprotected_alert_interval_s):
+                            setattr(pos, "_size_flatten_at", _now_ts)
+                            audit(trade_log,
+                                  f"No stop can rest on {pos.symbol}: the venue refused it "
+                                  f"for the position's size — flattening",
+                                  action="sl_size_refused", result="FLATTEN",
+                                  data={"trade_id": trade_id, "symbol": pos.symbol,
+                                        "stop_loss": pos.stop_loss,
+                                        "quantity": pos.quantity})
+                            msg = await self.close_position(
+                                trade_id, reason="sl_placement_failed")
+                            closed_messages.append(msg)
+                            if flatten_outcome(msg) != "failed":
+                                continue
+
                     # ── Escalate a persistently-unprotected position ──
                     # If the per-tick retry above STILL could not place an exchange
                     # stop, the position is live with no venue-side protection (it is
@@ -11653,12 +11690,18 @@ class LiveExecutor:
                             # when nothing was recorded.
                             _why_line = refusal_suffix(
                                 self._last_sltp_reason(pos.symbol))
+                            # A stop refused for the position's size is the
+                            # stop a person would place by hand too.
+                            _by_hand = ("Bitget refused a stop for this position's size, "
+                                        "so one placed by hand is likely refused too: "
+                                        "close it on Bitget manually."
+                                        if _stop_size_refused else
+                                        "place a stop on Bitget manually.")
                             closed_messages.append(
                                 f"🚨 <b>UNPROTECTED POSITION — {pos.symbol} {pos.direction}</b>\n"
                                 f"No exchange stop-loss could be placed (still retrying each "
                                 f"scan; price-monitored locally as a backstop).{_why_line}\n"
-                                f"Stop level: <code>${pos.stop_loss:.4f}</code> — place a stop "
-                                f"on Bitget manually."
+                                f"Stop level: <code>${pos.stop_loss:.4f}</code> — {_by_hand}"
                             )
 
                     # ── GETCLAW: Time-stop check (Rules 6/17) ──

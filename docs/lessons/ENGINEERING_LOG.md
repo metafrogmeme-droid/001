@@ -21344,7 +21344,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **485 of 1277** reach for source text through `source_scan`, `code_only`
+Driven, **485 of 1278** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 485 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -23282,6 +23282,24 @@ close that applied nothing, or was not accepted, is still a failed close with
 the record untouched; a refusal whose time spells a code is not flash-closed;
 a 3-of-150 holding is booked and priced as 3. Nine mutants across both rounds,
 all killed.)
+
+**The stop was retried forever, and the alert asked for the refused stop.**
+After the deploy, 25610 kept repeating on every scan and no close followed it.
+The post-fill ladder flattens a position whose stop will not place (RC-AUD-001:
+protected, closed, or URGENT), and its flatten was the close refused above. The
+per-scan retry in `check_positions` never escalated. It retried a stop the
+venue sizes to the whole position and refuses for that size, which no retry
+can place, and its alert told the person to "place a stop on Bitget manually",
+which is the same order. It now has a sibling of the breach-by-rejection
+branch: a 25610 stop refusal flattens a bot-opened position through
+`close_position`, at most once per alert interval. An adopted or reclaimed
+position is never auto-closed (RC-AUD-022). Either way, the alert for a stop
+refused for size says to close the position, not to place the stop.
+`venue_code` reads the placer's `"25610: …"` record as well as a JSON field.
+(`tests/test_a_stop_refused_for_size_is_flattened.py`: flattened once, with
+the safety reason; a failed flatten is alerted with the right door and retried
+on the interval, not every scan; adopted, never closed; another refusal still
+asks for a stop. Seven mutants, all killed.)
 
 What this does not answer is how the record came to say more than the venue
 held. The fill paths read the venue's filled amount, and fall back to the
