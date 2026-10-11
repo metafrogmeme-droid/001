@@ -409,6 +409,22 @@ def amount_to_send(recorded: float, held: Optional[float]) -> float:
     return recorded
 
 
+def flash_close_applied(result) -> bool:
+    """Whether a venue flash close was APPLIED, not just accepted.
+
+    The envelope code says the request was accepted; the per-item list says
+    whether the close was applied. An accepted request with a failed item is a
+    position still open, and `all([])` is True, so an accepted request that
+    applied NOTHING must not read as a flat book either.
+    """
+    env = result if isinstance(result, dict) else {}
+    items = (env.get("data") or {}).get("list") if isinstance(env.get("data"), dict) else None
+    items = items or []
+    return (env.get("code") == "00000" and bool(items) and all(
+        not item.get("code") or item.get("code") == "00000"
+        for item in items if isinstance(item, dict)))
+
+
 #: Bitget refusals a person acts on, in words. Read by `refusal_text`.
 _VENUE_REFUSAL_WORDS: dict[str, str] = {
     "25231": "the close asked for more than the position the venue holds",

@@ -81,7 +81,8 @@ from bot.core.time_exits import UNRECORDED_ORIGINS, in_profit_after_fees, thesis
 from bot.core.position_telemetry import entered_at, price_on_record
 from bot.core.order_state import (
     CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, NOTHING_TO_CLOSE, amount_to_send,
-    first_reading, flatten_outcome, held_on_side, order_status, pending_cancel_verdict,
+    first_reading, flash_close_applied, flatten_outcome, held_on_side, order_status,
+    pending_cancel_verdict,
     position_presence, read_amount, refusal_text, rows_for_side, stop_attached,
 )
 from bot.core.symbol_form import normalize_symbol
@@ -9751,8 +9752,13 @@ class LiveExecutor:
         venue_sym = self._venue.order_symbol(symbol)
         held: Optional[float] = None
         try:
-            rows = await exchange.fetch_positions([venue_sym])
-            held = held_on_side(rows, venue_sym, side)
+            # The futures book, asked as the 25227 branch asks it: without the
+            # product params a Bitget account answered an empty list, which is
+            # a flat reading, so the record's size went out uncapped.
+            book_sym = self._venue.swap_symbol(symbol)
+            rows = await exchange.fetch_positions(
+                [book_sym], params=self._venue.futures_params())
+            held = held_on_side(rows, book_sym, side)
         except Exception as exc:
             logger.debug("held size unread for %s: %s", symbol, type(exc).__name__)
         amount = amount_to_send(recorded, held)
@@ -14644,6 +14650,36 @@ class LiveExecutor:
             #   a) Position was already closed by exchange-side SL/TP trigger
             #   b) Close order had wrong parameters (missing marginMode etc.)
             # MUST verify the position is actually gone before recording a close.
+            # 25231: "Close quantity cannot exceed the held position quantity".
+            # The venue holds LESS than the order asked to close, and holds
+            # something, or it would answer 25227. Live, 11 October: an M/USDT
+            # short whose record said more than a partly filled limit held was
+            # refused here on every close, and its stop was refused too (25610:
+            # what it held was under the venue's 5 USDT minimum), so even the
+            # flatten for "no stop could be placed" failed and the position sat
+            # open with no stop. The flash close names no size and no minimum:
+            # it closes what the venue holds, which is the close asked for.
+            if "25231" in exc_str or "cannot exceed the held position" in exc_str:
+                audit(trade_log,
+                      f"25231 for {pos.symbol}: the venue holds less than the record — "
+                      f"flash close",
+                      action="live_close_25231", result="FLASH_CLOSE",
+                      data={"trade_id": trade_id, "symbol": pos.symbol,
+                            "recorded": pos.quantity})
+                try:
+                    flash_result = await self._flash_close_position(pos)
+                    if flash_close_applied(flash_result):
+                        _venue_flat = True
+                        _flash_applied = True
+                        await asyncio.sleep(1.0)  # let the fill settle
+                        close_result = await self._handle_already_closed_position(
+                            pos, bot_reason=reason, bot_closed=True)
+                        if close_result:
+                            return close_result
+                except Exception as flash_exc:
+                    logger.warning("Flash close after 25231 failed for %s: %s",
+                                   pos.symbol, type(flash_exc).__name__)
+
             if "25227" in exc_str or "No position available" in exc_str:
                 try:
                     verify_exchange = await self._get_exchange()
@@ -14691,19 +14727,7 @@ class LiveExecutor:
                           action="live_close_25227", result="STILL_OPEN_FLASH_CLOSE")
                     try:
                         flash_result = await self._flash_close_position(pos)
-                        # The envelope code says the request was accepted; the
-                        # per-item list says whether the close was APPLIED. An
-                        # accepted request with a failed item is a position
-                        # still open, not a flat book.
-                        _flash_env: dict = flash_result if isinstance(flash_result, dict) else {}
-                        _flash_items = (_flash_env.get("data") or {}).get("list") or []
-                        # `all([])` is True: an accepted request that applied
-                        # NOTHING must not read as a flat book either.
-                        _flash_ok = (_flash_env.get("code") == "00000"
-                                     and bool(_flash_items) and all(
-                            not item.get("code") or item.get("code") == "00000"
-                            for item in _flash_items if isinstance(item, dict)))
-                        if _flash_ok:
+                        if flash_close_applied(flash_result):
                             # Flash close applied — now look up fill data
                             _venue_flat = True
                             _flash_applied = True

@@ -21344,7 +21344,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **485 of 1276** reach for source text through `source_scan`, `code_only`
+Driven, **485 of 1277** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 485 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -23243,3 +23243,24 @@ read; a refused close names the code and not the JSON. Eight mutants, all
 killed. Two close-verification fixtures answered a fixed list of book reads
 and were given the sizing read in front, one of them having passed only
 because the extra read had shifted its own readings.)
+
+**THE SIZED CLOSE STILL ASKED FOR TOO MUCH: THE BOOK WAS READ WITHOUT ITS
+PARAMS, AND WHAT IT HELD WAS UNDER THE MINIMUM.** 11 October, the same M/USDT
+short, after the venue-sized close shipped: the close was still refused, now in
+its new words, "venue code 25231: the close asked for more than the position
+the venue holds". The size read had asked `fetch_positions` without the product
+params the 25227 branch has always sent, and a Bitget account answered an empty
+list, which is a flat reading, so the record's size went out uncapped. And the
+stop's refusal (25610) came from the unified account's strategy order, which
+sends no size at all: Bitget's v3 spec for MUSDT has a 5 USDT minimum order
+value, so a position that small cannot carry a stop, and the flatten that a
+stopless position gets went through the same refused close. The size is read
+from the futures book now, as the 25227 branch reads it; and a 25231 refusal
+falls back to the flash close, which names no size and no minimum and closes
+what the venue holds, as 25227's branch already did. "The flash close was
+applied" is one reading for both branches now (`flash_close_applied`).
+(`tests/test_a_close_refused_for_size_is_flash_closed.py`: a 25231 refusal is
+flash-closed and booked as the bot's own close, for its reason; a flash close
+that applied nothing, or was not accepted, is still a failed close with the
+record kept; the size is read with the futures params. Four mutants, all
+killed.)
