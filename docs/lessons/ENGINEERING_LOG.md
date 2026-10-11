@@ -22611,6 +22611,7 @@ its last with no bar, and `verify_dataset` holds the file to it both ways. The
 committed manifests name their 474 holes now; their candles are unchanged, so
 no dataset hash and no published card moves. Re-freezing them would move
 every card, which is the operator's decision, not a side effect of this fix.
-Six mutants, all killed, the old page start among them (caught on the
-recent-candles arm alone, as it should be).
+Seven mutants, all killed, the old page start among them (caught on the
+recent-candles arm alone, as it should be) and a verifier that checks one
+direction only (a manifest naming a hole the file does not have).
 (`tests/test_the_freezer_keeps_every_bar_of_every_page.py`.)
