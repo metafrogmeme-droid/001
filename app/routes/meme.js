@@ -37,7 +37,7 @@ const SOL_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 // A build costs an upstream quote AND a transaction build, so it is rate
 // limited harder than a read.
-const buildLimit = rateLimit({ windowMs: 60000, max: 8, key: userKey });
+const buildLimit = rateLimit({ name: 'meme.build', windowMs: 60000, max: 8, key: userKey });
 
 /**
  * Check a build request. `{ ok: true, value }` or `{ ok: false, error, detail }`.

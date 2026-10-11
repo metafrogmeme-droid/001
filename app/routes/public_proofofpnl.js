@@ -17,7 +17,7 @@ const { rateLimit, ipKey } = require('../lib/rate_limit');
 const { getGateway, relay, isConfigured } = require('../lib/gateway');
 
 const router = express.Router();
-router.use(rateLimit({ windowMs: 60000, max: 30, key: ipKey }));
+router.use(rateLimit({ name: 'public_proofofpnl', windowMs: 60000, max: 30, key: ipKey }));
 
 const CACHE_MS = 30 * 1000;   // the sealer publishes at most once per epoch
 let cache = null;              // { at: ms, status, data }

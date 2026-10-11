@@ -18,7 +18,7 @@ const router = express.Router();
 router.use(authMiddleware);
 // Same tight cap as /api/holdings — this fans out the same heavy per-venue +
 // wallet reads underneath.
-router.use(rateLimit({ windowMs: 60000, max: 6, key: userKey }));
+router.use(rateLimit({ name: 'counterparty', windowMs: 60000, max: 6, key: userKey }));
 
 router.get('/', async (req, res) => {
   try {

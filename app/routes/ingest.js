@@ -23,14 +23,14 @@ const router = express.Router();
 router.use(authMiddleware);
 
 const MAX_BODY = 20000;
-const writeLimit = rateLimit({ windowMs: 60000, max: 20, key: userKey });
+const writeLimit = rateLimit({ name: 'ingest.write', windowMs: 60000, max: 20, key: userKey });
 
 function notConfigured(res) {
   return res.status(503).json({ error: 'Not configured' });
 }
 
 // GET /api/ingest — the caller's own shared notes (preview only, private)
-router.get('/', rateLimit({ windowMs: 60000, max: 30, key: userKey }), async (req, res) => {
+router.get('/', rateLimit({ name: 'ingest.read', windowMs: 60000, max: 30, key: userKey }), async (req, res) => {
   if (!isConfigured()) return notConfigured(res);
   try {
     const ident = await resolveBotIdentity(req);

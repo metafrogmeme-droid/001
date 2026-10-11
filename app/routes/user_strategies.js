@@ -13,8 +13,8 @@ const store = require('../lib/user_strategies');
 const router = express.Router();
 router.use(authMiddleware);
 
-const writeLimit = rateLimit({ windowMs: 60000, max: 30, key: userKey });
-const readLimit = rateLimit({ windowMs: 60000, max: 90, key: userKey });
+const writeLimit = rateLimit({ name: 'user_strategies.write', windowMs: 60000, max: 30, key: userKey });
+const readLimit = rateLimit({ name: 'user_strategies.read', windowMs: 60000, max: 90, key: userKey });
 
 // GET /api/strategies — the caller's own strategies (drafts + published).
 router.get('/', readLimit, async (req, res) => {

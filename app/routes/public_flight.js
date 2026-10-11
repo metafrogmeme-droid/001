@@ -19,7 +19,7 @@ const { getLatestFlight } = require('./sync');
 const { inspectWindow, sanitizeRecord } = require('../lib/flight');
 
 const router = express.Router();
-router.use(rateLimit({ windowMs: 60000, max: 30, key: ipKey, message: 'rate_limited' }));
+router.use(rateLimit({ name: 'public_flight', windowMs: 60000, max: 30, key: ipKey, message: 'rate_limited' }));
 
 const CACHE_MS = 20 * 1000;
 let cache = null; // { at, body }

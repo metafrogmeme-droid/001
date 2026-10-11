@@ -10,7 +10,7 @@ const { rateLimit, ipKey } = require('../lib/rate_limit');
 const { listDapps, CATEGORIES, chains, NOTE } = require('../lib/dapps');
 
 const router = express.Router();
-router.use(rateLimit({ windowMs: 60000, max: 60, key: ipKey }));
+router.use(rateLimit({ name: 'dapps', windowMs: 60000, max: 60, key: ipKey }));
 
 // GET /api/dapps?category=&chain= — the curated directory (optionally filtered).
 router.get('/', (req, res) => {

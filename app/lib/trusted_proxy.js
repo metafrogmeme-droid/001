@@ -18,8 +18,8 @@
  *   auth.js:532   registration
  *   auth.js:995   wallet-link code issue
  *   auth.js:1394  wallet-link redeem
- *   lib/rate_limit.js:16  every rateLimit({ key: ipKey })
- *   routes/{insight,lab,macro,market,patterns}.js  per-IP quotas
+ *   lib/rate_limit.js ipKey  every rateLimit({ key: ipKey }), the per-IP
+ *                    quotas of routes/{insight,lab,macro,market,patterns}.js among them
  *
  * Rotating one header per request buys a fresh bucket for each of them. The
  * per-ACCOUNT lockout added in RC-AUD-026 (auth.js:598) still bounds an attack

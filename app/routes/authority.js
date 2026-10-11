@@ -18,7 +18,7 @@ const { postGateway, getGateway, relay, isConfigured } = require('../lib/gateway
 
 const router = express.Router();
 router.use(authMiddleware);
-router.use(rateLimit({ windowMs: 60000, max: 20, key: userKey }));
+router.use(rateLimit({ name: 'authority', windowMs: 60000, max: 20, key: userKey }));
 
 const TEXT_MAX = 600;
 

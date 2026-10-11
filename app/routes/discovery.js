@@ -44,7 +44,7 @@ const { rateLimit, ipKey } = require('../lib/rate_limit');
 const t8257 = require('../lib/tool8257');
 
 const router = express.Router();
-const limited = rateLimit({ windowMs: 60_000, max: 60, key: ipKey, message: 'rate_limited' });
+const limited = rateLimit({ name: 'discovery', windowMs: 60_000, max: 60, key: ipKey, message: 'rate_limited' });
 
 function mcp() {
   // Late require: mcp.js is standalone and requiring it at module load would

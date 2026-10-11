@@ -37,9 +37,13 @@ const BOARD = {
 let calls, answer;
 
 async function withRouter(fn) {
-  // A fresh router per test: its limiter and cache are module state.
-  const modPath = require.resolve('../routes/public_strategies');
-  delete require.cache[modPath];
+  // A fresh router per test: its limiter and cache are module state. The
+  // limiter's count is shared since request limits moved into one table for
+  // every web instance, and with no DATABASE_URL that table is the in-memory
+  // database's, so the database and the limiter module are fresh too.
+  for (const m of ['../routes/public_strategies', '../lib/rate_limit', '../db']) {
+    delete require.cache[require.resolve(m)];
+  }
   calls = [];
   gateway.isConfigured = () => true;
   gateway.getGateway = async (p) => { calls.push(p); return answer(p); };

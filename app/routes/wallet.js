@@ -13,7 +13,7 @@ const solana = require('../lib/solana');
 
 const router = express.Router();
 router.use(authMiddleware);
-router.use(rateLimit({ windowMs: 60000, max: 20, key: userKey }));
+router.use(rateLimit({ name: 'wallet', windowMs: 60000, max: 20, key: userKey }));
 
 // GET /api/wallet/portfolio — the caller's linked wallet(s), priced. EVM
 // chains come from the SIWE-linked address; a Solana section joins when the

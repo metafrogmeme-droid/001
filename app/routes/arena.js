@@ -63,7 +63,7 @@ function sealedOpen(handle, { symbol, direction, entry, leverage, tp, sl, opened
   return { trade_key, seal: receipt.seal, seal_payload: receipt.seal_payload, sealed_at: opened_at };
 }
 
-const tradeLimit = rateLimit({ windowMs: 60000, max: 20, key: userKey });
+const tradeLimit = rateLimit({ name: 'arena.trade', windowMs: 60000, max: 20, key: userKey });
 
 /**
  * The five PUBLIC arena routes had no limiter of any kind.
@@ -79,7 +79,7 @@ const tradeLimit = rateLimit({ windowMs: 60000, max: 20, key: userKey });
  * whole point of these routes. Generous, because a legitimate board polling
  * every 30s uses four of these per minute and a shared NAT holds many phones.
  */
-const publicBoardLimit = rateLimit({ windowMs: 60000, max: 120, key: ipKey });
+const publicBoardLimit = rateLimit({ name: 'arena.public_board', windowMs: 60000, max: 120, key: ipKey });
 
 /*
  * THE QUERY COST HERE IS KNOWN AND DELIBERATELY NOT CACHED. Recorded because

@@ -13,7 +13,7 @@ const { getGateway, relay, isConfigured } = require('../lib/gateway');
 const { decorate } = require('../lib/follow_counts');
 
 const router = express.Router();
-router.use(rateLimit({ windowMs: 60000, max: 30, key: ipKey }));
+router.use(rateLimit({ name: 'public_strategies', windowMs: 60000, max: 30, key: ipKey }));
 
 const CACHE_MS = 5 * 60 * 1000;   // the catalogue changes only on a deploy
 let cache = null;                  // { at: ms, data }
@@ -50,7 +50,7 @@ const SCAN_CACHE_MS = 60 * 1000;
 const SCAN_ID = /^[a-z0-9-]{1,40}$/;
 const scanCache = new Map();       // id -> { at: ms, data }
 
-router.get('/scan', rateLimit({ windowMs: 60000, max: 6, key: ipKey }), async (req, res) => {
+router.get('/scan', rateLimit({ name: 'public_strategy_scan', windowMs: 60000, max: 6, key: ipKey }), async (req, res) => {
   if (!isConfigured()) return res.status(503).json({ error: 'Not configured' });
   const id = String(req.query.id || '').toLowerCase();
   if (!SCAN_ID.test(id)) return res.status(400).json({ error: 'bad_id' });

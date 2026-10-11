@@ -16,8 +16,8 @@ const alerts = require('../lib/alerts');
 const router = express.Router();
 router.use(authMiddleware);
 
-const writeLimit = rateLimit({ windowMs: 60000, max: 20, key: userKey });
-const readLimit = rateLimit({ windowMs: 60000, max: 60, key: userKey });
+const writeLimit = rateLimit({ name: 'alerts.write', windowMs: 60000, max: 20, key: userKey });
+const readLimit = rateLimit({ name: 'alerts.read', windowMs: 60000, max: 60, key: userKey });
 
 // GET /api/alerts — the caller's alerts, newest first (active + tripped).
 router.get('/', readLimit, async (req, res) => {

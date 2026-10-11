@@ -104,7 +104,7 @@ router.get('/tutor/status', (req, res) => {
   res.json({ ready: gateway.isConfigured() });
 });
 
-router.post('/tutor', rateLimit({ windowMs: 60000, max: 10, key: userKey }), async (req, res) => {
+router.post('/tutor', rateLimit({ name: 'learn.tutor', windowMs: 60000, max: 10, key: userKey }), async (req, res) => {
   try {
     const question = String((req.body && req.body.question) || '').trim();
     const slug = String((req.body && req.body.slug) || '') || null;
