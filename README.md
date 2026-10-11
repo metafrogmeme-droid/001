@@ -580,7 +580,6 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/daily_report` | daily trading report |
 | `/classpf` | performance by asset class |
 | `/holdtime` | hold-time analytics |
-| `/costs` | trading costs breakdown |
 
 ### 🔔 Alerts & notes
 
@@ -685,6 +684,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/setsigner` | set the on-chain signing key (encrypted) |
 | `/yield` | idle-asset yield radar (read-only) |
 | `/idleyield` | cross-source best-rate scan |
+| `/costs` | today's model and API spend against the daily budget |
 
 <!-- END generated: telegram commands -->
 

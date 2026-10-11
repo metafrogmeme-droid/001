@@ -2155,15 +2155,17 @@ and /api/insight/* (app/routes/patterns.js, insight.js) feeding panels
 
 **Trading-cost / fee-reduction surface**
 
-Trading-cost / fee-reduction surface — a costs breakdown command and a
-documented lever inventory whose largest item is an off-code account setting
-(~20% off every fill), with maker-preferred limit entry in the engine.
+Trading-cost / fee-reduction surface — a documented lever inventory whose
+largest item is an off-code account setting (~20% off every fill), with
+maker-preferred limit entry in the engine.
 
-*Where.* Telegram /costs (`bot/skills/command_catalog.py::GROUPS#'("costs",'`, registered in
-telegram_handler.py); docs/FEE_REDUCTION.md (BGB discount runbook);
+*Where.* docs/FEE_REDUCTION.md (BGB discount runbook);
 bot/core/limit_entry.py, bot/core/cost.py, bot/core/slippage.py, maker-
 preference flags in bot/config.py and bot/core/venues.py; dashboard
-#c-venuepnl / #c-breakdown (app/lib/venue_breakdown.js).
+#c-venuepnl / #c-breakdown (app/lib/venue_breakdown.js). Telegram /costs
+(`bot/skills/command_catalog.py::GROUPS#'("costs",'`) was listed here as the costs breakdown and is not
+one: it is the operator's model and API spend against the LLM budget
+(`bot/skills/skill_registry.py::CostBreakdownSkill`), and prints nothing about a fill.
 
 ## What this sweep could not determine
 

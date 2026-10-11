@@ -129,7 +129,10 @@ CHAT_TOOLS: tuple[ChatTool, ...] = (
         "blackout'; macro_calendar is the events list itself."),
     ChatTool(
         "costs",
-        "Today's LLM/API spend against the daily budget, by category."),
+        "Today's LLM/API spend (UTC day), by category including chat, against "
+        "the daily budget, chat's cap and the analysis cap, with what is left "
+        "of each. Operator only: it is the deployment's spend, not the "
+        "caller's, and it says nothing about their account or P&L."),
     ChatTool(
         "whynot",
         "Why the engine did not take a trade: the gate that rejected or skipped "

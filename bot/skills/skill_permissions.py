@@ -115,7 +115,8 @@ SKILL_SAYS: dict[str, str] = {
                      "setup the engine sees",
     "check_risk": "your drawdown against the limit, your exposure, and whether "
                   "new entries are allowed right now",
-    "costs": "today's model and API spend against the daily budget",
+    "costs": "today's model and API spend against the daily budget "
+             "(operator only)",
     "deepscan": "a deep scan across the whole symbol universe with chart "
                 "patterns",
     "get_portfolio": "your balance, open positions and closed-trade record",

@@ -134,7 +134,6 @@ GROUPS: List[Group] = [
         ("daily_report", "daily trading report"),
         ("classpf", "performance by asset class"),
         ("holdtime", "hold-time analytics"),
-        ("costs", "trading costs breakdown"),
     ]),
     ("🔔 Alerts & notes", "user", [
         ("watch", "proactive alerts for this chat"),
@@ -238,6 +237,9 @@ GROUPS: List[Group] = [
         ("setsigner", "set the on-chain signing key (encrypted)"),
         ("yield", "idle-asset yield radar (read-only)"),
         ("idleyield", "cross-source best-rate scan"),
+        # It was "trading costs breakdown" under Portfolio, for everyone. It
+        # is neither: the deployment's model and API spend, the operator's.
+        ("costs", "today's model and API spend against the daily budget"),
     ]),
 ]
 
@@ -452,7 +454,7 @@ DESC_ZH: Dict[str, str] = {
     "enforcing": "目前哪些控制會攔下一筆交易",
     "signals": "各交易對訊號統計", "rejected": "被風控攔下的訊號", "journal": "每週交易日誌",
     "daily_report": "每日交易報告", "classpf": "依資產類別的績效", "holdtime": "持倉時間分析",
-    "equitycurve": "權益曲線熔斷狀態", "costs": "交易成本明細",
+    "equitycurve": "權益曲線熔斷狀態", "costs": "今日模型與 API 支出對照每日預算",
     "watch": "為此對話開啟主動提醒", "alerts": "異常警報範圍與頻率",
     "price_alert": "在此設定價格提醒，觸發時會傳到這裡", "share": "儲存一則代理可參考的筆記",
     "mynotes": "你分享過的筆記", "agent": "用白話說明你的代理狀態",

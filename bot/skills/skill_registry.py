@@ -1083,7 +1083,11 @@ class CheckRiskSkill(BaseSkill):
                                       CONFIG.risk.max_drawdown_pct)
 
         if mode == "status":
-            return self._status(engine, state, cb, streak, cost, exp_pct,
+            # The operating spend is the deployment's ledger, so its rows are
+            # the operator's (`CostBreakdownSkill` says why); anyone else's
+            # status card leaves them out rather than print another's dollars.
+            own_cost = cost if _caller_is_operator(engine, user_id) else None
+            return self._status(engine, state, cb, streak, own_cost, exp_pct,
                                 display_equity, display_open, display_total_trades,
                                 display_pnl, display_win_rate, gate=gate, dd=dd,
                                 record_note=record_note)
@@ -1112,8 +1116,6 @@ class CheckRiskSkill(BaseSkill):
         # for an exhausted schedule and for a crashed evaluation read alike.
         from bot.macro.calendar import macro_state_words
         m_label = macro_state_words(macro)
-        net = (display_equity - cost.operating_cost_usd
-               if display_equity is not None else None)
         pnl_icon = _status(display_pnl)
 
         # THE DRAWDOWN THE BREAKER ENFORCES. This scored System Health off
@@ -1145,7 +1147,9 @@ class CheckRiskSkill(BaseSkill):
             f"\U0001f4b0 <b>Capital</b>\n"
             + (f"<i>{record_note}</i>\n" if record_note else "")
             + f"- Equity: <code>{_money(display_equity)}</code>\n"
-            f"- Net: <code>{_money(net)}</code>\n"
+            # "Net" was this caller's equity minus the deployment's operating
+            # spend for the day: one person's balance less another's bill,
+            # a stock less a day's flow. It is gone, not reworded.
             f"- Daily PnL: <code>{_money(display_pnl, sign=True)}</code>\n"
             f"- Drawdown: <code>{'--' if _dd_pct is None else f'{_dd_pct:.1f}%'}</code>"
             f"{drawdown_source_note(_dd_src)}\n\n"
@@ -1164,11 +1168,12 @@ class CheckRiskSkill(BaseSkill):
             # neither of which is a check outcome — so a clear breaker painted
             # a full set of passes that nothing had run. The breaker is what
             # this card actually knows, and it is stated above.
-            f"- Gate: <code>{'fail-closed — blocking new entries' if cb else 'fail-closed — armed'}</code>\n\n"
-            # ── Costs ──
-            f"\u26a1 <b>Costs</b>\n"
-            f"- LLM: <code>${cost.llm_cost_usd:,.4f}</code>\n"
-            f"- Infra: <code>${cost.infra_cost_usd:,.4f}</code>"
+            f"- Gate: <code>{'fail-closed — blocking new entries' if cb else 'fail-closed — armed'}</code>"
+            # ── Costs: the operator's ledger, on the operator's card only ──
+            + (f"\n\n\u26a1 <b>Costs today (UTC)</b>\n"
+               f"- LLM: <code>${cost.llm_cost_usd:,.4f}</code>\n"
+               f"- Infra: <code>${cost.infra_cost_usd:,.4f}</code>"
+               if cost is not None else "")
         )
 
     def _risk(self, state, cb, streak, total_exp, exp_pct, groups,
@@ -1363,9 +1368,11 @@ class GetPortfolioSkill(BaseSkill):
         # PAPER mode: original behavior
         portfolio = _get_portfolio(engine, **kwargs)
         state = portfolio.snapshot()
-        cost = engine.cost.snapshot()
-        net = state.equity_usd - cost.operating_cost_usd
-        cpt = cost.operating_cost_usd / state.total_trades if state.total_trades > 0 else 0
+        # The waterfall ended in the deployment's LLM and infra spend, a "NET"
+        # of this book's equity less that spend, and the spend over this
+        # book's trade count: the operator's bill against the caller's book,
+        # shown to every caller. The book's own P&L stops at Trading; the
+        # spend is /costs, the operator's card.
         pnl_icon = _pnl_arrow(state.total_pnl)
 
         lines = [
@@ -1381,12 +1388,8 @@ class GetPortfolioSkill(BaseSkill):
             "<pre>",
             f"  \u25b8 Gross    {_money(state.total_gross_pnl, sign=True):>14}",
             f"  \u25b8 Commiss  {_money(state.total_commission):>14}",
-            f"  \u25b8 Trading  {_money(state.total_pnl, sign=True):>14}",
-            f"  \u25b8 LLM      {'${:,.4f}'.format(cost.llm_cost_usd):>14}",
-            f"  \u25b8 Infra    {'${:,.4f}'.format(cost.infra_cost_usd):>14}",
             f"  {'━' * 30}",
-            f"  \u25b6 NET      {_money(net, sign=True):>14}",
-            f"  \u25b8 Per Trd  {'${:,.4f}'.format(cpt):>14}",
+            f"  \u25b6 Trading  {_money(state.total_pnl, sign=True):>14}",
             "</pre>",
         ]
 
@@ -1409,8 +1412,10 @@ class GetPortfolioSkill(BaseSkill):
         # Session tally
         lines.append(f"\n{SEP}")
         lines.append(
-            f"<i>Session: {state.total_trades} trades \u2022 "
-            f"Net {_money(net, sign=True)}</i>"
+            # "Session" here was lifetime: the paper book's state file is
+            # loaded at init (tests/test_pnl_window_labels.py, one card over).
+            f"<i>All-time: {state.total_trades} trades \u2022 "
+            f"Trading {_money(state.total_pnl, sign=True)}</i>"
         )
 
         return "\n".join(lines)
@@ -2095,68 +2100,121 @@ class TradeJournalSkill(BaseSkill):
 # ══════════════════════════════════════════════════════════════
 
 class CostBreakdownSkill(BaseSkill):
+    """Today's model and API spend against the daily budget: the operator's.
+
+    THREE CLAIMS ON ONE CARD WERE ABOUT TWO PEOPLE. "Net" was the CALLER's
+    equity minus the OPERATOR's operating cost, "Per Trade" the operator's
+    cost over the caller's trade count, and the breakdown walked five
+    categories and skipped `chat` while the total counted it, so the parts did
+    not add up to the whole. The chat tool said "against the daily budget" and
+    the card printed no budget. And `costs` was held by viewers, self-admitted
+    paper users and web chat, who were shown the operator's spend.
+
+    The spend is one ledger for the deployment (`engine.cost`); there is no
+    per-caller reading of it, so the card is the operator's: `costs` is held
+    by no role but admin, and the card asks again. Every category the ledger
+    books is printed, so the parts sum to the total, and the budget lines are
+    `cost.budget_reading`, built from the functions the gates call. A call on
+    a model with no price on record has an unknown cost, so a ledger holding
+    one makes every dollar here a floor, and the card says so.
+    """
     name = "costs"
-    description = "Agent economics"
+    description = "Today's model and API spend against the daily budget (operator)"
 
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
-        cost = engine.cost.snapshot()
-        portfolio = _get_portfolio(engine, **kwargs)
-        state = portfolio.snapshot()
-        rate_stats = engine.analyzer._rate_limiter.stats
+        from bot.core.cost import COST_CATEGORIES, budget_reading
+        head = f"\U0001f4b0 <b>MODEL &amp; API SPEND \u00b7 TODAY (UTC)</b>\n{SEP}"
+        if not _caller_is_operator(engine, str(kwargs.get("user_id") or "")):
+            return (f"{head}\n\nThe model and API spend is the deployment's, one "
+                    "ledger for every account, so it is shown to the operator "
+                    "only.")
+        try:
+            cost = engine.cost.snapshot()
+            b = budget_reading(cost, CONFIG.llm)
+        except Exception as exc:
+            return (f"{head}\n\n{_BAD} The cost ledger could not be read "
+                    f"({type(exc).__name__}), so today's spend is unknown.")
 
-        # Use live equity in LIVE mode
-        if CONFIG.is_live():
-            econ_equity = await engine.get_effective_equity_async(kwargs.get("user_id", ""))
-        else:
-            econ_equity = state.equity_usd
-        # Unreadable equity means an unknown net, not a net computed from the
-        # paper baseline minus real operating cost — a number describing no
-        # account that exists.
-        net = (econ_equity - cost.operating_cost_usd
-               if econ_equity is not None else None)
-
-        lines = [
-            f"\U0001f4b0 <b>AGENT ECONOMICS</b>\n{SEP}",
-            "",
-            "\u26a1 <b>LLM Usage</b>",
-            f"- Total: <code>${cost.llm_cost_usd:,.4f}</code> ({cost.llm_calls} calls)",
-            f"- Tokens In: <code>{cost.prompt_tokens:,}</code>",
-            f"- Tokens Out: <code>{cost.completion_tokens:,}</code>",
-            f"- Avg/Call: <code>${cost.avg_cost_per_call:,.6f}</code>",
-        ]
-
-        cats_found = False
-        for cat in ("scan", "analyze", "thesis", "risk_decision", "other"):
-            c = cost.cost_by_category.get(cat, 0.0)
-            n = cost.calls_by_category.get(cat, 0)
-            if n > 0:
-                if not cats_found:
-                    lines.extend(["\n\U0001f4ca <b>Breakdown</b>"])
-                    cats_found = True
-                lines.append(f"- {cat.title()}: <code>${c:,.4f}</code> ({n})")
-
+        # An unpriced call's cost is unknown: what was spent is a floor and
+        # what is left a ceiling, on every line.
+        floor = "at least " if b["unpriced_calls"] else ""
+        ceil = "at most " if b["unpriced_calls"] else ""
+        lines = [head, ""]
+        if b["unpriced_calls"]:
+            lines.append(
+                f"{_WARN} {b['unpriced_calls']} call(s) used a model with no "
+                "price on record. Their cost is unknown, so every dollar "
+                "figure below is a floor.\n")
         lines.extend([
-            "\n\U0001f4b3 <b>Operating Total</b>",
-            f"- LLM: <code>${cost.llm_cost_usd:,.4f}</code>",
-            f"- Infra: <code>${cost.infra_cost_usd:,.4f}</code>",
-            f"- Total: <code>${cost.operating_cost_usd:,.4f}</code>",
+            "\u26a1 <b>LLM</b>",
+            f"- Spent: <code>{floor}${cost.llm_cost_usd:,.4f}</code> "
+            f"({cost.llm_calls} calls)",
+            f"- Tokens in / out: <code>{cost.prompt_tokens:,}</code> / "
+            f"<code>{cost.completion_tokens:,}</code>",
         ])
-        if state.total_trades > 0:
-            cpt = cost.operating_cost_usd / state.total_trades
-            lines.append(f"- Per Trade: <code>${cpt:,.4f}</code>")
+
+        # Every category the ledger booked, in its own order, then any it
+        # does not name: a part left out is a total the parts do not reach.
+        cats = list(COST_CATEGORIES) + sorted(
+            set(cost.cost_by_category) - set(COST_CATEGORIES))
+        booked = [(c, cost.cost_by_category[c], cost.calls_by_category.get(c))
+                  for c in cats if c in cost.cost_by_category
+                  and (cost.cost_by_category[c] or cost.calls_by_category.get(c))]
+        if booked:
+            lines.append("\n\U0001f4ca <b>By category</b>")
+            for c, usd, n in booked:
+                calls = f"({n})" if n is not None else "(calls not recorded)"
+                lines.append(f"- {_esc(c.replace('_', ' ').title())}: "
+                             f"<code>${usd:,.4f}</code> {calls}")
+            summed = sum(usd for _c, usd, _n in booked)
+            if abs(summed - float(cost.llm_cost_usd)) > 1e-9:
+                lines.append(
+                    f"<i>The categories add up to ${summed:,.4f} of the "
+                    f"${cost.llm_cost_usd:,.4f} total; the rest was booked "
+                    "under no category.</i>")
+
+        lines.append("\n\U0001f3af <b>Budget</b>")
+        lines.append(
+            f"- Daily: <code>{floor}${b['spent']:,.4f}</code> of "
+            f"<code>${b['daily_budget']:,.2f}</code> \u00b7 "
+            f"<code>{ceil}${b['daily_left']:,.4f}</code> left")
+        cap_src = ("its own cap" if b["chat_cap_is_own"]
+                   else f"{b['chat_share']:.0%} of the daily budget")
+        lines.append(
+            f"- Chat: <code>{floor}${b['chat_spent']:,.4f}</code> of "
+            f"<code>${b['chat_cap']:,.2f}</code> ({cap_src}) \u00b7 "
+            f"<code>{ceil}${b['chat_left']:,.4f}</code> left \u00b7 "
+            f"{b['chat_calls']} of {b['call_limit']} calls")
+        if b["chat_bound"]:
+            lines.append(f"  {_BAD} Chat has stopped for today: "
+                         f"{_esc(b['chat_bound'])} reached.")
+        if b["thesis_cap"] is None:
+            lines.append("- Analysis: no cap of its own; it counts against "
+                         "the daily total.")
+        elif b["thesis_spent"] is None:
+            lines.append(
+                f"- Analysis: cap <code>${b['thesis_cap']:,.2f}</code>; its "
+                "share of the spend could not be split from chat's, so what "
+                "is left is unknown.")
+        else:
+            lines.append(
+                f"- Analysis: <code>{floor}${b['thesis_spent']:,.4f}</code> of "
+                f"<code>${b['thesis_cap']:,.2f}</code> \u00b7 "
+                f"<code>{ceil}${b['thesis_left']:,.4f}</code> left")
+        if b["thesis_exhausted"]:
+            lines.append(f"  {_BAD} Trade analysis is on the rule engine for "
+                         "the rest of the day.")
 
         lines.extend([
-            "\n\U0001f4c8 <b>Net</b>",
-            f"- Equity: <code>{_money(econ_equity)}</code>",
-            f"- Costs: <code>-${cost.operating_cost_usd:,.4f}</code>",
-            f"{SEP}",
-            f"- <b>Net: <code>{_money(net)}</code></b>",
+            "\n\U0001f4b3 <b>Operating total</b>",
+            f"- LLM: <code>{floor}${cost.llm_cost_usd:,.4f}</code>",
+            f"- Infra: <code>${cost.infra_cost_usd:,.4f}</code>",
+            f"- Total: <code>{floor}${cost.operating_cost_usd:,.4f}</code>",
         ])
 
         # ── Cache hit-rate section ──
         try:
             cache_snap = engine.analyzer._llm_cache.snapshot()
-            total_lookups = cache_snap["hits"] + cache_snap["misses"]
             hit_pct = cache_snap["hit_rate"] * 100
             lines.extend([
                 "\n\U0001f9e0 <b>LLM Cache</b>",
@@ -2169,12 +2227,15 @@ class CostBreakdownSkill(BaseSkill):
                 f"- TTL: <code>{cache_snap['default_ttl']:.0f}s</code>",
             ])
         except Exception:
-            pass  # cache not available — skip section
+            lines.append("\n<i>LLM cache: not read.</i>")
 
-        lines.append(
-            f"\n<i>\u26a1 Rate limiter: {rate_stats['total_calls']} calls, "
-            f"{rate_stats['total_waits']} throttled</i>",
-        )
+        try:
+            rate_stats = engine.analyzer._rate_limiter.stats
+            lines.append(
+                f"\n<i>\u26a1 Rate limiter: {rate_stats['total_calls']} calls, "
+                f"{rate_stats['total_waits']} throttled</i>")
+        except Exception:
+            lines.append("\n<i>Rate limiter: not read.</i>")
         return "\n".join(lines)
 
 

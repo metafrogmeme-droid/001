@@ -34,7 +34,7 @@ from bot.utils.leveraged_return import _leveraged_return_pct, position_leverage
 from bot.core.live_executor import entry_is_estimated, position_size_basis
 from bot.core.signal_confidence import displayed_confidence
 from bot.core.cost import (
-    CHAT_OWN_BOUND, CHAT_SHARE_BOUND, chat_budget_bound, chat_spend_usd,
+    CHAT_OWN_BOUND, CHAT_SHARE_BOUND, chat_budget_bound, chat_cap_usd, chat_spend_usd,
 )
 from bot.core.limit_input import (consume_pending, limit_expired_text,
                                   read_pending, typed_limit_outside_levels)
@@ -2989,9 +2989,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # set, the thesis guard still reads the combined total.
         if hasattr(self.engine, 'cost'):
             snap = self.engine.cost.snapshot()
-            _own = CONFIG.llm.chat_budget_usd
-            _chat_cap = (_own if _own is not None
-                         else CONFIG.llm.daily_budget_usd * CONFIG.llm.chat_budget_share)
+            _chat_cap = chat_cap_usd(CONFIG.llm)
             _chat_spent = chat_spend_usd(snap)
             _bound = chat_budget_bound(snap, CONFIG.llm)
             if _bound:

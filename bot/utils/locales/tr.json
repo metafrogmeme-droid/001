@@ -87,7 +87,7 @@
   "help_live": "🔥 <b>Canlı İşlem</b>\n/golive — canlı yürütmeyi etkinleştir\n/livebalance — borsa bakiyesi\n/livepositions — borsa pozisyonları\n/liveclose <i>id</i> — pozisyonu kapat\n/buy <i>BTC 5</i> — spot alım\n/sell <i>BTC</i> — spot satım",
   "help_market": "🔍 <b>Piyasa Analizi</b>\n/scan — hızlı piyasa taraması\n/deepscan — çoklu zaman dilimli derin tarama\n/fullscan — tam tarama (tüm pariteler)\n/analyze <i>BTC</i> — ayrıntılı coin analizi\n/macro — makro görünüm",
   "help_pending_available": "<b>Şu anda çalışanlar</b>\n/start — içeri alınıp alınmadığınızı kontrol edin\n/lang — dilinizi seçin\n/help — bu\n\n<i>Tam komut listesi onaylandığınızda açılır. Şimdi göstermek, 'hayır' diyen 120 komuttan ibaret olurdu.</i>",
-  "help_portfolio": "📊 <b>Portföy ve Risk</b>\n/portfolio — varlıklar ve PnL\n/open_positions — mevcut pozisyonlar\n/risk — risk paneli\n/performance — performans istatistikleri\n/daily_report — günlük özet\n/journal — işlem günlüğü\n/costs — komisyon dökümü",
+  "help_portfolio": "📊 <b>Portföy ve Risk</b>\n/portfolio — varlıklar ve PnL\n/open_positions — mevcut pozisyonlar\n/risk — risk paneli\n/performance — performans istatistikleri\n/daily_report — günlük özet\n/journal — işlem günlüğü",
   "help_strategy": "🎯 <b>Strateji Şablonları</b>\n/momentum — trend takibi\n/swing — swing işlemleri\n/scalp — hızlı scalp'ler\n/dip — düşüşte alım\n/intraday — gün içi kurulumlar\n/strategy — mevcut strateji bilgisi\n/mode — strateji modunu değiştir\n/playbook — strateji el kitabı",
   "help_tip": "💬 <i>Doğal dille de yazabilirsiniz:</i>\n<i>\"BTC tara\" — \"PnL'im nasıl?\" — \"ne hareket ediyor?\"</i>",
   "help_title": "⚔️ <b>RUNECLAW — Komut Rehberi</b>",

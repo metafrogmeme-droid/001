@@ -87,7 +87,7 @@
   "help_live": "🔥 <b>लाइव ट्रेडिंग</b>\n/golive — लाइव निष्पादन सक्षम करें\n/livebalance — एक्सचेंज बैलेंस\n/livepositions — एक्सचेंज पोज़िशन\n/liveclose <i>id</i> — पोज़िशन बंद करें\n/buy <i>BTC 5</i> — स्पॉट खरीद\n/sell <i>BTC</i> — स्पॉट बिक्री",
   "help_market": "🔍 <b>बाज़ार विश्लेषण</b>\n/scan — त्वरित बाज़ार स्कैन\n/deepscan — बहु-समयावधि गहरा स्कैन\n/fullscan — पूरा स्कैन (सभी जोड़े)\n/analyze <i>BTC</i> — कॉइन का विस्तृत विश्लेषण\n/macro — मैक्रो परिदृश्य",
   "help_pending_available": "<b>अभी क्या काम करता है</b>\n/start — देखें कि आप अंदर आ गए या नहीं\n/lang — अपनी भाषा चुनें\n/help — यह\n\n<i>स्वीकृति मिलते ही पूरी कमांड सूची खुल जाएगी। अभी दिखाने का मतलब होगा 120 ऐसे कमांड जो 'नहीं' कहते हैं।</i>",
-  "help_portfolio": "📊 <b>पोर्टफ़ोलियो और जोखिम</b>\n/portfolio — होल्डिंग और PnL\n/open_positions — मौजूदा पोज़िशन\n/risk — जोखिम डैशबोर्ड\n/performance — प्रदर्शन आँकड़े\n/daily_report — दैनिक सारांश\n/journal — ट्रेड जर्नल\n/costs — शुल्क विवरण",
+  "help_portfolio": "📊 <b>पोर्टफ़ोलियो और जोखिम</b>\n/portfolio — होल्डिंग और PnL\n/open_positions — मौजूदा पोज़िशन\n/risk — जोखिम डैशबोर्ड\n/performance — प्रदर्शन आँकड़े\n/daily_report — दैनिक सारांश\n/journal — ट्रेड जर्नल",
   "help_strategy": "🎯 <b>रणनीति प्रीसेट</b>\n/momentum — ट्रेंड फ़ॉलोइंग\n/swing — स्विंग ट्रेड\n/scalp — त्वरित स्कैल्प\n/dip — गिरावट पर खरीद\n/intraday — इंट्राडे सेटअप\n/strategy — मौजूदा रणनीति की जानकारी\n/mode — रणनीति मोड बदलें\n/playbook — रणनीति प्लेबुक",
   "help_tip": "💬 <i>आप सहज भाषा में भी लिख सकते हैं:</i>\n<i>\"BTC स्कैन करो\" — \"मेरा PnL कैसा है?\" — \"क्या हिल रहा है?\"</i>",
   "help_title": "⚔️ <b>RUNECLAW — कमांड गाइड</b>",

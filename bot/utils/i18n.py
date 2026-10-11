@@ -455,8 +455,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "/risk \u2014 risk dashboard\n"
             "/performance \u2014 performance stats\n"
             "/daily_report \u2014 daily summary\n"
-            "/journal \u2014 trade journal\n"
-            "/costs \u2014 fee breakdown"
+            "/journal \u2014 trade journal"
         ),
         "zh": (
             "\U0001f4ca <b>投資組合與風險</b>\n"
@@ -465,8 +464,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "/risk \u2014 風險控制面板\n"
             "/performance \u2014 績效統計\n"
             "/daily_report \u2014 每日報告\n"
-            "/journal \u2014 交易日誌\n"
-            "/costs \u2014 手續費明細"
+            "/journal \u2014 交易日誌"
         ),
     },
     "help_strategy": {

@@ -533,7 +533,6 @@ python -m bot.main --mode scan
 | `/daily_report` | 每日交易報告 |
 | `/classpf` | 依資產類別的績效 |
 | `/holdtime` | 持倉時間分析 |
-| `/costs` | 交易成本明細 |
 
 ### 🔔 提醒與筆記
 
@@ -638,6 +637,7 @@ python -m bot.main --mode scan
 | `/setsigner` | 設定鏈上簽章金鑰（加密儲存） |
 | `/yield` | 閒置資產收益雷達（唯讀） |
 | `/idleyield` | 跨來源最佳利率掃描 |
+| `/costs` | 今日模型與 API 支出對照每日預算 |
 
 <!-- END generated: telegram commands -->
 
