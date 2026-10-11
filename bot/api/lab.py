@@ -85,9 +85,16 @@ def _prune_jobs() -> None:
         _jobs.pop(key, None)
 
 
+#: Symbols per run. A scanner run ranks its card's whole universe, and its
+#: pass has no analyzer to pay for per bar, so it may run every symbol the
+#: card was measured on; three of them would be a different backtest.
+_MAX_SYMBOLS = 4
+_MAX_SCANNER_SYMBOLS = 40
+
+
 class LabRunRequest(BaseModel):
     dataset: str
-    symbols: list[str] = Field(default_factory=list, max_length=4)
+    symbols: list[str] = Field(default_factory=list, max_length=_MAX_SCANNER_SYMBOLS)
     last_bars: int = 1500
     confidence_threshold: float = 0.0
     balance: float = 10_000.0
@@ -120,6 +127,10 @@ class LabRunRequest(BaseModel):
     # backtest under the card's name, so "Reproduce in Lab" forwards it.
     # Strict: a JSON `true` is not a count of bars (lax parsing reads it as 1).
     breaker_reset_bars: Optional[StrictInt] = None
+    # The Limit Entry Scanner's own run: the card's ``scanner`` and
+    # ``scanner_config``, checked by the same reader the runner uses.
+    scanner: str = ""
+    scanner_config: Optional[dict] = None
 
 
 def _datasets() -> dict[str, dict]:
@@ -151,7 +162,9 @@ def _datasets() -> dict[str, dict]:
 @lab_router.get("/lab/meta")
 async def lab_meta():
     return {"datasets": _datasets(),
-            "limits": {"max_symbols": 4, "last_bars": [200, 6000],
+            "limits": {"max_symbols": _MAX_SYMBOLS,
+                       "max_scanner_symbols": _MAX_SCANNER_SYMBOLS,
+                       "last_bars": [200, 6000],
                        "timeout_sec": _TIMEOUT_SEC}}
 
 
@@ -303,10 +316,38 @@ def _preset_gate_args(req: LabRunRequest) -> tuple[list[str], dict]:
     ma_args, ma_params = _ma_gate_args(req)
     gate_args += ma_args
     gate_params.update(ma_params)
+    scanner_args, scanner_params = _scanner_args(req)
+    gate_args += scanner_args
+    gate_params.update(scanner_params)
     breaker_args, breaker_params = _breaker_args(req)
     gate_args += breaker_args
     gate_params.update(breaker_params)
     return gate_args, gate_params
+
+
+def _scanner_args(req: LabRunRequest) -> tuple[list[str], dict]:
+    """The scanner's runner flags, or a 400 for numbers the runner would refuse.
+
+    A key the scanner does not read is refused too: it would be echoed as a
+    parameter of a run that never applied it.
+    """
+    from bot.core.limit_scanner import (
+        SCANNER_KEYS,
+        SCANNER_NAME,
+        params_from_preset,
+        scanner_config_arg,
+    )
+    name = (req.scanner or "").strip()
+    if not name and req.scanner_config is None:
+        return [], {}
+    if name != SCANNER_NAME:
+        raise HTTPException(status_code=400, detail="Unknown scanner.")
+    config = req.scanner_config or {}
+    stray = sorted(set(config) - set(SCANNER_KEYS))
+    if stray or params_from_preset({"scanner": name, **config}) is None:
+        raise HTTPException(status_code=400, detail="Invalid scanner_config.")
+    return (["--scanner", name, "--scanner-config", scanner_config_arg(config)],
+            {"scanner": name, "scanner_config": config})
 
 
 @lab_router.post("/lab/run")
@@ -325,7 +366,8 @@ async def lab_run(req: LabRunRequest):
         raise HTTPException(status_code=400,
                             detail=f"Unknown dataset. Available: {sorted(cats)}")
     available = set(cats[req.dataset]["symbols"])
-    symbols = [s.strip() for s in req.symbols if s.strip()][:4]
+    cap = _MAX_SCANNER_SYMBOLS if (req.scanner or "").strip() else _MAX_SYMBOLS
+    symbols = [s.strip() for s in req.symbols if s.strip()][:cap]
     if not symbols:
         symbols = sorted(available)[:3]
     bad = [s for s in symbols if s not in available]

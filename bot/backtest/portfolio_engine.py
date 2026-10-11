@@ -25,12 +25,16 @@ Usage:
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING, Optional
 
-from bot.backtest.engine import BacktestEngine, BreakerResetClock
+from bot.backtest.engine import BacktestEngine, BreakerResetClock, _gate_token
 from bot.backtest.models import BacktestConfig, BacktestResult, EquityPoint
 from bot.backtest.positions import positions
 from bot.config import CONFIG
 from bot.utils.logger import system_log, audit
+
+if TYPE_CHECKING:
+    from bot.core.limit_scanner import ScannerParams
 
 
 class PortfolioBacktester:
@@ -74,6 +78,23 @@ class PortfolioBacktester:
         self._portfolio._on_trade_close = self._risk.record_trade_result
 
         self._equity_curve: list[EquityPoint] = []
+
+        # The Limit Entry Scanner replaces the analyzer for the whole book.
+        # Its numbers are read once; numbers that do not read refuse the run
+        # rather than run a rule the config does not describe.
+        self._scanner: Optional[ScannerParams] = None
+        #: Each pass's outcome, by the sentence it ended on.
+        self.scanner_passes: dict[str, int] = {}
+        if config.scanner:
+            from bot.core.limit_scanner import SCANNER_NAME, params_from_preset
+            if config.scanner != SCANNER_NAME:
+                raise ValueError(f"unknown scanner {config.scanner!r}")
+            params = params_from_preset({"scanner": SCANNER_NAME, **config.scanner_config})
+            if params is None:
+                raise ValueError("the scanner's configured numbers could not be read")
+            self._scanner = params
+            for eng in self._engines.values():
+                eng._scanner_exits = params
 
     # ── lifecycle ────────────────────────────────────────────────
 
@@ -167,6 +188,7 @@ class PortfolioBacktester:
             self._portfolio.pin_replay_day(ts)
             # One step per timeline bar, as run() takes one per bar.
             breaker_reset.step(self._risk, step)
+            fresh: list[str] = []
             for sym, bars in streams.items():
                 i = idx[sym]
                 if i >= len(bars) or bars[i].timestamp != ts:
@@ -178,6 +200,7 @@ class PortfolioBacktester:
 
                 if i < lookback:
                     continue  # warmup — indicators need history
+                fresh.append(sym)
 
                 # Same per-bar pipeline as BacktestEngine.run(), the queued
                 # fills through the same method.
@@ -190,9 +213,15 @@ class PortfolioBacktester:
 
                 eng._check_stops_intrabar(bar)
 
-                if eng._wants_signal_bar(i):
+                if self._scanner is None and eng._wants_signal_bar(i):
                     window = bars[max(0, i - lookback):i + 1]
                     await eng._process_bar(bar, window, i)
+
+            # The scanner reads the whole universe at once, after every
+            # symbol's fills and stops for this bar, as the live pass reads
+            # its closed bars.
+            if self._scanner is not None and fresh:
+                self._scanner_pass(streams, idx, fresh)
 
             # Portfolio-level equity snapshot (throttled like run()'s cadence).
             snap_counter += 1
@@ -231,6 +260,12 @@ class PortfolioBacktester:
         first._ideas_rejected_risk = sum(e._ideas_rejected_risk for e in self._engines.values())
         first._ideas_rejected_confidence = sum(
             e._ideas_rejected_confidence for e in self._engines.values())
+        # Each symbol's engine rests its own limits, so the lifecycle counts
+        # are the sum: the first engine's alone reported one symbol's limits
+        # as the whole book's.
+        for name in ("_limits_filled", "_limits_filled_same_bar", "_limits_expired",
+                     "_limits_cancelled_drift"):
+            setattr(first, name, sum(getattr(e, name) for e in self._engines.values()))
 
         longest = max(streams.values(), key=len)
         result = first._compile_result(longest, time.time() - start_time)
@@ -244,6 +279,87 @@ class PortfolioBacktester:
               action="portfolio_backtest_complete",
               data={"per_symbol": self.per_symbol})
         return result
+
+
+    def _scanner_pass(self, streams: dict, idx: dict, fresh: list[str]) -> None:
+        """One Limit Entry Scanner pass over the symbols that closed a bar.
+
+        Each market class is passed on its own (its leader, its members, its
+        volume floor), and each places at most one limit, its board's best
+        at or above the minimum score, through the same risk gate as every
+        other idea. It rests from the next bar (`BacktestEngine._rest_limit`),
+        and a regime's half size halves the gate's size. A symbol that holds
+        a position or a resting limit is scored and not placed again.
+        """
+        from bot.core.limit_scanner import SNAPSHOT_BARS, scan_classes, snapshot_from_bars
+        from bot.core.strategy_gate import _base
+
+        params = self._scanner
+        if params is None:
+            return
+        snaps = []
+        for sym in fresh:
+            eng = self._engines[sym]
+            eng._signals_generated += 1
+            snaps.append(snapshot_from_bars(sym, eng._all_raw[max(0, idx[sym] - SNAPSHOT_BARS):idx[sym]],
+                                            params))
+        held = frozenset(
+            [_base(p.asset) for p in self._portfolio._positions.values()]
+            + [_base(o["idea"].asset) for e in self._engines.values() for o in e._pending_limits])
+        for name, result in scan_classes(snaps, params, held):
+            prefix = "" if name == "all" else f"{name}: "
+            if result.plan is None:
+                self._count_pass(prefix + result.reason.split(": ", 1)[-1])
+                continue
+            self._count_pass(prefix + self._place_scanner_plan(result, snaps, streams, idx))
+
+    def _place_scanner_plan(self, result, snaps: list, streams: dict, idx: dict) -> str:
+        """Put one pass's plan through the risk gate and rest it; the outcome."""
+        from bot.core.limit_scanner import LONG, SOURCE
+        from bot.utils.models import Direction, RiskVerdict, TradeIdea
+
+        plan = result.plan
+        eng = self._engines[plan.symbol]
+        bar = streams[plan.symbol][idx[plan.symbol] - 1]
+        snap = next(s for s in snaps if s.symbol == plan.symbol)
+        idea = TradeIdea(
+            asset=plan.symbol,
+            direction=Direction.LONG if plan.side == LONG else Direction.SHORT,
+            entry_price=plan.limit_price,
+            stop_loss=plan.stop,
+            take_profit=plan.take_profit,
+            confidence=min(1.0, plan.points / 100.0),
+            reasoning=(f"Limit Entry Scanner: scored {plan.points:.1f} of 100; "
+                       f"{result.regime.reason}."),
+            signals_used=[SOURCE],
+            source=SOURCE,
+            order_type="limit",
+            strategy_type="intraday",
+            signal_type="limit_scanner",
+            timeframe=self.config.timeframe,
+        )
+        check = eng.risk.evaluate(idea, atr=snap.atr, as_of=bar.timestamp,
+                                  fill_leverage=int(self.config.leverage))
+        if check.verdict == RiskVerdict.REJECTED:
+            eng._ideas_rejected_risk += 1
+            for _chk in (check.checks_failed or []):
+                _tok = _gate_token(_chk)
+                if _tok:
+                    eng._rejections_by_gate[_tok] = eng._rejections_by_gate.get(_tok, 0) + 1
+            return "refused by the risk gate"
+        if plan.size_factor < 1.0:
+            check = check.model_copy(update={
+                "position_size_usd": check.position_size_usd * plan.size_factor,
+                "position_pct": check.position_pct * plan.size_factor})
+        eng._ideas_generated += 1
+        if snap.atr is not None:
+            eng._preset_atr_by_idea[idea.id] = snap.atr
+        eng.risk.register_pending_intent(idea)
+        eng._rest_limit(idea, check, bar)
+        return "placed a limit"
+
+    def _count_pass(self, outcome: str) -> None:
+        self.scanner_passes[outcome] = self.scanner_passes.get(outcome, 0) + 1
 
 
 def per_symbol_table(trades, symbols) -> dict[str, dict]:

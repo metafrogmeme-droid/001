@@ -1172,6 +1172,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("rclaw", self._cmd_rclaw),
             # Strategy preset shortcuts (aliases for /run <name>)
             ("momentum", self._cmd_momentum), ("dip", self._cmd_dip),
+            # One door per preset the live bot does not run: its own rule on
+            # the last closed bars, placing nothing (`strategy_scan`).
+            ("limitscan", self._cmd_limitscan), ("multitrend", self._cmd_multitrend),
+            ("altsweep", self._cmd_altsweep), ("ethma", self._cmd_ethma),
+            ("volrotation", self._cmd_volrotation),
             ("linkwallet", self._cmd_linkwallet),
             ("scalp", self._cmd_scalp),
             ("intraday", self._cmd_intraday),

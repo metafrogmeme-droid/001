@@ -1006,6 +1006,48 @@ class ScanCommands:
         if not await self._render_strategy_setups_card(update, "DIP SNIPER"):
             await self._send(update, result)
 
+    async def _strategy_scan(self, update: Update, key: str) -> None:
+        """One strategy's board: its own rule on the last closed 1h bars.
+
+        For a preset the live bot does not run (`strategy_scan`). Nothing is
+        placed, queued or made confirmable. A venue that cannot be reached is
+        named by its exception class, never its message.
+        """
+        from bot.core import strategy_scan
+        await self._send(update, "\u23f3 <i>Reading the last closed bars...</i>")
+        try:
+            board = await strategy_scan.scan(self.engine, key)
+        except Exception as exc:  # noqa: BLE001 -- named by class, never by message
+            await self._send(update, f"\u274c The scan could not read the venue "
+                                     f"({type(exc).__name__}). Nothing was placed.")
+            return
+        await self._send(update, strategy_scan.render_text(board))
+
+    @guard("run")
+    async def _cmd_limitscan(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """The Limit Entry Scanner's board now."""
+        await self._strategy_scan(update, "limit scanner")
+
+    @guard("run")
+    async def _cmd_multitrend(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """The Multi-Symbol Momentum Trend's board now."""
+        await self._strategy_scan(update, "multi trend")
+
+    @guard("run")
+    async def _cmd_altsweep(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """ALT Sweep's averages now."""
+        await self._strategy_scan(update, "alt sweep")
+
+    @guard("run")
+    async def _cmd_ethma(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """ETH Moving-Average Trend's averages now."""
+        await self._strategy_scan(update, "eth ma trend")
+
+    @guard("run")
+    async def _cmd_volrotation(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """The daily rotation's reading now."""
+        await self._strategy_scan(update, "daily vol rotation")
+
     async def _render_strategy_setups_card(self, update, label: str) -> bool:
         """Render the stashed strategy setups (entry/SL/TP/R:R per idea) as the
         setups card. Best-effort; returns True if a card was sent."""

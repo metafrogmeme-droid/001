@@ -35,6 +35,11 @@ def _base(sym: str) -> str:
     return s
 
 
+def perp_symbol(sym: str) -> str:
+    """'BTCUSDT' | 'BTC/USDT' | 'BTC' → 'BTC/USDT:USDT', the USDT-M perpetual."""
+    return f"{_base(sym)}/USDT:USDT"
+
+
 #: Read only by the backtest: no idea and no `/run` scan carries an RSI.
 BACKTEST_ONLY_GATES = ("rsi_threshold", "rsi_min")
 #: Applied when `/run` scans, never at confirm.

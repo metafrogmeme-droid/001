@@ -287,4 +287,5 @@ about to change before changing it.
 
 ## Operational docs (line 22953)
 
-- L22963: THE FREEZER LOST A BAR A PAGE, AND EVERY BACKTEST READ ACROSS THE HOLE — `tests/test_a_new_position_is_marked_at_its_fill.py`, `tests/test_the_freezer_keeps_every_bar_of_every_page.py`
+- L22963: THE FREEZER LOST A BAR A PAGE, AND EVERY BACKTEST READ ACROSS THE HOLE — `tests/test_a_new_position_is_marked_at_its_fill.py`, `tests/test_the_freezer_keeps_every_bar_of_every_page.py`, `tests/test_the_limit_scanner_card_says_what_runs_it.py`, `tests/test_the_limit_scanner_exits_are_its_own.py`, `tests/test_the_limit_scanner_scores_only_what_it_read.py`, `tests/test_the_scanner_backtest_rests_its_limit_from_the_next_bar.py`
+- L23117: A RULE NOTHING READ LIVE, AND FIVE DOORS THAT NAMED IT — `app/test/a_strategy_scan_shows_its_board_or_says_why.test.js`, `tests/test_each_strategy_scans_its_own_rule_now.py`, `tests/test_the_preset_list_names_doors_that_open.py`

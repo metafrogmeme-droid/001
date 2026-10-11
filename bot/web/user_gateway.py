@@ -3584,6 +3584,36 @@ async def handle_strategies_public(request: web.Request) -> web.Response:
     })
 
 
+async def handle_strategy_scan_public(request: web.Request) -> web.Response:
+    """GET /gateway/public/strategy-scan?id=<slug> — one strategy's board now,
+    no auth. A preset the live bot does not run, read on its markets' last
+    closed 1h bars by its own rule (`strategy_scan`): market prices, the
+    rule's sides and scores, and markets it could not read. Public-safe by
+    construction: no account, no user store and no position is in scope, and
+    nothing is placed. The board is one per preset per closed hour, so a
+    spike of requests reads the venue once.
+    """
+    from bot.core import strategy_scan
+    from bot.core.strategy_gate import resolve_key
+    from bot.skills.skill_registry import RunStrategySkill
+    key = resolve_key(request.query.get("id", ""), RunStrategySkill.PRESETS,
+                      RunStrategySkill.ALIASES)
+    if key is None or strategy_scan.scan_command(key) is None:
+        return web.json_response(
+            {"error": "no_scan",
+             "detail": "No scan for this name: it is not a strategy, or the live "
+                       "bot runs it every cycle."}, status=404)
+    engine = request.app.get("engine")
+    if engine is None:
+        return web.json_response({"error": "engine_unavailable"}, status=503)
+    try:
+        board = await strategy_scan.scan(engine, key)
+    except Exception as exc:  # noqa: BLE001 -- named by class, never by message
+        return web.json_response({"error": "scan_failed", "detail": type(exc).__name__},
+                                 status=502)
+    return web.json_response({"public": True, "board": board})
+
+
 # ── Public agent directory (ERC-8004 identity card) ──────────────────────────
 
 _AGENT_ADDR_RE = re.compile(r"^0x[0-9a-f]{40}$")
@@ -5456,6 +5486,7 @@ def build_gateway(engine, tg_handler) -> web.Application:
     app.router.add_get("/public/leaderboard", handle_leaderboard_public)
     # Strategy-Agent marketplace catalogue (public, read-only, §4-safe).
     app.router.add_get("/public/strategies", handle_strategies_public)
+    app.router.add_get("/public/strategy-scan", handle_strategy_scan_public)
     # Per-user bot strategy — the web mirror of /mystrategy (user-authed).
     app.router.add_get("/user/strategy", handle_user_strategy_get)
     app.router.add_post("/user/strategy", handle_user_strategy_set)
