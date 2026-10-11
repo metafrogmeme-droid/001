@@ -9,6 +9,7 @@ process.env.JWT_SECRET = 'j'.repeat(64);
 delete process.env.DATABASE_URL;
 
 const test = require('node:test');
+const { execFileSync } = require('node:child_process');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -68,6 +69,25 @@ test('readGitHead() follows a .git *file* gitdir pointer', () => {
 test('readGitHead() returns null when there is no .git at all', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rc-nogit-'));
   assert.equal(readGitHead(root), null);
+});
+
+test('container provenance wins over a stale build-info fallback', () => {
+  const sha = 'f'.repeat(40);
+  const committedAt = '2026-10-11T11:03:42Z';
+  const script = "process.stdout.write(JSON.stringify(require('./lib/version').buildInfo()))";
+  const raw = execFileSync(process.execPath, ['-e', script], {
+    cwd: path.join(__dirname, '..'),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      BUILD_SHA: '',
+      SOURCE_COMMIT: sha,
+      BUILD_TIME: committedAt,
+    },
+  });
+  const info = JSON.parse(raw);
+  assert.equal(info.sha, sha.slice(0, 12));
+  assert.equal(info.committed_at, committedAt);
 });
 
 test('buildInfo() reports a resolved sha, ISO boot time and numeric uptime', () => {
