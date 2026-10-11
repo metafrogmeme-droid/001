@@ -28,9 +28,12 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from bot.core.strategy_gate import _base, perp_symbol
+
+if TYPE_CHECKING:
+    from bot.core.limit_scanner import ScannerParams
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +105,13 @@ def bars_needed(cfg: dict) -> Optional[int]:
         return (int(cfg["slow_period"]) + 2) * hours
     if rule == VOL_ROTATION:
         hours = _hours_per_bar(cfg.get("bar_timeframe"), cfg.get("bar_source_timeframe"))
-        periods = [cfg.get(k) for k in ("momentum_period", "atr_period", "trend_period")]
-        if hours is None or not all(isinstance(v, int) and not isinstance(v, bool)
-                                    for v in periods):
+        periods: list[int] = []
+        for key in ("momentum_period", "atr_period", "trend_period"):
+            val = cfg.get(key)
+            if isinstance(val, bool) or not isinstance(val, int):
+                return None
+            periods.append(val)
+        if hours is None:
             return None
         return (max(periods) + 3) * hours
     return None
@@ -227,6 +234,7 @@ def board_momentum_trend(cfg: dict, rows: dict[str, list]) -> dict:
     if p is None:
         return {"rows": [], "verdict": "Its numbers could not be read, so no scan runs it."}
     out = []
+    signals: list[str] = []
     for sym in _listed(cfg):
         if sym not in rows:
             continue
@@ -234,7 +242,8 @@ def board_momentum_trend(cfg: dict, rows: dict[str, list]) -> dict:
         out.append({"symbol": sym, "fast": _num(r.fast), "slow": _num(r.slow),
                     "momentum_pct": _num(r.momentum_pct, 3), "trend": r.trend,
                     "signal": r.signal, "reason": r.reason})
-    signals = [f"{r['signal'].lower()} {r['symbol']}" for r in out if r["signal"]]
+        if r.signal:
+            signals.append(f"{r.signal.lower()} {sym}")
     verdict = ("Signals now: " + ", ".join(signals) + ".") if signals else \
         "No market has a signal now."
     return {"rows": out, "verdict": verdict}
@@ -304,7 +313,7 @@ def board_limit_entry(cfg: dict, rows: dict[str, list]) -> dict:
     return {"rows": [], "classes": classes, "verdict": "; ".join(verdicts) + "."}
 
 
-def _leader_of(params: Any, name: str) -> str:
+def _leader_of(params: "ScannerParams", name: str) -> str:
     for c in params.classes:
         if c.name == name:
             return c.leader
