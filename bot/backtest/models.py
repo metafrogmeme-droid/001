@@ -96,6 +96,14 @@ class BacktestConfig(BaseModel):
     ma_utilization: Optional[float] = None
     # The signal's stated confidence. Not an entry gate. None does not open.
     ma_signal_confidence: Optional[float] = None
+    # The Limit Entry Scanner (`bot/core/limit_scanner.py`). Empty runs the
+    # house analyzer. "limit_entry" runs the scanner in its place: one pass
+    # per closed bar across the whole universe, at most one resting limit a
+    # pass, through the same risk gate. ``scanner_config`` holds the preset's
+    # own numbers, read by `params_from_preset`. A portfolio run only: the
+    # scanner ranks a universe, and one symbol is not one.
+    scanner: str = ""
+    scanner_config: dict = Field(default_factory=dict)
     # Entry fill convention (audit fix #15). "close" = fill at the same bar's
     # close that generated the signal (legacy; optimistic — assumes you can
     # transact at the closing print). "next_open" = queue the approved idea and

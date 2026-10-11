@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import tempfile
 import time
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
@@ -31,6 +32,9 @@ from bot.risk.portfolio import PortfolioTracker
 from bot.utils.logger import audit, system_log, trade_log
 from bot.utils.models import Direction, MarketSignal, RiskVerdict
 from bot.utils.trailing import make_trailing_state, update_trailing_stop
+
+if TYPE_CHECKING:
+    from bot.core.limit_scanner import ScannerParams
 
 
 # Risk gates whose firing depends on PRIOR-TRADE OUTCOMES (cumulative PnL, loss
@@ -184,6 +188,10 @@ class BacktestEngine:
         # ATR the preset exit multiples were applied with, keyed by idea id,
         # so the trail reads that ATR instead of backing it out of the stop.
         self._preset_atr_by_idea: dict[str, float] = {}
+        # The Limit Entry Scanner's exit numbers, set by the portfolio run that
+        # places its orders. A position it opened runs its own exits
+        # (`limit_scanner.step_exit`), never the house ladder, trail or time stop.
+        self._scanner_exits: Optional[ScannerParams] = None
         self._equity_curve: list[EquityPoint] = []
         # Realized R:R per fill as (trade_id, R, quantity); `position_rr`
         # reads one R per position from them.
@@ -1013,6 +1021,21 @@ class BacktestEngine:
             "placed_close": bar.close,
         })
 
+    def _rest_limit(self, idea, risk_check, bar) -> None:
+        """Rest a limit from the NEXT bar on, untouched by this one.
+
+        The Limit Entry Scanner decides at a bar's close, from that bar's
+        own close and VWAP, so a touch inside the same bar's range happened
+        before the order existed. `_place_entry` counts that touch (its
+        optimism about order within a bar); this does not.
+        """
+        self._pending_limits.append({
+            "idea": idea, "risk_check": risk_check,
+            "px": float(idea.entry_price),
+            "placed_ts": bar.timestamp.timestamp(),
+            "placed_close": bar.close,
+        })
+
     def _drain_pending_limits(self, bar) -> None:
         """Fill, expire or cancel each resting limit against this bar.
 
@@ -1153,7 +1176,16 @@ class BacktestEngine:
         # scale-outs (breakeven after TP1, lock-1R after TP2, ATR-trail for the
         # runner); the multistage trail + ratchets ALSO overlay the ladder stop
         # (tighten-only) via _apply_ladder_trailing — mirroring live.
-        if self._partial_tp_enabled:
+        from bot.core.limit_scanner import SOURCE as _SCANNER_SOURCE
+        if (self._scanner_exits is not None
+                and getattr(idea, "source", "") == _SCANNER_SOURCE):
+            from bot.core.limit_scanner import ExitState
+            self._open_bt_positions[idea.id]["scanner_exit"] = ExitState(
+                side=idea.direction.value, entry=adjusted_entry, stop=trade.stop_loss,
+                atr=self._preset_atr_by_idea.get(idea.id),
+                opened_ms=int(bar.timestamp.timestamp() * 1000))
+            self._open_bt_positions[idea.id]["original_qty"] = trade.quantity
+        elif self._partial_tp_enabled:
             from bot.core.partial_tp import create_partial_tp_state
             self._open_bt_positions[idea.id]["ptp_state"] = create_partial_tp_state(
                 # The BACKTEST's own round trip, not the live rates: TP1's lock
@@ -1206,6 +1238,12 @@ class BacktestEngine:
             # This book exits when the moving-average relationship flips, or
             # at the last bar. A wick through the idea's stop is not an exit.
             if bt_meta.get("ma_flip"):
+                continue
+
+            # The Limit Entry Scanner's position runs its own exits, before any
+            # house exit could: no house time stop, ladder or trail reads it.
+            if "scanner_exit" in bt_meta:
+                self._check_scanner_exit(tid, pos, bt_meta, bar)
                 continue
 
             # Time-stop (gated; mirrors live). Count bars held, then if the
@@ -1302,6 +1340,40 @@ class BacktestEngine:
                 )
                 sl = self._maybe_structure_ratchet(bt_meta, sl, direction.value)
                 pos.stop_loss = sl
+
+    def _check_scanner_exit(self, tid: str, pos, bt_meta: dict, bar: BacktestBar) -> None:
+        """One bar of the Limit Entry Scanner's own exits for one position.
+
+        The bar that filled the limit traded before the fill as well as
+        after it, so its favourable extreme is not the position's: on that
+        bar the favourable side is read at the close, and the stop at the
+        bar's adverse extreme (pessimistic, as every stop here is).
+        """
+        from bot.core.limit_scanner import LONG, step_exit
+        from bot.utils.candles import timeframe_to_ms
+        params = self._scanner_exits
+        if params is None:
+            # Only a scanner run opens these positions, and it sets the numbers.
+            raise RuntimeError("a Limit Entry Scanner position in a run without its exits")
+        state = bt_meta["scanner_exit"]
+        high, low = bar.high, bar.low
+        if bar.timestamp == bt_meta["entry_time"]:
+            if state.side == LONG:
+                high = bar.close
+            else:
+                low = bar.close
+        close_ms = (int(bar.timestamp.timestamp() * 1000)
+                    + timeframe_to_ms(self.config.timeframe))
+        fills = step_exit(state, params, open_=bar.open, high=high,
+                          low=low, close=bar.close, close_ms=close_ms)
+        original = bt_meta["original_qty"]
+        for i, fill in enumerate(fills):
+            if i == len(fills) - 1 and state.remaining <= 1e-12:
+                self._close_position(tid, fill.price, bar, fill.reason)
+                return
+            self._partial_close(tid, bt_meta, pos, fill.share * original, fill.price,
+                                bar, fill.reason)
+        pos.stop_loss = state.stop
 
     def _time_stop_hit(self, bt_meta: dict, pos, bar: BacktestBar) -> bool:
         """True when a position has exceeded its per-strategy time-close horizon
@@ -1713,7 +1785,8 @@ class BacktestEngine:
 
         # Attribute this fill's share of entry slippage; shrink the residual's so
         # _close_position doesn't re-charge the whole entry slippage to the runner.
-        orig_qty = bt_meta["ptp_state"].original_qty
+        orig_qty = (bt_meta["ptp_state"].original_qty if "ptp_state" in bt_meta
+                    else bt_meta["original_qty"])
         per_unit_entry_slip = (bt_meta["slippage_entry"] / orig_qty) if orig_qty > 0 else 0.0
         this_entry_slip = per_unit_entry_slip * close_qty
         bt_meta["slippage_entry"] = max(0.0, bt_meta["slippage_entry"] - this_entry_slip)

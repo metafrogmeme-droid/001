@@ -93,7 +93,7 @@
   <div id="ag-root"><div class="empty" data-i18n="ag.loading">Loading the agent catalogue…</div></div>
 </div>
 
-<script src="/js/agent-scorecard.js?v=7"></script>
+<script src="/js/agent-scorecard.js?v=8"></script>
 <script>
 (function () {
   var esc = function (s) {
@@ -218,7 +218,12 @@
       + '<div class="h"><span class="emo">' + esc(a.icon || '🤖') + '</span>'
       + '<span class="nm">' + esc(a.name) + '</span></div>'
       + (a.tagline ? '<p class="tg">' + esc(a.tagline) + '</p>' : '<p class="tg"></p>')
-      + mx + followersLine(a.followers) + '<div class="go">View agent →</div>'
+      + mx + followersLine(a.followers)
+      // A rule the live bot does not run can be scanned now: on its page, or
+      // by the command the card names (the bot registers it).
+      + (a.scan ? '<div class="go" style="color:var(--text-3)">Scan it now on its page, or '
+        + esc(a.scan) + ' in the bot</div>' : '')
+      + '<div class="go">View agent →</div>'
       + cmpToggle(a.id) + '</a>';
   }
 

@@ -1313,9 +1313,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 108 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 113 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 99 of the 108 reach the tool-less chat model and 9
+typed as the card prints them, 104 of the 113 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -21344,7 +21344,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **485 of 1270** reach for source text through `source_scan`, `code_only`
+Driven, **485 of 1275** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 485 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -23065,3 +23065,149 @@ their margin and leave the peak alone; a fresher mark still moves them; the
 fill's mark reads as current to the chat, which prints its age. Three mutants,
 all killed; the first round left the stamp standing because no test asked the
 age.)
+
+**THE LIMIT ENTRY SCANNER, PORTED: ITS FIRST CARD MEASURED SOMEONE ELSE'S
+EXITS, AND ITS PLAYBOOK SCORED WHAT IT NEVER READ.** 10 October, the
+operator's request: the RUNECLAW Limit Entry Scanner playbook
+(`playbooks/runeclaw-limit-scanner`) as a strategy agent, crypto and metals.
+The repo holds its v0.1; the operator's description of the version they run
+adds short entries behind the regime gate, a 5% VWAP-extension cap, a 30 bps
+funding skip, a percent exit ladder with step locks, and breakouts. Its rules
+are one reading now, `bot/core/limit_scanner.py`, over closed 1h bars. Each
+market class has a leader that is a gate and is never traded: BTC for crypto,
+XAU for metals. A leader's day and VWAP set its class's side (taker flow, when
+read, is a third vote; an unread leader opens nothing, and says so apart from
+a mixed one). Every member is scored out of 100 with the playbook's weights,
+and each class's best at 70 or more gets one resting limit at its 24-hour VWAP
+less half an ATR, never through the market and never past a 3% chase, with
+its stop at the day's extreme widened to its tier floor.
+
+Four things the port would have got wrong by copying:
+
+* **The playbook scored what it never read.** An unread dimension got
+  mid-scale points (12.5 momentum, 10 VWAP, 8 order book, 7.5 volume), so a
+  market whose book, ranking and VWAP all failed to read started at 38 of the
+  70 it needed. An unread dimension adds nothing now and is named. The frozen
+  bars carry no book, funding or taker flow, so the backtest scores out of the
+  remaining 80 with the same 70 to act, and the card says so.
+* **A limit decided at a bar's close cannot fill inside that bar.** The honest
+  path fills a queued idea at the next open, a market fill, which for a
+  strategy built on not chasing measures chasing. The scanner's limit rests
+  from the next bar (`BacktestEngine._rest_limit`). It rested 853 limits over
+  the card's run: 164 filled, 657 expired, 31 were cancelled on drift, and one
+  was still resting when the bars ran out. The portfolio run had reported those counts from its first
+  symbol's engine alone; they are every engine's now.
+* **The first card measured the house's exits.** With the scanner's entries
+  and the house ladder, the card read -7.75% on 52 trades, and 30 of those
+  were closed by the intraday time stop, a rule written for another strategy.
+  That card was never published. The scanner's position runs its own exits
+  now (`limit_scanner.step_exit`, before any house exit reads it): 35% at
+  +3.5%, half the rest at +5%, the rest at +20%, the stop stepped to +1.5% at
+  +2%, +3% at +4% and +4.5% at +6%, a 2-ATR trail after the scale-out, and a
+  pullback entry closed at four hours, as v0.1's time stop closed every
+  position at its age. The +5% share is v0.1's, a reading, and the card says
+  so; the source of the newer version was not provided, so its breakouts are
+  not ported.
+* **One volume floor is one class's floor.** The playbook's 10M USDT of
+  24-hour quote volume is a crypto number. On the frozen bars platinum's
+  median day is 0.93M and palladium's 0.48M, so under it they are never
+  placed, and PAXG is held off 49% of the hours. The metals class has its own
+  floor, 0.25M, at the operator's word that metals trade thin markets: it
+  admits platinum 82% of the hours and palladium 74%. A thin market's real
+  slippage is more than the backtest's flat 0.05%, and the card says that
+  beside the floor. A class is one leader, its members and its floor
+  (`ScanClass`); a preset with classes refuses a single leader or floor beside
+  them, a member in two classes, and a class that would trade its own leader.
+  PAXG and XAUT are gold tokens, members of the metals class behind XAU.
+  Copper returned no bars and is not listed.
+
+Measured on a new frozen universe, `benchmark/limit_scanner_1h` (the 28
+playbook markets and six metals, 5,999 closed 1h bars each to 10 October,
+frozen by the pager that keeps every page's first bar; the house window's BTC,
+ETH and SOL would be three of them and BTC is a gate): -6.41%, profit factor
+0.62, 164 positions, 32% won, a worst drawdown of 7.71% and 13 breaker trips.
+ETH took 46 of the positions and silver 92; the other 26 were XAUT and PAXG.
+The volume dimension scores a member against the busiest market in its class,
+so each class's busiest takes its 15 points and the rest score near nothing:
+of the plans each class put to the gate, the crypto class's were ETH 762 times
+of 771 and the metals class's silver 1,340 times of 1,582, while platinum and
+palladium were admitted by the metals floor and never chosen. The floor
+decides who is scored; the volume normalisation decides who wins, and that is
+a rule of the playbook's, reported and not changed. 146 of the 164 positions
+were closed by the four-hour pullback stop, 11 at their stop and 7 at a
+stepped lock; one reached the +3.5% scale-out. The card therefore hangs on how
+that time stop is read (v0.1 closed every position at its age), and the card
+says the +5% share is a reading too. Most of the gate's refusals were the
+house's loss governors (the performance pause, the loss streak and the
+breaker), not anything about the market. The same rule read -7.62% on the bars
+with the pager's holes, and -3.71% on gap-free bars before the fill-mark fix,
+when its drawdown gate, frozen by a fake peak, refused every entry after 8
+July: a book that trips its limits is path-dependent, and a card is one path,
+not an estimate. The card is published as measured; it is withheld from
+copy/follow by its profit factor, and the live bot does not run the rule, so
+the confirm gate refuses to arm it; A card measured on its own universe needed
+`card_window`, and "Reproduce in Lab" runs every one of its symbols (the house
+limit of four would be a different backtest). The Lab's request arrives from a
+browser, where 5.0 is 5, so the scanner's numbers are serialised one way for
+the generator and the Lab (`scanner_config_arg`). Forty-four mutants, all
+killed, across the rules, the exits, the classes, the backtest's wiring, the
+Lab and the card. The first round left the minimum score standing, because the
+only fixture under the bar also failed to price, and the bar has its own case
+both ways now.
+(`tests/test_the_limit_scanner_scores_only_what_it_read.py`,
+`tests/test_the_scanner_backtest_rests_its_limit_from_the_next_bar.py`,
+`tests/test_the_limit_scanner_exits_are_its_own.py`,
+`tests/test_the_limit_scanner_card_says_what_runs_it.py`.)
+
+**A RULE NOTHING READ LIVE, AND FIVE DOORS THAT NAMED IT.** 10 October, the
+operator: "we need to be able to scan each strategy by command in bot or
+website". Five presets are rules the live bot does not run: the Limit Entry
+Scanner, ALT Sweep, ETH Moving-Average Trend, the daily rotation and the new
+Multi-Symbol Momentum Trend. Until now nothing read any of them live: `/run`
+printed their text, and a frozen backtest was the only thing that ever
+evaluated them. `/altsweep`, `/ethma` and `/volrotation` had been printed as
+commands with nothing behind them, then taken off the list for that reason.
+
+Each now has a door that opens: its own alias as a command (`/limitscan`,
+`/multitrend`, `/altsweep`, `/ethma`, `/volrotation`) and "Scan now" on its
+page. `strategy_scan.scan` reads the preset's markets' closed 1h bars from
+Bitget's perpetuals through the freezer's own pager, runs the preset's own
+rule (the function its backtest runs: `scan_classes`, `ma_trend_step`,
+`rotate`, `momentum_signal`), and returns a board: what the rule sees and what
+it would do. Nothing is placed, queued or made confirmable. Which presets have
+a door is one reading, `scan_command`, derived from the rule a preset carries,
+and `live_runs` is now its complement rather than a second list. Three things
+the board refuses to do:
+
+* **Score a market it could not read.** A fetch that raises is named by its
+  exception class, never its message; a market whose newest bar is not the
+  hour's is named by the hour it stopped at; both are listed apart and the
+  rule runs on the rest. The limit scanner's leader is the exception that
+  proves it: an unread leader opens nothing for its class and says so.
+* **Read the venue on every ask.** One board per preset per closed hour; a
+  second ask in the same hour is the first board, and a board with an unread
+  market is kept a minute. The public route adds a minute's cache and six asks
+  a minute per address.
+* **Print a number twice.** The command catalogue describes each door without
+  its preset's periods; the card's how-line names the door from the same
+  reading the bot registers.
+
+The Multi-Symbol Momentum Trend is the GetAgent page's rule as stated: a 9/21
+average and three-bar momentum agreeing, a 1.2% stop and a 2.4% target, one
+position a symbol, an opposite signal closing it. The page hid the fast
+period; 9 was fixed before any result of it was measured, and the card says
+it is a reading. Its numbers live under its own `momentum_trend` key, because
+`fast_period`/`slow_period` already mean "the moving-average book" to the
+catalogue, the confirm gate and the generator. No frozen backtest runs it
+yet, its card says so, and its 20x leverage is recorded and not applied. A
+replication of it over eight months of Bitget bars, outside this repo, lost
+0.19% a trade after costs and was wiped out at 20x by 17 February; the
+leaderboard's 17-day paper window is not evidence of an edge. Twenty-nine
+mutants, all killed. The first round left two standing because their fixtures
+could not tell the readings apart: a straight ramp reads the same on 1h and 4h
+closes, and a pullback that fell on its last bar reads the same over one bar
+and three. Each fixture now holds the two readings apart.
+(`tests/test_each_strategy_scans_its_own_rule_now.py`,
+`app/test/a_strategy_scan_shows_its_board_or_says_why.test.js`,
+`tests/test_the_preset_list_names_doors_that_open.py`.)
+
