@@ -654,7 +654,8 @@ _CHAT_TOOLS_RULE = (
     "- You have TOOLS in this conversation (they are listed in the API tool "
     "definitions). When the answer depends on the user's account, positions, "
     "open or pending orders, PnL, risk state, costs, the macro calendar, what "
-    "is moving, or why a trade was rejected, and a tool offered on this turn "
+    "is moving, the engine's read on a symbol, or why the engine did not "
+    "trade, and a tool offered on this turn "
     "reads it, CALL the tool and answer from what it returns. A "
     "tool's output is a measurement; your memory of an earlier turn is not — "
     "positions close and prices move. Earlier assistant turns may contain "
@@ -726,17 +727,24 @@ _REPLY_CONTRACTS: dict[str, str] = {
         "first sentence, then at most one line of why. Under 50 words, 2-4 "
         "lines, no headers, no sections. Do not add a closing prompt."
     ),
+    # The six headings this replaced asked for "Momentum — RSI, volume, order
+    # flow" and "Setup quality, 1-10" on every full analysis. No block and no
+    # tool supplies an RSI, an order-flow read or a quality grade, so a model
+    # obeying the shape had to invent them. Each part below names the reading
+    # that fills it, and a part with no reading is left out.
     "full_scan": (
-        "THIS TURN: a full analysis was asked for. Use these six headings, in "
-        "order, and keep the whole reply under 300 words:\n"
-        "  1. Verdict — bullish / bearish / choppy, and what to do\n"
-        "  2. Structure — trend, key levels\n"
-        "  3. Momentum — RSI, volume, order flow if relevant\n"
-        "  4. Long scenario / Short scenario\n"
-        "  5. Setup quality, 1-10\n"
-        "  6. What to watch next\n"
-        "Any number you cannot source from a block in this prompt is one you "
-        "leave out, not one you estimate."
+        "THIS TURN: a full analysis was asked for. If market_read is offered, "
+        "call it for the symbol first and build on what it returns. Under 300 "
+        "words, in this order, each part ONLY where a reading supplies it:\n"
+        "  1. Verdict: the engine read's direction, or that it found none\n"
+        "  2. Regime and confluence, as the read states them\n"
+        "  3. Price: from LIVE MARKET, with its age\n"
+        "  4. Your position, if ACTIVE POSITIONS holds one on this symbol\n"
+        "  5. What would change the read\n"
+        "Print no RSI, no timeframe-by-timeframe read, no order flow and no "
+        "setup-quality score: nothing on this turn measures them. If no "
+        "reading of this market is on the turn, say so first and give no "
+        "verdict. For levels, the full analysis is 'analyze <SYMBOL>'."
     ),
     "execution": (
         "THIS TURN: they are asking to act. If their own message asks for a "

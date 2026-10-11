@@ -946,8 +946,11 @@ class ScanCommands:
         if symbol and not _SYMBOL_RE.match(symbol):
             await self._send(update, t("invalid_symbol_format", self._lang(update)))
             return
+        # The caller's id, so the card can show them their own confirms that
+        # placed nothing and nobody else's.
+        uid = str(update.effective_user.id) if update.effective_user else ""
         result = await self.registry.dispatch("whynot",
-            self.engine, symbol=symbol)
+            self.engine, symbol=symbol, user_id=uid)
         await self._send(update, result)
 
     # `analyze`, matching /quant — the other per-symbol analysis card in

@@ -405,6 +405,41 @@ def _unpriced_note(state) -> str:
 _MISSING = object()
 
 
+def _not_the_bot(engine) -> bool:
+    """True when ``engine`` is a READER in a process that is not the bot.
+
+    `api_bridge.py` builds its own `RuneClawEngine` and detaches it
+    (`detach_state_persistence`); it runs no tick, starts no price feed and
+    queues no idea. Its queue, breaker, entry gate and feed are that process's
+    own, so the chat prompt it builds must not describe them as the bot's.
+    ``is True``: a stand-in engine answers anything for an unknown attribute.
+    """
+    return getattr(engine, "_state_persistence_detached", False) is True
+
+
+#: The sections a reader process cannot read from the bot, said once each.
+NOT_THE_BOT_IDEAS = (
+    "\n\nPENDING TRADE IDEAS: not read from the bot. This answer comes from a "
+    "separate process that runs no scan and holds no copy of the bot's queue. "
+    "Do not say whether anything is queued or about to be placed; say it "
+    "could not be read from here.")
+NOT_THE_BOT_GATE = (
+    "the bot's circuit breaker and entry gate were NOT read: this answer comes "
+    "from a separate process, and the breaker and gate it holds are its own "
+    "copy, not the bot's. Do not tell the user whether new entries are open or "
+    "halted; say it could not be confirmed from here")
+NOT_THE_BOT_FEED = (
+    "\n\nLIVE MARKET DATA: not read here. This answer comes from a separate "
+    "process that does not run the bot's price feed, so no current price was "
+    "read; that says nothing about whether the bot's feed is up. Do not state, "
+    "estimate or recall any price.")
+NOT_THE_BOT_BOOK = (
+    "\n\nNOTE: this answer comes from a separate process, not the bot. Any "
+    "position or closed trade above is this process's copy of the book, read "
+    "from the bot's saved files and not refreshed as the bot trades. Say it "
+    "may be out of date; do not present it as the current book.")
+
+
 def _first_attr(obj, *names):
     """The first of ``names`` the object defines, or None — the live and
     paper close records name the same field differently (``close_price`` /
@@ -1996,13 +2031,20 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         "TERMS you can use naturally (explain if user seems new):\n"
         "CHoCH, BOS, sweep, reclaim, FVG, displacement, stop hunt, absorption\n\n"
 
+        # WHEN TO SAY NO used to list "RSI stuck in no-man's land (40-60)"
+        # and "conflicting signals across timeframes". Neither this prompt nor
+        # any tool supplies an RSI or a per-timeframe reading, and the engine
+        # has no such gate, so the list asked the model for numbers it could
+        # only invent. The reasons left are the ones a reading can give.
         "WHEN TO SAY NO:\n"
-        "- Choppy, no clear direction\n"
-        "- No confirmation yet\n"
-        "- RSI stuck in no-man's land (40-60)\n"
-        "- Late entry after a big move\n"
-        "- Conflicting signals across timeframes\n"
-        "Just say 'I'd sit this one out' and explain briefly why.\n"
+        "- The engine's own read finds no direction, or the regime is choppy "
+        "(the market_read tool says which, when it is offered)\n"
+        "- The engine declined the setup (the whynot tool says at which stage)\n"
+        "- Nothing on this turn measured the market: say that instead of "
+        "judging the setup\n"
+        "Just say 'I'd sit this one out' and name the reading that says so. "
+        "Never cite an RSI value, a timeframe's trend or any indicator that no "
+        "block or tool on this turn states.\n"
         # No "ALWAYS END WITH: one clear thing to watch next" here any more.
         # It fired on every turn, including "what is leverage?" and "thanks",
         # and a closing line that appears whether or not it means anything is
@@ -2133,6 +2175,10 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         except Exception:
             ticks = {}
 
+        if not ticks and _not_the_bot(self.engine):
+            # This process never started a feed: "the feed is down" would be a
+            # claim about the bot's feed made from a feed nobody ran.
+            return NOT_THE_BOT_FEED
         if not ticks:
             return ("\n\nLIVE MARKET DATA: NONE AVAILABLE right now — the price "
                     "feed is not returning fresh ticks. You do NOT know the "
@@ -2415,6 +2461,13 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 engine_state += (", ENTRY GATE STATUS UNKNOWN (do not tell the "
                                  "user trading is open — say it could not be "
                                  "confirmed)")
+            if _not_the_bot(self.engine):
+                # The breaker and the gate above are this process's copy. The
+                # mode is this process's configuration; a runtime arm in the
+                # bot does not reach it.
+                engine_state = (f"{mode} mode as this process's configuration "
+                                "reads it (an arm made in the bot at runtime is "
+                                "not visible here); " + NOT_THE_BOT_GATE)
 
             # Inject actual open positions
             # NEVER leave this section blank when is_live -- an LLM given no
@@ -2567,6 +2620,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # takes the WHOLE prompt with it.
         _ideas_fn = getattr(self, "_pending_ideas_block", None)
         _ideas_block = _ideas_fn() if callable(_ideas_fn) else ""
+        if _not_the_bot(self.engine):
+            positions_detail += NOT_THE_BOT_BOOK
 
         # THREE-VALUED AT THE BOUNDARY, for the reason the renderer's own
         # docstring gives: a fault here hands it None, which says the ring
@@ -2625,6 +2680,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         _unread = ("\n\nPENDING TRADE IDEAS: could not be read just now. Do "
                    "not say the queue is empty — you do not know what is in "
                    "it.")
+        if _not_the_bot(self.engine):
+            # A reader's queue is empty because it runs no scan. "None queued
+            # by the bot — the bot is not about to place anything" was this
+            # process describing its own empty queue as the bot's.
+            return NOT_THE_BOT_IDEAS
         try:
             raw: Any = getattr(self.engine, "pending_ideas", _MISSING)
             if raw is _MISSING or raw is None:

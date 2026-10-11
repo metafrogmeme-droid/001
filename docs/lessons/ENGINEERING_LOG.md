@@ -1397,14 +1397,15 @@ second door.
 **Writing that module produced the same defect one layer down, and it was
 fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
 other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
-whole vocabulary plus every chat tool: **58 names including `halt`,
+whole vocabulary plus every chat tool: **59 names including `halt`,
 `close_position` and `emergency_stop`**, on the function whose entire job is
 deciding what the card may promise. (The figure is a live drive of what would
 fall through TODAY, not a note of what it was the day the branch was fixed,
 which is why it moves when the router gains an intent — it was 51 before the
-sweep's own timeframes got rules, 53 before `place_order`, and 56 before
-cross-venue exposure became a routed intent.) It answered MORE for an unrecognised
-surface than for the one it modelled best (telegram, 53), because the
+sweep's own timeframes got rules, 53 before `place_order`, 56 before
+cross-venue exposure became a routed intent, and 58 before the `market_read`
+chat tool.) It answered MORE for an unrecognised
+surface than for the one it modelled best (telegram, 54), because the
 unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
 names that are not skills at all. An unmeasured surface is neither "everything"
 nor "nothing": it raises. `public` and `api` are measured — `_chat_tools_for`
@@ -21384,7 +21385,7 @@ the pending decision, so the backlog reached 9 of 30 registered skills
 (`tests/unreachable_skills_baseline.txt`, same two-way ratchet). Five of them
 were in `bot/skills/macro_skills.py`, each advertising a slash command —
 `/macro`, `/eventrisk`, `/compliance`, `/approve`, `/kill` — that no transport
-reached. The backlog is **5** of 34 registered skills now (`draft_trade` and `memory_note` are registered and reached from chat, so neither is one of the five): `/eventrisk` and
+reached. The backlog is **5** of 35 registered skills now (`draft_trade`, `memory_note` and `market_read` are registered and reached from chat, so none is one of the five): `/eventrisk` and
 `/compliance` are wired, and the deciding question was never "can it run" but
 *who should be able to run it*. `/eventrisk` reuses `macro`, a permission
 trader and paper already hold;
@@ -22739,6 +22740,120 @@ says pending only. Fourteen mutants, all killed.
 - Neither chat surface can explain a pending idea. `SKILL_PERMISSION` is
   derived from a command's `@guard`, and `explain_trade` has no command, so
   giving it a permission is the owner's decision, not a table edit.
+
+**"WHY DIDN'T WE TRADE?" READ ONLY THE RISK GATE'S REFUSALS.** `/whynot` and its
+chat tool read `engine._last_rejections`, which is filled only when the risk
+gate refuses an idea. The analyzer ends most
+analyses before the gate: below the bar, at the regime gate, at the direction
+guard. It recorded each skip per symbol (`Analyzer._record_no_trade`) and nothing
+read that record (`get_no_trade_reason` is on the unreachable-methods baseline),
+so a day of skips was answered "No trades rejected since the bot last started",
+under a tool description that promised "the gate that rejected or skipped it".
+Three skip paths did not reach even that record: no thesis, the regime hard gate
+and the order-flow veto wrote only the one-slot `_last_rejection_diag`.
+
+`bot/core/why_not.py` keeps one row per analysis. The analyzer writes it where it
+decides, at `_record_no_trade` or under the idea's id, and the engine amends the
+row of an idea it drops itself (the same-symbol guard, the liquidity gate, the
+risk gate), so each analysis is counted once, at the stage that ended it. The
+card now opens "Of 85 analyses in the last 6h: 61 below the bar, 14 regime gate,
+6 direction guard, 4 risk gate", and the risk gate's detail card follows under
+its own name. What a row may carry was decided per stage. The risk gate's row
+names the failed checks and drops their figures, which are the operator's
+drawdown and exposure. The liquidity row keeps the stage only, because the
+guard's sentence carries the idea's size. A confirm that placed nothing is kept
+with the id of whoever confirmed and shown only to them, and the engine's own
+`auto` confirms only to the operator. Its words come from a column on
+`confirm_result`'s refusal table, not from the answer, because the answer can
+carry an account figure. The record is bounded (a day, at most 30,000 rows) and
+lives in the bot's memory, so a reading states its window and, when the record
+does not reach back that far, where it starts. A process that is not the bot
+answers that the record was not read there. The chat tool's reading line is now
+the record's own state (read, absent or unread), where any return used to be
+footed "read". The engine attaches the record to its own analyzer, so a
+backtest's analyzer keeps none. `get_no_trade_reason` stays on the baseline:
+the card reads the new record, and a second reader of the same write would be a
+second answer. The runbook said "structured no-trade reasons now back" `/whynot`.
+That was true of the store and not of the card, and it is true of both now.
+Thirty mutants, all killed on the first round.
+(`tests/test_why_no_trade_counts_every_analysis_by_the_stage_that_ended_it.py`,
+`bot/core/why_not.py`.)
+
+**AND THE MARKET QUESTIONS THE ROUTER MISSES WERE ANSWERED FROM NOTHING.** "is
+SOL a buy right now", "whats your read on HYPE" and "deep dive into ETH
+structure" match no router rule, so they reach the model. It had no reading of
+the market. The prompt's "WHEN TO SAY NO" asked it to judge "RSI stuck in
+no-man's land (40-60)" and "conflicting signals across timeframes", and the
+full-scan answer shape asked for "Momentum: RSI, volume, order flow" and "Setup
+quality, 1-10". No block and no tool supplies an RSI, a per-timeframe read, an
+order-flow read or a grade, and the engine has no RSI-band gate. A model that
+followed those instructions had to make the numbers up. `market_read` is
+now a chat tool over `Analyzer.scan_read`. Before it was wired, `scan_read`'s
+docstring claim was driven and holds: it asks no model, and it leaves the regime
+history, the no-trade record and the diagnostic slot as they were. Its one
+outside read is the voter-weight learner's cached file. The tool reads the
+analyzer's own closed 1h bars through `_cached_ohlcv`, under the cache key the
+sweep fills, within an 8 s budget inside `run_tool`'s 12 s. Its card lists
+what it did not read. The RSI and timeframe list is gone from the prompt, and
+each part of the full-scan shape names the reading that fills it. The tool is
+not tier-gated: it is the scan's own computation for one symbol, and `/scan`
+is free. Moving it to `pro` beside `analyze_asset` is the owner's call. The
+perpetual it falls back to for a perp-only listing is read through
+`RuneClawEngine.get_futures_exchange`, which had no caller and leaves the
+unreachable-methods baseline in this commit. Seventeen mutants, all killed on
+the first round.
+(`tests/test_a_market_question_is_answered_from_the_engines_read.py`,
+`bot/nlp/chat_market_read.py`.)
+
+**AND THE BRIDGE'S CHAT DESCRIBED ITS OWN EMPTY ENGINE AS THE BOT.** The api
+bridge answers `/chat` through the one chat brain, over its own engine, which
+`detach_state_persistence` makes a reader and which runs no tick. That chapter
+fixed its writes and its `/health`; the prompt the same engine builds was one
+door over. It said "PENDING TRADE IDEAS: none queued by the bot right now. The
+bot is not about to place anything on its own" about a queue no scan fills. It
+gave the breaker and the entry gate from this process's copy, and it called a
+price feed that this process never starts "not returning fresh ticks". On a
+reader engine (`_not_the_bot`, which asks the detach flag `is True`, so a
+stand-in engine is never read as one) each of those sections now says it was
+not read from the bot. The mode line says it is this process's configuration,
+because a runtime arm made in the bot does not reach the bridge. The positions
+and closed trades are this process's copy of the book, loaded from the bot's
+files and never refreshed, so they are labelled as that copy. A price the
+reader did read is still printed. The bot's own prompt is unchanged, and both
+arms are driven on a real engine. The bridge's `/health` already reads the
+bot's saved breaker (`persisted_breaker`), and the prompt could say that too,
+with its save time. That is left for the owner, because the saved breaker is
+not the warning-rate breaker or the venue halt, and the honest sentence is
+the shorter one. Nine mutants, all killed on the first round.
+(`tests/test_a_process_that_is_not_the_bot_does_not_describe_its_own_state_as_the_bots.py`.)
+
+**AND AN UNREADABLE MODEL REPLY WAS CALLED AN AMBIGUOUS MARKET.** Every
+missing thesis was recorded as "Ambiguous signal — confluence in neutral zone,
+no strong directional bias from RSI or MACD". That sentence is the rule
+engine's, and it was also written when the model's reply could not be parsed,
+so `/analyze` printed it beside "Confluence: 72%". `_llm_thesis` now fills a
+`why` whenever it answers None. A reply that could not be read is `unread`,
+with the field the parser failed on, and is recorded as `thesis_unread`: "The
+model's reply could not be read (no readable confidence)". A rule engine with
+no bias is `neutral`, with the route that sent the call to the rules (no LLM
+configured, the budget spent, every provider failed, and the rest). The nine
+rule-engine fallbacks go through one helper, `_rule_thesis`, so a route added
+later says so by construction, and all seven reachable through a stub are
+driven. A None that nothing explained is said as such. The same card printed
+the confluence bare beside "Bias: SHORT", and confluence is a bullishness score,
+so a strongly confirmed short read "30%". `bot/formatters/confluence.py`
+prints it for the direction it is read against: "80% for a SHORT (bullishness
+20%; 50% is neutral)". The chat's market read now uses that one reading too.
+The card's `if diag.get("confluence")` also hid a 0.0, which is the most bearish
+reading there is. Sixteen mutants, all killed on the first round. Recorded and
+not changed: on a below-the-bar decline the card's "Final score" is the blend
+after calibration and the setup-expectancy nudge, while the floor it sits
+beside is compared with the blend before both (`_blended_confidence_raw`). The
+two differ whenever either one moves the blend, and the nudge is on by
+default. The reason line quotes the compared figure, so the card can show two
+scores that disagree.
+(`tests/test_a_declined_analysis_names_why_it_had_no_thesis.py`,
+`bot/formatters/confluence.py`.)
 
 ## Operational docs
 

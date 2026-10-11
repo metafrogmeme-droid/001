@@ -33,11 +33,53 @@ from bot.core.cost import thesis_dollar_exhausted
 from bot.core.position_telemetry import price_on_record
 from bot.core.signal_levels import (atr_on_record, record_atr,
                                      record_idea_levels, record_level)
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from bot.core.why_not import WhyNotLog
 
 # AG-H1: Symbol validation regex — uppercase alphanumeric, optional /pair, optional :settle
 # C2-17 FIX: Allow ':' suffix for futures/swap symbols (e.g., XAU/USDT:USDT, NATGAS/USDT:USDT)
 _VALID_SYMBOL_RE = re.compile(r"^[A-Z0-9]{1,15}(/[A-Z0-9]{1,15}(:[A-Z0-9]{1,15})?)?$")
+
+
+#: What sent a call to the rule engine, in a person's words.
+_RULE_ROUTE_WORDS: dict[str, str] = {
+    "RULE_ENGINE": "no LLM is configured",
+    "RULE_ENGINE_NO_RECORD": "no recorded thesis for this bar",
+    "RULE_ENGINE_BG_THROTTLE": "background scans run on the rule engine",
+    "RULE_ENGINE_ADAPTIVE": "the LLM is skipped for a quiet market",
+    "RULE_ENGINE_TIER1": "a clear-cut signal is routed to the rules",
+    "RULE_ENGINE_BUDGET": "the LLM budget for today is spent",
+    "RULE_ENGINE_FALLBACK": "every LLM provider failed",
+}
+
+
+def no_thesis_reason(why: dict) -> tuple[str, str]:
+    """``(stage, reason)`` for an analysis that got no thesis, from what
+    `_llm_thesis` recorded in ``why``.
+
+    An unreadable model reply is not an ambiguous market: it is a reading
+    that did not happen, and its card names the field that failed. A
+    neutral rule thesis says which route sent the call to the rules. A None
+    nothing explained is said as such, never as either of the two.
+    """
+    kind = why.get("kind") if isinstance(why, dict) else None
+    if kind == "unread":
+        field = why.get("field") or "direction"
+        what = ("no readable confidence" if field == "confidence"
+                else "no LONG or SHORT direction")
+        return ("thesis_unread",
+                f"The model's reply could not be read ({what}), so no trade "
+                "is taken on it")
+    if kind == "neutral":
+        route = _RULE_ROUTE_WORDS.get(str(why.get("source") or ""), "")
+        return ("no_thesis",
+                "Ambiguous signal — the rule engine"
+                + (f" ({route})" if route else "")
+                + " found confluence in the neutral zone and no strong "
+                "directional bias from RSI or MACD")
+    return ("no_thesis", "No thesis was produced, and nothing recorded why")
 
 
 def _sanitize_symbol(symbol: str) -> str:
@@ -657,6 +699,10 @@ class Analyzer:
         # skip path records WHY, so callers (/whynot, dashboard, learning) can
         # enumerate skip reasons instead of scraping the audit log.
         self._no_trade_reasons: dict[str, dict] = {}
+        # Every analysis's outcome, by symbol and time (bot/core/why_not.py).
+        # None until the bot's engine attaches one: a backtest's or a script's
+        # analyzer keeps no record nobody reads.
+        self.why_not: Optional["WhyNotLog"] = None
         # Regime persistence: smooth out single-bar whipsaw changes
         self._regime_history: list[tuple[str, str]] = []  # (symbol, regime_value)
         self._current_regimes: dict[str, Regime] = {}  # per-symbol smoothed regime
@@ -674,6 +720,8 @@ class Analyzer:
             }
             self._no_trade_reasons[symbol] = entry
             self._last_rejection_diag = {**entry, "at": time.time()}
+            if self.why_not is not None:
+                self.why_not.analysed(symbol, stage, reason)
         except Exception:
             pass
 
@@ -1395,18 +1443,18 @@ class Analyzer:
         if sma50 is not None:
             indicators["sma50"] = record_level(sma50)
 
-        thesis = await self._llm_thesis(signal, indicators, order_flow=order_flow, is_admin=is_admin, user_id=user_id, user_tier=user_tier, as_of=as_of, background=background)
+        _thesis_why: dict = {}
+        thesis = await self._llm_thesis(signal, indicators, order_flow=order_flow, is_admin=is_admin, user_id=user_id, user_tier=user_tier, as_of=as_of, background=background, why=_thesis_why)
 
         if thesis is None:
-            self._last_rejection_diag = {"at": time.time(),
-                "symbol": signal.symbol, "regime": regime.value,
-                "confluence": round(confluence, 3),
-                "reason": (
-                    "Ambiguous signal — confluence in neutral zone, "
-                    "no strong directional bias from RSI or MACD"
-                ),
-                "source": "no_thesis",
-            }
+            # TWO FACTS, NOT ONE. "Ambiguous signal" was written for every
+            # missing thesis, including a model reply nobody could read, and
+            # the /analyze card printed it beside a 72% confluence.
+            _stage, _reason = no_thesis_reason(_thesis_why)
+            self._record_no_trade(
+                signal.symbol, _stage, _reason,
+                regime=regime.value, confluence=round(confluence, 3),
+                source=_stage)
             return None
 
         # C-07 SAFETY: reject if LLM/rule thesis returned without a valid direction.
@@ -1476,14 +1524,10 @@ class Analyzer:
             _adx = float(indicators.get("adx", 0) or 0)
             _gate_reason = self._regime_hard_gate_reason(regime, direction, _adx)
             if _gate_reason:
-                self._last_rejection_diag = {"at": time.time(),
-                    "symbol": signal.symbol,
-                    "stage": "regime_hard_gate",
-                    "regime": regime.value,
-                    "direction": direction.value,
-                    "adx": round(_adx, 1),
-                    "reason": _gate_reason,
-                }
+                self._record_no_trade(
+                    signal.symbol, "regime_hard_gate", _gate_reason,
+                    regime=regime.value, direction=direction.value,
+                    adx=round(_adx, 1))
                 audit(trade_log,
                       f"Regime hard gate: {signal.symbol} skipped — {_gate_reason}",
                       action="analyze", result="REJECTED_REGIME_GATE",
@@ -1628,13 +1672,11 @@ class Analyzer:
                                 "direction": direction.value,
                                 "of_bias": round(of_bias, 3),
                                 "of_confidence": round(of_conf, 3)})
-                    self._last_rejection_diag = {"at": time.time(),
-                        "symbol": signal.symbol, "regime": regime.value,
-                        "confluence": round(confluence, 3),
-                        "direction": direction.value,
-                        "reason": f"Order-flow veto: microstructure opposes {direction.value}",
-                        "source": "order_flow_veto",
-                    }
+                    self._record_no_trade(
+                        signal.symbol, "order_flow_veto",
+                        f"Order-flow veto: microstructure opposes {direction.value}",
+                        regime=regime.value, confluence=round(confluence, 3),
+                        direction=direction.value, source="order_flow_veto")
                     return None
                 blended_confidence -= 0.15 * opposition * of_conf
         except Exception as _of_exc:
@@ -2303,6 +2345,11 @@ class Analyzer:
         audit(trade_log, f"Trade idea: {idea.direction.value} {idea.asset}",
               action="analyze", result="IDEA",
               data=idea.model_dump(mode="json"))
+        if self.why_not is not None:
+            try:
+                self.why_not.analysed(signal.symbol, "idea", ref=idea.id)
+            except Exception:
+                pass  # the record is a reading; it never costs the idea
         return idea
 
     # -- Strategy Type Classification --
@@ -4040,8 +4087,14 @@ class Analyzer:
 
     # -- LLM Reasoning --
 
-    async def _llm_thesis(self, signal: MarketSignal, indicators: dict, order_flow=None, is_admin: bool = False, user_id=None, user_tier=None, as_of=None, background: bool = False) -> Optional[dict]:
+    async def _llm_thesis(self, signal: MarketSignal, indicators: dict, order_flow=None, is_admin: bool = False, user_id=None, user_tier=None, as_of=None, background: bool = False, why: Optional[dict] = None) -> Optional[dict]:
         """Ask the LLM for a directional call with reasoning.
+
+        ``why``, when given, is filled whenever this answers None, so the
+        caller can say which of two different facts it was: the rule engine
+        found no directional bias (``kind="neutral"``, with the ``source``
+        that sent the call to the rules), or the model's reply could not be
+        read (``kind="unread"``, with the ``field`` that failed).
 
         Token optimization pipeline:
           1. Semantic cache check -- return cached response if available
@@ -4060,17 +4113,10 @@ class Analyzer:
             rec = self._offline_thesis_fn(signal, indicators, as_of)
             if rec is not None:
                 return rec
-            result = self._rule_based_thesis(signal, indicators)
-            if result is not None:
-                result["source"] = "RULE_ENGINE_NO_RECORD"
-            return result
+            return self._rule_thesis(signal, indicators, "RULE_ENGINE_NO_RECORD", why)
 
         if self._llm is None:
-            result = self._rule_based_thesis(signal, indicators)
-            if result is None:
-                return None
-            result["source"] = "RULE_ENGINE"
-            return result
+            return self._rule_thesis(signal, indicators, "RULE_ENGINE", why)
 
         # LLM_BACKGROUND_SCANS=off: route BACKGROUND sweep analyses (no
         # user_id — engine-initiated) to the rule engine while keeping every
@@ -4081,11 +4127,7 @@ class Analyzer:
         # doubled training time. Default ON preserves historical behavior.
         if user_id is None and os.getenv(
                 "LLM_BACKGROUND_SCANS", "on").strip().lower() in ("off", "false", "0"):
-            result = self._rule_based_thesis(signal, indicators)
-            if result is None:
-                return None
-            result["source"] = "RULE_ENGINE_BG_THROTTLE"
-            return result
+            return self._rule_thesis(signal, indicators, "RULE_ENGINE_BG_THROTTLE", why)
 
         # ── Optimization 1: Semantic Cache ──
         # Scope the key by the answering model's routing identity (default OFF →
@@ -4130,19 +4172,11 @@ class Analyzer:
         # because we told it to stay quiet.
         if background and not CONFIG.analyzer.llm_background_scans:
             self._opt_stats.record_adaptive_skip()
-            result = self._rule_based_thesis(signal, indicators)
-            if result is None:
-                return None
-            result["source"] = "RULE_ENGINE_BG_THROTTLE"
-            return result
+            return self._rule_thesis(signal, indicators, "RULE_ENGINE_BG_THROTTLE", why)
 
         if not AdaptiveFrequency.should_use_llm(signal, indicators):
             self._opt_stats.record_adaptive_skip()
-            result = self._rule_based_thesis(signal, indicators)
-            if result is None:
-                return None
-            result["source"] = "RULE_ENGINE_ADAPTIVE"
-            return result
+            return self._rule_thesis(signal, indicators, "RULE_ENGINE_ADAPTIVE", why)
 
         # ── Optimization 3: Tiered Pipeline ──
         tier = TieredPipeline.effective_tier(indicators, signal)
@@ -4150,10 +4184,9 @@ class Analyzer:
 
         if tier == 1:
             # Tier 1: Rule engine handles clear-cut signals (FREE)
-            result = self._rule_based_thesis(signal, indicators)
+            result = self._rule_thesis(signal, indicators, "RULE_ENGINE_TIER1", why)
             if result is None:
                 return None
-            result["source"] = "RULE_ENGINE_TIER1"
             # #42: do NOT cache the tier-1 rule result under the LLM cache key.
             # The key is built from coarse indicator buckets, so a later signal
             # that buckets to the same key but classifies tier 2/3 would hit this
@@ -4170,11 +4203,7 @@ class Analyzer:
         if self._llm_calls_today >= CONFIG.llm.daily_call_limit:
             audit(trade_log, f"LLM daily budget exhausted ({self._llm_calls_today} calls), using rules",
                   action="analyze", result="LLM_BUDGET")
-            result = self._rule_based_thesis(signal, indicators)
-            if result is None:
-                return None
-            result["source"] = "RULE_ENGINE_BUDGET"
-            return result
+            return self._rule_thesis(signal, indicators, "RULE_ENGINE_BUDGET", why)
 
         # Dollar budget guard: fall back to rules when the thesis cap is
         # exceeded. With LLM_DAILY_BUDGET_THESIS_USD unset this is still the
@@ -4184,11 +4213,7 @@ class Analyzer:
             if thesis_dollar_exhausted(snap, CONFIG.llm):
                 audit(trade_log, f"LLM daily dollar budget exhausted (${snap.llm_cost_usd:.4f}, thesis cap {CONFIG.llm.thesis_budget_usd}), using rules",
                       action="analyze", result="LLM_BUDGET_USD")
-                result = self._rule_based_thesis(signal, indicators)
-                if result is None:
-                    return None
-                result["source"] = "RULE_ENGINE_BUDGET"
-                return result
+                return self._rule_thesis(signal, indicators, "RULE_ENGINE_BUDGET", why)
 
         prompt = self._build_prompt(signal, indicators, order_flow)
 
@@ -4497,6 +4522,12 @@ class Analyzer:
                       action="analyze", result="LLM_PARSE_FAIL",
                       data={"raw_text": raw_text[:200],
                             "parse_fail": result.get("_parse_fail", "")})
+                if why is not None:
+                    # The field the parser could not read. With no
+                    # `_parse_fail`, the confidence was read and no LONG or
+                    # SHORT was.
+                    why.update(kind="unread",
+                               field=result.get("_parse_fail") or "direction")
                 return None  # C-07 FIX: do not default to LONG on parse failure
             result["source"] = f"LLM_{tier_label}"
             result["model_used"] = model
@@ -4556,11 +4587,19 @@ class Analyzer:
                                      source="runtime-call")
             except Exception:
                 pass
-            result = self._rule_based_thesis(signal, indicators)
-            if result is None:
-                return None
-            result["source"] = "RULE_ENGINE_FALLBACK"
-            return result
+            return self._rule_thesis(signal, indicators, "RULE_ENGINE_FALLBACK", why)
+
+    def _rule_thesis(self, signal: MarketSignal, indicators: dict, source: str,
+                     why: Optional[dict]) -> Optional[dict]:
+        """The rule engine's thesis stamped ``source``; when it has none, say
+        in ``why`` that the rules found no bias and what sent the call there."""
+        result = self._rule_based_thesis(signal, indicators)
+        if result is None:
+            if why is not None:
+                why.update(kind="neutral", source=source)
+            return None
+        result["source"] = source
+        return result
 
     # ── LLM health tracking (proactive degrade alert) ────────────────
     def _note_llm_ok(self) -> None:

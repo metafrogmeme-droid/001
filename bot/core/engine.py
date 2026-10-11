@@ -711,6 +711,11 @@ class RuneClawEngine:
         self.scanner = MarketScanner()
         self.cost = CostTracker()
         self.analyzer = Analyzer(cost_tracker=self.cost)
+        # Why this engine did not trade, by symbol and time: the analyzer
+        # writes each analysis's outcome, this engine amends the ideas it
+        # drops and records the confirms that placed nothing (`/whynot`).
+        from bot.core.why_not import WhyNotLog
+        self.analyzer.why_not = WhyNotLog()
         # Learning auto-refit: keeps calibration/voter/expectancy learners fresh
         # as closed outcomes accrue (gated by CONFIG.analyzer.learning_auto_refit_*).
         from bot.learning.auto_refit import LearningAutoRefit
@@ -4234,6 +4239,36 @@ class RuneClawEngine:
         if len(self._last_rejections) > self._REJECTIONS_CAP:
             for k in list(self._last_rejections)[:-self._REJECTIONS_KEEP]:
                 self._last_rejections.pop(k, None)
+
+    def _why_not_dropped(self, idea: Any, stage: str, reason: str = "") -> None:
+        """The analysis that produced ``idea`` ended at ``stage`` here, not as
+        an idea. Never raises: the record is a reading, not a gate."""
+        from bot.core.why_not import WhyNotLog
+        log = getattr(getattr(self, "analyzer", None), "why_not", None)
+        if isinstance(log, WhyNotLog):
+            try:
+                log.amend(getattr(idea, "id", ""), stage, reason)
+            except Exception as exc:
+                system_log.debug("why-not amend skipped: %s", type(exc).__name__)
+
+    def _why_not_confirm(self, idea: Any, user_id: str, result: Any) -> None:
+        """Keep a confirm that placed nothing, with whose confirm it was.
+
+        The reason is `refusal_words`, never the answer itself: the answer can
+        carry a figure about the account it was refused on.
+        """
+        from bot.core.confirm_result import outcome_unverified, placed_nothing, refusal_words
+        from bot.core.why_not import WhyNotLog
+        log = getattr(getattr(self, "analyzer", None), "why_not", None)
+        if not isinstance(log, WhyNotLog):
+            return
+        try:
+            if outcome_unverified(result) or not placed_nothing(result):
+                return
+            log.refused_at_confirm(getattr(idea, "asset", "") if idea is not None else "",
+                                   user_id, refusal_words(result))
+        except Exception as exc:
+            system_log.debug("why-not confirm record skipped: %s", type(exc).__name__)
 
     def detach_state_persistence(self) -> None:
         """Make this engine a READER of the operator's state, never a writer.
@@ -7961,6 +7996,7 @@ class RuneClawEngine:
         # ── Smart pyramid / duplicate symbol guard ─────────────────
         _same = self._same_symbol_verdict(idea, symbol_key)
         if _same == "skip":
+            self._why_not_dropped(idea, "held")
             return None
         # Store pyramid flag for confirm_trade to apply half-size + SL-to-breakeven
         if _same == "pyramid":
@@ -8098,6 +8134,9 @@ class RuneClawEngine:
                             regime=_lq_regime, scope=SCOPE_PRE_RISK)
                 except Exception as _lq_exc:
                     system_log.debug("shadow book liquidity record skipped: %s", _lq_exc)
+                # The stage only: the guard's sentence carries this idea's
+                # size on the operator's book.
+                self._why_not_dropped(idea, "liquidity")
                 return None
 
         if risk_check.verdict == RiskVerdict.REJECTED:
@@ -8106,6 +8145,10 @@ class RuneClawEngine:
             # `HYPE:USDT` here while `whynot` looked up `HYPE`, so no rejection
             # of a perpetual was ever found by name.
             symbol_key = normalize_symbol(idea.asset)
+            # The checks' names and not their figures, which are the
+            # operator's account (a drawdown, an exposure, a daily loss).
+            self._why_not_dropped(idea, "risk", ", ".join(
+                str(c).split(":", 1)[0].strip() for c in risk_check.checks_failed or []))
             self._remember_rejection(symbol_key, {
                 "symbol": idea.asset,
                 "direction": idea.direction.value,
@@ -8425,6 +8468,7 @@ class RuneClawEngine:
         """
         idea = self._pending_ideas.get(trade_id, None)
         if idea is None:
+            self._why_not_confirm(None, user_id, "Trade not found or expired.")
             return "Trade not found or expired."
         key = normalize_symbol(idea.asset)
         lock = self._symbol_entry_locks.setdefault(key, asyncio.Lock())
@@ -8465,9 +8509,12 @@ class RuneClawEngine:
                           f"{_what} already exists",
                           action="dup_entry", result="SUPPRESSED",
                           data={"trade_id": trade_id, "symbol": idea.asset})
+                    self._why_not_confirm(idea, user_id, "\u23ed duplicate suppressed")
                     return (f"⏭️ Skipped {idea.asset}: already have "
                             f"{_what} for it (duplicate suppressed).")
-            return await self._confirm_trade_inner(trade_id, user_id)
+            result = await self._confirm_trade_inner(trade_id, user_id)
+            self._why_not_confirm(idea, user_id, result)
+            return result
 
     def _practice_book_symbols(self, user_id: str) -> list:
         """The symbols open on this caller's practice book.

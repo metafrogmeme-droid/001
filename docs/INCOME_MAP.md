@@ -1693,7 +1693,7 @@ unl…
 ## Capabilities this map has no leaf for
 
 The critic re-read the tree after the fifteen classifiers finished and found
-capabilities none of them had named. The list is twenty-three now, and it was
+capabilities none of them had named. The list is twenty-four now, and it was
 written down as a smaller number in three places while growing under them —
 slices kept shipping capabilities the map still has no leaf for (the trade
 co-pilot, trade costs, why a stop could not be placed, the POC-retest setup)
@@ -1850,6 +1850,17 @@ The dated note — the summary the store already folds, the watchlist the user
 saved, and a question with no reply yet — is one read
 (`bot/nlp/chat_memory.py::read_note`). It writes nothing. A line that is
 not on record stays absent, and a file that will not read stays unread.
+
+**Chat market read**
+
+A market question the router has no rule for ("is SOL a buy right now") is
+answered from the engine's own read on that symbol: the `market_read` chat
+tool (`bot/nlp/chat_market_read.py::market_read`) runs the scanner's
+deterministic read (`bot/core/analyzer.py::Analyzer.scan_read`, the rule
+thesis and no LLM) on the analyzer's closed 1h bars from the engine's candle
+cache. It hands the model a direction or none, a score, the regime and the
+confluence oriented to the direction, and says what it did not read. It
+places nothing and queues no idea. A read that could not be made is unread.
 
 Browser side: app/public/js/copilot-review-model.js renders the block, and the
 dashboard ticket, the dashboard confirm modal (openTradeModal) and the chat

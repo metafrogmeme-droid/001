@@ -92,6 +92,11 @@ SKILL_PERMISSION: dict[str, str] = {
     # The dated note the model can re-read. There is no slash command: the
     # store already holds the summary, and this only reads it.
     "memory_note": "memory",
+    # The engine's rule read on one symbol (`Analyzer.scan_read`), for the
+    # model to answer a market question from. No slash command: the nearest
+    # door is /analyze, @guard("analyze"), the same read-only question about
+    # one symbol with the LLM and levels added, so the same permission.
+    "market_read": "analyze",
     # `halt` IS the fact and it is deliberately in no transport's set. See
     # DANGEROUS_SKILLS.
     "halt": "halt",
@@ -137,7 +142,8 @@ SKILL_SAYS: dict[str, str] = {
     "run_strategy": "one strategy run against the current market",
     "scan_market": "a live scan of the exchange for movers and volume anomalies",
     "walk_forward": "a walk-forward validation of a strategy",
-    "whynot": "why the engine did not take a trade on a symbol",
+    "whynot": "why the engine did not trade: each analysis of the last six "
+              "hours by the stage that stopped it, for one symbol or all",
     "check_event_risk": "macro-event risk for one symbol over the next window",
     "compliance_status": "restricted jurisdictions and the consent ledger "
                          "summary",
@@ -152,6 +158,8 @@ SKILL_SAYS: dict[str, str] = {
                    "until you press Stage",
     "memory_note": "the dated note from earlier in this chat, your saved "
                    "watchlist, and a question still open",
+    "market_read": "the engine's quick read on one symbol — direction, score, "
+                   "regime — with no levels and nothing queued",
     # `halt` is in SKILL_PERMISSION because that table is the FACT, and in no
     # transport's reachable set. It is named here for the same reason: the key
     # sets are pinned equal, and an exemption would be the hole.

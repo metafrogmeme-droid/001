@@ -197,7 +197,9 @@ PASSED_THROUGH = {
         "the note that its audit record could not be sealed appended (empty "
         "when it sealed); the note is driven both ways in "
         "test_a_seal_failure_does_not_unplace_a_trade.py"),
-    "await self._confirm_trade_inner(trade_id, user_id)": "the inner path, walked below",
+    "result": (
+        "confirm_trade's answer from the inner path, walked below, returned "
+        "after the why-not record keeps it when it placed nothing"),
     "await self._simulate_paper_fill(idea, recheck, user_id, trade_id)":
         "the practice fill, walked below",
     "practice_book_refusal(exc)": (

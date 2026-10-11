@@ -844,8 +844,14 @@ class AnalyzeAssetSkill(BaseSkill):
                 diag_lines.append(f"Regime: <code>{diag['regime']}</code>")
             if diag.get("direction"):
                 diag_lines.append(f"Bias: <code>{diag['direction']}</code>")
-            if diag.get("confluence"):
-                diag_lines.append(f"Confluence: <code>{diag['confluence']:.0%}</code>")
+            # Bullishness, oriented to the bias: printed bare it read "30%"
+            # beside "Bias: SHORT" for a strongly confirmed short. And `is not
+            # None`: a confluence of 0.0 is the most bearish reading there is.
+            if (isinstance(diag.get("confluence"), (int, float))
+                    and not isinstance(diag.get("confluence"), bool)):
+                from bot.formatters.confluence import confluence_words
+                diag_lines.append("Confluence: <code>" + _esc(confluence_words(
+                    diag["confluence"], diag.get("direction"))) + "</code>")
             if diag.get("blended") is not None:
                 diag_lines.append(f"Final score: <code>{diag['blended']:.0%}</code>")
             if diag.get("threshold"):
@@ -3772,18 +3778,49 @@ class ProScanSkill(BaseSkill):
 
 class WhyNotSkill(BaseSkill):
     name = "whynot"
-    description = "Explain why a trade was rejected by risk"
+    description = ("Why the engine did not trade: every analysis's outcome by "
+                   "stage over a stated window, then the risk gate's detail")
 
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
-        symbol = kwargs.get("symbol", "").strip().upper()
+        """Two readings, in the order the question needs them.
+
+        The head is `bot/core/why_not.py`: every analysis of the window counted
+        by the stage that ended it, the analyzer's skips (below the bar, the
+        regime gate, the direction guard) beside the risk gate's refusals, and
+        the caller's own confirms that placed nothing. It used to be absent,
+        and this card answered from the risk gate's refusals alone, so a day
+        of analyzer skips read "No trades rejected".
+
+        The risk gate's detail card follows, for the symbol or the latest
+        refusal. A process that is not the bot gets neither: its engine never
+        ran the bot's analyses or its gate.
+        """
+        from bot.core import why_not
+        symbol = (kwargs.get("symbol") or "").strip().upper()
+        reading = why_not.reading_for(engine, symbol=symbol or None,
+                                      user_id=kwargs.get("user_id") or "")
+        card = why_not.render(reading)
+        if reading.get("why") != why_not.UNREAD_NOT_THE_BOT:
+            card += "\n\n" + self._risk_card(engine, symbol)
+        if kwargs.get("tagged") is True:
+            # The chat tool's reading line: the head's state, not "read" for
+            # any return (`chat_tools._TAGGED_RESULTS`).
+            tag = {"read": "READ", "absent": "ABSENT"}.get(reading["state"], "UNREAD")
+            return f"{tag}\n{card}"
+        return card
+
+    @staticmethod
+    def _risk_card(engine: RuneClawEngine, symbol: str) -> str:
+        """The risk gate's last refusal for ``symbol``, or its latest one."""
         rejections = engine._last_rejections
 
         if not rejections:
             # The store is this process's memory, so "none" is since the bot
-            # last started, not ever.
-            return (f"{_NEU} <b>NO REJECTIONS</b>\n\n"
-                    "<i>No trades rejected since the bot last started. "
-                    "Say \"scan\" or \"analyze BTC\" to generate ideas.</i>")
+            # last started, not ever. It is the RISK GATE's store: the head
+            # above is where the analyzer's skips are counted.
+            return (f"{_NEU} <b>NO RISK-GATE REJECTIONS</b>\n\n"
+                    "<i>The risk gate has rejected no idea since the bot last "
+                    "started. The analyses it never saw are counted above.</i>")
 
         if symbol:
             # Normalize: strip /USDT if provided
@@ -3797,7 +3834,8 @@ class WhyNotSkill(BaseSkill):
                 # the dict that way). This was `sorted(...)[-10:]`: the last
                 # ten ALPHABETICALLY, under the word "Recent".
                 available = ", ".join(reversed(list(rejections)[-10:]))
-                return (f"{_BAD} No rejection found for <code>{_esc(sym_key)}</code>\n\n"
+                return (f"{_BAD} No rejection found for <code>{_esc(sym_key)}</code> "
+                        "in the risk gate's record\n\n"
                         f"Recent rejections: <code>{_esc(available)}</code>")
         else:
             # Most recent rejection: the dict is kept in refusal order.
@@ -4532,6 +4570,8 @@ def build_default_registry() -> SkillRegistry:
     registry.register(DraftTradeSkill())
     from bot.nlp.chat_memory import MemoryNoteSkill
     registry.register(MemoryNoteSkill())
+    from bot.nlp.chat_market_read import MarketReadSkill
+    registry.register(MarketReadSkill())
     # v2 upgrade: macro intelligence, compliance, audit, kill-switch
     for skill in build_v2_skills():
         registry.register(skill)
