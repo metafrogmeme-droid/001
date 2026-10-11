@@ -24,6 +24,7 @@ from types import SimpleNamespace as NS
 import pytest
 
 import bot.core.analyzer as az
+from bot.config import CONFIG
 from bot.llm.provider import LLMConfig, LLMProvider
 from bot.nlp import grounding
 from bot.nlp.grounding import (
@@ -181,6 +182,20 @@ def _analyzer(monkeypatch, reasoning):
     return a, comp
 
 
+@pytest.fixture
+def the_llm_decides():
+    """The thesis these tests read is the model's own, so the LLM decides
+    (`LLM_DECIDES` on). By default the rule engine decides and the model's
+    read rides beside it as a shadow; `TestTheShadowRead` holds that arm."""
+    prev = CONFIG.analyzer.llm_decides
+    object.__setattr__(CONFIG.analyzer, "llm_decides", True)
+    try:
+        yield
+    finally:
+        object.__setattr__(CONFIG.analyzer, "llm_decides", prev)
+
+
+@pytest.mark.usefixtures("the_llm_decides")
 class TestTheThesis:
 
     REASON = ("Price $63,105 holds over the band at $63,500 with RSI 58.4; "
@@ -226,3 +241,23 @@ class TestTheThesis:
         a, _comp = _analyzer(monkeypatch, clean)
         out = asyncio.run(a._llm_thesis(SIG, IND))
         assert out["reasoning"] == clean
+
+
+class TestTheShadowRead:
+    """By default the rule engine decides, and the model's read is printed on
+    the idea beside the decision (`_shadow_narration`). The check runs inside
+    the shadow call, so the read on the card is the checked one."""
+
+    def test_the_read_beside_a_rule_decision_names_its_unverified_figure(self, monkeypatch):
+        assert CONFIG.analyzer.llm_decides is False
+        grounding.note(thesis_ledger_key(MODEL), 1000, 0)
+        a, comp = _analyzer(monkeypatch, TestTheThesis.REASON)
+        monkeypatch.setattr(a, "_rule_based_thesis",
+                            lambda sig, ind: {"direction": "LONG", "confidence": 0.6,
+                                              "reasoning": "the rules' own case"})
+        out = asyncio.run(a._llm_thesis(SIG, IND))
+        assert comp.calls, "the shadow was never asked"
+        assert out["source"] == "RULE_ENGINE_DECIDES"
+        assert out["reasoning"] == "the rules' own case"
+        assert out["shadow_llm"]["reasoning"].startswith("(Unverified figure: $71,000) ")
+        assert "not used to decide): (Unverified figure: $71,000) " in az._shadow_narration(out)

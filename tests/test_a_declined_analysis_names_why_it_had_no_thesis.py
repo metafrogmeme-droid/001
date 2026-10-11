@@ -24,6 +24,7 @@ import pytest
 
 import bot.core.analyzer as am
 from bot.compat import UTC
+from bot.config import CONFIG
 from bot.core.analyzer import Analyzer, no_thesis_reason
 from bot.utils.models import MarketSignal
 
@@ -72,18 +73,32 @@ def _to_the_model(monkeypatch, reply: str) -> Analyzer:
     return a
 
 
+@pytest.fixture
+def the_llm_decides():
+    """The model's own answer is what the next tests read, so the LLM decides
+    (`LLM_DECIDES` on). By default the rule engine decides and the model is
+    asked beside it as a shadow, and a shadow's answer never reaches `why`:
+    the tests after these hold that arm."""
+    prev = CONFIG.analyzer.llm_decides
+    object.__setattr__(CONFIG.analyzer, "llm_decides", True)
+    try:
+        yield
+    finally:
+        object.__setattr__(CONFIG.analyzer, "llm_decides", prev)
+
+
 @pytest.mark.parametrize("reply,field", [
     ("I think it might go up from here.", "direction"),
     ('{"direction": "LONG", "confidence": "high", "reasoning": "x"}', "confidence"),
 ])
-def test_an_unreadable_model_reply_is_unread_and_names_the_field(monkeypatch, reply, field):
+def test_an_unreadable_model_reply_is_unread_and_names_the_field(the_llm_decides, monkeypatch, reply, field):
     a = _to_the_model(monkeypatch, reply)
     why: dict = {}
     assert _run(a._llm_thesis(_signal(), {}, why=why)) is None
     assert why == {"kind": "unread", "field": field}
 
 
-def test_a_readable_model_reply_says_nothing_in_why(monkeypatch):
+def test_a_readable_model_reply_says_nothing_in_why(the_llm_decides, monkeypatch):
     a = _to_the_model(monkeypatch, '{"direction": "LONG", "confidence": 0.7, "reasoning": "x"}')
     why: dict = {}
     assert _run(a._llm_thesis(_signal(), {}, why=why))["direction"] == "LONG"
@@ -149,13 +164,41 @@ def _route_offline(monkeypatch, a):
     (_route_background_env, "RULE_ENGINE_BG_THROTTLE"),
     (_route_offline, "RULE_ENGINE_NO_RECORD"),
 ])
-def test_every_route_to_the_rules_says_it_was_the_rules(monkeypatch, route, source):
+def test_every_route_to_the_rules_says_it_was_the_rules(the_llm_decides, monkeypatch, route, source):
     a = _to_the_model(monkeypatch, "unused")
     monkeypatch.setattr(a, "_rule_based_thesis", lambda sig, ind: None)
     route(monkeypatch, a)
     why: dict = {}
     assert _run(a._llm_thesis(_signal(), {}, why=why)) is None
     assert why == {"kind": "neutral", "source": source}
+
+
+def test_by_default_a_neutral_rule_engine_names_its_own_route(monkeypatch):
+    """The rule engine decides by default; when it has no side there is no
+    decision, and `why` says so under the route that decided, in words."""
+    assert CONFIG.analyzer.llm_decides is False
+    a = _to_the_model(monkeypatch, "unused")
+    monkeypatch.setattr(a, "_rule_based_thesis", lambda sig, ind: None)
+    why: dict = {}
+    assert _run(a._llm_thesis(_signal(), {}, why=why)) is None
+    assert why == {"kind": "neutral", "source": "RULE_ENGINE_DECIDES"}
+    stage, reason = no_thesis_reason(why)
+    assert stage == "no_thesis"
+    assert "(the rule engine decides until the LLM is measured)" in reason
+
+
+def test_by_default_an_unreadable_shadow_reply_explains_nothing(monkeypatch):
+    """The model's reply cannot be read, but the rule engine decided: the
+    decision stands, `why` stays empty, and no shadow read rides on it."""
+    assert CONFIG.analyzer.llm_decides is False
+    a = _to_the_model(monkeypatch, "I think it might go up from here.")
+    monkeypatch.setattr(a, "_rule_based_thesis",
+                        lambda sig, ind: {"direction": "LONG", "confidence": 0.6})
+    why: dict = {}
+    out = _run(a._llm_thesis(_signal(), {}, why=why))
+    assert out["direction"] == "LONG" and out["source"] == "RULE_ENGINE_DECIDES"
+    assert why == {}
+    assert "shadow_llm" not in out
 
 
 def test_a_rule_thesis_that_answered_is_stamped_as_before(monkeypatch):
