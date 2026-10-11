@@ -157,6 +157,12 @@ class CostSummary:
     # Per-category breakdown
     cost_by_category: dict[str, float] = field(default_factory=_default_category_costs)
     calls_by_category: dict[str, int] = field(default_factory=_default_category_calls)
+    # The anonymous website preview's part of the "chat" figures above: a
+    # SUBSET of them, booked by `record_llm(category="chat", public=True)`,
+    # never added to any total a second time. Its own reading exists for one
+    # bound, `public_chat_budget_bound`.
+    public_chat_cost_usd: float = 0.0
+    public_chat_calls: int = 0
 
     @property
     def operating_cost_usd(self) -> float:
@@ -175,6 +181,11 @@ CHAT_SHARE_BOUND = "chat's share of the dollar budget"
 #: one. Distinct from the share: the thesis side is not "the rest of the same
 #: budget", it has its own cap.
 CHAT_OWN_BOUND = "chat's own dollar budget"
+#: The bound an ANONYMOUS website turn reaches when the public preview's own
+#: spend meets its slice of chat's budget (`LLM_PUBLIC_CHAT_BUDGET_SHARE`).
+#: A word of its own because the visitor is told the preview's limit, not
+#: that the bot's budget is gone: signed-in chat still has the rest.
+PUBLIC_SHARE_BOUND = "the public preview's share of chat's budget"
 
 
 def chat_spend_usd(snap: CostSummary) -> float:
@@ -302,6 +313,71 @@ def chat_budget_bound(snap: CostSummary, llm_cfg) -> str:
     return ""
 
 
+def chat_cap_usd(llm_cfg) -> float:
+    """Chat's dollars for the day: the ceiling `chat_budget_bound` stops at.
+
+    Its own cap when one is set, reached at the combined total when it sits
+    above it; otherwise its share of the total. One reading for the audit
+    line that reports the cap and for the public preview's slice of it.
+    """
+    total = float(llm_cfg.daily_budget_usd)
+    own = getattr(llm_cfg, "chat_budget_usd", None)
+    if own is not None:
+        return min(float(own), total)
+    return total * float(llm_cfg.chat_budget_share)
+
+
+def public_chat_spend_usd(snap: CostSummary) -> float:
+    """Today's dollars spent answering anonymous website visitors.
+
+    A part of chat's spend. When it cannot be read (a snapshot without the
+    field, or a value that is not a finite number at least zero), the answer
+    is chat's whole spend: every chat dollar may have been the preview's, so
+    the preview stops at its slice of all of it. Zero would let anonymous
+    turns spend unseen, which is the defect this reading exists for.
+    """
+    import math
+
+    value = getattr(snap, "public_chat_cost_usd", None)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return chat_spend_usd(snap)
+    value = float(value)
+    if not math.isfinite(value) or value < 0:
+        return chat_spend_usd(snap)
+    return value
+
+
+def public_chat_call_count(snap: CostSummary) -> int:
+    """Today's anonymous-preview calls; chat's whole count when unreadable,
+    for `public_chat_spend_usd`'s reason."""
+    value = getattr(snap, "public_chat_calls", None)
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return chat_call_count(snap)
+
+
+def public_chat_budget_bound(snap: CostSummary, llm_cfg) -> str:
+    """Which bound an ANONYMOUS website turn has reached, or "" when none.
+
+    The preview spends from chat's budget, so whatever stops chat stops it
+    first (`chat_budget_bound`, the same words). Then its own slice: a
+    fraction (`public_chat_budget_share`, at most a half) of chat's dollars
+    and of the daily call limit. Without it a few hundred anonymous turns
+    spent chat's share and every signed-in user was refused for the day;
+    with it, anonymous traffic can spend at most that fraction, and the rest
+    is signed-in chat's. A share of 0 turns the model off for the preview.
+    """
+    bound = chat_budget_bound(snap, llm_cfg)
+    if bound:
+        return bound
+    share = float(llm_cfg.public_chat_budget_share)
+    if public_chat_call_count(snap) >= llm_cfg.daily_call_limit * share:
+        return PUBLIC_SHARE_BOUND
+    if public_chat_spend_usd(snap) >= chat_cap_usd(llm_cfg) * share:
+        return PUBLIC_SHARE_BOUND
+    return ""
+
+
 class CostTracker:
     """Session operating-cost ledger.  Separate from trade PnL by design.
 
@@ -326,6 +402,8 @@ class CostTracker:
             self._lifetime.prompt_tokens += self._s.prompt_tokens
             self._lifetime.completion_tokens += self._s.completion_tokens
             self._lifetime.unpriced_calls += self._s.unpriced_calls
+            self._lifetime.public_chat_cost_usd += self._s.public_chat_cost_usd
+            self._lifetime.public_chat_calls += self._s.public_chat_calls
             # Reset daily
             self._s = CostSummary()
             self._current_day = today
@@ -337,6 +415,7 @@ class CostTracker:
         completion_tokens: int,
         symbol: str = "",
         category: str = "other",
+        public: bool = False,
     ) -> float:
         """Record an LLM API call.  Returns USD cost (0.0 if model is unpriced).
 
@@ -345,6 +424,10 @@ class CostTracker:
         is unknown, not zero.
 
         category: one of scan / analyze / thesis / risk_decision / other.
+
+        public: the call answered an anonymous website visitor. Booked under
+        its category as always, and ALSO in the public preview's subset —
+        only for a chat call, so the subset can never exceed chat's figures.
         """
         price, _exact = resolve_llm_price(model)
         priced = price is not None
@@ -363,6 +446,9 @@ class CostTracker:
             self._s.completion_tokens += completion_tokens
             self._s.cost_by_category[cat] = self._s.cost_by_category.get(cat, 0.0) + cost
             self._s.calls_by_category[cat] = self._s.calls_by_category.get(cat, 0) + 1
+            if public and cat == "chat":
+                self._s.public_chat_cost_usd += cost
+                self._s.public_chat_calls += 1
             if not priced:
                 self._s.unpriced_calls += 1
 
@@ -379,6 +465,7 @@ class CostTracker:
                 "symbol": symbol,
                 "priced": priced,
                 "category": cat,
+                **({"public": True} if public and cat == "chat" else {}),
             },
         )
         return cost
@@ -410,4 +497,6 @@ class CostTracker:
             lt.prompt_tokens += self._s.prompt_tokens
             lt.completion_tokens += self._s.completion_tokens
             lt.unpriced_calls += self._s.unpriced_calls
+            lt.public_chat_cost_usd += self._s.public_chat_cost_usd
+            lt.public_chat_calls += self._s.public_chat_calls
             return lt

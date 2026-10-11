@@ -31,6 +31,8 @@
   "chat_no_model_admin": "ライブのAIモデルはまだ接続されていません。/setllm でプロバイダーを追加してください。それまでは基本的な質問に答えられます：RUNECLAWとは何か、リスク管理の仕組み、レバレッジ、流動性スイープ、対応取引所など。",
   "chat_public_fallback": "ライブ AI に現在接続できないため、自由に回答することができません。ただし組み込みの回答は引き続き利用でき、英語での質問にのみ対応します：“What is RUNECLAW?”, “How does it manage risk?”, “What is a liquidity sweep?”, “How does leverage work?”, “Which exchanges are supported?”。ログインして取引所を接続すると、ライブの市場スキャン、ご自身のポートフォリオ、完全な対話型分析が利用できます。",
   "chat_public_scan_gate": "⚔️ 本当のスキャンにはライブデータフィードが必要ですが、この公開チャットにはありません。価格や水準を作り上げることはしません。<br><br><b>サインイン（無料）</b>すれば、現在の市場データで本物のスキャナーを実行します。<br><br><a href=\"/dashboard\">サインイン →</a>",
+  "chat_public_daily_limit": "🚀 <b>この公開プレビューは訪問者ごとに1日 {limit} 件の質問に答えます。今日の分はすでに使い切りました。</b><br><br>{reset}。これはプレビュー自体の上限で、ボットの予算ではありません。（無料で）サインインすると、あなた専用の枠が使えます。<br><br><a href=\"/dashboard\">サインイン →</a>",
+  "chat_public_share_exhausted": "公開プレビューは今日のAI予算のうち自分の割り当て分を使い切りました。この割り当てはサインインしていないすべての訪問者で共有する1つの枠なので、今日はこれ以上質問に答えられません。UTC 00:00 以降にもう一度お試しください。これはプレビューの上限で、ボットの上限ではありません。サインインしたチャットには別の予算があります。<br><br><a href=\"/dashboard\">サインイン（無料）→</a>",
   "chat_quota_exhausted": "🚀 <b>今日の無料AI質問 {limit} 回を使い切りました。</b>\n{reset}。\n\nコマンドは引き続き使えます：/scan、/positions、/risk をお試しください。",
   "chat_quota_exhausted_web": "🚀 <b>今日の無料質問 {limit} 回を使い切りました。</b><br><br>アップグレードするとエージェントとの会話を続けられます。質問無制限、優先モデル、ライブシグナル、より深いリサーチ。{reset}。<br><br><a href=\"/dashboard#account\">プランを見る →</a>",
   "chat_quota_reset_hour": "無料の質問は約1時間後にリセットされます",

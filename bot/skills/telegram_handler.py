@@ -34,7 +34,8 @@ from bot.utils.leveraged_return import _leveraged_return_pct, position_leverage
 from bot.core.live_executor import entry_is_estimated, position_size_basis
 from bot.core.signal_confidence import displayed_confidence
 from bot.core.cost import (
-    CHAT_OWN_BOUND, CHAT_SHARE_BOUND, chat_budget_bound, chat_spend_usd,
+    CHAT_OWN_BOUND, CHAT_SHARE_BOUND, PUBLIC_SHARE_BOUND, chat_budget_bound,
+    chat_cap_usd, chat_spend_usd, public_chat_budget_bound,
 )
 from bot.core.limit_input import (consume_pending, limit_expired_text,
                                   read_pending, typed_limit_outside_levels)
@@ -2987,19 +2988,35 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # and the thesis cap is separate. Either way chat stops at the
         # combined daily total first if that is reached. With neither cap
         # set, the thesis guard still reads the combined total.
+        #
+        # An ANONYMOUS turn (`public`) also stops at the public preview's
+        # slice of chat's budget (`LLM_PUBLIC_CHAT_BUDGET_SHARE`), so visitors
+        # who are not signed in can never spend the part signed-in chat
+        # answers from. Its refusal names the preview's limit, because that
+        # is the bound reached: the bot's budget is not what ran out.
         if hasattr(self.engine, 'cost'):
             snap = self.engine.cost.snapshot()
-            _own = CONFIG.llm.chat_budget_usd
-            _chat_cap = (_own if _own is not None
-                         else CONFIG.llm.daily_budget_usd * CONFIG.llm.chat_budget_share)
+            _chat_cap = chat_cap_usd(CONFIG.llm)
             _chat_spent = chat_spend_usd(snap)
-            _bound = chat_budget_bound(snap, CONFIG.llm)
+            _bound = (public_chat_budget_bound(snap, CONFIG.llm) if public
+                      else chat_budget_bound(snap, CONFIG.llm))
             if _bound:
                 audit(system_log,
                       f"Chat LLM budget exhausted: {_bound} (calls={snap.llm_calls}, "
                       f"cost=${snap.llm_cost_usd:.4f}, chat=${_chat_spent:.4f} "
                       f"of a ${_chat_cap:.4f} chat share)",
                       action="chat_llm_budget", result="EXHAUSTED")
+                if _bound == PUBLIC_SHARE_BOUND:
+                    return _chat_ret(_say(
+                        _ui, "chat_public_share_exhausted",
+                        "The public preview has used its share of today's AI "
+                        "budget. That share is one allowance for every visitor "
+                        "who is not signed in, so it cannot answer more "
+                        "questions today; try again after 00:00 UTC. It is the "
+                        "preview's limit, not the bot's: signed-in chat has its "
+                        "own budget.<br><br><a href=\"/dashboard\">Sign in "
+                        "(free) \u2192</a>"),
+                        None, return_meta)
                 # Chat's share is its own bound, and the trade analysis still
                 # has the rest of the budget, so "used up today's AI budget"
                 # would be false about the one bound that was reached.
@@ -3215,6 +3232,9 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                         prompt_tokens=prompt_tokens,
                         completion_tokens=completion_tokens,
                         category="chat",
+                        # The preview's subset of chat's spend, which its
+                        # own slice of the budget is measured against.
+                        public=public,
                     )
 
                 # An empty completion is NOT an answer. `answer` can be "" on a

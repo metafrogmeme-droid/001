@@ -285,7 +285,7 @@ test('chat rejects empty text', async () => {
   assert.strictEqual(r.status, 400);
 });
 
-test('public chat works with NO auth and forwards only { text }', async () => {
+test('public chat works with NO auth and forwards only { text } and the opaque visitor key', async () => {
   seen.length = 0;
   const r = await request('POST', '/api/public/chat', { body: { text: 'what is runeclaw?' } });
   assert.strictEqual(r.status, 200);
@@ -293,8 +293,13 @@ test('public chat works with NO auth and forwards only { text }', async () => {
   assert.strictEqual(seen.length, 1);
   assert.strictEqual(seen[0].url, '/gateway/chat/public');
   assert.strictEqual(seen[0].secret, process.env.WEB_GATEWAY_SECRET);
-  // No identity crosses to the bot — the body carries ONLY the text.
-  assert.deepStrictEqual(seen[0].body, { text: 'what is runeclaw?' });
+  // No identity crosses to the bot — the body carries the text and the
+  // per-visitor daily count's key, an HMAC of the address and not the
+  // address (lib/visitor_key.js).
+  const { visitor, ...rest } = seen[0].body;
+  assert.deepStrictEqual(rest, { text: 'what is runeclaw?' });
+  assert.match(visitor, /^[0-9a-f]{32}$/);
+  assert.ok(!visitor.includes('127'), 'the address does not cross');
   assert.strictEqual(seen[0].body.telegram_id, undefined);
 });
 

@@ -1400,7 +1400,10 @@ async def handle_chat_record(request: web.Request) -> web.Response:
 # So no account data or trade action is reachable from this endpoint regardless
 # of what the anonymous client sends. Skills/quick-actions for signed-in users
 # stay on handle_chat. The Express side (routes/public_chat.js) rate-limits per
-# IP; the LLM daily-budget guard inside _llm_chat bounds spend.
+# IP per minute and sends an opaque visitor key; `public_chat_quota` counts
+# each visitor's model-answered questions per UTC day, in this process's
+# memory; and `_llm_chat(public=True)` stops at the public preview's own
+# slice of chat's budget, so anonymous turns cannot spend signed-in chat's.
 
 async def handle_public_chat(request: web.Request) -> web.Response:
     return await _public_chat_turn(request)
@@ -1534,10 +1537,23 @@ async def _public_chat_turn(request: web.Request, on_event=None) -> web.Response
     except Exception:
         _pub_verdict = None
 
+    # THE PUBLIC PREVIEW'S DAILY LIMIT, per visitor. Counted here, after the
+    # gate and the two cards (which run no model), and given back below when
+    # no model answered — the signed-in quota's rule (`chat_quota.refund`).
+    # The refusal names the preview's own limit: the bot's budget is not what
+    # this visitor ran out of.
+    from bot.web import public_chat_quota as preview_quota
+    _visitor = preview_quota.visitor_key(body.get("visitor"))
+    _pq = preview_quota.consume(_visitor)
+    if not _pq.get("allowed"):
+        return web.json_response({
+            "reply_html": preview_quota.limit_notice(_pq, ui_lang(reply_lang)),
+            "intent": "public_daily_limit"})
+
     from bot.guardian.firewall import hardened_prompt as _harden_pub
-    answer = await tg_handler._llm_chat(
+    _res = await tg_handler._llm_chat(
         _harden_pub(text, _pub_verdict), user_id="", user_name="",
-        is_admin=False, public=True, reply_lang=reply_lang,
+        is_admin=False, public=True, reply_lang=reply_lang, return_meta=True,
         # Detected rather than read off `_pub_intent`, and the comment that
         # used to sit here was FALSE: it said "`_public_chat_turn` never
         # builds an `IntentResult`", three lines under a call that does. It
@@ -1553,6 +1569,12 @@ async def _public_chat_turn(request: web.Request, on_event=None) -> web.Response
         # ones it does not ("full analysis of ETH" is False there).
         reply_mode=detect_reply_mode(text),
         **({"on_event": on_event} if on_event is not None else {}))
+    # `meta` is empty exactly when no model answered (`_chat_ret` builds it
+    # from the candidate that did): a built-in answer, a budget refusal, a
+    # failure. None of those spent the visitor's question.
+    answer, meta = _res if isinstance(_res, tuple) else (_res, None)
+    if not meta:
+        preview_quota.refund(_visitor)
     return web.json_response({"reply_html": answer, "intent": "chat"})
 
 

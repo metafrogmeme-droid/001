@@ -8,12 +8,18 @@
  * anonymous caller can never reach account data or place a trade through here,
  * regardless of what they send — the boundary is enforced server-side on the bot.
  *
- * Abuse controls: per-IP rate limit (unauthenticated traffic), a text-length
- * cap, and the bot's own daily LLM-budget guard inside _llm_chat.
+ * Abuse controls: a per-IP limit per minute (here, in this process's memory),
+ * a text-length cap, a per-visitor limit per UTC day, and the public
+ * preview's own slice of the bot's chat budget. The day's count is the bot's
+ * (bot/web/public_chat_quota.py), keyed by the opaque `visitor` this route
+ * sends (lib/visitor_key.js), never the address; the slice is in _llm_chat.
+ * Both counts live in memory, so a restart of either process starts them
+ * again.
  */
 
 const express = require('express');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
+const { visitorKey } = require('../lib/visitor_key');
 const gateway = require('../lib/gateway');
 
 const router = express.Router();
@@ -46,7 +52,10 @@ async function publicTurn(req, res, { stream = false } = {}) {
     // charset-restricted — the gateway caps to 12 chars too). Still no identity.
     const rawLang = typeof (req.body || {}).lang === 'string' ? req.body.lang.trim() : '';
     const lang = /^[a-zA-Z-]{2,12}$/.test(rawLang) ? rawLang : '';
-    const payload = lang ? { text, lang } : { text };
+    // The opaque per-visitor key the bot's daily count is kept against. Not
+    // an identity: no account is resolved, and the address does not cross.
+    const visitor = visitorKey(ipKey(req));
+    const payload = { text, ...(lang ? { lang } : {}), ...(visitor ? { visitor } : {}) };
     if (stream) return gateway.postGatewayStream('/chat/public/stream', payload, res, CHAT_TIMEOUT_MS + 15000);
     const r = await gateway.postGateway('/chat/public', payload, CHAT_TIMEOUT_MS);
     return gateway.relay(res, r);

@@ -292,6 +292,34 @@ _STRINGS: dict[str, dict[str, str]] = {
                "資料執行真正的掃描器。<br><br>"
                "<a href=\"/dashboard\">登入 →</a>"),
     },
+    # The public preview's two limits, each named as the PREVIEW's: one per
+    # visitor per day (`public_chat_quota.limit_notice`), and its slice of
+    # chat's budget, shared by every visitor who is not signed in (the
+    # `PUBLIC_SHARE_BOUND` refusal in `_llm_chat`). Neither is "the bot's
+    # budget is used up", which is what a visitor was told before and which
+    # signed-in users were then told too.
+    "chat_public_daily_limit": {
+        "en": ("🚀 <b>This public preview answers {limit} questions a day for "
+               "each visitor, and you have had today's.</b><br><br>{reset}. "
+               "That is the preview's own limit, not the bot's budget: signing "
+               "in (free) gives you your own allowance.<br><br>"
+               "<a href=\"/dashboard\">Sign in →</a>"),
+        "zh": ("🚀 <b>這個公開預覽每位訪客每天回答 {limit} 個問題，你今天的已經用完。"
+               "</b><br><br>{reset}。這是預覽本身的上限，不是機器人的預算：免費登入"
+               "即可擁有你自己的額度。<br><br><a href=\"/dashboard\">登入 →</a>"),
+    },
+    "chat_public_share_exhausted": {
+        "en": ("The public preview has used its share of today's AI budget. "
+               "That share is one allowance for every visitor who is not signed "
+               "in, so it cannot answer more questions today; try again after "
+               "00:00 UTC. It is the preview's limit, not the bot's: signed-in "
+               "chat has its own budget.<br><br><a href=\"/dashboard\">Sign in "
+               "(free) →</a>"),
+        "zh": ("公開預覽已用完它在今天 AI 預算中的份額。這份額度由所有未登入的訪客"
+               "共用，所以今天無法再回答更多問題；請在 UTC 00:00 之後再試。這是預覽"
+               "的上限，不是機器人的：登入後的聊天有它自己的預算。<br><br>"
+               "<a href=\"/dashboard\">免費登入 →</a>"),
+    },
     "chat_thinking_0": {"en": "<i>Looking at the chart...</i>", "zh": "<i>正在看圖表...</i>"},
     "chat_thinking_1": {"en": "<i>Checking the setup...</i>", "zh": "<i>正在檢查這個設定...</i>"},
     "chat_thinking_2": {"en": "<i>Pulling up the data...</i>", "zh": "<i>正在調出資料...</i>"},

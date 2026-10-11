@@ -1362,6 +1362,25 @@ def _contain_the_strategy_hash_start():
 
 
 @pytest.fixture(autouse=True)
+def _contain_the_public_preview_counts():
+    """Hand the public preview's per-visitor day counts back after every test.
+
+    The count is a module global on purpose (one bot process, one count per
+    visitor, in memory). A test process drives many public turns, and a test
+    that spends a visitor's questions would otherwise refuse that visitor in
+    every later test. Restored, not asserted, for the reason the fixtures
+    above give.
+    """
+    import sys as _sys
+    pq = _sys.modules.get("bot.web.public_chat_quota")
+    saved = pq._snapshot() if pq is not None else None
+    yield
+    pq = _sys.modules.get("bot.web.public_chat_quota")
+    if pq is not None:
+        pq._restore(saved)
+
+
+@pytest.fixture(autouse=True)
 def _contain_executor_halt_check():
     """Hand the executor's halt check back after every test.
 

@@ -55,6 +55,7 @@ const SERVER_INFO = { name: 'runeclaw', version: '2.0.0' };
 // and, once full, evicted the OLDEST-INSERTED key, which could reset an
 // actively-limited IP's counter under bucket churn.
 const { rateLimit, ipKey, slidingWindow } = require('../lib/rate_limit');
+const { visitorKey } = require('../lib/visitor_key');
 router.use(rateLimit({ windowMs: 60_000, max: 60, key: ipKey, message: 'rate_limited' }));
 
 // The global express.json() (1 MB) has already parsed the body by the time
@@ -826,7 +827,9 @@ const TOOLS = {
       + 'When no model is reachable the text says the assistant is '
       + 'unavailable — read the answer; it is not always an answer. Optional '
       + '`lang` (a BCP-47 tag such as "es") asks for the reply in that '
-      + 'language. Rate-limited per caller at the website\'s public-chat rate. '
+      + 'language. Rate-limited per caller at the website\'s public-chat rate, '
+      + 'and counted against the website\'s per-visitor daily limit: past it the '
+      + 'reply says so, with intent "public_daily_limit". '
       + 'Not financial advice.',
     inputSchema: {
       type: 'object',
@@ -850,8 +853,12 @@ const TOOLS = {
         return { available: false, error: 'rate_limited',
           retry_after_seconds: askWindow.retryAfterSeconds };
       }
+      // The website's per-visitor daily count holds here too: the same key
+      // from the same address, so the tool is not a second allowance.
+      const visitor = visitorKey((ctx && ctx.ip) || '');
       const r = await gateway.postGateway('/chat/public',
-        lang ? { text: question, lang } : { text: question }, ASK_TIMEOUT_MS);
+        { text: question, ...(lang ? { lang } : {}), ...(visitor ? { visitor } : {}) },
+        ASK_TIMEOUT_MS);
       // Unavailable is said, never rendered as an empty answer: a caller
       // that gets "" back reads it as "RUNECLAW had nothing to say".
       if (r.status < 200 || r.status >= 300) return { available: false, error: 'unavailable' };
