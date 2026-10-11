@@ -284,6 +284,6 @@ about to change before changing it.
 - L22699: THE LLM CHOSE EVERY LIVE DIRECTION, AND NOTHING HAD MEASURED IT — `tests/test_the_rule_engine_decides_and_the_llm_narrates.py`
 - L22745: TEN TIMES LEVERAGE, THE SAME TRADE: AN ORDER HAS TWO LEVERAGES NOW — `tests/leverage_worlds.py`, `tests/test_ten_x_keeps_the_five_x_trade.py`
 
-## Operational docs (line 22820)
+## Operational docs (line 22838)
 
-- L22830: THE FREEZER LOST A BAR A PAGE, AND EVERY BACKTEST READ ACROSS THE HOLE — `tests/test_a_new_position_is_marked_at_its_fill.py`, `tests/test_the_freezer_keeps_every_bar_of_every_page.py`
+- L22848: THE FREEZER LOST A BAR A PAGE, AND EVERY BACKTEST READ ACROSS THE HOLE — `tests/test_a_new_position_is_marked_at_its_fill.py`, `tests/test_the_freezer_keeps_every_bar_of_every_page.py`

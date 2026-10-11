@@ -21224,7 +21224,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **485 of 1268** reach for source text through `source_scan`, `code_only`
+Driven, **485 of 1269** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 485 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -22815,7 +22815,25 @@ liquidation buffer: isolated at 10x liquidates about a 10% move away, so a
 mutants; the first round left two standing on fixtures that could not tell
 the readings apart (an expectation computed by the function under mutation,
 and a book over its cap at either reading), and both are sharpened.
-(`tests/test_ten_x_keeps_the_five_x_trade.py`.)
+
+The full gate then failed twelve tests the slice's own suites had not run, and
+each was read before it was changed. All twelve were the tests' one-leverage
+world, re-pinned with the world asserted so a fixture cannot pass in both: the
+VaR references and the ladder's record read the sizing; a fill the venue
+stated no leverage for records the venue's 10x as requested, with the 5x
+sizing on record beside it; the reclaimed-order guard reads the venue's
+standard (`_compute_target_leverage`), because a 10x fill read against the
+5x sizing is a 2x "overshoot" on every reclaimed order; the runbook's
+high-conviction step 2 is a margin change, with its undo beside it. Reading
+the twelfth found a gap none of them had: the notional ceiling is a margin
+times MAX_LEVERAGE, in the sized unit, and it was handed the venue's margin.
+Under the flat cap the `max` with the cap hid it. A balance-relative bound
+whose growth ceiling (`BALANCE_BOUNDS_MAX_POSITION_USD`) is over twice the
+flat cap does not: a $300 order rounded up 1.4x to the venue minimum, sent at
+5x, was refused at 10x. The gate takes the sized margin now
+(`sized_margin_usd`). The quality ladder's lines and its card say "sized
+leverage", because the margin-risk line beside them prints the venue's. Six
+more mutants, all killed. (`tests/test_ten_x_keeps_the_five_x_trade.py`.)
 
 ## Operational docs
 

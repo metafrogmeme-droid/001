@@ -370,3 +370,68 @@ def test_a_reduction_measured_at_the_venue_is_carried_as_a_sized_leverage(tmp_pa
     assert getattr(idea, lv.RISK_CAP_ATTR) == 4
     ex = LiveExecutor(state_dir=str(tmp_path))
     assert ex._order_leverages("BTC/USDT:USDT", idea) == (4, 8)
+
+
+def _grown_bounds(avail=None):
+    """A balance-relative bound whose growth ceiling is $1,000, over twice the
+    $100 flat cap: the real resolver over a $20,000 account."""
+    import dataclasses
+
+    from bot.core import size_bounds
+    cfg = dataclasses.replace(CONFIG.execution, balance_relative_bounds_enabled=True,
+                              balance_bounds_max_position_usd=1000.0,
+                              balance_bounds_max_total_usd=5000.0)
+    return size_bounds.resolve(20_000.0, cfg, flat_per_trade=le.MICRO_MAX_POSITION_USD,
+                               flat_total=le.MICRO_MAX_TOTAL_EXPOSURE)
+
+
+def test_a_round_up_the_ceiling_admitted_at_five_x_is_admitted_at_ten_x(tmp_path):
+    """The notional ceiling is a margin times MAX_LEVERAGE, in the SIZED unit.
+    $300 sized at 5x is $1,500 of notional, $150 at the 10x venue; a 0.84
+    minimum at 2,500 rounds it up 1.4x to $2,100. At the sizing the envelope
+    is $3,150 and admits it, as it does at 5x; read on the venue's $150 it
+    was $1,575 and refused the order."""
+    from unittest.mock import patch
+
+    from bot.core import bounds_shadow
+    from tests.test_the_placed_order_is_the_checked_order import _idea as _placed_idea
+    from tests.test_the_placed_order_is_the_checked_order import _market, _Sent
+    from tests.test_the_placed_order_is_the_checked_order import _Venue as _PlacedVenue
+
+    assert _grown_bounds().per_trade_usd == 1000.0 > 2 * le.MICRO_MAX_POSITION_USD
+
+    def drive(sub):
+        venue = _PlacedVenue(_market(amount_step=0.01, amount_min=0.84), price=2500.0)
+        ex = LiveExecutor(state_dir=str(tmp_path / sub))
+        ex._exchange = venue
+        with patch.object(le, "audit", lambda *a, **k: None), \
+             patch.object(le, "size_bounds_for", _grown_bounds), \
+             patch.object(bounds_shadow.BOUNDS_LEDGER, "record", lambda *a, **k: None), \
+             patch.object(type(CONFIG), "is_live", return_value=True):
+            try:
+                result = asyncio.run(ex.execute(_placed_idea(2500.0), size_usd=300.0,
+                                                order_type="market"))
+            except _Sent:
+                result = "<sent>"
+        return result, venue.orders
+
+    with one_leverage(5):
+        five = drive("five")
+    ten = drive("ten")
+    assert five == ("<sent>", [{"amount": 0.84, "leverage": 5}]), five
+    assert ten == ("<sent>", [{"amount": 0.84, "leverage": 10}]), ten
+
+
+def test_the_ceiling_still_refuses_past_the_sized_envelope(tmp_path):
+    """The other arm: $300 sized is a $3,150 envelope; $3,200 of notional is
+    refused, $3,100 is not, whatever the venue's margin."""
+    from unittest.mock import patch
+    ex = LiveExecutor(state_dir=str(tmp_path))
+    ex._validate_order_limits = lambda m, q, n: None
+    with patch.object(le, "audit", lambda *a, **k: None):
+        over = ex._notional_boundary_gate("ETH/USDT:USDT", 1.28, 2500.0, 150.0, 10, {},
+                                          sized_margin_usd=300.0)
+        under = ex._notional_boundary_gate("ETH/USDT:USDT", 1.24, 2500.0, 150.0, 10, {},
+                                           sized_margin_usd=300.0)
+    assert over and "exceeds the design ceiling $3,150.00" in over, over
+    assert under is None

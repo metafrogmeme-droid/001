@@ -2521,9 +2521,11 @@ class RiskEngine:
             # no order runs at. The ledger row below records the rung's cut
             # FROM the sized standard.
             leverage = _lev_std
-            # Trade QUALITY caps the leverage the VENUE is set to, before the
-            # margin-risk cap measures anything -- so the verdict below is
-            # measured at the leverage this trade will really run at. The
+            # Trade QUALITY caps the SIZED leverage, and the venue follows it
+            # in proportion, before the margin-risk cap measures anything --
+            # so the verdict below is measured at the leverage the venue will
+            # really be set to. The lines below say "sized leverage", because
+            # the margin-risk line beside them prints the venue's. The
             # cap rides on the idea through the same reduce-only attribute
             # the margin-risk reduction writes (`tighten_leverage_cap` keeps
             # the lower of the two), and `_compute_target_leverage` reads it
@@ -2537,15 +2539,15 @@ class RiskEngine:
                     _ladder_lev = ladder_leverage(leverage, _ladder, floor=_lev_floor)
                     if _ladder_lev < leverage:
                         tighten_leverage_cap(idea, _ladder_lev)
-                        passed.append(f"QUALITY_LADDER: leverage {leverage}x→{_ladder_lev}x "
+                        passed.append(f"QUALITY_LADDER: sized leverage {leverage}x→{_ladder_lev}x "
                                       f"({_ladder.why})")
                         leverage = _ladder_lev
                     else:
-                        passed.append(f"QUALITY_LADDER: leverage stays {leverage}x "
+                        passed.append(f"QUALITY_LADDER: sized leverage stays {leverage}x "
                                       f"({_ladder.why}; x{_ladder.leverage_mult:.2f} of "
                                       f"{leverage}x is under the {_lev_floor}x floor)")
                 else:
-                    passed.append(f"QUALITY_LADDER: leverage stays {leverage}x ({_ladder.why})")
+                    passed.append(f"QUALITY_LADDER: sized leverage stays {leverage}x ({_ladder.why})")
             # THE RECORD. Every sized evaluation, applied or shadow, measured
             # or not, goes to the ladder ledger (bot/risk/ladder_shadow.py) --
             # the SHADOW audit above is a log line nobody reads back, and the

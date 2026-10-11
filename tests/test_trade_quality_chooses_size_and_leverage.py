@@ -413,7 +413,8 @@ class TestTheSizeHalf:
         idea = _idea()
         check = eng.evaluate(idea, atr=2.0)
         assert getattr(idea, RISK_CAP_ATTR, None) is None
-        assert not any(ln.startswith("QUALITY_LADDER: leverage") for ln in _lines(check))
+        assert not any(ln.startswith(("QUALITY_LADDER: leverage", "QUALITY_LADDER: sized leverage"))
+                       for ln in _lines(check))
         shadow = [kw for _, kw in risk_audits if kw.get("action") == "quality_ladder"]
         assert len(shadow) == 1 and "would_be_usd" not in shadow[0]["data"], \
             "the size half was applied, so a would-be size would be a second figure"
@@ -426,7 +427,7 @@ class TestTheLeverageHalf:
         idea = _idea()
         check = eng.evaluate(idea, atr=2.0)
         assert getattr(idea, RISK_CAP_ATTR) == 4
-        assert "QUALITY_LADDER: leverage 5x→4x (rung B at confidence 0.72)" in check.checks_passed
+        assert "QUALITY_LADDER: sized leverage 5x→4x (rung B at confidence 0.72)" in check.checks_passed
         mr = [ln for ln in check.checks_passed if ln.startswith("MARGIN_RISK")]
         assert mr and "× 4x" in mr[0], mr
 
@@ -449,7 +450,7 @@ class TestTheLeverageHalf:
         monkeypatch.setattr(rem, "CONFIG", _cfg(size=True, lev=True, dynamic_leverage_enabled=True))
         idea = _idea(stop=92.0)
         check = eng.evaluate(idea, atr=2.0)
-        assert "QUALITY_LADDER: leverage 5x→4x (rung B at confidence 0.72)" in check.checks_passed
+        assert "QUALITY_LADDER: sized leverage 5x→4x (rung B at confidence 0.72)" in check.checks_passed
         mr = [ln for ln in check.checks_passed if ln.startswith("MARGIN_RISK")]
         assert mr and "4x→3x" in mr[0], mr
         assert getattr(idea, RISK_CAP_ATTR) == 3

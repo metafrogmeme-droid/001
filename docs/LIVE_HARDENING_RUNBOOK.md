@@ -664,6 +664,10 @@ nothing else below matters yet.
 HIGH_CONVICTION_MARGIN_USD=200     # 1000 notional at the 5x sizing leverage
 ```
 
+To undo it, set `HIGH_CONVICTION_MARGIN_USD=100` again (or
+`HIGH_CONVICTION_ENABLED=false` to turn the rule off) and restart; open
+positions keep the size they opened with.
+
 Since 11 October `/leverage` moves the VENUE's leverage and nothing else: an
 order is sized at `SIZING_LEVERAGE` and the venue locks notional / its own
 leverage, so `/leverage set 10` changes the margin locked and no notional.

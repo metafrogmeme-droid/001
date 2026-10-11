@@ -4966,10 +4966,13 @@ class LiveExecutor:
         back as "genuinely what set_leverage applied" -- untrue whenever the
         runtime override, a user's preference, the quality ladder or the
         margin-risk cap had set another. What the executor CAN say is the
-        standard leverage it sets for the symbol, which every placement starts
-        from and every later step only reduces: an overshoot of that is an
-        overshoot of whatever was approved, so the guard keeps its teeth for
-        the bot's own orders without a guess entering the record.
+        leverage it sets the VENUE to for the symbol by standard, which every
+        placement starts from and every later step only reduces: an overshoot
+        of that is an overshoot of whatever was approved, so the guard keeps
+        its teeth for the bot's own orders without a guess entering the
+        record. The venue's, not the sized one: the fill is read on the venue,
+        and a 10x venue read against the 5x sizing would be a 2x "overshoot"
+        on every reclaimed order.
         """
         if getattr(pos, "origin", "") == "adopted":
             return 0
@@ -7090,10 +7093,16 @@ class LiveExecutor:
 
     def _notional_boundary_gate(self, symbol: str, quantity: float, current_price: float,
                                 size_usd: float, leverage_mult: int, market: Any,
+                                *, sized_margin_usd: Optional[float] = None,
                                 ) -> Optional[str]:
         """Hard-block a notional outside the design envelope; validate venue limits.
 
         Extracted from execute() verbatim. Returns the block string, or None.
+
+        ``sized_margin_usd`` is the order's margin at the leverage it was SIZED
+        at, where the venue is set above it; ``size_usd`` is then the venue's
+        margin, kept for the audit's arithmetic. The envelope is a margin
+        times MAX_LEVERAGE, and the margins it is written in are sized ones.
         """
         # ── Audit F-3: notional vs margin boundary check ──
         # size_usd is MARGIN; the real exchange exposure is notional =
@@ -7122,7 +7131,17 @@ class LiveExecutor:
         # chose. It is only ever a FLOOR on the basis anyway: when the bound
         # is larger than the flat cap, `size_usd` has already been clamped to
         # the bound and `max` picks it.
-        _margin_basis = max(size_usd, MICRO_MAX_POSITION_USD)
+        #
+        # The basis is the SIZED margin. With the venue above the sizing
+        # leverage `size_usd` is the venue's margin, half of it at a 10x venue
+        # over 5x sizing; under the flat cap that is hidden by the `max`, but
+        # a balance-relative bound whose growth ceiling
+        # (`BALANCE_BOUNDS_MAX_POSITION_USD`) is over twice the flat cap puts
+        # it above, and read there the envelope halved to the order's own
+        # notional plus 5%: a round-up to the venue minimum this gate admitted
+        # at 5x was refused at 10x.
+        _basis_margin = size_usd if sized_margin_usd is None else sized_margin_usd
+        _margin_basis = max(_basis_margin, MICRO_MAX_POSITION_USD)
         _max_lev = leverage_ceiling(CONFIG.exchange)
         _notional_ceiling = _margin_basis * _max_lev * 1.05  # 5% rounding headroom
         audit(trade_log,
@@ -8685,7 +8704,8 @@ class LiveExecutor:
 
             # ── Audit F-3: notional vs margin boundary check ── (see _notional_boundary_gate)
             _gate_msg = self._notional_boundary_gate(
-                symbol, quantity, _fill_px, size_usd, leverage_mult, market)
+                symbol, quantity, _fill_px, size_usd, leverage_mult, market,
+                sized_margin_usd=_approved_margin)
             if _gate_msg:
                 return _gate_msg
 
