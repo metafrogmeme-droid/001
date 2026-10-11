@@ -809,6 +809,33 @@ _UNREAD_CONTRACT = (
 )
 
 
+#: ...AND ON THE PUBLIC PAGE THE UNREAD TURN IS STILL ON A PAGE WITH NO
+#: FEED. `_UNREAD_CONTRACT` tells the model to pick the shape itself, and one
+#: of the shapes it names is "a request for a full analysis gets sections".
+#: The public scan gate (`needs_live_market_data`) reads the ROUTER's English
+#: patterns, so "análisis completo de BTC con entrada, stop y objetivo" passed
+#: the gate, fell through to `standard`, and was handed that sentence on the
+#: one surface that can source no number at all. The public contract is
+#: chosen FIRST now, and a public turn whose shape was not read gets this one:
+#: the same honesty about the shape, and the public page's no-levels rule
+#: whatever the question turns out to be.
+_PUBLIC_UNREAD_CONTRACT = (
+    "THIS TURN: the shape of this question was NOT classified. The detector "
+    "that picks an answer shape reads English patterns, this turn is in "
+    "another language, and it fell through rather than measuring anything. "
+    "Whatever it asks, this is a public page with NO live market feed and no "
+    "account: you can neither read a price nor place an order here. So print "
+    "no entry, stop, target, size, price level, score or scan headings, not "
+    "even as an example: a number in that shape is read as a plan whatever "
+    "it is labelled. If they asked for an analysis, a scan or a trade plan, "
+    "say in your first line that this page has no live data, explain in "
+    "under 150 words how one WOULD be built, and tell them a signed-in "
+    "account gets the live one. Otherwise answer what was asked at the "
+    "length it needs: a one-line question gets a one-line answer, somebody "
+    "who sounds new gets terms defined inline."
+)
+
+
 def reply_contract(mode: str = "", public: bool = False,
                    reply_lang: str = "") -> str:
     """The one response contract for this turn.
@@ -820,7 +847,9 @@ def reply_contract(mode: str = "", public: bool = False,
     ``public`` is the anonymous-website surface, and it SELECTS a different
     contract rather than suppressing one — see `_PUBLIC_REPLY_CONTRACTS`. A
     visitor who asks for a scan still gets an answer; what they do not get is
-    a document shaped like a reading nobody took.
+    a document shaped like a reading nobody took. It is decided before the
+    language is: a public turn whose shape was not read gets
+    `_PUBLIC_UNREAD_CONTRACT`, never the members' `_UNREAD_CONTRACT`.
 
     ``reply_lang`` is the language the model has been told to answer in, and
     it decides whether the FALLTHROUGH means anything — see
@@ -835,10 +864,20 @@ def reply_contract(mode: str = "", public: bool = False,
     key = str(mode or "").strip().lower()
     if key not in _REPLY_CONTRACTS:
         key = DEFAULT_REPLY_MODE
-    if key == DEFAULT_REPLY_MODE and chat_language_name(reply_lang):
-        return "\n\nHOW LONG AND WHAT SHAPE\n" + _UNREAD_CONTRACT + "\n"
-    body = _PUBLIC_REPLY_CONTRACTS[key] if (
-        public and key in _PUBLIC_REPLY_CONTRACTS) else _REPLY_CONTRACTS[key]
+    unread = key == DEFAULT_REPLY_MODE and bool(chat_language_name(reply_lang))
+    if public:
+        # The public surface FIRST: what it can source decides the contract
+        # before the language does (`_PUBLIC_UNREAD_CONTRACT`).
+        if key in _PUBLIC_REPLY_CONTRACTS:
+            body = _PUBLIC_REPLY_CONTRACTS[key]
+        elif unread:
+            body = _PUBLIC_UNREAD_CONTRACT
+        else:
+            body = _REPLY_CONTRACTS[key]
+    elif unread:
+        body = _UNREAD_CONTRACT
+    else:
+        body = _REPLY_CONTRACTS[key]
     return "\n\nHOW LONG AND WHAT SHAPE\n" + body + "\n"
 
 
