@@ -596,10 +596,16 @@ class TradingCommands:
         if args:
             _raw = " ".join(args)
             _key = _RS.ALIASES.get(_raw, _raw)
+            from bot.core.strategy_gate import arm_refusal, not_run_live
             if _key not in _RS.PRESETS:
-                _names = " · ".join(sorted(_RS.PRESETS))
+                _names = " · ".join(sorted(k for k in _RS.PRESETS
+                                           if not not_run_live(_RS.PRESETS[k])))
                 await self._reply(update,
                     f"Unknown strategy \u2014 pick one of: {_names} (or /mystrategy off).")
+                return
+            _refused = arm_refusal(_key, _RS.PRESETS[_key])
+            if _refused:
+                await self._reply(update, "\u26aa " + html.escape(_refused))
                 return
             try:
                 _stored = _store.set_pref(_tg_id, _key, _RS.PRESETS.keys())
@@ -640,12 +646,21 @@ class TradingCommands:
             _unread = False
         except _store.StoreUnreadable:
             _cur, _unread = None, True
+        from bot.core.strategy_gate import not_run_live
         _lines = ["\u2694\ufe0f <b>Your bot, your strategy</b>"]
+        _unrun: list[str] = []
         for _k in sorted(_RS.PRESETS):
             _c = _RS.PRESETS[_k]
             _mark = " \u2b05 <b>yours</b>" if _k == _cur else ""
+            if not_run_live(_c):
+                # No command for a preset that cannot be armed: a listed
+                # command is a claim that it works.
+                _unrun.append(html.escape(_c.get("label", _k)) + _mark)
+                continue
             _lines.append(f"{_c.get('icon', '')} <code>/mystrategy {html.escape(_k)}</code> "
                           f"\u2014 {html.escape(_c.get('desc', ''))}{_mark}")
+        if _unrun:
+            _lines.append("Not run by the live bot, so not armable: " + ", ".join(_unrun) + ".")
         if _unread:
             # Not "none selected": nobody read the file to say so.
             _lines.append("\n" + _store.UNREAD_SENTENCE)

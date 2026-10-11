@@ -225,6 +225,31 @@ def check_custom(entry: Optional[dict], asset: str, confidence: Any,
     return {"ok": True, "enforced": enforced, "scan_only": scan_only}
 
 
+def not_run_live(preset: Any) -> bool:
+    """True when the live bot does not run this preset's rule.
+
+    `strategy_catalog.live_runs` is the one reading; this is its negation for
+    the gate, the arming surfaces and the dashboard's button.
+    """
+    from bot.core.strategy_catalog import live_runs
+    return isinstance(preset, dict) and not live_runs(preset)
+
+
+def arm_refusal(preset_key: str, preset: Any) -> Optional[str]:
+    """Why ``preset`` cannot be armed as a user's strategy, or None.
+
+    A preset the live bot does not run cannot be anyone's strategy: arming
+    it vetoed confirms against its symbol list and nothing else, while the
+    reply said its rule applied when /run scans. /run places nothing for it.
+    """
+    if not not_run_live(preset):
+        return None
+    label = preset.get("label", preset_key)
+    return (f"{label} cannot be your strategy: the live bot does not run its rule, "
+            "so no idea it sees is that rule's trade. Its card and the frozen "
+            "backtest describe it.")
+
+
 def check_confirm(preset_key: str, preset: Optional[dict],
                   asset: str, confidence: Any, direction: Any = None) -> dict:
     """→ {ok, reason (when refused), enforced: [..], scan_only: [..],
@@ -257,6 +282,16 @@ def check_confirm(preset_key: str, preset: Optional[dict],
         if reason is not None:
             out["reason"] = reason
         return out
+
+    # A preset the live bot does not run admits nothing under its name. It
+    # used to veto by symbol list alone, so a house ETH idea was confirmed as
+    # "ETH Moving-Average Trend" with no moving average read. Armed before
+    # this refusal existed, it fails closed, and /mystrategy off disarms it.
+    if not_run_live(preset):
+        enforced.append("live_runs")
+        return verdict(f"{label}: the live bot does not run this strategy's rule, "
+                       "so this idea is not its trade — refused. /mystrategy off "
+                       "disarms it.")
 
     syms = preset.get("symbols")
     if isinstance(syms, (list, tuple)) and syms:

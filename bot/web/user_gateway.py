@@ -3435,7 +3435,7 @@ async def handle_user_strategy_get(request: web.Request) -> web.Response:
     if err is not None:
         return err
     from bot.core import user_strategy_store
-    from bot.core.strategy_gate import backtest_gates, describe_gates
+    from bot.core.strategy_gate import backtest_gates, describe_gates, not_run_live
     from bot.skills.skill_registry import RunStrategySkill
     try:
         entry = user_strategy_store.get_entry(tg_id)
@@ -3456,6 +3456,7 @@ async def handle_user_strategy_get(request: web.Request) -> web.Response:
             "desc": cfg.get("desc", ""),
             "confirm_gates": confirm, "scan_gates": scan,
             "backtest_gates": backtest_gates(cfg),
+            "armable": not not_run_live(cfg),
         })
     sel_cfg = RunStrategySkill.PRESETS.get(selected) if selected else None
     if isinstance(entry, dict):
@@ -3544,6 +3545,10 @@ async def handle_user_strategy_set(request: web.Request) -> web.Response:
     key = resolve_key(raw, RunStrategySkill.PRESETS, RunStrategySkill.ALIASES)
     if key is None:
         return web.json_response({"error": "unknown_strategy"}, status=404)
+    from bot.core.strategy_gate import arm_refusal
+    refused = arm_refusal(key, RunStrategySkill.PRESETS[key])
+    if refused:
+        return web.json_response({"error": "not_run_live", "detail": refused}, status=409)
     try:
         stored = user_strategy_store.set_pref(tg_id, key, RunStrategySkill.PRESETS.keys())
     except user_strategy_store.StoreUnreadable:
