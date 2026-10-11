@@ -66,11 +66,11 @@ const EXPECT = {
   'Community & ecosystem': {
     tokens: 250_000_000n,
     steps: [
-      ['2026-10-29T14:00:00Z', 20, 50_000_000n, 50_000_000n],
-      ['2027-07-29T14:00:00Z', 20, 50_000_000n, 100_000_000n],
-      ['2028-04-29T14:00:00Z', 20, 50_000_000n, 150_000_000n],
-      ['2029-01-29T14:00:00Z', 20, 50_000_000n, 200_000_000n],
-      ['2029-10-29T14:00:00Z', 20, 50_000_000n, 250_000_000n],
+      ['2026-10-29T14:00:00Z', 5, 12_500_000n, 12_500_000n],
+      ['2027-07-29T14:00:00Z', 20, 50_000_000n, 62_500_000n],
+      ['2028-04-29T14:00:00Z', 25, 62_500_000n, 125_000_000n],
+      ['2029-01-29T14:00:00Z', 25, 62_500_000n, 187_500_000n],
+      ['2029-10-29T14:00:00Z', 25, 62_500_000n, 250_000_000n],
     ],
   },
   'Team & contributors': {
@@ -108,8 +108,8 @@ test('the dates and whole-token amounts of each step are the ones computed indep
 test('the funding table: what each wallet holds before the sale opens, and that it adds up to the supply', () => {
   const f = fundingPlan({ cfg, rows: table(), record, locks: deriveLocks(plan(), ctx()) });
   assert.equal(f.sale.escrow, 150_001_500_015_000_150n, 'hard cap / the stored price, in base units');
-  assert.equal(f.sale.pool, 100_006_000_060_000_600n, '66.67% of the hard cap at the stored price');
-  assert.equal(f.sale.total, 250_007_500_075_000_750n);
+  assert.equal(f.sale.pool, 120_001_200_012_000_120n, '80% of the hard cap at the stored price');
+  assert.equal(f.sale.total, 270_002_700_027_000_270n);
   assert.deepEqual(f.locks.map((l) => [l.bucket, l.base]), [
     ['Community & ecosystem', 250_000_000_000_000_000n],
     ['Team & contributors', 150_000_000_000_000_000n],
@@ -117,8 +117,8 @@ test('the funding table: what each wallet holds before the sale opens, and that 
   ]);
   assert.equal(f.multisig.treasury, 200_000_000_000_000_000n);
   assert.equal(f.multisig.partners, 80_000_000_000_000_000n);
-  assert.equal(f.multisig.total, 329_992_499_924_999_250n);
-  assert.equal(f.multisig.reserve, 49_992_499_924_999_250n);
+  assert.equal(f.multisig.total, 309_997_299_972_999_730n);
+  assert.equal(f.multisig.reserve, 29_997_299_972_999_730n);
   const all = f.sale.total + f.locks.reduce((a, l) => a + l.base, 0n) + f.multisig.total;
   assert.equal(all, f.supply, 'nothing is counted twice and nothing is missing');
 });
@@ -126,7 +126,7 @@ test('the funding table: what each wallet holds before the sale opens, and that 
 // ── what the tool cannot create ─────────────────────────────────────────────
 
 const MUTATIONS = [
-  ['six steps (the tool allows five)', (p) => { p.locks[0].steps.push({ months: 45, percent: 1 }); p.locks[0].steps[0].percent = 19; }, /6 steps; the tool allows 5/],
+  ['six steps (the tool allows five)', (p) => { p.locks[0].steps.push({ months: 45, percent: 1 }); p.locks[0].steps[0].percent = 4; }, /6 steps; the tool allows 5/],
   ['percents that sum to 99', (p) => { p.locks[1].steps[0].percent = 24; }, /Team & contributors: the percents must sum to exactly 100/],
   ['a fractional percent', (p) => { p.locks[1].steps[0].percent = 12.5; p.locks[1].steps[1].percent = 37.5; }, /every percent must be a whole number from 1 to 100/],
   ['a zero percent', (p) => { p.locks[1].steps[0].percent = 0; p.locks[1].steps[1].percent = 50; }, /every percent must be a whole number from 1 to 100/],
@@ -134,6 +134,10 @@ const MUTATIONS = [
   ['a step in fractional months', (p) => { p.locks[1].steps[0].months = 18.5; }, /step months must be whole numbers/],
   ['a last step after the published end', (p) => { p.locks[1].steps[3].months = 42; }, /last step is at month 42; the published schedule ends at month 36/],
   ['a community release that ends at month 28', (p) => { p.locks[0].steps.forEach((s, i) => { s.months = 7 * i; }); }, /last step is at month 28; the published release ends at month 36/],
+  ['a community launch tranche over its published cap', (p) => { p.locks[0].steps[0].percent = 10; p.locks[0].steps[1].percent = 15; }, /Community & ecosystem: 10% unlocks at TGE; the published launch tranche is at most 5%/],
+  ['five equal community steps (the 2026-10-10 plan): ahead of the line', (p) => { for (const s of p.locks[0].steps) s.percent = 20; }, /by month 9 the plan has unlocked 40% where the published straight release has 25\.0%/],
+  ['a community step ahead of the line later on', (p) => { p.locks[0].steps[2].percent = 35; p.locks[0].steps[4].percent = 15; }, /by month 18 the plan has unlocked 60% where the published straight release has 50\.0%/],
+  ['a release with no cliff and no stated launch cap', (p) => { delete p.locks[0].target.tgeMaxPercent; }, /a release with no cliff must state tgeMaxPercent/],
   ['a community release that starts late (that is a cliff)', (p) => { for (const s of p.locks[0].steps) s.months = s.months === 0 ? 3 : s.months; }, /no cliff, so the first step must be at month 0/],
   ['a first team unlock inside the cliff', (p) => { p.locks[1].steps = [{ months: 12, percent: 25 }, { months: 20, percent: 25 }, { months: 28, percent: 25 }, { months: 36, percent: 25 }]; }, /first unlock should come one gap \(8 months\) after the 12-month cliff/],
   ['team unlocks ahead of the published line', (p) => { p.locks[1].steps = [{ months: 18, percent: 40 }, { months: 24, percent: 20 }, { months: 30, percent: 20 }, { months: 36, percent: 20 }]; }, /by month 18 the plan has unlocked 40% where the published linear schedule has 25\.0%/],
@@ -145,7 +149,7 @@ const MUTATIONS = [
   ['a bucket name that fits two rows', (p) => { p.locks[2].bucket = 'T'; }, /T: matches 2 rows of the roadmap/],
   ['a description that would not fit the tool\'s box', (p) => { p.tool.limits.descriptionMaxLength = 100; }, /the description would not fit the tool's 100-character box/],
   ['a bucket planned twice', (p) => { p.locks[2].bucket = p.locks[1].bucket; p.locks[2].slug = 'rclaw-team-2'; }, /Team & contributors is planned twice/],
-  ['a target of no known shape', (p) => { p.locks[0].target = { somethingElse: 1 }; }, /the target must be \{ releaseMonths \} or \{ cliffMonths, linearMonths \}/],
+  ['a target of no known shape', (p) => { p.locks[0].target = { somethingElse: 1 }; }, /the target must be \{ releaseMonths, tgeMaxPercent \} or \{ cliffMonths, linearMonths \}/],
   ['a plan with no locks', (p) => { p.locks = []; }, /the plan has no locks/],
 ];
 
@@ -177,7 +181,7 @@ test('a plan whose wallets need more than the supply is refused, with the shortf
 
 test('the one-sentence and one-line descriptions, derived from the steps', () => {
   const byName = Object.fromEntries(plan().locks.map((l) => [l.bucket, l]));
-  assert.equal(describeLock(byName['Community & ecosystem']), '5 unlocks of 20%: at TGE, then every 9 months (the last at month 36)');
+  assert.equal(describeLock(byName['Community & ecosystem']), '5 unlocks (5%, 20%, 25%, 25%, 25%): at TGE, then every 9 months (the last at month 36)');
   assert.equal(describeLock(byName['Team & contributors']), '12-month cliff, then 4 unlocks of 25% every 6 months (the last at month 36)');
   assert.equal(describeLock(byName.Advisors), '6-month cliff, then 3 unlocks (33%, 33%, 34%) every 6 months (the last at month 24)');
   assert.equal(shortNote(byName['Community & ecosystem']), '5 unlocks: at TGE, then every 9 mo');
@@ -234,8 +238,8 @@ test('the printed plan carries the form entries, the local clock times on reques
   assert.match(plain, /Period 3 \.+ End Date 2029-04-29 14:00 UTC · 25%  → "Tokens available to Claim on end date" 112,500,000/);
   assert.match(plain, /ONE vesting per wallet per token/);
   assert.match(plain, /do not call these locks audited/);
-  assert.match(plain, /Sale wallet \.+ 250,007,500\.075 RCLAW/);
-  assert.match(plain, /Multisig \.+ 329,992,499\.924 RCLAW/);
+  assert.match(plain, /Sale wallet \.+ 270,002,700\.027 RCLAW/);
+  assert.match(plain, /Multisig \.+ 309,997,299\.972 RCLAW/);
   assert.doesNotMatch(plain, /\(UTC\+[12]\)/, 'no local times unless a zone is asked for');
   const ams = renderLocksPlan(p, ctx(), { tz: 'Europe/Amsterdam' });
   assert.match(ams, /Period 1 \.+ End Date 2026-10-29 14:00 UTC {3}\(29 Oct 2026, 15:00 \(UTC\+1\)\)/);

@@ -120,7 +120,7 @@ class TestARefusalKeepsTheMarginWithTheIdea:
         _confirm(engine, engine._pending_ideas[idea.id])
         assert idea.id in engine._pending_ideas
         engine._executor_for = lambda tg, venue=None: SimpleNamespace(
-            _compute_target_leverage=lambda symbol, i=None: 5)
+            _compute_sized_leverage=lambda symbol, i=None: 5)
         auth = ug._authorize_web_live_trade({}, engine, UID, idea.id)
         assert auth.ok is True and auth.recorded is True, auth
         assert envelope.ledger.spent(UID, __import__("time").time()) == MARGIN * 5

@@ -236,7 +236,11 @@ def test_no_price_history_falls_to_the_live_record_never_the_tracker(tmp_path, c
     hedged = (HeldRow("ETH/USDT", "SHORT", 100.0, 500.0), BOOK[1])
     r = eng._compute_portfolio_var(26.0, idea=_idea(), live_equity=200.0, live_rows=hedged)
     assert r.status == VarStatus.OK and r.note == "per-trade proxy over the live record"
-    lev = risk_engine_mod.CONFIG.exchange.default_leverage or 1
+    # The proposed margin is a SIZED margin: its notional is it x the sized
+    # standard (5x), not the venue's 10x.
+    assert (risk_engine_mod.CONFIG.exchange.sizing_leverage,
+            risk_engine_mod.CONFIG.exchange.default_leverage) == (5, 10)
+    lev = 5
     z = RiskEngine._var_z_score(0.95)
     expect = z * statistics.stdev(rets) * (1_000.0 + 26.0 * lev) / 200.0 * 100
     assert r.proposed_var_pct == pytest.approx(expect, abs=1e-3)

@@ -2300,14 +2300,16 @@ def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str,
     again right before the order. Returns ``(allowed, reasons, recorded)``;
     see :class:`WebLiveAuthorization`.
 
-    THE NOTIONAL IS MARGIN × THE LEVERAGE THAT FILLS, never the configured
-    default. This read ``CONFIG.exchange.default_leverage`` (5) while the
-    executor places every order at the operator standard -- the `/leverage`
-    override, up to the MAX_LEVERAGE ceiling -- lowered by the user's own
-    preference. Driven under `/leverage set 10`: a $50 margin was authorized
-    and recorded as $250 against the user's per-trade and 24h caps for an
-    order the executor placed at $500. The leaf reads the executor's own
-    leverage, and a leverage it cannot read denies, recording nothing.
+    THE NOTIONAL IS MARGIN × THE LEVERAGE THE ORDER IS SIZED AT, never the
+    configured default. This read ``CONFIG.exchange.default_leverage`` (5)
+    while the executor placed every order at the operator standard -- the
+    `/leverage` override, up to the MAX_LEVERAGE ceiling -- lowered by the
+    user's own preference. Driven under `/leverage set 10`: a $50 margin was
+    authorized and recorded as $250 against the user's per-trade and 24h caps
+    for an order the executor placed at $500. The leaf reads the executor's
+    own sized leverage (`_compute_sized_leverage`; the venue may be set
+    higher and lock less margin for the same notional), and a leverage it
+    cannot read denies, recording nothing.
     """
     try:
         from bot.guardian.order_authority import NOT_PENDING, authorize_order
@@ -2974,7 +2976,7 @@ def _live_position_row(pos) -> dict:
         unprotected = sl_order == "manual"
     sl_unknown = sl_order == "unknown" and not marked
     sl_d, tp_d = _protection_dists(entry, sl, tp)
-    from bot.core.live_executor import entry_estimated_state
+    from bot.core.live_executor import entry_estimated_state, scale_out_reading
     from bot.core.position_telemetry import entered_at
     # When the POSITION opened, which for a limit entry is its fill.
     opened = entered_at(pos)
@@ -2989,6 +2991,10 @@ def _live_position_row(pos) -> dict:
         "entry_estimated": entry_estimated_state(pos),
         "stop_loss": round(sl, 6) if sl is not None else None,
         "take_profit": round(tp, 6) if tp is not None else None,
+        # Where the position SCALES OUT when its take-profit is the ladder's
+        # backstop (`live_executor.scale_out_reading`), else None: the venue's
+        # TP alone would read as a 4R target.
+        "scale_out": scale_out_reading(pos),
         "sl_dist_pct": sl_d,
         "tp_dist_pct": tp_d,
         "size_usd": round(cost, 2),
@@ -3457,7 +3463,7 @@ async def handle_user_strategy_get(request: web.Request) -> web.Response:
     if err is not None:
         return err
     from bot.core import user_strategy_store
-    from bot.core.strategy_gate import backtest_gates, describe_gates
+    from bot.core.strategy_gate import backtest_gates, describe_gates, not_run_live
     from bot.skills.skill_registry import RunStrategySkill
     try:
         entry = user_strategy_store.get_entry(tg_id)
@@ -3478,6 +3484,7 @@ async def handle_user_strategy_get(request: web.Request) -> web.Response:
             "desc": cfg.get("desc", ""),
             "confirm_gates": confirm, "scan_gates": scan,
             "backtest_gates": backtest_gates(cfg),
+            "armable": not not_run_live(cfg),
         })
     sel_cfg = RunStrategySkill.PRESETS.get(selected) if selected else None
     if isinstance(entry, dict):
@@ -3566,6 +3573,10 @@ async def handle_user_strategy_set(request: web.Request) -> web.Response:
     key = resolve_key(raw, RunStrategySkill.PRESETS, RunStrategySkill.ALIASES)
     if key is None:
         return web.json_response({"error": "unknown_strategy"}, status=404)
+    from bot.core.strategy_gate import arm_refusal
+    refused = arm_refusal(key, RunStrategySkill.PRESETS[key])
+    if refused:
+        return web.json_response({"error": "not_run_live", "detail": refused}, status=409)
     try:
         stored = user_strategy_store.set_pref(tg_id, key, RunStrategySkill.PRESETS.keys())
     except user_strategy_store.StoreUnreadable:
@@ -3593,6 +3604,36 @@ async def handle_strategies_public(request: web.Request) -> web.Response:
         "agents": strategy_catalog.catalog(),
         "note": strategy_catalog.catalogue_note(),
     })
+
+
+async def handle_strategy_scan_public(request: web.Request) -> web.Response:
+    """GET /gateway/public/strategy-scan?id=<slug> — one strategy's board now,
+    no auth. A preset the live bot does not run, read on its markets' last
+    closed 1h bars by its own rule (`strategy_scan`): market prices, the
+    rule's sides and scores, and markets it could not read. Public-safe by
+    construction: no account, no user store and no position is in scope, and
+    nothing is placed. The board is one per preset per closed hour, so a
+    spike of requests reads the venue once.
+    """
+    from bot.core import strategy_scan
+    from bot.core.strategy_gate import resolve_key
+    from bot.skills.skill_registry import RunStrategySkill
+    key = resolve_key(request.query.get("id", ""), RunStrategySkill.PRESETS,
+                      RunStrategySkill.ALIASES)
+    if key is None or strategy_scan.scan_command(key) is None:
+        return web.json_response(
+            {"error": "no_scan",
+             "detail": "No scan for this name: it is not a strategy, or the live "
+                       "bot runs it every cycle."}, status=404)
+    engine = request.app.get("engine")
+    if engine is None:
+        return web.json_response({"error": "engine_unavailable"}, status=503)
+    try:
+        board = await strategy_scan.scan(engine, key)
+    except Exception as exc:  # noqa: BLE001 -- named by class, never by message
+        return web.json_response({"error": "scan_failed", "detail": type(exc).__name__},
+                                 status=502)
+    return web.json_response({"public": True, "board": board})
 
 
 # ── Public agent directory (ERC-8004 identity card) ──────────────────────────
@@ -5467,6 +5508,7 @@ def build_gateway(engine, tg_handler) -> web.Application:
     app.router.add_get("/public/leaderboard", handle_leaderboard_public)
     # Strategy-Agent marketplace catalogue (public, read-only, §4-safe).
     app.router.add_get("/public/strategies", handle_strategies_public)
+    app.router.add_get("/public/strategy-scan", handle_strategy_scan_public)
     # Per-user bot strategy — the web mirror of /mystrategy (user-authed).
     app.router.add_get("/user/strategy", handle_user_strategy_get)
     app.router.add_post("/user/strategy", handle_user_strategy_set)

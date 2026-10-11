@@ -8,8 +8,8 @@
     "sha": "d368ad38000f60e0"
   },
   "js/agent-scorecard.js": {
-    "v": 7,
-    "sha": "5945c7b74fbb3756"
+    "v": 8,
+    "sha": "ca0264debabad83b"
   },
   "js/ambient.js": {
     "v": 3,
@@ -80,8 +80,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 233,
-    "sha": "c55adbf2d56cf875"
+    "v": 235,
+    "sha": "d3cc380b6b2c74f9"
   },
   "js/decision-court-model.js": {
     "v": 2,
@@ -156,8 +156,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 169,
-    "sha": "3e89ccd7acea3202"
+    "v": 170,
+    "sha": "0bbd8de32b39df21"
   },
   "js/icons.js": {
     "v": 6,
@@ -259,6 +259,10 @@
     "v": 4,
     "sha": "4321eaebf37b67a2"
   },
+  "js/strategy-scan.js": {
+    "v": 1,
+    "sha": "aeb04e2eca0e6990"
+  },
   "js/strengthmap.js": {
     "v": 8,
     "sha": "bdc0a2b104d65974"
@@ -284,8 +288,8 @@
     "sha": "0a41f855dcb11f74"
   },
   "js/token-page.js": {
-    "v": 1,
-    "sha": "b47173dc36c14391"
+    "v": 2,
+    "sha": "68764bbcd5c20b9c"
   },
   "js/trade-confirm-model.js": {
     "v": 2,

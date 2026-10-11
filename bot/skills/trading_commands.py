@@ -42,6 +42,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from bot.config import CONFIG
+from bot.core.live_executor import take_profit_note
 from bot.core.open_orders import (
     open_orders_for,
     order_source,
@@ -91,6 +92,14 @@ if TYPE_CHECKING:
     from bot.utils.user_store import UserStore
 
 logger = logging.getLogger(__name__)
+
+
+def _venue_leverage_now() -> int:
+    """The venue standard as `/leverage` reads it (override or default, under
+    the ceiling). The notice printed a literal 5x."""
+    from bot.config import RUNTIME as _RT
+    from bot.core.leverage import operator_standard
+    return operator_standard(CONFIG.exchange, _RT.leverage_override).leverage
 
 
 def position_fee_estimate(pos: dict) -> dict:
@@ -596,10 +605,16 @@ class TradingCommands:
         if args:
             _raw = " ".join(args)
             _key = _RS.ALIASES.get(_raw, _raw)
+            from bot.core.strategy_gate import arm_refusal, not_run_live
             if _key not in _RS.PRESETS:
-                _names = " · ".join(sorted(_RS.PRESETS))
+                _names = " · ".join(sorted(k for k in _RS.PRESETS
+                                           if not not_run_live(_RS.PRESETS[k])))
                 await self._reply(update,
                     f"Unknown strategy \u2014 pick one of: {_names} (or /mystrategy off).")
+                return
+            _refused = arm_refusal(_key, _RS.PRESETS[_key])
+            if _refused:
+                await self._reply(update, "\u26aa " + html.escape(_refused))
                 return
             try:
                 _stored = _store.set_pref(_tg_id, _key, _RS.PRESETS.keys())
@@ -640,12 +655,21 @@ class TradingCommands:
             _unread = False
         except _store.StoreUnreadable:
             _cur, _unread = None, True
+        from bot.core.strategy_gate import not_run_live
         _lines = ["\u2694\ufe0f <b>Your bot, your strategy</b>"]
+        _unrun: list[str] = []
         for _k in sorted(_RS.PRESETS):
             _c = _RS.PRESETS[_k]
             _mark = " \u2b05 <b>yours</b>" if _k == _cur else ""
+            if not_run_live(_c):
+                # No command for a preset that cannot be armed: a listed
+                # command is a claim that it works.
+                _unrun.append(html.escape(_c.get("label", _k)) + _mark)
+                continue
             _lines.append(f"{_c.get('icon', '')} <code>/mystrategy {html.escape(_k)}</code> "
                           f"\u2014 {html.escape(_c.get('desc', ''))}{_mark}")
+        if _unrun:
+            _lines.append("Not run by the live bot, so not armable: " + ", ".join(_unrun) + ".")
         if _unread:
             # Not "none selected": nobody read the file to say so.
             _lines.append("\n" + _store.UNREAD_SENTENCE)
@@ -865,7 +889,8 @@ class TradingCommands:
                 dir_icon = "\U0001f7e2" if p.direction == "LONG" else "\U0001f534"
                 sym_display = p.symbol.replace("/", "").replace(":USDT", "")
                 sl_str = f"${p.stop_loss:,.4f}" if p.stop_loss > 0 else "\u26a0\ufe0f NOT SET"
-                tp_str = f"${p.take_profit:,.4f}" if p.take_profit > 0 else "\u26a0\ufe0f NOT SET"
+                tp_str = (f"${p.take_profit:,.4f}{html.escape(take_profit_note(p))}"
+                          if p.take_profit > 0 else "\u26a0\ufe0f NOT SET")
                 # `getattr(p, 'leverage', 10)` INVENTED A TEN. It was printed
                 # as fact on the row ("LONG BTC 10x") and multiplied into the
                 # percent below, so a record that never carried a leverage
@@ -966,7 +991,8 @@ class TradingCommands:
                 dir_icon = "\U0001f7e2" if p.direction == "LONG" else "\U0001f534"
                 sym_display = p.symbol.replace("/", "").replace(":USDT", "")
                 sl_str = f"${p.stop_loss:,.4f}" if p.stop_loss > 0 else "\u26a0\ufe0f NOT SET"
-                tp_str = f"${p.take_profit:,.4f}" if p.take_profit > 0 else "\u26a0\ufe0f NOT SET"
+                tp_str = (f"${p.take_profit:,.4f}{html.escape(take_profit_note(p))}"
+                          if p.take_profit > 0 else "\u26a0\ufe0f NOT SET")
                 # `getattr(p, 'leverage', 10)` INVENTED A TEN. It was printed
                 # as fact on the row ("LONG BTC 10x") and multiplied into the
                 # percent below, so a record that never carried a leverage
@@ -1155,7 +1181,8 @@ class TradingCommands:
         """/buy — DISABLED (futures-only mode)."""
         await self._send(update,
             "\u274c <b>Spot trading is disabled</b>\n\n"
-            "RUNECLAW operates in <b>futures-only mode</b> (USDT-M perpetuals at 5x leverage).\n\n"
+            f"RUNECLAW operates in <b>futures-only mode</b> (USDT-M perpetuals at "
+            f"{_venue_leverage_now()}x leverage).\n\n"
             "The bot automatically opens positions via AI analysis. "
             "Use <code>/livepositions</code> to view open positions.")
 
@@ -1164,7 +1191,8 @@ class TradingCommands:
         """/sell — DISABLED (futures-only mode)."""
         await self._send(update,
             "\u274c <b>Spot trading is disabled</b>\n\n"
-            "RUNECLAW operates in <b>futures-only mode</b> (USDT-M perpetuals at 5x leverage).\n\n"
+            f"RUNECLAW operates in <b>futures-only mode</b> (USDT-M perpetuals at "
+            f"{_venue_leverage_now()}x leverage).\n\n"
             # The door a trader can actually open. This said /liveclose, which
             # is admin-only and closes with no confirmation — the same wrong
             # door the chat notice (chat_runtime.close_intent_notice) avoids.

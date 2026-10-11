@@ -327,6 +327,10 @@ RULES: list[Rule] = [
             "handle_proofofpnl_public",   # the sealed statement; open verification is the point
             "handle_leaderboard_public",  # anonymous, independently re-verifiable rows
             "handle_strategies_public",   # preset catalogue: design + regime, no numbers
+            # One preset's rule on public market bars: prices, sides, scores and
+            # unread markets; no account, user store or position in scope, and
+            # nothing placed. One venue read per preset per closed hour.
+            "handle_strategy_scan_public",
             "handle_agent_card_public",   # ERC-8004 card already inside the public bundle
             "handle_share_card",          # PNG from three clamped query params
             # Liveness only, and public-safe BY CONSTRUCTION rather than by

@@ -40,6 +40,7 @@ class TestThreadsIntoPortfolioConfig:
 
         class _StubPortfolio:
             per_symbol = {}
+            scanner_passes: dict = {}   # as the real backtester; no scanner ran
 
             def __init__(self, config, symbols, **kwargs):
                 captured["config"] = config

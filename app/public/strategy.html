@@ -53,7 +53,8 @@
   <div id="sa-root"><div class="empty" data-i18n="st.loading">Loading strategy agent…</div></div>
 </div>
 
-<script src="/js/agent-scorecard.js?v=7"></script>
+<script src="/js/agent-scorecard.js?v=8"></script>
+<script src="/js/strategy-scan.js?v=1"></script>
 <script>
 (function () {
   var esc = function (s) {
@@ -208,6 +209,7 @@
       + (a.how ? '<p class="how"><b>How it trades:</b> ' + esc(a.how) + '</p>' : '')
       + (chips ? '<div class="chips">' + chips + '</div>' : '')
       + (a.community ? rulesBlock(a.rules, a.risk_profile) : scoreBlock(a.scorecard))
+      + (window.StrategyScan ? window.StrategyScan.blockHtml(a) : '')
       + '<div id="liveRecord"></div>'
       + '<div class="cta-row">'
       + (a.community
@@ -238,6 +240,10 @@
               + '<a href="/leaderboard">leaderboard</a>. Nothing here is financial advice.'
             : 'No track record published. Nothing here is financial advice.'))) + '</p>'
       + '</article>';
+    var scanBtn = document.getElementById('scanBtn');
+    if (scanBtn) scanBtn.addEventListener('click', function () {
+      window.StrategyScan.run(a.id, document.getElementById('scanOut'), window.fetch.bind(window));
+    });
     var sb = document.getElementById('shareBtn');
     if (sb) sb.addEventListener('click', function () {
       var url = location.href;
@@ -296,7 +302,7 @@
     .catch(function () { tryCommunity(false); });
 })();
 </script>
-<script src="/js/i18n-core.js?v=169"></script>
+<script src="/js/i18n-core.js?v=170"></script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>
 </html>

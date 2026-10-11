@@ -111,6 +111,17 @@ export function locksProblems(plan, { rows, cfg, record }) {
     if (t.releaseMonths !== undefined) {
       if (last !== t.releaseMonths) bad(`${name}: the last step is at month ${last}; the published release ends at month ${t.releaseMonths}`);
       if (steps[0].months !== 0) bad(`${name}: the published release has no cliff, so the first step must be at month 0`);
+      // A release with no cliff starts with a launch tranche at TGE, capped by the target; after it the plan
+      // is never ahead of the published straight line.
+      if (!Number.isInteger(t.tgeMaxPercent)) bad(`${name}: a release with no cliff must state tgeMaxPercent, the most it unlocks at TGE`);
+      else if (steps[0].months === 0 && steps[0].percent > t.tgeMaxPercent) bad(`${name}: ${steps[0].percent}% unlocks at TGE; the published launch tranche is at most ${t.tgeMaxPercent}%`);
+      let cum = 0;
+      for (const [i, s] of steps.entries()) {
+        cum += s.percent;
+        if (i === 0 && s.months === 0) continue;
+        const line = (100 * s.months) / t.releaseMonths;
+        if (cum > line + 1) bad(`${name}: by month ${s.months} the plan has unlocked ${cum}% where the published straight release has ${line.toFixed(1)}%`);
+      }
     } else if (Number.isInteger(t.cliffMonths) && Number.isInteger(t.linearMonths)) {
       if (last !== t.cliffMonths + t.linearMonths) bad(`${name}: the last step is at month ${last}; the published schedule ends at month ${t.cliffMonths + t.linearMonths}`);
       if (gap !== null && months[0] !== t.cliffMonths + gap) bad(`${name}: the first unlock should come one gap (${gap} months) after the ${t.cliffMonths}-month cliff, at month ${t.cliffMonths + gap}`);
@@ -121,7 +132,7 @@ export function locksProblems(plan, { rows, cfg, record }) {
         if (cum > line + 1) bad(`${name}: by month ${s.months} the plan has unlocked ${cum}% where the published linear schedule has ${line.toFixed(1)}%`);
       }
     } else {
-      bad(`${name}: the target must be { releaseMonths } or { cliffMonths, linearMonths }`);
+      bad(`${name}: the target must be { releaseMonths, tgeMaxPercent } or { cliffMonths, linearMonths }`);
     }
     // The text the tool's description box takes must fit.
     if (lockDescription(lock, { tokens, symbol: 'RCLAW', mint: '1'.repeat(44), endUtc: '2026-10-29T14:00:00Z' }).length > descriptionMaxLength) {

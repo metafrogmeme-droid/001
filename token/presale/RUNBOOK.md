@@ -20,11 +20,11 @@ and not used for this sale. Full rationale and the venue comparison are in
 | `locks.plan.json` | Smithii Token Vesting | The three time locks (community, team, advisors) as staircases of at most five unlocks; read by `locks_lib.mjs`, `locks_plan.mjs` and the tests |
 
 The two share the **economics** — 150M presale allocation, **1,000 SOL soft / 5,000 SOL hard
-cap**, 0.25–25 SOL per wallet, a 336 h public phase (15 → 29 Oct 2026), **66.67% of the raise → Raydium
-liquidity**. They differ in what the **program enforces**, and the differences are declared,
-not accidental: Genesis vests buyers (33% at TGE then linear over 2 months), keeps a wallet
-whitelist, and creates the pool with a never-claim LP lock; the Smithii program does none of
-those (no vesting, no wallet list, the operator creates the pool and burns the LP).
+cap**, 0.25–25 SOL per wallet, a 336 h public phase (15 → 29 Oct 2026). They differ in what
+the **program enforces**, and the differences are declared, not accidental: Genesis vests buyers
+(33% at TGE then linear over 2 months), keeps a wallet whitelist, and creates the pool with
+66.67% of the raise and a never-claim LP lock; the Smithii program does none of those (no
+vesting, no wallet list; the operator creates the pool with **80% of the raise** and burns the LP).
 `venue_parity.test.mjs` checks the shared terms agree, every difference is declared with a
 reason, and the published docs state the chosen venue's terms.
 
@@ -159,8 +159,8 @@ locks' dates, the cards). Working back from the opening:
 | now → Sun 11 Oct | Confirm the clock time. Clear the gates below. Make four wallets: the sale's signing wallet and one each for the community, team and advisor locks; hardware-backed, about 0.5 SOL each (the signing wallet also needs the 0.1 SOL creation fee) |
 | Mon 12 Oct | Move the tokens, a small test first: the amounts under "who holds what" in `npm run presale:locks-plan`. Rehearse the vesting tool once on a throwaway wallet |
 | Mon 12 → Tue 13 Oct | Create the three locks; publish each certificate link and wallet address |
-| Tue 13 Oct, by 14:00 UTC | Create the sale (the form's four steps), then `presale:smithii-verify`; fix anything with Smithii's `edit`. 48 hours before the opening is the latest that leaves a day to fix |
-| Wed 14 Oct | Buffer. Announce: the site and the bot read `token/config/rclaw.mainnet.json` → `presale`, so flip it when you announce, not before; its tests pin "coming soon", so that is a change with its own test update |
+| Tue 13 Oct, by 14:00 UTC | Create the sale (the form's four steps), then `presale:smithii-verify`; fix anything with Smithii's `edit`. 48 hours before the opening is the latest that leaves a day to fix. Once verify passes, publish the sale link: set `token/config/rclaw.mainnet.json` → `presale.sale_url`, run `node app/scripts/sync_content.js`, and change the test that pins it to `null` (`the_record_states_the_sale.test.mjs`) in the same commit. The site and the bot print it only if it is an `https` link on smithii.io (`tests/fixtures/sale_url_cases.json`); anything else reads "unreadable" |
+| Wed 14 Oct | Buffer. The announcement is already in place: the site's /token page, its home strip and the bot's /rclaw card read `presale` from the same record, which says "announced" with the sale's terms since 2026-10-10. Those terms are a copy of this config: `the_record_states_the_sale.test.mjs` fails when they differ and prints the sentences the record should carry |
 | Thu 15 Oct, 14:00 UTC | The sale opens |
 | Thu 29 Oct, 14:00 UTC | The sale ends: claims open and the community's first unlock is available. Create the pool in the same hour, burn the LP, `withdraw` the unsold tokens once, move the proceeds to the multisig. If the hard cap sells out sooner, claims open then and the pool steps start then, but the locks' dates do not move: the first unlock still waits for this date |
 
@@ -250,7 +250,7 @@ authority, the audit's scope, and the disclosures.
 - The signing wallet receives the SOL as buyers buy. Do not spend it until the rule for a raise
   below the soft cap (roadmap §13) is decided and published.
 - When the sale ends or the hard cap is reached, buyers can claim. **Create the pool in that
-  same window**, at the sale price, with 66.67% of the gross raise; then **burn the LP tokens**
+  same window**, at the sale price, with 80% of the gross raise; then **burn the LP tokens**
   and publish the pool address and the burn transaction.
 - Call `withdraw` **once** to recover unsold tokens (a second call is refused), and move them
   to the reserve allocation as the config states.

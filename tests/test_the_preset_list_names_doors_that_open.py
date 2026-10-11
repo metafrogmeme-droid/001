@@ -39,9 +39,22 @@ def test_no_slash_command_is_printed_that_is_not_registered():
     assert [c for c in printed if c not in known] == []
 
 
-def test_the_list_had_aliases_with_no_command_to_find():
-    """The fixture can produce the state: some aliases are not commands."""
+def test_each_rule_the_live_bot_does_not_run_names_a_scan_door_that_opens():
+    """`/altsweep`, `/ethma` and `/volrotation` were printed with nothing
+    behind them. They are commands now: each is the preset's scan door
+    (`strategy_scan.scan_command`), and the list names it beside `run`. A
+    preset the live bot runs has no scan door, and the list prints none."""
+    from bot.core.strategy_scan import scan_command
     known = registered_commands()
-    assert {"altsweep", "ethma", "volrotation"} <= set(RunStrategySkill.ALIASES)
-    assert not {"altsweep", "ethma", "volrotation"} & known
+    text = _listed()
+    doors = {k: scan_command(k) for k in RunStrategySkill.PRESETS}
+    assert {"altsweep", "ethma", "volrotation", "limitscan", "multitrend"} == {
+        d for d in doors.values() if d}
+    for key, door in doors.items():
+        label = RunStrategySkill.PRESETS[key]["label"]
+        line = next(ln for ln in text.splitlines() if f"<b>{label}</b>" in ln)
+        if door:
+            assert door in known and f"/{door} scans it now" in line, key
+        else:
+            assert "scans it now" not in line, key
     assert {"dip", "momentum", "scalp", "run"} <= known

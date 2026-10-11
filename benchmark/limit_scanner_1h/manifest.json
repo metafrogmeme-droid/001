@@ -1,0 +1,281 @@
+{
+  "version": 1,
+  "timeframe": "1h",
+  "limit": 6000,
+  "created_at": "2026-10-10T18:06:25.646914+00:00",
+  "dataset_hash": "d0c01b8b0cc4c9913cf30ade61db04c1b36291c496fba66903a6058104691365",
+  "symbols": {
+    "AAVE/USDT:USDT": {
+      "file": "AAVE_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T18:00:00+00:00",
+      "last": "2026-10-10T16:00:00+00:00",
+      "sha256": "2c959753cc21b09c720da97287e71865ec8f1c9e228593a0bef71ce96094cca0",
+      "missing": []
+    },
+    "ADA/USDT:USDT": {
+      "file": "ADA_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T18:00:00+00:00",
+      "last": "2026-10-10T16:00:00+00:00",
+      "sha256": "b52e83fe26187eca3df9edcefb5d109aae4370dc67163d87c37e041ec97dcc5a",
+      "missing": []
+    },
+    "AVAX/USDT:USDT": {
+      "file": "AVAX_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T18:00:00+00:00",
+      "last": "2026-10-10T16:00:00+00:00",
+      "sha256": "731de05727fbdf508f6d9aaa4c58900f4878ccec3fcec21816f69f60e5458fad",
+      "missing": []
+    },
+    "BCH/USDT:USDT": {
+      "file": "BCH_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T18:00:00+00:00",
+      "last": "2026-10-10T16:00:00+00:00",
+      "sha256": "e0c4a1818d66c87f2322ca89b55a8ba61e1c60b6e0d4efb735c9eb550ca46c06",
+      "missing": []
+    },
+    "BNB/USDT:USDT": {
+      "file": "BNB_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "f50e5ae30c3167dfade2ddd06e0305def2e648909d933de9155386918e8f033b",
+      "missing": []
+    },
+    "BTC/USDT:USDT": {
+      "file": "BTC_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "c86a6b8e35b5bf834a73d56543b63ec52bbca02f0f19de1565042eff2e2b0f4b",
+      "missing": []
+    },
+    "DOGE/USDT:USDT": {
+      "file": "DOGE_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "83e162ecc14a4a3df28a98f3de36479d314eb20e4baae1c3ffa90c6918ecc0dd",
+      "missing": []
+    },
+    "ENA/USDT:USDT": {
+      "file": "ENA_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "b7a867f637da0158df8bad6b77fa43325cc957a10ce58eede955ccc6e4c55981",
+      "missing": []
+    },
+    "ETH/USDT:USDT": {
+      "file": "ETH_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "68690aa6c43e6478c6e93782bf40b0d9efa031e0dfff3c70de18f3f68d0b1dc7",
+      "missing": []
+    },
+    "HYPE/USDT:USDT": {
+      "file": "HYPE_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "22fe94ec4056e1005a937a27cd2da77113764335382b01e62cdf68e1c1892059",
+      "missing": []
+    },
+    "INJ/USDT:USDT": {
+      "file": "INJ_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "cb847559c196e72430c6f03eb6a7706a873c2ab074615e9a08abf05d8f816d9a",
+      "missing": []
+    },
+    "LAB/USDT:USDT": {
+      "file": "LAB_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "8459b724d787b223d750a5624a8bac99abb19bce37d4cfcb89c3718ab3ec171c",
+      "missing": []
+    },
+    "LINK/USDT:USDT": {
+      "file": "LINK_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "d32914413532237322b356fc2c1933d44e92ba4bdab382fcacac0f6c6939dde5",
+      "missing": []
+    },
+    "M/USDT:USDT": {
+      "file": "M_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "40f169a634c9a0793fe47ad7f032763bf3072a8a9d46d193b9ebaaef21b385f5",
+      "missing": []
+    },
+    "NEAR/USDT:USDT": {
+      "file": "NEAR_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "b29f65bf44b3b4b6ecc2f015eed4073f70c12d748faf9527d739e65d3ee5748b",
+      "missing": []
+    },
+    "ONDO/USDT:USDT": {
+      "file": "ONDO_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "510ca9d4a06c5b692ba37443f5de031576653f59073bfe63354c7bcdb12c76f1",
+      "missing": []
+    },
+    "PAXG/USDT:USDT": {
+      "file": "PAXG_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "f3984e624864d626163300762676bf942e975525c5e36abcfba8f17d4f75e391",
+      "missing": []
+    },
+    "PEPE/USDT:USDT": {
+      "file": "PEPE_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "7fdb9d19ec30ee7c184c91fd1070a141cb08a3af215adbc9fb8e6a501ab11b98",
+      "missing": []
+    },
+    "SEI/USDT:USDT": {
+      "file": "SEI_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "054856f475878190fbf78161eb7dc0d2f2b902d128a231c2d7c34014441cc9e5",
+      "missing": []
+    },
+    "SHIB/USDT:USDT": {
+      "file": "SHIB_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "f6ac94a8db1a627d02d6ca1c1c5fb19fb47a469b81505aee532243c7dafefcc2",
+      "missing": []
+    },
+    "SOL/USDT:USDT": {
+      "file": "SOL_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "ec427c5a49ee64812f45db4f180f69be1591a405a558e58b2eb92055ff771020",
+      "missing": []
+    },
+    "SUI/USDT:USDT": {
+      "file": "SUI_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "69b8dccb5a21223a5eb826d5ad11fb2bea9576e82014705e4757c8565b6a1ba1",
+      "missing": []
+    },
+    "TAO/USDT:USDT": {
+      "file": "TAO_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "2a7e2968921a904315eeb17a81a53fdb72d40e17e4a71218d4f0aa17bc7ad043",
+      "missing": []
+    },
+    "TRUMP/USDT:USDT": {
+      "file": "TRUMP_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "6ffeae4c99444fa536ee1bbc9bf2b7a5475ca5921d96b3d6c0f340c867fe2a61",
+      "missing": []
+    },
+    "WLD/USDT:USDT": {
+      "file": "WLD_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "1c8f77ff852e62f42c06f6bafbd9d1445c6602c2f59ab2273999108f6fd7c67c",
+      "missing": []
+    },
+    "XAG/USDT:USDT": {
+      "file": "XAG_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "7e1d7a98b54bc2113705bdb5cc0d2e2980602c8099c1b94ceee1fec026fec0e0",
+      "missing": []
+    },
+    "XAU/USDT:USDT": {
+      "file": "XAU_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "422730e5a3a24d205e43831d0642a674b9045753ff6c0180ff2ad708b465acee",
+      "missing": []
+    },
+    "XAUT/USDT:USDT": {
+      "file": "XAUT_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "dd130d99ce979060e492a22134316edef7c1033e0f04cb07b39df11b4a9d518c",
+      "missing": []
+    },
+    "XLM/USDT:USDT": {
+      "file": "XLM_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "35a03a3f4167fd4615506b265231ecfe6430315140d21101069e668b2081b564",
+      "missing": []
+    },
+    "XPD/USDT:USDT": {
+      "file": "XPD_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "2dabfdb709bd149117715bfa88b0144fcc660e687449af045ffe52236708d273",
+      "missing": []
+    },
+    "XPL/USDT:USDT": {
+      "file": "XPL_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "8764b6acff16865144fdd54168ec78a0198e822aea2b082822a39c7b58722a01",
+      "missing": []
+    },
+    "XPT/USDT:USDT": {
+      "file": "XPT_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "4e9b2a023a1dd397f06324d6dce31c9b7882d92bde79258c5c8a756acd33c91c",
+      "missing": []
+    },
+    "XRP/USDT:USDT": {
+      "file": "XRP_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "e350d0e6f4430df5762ce87f08f0f872e700fc717d7c4ba8e0d09050a0f43f77",
+      "missing": []
+    },
+    "ZEC/USDT:USDT": {
+      "file": "ZEC_USDT_USDT.csv.gz",
+      "bars": 5999,
+      "first": "2026-02-02T19:00:00+00:00",
+      "last": "2026-10-10T17:00:00+00:00",
+      "sha256": "7aacfa8189662016958d3ce9f243b0bd55b5d6df09f4a6fb02098c31106b9cc8",
+      "missing": []
+    }
+  }
+}

@@ -103,3 +103,28 @@ def clamp_to_free_margin(
     if size_usd > available:
         return available, "clamped"
     return size_usd, None
+
+
+def clamp_at_venue(size_usd: float, live_bal: Any, sized: int, venue: int
+                   ) -> Tuple[Optional[float], Optional[str]]:
+    """`clamp_to_free_margin` for a margin SIZED at ``sized`` and placed at a
+    ``venue`` leverage above it.
+
+    The venue locks ``size_usd x sized / venue`` (`bot.core.leverage
+    .venue_margin`), so that is what its free margin is compared with, and a
+    clamped figure comes back in the sized unit the caller holds. Compared
+    raw, a 10x venue would refuse or cut an order whose margin fits twice
+    over. With the venue at or under the sized leverage this is
+    `clamp_to_free_margin` itself."""
+    try:
+        s, v = max(1, int(sized)), max(1, int(venue))
+    except (TypeError, ValueError):
+        s = v = 1
+    if v <= s:
+        return clamp_to_free_margin(size_usd, live_bal)
+    placed, why = clamp_to_free_margin(size_usd * s / v, live_bal)
+    if placed is None:
+        return None, why
+    if why is None:
+        return size_usd, None
+    return placed * v / s, why

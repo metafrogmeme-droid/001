@@ -167,7 +167,7 @@ tune before launch, not a fixed parameter:
 |---|---:|---:|---|
 | Public presale | 15% | 150,000,000 | **None** — claimable in full when the sale ends (Smithii's `claim` runs once per buyer) |
 | DEX liquidity | 2.0001% | 20,001,000 | Paired with raised SOL by the operator after the sale; LP burned by the operator (not enforced by the program) |
-| Community & ecosystem (staking emissions, airdrops, rewards) | 25% | 250,000,000 | 5 unlocks of 20%: at TGE, then every 9 months (the last at month 36) — **Smithii Vesting** (Cliffs) |
+| Community & ecosystem (staking emissions, airdrops, rewards) | 25% | 250,000,000 | 5 unlocks (5%, 20%, 25%, 25%, 25%): at TGE, then every 9 months (the last at month 36) — **Smithii Vesting** (Cliffs) |
 | Team & contributors | 15% | 150,000,000 | 12-month cliff, then 4 unlocks of 25% every 6 months (the last at month 36) — **Smithii Vesting** (Cliffs) |
 | Treasury / DAO | 20% | 200,000,000 | DAO-controlled multisig, time-locked |
 | Partnerships & market makers | 8% | 80,000,000 | Deal-by-deal, 6–12 months |
@@ -179,7 +179,10 @@ tune before launch, not a fixed parameter:
 > tool, not as Streamflow streams, and that tool has **no linear mode**: a schedule is a
 > **staircase of at most five dated unlocks**, each a whole percent, claimable in full once its
 > date has passed. "Cliff, then linear" therefore became steps placed on the old line and never
-> above it (team: 25% by month 18, 50% by 24, 75% by 30, 100% by 36). Months count from T0, the
+> above it (team: 25% by month 18, 50% by 24, 75% by 30, 100% by 36). Community has no cliff, so
+> it starts with a **5% launch tranche** (12,500,000 RCLAW, for launch rewards and airdrops) and
+> then sits exactly on its 36-month line: 25% by month 9, 50% by 18, 75% by 27 (operator's
+> decision 2026-10-11; five equal 20% steps would have been 40% by month 9). Months count from T0, the
 > sale's scheduled end. One vesting exists per wallet per token, so each lock has its own wallet,
 > and only that wallet can claim; nothing can cancel or edit a lock. The tool's program is
 > **upgradeable**, by the same off-curve authority as Smithii's sale program (who can sign for it
@@ -194,8 +197,8 @@ tune before launch, not a fixed parameter:
 > **Venue note (2026-10-08).** The pool-sizing argument below — the F-25 decision — was forced
 > by Metaplex Genesis, whose LP token side is fixed when the bucket is created. Smithii's program
 > never creates the pool: the operator does, after the raise is known, so that trap does not
-> exist on the sale actually being run. Opening at the sale price the pool needs about **20.0M
-> RCLAW at the soft cap and 100.0M at the hard cap** (`npm run presale:smithii-plan`). The
+> exist on the sale actually being run. Opening at the sale price the pool needs about **24.0M
+> RCLAW at the soft cap and 120.0M at the hard cap** (`npm run presale:smithii-plan`). The
 > 2.0001% / 12.9999% table above is still the **ratified** one; whether it returns to 10% / 5%
 > is open (§13).
 
@@ -237,8 +240,8 @@ the presale price unless `--accept-below-presale` is passed, and
 `config.disclosures.softCapNotEnforced` says so publicly.
 
 **Circulating supply at TGE (approx):** the whole presale — buyers claim 100% when the sale
-ends, up to ≈ 150.0M at the hard cap — plus the pool's RCLAW (≈ 20.0M at the soft cap, ≈ 100.0M
-at the hard cap) plus any airdrop TGE tranche: about **a quarter of supply at the hard cap**,
+ends, up to ≈ 150.0M at the hard cap — plus the pool's RCLAW (≈ 24.0M at the soft cap, ≈ 120.0M
+at the hard cap) plus the community's 5% launch tranche (12.5M): about **28% of supply at the hard cap**,
 against the ≈ 7% the 33%-unlock design gave. Team, treasury, advisors and reserve are locked at
 TGE **only once the team has created those locks**, which is not done (§11); until then one
 wallet holds them. A full **emissions / circulating-supply-over-time chart** should be
@@ -306,11 +309,12 @@ a decision to publish before the sale (§13).
 > min-raise extension, and the chosen mechanism must be settled and disclosed *before* the
 > sale opens — not assumed. Tracked in §13.
 
-**Liquidity split of raised SOL:** **66.67% of the gross raise → the DEX pool**, which the
+**Liquidity split of raised SOL:** **80% of the gross raise → the DEX pool** (the operator's
+decision of 2026-10-10; it was 66.67%), which the
 operator creates after the sale (the Smithii program never does); the remainder goes to audit,
-operations and treasury. Smithii's 2.5% comes out of that remainder, so it is **30.83% of gross,
-not 33.33%** (975 SOL of the 1,000 SOL soft cap reaches the operator; 308.3 SOL is left after
-the pool). Exact split ratified in §13.
+operations and treasury. Smithii's 2.5% comes out of that remainder, so it is **17.50% of gross,
+not 20%** (975 SOL of the 1,000 SOL soft cap reaches the operator; 175 SOL is left after
+the pool, 875 SOL at the hard cap). Exact split ratified in §13.
 
 > **Encoded on-chain and publicly verifiable (2026-07-26).** `presale:create` attaches a
 > `SendQuoteTokenPercentage` end behavior to the presale bucket, naming the liquidity bucket
@@ -400,8 +404,8 @@ wallet whitelist, refund, or create or lock liquidity**, and it never reads the 
 terms in §4, §5, §7 and §10 are the Smithii sale's terms.
 
 What staying on Smithii costs, against the design this document used to prefer: buyers hold
-100% at the end of the sale (about a quarter of supply tradeable at TGE at the hard cap, not
-about 7%); the pool and the LP burn are the operator's actions, verifiable afterwards but not
+100% at the end of the sale (about 28% of supply tradeable at TGE at the hard cap, the
+community's 5% launch tranche included, not about 7%); the pool and the LP burn are the operator's actions, verifiable afterwards but not
 enforced; buyers' SOL reaches the operator at every purchase; and the program is upgradeable by
 Smithii. What it buys: a program that was audited (2024, for Smithii), no integration code to
 maintain, and an **edit window** — until the first phase starts, a wrong value can still be
@@ -428,8 +432,8 @@ experiment) — **never** the utility-token TGE.
 - **Pool:** seed a `$RCLAW`/SOL pool on **Raydium** (or **Orca**), routable by **Jupiter** so
   every Solana aggregator picks it up.
 - **Depth (the Smithii sale):** the **operator creates the pool after the sale**, when the raise
-  is known, at the sale price and with 66.67% of the gross raise: about **20.0M `$RCLAW` against
-  666.7 SOL at the soft cap, about 100.0M against 3,333.5 SOL at the hard cap**
+  is known, at the sale price and with 80% of the gross raise: about **24.0M `$RCLAW` against
+  800 SOL at the soft cap, about 120.0M against 4,000 SOL at the hard cap**
   (`npm run presale:smithii-plan` derives both). Never below the sale price — a pool that opens
   under what buyers paid is the one outcome §4 calls unrecoverable, and because the pool is
   created after the raise, the operator can honour parity at any raise. The 20,001,000 sizing
@@ -898,8 +902,8 @@ Everything below is a **proposed default that the team must ratify** — nothing
 - **Total supply & decimals** (1B / 9 assumed).
 - **Allocation percentages and all vesting schedules** (§4) — except the two rows below,
   which are now settled. The three schedules are the steps in `token/presale/locks.plan.json`,
-  proposed 2026-10-10: community unlocks 20% at TGE (a staircase of five cannot start at zero
-  and end at month 36 in equal steps), and the clock time of the sale window, 14:00 UTC, is
+  proposed 2026-10-10: community unlocks 5% at TGE (12.5M, the launch tranche; the operator's
+  decision of 2026-10-11, it was 20%) and then follows its 36-month line, and the clock time of the sale window, 14:00 UTC, is
   unconfirmed (`smithii.config.json` → `schedule`).
 - ~~**DEX liquidity allocation**~~ — **settled: 20,001,000 (2.0001%)**, ratified 2026-07-26,
   with the 79,999,000 difference moved to the reserve bucket and earmarked for post-TGE
@@ -908,7 +912,8 @@ Everything below is a **proposed default that the team must ratify** — nothing
   Reasoning and the two-failure-mode asymmetry in §4; the arithmetic is pinned in
   `token/presale/lp_parity.test.mjs` and the number is enforced at trigger time.
 - **Soft/hard caps, min/max contribution, round durations, presale price** (§5).
-- **Liquidity split of raised SOL** (**66.67%**, ratified 2026-07-26 — see below). ~~LP lock vs burn~~ — **settled for the Genesis
+- **Liquidity split of raised SOL** (**80%**, the operator's decision of 2026-10-10; 66.67% was
+  ratified 2026-07-26 — see below). ~~LP lock vs burn~~ — **settled for the Genesis
   path only:** permanent never-claim lock. **On the Smithii sale it is a burn by the operator**
   (§7), which nothing enforces.
 - ~~**Staking lock-up period**~~ — **settled:** **30 days**, ratified 2026-07-26.
@@ -931,8 +936,9 @@ Everything below is a **proposed default that the team must ratify** — nothing
 
 - **LP sizing and the allocation table.** The ratified 2.0001% / 12.9999% table exists because
   Genesis fixes the LP token side at bucket creation (§4). On Smithii the pool is created after
-  the raise, and opening at the sale price it needs about 20.0M RCLAW at the soft cap and
-  100.0M at the hard cap — the old 10% / 5% shape. Decide which table is true, then make this
+  the raise, and opening at the sale price it needs about 24.0M RCLAW at the soft cap and
+  120.0M at the hard cap: at the hard cap about 100.0M of that comes from the reserve, more than
+  its 80.0M post-TGE-liquidity earmark, leaving about 30.0M in it. Decide which table is true, then make this
   document, the GitBook and `metaplex-genesis.config.json` agree. Until then the GitBook and
   this document both carry the ratified 2.0001% / 12.9999%.
 - **What the operator does if the raise ends below the soft cap.** The program will not decide
@@ -942,7 +948,7 @@ Everything below is a **proposed default that the team must ratify** — nothing
   time-window "early" phase would be open to everyone, costs 0.2 SOL instead of 0.1 (per the
   audit) and buys nothing the public phase does not; the public phase is the 336 h of 15–29 Oct 2026.
 - **Smithii's 2.5% in the budget.** At the hard cap it is 125 SOL, so "remainder to audit,
-  operations and treasury" is 30.83% of the gross raise, not 33.33% (§5).
+  operations and treasury" is 17.50% of the gross raise, not 20% (§5).
 - **Where unsold tokens go.** They come back to the signing wallet; the config states the
   intent to move them to the reserve allocation and publish that transaction. Ratify it.
 

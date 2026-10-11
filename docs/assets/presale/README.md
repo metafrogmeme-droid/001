@@ -30,7 +30,7 @@ The 1500x750 and the 1000x1000 are the same content in two shapes and carry the 
 | The eight allocation rows (percent and tokens) | `docs/TOKEN_ROADMAP.md` section 4, the ratified table |
 | The note under Community, Team and Advisors ("5 unlocks: at TGE, then every 9 mo", ...) | `token/presale/locks.plan.json`, worded by `locks_lib.mjs` (`shortNote`) |
 | Presale 15% / 150M, the rate, 5,000 SOL hard cap, 0.25-25 SOL per wallet, the window 15 Oct → 29 Oct 2026 | `token/presale/smithii.config.json`. The rate is the **stored** price: 30,000.3 per SOL (33,333 whole lamports per token), not the 30,000 the form's Sale Rate line shows, because Smithii stores whole lamports (`sale._priceNote`). |
-| "Pool follows the raise: ≈20.0-100.0M" and "66.67% of the SOL raised" | `smithii.config.json`, `liquidity`. It is the operator's promise; the program enforces neither. |
+| "Pool follows the raise: ≈24.0-120.0M" and "80% of the SOL raised" | `smithii.config.json`, `liquidity`. It is the operator's promise; the program enforces neither. |
 | The 1,000 SOL soft cap "is a target, not enforced" | the same file: the program stores a soft cap and never reads it |
 | The loop: platform fees and monthly AI-service payments feed a burn | the operator's stated intent, drawn as **PLANNED**. Nothing in the code collects fees or monthly payments yet, and no split between burn and anything else is set anywhere, so the image shows none. |
 

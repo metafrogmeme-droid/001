@@ -18,6 +18,12 @@ can raise leverage above what the operator configured.
   it, and `margin_risk_verdict` for why a reduction that does not clear the cap
   is a refusal rather than a pass.
 
+An order has two leverages since the venue standard moved to 10x: the one it
+is SIZED at and the one the VENUE is set to (`order_standards`,
+`venue_leverage`). Every rule above lowers the sized one; the venue follows in
+proportion, so a trade keeps the notional it had at 5x and only the margin
+changes.
+
 All three are here so the executor's two set paths, its sizing path, the risk
 gate and the two cards that print the standard ask one function: a second
 copy of a reduce-only rule is a second answer about how much of the account a
@@ -199,6 +205,124 @@ def operator_standard(cfg: Any, override: Any) -> StandardLeverage:
         source = "default"
     requested = max(1, requested)
     return StandardLeverage(min(requested, ceiling), requested, source, ceiling)
+
+
+# ── Two standards: the leverage an order is SIZED at, and the one the VENUE is
+#    set to ──────────────────────────────────────────────────────────────────
+#
+# THE OPERATOR'S DECISION OF 11 OCTOBER: the venue standard moves from 5x to
+# 10x, and every trade keeps the notional and the dollar loss at its stop that
+# it had at 5x; only the margin the venue locks changes. Every sizing figure
+# in this repo is a MARGIN written at 5x -- the risk budget's base
+# (budget / (stop x leverage)), MAX_POSITION_PCT, the execution ceiling,
+# MICRO_MAX_POSITION_USD and the total, the Kelly ceiling, the high-conviction
+# margin, a typed ticket margin, the exposure caps -- so read at 10x each one
+# would have placed twice the notional wherever it bound. They are not
+# rewritten: an order is SIZED as before, at the sizing standard, and placed at
+# the venue leverage with the margin that notional needs there. Driven:
+#
+#     notional = sized_margin x sized_leverage
+#     venue_margin = notional / venue_leverage
+#
+# so the quality ladder, a user's preference, dynamic scaling and the
+# margin-risk cap, which all lower the SIZED leverage, cut the notional exactly
+# as they did, and `venue_leverage` moves the venue with them in proportion.
+
+SIZING_LEVERAGE_DEFAULT = 5
+"""The leverage every sizing figure is written at, when the config states none.
+
+`CONFIG.exchange.sizing_leverage` is a dataclass field with this default, so
+like the floor and the ceiling this is unreachable from a real config."""
+
+
+def sizing_leverage(cfg: Any) -> int:
+    """``SIZING_LEVERAGE`` as an int >= 1."""
+    try:
+        return max(1, int(getattr(cfg, "sizing_leverage", SIZING_LEVERAGE_DEFAULT)))
+    except (TypeError, ValueError):
+        return SIZING_LEVERAGE_DEFAULT
+
+
+class LeveragePair(NamedTuple):
+    """An order's two leverages, or the two standards they start from.
+
+    ``sized`` is the leverage the risk budget, every margin cap and the quality
+    ladder read: notional = sized margin x ``sized``. ``venue`` is the leverage
+    the venue is set to, and the margin it locks is notional / ``venue``.
+    ``venue >= sized`` always, so the venue never locks more margin than the
+    sizing figure."""
+
+    sized: int
+    venue: int
+
+
+def order_standards(cfg: Any, override: Any) -> LeveragePair:
+    """The two standards every order starts from.
+
+    ``venue`` is `operator_standard` -- the `/leverage` override or the
+    configured default, under the ceiling. ``sized`` is ``SIZING_LEVERAGE``,
+    never above the venue standard: with the venue at or under 5x the two are
+    one number and every order is sized and placed exactly as before this
+    split existed; above it, the notional stays the 5x notional and the rest
+    is margin the venue does not lock."""
+    venue = operator_standard(cfg, override).leverage
+    return LeveragePair(min(sizing_leverage(cfg), venue), venue)
+
+
+def venue_leverage(sized: int, standards: LeveragePair) -> int:
+    """The leverage the venue is set to for an order SIZED at ``sized``.
+
+    The same share of the venue standard as ``sized`` is of the sized
+    standard, rounded down: a rung that cut the sizing from 5x to 4x sets a
+    10x venue to 8x. Never above the venue standard, never below ``sized``
+    (the venue standard is never below the sized one), never below 1. A
+    caller that also holds a user's preference lowers this further; that
+    keeps it at or above ``sized``, which the preference already bounds."""
+    s = max(1, int(standards.sized))
+    v = max(s, int(standards.venue))
+    x = max(1, int(sized))
+    return max(1, min(v, (x * v) // s))
+
+
+def sized_for_venue(venue: int, standards: LeveragePair) -> int:
+    """The sized leverage whose `venue_leverage` is at most ``venue``.
+
+    The way back for a cap decided at the venue (the margin-risk cap) onto the
+    sized leverage the idea carries: ``venue_leverage(sized_for_venue(u)) <=
+    u`` for every ``u``, so a reduction measured at the venue holds there."""
+    s = max(1, int(standards.sized))
+    v = max(s, int(standards.venue))
+    return max(1, (max(1, int(venue)) * s) // v)
+
+
+def venue_margin(sized_margin: float, sized: int, venue: int) -> float:
+    """The margin the venue locks for the notional ``sized_margin`` was sized
+    to: ``sized_margin x sized / venue``."""
+    return float(sized_margin) * max(1, int(sized)) / max(1, int(venue))
+
+
+MARGIN_RISK_PCT_AT_SIZING = 30.0
+"""The margin-risk cap when ``MAX_MARGIN_RISK_PCT`` is unset, stated at the
+SIZED leverage: 30% of the margin at 5x is a 6% stop, the figure the cap has
+always allowed."""
+
+
+def margin_risk_cap_pct(configured: Optional[float], standards: LeveragePair) -> float:
+    """``MAX_MARGIN_RISK_PCT`` as the cap on the VENUE's margin.
+
+    Set, it is read as written. Unset, it is 30% scaled to the venue, 30% x
+    venue / sized: 60% at a 10x venue sized at 5x, 30% where the two are one.
+    Either way the stop the cap allows is the one it allowed at 5x (6%), so a
+    deployment whose environment still pins ``DEFAULT_LEVERAGE=5`` keeps 30%,
+    and one that moves the venue to 10x is not refused every stop past 3%."""
+    if configured is not None:
+        try:
+            return float(configured)
+        except (TypeError, ValueError):
+            pass
+    s = max(1, int(standards.sized))
+    v = max(s, int(standards.venue))
+    return MARGIN_RISK_PCT_AT_SIZING * v / s
 
 
 MARGIN_RISK_TOLERANCE_PCT = 0.5

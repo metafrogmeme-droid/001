@@ -43,6 +43,7 @@ from bot.core import user_leverage_store as uls
 from bot.core.limit_entry import EntryResult
 from bot.core.live_executor import LiveExecutor, LivePosition
 from bot.utils.models import Direction, TradeIdea
+from tests.leverage_worlds import one_leverage
 
 
 class _Sent(BaseException):
@@ -213,10 +214,11 @@ def test_a_round_up_past_the_per_trade_bound_is_refused(tmp_path):
 
 def test_a_round_up_inside_every_cap_still_places(tmp_path):
     venue = _Venue(_market(amount_step=0.05, amount_min=0.05), price=2500.0)
-    # $20 at 5x rounds to $25 of margin with nothing else committed.
+    # $20 sized at 5x is 0.04 ($10 at the 10x venue); it rounds to 0.05, $25
+    # at the 5x sizing, with nothing else committed, and is placed at 10x.
     result, orders, _ = _drive(20.0, venue, tmp_path)
     assert result == "<sent>", result
-    assert orders == [{"amount": 0.05, "leverage": 5}], orders
+    assert orders == [{"amount": 0.05, "leverage": 10}], orders
 
 
 def test_an_order_that_needs_no_round_up_is_not_asked_again(tmp_path):
@@ -237,7 +239,10 @@ def test_a_leverage_change_mid_order_does_not_split_set_from_size(tmp_path):
             return await super().fetch_ticker(symbol)
 
     venue = _Race(_market(amount_step=0.001, amount_min=0.001), price=4000.0)
-    result, orders, _ = _drive(100.0, venue, tmp_path)
+    # The one-leverage world (`tests/leverage_worlds.py`): a second read
+    # after `/leverage 10` would set the venue to 10 and size at 5.
+    with one_leverage(5):
+        result, orders, _ = _drive(100.0, venue, tmp_path)
     assert result == "<sent>", result
     (order,) = orders
     assert set(venue.set_lev) == {order["leverage"]}, (venue.set_lev, order)

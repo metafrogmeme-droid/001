@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
+
+PROVENANCE_KEYS = ("BUILD_SHA", "SOURCE_COMMIT", "BUILD_TIME")
 
 SHARED_KEYS = (
     "APP_BASE_URL",
@@ -62,7 +65,36 @@ def public_gateway(value: str) -> str:
     return value
 
 
-def build_web_env(bot: dict[str, str], existing: dict[str, str]) -> dict[str, str]:
+def source_provenance(repo: Path) -> dict[str, str]:
+    """Return real checkout metadata, or nothing rather than a stale label."""
+    def git_value(*args: str) -> str:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(repo), *args],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        return result.stdout.strip()
+
+    sha = git_value("rev-parse", "HEAD").lower()
+    if len(sha) != 40 or any(ch not in "0123456789abcdef" for ch in sha):
+        return {}
+    out = {"SOURCE_COMMIT": sha}
+    committed_at = git_value("show", "-s", "--format=%cI", "HEAD")
+    if committed_at:
+        out["BUILD_TIME"] = committed_at
+    return out
+
+
+def build_web_env(
+    bot: dict[str, str],
+    existing: dict[str, str],
+    provenance: dict[str, str] | None = None,
+) -> dict[str, str]:
     missing = [key for key in ("PUBLIC_GATEWAY_URL", *SHARED_KEYS) if not bot.get(key)]
     if missing:
         raise ValueError("bot environment is missing required keys: " + ", ".join(missing))
@@ -73,6 +105,10 @@ def build_web_env(bot: dict[str, str], existing: dict[str, str]) -> dict[str, st
 
     endpoint = public_gateway(bot["PUBLIC_GATEWAY_URL"])
     out = dict(existing)
+    # Never preserve an older deploy's label. Missing provenance is reported as
+    # unknown by the app, which is safer than confidently naming stale code.
+    for key in PROVENANCE_KEYS:
+        out.pop(key, None)
     for key in SHARED_KEYS:
         out[key] = bot[key]
     out.update({
@@ -81,6 +117,8 @@ def build_web_env(bot: dict[str, str], existing: dict[str, str]) -> dict[str, st
         "BOT_GATEWAY_URL": endpoint,
         "BOT_API_URL": endpoint,
     })
+    if provenance:
+        out.update(provenance)
     return out
 
 
@@ -108,7 +146,10 @@ def main(argv: list[str]) -> int:
     destination = (Path(argv[2]) if len(argv) > 2
                    else Path.home() / "runeclaw-persist" / "web.env")
     try:
-        values = build_web_env(read_env(source), read_env(destination))
+        repo = Path(__file__).resolve().parents[1]
+        values = build_web_env(
+            read_env(source), read_env(destination), source_provenance(repo)
+        )
         write_atomic(destination, values)
     except (OSError, ValueError) as exc:
         print(f"prepare_web_env: {exc}", file=sys.stderr)

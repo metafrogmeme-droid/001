@@ -234,11 +234,6 @@ def _standing(engine: Any, book: str) -> Optional[str]:
     return UNLINKED if _bitget_linked(book) is False else UNCONFIRMED
 
 
-#: Whose account ID would not read, in the card's words.
-_UNREAD_SIDE = {"theirs": "its keys", "operator": "the operator's own keys",
-                "both": "either set of keys"}
-
-
 def _why_not_compared(engine: Any, book: str) -> tuple[str, bool]:
     """(why an UNCONFIRMED book was not compared, whether that is a verdict).
 
@@ -246,7 +241,9 @@ def _why_not_compared(engine: Any, book: str) -> tuple[str, bool]:
     for every case. That sentence fits three different facts, and only one
     of them (another account) means leave the book alone: a key the check
     never read, or one Bitget refused the account read, is "could not tell",
-    and the operator's next step differs."""
+    and the operator's next step differs. Each side's reason is named
+    against its own keys: "either set of keys (ExchangeError /
+    DDoSProtection)" left the operator to guess which refusal was whose."""
     from bot.core.exchange_credentials import LINK_OTHER_ACCOUNT
 
     if _bitget_linked(book) is None:
@@ -258,10 +255,16 @@ def _why_not_compared(engine: Any, book: str) -> tuple[str, bool]:
     if reading.verdict == LINK_OTHER_ACCOUNT:
         return ("its Bitget keys open a different account (the account IDs differ), "
                 "where the same trade would be a second trade"), True
-    who = _UNREAD_SIDE.get(reading.unread, "the keys")
-    return (f"the account ID behind {who} could not be read "
-            f"({reading.cause or 'no reason given'}), so it is not known whether "
-            f"they open the operator's account"), False
+    theirs, ours = reading.their_cause, reading.our_cause
+    if theirs and ours:
+        what = (f"neither account ID could be read (its keys: {theirs}; "
+                f"the operator's own keys: {ours})")
+    elif ours:
+        what = f"the account ID behind the operator's own keys could not be read ({ours})"
+    else:
+        what = (f"the account ID behind its keys could not be read "
+                f"({theirs or 'no reason given'})")
+    return f"{what}, so it is not known whether its keys open the operator's account", False
 
 
 async def refresh_operator_links(engine: Any) -> str:

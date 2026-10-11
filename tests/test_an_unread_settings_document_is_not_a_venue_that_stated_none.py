@@ -109,7 +109,10 @@ def test_the_record_names_the_leverage_unverified_and_the_chat_row_says_so(tmp_p
     from bot.skills.telegram_handler import _live_position_row
     _fill(tmp_path, None)
     pos = _fill.position
-    assert pos.leverage == 5, "the record keeps the requested figure"
+    # The requested figure is the venue's (10x since 11 October); the 5x the
+    # order was sized at is on record beside it.
+    assert pos.leverage == 10, "the record keeps the requested figure"
+    assert le.sized_leverage_on_record(pos) == 5
     assert "leverage" in pos.adoption_unread
     assert "margin" not in pos.adoption_unread, "the sized margin stays on record for the cap"
     row = _live_position_row(pos, None)

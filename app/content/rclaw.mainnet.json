@@ -2,7 +2,7 @@
   "_comment": [
     "The $RCLAW token that exists on Solana mainnet. ONE record: the website",
     "(app/lib/rclaw_token.js -> GET /api/token -> /token) and the bot",
-    "(bot/token/record.py -> /token) both read this file, so no surface can",
+    "(bot/token/record.py -> /rclaw) both read this file, so no surface can",
     "name a second mint. Every value was read back from the chain and the",
     "Jupiter token index on verified_at (see basis). Re-read before editing.",
     "token.config.json beside this file is the DEVNET DRAFT the tooling in",
@@ -30,11 +30,18 @@
     "name, symbol, icon": "lite-api.jup.ag/tokens/v2/search?query=<mint>"
   },
   "presale": {
-    "_comment": "null is NOT ANNOUNCED, and every reader says so in words. Fill a field only once it is announced on the official channels; never with a placeholder.",
-    "status": "coming_soon",
-    "date": null,
-    "price": null,
-    "venue": null,
-    "allocation_tokens": null
+    "_comment": "ANNOUNCED: the terms of the Smithii sale, written the way the website and the bot print them. Each is derived from token/presale/smithii.config.json (smithii_lib.mjs, recordTerms) and token/presale/the_record_states_the_sale.test.mjs fails when they differ, so change the config first and copy what the test prints. null is NOT ANNOUNCED (for sale_url: the sale is not created yet), and every reader says so in words; never fill a field with a placeholder. sale_url is set after Create: an https link on smithii.io, the only kind the website and the bot will show (tests/fixtures/sale_url_cases.json). After editing, run node app/scripts/sync_content.js.",
+    "status": "announced",
+    "date": "15 Oct → 29 Oct 2026, or until the hard cap",
+    "price": "30,000.3 RCLAW per SOL",
+    "venue": "Smithii launchpad (Solana)",
+    "allocation_tokens": "150000000",
+    "hard_cap": "5,000 SOL (soft cap 1,000 SOL: a target, not enforced)",
+    "per_wallet": "0.25–25 SOL",
+    "whitelist": "None",
+    "claim": "100% when the sale ends. No vesting for buyers",
+    "refunds": "None",
+    "after_sale": "The team creates the pool at the sale price with 80% of the SOL raised and burns the LP. The sale contract does not do this.",
+    "sale_url": null
   }
 }

@@ -134,25 +134,25 @@ test('what the form shows and what the sale pays, at the soft cap and the hard c
 
   assert.equal(d.hardCap.smithiiFeeLamports, 125n * SOL);
   assert.equal(d.hardCap.creatorReceivesLamports, 4875n * SOL);
-  assert.equal(d.hardCap.poolSolLamports, 3333500000000n);
-  assert.equal(d.hardCap.poolTokensBase, 100006000060000600n);
-  assert.equal(d.hardCap.afterPoolLamports, 1541500000000n);
+  assert.equal(d.hardCap.poolSolLamports, 4000n * SOL, '80% of the gross raise (the operator\'s decision of 2026-10-10)');
+  assert.equal(d.hardCap.poolTokensBase, 120001200012000120n);
+  assert.equal(d.hardCap.afterPoolLamports, 875n * SOL, '17.5% of the gross raise is left once Smithii and the pool are paid');
   assert.equal(d.hardCap.buyersClaimBase, 150001500015000150n);
 
   assert.equal(d.softCap.smithiiFeeLamports, 25n * SOL);
   assert.equal(d.softCap.creatorReceivesLamports, 975n * SOL);
-  assert.equal(d.softCap.poolSolLamports, 666700000000n);
-  assert.equal(d.softCap.poolTokensBase, 20001200012000120n);
-  assert.equal(d.softCap.afterPoolLamports, 308300000000n);
+  assert.equal(d.softCap.poolSolLamports, 800n * SOL);
+  assert.equal(d.softCap.poolTokensBase, 24000240002400024n);
+  assert.equal(d.softCap.afterPoolLamports, 175n * SOL);
   assert.equal(d.softCap.buyersClaimBase, 30000300003000030n);
 });
 
-test('the pool at the sale price needs 20.0M RCLAW at the soft cap and 100.0M at the hard cap', () => {
+test('the pool at the sale price needs 24.0M RCLAW at the soft cap and 120.0M at the hard cap', () => {
   // The two figures the GitBook and the roadmap quote for pool sizing; they
   // come from the same arithmetic, so the prose cannot drift from it.
   const d = deriveSmithiiSale(cfg());
-  assert.equal(d.softCap.poolTokensBase / 10n ** 9n, 20001200n);
-  assert.equal(d.hardCap.poolTokensBase / 10n ** 9n, 100006000n);
+  assert.equal(d.softCap.poolTokensBase / 10n ** 9n, 24000240n);
+  assert.equal(d.hardCap.poolTokensBase / 10n ** 9n, 120001200n);
 });
 
 test('the escrow is within a rounding step of the 150,000,000 allocation, and not equal to it', () => {

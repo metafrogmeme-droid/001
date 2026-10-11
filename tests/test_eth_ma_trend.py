@@ -168,13 +168,12 @@ def test_eth_is_the_universe_and_btc_is_not():
     assert symbol_allowed("BTC/USDT:USDT", "ETHUSDT") is False
     assert symbol_allowed("ETHUSDT", "") is False
     cfg = _preset()
-    refused = check_confirm("eth ma trend", cfg, "BTC/USDT:USDT", 0.9)
-    assert refused["ok"] is False
-    assert "symbols" in refused["enforced"]
-    allowed = check_confirm("eth ma trend", cfg, "ETH/USDT:USDT", 0.9)
-    assert allowed["ok"] is True
-    eth_spot = check_confirm("eth ma trend", cfg, "ETHUSDT", None)
-    assert eth_spot["ok"] is True
+    # The live bot does not run the average, so no confirm is its trade: an
+    # ETH idea from the house scan is refused as firmly as a BTC one.
+    for asset in ("BTC/USDT:USDT", "ETH/USDT:USDT", "ETHUSDT"):
+        refused = check_confirm("eth ma trend", cfg, asset, 0.9)
+        assert refused["ok"] is False and "does not run" in refused["reason"], asset
+        assert refused["enforced"] == ["live_runs"]
     confirm, scan = describe_gates(cfg)
     assert "symbols" in confirm
     assert "fast_period" in scan and "slow_period" in scan

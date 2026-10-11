@@ -1,0 +1,28 @@
+{
+  "_comment": "The one list both readers of the token record are held to: the website (app/public/js/token-page.js, SALE_URL) and the bot (bot/formatters/token_card.py, SALE_URL) may print presale.sale_url as a link only when it is an https link on smithii.io or one of its subdomains, written plainly. A sale link is what a phishing clone forges first, so the readers refuse anything else and say the field is unreadable rather than print it. app/test/the_token_page_names_one_mint.test.js and tests/test_the_token_card_reads_the_one_record.py both read this file, so the two rules cannot drift apart. Smithii's own pages are on tools.smithii.io (token/presale/RUNBOOK.md links its Token Vesting tool there).",
+  "accept": [
+    "https://tools.smithii.io/launchpad/solana/7Hk3pQ9xWmZ2",
+    "https://tools.smithii.io/launchpad/solana?id=7Hk3pQ9xWmZ2&ref=rclaw",
+    "https://smithii.io/launchpad/rclaw",
+    "https://smithii.io",
+    "https://tools.smithii.io/"
+  ],
+  "refuse": [
+    "http://tools.smithii.io/launchpad/solana/7Hk3pQ9xWmZ2",
+    "https://smithii.io.evil.example/launchpad",
+    "https://evilsmithii.io/launchpad",
+    "https://tools.smithii.io@evil.example/launchpad",
+    "https://evil.example/?next=https://smithii.io",
+    "https://evil.example\\@smithii.io/",
+    "https://tools.smithii.io:8443/launchpad",
+    "https://TOOLS.SMITHII.IO/launchpad",
+    "javascript:alert(1)//smithii.io",
+    " https://tools.smithii.io/launchpad",
+    "https://tools.smithii.io/launch pad",
+    "https://tools.smithii.io/\"><script>alert(1)</script>",
+    "https://tools.smithii.io/launchpad\n",
+    "//tools.smithii.io/launchpad",
+    "tools.smithii.io/launchpad",
+    ""
+  ]
+}

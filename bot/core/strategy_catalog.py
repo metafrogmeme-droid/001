@@ -108,6 +108,24 @@ _META: dict[str, dict[str, str]] = {
         "risk": "balanced",
         "horizon": "swing",
     },
+    "limit scanner": {
+        "tagline": "Waits for BTC (gold, for metals) to set the side, scores 27 crypto "
+                   "and 5 metals perpetuals out of 100, and rests one limit per class on a "
+                   "pullback to the best one's average price instead of chasing it. The "
+                   "frozen backtest runs it; the live bot does not yet.",
+        "regime": "Leader-led pullbacks",
+        "risk": "balanced",
+        "horizon": "intraday",
+    },
+    "multi trend": {
+        "tagline": "Five perpetuals where a 9/21 average and three-bar momentum agree, "
+                   "with a 1.2% stop and a 2.4% target, from a GetAgent leaderboard page. "
+                   "The live bot does not run it and no frozen backtest evaluates it yet; "
+                   "/multitrend shows what it sees now.",
+        "regime": "Hourly trend",
+        "risk": "aggressive",
+        "horizon": "intraday",
+    },
     "alt sweep": {
         "tagline": "A closed-bar 36/144 moving-average rule over fifteen alt markets, "
                    "written down and not run: its sizing knobs are not applied, so "
@@ -183,8 +201,10 @@ def publishes_scorecard(cfg: dict[str, Any]) -> bool:
     the first snapshot holding its fifteen symbols would have written one.
     The daily rotation is refused for its bar size too.
     """
+    from bot.core.momentum_trend import preset_is_momentum_trend
     from bot.core.vol_rotation import publishes_scorecard as _rotation_publishes
-    return _rotation_publishes(cfg) and not _unapplied_knobs(cfg)
+    return (_rotation_publishes(cfg) and not _unapplied_knobs(cfg)
+            and not preset_is_momentum_trend(cfg))
 
 
 def _unapplied_clause(cfg: dict[str, Any]) -> str:
@@ -221,10 +241,13 @@ def unpublished_scorecard(cfg: dict[str, Any]) -> Optional[dict]:
     nothing unapplied returns None so a missing house file stays a missing
     file rather than a sentence this helper invented.
     """
+    from bot.core.momentum_trend import preset_is_momentum_trend
     from bot.core.vol_rotation import omitted_scorecard
     vol = omitted_scorecard(cfg)
     if vol is not None:
         return vol
+    if preset_is_momentum_trend(cfg):
+        return {"omitted": "No track record published: no frozen backtest runs this rule yet."}
     knobs = _unapplied_knobs(cfg)
     if not knobs:
         return None
@@ -262,9 +285,8 @@ def live_runs(cfg: dict[str, Any]) -> bool:
     places nothing, and no scan or confirm evaluates it. The cards said
     "Trades only ETHUSDT" and "Follows fifteen alt markets" over that.
     """
-    from bot.core.ma_trend import preset_is_ma_trend
-    from bot.core.vol_rotation import preset_is_vol_rotation
-    return not (preset_is_ma_trend(cfg) or preset_is_vol_rotation(cfg))
+    from bot.core.strategy_scan import rule_of
+    return rule_of(cfg) is None
 
 
 #: The how-line's first sentence for a preset the live bot does not run.
@@ -273,23 +295,37 @@ NOT_RUN_LIVE = ("The live bot does not run this rule: /run shows this text "
 
 
 def _not_run_sentence(cfg: dict[str, Any]) -> str:
-    """Who evaluates a preset the live bot does not run, if anyone."""
+    """Who evaluates a preset the live bot does not run, if anyone, and the
+    door that scans it now."""
+    from bot.core.momentum_trend import preset_is_momentum_trend
+    from bot.core.strategy_scan import scan_command_for
     from bot.core.vol_rotation import preset_is_vol_rotation
+    door = scan_command_for(cfg)
+    scan = (f" /{door} reads its markets' last closed 1h bars and shows what the rule "
+            "would do, placing nothing." if door else "")
     if preset_is_vol_rotation(cfg):
-        return NOT_RUN_LIVE + " No backtest evaluates it either."
+        return NOT_RUN_LIVE + scan + " No backtest evaluates it either."
+    if preset_is_momentum_trend(cfg):
+        return NOT_RUN_LIVE + scan + " No frozen backtest evaluates it yet."
     if _unapplied_knobs(cfg):
-        return (NOT_RUN_LIVE + " A backtest of it opens nothing, because the "
+        return (NOT_RUN_LIVE + scan + " A backtest of it opens nothing, because the "
                 "knobs below do not size a fill.")
-    return NOT_RUN_LIVE + " The frozen backtest runs it."
+    return NOT_RUN_LIVE + scan + " The frozen backtest runs it."
 
 
 def _how_it_trades(cfg: dict[str, Any]) -> str:
     """Human 'how it trades' line derived from the preset's real config, so it
     stays honest to actual behaviour. No numbers are invented — only the
     thresholds the engine actually applies are surfaced."""
+    from bot.core import limit_scanner, momentum_trend
     from bot.core.vol_rotation import how_line, preset_is_vol_rotation
     if preset_is_vol_rotation(cfg):
         return _not_run_sentence(cfg) + " " + how_line(cfg)
+    if momentum_trend.preset_is_momentum_trend(cfg):
+        return _not_run_sentence(cfg) + " " + momentum_trend.how_line(cfg)
+    if limit_scanner.preset_is_limit_scanner(cfg):
+        return (_not_run_sentence(cfg) + " " + limit_scanner.how_line(cfg)
+                + " " + limit_scanner.BACKTEST_READS)
     parts: list[str] = []
     sym = cfg.get("symbols")
     if sym == "top3_volume":
@@ -592,6 +628,11 @@ def _run_alias(key: str) -> str:
     return key
 
 
+def _scan_door(key: str) -> Optional[str]:
+    from bot.core.strategy_scan import scan_command
+    return scan_command(key)
+
+
 def catalog() -> list[dict]:
     """The marketplace catalogue — one card per real engine strategy agent.
     Public-safe: design, regime, and qualitative risk only. Fail-soft: returns
@@ -622,6 +663,13 @@ def catalog() -> list[dict]:
             "risk_label": _RISK_LABEL.get(risk, "🟡 Balanced"),
             "horizon": meta.get("horizon", ""),
             "run": _run_alias(key),
+            # The door that scans this rule now, for a preset the live bot
+            # does not run (`strategy_scan.scan_command`); None for the rest.
+            "scan": ("/" + door) if (door := _scan_door(key)) else None,
+            # Whether the live bot runs this rule. The dashboard offers "Run
+            # on my bot" only where it does: arming one it does not run is
+            # refused (`strategy_gate.arm_refusal`).
+            "live_runs": live_runs(cfg),
             # A frozen scorecard (percent/ratio only), an omission when no
             # frozen run exists, or None when this preset has neither. None
             # is not a backtest that is about to appear.
