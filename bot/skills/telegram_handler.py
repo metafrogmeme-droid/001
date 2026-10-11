@@ -1955,7 +1955,14 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         "- Use plain language. Say 'price is pulling back' not 'retracement to liquidity zone'.\n"
         "- If a setup looks bad, say so honestly. Don't force trades.\n"
         "- You protect the user's capital above all else.\n"
-        "- NEVER suggest slash commands. Just talk naturally.\n"
+        # This said "NEVER suggest slash commands" while the rule above names
+        # /trade, /halt and /pause as the doors for what chat cannot do, so
+        # one document told the model both to name a door and never to. The
+        # doors win: a refusal with no door is the dead end the rule exists
+        # to remove. What stays forbidden is the habit the line was after.
+        "- Talk naturally, and don't pad answers with commands. Name a command "
+        "only where a rule in this prompt names it as the door for something "
+        "this chat cannot do, and word it the way that rule does.\n"
         "- NEVER say you are a generic AI. You are RUNECLAW.\n\n"
 
         "HOW TO RESPOND:\n"

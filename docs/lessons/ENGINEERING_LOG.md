@@ -21158,9 +21158,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **484 of 1262** reach for source text through `source_scan`, `code_only`
+Driven, **485 of 1267** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 484 is a FLOOR and the honest shape is
+source scan that rule does not see, so 485 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -22570,6 +22570,82 @@ and a comment's "`await asyncio.gather(...)` returns" was read as the gather,
 failing the rest test's ordering check against code nobody changed. Each slice
 takes the function by its node now (`inspect.getsource`).
 (`tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`.)
+
+**ANONYMOUS CHAT SPENT THE BUDGET SIGNED-IN CHAT ANSWERS FROM.** From the
+audit of the public chat on 11 October. The website's anonymous chat, and the
+MCP `ask_runeclaw` tool, which is the same chat on another wire, had six
+messages a minute per address and no daily limit, and every turn was booked
+to chat's one share of the LLM budget. At the defaults (a $1.00 total, half
+of it chat's) a few hundred anonymous turns spent that share, and from then
+on every signed-in user's chat said the AI budget was used up. Two limits now,
+and each refusal names the PREVIEW's limit, because the bot's budget is not
+what ran out:
+
+- a slice of chat's budget, `LLM_PUBLIC_CHAT_BUDGET_SHARE` (0.2, clamped to
+  0-0.5): `cost.public_chat_budget_bound` asks chat's own bound first, then
+  stops anonymous turns at that fraction of chat's dollars (`chat_cap_usd`)
+  and of the daily call limit, since in-house models book no dollars.
+  `record_llm(public=True)` books the preview's spend as a subset of chat's,
+  and an unreadable subset reads as all of chat's;
+- a per-visitor count per UTC day, `PUBLIC_CHAT_DAILY_LIMIT` (10), in
+  `bot/web/public_chat_quota.py`. The website sends an HMAC of the address
+  under a key it draws at start-up (`app/lib/visitor_key.js`), never the
+  address, from both doors, so the MCP tool is not a second allowance. A turn
+  no model answered is given back, as the signed-in quota does, and a turn
+  with no key is allowed and not counted. The count is in the bot's memory,
+  so a restart of either process starts it again; `.env.example` says so.
+
+Driven end to end: anonymous turns at $0.04 stop after three, under the $0.10
+slice, and a signed-in turn on the same tracker still answers. Twenty-four
+mutants, all killed. A scan in an older test counted `"chat_quota.refund("`
+as a substring and matched `public_chat_quota.refund(`; the gateway imports
+the new module under another name rather than widening that scan.
+(`tests/test_anonymous_chat_cannot_spend_the_signed_in_budget.py`,
+`app/test/the_public_chat_counts_a_visitor_not_an_address.test.js`.)
+
+**FIVE MORE CHAT SENTENCES SAID MORE THAN WAS TRUE.**
+
+- **A visitor asking in another language was invited to print levels.** The
+  scan gate and the reply contracts both read English patterns, and
+  `reply_contract` returned the members' unread contract ("a request for a
+  full analysis gets sections") before it looked at `public`. The public
+  surface is decided first now, and a public turn whose shape was not read
+  gets `_PUBLIC_UNREAD_CONTRACT`: no entry, stop, target, size or scan
+  headings. Driven through the gateway and the real `_llm_chat` in es, pt,
+  de, ja, ko and fr; the German and French cognates of "analysis" hit the
+  router's English word, so each has a second phrasing that reaches the model.
+- **The failure messages named doors the reader did not have.** The budget,
+  deadline and empty-reply messages told web and public readers to use
+  `/scan`, `/positions` and `/llmstatus`, and told everyone "your key and
+  endpoint are fine". `LINK_DOOR` gains a `public` surface and two dictionary
+  keys per surface, `fallback` and `diagnose`; `fallback_door` appends the
+  reader's own: commands on Telegram, sentences the web router answers on the
+  web (kept English in all fourteen languages, since the router reads
+  English), signing in for a visitor. What every provider answering says
+  about the keys goes to the operator on Telegram only, beside `/llmstatus`.
+  The operator's no-model message still names `/setllm` on the web; it is
+  the operator's own command and was left as it is.
+- **The public prompt described autonomous trading.** It opened "an
+  autonomous AI crypto-trading agent" while an untapped live order needs an
+  eligibility record and none ships. It now states the mechanism, which holds
+  in every state, and that the model cannot see whether a record exists.
+- **The prompt named four venues and the FAQ two.** `venues.venue_lineup` is
+  the one reading (`PER_USER_EXECUTION_VENUES`, and the rest of the registry
+  for balances only); the prompt is built with `venue_lineup_sentence` and the
+  FAQ's exchanges answer is built from it when asked. `faq_answer` returns a
+  `str` it built now, which took one no-any-return off the mypy baseline
+  (499 → 498).
+- **"NEVER suggest slash commands" sat under a rule naming /trade, /halt and
+  /pause as doors.** The line now forbids commands as padding and allows one
+  where a rule names it as the door, worded as that rule words it; a test
+  holds that every command the prompt names is inside the door rule.
+
+Twenty-four mutants, all killed on the first round (5 for the contract, 9 for
+the doors, 7 for the product claims, 3 for the prompt line).
+(`tests/test_a_public_turn_in_any_language_is_asked_for_no_levels.py`,
+`tests/test_a_failure_names_only_doors_its_surface_has.py`,
+`tests/test_the_public_chat_says_where_it_trades_and_who_taps.py`,
+`tests/test_the_chat_prompt_names_a_door_it_does_not_forbid.py`.)
 
 ## Operational docs
 

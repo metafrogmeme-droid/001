@@ -278,5 +278,7 @@ about to change before changing it.
 
 - L22505: A PEAK WITH NO TIME BESIDE IT CANNOT SAY WHETHER TO ACT — `tests/test_phase_headroom.py`
 - L22521: THE NUDGE READ 110,529 ROWS FOR EVERY IDEA, AND THE STALL HAD NO NAME — `tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`
+- L22574: ANONYMOUS CHAT SPENT THE BUDGET SIGNED-IN CHAT ANSWERS FROM — `app/test/the_public_chat_counts_a_visitor_not_an_address.test.js`, `tests/test_anonymous_chat_cannot_spend_the_signed_in_budget.py`
+- L22606: FIVE MORE CHAT SENTENCES SAID MORE THAN WAS TRUE — `tests/test_a_failure_names_only_doors_its_surface_has.py`, `tests/test_a_public_turn_in_any_language_is_asked_for_no_levels.py`, `tests/test_the_chat_prompt_names_a_door_it_does_not_forbid.py`, `tests/test_the_public_chat_says_where_it_trades_and_who_taps.py`
 
-## Operational docs (line 22574)
+## Operational docs (line 22650)
