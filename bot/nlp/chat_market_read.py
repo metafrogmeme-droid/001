@@ -33,6 +33,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from bot.compat import UTC
+from bot.formatters.confluence import confluence_words
 from bot.nlp.chat_draft import ANALYZER_TIMEFRAME
 from bot.skills.skill_registry import BaseSkill
 
@@ -96,18 +97,6 @@ def _signal(symbol: str, rows: list):
 
 def _pct(x: float) -> str:
     return f"{x * 100:.0f}%"
-
-
-def confluence_words(confluence: float, direction: Optional[str]) -> str:
-    """Confluence is a BULLISHNESS score: 0.5 is neutral, a strong short reads
-    low. Printed bare beside a SHORT it reads as weak, so it is oriented to the
-    direction, with the raw figure named as what it is."""
-    if direction == "LONG":
-        return f"{_pct(confluence)} for a LONG (bullishness {_pct(confluence)}; 50% is neutral)"
-    if direction == "SHORT":
-        return (f"{_pct(1.0 - confluence)} for a SHORT (bullishness "
-                f"{_pct(confluence)}; 50% is neutral)")
-    return f"bullishness {_pct(confluence)} (50% is neutral)"
 
 
 async def market_read(engine: Any, symbol: str) -> tuple[str, str]:

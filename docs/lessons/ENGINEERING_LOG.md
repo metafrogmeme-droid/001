@@ -21159,7 +21159,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **484 of 1265** reach for source text through `source_scan`, `code_only`
+Driven, **484 of 1266** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 484 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -22657,6 +22657,34 @@ with its save time. That is left for the owner, because the saved breaker is
 not the warning-rate breaker or the venue halt, and the honest sentence is
 the shorter one. Nine mutants, all killed on the first round.
 (`tests/test_a_process_that_is_not_the_bot_does_not_describe_its_own_state_as_the_bots.py`.)
+
+**AND AN UNREADABLE MODEL REPLY WAS CALLED AN AMBIGUOUS MARKET.** Every
+missing thesis was recorded as "Ambiguous signal — confluence in neutral zone,
+no strong directional bias from RSI or MACD". That sentence is the rule
+engine's, and it was also written when the model's reply could not be parsed,
+so `/analyze` printed it beside "Confluence: 72%". `_llm_thesis` now fills a
+`why` whenever it answers None. A reply that could not be read is `unread`,
+with the field the parser failed on, and is recorded as `thesis_unread`: "The
+model's reply could not be read (no readable confidence)". A rule engine with
+no bias is `neutral`, with the route that sent the call to the rules (no LLM
+configured, the budget spent, every provider failed, and the rest). The nine
+rule-engine fallbacks go through one helper, `_rule_thesis`, so a route added
+later says so by construction, and all seven reachable through a stub are
+driven. A None that nothing explained is said as such. The same card printed
+the confluence bare beside "Bias: SHORT", and confluence is a bullishness score,
+so a strongly confirmed short read "30%". `bot/formatters/confluence.py`
+prints it for the direction it is read against: "80% for a SHORT (bullishness
+20%; 50% is neutral)". The chat's market read now uses that one reading too.
+The card's `if diag.get("confluence")` also hid a 0.0, which is the most bearish
+reading there is. Sixteen mutants, all killed on the first round. Recorded and
+not changed: on a below-the-bar decline the card's "Final score" is the blend
+after calibration and the setup-expectancy nudge, while the floor it sits
+beside is compared with the blend before both (`_blended_confidence_raw`). The
+two differ whenever either one moves the blend, and the nudge is on by
+default. The reason line quotes the compared figure, so the card can show two
+scores that disagree.
+(`tests/test_a_declined_analysis_names_why_it_had_no_thesis.py`,
+`bot/formatters/confluence.py`.)
 
 ## Operational docs
 

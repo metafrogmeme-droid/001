@@ -51,6 +51,7 @@ STAGE_WORDS: dict[str, str] = {
     "regime_hard_gate": "regime gate",
     "llm_direction_guard": "direction guard",
     "no_thesis": "no directional thesis",
+    "thesis_unread": "model reply unreadable",
     "thesis": "thesis named no direction",
     "rsi_block": "RSI block",
     "order_flow_veto": "order-flow veto",

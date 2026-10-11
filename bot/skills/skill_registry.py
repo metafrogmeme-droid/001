@@ -844,8 +844,14 @@ class AnalyzeAssetSkill(BaseSkill):
                 diag_lines.append(f"Regime: <code>{diag['regime']}</code>")
             if diag.get("direction"):
                 diag_lines.append(f"Bias: <code>{diag['direction']}</code>")
-            if diag.get("confluence"):
-                diag_lines.append(f"Confluence: <code>{diag['confluence']:.0%}</code>")
+            # Bullishness, oriented to the bias: printed bare it read "30%"
+            # beside "Bias: SHORT" for a strongly confirmed short. And `is not
+            # None`: a confluence of 0.0 is the most bearish reading there is.
+            if (isinstance(diag.get("confluence"), (int, float))
+                    and not isinstance(diag.get("confluence"), bool)):
+                from bot.formatters.confluence import confluence_words
+                diag_lines.append("Confluence: <code>" + _esc(confluence_words(
+                    diag["confluence"], diag.get("direction"))) + "</code>")
             if diag.get("blended") is not None:
                 diag_lines.append(f"Final score: <code>{diag['blended']:.0%}</code>")
             if diag.get("threshold"):
