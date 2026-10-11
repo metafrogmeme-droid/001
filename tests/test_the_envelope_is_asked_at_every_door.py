@@ -86,7 +86,7 @@ def _own(answer=FILLED, lev=5, venue=None):
     """The person's OWN executor: answers `answer`, places at `lev`."""
     ex = types.SimpleNamespace(
         execute=AsyncMock(return_value=answer),
-        _compute_target_leverage=lambda s, i=None: lev,
+        _compute_sized_leverage=lambda s, i=None: lev,
         fetch_balance=AsyncMock(return_value={"total": 50000.0, "free": 50000.0}),
         _positions={}, open_positions=[], closed_positions=[], user_id=UID)
     if venue is not None:
@@ -393,7 +393,7 @@ class TestTheLeaf:
             raise ValueError("apiKey=SECRETVALUE")
 
         auth = oa.authorize_order(UID, "T1", idea, margin=10,
-                                  executor=types.SimpleNamespace(_compute_target_leverage=_raise),
+                                  executor=types.SimpleNamespace(_compute_sized_leverage=_raise),
                                   venue="bitget", ledger=ledger)
         assert auth.ok is False and auth.reasons == [f"{oa.LEVERAGE_UNREAD} (ValueError)"]
         assert ledger.spent(UID, time.time()) == 0.0
@@ -417,7 +417,7 @@ class TestTheLeaf:
         store, ledger = wired
         _bind(store)
         asked = []
-        ex = types.SimpleNamespace(_compute_target_leverage=lambda s, i=None: asked.append(1) or 5)
+        ex = types.SimpleNamespace(_compute_sized_leverage=lambda s, i=None: asked.append(1) or 5)
         auth = oa.authorize_order(UID, "T1", types.SimpleNamespace(asset="BTC/USDT"), margin=None,
                                   executor=ex, venue="bitget", ledger=ledger)
         assert auth.ok is False and any("notional is unknown" in r for r in auth.reasons)

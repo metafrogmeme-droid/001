@@ -37,6 +37,7 @@ from bot.core import live_executor as le
 from bot.core.limit_entry import EntryResult, order_fill_price
 from bot.core.live_executor import LiveExecutor
 from bot.utils.models import Direction, TradeIdea
+from tests.leverage_worlds import one_leverage
 from tests.source_scan import code_only
 from tests.test_the_placed_order_is_the_checked_order import _market, _Sent, _Venue
 
@@ -230,10 +231,14 @@ class TestTheChecksAreAskedAtTheFillPrice:
     def test_the_notional_ceiling_is_measured_at_the_fill_price(self, tmp_path):
         # At the 10x ceiling a $100 LONG resting 10% below is 0.277 ETH: $997 of
         # notional at its fill, $1,108 at the market. Measured at the market the
-        # ceiling ($1,050) refused an order that fills inside it.
+        # ceiling ($1,050) refused an order that fills inside it. The order is
+        # SIZED at 10x here (`one_leverage(10)`): only an order sized at the
+        # ceiling comes near it, and at the shipped 5x sizing a $100 margin is
+        # $500 of notional, nowhere near the boundary this test measures.
         RUNTIME.leverage_override = 10
         venue = _Recording(_market(amount_step=0.001, amount_min=0.001), PRICE)
-        result, orders, _, _ = _run(venue, _typed(Direction.LONG, 3600.0), 100.0, tmp_path)
+        with one_leverage(10):
+            result, orders, _, _ = _run(venue, _typed(Direction.LONG, 3600.0), 100.0, tmp_path)
         assert result == "<sent>", result
         (o,) = orders
         assert o["amount"] == pytest.approx(0.277)

@@ -217,7 +217,7 @@ def test_an_auto_sized_web_order_under_a_daily_cap_is_refused(web_live):
 
 def test_a_sized_web_order_under_the_cap_is_allowed_and_recorded(web_live):
     ug, ledger = web_live
-    executor = SimpleNamespace(_compute_target_leverage=lambda symbol, idea=None: 5)
+    executor = SimpleNamespace(_compute_sized_leverage=lambda symbol, idea=None: 5)
     engine = SimpleNamespace(_pending_ideas={"T2": SimpleNamespace(asset="BTC/USDT")},
                              _manual_margin_override={"T2": 0.1},
                              _executor_for=lambda tg_id, venue=None: executor)

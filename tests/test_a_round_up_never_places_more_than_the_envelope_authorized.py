@@ -189,7 +189,7 @@ def _engine(idea, margin=50):
         _manual_margin_override={"T1": margin} if margin is not None else {},
         live_executor=object(),
         _executor_for=lambda tg_id, venue=None: SimpleNamespace(
-            _compute_target_leverage=lambda symbol, idea=None: 5))
+            _compute_sized_leverage=lambda symbol, idea=None: 5))
 
 
 class TestTheStamp:

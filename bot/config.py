@@ -630,10 +630,16 @@ class RiskLimits:
     # field; setting MIN_BOOK_DEPTH_USD changes NOTHING. risk_manifest.yaml
     # documenting it as check #17's threshold is likewise stale.
     min_book_depth_usd: float = _env_float("MIN_BOOK_DEPTH_USD", 2_000.0)
-    # Leverage-aware margin risk cap: max % of margin (cost) that can be lost
-    # on a single trade.  SL distance × leverage must not exceed this.
-    # With 10x leverage, 30% means SL can be at most 3% from entry.
-    max_margin_risk_pct: float = _env_float_bounded("MAX_MARGIN_RISK_PCT", 30.0, 0.1, 1000.0)
+    # Leverage-aware margin risk cap: max % of the margin the VENUE locks that
+    # one trade's stop may lose. SL distance × the venue's leverage must not
+    # exceed this. UNSET BY DEFAULT, and unset it is 30% scaled from the
+    # sizing leverage to the venue's (`bot.core.leverage.margin_risk_cap_pct`):
+    # 60% at the 10x venue standard sized at 5x, 30% where the two are one --
+    # a 6% stop either way, the stop this cap allowed at 5x. Set, it is read as
+    # written: 30 at a 10x venue allows 3% stops.
+    max_margin_risk_pct: Optional[float] = (
+        _env_float_bounded("MAX_MARGIN_RISK_PCT", 30.0, 0.1, 1000.0)
+        if os.getenv("MAX_MARGIN_RISK_PCT", "").strip() else None)
     # Equity curve circuit breaker: if equity drops below its N-period MA, halve sizes
     equity_curve_ma_period: int = int(_env_float("EQUITY_CURVE_MA_PERIOD", 20))
     equity_curve_pause_stddev: float = _env_float("EQUITY_CURVE_PAUSE_STDDEV", 2.0)
@@ -940,8 +946,20 @@ class ExchangeConfig:
     # safety checks off. Validated now, so an unimplemented value fails at
     # boot instead of at a live order. Add "spot" here when it actually works.
     trade_mode: str = _env_choice("TRADE_MODE", "futures", ("futures",))
-    # Default leverage (1x = no leverage, 5x = default for futures)
-    default_leverage: int = int(_env_float_bounded("DEFAULT_LEVERAGE", 5, 1, 125))
+    # The VENUE's standard leverage (operator decision 2026-10-11: 10x, was
+    # 5x). What every new position is set to on the venue, before the
+    # reduce-only steps below. It does not size anything above
+    # SIZING_LEVERAGE: an order is sized at the sizing leverage and the venue
+    # locks notional / this, so a trade's notional and its loss at the stop
+    # are what they were at 5x and only the margin changes.
+    default_leverage: int = int(_env_float_bounded("DEFAULT_LEVERAGE", 10, 1, 125))
+    # The leverage every SIZING figure is written at (default 5): the risk
+    # budget's base, MAX_POSITION_PCT, the execution and per-trade ceilings,
+    # the Kelly and high-conviction margins, a typed ticket margin and the
+    # exposure caps are all margins at this leverage, so notional = that
+    # margin x it. Never above the venue standard (`order_standards`): with
+    # DEFAULT_LEVERAGE at or under it the two are one and nothing changes.
+    sizing_leverage: int = int(_env_float_bounded("SIZING_LEVERAGE", 5, 1, 125))
     # Dynamic leverage scaling. Default OFF (operator directive 2026-07-20:
     # one uniform standard leverage everywhere — different x per symbol read
     # as drift). Opt back in with DYNAMIC_LEVERAGE_ENABLED=1; scaling only

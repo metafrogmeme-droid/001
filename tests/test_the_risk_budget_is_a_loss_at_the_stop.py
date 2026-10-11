@@ -30,6 +30,14 @@ the base is the notional it always was and the record reproduces; under
 `--honest` it fills at the operator standard, so the record measures what
 live commits. Every other caller places at the operator standard and the gate
 reads it for itself.
+
+SINCE 11 OCTOBER THE LEVERAGE IN THE DENOMINATOR IS THE SIZED ONE. The venue
+standard moved to 10x and every order is still sized at 5x (SIZING_LEVERAGE,
+`bot.core.leverage.order_standards`); the executor places that notional at
+the venue's leverage and locks notional / 10. So every figure above holds as
+written: the budget is the loss at the stop at 5x sizing, and the 10x venue
+only frees margin. An override above the sizing leverage moves the venue and
+nothing here; one below it lowers the sized leverage, and the base with it.
 """
 from __future__ import annotations
 
@@ -49,7 +57,7 @@ from bot.backtest import engine as bt_engine
 from bot.backtest import runner
 from bot.compat import UTC
 from bot.config import CONFIG, RUNTIME
-from bot.core.leverage import StandardLeverage, operator_standard
+from bot.core.leverage import LeveragePair, margin_risk_cap_pct, order_standards
 from bot.risk.portfolio import PortfolioTracker
 from bot.risk.risk_engine import RiskEngine
 from bot.utils.models import Direction, TradeIdea
@@ -81,8 +89,9 @@ def _shipped_knobs():
     must not move the numbers below."""
     assert CONFIG.strategy_types.get_max_risk_pct("swing") == BUDGET_PCT
     assert CONFIG.strategy_types.get_max_position_pct("swing", CONFIG.risk.max_position_pct) == CAP_PCT
-    assert operator_standard(CONFIG.exchange, None).leverage == 5
-    assert CONFIG.risk.max_margin_risk_pct == 30.0
+    assert order_standards(CONFIG.exchange, None) == (5, 10), "sized at 5x, the venue at 10x"
+    assert CONFIG.risk.max_margin_risk_pct is None, "unset: 30% at the sizing, scaled to the venue"
+    assert margin_risk_cap_pct(None, order_standards(CONFIG.exchange, None)) == 60.0
     yield
 
 
@@ -155,10 +164,11 @@ class TestTheBudgetIsTheLossAtTheStop:
 
 class TestTheLeverageIsTheOrders:
 
-    def test_the_override_lowers_the_base(self):
-        """A 2% stop at 5x asks for 20% of equity (the cap decides, $1,300);
-        under `/leverage set 10` the same budget over the same stop is $1,000,
-        and the base decides."""
+    def test_an_override_above_the_sizing_leverage_moves_only_the_venue(self):
+        """A 2% stop at 5x asks for 20% of equity (the cap decides, $1,300).
+        Under `/leverage set 10` the venue is at 10x and the order is still
+        sized at 5x: the same $1,300 and the same notional, and only the
+        margin-risk sentence reads the venue."""
         old = RUNTIME.leverage_override
         try:
             RUNTIME.leverage_override = None
@@ -167,27 +177,44 @@ class TestTheLeverageIsTheOrders:
             at10 = _engine().evaluate(_idea(2.0), atr=2.0)
         finally:
             RUNTIME.leverage_override = old
-        assert _size(at5) == pytest.approx(1_300.0) and at5.size_basis.startswith("notional cap")
-        assert _size(at10) == pytest.approx(1_000.0) and at10.size_basis.startswith("fixed-fractional")
-        assert "at 10x)" in _base_label(at10)
+        for check in (at5, at10):
+            assert _size(check) == pytest.approx(1_300.0) and check.size_basis.startswith("notional cap")
+            assert "at 5x)" in _base_label(check)
+            mr = next(ln for ln in check.checks_passed if ln.startswith("MARGIN_RISK"))
+            assert "× 10x" in mr and "60.0% cap" in mr, mr
+
+    def test_an_override_below_the_sizing_leverage_lowers_the_base(self):
+        """Under `/leverage set 4` the sized leverage is 4x: a 4% stop's base
+        is $1,250 where at 5x it is $1,000, the same $200 at the stop."""
+        old = RUNTIME.leverage_override
+        try:
+            RUNTIME.leverage_override = 4
+            at4 = _engine().evaluate(_idea(4.0), atr=2.0)
+        finally:
+            RUNTIME.leverage_override = old
+        assert _size(at4) == pytest.approx(1_250.0) and at4.size_basis.startswith("fixed-fractional")
+        assert "at 4x)" in _base_label(at4)
+        assert _size(at4) * 4 * 0.04 == pytest.approx(EQUITY * BUDGET_PCT / 100, abs=0.5)
 
     def test_the_base_and_the_margin_risk_cap_read_one_leverage(self, monkeypatch, no_override):
-        """Plant the reading: a standard no config produces, and BOTH lines
-        carry it -- the base label and the margin-risk sentence. A second
-        resolution would agree with every honest fixture and disagree here."""
-        planted = StandardLeverage(4, 4, "default", 10)
-        monkeypatch.setattr(rem, "operator_standard", lambda cfg, override: planted)
+        """Plant the reading: standards no config produces, and BOTH lines
+        carry them -- the base label the sized one, the margin-risk sentence
+        the venue's, at the cap scaled between them. A second resolution
+        would agree with every honest fixture and disagree here."""
+        planted = LeveragePair(4, 8)
+        monkeypatch.setattr(rem, "order_standards", lambda cfg, override: planted)
         check = _engine().evaluate(_idea(4.0), atr=2.0)
         assert "at 4x)" in _base_label(check)
         assert _size(check) == pytest.approx(EQUITY * BUDGET_PCT / 100 / (0.04 * 4))
         mr = next(ln for ln in check.checks_passed if ln.startswith("MARGIN_RISK"))
-        assert "4x" in mr and "5x" not in mr, mr
+        assert "× 8x" in mr and "60.0% cap" in mr and "5x" not in mr and "10x" not in mr, mr
 
     def test_the_backtests_fill_leverage_is_what_the_gate_divides_by(self, no_override):
         """At the plain 1x the base is the notional it always was -- the
-        record reproduces -- and the margin-risk cap is measured at 1x, so a
-        10% stop the 5x reading refuses is admitted where the fill really
-        runs at 1x."""
+        record reproduces -- and the margin-risk cap is measured at the venue
+        a 1x sizing maps to (2x, against the 60% cap: 30% at 1x), so a 10%
+        stop the live reading refuses is admitted where the fill really runs
+        at 1x."""
         eng = _engine()
         plain = eng.evaluate(_idea(20.0), atr=2.0, fill_leverage=1)
         assert _size(plain) == pytest.approx(EQUITY * BUDGET_PCT / 100 / 0.20), "2% / 20% at 1x = $1,000"
@@ -220,10 +247,13 @@ class TestTheLeverageIsTheOrders:
 
 class TestTheHonestRunFillsAtTheLiveLeverage:
 
-    def test_honest_resolves_the_operator_standard(self):
+    def test_honest_resolves_the_sized_standard(self):
+        """The leverage a live order's margin is sized at, never the venue's:
+        a paper book is held at the sized leverage, so the trades and their
+        notionals are live's."""
         args = SimpleNamespace(honest=True, leverage=None, commission=None)
         runner._apply_honest_fidelity(args)
-        assert args.leverage == operator_standard(CONFIG.exchange, None).leverage == 5
+        assert args.leverage == order_standards(CONFIG.exchange, None).sized == 5
 
     def test_an_explicit_leverage_is_kept_under_honest(self):
         args = SimpleNamespace(honest=True, leverage=2, commission=None)

@@ -634,9 +634,9 @@ Above `HIGH_CONVICTION_MIN_CONFIDENCE`, every trade takes
 `risk_budget / (stop_distance_pct × leverage)`. It is a TARGET: every existing ceiling still
 reduces it and none can be bypassed.
 
-**Do it in two steps.** Notional is margin x leverage, so changing both at once
-multiplies the exposure change and leaves you unable to tell which half was
-wrong if something surprises you.
+**Do it in two steps.** Notional is margin x `SIZING_LEVERAGE` (5x), so
+changing the margin and the size at once multiplies the exposure change and
+leaves you unable to tell which half was wrong if something surprises you.
 
 **Step 1 — margin only** (needs a restart; config is read at boot):
 
@@ -646,8 +646,9 @@ HIGH_CONVICTION_MIN_CONFIDENCE=0.70
 HIGH_CONVICTION_MARGIN_USD=100
 ```
 
-Leave `DEFAULT_LEVERAGE` alone. At the standard 5x that is 500 notional per
-trade — half the eventual size, enough to prove the path. Confirm it fired:
+Leave `SIZING_LEVERAGE` alone. At the 5x sizing leverage that is 500 notional
+per trade — half the eventual size, enough to prove the path. The venue, at
+`DEFAULT_LEVERAGE` 10x, locks 50 of margin for it. Confirm it fired:
 
 ```bash
 grep 'high_conviction_size' logs/*.log | tail -3
@@ -657,16 +658,24 @@ grep 'high_conviction_size' logs/*.log | tail -3
 If the line does not appear, the rule is not reaching the sizing path and
 nothing else below matters yet.
 
-**Step 2 — leverage** (no restart, admin, instantly reversible):
+**Step 2 — size** (needs a restart):
 
 ```
-/leverage set 10        # every NEW position; open ones keep what they opened with
-/leverage reset         # back to the configured default
+HIGH_CONVICTION_MARGIN_USD=200     # 1000 notional at the 5x sizing leverage
 ```
 
-`MAX_LEVERAGE` (default 10) is the ceiling: a `/leverage set` above it is
-placed at the ceiling and the reply says so, and raising the ceiling itself
-is an env change and a restart. `/leverage` with no argument prints both.
+To undo it, set `HIGH_CONVICTION_MARGIN_USD=100` again (or
+`HIGH_CONVICTION_ENABLED=false` to turn the rule off) and restart; open
+positions keep the size they opened with.
+
+Since 11 October `/leverage` moves the VENUE's leverage and nothing else: an
+order is sized at `SIZING_LEVERAGE` and the venue locks notional / its own
+leverage, so `/leverage set 10` changes the margin locked and no notional.
+Raise the margin, or `SIZING_LEVERAGE` (every trade, not only the
+high-conviction ones). `MAX_LEVERAGE` (default 10) is the ceiling on the
+venue: a `/leverage set` above it is placed at the ceiling and the reply says
+so. `/leverage` with no argument prints the venue, the sizing leverage, the
+stop cap and the ceiling.
 
 ### The arithmetic to check first
 
