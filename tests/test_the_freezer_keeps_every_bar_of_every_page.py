@@ -16,9 +16,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from bot.backtest import snapshot as snap
 from bot.backtest.data_loader import DataLoader, fetch_closed_ohlcv, missing_bars
 from bot.backtest.models import BacktestBar
-from bot.backtest import snapshot as snap
 
 HOUR = 3_600_000
 T0 = int(datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)

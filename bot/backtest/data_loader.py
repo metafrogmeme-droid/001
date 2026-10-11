@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 from bot.backtest.models import BacktestBar
 
 
-
 async def fetch_closed_ohlcv(exchange, symbol: str, timeframe: str, limit: int) -> list:
     """The newest ``limit`` closed bars of ``symbol``, as ccxt rows.
 
@@ -78,7 +77,8 @@ async def fetch_closed_ohlcv(exchange, symbol: str, timeframe: str, limit: int) 
     # part-period bar. Both branches land here, and a window that ends in the
     # past is left intact (the helper drops only a bar whose period has not
     # elapsed).
-    return drop_forming_candle(raw, timeframe)
+    closed: list = drop_forming_candle(raw, timeframe)
+    return closed
 
 
 def missing_bars(rows, timeframe_ms: int) -> list[int]:
