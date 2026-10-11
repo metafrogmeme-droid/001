@@ -23,9 +23,12 @@
  *
  * The counter could not simply be imported into stepup.js — auth.js requires
  * stepup.js, so that closes a cycle. It lives in lib/second_factor_lockout.js
- * now and both sides share the one Map, which is what makes the budget an
- * account budget rather than a per-route one.
+ * now and both sides share the one counter, which is what makes the budget an
+ * account budget rather than a per-route one. Since 2026-10-11 that counter
+ * lives in the database, shared by every web instance
+ * (test/auth_state_is_shared_by_every_instance.test.js), so every call is async.
  */
+delete process.env.DATABASE_URL;   // the in-memory MemoryDB
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -42,129 +45,129 @@ function validCode(secret) {
   return totp.hotp(secret, step);
 }
 
-test.beforeEach(() => lockout._reset());
+test.beforeEach(async () => { await lockout._reset(); });
 
 // ── the counter itself ────────────────────────────────────────────────────
 
-test('an account is open until it burns its budget', () => {
+test('an account is open until it burns its budget', async () => {
   const k = 'uid:1';
-  assert.strictEqual(lockout.checkAccountLockout(k), true);
-  for (let i = 0; i < lockout.MAX_FAILURES - 1; i++) lockout.recordAccountFailure(k);
-  assert.strictEqual(lockout.checkAccountLockout(k), true, 'locked one guess early');
-  lockout.recordAccountFailure(k);
-  assert.strictEqual(lockout.checkAccountLockout(k), false, 'never locked');
+  assert.strictEqual(await lockout.checkAccountLockout(k), true);
+  for (let i = 0; i < lockout.MAX_FAILURES - 1; i++) await lockout.recordAccountFailure(k);
+  assert.strictEqual(await lockout.checkAccountLockout(k), true, 'locked one guess early');
+  await lockout.recordAccountFailure(k);
+  assert.strictEqual(await lockout.checkAccountLockout(k), false, 'never locked');
 });
 
-test('a success clears the budget', () => {
+test('a success clears the budget', async () => {
   const k = 'uid:2';
-  for (let i = 0; i < lockout.MAX_FAILURES; i++) lockout.recordAccountFailure(k);
-  assert.strictEqual(lockout.checkAccountLockout(k), false);
-  lockout.clearAccountFailures(k);
-  assert.strictEqual(lockout.checkAccountLockout(k), true);
+  for (let i = 0; i < lockout.MAX_FAILURES; i++) await lockout.recordAccountFailure(k);
+  assert.strictEqual(await lockout.checkAccountLockout(k), false);
+  await lockout.clearAccountFailures(k);
+  assert.strictEqual(await lockout.checkAccountLockout(k), true);
 });
 
-test('accounts do not share a budget', () => {
+test('accounts do not share a budget', async () => {
   // Through uidKey(), not literals: a mutation making uidKey return a
   // constant — every account in one bucket — survived the literal version.
   const a = lockout.uidKey(3);
   const b = lockout.uidKey(4);
   assert.notStrictEqual(a, b, 'uidKey maps two accounts to the same bucket');
-  for (let i = 0; i < lockout.MAX_FAILURES; i++) lockout.recordAccountFailure(a);
-  assert.strictEqual(lockout.checkAccountLockout(a), false);
-  assert.strictEqual(lockout.checkAccountLockout(b), true,
+  for (let i = 0; i < lockout.MAX_FAILURES; i++) await lockout.recordAccountFailure(a);
+  assert.strictEqual(await lockout.checkAccountLockout(a), false);
+  assert.strictEqual(await lockout.checkAccountLockout(b), true,
     'one account locking out took another with it');
 });
 
-test('an expired lockout does not hand back a fresh budget', () => {
+test('an expired lockout does not hand back a fresh budget', async () => {
   // Reaches the `count < MAX_FAILURES` return, which no sequence of real
   // calls can reach as false — a mutation to `return true` survived the whole
   // suite until this existed. The bound is MAX_FAILURES per WINDOW_MS, and
   // "the lockout expired" must not mean "start over".
   const k = lockout.uidKey(5);
-  lockout._seed(k, {
+  await lockout._seed(k, {
     count: lockout.MAX_FAILURES,
     firstAttempt: Date.now() - (lockout.LOCKOUT_MS + 1000),
     lockedUntil: Date.now() - 1000,          // expired, still inside the window
   });
-  assert.strictEqual(lockout.checkAccountLockout(k), false,
+  assert.strictEqual(await lockout.checkAccountLockout(k), false,
     'the 5-minute lockout expired and the account got 8 more guesses, turning '
     + 'the bound into 8 per 5 minutes instead of 8 per 15');
 });
 
-test('a stale entry past the window is forgiven', () => {
+test('a stale entry past the window is forgiven', async () => {
   const k = lockout.uidKey(6);
-  lockout._seed(k, {
+  await lockout._seed(k, {
     count: lockout.MAX_FAILURES,
     firstAttempt: Date.now() - (lockout.WINDOW_MS + 1000),
     lockedUntil: Date.now() - 1000,
   });
-  assert.strictEqual(lockout.checkAccountLockout(k), true,
+  assert.strictEqual(await lockout.checkAccountLockout(k), true,
     'an account stayed locked forever — the window never forgives');
 });
 
-test('an absent key does not lock the world', () => {
-  assert.strictEqual(lockout.checkAccountLockout(''), true);
-  assert.strictEqual(lockout.checkAccountLockout(undefined), true);
-  lockout.recordAccountFailure(undefined);   // must not throw
+test('an absent key does not lock the world', async () => {
+  assert.strictEqual(await lockout.checkAccountLockout(''), true);
+  assert.strictEqual(await lockout.checkAccountLockout(undefined), true);
+  await lockout.recordAccountFailure(undefined);   // must not throw
 });
 
-test('email and uid key spaces cannot collide', () => {
+test('email and uid key spaces cannot collide', async () => {
   assert.ok(lockout.uidKey(7).startsWith('uid:'));
   assert.ok(!lockout.uidKey(7).includes('@'));
 });
 
 // ── stepUpBlock now spends from that budget ───────────────────────────────
 
-test('a wrong step-up code is counted', () => {
+test('a wrong step-up code is counted', async () => {
   const secret = totp.generateSecret();
   const k = 'uid:10';
-  const blk = stepUpBlock(1, secret, '000000', 'need code', k);
+  const blk = await stepUpBlock(1, secret, '000000', 'need code', k);
   assert.strictEqual(blk.status, 401);
-  lockout.recordAccountFailure(k);           // one more
-  for (let i = 0; i < lockout.MAX_FAILURES - 2; i++) lockout.recordAccountFailure(k);
-  assert.strictEqual(lockout.checkAccountLockout(k), false,
+  await lockout.recordAccountFailure(k);           // one more
+  for (let i = 0; i < lockout.MAX_FAILURES - 2; i++) await lockout.recordAccountFailure(k);
+  assert.strictEqual(await lockout.checkAccountLockout(k), false,
     'the wrong code did not count toward the budget');
 });
 
-test('a MISSING step-up code is not counted', () => {
+test('a MISSING step-up code is not counted', async () => {
   const secret = totp.generateSecret();
   const k = 'uid:11';
   for (let i = 0; i < lockout.MAX_FAILURES + 4; i++) {
-    stepUpBlock(1, secret, '', 'need code', k);
+    await stepUpBlock(1, secret, '', 'need code', k);
   }
-  assert.strictEqual(lockout.checkAccountLockout(k), true,
+  assert.strictEqual(await lockout.checkAccountLockout(k), true,
     'the discovery handshake — the browser asks, gets 401, then prompts — '
     + 'was counted as a guess, which locks people out through ordinary use');
 });
 
-test('a locked-out account is refused before the code is even checked', () => {
+test('a locked-out account is refused before the code is even checked', async () => {
   const secret = totp.generateSecret();
   const k = 'uid:12';
-  for (let i = 0; i < lockout.MAX_FAILURES; i++) lockout.recordAccountFailure(k);
-  const blk = stepUpBlock(1, secret, validCode(secret), 'x', k);
+  for (let i = 0; i < lockout.MAX_FAILURES; i++) await lockout.recordAccountFailure(k);
+  const blk = await stepUpBlock(1, secret, validCode(secret), 'x', k);
   assert.ok(blk, 'a valid code got through a locked-out account');
   assert.strictEqual(blk.status, 429);
   assert.strictEqual(blk.body.error, 'too_many_attempts');
 });
 
-test('a correct step-up code clears the budget', () => {
+test('a correct step-up code clears the budget', async () => {
   const secret = totp.generateSecret();
   const k = 'uid:13';
-  for (let i = 0; i < lockout.MAX_FAILURES - 1; i++) lockout.recordAccountFailure(k);
-  assert.strictEqual(stepUpBlock(1, secret, validCode(secret), 'x', k), null);
-  assert.strictEqual(lockout.checkAccountLockout(k), true);
+  for (let i = 0; i < lockout.MAX_FAILURES - 1; i++) await lockout.recordAccountFailure(k);
+  assert.strictEqual(await stepUpBlock(1, secret, validCode(secret), 'x', k), null);
+  assert.strictEqual(await lockout.checkAccountLockout(k), true);
 });
 
-test('an unenrolled account is untouched by any of this', () => {
+test('an unenrolled account is untouched by any of this', async () => {
   const k = 'uid:14';
-  for (let i = 0; i < lockout.MAX_FAILURES; i++) lockout.recordAccountFailure(k);
-  assert.strictEqual(stepUpBlock(0, null, undefined, 'x', k), null,
+  for (let i = 0; i < lockout.MAX_FAILURES; i++) await lockout.recordAccountFailure(k);
+  assert.strictEqual(await stepUpBlock(0, null, undefined, 'x', k), null,
     'a 2FA-less account was gated by a lockout it can never satisfy');
 });
 
 // ── wiring: every call site must actually pass a key ──────────────────────
 
-test('every stepUpBlock call site passes an account key', () => {
+test('every stepUpBlock call site passes an account key', async () => {
   // The optional parameter is the whole risk: a call that omits it is a
   // perfectly working guard that counts nothing, which is the #999 shape —
   // code present, never reached in the way that matters.
@@ -199,7 +202,7 @@ test('every stepUpBlock call site passes an account key', () => {
     + 'nothing:\n' + unkeyed.map(s => `${s.file}: ${s.call.slice(0, 120)}`).join('\n'));
 });
 
-test('the routes that check a code all consult the lockout', () => {
+test('the routes that check a code all consult the lockout', async () => {
   const src = fs.readFileSync(path.join(APP, 'auth.js'), 'utf8');
   // Strip line comments so the prose explaining this fix cannot satisfy it.
   const code = src.split('\n').map(l => l.replace(/\/\/.*$/, '')).join('\n');

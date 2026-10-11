@@ -20,6 +20,7 @@ agent guard
 airdrops guard
 alerts guard
 alpha guard
+altsweep guard
 analyze guard+is_admin
 anchor guard+is_admin
 approvals guard
@@ -56,6 +57,7 @@ enforcing guard
 equitycurve is_admin
 escape is_admin
 etf guard
+ethma guard
 eventrisk guard
 exchange guard
 exposure guard
@@ -81,6 +83,7 @@ leaderboard guard
 learn guard
 letter guard
 leverage guard+is_admin
+limitscan guard
 link none  # /link <token> IS the linking door. It refuses an already-linked chat, then validates the token against the website API (RC-2026-001) before binding anything — the TOKEN is the credential, so a permission gate here would be circular: nobody can be registered before they link.
 linkwallet guard
 livebalance guard
@@ -97,6 +100,7 @@ memeplan guard
 mode guard
 momentum guard
 montecarlo is_admin
+multitrend guard
 mynotes is_authorized
 mystrategy guard
 networth guard
@@ -170,6 +174,7 @@ venue is_admin
 venue_router guard
 venues guard
 version rate_limit
+volrotation guard
 walkforward guard
 wallet guard
 watch guard

@@ -2,11 +2,13 @@
  * SEC-1: per-action 2FA step-up on the live money-moves.
  *
  * A stolen web session (JWT in localStorage — the primary infostealer target)
- * must not be enough to move real money or unlock live trading. The pure
+ * must not be enough to move real money or unlock live trading.
  * stepUpBlock() enforces a fresh TOTP code on a 2FA-enrolled account; the
  * routes gate the live-money actions with it, and the frontend prompts + retries
  * on the 401.
  */
+
+delete process.env.DATABASE_URL;   // the in-memory MemoryDB: the failure count lives in the database
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -20,30 +22,30 @@ function validCode(secret) {
   return totp.hotp(secret, Math.floor(Date.now() / 30000));
 }
 
-test('non-enrolled account passes with no code (nothing to gate)', () => {
-  assert.strictEqual(stepUpBlock(0, null, undefined, 'x'), null);
-  assert.strictEqual(stepUpBlock(false, '', '', 'x'), null);
+test('non-enrolled account passes with no code (nothing to gate)', async () => {
+  assert.strictEqual(await stepUpBlock(0, null, undefined, 'x'), null);
+  assert.strictEqual(await stepUpBlock(false, '', '', 'x'), null);
 });
 
-test('enrolled account with a missing or wrong code is blocked (fail-closed)', () => {
+test('enrolled account with a missing or wrong code is blocked (fail-closed)', async () => {
   const secret = totp.generateSecret();
-  const noCode = stepUpBlock(1, secret, '', 'need code');
+  const noCode = await stepUpBlock(1, secret, '', 'need code');
   assert.strictEqual(noCode.status, 401);
   assert.strictEqual(noCode.body.error, 'two_factor_required');
   assert.strictEqual(noCode.body.detail, 'need code');
-  const bad = stepUpBlock(1, secret, '000000', 'need code');
+  const bad = await stepUpBlock(1, secret, '000000', 'need code');
   assert.ok(bad && bad.status === 401, 'a wrong code must be blocked');
 });
 
-test('enrolled account with a valid fresh code passes', () => {
+test('enrolled account with a valid fresh code passes', async () => {
   const secret = totp.generateSecret();
-  assert.strictEqual(stepUpBlock(1, secret, validCode(secret), 'x'), null);
+  assert.strictEqual(await stepUpBlock(1, secret, validCode(secret), 'x'), null);
 });
 
 // ── the routes actually gate the live-money actions ────────────────────────
 const routeSrc = (f) => fs.readFileSync(path.join(__dirname, '..', 'routes', f), 'utf8');
 
-test('trade/confirm gates live-capable accounts with step-up', () => {
+test('trade/confirm gates live-capable accounts with step-up', async () => {
   const s = routeSrc('webtrade.js');
   assert.match(s, /stepUpBlock/);
   // AUDIT-FIX-3: step-up keys off the bot's AUTHORITATIVE live capability
@@ -57,7 +59,7 @@ test('trade/confirm gates live-capable accounts with step-up', () => {
   assert.doesNotMatch(s, /if \(urow\.live_enabled\)/);   // the buggy proxy is gone
 });
 
-test('controls gates ENABLING live (not disabling / de-risking) with step-up', () => {
+test('controls gates ENABLING live (not disabling / de-risking) with step-up', async () => {
   const s = routeSrc('controls.js');
   assert.match(s, /stepUpBlock/);
   assert.match(s, /if \(live === 1\)/);
@@ -67,14 +69,14 @@ test('controls gates ENABLING live (not disabling / de-risking) with step-up', (
   assert.ok(!/stepUpBlock/.test(stopBody), 'emergency stop must not be 2FA-gated');
 });
 
-test('staking still enforces step-up via the shared helper', () => {
+test('staking still enforces step-up via the shared helper', async () => {
   const s = routeSrc('staking.js');
   assert.match(s, /stepUpBlock/);
   assert.ok(!/verifyTotp/.test(s), 'staking should route through the shared helper, not inline verifyTotp');
 });
 
 // ── the frontend prompts + retries on the 401 ──────────────────────────────
-test('app.js exposes postWithStepUp and it prompts on two_factor_required', () => {
+test('app.js exposes postWithStepUp and it prompts on two_factor_required', async () => {
   const s = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'app.js'), 'utf8');
   assert.match(s, /function postWithStepUp/);
   assert.match(s, /two_factor_required/);
@@ -83,7 +85,7 @@ test('app.js exposes postWithStepUp and it prompts on two_factor_required', () =
   assert.match(s, /fetchJSON, postWithStepUp,/);  // exported on window.RC
 });
 
-test('the money-move call sites use postWithStepUp', () => {
+test('the money-move call sites use postWithStepUp', async () => {
   const dash = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
   assert.match(dash, /RC\.postWithStepUp\('\/api\/trade\/confirm'/);
   assert.match(dash, /RC\.postWithStepUp\('\/api\/controls'/);

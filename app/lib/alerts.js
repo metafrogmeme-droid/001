@@ -294,9 +294,12 @@ async function fireAlert(a, value) {
   return (upd.affectedRows || 0) > 0;
 }
 
-// On-chain reads (health factor) run on a slower cadence than tickers.
+// On-chain reads (health factor) run on a slower cadence than tickers. The
+// cadence is a claim on the shared schedule: a variable here restarted with
+// every 70-second instance, so the "every 5 minutes" read ran every minute.
 const ONCHAIN_INTERVAL_MS = 5 * 60_000;
-let lastOnchainSweep = 0;
+const ONCHAIN_JOB = 'alerts_onchain';
+const schedule = require('./shared_schedule');
 
 async function runOnce(notify) {
   let send = notify;
@@ -310,8 +313,8 @@ async function runOnce(notify) {
     if (!rows.length) { _passOk(); return 0; }
     const map = await fetchTickers();
     let tripped = 0;
-    const doOnchain = Date.now() - lastOnchainSweep >= ONCHAIN_INTERVAL_MS;
-    if (doOnchain && rows.some(a => a.metric === 'health_factor')) lastOnchainSweep = Date.now();
+    const doOnchain = rows.some(a => a.metric === 'health_factor')
+      && await schedule.claim(ONCHAIN_JOB, ONCHAIN_INTERVAL_MS);
 
     for (const a of rows) {
       let v = null, bodyOverride = null;
@@ -401,8 +404,7 @@ async function runOnce(notify) {
 let engineTimer = null;
 function startAlertEngine(intervalMs = 60_000) {
   if (engineTimer) return;
-  engineTimer = setInterval(() => { runOnce().catch(() => {}); }, intervalMs);
-  if (engineTimer.unref) engineTimer.unref();
+  engineTimer = schedule.every('alert_engine', intervalMs, () => runOnce());
 }
 
 // ── Engine liveness: the accounting behind "armed" ───────────────────────────
@@ -520,7 +522,10 @@ async function maybeHandleAlertChat(userId, text, opts = {}) {
   }
 }
 
-function __testResetOnchainSweep() { lastOnchainSweep = 0; }
+async function __testResetOnchainSweep() {
+  schedule._resetLocal();
+  try { await pool.execute('DELETE FROM job_runs WHERE job = ?', [ONCHAIN_JOB]); } catch (_) { /* no row */ }
+}
 
 /**
  * The sentence for an ask this parser could not read — the intercept's own,

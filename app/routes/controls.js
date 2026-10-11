@@ -87,7 +87,7 @@ router.post('/', ctlLimit, async (req, res) => {
     // code when 2FA is enrolled. Disabling live, pausing, and lowering margin
     // stay frictionless so de-risking is never gated (the /stop path never is).
     if (live === 1) {
-      const blk = stepUpBlock(u[0].totp_enabled, u[0].totp_secret, b.totp_code,
+      const blk = await stepUpBlock(u[0].totp_enabled, u[0].totp_secret, b.totp_code,
         'Enter your 6-digit authenticator code to enable live trading.',
         uidKey(req.user.user_id));
       if (blk) { secLog('controls_enable_2fa', req); return res.status(blk.status).json(blk.body); }
@@ -122,7 +122,7 @@ router.post('/', ctlLimit, async (req, res) => {
       const known = prev[0] && prev[0].max_margin !== null
         ? Number(prev[0].max_margin) : null;
       if (known === null || margin > known) {
-        const blk = stepUpBlock(u[0].totp_enabled, u[0].totp_secret, b.totp_code,
+        const blk = await stepUpBlock(u[0].totp_enabled, u[0].totp_secret, b.totp_code,
           'Enter your 6-digit authenticator code to raise your margin cap.',
           uidKey(req.user.user_id));
         if (blk) { secLog('controls_margin_raise_2fa', req); return res.status(blk.status).json(blk.body); }
