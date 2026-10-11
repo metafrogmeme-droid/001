@@ -34,6 +34,28 @@ def test_both_web_links_are_derived_from_the_public_tunnel():
     assert "127.0.0.1" not in out["BOT_GATEWAY_URL"]
 
 
+def test_current_checkout_replaces_stale_web_provenance():
+    provenance = mod.source_provenance(SCRIPT.parents[1])
+    assert provenance["SOURCE_COMMIT"]
+    out = mod.build_web_env(_bot_env(), {
+        "BUILD_SHA": "a" * 40,
+        "SOURCE_COMMIT": "b" * 40,
+        "BUILD_TIME": "2026-08-19T00:00:00Z",
+    }, provenance)
+    assert "BUILD_SHA" not in out
+    assert out["SOURCE_COMMIT"] == provenance["SOURCE_COMMIT"]
+    assert out["BUILD_TIME"] == provenance["BUILD_TIME"]
+
+
+def test_unresolved_provenance_is_unknown_not_stale():
+    out = mod.build_web_env(_bot_env(), {
+        "SOURCE_COMMIT": "b" * 40,
+        "BUILD_TIME": "2026-08-19T00:00:00Z",
+    })
+    assert "SOURCE_COMMIT" not in out
+    assert "BUILD_TIME" not in out
+
+
 def test_existing_web_only_settings_survive_regeneration():
     out = mod.build_web_env(_bot_env(), {
         "DATABASE_URL": "mysql://managed-by-the-page",

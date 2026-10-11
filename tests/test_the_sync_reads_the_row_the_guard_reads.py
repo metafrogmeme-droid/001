@@ -474,17 +474,20 @@ def _leverage_line(card: str) -> str:
 
 def test_a_found_fill_with_no_symbol_row_is_recorded_at_the_requested_figure_and_says_so(tmp_path):
     pos, card, audits = _drive_fill(tmp_path, symbol_row=None)
-    assert pos.leverage == 5
-    assert pos.cost_usd == pytest.approx(pos.entry_price * pos.quantity / 5)
+    # The requested figure is the one the VENUE was set to (10x since 11
+    # October); the order was sized at 5x, and that stays on record beside it.
+    assert pos.leverage == 10
+    assert le.sized_leverage_on_record(pos) == 5
+    assert pos.cost_usd == pytest.approx(pos.entry_price * pos.quantity / 10)
     line = _leverage_line(card)
-    assert line.startswith("- Leverage: <code>5x</code> ⚠️ as requested")
+    assert line.startswith("- Leverage: <code>10x</code> ⚠️ as requested")
     assert "NOT verified" in line
     unread = [a for a in audits if a.get("action") == "leverage_unverified_on_fill"]
     assert len(unread) == 1 and unread[0]["result"] == "UNREAD"
-    assert unread[0]["data"]["requested"] == 5
+    assert unread[0]["data"]["requested"] == 10
     assert unread[0]["data"]["reason"] == "symbol_row_unread"
     assert "position was found but" in unread[0]["msg"]
-    assert "requested 5x" in unread[0]["msg"]
+    assert "requested 10x" in unread[0]["msg"]
 
 
 def test_a_found_fill_with_a_symbol_row_carries_no_such_note(tmp_path):

@@ -304,18 +304,31 @@ def test_the_template_ships_it_off():
     assert "HIGH_CONVICTION_ENABLED=false" in ENV_EXAMPLE
 
 
+def _step_two() -> str:
+    return RUNBOOK[RUNBOOK.index("Step 2 — size"):RUNBOOK.index("The arithmetic to check first")]
+
+
 def test_the_runbook_gives_the_two_steps_in_order():
     i = RUNBOOK.index("Step 1 — margin only")
-    j = RUNBOOK.index("Step 2 — leverage")
+    j = RUNBOOK.index("Step 2 — size")
     assert i < j
-    assert "needs a restart" in RUNBOOK, "config is read at boot; say so"
-    assert "no restart" in RUNBOOK, "the leverage half is runtime"
+    assert "needs a restart" in RUNBOOK[i:j], "config is read at boot; say so"
+    assert "needs a restart" in _step_two(), "the size step is config too"
+
+
+def test_the_size_step_says_leverage_is_not_the_size_knob():
+    """Step 2 used to be `/leverage set 10`. Since 11 October that moves the
+    venue's margin and no notional, so a ramp that still read that way would
+    be followed and change nothing; the step says so."""
+    block = _step_two()
+    assert "HIGH_CONVICTION_MARGIN_USD=200" in block
+    assert "changes the margin locked and no notional" in block
 
 
 def test_it_says_how_to_confirm_step_one_before_step_two():
     """A ramp with no verification between the steps is one step."""
     block = RUNBOOK[RUNBOOK.index("Step 1 — margin only"):
-                    RUNBOOK.index("Step 2 — leverage")]
+                    RUNBOOK.index("Step 2 — size")]
     assert "high_conviction_size" in block, "the audit action to grep for"
     assert "rule is not reaching the sizing path" in block
 
@@ -325,8 +338,9 @@ def test_the_audit_action_it_tells_you_to_grep_for_is_real():
 
 
 def test_the_reversal_is_documented_beside_the_change():
-    assert "/leverage reset" in RUNBOOK, (
-        "a runtime change with no stated undo is one people hesitate to make")
+    block = _step_two()
+    assert "To undo it" in block and "HIGH_CONVICTION_MARGIN_USD=100" in block, (
+        "a change with no stated undo is one people hesitate to make")
 
 
 def test_the_drawdown_interaction_is_stated_as_a_formula_not_a_number():

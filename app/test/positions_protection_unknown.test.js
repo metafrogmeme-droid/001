@@ -67,7 +67,10 @@ const ctx = {
 };
 for (const h of HELPERS) ctx[h] = () => '';
 vm.createContext(ctx);
-vm.runInContext(slice('slPositionsHtml') + '\nthis.render = slPositionsHtml;', ctx);
+// The renderer prints the TP through `scaleOutText` (a backstop names where the
+// position scales out); it is sliced in real, not stubbed, beside the renderer.
+vm.runInContext(slice('scaleOutText') + '\n' + slice('slPositionsHtml')
+  + '\nthis.render = slPositionsHtml;', ctx);
 const render = ctx.render;
 
 const POS = (over) => Object.assign({

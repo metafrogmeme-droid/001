@@ -23,6 +23,15 @@ import bot.config as cfg_mod
 from bot.config import CONFIG
 
 
+def _sized_leverage() -> int:
+    """The leverage a proposed margin is turned into a notional at: the one it
+    was SIZED at (5x), never the venue's (10x since 11 October). The gate
+    sizes 5x margins, so a venue reading would double every notional; the
+    world is asserted so a test here can tell the two apart."""
+    assert (CONFIG.exchange.sizing_leverage, CONFIG.exchange.default_leverage) == (5, 10)
+    return 5
+
+
 def _make_idea(asset="BTC/USDT", direction_value="LONG"):
     idea = MagicMock()
     idea.direction = MagicMock()
@@ -154,7 +163,7 @@ class TestCovarianceMath:
         # Independent reference: VaR% = z * |w| * std(returns) * 100.
         rets = _returns(_PRICES)
         std = statistics.stdev(rets)  # sample std (ddof=1)
-        lev = getattr(CONFIG.exchange, "default_leverage", 1) or 1
+        lev = _sized_leverage()
         w = (position_usd * lev) / 10_000.0
         expected = 1.645 * abs(w) * std * 100.0
         assert abs(result.proposed_var_pct - expected) < 1e-3
@@ -184,7 +193,7 @@ class TestCovarianceMath:
             "BTC/USDT": list(_PRICES),  # identical → correlation = 1.0
         }
         # Proposed BTC long, same notional as the ETH leg (500 = 500*lev? use lev).
-        lev = getattr(CONFIG.exchange, "default_leverage", 1) or 1
+        lev = _sized_leverage()
         notional_match = 500.0 / lev  # so proposed notional == 500 == ETH leg
 
         both_long = engine._compute_portfolio_var(
@@ -206,7 +215,7 @@ class TestCovarianceMath:
             "ETH/USDT": list(_PRICES),
             "BTC/USDT": list(_PRICES),
         }
-        lev = getattr(CONFIG.exchange, "default_leverage", 1) or 1
+        lev = _sized_leverage()
         notional_match = 500.0 / lev
         result = engine._compute_portfolio_var(
             notional_match, idea=_make_idea("BTC/USDT", "LONG"))

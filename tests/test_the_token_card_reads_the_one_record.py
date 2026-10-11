@@ -11,12 +11,16 @@ invents nothing
 
 - a null authority is "none (revoked)", the fact a holder wants;
 - a null presale field is "not announced yet", never a blank or a 0;
+- a sale link is printed only when it is https on smithii.io, the same
+  rule the website holds (tests/fixtures/sale_url_cases.json); a null one
+  is "not created yet", anything else is "unreadable";
 - a record that cannot be read names the exception class and shows NO
   address in its place, because a guessed mint is worse than none.
 """
 from __future__ import annotations
 
 import datetime
+import html
 import json
 import re
 from pathlib import Path
@@ -32,6 +36,8 @@ from bot.token import record as token_record
 from bot.token.record import TokenRecordInvalid, load_record
 
 ROOT = Path(__file__).resolve().parents[1]
+SALE_URL_CASES = json.loads((ROOT / "tests" / "fixtures" / "sale_url_cases.json").read_text(encoding="utf-8"))
+TERM_KEYS = [k for k, _ in token_card.TERMS]
 MINT = "rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71qBK2CaNe"
 SPL_TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 
@@ -87,12 +93,23 @@ def test_the_record_is_the_file_both_surfaces_read():
     assert int(rec["supply_base_units"]) == int(rec["supply_tokens"]) * 10 ** rec["decimals"]
     assert rec["mint_authority"] is None and rec["freeze_authority"] is None
     assert rec["explorer"] == f"https://solscan.io/token/{MINT}"
-    # Nothing about the presale is announced, and the record says so with
-    # null rather than with a placeholder somebody could read as a term.
+    # The presale is announced (2026-10-10): every term is a sentence the
+    # card prints as written (token/presale/the_record_states_the_sale.test.mjs
+    # holds them to the sale config), and the sale link is not set before
+    # Create, which the record says with null rather than a placeholder.
     presale = rec["presale"]
-    assert presale["status"] == "coming_soon"
-    for field in ("date", "price", "venue", "allocation_tokens"):
-        assert presale[field] is None, field
+    assert presale["status"] == "announced"
+    for field in TERM_KEYS:
+        assert isinstance(presale[field], str) and presale[field].strip(), field
+    assert presale["sale_url"] is None
+
+
+def test_the_card_prints_every_term_the_record_announces_and_no_other():
+    # Both ways: a term added to the record and not to TERMS would go unprinted,
+    # and a TERMS key the record lacks would print "unreadable" to every user.
+    presale = load_record()["presale"]
+    announced = [k for k in presale if not k.startswith("_") and k not in ("status", "sale_url")]
+    assert announced == TERM_KEYS
 
 
 def test_the_devnet_draft_is_not_the_mainnet_record():
@@ -151,22 +168,82 @@ def test_the_card_names_the_mint_the_supply_and_the_revoked_authorities():
     assert "Created: 2026-09-30 (UTC)" in card
 
 
+def _presale_lines(card: str) -> list[str]:
+    lines = card.splitlines()
+    start = next(i for i, ln in enumerate(lines) if "Presale:" in ln)
+    return lines[start:lines.index("", start)]
+
+
 def test_an_unannounced_presale_reads_not_announced_for_every_term():
-    card = render_token_card(load_record())
-    assert "Presale: coming soon" in card
-    line = next(ln for ln in card.splitlines() if ln.startswith("Date: "))
-    assert line == ("Date: not announced yet · Price: not announced yet · "
-                    "Venue: not announced yet")
+    blank = {"status": "coming_soon", **{k: None for k in TERM_KEYS}, "sale_url": None}
+    card = render_token_card(_record(presale=blank))
+    lines = _presale_lines(card)
+    assert lines[0] == "🗓 <b>Presale: coming soon</b>"
+    assert lines[1:1 + len(TERM_KEYS)] == [f"{label}: not announced yet" for _, label in token_card.TERMS]
+    assert lines[1 + len(TERM_KEYS)] == f"Sale link: {token_card.SALE_LINK_NONE}"
+    assert lines[-1].startswith("It will be announced here")
     # No figure stands in for a term that has not been announced.
     assert not re.search(r"\$\s?\d", card)
 
 
-def test_an_announced_term_is_printed_as_written():
-    rec = _record(presale={"status": "announced", "date": "2026-11-01", "price": None,
-                           "venue": "Metaplex Genesis"})
-    line = next(ln for ln in render_token_card(rec).splitlines() if ln.startswith("Date: "))
-    assert line == "Date: 2026-11-01 · Price: not announced yet · Venue: Metaplex Genesis"
-    assert "Presale: announced" in render_token_card(rec)
+def test_the_announced_presale_prints_each_term_as_written():
+    card = render_token_card(load_record())
+    lines = _presale_lines(card)
+    assert lines[0] == "🗓 <b>Presale: announced</b>"
+    assert "Date: 15 Oct → 29 Oct 2026, or until the hard cap" in lines
+    assert "Price: 30,000.3 RCLAW per SOL" in lines
+    assert "For sale: 150,000,000 RCLAW" in lines
+    assert "Hard cap: 5,000 SOL (soft cap 1,000 SOL: a target, not enforced)" in lines
+    assert "Refunds: None" in lines
+    assert f"Sale link: {token_card.SALE_LINK_NONE}" in lines
+    assert lines[-1].startswith("Smithii's sale contract enforces the price")
+    assert "It will be announced here" not in card
+    assert "not announced yet" not in card
+    assert not re.search(r"\$\s?\d", card)
+    # and one term withdrawn reads "not announced yet" beside the others as written
+    presale = {**load_record()["presale"], "price": None}
+    lines = _presale_lines(render_token_card(_record(presale=presale)))
+    assert "Price: not announced yet" in lines
+    assert "Venue: Smithii launchpad (Solana)" in lines
+
+
+@pytest.mark.parametrize("key", TERM_KEYS + ["sale_url"])
+def test_a_term_missing_from_the_record_is_unreadable_not_unannounced(key):
+    presale = {k: v for k, v in load_record()["presale"].items() if k != key}
+    lines = _presale_lines(render_token_card(_record(presale=presale)))
+    label = dict(token_card.TERMS).get(key, "Sale link")
+    assert f"{label}: unreadable" in lines
+    assert sum(ln.endswith(": unreadable") for ln in lines) == 1
+
+
+@pytest.mark.parametrize("raw", ["1.5e8", "150,000,000", "-1", "", "²"])
+def test_a_token_count_that_is_not_digits_is_unreadable(raw):
+    presale = {**load_record()["presale"], "allocation_tokens": raw}
+    assert "For sale: unreadable" in _presale_lines(render_token_card(_record(presale=presale)))
+
+
+@pytest.mark.parametrize("url", SALE_URL_CASES["accept"])
+def test_a_sale_link_on_smithii_is_printed_as_a_link(url):
+    presale = {**load_record()["presale"], "sale_url": url}
+    lines = _presale_lines(render_token_card(_record(presale=presale)))
+    shown = html.escape(url)  # Telegram HTML: "&" in a query string is "&amp;"
+    assert f'Sale link: <a href="{shown}">{shown}</a>' in lines
+
+
+@pytest.mark.parametrize("url", SALE_URL_CASES["refuse"] + [42, ["https://smithii.io"]])
+def test_a_sale_link_anywhere_else_is_unreadable_and_not_printed(url):
+    presale = {**load_record()["presale"], "sale_url": url}
+    card = render_token_card(_record(presale=presale))
+    assert "Sale link: unreadable" in _presale_lines(card)
+    assert "<a href=\"https://tools" not in card and "<a href=\"http" not in card.split("View on Solscan")[1]
+    if isinstance(url, str) and url.strip():
+        assert url.strip() not in card and html.escape(url.strip()) not in card
+
+
+def test_an_overlong_sale_link_is_refused():
+    url = "https://tools.smithii.io/" + "a" * token_card.SALE_URL_MAX
+    assert not token_card.is_sale_url(url)
+    assert token_card.is_sale_url("https://tools.smithii.io/" + "a" * 10)
 
 
 def test_a_held_authority_is_named_not_called_revoked():
@@ -212,7 +289,7 @@ async def test_rclaw_sends_the_card_to_a_user():
     await h._cmd_rclaw(_update(), MagicMock())
     text = _sent(h)
     assert f"<code>{MINT}</code>" in text
-    assert "Presale: coming soon" in text
+    assert "Presale: announced" in text
     assert "RCLAW_MINT" not in text
     assert len(h._admin_asked) == 1
 

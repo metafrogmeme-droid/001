@@ -21,15 +21,15 @@
     {
       "bucket": "Community & ecosystem",
       "slug": "rclaw-community",
-      "target": { "releaseMonths": 36 },
+      "target": { "releaseMonths": 36, "tgeMaxPercent": 5 },
       "steps": [
-        { "months": 0, "percent": 20 },
+        { "months": 0, "percent": 5 },
         { "months": 9, "percent": 20 },
-        { "months": 18, "percent": 20 },
-        { "months": 27, "percent": 20 },
-        { "months": 36, "percent": 20 }
+        { "months": 18, "percent": 25 },
+        { "months": 27, "percent": 25 },
+        { "months": 36, "percent": 25 }
       ],
-      "_note": "The roadmap has no cliff here: emissions start at TGE. Five equal unlocks, the first at T0, the last at month 36. This is the one schedule that sits ABOVE the old straight line at TGE (20% against 0%): a staircase of five cannot start at zero and still end at month 36 with equal steps. To start later is to add a cliff, which changes what the roadmap promises: change the roadmap's words and `target` with the months."
+      "_note": "The operator's decision of 2026-10-11 (the plan of 2026-10-10 was five equal 20% steps): a 5% launch tranche at T0, 12,500,000 RCLAW for launch rewards and airdrops (staking is not live), then the straight 36-month release the roadmap publishes, exactly: 25% by month 9, 50% by 18, 75% by 27, 100% by 36. Five equal steps were 40% by month 9 against the line's 25%, ahead of the published release at every step but the last, with 50,000,000 claimable on the first day. The roadmap has no cliff here, so the first step is at month 0; to start later is to add a cliff, which changes what the roadmap promises. locksProblems holds both halves: the TGE step to target.tgeMaxPercent, every later step to the line."
     },
     {
       "bucket": "Team & contributors",

@@ -221,9 +221,10 @@
   </form>
   <p class="hero-note muted small" data-i18n="hero.free_note">Free · paper-trade in your browser instantly · no exchange keys needed.</p>
   <!-- The token announcement. Words only: the mint address, supply and the
-       presale's unannounced terms live on /token, read from the one record
-       the bot reads too, so this strip cannot drift from them. -->
-  <a class="hero-token" href="/token"><span class="hero-token-dot" aria-hidden="true"></span><span data-i18n="home.token_live">$RCLAW is live on Solana — presale coming soon</span> <span class="hero-token-cta" data-i18n="home.token_cta">See the mint address →</span></a>
+       presale's terms live on /token, read from the one record the bot reads
+       too, so this strip cannot drift from them. Its one claim, the presale's
+       status, is held to that record by the_token_page_names_one_mint.test.js. -->
+  <a class="hero-token" href="/token"><span class="hero-token-dot" aria-hidden="true"></span><span data-i18n="home.token_live">$RCLAW is live on Solana — presale announced</span> <span class="hero-token-cta" data-i18n="home.token_cta">Sale terms and the mint address →</span></a>
   <!-- Objection-killers right where the decision is made. All literally true and
        verifiable; no numbers, so nothing to keep fresh (and §4-safe). -->
   <ul class="trust-badges" aria-label="Why you can trust it" data-i18n-attr="aria-label:a11y.trust">
@@ -949,7 +950,7 @@
   </form>
 </section>
 
-<script src="/js/i18n-core.js?v=168"></script>
+<script src="/js/i18n-core.js?v=169"></script>
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=4"></script>
 <script src="/js/app.js?v=15"></script>

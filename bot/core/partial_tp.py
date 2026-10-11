@@ -216,6 +216,59 @@ def rebuild_ladder(*, trade_id: str, direction: str, entry_price: float,
     return st, ""
 
 
+def scale_out_levels(direction: str, entry_price: float,
+                     initial_risk: float) -> Optional[tuple[float, float]]:
+    """``(TP1, TP2)`` prices for a position, or None when 1R is not positive.
+
+    The levels `check_partial_tp` fires at, read by the cards that tell a
+    person where the position scales out: a second formula would be a second
+    answer about where TP1 is."""
+    cfg = CONFIG.partial_tp
+    try:
+        e, r = float(entry_price), float(initial_risk)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(e) and math.isfinite(r)) or e <= 0 or r <= 0:
+        return None
+    sign = 1.0 if direction == "LONG" else -1.0
+    return (e + sign * cfg.tp1_r_multiple * r, e + sign * cfg.tp2_r_multiple * r)
+
+
+def venue_backstop(direction: str, entry_price: float, initial_risk: float,
+                   plan_take_profit: float) -> Optional[float]:
+    """The take-profit the VENUE holds while the ladder works a position, or
+    None when there is none to arm.
+
+    `PARTIAL_TP_BACKSTOP_R` R from entry, or the plan's own target where that
+    is farther: the ladder takes 50% at TP1 and 30% at TP2 and trails the
+    rest, and the exchange order is only there for the bot's absence. None
+    when 1R is not positive, the multiple does not clear TP2 (a backstop
+    inside the ladder would close it, the defect this exists to remove), or a
+    short's level would sit at or under zero.
+    """
+    cfg = CONFIG.partial_tp
+    levels = scale_out_levels(direction, entry_price, initial_risk)
+    if levels is None:
+        return None
+    try:
+        mult = float(cfg.venue_backstop_r)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(mult) or mult <= float(cfg.tp2_r_multiple):
+        return None
+    sign = 1.0 if direction == "LONG" else -1.0
+    level = float(entry_price) + sign * mult * float(initial_risk)
+    if level <= 0:
+        return None
+    try:
+        plan = float(plan_take_profit)
+    except (TypeError, ValueError):
+        plan = 0.0
+    if math.isfinite(plan) and plan > 0 and sign * (plan - level) > 0:
+        return plan
+    return level
+
+
 #: What the lock used before the fee model was an input. Reached only by a
 #: ladder record this build did not write, and kept so such a record behaves
 #: exactly as it always did rather than moving on a figure nobody supplied.

@@ -3,10 +3,10 @@
  * The $RCLAW token that exists: one record, read, never retyped.
  *
  * `token/config/rclaw.mainnet.json` holds what was read back from Solana
- * mainnet for the mint and what has been announced about the presale (today:
- * nothing — every presale field is null, which every reader renders as "not
- * announced yet", never as a blank cell). The bot reads the same file
- * (`bot/token/record.py`), so the /token page and the bot's /token card
+ * mainnet for the mint and what has been announced about the presale (since
+ * 2026-10-10, the Smithii sale's terms; a field still null is rendered "not
+ * announced yet", never a blank cell). The bot reads the same file
+ * (`bot/token/record.py`), so the /token page and the bot's /rclaw card
  * cannot name two mints.
  *
  * A record that cannot be read THROWS. The mint address is the one thing a

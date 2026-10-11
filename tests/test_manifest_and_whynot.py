@@ -178,6 +178,15 @@ class TestRiskManifest:
                     f"Default mismatch for '{f.name}': "
                     f"manifest={manifest_val}, code={code_val}"
                 )
+            elif code_val is None:
+                # A knob whose default is DERIVED, not a number (the margin-risk
+                # cap: 30% at the sizing leverage, scaled to the venue's). The
+                # manifest states the absence, never a figure the code does
+                # not hold.
+                assert manifest_val is None, (
+                    f"Default mismatch for '{f.name}': "
+                    f"manifest={manifest_val!r}, code=None (derived)"
+                )
             elif isinstance(code_val, str):
                 # A string-valued knob — the mode ladders (off/shadow/enforce).
                 # `validation_gate_mode` was the first, and this branch did not

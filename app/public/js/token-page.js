@@ -3,7 +3,8 @@
  *
  * Three values for every field a chain can leave empty. A null authority is
  * "none (revoked)", which is the fact a holder wants. A null presale field
- * is "not announced yet". A value of a shape the record did not promise is
+ * is "not announced yet" (a null sale link: "not created yet"). A value of a
+ * shape the record did not promise, or a sale link off smithii.io, is
  * "unreadable". A record that did not arrive paints no address at all.
  *
  * Dual export: browser (window.TokenPage) + Node (require), so the test
@@ -23,6 +24,38 @@
   const NOT_ANNOUNCED = 'not announced yet';
   const AUTH_NONE = 'none (revoked)';
   const UNREADABLE = 'unreadable';
+  const SALE_LINK_NONE = 'not created yet. It is posted here and in the Telegram bot before the sale opens; '
+    + 'a sale link anywhere else is not ours.';
+  /**
+   * The only sale link this page will print: https on smithii.io or a subdomain, written plainly.
+   * A sale link is what a phishing clone forges first, so anything else is unreadable, never a
+   * link. The bot holds the same rule; tests/fixtures/sale_url_cases.json holds both to it.
+   */
+  const SALE_URL = /^https:\/\/(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)*smithii\.io(?:\/[A-Za-z0-9._~%\/?#=&+-]*)?$/;
+  const SALE_URL_MAX = 300;
+  /**
+   * The presale terms, in the order a buyer reads them: [record key, i18n key, English label].
+   * Every key is a key of the record's presale block, and the test holds this list to the
+   * record both ways, so a term the record announces cannot go unprinted.
+   */
+  const TERMS = [
+    ['date', 'tok.date', 'Date'],
+    ['price', 'tok.price', 'Price'],
+    ['venue', 'tok.venue', 'Venue'],
+    ['allocation_tokens', 'tok.for_sale', 'For sale'],
+    ['hard_cap', 'tok.hard_cap', 'Hard cap'],
+    ['per_wallet', 'tok.per_wallet', 'Per wallet'],
+    ['whitelist', 'tok.whitelist', 'Whitelist'],
+    ['claim', 'tok.claim', 'Claim'],
+    ['refunds', 'tok.refunds', 'Refunds'],
+    ['after_sale', 'tok.after_sale', 'After the sale'],
+  ];
+  const BODY_SOON = 'A presale is being prepared. The date, price and venue will be announced on this page, '
+    + 'in the Telegram bot and on the project’s X account before anything opens. '
+    + 'Until then there is nothing to buy from us.';
+  const BODY_ANNOUNCED = 'These are the sale’s terms as announced. Smithii’s sale contract enforces the price, '
+    + 'the hard cap, the per-wallet limits and the claim; the soft cap and everything after the sale are the '
+    + 'team’s commitments, not the contract’s. We never DM first and never ask for a seed phrase.';
 
   function esc(t) {
     return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
@@ -68,34 +101,69 @@
     return '<div class="tok-row"><dt>' + esc(say(key, en)) + '</dt><dd>' + valueHtml + '</dd></div>';
   }
 
+  function has(o, key) {
+    return Object.prototype.hasOwnProperty.call(o, key);
+  }
+
   /**
    * A presale field in three values: absent from the record is unreadable,
    * null is not announced, anything else is the announced term as written.
    */
   function presaleCell(presale, key) {
-    if (!Object.prototype.hasOwnProperty.call(presale, key)) return unreadable();
+    if (!has(presale, key)) return unreadable();
     const v = presale[key];
     if (v === null) return '<span class="tok-na">' + esc(say('tok.not_announced', NOT_ANNOUNCED)) + '</span>';
     return '<b>' + esc(String(v)) + '</b>';
   }
 
-  function presaleHtml(presale) {
+  /** The number of tokens for sale: digits are grouped and named, anything else is unreadable. */
+  function allocationCell(presale, symbol) {
+    if (!has(presale, 'allocation_tokens') || presale.allocation_tokens === null) {
+      return presaleCell(presale, 'allocation_tokens');
+    }
+    const n = supplyText(presale.allocation_tokens);
+    return n === null ? unreadable() : '<b>' + n + ' ' + esc(symbol) + '</b>';
+  }
+
+  /** True only for a link this page may print: see SALE_URL. */
+  function isSaleUrl(v) {
+    return typeof v === 'string' && v.length <= SALE_URL_MAX && SALE_URL.test(v);
+  }
+
+  /** The sale link in three values: null is "not created yet", a refused link is unreadable. */
+  function saleLinkCell(presale) {
+    if (!has(presale, 'sale_url')) return unreadable();
+    const v = presale.sale_url;
+    if (v === null) return '<span class="tok-na">' + esc(say('tok.sale_link_none', SALE_LINK_NONE)) + '</span>';
+    if (!isSaleUrl(v)) return unreadable();
+    return '<a href="' + esc(v) + '" target="_blank" rel="noopener noreferrer"><code>' + esc(v) + '</code></a>';
+  }
+
+  function presaleHtml(presale, symbol) {
     const p = (presale && typeof presale === 'object') ? presale : {};
+    const sym = typeof symbol === 'string' && symbol ? symbol : 'RCLAW';
     let status;
-    if (p.status === 'coming_soon') status = esc(say('tok.presale_soon', 'Coming soon'));
-    else if (typeof p.status === 'string' && p.status.trim()) status = esc(p.status.replace(/_/g, ' '));
-    else status = unreadable();
+    let body = null;
+    if (p.status === 'coming_soon') {
+      status = esc(say('tok.presale_soon', 'Coming soon'));
+      body = say('tok.presale_body', BODY_SOON);
+    } else if (p.status === 'announced') {
+      status = esc(say('tok.presale_announced', 'Announced'));
+      body = say('tok.presale_body_announced', BODY_ANNOUNCED);
+    } else if (typeof p.status === 'string' && p.status.trim()) {
+      status = esc(p.status.replace(/_/g, ' '));
+    } else {
+      status = unreadable();
+    }
+    let rows = '';
+    for (const [key, i18nKey, en] of TERMS) {
+      rows += row(i18nKey, en, key === 'allocation_tokens' ? allocationCell(p, sym) : presaleCell(p, key));
+    }
+    rows += row('tok.sale_link', 'Sale link', saleLinkCell(p));
     return '<section class="tok-card tok-presale">'
       + '<h2>' + esc(say('tok.presale_h', 'Presale')) + ' · <span class="tok-status">' + status + '</span></h2>'
-      + '<dl class="tok-facts">'
-      + row('tok.date', 'Date', presaleCell(p, 'date'))
-      + row('tok.price', 'Price', presaleCell(p, 'price'))
-      + row('tok.venue', 'Venue', presaleCell(p, 'venue'))
-      + '</dl>'
-      + '<p class="tok-prose">' + esc(say('tok.presale_body',
-        'A presale is being prepared. The date, price and venue will be announced on this page, '
-        + 'in the Telegram bot and on the project’s X account before anything opens. '
-        + 'Until then there is nothing to buy from us.')) + '</p>'
+      + '<dl class="tok-facts">' + rows + '</dl>'
+      + (body === null ? '' : '<p class="tok-prose">' + esc(body) + '</p>')
       + '</section>';
   }
 
@@ -151,7 +219,7 @@
     }
     facts += '</dl></section>';
     out += facts;
-    out += presaleHtml(token.presale);
+    out += presaleHtml(token.presale, symbol);
     out += '<p class="tok-bot">' + esc(say('tok.bot_hint', 'Also in the Telegram bot: /rclaw')) + '</p>';
     return out;
   }
@@ -197,7 +265,9 @@
   }
 
   return {
-    render, fault, supplyText, authorityHtml, presaleHtml, presaleCell, boot, wireCopy,
-    UNREAD, NOT_ANNOUNCED, AUTH_NONE, UNREADABLE, BASE58_ADDRESS,
+    render, fault, supplyText, authorityHtml, presaleHtml, presaleCell, allocationCell, saleLinkCell,
+    isSaleUrl, boot, wireCopy,
+    UNREAD, NOT_ANNOUNCED, AUTH_NONE, UNREADABLE, BASE58_ADDRESS, SALE_URL, SALE_LINK_NONE, TERMS,
+    BODY_SOON, BODY_ANNOUNCED,
   };
 }));

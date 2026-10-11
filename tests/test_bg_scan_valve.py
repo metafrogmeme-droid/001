@@ -165,9 +165,16 @@ class TestTheValveThrottlesOnlyTheSweep:
         monkeypatch.setattr(a, "_rule_based_thesis",
                             lambda sig, ind: {"direction": "LONG", "confidence": 0.6},
                             raising=False)
+        # The rule engine decides (LLM_DECIDES off by default); what the
+        # valve holds back is the LLM's shadow call. It must never be reached.
+        monkeypatch.setattr(
+            "bot.core.analyzer.AdaptiveFrequency.should_use_llm",
+            staticmethod(lambda sig, ind: (_ for _ in ()).throw(
+                AssertionError("REACHED_THE_LLM_PATH"))),
+            raising=False)
         out = await a._llm_thesis(_signal(), {}, background=True)
-        assert out["source"] == "RULE_ENGINE_BG_THROTTLE", (
-            "the sweep still reached the LLM with the valve off")
+        assert out["source"] == "RULE_ENGINE_DECIDES"
+        assert "shadow_llm" not in out, "the sweep still reached the LLM with the valve off"
 
     @pytest.mark.asyncio
     async def test_a_user_invoked_analysis_with_NO_user_id_keeps_the_llm(self, monkeypatch):
@@ -212,6 +219,11 @@ class TestTheValveIsInertByDefault:
     @pytest.mark.asyncio
     async def test_valve_on_lets_the_sweep_reach_the_llm(self, monkeypatch):
         a = _analyzer()
+        # A rule engine with a side: a neutral one asks the LLM nothing, so
+        # the sweep's shadow call is only made beside a decision.
+        monkeypatch.setattr(a, "_rule_based_thesis",
+                            lambda sig, ind: {"direction": "LONG", "confidence": 0.6},
+                            raising=False)
         monkeypatch.setattr(
             "bot.core.analyzer.AdaptiveFrequency.should_use_llm",
             staticmethod(lambda sig, ind: (_ for _ in ()).throw(

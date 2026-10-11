@@ -109,7 +109,9 @@ def evaluation_row(*, idea: Any, verdict: LadderVerdict, size_usd: float,
     only when the half is OFF and the rung would have cut, and is that figure
     times the multiplier. ``leverage_ladder`` is the rung's leverage whenever
     the rung would cut it (exact, floor-aware), whether or not the leverage
-    half applied it; ``leverage_std`` is the standard it would cut FROM.
+    half applied it; ``leverage_std`` is the standard it would cut FROM. Both
+    are SIZED leverages (`bot/core/leverage.py`): the venue's follows them in
+    proportion, so the card names them as sized.
     ``engine`` is the evaluating engine's own `_person_user_id` -- REQUIRED
     rather than defaulted, because a default of "" would file every caller
     that forgot it under the shared engine in silence.
@@ -309,9 +311,9 @@ def _rung_line(r: Rung, st: Optional[RungStat]) -> str:
         pairs = ", ".join(f"{a}x→{b}x" + (f" ({c})" if len(st.lev_pairs) > 1 else "")
                           for a, b, c in st.lev_pairs[:3])
         if st.lev_applied:
-            parts.append(f"leverage cut {pairs} on {st.lev_applied} (applied)")
+            parts.append(f"sized leverage cut {pairs} on {st.lev_applied} (applied)")
         if st.lev_would:
-            parts.append(f"leverage would have been cut {pairs} on {st.lev_would}")
+            parts.append(f"sized leverage would have been cut {pairs} on {st.lev_would}")
     elif cuts_lev and st.n:
         parts.append("leverage stays (the floor holds it)")
     return head + " — ".join([parts[0], " · ".join(parts[1:])]) if len(parts) > 1 else head + parts[0]

@@ -87,22 +87,24 @@ def test_each_reading_names_its_verdict(operator_keys):  # noqa: F811
     assert (other.verdict, other.same) == (ec.LINK_OTHER_ACCOUNT, False)
 
 
-def test_an_unread_uid_says_whose_and_why(operator_keys):  # noqa: F811
+def test_an_unread_uid_says_whose_and_why(operator_keys, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(ec, "UID_READ_RETRY_DELAY_S", 0.0)   # a timeout is read twice
     theirs = asyncio.run(ec.bitget_link_reading(
         OTHER, probe=_refusing({OPERATOR["api_key"]: "7001"})))
     assert (theirs.verdict, theirs.same) == (ec.LINK_UNREAD, None)
-    assert (theirs.unread, theirs.cause) == ("theirs", "PermissionDenied")
+    assert (theirs.their_cause, theirs.our_cause) == ("PermissionDenied", "")
     ours = asyncio.run(ec.bitget_link_reading(
         OTHER, probe=_refusing({OTHER["api_key"]: "8002"}, error="AuthenticationError")))
-    assert (ours.unread, ours.cause) == ("operator", "AuthenticationError")
+    assert (ours.their_cause, ours.our_cause) == ("", "AuthenticationError")
     both = asyncio.run(ec.bitget_link_reading(OTHER, probe=_refusing()))
-    assert (both.unread, both.cause) == ("both", "PermissionDenied")
+    assert (both.their_cause, both.our_cause, both.cause) == (
+        "PermissionDenied", "PermissionDenied", "PermissionDenied")
 
     async def _raises(*a, **k):
         raise TimeoutError("the venue said something long")
 
     boom = asyncio.run(ec.bitget_link_reading(OTHER, probe=_raises))
-    assert (boom.unread, boom.cause) == ("both", "TimeoutError")
+    assert (boom.their_cause, boom.our_cause) == ("TimeoutError", "TimeoutError")
 
 
 def test_the_probe_keeps_why_it_read_no_uid(monkeypatch):
@@ -127,7 +129,8 @@ def test_the_probe_keeps_why_it_read_no_uid(monkeypatch):
     monkeypatch.setattr(ccxt_async, "bitget", _Bitget)
     reply["raise"] = True
     out = asyncio.run(ec.probe_bitget_key_scope(**OPERATOR))
-    assert (out["account_uid"], out["account_uid_error"]) == (None, "PermissionDenied")
+    assert (out["account_uid"], out["account_uid_error"]) == (
+        None, "PermissionDenied, Bitget code 40014")
     reply.update({"raise": False, "data": {"authorities": []}})
     out = asyncio.run(ec.probe_bitget_key_scope(**OPERATOR))
     assert (out["account_uid"], out["account_uid_error"]) == (None, "no account ID in Bitget's reply")
@@ -147,7 +150,9 @@ def test_a_proven_link_keeps_its_mark_through_a_failed_read(tmp_path, operator_k
             patch("bot.core.engine.audit", lambda *a, **k: None):
         _cfg(cfg)
         assert asyncio.run(eng.check_operator_account_links(probe=_probe())) == {"1001"}
-        # The six-hour re-check meets an outage: no UID reads.
+        # The six-hour re-check meets an outage on a key this process has
+        # not read (an account ID read is kept per key): no UID reads.
+        eng._bitget_account_uids.clear()
         assert asyncio.run(eng.check_operator_account_links(probe=_refusing())) == {"1001"}
         assert eng._executor_for("1001") is eng.live_executor, \
             "a failed read rebuilt the second executor on the operator's account"
@@ -227,7 +232,7 @@ def test_the_card_says_why_a_book_was_not_compared(books):  # noqa: F811
     assert html.escape(f"Book {OP} was not compared: its Bitget keys open a different "
                        "account") in other
     assert remedy not in other, "a different account was told to unlink"
-    unread = card(ec.LinkReading(ec.LINK_UNREAD, unread="theirs", cause="PermissionDenied"))
+    unread = card(ec.LinkReading(ec.LINK_UNREAD, their_cause="PermissionDenied"))
     assert "the account ID behind its keys could not be read (PermissionDenied)" in unread
     assert remedy in unread
     never = card(None)

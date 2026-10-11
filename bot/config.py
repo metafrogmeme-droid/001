@@ -630,10 +630,16 @@ class RiskLimits:
     # field; setting MIN_BOOK_DEPTH_USD changes NOTHING. risk_manifest.yaml
     # documenting it as check #17's threshold is likewise stale.
     min_book_depth_usd: float = _env_float("MIN_BOOK_DEPTH_USD", 2_000.0)
-    # Leverage-aware margin risk cap: max % of margin (cost) that can be lost
-    # on a single trade.  SL distance × leverage must not exceed this.
-    # With 10x leverage, 30% means SL can be at most 3% from entry.
-    max_margin_risk_pct: float = _env_float_bounded("MAX_MARGIN_RISK_PCT", 30.0, 0.1, 1000.0)
+    # Leverage-aware margin risk cap: max % of the margin the VENUE locks that
+    # one trade's stop may lose. SL distance × the venue's leverage must not
+    # exceed this. UNSET BY DEFAULT, and unset it is 30% scaled from the
+    # sizing leverage to the venue's (`bot.core.leverage.margin_risk_cap_pct`):
+    # 60% at the 10x venue standard sized at 5x, 30% where the two are one --
+    # a 6% stop either way, the stop this cap allowed at 5x. Set, it is read as
+    # written: 30 at a 10x venue allows 3% stops.
+    max_margin_risk_pct: Optional[float] = (
+        _env_float_bounded("MAX_MARGIN_RISK_PCT", 30.0, 0.1, 1000.0)
+        if os.getenv("MAX_MARGIN_RISK_PCT", "").strip() else None)
     # Equity curve circuit breaker: if equity drops below its N-period MA, halve sizes
     equity_curve_ma_period: int = int(_env_float("EQUITY_CURVE_MA_PERIOD", 20))
     equity_curve_pause_stddev: float = _env_float("EQUITY_CURVE_PAUSE_STDDEV", 2.0)
@@ -940,8 +946,20 @@ class ExchangeConfig:
     # safety checks off. Validated now, so an unimplemented value fails at
     # boot instead of at a live order. Add "spot" here when it actually works.
     trade_mode: str = _env_choice("TRADE_MODE", "futures", ("futures",))
-    # Default leverage (1x = no leverage, 5x = default for futures)
-    default_leverage: int = int(_env_float_bounded("DEFAULT_LEVERAGE", 5, 1, 125))
+    # The VENUE's standard leverage (operator decision 2026-10-11: 10x, was
+    # 5x). What every new position is set to on the venue, before the
+    # reduce-only steps below. It does not size anything above
+    # SIZING_LEVERAGE: an order is sized at the sizing leverage and the venue
+    # locks notional / this, so a trade's notional and its loss at the stop
+    # are what they were at 5x and only the margin changes.
+    default_leverage: int = int(_env_float_bounded("DEFAULT_LEVERAGE", 10, 1, 125))
+    # The leverage every SIZING figure is written at (default 5): the risk
+    # budget's base, MAX_POSITION_PCT, the execution and per-trade ceilings,
+    # the Kelly and high-conviction margins, a typed ticket margin and the
+    # exposure caps are all margins at this leverage, so notional = that
+    # margin x it. Never above the venue standard (`order_standards`): with
+    # DEFAULT_LEVERAGE at or under it the two are one and nothing changes.
+    sizing_leverage: int = int(_env_float_bounded("SIZING_LEVERAGE", 5, 1, 125))
     # Dynamic leverage scaling. Default OFF (operator directive 2026-07-20:
     # one uniform standard leverage everywhere — different x per symbol read
     # as drift). Opt back in with DYNAMIC_LEVERAGE_ENABLED=1; scaling only
@@ -1372,6 +1390,16 @@ class AnalyzerConfig:
     # tuned from evidence without a code change. Defaults preserve the prior
     # hardcoded 0.6 / 0.4.
     llm_weight: float = _env_float_bounded("LLM_BLEND_WEIGHT", 0.6, 0.0, 1.0)
+    # WHETHER THE LLM DECIDES A TRADE (default OFF, the operator's decision of
+    # 11 October). Off, the decision is the rule engine's thesis -- the one the
+    # frozen backtest and every card measure -- and the LLM is still asked
+    # wherever it was asked before, as a SHADOW: its direction and confidence
+    # go to the calibration log (the C2 measurement) and its reasoning rides on
+    # the idea marked as not used to decide. Nothing had measured whether the
+    # LLM's call helps; it chose the direction and carried up to 40% of the
+    # score. On, the old path: the LLM thesis decides, under the guard below.
+    # Read with _env_switch so "off" means off.
+    llm_decides: bool = _env_switch("LLM_DECIDES", False)
     confluence_weight: float = _env_float_bounded("CONFLUENCE_BLEND_WEIGHT", 0.4, 0.0, 1.0)
     # Uncalibrated-LLM weight cap (default ON; audit fix #2). The LLM drives
     # `llm_weight` (0.6) of the blended confidence, but until confidence
@@ -1910,6 +1938,15 @@ class PartialTPConfig:
     tp2_close_pct: float = _env_float("PARTIAL_TP2_CLOSE_PCT", 30.0)
     # Runner: remaining 20% rides with aggressive trailing stop
     runner_trail_atr_mult: float = _env_float("PARTIAL_RUNNER_TRAIL_ATR", 0.8)
+    # THE VENUE'S TAKE-PROFIT IS A BACKSTOP BEYOND THE LADDER (operator
+    # decision 2026-10-11, "make live match the cards"). The exchange TP used
+    # to sit at the idea's target, 1.25-1.67R, so it closed the whole
+    # position before TP1 at 1.5R and the ladder every card is measured with
+    # never ran live. It is placed this many R from entry (or at the idea's
+    # target, if that is farther), where it closes the runner only if the bot
+    # is not there to; at or under TP2's multiple it is not armed at all. The
+    # frozen runs' runners closed under 3R.
+    venue_backstop_r: float = _env_float("PARTIAL_TP_BACKSTOP_R", 4.0)
 
 
 @dataclass(frozen=True)

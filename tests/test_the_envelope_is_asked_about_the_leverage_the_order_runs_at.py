@@ -13,9 +13,18 @@ tree under `/leverage set 10` (default 5, ceiling 10):
     the executor places the order at 10x: notional $500
 
 Half the order's notional was checked, and half was recorded against the day.
-The reading is the user's own executor's `_compute_target_leverage`, the one
-number the venue is set to, and a leverage that cannot be read denies by
-name and records nothing.
+The reading is the user's own executor's, and a leverage that cannot be read
+denies by name and records nothing.
+
+SINCE 11 OCTOBER THE READING IS THE SIZED LEVERAGE (`_compute_sized_leverage`).
+The venue is set to 10x while every order is sized at 5x, and the executor
+places the sized notional: the margin it locks is notional / 10. So the
+notional an order carries is its margin x the leverage it is SIZED at, and
+the venue's leverage would have doubled it. An override or a preference BELOW
+the sizing leverage still lowers the sized one, which is where the original
+defect is driven now: under `/leverage set 2` a $50 ticket is $100 of
+notional, and a reading of the configured default would have said $250 or
+$500.
 """
 from __future__ import annotations
 
@@ -26,7 +35,7 @@ import pytest
 
 from bot.config import CONFIG, RUNTIME
 from bot.core import live_executor as le
-from bot.core.leverage import operator_standard
+from bot.core.leverage import order_standards
 from bot.core.live_executor import LiveExecutor
 from bot.guardian import user_authority_store as uas
 from bot.guardian.authority import compile_envelope
@@ -56,12 +65,24 @@ def _bind(store, per_trade=300, daily=2000):
 
 @pytest.fixture
 def override():
-    """The operator's `/leverage set 10`, under a 5x default and a 10x ceiling."""
+    """The operator's `/leverage set 2`, under the 10x venue standard and the
+    5x sizing standard: both the venue's and the sized leverage drop to 2."""
     old = RUNTIME.leverage_override
-    RUNTIME.leverage_override = 10
+    RUNTIME.leverage_override = 2
     try:
-        assert operator_standard(CONFIG.exchange, RUNTIME.leverage_override).leverage == 10
-        yield 10
+        assert order_standards(CONFIG.exchange, RUNTIME.leverage_override) == (2, 2)
+        yield 2
+    finally:
+        RUNTIME.leverage_override = old
+
+
+@pytest.fixture
+def no_override():
+    old = RUNTIME.leverage_override
+    RUNTIME.leverage_override = None
+    try:
+        assert order_standards(CONFIG.exchange, None) == (5, 10)
+        yield
     finally:
         RUNTIME.leverage_override = old
 
@@ -85,11 +106,11 @@ class TestTheLeverageIsTheExecutors:
 
     def test_the_override_reaches_the_check_and_the_ledger(self, wired, override, tmp_path):
         store, ledger = wired
-        _bind(store, per_trade=300)
+        _bind(store, per_trade=90)
         ex = _real_executor(tmp_path)
-        assert ex._compute_target_leverage("SOL/USDT", None) == 10, "the premise: the order places at 10x"
+        assert ex._compute_sized_leverage("SOL/USDT", None) == 2, "the premise: the order is sized at 2x"
         ok, reasons, _ = ug._authorize_web_live_trade({}, _engine(ex), UID, "T1")
-        assert ok is False, "a $500 order is over a $300 per-trade cap"
+        assert ok is False, "a $100 order is over a $90 per-trade cap"
         assert any("per-trade" in r or "notional" in r for r in reasons), reasons
         assert ledger.spent(UID, time.time()) == 0.0, "a denial records nothing"
 
@@ -98,14 +119,30 @@ class TestTheLeverageIsTheExecutors:
         _bind(store, per_trade=600)
         ok, reasons, _ = ug._authorize_web_live_trade({}, _engine(_real_executor(tmp_path)), UID, "T1")
         assert ok is True, reasons
-        assert ledger.spent(UID, time.time()) == 500.0
+        assert ledger.spent(UID, time.time()) == 100.0
+
+    def test_a_venue_above_the_sizing_leverage_does_not_raise_the_notional(
+            self, wired, no_override, tmp_path):
+        """The shipped standards: the venue at 10x, the order sized at 5x. A
+        $50 ticket is $250 of notional, which the venue holds on $25 of
+        margin; priced at the venue's leverage it would read $500 and be
+        refused under a $300 cap it fits."""
+        store, ledger = wired
+        _bind(store, per_trade=300)
+        ex = _real_executor(tmp_path)
+        assert ex._compute_target_leverage("SOL/USDT", None) == 10
+        assert ex._compute_sized_leverage("SOL/USDT", None) == 5
+        ok, reasons, _ = ug._authorize_web_live_trade({}, _engine(ex), UID, "T1")
+        assert ok is True, reasons
+        assert ledger.spent(UID, time.time()) == 250.0
 
     def test_the_users_own_lower_preference_lowers_the_notional(self, wired, override, tmp_path):
-        """A person pinned to 2x places at 2x under a 10x standard, so their
-        $50 is a $100 order against their own caps."""
+        """A person pinned to 2x is sized and placed at 2x under the 10x venue
+        standard, so their $50 is a $100 order against their own caps."""
         store, ledger = wired
         _bind(store, per_trade=150)
         ex = _real_executor(tmp_path, pref=2)
+        assert ex._compute_sized_leverage("SOL/USDT", None) == 2
         assert ex._compute_target_leverage("SOL/USDT", None) == 2
         ok, reasons, _ = ug._authorize_web_live_trade({}, _engine(ex), UID, "T1")
         assert ok is True, reasons
@@ -113,10 +150,10 @@ class TestTheLeverageIsTheExecutors:
 
     def test_the_configured_default_is_never_the_multiplier(self, wired, override, tmp_path):
         """A stub executor answering 3x is what the envelope hears, whatever
-        the config's default (5) or the override (10) say."""
+        the config's standards (10x venue, 5x sizing) or the override say."""
         store, ledger = wired
         _bind(store, per_trade=600)
-        stub = types.SimpleNamespace(_compute_target_leverage=lambda symbol, idea=None: 3)
+        stub = types.SimpleNamespace(_compute_sized_leverage=lambda symbol, idea=None: 3)
         ok, _, _ = ug._authorize_web_live_trade({}, _engine(stub), UID, "T1")
         assert ok is True
         assert ledger.spent(UID, time.time()) == 150.0
@@ -126,12 +163,12 @@ class TestTheLeverageIsTheExecutors:
         the engine's resolver is not asked again."""
         store, ledger = wired
         _bind(store, per_trade=600)
-        handed = types.SimpleNamespace(_compute_target_leverage=lambda symbol, idea=None: 4)
+        handed = types.SimpleNamespace(_compute_sized_leverage=lambda symbol, idea=None: 4)
         calls = []
 
         def _resolve(tg_id, venue=None):
             calls.append(tg_id)
-            return types.SimpleNamespace(_compute_target_leverage=lambda s, i=None: 9)
+            return types.SimpleNamespace(_compute_sized_leverage=lambda s, i=None: 9)
 
         eng = _engine(None)
         eng._executor_for = _resolve
@@ -183,7 +220,7 @@ class TestALeverageNobodyReadDenies:
     def test_a_leverage_that_is_not_one_denies(self, wired, answer):
         store, ledger = wired
         _bind(store, per_trade=10_000)
-        stub = types.SimpleNamespace(_compute_target_leverage=lambda symbol, idea=None: answer)
+        stub = types.SimpleNamespace(_compute_sized_leverage=lambda symbol, idea=None: answer)
         ok, reasons, _ = ug._authorize_web_live_trade({}, _engine(stub), UID, "T1")
         assert ok is False
         assert reasons and reasons[0].startswith("the leverage this order would run at could not be read")
@@ -197,7 +234,7 @@ class TestALeverageNobodyReadDenies:
         def _raise(symbol, idea=None):
             raise ValueError("apiKey=SECRETVALUE")
 
-        stub = types.SimpleNamespace(_compute_target_leverage=_raise)
+        stub = types.SimpleNamespace(_compute_sized_leverage=_raise)
         ok, reasons, _ = ug._authorize_web_live_trade({}, _engine(stub), UID, "T1")
         assert ok is False
         assert reasons == ["the leverage this order would run at could not be read (ValueError)"]
@@ -211,7 +248,7 @@ class TestALeverageNobodyReadDenies:
         _bind(store, per_trade=300)
         asked = []
         stub = types.SimpleNamespace(
-            _compute_target_leverage=lambda symbol, idea=None: asked.append(1) or 5)
+            _compute_sized_leverage=lambda symbol, idea=None: asked.append(1) or 5)
         eng = _engine(stub, margin=None)
         eng._manual_margin_override = {}
         ok, reasons, _ = ug._authorize_web_live_trade({}, eng, UID, "T1")
@@ -259,8 +296,10 @@ def test_the_handler_hands_the_executor_it_resolved_to_the_authorization():
 
 
 def test_the_executors_reading_is_the_one_every_order_is_placed_at():
-    """`_compute_target_leverage` is what both executor paths set the venue to
-    (the leverage chapter); the envelope asks that name and no other."""
+    """`_compute_sized_leverage` is the leverage every order's notional is
+    sized at (`_order_leverages`, the one reading `execute` takes); the
+    envelope asks that name and no other -- not the venue's leverage, which
+    would double a 5x order's notional at a 10x venue."""
     import inspect
 
     from bot.guardian import order_authority
@@ -268,8 +307,8 @@ def test_the_executors_reading_is_the_one_every_order_is_placed_at():
     # The reading lives in the leaf both doors ask; the web door's wrapper
     # resolves the account and reads nothing of its own.
     src = code_only(inspect.getsource(order_authority.placement_leverage))
-    assert "_compute_target_leverage(" in src
+    assert "_compute_sized_leverage(" in src and "_compute_target_leverage" not in src
     door = code_only(inspect.getsource(ug._placement_leverage))
-    assert "placement_leverage(ex, idea)" in door and "_compute_target_leverage" not in door
+    assert "placement_leverage(ex, idea)" in door and "_compute_sized_leverage" not in door
     assert "default_leverage" not in code_only(inspect.getsource(ug._authorize_web_live_trade))
-    assert le.LiveExecutor._compute_target_leverage is LiveExecutor._compute_target_leverage
+    assert le.LiveExecutor._compute_sized_leverage is LiveExecutor._compute_sized_leverage

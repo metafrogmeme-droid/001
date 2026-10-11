@@ -2278,14 +2278,16 @@ def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str,
     again right before the order. Returns ``(allowed, reasons, recorded)``;
     see :class:`WebLiveAuthorization`.
 
-    THE NOTIONAL IS MARGIN × THE LEVERAGE THAT FILLS, never the configured
-    default. This read ``CONFIG.exchange.default_leverage`` (5) while the
-    executor places every order at the operator standard -- the `/leverage`
-    override, up to the MAX_LEVERAGE ceiling -- lowered by the user's own
-    preference. Driven under `/leverage set 10`: a $50 margin was authorized
-    and recorded as $250 against the user's per-trade and 24h caps for an
-    order the executor placed at $500. The leaf reads the executor's own
-    leverage, and a leverage it cannot read denies, recording nothing.
+    THE NOTIONAL IS MARGIN × THE LEVERAGE THE ORDER IS SIZED AT, never the
+    configured default. This read ``CONFIG.exchange.default_leverage`` (5)
+    while the executor placed every order at the operator standard -- the
+    `/leverage` override, up to the MAX_LEVERAGE ceiling -- lowered by the
+    user's own preference. Driven under `/leverage set 10`: a $50 margin was
+    authorized and recorded as $250 against the user's per-trade and 24h caps
+    for an order the executor placed at $500. The leaf reads the executor's
+    own sized leverage (`_compute_sized_leverage`; the venue may be set
+    higher and lock less margin for the same notional), and a leverage it
+    cannot read denies, recording nothing.
     """
     try:
         from bot.guardian.order_authority import NOT_PENDING, authorize_order
@@ -2952,7 +2954,7 @@ def _live_position_row(pos) -> dict:
         unprotected = sl_order == "manual"
     sl_unknown = sl_order == "unknown" and not marked
     sl_d, tp_d = _protection_dists(entry, sl, tp)
-    from bot.core.live_executor import entry_estimated_state
+    from bot.core.live_executor import entry_estimated_state, scale_out_reading
     from bot.core.position_telemetry import entered_at
     # When the POSITION opened, which for a limit entry is its fill.
     opened = entered_at(pos)
@@ -2967,6 +2969,10 @@ def _live_position_row(pos) -> dict:
         "entry_estimated": entry_estimated_state(pos),
         "stop_loss": round(sl, 6) if sl is not None else None,
         "take_profit": round(tp, 6) if tp is not None else None,
+        # Where the position SCALES OUT when its take-profit is the ladder's
+        # backstop (`live_executor.scale_out_reading`), else None: the venue's
+        # TP alone would read as a 4R target.
+        "scale_out": scale_out_reading(pos),
         "sl_dist_pct": sl_d,
         "tp_dist_pct": tp_d,
         "size_usd": round(cost, 2),

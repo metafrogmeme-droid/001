@@ -828,7 +828,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 643 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 642 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -19653,6 +19653,72 @@ before promising what it does.
 (`token/presale/locks_plan.test.mjs`, `token/presale/smithii_sale.test.mjs`,
 `token/presale/sale_page_images.test.mjs`, `token/presale/venue_parity.test.mjs`.)
 
+**ANNOUNCING THE SALE MADE THE TOKEN RECORD A COPY OF THE SALE CONFIG.** On
+2026-10-10 the operator asked for the website and the bot to say the presale is
+announced. Both read one record, `token/config/rclaw.mainnet.json`, and both
+print a presale term exactly as the record writes it, so announcing meant
+writing the sale's terms there as sentences: a second answer to the price, the
+window, the caps, the per-wallet limits and the pool share, each already set in
+`smithii.config.json`. The sentences are derived (`smithii_lib.mjs`,
+`recordTerms`) and `the_record_states_the_sale.test.mjs` holds the record to
+them and prints what it should say. The derivation throws for a config its
+sentences cannot describe (a whitelist phase, buyer vesting, a refund, a pool off
+the sale price, a kept LP, a pool the program creates) instead of printing a
+sentence that stopped being true. The record also states what the contract does
+not do: the soft cap is "a target, not enforced", and the pool and the LP burn
+are the team's.
+
+**The other surfaces making the same claim were found by asking for them.** The
+home page's strip said "presale coming soon" in its own words, in fourteen
+languages; its one claim is the record's status, so a test reads the status and
+holds the strip's markup and its English string to it. The page's link preview
+became the promo kit's 1200x630 presale card, which prints the window, the rate,
+the hard cap and "no refunds · no buyer vesting": a third copy, in pixels. Like
+the sale-form images, it carries what it prints, here in a JPEG comment segment
+(`runeclaw-presale-og`), and a test holds that to the record and to the page's
+canonical URL. Re-saving it through an editor drops the segment, and the test
+says so.
+
+**A sale link is what a phishing clone forges first.** The record has a
+`sale_url`, null until Create. The page and the bot print it only when it is an
+https link on smithii.io or a subdomain, written plainly (no port, no userinfo,
+no whitespace, at most 300 characters). Anything else reads "unreadable", and
+the refused text is not printed at all. The two readers are two languages, so
+the rule lives twice; `tests/fixtures/sale_url_cases.json` is the one list both
+are driven against (a `.` in a lookalike host, `@` userinfo, a backslash, a
+trailing newline Python's `$` would have accepted, which is why the bot uses
+`fullmatch`). Both readers list the terms they print, and each list is held to
+the record's keys both ways, so a term added to one surface is not missing from
+the other.
+
+Mutation round: 32 mutants over the derivation, both readers, the record, the
+strip and the preview; 31 killed, one equivalent (the JS reader's explicit
+"absent sale_url is unreadable" line, which an absent key also reaches through
+the link check; kept for the reader). Not covered: the record's values print in
+English on all fourteen language versions of the page, because both readers
+print a term as written; translating them would make fourteen more copies.
+(`token/presale/the_record_states_the_sale.test.mjs`,
+`app/test/the_token_page_names_one_mint.test.js`,
+`tests/test_the_token_card_reads_the_one_record.py`.)
+
+**THE COMMUNITY LOCK RAN AHEAD OF ITS LINE AT EVERY STEP, AND ITS NOTE SAID ONLY AT TGE.** The
+plan of 2026-10-10 made the community lock five equal 20% steps, and its note called it "the one
+schedule that sits ABOVE the old straight line at TGE (20% against 0%)". Asked for the best
+schedule on 2026-10-11, the three candidates were run through `locksProblems` and their
+cumulative shares set beside the line: five equal steps were 40% by month 9 against 25%, 60% by
+18 against 50%, 80% by 27 against 75%, and 50,000,000 claimable on the first day. The cliffed
+targets already had a line check; a target with no cliff (`releaseMonths`) had none, so nothing
+could have said so. The operator chose a 5% launch tranche (12,500,000, for launch rewards and
+airdrops; staking is not live) and then the line exactly: 5, 20, 25, 25, 25. The target now
+states `tgeMaxPercent`, and the checker refuses a TGE step above it, a no-cliff target without
+it, and any later step ahead of the straight release; the old plan fails on all four counts. A
+nine-month cliff (nothing at TGE) was the third candidate: the checker refused it, because the
+roadmap promises no cliff here, and the operator kept the promise. The tokenomics images carry
+only the short note ("5 unlocks: at TGE, then every 9 mo"), which is true of both plans, so
+they were not redrawn. A note that describes a schedule is a reading of it; hold it to the
+numbers the way the steps are held, or it says less than they do.
+(`token/presale/locks_plan.test.mjs`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -21158,9 +21224,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **484 of 1270** reach for source text through `source_scan`, `code_only`
+Driven, **485 of 1275** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 484 is a FLOOR and the honest shape is
+source scan that rule does not see, so 485 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -22186,6 +22252,42 @@ is not a reading of "no".
 `/classpf` printed "1 trades" on the same day; one trade is one trade.
 Sixteen mutants, all killed. (`tests/test_the_link_check_says_why_it_could_not_prove.py`.)
 
+**AND THEN IT COULD NOT SAY WHOSE.** 10 October, with that card deployed:
+"Book 6307156912 was not compared: the account ID behind either set of keys
+could not be read (ExchangeError / DDoSProtection), so it is not known whether
+they open the operator's account." Two reasons and one subject. The linked
+key's read was refused (ExchangeError); the operator's, made a moment after
+it, met Bitget's rate limit (DDoSProtection). ExchangeError is the class ccxt
+gives every Bitget code it does not map, so the one fact that tells a
+permission from an IP list, the code, went with the message. A rate limit is a
+refusal for load, which one read a moment later settles, and the check gave up
+on it. And every re-check asked Bitget for both account IDs again, back to
+back, though a key opens one account for its life: the second read was the one
+the limit met.
+
+Each side keeps its own reason now (`LinkReading.their_cause`, `our_cause`),
+and whose read failed is which reason is set; `unread` and `cause` were fields a
+caller could set to disagree. A derived `unread` property was written and taken
+out again: the first full run counted it as the 42nd method name the
+unreachable-methods sweep cannot tell apart by receiver, and renamed, the sweep
+saw that nothing outside the tests read it. The card names each reason against
+its own keys
+("its keys: …; the operator's own keys: …"). A raised read carries Bitget's
+code after the class ("PermissionDenied, Bitget code 40014"), never the
+message. The operator's account ID is read first. A refusal for load (rate
+limit, timeout, network, venue unavailable) is read once more after two
+seconds; a refusal for the key never is, and neither is a class ccxt could not
+name. An account ID read is kept per key for the life of the process
+(`engine._bitget_account_uids`, under a digest of the key, never the key), so a
+re-check asks Bitget only about a key it has not read, and a failed read is
+never kept. That also takes a proven link out of the six-hour re-check's
+outage, the path that cost the mark on 8 October; the mark held through an
+unread UID stays for a key not yet read.
+Twenty-three mutants, all killed; the first round left one standing, a
+side's reason kept after its ID read, which could not differ: the reader
+returns no reason with an ID, so the guard it removed was redundant and is gone.
+(`tests/test_the_link_check_reads_each_key_once.py`.)
+
 **"BALANCE: 0.00 USDT FREE" WAS A READING NOBODY MADE.** The connect card
 carries the key check's own detail as its Balance line, and all five probes
 (Bitget, Hyperliquid, Bybit and BingX, OKX/Gate/KuCoin, Paradex) read it as
@@ -22594,6 +22696,185 @@ failing the rest test's ordering check against code nobody changed. Each slice
 takes the function by its node now (`inspect.getsource`).
 (`tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`.)
 
+**THE LLM CHOSE EVERY LIVE DIRECTION, AND NOTHING HAD MEASURED IT.** 11
+October, the operator's decision on improvement plan C2: set the LLM's say to
+zero and measure it first. Live, `Analyzer._llm_thesis` returned the LLM's
+thesis whenever an LLM answered, so the LLM chose the direction and its
+confidence carried the blend's first weight (0.6, capped at 0.4 while no
+calibration curve is fitted). The frozen backtests have no LLM: every card,
+every benchmark and the 0.60 confidence floor were measured on the rule
+engine's thesis. Live therefore ran a decider no backtest had read, and C2,
+which would say whether it helps, has not run.
+
+`LLM_DECIDES` (default off, read with `_env_switch`) now decides who decides.
+Off, the thesis is the rule engine's, labelled `RULE_ENGINE_DECIDES`, and the
+blend reads the same inputs the backtest reads. The LLM is still asked, beside
+each decision, through the same pipeline as before (the same budget, tiering,
+cache and sweep valve), as a shadow:
+
+* **Its call goes to the calibration log as its own.** The `llm_*` fields of
+  `llm_calibration.jsonl` are what the production readout's source split, the
+  recorded-LLM replay and C2 read as the model's call. They now come from the
+  shadow (`_calibration_llm_fields`), and two new fields say who decided and
+  which way: `decided_by` and `decision_direction`. A shadow the pipeline sent
+  to the rule engine (budget, tier 1, throttle) is not the LLM's view and is
+  not recorded as one.
+* **Its read rides on the idea, marked.** The idea's reasoning ends with
+  "Model's read (SHORT, disagrees; not used to decide): …"
+  (`_shadow_narration`). The side is named, so a read that argues the other
+  way does not read as the decision's argument.
+* **Its confidence is filed as its own, or not at all.** The idea's
+  `llm_confidence` had been `thesis["confidence"]` whatever the source, so a
+  rule-engine thesis's confidence was filed as the LLM's. Under the rule
+  engine it is the shadow's, or None when no LLM answered
+  (`_llm_confidence_on_record`).
+
+One spend changes. A rule engine with no side makes no idea, so the LLM is not
+asked there; before, it was asked and could pick a side the rules had not. The
+sweep valve test that asserted "the sweep never reached the LLM" by its
+`RULE_ENGINE_BG_THROTTLE` label now asserts no shadow was made, and the
+valve-on test gives the rule engine a side, since a neutral one asks nothing.
+The idea is built inside a 900-line analysis no test runs end to end, so one
+AST test pins that its reasoning, its `llm_confidence` and the calibration
+row call the three readings; the branch itself is driven on the real
+`_llm_thesis` with only the shadow call and the rule engine's answer stood
+in. Twelve mutants, all killed. `LLM_DECIDES=on` restores the old path; C2's
+artefact decides whether it ever should.
+(`tests/test_the_rule_engine_decides_and_the_llm_narrates.py`.)
+
+**TEN TIMES LEVERAGE, THE SAME TRADE: AN ORDER HAS TWO LEVERAGES NOW.** 11
+October, the operator: the standard leverage goes to 10x, every trade keeps
+the notional and the dollar loss at its stop that it had at 5x, the stops stay
+where they were, and the leverage frees margin and nothing else. Read
+literally, `DEFAULT_LEVERAGE=10` would have done something else. Every sizing
+figure in this repo is a margin written at 5x: the risk budget's base
+(budget / (stop x leverage)), `MAX_POSITION_PCT`, the execution ceiling,
+`MICRO_MAX_POSITION_USD` and the total, the Kelly and high-conviction margins,
+a typed ticket margin, the exposure caps. Wherever one of those bound, 10x
+placed twice the notional; the margin-risk cap (30% of margin) refused every
+stop past 3%; the exposure caps summed margins and admitted twice the book;
+and the practice fill, the VaR gates and the audit record read
+`default_leverage` raw and would have doubled their notionals.
+
+None of those figures was rewritten. An order is SIZED as it always was, at
+`SIZING_LEVERAGE` (5x, never above the venue's standard), and placed at the
+venue's leverage with the margin that notional needs there
+(`bot/core/leverage.py`: `order_standards`, `venue_leverage`,
+`venue_margin`). Every rule that lowered the leverage -- the quality ladder, a
+user's preference, dynamic scaling, the margin-risk reduction -- lowers the
+sized one, and the venue follows in proportion (a rung that cut 5x to 4x sets
+a 10x venue to 8x), so they cut the notional exactly as before. With the venue
+standard at or under 5x the two leverages are one number and nothing changes,
+which is also how most of the existing leverage tests keep their figures
+(`tests/leverage_worlds.py::one_leverage`).
+
+What had to be taught the difference:
+
+* **The executor reads the pair once** (`_order_leverages`): the venue is set
+  to one, the margin is converted (`size_usd` becomes notional / venue
+  leverage just before the order is sized), and the position records the
+  leverage it was sized at, saved and restored. The user's preference is read
+  once per order: the first version read it again for the venue half, and the
+  test that a preference store recovering between two reads must not split an
+  order caught it.
+* **Every cap on a book reads the book at the sizing.** `sized_margin` is a
+  position's notional over the leverage it was sized at; a position with none
+  on record (every one before the split, every adopted one) reads its margin
+  on record, as before, and one whose notional is unread is unread, never its
+  venue margin. The executor's total and per-user caps, the round-up re-ask,
+  the drift fallback and the risk gate's exposure rows read it
+  (`committed_sized_margin`, `held_rows`); the cards keep printing the
+  venue's margin (`committed_margin`). A round-up refusal says both figures.
+* **The margin-risk cap is measured at the venue, and unset it keeps the 6%
+  stop.** `MAX_MARGIN_RISK_PCT` is now unset by default and reads as 30% at
+  the sizing scaled to the venue (60% at 10x), so a deployment whose
+  environment still pins `DEFAULT_LEVERAGE=5` keeps 30%, and one that moves to
+  10x is not refused every stop past 3%. Set by hand, it is read as written.
+  A reduction measured at the venue goes back onto the idea through
+  `sized_for_venue`, whose venue leverage never exceeds it. The analyzer's
+  stop cap, which sat inline in a 900-line analysis and read the raw default,
+  is `leverage_capped_levels` now and asks the same cap.
+* **Paper books are held at the sizing.** The practice fill and the backtest
+  (`--honest` resolves the sized standard) place at 5x, so their margins are
+  the figures their caps measure. The five strategy cards and the frozen
+  majors benchmark regenerate identically: same trades, same returns.
+* **The envelope prices the sized notional** (`placement_leverage` asks
+  `_compute_sized_leverage`), the free-margin clamp compares what the venue
+  will lock (`clamp_at_venue`), and the unverified-submission record keeps
+  the approved margin beside the sized leverage.
+
+The cards say it: `/leverage` prints the venue, the sizing leverage, the stop
+cap as a percentage and a stop, and the ceiling. It also said orders ABORT
+when the venue will not confirm a leverage unless `LEVERAGE_FAIL_OPEN=1`; the
+default has been fail-open since July (a venue confirmed past the overshoot
+limit still aborts), and the card and `.env.example` say that now. The
+runbook's high-conviction ramp raised notional with `/leverage set 10`, which
+now moves only margin; it raises the margin instead. The cost of 10x is the
+liquidation buffer: isolated at 10x liquidates about a 10% move away, so a
+6% stop leaves less room if a stop is missing than 5x did. Thirty-three
+mutants; the first round left two standing on fixtures that could not tell
+the readings apart (an expectation computed by the function under mutation,
+and a book over its cap at either reading), and both are sharpened.
+
+The full gate then failed twelve tests the slice's own suites had not run, and
+each was read before it was changed. All twelve were the tests' one-leverage
+world, re-pinned with the world asserted so a fixture cannot pass in both: the
+VaR references and the ladder's record read the sizing; a fill the venue
+stated no leverage for records the venue's 10x as requested, with the 5x
+sizing on record beside it; the reclaimed-order guard reads the venue's
+standard (`_compute_target_leverage`), because a 10x fill read against the
+5x sizing is a 2x "overshoot" on every reclaimed order; the runbook's
+high-conviction step 2 is a margin change, with its undo beside it. Reading
+the twelfth found a gap none of them had: the notional ceiling is a margin
+times MAX_LEVERAGE, in the sized unit, and it was handed the venue's margin.
+Under the flat cap the `max` with the cap hid it. A balance-relative bound
+whose growth ceiling (`BALANCE_BOUNDS_MAX_POSITION_USD`) is over twice the
+flat cap does not: a $300 order rounded up 1.4x to the venue minimum, sent at
+5x, was refused at 10x. The gate takes the sized margin now
+(`sized_margin_usd`). The quality ladder's lines and its card say "sized
+leverage", because the margin-risk line beside them prints the venue's. Six
+more mutants, all killed. (`tests/test_ten_x_keeps_the_five_x_trade.py`.)
+
+**THE LADDER EVERY CARD MEASURES NEVER RAN LIVE: THE VENUE'S TARGET CLOSED THE
+POSITION FIRST.** 11 October, found while answering whether higher leverage
+reaches the scale-out sooner (it does not: the levels are prices, set in R).
+Live placed the exchange take-profit at the idea's target, 1.33R for a scalp,
+1.25R intraday, 1.4R swing, 1.67R position. The partial ladder takes 50% at
+1.5R, 30% at 2.5R and trails the rest, so on three strategy types out of four
+the venue closed the whole position before TP1, and on the fourth it closed
+the half TP1 left at 1.67R. The backtest runs the ladder and ignores that
+target (its ladder branch skips the TP check), so every card measured an exit
+the live bot never made. The operator's decision: make live match the cards.
+
+The exchange TP is a backstop now (`partial_tp.venue_backstop`):
+`PARTIAL_TP_BACKSTOP_R` (4) R from entry, or the idea's target where that is
+farther, there for the bot's absence. A map of the executor found the order's
+target is not one site: it leaves through two low-level functions and is
+re-sent on every stop move, the local check closes everything at
+`pos.take_profit`, and reconcile copies the venue's TP back onto it. So the
+decision is made once, on the position, when it is first recorded
+(`_arm_take_profit_backstop`, before a resting limit is saved, since a limit
+places its stop and target at its fill from the record): `take_profit` IS the
+backstop, and every one of those readers reads it. The plan's target and the
+1R it was measured with ride beside it, saved and restored. It is not armed,
+and the idea's target is placed as before, for a typed ticket (the person
+typed that target), with the ladder off, when the fill leaves no 1R on the
+loss side, and when the ladder's slices do not reach the market's minimum at
+the position's size, which is the ordinary case at the venue's minimum: TP1's
+half of a minimum-size order is below it by construction, and arming a far
+target for a ladder that cannot bank would leave the position with neither.
+A market the executor cannot read counts as one that cannot place them.
+
+The cards say where the position takes profit, because the venue's TP alone
+would read as a 4R target: the fill card, the limit card, the fill notices,
+the two text position cards and the website's row print the TP, that it is
+the backstop, TP1 and TP2 and the plan's target (`scale_out_reading`, one
+reading for all of them). On the frozen datasets measured (majors, and the
+three alt sets, 109 positions), one runner reached TP2 and it closed at 2.97R:
+a 4R backstop would not have bound once. Twenty-three mutants, all killed.
+(`tests/test_the_venue_take_profit_is_the_ladders_backstop.py`,
+`app/test/a_backstop_take_profit_says_where_it_scales_out.test.js`.)
+
 ## Operational docs
 
 - `docs/LIVE_HARDENING_RUNBOOK.md` — boot probes, engine triage, the caps
@@ -22809,3 +23090,4 @@ and three. Each fixture now holds the two readings apart.
 (`tests/test_each_strategy_scans_its_own_rule_now.py`,
 `app/test/a_strategy_scan_shows_its_board_or_says_why.test.js`,
 `tests/test_the_preset_list_names_doors_that_open.py`.)
+

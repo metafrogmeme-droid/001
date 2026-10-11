@@ -208,8 +208,10 @@ function compute() {
 
   const bi = readBuildFile();
   if (bi) {
-    if (bi.sha) sha = String(bi.sha);
-    if (bi.committed_at) committedAt = String(bi.committed_at);
+    // Environment provenance belongs to the container being served and wins
+    // over a fallback file that may have been copied from an older checkout.
+    if (!sha && bi.sha) sha = String(bi.sha);
+    if (!committedAt && bi.committed_at) committedAt = String(bi.committed_at);
   }
 
   if (!sha) sha = gitOut(['rev-parse', '--short', 'HEAD']);

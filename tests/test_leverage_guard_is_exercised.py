@@ -49,6 +49,17 @@ import logging
 import pytest
 
 from bot.core.live_executor import LiveExecutor
+from tests.leverage_worlds import one_leverage
+
+
+@pytest.fixture(autouse=True)
+def _one_leverage_world():
+    """Every figure in this file is the one-leverage world's: the venue and
+    the sizing standards one number, 5x, as they were when it was written.
+    The property it drives holds in both worlds; the split is driven in
+    `tests/test_ten_x_keeps_the_five_x_trade.py` (`tests/leverage_worlds.py`)."""
+    with one_leverage(5):
+        yield
 
 TARGET = 5
 

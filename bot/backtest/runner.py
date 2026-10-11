@@ -847,11 +847,15 @@ def _apply_honest_fidelity(args: argparse.Namespace) -> None:
         # honest run fills at the standard unless the operator passed
         # --leverage explicitly. The configured default, never the runtime
         # /leverage override: a benchmark is a reproducible measurement and
-        # the override is a state file.
+        # the override is a state file. The SIZED standard, the leverage a
+        # live order's margin is sized at (5x): live sets the venue higher
+        # (10x) and locks less margin for the same notional, and a paper book
+        # is held at the leverage its margin was sized at, so the trades and
+        # their notionals are live's.
         if getattr(args, "leverage", None) is None:
             from bot.config import CONFIG as _CFG2
-            from bot.core.leverage import operator_standard
-            args.leverage = int(operator_standard(_CFG2.exchange, None).leverage)
+            from bot.core.leverage import order_standards
+            args.leverage = int(order_standards(_CFG2.exchange, None).sized)
     if getattr(args, "commission", None) is None:
         args.commission = 0.1
     if getattr(args, "leverage", None) is None:

@@ -285,8 +285,11 @@ class TestTheGateRecordsEverySizedEvaluation:
         r = rows[0]
         assert r["rung"] == "B" and r["size_usd"] == chk.position_size_usd
         assert r["size_would_usd"] == round(chk.position_size_usd * 0.75, 2)
-        assert (r["leverage_std"], r["leverage_ladder"]) == (int(CONFIG.exchange.default_leverage),
-                                                              int(int(CONFIG.exchange.default_leverage) * 0.8))
+        ex = rem.CONFIG.exchange
+        assert (ex.sizing_leverage, ex.default_leverage) == (5, 10), "the two-leverage world"
+        # The rung cuts the SIZED leverage and the venue follows it in
+        # proportion (10x→8x here), so the row records the sized pair.
+        assert (r["leverage_std"], r["leverage_ladder"]) == (5, 4)
         assert r["size_enabled"] is False and r["leverage_enabled"] is False
         assert r["symbol"] == "BTC/USDT" and r["source"] == "scan"
 
@@ -296,9 +299,10 @@ class TestTheGateRecordsEverySizedEvaluation:
         r = ledger.rows()[0]
         assert r["size_enabled"] is True and r["leverage_enabled"] is True
         assert r["size_usd"] == chk.position_size_usd and r["size_would_usd"] is None
-        assert r["leverage_std"] == int(CONFIG.exchange.default_leverage), \
-            "the standard the rung cut FROM, captured before the half ran"
-        assert r["leverage_ladder"] == int(int(CONFIG.exchange.default_leverage) * 0.8)
+        assert (rem.CONFIG.exchange.sizing_leverage, rem.CONFIG.exchange.default_leverage) == (5, 10)
+        assert r["leverage_std"] == 5, \
+            "the SIZED standard the rung cut FROM, captured before the half ran"
+        assert r["leverage_ladder"] == 4
         st = ls.summarize(ledger.rows()).by_rung[0]
         assert (st.size_applied, st.lev_applied, st.size_would, st.lev_would) == (1, 1, 0, 0)
 
@@ -432,7 +436,7 @@ class TestTheCardReadsTheRecord:
                             "2025-09-16 08:20 UTC · shared engine 4")
         assert lines[5] == "  <b>A</b> ≥0.85: 1 — full size, standard leverage"
         assert lines[6] == ("  <b>B</b> ≥0.70: 2 — size would have been cut x0.75 on 2 "
-                            "(avg $1,300.00 → $975.00) · leverage would have been cut 5x→4x on 2")
+                            "(avg $1,300.00 → $975.00) · sized leverage would have been cut 5x→4x on 2")
         assert lines[7] == "  <b>C</b> ≥0.00: 0", "a measured zero on a rung is a reading"
         assert lines[8] == "  no rung: 1 (manual tickets 1 — a stamp, not a measurement)"
         assert lines[9] == ("With both halves on, the size would have been cut on 2 of 4 "
@@ -477,7 +481,7 @@ class TestTheCardReadsTheRecord:
                                      leverage_enabled=True, engine="", now=1.0))
         card = _card(led, size=True, lev=True)
         assert "Flags: size ✅ ON · leverage ✅ ON" in card
-        assert "size cut x0.75 on 1 (applied)" in card and "leverage cut 5x→4x on 1 (applied)" in card
+        assert "size cut x0.75 on 1 (applied)" in card and "sized leverage cut 5x→4x on 1 (applied)" in card
         assert "would have been cut" not in card
         assert "A half that was on cut the size on 1 of 1 and the leverage on 1 of 1." in card
 

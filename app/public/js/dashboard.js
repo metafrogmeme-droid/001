@@ -1639,6 +1639,17 @@
     every(30000, refreshHomeSignals);
   }
 
+  // ── scale-out text: start
+  // A take-profit that is the ladder's BACKSTOP is not where the position
+  // takes profit: it scales out at TP1 and TP2 and trails the rest. The row
+  // carries `scale_out` only then; without it the TP is the plan's own.
+  function scaleOutText(p) {
+    const so = p && p.scale_out;
+    if (!so || so.tp1 == null || so.tp2 == null) return '';
+    return ` (backstop) · scales out at ${fmtPrice(so.tp1)} / ${fmtPrice(so.tp2)}`;
+  }
+  // ── scale-out text: end
+
   function posTable(rows) {
     return `<div class="tbl-wrap"><table class="tbl tbl--collapse">
       <thead><tr><th>Pair</th><th>Side</th><th class="r">Entry</th><th class="r">Stop / Target</th><th class="r">Size</th></tr></thead>
@@ -1697,7 +1708,7 @@
           <div><b>${base}</b> ${dirChip(p.direction)}${lev} <span class="muted small">📈</span></div>
           ${chip}
         </div>
-        <div class="small muted">Entry ${fmtPrice(p.entry_price)} · SL ${fmtPrice(p.stop_loss)}${dist} · TP ${fmtPrice(p.take_profit)} · ${fmtMoney(p.size_usd, 0)}</div>
+        <div class="small muted">Entry ${fmtPrice(p.entry_price)} · SL ${fmtPrice(p.stop_loss)}${dist} · TP ${fmtPrice(p.take_profit)}${scaleOutText(p)} · ${fmtMoney(p.size_usd, 0)}</div>
       </div>`;
     }).join('');
     const more = (opts.limit && rows.length > opts.limit)

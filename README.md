@@ -331,9 +331,8 @@ A closed-loop backstop on top of the pre-trade checks (gated `LIVE_PERFORMANCE_G
 - Technical indicators: RSI-14, MACD (12/26/9), Bollinger Bands (20/2), ATR-14, ADX-14, VWAP, SMA-50 trend alignment, On-Balance Volume (OBV), Rolling VWAP (20-bar and 50-bar)
 - Candlestick pattern detection: 14 patterns (detected, contributed to pattern scoring) including doji, hammer, shooting star, engulfing, harami, tweezer top/bottom, morning/evening star, three white soldiers, three black crows
 - Fibonacci retracement levels: swing high/low detection over 50-bar lookback, standard levels (23.6%, 38.2%, 50%, 61.8%, 78.6%) with zone classification
-- 30+ voter confluence scoring model (expanded from the original 6; some voters derived from overlapping data sources): momentum (RSI, MACD, Stochastic), trend (ADX, EMA ribbon, VWAP), volume (spike, OBV, volume profile/POC), structure (Bollinger %B, Donchian, Keltner squeeze, Fibonacci), pattern (chart patterns, Elliott, Wyckoff, harmonics, liquidity sweep), order-flow (CVD, book imbalance, whale prints, funding), plus multi-timeframe, smart-money, and sentiment voters and the blended LLM confidence. Optional family-cap de-correlation and learned per-voter weights.
-- LLM-powered directional thesis generation (Gemini 2.5 Flash default, GPT-4o / Anthropic / Groq compatible)
-- Rule-based fallback when no LLM key is configured
+- 30+ voter confluence scoring model (expanded from the original 6; some voters derived from overlapping data sources): momentum (RSI, MACD, Stochastic), trend (ADX, EMA ribbon, VWAP), volume (spike, OBV, volume profile/POC), structure (Bollinger %B, Donchian, Keltner squeeze, Fibonacci), pattern (chart patterns, Elliott, Wyckoff, harmonics, liquidity sweep), order-flow (CVD, book imbalance, whale prints, funding), plus multi-timeframe, smart-money, and sentiment voters, blended with the thesis confidence. Optional family-cap de-correlation and learned per-voter weights.
+- The rule engine decides each trade's direction and confidence, the reading the frozen backtests measure. The LLM (Gemini 2.5 Flash default, GPT-4o / Anthropic / Groq compatible) is asked beside each decision: its read rides on the idea marked as not used to decide, and its call is logged for measurement. `LLM_DECIDES=on` lets the LLM's thesis decide, as it did before 11 October 2026
 - Structured `TradeIdea` output with entry, SL, TP, confidence, reasoning
 
 ### Smart Money Engine (NEW)
@@ -371,7 +370,7 @@ A closed-loop backstop on top of the pre-trade checks (gated `LIVE_PERFORMANCE_G
 ### Risk Engine (Fail-Closed)
 - **Fail-closed risk gate** -- strict rules where one failure rejects the trade, a fail-open liquidity guard (no order-book data = pass), and advisory rules that skip when their data is unavailable. How many run depends on the trade, so no total is quoted here; `config/risk_manifest.yaml` is the authoritative list and `checks_passed` on each decision record reports what actually ran.
 - Circuit breaker halts trading on daily loss or drawdown breach
-- Fixed-fractional position sizing: the per-strategy risk budget (1-2% of equity) is the loss at the stop. Divided by the stop distance AND the leverage the order places at (`DEFAULT_LEVERAGE`, 5x, or the `/leverage` override under `MAX_LEVERAGE`) it gives the margin the executor commits, capped at the per-strategy margin cap (8-15% of equity). A stop-out costs at most the budget, and less where the cap binds a tight stop; the frozen benchmark under `--honest` fills the same figure at the live leverage (see CLAUDE.md, "the frozen benchmark fills at 5x")
+- Fixed-fractional position sizing: the per-strategy risk budget (1-2% of equity) is the loss at the stop. Divided by the stop distance AND the leverage the order is sized at (`SIZING_LEVERAGE`, 5x, never above the venue's `DEFAULT_LEVERAGE` of 10x or the `/leverage` override under `MAX_LEVERAGE`) it gives the margin at that leverage, capped at the per-strategy margin cap (8-15% of equity); the venue locks the same notional's margin at its own leverage, half of it at 10x. A stop-out costs at most the budget, and less where the cap binds a tight stop; the frozen benchmark under `--honest` fills the same figure at the live leverage it is sized at (see CLAUDE.md, "the frozen benchmark fills at 5x")
 - Max open positions limit
 - Risk/reward ratio minimum (1.2x)
 - Confidence threshold gate (≥60%)
@@ -895,7 +894,7 @@ RUNECLAW is **live trading on Bitget futures** with micro-size positions. All tr
 This is a **hackathon prototype** (maturity: early-stage). Known limitations:
 
 - **Solo developer project** -- limited peer review beyond automated audits
-- **Live trading active** -- RUNECLAW is live on Bitget futures with micro-size positions ($10-20 per trade, 5x leverage). See `logs/` for full trading records.
+- **Live trading active** -- RUNECLAW is live on Bitget futures with micro-size positions ($10-20 per trade, sized at 5x; the venue is set to 10x since 11 October 2026 and locks half the margin for the same notional). See `logs/` for full trading records.
 - **Backtest methodology caveat** -- backtests use synthetic GBM+GARCH price data with `use_llm=False`. This validates risk gate behavior and position sizing on random walks, but does **not** validate the alpha-generating modules (Smart Money, order flow, sentiment fusion, liquidation cascade) which require real market microstructure data. Backtest results should be interpreted as **engine sanity checks**, not evidence of profitability. Real-data, LLM-enabled, out-of-sample validation is needed to evaluate strategy performance.
 - **API latency and slippage** -- real exchange conditions differ from simulation
 - **Security audit conducted** -- AI-assisted deep audit (v3.0) with all 5 critical issues fixed, 29 security tests added. No independent third-party audit has been performed.
