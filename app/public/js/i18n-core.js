@@ -2150,8 +2150,8 @@
     "home.welcome_dismiss": { en: "Got it — don’t show again" },
     "vh.feed.sub": { en: "The agent’s mind-stream — every scan, thesis, trade and alert, as it happens" },
     "nav.token": { en: "$RCLAW token" },
-    "home.token_live": { en: "$RCLAW is live on Solana — presale coming soon" },
-    "home.token_cta": { en: "See the mint address →" },
+    "home.token_live": { en: "$RCLAW is live on Solana — presale announced" },
+    "home.token_cta": { en: "Sale terms and the mint address →" },
     "tok.h1": { en: "The $RCLAW token" },
     "tok.lede": { en: "RUNECLAW’s token lives on Solana. This page shows the one mint address that is $RCLAW, read from the project’s own record, and what has and has not been announced about the presale." },
     "tok.mint_h": { en: "Mint address" },
@@ -2179,9 +2179,20 @@
     "tok.price": { en: "Price" },
     "tok.venue": { en: "Venue" },
     "tok.not_announced": { en: "not announced yet" },
+    "tok.presale_announced": { en: "Announced" },
+    "tok.for_sale": { en: "For sale" },
+    "tok.hard_cap": { en: "Hard cap" },
+    "tok.per_wallet": { en: "Per wallet" },
+    "tok.whitelist": { en: "Whitelist" },
+    "tok.claim": { en: "Claim" },
+    "tok.refunds": { en: "Refunds" },
+    "tok.after_sale": { en: "After the sale" },
+    "tok.sale_link": { en: "Sale link" },
+    "tok.sale_link_none": { en: "not created yet. It is posted here and in the Telegram bot before the sale opens; a sale link anywhere else is not ours." },
+    "tok.presale_body_announced": { en: "These are the sale’s terms as announced. Smithii’s sale contract enforces the price, the hard cap, the per-wallet limits and the claim; the soft cap and everything after the sale are the team’s commitments, not the contract’s. We never DM first and never ask for a seed phrase." },
     "tok.presale_body": { en: "A presale is being prepared. The date, price and venue will be announced on this page, in the Telegram bot and on the project’s X account before anything opens. Until then there is nothing to buy from us." },
     "tok.verify": { en: "Only this mint address is $RCLAW. Any other token using the name or logo is not ours — check the address before you trade anything." },
-    "tok.not_offer": { en: "Nothing on this page is financial advice, an offer to sell or a solicitation to buy any token. Presale terms, if and when announced, may change with legal review." },
+    "tok.not_offer": { en: "Nothing on this page is financial advice, an offer to sell or a solicitation to buy any token. Presale terms may still change with legal review before the sale opens; this page shows the current ones." },
     "tok.unread": { en: "The token record could not be read right now. No mint address is shown in its place — a guessed address is worse than none. Try again in a minute." },
     "tok.bot_hint": { en: "Also in the Telegram bot: /rclaw" }
   };
@@ -2195,7 +2206,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"2cbaa586","zh":"8ef46f71","pt":"4c630cff","fr":"a35fb284","de":"c26ab9ca","nl":"a9224c0b","ja":"77d304e3","ko":"2a6f339f","ru":"29c33aed","tr":"9ff2f526","it":"6b4c022c","hi":"0a59c31e","ar":"7b29eb89"};
+  var CHUNKS = {"es":"359a9d00","zh":"ec7b96fb","pt":"41406b40","fr":"57142ad6","de":"a4db743a","nl":"ba10c49a","ja":"d70b9187","ko":"ddc0f707","ru":"473869d6","tr":"58d1e5bd","it":"ca59f98c","hi":"ca41af21","ar":"8541ff41"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

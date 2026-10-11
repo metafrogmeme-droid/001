@@ -19653,6 +19653,54 @@ before promising what it does.
 (`token/presale/locks_plan.test.mjs`, `token/presale/smithii_sale.test.mjs`,
 `token/presale/sale_page_images.test.mjs`, `token/presale/venue_parity.test.mjs`.)
 
+**ANNOUNCING THE SALE MADE THE TOKEN RECORD A COPY OF THE SALE CONFIG.** On
+2026-10-10 the operator asked for the website and the bot to say the presale is
+announced. Both read one record, `token/config/rclaw.mainnet.json`, and both
+print a presale term exactly as the record writes it, so announcing meant
+writing the sale's terms there as sentences: a second answer to the price, the
+window, the caps, the per-wallet limits and the pool share, each already set in
+`smithii.config.json`. The sentences are derived (`smithii_lib.mjs`,
+`recordTerms`) and `the_record_states_the_sale.test.mjs` holds the record to
+them and prints what it should say. The derivation throws for a config its
+sentences cannot describe (a whitelist phase, buyer vesting, a refund, a pool off
+the sale price, a kept LP, a pool the program creates) instead of printing a
+sentence that stopped being true. The record also states what the contract does
+not do: the soft cap is "a target, not enforced", and the pool and the LP burn
+are the team's.
+
+**The other surfaces making the same claim were found by asking for them.** The
+home page's strip said "presale coming soon" in its own words, in fourteen
+languages; its one claim is the record's status, so a test reads the status and
+holds the strip's markup and its English string to it. The page's link preview
+became the promo kit's 1200x630 presale card, which prints the window, the rate,
+the hard cap and "no refunds · no buyer vesting": a third copy, in pixels. Like
+the sale-form images, it carries what it prints, here in a JPEG comment segment
+(`runeclaw-presale-og`), and a test holds that to the record and to the page's
+canonical URL. Re-saving it through an editor drops the segment, and the test
+says so.
+
+**A sale link is what a phishing clone forges first.** The record has a
+`sale_url`, null until Create. The page and the bot print it only when it is an
+https link on smithii.io or a subdomain, written plainly (no port, no userinfo,
+no whitespace, at most 300 characters). Anything else reads "unreadable", and
+the refused text is not printed at all. The two readers are two languages, so
+the rule lives twice; `tests/fixtures/sale_url_cases.json` is the one list both
+are driven against (a `.` in a lookalike host, `@` userinfo, a backslash, a
+trailing newline Python's `$` would have accepted, which is why the bot uses
+`fullmatch`). Both readers list the terms they print, and each list is held to
+the record's keys both ways, so a term added to one surface is not missing from
+the other.
+
+Mutation round: 32 mutants over the derivation, both readers, the record, the
+strip and the preview; 31 killed, one equivalent (the JS reader's explicit
+"absent sale_url is unreadable" line, which an absent key also reaches through
+the link check; kept for the reader). Not covered: the record's values print in
+English on all fourteen language versions of the page, because both readers
+print a term as written; translating them would make fourteen more copies.
+(`token/presale/the_record_states_the_sale.test.mjs`,
+`app/test/the_token_page_names_one_mint.test.js`,
+`tests/test_the_token_card_reads_the_one_record.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
