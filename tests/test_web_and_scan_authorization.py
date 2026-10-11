@@ -335,7 +335,10 @@ def test_no_web_skill_is_reachable_by_a_role_telegram_would_refuse(gateway):
     # `memory`, held by trader, paper and viewer. The comparison is that
     # permission's roles, written here so another chat-only skill cannot
     # arrive unnamed.
-    chat_only = {"draft_trade": "trade", "memory_note": "memory"}
+    chat_only = {"draft_trade": "trade", "memory_note": "memory",
+                 # `market_read` asks `analyze`, the permission of /analyze,
+                 # the same read-only question about one symbol.
+                 "market_read": "analyze"}
     assert set(chat_only) <= set(gateway._WEB_SKILL_PERMISSION)
     assert not (set(chat_only) & set(telegram)), (
         "a chat-only exemption names a skill Telegram already dispatches")

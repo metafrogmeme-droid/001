@@ -105,6 +105,16 @@ CHAT_TOOLS: tuple[ChatTool, ...] = (
         "Current risk status: drawdown against the limit, exposure, circuit "
         "breaker, whether new entries are halted and why."),
     ChatTool(
+        "market_read",
+        "The engine's own read on ONE symbol right now: direction (or none), "
+        "its score, the regime and the confluence, from the rule engine on the "
+        "analyzer's closed 1h bars. No LLM, nothing queued or placed, a few "
+        "seconds at most. Call it for 'is SOL a buy', 'what's your read on "
+        "HYPE', 'deep dive into ETH' before saying anything about that market, "
+        "and answer from what it returns. It reads no RSI, no other "
+        "timeframe, no order flow and no setup grade: do not supply them.",
+        _schema({"symbol": _SYMBOL_PARAM}, ("symbol",))),
+    ChatTool(
         "scan_market",
         "Live scan of the exchange for top movers and volume anomalies. Takes a "
         "few seconds. Use it when asked what is moving or for a market overview."),
@@ -216,7 +226,7 @@ _BY_NAME: dict[str, ChatTool] = {t.name: t for t in CHAT_TOOLS}
 #: (`chat_draft.split_tagged`), so the reading line the model gets says what
 #: the tool measured rather than "read" for any return. `whynot` also answers
 #: a slash command, where no tag belongs, so it is asked for one here.
-_TAGGED_RESULTS = frozenset({"draft_trade", "memory_note", "whynot"})
+_TAGGED_RESULTS = frozenset({"draft_trade", "memory_note", "whynot", "market_read"})
 _ASKED_FOR_A_TAG = frozenset({"whynot"})
 
 

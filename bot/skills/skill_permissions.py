@@ -92,6 +92,11 @@ SKILL_PERMISSION: dict[str, str] = {
     # The dated note the model can re-read. There is no slash command: the
     # store already holds the summary, and this only reads it.
     "memory_note": "memory",
+    # The engine's rule read on one symbol (`Analyzer.scan_read`), for the
+    # model to answer a market question from. No slash command: the nearest
+    # door is /analyze, @guard("analyze"), the same read-only question about
+    # one symbol with the LLM and levels added, so the same permission.
+    "market_read": "analyze",
     # `halt` IS the fact and it is deliberately in no transport's set. See
     # DANGEROUS_SKILLS.
     "halt": "halt",
@@ -151,6 +156,8 @@ SKILL_SAYS: dict[str, str] = {
                    "until you press Stage",
     "memory_note": "the dated note from earlier in this chat, your saved "
                    "watchlist, and a question still open",
+    "market_read": "the engine's quick read on one symbol — direction, score, "
+                   "regime — with no levels and nothing queued",
     # `halt` is in SKILL_PERMISSION because that table is the FACT, and in no
     # transport's reachable set. It is named here for the same reason: the key
     # sets are pinned equal, and an exemption would be the hole.

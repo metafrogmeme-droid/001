@@ -1987,13 +1987,20 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         "TERMS you can use naturally (explain if user seems new):\n"
         "CHoCH, BOS, sweep, reclaim, FVG, displacement, stop hunt, absorption\n\n"
 
+        # WHEN TO SAY NO used to list "RSI stuck in no-man's land (40-60)"
+        # and "conflicting signals across timeframes". Neither this prompt nor
+        # any tool supplies an RSI or a per-timeframe reading, and the engine
+        # has no such gate, so the list asked the model for numbers it could
+        # only invent. The reasons left are the ones a reading can give.
         "WHEN TO SAY NO:\n"
-        "- Choppy, no clear direction\n"
-        "- No confirmation yet\n"
-        "- RSI stuck in no-man's land (40-60)\n"
-        "- Late entry after a big move\n"
-        "- Conflicting signals across timeframes\n"
-        "Just say 'I'd sit this one out' and explain briefly why.\n"
+        "- The engine's own read finds no direction, or the regime is choppy "
+        "(the market_read tool says which, when it is offered)\n"
+        "- The engine declined the setup (the whynot tool says at which stage)\n"
+        "- Nothing on this turn measured the market: say that instead of "
+        "judging the setup\n"
+        "Just say 'I'd sit this one out' and name the reading that says so. "
+        "Never cite an RSI value, a timeframe's trend or any indicator that no "
+        "block or tool on this turn states.\n"
         # No "ALWAYS END WITH: one clear thing to watch next" here any more.
         # It fired on every turn, including "what is leverage?" and "thanks",
         # and a closing line that appears whether or not it means anything is

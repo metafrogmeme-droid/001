@@ -1397,14 +1397,15 @@ second door.
 **Writing that module produced the same defect one layer down, and it was
 fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
 other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
-whole vocabulary plus every chat tool: **58 names including `halt`,
+whole vocabulary plus every chat tool: **59 names including `halt`,
 `close_position` and `emergency_stop`**, on the function whose entire job is
 deciding what the card may promise. (The figure is a live drive of what would
 fall through TODAY, not a note of what it was the day the branch was fixed,
 which is why it moves when the router gains an intent — it was 51 before the
-sweep's own timeframes got rules, 53 before `place_order`, and 56 before
-cross-venue exposure became a routed intent.) It answered MORE for an unrecognised
-surface than for the one it modelled best (telegram, 53), because the
+sweep's own timeframes got rules, 53 before `place_order`, 56 before
+cross-venue exposure became a routed intent, and 58 before the `market_read`
+chat tool.) It answered MORE for an unrecognised
+surface than for the one it modelled best (telegram, 54), because the
 unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
 names that are not skills at all. An unmeasured surface is neither "everything"
 nor "nothing": it raises. `public` and `api` are measured — `_chat_tools_for`
@@ -21158,7 +21159,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **484 of 1263** reach for source text through `source_scan`, `code_only`
+Driven, **484 of 1264** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 484 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -21384,7 +21385,7 @@ the pending decision, so the backlog reached 9 of 30 registered skills
 (`tests/unreachable_skills_baseline.txt`, same two-way ratchet). Five of them
 were in `bot/skills/macro_skills.py`, each advertising a slash command —
 `/macro`, `/eventrisk`, `/compliance`, `/approve`, `/kill` — that no transport
-reached. The backlog is **5** of 34 registered skills now (`draft_trade` and `memory_note` are registered and reached from chat, so neither is one of the five): `/eventrisk` and
+reached. The backlog is **5** of 35 registered skills now (`draft_trade`, `memory_note` and `market_read` are registered and reached from chat, so none is one of the five): `/eventrisk` and
 `/compliance` are wired, and the deciding question was never "can it run" but
 *who should be able to run it*. `/eventrisk` reuses `macro`, a permission
 trader and paper already hold;
@@ -22608,6 +22609,32 @@ That was true of the store and not of the card, and it is true of both now.
 Thirty mutants, all killed on the first round.
 (`tests/test_why_no_trade_counts_every_analysis_by_the_stage_that_ended_it.py`,
 `bot/core/why_not.py`.)
+
+**AND THE MARKET QUESTIONS THE ROUTER MISSES WERE ANSWERED FROM NOTHING.** "is
+SOL a buy right now", "whats your read on HYPE" and "deep dive into ETH
+structure" match no router rule, so they reach the model. It had no reading of
+the market. The prompt's "WHEN TO SAY NO" asked it to judge "RSI stuck in
+no-man's land (40-60)" and "conflicting signals across timeframes", and the
+full-scan answer shape asked for "Momentum: RSI, volume, order flow" and "Setup
+quality, 1-10". No block and no tool supplies an RSI, a per-timeframe read, an
+order-flow read or a grade, and the engine has no RSI-band gate. A model that
+followed those instructions had to make the numbers up. `market_read` is
+now a chat tool over `Analyzer.scan_read`. Before it was wired, `scan_read`'s
+docstring claim was driven and holds: it asks no model, and it leaves the regime
+history, the no-trade record and the diagnostic slot as they were. Its one
+outside read is the voter-weight learner's cached file. The tool reads the
+analyzer's own closed 1h bars through `_cached_ohlcv`, under the cache key the
+sweep fills, within an 8 s budget inside `run_tool`'s 12 s. Its card lists
+what it did not read. The RSI and timeframe list is gone from the prompt, and
+each part of the full-scan shape names the reading that fills it. The tool is
+not tier-gated: it is the scan's own computation for one symbol, and `/scan`
+is free. Moving it to `pro` beside `analyze_asset` is the owner's call. The
+perpetual it falls back to for a perp-only listing is read through
+`RuneClawEngine.get_futures_exchange`, which had no caller and leaves the
+unreachable-methods baseline in this commit. Seventeen mutants, all killed on
+the first round.
+(`tests/test_a_market_question_is_answered_from_the_engines_read.py`,
+`bot/nlp/chat_market_read.py`.)
 
 ## Operational docs
 

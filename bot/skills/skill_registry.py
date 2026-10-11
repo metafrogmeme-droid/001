@@ -4350,6 +4350,8 @@ def build_default_registry() -> SkillRegistry:
     registry.register(DraftTradeSkill())
     from bot.nlp.chat_memory import MemoryNoteSkill
     registry.register(MemoryNoteSkill())
+    from bot.nlp.chat_market_read import MarketReadSkill
+    registry.register(MarketReadSkill())
     # v2 upgrade: macro intelligence, compliance, audit, kill-switch
     for skill in build_v2_skills():
         registry.register(skill)
