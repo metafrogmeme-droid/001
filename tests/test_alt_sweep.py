@@ -187,14 +187,11 @@ def test_the_fifteen_are_the_universe_and_a_major_is_not():
         assert symbol_allowed(symbol, universe) is False
     assert symbol_allowed("ADAUSDT", "") is False
 
-    allowed = check_confirm("alt sweep", cfg, "ADA/USDT:USDT", 0.9)
-    assert allowed["ok"] is True
-    assert "symbols" in allowed["enforced"]
-    refused = check_confirm("alt sweep", cfg, "BTC/USDT:USDT", 0.9)
-    assert refused["ok"] is False
-    assert "symbols" in refused["enforced"]
-    eth = check_confirm("alt sweep", cfg, "ETHUSDT", None)
-    assert eth["ok"] is False
+    # The live bot does not run the sweep, so no confirm is its trade, in
+    # its fifteen markets or out of them.
+    for asset in ("ADA/USDT:USDT", "BTC/USDT:USDT", "ETHUSDT"):
+        refused = check_confirm("alt sweep", cfg, asset, 0.9)
+        assert refused["ok"] is False and "does not run" in refused["reason"], asset
     confirm, scan = describe_gates(cfg)
     assert "symbols" in confirm
     assert "fast_period" in scan and "slow_period" in scan

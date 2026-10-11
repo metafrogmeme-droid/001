@@ -7963,7 +7963,7 @@
           <div class="row mt-2" style="gap:var(--s2);flex-wrap:wrap;margin-top:auto">
             ${labButton}
             ${window.AgentScorecard ? window.AgentScorecard.followButtonHtml(a, LOGGED_IN, _agentFollows.has(a.id)) : ''}
-            ${LOGGED_IN ? `<button class="btn btn--ghost btn--sm" data-botstrat="${esc(a.id)}" type="button">${_botStrat.slug === a.id ? '🤖 ✓ ' + esc(T('bs.on_bot', 'On your bot')) : '🤖 ' + esc(T('bs.run_b', 'Run on my bot'))}</button>` : ''}
+            ${LOGGED_IN && a.live_runs !== false ? `<button class="btn btn--ghost btn--sm" data-botstrat="${esc(a.id)}" type="button">${_botStrat.slug === a.id ? '🤖 ✓ ' + esc(T('bs.on_bot', 'On your bot')) : '🤖 ' + esc(T('bs.run_b', 'Run on my bot'))}</button>` : ''}
             <button class="btn btn--ghost btn--sm" data-agentask="${esc(a.name)}" type="button">Ask the agent</button>
           </div>
         </article>`;

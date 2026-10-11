@@ -666,6 +666,10 @@ def catalog() -> list[dict]:
             # The door that scans this rule now, for a preset the live bot
             # does not run (`strategy_scan.scan_command`); None for the rest.
             "scan": ("/" + door) if (door := _scan_door(key)) else None,
+            # Whether the live bot runs this rule. The dashboard offers "Run
+            # on my bot" only where it does: arming one it does not run is
+            # refused (`strategy_gate.arm_refusal`).
+            "live_runs": live_runs(cfg),
             # A frozen scorecard (percent/ratio only), an omission when no
             # frozen run exists, or None when this preset has neither. None
             # is not a backtest that is about to appear.
