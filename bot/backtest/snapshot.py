@@ -117,6 +117,24 @@ def _manifest_path(out_dir: str | Path) -> Path:
     return Path(out_dir) / MANIFEST_NAME
 
 
+def missing_timestamps(bars: list[BacktestBar], timeframe: str) -> list[str]:
+    """The open times of bars absent between a series' first bar and its last.
+
+    A hole is read across by every backtest as if the hour never happened, so
+    the manifest names it. Bitget's own outages leave real holes; the pager's
+    dropped page boundary left six per symbol in every dataset frozen before
+    it started each page at the last bar held.
+    """
+    from bot.backtest.data_loader import missing_bars
+    from bot.utils.candles import timeframe_to_ms
+    step = timeframe_to_ms(timeframe)
+    if step <= 0:
+        raise ValueError(f"unreadable timeframe {timeframe!r}")
+    rows = [[int(b.timestamp.timestamp() * 1000)] for b in bars]
+    return [datetime.fromtimestamp(ms / 1000, UTC).isoformat()
+            for ms in missing_bars(rows, step)]
+
+
 def build_manifest(
     out_dir: str | Path,
     timeframe: str,
@@ -138,6 +156,7 @@ def build_manifest(
             "first": srt[0].timestamp.isoformat() if srt else None,
             "last": srt[-1].timestamp.isoformat() if srt else None,
             "sha256": chash,
+            "missing": missing_timestamps(srt, timeframe),
         }
     return {
         "version": SNAPSHOT_VERSION,
@@ -179,7 +198,9 @@ async def snapshot_dataset(
         path = out / f"{safe_symbol(sym)}.csv.gz"
         DataLoader.save_csv(bars, str(path))
         per_symbol[sym] = bars
-        print(f"  ✓ {sym}: {len(bars)} bars -> {path.name}")
+        holes = missing_timestamps(sorted(bars, key=lambda b: b.timestamp), timeframe)
+        note = f" ({len(holes)} missing, named in the manifest)" if holes else ""
+        print(f"  ✓ {sym}: {len(bars)} bars -> {path.name}{note}")
 
     if not per_symbol:
         raise RuntimeError("no symbols fetched — refusing to write an empty snapshot")
@@ -307,6 +328,11 @@ def verify_dataset(out_dir: str | Path) -> tuple[bool, list[str]]:
             problems.append(f"{sym}: bar count {len(bars)} != manifest {entry.get('bars')}")
         if chash != entry.get("sha256"):
             problems.append(f"{sym}: content hash drifted from manifest")
+        if "missing" in entry:
+            holes = missing_timestamps(sorted(bars, key=lambda b: b.timestamp),
+                                       str(man.get("timeframe") or ""))
+            if holes != entry["missing"]:
+                problems.append(f"{sym}: missing bars differ from manifest")
 
     if recomputed:
         recomputed_ds = dataset_hash(recomputed)

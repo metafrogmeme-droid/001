@@ -21224,7 +21224,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **484 of 1265** reach for source text through `source_scan`, `code_only`
+Driven, **484 of 1267** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 484 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -22705,3 +22705,64 @@ takes the function by its node now (`inspect.getsource`).
 - `scripts/systemd/README.md` — supervising the two processes, and why
   `systemctl status` cannot answer whether they are healthy
 - `scripts/cloudflared/` — named-tunnel procedure for the bot gateway
+
+**THE FREEZER LOST A BAR A PAGE, AND EVERY BACKTEST READ ACROSS THE HOLE.**
+10 October, found while replicating two GetAgent playbooks on our own frozen
+bars: every symbol of `benchmark/limit_scanner_1h` held 5,993 bars where 6,000
+were asked, and the six it lacked sat at the same hours in every file, one
+every 201 hours from 13 August. Bitget still serves them.
+
+`DataLoader.from_bitget` pages past the 200-bar cap of the futures candles by
+walking forward with `since`, and started each page one bar past the last bar
+it held. Bitget answers `since` two ways: its history candles include the bar
+at `since`, and its recent candles (about the last two months) return only the
+bars after it. So every recent page lost its first bar, and nothing said so:
+the series was contiguous everywhere else, the manifest counted what it got,
+and `verify_dataset` proved the files were what the manifest said. Every
+dataset ever frozen carries it: 474 missing bars across the seven committed
+before this, six per symbol, in each one's last two months. A backtest read
+each hole as an hour that never happened: the next bar's open jumped from the
+last bar's close, and the stop and the targets were never asked about the
+hour between.
+
+The pager is one function now, `data_loader.fetch_closed_ohlcv`, and each page
+starts at the last bar already held: an inclusive answer repeats it and the
+repeat is de-duplicated, an exclusive one starts after it, and neither loses a
+bar. Re-read live, 6,000 ETH bars come back as 5,999 closed ones with no hole,
+and the 5,992 bars both reads hold are identical. A hole the venue itself
+leaves (an outage) cannot be filled by paging, so the freezer names it: each
+manifest entry carries `missing`, the open times between its first bar and
+its last with no bar, and `verify_dataset` holds the file to it both ways. The
+committed manifests name their 474 holes now; their candles are unchanged, so
+no dataset hash and no published card moves. Re-freezing them would move
+every card, which is the operator's decision, not a side effect of this fix.
+Seven mutants, all killed, the old page start among them (caught on the
+recent-candles arm alone, as it should be) and a verifier that checks one
+direction only (a manifest naming a hole the file does not have).
+(`tests/test_the_freezer_keeps_every_bar_of_every_page.py`.)
+
+**A NEW POSITION WORE AN OLD POSITION'S PRICE, AND THE DRAWDOWN GATE NEVER
+OPENED AGAIN.** 10 October, re-measuring the Limit Entry Scanner's card on
+gap-free bars: it opened nothing for its last 94 days, refused 1,481 times by
+"DRAWDOWN: 10.1% >= 10.0%", while its sampled equity sat 4.94% below its best.
+The gate was right about the number it was given. The tracker's high-water
+mark was 10,709, and the book had never been worth that: an ETH long filled at
+1,670 was valued, the moment it opened, at 2,329, the last price of an ETH
+position closed months before. `PortfolioTracker` keeps an asset's last mark
+after its position closes, and `_update_peak` values every open position at
+`_last_prices.get(asset, entry_price)`, so the next position in that asset
+wore the old price until a fresh mark arrived. The fake +39% on that
+position's notional became the peak, and a peak never comes down.
+
+A new position is marked at its fill now: the fill is the newest price the
+book has for the asset. The live paper book is the same tracker, so its
+drawdown gate had the same window between an open and the next mark. None of
+the five published house cards moves (each one's figures are identical when
+regenerated; only the stamps differ, so they are not re-recorded): their
+positions are marked every bar before the peak is read. The scanner's card is
+measured after this fix. (`tests/test_a_new_position_is_marked_at_its_fill.py`:
+a long reopened under its old mark and a short reopened over it are worth
+their margin and leave the peak alone; a fresher mark still moves them; the
+fill's mark reads as current to the chat, which prints its age. Three mutants,
+all killed; the first round left the stamp standing because no test asked the
+age.)

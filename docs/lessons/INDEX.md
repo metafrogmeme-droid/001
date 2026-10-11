@@ -283,3 +283,5 @@ about to change before changing it.
 - L22646: THE NUDGE READ 110,529 ROWS FOR EVERY IDEA, AND THE STALL HAD NO NAME — `tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`
 
 ## Operational docs (line 22699)
+
+- L22709: THE FREEZER LOST A BAR A PAGE, AND EVERY BACKTEST READ ACROSS THE HOLE — `tests/test_a_new_position_is_marked_at_its_fill.py`, `tests/test_the_freezer_keeps_every_bar_of_every_page.py`
