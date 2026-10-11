@@ -167,7 +167,7 @@ tune before launch, not a fixed parameter:
 |---|---:|---:|---|
 | Public presale | 15% | 150,000,000 | **None** — claimable in full when the sale ends (Smithii's `claim` runs once per buyer) |
 | DEX liquidity | 2.0001% | 20,001,000 | Paired with raised SOL by the operator after the sale; LP burned by the operator (not enforced by the program) |
-| Community & ecosystem (staking emissions, airdrops, rewards) | 25% | 250,000,000 | 5 unlocks of 20%: at TGE, then every 9 months (the last at month 36) — **Smithii Vesting** (Cliffs) |
+| Community & ecosystem (staking emissions, airdrops, rewards) | 25% | 250,000,000 | 5 unlocks (5%, 20%, 25%, 25%, 25%): at TGE, then every 9 months (the last at month 36) — **Smithii Vesting** (Cliffs) |
 | Team & contributors | 15% | 150,000,000 | 12-month cliff, then 4 unlocks of 25% every 6 months (the last at month 36) — **Smithii Vesting** (Cliffs) |
 | Treasury / DAO | 20% | 200,000,000 | DAO-controlled multisig, time-locked |
 | Partnerships & market makers | 8% | 80,000,000 | Deal-by-deal, 6–12 months |
@@ -179,7 +179,10 @@ tune before launch, not a fixed parameter:
 > tool, not as Streamflow streams, and that tool has **no linear mode**: a schedule is a
 > **staircase of at most five dated unlocks**, each a whole percent, claimable in full once its
 > date has passed. "Cliff, then linear" therefore became steps placed on the old line and never
-> above it (team: 25% by month 18, 50% by 24, 75% by 30, 100% by 36). Months count from T0, the
+> above it (team: 25% by month 18, 50% by 24, 75% by 30, 100% by 36). Community has no cliff, so
+> it starts with a **5% launch tranche** (12,500,000 RCLAW, for launch rewards and airdrops) and
+> then sits exactly on its 36-month line: 25% by month 9, 50% by 18, 75% by 27 (operator's
+> decision 2026-10-11; five equal 20% steps would have been 40% by month 9). Months count from T0, the
 > sale's scheduled end. One vesting exists per wallet per token, so each lock has its own wallet,
 > and only that wallet can claim; nothing can cancel or edit a lock. The tool's program is
 > **upgradeable**, by the same off-curve authority as Smithii's sale program (who can sign for it
@@ -238,7 +241,7 @@ the presale price unless `--accept-below-presale` is passed, and
 
 **Circulating supply at TGE (approx):** the whole presale — buyers claim 100% when the sale
 ends, up to ≈ 150.0M at the hard cap — plus the pool's RCLAW (≈ 24.0M at the soft cap, ≈ 120.0M
-at the hard cap) plus any airdrop TGE tranche: about **27% of supply at the hard cap**,
+at the hard cap) plus the community's 5% launch tranche (12.5M): about **28% of supply at the hard cap**,
 against the ≈ 7% the 33%-unlock design gave. Team, treasury, advisors and reserve are locked at
 TGE **only once the team has created those locks**, which is not done (§11); until then one
 wallet holds them. A full **emissions / circulating-supply-over-time chart** should be
@@ -401,8 +404,8 @@ wallet whitelist, refund, or create or lock liquidity**, and it never reads the 
 terms in §4, §5, §7 and §10 are the Smithii sale's terms.
 
 What staying on Smithii costs, against the design this document used to prefer: buyers hold
-100% at the end of the sale (about 27% of supply tradeable at TGE at the hard cap, not
-about 7%); the pool and the LP burn are the operator's actions, verifiable afterwards but not
+100% at the end of the sale (about 28% of supply tradeable at TGE at the hard cap, the
+community's 5% launch tranche included, not about 7%); the pool and the LP burn are the operator's actions, verifiable afterwards but not
 enforced; buyers' SOL reaches the operator at every purchase; and the program is upgradeable by
 Smithii. What it buys: a program that was audited (2024, for Smithii), no integration code to
 maintain, and an **edit window** — until the first phase starts, a wrong value can still be
@@ -899,8 +902,8 @@ Everything below is a **proposed default that the team must ratify** — nothing
 - **Total supply & decimals** (1B / 9 assumed).
 - **Allocation percentages and all vesting schedules** (§4) — except the two rows below,
   which are now settled. The three schedules are the steps in `token/presale/locks.plan.json`,
-  proposed 2026-10-10: community unlocks 20% at TGE (a staircase of five cannot start at zero
-  and end at month 36 in equal steps), and the clock time of the sale window, 14:00 UTC, is
+  proposed 2026-10-10: community unlocks 5% at TGE (12.5M, the launch tranche; the operator's
+  decision of 2026-10-11, it was 20%) and then follows its 36-month line, and the clock time of the sale window, 14:00 UTC, is
   unconfirmed (`smithii.config.json` → `schedule`).
 - ~~**DEX liquidity allocation**~~ — **settled: 20,001,000 (2.0001%)**, ratified 2026-07-26,
   with the 79,999,000 difference moved to the reserve bucket and earmarked for post-TGE

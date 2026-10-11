@@ -90,7 +90,7 @@ The sale program locks and vests **nothing** — that is the team's job, and it 
 The plan is three time locks made with Smithii's Token Vesting tool, each in its own wallet,
 with every address published **before the sale opens**:
 
-- **Community & ecosystem:** 5 unlocks of 20%: at TGE, then every 9 months (the last at month 36)
+- **Community & ecosystem:** 5 unlocks (5%, 20%, 25%, 25%, 25%): at TGE, then every 9 months (the last at month 36)
 - **Team & contributors:** 12-month cliff, then 4 unlocks of 25% every 6 months (the last at month 36)
 - **Advisors:** 6-month cliff, then 3 unlocks (33%, 33%, 34%) every 6 months (the last at month 24)
 
