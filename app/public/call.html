@@ -89,6 +89,7 @@ function sameAfterStorage(key, sealed, live) {
 <!-- Loaded BEFORE the renderer, not deferred: the receipt reads it inside a
      fetch callback, and "usually resolved by then" is a race, not an order. -->
 <script src="/js/thesis-model.js?v=2"></script>
+<script src="/js/confidence-score.js?v=1"></script>
 <script src="/js/signal-status-model.js?v=1"></script>
 <script src="/js/anchor_cell.js?v=1"></script>
 <script>
@@ -255,7 +256,15 @@ function sameAfterStorage(key, sealed, live) {
           // figure: `Math.round((null || 0) * 100) + '%'` is a confident 0%
           // confidence, and `'' + null` is the word "null" on a receipt.
           var val = function (x) { return (x === null || x === undefined) ? '—' : String(x); };
-          var pct = function (x) { return (x === null || x === undefined) ? '—' : Math.round(x * 100) + '%'; };
+          // A sealed confidence is a SCORE no curve has mapped to outcomes, and
+          // `70%` read as a probability. The words are RCConfidenceScore's; a
+          // page where it did not load prints the sealed number as sealed.
+          var conf = function (x) {
+            if (x === null || x === undefined) return '—';
+            var CS = window.RCConfidenceScore;
+            var t = CS ? CS.text(x) : null;
+            return t === null ? String(x) : t;
+          };
           // AND A SEALED `thesis` IS NOT NECESSARILY A REASON. The bot stamps a
           // provenance tag — `[gpt-4o|TREND_UP|swing|C=0.68] ` — in front of
           // whatever the model said, and the model sometimes says nothing at
@@ -275,7 +284,7 @@ function sameAfterStorage(key, sealed, live) {
             + '<span class="k">Call</span><span><b class="' + dirCls + '">' + esc(p.direction) + '</b> ' + esc(p.symbol) + '</span>'
             + '<span class="k">Entry</span><span>' + esc(val(p.entry_price)) + '</span>'
             + '<span class="k">Stop / Target</span><span>' + esc(val(p.stop_loss)) + ' / ' + esc(val(p.take_profit)) + '</span>'
-            + '<span class="k">Confidence</span><span>' + esc(pct(p.confidence)) + '</span>'
+            + '<span class="k">Confidence</span><span>' + esc(conf(p.confidence)) + '</span>'
             + (p.pattern ? '<span class="k">Pattern</span><span>' + esc(p.pattern) + '</span>' : '')
             + (p.regime ? '<span class="k">Regime</span><span>' + esc(p.regime) + '</span>' : '')
             // The reasoning, shown ONLY when it is inside the hash. A v1
@@ -332,7 +341,7 @@ function sameAfterStorage(key, sealed, live) {
     .catch(function () { fail('The verify feed is unavailable right now — try again shortly.'); });
 })();
 </script>
-<script src="/js/i18n-core.js?v=168"></script>
+<script src="/js/i18n-core.js?v=169"></script>
   <script>
   (function () {
     // The share payload is the receipt URL + an honest line. No numbers ride

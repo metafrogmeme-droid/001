@@ -106,7 +106,7 @@
   ["arena.sig_unknown", "エンジンのコールを読み込めませんでした — このリストは空ではなく、不明です。"],
   ["arena.sig_drift", "コール以降 {p}% 動いた"],
   ["arena.sig_drift_t", "コールが出てから市場がどれだけ動いたか。約定はライブのマーク価格で、この価格ではありません。"],
-  ["arena.sig_conf", "確信度 {p}%"],
+  ["arena.sig_conf", "確信度スコア {p}（未較正）"],
   ["arena.sig_now", "たった今"],
   ["arena.sig_min", "{n} 分前"],
   ["arena.sig_hr", "{n} 時間前"],

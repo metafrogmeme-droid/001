@@ -163,7 +163,7 @@ class TestPendingIdeasReachThePrompt:
         idea = NS(asset="SOL/USDT", direction=NS(value="LONG"),
                   confidence=0.72, entry_price=180.0)
         out = self._block(NS(pending_ideas=[idea]))
-        assert "SOL/USDT" in out and "LONG" in out and "72%" in out
+        assert "SOL/USDT" in out and "LONG" in out and "score 72 (uncalibrated)" in out
 
     def test_an_empty_queue_says_so(self):
         out = self._block(NS(pending_ideas=[]))

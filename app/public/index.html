@@ -949,14 +949,15 @@
   </form>
 </section>
 
-<script src="/js/i18n-core.js?v=168"></script>
+<script src="/js/i18n-core.js?v=169"></script>
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=4"></script>
 <script src="/js/app.js?v=15"></script>
 <script src="/js/copilot-review-model.js?v=3" defer></script>
 <script src="/js/trade-confirm-model.js?v=2" defer></script>
+<script src="/js/confidence-score.js?v=1"></script>
 <script src="/js/chat-caption.js?v=1" defer></script>
-<script src="/js/chat.js?v=38" defer></script>
+<script src="/js/chat.js?v=39" defer></script>
 <script src="/js/theater.js?v=2" defer></script>
 <!-- Before the inline script below: its catalogue fetch can answer before the
      parser reaches a later tag, and the cards then painted with no painter. -->
@@ -1923,10 +1924,17 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
           parts.push((window.T ? window.T(lv[i][0], lv[i][1]) : lv[i][1]) + ' ' + v);
         }
       }
+      // The signal row's confidence is on a 0-1 scale (the bot sends
+      // `displayed_confidence(idea).value`), and `Math.round(conf) + '%'`
+      // printed a sealed 0.72 as "1%". It is a score no curve has mapped to
+      // outcomes, so RCConfidenceScore words it; without that script the
+      // figure is omitted like any other unread part.
       var conf = num(cur.confidence);
-      if (conf !== null && conf > 0) {
+      var CS = window.RCConfidenceScore;
+      var confText = CS ? CS.text(conf) : null;
+      if (conf !== null && conf > 0 && confText !== null) {
         parts.push((window.T ? window.T('lc.conf', 'confidence') : 'confidence')
-          + ' ' + Math.round(conf) + '%');
+          + ' ' + confText);
       }
       document.getElementById('lcLevels').textContent = parts.join(' · ');
       document.getElementById('lcSeal').textContent = d.seal;

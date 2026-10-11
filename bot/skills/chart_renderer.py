@@ -1575,7 +1575,7 @@ def _idea_meta(idea):
     # `idea.confidence` into the image -- the figure the calibration curve and
     # the setup-expectancy nudge left on the field -- under a caption and a
     # signal row that print the blend, so one alert carried two confidences.
-    bits.append(f"conf {displayed_confidence(idea).pct()}")
+    bits.append(f"conf {displayed_confidence(idea).text()}")
     rr = getattr(idea, "risk_reward_ratio", None)
     if isinstance(rr, (int, float)) and rr > 0:
         bits.append(f"R:R 1:{rr:.1f}")

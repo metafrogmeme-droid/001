@@ -64,6 +64,10 @@ from tests.png_text import drawn, fill_of, strings
 
 _SRC = pathlib.Path("bot/formatters/signal_card.py")
 
+#: The label the signal card draws over its one confidence cell: a score,
+#: never a percent (`bot.core.signal_confidence`).
+CONF_LABEL = "SCORE (UNCALIBRATED)"
+
 
 class TestTheReading:
     """`pct_on_record` is a percent's reading, not a price's."""
@@ -122,9 +126,9 @@ class TestTheSeamItself:
         appears nowhere, which a substring match refuses too — so it measured
         nothing about the comparison it names."""
         rows = drawn(SC.render_signal_card, {"confidence": 0.72})
-        assert fill_of(rows, "CONFIDENCE") == SC._GRAY
+        assert fill_of(rows, CONF_LABEL) == SC._GRAY
         with pytest.raises(AssertionError):
-            fill_of(rows, "CONF")
+            fill_of(rows, "SCORE")
 
 
 class TestTheAlphaCardsChange:
@@ -281,13 +285,13 @@ class TestTheSignalCardsConfidence:
         while every PRICE beside it abstains through `_fmt`."""
         rows = drawn(SC.render_signal_card, {})
         drew = [t for t, _ in rows]
-        assert "CONFIDENCE" in drew and "0%" not in drew
-        i = drew.index("CONFIDENCE")
+        assert CONF_LABEL in drew and "0" not in drew
+        i = drew.index(CONF_LABEL)
         assert rows[i + 1] == ("—", SC._GRAY)
 
     def test_a_measured_zero_confidence_still_prints(self):
         rows = drawn(SC.render_signal_card, {"confidence": 0.0})
-        assert fill_of(rows, "0%") == SC._CYAN
+        assert fill_of(rows, "0") == SC._CYAN
 
     def test_a_none_confidence_no_longer_takes_the_card_down(self):
         """`if confidence <= 1` raised on an explicit unread key, so a
@@ -303,8 +307,10 @@ class TestTheSignalCardsConfidence:
         renderer reads no `score` key. Both cells were reachable at once, so
         one figure appeared twice side by side."""
         drew = strings(SC.render_signal_card, data)
-        assert not ("CONFIDENCE" in drew and "SCORE" in drew)
-        assert drew.count("CONFIDENCE") <= 1
+        # One label now, so the pair the old assertion looked for cannot
+        # occur; what still could is the one label drawn in both cells.
+        assert drew.count(CONF_LABEL) <= 1
+        assert "CONFIDENCE" not in drew and "SCORE" not in drew
 
     def test_the_fourth_site_omits_rather_than_losing_the_line(self):
         """The auto-summary is the site a scan for the three CELLS misses.
@@ -316,7 +322,7 @@ class TestTheSignalCardsConfidence:
         with_score = [t for t in strings(SC.render_signal_card,
                                          {"rsi": 61, "confidence": 0.72})
                       if "bias" in t]
-        assert with_score == ["LONG bias | RSI 61.0 | Score 72%"]
+        assert with_score == ["LONG bias | RSI 61.0 | score 72 (uncalibrated)"]
 
 
 class TestTheCloseCardsHold:

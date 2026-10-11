@@ -32,7 +32,7 @@ from bot.utils.outbound import reply_safe
 from bot.utils.tg_retry import send_with_retry
 from bot.utils.leveraged_return import _leveraged_return_pct, position_leverage
 from bot.core.live_executor import entry_is_estimated, position_size_basis
-from bot.core.signal_confidence import displayed_confidence
+from bot.core.signal_confidence import SCORE_MEANING, displayed_confidence
 from bot.core.cost import (
     CHAT_OWN_BOUND, CHAT_SHARE_BOUND, chat_budget_bound, chat_spend_usd,
 )
@@ -2635,8 +2635,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 _d = getattr(getattr(idea, "direction", None), "value",
                              getattr(idea, "direction", "?"))
                 # The one reading the idea's cards show; a stamp says it was
-                # not measured rather than handing the model a 100%.
-                _conf_txt = f", confidence {displayed_confidence(idea).pct()}"
+                # not measured rather than handing the model a 100%. A score,
+                # not a percent: "confidence 72%" handed the model a
+                # probability's spelling with nothing saying it was not one,
+                # and the header now says what the score is.
+                _conf_txt = f", confidence {displayed_confidence(idea).text()}"
                 _entry_raw = getattr(idea, "entry_price", _MISSING)
                 if _entry_raw is _MISSING:
                     _entry_txt = ""
@@ -2657,8 +2660,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         _more = (f"\n  ...and {len(ideas) - len(rows)} more"
                  if len(ideas) > len(rows) else "")
         return ("\n\nPENDING TRADE IDEAS (the bot's own queue, awaiting "
-                "confirmation — NOT open positions):\n" + "\n".join(rows)
-                + _more + _manual_note)
+                "confirmation — NOT open positions). " + SCORE_MEANING + "\n"
+                + "\n".join(rows) + _more + _manual_note)
 
     async def _llm_chat(self, question: str, user_id: str = "",
                         user_name: str = "",
@@ -3809,7 +3812,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 # A hand-typed ticket says "not measured" rather than the 100%
                 # `build_manual_idea` stamps on every one of them.
                 _conf_read = displayed_confidence(new_idea)
-                cap = f"<b>{pair} {d}</b>{st_str} | Conf {_conf_read.pct()}"
+                cap = f"<b>{pair} {d}</b>{st_str} | Conf {_conf_read.text()}"
                 card_sent = await self._send_photo(update, png, cap, reply_markup=kb)
         except Exception:
             pass

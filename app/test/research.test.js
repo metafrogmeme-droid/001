@@ -103,6 +103,10 @@ test('buildDossier: PENDLE gets market + RWA + signals + track sections, each so
   const sig = d.sections.find(s => s.title === 'Engine signal history');
   assert.match(sig.html, /1 recorded signal/);
   assert.match(sig.html, /1 long \/ 0 short/);
+  // The rows' confidence is a score no curve has mapped to outcomes, so the
+  // mean is worded as one, never as a percent.
+  assert.match(sig.html, /mean confidence score 80 \(uncalibrated\)/);
+  assert.ok(!/%/.test(sig.html), sig.html);
   const tr = d.sections.find(s => s.title === 'Agent track record here');
   assert.match(tr.html, /1<\/b> trade/);
   // No dollar figure: this used to pin `+$50.00`, the operator's realized net

@@ -64,7 +64,7 @@ class TradeCritique:
         _conf_read = displayed_confidence(idea)
         if _conf_read.above(self.HIGH_CONFIDENCE_WARN):
             concerns.append(
-                f"Suspiciously high confidence ({_conf_read.pct()}) — "
+                f"Suspiciously high confidence ({_conf_read.text()}) — "
                 "model may be overfitting to recent pattern")
             confidence_adj -= 0.05
 

@@ -9739,8 +9739,8 @@ class RuneClawEngine:
                 _pyr_conf = displayed_confidence(idea)
                 if not _pyr_conf.clears(0.70):
                     audit(scan_log,
-                          f"Pyramid skipped: confidence {_pyr_conf.pct()} "
-                          f"({_pyr_conf.basis}) < 70% for {idea.asset}",
+                          f"Pyramid skipped: confidence {_pyr_conf.text()} "
+                          f"({_pyr_conf.basis}) < score 70 for {idea.asset}",
                           action="pyramid_low_conf", result="SKIPPED")
                     return "skip"
 
@@ -9765,7 +9765,7 @@ class RuneClawEngine:
                 is_pyramid_add = True
                 audit(scan_log,
                       f"Pyramid APPROVED: {idea.asset} {r_achieved:.2f}R profit, "
-                      f"conf {_pyr_conf.pct()} ({_pyr_conf.basis})",
+                      f"conf {_pyr_conf.text()} ({_pyr_conf.basis})",
                       action="pyramid_approved", result="APPROVED",
                       data={"r_achieved": round(r_achieved, 2),
                             "confidence": _pyr_conf.value,

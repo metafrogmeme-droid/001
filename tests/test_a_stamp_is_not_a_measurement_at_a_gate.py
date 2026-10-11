@@ -183,13 +183,13 @@ class TestTheCritiqueFlagsWhatTheModelSaid:
         over, r = _overconfidence(
             _idea(confidence=0.31, blended_confidence_raw=0.95))
         assert over, "a measured 95% blend was not flagged"
-        assert "95%" in over[0], over[0]
+        assert "score 95 (uncalibrated)" in over[0], over[0]
         assert r.confidence_adjustment == pytest.approx(-0.05)
 
     def test_the_sentence_quotes_the_measured_figure(self):
         over, _ = _overconfidence(
             _idea(confidence=0.31, blended_confidence_raw=0.95))
-        assert "31%" not in over[0], (
+        assert "score 31" not in over[0], (
             "the concern quoted the calibrated field, which is not the "
             "quantity its 0.90 bar is on")
 
@@ -218,7 +218,7 @@ class TestTheCritiqueFlagsWhatTheModelSaid:
         try:
             cq.displayed_confidence = lambda _i: ConfidenceReading(0.99, "blend")
             over, _ = _overconfidence(_idea(confidence=0.10))
-            assert over and "99%" in over[0], over
+            assert over and "score 99 (uncalibrated)" in over[0], over
         finally:
             cq.displayed_confidence = real
 
@@ -303,8 +303,8 @@ class TestThePublicPostAndTheCaptions:
         idea = _idea(confidence=0.31, blended_confidence_raw=0.70)
         asyncio.run(fwd.post_signal(idea))
         assert sent, "the forwarder sent nothing"
-        assert "Confidence: <code>70%</code>" in sent[0], sent[0]
-        assert "31%" not in sent[0]
+        assert "Confidence: <code>score 70 (uncalibrated)</code>" in sent[0], sent[0]
+        assert "score 31" not in sent[0]
 
     def test_the_public_post_says_a_stamp_was_not_measured(self):
         import asyncio
@@ -321,7 +321,7 @@ class TestThePublicPostAndTheCaptions:
         fwd._post = _post
         asyncio.run(fwd.post_signal(_idea(**STAMP)))
         assert sent
-        assert "100%" not in sent[0], (
+        assert "score 100" not in sent[0], (
             "a ticket the operator typed was published as a measured 100% "
             "on the public channel")
         assert "not measured" in sent[0], sent[0]

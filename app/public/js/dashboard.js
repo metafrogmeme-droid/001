@@ -2911,8 +2911,13 @@
         mustRead(r);
         const sigs = r.data?.signals || [];
         if (!sigs.length) return null;
+        // A signal's confidence is a score no curve has mapped to outcomes,
+        // printed as one (`72%` read as a probability). An absent wording
+        // model is a script that did not load, not a column of nothing.
+        const CS = self.RCConfidenceScore;
+        if (!CS) throw new Error('confidence-score.js did not load');
         return `<div class="tbl-wrap"><table class="tbl tbl--collapse">
-          <thead><tr><th>Signal</th><th class="r">Conf.</th><th class="r">Entry</th><th class="r">Stop / Target</th><th class="r">R:R</th><th>Status</th><th class="r">Age</th><th class="r"></th></tr></thead>
+          <thead><tr><th>Signal</th><th class="r">Score</th><th class="r">Entry</th><th class="r">Stop / Target</th><th class="r">R:R</th><th>Status</th><th class="r">Age</th><th class="r"></th></tr></thead>
           <tbody>${sigs.map(s => {
             // `Number(s.pnl) > 0 ? WIN : LOSS` called a break-even resolution a
             // LOSS, and the server no longer publishes the amount anyway — the
@@ -2959,7 +2964,7 @@
                   <div class="sc-slot" data-sc-sym="${esc(dsContract(s.symbol))}" data-sc-label="${esc(dsBase(s.symbol))}"
                        data-sc-geo='${esc(JSON.stringify({ entry: s.entry_price, stop: s.stop_loss, target: s.take_profit, direction: s.direction }))}'
                        aria-busy="true"><div class="skel skel--sc"></div></div></td>
-              <td data-label="Conf." class="r num">${Math.round((s.confidence || 0) * 100)}%</td>
+              <td data-label="Score" class="r num">${esc(CS.text(s.confidence) || '—')}</td>
               <td data-label="Entry" class="r num">${fmtPrice(s.entry_price)}</td>
               <td data-label="Stop / Target" class="r num muted">${fmtPrice(s.stop_loss)} / ${fmtPrice(s.take_profit)}</td>
               <td data-label="R:R" class="r num">${fmt(s.rr, 1)}</td>
@@ -8040,7 +8045,7 @@
           return `<div class="row" style="gap:8px;align-items:center;padding:5px 0;border-top:1px solid rgba(128,128,128,.12)">
               <b>${esc(String(s.symbol || '').replace(/[:/].*$/, ''))}</b>
               <span class="chip ${sideKnown ? (up ? 'chip--up' : 'chip--down') : 'muted'}" style="font-size:10px">${sideKnown ? (up ? 'LONG' : 'SHORT') : '— no direction'}</span>
-              <span class="muted small">conf ${s.confidence != null ? (Number(s.confidence) * 100).toFixed(0) + '%' : '—'}${s.regime ? ' · ' + esc(s.regime) : ''}</span>
+              <span class="muted small">confidence ${esc((self.RCConfidenceScore && self.RCConfidenceScore.text(s.confidence)) || '—')}${s.regime ? ' · ' + esc(s.regime) : ''}</span>
               <button class="btn btn--sm btn--primary" data-pcopy='${esc(JSON.stringify({ k: s.signal_key, a: g.id }))}' style="margin-left:auto">${esc(T('rec.copy_b', '⚔️ Copy to Arena'))}</button>
               <button class="btn btn--sm btn--ghost" data-ptrade='${pt}'>${esc(T('rec.ticket_b', 'Ticket'))}</button></div>`;
         }).join('');

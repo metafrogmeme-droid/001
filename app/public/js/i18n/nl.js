@@ -106,7 +106,7 @@
   ["arena.sig_unknown", "Kon de calls van de motor niet laden — deze lijst is onbekend, niet leeg."],
   ["arena.sig_drift", "{p}% bewogen sinds de call"],
   ["arena.sig_drift_t", "Hoever de markt is bewogen sinds de call werd geplaatst. Je wordt gevuld op de live koers, niet op deze prijs."],
-  ["arena.sig_conf", "vertrouwen {p}%"],
+  ["arena.sig_conf", "vertrouwensscore {p} (niet gekalibreerd)"],
   ["arena.sig_now", "zojuist"],
   ["arena.sig_min", "{n} min geleden"],
   ["arena.sig_hr", "{n} uur geleden"],
