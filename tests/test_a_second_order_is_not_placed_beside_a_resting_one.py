@@ -296,8 +296,10 @@ def test_the_analysis_asks_the_seam_once_and_maps_its_three_words():
         return found[0].body
 
     skip = _branch("skip")
-    assert len(skip) == 1 and isinstance(skip[0], ast.Return)
-    assert isinstance(skip[0].value, ast.Constant) and skip[0].value.value is None
+    # The skip records the drop for /whynot ("held"), then returns no idea.
+    assert len(skip) == 2 and isinstance(skip[-1], ast.Return)
+    assert ast.unparse(skip[0]) == "self._why_not_dropped(idea, 'held')"
+    assert isinstance(skip[-1].value, ast.Constant) and skip[-1].value.value is None
     pyramid = _branch("pyramid")
     assert len(pyramid) == 1
     assert ast.unparse(pyramid[0]) == "self._pending_pyramid[idea.id] = True"
