@@ -20512,6 +20512,44 @@ stream lives in one instance and ends with it.
 (`app/test/request_limits_are_shared_by_every_instance.test.js`,
 `app/test/every_request_limit_has_its_own_bucket.test.js`.)
 
+**A NEW INSTANCE GETS TRAFFIC BEFORE IT IS READY, SO ONE CALL IN TEN SAID "STARTING".**
+Measuring the shared limit on the live site after #585 shipped, 8 of 55 calls
+to a public endpoint in one minute came back 503, not 429. A second sample read
+`/readyz` once a second for three minutes: 8 of 73 answers were
+`{"ready":false,"reason":"starting","attempts":0}`, in two runs of roughly 8 to
+12 seconds, one per new instance. The host starts routing calls to an instance
+as soon as its port is open, and the not-ready gate in `server.js` answers every
+`/api/` call `starting` until the instance's first schema check returns. Panels
+said "the website's database is not ready yet" at random while the instance
+beside them was answering normally. The port is bound before the database is
+touched on purpose (`boot_resilience.test.js`: binding late was a blackout and a
+crash loop when the database was down), so that order stays.
+
+The host spreads calls across the instances that are up, so the same call made
+a moment later almost always reaches a ready one. `public/js/api-retry.js` is
+the first script on every page (all 42 static pages, and first in the script
+list the `/embed` and `/miniapp` pages build), and wraps `fetch` once. It
+retries only the site's own `/api/` URLs, only a 503 whose body is the gate's
+`{error: 'starting', reason: 'starting'}` (a `db_*` reason is an outage every
+instance shares, and retrying it only delays the error the page should show),
+only a request that can be sent again unchanged, and at most three times over
+about 2.3 seconds, inside the 8 to 10 seconds the pages give a call. A POST is
+safe to send again because the gate refuses before any route runs; a test holds
+that the gate is the one place in the app that answers `starting`, so no route
+that did work can be repeated. Thirty pages fetch from inline code, which is why
+it wraps `fetch` rather than one helper: per-call fixes would have been about
+fifty places to keep in step.
+
+The instance now records what the window costs: `migration_ok` in `/diagz`
+carries `check_ms` (the database check) and `ready_after_ms` (from process start),
+so the 8 to 12 seconds can be taken apart from a deploy instead of guessed at.
+If the host can be told to send traffic only once `/readyz` answers 200, the
+window disappears at the source, and this retry is then only a backstop.
+Seventeen mutants, all killed after one round: the first left one standing, a
+retry that read the 503 body itself instead of a copy, because no test read the
+body of a 503 the retry decided to leave alone; a page could then not have shown
+"database unreachable". (`app/test/the_pages_retry_the_sites_own_starting_answer.test.js`.)
+
 ## Writing tests that scan source
 
 Strip comments first. A comment that quotes the string it forbids is
@@ -21345,7 +21383,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **489 of 1292** reach for source text through `source_scan`, `code_only`
+Driven, **489 of 1293** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 489 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -23558,3 +23596,35 @@ and three. Each fixture now holds the two readings apart.
 `app/test/a_strategy_scan_shows_its_board_or_says_why.test.js`,
 `tests/test_the_preset_list_names_doors_that_open.py`.)
 
+**THE CLOSE AND THE STOP SENT THE RECORD'S SIZE, AND THE VENUE HELD LESS.**
+11 October, live: an M/USDT short. Every close was refused, on the card's tap
+and on `/liveclose`, with Bitget 25231, "Close quantity cannot exceed the held
+position quantity". Its stop was refused too (25610), so the position sat open
+with no stop until the operator closed it by hand. MUSDT trades in whole units
+(`volumePlace` 0). The market close, the classic stop leg and the classic stop
+replacement all sent `pos.quantity`, the record's size. Reconcile reads the
+venue's size and only reports drift, by design: the ladder, a pyramid and a
+close in flight all diverge from a snapshot. So nothing ever corrected a record
+that said more than the venue held, and every order that reduces the position
+asked for more than there was.
+
+The size is read where the order is sent now (`_sized_to_venue`). It is the
+record's size, never more than the venue holds on that side
+(`order_state.held_on_side`, `amount_to_send`), truncated to the market's grid.
+A book that cannot be read sends the record's size, as before; so does a book
+that reads flat, whose meaning stays the close verification's to decide. The
+record is not rewritten, for reconcile's reason. The close-failed answer
+printed the venue's raw JSON; it names the refusal's class and the venue's code
+now, with words for the two codes met (`refusal_text`). The record's excess is
+not explained by this fix. The limit-fill path writes the requested size when
+the venue states no fill quantity (`order.get("filled", 0) or pos.quantity`),
+which would produce exactly this record on a partial fill; that is the next
+thing to measure, not something this change claims.
+(`tests/test_a_close_and_a_stop_send_what_the_venue_holds.py`: the held size
+is this side's rows summed and unread when a row cannot be sized; only a
+positive reading caps; the real close and both classic stop paths send the
+held size, or the record on the grid when the venue holds more or cannot be
+read; a refused close names the code and not the JSON. Eight mutants, all
+killed. Two close-verification fixtures answered a fixed list of book reads
+and were given the sizing read in front, one of them having passed only
+because the extra read had shifted its own readings.)
