@@ -19701,6 +19701,24 @@ print a term as written; translating them would make fourteen more copies.
 `app/test/the_token_page_names_one_mint.test.js`,
 `tests/test_the_token_card_reads_the_one_record.py`.)
 
+**THE COMMUNITY LOCK RAN AHEAD OF ITS LINE AT EVERY STEP, AND ITS NOTE SAID ONLY AT TGE.** The
+plan of 2026-10-10 made the community lock five equal 20% steps, and its note called it "the one
+schedule that sits ABOVE the old straight line at TGE (20% against 0%)". Asked for the best
+schedule on 2026-10-11, the three candidates were run through `locksProblems` and their
+cumulative shares set beside the line: five equal steps were 40% by month 9 against 25%, 60% by
+18 against 50%, 80% by 27 against 75%, and 50,000,000 claimable on the first day. The cliffed
+targets already had a line check; a target with no cliff (`releaseMonths`) had none, so nothing
+could have said so. The operator chose a 5% launch tranche (12,500,000, for launch rewards and
+airdrops; staking is not live) and then the line exactly: 5, 20, 25, 25, 25. The target now
+states `tgeMaxPercent`, and the checker refuses a TGE step above it, a no-cliff target without
+it, and any later step ahead of the straight release; the old plan fails on all four counts. A
+nine-month cliff (nothing at TGE) was the third candidate: the checker refused it, because the
+roadmap promises no cliff here, and the operator kept the promise. The tokenomics images carry
+only the short note ("5 unlocks: at TGE, then every 9 mo"), which is true of both plans, so
+they were not redrawn. A note that describes a schedule is a reading of it; hold it to the
+numbers the way the steps are held, or it says less than they do.
+(`token/presale/locks_plan.test.mjs`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
