@@ -959,7 +959,7 @@ class AnalyzeAssetSkill(BaseSkill):
             f"<pre>"
             f"{ladder}"
             f"</pre>\n\n"
-            f"  {conf_ring} Confidence \u2502{conf_bar}\u2502 {_pill(_conf.pct())}\n"
+            f"  {conf_ring} Confidence \u2502{conf_bar}\u2502 {_pill(_conf.text())}\n"
             f"  \u2606 Risk:Reward {_stars(rr)} {_pill(f'{rr}x')}\n\n"
             f"{record_line}"
             f"{thesis_bq}"
@@ -1515,7 +1515,7 @@ class ExplainTradeSkill(BaseSkill):
                     f"{_BOOK} <b>EXPLANATION</b>\n{SEP}\n\n"
                     f"  {d_icon} {_pill(idea.id)}\n"
                     f"  {idea.direction.value} {_esc(idea.asset)}\n\n"
-                    f"- Confidence: <code>{displayed_confidence(idea).pct()}</code>\n"
+                    f"- Confidence: <code>{displayed_confidence(idea).text()}</code>\n"
                     + _explain_votes_line(idea)
                     + (f"- Provenance: <code>{_esc(tag)}</code>\n" if tag else "")
                     + "\n"
@@ -1548,7 +1548,7 @@ class ExplainTradeSkill(BaseSkill):
             d_icon = _OK if i.direction.value == "LONG" else _BAD
             lines.append(f"  {d_icon} <code>{_esc(i.id)}</code> "
                          f"{i.direction.value} {_esc(i.asset)} \u00b7 "
-                         f"{displayed_confidence(i).pct()}")
+                         f"{displayed_confidence(i).text()}")
         if others:
             lines.append(f"\n<i>{others} pending ticket(s) opened by a person "
                          "are not listed: each is theirs.</i>")
@@ -2537,7 +2537,7 @@ class RunStrategySkill(BaseSkill):
             d_icon = _OK if idea.direction.value == "LONG" else _BAD
             results.append(
                 f"  {d_icon} <b>{_esc(idea.asset)}</b>  "
-                f"<code>{displayed_confidence(idea).pct()}</code>  R:R <code>{idea.risk_reward_ratio}</code>"
+                f"<code>{displayed_confidence(idea).text()}</code>  R:R <code>{idea.risk_reward_ratio}</code>"
             )
 
         lines = [
@@ -2645,7 +2645,7 @@ class RunStrategySkill(BaseSkill):
             d_icon = _OK if idea.direction.value == "LONG" else _BAD
             results.append(
                 f"  {d_icon} <b>{_esc(idea.asset)}</b>  "
-                f"<code>{displayed_confidence(idea).pct()}</code>  R:R <code>{idea.risk_reward_ratio}</code>"
+                f"<code>{displayed_confidence(idea).text()}</code>  R:R <code>{idea.risk_reward_ratio}</code>"
             )
             setups.append({
                 "sym": idea.asset, "dir": idea.direction.value,
@@ -3630,7 +3630,7 @@ class ProScanSkill(BaseSkill):
                     f"\n  {status_icon} <b>{status_text}</b>\n"
                     f"  {d_icon}{d_arrow} <b>{idea.direction.value} {_esc(idea.asset)}</b>  "
                     f"{setup_risk}\n"
-                    f"  \u2502{conf_bar}\u2502 {_pill(displayed_confidence(idea).pct())}\n"
+                    f"  \u2502{conf_bar}\u2502 {_pill(displayed_confidence(idea).text())}\n"
                     f"<pre>"
                     # `_price` carries its own "$"; a second one in front
                     # printed "$     $100.30" and "(-$$1.00)".
@@ -3684,7 +3684,7 @@ class ProScanSkill(BaseSkill):
             one_glance_lines.append(f"\n{_gl_icon} <b>One-Glance Verdict: {_gl_text}</b>")
             one_glance_lines.append(
                 f"  {len(ideas_found)} actionable setup(s) detected  •  "
-                f"Best: <b>{_esc(best.asset)}</b> ({displayed_confidence(best).pct()} conf, {_best_rr:.1f}R)\n"
+                f"Best: <b>{_esc(best.asset)}</b> (confidence {displayed_confidence(best).text()}, {_best_rr:.1f}R)\n"
             )
         else:
             one_glance_lines.append("\n🔒 <b>One-Glance Verdict: Stand Down</b>")
@@ -3762,7 +3762,7 @@ class ProScanSkill(BaseSkill):
                         "rr": str(idea.risk_reward_ratio),
                         "book_ratio": (None if idea_read["vol_ratio"] is None
                                        else round(idea_read["vol_ratio"], 2)),
-                        "trigger": f"Confidence {displayed_confidence(idea).pct()}",
+                        "trigger": f"Confidence {displayed_confidence(idea).text()}",
                         # The website's scan card labels this "thesis". Send
                         # the model's words or an empty string — never the
                         # provenance tag, which the old truthiness check let
@@ -4187,7 +4187,7 @@ class PlaybookSkill(BaseSkill):
                 d = "\u25b2" if idea.direction.value == "LONG" else "\u25bc"
                 lines.append(
                     f"  {d} <b>{_esc(idea.asset)}</b>  "
-                    f"{_pill(displayed_confidence(idea).pct())}  "
+                    f"{_pill(displayed_confidence(idea).text())}  "
                     f"R:R {idea.risk_reward_ratio}x"
                 )
             lines.append("")

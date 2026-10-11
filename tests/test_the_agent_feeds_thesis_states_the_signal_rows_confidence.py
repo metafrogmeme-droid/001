@@ -44,13 +44,13 @@ class TestOneIdeaOneFigure:
         ev = thesis_event(idea)
         row = build_signal_payload(idea.id, idea, score=idea.confidence)
         assert ev["data"]["confidence"] == round(row["confidence"], 3) == BLEND
-        assert ev["title"] == "LONG PENDLE/USDT — confidence 62%"
+        assert ev["title"] == "LONG PENDLE/USDT — confidence score 62 (uncalibrated)"
 
     def test_the_nudged_field_is_not_what_it_publishes(self):
         """The asymmetric fixture: with the blend and the field equal, reading
         either answers the same and the test could not tell them apart."""
         ev = thesis_event(_engine_idea())
-        assert "67%" not in ev["title"]
+        assert "score 67" not in ev["title"]
         assert ev["data"]["confidence"] != NUDGED
 
     def test_a_stamped_ticket_prints_the_stamp_not_a_certainty(self):
@@ -61,7 +61,7 @@ class TestOneIdeaOneFigure:
 
         ticket = build_manual_idea("LONG", "ETH", 3000, 2950, 3100)
         ev = thesis_event(ticket)
-        assert "100%" not in ev["title"]
+        assert "score 100" not in ev["title"]
         assert STAMP_TEXT in ev["title"]
         assert ev["data"]["confidence"] is None
 

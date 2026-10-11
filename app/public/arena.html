@@ -436,7 +436,8 @@ window.addEventListener('unhandledrejection', rcReportPageError);
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=4"></script>
 <script src="/js/app.js?v=15"></script>
-<script src="/js/i18n-core.js?v=168"></script>
+<script src="/js/i18n-core.js?v=169"></script>
+<script src="/js/confidence-score.js?v=1"></script>
 <script src="/js/arena_engine.js?v=1"></script>
 <script src="/js/sandbox.js?v=1" defer></script>
 <script src="/js/arena-risk-model.js?v=1"></script>
@@ -1123,8 +1124,13 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     var levels = ''
       + (s.take_profit ? '<span class="read-chip">' + esc(T('arena.th_tp', 'TP')) + ' ' + esc(fmtP(s.take_profit)) + '</span>' : '')
       + (s.stop_loss ? '<span class="read-chip">' + esc(T('arena.th_sl', 'SL')) + ' ' + esc(fmtP(s.stop_loss)) + '</span>' : '');
-    var conf = s.confidence == null ? '' :
-      '<span class="read-chip">' + esc(fill(T('arena.sig_conf', 'confidence {p}%'), { p: s.confidence })) + '</span>';
+    // A score, never `confidence 72%`: no calibration curve has mapped the
+    // figure to outcomes. The route sends it already multiplied by 100;
+    // without the wording model the chip is left off rather than spelt here.
+    var CS = window.RCConfidenceScore;
+    var confN = CS ? CS.number(s.confidence, 100) : null;
+    var conf = confN === null ? '' :
+      '<span class="read-chip">' + esc(fill(T('arena.sig_conf', 'confidence score {p} (uncalibrated)'), { p: confN })) + '</span>';
     var blocked = s.blocked_reason && SIG_BLOCK[s.blocked_reason];
     var action = s.tradeable
       ? '<button class="btn btn--sm btn--primary" data-sig="' + s.id + '">'

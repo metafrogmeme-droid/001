@@ -19,6 +19,7 @@
 
 const { pool } = require('../db');
 const { winStats, profitFactor } = require('../public/js/trade-stats');
+const ConfidenceScore = require('../public/js/confidence-score');
 const { getTickers } = require('./tickers');
 const rwa = require('./rwa');
 const dex = require('./dex');
@@ -159,12 +160,15 @@ async function buildDossier(base) {
     if (mine.length) {
       const longs = mine.filter(s => String(s.direction).toUpperCase().includes('LONG')).length;
       const confs = mine.map(s => parseFloat(s.confidence)).filter(isFinite);
-      const avgConf = confs.length ? Math.round(confs.reduce((a, b) => a + b, 0) / confs.length * 100) : null;
+      // The mean of the rows' SCORES, worded as one: no curve has mapped
+      // them to outcomes, and `avg confidence 72%` read as a probability.
+      const avgConf = confs.length
+        ? ConfidenceScore.text(confs.reduce((a, b) => a + b, 0) / confs.length) : null;
       const last = mine[0];
       sections.push({
         title: 'Engine signal history',
         html: `${mine.length} recorded signal(s) — ${longs} long / ${mine.length - longs} short`
-          + (avgConf !== null ? `, avg confidence ${avgConf}%` : '')
+          + (avgConf !== null ? `, mean confidence ${esc(avgConf)}` : '')
           + `. Latest: ${esc(String(last.direction))}`
           + (last.pattern ? ` (${esc(String(last.pattern))})` : '') + '.',
         source: 'recorded engine signal stream',

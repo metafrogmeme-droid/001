@@ -1941,7 +1941,7 @@ class RiskEngine:
             _dd_conf = displayed_confidence(idea)
             if not _dd_conf.clears(CONFIG.risk.drawdown_recovery_conf_min):
                 failed.append(
-                    f"DD_RECOVERY: confidence {_dd_conf.pct()} ({_dd_conf.basis}) "
+                    f"DD_RECOVERY: confidence {_dd_conf.text()} ({_dd_conf.basis}) "
                     f"< {CONFIG.risk.drawdown_recovery_conf_min} (recovery mode)")
             _before = position_usd
             _dd_mult = CONFIG.risk.drawdown_recovery_size_mult

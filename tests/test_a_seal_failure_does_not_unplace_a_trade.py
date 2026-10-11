@@ -267,7 +267,7 @@ class TestARefusalStaysARefusal:
         engine.audit_chain.append = _full_disk
         with self._halting(engine):
             result = _confirm(engine, idea)
-        assert result.startswith("Trade HALTED by adversarial review: funding flipped")
+        assert result.startswith("Trade HALTED by the pre-trade critique: funding flipped")
         assert "could not complete" not in result
         assert "NOT written to the audit chain" in result
         engine.live_executor.execute.assert_not_awaited()
@@ -290,5 +290,5 @@ class TestARefusalStaysARefusal:
                 result = _run(engine.confirm_trade(idea.id, user_id="123456"))
         finally:
             object.__setattr__(CONFIG, "paper_sim_opt_in_enabled", was)
-        assert result.startswith("Trade HALTED by adversarial review")
+        assert result.startswith("Trade HALTED by the pre-trade critique")
         engine._simulate_paper_fill.assert_not_awaited()

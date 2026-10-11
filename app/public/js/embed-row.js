@@ -14,9 +14,10 @@
  * reads a fabricated number off a trading card.
  */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./embed-read'));
-  else root.RCEmbedRow = factory(root.RCEmbedRead);
-}(typeof self !== 'undefined' ? self : this, function (RD) {
+  if (typeof module === 'object' && module.exports) {
+    module.exports = factory(require('./embed-read'), require('./confidence-score'));
+  } else root.RCEmbedRow = factory(root.RCEmbedRead, root.RCConfidenceScore);
+}(typeof self !== 'undefined' ? self : this, function (RD, CS) {
   'use strict';
 
   function esc(s) {
@@ -118,9 +119,17 @@
     });
   }
 
-  function pct(v) {
-    var n = num(v);
-    return n === null ? '—' : Math.round(n * 100) + '%';
+  /**
+   * A signal's confidence as the score it is, or an em dash.
+   *
+   * It printed `66%`, a probability's spelling on a figure no calibration
+   * curve has mapped to outcomes. The words are RCConfidenceScore's, the twin
+   * of the bot's own reading; a page where that did not load prints the dash
+   * rather than a wording of its own.
+   */
+  function score(v) {
+    var t = CS ? CS.text(v) : null;
+    return t === null ? '—' : t;
   }
 
   /**
@@ -152,8 +161,8 @@
     if (!head.length) return null;
 
     var bits = [head.join(' ')];
-    var conf = num(s.confidence);
-    if (conf !== null) bits.push(Math.round(conf * 100) + '% confidence');
+    var conf = CS ? CS.text(s.confidence) : null;
+    if (conf !== null) bits.push('confidence ' + conf);
     var rr = rrLabel(s.rr);
     if (rr) bits.push(rr + ' target');
 
@@ -203,7 +212,7 @@
       + '<header class="e-head">'
       + '<span class="e-dir ' + dirCls + '">' + esc(dir || '—') + '</span>'
       + '<b class="e-sym">' + esc(sym.base || '—') + '</b>'
-      + '<span class="e-conf">' + pct(sig.confidence) + '</span>'
+      + '<span class="e-conf">' + esc(score(sig.confidence)) + '</span>'
       + '</header>'
       + (meta.length ? '<p class="e-meta">' + meta.join(' · ') + '</p>' : '')
       // TWO symbols, deliberately, and this is load-bearing. `data-sc-sym` is
@@ -262,6 +271,6 @@
     rrLabel: rrLabel,
     regimeLabel: regimeLabel,
     price: price,
-    pct: pct,
+    score: score,
   };
 }));

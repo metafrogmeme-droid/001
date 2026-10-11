@@ -148,7 +148,7 @@
     "arena.sig_unknown": { en: "Couldn’t load the engine’s calls — this list is unknown, not empty." },
     "arena.sig_drift": { en: "moved {p}% since the call" },
     "arena.sig_drift_t": { en: "How far the market has moved since the call was posted. You are filled at the live mark, not this price." },
-    "arena.sig_conf": { en: "confidence {p}%" },
+    "arena.sig_conf": { en: "confidence score {p} (uncalibrated)" },
     "arena.sig_now": { en: "just now" },
     "arena.sig_min": { en: "{n}m ago" },
     "arena.sig_hr": { en: "{n}h ago" },
@@ -2195,7 +2195,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"2cbaa586","zh":"8ef46f71","pt":"4c630cff","fr":"a35fb284","de":"c26ab9ca","nl":"a9224c0b","ja":"77d304e3","ko":"2a6f339f","ru":"29c33aed","tr":"9ff2f526","it":"6b4c022c","hi":"0a59c31e","ar":"7b29eb89"};
+  var CHUNKS = {"es":"23a8250b","zh":"b3d3eb67","pt":"c240418d","fr":"bd63c9c8","de":"24fe5ab5","nl":"33105707","ja":"f99bc542","ko":"fb0a4d06","ru":"3e2adb58","tr":"86f2bd81","it":"09713e67","hi":"009d4ce1","ar":"fadd3ab2"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

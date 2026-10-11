@@ -106,7 +106,7 @@
   ["arena.sig_unknown", "Die Calls der Engine konnten nicht geladen werden — diese Liste ist unbekannt, nicht leer."],
   ["arena.sig_drift", "seit dem Call um {p}% bewegt"],
   ["arena.sig_drift_t", "Wie weit sich der Markt seit der Veröffentlichung des Calls bewegt hat. Ausgeführt wird zum Live-Kurs, nicht zu diesem."],
-  ["arena.sig_conf", "Konfidenz {p}%"],
+  ["arena.sig_conf", "Konfidenz-Score {p} (unkalibriert)"],
   ["arena.sig_now", "gerade eben"],
   ["arena.sig_min", "vor {n} Min."],
   ["arena.sig_hr", "vor {n} Std."],

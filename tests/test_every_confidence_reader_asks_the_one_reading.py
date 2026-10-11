@@ -267,7 +267,7 @@ class TestTheRuleItself:
 
     @pytest.mark.parametrize("shape,src", [
         ("the honest reader",
-         'def f(idea):\n    return displayed_confidence(idea).pct()\n'),
+         'def f(idea):\n    return displayed_confidence(idea).text()\n'),
         ("the honest gate",
          'def f(idea):\n    return displayed_confidence(idea).clears(0.7)\n'),
         ("a recorder handing the field onward under its own name",
@@ -307,7 +307,7 @@ class TestTheRuleItself:
             "def f(idea):\n"
             "    # f\"{idea.confidence:.0%}\" was the defect\n"
             '    """And `idea.confidence < 0.7` was the gate."""\n'
-            "    return displayed_confidence(idea).pct()\n")
+            "    return displayed_confidence(idea).text()\n")
 
     def test_a_class_whose_body_is_only_a_docstring_still_parses(self):
         """The reason the rule does not strip: `code_only` leaves such a class

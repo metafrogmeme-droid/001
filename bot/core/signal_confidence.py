@@ -42,6 +42,18 @@ of them are a measurement:
 ``unread``  nothing on the idea is readable as a confidence.
 
 Never raises: a malformed idea reads ``unread``.
+
+A SCORE, NEVER A PERCENT. Every surface printed the reading as ``72%``, which
+reads as a probability, and the figure is not one: the blend is snapshotted
+BEFORE the calibration curve (``_blended_confidence_raw`` in the analyzer) and
+an ``own`` figure never went through one, so no figure this reading answers has
+been mapped to outcomes, whatever CONFIDENCE_CALIBRATION_ENABLED says. A
+percent sign is kept for a figure a fitted curve produced, and this reading
+never answers one, so `ConfidenceReading.text` prints ``score 72
+(uncalibrated)`` and `SCORE_MEANING` is the sentence a model or a page carries
+beside it. The calibration file's per-bin recorded wins are not printed beside
+the score: no reading here answers "the recorded win rate of this score's bin",
+and a second copy of the website chart's arithmetic would be a second answer.
 """
 
 from __future__ import annotations
@@ -53,6 +65,32 @@ UNREAD_DASH = "—"
 
 #: What a card prints for a hand-typed ticket's stamp.
 STAMP_TEXT = "not measured"
+
+#: The two words a measured figure is printed with. The website's twin
+#: (`app/public/js/confidence-score.js`) is pinned to these by a test.
+SCORE_WORD = "score"
+UNCALIBRATED_WORD = "uncalibrated"
+
+#: What a confidence score is, for a reader that is handed one -- the chat
+#: model above all, which was handed "confidence 72%" with nothing saying it
+#: was not a probability.
+SCORE_MEANING = (
+    "A confidence score is the analyzer's own 0-100 rating of a setup. It is "
+    "not a probability or a win rate: no fitted calibration curve has mapped "
+    "it to outcomes, so never describe it as a chance or likelihood of "
+    "winning.")
+
+
+def score_number(value: float) -> str:
+    """A raw-scale 0-1 figure as the 0-100 number a card prints, no sign."""
+    return f"{value * 100:.0f}"
+
+
+def score_text(value: Optional[float], *, dash: str = UNREAD_DASH) -> str:
+    """``score 72 (uncalibrated)`` for a raw-scale figure, ``dash`` for None."""
+    if value is None:
+        return dash
+    return f"{SCORE_WORD} {score_number(value)} ({UNCALIBRATED_WORD})"
 
 
 class ConfidenceReading(NamedTuple):
@@ -92,8 +130,11 @@ class ConfidenceReading(NamedTuple):
         """
         return self.value is not None and self.measured and self.value > bar
 
-    def pct(self, *, dash: str = UNREAD_DASH, stamp: str = STAMP_TEXT) -> str:
-        """The card's own text: a percent, or why there is none.
+    def text(self, *, dash: str = UNREAD_DASH, stamp: str = STAMP_TEXT) -> str:
+        """The card's own text: a score, or why there is none.
+
+        It was ``pct()`` and printed ``72%``, a probability's spelling on a
+        figure no curve has mapped to outcomes (see the module docstring).
 
         A stamp and an unreadable field get DIFFERENT words, because they are
         different facts: one is a figure nobody measured and the other is a
@@ -101,9 +142,7 @@ class ConfidenceReading(NamedTuple):
         """
         if self.basis == "stamp":
             return stamp
-        if self.value is None:
-            return dash
-        return f"{self.value * 100:.0f}%"
+        return score_text(self.value, dash=dash)
 
 
 def displayed_confidence(idea: Any) -> ConfidenceReading:

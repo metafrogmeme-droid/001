@@ -8984,7 +8984,10 @@ class RuneClawEngine:
             self._sync_flight_records()
             return f"Trade REJECTED on re-check: {recheck.reason}{seal_note}"
 
-        # Adversarial self-critique gate (fail-open: errors = proceed with warning)
+        # Pre-trade critique: heuristic concerns, four of which HALT (fail-open
+        # in paper: errors = proceed with warning). None of its rules has been
+        # backtested; `scripts/critique_replay.py` measures what the halt
+        # would remove over the frozen benchmark.
         try:
             from bot.core.critique import TradeCritique
             critique = TradeCritique()
@@ -9001,7 +9004,8 @@ class RuneClawEngine:
                 }))
                 self._pending_pyramid.pop(trade_id, None)
                 self._transition(AgentState.IDLE, f"critique halted {trade_id}")
-                return f"Trade HALTED by adversarial review: {critique_result.bear_case}\nConcerns: {'; '.join(critique_result.concerns)}{seal_note}"
+                return (f"Trade HALTED by the pre-trade critique: {critique_result.bear_case}"
+                        f"\nHeuristic concerns: {'; '.join(critique_result.concerns)}{seal_note}")
             # Apply critique confidence adjustment
             if critique_result.confidence_adjustment != 0:
                 idea.confidence = max(0.0, min(1.0, idea.confidence + critique_result.confidence_adjustment))
@@ -9054,7 +9058,7 @@ class RuneClawEngine:
                       data={"trade_id": trade_id, "error": str(exc)[:200]})
                 self._pending_pyramid.pop(trade_id, None)
                 self._transition(AgentState.IDLE, f"critique error (live) {trade_id}")
-                return ("Trade REJECTED: adversarial critique could not complete "
+                return ("Trade REJECTED: the pre-trade critique could not complete "
                         "and live mode fails closed on critique errors.")
             audit(trade_log, f"Critique gate error (fail-open): {exc}",
                   action="critique", result="ERROR")
@@ -9786,8 +9790,8 @@ class RuneClawEngine:
                 _pyr_conf = displayed_confidence(idea)
                 if not _pyr_conf.clears(0.70):
                     audit(scan_log,
-                          f"Pyramid skipped: confidence {_pyr_conf.pct()} "
-                          f"({_pyr_conf.basis}) < 70% for {idea.asset}",
+                          f"Pyramid skipped: confidence {_pyr_conf.text()} "
+                          f"({_pyr_conf.basis}) < score 70 for {idea.asset}",
                           action="pyramid_low_conf", result="SKIPPED")
                     return "skip"
 
@@ -9812,7 +9816,7 @@ class RuneClawEngine:
                 is_pyramid_add = True
                 audit(scan_log,
                       f"Pyramid APPROVED: {idea.asset} {r_achieved:.2f}R profit, "
-                      f"conf {_pyr_conf.pct()} ({_pyr_conf.basis})",
+                      f"conf {_pyr_conf.text()} ({_pyr_conf.basis})",
                       action="pyramid_approved", result="APPROVED",
                       data={"r_achieved": round(r_achieved, 2),
                             "confidence": _pyr_conf.value,

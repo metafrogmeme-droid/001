@@ -208,7 +208,7 @@ def test_trade_signal_only_alerts_above_display_threshold():
     _engine_owns(m.engine, {"lo": _idea(0.62), "hi": _idea(0.75)})
     a = m._check_trade_signals()
     assert len(a) == 1 and a[0].alert_type == "TRADE_SIGNAL"
-    assert "75%" in a[0].body            # the high-conviction idea messaged
+    assert "score 75 (uncalibrated)" in a[0].body   # the high-conviction idea messaged
     # Both ideas are now marked seen -> a second tick is silent (no re-eval).
     assert m._check_trade_signals() == []
 

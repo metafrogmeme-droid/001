@@ -107,7 +107,7 @@ const GOOD = {
 
 test('a complete signal shows what it measured', () => {
   const html = R.rowHtml(GOOD, { nowMs: T0 });
-  for (const must of ['SHORT', 'NOKSTOCK', '66%', '4.2R', '12m', 'trend down', '10.2172']) {
+  for (const must of ['SHORT', 'NOKSTOCK', 'score 66 (uncalibrated)', '4.2R', '12m', 'trend down', '10.2172']) {
     assert.ok(html.includes(must), `card is missing ${must}`);
   }
   assert.ok(!html.includes('NOKSTOCK/USDT:USDT'), 'raw venue notation leaked into the card');
@@ -160,7 +160,7 @@ test('a contract-form symbol still renders a heading', () => {
 test('the share text carries what was measured', () => {
   const t = R.shareText(GOOD, { suffix: 'https://x.test/embed/signals' });
   assert.match(t, /SHORT NOKSTOCK/);
-  assert.match(t, /66% confidence/);
+  assert.match(t, /confidence score 66 \(uncalibrated\)/);
   assert.match(t, /4\.2R target/);
   assert.match(t, /https:\/\/x\.test\/embed\/signals/);
 });
@@ -171,7 +171,7 @@ test('an absent confidence is left out of the cast, not published as 0%', () => 
   // confidence" assembled from a missing column is a claim they did not make
   // and cannot retract from everyone who saw it.
   const t = R.shareText({ symbol: 'BTC/USDT', direction: 'LONG', confidence: null });
-  assert.ok(!t.includes('0%'), 'an absent confidence was published as zero');
+  assert.ok(!t.includes('0%') && !t.includes('score 0'), 'an absent confidence was published as zero');
   assert.ok(!t.includes('0R'), 'an absent R:R was published as zero');
   assert.match(t, /LONG BTC/, 'the parts that WERE readable went missing too');
 });
