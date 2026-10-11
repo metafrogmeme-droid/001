@@ -6,11 +6,16 @@ _llm_thesis builds a semantic cache key from coarse indicator buckets. Tier-1
 whose buckets collided but classified tier 2/3 would hit the cache and be served
 the cheap rule thesis as "LLM_CACHED" instead of running the LLM. The tier-1
 branch no longer writes to the cache; the key stays LLM-only.
+
+The pipeline is driven where it decides (`LLM_DECIDES` on), and once as the
+shadow it runs beside a rule-engine decision by default: the cache is the
+same cache either way.
 """
 
 import pytest
 
 import bot.core.analyzer as az
+from bot.config import CONFIG
 from bot.core.analyzer import Analyzer
 from bot.core.llm_cache import SemanticLLMCache
 from bot.utils.models import MarketSignal
@@ -27,6 +32,18 @@ def _analyzer():
     # tier path. The tier-1 branch returns before the client is ever used.
     a._llm = object()
     return a
+
+
+@pytest.fixture(autouse=True)
+def _the_llm_decides():
+    """The pipeline's own branch: with LLM_DECIDES off (the default) the rule
+    engine answers first and the pipeline runs as its shadow."""
+    prev = CONFIG.analyzer.llm_decides
+    object.__setattr__(CONFIG.analyzer, "llm_decides", True)
+    try:
+        yield
+    finally:
+        object.__setattr__(CONFIG.analyzer, "llm_decides", prev)
 
 
 @pytest.fixture(autouse=True)
@@ -61,3 +78,15 @@ class TestTier1NotCached:
         assert first["source"] == "RULE_ENGINE_TIER1"
         assert second["source"] == "RULE_ENGINE_TIER1"
         assert "_CACHED" not in second["source"]
+
+    async def test_the_shadow_beside_a_rule_decision_caches_nothing_either(self, monkeypatch):
+        object.__setattr__(CONFIG.analyzer, "llm_decides", False)
+        a = _analyzer()
+        monkeypatch.setattr(a, "_rule_based_thesis",
+                            lambda sig, ind: {"direction": "LONG", "confidence": 0.6,
+                                              "reasoning": "rule", "_parsed": True})
+        result = await a._llm_thesis(_SIG, _IND)
+        assert result["source"] == "RULE_ENGINE_DECIDES"
+        assert "shadow_llm" not in result, "a tier-1 shadow is the rule engine's, not the LLM's"
+        key = SemanticLLMCache.build_cache_key(_SIG.symbol, _IND, scope="")
+        assert a._llm_cache.get(key) is None
