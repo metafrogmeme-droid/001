@@ -179,7 +179,7 @@ class _Idea:
 
 
 class _Own:
-    def _compute_target_leverage(self, symbol, idea=None):
+    def _compute_sized_leverage(self, symbol, idea=None):
         return 5
 
 

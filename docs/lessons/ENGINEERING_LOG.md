@@ -22742,6 +22742,81 @@ in. Twelve mutants, all killed. `LLM_DECIDES=on` restores the old path; C2's
 artefact decides whether it ever should.
 (`tests/test_the_rule_engine_decides_and_the_llm_narrates.py`.)
 
+**TEN TIMES LEVERAGE, THE SAME TRADE: AN ORDER HAS TWO LEVERAGES NOW.** 11
+October, the operator: the standard leverage goes to 10x, every trade keeps
+the notional and the dollar loss at its stop that it had at 5x, the stops stay
+where they were, and the leverage frees margin and nothing else. Read
+literally, `DEFAULT_LEVERAGE=10` would have done something else. Every sizing
+figure in this repo is a margin written at 5x: the risk budget's base
+(budget / (stop x leverage)), `MAX_POSITION_PCT`, the execution ceiling,
+`MICRO_MAX_POSITION_USD` and the total, the Kelly and high-conviction margins,
+a typed ticket margin, the exposure caps. Wherever one of those bound, 10x
+placed twice the notional; the margin-risk cap (30% of margin) refused every
+stop past 3%; the exposure caps summed margins and admitted twice the book;
+and the practice fill, the VaR gates and the audit record read
+`default_leverage` raw and would have doubled their notionals.
+
+None of those figures was rewritten. An order is SIZED as it always was, at
+`SIZING_LEVERAGE` (5x, never above the venue's standard), and placed at the
+venue's leverage with the margin that notional needs there
+(`bot/core/leverage.py`: `order_standards`, `venue_leverage`,
+`venue_margin`). Every rule that lowered the leverage -- the quality ladder, a
+user's preference, dynamic scaling, the margin-risk reduction -- lowers the
+sized one, and the venue follows in proportion (a rung that cut 5x to 4x sets
+a 10x venue to 8x), so they cut the notional exactly as before. With the venue
+standard at or under 5x the two leverages are one number and nothing changes,
+which is also how most of the existing leverage tests keep their figures
+(`tests/leverage_worlds.py::one_leverage`).
+
+What had to be taught the difference:
+
+* **The executor reads the pair once** (`_order_leverages`): the venue is set
+  to one, the margin is converted (`size_usd` becomes notional / venue
+  leverage just before the order is sized), and the position records the
+  leverage it was sized at, saved and restored. The user's preference is read
+  once per order: the first version read it again for the venue half, and the
+  test that a preference store recovering between two reads must not split an
+  order caught it.
+* **Every cap on a book reads the book at the sizing.** `sized_margin` is a
+  position's notional over the leverage it was sized at; a position with none
+  on record (every one before the split, every adopted one) reads its margin
+  on record, as before, and one whose notional is unread is unread, never its
+  venue margin. The executor's total and per-user caps, the round-up re-ask,
+  the drift fallback and the risk gate's exposure rows read it
+  (`committed_sized_margin`, `held_rows`); the cards keep printing the
+  venue's margin (`committed_margin`). A round-up refusal says both figures.
+* **The margin-risk cap is measured at the venue, and unset it keeps the 6%
+  stop.** `MAX_MARGIN_RISK_PCT` is now unset by default and reads as 30% at
+  the sizing scaled to the venue (60% at 10x), so a deployment whose
+  environment still pins `DEFAULT_LEVERAGE=5` keeps 30%, and one that moves to
+  10x is not refused every stop past 3%. Set by hand, it is read as written.
+  A reduction measured at the venue goes back onto the idea through
+  `sized_for_venue`, whose venue leverage never exceeds it. The analyzer's
+  stop cap, which sat inline in a 900-line analysis and read the raw default,
+  is `leverage_capped_levels` now and asks the same cap.
+* **Paper books are held at the sizing.** The practice fill and the backtest
+  (`--honest` resolves the sized standard) place at 5x, so their margins are
+  the figures their caps measure. The five strategy cards and the frozen
+  majors benchmark regenerate identically: same trades, same returns.
+* **The envelope prices the sized notional** (`placement_leverage` asks
+  `_compute_sized_leverage`), the free-margin clamp compares what the venue
+  will lock (`clamp_at_venue`), and the unverified-submission record keeps
+  the approved margin beside the sized leverage.
+
+The cards say it: `/leverage` prints the venue, the sizing leverage, the stop
+cap as a percentage and a stop, and the ceiling. It also said orders ABORT
+when the venue will not confirm a leverage unless `LEVERAGE_FAIL_OPEN=1`; the
+default has been fail-open since July (a venue confirmed past the overshoot
+limit still aborts), and the card and `.env.example` say that now. The
+runbook's high-conviction ramp raised notional with `/leverage set 10`, which
+now moves only margin; it raises the margin instead. The cost of 10x is the
+liquidation buffer: isolated at 10x liquidates about a 10% move away, so a
+6% stop leaves less room if a stop is missing than 5x did. Thirty-three
+mutants; the first round left two standing on fixtures that could not tell
+the readings apart (an expectation computed by the function under mutation,
+and a book over its cap at either reading), and both are sharpened.
+(`tests/test_ten_x_keeps_the_five_x_trade.py`.)
+
 ## Operational docs
 
 - `docs/LIVE_HARDENING_RUNBOOK.md` — boot probes, engine triage, the caps

@@ -55,12 +55,16 @@ import bot.core.live_executor as le
 from bot.core.live_executor import LiveExecutor
 
 
+
 @pytest.fixture
 def cfg_on(monkeypatch):
     """Dynamic leverage ENABLED, default 10x, min 2x."""
     monkeypatch.setattr(le, "CONFIG", SimpleNamespace(
         exchange=SimpleNamespace(default_leverage=10, min_leverage=2,
-                                 dynamic_leverage_enabled=True)))
+                                 dynamic_leverage_enabled=True,
+                                 # One standard: the venue and the sizing at
+                                 # 10x, the world this file's figures are in.
+                                 sizing_leverage=10)))
 
 
 @pytest.fixture

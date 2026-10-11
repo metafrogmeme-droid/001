@@ -23,7 +23,7 @@ from bot.config import CONFIG
 from bot.core.analyzer import Analyzer
 from bot.core.black_swan import BlackSwanDetector
 from bot.core.cost import CostTracker
-from bot.core.margin_clamp import clamp_to_free_margin
+from bot.core.margin_clamp import clamp_at_venue
 from bot.core.signal_levels import record_idea_levels
 from bot.core.size_trace import note_size_step, size_basis
 from bot.core.system_health import SystemHealthMonitor
@@ -35,7 +35,7 @@ from bot.core.basis import BasisAnalyzer
 from bot.core.exchange_flow import ExchangeFlowProvider
 from bot.core.market_cap import MarketCapProvider
 from bot.core.macro_events import MacroEventProvider
-from bot.core.leverage import apply_margin_risk_cap
+from bot.core.leverage import LeveragePair, apply_margin_risk_cap, order_standards
 from bot.core.live_executor import LiveExecutor, committed_margin, display_symbol, normalize_symbol
 from bot.core import live_executor as _live_executor_mod
 from bot.core import size_bounds
@@ -657,6 +657,22 @@ def give_up_cost_s(gave_up: Optional[int]) -> Optional[float]:
         return round(n * timeout / conc, 1)
     except (TypeError, ValueError, AttributeError):
         return None
+
+
+def _placement_pair(executor: Any, idea: Any) -> Optional[LeveragePair]:
+    """The two leverages ``executor`` would place ``idea`` at, or None when
+    they cannot be read. None compares the free margin with the SIZED margin,
+    the larger figure: a clamp that reads too much margin cuts an order the
+    venue would have taken, and never places one it would not."""
+    try:
+        symbol = executor._venue.swap_symbol(idea.asset)
+        pair = executor._order_leverages(symbol, idea)
+        sized, venue = int(pair.sized), int(pair.venue)
+    except Exception:
+        return None
+    if sized < 1 or venue < 1:
+        return None
+    return LeveragePair(sized, venue)
 
 
 def _executor_account(ex) -> str:
@@ -8297,10 +8313,18 @@ class RuneClawEngine:
                                                 check=recheck)
         note_size_step(idea, "high-conviction target", size_usd,
                        before=recheck.position_size_usd)
+        # The SIZED standard: a paper book is held at the leverage its margin
+        # was sized at, so its margin is the figure every cap on it measures
+        # and its notional the one a live order of the same size carries.
+        # This read `default_leverage` raw, which ignored the /leverage
+        # override and, with the venue standard at 10x, would have placed
+        # twice the notional the risk gate sized.
         try:
-            leverage = int(CONFIG.exchange.default_leverage)
-        except (TypeError, ValueError):
-            leverage = 1
+            from bot.config import RUNTIME as _RT_lev
+            _lev_override = _RT_lev.leverage_override
+        except Exception:
+            _lev_override = None
+        leverage = order_standards(CONFIG.exchange, _lev_override).sized
         # The paper fill runs at the leverage the risk gate capped this idea
         # to (the quality ladder's rung, or a margin-risk reduction), read off
         # the same attribute the live set path reads. Reduce-only and a no-op
@@ -9282,7 +9306,11 @@ class RuneClawEngine:
         # Refusing keeps the outcome identical -- a $0 order is rejected by the
         # venue -- while correcting the stated reason. Letting the order
         # through instead would open a position that does not open today.
-        _sized, _why = clamp_to_free_margin(size_usd, live_bal)
+        # The venue locks the sized margin x sized / venue leverage, so that is
+        # what is compared with its free margin (`clamp_at_venue`).
+        _pair = _placement_pair(executor, idea)
+        _pair_s, _pair_v = (_pair.sized, _pair.venue) if _pair is not None else (1, 1)
+        _sized, _why = clamp_at_venue(size_usd, live_bal, _pair_s, _pair_v)
         if _sized is None:
             audit(trade_log,
                   f"Live entry refused: free margin {_why}",
@@ -9322,7 +9350,11 @@ class RuneClawEngine:
             # sized by the risk engine -- driven, $50 typed, $100 placed on
             # the second tap. `_drop_pending_idea` takes it with the idea.
             manual_margin = self._manual_margin_override[idea.id]
-            leverage = CONFIG.exchange.default_leverage
+            # A typed margin is a SIZED margin, like every size here: the
+            # ticket keeps the notional it had at 5x, and the venue locks
+            # notional / its own leverage.
+            leverage = (_pair.sized if _pair is not None
+                        else order_standards(CONFIG.exchange, None).sized)
             _before_manual = size_usd
             size_usd = manual_margin  # margin; executor applies leverage for notional
             note_size_step(idea, "manual margin override", size_usd, before=_before_manual)
@@ -9348,7 +9380,7 @@ class RuneClawEngine:
                 note_size_step(idea, "per-user ceiling", size_usd)
             # Same three-valued read as the automatic path above: a manual
             # margin must not be clamped against an unreported figure either.
-            _msized, _mwhy = clamp_to_free_margin(size_usd, live_bal)
+            _msized, _mwhy = clamp_at_venue(size_usd, live_bal, _pair_s, _pair_v)
             if _msized is None:
                 audit(trade_log,
                       f"Manual margin refused: free margin {_mwhy}",

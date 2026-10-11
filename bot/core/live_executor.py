@@ -58,10 +58,14 @@ from bot.core.close_lookup import (
 )
 from bot.core.plan_cleanup import plan_rows_to_cancel
 from bot.core.leverage import (
+    LeveragePair,
     apply_margin_risk_cap,
     leverage_ceiling,
     leverage_floor,
-    operator_standard,
+    order_standards,
+    resolve_user_leverage,
+    venue_leverage,
+    venue_margin,
 )
 from bot.core.size_trace import note_size_step, size_basis
 from bot.core.signal_levels import record_level
@@ -1246,6 +1250,23 @@ def restored_ladder(pdata: dict) -> Optional[dict]:
     return raw if isinstance(raw, dict) else None
 
 
+def note_sized_leverage(pos: Any, value: Any) -> None:
+    """Record the leverage a position was SIZED at, when it is an int >= 1.
+
+    Absent otherwise, like every marker here: a position with none on record
+    is read at its venue margin (`sized_margin`), which is what it was sized
+    at before the two leverages could differ."""
+    if isinstance(value, bool):
+        return
+    v = _to_float(value)
+    if v is None or v < 1 or v != int(v):
+        return
+    try:
+        setattr(pos, "sized_leverage", int(v))
+    except Exception:
+        pass
+
+
 def restore_provenance(pos: Any, pdata: dict) -> None:
     """Re-attach the runtime markers `_save_positions` wrote for a position.
 
@@ -1282,6 +1303,7 @@ def restore_provenance(pos: Any, pdata: dict) -> None:
     authorized = _num_or_none(pdata.get("authorized_notional_usd"))
     if authorized is not None:
         setattr(pos, "authorized_notional_usd", authorized)
+    note_sized_leverage(pos, pdata.get("sized_leverage"))
     vwap = placement_price(pdata.get("entry_vwap"))
     if vwap is not None:
         setattr(pos, "entry_vwap", vwap)
@@ -1331,6 +1353,48 @@ def position_size_basis(pos: Any) -> tuple[Optional[float], Optional[float]]:
     # it would be wrong by exactly the factor nobody noticed, and would then be
     # published as a return. Unrecorded stays unrecorded.
     return margin, notional
+
+
+#: No preference has been read for this order yet (`_order_leverages`).
+_PREF_UNSET = object()
+
+
+def sized_leverage_on_record(pos: Any) -> Optional[int]:
+    """The leverage this position was SIZED at, or None where none is on
+    record: every position placed before the venue and sizing standards were
+    split, every adopted one, and any record whose value is not an int >= 1.
+    """
+    v = _to_float(getattr(pos, "sized_leverage", None))
+    if v is None or v < 1:
+        return None
+    return int(v)
+
+
+def sized_margin(pos: Any) -> Optional[float]:
+    """The margin this position holds AT THE LEVERAGE IT WAS SIZED AT.
+
+    Every cap that bounds a book -- the executor's total, a linked account's
+    max funds, the risk gate's portfolio and symbol exposure -- is written in
+    margin at the sizing leverage (5x), because that is the unit every order's
+    size is decided in. The venue's margin is a different number once the
+    venue is set above the sizing leverage (10x since 11 October): read
+    against these caps it would hold half the notional per dollar, and admit
+    twice the book. So the caps read the notional over the sized leverage.
+
+    A position with no sized leverage on record was placed at the leverage it
+    was sized at -- every position before the split, every adopted one -- so
+    its margin on record IS the reading, exactly as before. One that has a
+    sized leverage but no readable notional is unread (None), never its venue
+    margin: a cap compared against the smaller figure would be loosened by the
+    leverage factor, the F-3 defect in the other direction.
+    """
+    margin, notional = position_size_basis(pos)
+    sized = sized_leverage_on_record(pos)
+    if sized is None:
+        return margin
+    if notional is None:
+        return None
+    return notional / sized
 
 
 def _to_float(value: Any) -> Optional[float]:
@@ -1419,9 +1483,25 @@ def committed_margin(positions: Any) -> CommittedMargin:
     The margin of ONE position is ``position_size_basis``, which already
     documents what ``cost_usd == 0.0`` means and refuses to derive a margin
     from ``leverage``. Nothing about a position is re-decided here.
+
+    This is the margin the VENUE holds, which the cards print. The caps read
+    `committed_sized_margin`, the same book at the sizing leverage.
     """
+    return _committed(positions, lambda p: position_size_basis(p)[0])
+
+
+def committed_sized_margin(positions: Any) -> CommittedMargin:
+    """The committed margin of a book at the leverage each position was SIZED
+    at (`sized_margin`) -- the reading every cap on a book compares against,
+    because every cap is written in that unit. Equal to `committed_margin` for
+    a book with no sized leverage on record."""
+    return _committed(positions, sized_margin)
+
+
+def _committed(positions: Any, margin_of: Any) -> CommittedMargin:
+    """Sum ``margin_of`` over a book, keeping unread apart from flat."""
     rows = list(positions or [])
-    read = [(p, position_size_basis(p)[0]) for p in rows]
+    read = [(p, margin_of(p)) for p in rows]
     scored = [m for _, m in read if m is not None]
     unread = tuple(display_symbol(str(getattr(p, "symbol", "") or "")) or "?"
                    for p, m in read if m is None)
@@ -1438,15 +1518,17 @@ def committed_margin(positions: Any) -> CommittedMargin:
 
 def held_rows(positions: Any) -> tuple[HeldRow, ...]:
     """The book as the risk gates read it: one row per open or resting
-    position, the margin and the notional from `position_size_basis`, so an
-    unstated margin is None here too and never 0.0. A resting limit order is
-    a row, as it is in the open-position count: it fills without asking."""
+    position, the notional from `position_size_basis` and the margin at the
+    SIZED leverage (`sized_margin`), the unit the exposure caps are written
+    in, so an unstated margin is None here too and never 0.0. A resting limit
+    order is a row, as it is in the open-position count: it fills without
+    asking."""
     rows = []
     for p in list(positions or []):
-        margin, notional = position_size_basis(p)
+        _, notional = position_size_basis(p)
         rows.append(HeldRow(symbol=str(getattr(p, "symbol", "") or ""),
                             direction=direction_word(getattr(p, "direction", "")),
-                            margin_usd=margin, notional_usd=notional))
+                            margin_usd=sized_margin(p), notional_usd=notional))
     return tuple(rows)
 
 
@@ -2605,6 +2687,48 @@ class LiveExecutor:
                             self._venue.id, cfg.default_leverage, cfg.margin_mode)
         return self._exchange
 
+    def _leverage_standards(self) -> LeveragePair:
+        """The two standards (`order_standards`): the `/leverage` override or
+        the configured default for the venue, under the ceiling, and the
+        sizing standard under that."""
+        try:
+            from bot.config import RUNTIME
+            _override = RUNTIME.leverage_override
+        except Exception:
+            _override = None
+        return order_standards(CONFIG.exchange, _override)
+
+    def _order_leverages(self, symbol: str, idea: Any = None) -> LeveragePair:
+        """THE ONE READING of this order's two leverages.
+
+        ``sized`` is what the order is sized at: the sized standard lowered by
+        this user's preference and dynamic scaling (`_standard_leverage`) and
+        by the idea's caps (`_compute_target_leverage`'s clamp). ``venue`` is
+        what the venue is set to: the same share of the venue standard
+        (`venue_leverage`), and never above this user's preference read
+        against the venue standard. ``venue >= sized``: the preference already
+        bounds the sized leverage, and the venue standard is never below the
+        sized one.
+        """
+        # ONE read of the preference per order: `_standard_leverage` takes it,
+        # and the venue half reads the answer it took. Only a sized standard
+        # that read no preference (a stand-in) leaves it to be read here.
+        self._pref_answer = _PREF_UNSET
+        sized = apply_margin_risk_cap(self._standard_leverage(symbol), idea)
+        standards = self._leverage_standards()
+        venue = venue_leverage(sized, standards)
+        pref = self._pref_answer
+        if pref is _PREF_UNSET:
+            pref = self._user_leverage_reading()
+        if pref is not None:
+            venue = min(venue, resolve_user_leverage(pref, standards.venue))
+        return LeveragePair(sized, max(sized, venue))
+
+    def _compute_sized_leverage(self, symbol: str, idea: Any = None) -> int:
+        """The leverage this order is SIZED at: notional = its margin x this.
+        The reading the Authority Envelope prices an order's notional with."""
+        return self._order_leverages(symbol, idea).sized
+
     def _compute_target_leverage(self, symbol: str, idea: Any = None) -> int:
         """The leverage for this order — the ONE number the venue is set to.
 
@@ -2626,13 +2750,20 @@ class LiveExecutor:
         is the shape where the fourth added tomorrow is the one that misses it.
         It is reduce-only and a no-op for an idea with no cap, so every path
         that never met the risk gate keeps the leverage it had.
+
+        The clamp lands on the SIZED leverage, and this is the venue leverage
+        that follows it (`_order_leverages`): the idea's caps are sized
+        leverages, and the venue moves with them in proportion.
         """
-        return apply_margin_risk_cap(self._standard_leverage(symbol), idea)
+        return self._order_leverages(symbol, idea).venue
 
     #: Set once the audit has said this executor's leverage preference could
     #: not be read, so a store that stays unreadable is said once per episode
     #: and not on every order.
     _leverage_unread_said: bool = False
+
+    #: The preference the last `_user_leverage_reading` answered with.
+    _pref_answer: Any = None
 
     def _user_leverage_reading(self) -> Optional[int]:
         """This user's leverage preference, as sizing reads it.
@@ -2645,6 +2776,16 @@ class LiveExecutor:
         LOOSEST answer a reduce-only preference has, for a person who may
         have pinned 1x; and the executor kept that None for its whole life.
         """
+        answer = self._read_user_leverage_pref()
+        # The answer this order's reading took, for the venue half of
+        # `_order_leverages`: asking again would read the store a second time
+        # while it is unreadable, and a store that read on the second try
+        # would size the order at one preference and set the venue at another.
+        self._pref_answer = answer
+        return answer
+
+    def _read_user_leverage_pref(self) -> Optional[int]:
+        """The reading `_user_leverage_reading` answers with."""
         from bot.core import user_leverage_store as _store
         pref = getattr(self, "_user_leverage_pref", None)
         if pref is not _store.UNREAD:
@@ -2669,7 +2810,7 @@ class LiveExecutor:
         return fresh
 
     def _standard_leverage(self, symbol: str) -> int:
-        """The standard leverage for a symbol, before this idea's risk cap.
+        """The SIZED standard leverage for a symbol, before this idea's risk cap.
 
         NOT the number to place an order with — `_compute_target_leverage` is,
         and it is what every caller asks. This is the half that depends only on
@@ -2700,7 +2841,10 @@ class LiveExecutor:
             _override = RUNTIME.leverage_override
         except Exception:
             _override = None
-        default_lev = operator_standard(cfg, _override).leverage
+        # SIZED, not the venue's: the venue follows this in proportion
+        # (`_order_leverages`). With the venue standard at or under
+        # SIZING_LEVERAGE the two are one number.
+        default_lev = order_standards(cfg, _override).sized
         # NB3: a BYOK live user can pin their OWN standard leverage, applied
         # reduce-only against the operator cap (never above it). Absent/invalid
         # pref → unchanged. A pref the store could not read is NOT absent:
@@ -3924,7 +4068,8 @@ class LiveExecutor:
         # `pending_fill` row carries the sized margin (`cost_usd=cost` at
         # placement), so counting it is a reading rather than an estimate,
         # and the direction is fail-closed.
-        exposure = committed_margin(self.open_positions)
+        # At the SIZED leverage: the size handed in is, and the caps are.
+        exposure = committed_sized_margin(self.open_positions)
 
         # THE RECORD. Every preflighted order goes to the bounds ledger
         # (bot/core/bounds_shadow.py) with what the bounds in force said and
@@ -4374,7 +4519,8 @@ class LiveExecutor:
 
     def _note_unverified_submission(self, exc: "OrderOutcomeUnverified", idea: TradeIdea, *,
                                     size_usd: float, leverage_mult: Any,
-                                    pre_order_price: float, atr_value: float) -> str:
+                                    pre_order_price: float, atr_value: float,
+                                    sized_leverage: Optional[int] = None) -> str:
         """Record a submission the venue never confirmed, say so, and answer
         the card that names the third outcome."""
         _lev = leverage_mult if isinstance(leverage_mult, (int, float)) and not isinstance(
@@ -4385,6 +4531,7 @@ class LiveExecutor:
             "direction": idea.direction.value, "order_type": exc.order_type,
             "amount": float(exc.amount), "price": exc.price,
             "size_usd": float(size_usd), "leverage": int(_lev),
+            "sized_leverage": sized_leverage,
             "stop_loss": float(idea.stop_loss), "take_profit": float(idea.take_profit),
             "strategy_type": str(getattr(idea, "strategy_type", "swing")),
             "signal_type": str(getattr(idea, "signal_type", "momentum_confluence")),
@@ -4568,6 +4715,7 @@ class LiveExecutor:
                 trailing_state=trailing_st, order_type=str(rec.get("order_type") or "market"),
                 atr_at_entry=atr, strategy_type=strategy, signal_type=signal,
                 opened_at=opened_at, status="open")
+            note_sized_leverage(pos, rec.get("sized_leverage"))
             if source is not None:
                 setattr(pos, "entry_source", source)
             else:
@@ -4625,6 +4773,7 @@ class LiveExecutor:
                 order_type="limit", limit_order_id=order_id, atr_at_entry=atr,
                 strategy_type=strategy, signal_type=signal,
                 opened_at=opened_at, status="pending_fill")
+            note_sized_leverage(pos, rec.get("sized_leverage"))
             _placed_mkt = price_on_record(_rec_num(rec, "pre_order_price"))
             if _placed_mkt is not None:
                 setattr(pos, "placed_market_price", _placed_mkt)
@@ -4828,7 +4977,7 @@ class LiveExecutor:
         if recorded is not None and recorded >= 1:
             return int(recorded)
         if getattr(pos, "origin", "") == "reclaimed":
-            return self._standard_leverage(pos.symbol)
+            return self._compute_target_leverage(pos.symbol)
         return 0
 
     async def _guard_fill_leverage(self, exchange: "ccxt.Exchange", trade_id: str,
@@ -8285,6 +8434,8 @@ class LiveExecutor:
         # the real value before any order is placed; the default here only acts
         # as a fail-safe if a crash somehow precedes that (order would be None then).
         leverage_mult = CONFIG.exchange.default_leverage
+        _leverages: Optional[LeveragePair] = None
+        _approved_margin = size_usd
         try:
             exchange = await self._get_exchange()
             is_futures = CONFIG.exchange.trade_mode == "futures"
@@ -8357,14 +8508,15 @@ class LiveExecutor:
                     return (f"EXECUTION FAILED: {symbol} has no futures market — "
                             f"only USDT-M perpetual futures are supported.")
 
-            # ONE READ of this order's leverage, handed to the venue set and to
-            # the sizing below. Each used to read it for itself, so a
+            # ONE READ of this order's leverages, handed to the venue set and
+            # to the sizing below. Each used to read it for itself, so a
             # `/leverage` change or a preference file that read on the second
             # try between them set the venue to one leverage and sized the
             # order at another: $200 of margin locked on a $100 approval.
-            _order_leverage = self._compute_target_leverage(
+            _leverages = self._order_leverages(
                 self._venue.swap_symbol(idea.asset) if is_futures else idea.asset,
                 idea)
+            _order_leverage = _leverages.venue
 
             # Set leverage for this symbol (futures only)
             if is_futures:
@@ -8417,6 +8569,20 @@ class LiveExecutor:
                 active_exchange, symbol, idea, current_price)
             if _gate_msg:
                 return _gate_msg
+
+            # THE MARGIN THE VENUE LOCKS for the notional this order was sized
+            # to. Everything above -- the per-account bound, the preflight's
+            # caps -- read `size_usd` at the SIZED leverage, the unit they are
+            # written in; from here the order is placed at the venue's, so the
+            # margin becomes notional / venue leverage and the quantity below
+            # (margin x venue leverage / price) is the sized notional's.
+            _approved_margin = size_usd
+            if is_futures and _leverages.venue != _leverages.sized:
+                _sized_margin = size_usd
+                size_usd = venue_margin(size_usd, _leverages.sized, _leverages.venue)
+                note_size_step(idea, f"margin at the {_leverages.venue}x venue "
+                                     f"(sized at {_leverages.sized}x)", size_usd,
+                               before=_sized_margin)
 
             # ── SAFEGUARD 1: Pre-trade price validation + sizing ── (see _size_or_block)
             _gate_msg, _sized_lev, _sized_qty = self._size_or_block(
@@ -8487,23 +8653,35 @@ class LiveExecutor:
 
             # The round-up above can raise the margin past what the preflight
             # checked. Ask the hard caps again at the margin this quantity
-            # really places, and refuse rather than place over a cap.
+            # really places, and refuse rather than place over a cap. The caps
+            # are asked in their own unit, the margin at the SIZED leverage.
             _placed_margin = quantity * _fill_px / max(int(leverage_mult or 1), 1)
             if _placed_margin > size_usd:
+                # Every figure in this refusal is in the caps' unit, the
+                # margin at the SIZED leverage, so the approval, the rounded
+                # order and the book's total read as one sum; the venue's own
+                # margin rides beside it where the two differ.
+                _sz = max(int(_leverages.sized or 1), 1)
+                _placed_sized = quantity * _fill_px / _sz
+                _approved_sized = size_usd * max(int(leverage_mult or 1), 1) / _sz
+                _at_venue = ("" if _sz == max(int(leverage_mult or 1), 1) else
+                             f"; ${_placed_margin:.2f} at the {leverage_mult}x venue")
                 _cap_msg, _ = self._hard_cap_refusal(
-                    _placed_margin, _bounds, committed_margin(self.open_positions))
+                    _placed_sized, _bounds, committed_sized_margin(self.open_positions))
                 if _cap_msg is not None:
                     audit(trade_log,
                           f"BLOCKED: {symbol} rounded up to the venue minimum "
-                          f"would place ${_placed_margin:.2f} of margin "
-                          f"(approved ${size_usd:.2f}). {_cap_msg}",
+                          f"would place ${_placed_sized:.2f} of margin "
+                          f"(approved ${_approved_sized:.2f}{_at_venue}). {_cap_msg}",
                           action="live_execute", result="ROUNDUP_OVER_CAP",
-                          data={"asset": symbol, "approved": round(size_usd, 4),
-                                "placed_margin": round(_placed_margin, 4),
+                          data={"asset": symbol, "approved": round(_approved_sized, 4),
+                                "placed_margin": round(_placed_sized, 4),
+                                "venue_margin": round(_placed_margin, 4),
+                                "sized_leverage": _sz,
                                 "leverage": leverage_mult})
                     return (f"BLOCKED: {symbol} rounded up to the venue minimum "
-                            f"is ${_placed_margin:.2f} of margin (approved "
-                            f"${size_usd:.2f}). {_cap_msg}")
+                            f"is ${_placed_sized:.2f} of margin (approved "
+                            f"${_approved_sized:.2f}{_at_venue}). {_cap_msg}")
 
             # ── Audit F-3: notional vs margin boundary check ── (see _notional_boundary_gate)
             _gate_msg = self._notional_boundary_gate(
@@ -8692,6 +8870,7 @@ class LiveExecutor:
                 status="pending_fill" if is_pending_limit else "open",
             )
             self._positions[idea.id] = position
+            note_sized_leverage(position, _leverages.sized)
             # RECORDING ONLY: the decision as it stood when the order went out,
             # and (for a fill that is already known) the fill. See entry_facts_for.
             try:
@@ -9058,9 +9237,12 @@ class LiveExecutor:
             # that may be on the venue with no stop. It is recorded, said as
             # unknown, and asked again on every positions pass.
             self.record_api_error()
+            # The record carries the APPROVED margin and the leverage it was
+            # sized at (their product is the notional), beside the venue's.
             return self._note_unverified_submission(
-                exc, idea, size_usd=size_usd, leverage_mult=leverage_mult,
-                pre_order_price=current_price, atr_value=atr_value)
+                exc, idea, size_usd=_approved_margin, leverage_mult=leverage_mult,
+                pre_order_price=current_price, atr_value=atr_value,
+                sized_leverage=_leverages.sized if _leverages is not None else None)
 
         except Exception as exc:
             self.record_api_error()
@@ -9096,6 +9278,8 @@ class LiveExecutor:
                     status="open",
                 )
                 self._positions[idea.id] = emergency_pos
+                if is_futures and _leverages is not None:
+                    note_sized_leverage(emergency_pos, _leverages.sized)
                 if _em_source is not None:
                     setattr(emergency_pos, "entry_source", _em_source)
                 if _em_source == ENTRY_ESTIMATED:
@@ -12312,12 +12496,26 @@ class LiveExecutor:
         if would_margin > planned:
             bounds = size_bounds_for(await self.available_margin())
             others = [p for p in self.open_positions if p is not pos]
-            cap_msg, _ = self._hard_cap_refusal(would_margin, bounds, committed_margin(others))
+            # The caps are asked in their own unit: the margin at the leverage
+            # this position was SIZED at, over the rest of the book read the
+            # same way. A record with no sized leverage was sized at its own,
+            # except a reclaimed order: the bot's own, whose record was lost,
+            # sized at the sizing standard the executor sizes at now.
+            _sized_lev = sized_leverage_on_record(pos)
+            if _sized_lev is None and getattr(pos, "origin", "") == "reclaimed":
+                _sized_lev = self._compute_sized_leverage(pos.symbol)
+            _sized_would = (margin_at_fill(would_notional, _sized_lev)
+                            if _sized_lev is not None else would_margin)
+            _sized_planned = planned * lev / _sized_lev if _sized_lev else planned
+            _at_venue = ("" if not _sized_lev or float(_sized_lev) == float(lev) else
+                         f"; ${would_margin:.2f} at the {lev:g}x venue")
+            cap_msg, _ = self._hard_cap_refusal(_sized_would, bounds,
+                                                committed_sized_margin(others))
             if cap_msg is not None:
                 return "over_cap", (
                     f"marketing the remaining {qty:.6f} at ${cur_price:,.4f} would place "
-                    f"${would_margin:.2f} of margin (approved ${planned:.2f} at the limit). "
-                    f"{cap_msg}")
+                    f"${_sized_would:.2f} of margin (approved ${_sized_planned:.2f} at the "
+                    f"limit{_at_venue}). {cap_msg}")
         authorized = price_on_record(getattr(pos, "authorized_notional_usd", None))
         if authorized is not None and would_notional > authorized:
             return "over_authorized", (
@@ -16121,6 +16319,10 @@ class LiveExecutor:
                     # drift rule measures from (`resting_limit_drift`).
                     "placed_market_price": getattr(pos, "placed_market_price", None),
                     "authorized_notional_usd": getattr(pos, "authorized_notional_usd", None),
+                    # THE LEVERAGE IT WAS SIZED AT. Unsaved, a restart read a
+                    # 10x position's venue margin against caps written at 5x,
+                    # and the book held half its notional on every cap.
+                    "sized_leverage": sized_leverage_on_record(pos),
                     # The VWAP this position's analysis read, which its
                     # VWAP-reversion exit is measured from. Unsaved, a restart
                     # left that exit with nothing to measure against.

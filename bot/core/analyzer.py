@@ -601,6 +601,48 @@ def _llm_confidence_on_record(thesis: dict) -> Optional[float]:
     return round(float(thesis.get("confidence", 0.0)), 4)
 
 
+def leverage_capped_levels(direction: Direction, entry: float, stop_loss: float,
+                           take_profit: float) -> tuple[float, float, Optional[str]]:
+    """``(stop, target, sentence)``: a stop tightened to the margin-risk cap.
+
+    SL distance x leverage is the share of the margin a stop takes; past
+    ``MAX_MARGIN_RISK_PCT`` the stop is pulled in to the cap and the target
+    with it, keeping the reward:risk. Measured at the VENUE's standard, the
+    leverage the risk gate measures this cap at, against the cap read the one
+    way (`margin_risk_cap_pct`): unset, a 6% stop at any venue leverage, as at
+    5x. ``sentence`` is None when nothing moved.
+
+    It sat inline in a 900-line analysis no test runs end to end, reading
+    ``default_leverage`` raw; at the 10x venue standard with the cap at 30 it
+    would have halved every stop the analyzer allows.
+    """
+    from bot.core.leverage import margin_risk_cap_pct, order_standards
+    pair = order_standards(CONFIG.exchange, None)
+    leverage = pair.venue
+    if leverage <= 1 or entry <= 0:
+        return stop_loss, take_profit, None
+    sl_dist_pct = abs(entry - stop_loss) / entry
+    margin_risk_pct = sl_dist_pct * leverage * 100  # % of margin at risk
+    max_margin_risk = margin_risk_cap_pct(CONFIG.risk.max_margin_risk_pct, pair)
+    if margin_risk_pct <= max_margin_risk:
+        return stop_loss, take_profit, None
+    max_sl_dist_pct = max_margin_risk / (leverage * 100)
+    old_sl_dist = abs(entry - stop_loss)
+    new_sl_dist = entry * max_sl_dist_pct
+    # Preserve R:R ratio by scaling TP proportionally
+    old_tp_dist = abs(take_profit - entry)
+    rr_ratio = old_tp_dist / old_sl_dist if old_sl_dist > 0 else 1.2
+    new_tp_dist = new_sl_dist * rr_ratio
+    if direction == Direction.LONG:
+        stop_loss, take_profit = entry - new_sl_dist, entry + new_tp_dist
+    else:
+        stop_loss, take_profit = entry + new_sl_dist, entry - new_tp_dist
+    return stop_loss, take_profit, (
+        f"SL tightened for leverage: {margin_risk_pct:.1f}% margin risk → "
+        f"{max_margin_risk:.1f}% (SL dist {sl_dist_pct*100:.2f}% → "
+        f"{max_sl_dist_pct*100:.2f}%)")
+
+
 class Analyzer:
     """Produces TradeIdea objects from raw market signals.
 
@@ -2110,33 +2152,11 @@ class Analyzer:
             take_profit = entry * 0.01
 
         # ── Leverage-aware SL cap ──────────────────────────────────
-        # Prevent outsized losses when leverage is used.
-        # max_margin_risk_pct caps the max loss as % of margin (cost).
-        # SL distance % × leverage = margin risk %.
-        # If it exceeds the cap, tighten SL (keeping R:R ratio intact).
-        leverage = CONFIG.exchange.default_leverage
-        if leverage > 1 and entry > 0:
-            sl_dist_pct = abs(entry - stop_loss) / entry
-            margin_risk_pct = sl_dist_pct * leverage * 100  # % of margin at risk
-            max_margin_risk = CONFIG.risk.max_margin_risk_pct
-            if margin_risk_pct > max_margin_risk:
-                # Compute the tighter SL distance
-                max_sl_dist_pct = max_margin_risk / (leverage * 100)
-                old_sl_dist = abs(entry - stop_loss)
-                new_sl_dist = entry * max_sl_dist_pct
-                # Preserve R:R ratio by scaling TP proportionally
-                old_tp_dist = abs(take_profit - entry)
-                rr_ratio = old_tp_dist / old_sl_dist if old_sl_dist > 0 else 1.2
-                new_tp_dist = new_sl_dist * rr_ratio
-                if direction == Direction.LONG:
-                    stop_loss = entry - new_sl_dist
-                    take_profit = entry + new_tp_dist
-                else:
-                    stop_loss = entry + new_sl_dist
-                    take_profit = entry - new_tp_dist
-                audit(trade_log,
-                      f"SL tightened for leverage: {margin_risk_pct:.1f}% margin risk → {max_margin_risk:.1f}% (SL dist {sl_dist_pct*100:.2f}% → {max_sl_dist_pct*100:.2f}%)",
-                      action="leverage_sl_cap", result="TIGHTENED")
+        # Prevent outsized losses when leverage is used (`leverage_capped_levels`).
+        stop_loss, take_profit, _lev_cap_line = leverage_capped_levels(
+            direction, entry, stop_loss, take_profit)
+        if _lev_cap_line:
+            audit(trade_log, _lev_cap_line, action="leverage_sl_cap", result="TIGHTENED")
 
         # ── RSI hard block: reject trades into overbought/oversold ──
         rsi_val = indicators.get("rsi", 50)

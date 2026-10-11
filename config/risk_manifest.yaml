@@ -655,9 +655,9 @@ defaults:
     description: "Maker fee per side (used for accurate PnL when order type is known)"
 
   max_margin_risk_pct:
-    value: 30.0
+    value: null
     env_var: MAX_MARGIN_RISK_PCT
-    description: "Leverage-aware cap: SL distance x leverage must not exceed this % of margin"
+    description: "Leverage-aware cap: SL distance x the venue's leverage must not exceed this % of the venue's margin. Unset: 30% at the sizing leverage scaled to the venue's (60% at 10x sized at 5x), a 6% stop either way"
 
   equity_curve_ma_period:
     value: 20

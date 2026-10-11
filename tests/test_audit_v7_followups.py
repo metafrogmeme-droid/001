@@ -131,7 +131,6 @@ class TestNotionalVisibility:
         import tempfile
         from bot.risk.risk_engine import RiskEngine
         from bot.risk.portfolio import PortfolioTracker
-        from bot.config import CONFIG
 
         names = ("runeclaw.risk",)
         saved = {n: logging.getLogger(n).propagate for n in names}
@@ -160,8 +159,14 @@ class TestNotionalVisibility:
             data = getattr(risk_checks[-1], "data", {})
             assert "leverage" in data
             assert "approx_notional_usd" in data
+            # The margin is the SIZED margin (5x), so the notional is it times
+            # the sized standard, never the 10x venue's default.
+            from bot.config import CONFIG as _CFG
+            from bot.config import RUNTIME
+            from bot.core.leverage import order_standards
+            assert order_standards(_CFG.exchange, RUNTIME.leverage_override) == (5, 10)
             assert data["approx_notional_usd"] == _pytest.approx(
-                data["position_size_usd"] * CONFIG.exchange.default_leverage, rel=1e-6)
+                data["position_size_usd"] * 5, rel=1e-6)
         finally:
             for n, v in saved.items():
                 logging.getLogger(n).propagate = v

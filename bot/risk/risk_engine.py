@@ -39,6 +39,12 @@ Units (audit V7, F-3) — RECONCILED:
   * ``MAX_LEVERAGE`` is the ceiling on the leverage any order is placed at
     (``bot.core.leverage.operator_standard``), and the executor's F-3 notional
     check refuses an order above margin * MAX_LEVERAGE (x1.05) as the backstop.
+  * The margin is the margin at the SIZED leverage (``SIZING_LEVERAGE``, 5x),
+    not at the venue's (10x since 11 October): notional = margin * the sized
+    leverage, and the venue locks notional / its own leverage. So every cap
+    here keeps the number it was written with and bounds the notional it
+    bounded at 5x (``bot.core.leverage.order_standards``); live books are read
+    at the same sized margin (``live_executor.sized_margin``).
 
 Checks:
   1.  Circuit breaker status
@@ -91,11 +97,15 @@ from dataclasses import dataclass
 
 from bot.config import CONFIG
 from bot.core.leverage import (
+    LeveragePair,
     leverage_floor,
+    margin_risk_cap_pct,
     margin_risk_verdict,
-    operator_standard,
+    order_standards,
     set_margin_risk_cap,
+    sized_for_venue,
     tighten_leverage_cap,
+    venue_leverage,
 )
 from bot.core.signal_confidence import displayed_confidence
 from bot.core.signal_levels import stop_under_floor
@@ -265,6 +275,20 @@ def _is_account_key(val: object) -> TypeGuard[str]:
     """An account name as `_select_live_account` records one: a venue id."""
     return (isinstance(val, str) and len(val) <= 32 and val.isascii()
             and val == val.lower() and val.replace("_", "").isalnum())
+
+
+def sizing_standard_now() -> int:
+    """The SIZED standard (`order_standards(...).sized`), for the readers that
+    turn a margin into a notional outside `evaluate`'s own reading: the VaR
+    gates and the audit record. They read ``default_leverage`` raw, which was
+    the 5x the margins are written at only while the venue standard was 5x;
+    at a 10x venue it would have doubled every proposed notional."""
+    try:
+        from bot.config import RUNTIME
+        override = RUNTIME.leverage_override
+    except Exception:
+        override = None
+    return order_standards(CONFIG.exchange, override).sized
 
 
 class RiskEngine:
@@ -1557,24 +1581,29 @@ class RiskEngine:
         # a test that plants one drives it.
         _rungs, _rungs_note = rungs_from_config(CONFIG.risk)
         _ladder = ladder_verdict(idea, _rungs, _rungs_note)
-        # THE LEVERAGE THE ORDER PLACES AT, read ONCE and read HERE, because
-        # two readers below -- the risk-budget base and the margin-risk cap --
+        # THE LEVERAGE THE ORDER IS SIZED AT, read ONCE and read HERE, because
+        # two readers below -- the risk-budget base and the quality ladder --
         # must be one reading. The backtest hands its fill leverage in
-        # (`BacktestConfig.leverage`: 1 on a plain run, the live standard
-        # under --honest); every other caller places at the operator
-        # standard, the /leverage override under the MAX_LEVERAGE ceiling.
-        # A user's preference, the quality ladder and the margin-risk cap only
-        # ever LOWER an order's leverage from it, so a budget divided by it
-        # bounds the loss at the stop at every leverage an order can run at.
+        # (`BacktestConfig.leverage`: 1 on a plain run, the sizing standard
+        # under --honest); every other caller sizes at the SIZED standard
+        # (`order_standards`: SIZING_LEVERAGE, never above the venue's), so a
+        # trade's notional and its loss at the stop are what they were at 5x
+        # whatever the venue is set to. A user's preference, the quality
+        # ladder and the margin-risk cap only ever LOWER it, so a budget
+        # divided by it bounds the loss at the stop at every leverage an order
+        # can be sized at. The venue's leverage follows the sized one in
+        # proportion (`venue_leverage`), and the margin-risk cap below is
+        # measured there.
+        try:
+            from bot.config import RUNTIME
+            _lev_override = RUNTIME.leverage_override
+        except Exception:
+            _lev_override = None
+        _lev_pair: LeveragePair = order_standards(CONFIG.exchange, _lev_override)
         if fill_leverage is not None:
             _lev_std = max(1, int(fill_leverage))
         else:
-            try:
-                from bot.config import RUNTIME
-                _lev_override = RUNTIME.leverage_override
-            except Exception:
-                _lev_override = None
-            _lev_std = operator_standard(CONFIG.exchange, _lev_override).leverage
+            _lev_std = _lev_pair.sized
         # The book a new trade JOINS (bot/risk/held_book.py). Paper and
         # backtest: this engine's tracker, as always (`None` below). Live: the
         # executor's rows, which the caller hands in, because the tracker holds
@@ -2479,20 +2508,18 @@ class RiskEngine:
 
         try:
             # 6b. Leverage-aware margin risk cap
-            # SL distance % × leverage must not exceed max_margin_risk_pct.
-            # Use the leverage the executor will ACTUALLY size with: a runtime
-            # /leverage override wins over the env default, and MAX_LEVERAGE
-            # caps both -- `operator_standard` is the executor's own reading
-            # (`_standard_leverage`), so the cap below is measured at the
-            # leverage the venue will be set to. Per-user prefs and dynamic
-            # scaling only REDUCE from here, so the standard is the
-            # conservative worst case this cap must bound — evaluating at the
-            # lower env default let an override above it size past the cap
-            # unchecked, and evaluating at an override above the ceiling
-            # measured a leverage no order runs at. No override → the default.
-            # The one reading, taken at the top of this evaluation beside the
-            # risk-budget base that divides by it; the ledger row below
-            # records the rung's cut FROM it.
+            # SL distance % × the VENUE's leverage must not exceed
+            # max_margin_risk_pct. The sized leverage starts at the reading
+            # taken at the top of this evaluation (the executor's own,
+            # `_standard_leverage`), the rung below lowers it, and the cap is
+            # measured at the leverage the venue is then set to for it
+            # (`venue_leverage`, in proportion). Per-user prefs and dynamic
+            # scaling only REDUCE from here, so this is the conservative worst
+            # case the cap must bound -- evaluating at the lower env default
+            # let an override above it size past the cap unchecked, and
+            # evaluating at an override above the ceiling measured a leverage
+            # no order runs at. The ledger row below records the rung's cut
+            # FROM the sized standard.
             leverage = _lev_std
             # Trade QUALITY caps the leverage the VENUE is set to, before the
             # margin-risk cap measures anything -- so the verdict below is
@@ -2556,10 +2583,11 @@ class RiskEngine:
             # floored the reduction ABOVE the cap the line read
             # "SL 16.0% × 2x = 32.0% ≤ 30.0%" and was filed in `passed`.
             _mr = margin_risk_verdict(
-                leverage=leverage,
+                leverage=venue_leverage(leverage, _lev_pair),
                 entry_price=idea.entry_price,
                 stop_loss=idea.stop_loss,
-                max_margin_risk_pct=CONFIG.risk.max_margin_risk_pct,
+                max_margin_risk_pct=margin_risk_cap_pct(
+                    CONFIG.risk.max_margin_risk_pct, _lev_pair),
                 min_leverage=leverage_floor(CONFIG.exchange),
                 may_reduce=bool(getattr(CONFIG.exchange,
                                         'dynamic_leverage_enabled', False)),
@@ -2569,8 +2597,12 @@ class RiskEngine:
                 # path and the sizing path hold. The venue is the end this cap
                 # has to reach: the leverage an order is sized at cancels out
                 # of the ratio being bounded, so a reduction that reached only
-                # the sizing path bounded nothing.
-                set_margin_risk_cap(idea, _mr.leverage)
+                # the sizing path bounded nothing. The idea carries SIZED
+                # leverages (the rung's cap is one), so the venue leverage the
+                # verdict allows goes back through `sized_for_venue`, whose
+                # venue leverage is never above it.
+                set_margin_risk_cap(idea, (sized_for_venue(_mr.leverage, _lev_pair)
+                                           if _mr.leverage is not None else None))
                 passed.append(_mr.sentence)
             elif _mr.state == "refused":
                 failed.append(_mr.sentence)
@@ -3260,8 +3292,7 @@ class RiskEngine:
         if getattr(CONFIG.risk, "authority_envelope_enabled", False) and self._authority_envelope:
             try:
                 from bot.guardian import authority as _auth
-                _lev_a = getattr(CONFIG.exchange, "default_leverage", 1) or 1
-                _notional_a = position_usd * _lev_a
+                _notional_a = position_usd * _lev_pair.sized
                 _action = {
                     "kind": "trade",
                     "market_type": "swap",
@@ -3383,7 +3414,7 @@ class RiskEngine:
         # the real exchange notional is position_size_usd * leverage. The micro
         # caps and the executor's hard notional ceiling are the binding live
         # safeguards. This is visibility only — it changes no pass/fail logic.
-        _lev = getattr(CONFIG.exchange, "default_leverage", 1) or 1
+        _lev = sizing_standard_now()
         _audit_data = check.model_dump(mode="json")
         _audit_data["leverage"] = _lev
         _audit_data["approx_notional_usd"] = round(position_usd * _lev, 2)
@@ -3917,7 +3948,7 @@ class RiskEngine:
         # proposed position_usd is MARGIN, so it must be converted to notional
         # (margin * leverage) before being added — otherwise VaR mixes units and
         # understates the new position's risk contribution by the leverage factor.
-        _lev = getattr(CONFIG.exchange, "default_leverage", 1) or 1
+        _lev = sizing_standard_now()
         proposed_notional = position_usd * _lev
         sqrt_t = math.sqrt(holding_period)
         current_var_pct = (z_score * vol * sqrt_t * current_exposure / equity * 100) if equity > 0 else 0.0
@@ -3994,7 +4025,7 @@ class RiskEngine:
         variance = sum((x - mean_ret) ** 2 for x in returns) / (len(returns) - 1)
         vol = math.sqrt(variance)
         z_score = self._var_z_score(confidence_level)
-        _lev = getattr(CONFIG.exchange, "default_leverage", 1) or 1
+        _lev = sizing_standard_now()
         current_exposure = sum(abs(n) for n in book.values())
         proposed_exposure = current_exposure + position_usd * _lev
         current_var_pct = z_score * vol * current_exposure / equity * 100
@@ -4093,7 +4124,7 @@ class RiskEngine:
 
         # Proposed adds margin→notional (margin × leverage, matching the F-3 unit
         # fix in the per-trade path) to the proposed asset, signed by its side.
-        _lev = getattr(CONFIG.exchange, "default_leverage", 1) or 1
+        _lev = sizing_standard_now()
         proposed_notional_usd = position_usd * _lev
         idea_dir = idea.direction.value if hasattr(idea.direction, "value") else str(idea.direction)
         proposed_notional = dict(current_notional)

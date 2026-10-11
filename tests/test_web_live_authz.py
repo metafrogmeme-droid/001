@@ -27,7 +27,7 @@ class _Executor:
     written; the leverage READING is driven on a real executor in
     test_the_envelope_is_asked_about_the_leverage_the_order_runs_at.py."""
 
-    def _compute_target_leverage(self, symbol, idea=None):
+    def _compute_sized_leverage(self, symbol, idea=None):
         return 5
 
 

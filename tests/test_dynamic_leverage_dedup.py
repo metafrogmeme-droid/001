@@ -34,6 +34,7 @@ def _exec(monkeypatch, *, default_lev=10, min_lev=2, enabled=True, atr=0.02):
     monkeypatch.setattr(live_executor_mod, "CONFIG", SimpleNamespace(
         exchange=SimpleNamespace(
             default_leverage=default_lev, min_leverage=min_lev,
+            sizing_leverage=default_lev,  # one standard: this file's world
             dynamic_leverage_enabled=enabled)))
     return executor
 
@@ -116,26 +117,33 @@ class TestBothPathsUseHelper:
         assert "self._size_or_block(" in inspect.getsource(LiveExecutor.execute)
 
     def test_nothing_else_decides_a_leverage(self):
-        """Exactly four methods ask, and no fifth quietly works one out.
+        """Exactly four methods ask for the venue's leverage, three ask for
+        the order's pair, and no other quietly works one out.
 
-        The number is DERIVED — a list of them would be the shape where the
-        one added tomorrow is the one missing from it. `execute` is the fourth:
-        it reads the leverage ONCE per order and hands that number to the set
-        and to the sizing, because each reading it for itself let a
-        `/leverage` change between them set the venue to one leverage and
-        size the order at another
-        (tests/test_the_placed_order_is_the_checked_order.py). The other three
-        still read it when no order hands them one.
+        The numbers are DERIVED -- a list of them would be the shape where the
+        one added tomorrow is the one missing from it. `execute` reads the
+        PAIR once per order (`_order_leverages`: the leverage it is sized at
+        and the one the venue is set to) and hands both on, because each
+        reading it for itself let a `/leverage` change between them set the
+        venue to one leverage and size the order at another
+        (tests/test_the_placed_order_is_the_checked_order.py). The two set
+        paths and the sizing helper still read the venue's when no order hands
+        them one, and a reclaimed order's guard reads the venue's it sets.
         """
         tree = ast.parse(inspect.getsource(live_executor_mod))
-        asks = sorted(
-            fn.name
-            for fn in ast.walk(tree)
-            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and any(isinstance(n, ast.Call)
-                    and isinstance(n.func, ast.Attribute)
-                    and n.func.attr == "_compute_target_leverage"
-                    for n in ast.walk(fn))
-        )
-        assert asks == ["_ensure_leverage", "_ensure_leverage_generic",
-                        "_size_or_block", "execute"], asks
+
+        def callers(name):
+            return sorted(
+                fn.name
+                for fn in ast.walk(tree)
+                if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and any(isinstance(n, ast.Call)
+                        and isinstance(n.func, ast.Attribute)
+                        and n.func.attr == name
+                        for n in ast.walk(fn)))
+
+        assert callers("_compute_target_leverage") == [
+            "_ensure_leverage", "_ensure_leverage_generic",
+            "_intended_fill_leverage", "_size_or_block"]
+        assert callers("_order_leverages") == [
+            "_compute_sized_leverage", "_compute_target_leverage", "execute"]

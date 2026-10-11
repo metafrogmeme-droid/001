@@ -62,16 +62,19 @@ class OrderAuthorization(NamedTuple):
 
 
 def placement_leverage(executor: Any, idea: Any) -> tuple[Optional[int], Optional[str]]:
-    """The leverage THIS order would be placed at on ``executor``, or why not.
+    """The leverage THIS order's margin is SIZED at on ``executor``, or why not.
 
-    `_compute_target_leverage` is the one number the venue is set to: the
-    operator standard (the `/leverage` override under the MAX_LEVERAGE
-    ceiling), lowered by the user's own preference and the idea's
-    margin-risk cap. Every failure is a reason and never a number: an
-    envelope checked at a leverage nobody read is the defect the web door
-    was cured of, and the class of the exception is all that travels."""
+    The notional an order carries is its margin x this
+    (`_compute_sized_leverage`): the sizing standard, lowered by the user's
+    own preference and the idea's caps. The venue may be set higher (10x
+    against a 5x sizing) and then locks less margin for the same notional;
+    pricing the envelope at the venue's leverage would have doubled every
+    notional it was asked about. Every failure is a reason and never a
+    number: an envelope checked at a leverage nobody read is the defect the
+    web door was cured of, and the class of the exception is all that
+    travels."""
     try:
-        lev = int(executor._compute_target_leverage(str(getattr(idea, "asset", "")), idea))
+        lev = int(executor._compute_sized_leverage(str(getattr(idea, "asset", "")), idea))
     except Exception as exc:
         return None, f"{LEVERAGE_UNREAD} ({type(exc).__name__})"
     if lev < 1:
