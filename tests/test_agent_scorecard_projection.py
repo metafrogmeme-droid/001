@@ -22,7 +22,6 @@ from scripts.gen_agent_scorecards import (
 
 _REPO = Path(__file__).resolve().parents[1]
 _CARDS = _REPO / "benchmark" / "scorecards"
-_MANIFEST = _REPO / "benchmark" / "majors_1h" / "manifest.json"
 
 
 def _runner(**over):
@@ -159,14 +158,18 @@ def _committed_cards():
 
 
 def test_committed_public_metrics_project_the_measured_runner():
-    manifest_hash = json.loads(_MANIFEST.read_text())["dataset_hash"]
     head = _git("rev-parse", "HEAD")
     for path in _committed_cards():
         card = json.loads(path.read_text())
         projected = project_public_metrics(card["measured"])
         for key in PUBLIC_METRICS:
             assert card["metrics"][key] == projected[key], path.name
-        assert card["dataset_hash"] == manifest_hash
+        # Against the manifest of the dataset the card names: the house
+        # presets read majors_1h, the Limit Entry Scanner its own universe
+        # (limit_scanner_1h). A card naming no committed dataset fails here.
+        manifest = _REPO / "benchmark" / card["dataset"] / "manifest.json"
+        assert manifest.is_file(), (path.name, card["dataset"])
+        assert card["dataset_hash"] == json.loads(manifest.read_text())["dataset_hash"], path.name
         assert card["metrics"]["total_trades"] == len(card["trades"])
         if path.name == "safe-scalper.json":
             # The runner applies 1.5 / 2.0, so the card must not say otherwise.

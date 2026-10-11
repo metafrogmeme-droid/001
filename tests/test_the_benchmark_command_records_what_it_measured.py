@@ -96,6 +96,7 @@ def _result(**over):
 class _StubPB:
     """Stands in for PortfolioBacktester: no engine, no bars, one result."""
     per_symbol: dict = {}
+    scanner_passes: dict = {}   # the real backtester always has it; empty: no scanner ran
     result = None
 
     def __init__(self, config, symbols=None):
