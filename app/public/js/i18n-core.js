@@ -2206,7 +2206,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"8df21621","zh":"4846c21f","pt":"052e519d","fr":"67812ee1","de":"f017e510","nl":"4357a312","ja":"bdbc90a3","ko":"cff09458","ru":"5981d897","tr":"c720edf9","it":"8d777b83","hi":"9870f5b1","ar":"edb8b51c"};
+  var CHUNKS = {"es":"8df21621","zh":"4846c21f","pt":"052e519d","fr":"67812ee1","de":"f017e510","nl":"4357a312","ja":"bdbc90a3","ko":"cff09458","ru":"5981d897","tr":"c720edf9","it":"8d777b83","hi":"bdcd55b4","ar":"edb8b51c"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};
