@@ -428,8 +428,28 @@ def flash_close_applied(result) -> bool:
 #: Bitget refusals a person acts on, in words. Read by `refusal_text`.
 _VENUE_REFUSAL_WORDS: dict[str, str] = {
     "25231": "the close asked for more than the position the venue holds",
-    "25610": "the size is not on the market's size step",
+    # The venue's own words are "does not meet precision requirements", and it
+    # answered them for a whole-unit size under the 5 USDT minimum order value.
+    "25610": "the size does not meet the market's size rules (its step or its minimum value)",
 }
+
+#: Refusals of a close for its SIZE, which the flash close (no size, no
+#: minimum) answers: more than is held, or under the market's size rules.
+SIZE_REFUSALS = frozenset({"25231", "25610"})
+
+
+def venue_code(exc) -> Optional[str]:
+    """The venue's refusal code in an order error, or None when it states none.
+
+    Read from the JSON's ``"code"`` field, never as a substring of the whole
+    text: ``requestTime`` is thirteen digits, and five of them can spell any
+    code.
+    """
+    try:
+        m = re.search(r'"code"\s*:\s*"?(\d{4,6})', str(exc))
+    except Exception:
+        return None
+    return m.group(1) if m else None
 
 
 def refusal_text(exc: BaseException) -> str:
@@ -441,13 +461,9 @@ def refusal_text(exc: BaseException) -> str:
     name for the refusal, and the two this repo has met have words.
     """
     name = type(exc).__name__
-    try:
-        m = re.search(r'"code"\s*:\s*"?(\d{4,6})', str(exc))
-    except Exception:
-        m = None
-    if not m:
+    code = venue_code(exc)
+    if code is None:
         return name
-    code = m.group(1)
     words = _VENUE_REFUSAL_WORDS.get(code)
     return f"{name}, venue code {code}" + (f": {words}" if words else "")
 

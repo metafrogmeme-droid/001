@@ -23255,12 +23255,35 @@ stop's refusal (25610) came from the unified account's strategy order, which
 sends no size at all: Bitget's v3 spec for MUSDT has a 5 USDT minimum order
 value, so a position that small cannot carry a stop, and the flatten that a
 stopless position gets went through the same refused close. The size is read
-from the futures book now, as the 25227 branch reads it; and a 25231 refusal
+from the futures book now, as the 25227 branch reads it; and a size refusal
 falls back to the flash close, which names no size and no minimum and closes
 what the venue holds, as 25227's branch already did. "The flash close was
 applied" is one reading for both branches now (`flash_close_applied`).
-(`tests/test_a_close_refused_for_size_is_flash_closed.py`: a 25231 refusal is
-flash-closed and booked as the bot's own close, for its reason; a flash close
-that applied nothing, or was not accepted, is still a failed close with the
-record kept; the size is read with the futures params. Four mutants, all
-killed.)
+
+Three things followed from the fallback itself:
+- **Both size refusals, not one.** A close sized to what is held, when that is
+  under the minimum, is refused for the minimum (25610, the stop's words), not
+  for the size. Fixing the read alone would have traded one refusal for the
+  other. `SIZE_REFUSALS` holds both.
+- **A code is read from its field.** The 25227 branch finds its code anywhere in
+  the error's text, and Bitget's `requestTime` is thirteen digits, five of
+  which can spell any code. `venue_code` reads the `"code"` field, and
+  `refusal_text` asks it too.
+- **What closed is what was held.** The booking prices the size it is handed,
+  and on its fallback rungs (a fill matched without the venue's P&L, or a
+  ticker) that was the record's: the very size the venue had just refused. The
+  held size is read before the flash close flattens it, and once the flash
+  close applied, the record is trued to it, margin scaled with it. An unread
+  book trues nothing and leaves the pricing to the venue's own close record.
+
+(`tests/test_a_close_refused_for_size_is_flash_closed.py`: either size refusal
+is flash-closed and booked as the bot's own close, for its reason; a flash
+close that applied nothing, or was not accepted, is still a failed close with
+the record untouched; a refusal whose time spells a code is not flash-closed;
+a 3-of-150 holding is booked and priced as 3. Nine mutants across both rounds,
+all killed.)
+
+What this does not answer is how the record came to say more than the venue
+held. The fill paths read the venue's filled amount, and fall back to the
+requested one only when every read of it failed (`fill_fallback`, audited as
+ESTIMATED); the trade log of that position is what tells which path booked it.

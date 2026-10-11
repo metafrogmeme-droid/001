@@ -80,10 +80,10 @@ from bot.core.trade_costs import (
 from bot.core.time_exits import UNRECORDED_ORIGINS, in_profit_after_fees, thesis_recorded
 from bot.core.position_telemetry import entered_at, price_on_record
 from bot.core.order_state import (
-    CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, NOTHING_TO_CLOSE, amount_to_send,
-    first_reading, flash_close_applied, flatten_outcome, held_on_side, order_status,
-    pending_cancel_verdict,
-    position_presence, read_amount, refusal_text, rows_for_side, stop_attached,
+    CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, NOTHING_TO_CLOSE, SIZE_REFUSALS,
+    amount_to_send, first_reading, flash_close_applied, flatten_outcome, held_on_side,
+    order_status, pending_cancel_verdict,
+    position_presence, read_amount, refusal_text, rows_for_side, stop_attached, venue_code,
 )
 from bot.core.symbol_form import normalize_symbol
 from bot.core.close_funding import funding_on_row, place_funding
@@ -9731,6 +9731,23 @@ class LiveExecutor:
                                               keep={sl_id, tp_id}, side=_protects)
         return sl_id, tp_id
 
+    async def _held_on_venue(self, exchange, symbol: str, direction) -> Optional[float]:
+        """What the venue's futures book holds on this position's side, or None unread.
+
+        Asked as the 25227 branch asks it: without the product params a Bitget
+        account answered an empty list, which is a flat reading, so the
+        record's size went out uncapped.
+        """
+        side = "long" if str(getattr(direction, "value", direction)).upper() == "LONG" else "short"
+        try:
+            book_sym = self._venue.swap_symbol(symbol)
+            rows = await exchange.fetch_positions(
+                [book_sym], params=self._venue.futures_params())
+            return held_on_side(rows, book_sym, side)
+        except Exception as exc:
+            logger.debug("held size unread for %s: %s", symbol, type(exc).__name__)
+            return None
+
     async def _sized_to_venue(self, exchange, symbol: str, direction,
                               recorded: float) -> float:
         """The size an order that reduces this position sends.
@@ -9750,17 +9767,7 @@ class LiveExecutor:
         """
         side = "long" if str(getattr(direction, "value", direction)).upper() == "LONG" else "short"
         venue_sym = self._venue.order_symbol(symbol)
-        held: Optional[float] = None
-        try:
-            # The futures book, asked as the 25227 branch asks it: without the
-            # product params a Bitget account answered an empty list, which is
-            # a flat reading, so the record's size went out uncapped.
-            book_sym = self._venue.swap_symbol(symbol)
-            rows = await exchange.fetch_positions(
-                [book_sym], params=self._venue.futures_params())
-            held = held_on_side(rows, book_sym, side)
-        except Exception as exc:
-            logger.debug("held size unread for %s: %s", symbol, type(exc).__name__)
+        held = await self._held_on_venue(exchange, symbol, direction)
         amount = amount_to_send(recorded, held)
         try:
             rounded = exchange.amount_to_precision(venue_sym, amount)
@@ -14659,25 +14666,57 @@ class LiveExecutor:
             # flatten for "no stop could be placed" failed and the position sat
             # open with no stop. The flash close names no size and no minimum:
             # it closes what the venue holds, which is the close asked for.
-            if "25231" in exc_str or "cannot exceed the held position" in exc_str:
+            # 25610 is the same refusal from the other side: a close sized to
+            # what is held, when that is under the minimum, is refused for the
+            # minimum, in the words the stop got. The code is read from its
+            # field, not found in the text: a requestTime can spell it.
+            _size_code = venue_code(exc)
+            if _size_code in SIZE_REFUSALS or "cannot exceed the held position" in exc_str:
+                # Read what is held BEFORE the flash close flattens it: the
+                # booking below prices the size it is handed, and the record's
+                # is the one the venue just refused.
+                _held: Optional[float] = None
+                try:
+                    _held = await self._held_on_venue(
+                        await self._get_exchange(), pos.symbol, pos.direction)
+                except Exception as held_exc:
+                    logger.debug("held size unread for %s: %s", pos.symbol,
+                                 type(held_exc).__name__)
                 audit(trade_log,
-                      f"25231 for {pos.symbol}: the venue holds less than the record — "
+                      f"{_size_code or 'size'} refusal for {pos.symbol}: record "
+                      f"{pos.quantity}, held {_held if _held is not None else 'unread'} — "
                       f"flash close",
-                      action="live_close_25231", result="FLASH_CLOSE",
+                      action="live_close_size_refused", result="FLASH_CLOSE",
                       data={"trade_id": trade_id, "symbol": pos.symbol,
-                            "recorded": pos.quantity})
+                            "code": _size_code, "recorded": pos.quantity, "held": _held})
                 try:
                     flash_result = await self._flash_close_position(pos)
                     if flash_close_applied(flash_result):
                         _venue_flat = True
                         _flash_applied = True
+                        if _held is not None and 0 < _held < pos.quantity:
+                            # What closed is what was held. The rest of the
+                            # record was never on the venue at this close, so
+                            # it is not booked as closed here; the margin is
+                            # scaled with it (linear in size at one entry and
+                            # one leverage).
+                            _recorded = pos.quantity
+                            if pos.cost_usd:
+                                pos.cost_usd = pos.cost_usd * _held / _recorded
+                            pos.quantity = _held
+                            audit(trade_log,
+                                  f"Record trued to the venue for {pos.symbol}: "
+                                  f"{_recorded} -> {_held}",
+                                  action="live_close_size_refused", result="TRUED_TO_HELD",
+                                  data={"trade_id": trade_id, "recorded": _recorded,
+                                        "held": _held})
                         await asyncio.sleep(1.0)  # let the fill settle
                         close_result = await self._handle_already_closed_position(
                             pos, bot_reason=reason, bot_closed=True)
                         if close_result:
                             return close_result
                 except Exception as flash_exc:
-                    logger.warning("Flash close after 25231 failed for %s: %s",
+                    logger.warning("Flash close after a size refusal failed for %s: %s",
                                    pos.symbol, type(flash_exc).__name__)
 
             if "25227" in exc_str or "No position available" in exc_str:
