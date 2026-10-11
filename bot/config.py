@@ -1938,6 +1938,15 @@ class PartialTPConfig:
     tp2_close_pct: float = _env_float("PARTIAL_TP2_CLOSE_PCT", 30.0)
     # Runner: remaining 20% rides with aggressive trailing stop
     runner_trail_atr_mult: float = _env_float("PARTIAL_RUNNER_TRAIL_ATR", 0.8)
+    # THE VENUE'S TAKE-PROFIT IS A BACKSTOP BEYOND THE LADDER (operator
+    # decision 2026-10-11, "make live match the cards"). The exchange TP used
+    # to sit at the idea's target, 1.25-1.67R, so it closed the whole
+    # position before TP1 at 1.5R and the ladder every card is measured with
+    # never ran live. It is placed this many R from entry (or at the idea's
+    # target, if that is farther), where it closes the runner only if the bot
+    # is not there to; at or under TP2's multiple it is not armed at all. The
+    # frozen runs' runners closed under 3R.
+    venue_backstop_r: float = _env_float("PARTIAL_TP_BACKSTOP_R", 4.0)
 
 
 @dataclass(frozen=True)

@@ -42,6 +42,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from bot.config import CONFIG
+from bot.core.live_executor import take_profit_note
 from bot.core.open_orders import (
     open_orders_for,
     order_source,
@@ -888,7 +889,8 @@ class TradingCommands:
                 dir_icon = "\U0001f7e2" if p.direction == "LONG" else "\U0001f534"
                 sym_display = p.symbol.replace("/", "").replace(":USDT", "")
                 sl_str = f"${p.stop_loss:,.4f}" if p.stop_loss > 0 else "\u26a0\ufe0f NOT SET"
-                tp_str = f"${p.take_profit:,.4f}" if p.take_profit > 0 else "\u26a0\ufe0f NOT SET"
+                tp_str = (f"${p.take_profit:,.4f}{html.escape(take_profit_note(p))}"
+                          if p.take_profit > 0 else "\u26a0\ufe0f NOT SET")
                 # `getattr(p, 'leverage', 10)` INVENTED A TEN. It was printed
                 # as fact on the row ("LONG BTC 10x") and multiplied into the
                 # percent below, so a record that never carried a leverage
@@ -989,7 +991,8 @@ class TradingCommands:
                 dir_icon = "\U0001f7e2" if p.direction == "LONG" else "\U0001f534"
                 sym_display = p.symbol.replace("/", "").replace(":USDT", "")
                 sl_str = f"${p.stop_loss:,.4f}" if p.stop_loss > 0 else "\u26a0\ufe0f NOT SET"
-                tp_str = f"${p.take_profit:,.4f}" if p.take_profit > 0 else "\u26a0\ufe0f NOT SET"
+                tp_str = (f"${p.take_profit:,.4f}{html.escape(take_profit_note(p))}"
+                          if p.take_profit > 0 else "\u26a0\ufe0f NOT SET")
                 # `getattr(p, 'leverage', 10)` INVENTED A TEN. It was printed
                 # as fact on the row ("LONG BTC 10x") and multiplied into the
                 # percent below, so a record that never carried a leverage

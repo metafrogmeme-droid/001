@@ -34,7 +34,7 @@ from telegram.ext import ContextTypes
 
 from bot.compat import UTC
 from bot.config import CONFIG
-from bot.core.live_executor import committed_margin, committed_margin_note
+from bot.core.live_executor import committed_margin, committed_margin_note, take_profit_note
 from bot.core.trade_gate import caller_risk, entry_gate
 from bot.formatters.realized_totals import (
     CLOSED_RECORD_UNREAD,
@@ -659,7 +659,8 @@ class PortfolioCommands:
                     lines.append(f"  {t('entry', lang)}: <code>${lp.entry_price:,.6f}</code>")
                     lines.append(f"  {t('lbl_size', lang)}: <code>${lp.cost_usd:,.2f}</code>")
                     if lp.stop_loss:
-                        lines.append(f"  {t('lbl_sl', lang)}: <code>${lp.stop_loss:,.6f}</code> | {t('lbl_tp', lang)}: <code>${lp.take_profit:,.6f}</code>")
+                        lines.append(f"  {t('lbl_sl', lang)}: <code>${lp.stop_loss:,.6f}</code> | {t('lbl_tp', lang)}: <code>${lp.take_profit:,.6f}</code>"
+                                     f"{html.escape(take_profit_note(lp))}")
 
             if pending_limits:
                 lines.extend(["", sep, "", f"⏳ <b>{t('hdr_pending_limits', lang)}</b>"])
@@ -686,7 +687,8 @@ class PortfolioCommands:
                     )
                     lines.append(f"  {t('lbl_limit', lang)}: <code>${lp.entry_price:,.6f}</code> | {t('lbl_placed', lang)}: {age_str}")
                     if lp.stop_loss:
-                        lines.append(f"  {t('lbl_sl', lang)}: <code>${lp.stop_loss:,.6f}</code> | {t('lbl_tp', lang)}: <code>${lp.take_profit:,.6f}</code>")
+                        lines.append(f"  {t('lbl_sl', lang)}: <code>${lp.stop_loss:,.6f}</code> | {t('lbl_tp', lang)}: <code>${lp.take_profit:,.6f}</code>"
+                                     f"{html.escape(take_profit_note(lp))}")
 
             # Recent closed trades from LiveExecutor
             if live_closed:
@@ -821,7 +823,8 @@ class PortfolioCommands:
                     )
                     _cur_txt = (f"<code>${last:,.4f}</code>" if _priced else "—")
                     lines.append(f"  {t('entry', lang)}: <code>${pos.entry_price:,.4f}</code> → {t('lbl_current', lang)}: {_cur_txt}")
-                    lines.append(f"  {t('lbl_sl', lang)}: <code>${pos.stop_loss:,.4f}</code> | {t('lbl_tp', lang)}: <code>${pos.take_profit:,.4f}</code>")
+                    lines.append(f"  {t('lbl_sl', lang)}: <code>${pos.stop_loss:,.4f}</code> | {t('lbl_tp', lang)}: <code>${pos.take_profit:,.4f}</code>"
+                                 f"{html.escape(take_profit_note(pos))}")
                     _pnl_usd_txt = ("—" if pnl_usd is None else f"<code>${pnl_usd:+,.2f}</code>")
                     lines.append(f"  {t('lbl_size', lang)}: <code>${size_usd:,.2f}</code> | {t('lbl_pnl', lang)}: {_pnl_usd_txt}")
 

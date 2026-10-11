@@ -22835,6 +22835,46 @@ flat cap does not: a $300 order rounded up 1.4x to the venue minimum, sent at
 leverage", because the margin-risk line beside them prints the venue's. Six
 more mutants, all killed. (`tests/test_ten_x_keeps_the_five_x_trade.py`.)
 
+**THE LADDER EVERY CARD MEASURES NEVER RAN LIVE: THE VENUE'S TARGET CLOSED THE
+POSITION FIRST.** 11 October, found while answering whether higher leverage
+reaches the scale-out sooner (it does not: the levels are prices, set in R).
+Live placed the exchange take-profit at the idea's target, 1.33R for a scalp,
+1.25R intraday, 1.4R swing, 1.67R position. The partial ladder takes 50% at
+1.5R, 30% at 2.5R and trails the rest, so on three strategy types out of four
+the venue closed the whole position before TP1, and on the fourth it closed
+the half TP1 left at 1.67R. The backtest runs the ladder and ignores that
+target (its ladder branch skips the TP check), so every card measured an exit
+the live bot never made. The operator's decision: make live match the cards.
+
+The exchange TP is a backstop now (`partial_tp.venue_backstop`):
+`PARTIAL_TP_BACKSTOP_R` (4) R from entry, or the idea's target where that is
+farther, there for the bot's absence. A map of the executor found the order's
+target is not one site: it leaves through two low-level functions and is
+re-sent on every stop move, the local check closes everything at
+`pos.take_profit`, and reconcile copies the venue's TP back onto it. So the
+decision is made once, on the position, when it is first recorded
+(`_arm_take_profit_backstop`, before a resting limit is saved, since a limit
+places its stop and target at its fill from the record): `take_profit` IS the
+backstop, and every one of those readers reads it. The plan's target and the
+1R it was measured with ride beside it, saved and restored. It is not armed,
+and the idea's target is placed as before, for a typed ticket (the person
+typed that target), with the ladder off, when the fill leaves no 1R on the
+loss side, and when the ladder's slices do not reach the market's minimum at
+the position's size, which is the ordinary case at the venue's minimum: TP1's
+half of a minimum-size order is below it by construction, and arming a far
+target for a ladder that cannot bank would leave the position with neither.
+A market the executor cannot read counts as one that cannot place them.
+
+The cards say where the position takes profit, because the venue's TP alone
+would read as a 4R target: the fill card, the limit card, the fill notices,
+the two text position cards and the website's row print the TP, that it is
+the backstop, TP1 and TP2 and the plan's target (`scale_out_reading`, one
+reading for all of them). On the frozen datasets measured (majors, and the
+three alt sets, 109 positions), one runner reached TP2 and it closed at 2.97R:
+a 4R backstop would not have bound once. Twenty-three mutants, all killed.
+(`tests/test_the_venue_take_profit_is_the_ladders_backstop.py`,
+`app/test/a_backstop_take_profit_says_where_it_scales_out.test.js`.)
+
 ## Operational docs
 
 - `docs/LIVE_HARDENING_RUNBOOK.md` — boot probes, engine triage, the caps
