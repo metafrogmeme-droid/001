@@ -688,7 +688,10 @@ async def test_an_empty_book_straight_after_a_fill_is_not_a_close(tmp_path, monk
     monkeypatch.setattr("bot.core.live_executor.asyncio.sleep", AsyncMock())
     venue = _venue(AsyncMock(side_effect=Exception(
         'bitget {"code":"25227","msg":"No position available to close"}')))
-    venue.fetch_positions = AsyncMock(side_effect=[[], [{"contracts": 1.0}]])
+    # The close reads the book once to size its order (`_sized_to_venue`),
+    # then twice across the settle window: unsettled, it is flat every time
+    # until the last read.
+    venue.fetch_positions = AsyncMock(side_effect=[[], [], [{"contracts": 1.0}]])
     e, p = _executor(tmp_path, venue)
     e._flash_close_position = AsyncMock(return_value=None)      # the flash close fails
     e._handle_already_closed_position = AsyncMock(return_value="✅ CLOSED (booked)")
@@ -696,7 +699,8 @@ async def test_an_empty_book_straight_after_a_fill_is_not_a_close(tmp_path, monk
     assert flatten_outcome(msg) != "closed", msg
     e._handle_already_closed_position.assert_not_awaited()
     assert p.status == "open" and "T1" in e._positions, "the record must survive"
-    assert venue.fetch_positions.await_count == 2, "the book is read again after the settle window"
+    assert venue.fetch_positions.await_count == 3, (
+        "sized once, then the book is read again after the settle window")
 
 
 @pytest.mark.asyncio
@@ -706,7 +710,8 @@ async def test_a_book_that_is_still_flat_after_the_settle_window_is_a_close(tmp_
     monkeypatch.setattr("bot.core.live_executor.asyncio.sleep", AsyncMock())
     venue = _venue(AsyncMock(side_effect=Exception(
         'bitget {"code":"25227","msg":"No position available to close"}')))
-    venue.fetch_positions = AsyncMock(side_effect=[[], []])
+    # Sized once (flat: the record's size goes out), then flat twice.
+    venue.fetch_positions = AsyncMock(side_effect=[[], [], []])
     e, p = _executor(tmp_path, venue)
     e._handle_already_closed_position = AsyncMock(return_value="✅ CLOSED LONG BTC/USDT (SL HIT (inferred))")
     msg = await e.close_position("T1", reason="leverage_overshoot")
