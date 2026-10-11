@@ -20,7 +20,7 @@ RUNECLAW uses a modular skill system. Every capability is registered as a self-c
 | `/backtest` | Run backtest with synthetic data | Trader+ |
 | `/macro` | Macro event calendar and current risk state | Viewer+ |
 | `/learn` | AI learning dashboard, strategy tiers, reflections | Viewer+ |
-| `/patterns` | Detected recurring market patterns | Viewer+ |
+| `/patterns` | The learning store's closes by regime, with win rates and their intervals | Admin |
 | `/proposals` | Strategy improvement proposals from AI | Viewer+ |
 | `/optimize` | LLM token optimizer stats, cache hit rates | Viewer+ |
 | `/halt` | Emergency kill-switch (trip breaker) | Trader+ |

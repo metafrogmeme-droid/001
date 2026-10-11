@@ -2726,25 +2726,92 @@ class FeedbackSkill(BaseSkill):
                 f"Type: <code>{_esc(ft)}</code>")
 
 
+def _caller_is_operator(engine: Any, user_id: str) -> bool:
+    """Whether this caller is the person who owns the deployment.
+
+    `engine._is_operator_user` is the reading (store role, TELEGRAM_CHAT_ID,
+    ADMIN_TELEGRAM_IDS). No caller is nobody, never the operator, and a check
+    that raises is not a yes.
+    """
+    if not user_id:
+        return False
+    check = getattr(engine, "_is_operator_user", None)
+    if not callable(check):
+        return False
+    try:
+        return bool(check(user_id))
+    except Exception:  # noqa: BLE001 -- an unread identity is not the operator
+        return False
+
+
+#: How a group's dimension reads on the card.
+_GROUP_LABEL = {"regime": "Regime", "macro_state": "Macro state",
+                "volatility": "Volatility"}
+
+
 class PatternsSkill(BaseSkill):
+    """The learning store's closes, grouped by the condition each recorded.
+
+    It named groups after patterns nobody checked for (a losing range group
+    was a "BREAKOUT_FAILURE"), printed a win rate restated as a confidence,
+    and an average in dollars, to anyone who held the `patterns` permission:
+    viewers, self-admitted paper users and web chat. The groups and their
+    counts are `bot/learning/patterns.py`; this prints them with the interval
+    each rate carries and the window they were read from.
+
+    OPERATOR ONLY. The store is the engine's: every account's closes land in
+    it with no owner (`_on_live_position_closed` records per-user live closes
+    there too), so no caller's own book can be read out of it. The
+    `patterns` permission is held by no role but admin, and the card asks
+    again here, because a permission is necessary, not sufficient.
+    """
     name = "patterns"
-    description = "Detected patterns"
+    description = "The learning store's closes grouped by condition (operator)"
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
-        patterns = engine.learning.detect_patterns()
-        if not patterns:
-            return f"{_NEU} <b>PATTERNS</b>\n\n<i>\u25c7 No patterns yet. Need more history.</i>"
-        lines = [f"\U0001f50d <b>PATTERNS</b>\n{SEP}"]
-        lines.append("")
-        for p in patterns[:8]:
-            exp = f" {_WARN}" if p.is_experimental else ""
-            conf_ring = _progress_ring(p.confidence * 100)
+        from bot.learning.patterns import MIN_GROUP_CLOSES
+        head = f"\U0001f50d <b>OUTCOMES BY CONDITION</b>\n{SEP}"
+        if not _caller_is_operator(engine, str(kwargs.get("user_id") or "")):
+            return (f"{head}\n\nThis card reads the engine's learning store, "
+                    "where every account's closes are recorded without an "
+                    "owner, so it is shown to the operator only.")
+        try:
+            reading = engine.learning.outcome_groups()
+        except Exception as exc:
+            return (f"{head}\n\n{_BAD} The learning store's decision log could "
+                    f"not be read ({type(exc).__name__}), so nothing is known "
+                    "about these groups.")
+        unscored = (f", {reading.unscored} more with a result that could not be "
+                    "scored" if reading.unscored else "")
+        read_line = (f"<i>Read: the newest {reading.window:,} rows of the "
+                     f"decision log ({reading.rows_read:,} returned); "
+                     f"{reading.closes} of them are closes with a result"
+                     f"{unscored}. A group is listed from {MIN_GROUP_CLOSES} "
+                     "scored closes.</i>")
+        if not reading.groups:
+            return (f"{head}\n\n{_NEU} No condition has {MIN_GROUP_CLOSES} "
+                    f"scored closes in what was read.\n\n{read_line}")
+        lines = [head, ""]
+        shown = reading.groups[:8]
+        for g in shown:
+            iv = g.win_rate_interval
+            rate = g.historical_win_rate
+            rate_s = (f"won {rate:.0%} (95%: {iv[0]:.0%}\u2013{iv[1]:.0%})"
+                      if rate is not None and iv is not None else "no rate")
+            flat_s = f" {g.flat}F" if g.flat else ""
             lines.append(
-                f"  {conf_ring} <b>{p.pattern_type}</b>{exp}\n"
-                f"    Conf {_pill(f'{p.confidence:.0%}')}  "
-                f"WR {_pill(f'{p.historical_win_rate:.0%}')}  "
-                f"Avg {_pill(f'${p.avg_pnl:.2f}')}  ({p.sample_size})"
-            )
-        lines.append("\n<i>\u25c7 Patterns are observations, not signals</i>")
+                f"  <b>{_GROUP_LABEL.get(g.pattern_type, _esc(g.pattern_type))} "
+                f"{_esc(g.market_regime)}</b> \u00b7 {g.sample_size} closes\n"
+                f"    {g.wins}W {g.losses}L{flat_s} \u00b7 {rate_s}")
+        if len(reading.groups) > len(shown):
+            lines.append(f"  <i>+{len(reading.groups) - len(shown)} more "
+                         "group(s) not shown</i>")
+        lines.append("")
+        lines.append(read_line)
+        lines.append(
+            "<i>A win is a close with positive P&amp;L; a flat close is not a "
+            "win. A group is what happened under that condition, not a signal. "
+            "No return per trade is shown: these rows hold P&amp;L in dollars "
+            "with no stop or size, from every account.</i>")
         return "\n".join(lines)
 
 

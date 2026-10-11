@@ -2144,10 +2144,12 @@ same two leaves and were not counted, including /quant, which CLAUDE.md
 records as only just wired.
 
 *Where.* All registered in bot/skills/telegram_handler.py and catalogued in
-`bot/skills/command_catalog.py::GROUPS`: /intraday (15m), /patterns, /squeeze,
+`bot/skills/command_catalog.py::GROUPS`: /intraday (15m), /squeeze,
 /sweep, /zones, /session, /mode, plus /quant (@guard("analyze"),
 bot/skills/quant_skill.py, skill quant_analyze — it LEFT
-tests/unreachable_skills_baseline.txt). Web counterparts: GET /api/patterns/*
+tests/unreachable_skills_baseline.txt). /patterns was listed here and is not
+a scan: it groups the learning store's closes by regime, every account's,
+so it is the operator's (`bot/skills/skill_registry.py::PatternsSkill`). Web counterparts: GET /api/patterns/*
 and /api/insight/* (app/routes/patterns.js, insight.js) feeding panels
 #c-mkpat, #c-spat, #c-insight, #c-tinsight.
 

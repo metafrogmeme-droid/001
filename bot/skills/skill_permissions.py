@@ -125,7 +125,8 @@ SKILL_SAYS: dict[str, str] = {
     "macro_calendar": "the macro-event calendar and what the entry gate reads "
                       "from it",
     "optimize": "parameter optimisation over the recorded history",
-    "patterns": "recurring market patterns the learning system has measured",
+    "patterns": "the learning store's closes grouped by market regime, with "
+                "win rates and their intervals (operator only)",
     "playbook": "the engine's execution playbook",
     "pro_scan": "a scan tuned to one timeframe — scalp, intraday or swing",
     "proposals": "improvement proposals the learning loop is holding for review",

@@ -420,8 +420,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "/deepscan \u2014 deep multi-timeframe scan\n"
             "/fullscan \u2014 full scan (all pairs)\n"
             "/analyze <i>BTC</i> \u2014 detailed coin analysis\n"
-            "/macro \u2014 macro outlook\n"
-            "/patterns \u2014 chart pattern detection"
+            "/macro \u2014 macro outlook"
         ),
         "zh": (
             "\U0001f50d <b>市場分析</b>\n"
@@ -429,8 +428,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "/deepscan \u2014 多時段深度掃描\n"
             "/fullscan \u2014 全幣種掃描\n"
             "/analyze <i>BTC</i> \u2014 詳細分析\n"
-            "/macro \u2014 宏觀展望\n"
-            "/patterns \u2014 圖表形態偵測"
+            "/macro \u2014 宏觀展望"
         ),
     },
     "help_trading": {

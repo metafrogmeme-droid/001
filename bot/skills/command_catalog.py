@@ -88,7 +88,6 @@ GROUPS: List[Group] = [
         ("xray", "decode calldata before signing (read-only)"),
         ("memeplan", "meme-buy preflight (never trades) — /memeplan <mint> [usd]"),
         ("whynot", "why a trade was rejected"),
-        ("patterns", "chart patterns the engine sees"),
         ("squeeze", "volatility squeeze status"),
         ("sweep", "liquidity sweep detection"),
         ("pocretest", "4h volume-profile POC retest — /pocretest SOL"),
@@ -161,6 +160,9 @@ GROUPS: List[Group] = [
         # book, not the caller's.
         ("montecarlo", "Monte Carlo risk simulation (operator book)"),
         ("calibration", "learning overlays and calibration — refit mutates them"),
+        # It was "chart patterns the engine sees" under Scan, for everyone.
+        # It is neither: it reads the learning store, every account's closes.
+        ("patterns", "the learning store's closes by regime, with win rates and intervals"),
     ]),
     ("🛡 Guardian (operator)", "admin", [
         ("guardian", "the Guardian console"),
@@ -423,7 +425,7 @@ DESC_ZH: Dict[str, str] = {
     "alpha": "每日 alpha 洞察卡", "research": "附出處的研究報告", "whynot": "為何某筆交易被拒",
     "token": "合約偵查 — /token 0x… [鏈]",
     "memeplan": "迷因幣買入預檢（絕不下單）— /memeplan <mint> [usd]",
-    "patterns": "引擎看到的圖表形態", "squeeze": "波動壓縮狀態", "sweep": "流動性掃蕩偵測",
+    "patterns": "學習庫依市場狀態分組的平倉結果，附勝率與區間", "squeeze": "波動壓縮狀態", "sweep": "流動性掃蕩偵測",
     "pocretest": "4 小時成交量分布 POC 回測 — /pocretest SOL",
     "pocshadow": "已記錄的 POC 回測設定實際賺賠",
     "zones": "供需區", "momentum": "動能掃描", "dip": "回調掃描", "scalp": "5 分鐘短打掃描",

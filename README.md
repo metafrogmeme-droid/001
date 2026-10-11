@@ -528,7 +528,6 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/xray` | decode calldata before signing (read-only) |
 | `/memeplan` | meme-buy preflight (never trades) — /memeplan <mint> [usd] |
 | `/whynot` | why a trade was rejected |
-| `/patterns` | chart patterns the engine sees |
 | `/squeeze` | volatility squeeze status |
 | `/sweep` | liquidity sweep detection |
 | `/pocretest` | 4h volume-profile POC retest — /pocretest SOL |
@@ -612,6 +611,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 |---|---|
 | `/montecarlo` | Monte Carlo risk simulation (operator book) |
 | `/calibration` | learning overlays and calibration — refit mutates them |
+| `/patterns` | the learning store's closes by regime, with win rates and intervals |
 
 ### 🛡 Guardian (operator) — *operator only*
 

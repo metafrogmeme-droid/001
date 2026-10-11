@@ -123,12 +123,17 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     # through their own upstreams — if that budget ever needs defending it
     # should be defended by a rate limit, not by hiding a safety check from
     # the users most likely to be handed a scam address.
+    # `patterns` is held by no role but admin. Its card reads the engine's
+    # learning store, where every account's closes are recorded with no
+    # owner, so no caller's own book can be read out of it; viewers, paper
+    # users and web chat were shown everyone's. `compliance` is the same
+    # shape: a read of shared state, so the role gate is what refuses.
     "trader": {
         "lang",
         "start", "help", "dashboard", "scan", "deepscan", "analyze", "portfolio",
         "trade", "risk", "status", "connect", "enforcing", "rejected", "halt", "reset", "macro",
         "backtest", "walkforward", "journal", "costs", "run", "learn",
-        "patterns", "proposals", "optimize", "mode", "playbook",
+        "proposals", "optimize", "mode", "playbook",
         "exposure", "networth", "research", "rwa", "token", "memeplan",
         "nft", "spot", "airdrops", "etf",
         "replay", "letter", "venue_router", "meme_radar", "wallet", "defi", "price_alert",
@@ -164,7 +169,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "start", "help", "dashboard", "scan", "deepscan", "analyze", "portfolio",
         "trade", "risk", "status", "connect", "enforcing", "rejected", "macro",
         "backtest", "walkforward", "journal", "costs", "run", "learn",
-        "patterns", "proposals", "optimize", "playbook",
+        "proposals", "optimize", "playbook",
         "exposure", "networth", "research", "rwa", "token", "memeplan",
         "nft", "spot", "airdrops", "etf",
         "replay", "letter", "venue_router", "meme_radar", "wallet", "defi", "price_alert",
@@ -174,7 +179,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     "viewer": {
         "lang",
         "start", "help", "dashboard", "scan", "deepscan", "status", "connect", "risk", "enforcing",
-        "portfolio", "macro", "journal", "costs", "learn", "patterns",
+        "portfolio", "macro", "journal", "costs", "learn",
         "exposure", "networth", "research", "rwa", "token", "memeplan",
         "nft", "spot", "airdrops", "etf",
         "replay", "letter", "venue_router", "meme_radar", "wallet", "defi", "price_alert",

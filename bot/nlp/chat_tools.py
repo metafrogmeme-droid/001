@@ -141,8 +141,11 @@ CHAT_TOOLS: tuple[ChatTool, ...] = (
         _schema({"count": _COUNT_PARAM})),
     ChatTool(
         "patterns",
-        "Recurring market patterns the learning system has detected, with "
-        "their measured outcomes."),
+        "The learning store's closes grouped by the condition each recorded "
+        "(market regime, macro state, low volatility): wins, losses and the "
+        "95% interval on each group's win rate. Operator only. A group is "
+        "what happened under that condition, not a pattern or a signal; do "
+        "not call it one."),
     ChatTool(
         "proposals",
         "Improvement proposals the learning loop is holding for review."),
