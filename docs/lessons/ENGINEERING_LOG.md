@@ -21159,7 +21159,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **484 of 1264** reach for source text through `source_scan`, `code_only`
+Driven, **484 of 1265** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 484 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -22635,6 +22635,28 @@ unreachable-methods baseline in this commit. Seventeen mutants, all killed on
 the first round.
 (`tests/test_a_market_question_is_answered_from_the_engines_read.py`,
 `bot/nlp/chat_market_read.py`.)
+
+**AND THE BRIDGE'S CHAT DESCRIBED ITS OWN EMPTY ENGINE AS THE BOT.** The api
+bridge answers `/chat` through the one chat brain, over its own engine, which
+`detach_state_persistence` makes a reader and which runs no tick. That chapter
+fixed its writes and its `/health`; the prompt the same engine builds was one
+door over. It said "PENDING TRADE IDEAS: none queued by the bot right now. The
+bot is not about to place anything on its own" about a queue no scan fills. It
+gave the breaker and the entry gate from this process's copy, and it called a
+price feed that this process never starts "not returning fresh ticks". On a
+reader engine (`_not_the_bot`, which asks the detach flag `is True`, so a
+stand-in engine is never read as one) each of those sections now says it was
+not read from the bot. The mode line says it is this process's configuration,
+because a runtime arm made in the bot does not reach the bridge. The positions
+and closed trades are this process's copy of the book, loaded from the bot's
+files and never refreshed, so they are labelled as that copy. A price the
+reader did read is still printed. The bot's own prompt is unchanged, and both
+arms are driven on a real engine. The bridge's `/health` already reads the
+bot's saved breaker (`persisted_breaker`), and the prompt could say that too,
+with its save time. That is left for the owner, because the saved breaker is
+not the warning-rate breaker or the venue halt, and the honest sentence is
+the shorter one. Nine mutants, all killed on the first round.
+(`tests/test_a_process_that_is_not_the_bot_does_not_describe_its_own_state_as_the_bots.py`.)
 
 ## Operational docs
 

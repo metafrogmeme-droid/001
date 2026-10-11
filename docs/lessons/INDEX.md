@@ -280,5 +280,6 @@ about to change before changing it.
 - L22522: THE NUDGE READ 110,529 ROWS FOR EVERY IDEA, AND THE STALL HAD NO NAME — `tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`
 - L22575: "WHY DIDN'T WE TRADE?" READ ONLY THE RISK GATE'S REFUSALS — `tests/test_why_no_trade_counts_every_analysis_by_the_stage_that_ended_it.py`
 - L22613: AND THE MARKET QUESTIONS THE ROUTER MISSES WERE ANSWERED FROM NOTHING — `tests/test_a_market_question_is_answered_from_the_engines_read.py`
+- L22639: AND THE BRIDGE'S CHAT DESCRIBED ITS OWN EMPTY ENGINE AS THE BOT — `tests/test_a_process_that_is_not_the_bot_does_not_describe_its_own_state_as_the_bots.py`
 
-## Operational docs (line 22639)
+## Operational docs (line 22661)
