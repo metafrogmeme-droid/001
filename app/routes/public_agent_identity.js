@@ -24,7 +24,7 @@ const agents = require('../lib/agents');
 const { chainFor, SETTLED } = require('../lib/agent_chain');
 
 const router = express.Router();
-router.use(rateLimit({ windowMs: 60000, max: 30, key: ipKey }));
+router.use(rateLimit({ name: 'public_agent_identity', windowMs: 60000, max: 30, key: ipKey }));
 
 const CACHE_MS = 60 * 1000;
 const cache = new Map();   // slug -> { at, data }

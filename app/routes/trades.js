@@ -13,7 +13,7 @@ const router = express.Router();
 // All routes require auth
 router.use(authMiddleware);
 
-const notesLimit = rateLimit({ windowMs: 60000, max: 30, key: userKey });
+const notesLimit = rateLimit({ name: 'trades.notes', windowMs: 60000, max: 30, key: userKey });
 
 // GET /api/trades/stats - Portfolio statistics
 router.get('/stats', async (req, res) => {

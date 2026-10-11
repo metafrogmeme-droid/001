@@ -17,34 +17,12 @@
 const express = require('express');
 const https = require('https');
 const gateway = require('../lib/gateway');
+const { rateLimit, ipKey } = require('../lib/rate_limit');
 
 const router = express.Router();
 
-// ── Per-IP sliding-window rate limit (mirrors routes/market.js) ──────────────
-const hitsByIp = new Map();
-const WINDOW_MS = 60 * 1000;
-const MAX = 40;
-function prune() {
-  const cutoff = Date.now() - WINDOW_MS;
-  for (const [ip, hits] of hitsByIp) {
-    const recent = hits.filter(ts => ts > cutoff);
-    if (recent.length === 0) hitsByIp.delete(ip); else hitsByIp.set(ip, recent);
-  }
-  if (hitsByIp.size > 10000) {
-    const keys = [...hitsByIp.keys()];
-    for (let i = 0; i < keys.length - 5000; i++) hitsByIp.delete(keys[i]);
-  }
-}
-const _t = setInterval(prune, 60000);
-if (_t.unref) _t.unref();
-router.use((req, res, next) => {
-  const ip = req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
-  const now = Date.now();
-  const hits = (hitsByIp.get(ip) || []).filter(ts => ts > now - WINDOW_MS);
-  if (hits.length >= MAX) { hitsByIp.set(ip, hits); return res.status(429).json({ error: 'Too many requests' }); }
-  hits.push(now); hitsByIp.set(ip, hits);
-  next();
-});
+// ── Per-IP rate limit, shared by every web instance (lib/rate_limit) ─────────
+router.use(rateLimit({ name: 'macro', windowMs: 60000, max: 40, key: ipKey, message: 'Too many requests' }));
 
 function fetchJSON(url) {
   return new Promise((resolve, reject) => {

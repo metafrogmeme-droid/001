@@ -13,7 +13,7 @@ const { buildIdleYield } = require('../lib/idle_yield');
 const router = express.Router();
 router.use(authMiddleware);
 // Each call reads the wallet across chains + hits the bot optimizer; keep it tight.
-router.use(rateLimit({ windowMs: 60000, max: 8, key: userKey }));
+router.use(rateLimit({ name: 'idleyield', windowMs: 60000, max: 8, key: userKey }));
 
 router.get('/', async (req, res) => {
   try {

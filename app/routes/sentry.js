@@ -12,7 +12,7 @@ const { getGateway, relay, isConfigured } = require('../lib/gateway');
 
 const router = express.Router();
 router.use(authMiddleware);
-router.use(rateLimit({ windowMs: 60000, max: 12, key: userKey }));
+router.use(rateLimit({ name: 'sentry', windowMs: 60000, max: 12, key: userKey }));
 
 router.get('/', async (req, res) => {
   if (!isConfigured()) return res.status(503).json({ error: 'Not configured' });

@@ -9,7 +9,7 @@ const { rateLimit, ipKey } = require('../lib/rate_limit');
 const { readAllowances } = require('../lib/allowances');
 
 const router = express.Router();
-router.use(rateLimit({ windowMs: 60000, max: 20, key: ipKey }));
+router.use(rateLimit({ name: 'allowances', windowMs: 60000, max: 20, key: ipKey }));
 
 const cache = new Map();   // `${chain}|${addr}` -> { at, body }
 const CACHE_MAX = 300;

@@ -13,7 +13,7 @@ const store = require('../lib/user_strategies');
 const { decorate } = require('../lib/follow_counts');
 
 const router = express.Router();
-router.use(rateLimit({ windowMs: 60000, max: 30, key: ipKey, message: 'rate_limited' }));
+router.use(rateLimit({ name: 'public_user_strategies', windowMs: 60000, max: 30, key: ipKey, message: 'rate_limited' }));
 
 // No cache: this reads the local DB (not a slow gateway), so a freshly published
 // strategy must appear immediately. The rate limiter already shields the store.

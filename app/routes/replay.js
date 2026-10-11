@@ -15,7 +15,7 @@ const { runReplay } = require('../lib/replay');
 const router = express.Router();
 router.use(authMiddleware);
 
-const replayLimit = rateLimit({ windowMs: 60000, max: 30, key: userKey });
+const replayLimit = rateLimit({ name: 'replay', windowMs: 60000, max: 30, key: userKey });
 
 router.get('/', replayLimit, async (req, res) => {
   try {

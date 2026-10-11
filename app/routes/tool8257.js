@@ -19,7 +19,7 @@ const chain = require('../lib/tool8257_chain');
 const { safeErrorText } = require('../lib/safe_error');
 
 const router = express.Router();
-const limited = rateLimit({ windowMs: 60_000, max: 60, key: ipKey, message: 'rate_limited' });
+const limited = rateLimit({ name: 'tool8257', windowMs: 60_000, max: 60, key: ipKey, message: 'rate_limited' });
 
 function mcpTools() {
   // Late require avoids a require-cycle at module load (mcp.js is standalone).

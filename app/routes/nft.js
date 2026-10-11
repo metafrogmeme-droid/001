@@ -16,7 +16,7 @@ const opensea = require('../lib/opensea');
 const nft = require('../lib/nft');
 
 const router = express.Router();
-router.use(rateLimit({ windowMs: 60_000, max: 30, key: ipKey, message: 'rate_limited' }));
+router.use(rateLimit({ name: 'nft', windowMs: 60_000, max: 30, key: ipKey, message: 'rate_limited' }));
 
 let statsCache = null;
 router.get('/stats', async (req, res) => {

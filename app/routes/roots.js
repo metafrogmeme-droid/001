@@ -89,7 +89,7 @@ router.get('/verify/:day', async (req, res) => {
 // it against Base. The chain is the gatekeeper: a hash whose calldata does
 // not equal the tagged root payload is refused, whoever submits it. On an
 // unreadable chain the answer is "try again", never a guess.
-router.post('/anchor', authMiddleware, rateLimit({ windowMs: 60000, max: 6, key: userKey }), async (req, res) => {
+router.post('/anchor', authMiddleware, rateLimit({ name: 'roots.anchor', windowMs: 60000, max: 6, key: userKey }), async (req, res) => {
   try {
     const day = String((req.body || {}).day || '');
     const txHash = String((req.body || {}).tx_hash || '').toLowerCase();

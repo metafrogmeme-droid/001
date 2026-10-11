@@ -23,7 +23,7 @@ router.use(authMiddleware);
 
 // Generation is token-heavy, so keep the ceiling low; the bot enforces the
 // per-day free/paid quota on top of this.
-const studioLimit = rateLimit({ windowMs: 60000, max: 8, key: userKey });
+const studioLimit = rateLimit({ name: 'contract.studio', windowMs: 60000, max: 8, key: userKey });
 
 const MAX_SPEC_LEN = 2000;
 const MAX_SOURCE_LEN = 24000;      // a compiled draft is larger than a spec
@@ -31,7 +31,7 @@ const STUDIO_TIMEOUT_MS = 60000;   // drafting a contract can take a while
 const COMPILE_TIMEOUT_MS = 45000;  // solc can be slow on a cold binary
 
 // Compilation is CPU-heavy on the bot side, so keep the per-user ceiling low.
-const compileLimit = rateLimit({ windowMs: 60000, max: 10, key: userKey });
+const compileLimit = rateLimit({ name: 'contract.compile', windowMs: 60000, max: 10, key: userKey });
 
 // POST /api/contract/studio  body: { spec, license?, pragma? }
 router.post('/studio', studioLimit, async (req, res) => {

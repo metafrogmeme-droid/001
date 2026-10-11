@@ -14,7 +14,7 @@ const router = express.Router();
 router.use(authMiddleware);
 // Tight cap: each call fans out to a per-venue bot-gateway probe plus wallet
 // RPC reads across every chain — the heaviest read on the site.
-router.use(rateLimit({ windowMs: 60000, max: 6, key: userKey }));
+router.use(rateLimit({ name: 'holdings', windowMs: 60000, max: 6, key: userKey }));
 
 router.get('/', async (req, res) => {
   try {

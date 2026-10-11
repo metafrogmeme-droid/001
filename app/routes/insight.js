@@ -9,48 +9,17 @@
 const express = require('express');
 const http = require('http');
 const https = require('https');
+const { rateLimit, ipKey } = require('../lib/rate_limit');
 
 const router = express.Router();
 
 // Bot API bridge base URL (uvicorn api_bridge:app, :8000 in docker-compose).
 const BOT_API_URL = (process.env.BOT_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
 
-// In-process per-IP sliding-window rate limit — mirrors the limiter pattern in
-// routes/market.js. The bridge itself enforces 30 req/min per client IP, so we
+// Per-IP sliding-window rate limit, shared by every web instance
+// (lib/rate_limit). The bridge itself enforces 30 req/min per client IP, so we
 // stay comfortably below that with the cache and keep abusive clients out.
-const insightHits = new Map(); // ip -> number[] (request timestamps in window)
-const INSIGHT_WINDOW_MS = 60 * 1000; // 1 min
-const INSIGHT_MAX = 60; // max requests per IP per window
-
-function pruneInsightHits() {
-  const cutoff = Date.now() - INSIGHT_WINDOW_MS;
-  for (const [ip, hits] of insightHits) {
-    const recent = hits.filter(ts => ts > cutoff);
-    if (recent.length === 0) insightHits.delete(ip);
-    else insightHits.set(ip, recent);
-  }
-  // Cap map size to prevent unbounded growth under IP churn
-  if (insightHits.size > 10000) {
-    const keys = [...insightHits.keys()];
-    for (let i = 0; i < keys.length - 5000; i++) insightHits.delete(keys[i]);
-  }
-}
-const _insightPruneTimer = setInterval(pruneInsightHits, 60000);
-if (_insightPruneTimer.unref) _insightPruneTimer.unref();
-
-router.use((req, res, next) => {
-  const ip = req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
-  const now = Date.now();
-  const cutoff = now - INSIGHT_WINDOW_MS;
-  const hits = (insightHits.get(ip) || []).filter(ts => ts > cutoff);
-  if (hits.length >= INSIGHT_MAX) {
-    insightHits.set(ip, hits);
-    return res.status(429).json({ error: 'Too many requests' });
-  }
-  hits.push(now);
-  insightHits.set(ip, hits);
-  next();
-});
+router.use(rateLimit({ name: 'insight', windowMs: 60000, max: 60, key: ipKey, message: 'Too many requests' }));
 
 // Simple GET with promise (http or https depending on the bridge URL)
 function fetchJSON(url) {

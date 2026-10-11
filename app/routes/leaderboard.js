@@ -31,7 +31,7 @@ router.use(authMiddleware);
 
 const HANDLE_RE = /^[A-Za-z0-9_]{3,20}$/;
 const MAX_ROWS = 50;
-const optLimit = rateLimit({ windowMs: 60000, max: 10, key: userKey });
+const optLimit = rateLimit({ name: 'leaderboard.opt', windowMs: 60000, max: 10, key: userKey });
 
 // Per-user realized stats from CLOSED trades — the same query and the same
 // reader (aggregateStats) as routes/portfolio.js and routes/sync.js, so a

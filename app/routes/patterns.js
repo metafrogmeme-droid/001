@@ -12,44 +12,14 @@
 const express = require('express');
 const http = require('http');
 const https = require('https');
+const { rateLimit, ipKey } = require('../lib/rate_limit');
 
 const router = express.Router();
 
 const BOT_API_URL = (process.env.BOT_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
 
-// Per-IP sliding-window rate limit (mirrors routes/insight.js).
-const hitsByIp = new Map();
-const WINDOW_MS = 60 * 1000;
-const MAX = 60;
-
-function prune() {
-  const cutoff = Date.now() - WINDOW_MS;
-  for (const [ip, hits] of hitsByIp) {
-    const recent = hits.filter(ts => ts > cutoff);
-    if (recent.length === 0) hitsByIp.delete(ip);
-    else hitsByIp.set(ip, recent);
-  }
-  if (hitsByIp.size > 10000) {
-    const keys = [...hitsByIp.keys()];
-    for (let i = 0; i < keys.length - 5000; i++) hitsByIp.delete(keys[i]);
-  }
-}
-const _pruneTimer = setInterval(prune, 60000);
-if (_pruneTimer.unref) _pruneTimer.unref();
-
-router.use((req, res, next) => {
-  const ip = req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
-  const now = Date.now();
-  const cutoff = now - WINDOW_MS;
-  const hits = (hitsByIp.get(ip) || []).filter(ts => ts > cutoff);
-  if (hits.length >= MAX) {
-    hitsByIp.set(ip, hits);
-    return res.status(429).json({ error: 'Too many requests' });
-  }
-  hits.push(now);
-  hitsByIp.set(ip, hits);
-  next();
-});
+// Per-IP sliding-window rate limit, shared by every web instance (lib/rate_limit).
+router.use(rateLimit({ name: 'patterns', windowMs: 60000, max: 60, key: ipKey, message: 'Too many requests' }));
 
 function fetchJSON(url) {
   return new Promise((resolve, reject) => {

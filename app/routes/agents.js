@@ -20,7 +20,7 @@ const router = express.Router();
 router.use(authMiddleware);
 // Claiming writes a row and consults two catalogues, so it is the expensive
 // one; the shared limiter is sized for the write.
-router.use(rateLimit({ windowMs: 60_000, max: 20, key: userKey }));
+router.use(rateLimit({ name: 'agents', windowMs: 60_000, max: 20, key: userKey }));
 
 // GET /api/agents — the slugs this caller owns.
 router.get('/', async (req, res) => {

@@ -11,6 +11,7 @@ const express = require('express');
 const http = require('http');
 const https = require('https');
 const { authMiddleware } = require('../auth');
+const { rateLimit, ipKey } = require('../lib/rate_limit');
 
 const router = express.Router();
 
@@ -19,18 +20,8 @@ const BOT_API_URL = (process.env.BOT_API_URL || 'http://localhost:8000').replace
 router.use(authMiddleware);
 
 // Light per-IP limiter: the Lab is polled every few seconds while a job
-// runs, so allow bursts but stop hammering.
-const hits = new Map();
-router.use((req, res, next) => {
-  const ip = req.ip || 'unknown';
-  const now = Date.now();
-  const recent = (hits.get(ip) || []).filter(t => t > now - 60000);
-  if (recent.length >= 60) return res.status(429).json({ error: 'Too many requests' });
-  recent.push(now);
-  hits.set(ip, recent);
-  if (hits.size > 5000) hits.clear();
-  next();
-});
+// runs, so allow bursts but stop hammering. Shared by every web instance.
+router.use(rateLimit({ name: 'lab', windowMs: 60000, max: 60, key: ipKey, message: 'Too many requests' }));
 
 function relay(method, path, body) {
   return new Promise((resolve) => {

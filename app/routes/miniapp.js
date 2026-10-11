@@ -48,7 +48,7 @@ const router = express.Router();
 
 // Same cap as /embed: a Mini App is fetched once per launch, but it is still
 // an unauthenticated public page and this is the door to a signed-in surface.
-router.use(rateLimit({ windowMs: 60000, max: 120, key: ipKey }));
+router.use(rateLimit({ name: 'miniapp', windowMs: 60000, max: 120, key: ipKey }));
 
 function frameAncestors() {
   const raw = String(process.env.EMBED_FRAME_ANCESTORS || '').trim();

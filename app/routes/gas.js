@@ -12,7 +12,7 @@ const { rateLimit, ipKey } = require('../lib/rate_limit');
 const { readGasCached } = require('../lib/gas_read');
 
 const router = express.Router();
-router.use(rateLimit({ windowMs: 60000, max: 30, key: ipKey }));
+router.use(rateLimit({ name: 'gas', windowMs: 60000, max: 30, key: ipKey }));
 
 router.get('/', async (req, res) => {
   try {

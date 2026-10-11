@@ -23,7 +23,7 @@ const router = express.Router();
 router.use(authMiddleware);
 
 // Key submissions are sensitive + infrequent — tight limit.
-const writeLimit = rateLimit({ windowMs: 60000, max: 6, key: userKey });
+const writeLimit = rateLimit({ name: 'llm.write', windowMs: 60000, max: 6, key: userKey });
 
 const PROVIDERS = ['openai', 'anthropic', 'gemini', 'groq', 'mistral',
   'deepseek', 'together', 'openrouter', 'alibaba'];

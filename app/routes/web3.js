@@ -19,7 +19,7 @@ const { computeBadges } = require('../lib/badges');
 
 const router = express.Router();
 router.use(authMiddleware);
-router.use(rateLimit({ windowMs: 60000, max: 20, key: userKey }));
+router.use(rateLimit({ name: 'web3', windowMs: 60000, max: 20, key: userKey }));
 
 // GET /api/web3/identity — the caller's ENS identity for their linked wallet.
 router.get('/identity', async (req, res) => {

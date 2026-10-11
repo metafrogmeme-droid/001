@@ -14,7 +14,7 @@ const { rateLimit, ipKey } = require('../lib/rate_limit');
 const { getGateway, relay, isConfigured } = require('../lib/gateway');
 
 const router = express.Router();
-router.use(rateLimit({ windowMs: 60000, max: 30, key: ipKey }));
+router.use(rateLimit({ name: 'public_leaderboard', windowMs: 60000, max: 30, key: ipKey }));
 
 const CACHE_MS = 30 * 1000;   // the board refreshes at most once per publish epoch
 const cache = new Map();       // key ('' | season) -> { at: ms, status, data }
