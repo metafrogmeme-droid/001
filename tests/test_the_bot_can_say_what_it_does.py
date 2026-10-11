@@ -807,7 +807,11 @@ def test_the_telegram_card_would_be_a_mostly_false_answer_here():
     # own panel is where the same reading is shown.
     # And again for /rclaw: a bare "rclaw" reaches no rule, so the token card
     # is a command a caller types, and on the web the /token page shows it.
-    assert (named, nothing, len(hits)) == (108, 99, 9), (named, nothing, hits)
+    # And again for the five scan doors (/limitscan, /multitrend, /altsweep,
+    # /ethma, /volrotation): typed bare on the web none reaches a rule, so
+    # all five land on the model; the web's door to the same board is the
+    # strategy page's "Scan now".
+    assert (named, nothing, len(hits)) == (113, 104, 9), (named, nothing, hits)
     # The sharpest one: the universe sweep answered by a single-asset read.
     assert hits.get("scan") == "analyze_asset", hits
 

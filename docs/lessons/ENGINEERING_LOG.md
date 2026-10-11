@@ -1313,9 +1313,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 108 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 113 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 99 of the 108 reach the tool-less chat model and 9
+typed as the card prints them, 104 of the 113 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -21158,7 +21158,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **484 of 1268** reach for source text through `source_scan`, `code_only`
+Driven, **484 of 1269** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 484 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -22730,3 +22730,55 @@ both ways now.
 `tests/test_the_scanner_backtest_rests_its_limit_from_the_next_bar.py`,
 `tests/test_the_limit_scanner_exits_are_its_own.py`,
 `tests/test_the_limit_scanner_card_says_what_runs_it.py`.)
+
+**A RULE NOTHING READ LIVE, AND FIVE DOORS THAT NAMED IT.** 10 October, the
+operator: "we need to be able to scan each strategy by command in bot or
+website". Five presets are rules the live bot does not run: the Limit Entry
+Scanner, ALT Sweep, ETH Moving-Average Trend, the daily rotation and the new
+Multi-Symbol Momentum Trend. Until now nothing read any of them live: `/run`
+printed their text, and a frozen backtest was the only thing that ever
+evaluated them. `/altsweep`, `/ethma` and `/volrotation` had been printed as
+commands with nothing behind them, then taken off the list for that reason.
+
+Each now has a door that opens: its own alias as a command (`/limitscan`,
+`/multitrend`, `/altsweep`, `/ethma`, `/volrotation`) and "Scan now" on its
+page. `strategy_scan.scan` reads the preset's markets' closed 1h bars from
+Bitget's perpetuals through the freezer's own pager, runs the preset's own
+rule (the function its backtest runs: `scan_classes`, `ma_trend_step`,
+`rotate`, `momentum_signal`), and returns a board: what the rule sees and what
+it would do. Nothing is placed, queued or made confirmable. Which presets have
+a door is one reading, `scan_command`, derived from the rule a preset carries,
+and `live_runs` is now its complement rather than a second list. Three things
+the board refuses to do:
+
+* **Score a market it could not read.** A fetch that raises is named by its
+  exception class, never its message; a market whose newest bar is not the
+  hour's is named by the hour it stopped at; both are listed apart and the
+  rule runs on the rest. The limit scanner's leader is the exception that
+  proves it: an unread leader opens nothing for its class and says so.
+* **Read the venue on every ask.** One board per preset per closed hour; a
+  second ask in the same hour is the first board, and a board with an unread
+  market is kept a minute. The public route adds a minute's cache and six asks
+  a minute per address.
+* **Print a number twice.** The command catalogue describes each door without
+  its preset's periods; the card's how-line names the door from the same
+  reading the bot registers.
+
+The Multi-Symbol Momentum Trend is the GetAgent page's rule as stated: a 9/21
+average and three-bar momentum agreeing, a 1.2% stop and a 2.4% target, one
+position a symbol, an opposite signal closing it. The page hid the fast
+period; 9 was fixed before any result of it was measured, and the card says
+it is a reading. Its numbers live under its own `momentum_trend` key, because
+`fast_period`/`slow_period` already mean "the moving-average book" to the
+catalogue, the confirm gate and the generator. No frozen backtest runs it
+yet, its card says so, and its 20x leverage is recorded and not applied. A
+replication of it over eight months of Bitget bars, outside this repo, lost
+0.19% a trade after costs and was wiped out at 20x by 17 February; the
+leaderboard's 17-day paper window is not evidence of an edge. Twenty-nine
+mutants, all killed. The first round left two standing because their fixtures
+could not tell the readings apart: a straight ramp reads the same on 1h and 4h
+closes, and a pullback that fell on its last bar reads the same over one bar
+and three. Each fixture now holds the two readings apart.
+(`tests/test_each_strategy_scans_its_own_rule_now.py`,
+`app/test/a_strategy_scan_shows_its_board_or_says_why.test.js`,
+`tests/test_the_preset_list_names_doors_that_open.py`.)
