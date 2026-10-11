@@ -637,6 +637,10 @@ def catalog() -> list[dict]:
             "risk_label": _RISK_LABEL.get(risk, "🟡 Balanced"),
             "horizon": meta.get("horizon", ""),
             "run": _run_alias(key),
+            # Whether the live bot runs this rule. The dashboard offers "Run
+            # on my bot" only where it does: arming one it does not run is
+            # refused (`strategy_gate.arm_refusal`).
+            "live_runs": live_runs(cfg),
             # A frozen scorecard (percent/ratio only), an omission when no
             # frozen run exists, or None when this preset has neither. None
             # is not a backtest that is about to appear.

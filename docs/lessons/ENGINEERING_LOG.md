@@ -21639,6 +21639,29 @@ positions (audit B4-04). Changing that moves every recorded figure.
 (`tests/test_a_chosen_side_is_enforced_at_confirm.py`,
 `bot/core/strategy_gate.py`.)
 
+**A PRESET THE LIVE BOT DOES NOT RUN COULD BE ARMED, AND IT VETOED BY SYMBOL
+LIST ALONE.** Found 10 October while porting the Limit Entry Scanner. ETH
+Moving-Average Trend, Daily Volatility Rotation and ALT Sweep are rules the live
+bot does not run: their cards say so, and `/run` shows their text and places
+nothing (`strategy_catalog.live_runs`). Arming one was still accepted, on
+`/mystrategy` and on the dashboard's "Run on my bot", and the reply said its
+moving-average or momentum rule was "applied when /run scans". What the arming
+did was veto confirms against the preset's symbol list and side, so a house ETH
+idea was confirmed as "ETH Moving-Average Trend" with no average read. The card
+and the confirm made the same claim one surface apart, and only the card was
+true.
+
+Now `strategy_gate.arm_refusal` refuses the arming on both surfaces with one
+sentence (409 `not_run_live` on the web), `/mystrategy` lists those presets as
+not armable instead of offering a command that refuses, the catalogue carries
+`live_runs` per card so the dashboard leaves "Run on my bot" off the three, and
+a selection armed before this refuses every confirm under its name, failing
+closed, with `/mystrategy off` as the remedy. The presets the live bot runs are
+unchanged. Which presets those are is still the one reading, so the tests derive
+their lists from it. Nine mutants, all killed.
+(`tests/test_a_preset_the_live_bot_does_not_run_is_nobodys_strategy.py`,
+`app/test/run_on_my_bot_needs_a_rule_the_bot_runs.test.js`.)
+
 **THE BENCHMARK OF RECORD WAS STAMPED AT A COMMIT THAT DOES NOT EXIST.**
 `benchmark/majors_1h/result.json` named `b8c36630`, the commit its run was
 measured at. That was a branch commit, and a rebase replaced it before it
