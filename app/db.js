@@ -310,6 +310,7 @@ class MemoryDB {
     this.oauthStates = {};   // state_key -> { kind, payload, expires_at } (lib/oauth_state_store)
     this.jobRuns = {};       // job -> { last_started } (lib/shared_schedule)
     this.jobState = {};      // job -> { state, updated_at } (lib/job_state)
+    this.rateHits = {};      // bucket_key -> { hits, expires_at } (lib/rate_limit)
     this.users = [];
     this.trades = [];
     this.snapshots = [];
@@ -376,7 +377,8 @@ class MemoryDB {
   // Minimal query interface matching mysql2 pool.execute() return format
   /**
    * The statements lib/durable_attempts.js, lib/oauth_state_store.js,
-   * lib/shared_schedule.js and lib/job_state.js send, answered as MySQL would.
+   * lib/shared_schedule.js, lib/job_state.js and lib/rate_limit.js send,
+   * answered as MySQL would.
    */
   _sharedStateStatement(flat, params, sql) {
     const A = this.authAttempts;
@@ -476,6 +478,31 @@ class MemoryDB {
         delete this.jobState[params[0]];
         return [{ affectedRows: had ? 1 : 0 }, []];
       }
+      case 'SELECT HITS FROM RATE_HITS WHERE BUCKET_KEY = ?': {
+        const r = this.rateHits[params[0]];
+        return [r ? [{ hits: r.hits }] : [], []];
+      }
+      case 'INSERT INTO RATE_HITS (BUCKET_KEY, HITS, EXPIRES_AT) VALUES (?, 1, ?)': {
+        if (Object.prototype.hasOwnProperty.call(this.rateHits, params[0])) {
+          const err = new Error(`Duplicate entry '${params[0]}' for key 'PRIMARY'`);
+          err.code = 'ER_DUP_ENTRY'; err.errno = 1062;
+          throw err;
+        }
+        this.rateHits[params[0]] = { hits: 1, expires_at: params[1] };
+        return [{ affectedRows: 1 }, []];
+      }
+      case 'UPDATE RATE_HITS SET HITS = HITS + 1 WHERE BUCKET_KEY = ? AND HITS < ?': {
+        const r = this.rateHits[params[0]];
+        if (r && Number(r.hits) < Number(params[1])) { r.hits = Number(r.hits) + 1; return [{ affectedRows: 1 }, []]; }
+        return [{ affectedRows: 0 }, []];
+      }
+      case 'DELETE FROM RATE_HITS WHERE EXPIRES_AT < ?': {
+        let n = 0;
+        for (const k of Object.keys(this.rateHits)) {
+          if (Number(this.rateHits[k].expires_at) < Number(params[0])) { delete this.rateHits[k]; n += 1; }
+        }
+        return [{ affectedRows: n }, []];
+      }
       default: {
         const err = new Error(`MemoryDB has no handler for: ${describeSql(sql) || 'unrecognised statement'} (shared-state tables).`);
         err.code = 'ER_MEMORYDB_UNIMPLEMENTED';
@@ -530,7 +557,7 @@ class MemoryDB {
     // the stores' correctness is their SQL, so the shim answers only the SQL
     // they send, the way MySQL would.
     if (cmd.includes('AUTH_ATTEMPTS') || cmd.includes('OAUTH_STATES')
-        || cmd.includes('JOB_RUNS') || cmd.includes('JOB_STATE')) {
+        || cmd.includes('JOB_RUNS') || cmd.includes('JOB_STATE') || cmd.includes('RATE_HITS')) {
       return this._sharedStateStatement(cmd.replace(/\s+/g, ' '), params, sql);
     }
 
@@ -2541,6 +2568,7 @@ const EXPECTED_TABLES = Object.freeze([
   'oauth_states',
   'job_runs',
   'job_state',
+  'rate_hits',
   'signals',
   'push_subscriptions',
   'copy_subscriptions',
@@ -2920,6 +2948,18 @@ async function migrate() {
         job VARCHAR(64) PRIMARY KEY,
         state MEDIUMTEXT NOT NULL,
         updated_at BIGINT NOT NULL
+      )
+    `);
+    // Request limits (lib/rate_limit), for the same reason: one row per
+    // (limiter, hashed key, window), raised by a conditional UPDATE so the
+    // instances share one count. expires_at is the end of the window after
+    // the row's own, the last moment it is read.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS rate_hits (
+        bucket_key VARCHAR(128) PRIMARY KEY,
+        hits INT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        KEY idx_rate_hits_expires (expires_at)
       )
     `);
     // Global signal stream (every generated signal, taken or not). signal_key is

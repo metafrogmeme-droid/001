@@ -41,7 +41,7 @@ router.use(authMiddleware);
 
 // Per-user limit on the mutating credential endpoints (submit/disconnect). GET
 // /status is left unlimited (cheap read). Money endpoint — keep it tight.
-const credLimit = rateLimit({ windowMs: 60000, max: 10, key: userKey });
+const credLimit = rateLimit({ name: 'credentials', windowMs: 60000, max: 10, key: userKey });
 
 // Max accepted length for any single key field (a real Bitget key is ~64 chars;
 // this bounds a malicious oversized payload before it is encrypted/stored).

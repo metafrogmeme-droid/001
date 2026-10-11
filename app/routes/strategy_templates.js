@@ -13,7 +13,7 @@ const { rateLimit, ipKey } = require('../lib/rate_limit');
 const { TEMPLATES } = require('../lib/strategy_templates');
 
 const router = express.Router();
-router.use(rateLimit({ windowMs: 60000, max: 30, key: ipKey }));
+router.use(rateLimit({ name: 'strategy_templates', windowMs: 60000, max: 30, key: ipKey }));
 
 router.get('/', (req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=3600');

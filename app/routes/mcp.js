@@ -56,7 +56,7 @@ const SERVER_INFO = { name: 'runeclaw', version: '2.0.0' };
 // actively-limited IP's counter under bucket churn.
 const { rateLimit, ipKey, slidingWindow } = require('../lib/rate_limit');
 const { visitorKey } = require('../lib/visitor_key');
-router.use(rateLimit({ windowMs: 60_000, max: 60, key: ipKey, message: 'rate_limited' }));
+router.use(rateLimit({ name: 'mcp', windowMs: 60_000, max: 60, key: ipKey, message: 'rate_limited' }));
 
 // The global express.json() (1 MB) has already parsed the body by the time
 // the per-route 64 KB parser runs, making that cap a no-op. Enforce the
@@ -79,7 +79,7 @@ router.use((req, res, next) => {
 // own window at the website's rate.
 const ASK_MAX_CHARS = 2000;
 const ASK_TIMEOUT_MS = 45000;
-const askWindow = slidingWindow({ windowMs: 60_000, max: 6 });
+const askWindow = slidingWindow({ name: 'mcp.ask', windowMs: 60_000, max: 6 });
 
 /** Telegram-flavoured reply HTML as plain text, for an agent that cannot render it. */
 function htmlToText(html) {
@@ -849,7 +849,7 @@ const TOOLS = {
       const rawLang = String((args && args.lang) || '').trim();
       const lang = /^[a-zA-Z-]{2,12}$/.test(rawLang) ? rawLang : '';
       if (!gatewayConfigured()) return { available: false, error: 'not_configured' };
-      if (!askWindow.allow((ctx && ctx.ip) || 'unknown')) {
+      if (!(await askWindow.allow((ctx && ctx.ip) || 'unknown'))) {
         return { available: false, error: 'rate_limited',
           retry_after_seconds: askWindow.retryAfterSeconds };
       }

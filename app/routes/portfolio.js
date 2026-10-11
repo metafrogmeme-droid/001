@@ -34,7 +34,7 @@ const gateway = require('../lib/gateway');
 const router = express.Router();
 router.use(authMiddleware);
 
-const pfLimit = rateLimit({ windowMs: 60000, max: 30, key: userKey });
+const pfLimit = rateLimit({ name: 'portfolio', windowMs: 60000, max: 30, key: userKey });
 
 const SNAPSHOT_MIN_INTERVAL_MS = 15 * 60 * 1000;
 

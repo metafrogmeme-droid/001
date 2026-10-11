@@ -17,7 +17,7 @@ const { getPublicAirdropRadar, getUserAirdropRadar } = require('../lib/airdrops'
 
 const router = express.Router();
 
-router.get('/', rateLimit({ windowMs: 60000, max: 30, key: ipKey }), (req, res) => {
+router.get('/', rateLimit({ name: 'airdrops.list', windowMs: 60000, max: 30, key: ipKey }), (req, res) => {
   try {
     res.json(getPublicAirdropRadar());
   } catch (e) {
@@ -25,7 +25,7 @@ router.get('/', rateLimit({ windowMs: 60000, max: 30, key: ipKey }), (req, res) 
   }
 });
 
-router.get('/me', authMiddleware, rateLimit({ windowMs: 60000, max: 30, key: userKey }), async (req, res) => {
+router.get('/me', authMiddleware, rateLimit({ name: 'airdrops.me', windowMs: 60000, max: 30, key: userKey }), async (req, res) => {
   try {
     res.json(await getUserAirdropRadar(req.user.user_id));
   } catch (e) {

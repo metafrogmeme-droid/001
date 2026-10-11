@@ -13,7 +13,7 @@ const { buildDossier } = require('../lib/research');
 
 const router = express.Router();
 router.use(authMiddleware);
-router.use(rateLimit({ windowMs: 60000, max: 20, key: userKey }));
+router.use(rateLimit({ name: 'research', windowMs: 60000, max: 20, key: userKey }));
 
 const cleanBase = (s) => String(s || '').toUpperCase()
   .replace(/[^A-Z0-9]/g, '').replace(/USDT$/, '').slice(0, 10);
@@ -21,7 +21,7 @@ const cleanBase = (s) => String(s || '').toUpperCase()
 // AI-4: opt-in live, CITED web research enrichment for a dossier. Admin-only —
 // it bills the operator's AI key and the gateway re-checks the caller's role, so
 // a tampered JWT can never spend it. Web search is bursty; keep this limit tight.
-router.post('/:symbol/web', rateLimit({ windowMs: 60000, max: 5, key: userKey }),
+router.post('/:symbol/web', rateLimit({ name: 'research.web', windowMs: 60000, max: 5, key: userKey }),
   async (req, res) => {
     if (!gateway.isConfigured()) {
       return res.status(503).json({ error: 'Live web research is not configured' });

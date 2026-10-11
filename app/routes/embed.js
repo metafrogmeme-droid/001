@@ -42,7 +42,7 @@ const router = express.Router();
 // Framed pages are fetched once per viewer load, and an embed on a busy site
 // is legitimately high-volume — but it is still an unauthenticated public
 // endpoint, so it is capped like the other ones.
-router.use(rateLimit({ windowMs: 60000, max: 120, key: ipKey }));
+router.use(rateLimit({ name: 'embed', windowMs: 60000, max: 120, key: ipKey }));
 
 /** Who is allowed to frame these pages. */
 function frameAncestors() {

@@ -20392,8 +20392,8 @@ committed scorecards re-run identically.
 (`tests/test_eth_ma_trend.py`, `tests/test_backtest_preset_gates.py`,
 `tests/test_daily_vol_rotation.py`.)
 
-**THE WEB HOST REPLACES ITS INSTANCE EVERY SEVENTY SECONDS, AND THE LOGIN
-LIMITS LIVED IN ONE OF THEM.** On 2026-10-11, checking a deploy, `/api/version`
+**THE WEB HOST REPLACES ITS INSTANCE EVERY SEVENTY SECONDS, AND THE LOGIN LIMITS LIVED IN ONE OF THEM.**
+On 2026-10-11, checking a deploy, `/api/version`
 reported an uptime that never passed about 60 seconds. Sampled every 30
 seconds: started 11:49:50, then 11:51:04; this morning 03:12:53, 03:14:05,
 03:15:14. One sample answered from an instance 186 seconds old while
@@ -20466,6 +20466,51 @@ starts claims a row. Eighteen mutants: seventeen killed, one equivalent (the
 claim's "row exists" read before the INSERT, which the duplicate key answers
 anyway; kept so a tick does not attempt a failing INSERT for every job).
 (`app/test/jobs_run_on_one_schedule_across_instances.test.js`.)
+
+**AND EVERY PER-ROUTE LIMIT COUNTED PER INSTANCE, SO TWO INSTANCES MEANT TWICE THE LIMIT.**
+The web app has 88 request limiters, every one a 60-second window
+in a Map: 82 `rateLimit` call sites, the MCP router's own, the MCP chat tool's
+`slidingWindow`, and five hand-rolled per-IP copies in
+`routes/{insight,lab,macro,market,patterns}.js`. A 60-second window on a
+70-second instance loses little to the rotation itself; what costs is the
+overlap, where two instances each allow the stated number, and the fresh count
+each new instance starts with. The library's header had said "front with a
+shared store for a multi-replica deployment" since it was written.
+
+`lib/rate_limit.js` now counts in `rate_hits`, one row per (limiter, hashed key,
+window), and every limiter names its bucket. This instance's own window still
+answers first and refuses without a database round trip. The shared count is
+one conditional `UPDATE ... SET hits = hits + 1 WHERE ... AND hits < ?`, so two
+instances can never both take the last slot, against the sliding-window
+estimate (`max` less the previous window's count weighted by its overlap),
+because a plain per-window count allows a double burst across the boundary.
+Once a window's row exists, a counted request costs one statement.
+
+**A read and a write do not owe the same wait.** A request that spends
+something (anything but GET, HEAD, OPTIONS: chat, orders, keys) waits for the
+shared answer. A read is counted beside itself rather than before: holding
+every page poll for a round trip would buy exactness only against a parallel
+burst, which the instance's own window still bounds, and a shared refusal is
+remembered so the key's next read is refused without asking. Neither ever waits
+on a sick database: past 300 ms, or on an error, the instance limits alone for
+30 seconds (the old behaviour, never a refusal), at most eight counts are in
+flight per process so limits cannot crowd the pool, and the warning names the
+error code, not the driver's message.
+
+What the first drafts got wrong, each caught by a test before it shipped: the
+prune ran in a `finally`, so a failing database got a second statement on the
+request that had just failed against it; and the duplicate-key catch went
+through a helper, which the bare-INSERT guard in
+`client_error_visibility.test.js` cannot see, so the codes are written in the
+catch as `shared_schedule.js` writes them. Twenty-seven mutants: twenty-six
+killed in the first round; the survivor was a redundant `limit <= 0`, which
+`limit <= ent.full` already implies because the bound starts at 0, so the
+clause is gone rather than recorded as equivalent. One mutant (no time budget)
+was killed by a hang, so that test now has a timeout and fails by name. Still
+per instance, on purpose: the open-stream cap in `routes/stream.js`, because a
+stream lives in one instance and ends with it.
+(`app/test/request_limits_are_shared_by_every_instance.test.js`,
+`app/test/every_request_limit_has_its_own_bucket.test.js`.)
 
 ## Writing tests that scan source
 

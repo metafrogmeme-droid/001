@@ -14,7 +14,7 @@ const router = express.Router();
 router.use(authMiddleware);
 // Tight cap: each call fans out to a ~30s bot-gateway probe plus wallet RPC
 // reads — at 15/min one user could hold 15 concurrent upstream sockets.
-router.use(rateLimit({ windowMs: 60000, max: 6, key: userKey }));
+router.use(rateLimit({ name: 'networth', windowMs: 60000, max: 6, key: userKey }));
 
 router.get('/', async (req, res) => {
   try {

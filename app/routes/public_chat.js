@@ -27,6 +27,7 @@ const router = express.Router();
 // Anonymous → bucket by client IP. Tighter than the authed chat limit (15/min):
 // there is no account behind these requests, so keep the ceiling low.
 const publicChatLimit = rateLimit({
+  name: 'public_chat',
   windowMs: 60000,
   max: 6,
   key: ipKey,

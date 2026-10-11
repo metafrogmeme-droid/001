@@ -19,7 +19,7 @@ const { getGatewayBinary, isConfigured } = require('../lib/gateway');
 
 const router = express.Router();
 router.use(authMiddleware);
-router.use(rateLimit({ windowMs: 60000, max: 30, key: userKey }));
+router.use(rateLimit({ name: 'share', windowMs: 60000, max: 30, key: userKey }));
 
 const SYMBOL_RE = /^[A-Z0-9]{1,15}$/;
 

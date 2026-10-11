@@ -23,7 +23,7 @@ const gateway = require('../lib/gateway');
 
 const router = express.Router();
 router.use(authMiddleware);
-router.use(rateLimit({ windowMs: 60000, max: 20, key: userKey }));
+router.use(rateLimit({ name: 'guardian_review', windowMs: 60000, max: 20, key: userKey }));
 
 router.get('/', async (req, res) => {
   try {

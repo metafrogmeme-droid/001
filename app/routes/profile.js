@@ -29,7 +29,7 @@ const { resolveBotIdentity } = require('../lib/identity');
 const router = express.Router();
 router.use(authMiddleware);
 
-const putLimit = rateLimit({ windowMs: 60000, max: 30, key: userKey });
+const putLimit = rateLimit({ name: 'profile.put', windowMs: 60000, max: 30, key: userKey });
 
 const RISK_PREFS = new Set(['conservative', 'balanced', 'aggressive']);
 const CHART_TFS = new Set(['15min', '1h', '4h', '1d']);

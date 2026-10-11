@@ -13,7 +13,7 @@ const defi = require('../lib/defi');
 const router = express.Router();
 router.use(authMiddleware);
 // Each call can fan out to view calls on several chains — keep it tight.
-router.use(rateLimit({ windowMs: 60000, max: 10, key: userKey }));
+router.use(rateLimit({ name: 'defi', windowMs: 60000, max: 10, key: userKey }));
 
 // GET /api/defi — the caller's DeFi positions with risk warnings.
 router.get('/', async (req, res) => {

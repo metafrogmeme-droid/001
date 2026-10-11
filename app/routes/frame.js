@@ -20,7 +20,7 @@ const { Card, COLORS } = require('../lib/pixel_card');
 const { KEY_RE } = require('../lib/frame_meta');
 
 const router = express.Router();
-router.use(rateLimit({ windowMs: 60000, max: 30, key: ipKey }));
+router.use(rateLimit({ name: 'frame', windowMs: 60000, max: 30, key: ipKey }));
 
 const W = 800, H = 418; // 1.91:1 — the frame/OG aspect
 

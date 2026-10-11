@@ -12,13 +12,13 @@ const { getGateway, postGateway, relay, isConfigured } = require('../lib/gateway
 
 const router = express.Router();
 router.use(authMiddleware);
-router.use(rateLimit({ windowMs: 60000, max: 12, key: userKey }));
+router.use(rateLimit({ name: 'news', windowMs: 60000, max: 12, key: userKey }));
 
 // BYON (NEWS-2): a user's own paid news key rides the encrypted service channel
 // straight into the bot's Fernet store — this server never keeps it, and only a
 // masked fingerprint ever returns (F-15). Tight write limit for key submissions.
 const NEWS_MAX_KEY_LEN = 128;
-const keyWriteLimit = rateLimit({ windowMs: 60000, max: 6, key: userKey });
+const keyWriteLimit = rateLimit({ name: 'news.key_write', windowMs: 60000, max: 6, key: userKey });
 
 router.get('/', async (req, res) => {
   if (!isConfigured()) return res.status(503).json({ error: 'Not configured' });

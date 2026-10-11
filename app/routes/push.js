@@ -20,7 +20,7 @@ const push = require('../lib/push');
 const router = express.Router();
 router.use(authMiddleware);
 
-const subLimit = rateLimit({ windowMs: 60000, max: 10, key: userKey });
+const subLimit = rateLimit({ name: 'push.subscribe', windowMs: 60000, max: 10, key: userKey });
 
 const MAX_SUBS_PER_USER = 5;   // one per browser/device is plenty
 const MAX_ENDPOINT_LEN = 500;
