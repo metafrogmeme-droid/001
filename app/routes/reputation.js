@@ -16,7 +16,7 @@ const { computeReputation } = require('../lib/reputation');
 
 const router = express.Router();
 router.use(authMiddleware);
-router.use(rateLimit({ windowMs: 60000, max: 30, key: userKey }));
+router.use(rateLimit({ name: 'reputation', windowMs: 60000, max: 30, key: userKey }));
 
 // GET /api/reputation — the user's outcome-based reputation readout.
 router.get('/', async (req, res) => {

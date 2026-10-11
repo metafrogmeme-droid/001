@@ -18,7 +18,7 @@ const { resolveBotIdentity } = require('../lib/identity');
 
 const router = express.Router();
 router.use(authMiddleware);
-router.use(rateLimit({ windowMs: 60000, max: 12, key: userKey }));
+router.use(rateLimit({ name: 'cross_yield', windowMs: 60000, max: 12, key: userKey }));
 
 router.get('/', async (req, res) => {
   const uid = req.user.user_id;

@@ -24,7 +24,7 @@ const { isOperator } = require('../lib/operator_view');
 
 const router = express.Router();
 router.use(authMiddleware);
-router.use(rateLimit({ windowMs: 60000, max: 30, key: userKey }));
+router.use(rateLimit({ name: 'letter', windowMs: 60000, max: 30, key: userKey }));
 
 router.get('/latest', async (req, res) => {
   try {

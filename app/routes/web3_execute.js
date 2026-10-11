@@ -19,7 +19,7 @@ const gateway = require('../lib/gateway');
 
 const router = express.Router();
 router.use(authMiddleware);
-router.use(rateLimit({ windowMs: 60000, max: 10, key: userKey }));
+router.use(rateLimit({ name: 'web3_execute', windowMs: 60000, max: 10, key: userKey }));
 
 router.post('/execute', async (req, res) => {
   try {

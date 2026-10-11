@@ -27,7 +27,7 @@ const { picksForAgent, rulesToGates } = require('../lib/agent_match');
 const router = express.Router();
 router.use(authMiddleware);
 
-const writeLimit = rateLimit({ windowMs: 60000, max: 30, key: userKey });
+const writeLimit = rateLimit({ name: 'copy.write', windowMs: 60000, max: 30, key: userKey });
 const MAX_FOLLOWS = 25;
 const AGENT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;   // catalogue slug
 

@@ -26,7 +26,7 @@ const { uidKey } = require('../lib/second_factor_lockout');
 const router = express.Router();
 router.use(authMiddleware);
 
-const tradeLimit = rateLimit({ windowMs: 60000, max: 10, key: userKey });
+const tradeLimit = rateLimit({ name: 'webtrade.trade', windowMs: 60000, max: 10, key: userKey });
 
 const SYMBOL_RE = /^[A-Z0-9]{1,15}$/;
 const TRADE_ID_RE = /^[A-Za-z0-9:_\/-]{1,64}$/;

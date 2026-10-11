@@ -22,7 +22,7 @@ const { uidKey } = require('../lib/second_factor_lockout');
 const router = express.Router();
 router.use(authMiddleware);
 
-const execLimit = rateLimit({ windowMs: 60000, max: 6, key: userKey });
+const execLimit = rateLimit({ name: 'staking.execute', windowMs: 60000, max: 6, key: userKey });
 
 function notConfigured(res) {
   return res.status(503).json({ error: 'Bot gateway not configured' });

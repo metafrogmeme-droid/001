@@ -38,7 +38,7 @@ const router = express.Router();
  * write and an outbound verification per call, and because a legitimate user
  * signs in once per session rather than polling.
  */
-router.use(rateLimit({ windowMs: 60000, max: 20, key: ipKey }));
+router.use(rateLimit({ name: 'farcaster_auth', windowMs: 60000, max: 20, key: ipKey }));
 
 /**
  * The nonce store, backed by a table rather than memory.

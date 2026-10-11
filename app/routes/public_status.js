@@ -11,7 +11,7 @@ const { buildStatus } = require('../lib/status');
 const history = require('../lib/status_history');
 
 const router = express.Router();
-router.use(rateLimit({ windowMs: 60_000, max: 30, key: ipKey, message: 'rate_limited' }));
+router.use(rateLimit({ name: 'public_status', windowMs: 60_000, max: 30, key: ipKey, message: 'rate_limited' }));
 
 router.get('/', async (req, res) => {
   try {

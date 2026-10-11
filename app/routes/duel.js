@@ -25,7 +25,7 @@ const svc = require('../lib/duel_service');
 const router = express.Router();
 router.use(authMiddleware);
 
-const pickLimit = rateLimit({ windowMs: 60000, max: 20, key: userKey });
+const pickLimit = rateLimit({ name: 'duel.pick', windowMs: 60000, max: 20, key: userKey });
 
 // Same sanitiser philosophy as routes/arena.js: say WHY a read failed without
 // letting a driver message, URI or credential reach the client.

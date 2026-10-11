@@ -20,7 +20,7 @@ const { loadProfile } = require('./profile');
 const router = express.Router();
 router.use(authMiddleware);
 
-const chatLimit = rateLimit({ windowMs: 60000, max: 15, key: userKey });
+const chatLimit = rateLimit({ name: 'chat', windowMs: 60000, max: 15, key: userKey });
 
 const MAX_TEXT_LEN = 2000;
 // LLM replies can take a while — give chat a longer budget than the default.

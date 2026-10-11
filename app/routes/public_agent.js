@@ -15,7 +15,7 @@ const { rateLimit, ipKey } = require('../lib/rate_limit');
 const { getGateway, relay, isConfigured } = require('../lib/gateway');
 
 const router = express.Router();
-router.use(rateLimit({ windowMs: 60000, max: 30, key: ipKey }));
+router.use(rateLimit({ name: 'public_agent', windowMs: 60000, max: 30, key: ipKey }));
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 const CACHE_MS = 30 * 1000;

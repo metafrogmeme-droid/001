@@ -17,7 +17,7 @@ const { buildReport, toCsv } = require('../lib/tax');
 
 const router = express.Router();
 router.use(authMiddleware);
-router.use(rateLimit({ windowMs: 60000, max: 30, key: userKey }));
+router.use(rateLimit({ name: 'tax', windowMs: 60000, max: 30, key: userKey }));
 
 // Read this user's own closed trades, oldest-first (natural for a tax ledger).
 async function loadClosed(uid) {

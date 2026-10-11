@@ -16,7 +16,7 @@ const { pool } = require('../db');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
 
 const router = express.Router();
-router.use(rateLimit({ windowMs: 60000, max: 30, key: ipKey }));
+router.use(rateLimit({ name: 'public_invite', windowMs: 60000, max: 30, key: ipKey }));
 
 const CODE_RE = /^[A-Za-z0-9_-]{4,32}$/;
 const CACHE_MS = 60 * 1000;

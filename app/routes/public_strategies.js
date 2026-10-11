@@ -13,7 +13,7 @@ const { getGateway, relay, isConfigured } = require('../lib/gateway');
 const { decorate } = require('../lib/follow_counts');
 
 const router = express.Router();
-router.use(rateLimit({ windowMs: 60000, max: 30, key: ipKey }));
+router.use(rateLimit({ name: 'public_strategies', windowMs: 60000, max: 30, key: ipKey }));
 
 const CACHE_MS = 5 * 60 * 1000;   // the catalogue changes only on a deploy
 let cache = null;                  // { at: ms, data }

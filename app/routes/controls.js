@@ -29,8 +29,8 @@ router.use(authMiddleware);
 
 // Per-user limits on the mutating control endpoints. Emergency stop gets its own
 // (slightly tighter) bucket so a settings-spam can't exhaust the stop budget.
-const ctlLimit = rateLimit({ windowMs: 60000, max: 20, key: userKey });
-const stopLimit = rateLimit({ windowMs: 60000, max: 10, key: userKey });
+const ctlLimit = rateLimit({ name: 'controls.change', windowMs: 60000, max: 20, key: userKey });
+const stopLimit = rateLimit({ name: 'controls.stop', windowMs: 60000, max: 10, key: userKey });
 
 
 // GET /api/controls/status -> current applied state + any pending change
