@@ -53,7 +53,7 @@ from bot.backtest.benchmark_record import (
 from bot.config import CONFIG
 from bot.core.arb_tracker import MIN_VERDICT_ENTRIES, mean_interval
 from bot.core.close_lookup import FEE_CLOSE_LEG, FEE_ESTIMATED, UNRECORDED, fee_stated, is_ticker_priced
-from bot.learning.readiness import wilson_lower_bound
+from bot.learning.readiness import wilson_interval
 from bot.utils.close_reason import is_execution_abort, is_filled_close
 from bot.utils.paths import state_path
 
@@ -365,13 +365,10 @@ def _by_exit_reason(trades: list[dict]) -> dict[str, dict]:
 
 
 def _wilson(successes: int, n: int, z: float = _Z) -> Optional[tuple[float, float]]:
-    """Both ends of the Wilson interval on ``successes / n``. The upper end is
-    the lower end of the complement, which is the interval's own symmetry —
-    one piece of arithmetic in the tree, not a second."""
-    if n <= 0:
-        return None
-    return (wilson_lower_bound(successes, n, z),
-            1.0 - wilson_lower_bound(n - successes, n, z))
+    """Both ends of the Wilson interval on ``successes / n``:
+    `readiness.wilson_interval`, which the learning store's outcome groups
+    read too — one piece of arithmetic in the tree, not a second."""
+    return wilson_interval(successes, n, z)
 
 
 def parity_verdict(strategy: list[dict], benchmark: BenchmarkReading, *,

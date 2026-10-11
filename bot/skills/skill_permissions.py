@@ -115,7 +115,8 @@ SKILL_SAYS: dict[str, str] = {
                      "setup the engine sees",
     "check_risk": "your drawdown against the limit, your exposure, and whether "
                   "new entries are allowed right now",
-    "costs": "today's model and API spend against the daily budget",
+    "costs": "today's model and API spend against the daily budget "
+             "(operator only)",
     "deepscan": "a deep scan across the whole symbol universe with chart "
                 "patterns",
     "get_portfolio": "your balance, open positions and closed-trade record",
@@ -125,7 +126,8 @@ SKILL_SAYS: dict[str, str] = {
     "macro_calendar": "the macro-event calendar and what the entry gate reads "
                       "from it",
     "optimize": "parameter optimisation over the recorded history",
-    "patterns": "recurring market patterns the learning system has measured",
+    "patterns": "the learning store's closes grouped by market regime, with "
+                "win rates and their intervals (operator only)",
     "playbook": "the engine's execution playbook",
     "pro_scan": "a scan tuned to one timeframe — scalp, intraday or swing",
     "proposals": "improvement proposals the learning loop is holding for review",

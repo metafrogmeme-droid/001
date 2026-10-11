@@ -88,7 +88,6 @@ GROUPS: List[Group] = [
         ("xray", "decode calldata before signing (read-only)"),
         ("memeplan", "meme-buy preflight (never trades) — /memeplan <mint> [usd]"),
         ("whynot", "why a trade was rejected"),
-        ("patterns", "chart patterns the engine sees"),
         ("squeeze", "volatility squeeze status"),
         ("sweep", "liquidity sweep detection"),
         ("pocretest", "4h volume-profile POC retest — /pocretest SOL"),
@@ -135,7 +134,6 @@ GROUPS: List[Group] = [
         ("daily_report", "daily trading report"),
         ("classpf", "performance by asset class"),
         ("holdtime", "hold-time analytics"),
-        ("costs", "trading costs breakdown"),
     ]),
     ("🔔 Alerts & notes", "user", [
         ("watch", "proactive alerts for this chat"),
@@ -161,6 +159,9 @@ GROUPS: List[Group] = [
         # book, not the caller's.
         ("montecarlo", "Monte Carlo risk simulation (operator book)"),
         ("calibration", "learning overlays and calibration — refit mutates them"),
+        # It was "chart patterns the engine sees" under Scan, for everyone.
+        # It is neither: it reads the learning store, every account's closes.
+        ("patterns", "the learning store's closes by regime, with win rates and intervals"),
     ]),
     ("🛡 Guardian (operator)", "admin", [
         ("guardian", "the Guardian console"),
@@ -236,6 +237,9 @@ GROUPS: List[Group] = [
         ("setsigner", "set the on-chain signing key (encrypted)"),
         ("yield", "idle-asset yield radar (read-only)"),
         ("idleyield", "cross-source best-rate scan"),
+        # It was "trading costs breakdown" under Portfolio, for everyone. It
+        # is neither: the deployment's model and API spend, the operator's.
+        ("costs", "today's model and API spend against the daily budget"),
     ]),
 ]
 
@@ -423,7 +427,7 @@ DESC_ZH: Dict[str, str] = {
     "alpha": "每日 alpha 洞察卡", "research": "附出處的研究報告", "whynot": "為何某筆交易被拒",
     "token": "合約偵查 — /token 0x… [鏈]",
     "memeplan": "迷因幣買入預檢（絕不下單）— /memeplan <mint> [usd]",
-    "patterns": "引擎看到的圖表形態", "squeeze": "波動壓縮狀態", "sweep": "流動性掃蕩偵測",
+    "patterns": "學習庫依市場狀態分組的平倉結果，附勝率與區間", "squeeze": "波動壓縮狀態", "sweep": "流動性掃蕩偵測",
     "pocretest": "4 小時成交量分布 POC 回測 — /pocretest SOL",
     "pocshadow": "已記錄的 POC 回測設定實際賺賠",
     "zones": "供需區", "momentum": "動能掃描", "dip": "回調掃描", "scalp": "5 分鐘短打掃描",
@@ -450,7 +454,7 @@ DESC_ZH: Dict[str, str] = {
     "enforcing": "目前哪些控制會攔下一筆交易",
     "signals": "各交易對訊號統計", "rejected": "被風控攔下的訊號", "journal": "每週交易日誌",
     "daily_report": "每日交易報告", "classpf": "依資產類別的績效", "holdtime": "持倉時間分析",
-    "equitycurve": "權益曲線熔斷狀態", "costs": "交易成本明細",
+    "equitycurve": "權益曲線熔斷狀態", "costs": "今日模型與 API 支出對照每日預算",
     "watch": "為此對話開啟主動提醒", "alerts": "異常警報範圍與頻率",
     "price_alert": "在此設定價格提醒，觸發時會傳到這裡", "share": "儲存一則代理可參考的筆記",
     "mynotes": "你分享過的筆記", "agent": "用白話說明你的代理狀態",

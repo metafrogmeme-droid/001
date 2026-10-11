@@ -130,9 +130,11 @@ class LearningOrchestrator:
 
     # ── Step 7: Learn (patterns + macro) ──────────────────────────
 
-    def detect_patterns(self):
-        """Scan for recurring market patterns."""
-        return self.patterns.detect_patterns()
+    def outcome_groups(self):
+        """The learning store's closes grouped by the condition each recorded
+        (`PatternLearner.outcome_groups`). Raises on a decision log that is
+        there and cannot be read."""
+        return self.patterns.outcome_groups()
 
     def setup_record(
         self,

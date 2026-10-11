@@ -284,6 +284,67 @@ def thesis_dollar_exhausted(snap: CostSummary, llm_cfg) -> bool:
     return spent >= float(cap)
 
 
+def chat_cap_usd(llm_cfg) -> float:
+    """Chat's own dollar cap for the day: ``chat_budget_usd`` when the operator
+    set one, else ``chat_budget_share`` of ``daily_budget_usd``.
+
+    One reading, because three places asked it: `chat_budget_bound` (the gate),
+    the chat reply's audit line, and the /costs card that prints what is left.
+    Two of them computed it inline, and a card restating a cap is the copy that
+    drifts the day the rule changes. The cap sits INSIDE the daily total, so
+    what chat can still spend is the smaller of the two (`budget_reading`).
+    """
+    own = getattr(llm_cfg, "chat_budget_usd", None)
+    if own is not None:
+        return float(own)
+    return float(llm_cfg.daily_budget_usd) * float(llm_cfg.chat_budget_share)
+
+
+def budget_reading(snap: CostSummary, llm_cfg) -> dict:
+    """Today's spend against every bound the LLM layer enforces, read from the
+    same functions the gates call, for a card to print.
+
+    ``thesis_spent`` is None when the chat/non-chat split cannot be read
+    (`non_chat_spend_usd`), and ``thesis_left`` beside it is None too: what
+    is left of a cap nobody can measure against is unknown, not the whole
+    cap. ``thesis_exhausted`` is the gate's own verdict either way. With a
+    thesis cap set, analysis is bounded by that cap alone, not by the daily
+    total (`thesis_dollar_exhausted`; the owner holds that decision), so
+    what it has left is not clipped to the total here either. Chat stops at
+    its cap or the total, whichever comes first, and its ``chat_left`` is
+    clipped to both. ``chat_bound`` is `chat_budget_bound`'s own word, ""
+    when chat has reached none.
+    """
+    budget = float(llm_cfg.daily_budget_usd)
+    spent = float(snap.llm_cost_usd)
+    chat_cap = chat_cap_usd(llm_cfg)
+    chat_spent = chat_spend_usd(snap)
+    daily_left = max(0.0, budget - spent)
+    thesis_cap = getattr(llm_cfg, "thesis_budget_usd", None)
+    thesis_spent = non_chat_spend_usd(snap)
+    thesis_left: Optional[float] = None
+    if thesis_cap is not None and thesis_spent is not None:
+        thesis_left = max(0.0, float(thesis_cap) - thesis_spent)
+    return {
+        "daily_budget": budget,
+        "spent": spent,
+        "daily_left": daily_left,
+        "chat_cap": chat_cap,
+        "chat_cap_is_own": getattr(llm_cfg, "chat_budget_usd", None) is not None,
+        "chat_share": float(llm_cfg.chat_budget_share),
+        "chat_spent": chat_spent,
+        "chat_left": max(0.0, min(chat_cap - chat_spent, daily_left)),
+        "chat_bound": chat_budget_bound(snap, llm_cfg),
+        "chat_calls": chat_call_count(snap),
+        "call_limit": int(llm_cfg.daily_call_limit),
+        "thesis_cap": None if thesis_cap is None else float(thesis_cap),
+        "thesis_spent": thesis_spent,
+        "thesis_left": thesis_left,
+        "thesis_exhausted": thesis_dollar_exhausted(snap, llm_cfg),
+        "unpriced_calls": int(snap.unpriced_calls),
+    }
+
+
 def chat_budget_bound(snap: CostSummary, llm_cfg) -> str:
     """Which daily bound chat has reached, or "" when none.
 
@@ -303,13 +364,9 @@ def chat_budget_bound(snap: CostSummary, llm_cfg) -> str:
         return "daily call limit"
     if snap.llm_cost_usd >= llm_cfg.daily_budget_usd:
         return "daily dollar budget"
-    own = getattr(llm_cfg, "chat_budget_usd", None)
-    if own is not None:
-        if chat_spend_usd(snap) >= float(own):
-            return CHAT_OWN_BOUND
-        return ""
-    if chat_spend_usd(snap) >= llm_cfg.daily_budget_usd * llm_cfg.chat_budget_share:
-        return CHAT_SHARE_BOUND
+    if chat_spend_usd(snap) >= chat_cap_usd(llm_cfg):
+        own = getattr(llm_cfg, "chat_budget_usd", None)
+        return CHAT_OWN_BOUND if own is not None else CHAT_SHARE_BOUND
     return ""
 
 

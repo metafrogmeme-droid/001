@@ -477,8 +477,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "/deepscan \u2014 deep multi-timeframe scan\n"
             "/fullscan \u2014 full scan (all pairs)\n"
             "/analyze <i>BTC</i> \u2014 detailed coin analysis\n"
-            "/macro \u2014 macro outlook\n"
-            "/patterns \u2014 chart pattern detection"
+            "/macro \u2014 macro outlook"
         ),
         "zh": (
             "\U0001f50d <b>市場分析</b>\n"
@@ -486,8 +485,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "/deepscan \u2014 多時段深度掃描\n"
             "/fullscan \u2014 全幣種掃描\n"
             "/analyze <i>BTC</i> \u2014 詳細分析\n"
-            "/macro \u2014 宏觀展望\n"
-            "/patterns \u2014 圖表形態偵測"
+            "/macro \u2014 宏觀展望"
         ),
     },
     "help_trading": {
@@ -514,8 +512,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "/risk \u2014 risk dashboard\n"
             "/performance \u2014 performance stats\n"
             "/daily_report \u2014 daily summary\n"
-            "/journal \u2014 trade journal\n"
-            "/costs \u2014 fee breakdown"
+            "/journal \u2014 trade journal"
         ),
         "zh": (
             "\U0001f4ca <b>投資組合與風險</b>\n"
@@ -524,8 +521,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "/risk \u2014 風險控制面板\n"
             "/performance \u2014 績效統計\n"
             "/daily_report \u2014 每日報告\n"
-            "/journal \u2014 交易日誌\n"
-            "/costs \u2014 手續費明細"
+            "/journal \u2014 交易日誌"
         ),
     },
     "help_strategy": {

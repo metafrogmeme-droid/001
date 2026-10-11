@@ -129,7 +129,10 @@ CHAT_TOOLS: tuple[ChatTool, ...] = (
         "blackout'; macro_calendar is the events list itself."),
     ChatTool(
         "costs",
-        "Today's LLM/API spend against the daily budget, by category."),
+        "Today's LLM/API spend (UTC day), by category including chat, against "
+        "the daily budget, chat's cap and the analysis cap, with what is left "
+        "of each. Operator only: it is the deployment's spend, not the "
+        "caller's, and it says nothing about their account or P&L."),
     ChatTool(
         "whynot",
         "Why the engine did not take a trade: the gate that rejected or skipped "
@@ -141,8 +144,11 @@ CHAT_TOOLS: tuple[ChatTool, ...] = (
         _schema({"count": _COUNT_PARAM})),
     ChatTool(
         "patterns",
-        "Recurring market patterns the learning system has detected, with "
-        "their measured outcomes."),
+        "The learning store's closes grouped by the condition each recorded "
+        "(market regime, macro state, low volatility): wins, losses and the "
+        "95% interval on each group's win rate. Operator only. A group is "
+        "what happened under that condition, not a pattern or a signal; do "
+        "not call it one."),
     ChatTool(
         "proposals",
         "Improvement proposals the learning loop is holding for review."),

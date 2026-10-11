@@ -202,12 +202,20 @@ TOOL_CATALOGUE: tuple[MCPToolDef, ...] = (
     MCPToolDef(
         mcp_name="runeclaw_explain",
         skill_name="explain_trade",
-        description="Explain a pending or historical trade idea.",
+        # It said "a pending or historical trade idea" and the skill searches
+        # the pending book only; an omitted id answered "not found". The
+        # description is what the skill does now, and the skill does what the
+        # parameter promises.
+        description=("Explain one PENDING trade idea by id: its side, "
+                     "confidence, the confluence votes that drove it and the "
+                     "model's written rationale. An idea that was confirmed, "
+                     "skipped or expired, or a closed trade, is not found here."),
         params=(
             MCPToolParam(
                 name="trade_id",
                 type="string",
-                description="The trade ID to explain. Omit to list pending ideas.",
+                description=("The pending idea's id, e.g. TI-1a2b3c4d. Omit to "
+                             "list the engine's own pending ideas."),
                 required=False,
                 default="",
             ),

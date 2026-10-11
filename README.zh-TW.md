@@ -481,7 +481,6 @@ python -m bot.main --mode scan
 | `/xray` | 簽名前解讀 calldata（唯讀） |
 | `/memeplan` | 迷因幣買入預檢（絕不下單）— /memeplan <mint> [usd] |
 | `/whynot` | 為何某筆交易被拒 |
-| `/patterns` | 引擎看到的圖表形態 |
 | `/squeeze` | 波動壓縮狀態 |
 | `/sweep` | 流動性掃蕩偵測 |
 | `/pocretest` | 4 小時成交量分布 POC 回測 — /pocretest SOL |
@@ -534,7 +533,6 @@ python -m bot.main --mode scan
 | `/daily_report` | 每日交易報告 |
 | `/classpf` | 依資產類別的績效 |
 | `/holdtime` | 持倉時間分析 |
-| `/costs` | 交易成本明細 |
 
 ### 🔔 提醒與筆記
 
@@ -565,6 +563,7 @@ python -m bot.main --mode scan
 |---|---|
 | `/montecarlo` | 蒙地卡羅風險模擬 |
 | `/calibration` | 學習疊加與校準 |
+| `/patterns` | 學習庫依市場狀態分組的平倉結果，附勝率與區間 |
 
 ### 🛡 Guardian（操作員） — *僅限操作員*
 
@@ -638,6 +637,7 @@ python -m bot.main --mode scan
 | `/setsigner` | 設定鏈上簽章金鑰（加密儲存） |
 | `/yield` | 閒置資產收益雷達（唯讀） |
 | `/idleyield` | 跨來源最佳利率掃描 |
+| `/costs` | 今日模型與 API 支出對照每日預算 |
 
 <!-- END generated: telegram commands -->
 

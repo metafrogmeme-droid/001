@@ -1445,7 +1445,12 @@ class ScanCommands:
 
     @guard("patterns")
     async def _cmd_patterns(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """/patterns — chart-pattern sweep across the scan universe."""
+        """/patterns — the learning store's closes grouped by condition.
+
+        Not a chart-pattern sweep, which this docstring called it: it reads
+        the engine's learning store, so it is the operator's (`patterns` is
+        held by no role but admin) and the caller's id travels with it,
+        because the card asks who is reading."""
         if await self._token_gate_blocks(update, "pattern detection", "patterns"):
             return
         # This awaited the dispatch with NO deadline: a stalled fetch left the
@@ -1454,7 +1459,8 @@ class ScanCommands:
         _budget = float(getattr(CONFIG, "deepscan_timeout_sec", 120) or 120)
         try:
             result = await asyncio.wait_for(
-                self.registry.dispatch("patterns", self.engine),
+                self.registry.dispatch("patterns", self.engine,
+                                       user_id=self._get_tg_id(update)),
                 timeout=_budget)
         except asyncio.TimeoutError:
             system_log.error("Patterns scan timed out after %.0fs", _budget)

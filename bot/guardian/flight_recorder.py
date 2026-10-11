@@ -90,12 +90,17 @@ def _enum_str(x: Any) -> str:
         return ""
 
 
-def _compact_votes(votes: Any, limit: int = _MAX_VOTES) -> list[dict]:
+def compact_votes(votes: Any, limit: int = _MAX_VOTES) -> list[dict]:
     """Normalise ``(name, vote, weight)`` tuples into ranked contribution rows.
 
     The analyzer attaches ``idea._confluence_votes`` as a list of 3-tuples. We
     keep the ones that actually moved the decision (|vote·weight| largest),
     labelled bullish/bearish, so the record explains *why* — not just *that*.
+
+    Public because the explain card reads the same ranking: it printed
+    ``idea.signals_used``, every indicator key the analyzer computed, as the
+    signals behind the call, and a second ranking would be a second answer
+    about which voters drove it.
     """
     rows: list[dict] = []
     if not votes:
@@ -172,7 +177,7 @@ def decision_idea_payload(idea: Any) -> dict:
                 "data_bars": _get(idea, "data_bars"),
                 "data_thin": _get(idea, "data_thin"),
             },
-            "votes": _compact_votes(_get(idea, "_confluence_votes")),
+            "votes": compact_votes(_get(idea, "_confluence_votes")),
         }
         explain = _explain_slice(_get(idea, "_explain_report"))
         if explain:

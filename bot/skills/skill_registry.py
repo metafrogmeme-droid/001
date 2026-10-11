@@ -1083,7 +1083,11 @@ class CheckRiskSkill(BaseSkill):
                                       CONFIG.risk.max_drawdown_pct)
 
         if mode == "status":
-            return self._status(engine, state, cb, streak, cost, exp_pct,
+            # The operating spend is the deployment's ledger, so its rows are
+            # the operator's (`CostBreakdownSkill` says why); anyone else's
+            # status card leaves them out rather than print another's dollars.
+            own_cost = cost if _caller_is_operator(engine, user_id) else None
+            return self._status(engine, state, cb, streak, own_cost, exp_pct,
                                 display_equity, display_open, display_total_trades,
                                 display_pnl, display_win_rate, gate=gate, dd=dd,
                                 record_note=record_note)
@@ -1112,8 +1116,6 @@ class CheckRiskSkill(BaseSkill):
         # for an exhausted schedule and for a crashed evaluation read alike.
         from bot.macro.calendar import macro_state_words
         m_label = macro_state_words(macro)
-        net = (display_equity - cost.operating_cost_usd
-               if display_equity is not None else None)
         pnl_icon = _status(display_pnl)
 
         # THE DRAWDOWN THE BREAKER ENFORCES. This scored System Health off
@@ -1145,7 +1147,9 @@ class CheckRiskSkill(BaseSkill):
             f"\U0001f4b0 <b>Capital</b>\n"
             + (f"<i>{record_note}</i>\n" if record_note else "")
             + f"- Equity: <code>{_money(display_equity)}</code>\n"
-            f"- Net: <code>{_money(net)}</code>\n"
+            # "Net" was this caller's equity minus the deployment's operating
+            # spend for the day: one person's balance less another's bill,
+            # a stock less a day's flow. It is gone, not reworded.
             f"- Daily PnL: <code>{_money(display_pnl, sign=True)}</code>\n"
             f"- Drawdown: <code>{'--' if _dd_pct is None else f'{_dd_pct:.1f}%'}</code>"
             f"{drawdown_source_note(_dd_src)}\n\n"
@@ -1164,11 +1168,12 @@ class CheckRiskSkill(BaseSkill):
             # neither of which is a check outcome — so a clear breaker painted
             # a full set of passes that nothing had run. The breaker is what
             # this card actually knows, and it is stated above.
-            f"- Gate: <code>{'fail-closed — blocking new entries' if cb else 'fail-closed — armed'}</code>\n\n"
-            # ── Costs ──
-            f"\u26a1 <b>Costs</b>\n"
-            f"- LLM: <code>${cost.llm_cost_usd:,.4f}</code>\n"
-            f"- Infra: <code>${cost.infra_cost_usd:,.4f}</code>"
+            f"- Gate: <code>{'fail-closed — blocking new entries' if cb else 'fail-closed — armed'}</code>"
+            # ── Costs: the operator's ledger, on the operator's card only ──
+            + (f"\n\n\u26a1 <b>Costs today (UTC)</b>\n"
+               f"- LLM: <code>${cost.llm_cost_usd:,.4f}</code>\n"
+               f"- Infra: <code>${cost.infra_cost_usd:,.4f}</code>"
+               if cost is not None else "")
         )
 
     def _risk(self, state, cb, streak, total_exp, exp_pct, groups,
@@ -1363,9 +1368,11 @@ class GetPortfolioSkill(BaseSkill):
         # PAPER mode: original behavior
         portfolio = _get_portfolio(engine, **kwargs)
         state = portfolio.snapshot()
-        cost = engine.cost.snapshot()
-        net = state.equity_usd - cost.operating_cost_usd
-        cpt = cost.operating_cost_usd / state.total_trades if state.total_trades > 0 else 0
+        # The waterfall ended in the deployment's LLM and infra spend, a "NET"
+        # of this book's equity less that spend, and the spend over this
+        # book's trade count: the operator's bill against the caller's book,
+        # shown to every caller. The book's own P&L stops at Trading; the
+        # spend is /costs, the operator's card.
         pnl_icon = _pnl_arrow(state.total_pnl)
 
         lines = [
@@ -1381,12 +1388,8 @@ class GetPortfolioSkill(BaseSkill):
             "<pre>",
             f"  \u25b8 Gross    {_money(state.total_gross_pnl, sign=True):>14}",
             f"  \u25b8 Commiss  {_money(state.total_commission):>14}",
-            f"  \u25b8 Trading  {_money(state.total_pnl, sign=True):>14}",
-            f"  \u25b8 LLM      {'${:,.4f}'.format(cost.llm_cost_usd):>14}",
-            f"  \u25b8 Infra    {'${:,.4f}'.format(cost.infra_cost_usd):>14}",
             f"  {'━' * 30}",
-            f"  \u25b6 NET      {_money(net, sign=True):>14}",
-            f"  \u25b8 Per Trd  {'${:,.4f}'.format(cpt):>14}",
+            f"  \u25b6 Trading  {_money(state.total_pnl, sign=True):>14}",
             "</pre>",
         ]
 
@@ -1409,8 +1412,10 @@ class GetPortfolioSkill(BaseSkill):
         # Session tally
         lines.append(f"\n{SEP}")
         lines.append(
-            f"<i>Session: {state.total_trades} trades \u2022 "
-            f"Net {_money(net, sign=True)}</i>"
+            # "Session" here was lifetime: the paper book's state file is
+            # loaded at init (tests/test_pnl_window_labels.py, one card over).
+            f"<i>All-time: {state.total_trades} trades \u2022 "
+            f"Trading {_money(state.total_pnl, sign=True)}</i>"
         )
 
         return "\n".join(lines)
@@ -1429,12 +1434,68 @@ class ExecutePaperTradeSkill(BaseSkill):
             return "Provide a trade_id to confirm."
         return await engine.confirm_trade(trade_id)
 
+#: The votes the explain card prints, strongest first. The analyzer hands
+#: the model its top six (`_top_votes`); the card shows the same depth.
+_EXPLAIN_VOTES = 6
+
+
+def _explain_votes_line(idea: Any) -> str:
+    """The voters that drove this call, or what is known about why none print.
+
+    Read off the idea's own breakdown (`_confluence_votes`, which the analyzer
+    attaches and the flight recorder seals) through the recorder's ranking, so
+    the card and the sealed record name the same voters. Three cases, three
+    sentences: no breakdown on the idea (a hand-typed ticket, or an idea made
+    before the analyzer attached one), a breakdown in which no vote moved the
+    score, and the votes.
+    """
+    from bot.guardian.flight_recorder import compact_votes
+    raw = getattr(idea, "_confluence_votes", None)
+    if raw is None:
+        return "- Votes: <i>not recorded on this idea</i>\n"
+    rows = compact_votes(raw)
+    if not rows:
+        return "- Votes: <i>recorded, and none moved the score</i>\n"
+    shown = rows[:_EXPLAIN_VOTES]
+    more = f" \u00b7 +{len(rows) - len(shown)} more" if len(rows) > len(shown) else ""
+    votes = " \u00b7 ".join(f"{_esc(r['name'])} {r['contribution']:+.2f}" for r in shown)
+    return (f"- Votes that drove it (vote \u00d7 weight, strongest first): "
+            f"<code>{votes}</code>{more}\n")
+
+
 class ExplainTradeSkill(BaseSkill):
+    """One PENDING idea, explained from what the analyzer recorded on it.
+
+    It claimed more than it did. The MCP tool, its one door, said "a pending
+    or historical trade idea" and "omit to list pending ideas": the skill
+    searched the pending book only, and an omitted id answered "Trade  not
+    found". Its "Signals:" line printed `idea.signals_used`, which the
+    analyzer fills with `list(indicators.keys())`: every key it computed,
+    `session_high` and `_top_votes` among them, not the signals behind the
+    call. The votes that were behind it are on the idea, and
+    `_explain_votes_line` prints them. `signals_used` itself is unchanged:
+    the risk gate's HTF fallback, the journal, the flight recorder and the
+    backtest read it.
+
+    Pending only, and said so. A closed trade's record is the post-mortem,
+    which reads the caller's own book; this skill is reached with no caller
+    identity (the MCP adapter passes none), so it reaches for no book.
+    An omitted id lists the ENGINE's own pending ideas: a ticket a person
+    opened carries no owner this skill could check a caller against.
+    """
     name = "explain_trade"
-    description = "Explain a trade idea"
+    description = "Explain a pending trade idea (omit the id to list the engine's)"
+
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
-        trade_id = kwargs.get("trade_id", "")
-        for idea in engine.pending_ideas:
+        trade_id = str(kwargs.get("trade_id") or "").strip()
+        try:
+            pending = list(engine.pending_ideas)
+        except Exception as exc:
+            return (f"{_BAD} The pending ideas could not be read "
+                    f"({type(exc).__name__}).")
+        if not trade_id:
+            return self._list(engine, pending)
+        for idea in pending:
             if idea.id == trade_id:
                 d_icon = _OK if idea.direction.value == "LONG" else _BAD
                 # The card whose entire subject is the reason. It quoted the
@@ -1449,7 +1510,7 @@ class ExplainTradeSkill(BaseSkill):
                     f"  {d_icon} {_pill(idea.id)}\n"
                     f"  {idea.direction.value} {_esc(idea.asset)}\n\n"
                     f"- Confidence: <code>{displayed_confidence(idea).pct()}</code>\n"
-                    f"- Signals: <code>{', '.join(idea.signals_used)}</code>\n"
+                    + _explain_votes_line(idea)
                     + (f"- Provenance: <code>{_esc(tag)}</code>\n" if tag else "")
                     + "\n"
                     + (prose_bq or
@@ -1457,7 +1518,37 @@ class ExplainTradeSkill(BaseSkill):
                        "the model returned a direction and a confidence "
                        "without one.</i>")
                 )
-        return f"\u2718 Trade {_pill(_esc(trade_id))} not found."
+        return (f"\u2718 No pending idea {_pill(_esc(trade_id))}. Only an idea "
+                "still pending is explained here; one that was confirmed, "
+                "skipped or expired has left the pending book, and a closed "
+                "trade's record is <code>/postmortem</code>.")
+
+    @staticmethod
+    def _list(engine: Any, pending: list) -> str:
+        """The engine's own pending ideas, by id, for the caller to pick one."""
+        head = f"{_BOOK} <b>PENDING IDEAS</b>\n{SEP}\n"
+        try:
+            mine = set(engine._engine_pending_ids())
+        except Exception as exc:
+            return (f"{head}\n{_BAD} Could not tell the engine's ideas from "
+                    f"people's tickets ({type(exc).__name__}), so none are "
+                    "listed. An idea can still be explained by its id.")
+        ideas = [i for i in pending if i.id in mine]
+        others = len(pending) - len(ideas)
+        lines = [head]
+        if not ideas:
+            lines.append("No idea of the engine's is pending right now.")
+        for i in ideas:
+            d_icon = _OK if i.direction.value == "LONG" else _BAD
+            lines.append(f"  {d_icon} <code>{_esc(i.id)}</code> "
+                         f"{i.direction.value} {_esc(i.asset)} \u00b7 "
+                         f"{displayed_confidence(i).pct()}")
+        if others:
+            lines.append(f"\n<i>{others} pending ticket(s) opened by a person "
+                         "are not listed: each is theirs.</i>")
+        if ideas:
+            lines.append("\nExplain one by its id.")
+        return "\n".join(lines)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -2095,68 +2186,121 @@ class TradeJournalSkill(BaseSkill):
 # ══════════════════════════════════════════════════════════════
 
 class CostBreakdownSkill(BaseSkill):
+    """Today's model and API spend against the daily budget: the operator's.
+
+    THREE CLAIMS ON ONE CARD WERE ABOUT TWO PEOPLE. "Net" was the CALLER's
+    equity minus the OPERATOR's operating cost, "Per Trade" the operator's
+    cost over the caller's trade count, and the breakdown walked five
+    categories and skipped `chat` while the total counted it, so the parts did
+    not add up to the whole. The chat tool said "against the daily budget" and
+    the card printed no budget. And `costs` was held by viewers, self-admitted
+    paper users and web chat, who were shown the operator's spend.
+
+    The spend is one ledger for the deployment (`engine.cost`); there is no
+    per-caller reading of it, so the card is the operator's: `costs` is held
+    by no role but admin, and the card asks again. Every category the ledger
+    books is printed, so the parts sum to the total, and the budget lines are
+    `cost.budget_reading`, built from the functions the gates call. A call on
+    a model with no price on record has an unknown cost, so a ledger holding
+    one makes every dollar here a floor, and the card says so.
+    """
     name = "costs"
-    description = "Agent economics"
+    description = "Today's model and API spend against the daily budget (operator)"
 
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
-        cost = engine.cost.snapshot()
-        portfolio = _get_portfolio(engine, **kwargs)
-        state = portfolio.snapshot()
-        rate_stats = engine.analyzer._rate_limiter.stats
+        from bot.core.cost import COST_CATEGORIES, budget_reading
+        head = f"\U0001f4b0 <b>MODEL &amp; API SPEND \u00b7 TODAY (UTC)</b>\n{SEP}"
+        if not _caller_is_operator(engine, str(kwargs.get("user_id") or "")):
+            return (f"{head}\n\nThe model and API spend is the deployment's, one "
+                    "ledger for every account, so it is shown to the operator "
+                    "only.")
+        try:
+            cost = engine.cost.snapshot()
+            b = budget_reading(cost, CONFIG.llm)
+        except Exception as exc:
+            return (f"{head}\n\n{_BAD} The cost ledger could not be read "
+                    f"({type(exc).__name__}), so today's spend is unknown.")
 
-        # Use live equity in LIVE mode
-        if CONFIG.is_live():
-            econ_equity = await engine.get_effective_equity_async(kwargs.get("user_id", ""))
-        else:
-            econ_equity = state.equity_usd
-        # Unreadable equity means an unknown net, not a net computed from the
-        # paper baseline minus real operating cost — a number describing no
-        # account that exists.
-        net = (econ_equity - cost.operating_cost_usd
-               if econ_equity is not None else None)
-
-        lines = [
-            f"\U0001f4b0 <b>AGENT ECONOMICS</b>\n{SEP}",
-            "",
-            "\u26a1 <b>LLM Usage</b>",
-            f"- Total: <code>${cost.llm_cost_usd:,.4f}</code> ({cost.llm_calls} calls)",
-            f"- Tokens In: <code>{cost.prompt_tokens:,}</code>",
-            f"- Tokens Out: <code>{cost.completion_tokens:,}</code>",
-            f"- Avg/Call: <code>${cost.avg_cost_per_call:,.6f}</code>",
-        ]
-
-        cats_found = False
-        for cat in ("scan", "analyze", "thesis", "risk_decision", "other"):
-            c = cost.cost_by_category.get(cat, 0.0)
-            n = cost.calls_by_category.get(cat, 0)
-            if n > 0:
-                if not cats_found:
-                    lines.extend(["\n\U0001f4ca <b>Breakdown</b>"])
-                    cats_found = True
-                lines.append(f"- {cat.title()}: <code>${c:,.4f}</code> ({n})")
-
+        # An unpriced call's cost is unknown: what was spent is a floor and
+        # what is left a ceiling, on every line.
+        floor = "at least " if b["unpriced_calls"] else ""
+        ceil = "at most " if b["unpriced_calls"] else ""
+        lines = [head, ""]
+        if b["unpriced_calls"]:
+            lines.append(
+                f"{_WARN} {b['unpriced_calls']} call(s) used a model with no "
+                "price on record. Their cost is unknown, so every dollar "
+                "figure below is a floor.\n")
         lines.extend([
-            "\n\U0001f4b3 <b>Operating Total</b>",
-            f"- LLM: <code>${cost.llm_cost_usd:,.4f}</code>",
-            f"- Infra: <code>${cost.infra_cost_usd:,.4f}</code>",
-            f"- Total: <code>${cost.operating_cost_usd:,.4f}</code>",
+            "\u26a1 <b>LLM</b>",
+            f"- Spent: <code>{floor}${cost.llm_cost_usd:,.4f}</code> "
+            f"({cost.llm_calls} calls)",
+            f"- Tokens in / out: <code>{cost.prompt_tokens:,}</code> / "
+            f"<code>{cost.completion_tokens:,}</code>",
         ])
-        if state.total_trades > 0:
-            cpt = cost.operating_cost_usd / state.total_trades
-            lines.append(f"- Per Trade: <code>${cpt:,.4f}</code>")
+
+        # Every category the ledger booked, in its own order, then any it
+        # does not name: a part left out is a total the parts do not reach.
+        cats = list(COST_CATEGORIES) + sorted(
+            set(cost.cost_by_category) - set(COST_CATEGORIES))
+        booked = [(c, cost.cost_by_category[c], cost.calls_by_category.get(c))
+                  for c in cats if c in cost.cost_by_category
+                  and (cost.cost_by_category[c] or cost.calls_by_category.get(c))]
+        if booked:
+            lines.append("\n\U0001f4ca <b>By category</b>")
+            for c, usd, n in booked:
+                calls = f"({n})" if n is not None else "(calls not recorded)"
+                lines.append(f"- {_esc(c.replace('_', ' ').title())}: "
+                             f"<code>${usd:,.4f}</code> {calls}")
+            summed = sum(usd for _c, usd, _n in booked)
+            if abs(summed - float(cost.llm_cost_usd)) > 1e-9:
+                lines.append(
+                    f"<i>The categories add up to ${summed:,.4f} of the "
+                    f"${cost.llm_cost_usd:,.4f} total; the rest was booked "
+                    "under no category.</i>")
+
+        lines.append("\n\U0001f3af <b>Budget</b>")
+        lines.append(
+            f"- Daily: <code>{floor}${b['spent']:,.4f}</code> of "
+            f"<code>${b['daily_budget']:,.2f}</code> \u00b7 "
+            f"<code>{ceil}${b['daily_left']:,.4f}</code> left")
+        cap_src = ("its own cap" if b["chat_cap_is_own"]
+                   else f"{b['chat_share']:.0%} of the daily budget")
+        lines.append(
+            f"- Chat: <code>{floor}${b['chat_spent']:,.4f}</code> of "
+            f"<code>${b['chat_cap']:,.2f}</code> ({cap_src}) \u00b7 "
+            f"<code>{ceil}${b['chat_left']:,.4f}</code> left \u00b7 "
+            f"{b['chat_calls']} of {b['call_limit']} calls")
+        if b["chat_bound"]:
+            lines.append(f"  {_BAD} Chat has stopped for today: "
+                         f"{_esc(b['chat_bound'])} reached.")
+        if b["thesis_cap"] is None:
+            lines.append("- Analysis: no cap of its own; it counts against "
+                         "the daily total.")
+        elif b["thesis_spent"] is None:
+            lines.append(
+                f"- Analysis: cap <code>${b['thesis_cap']:,.2f}</code>; its "
+                "share of the spend could not be split from chat's, so what "
+                "is left is unknown.")
+        else:
+            lines.append(
+                f"- Analysis: <code>{floor}${b['thesis_spent']:,.4f}</code> of "
+                f"<code>${b['thesis_cap']:,.2f}</code> \u00b7 "
+                f"<code>{ceil}${b['thesis_left']:,.4f}</code> left")
+        if b["thesis_exhausted"]:
+            lines.append(f"  {_BAD} Trade analysis is on the rule engine for "
+                         "the rest of the day.")
 
         lines.extend([
-            "\n\U0001f4c8 <b>Net</b>",
-            f"- Equity: <code>{_money(econ_equity)}</code>",
-            f"- Costs: <code>-${cost.operating_cost_usd:,.4f}</code>",
-            f"{SEP}",
-            f"- <b>Net: <code>{_money(net)}</code></b>",
+            "\n\U0001f4b3 <b>Operating total</b>",
+            f"- LLM: <code>{floor}${cost.llm_cost_usd:,.4f}</code>",
+            f"- Infra: <code>${cost.infra_cost_usd:,.4f}</code>",
+            f"- Total: <code>{floor}${cost.operating_cost_usd:,.4f}</code>",
         ])
 
         # ── Cache hit-rate section ──
         try:
             cache_snap = engine.analyzer._llm_cache.snapshot()
-            total_lookups = cache_snap["hits"] + cache_snap["misses"]
             hit_pct = cache_snap["hit_rate"] * 100
             lines.extend([
                 "\n\U0001f9e0 <b>LLM Cache</b>",
@@ -2169,12 +2313,15 @@ class CostBreakdownSkill(BaseSkill):
                 f"- TTL: <code>{cache_snap['default_ttl']:.0f}s</code>",
             ])
         except Exception:
-            pass  # cache not available — skip section
+            lines.append("\n<i>LLM cache: not read.</i>")
 
-        lines.append(
-            f"\n<i>\u26a1 Rate limiter: {rate_stats['total_calls']} calls, "
-            f"{rate_stats['total_waits']} throttled</i>",
-        )
+        try:
+            rate_stats = engine.analyzer._rate_limiter.stats
+            lines.append(
+                f"\n<i>\u26a1 Rate limiter: {rate_stats['total_calls']} calls, "
+                f"{rate_stats['total_waits']} throttled</i>")
+        except Exception:
+            lines.append("\n<i>Rate limiter: not read.</i>")
         return "\n".join(lines)
 
 
@@ -2726,25 +2873,92 @@ class FeedbackSkill(BaseSkill):
                 f"Type: <code>{_esc(ft)}</code>")
 
 
+def _caller_is_operator(engine: Any, user_id: str) -> bool:
+    """Whether this caller is the person who owns the deployment.
+
+    `engine._is_operator_user` is the reading (store role, TELEGRAM_CHAT_ID,
+    ADMIN_TELEGRAM_IDS). No caller is nobody, never the operator, and a check
+    that raises is not a yes.
+    """
+    if not user_id:
+        return False
+    check = getattr(engine, "_is_operator_user", None)
+    if not callable(check):
+        return False
+    try:
+        return bool(check(user_id))
+    except Exception:  # noqa: BLE001 -- an unread identity is not the operator
+        return False
+
+
+#: How a group's dimension reads on the card.
+_GROUP_LABEL = {"regime": "Regime", "macro_state": "Macro state",
+                "volatility": "Volatility"}
+
+
 class PatternsSkill(BaseSkill):
+    """The learning store's closes, grouped by the condition each recorded.
+
+    It named groups after patterns nobody checked for (a losing range group
+    was a "BREAKOUT_FAILURE"), printed a win rate restated as a confidence,
+    and an average in dollars, to anyone who held the `patterns` permission:
+    viewers, self-admitted paper users and web chat. The groups and their
+    counts are `bot/learning/patterns.py`; this prints them with the interval
+    each rate carries and the window they were read from.
+
+    OPERATOR ONLY. The store is the engine's: every account's closes land in
+    it with no owner (`_on_live_position_closed` records per-user live closes
+    there too), so no caller's own book can be read out of it. The
+    `patterns` permission is held by no role but admin, and the card asks
+    again here, because a permission is necessary, not sufficient.
+    """
     name = "patterns"
-    description = "Detected patterns"
+    description = "The learning store's closes grouped by condition (operator)"
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
-        patterns = engine.learning.detect_patterns()
-        if not patterns:
-            return f"{_NEU} <b>PATTERNS</b>\n\n<i>\u25c7 No patterns yet. Need more history.</i>"
-        lines = [f"\U0001f50d <b>PATTERNS</b>\n{SEP}"]
-        lines.append("")
-        for p in patterns[:8]:
-            exp = f" {_WARN}" if p.is_experimental else ""
-            conf_ring = _progress_ring(p.confidence * 100)
+        from bot.learning.patterns import MIN_GROUP_CLOSES
+        head = f"\U0001f50d <b>OUTCOMES BY CONDITION</b>\n{SEP}"
+        if not _caller_is_operator(engine, str(kwargs.get("user_id") or "")):
+            return (f"{head}\n\nThis card reads the engine's learning store, "
+                    "where every account's closes are recorded without an "
+                    "owner, so it is shown to the operator only.")
+        try:
+            reading = engine.learning.outcome_groups()
+        except Exception as exc:
+            return (f"{head}\n\n{_BAD} The learning store's decision log could "
+                    f"not be read ({type(exc).__name__}), so nothing is known "
+                    "about these groups.")
+        unscored = (f", {reading.unscored} more with a result that could not be "
+                    "scored" if reading.unscored else "")
+        read_line = (f"<i>Read: the newest {reading.window:,} rows of the "
+                     f"decision log ({reading.rows_read:,} returned); "
+                     f"{reading.closes} of them are closes with a result"
+                     f"{unscored}. A group is listed from {MIN_GROUP_CLOSES} "
+                     "scored closes.</i>")
+        if not reading.groups:
+            return (f"{head}\n\n{_NEU} No condition has {MIN_GROUP_CLOSES} "
+                    f"scored closes in what was read.\n\n{read_line}")
+        lines = [head, ""]
+        shown = reading.groups[:8]
+        for g in shown:
+            iv = g.win_rate_interval
+            rate = g.historical_win_rate
+            rate_s = (f"won {rate:.0%} (95%: {iv[0]:.0%}\u2013{iv[1]:.0%})"
+                      if rate is not None and iv is not None else "no rate")
+            flat_s = f" {g.flat}F" if g.flat else ""
             lines.append(
-                f"  {conf_ring} <b>{p.pattern_type}</b>{exp}\n"
-                f"    Conf {_pill(f'{p.confidence:.0%}')}  "
-                f"WR {_pill(f'{p.historical_win_rate:.0%}')}  "
-                f"Avg {_pill(f'${p.avg_pnl:.2f}')}  ({p.sample_size})"
-            )
-        lines.append("\n<i>\u25c7 Patterns are observations, not signals</i>")
+                f"  <b>{_GROUP_LABEL.get(g.pattern_type, _esc(g.pattern_type))} "
+                f"{_esc(g.market_regime)}</b> \u00b7 {g.sample_size} closes\n"
+                f"    {g.wins}W {g.losses}L{flat_s} \u00b7 {rate_s}")
+        if len(reading.groups) > len(shown):
+            lines.append(f"  <i>+{len(reading.groups) - len(shown)} more "
+                         "group(s) not shown</i>")
+        lines.append("")
+        lines.append(read_line)
+        lines.append(
+            "<i>A win is a close with positive P&amp;L; a flat close is not a "
+            "win. A group is what happened under that condition, not a signal. "
+            "No return per trade is shown: these rows hold P&amp;L in dollars "
+            "with no stop or size, from every account.</i>")
         return "\n".join(lines)
 
 
