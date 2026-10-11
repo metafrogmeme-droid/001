@@ -284,22 +284,6 @@ def thesis_dollar_exhausted(snap: CostSummary, llm_cfg) -> bool:
     return spent >= float(cap)
 
 
-def chat_cap_usd(llm_cfg) -> float:
-    """Chat's own dollar cap for the day: ``chat_budget_usd`` when the operator
-    set one, else ``chat_budget_share`` of ``daily_budget_usd``.
-
-    One reading, because three places asked it: `chat_budget_bound` (the gate),
-    the chat reply's audit line, and the /costs card that prints what is left.
-    Two of them computed it inline, and a card restating a cap is the copy that
-    drifts the day the rule changes. The cap sits INSIDE the daily total, so
-    what chat can still spend is the smaller of the two (`budget_reading`).
-    """
-    own = getattr(llm_cfg, "chat_budget_usd", None)
-    if own is not None:
-        return float(own)
-    return float(llm_cfg.daily_budget_usd) * float(llm_cfg.chat_budget_share)
-
-
 def budget_reading(snap: CostSummary, llm_cfg) -> dict:
     """Today's spend against every bound the LLM layer enforces, read from the
     same functions the gates call, for a card to print.
@@ -374,8 +358,11 @@ def chat_cap_usd(llm_cfg) -> float:
     """Chat's dollars for the day: the ceiling `chat_budget_bound` stops at.
 
     Its own cap when one is set, reached at the combined total when it sits
-    above it; otherwise its share of the total. One reading for the audit
-    line that reports the cap and for the public preview's slice of it.
+    above it; otherwise its share of the total. One reading, because four
+    places ask it: the gate, the chat reply's audit line, the public
+    preview's slice of it, and the /costs card that prints what is left
+    (`budget_reading`). A card restating a cap is the copy that drifts the
+    day the rule changes.
     """
     total = float(llm_cfg.daily_budget_usd)
     own = getattr(llm_cfg, "chat_budget_usd", None)
