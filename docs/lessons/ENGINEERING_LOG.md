@@ -20511,6 +20511,44 @@ stream lives in one instance and ends with it.
 (`app/test/request_limits_are_shared_by_every_instance.test.js`,
 `app/test/every_request_limit_has_its_own_bucket.test.js`.)
 
+**A NEW INSTANCE GETS TRAFFIC BEFORE IT IS READY, SO ONE CALL IN TEN SAID "STARTING".**
+Measuring the shared limit on the live site after #585 shipped, 8 of 55 calls
+to a public endpoint in one minute came back 503, not 429. A second sample read
+`/readyz` once a second for three minutes: 8 of 73 answers were
+`{"ready":false,"reason":"starting","attempts":0}`, in two runs of roughly 8 to
+12 seconds, one per new instance. The host starts routing calls to an instance
+as soon as its port is open, and the not-ready gate in `server.js` answers every
+`/api/` call `starting` until the instance's first schema check returns. Panels
+said "the website's database is not ready yet" at random while the instance
+beside them was answering normally. The port is bound before the database is
+touched on purpose (`boot_resilience.test.js`: binding late was a blackout and a
+crash loop when the database was down), so that order stays.
+
+The host spreads calls across the instances that are up, so the same call made
+a moment later almost always reaches a ready one. `public/js/api-retry.js` is
+the first script on every page (all 42 static pages, and first in the script
+list the `/embed` and `/miniapp` pages build), and wraps `fetch` once. It
+retries only the site's own `/api/` URLs, only a 503 whose body is the gate's
+`{error: 'starting', reason: 'starting'}` (a `db_*` reason is an outage every
+instance shares, and retrying it only delays the error the page should show),
+only a request that can be sent again unchanged, and at most three times over
+about 2.3 seconds, inside the 8 to 10 seconds the pages give a call. A POST is
+safe to send again because the gate refuses before any route runs; a test holds
+that the gate is the one place in the app that answers `starting`, so no route
+that did work can be repeated. Thirty pages fetch from inline code, which is why
+it wraps `fetch` rather than one helper: per-call fixes would have been about
+fifty places to keep in step.
+
+The instance now records what the window costs: `migration_ok` in `/diagz`
+carries `check_ms` (the database check) and `ready_after_ms` (from process start),
+so the 8 to 12 seconds can be taken apart from a deploy instead of guessed at.
+If the host can be told to send traffic only once `/readyz` answers 200, the
+window disappears at the source, and this retry is then only a backstop.
+Seventeen mutants, all killed after one round: the first left one standing, a
+retry that read the 503 body itself instead of a copy, because no test read the
+body of a 503 the retry decided to leave alone; a page could then not have shown
+"database unreachable". (`app/test/the_pages_retry_the_sites_own_starting_answer.test.js`.)
+
 ## Writing tests that scan source
 
 Strip comments first. A comment that quotes the string it forbids is
