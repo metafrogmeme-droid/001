@@ -4501,6 +4501,7 @@ class Analyzer:
             result["source"] = f"LLM_{tier_label}"
             result["model_used"] = model
             result["prompt_hash"] = _prompt_hash
+            self._ground_thesis(result, prompt, model, is_admin)
 
             # ── Cache the LLM response ──
             self._llm_cache.put(cache_key, result, signal.symbol)
@@ -4536,6 +4537,9 @@ class Analyzer:
             if fallback_result is not None:
                 fallback_result["source"] = f"LLM_FALLBACK_{fallback_result.get('_fallback_provider', 'UNKNOWN')}"
                 fallback_result.pop("_fallback_provider", None)
+                self._ground_thesis(fallback_result, prompt,
+                                    str(fallback_result.get("model_used") or ""),
+                                    is_admin)
                 self._llm_cache.put(cache_key, fallback_result, signal.symbol)
                 self._note_llm_ok()   # a fallback provider answered — brain is up
                 return fallback_result
@@ -4561,6 +4565,48 @@ class Analyzer:
                 return None
             result["source"] = "RULE_ENGINE_FALLBACK"
             return result
+
+    @staticmethod
+    def _ground_thesis(result: dict, prompt: str, model: str,
+                       is_admin: bool) -> None:
+        """Check the thesis's figures against the values it was given.
+
+        "Never invent indicator values" was only a line in the system prompt,
+        and the reasoning went onto every card as written. This asks the
+        chat's own shadow rule (`grounding.shadow_check`) with the prompt as
+        the support, each bare value in it standing as a dollar figure too
+        (`prompt_values`), under the model's thesis ledger key. Until that
+        key's rate is below the line it records and changes nothing; after,
+        the unverified figures are named FIRST, because the cards split the
+        reasoning at its last "Against:" and a note appended at the end would
+        be read as part of the counter-case. Never raises.
+        """
+        try:
+            from bot.nlp.grounding import (
+                prompt_values,
+                rate,
+                shadow_check,
+                thesis_ledger_key,
+                unverified_note,
+            )
+            reasoning = result.get("reasoning")
+            if not isinstance(reasoning, str) or not reasoning.strip():
+                return
+            key = thesis_ledger_key(model)
+            sc = shadow_check(reasoning, [prompt, prompt_values(prompt)],
+                              key, bool(is_admin))
+            if sc.checked and key:
+                audit(trade_log,
+                      f"Thesis grounding {model}: "
+                      f"{len(sc.unverified)} of {sc.checked} unverified",
+                      action="thesis_grounding", result="SHADOW",
+                      data={"model": model, "checked": sc.checked,
+                            "unverified": len(sc.unverified),
+                            "rate": rate(key)})
+            if sc.annotate:
+                result["reasoning"] = f"({unverified_note(sc.unverified)}) {reasoning}"
+        except Exception as exc:  # never let a display check break a thesis
+            logger.debug("thesis grounding skipped: %s", exc)
 
     # ── LLM health tracking (proactive degrade alert) ────────────────
     def _note_llm_ok(self) -> None:

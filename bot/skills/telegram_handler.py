@@ -3245,8 +3245,15 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                           f"Chat used fallback: {cfg.provider.value}/{cfg.model}",
                           action="chat_fallback", result="OK")
 
+                # What this candidate was given, for a turn that read no
+                # tool: the figures in its answer are checked against it.
+                from bot.nlp.grounding import given_support
                 return _chat_ret(answer.strip(), cfg, return_meta,
-                                 tool_events=_tool_events, is_admin=is_admin)
+                                 tool_events=_tool_events, is_admin=is_admin,
+                                 given=given_support(
+                                     _sp, question,
+                                     *(m.get("content") for m in history
+                                       if isinstance(m, dict))))
 
             except asyncio.TimeoutError:
                 last_error = f"timeout ({cfg.provider.value})"

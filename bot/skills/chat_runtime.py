@@ -1006,7 +1006,7 @@ def compose_telegram_answer(answer: str, meta, *, is_social: bool = False) -> st
 
 
 def _chat_ret(text: str, cfg, return_meta: bool, tool_events=None,
-              is_admin: bool = False):
+              is_admin: bool = False, given=None):
     """Shape _llm_chat's return: plain string (default, every existing caller),
     or (string, meta) when the caller wants model transparency (the web
     gateway shows which model answered). Module-level — several test suites
@@ -1069,34 +1069,34 @@ def _chat_ret(text: str, cfg, return_meta: bool, tool_events=None,
         logger.debug("risk:reward correction skipped: %s", exc)
 
     # Shadow grounding. Figures with a unit are checked against this turn's
-    # tool results. The rate is recorded per model. The reply is annotated
-    # only once that rate is already below the line; until then the words
-    # the model wrote are what the user sees.
+    # tool results, or, on a turn that called no tool, against what the model
+    # was GIVEN (``given``: its prompt, history and question). That turn was
+    # never checked: the check sat behind `if tool_events:`, so a reply built
+    # from the prompt's price and position sections, or made up with no tool
+    # call at all, went out with no figure looked at. The rate is recorded
+    # per model. The reply is annotated only once that rate is already below
+    # the line; until then the words the model wrote are what the user sees.
     try:
-        from bot.nlp.grounding import (
-            annotation_on,
-            check_reply,
-            note,
-            rate,
-            unverified_note,
-        )
-        results = [str(e.get("result") or "") for e in (tool_events or [])
-                   if isinstance(e, dict)]
+        from bot.nlp.grounding import rate, shadow_check, unverified_note
         if tool_events:
-            checked, unverified = check_reply(text, results)
+            support = [str(e.get("result") or "") for e in tool_events
+                       if isinstance(e, dict)]
+            basis = "tools"
+        else:
+            support, basis = list(given or []), "prompt"
+        if support:
             model = getattr(cfg, "model", "") or ""
-            if checked and model:
-                note(model, checked, len(unverified))
+            sc = shadow_check(text, support, model, bool(is_admin))
+            if sc.checked and model:
                 audit(system_log,
                       f"Chat grounding {model}: "
-                      f"{len(unverified)} of {checked} unverified",
+                      f"{len(sc.unverified)} of {sc.checked} unverified",
                       action="chat_grounding", result="SHADOW",
-                      data={"model": model, "checked": checked,
-                            "unverified": len(unverified),
-                            "rate": rate(model)})
-            if (unverified and model
-                    and annotation_on(model, bool(is_admin))):
-                text = text.rstrip() + "\n\n" + unverified_note(unverified)
+                      data={"model": model, "checked": sc.checked,
+                            "unverified": len(sc.unverified),
+                            "basis": basis, "rate": rate(model)})
+            if sc.annotate:
+                text = text.rstrip() + "\n\n" + unverified_note(sc.unverified)
     except Exception as exc:  # never let a display fix break a reply
         logger.debug("grounding check skipped: %s", exc)
 
