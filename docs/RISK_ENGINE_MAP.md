@@ -27,8 +27,10 @@ function/class names if they drift.
 **Sizing / exposure gates**
 - **Position size / margin cap** (`MAX_POSITION_PCT`) — fixed-fractional by stop
   distance, hard-capped at a % of equity (margin, not notional).
-- **Leverage-aware margin risk** (`MAX_MARGIN_RISK_PCT`, 30%) — SL distance ×
-  leverage must stay under the cap; dynamic leverage reduction available.
+- **Leverage-aware margin risk** (`MAX_MARGIN_RISK_PCT`, unset: 30% at the
+  sizing leverage scaled to the venue's, 60% at 10x sized at 5x) — SL distance
+  × the venue's leverage must stay under the cap, a 6% stop either way;
+  dynamic leverage reduction available.
 - **Max open positions** (`MAX_OPEN_POSITIONS`, 5).
 - **Portfolio exposure** (`MAX_PORTFOLIO_EXPOSURE_PCT`, 80%).
 - **Per-symbol exposure** (`MAX_SYMBOL_EXPOSURE_PCT`, 20%).

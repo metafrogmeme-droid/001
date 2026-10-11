@@ -828,7 +828,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 643 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 642 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -21299,9 +21299,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **484 of 1267** reach for source text through `source_scan`, `code_only`
+Driven, **485 of 1269** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 484 is a FLOOR and the honest shape is
+source scan that rule does not see, so 485 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -22770,6 +22770,145 @@ and a comment's "`await asyncio.gather(...)` returns" was read as the gather,
 failing the rest test's ordering check against code nobody changed. Each slice
 takes the function by its node now (`inspect.getsource`).
 (`tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`.)
+
+**THE LLM CHOSE EVERY LIVE DIRECTION, AND NOTHING HAD MEASURED IT.** 11
+October, the operator's decision on improvement plan C2: set the LLM's say to
+zero and measure it first. Live, `Analyzer._llm_thesis` returned the LLM's
+thesis whenever an LLM answered, so the LLM chose the direction and its
+confidence carried the blend's first weight (0.6, capped at 0.4 while no
+calibration curve is fitted). The frozen backtests have no LLM: every card,
+every benchmark and the 0.60 confidence floor were measured on the rule
+engine's thesis. Live therefore ran a decider no backtest had read, and C2,
+which would say whether it helps, has not run.
+
+`LLM_DECIDES` (default off, read with `_env_switch`) now decides who decides.
+Off, the thesis is the rule engine's, labelled `RULE_ENGINE_DECIDES`, and the
+blend reads the same inputs the backtest reads. The LLM is still asked, beside
+each decision, through the same pipeline as before (the same budget, tiering,
+cache and sweep valve), as a shadow:
+
+* **Its call goes to the calibration log as its own.** The `llm_*` fields of
+  `llm_calibration.jsonl` are what the production readout's source split, the
+  recorded-LLM replay and C2 read as the model's call. They now come from the
+  shadow (`_calibration_llm_fields`), and two new fields say who decided and
+  which way: `decided_by` and `decision_direction`. A shadow the pipeline sent
+  to the rule engine (budget, tier 1, throttle) is not the LLM's view and is
+  not recorded as one.
+* **Its read rides on the idea, marked.** The idea's reasoning ends with
+  "Model's read (SHORT, disagrees; not used to decide): …"
+  (`_shadow_narration`). The side is named, so a read that argues the other
+  way does not read as the decision's argument.
+* **Its confidence is filed as its own, or not at all.** The idea's
+  `llm_confidence` had been `thesis["confidence"]` whatever the source, so a
+  rule-engine thesis's confidence was filed as the LLM's. Under the rule
+  engine it is the shadow's, or None when no LLM answered
+  (`_llm_confidence_on_record`).
+
+One spend changes. A rule engine with no side makes no idea, so the LLM is not
+asked there; before, it was asked and could pick a side the rules had not. The
+sweep valve test that asserted "the sweep never reached the LLM" by its
+`RULE_ENGINE_BG_THROTTLE` label now asserts no shadow was made, and the
+valve-on test gives the rule engine a side, since a neutral one asks nothing.
+The idea is built inside a 900-line analysis no test runs end to end, so one
+AST test pins that its reasoning, its `llm_confidence` and the calibration
+row call the three readings; the branch itself is driven on the real
+`_llm_thesis` with only the shadow call and the rule engine's answer stood
+in. Twelve mutants, all killed. `LLM_DECIDES=on` restores the old path; C2's
+artefact decides whether it ever should.
+(`tests/test_the_rule_engine_decides_and_the_llm_narrates.py`.)
+
+**TEN TIMES LEVERAGE, THE SAME TRADE: AN ORDER HAS TWO LEVERAGES NOW.** 11
+October, the operator: the standard leverage goes to 10x, every trade keeps
+the notional and the dollar loss at its stop that it had at 5x, the stops stay
+where they were, and the leverage frees margin and nothing else. Read
+literally, `DEFAULT_LEVERAGE=10` would have done something else. Every sizing
+figure in this repo is a margin written at 5x: the risk budget's base
+(budget / (stop x leverage)), `MAX_POSITION_PCT`, the execution ceiling,
+`MICRO_MAX_POSITION_USD` and the total, the Kelly and high-conviction margins,
+a typed ticket margin, the exposure caps. Wherever one of those bound, 10x
+placed twice the notional; the margin-risk cap (30% of margin) refused every
+stop past 3%; the exposure caps summed margins and admitted twice the book;
+and the practice fill, the VaR gates and the audit record read
+`default_leverage` raw and would have doubled their notionals.
+
+None of those figures was rewritten. An order is SIZED as it always was, at
+`SIZING_LEVERAGE` (5x, never above the venue's standard), and placed at the
+venue's leverage with the margin that notional needs there
+(`bot/core/leverage.py`: `order_standards`, `venue_leverage`,
+`venue_margin`). Every rule that lowered the leverage -- the quality ladder, a
+user's preference, dynamic scaling, the margin-risk reduction -- lowers the
+sized one, and the venue follows in proportion (a rung that cut 5x to 4x sets
+a 10x venue to 8x), so they cut the notional exactly as before. With the venue
+standard at or under 5x the two leverages are one number and nothing changes,
+which is also how most of the existing leverage tests keep their figures
+(`tests/leverage_worlds.py::one_leverage`).
+
+What had to be taught the difference:
+
+* **The executor reads the pair once** (`_order_leverages`): the venue is set
+  to one, the margin is converted (`size_usd` becomes notional / venue
+  leverage just before the order is sized), and the position records the
+  leverage it was sized at, saved and restored. The user's preference is read
+  once per order: the first version read it again for the venue half, and the
+  test that a preference store recovering between two reads must not split an
+  order caught it.
+* **Every cap on a book reads the book at the sizing.** `sized_margin` is a
+  position's notional over the leverage it was sized at; a position with none
+  on record (every one before the split, every adopted one) reads its margin
+  on record, as before, and one whose notional is unread is unread, never its
+  venue margin. The executor's total and per-user caps, the round-up re-ask,
+  the drift fallback and the risk gate's exposure rows read it
+  (`committed_sized_margin`, `held_rows`); the cards keep printing the
+  venue's margin (`committed_margin`). A round-up refusal says both figures.
+* **The margin-risk cap is measured at the venue, and unset it keeps the 6%
+  stop.** `MAX_MARGIN_RISK_PCT` is now unset by default and reads as 30% at
+  the sizing scaled to the venue (60% at 10x), so a deployment whose
+  environment still pins `DEFAULT_LEVERAGE=5` keeps 30%, and one that moves to
+  10x is not refused every stop past 3%. Set by hand, it is read as written.
+  A reduction measured at the venue goes back onto the idea through
+  `sized_for_venue`, whose venue leverage never exceeds it. The analyzer's
+  stop cap, which sat inline in a 900-line analysis and read the raw default,
+  is `leverage_capped_levels` now and asks the same cap.
+* **Paper books are held at the sizing.** The practice fill and the backtest
+  (`--honest` resolves the sized standard) place at 5x, so their margins are
+  the figures their caps measure. The five strategy cards and the frozen
+  majors benchmark regenerate identically: same trades, same returns.
+* **The envelope prices the sized notional** (`placement_leverage` asks
+  `_compute_sized_leverage`), the free-margin clamp compares what the venue
+  will lock (`clamp_at_venue`), and the unverified-submission record keeps
+  the approved margin beside the sized leverage.
+
+The cards say it: `/leverage` prints the venue, the sizing leverage, the stop
+cap as a percentage and a stop, and the ceiling. It also said orders ABORT
+when the venue will not confirm a leverage unless `LEVERAGE_FAIL_OPEN=1`; the
+default has been fail-open since July (a venue confirmed past the overshoot
+limit still aborts), and the card and `.env.example` say that now. The
+runbook's high-conviction ramp raised notional with `/leverage set 10`, which
+now moves only margin; it raises the margin instead. The cost of 10x is the
+liquidation buffer: isolated at 10x liquidates about a 10% move away, so a
+6% stop leaves less room if a stop is missing than 5x did. Thirty-three
+mutants; the first round left two standing on fixtures that could not tell
+the readings apart (an expectation computed by the function under mutation,
+and a book over its cap at either reading), and both are sharpened.
+
+The full gate then failed twelve tests the slice's own suites had not run, and
+each was read before it was changed. All twelve were the tests' one-leverage
+world, re-pinned with the world asserted so a fixture cannot pass in both: the
+VaR references and the ladder's record read the sizing; a fill the venue
+stated no leverage for records the venue's 10x as requested, with the 5x
+sizing on record beside it; the reclaimed-order guard reads the venue's
+standard (`_compute_target_leverage`), because a 10x fill read against the
+5x sizing is a 2x "overshoot" on every reclaimed order; the runbook's
+high-conviction step 2 is a margin change, with its undo beside it. Reading
+the twelfth found a gap none of them had: the notional ceiling is a margin
+times MAX_LEVERAGE, in the sized unit, and it was handed the venue's margin.
+Under the flat cap the `max` with the cap hid it. A balance-relative bound
+whose growth ceiling (`BALANCE_BOUNDS_MAX_POSITION_USD`) is over twice the
+flat cap does not: a $300 order rounded up 1.4x to the venue minimum, sent at
+5x, was refused at 10x. The gate takes the sized margin now
+(`sized_margin_usd`). The quality ladder's lines and its card say "sized
+leverage", because the margin-risk line beside them prints the venue's. Six
+more mutants, all killed. (`tests/test_ten_x_keeps_the_five_x_trade.py`.)
 
 ## Operational docs
 

@@ -39,6 +39,17 @@ from bot.utils.exc_text import _safe_exc_text
 from bot.utils.i18n import t
 from bot.utils.logger import audit, system_log
 
+
+def _leverage_words() -> str:
+    """The venue and sizing standards in one phrase, as /leverage reads them:
+    "10x venue leverage, sized at 5x"; one figure where they are one."""
+    from bot.config import RUNTIME as _RT
+    from bot.core.leverage import order_standards
+    pair = order_standards(CONFIG.exchange, _RT.leverage_override)
+    if pair.sized == pair.venue:
+        return f"{pair.venue}x leverage"
+    return f"{pair.venue}x venue leverage, sized at {pair.sized}x"
+
 # The scoreboard's last line. A card that names a command claims the command
 # does something, so `/shadow ladder` is driven by the guard that reads this.
 LADDER_POINTER = ("<i>/shadow ladder — what the quality ladder would have done to "
@@ -823,7 +834,8 @@ class EngineOpsCommands:
         ceiling of 10 was shown as 20x and set on the venue as 20x.
         """
         from bot.config import CONFIG as _CFG, RUNTIME as _RT
-        from bot.core.leverage import leverage_ceiling, operator_standard
+        from bot.core.leverage import (leverage_ceiling, margin_risk_cap_pct,
+                                       operator_standard, order_standards)
         args = [a.lower() for a in (ctx.args or [])]
         _top = min(_RT.LEVERAGE_OVERRIDE_MAX, leverage_ceiling(_CFG.exchange))
         # NB3: a non-admin BYOK user manages their OWN standard leverage
@@ -891,10 +903,15 @@ class EngineOpsCommands:
                 # `resolve_user_leverage` on every order.
                 _std = operator_standard(_CFG.exchange, _RT.leverage_override)
                 _eff = resolve_user_leverage(_stored, _std.leverage)
+                _sized = resolve_user_leverage(
+                    _stored, order_standards(_CFG.exchange, _RT.leverage_override).sized)
                 _note = "" if _eff == _stored else \
                     f" (capped at the operator {_std.leverage}x)"
                 await self._reply(update,
                     f"⚙️ Your standard leverage is now <b>{_eff}x</b>{_note}.\n"
+                    f"Each trade is sized at {_sized}x: its notional is the "
+                    f"sized margin × {_sized}, and the venue locks that notional "
+                    f"÷ {_eff}.\n"
                     "Applies to your NEW live positions; open positions keep "
                     "theirs. Reset with <code>/leverage reset</code>.")
                 return
@@ -920,9 +937,13 @@ class EngineOpsCommands:
                 notes.append(f"{_std.requested}x asked; MAX_LEVERAGE caps every new "
                              f"position at {_std.ceiling}x")
             note = f" ({'; '.join(notes)})" if notes else ""
+            _sz = order_standards(_CFG.exchange, applied).sized
             await self._reply(
                 update,
-                f"⚙️ Standard leverage set to <b>{_std.leverage}x</b>{note}.\n"
+                f"⚙️ Venue leverage set to <b>{_std.leverage}x</b>{note}.\n"
+                f"Trades stay sized at {_sz}x (SIZING_LEVERAGE): the same "
+                "notional and loss at the stop, with the margin the venue "
+                "locks moving with the leverage.\n"
                 "Applies to every NEW position on every venue. Open positions "
                 "keep the leverage they were opened with.")
             return
@@ -936,17 +957,28 @@ class EngineOpsCommands:
                 + (f", {_std.source_note()}" if _std.capped else "") + ").")
             return
         _std = operator_standard(_CFG.exchange, _RT.leverage_override)
+        _pair = order_standards(_CFG.exchange, _RT.leverage_override)
+        _cap = margin_risk_cap_pct(_CFG.risk.max_margin_risk_pct, _pair)
         dyn = getattr(_CFG.exchange, "dynamic_leverage_enabled", False)
         lines = [
             "⚙️ <b>Leverage standard</b>",
-            f"• Standard: <b>{_std.leverage}x</b> ({_std.source_note()})",
+            f"• Venue: <b>{_std.leverage}x</b> ({_std.source_note()}) — what new "
+            "positions are set to",
+            f"• Sized at: <b>{_pair.sized}x</b> (SIZING_LEVERAGE) — a trade's "
+            f"notional is its margin × {_pair.sized}, so the notional and the "
+            f"loss at the stop are the {_pair.sized}x figures; the venue locks "
+            f"notional ÷ {_std.leverage}",
+            f"• Stop cap: the loss at a stop is at most {_cap:g}% of the venue's "
+            f"margin (MAX_MARGIN_RISK_PCT), a {_cap / max(_std.leverage, 1):g}% stop",
             f"• Ceiling: <b>{_std.ceiling}x</b> (MAX_LEVERAGE) — no new position is set "
             f"above it; <code>/leverage set</code> takes 1-{_top}",
             f"• Dynamic vol scaling: {'ON — can only REDUCE below the standard' if dyn else 'OFF — uniform everywhere'}",
-            "• Unconfirmed leverage: orders ABORT (fail-closed) unless "
-            "LEVERAGE_FAIL_OPEN=1",
+            "• Unconfirmed leverage: orders PROCEED with a warning (the stop is "
+            "the backstop); a venue confirmed above the overshoot limit aborts. "
+            "LEVERAGE_FAIL_CLOSED=1 aborts on any unconfirmed read",
             "",
-            "Change: <code>/leverage set 5</code> · reset: <code>/leverage reset</code>",
+            f"Change: <code>/leverage set {_std.leverage}</code> · reset: "
+            "<code>/leverage reset</code>",
         ]
         await self._reply(update, "\n".join(lines))
 
@@ -1341,7 +1373,7 @@ class EngineOpsCommands:
                 f"\u2022 Max {CONFIG.risk.max_open_positions} concurrent positions\n"
                 f"\u2022 Max {CONFIG.risk.max_symbol_exposure_pct:.0f}% per symbol\n"
                 f"\u2022 USDT-M perpetual futures\n"
-                f"\u2022 Default {CONFIG.exchange.default_leverage}x leverage\n")
+                f"\u2022 {_leverage_words()}\n")
             await self._send(update,
                 "\u26a0\ufe0f <b>LIVE TRADING ACTIVATION</b>\n\n"
                 + _render_readiness(readiness) + "\n"
@@ -1384,7 +1416,7 @@ class EngineOpsCommands:
         await self._send(update,
             _render_readiness(readiness) + "\n\n"
             f"Limits: {CONFIG.risk.max_open_positions} positions, "
-            f"{CONFIG.exchange.default_leverage}x leverage.\n\n"
+            f"{_leverage_words()}.\n\n"
             "\u2022 <code>/livebalance</code> — check USDT balance\n"
             "\u2022 <code>/livepositions</code> — view open positions\n"
             "\u2022 <code>/liveclose &lt;id&gt;</code> — close a position\n"

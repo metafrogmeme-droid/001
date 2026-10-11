@@ -282,14 +282,20 @@ def test_a_reclaimed_order_is_checked_against_the_bots_own_ceiling():
     """A reclaimed order IS this bot's, but a restart lost its approved
     leverage and the venue states none for an unfilled order, so adoption now
     records it UNREAD (0) rather than the config default it used to write.
-    The guard is checked against the standard leverage the executor sets for
-    the symbol -- the ceiling every placement starts from -- and a recorded
-    leverage, where there is one, still wins."""
+    The guard is checked against the leverage the executor sets the VENUE to
+    for the symbol -- the ceiling every placement starts from -- and a
+    recorded leverage, where there is one, still wins. Here the symbol's sized
+    standard is 3x (a preference or dynamic scaling took it there), so under
+    the 5x sizing / 10x venue standards the venue is set to 6x: the fill is
+    read on the venue, so 6 is the figure, never the sized 3."""
+    from bot.config import CONFIG
+    from bot.core.leverage import order_standards
+    assert order_standards(CONFIG.exchange, None) == (5, 10), "the two-leverage world"
     ex = LiveExecutor.__new__(LiveExecutor)
-    ex._standard_leverage = lambda symbol: 7
+    ex._standard_leverage = lambda symbol: 3
     pos = _pos(origin="reclaimed")
     pos.leverage = 0
-    assert ex._intended_fill_leverage(pos) == 7
+    assert ex._intended_fill_leverage(pos) == 6
     pos.leverage = 3
     assert ex._intended_fill_leverage(pos) == 3
     executed = _pos(origin="executed")

@@ -121,8 +121,12 @@ class TestManualOverrideRespectsCapAndClamp:
         # into bot/core/margin_clamp.py, because `.get("free", 0.0)` could not
         # tell an unreported margin from a measured zero. What matters is that
         # the manual path still clamps against the executing account's free
-        # margin, which is now spelled as a call to the shared seam.
-        assert "clamp_to_free_margin(size_usd, live_bal)" in b
+        # margin, which is now spelled as a call to the shared seam. Since 11
+        # October the margin here is SIZED and the venue locks notional / its
+        # own leverage, so the seam is `clamp_at_venue`, which compares what
+        # the venue will lock through `clamp_to_free_margin` (driven in
+        # tests/test_ten_x_keeps_the_five_x_trade.py).
+        assert "clamp_at_venue(size_usd, live_bal, " in b
 
     def test_manual_override_refuses_rather_than_sizing_to_an_unread_margin(self):
         """The behaviour behind the scan above, exercised rather than matched."""

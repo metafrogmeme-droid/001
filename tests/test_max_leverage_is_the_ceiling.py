@@ -364,7 +364,7 @@ class TestTheCardsSayIt:
     def test_the_card_prints_the_standard_the_ceiling_and_the_capping(self):
         RUNTIME.leverage_override = ABOVE
         card = _leverage_cmd([])
-        assert (f"Standard: <b>{CEIL}x</b> (runtime override {ABOVE}x, capped at the "
+        assert (f"Venue: <b>{CEIL}x</b> (runtime override {ABOVE}x, capped at the "
                 f"MAX_LEVERAGE ceiling {CEIL}x)") in card, card
         assert f"Ceiling: <b>{CEIL}x</b> (MAX_LEVERAGE)" in card, card
         top = min(RUNTIME.LEVERAGE_OVERRIDE_MAX, CEIL)
@@ -372,7 +372,9 @@ class TestTheCardsSayIt:
 
     def test_the_card_with_no_override_names_the_default_and_the_ceiling(self):
         card = _leverage_cmd([])
-        assert f"Standard: <b>{STD}x</b> (configured default)" in card, card
+        assert f"Venue: <b>{STD}x</b> (configured default)" in card, card
+        assert "Sized at: <b>5x</b> (SIZING_LEVERAGE)" in card, card
+        assert "a 6% stop" in card, card
         assert f"Ceiling: <b>{CEIL}x</b>" in card, card
 
     def test_usage_names_the_reachable_range(self):

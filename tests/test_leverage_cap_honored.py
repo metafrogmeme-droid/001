@@ -22,9 +22,22 @@ import inspect
 import textwrap
 import types
 
+import pytest
+
 from bot.core.leverage import RISK_CAP_ATTR
 from bot.core.live_executor import LiveExecutor
 from bot.risk.risk_engine import RiskEngine
+from tests.leverage_worlds import one_leverage
+
+
+@pytest.fixture(autouse=True)
+def _one_leverage_world():
+    """Every figure in this file is the one-leverage world's: the venue and
+    the sizing standards one number, 5x, as they were when it was written.
+    The property it drives holds in both worlds; the split is driven in
+    `tests/test_ten_x_keeps_the_five_x_trade.py` (`tests/leverage_worlds.py`)."""
+    with one_leverage(5):
+        yield
 
 
 def _std(ex, lev):
@@ -127,7 +140,12 @@ def test_margin_risk_cap_uses_the_effective_override_leverage():
     """
     src = _GATE_SRC
     passed = {k.arg: ast.unparse(k.value) for k in _margin_risk_call().keywords}
-    assert passed.get("leverage") == "leverage", passed
+    # Since 11 October the cap is measured at the VENUE's leverage for the
+    # sized one, against the cap read the one way, both through the one pair
+    # of standards the gate reads at the top.
+    assert passed.get("leverage") == "venue_leverage(leverage, _lev_pair)", passed
+    assert passed.get("max_margin_risk_pct") == \
+        "margin_risk_cap_pct(CONFIG.risk.max_margin_risk_pct, _lev_pair)", passed
 
     tree = ast.parse(src)
     binds = [n for n in ast.walk(tree)
@@ -146,12 +164,14 @@ def test_margin_risk_cap_uses_the_effective_override_leverage():
     bound = "\n".join(ast.unparse(b) for b in binds)
     assert "RUNTIME.leverage_override" in src, \
         "the cap must read the runtime /leverage override, not only the env default"
-    # The bind is the one reading the executor places at: the override, else
-    # the default, and never above the MAX_LEVERAGE ceiling
-    # (`bot.core.leverage.operator_standard`). It used to spell the default
-    # and the override by hand here, a second copy of `_standard_leverage`.
-    assert "operator_standard(CONFIG.exchange, _lev_override)" in bound, \
-        "the cap must be measured at the standard the executor places at"
+    # The bind is the one reading the executor sizes and places at: the
+    # override, else the default, never above the MAX_LEVERAGE ceiling, and
+    # the sizing standard under it (`bot.core.leverage.order_standards`). It
+    # used to spell the default and the override by hand here, a second copy
+    # of `_standard_leverage`.
+    assert "_lev_pair.sized" in bound, bound
+    assert "_lev_pair: LeveragePair = order_standards(CONFIG.exchange, _lev_override)" in src, \
+        "the cap must be measured at the standards the executor places at"
 
 
 def test_the_gate_hands_over_the_shared_floor():

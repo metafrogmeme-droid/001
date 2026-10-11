@@ -2278,14 +2278,16 @@ def _authorize_web_live_trade(app, engine, tg_id: str, trade_id: str,
     again right before the order. Returns ``(allowed, reasons, recorded)``;
     see :class:`WebLiveAuthorization`.
 
-    THE NOTIONAL IS MARGIN × THE LEVERAGE THAT FILLS, never the configured
-    default. This read ``CONFIG.exchange.default_leverage`` (5) while the
-    executor places every order at the operator standard -- the `/leverage`
-    override, up to the MAX_LEVERAGE ceiling -- lowered by the user's own
-    preference. Driven under `/leverage set 10`: a $50 margin was authorized
-    and recorded as $250 against the user's per-trade and 24h caps for an
-    order the executor placed at $500. The leaf reads the executor's own
-    leverage, and a leverage it cannot read denies, recording nothing.
+    THE NOTIONAL IS MARGIN × THE LEVERAGE THE ORDER IS SIZED AT, never the
+    configured default. This read ``CONFIG.exchange.default_leverage`` (5)
+    while the executor placed every order at the operator standard -- the
+    `/leverage` override, up to the MAX_LEVERAGE ceiling -- lowered by the
+    user's own preference. Driven under `/leverage set 10`: a $50 margin was
+    authorized and recorded as $250 against the user's per-trade and 24h caps
+    for an order the executor placed at $500. The leaf reads the executor's
+    own sized leverage (`_compute_sized_leverage`; the venue may be set
+    higher and lock less margin for the same notional), and a leverage it
+    cannot read denies, recording nothing.
     """
     try:
         from bot.guardian.order_authority import NOT_PENDING, authorize_order

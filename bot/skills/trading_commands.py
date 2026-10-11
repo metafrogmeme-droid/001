@@ -93,6 +93,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _venue_leverage_now() -> int:
+    """The venue standard as `/leverage` reads it (override or default, under
+    the ceiling). The notice printed a literal 5x."""
+    from bot.config import RUNTIME as _RT
+    from bot.core.leverage import operator_standard
+    return operator_standard(CONFIG.exchange, _RT.leverage_override).leverage
+
+
 def position_fee_estimate(pos: dict) -> dict:
     """Round-trip fee and funding for one open-position row — or Nones.
 
@@ -1170,7 +1178,8 @@ class TradingCommands:
         """/buy — DISABLED (futures-only mode)."""
         await self._send(update,
             "\u274c <b>Spot trading is disabled</b>\n\n"
-            "RUNECLAW operates in <b>futures-only mode</b> (USDT-M perpetuals at 5x leverage).\n\n"
+            f"RUNECLAW operates in <b>futures-only mode</b> (USDT-M perpetuals at "
+            f"{_venue_leverage_now()}x leverage).\n\n"
             "The bot automatically opens positions via AI analysis. "
             "Use <code>/livepositions</code> to view open positions.")
 
@@ -1179,7 +1188,8 @@ class TradingCommands:
         """/sell — DISABLED (futures-only mode)."""
         await self._send(update,
             "\u274c <b>Spot trading is disabled</b>\n\n"
-            "RUNECLAW operates in <b>futures-only mode</b> (USDT-M perpetuals at 5x leverage).\n\n"
+            f"RUNECLAW operates in <b>futures-only mode</b> (USDT-M perpetuals at "
+            f"{_venue_leverage_now()}x leverage).\n\n"
             # The door a trader can actually open. This said /liveclose, which
             # is admin-only and closes with no confirmation — the same wrong
             # door the chat notice (chat_runtime.close_intent_notice) avoids.
