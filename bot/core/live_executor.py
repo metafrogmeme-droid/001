@@ -80,9 +80,9 @@ from bot.core.trade_costs import (
 from bot.core.time_exits import UNRECORDED_ORIGINS, in_profit_after_fees, thesis_recorded
 from bot.core.position_telemetry import entered_at, price_on_record
 from bot.core.order_state import (
-    CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, NOTHING_TO_CLOSE, first_reading,
-    flatten_outcome, order_status, pending_cancel_verdict, position_presence,
-    read_amount, rows_for_side, stop_attached,
+    CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, NOTHING_TO_CLOSE, amount_to_send,
+    first_reading, flatten_outcome, held_on_side, order_status, pending_cancel_verdict,
+    position_presence, read_amount, refusal_text, rows_for_side, stop_attached,
 )
 from bot.core.symbol_form import normalize_symbol
 from bot.core.close_funding import funding_on_row, place_funding
@@ -9730,6 +9730,50 @@ class LiveExecutor:
                                               keep={sl_id, tp_id}, side=_protects)
         return sl_id, tp_id
 
+    async def _sized_to_venue(self, exchange, symbol: str, direction,
+                              recorded: float) -> float:
+        """The size an order that reduces this position sends.
+
+        The record's size, never more than the venue holds on this side, on
+        the market's amount grid (truncated, as ccxt rounds). A close and a
+        stop sent the record's size, and a record that says more than the
+        venue holds is refused for both: Bitget 25231 on the close, and the
+        stop with it, so the position stayed open with no stop (M/USDT short,
+        11 October). Reconcile reports that drift and never writes it, by
+        design, so the size is read where the order is sent.
+
+        One venue read, in the venue's spelling, as the close verification
+        reads it. Unread, the record's size goes out as before; a size that
+        rounds to nothing goes out as the record's too, for the venue to
+        refuse in its own words rather than this sending nothing.
+        """
+        side = "long" if str(getattr(direction, "value", direction)).upper() == "LONG" else "short"
+        venue_sym = self._venue.order_symbol(symbol)
+        held: Optional[float] = None
+        try:
+            rows = await exchange.fetch_positions([venue_sym])
+            held = held_on_side(rows, venue_sym, side)
+        except Exception as exc:
+            logger.debug("held size unread for %s: %s", symbol, type(exc).__name__)
+        amount = amount_to_send(recorded, held)
+        try:
+            rounded = exchange.amount_to_precision(venue_sym, amount)
+            amount = float(rounded) if rounded is not None else amount
+        except ccxt.InvalidOrder:
+            amount = 0.0
+        except Exception:
+            pass
+        if not amount > 0:
+            return recorded
+        if amount != recorded:
+            audit(trade_log,
+                  f"Order sized to the venue: {symbol} record {recorded} vs held "
+                  f"{held if held is not None else 'unread'} -> sending {amount}",
+                  action="venue_size", result="CAPPED",
+                  data={"symbol": symbol, "side": side, "recorded": recorded,
+                        "held": held, "sent": amount})
+        return amount
+
     async def _place_classic_trigger(
         self, exchange: ccxt.Exchange, symbol: str, kind: str,
         direction: Direction, quantity: float, level: float,
@@ -9762,11 +9806,12 @@ class LiveExecutor:
         needs_px = self._venue.market_order_needs_price
         name = kind.upper()
         try:
+            amount = await self._sized_to_venue(exchange, symbol, direction, quantity)
             order = await exchange.create_order(
                 symbol=order_sym,
                 type="market",
                 side=close_side,
-                amount=quantity,
+                amount=amount,
                 price=level if needs_px else None,
                 params=self._venue.trigger_params(kind, level),
             )
@@ -11818,7 +11863,7 @@ class LiveExecutor:
                     trade_id or pos.trade_id, reason="sl_placement_failed")
             except Exception as exc:
                 logger.error("Post-fill flatten RAISED for %s: %s", pos.symbol, exc)
-                close_msg = f"CLOSE FAILED for {pos.trade_id}: {exc}"
+                close_msg = f"CLOSE FAILED for {pos.trade_id}: {refusal_text(exc)}"
             _outcome = flatten_outcome(close_msg)
             if _outcome == "failed":
                 # The safety close itself failed (returned failure or raised):
@@ -13053,10 +13098,12 @@ class LiveExecutor:
             # Venue trigger dialect (Bitget classic: tradeSide=close +
             # reduceOnly + productType; Hyperliquid: reduceOnly + price bound)
             try:
+                _sl_amount = await self._sized_to_venue(
+                    exchange, pos.symbol, direction, pos.quantity)
                 sl_order = await exchange.create_order(
                     symbol=self._venue.order_symbol(pos.symbol),
                     type="market", side=close_side,
-                    amount=pos.quantity,
+                    amount=_sl_amount,
                     price=sl_trigger if self._venue.market_order_needs_price else None,
                     params=self._venue.trigger_params("sl", sl_trigger),
                 )
@@ -13993,12 +14040,14 @@ class LiveExecutor:
             # exchange to miss the position and open a new SHORT instead.
             close_params = self._venue.close_params(self._is_uta)
             _close_px = await self._venue_market_price(exchange, pos.symbol)
+            _close_amount = await self._sized_to_venue(
+                exchange, pos.symbol, pos.direction, pos.quantity)
             _flight.close_order_sent = True
             order = await exchange.create_order(
                 symbol=self._venue.order_symbol(pos.symbol),
                 type="market",
                 side=close_side,
-                amount=pos.quantity,
+                amount=_close_amount,
                 price=_close_px,
                 params=close_params,
             )
@@ -14794,7 +14843,7 @@ class LiveExecutor:
             audit(trade_log, f"Live close failed: {exc}",
                   action="live_close", result="ERROR",
                   data={"trade_id": trade_id, "error": exc_str})
-            return f"CLOSE FAILED for {trade_id}: {exc}"
+            return f"CLOSE FAILED for {trade_id}: {refusal_text(exc)}"
 
     # ── Bitget Position History — single source of truth for closed PnL ──
 

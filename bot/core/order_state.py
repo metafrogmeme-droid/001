@@ -24,6 +24,7 @@ thing rather than four tuples typed out from memory.
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from bot.core.symbol_form import normalize_symbol
@@ -367,6 +368,72 @@ def rows_for_side(rows, symbol: str, side: str) -> list:
             continue
         kept.append(row)
     return kept
+
+
+def held_on_side(rows, symbol: str, side: str) -> Optional[float]:
+    """The size the venue holds on ``symbol``/``side``, or None when unread.
+
+    A close and a stop used to send the RECORD's size, and the record is not
+    the venue's: reconcile reports quantity drift and deliberately never
+    writes it (the ladder, a pyramid and a close in flight all diverge from a
+    snapshot). Live, 11 October: an M/USDT short whose record said more than
+    the venue held was refused its close (Bitget 25231, "close quantity cannot
+    exceed the held position quantity") on every tap, and its stop with it,
+    so the position sat open with no stop.
+
+    Any row this cannot size makes the whole answer None: a partial sum is a
+    smaller number than the venue holds, and sending it would leave the rest
+    open. An empty list is a reading, 0.0.
+    """
+    if not isinstance(rows, (list, tuple)):
+        return None
+    total = 0.0
+    for row in rows_for_side(rows, symbol, side):
+        qty = read_amount(row, "contracts") if isinstance(row, dict) else None
+        if qty is None:
+            return None
+        total += abs(qty)
+    return total
+
+
+def amount_to_send(recorded: float, held: Optional[float]) -> float:
+    """The size a close or a stop sends: the record's, never more than is held.
+
+    Only a POSITIVE reading caps it. Unread (None) sends the record, as
+    before. A read zero sends the record too: the venue says flat, and the
+    close's own verification is the reader that decides what a flat book
+    means, so this must not turn it into an order for nothing.
+    """
+    if held is not None and held > 0 and recorded > held:
+        return held
+    return recorded
+
+
+#: Bitget refusals a person acts on, in words. Read by `refusal_text`.
+_VENUE_REFUSAL_WORDS: dict[str, str] = {
+    "25231": "the close asked for more than the position the venue holds",
+    "25610": "the size is not on the market's size step",
+}
+
+
+def refusal_text(exc: BaseException) -> str:
+    """An order refusal for a person: the error's class and the venue's code.
+
+    The close-failed answer printed ``str(exc)``, which is the venue's raw
+    JSON (``bitget {"code":"25231","msg":...,"requestTime":...}``). The rule
+    is the class and never the message; the code is the venue's own short
+    name for the refusal, and the two this repo has met have words.
+    """
+    name = type(exc).__name__
+    try:
+        m = re.search(r'"code"\s*:\s*"?(\d{4,6})', str(exc))
+    except Exception:
+        m = None
+    if not m:
+        return name
+    code = m.group(1)
+    words = _VENUE_REFUSAL_WORDS.get(code)
+    return f"{name}, venue code {code}" + (f": {words}" if words else "")
 
 
 #: What a venue writes into an optional field it has no value for. Distinct
