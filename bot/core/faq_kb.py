@@ -103,18 +103,29 @@ _FAQ: list[dict] = [
                      "exchanges are supported", "supported exchanges",
                      "which venues", "what venues", "exchanges supported",
                      "exchange supported"],
-        "answer": (
-            "Bitget USDT-M futures is the primary trading venue. Hyperliquid "
-            "(on-chain USDC perps) is supported too, and you can link read-only "
-            "balances across major exchanges and on-chain wallets for one unified "
-            "net-worth and exposure view.\n\n"
-            "A venue router compares fees and liquidity per pair and recommends "
-            "the cheapest place to trade — recommendations only; you decide. "
-            "You connect an exchange with your own API keys, which are encrypted "
-            "per user; RUNECLAW never takes custody of your funds."
-        ),
+        # Built when asked, from the venue registry: this answer named two
+        # venues while the public chat's prompt named four, each a list typed
+        # by hand. Both read `venues.venue_lineup` now.
+        "answer": lambda: _exchanges_answer(),
     },
 ]
+
+
+def _exchanges_answer() -> str:
+    """The exchanges answer, its venue sentence read off the registry
+    (`bot.core.venues.venue_lineup_sentence`), so it says what the public
+    chat's prompt says. Imported here, not at module load: the registry
+    imports the exchange client library, and the other four answers do not
+    need it."""
+    from bot.core.venues import venue_lineup_sentence
+    return (
+        venue_lineup_sentence() + " On-chain wallets can be linked read-only "
+        "too, for one net-worth and exposure view.\n\n"
+        "A venue router compares fees and liquidity per pair and recommends "
+        "the cheapest place to trade — recommendations only; you decide. "
+        "Exchange keys are encrypted per user; RUNECLAW never takes custody "
+        "of your funds."
+    )
 
 
 def _norm(text: str) -> str:
@@ -263,7 +274,8 @@ def faq_answer(question: str) -> Optional[str]:
                 continue
             _tw = _length_in_words(norm_trig)
             if q_words - _tw <= _slack_for(_tw):
-                return item["answer"]
+                answer = item["answer"]
+                return str(answer() if callable(answer) else answer)
     return None
 
 

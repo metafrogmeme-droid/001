@@ -1037,6 +1037,39 @@ def venue_uses_sandbox(venue_id: Optional[str], cfg: Any) -> bool:
 PER_USER_EXECUTION_VENUES = frozenset({"bitget", "bybit", "bingx", "hyperliquid"})
 
 
+def venue_lineup() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """(the venues orders are placed on, the venues linked for balances only),
+    by display name, in registry order.
+
+    The one reading behind every sentence that says where RUNECLAW trades:
+    the public chat's prompt and the FAQ's exchanges answer. The prompt named
+    four venues and the FAQ two, each a hand-written list; both read this
+    now, so they say the same thing and it is this module's.
+    """
+    trade = tuple(v.display_name for vid, v in _VENUES.items()
+                  if vid in PER_USER_EXECUTION_VENUES)
+    balances = tuple(v.display_name for vid, v in _VENUES.items()
+                     if vid not in PER_USER_EXECUTION_VENUES)
+    return trade, balances
+
+
+def _and_join(names: tuple[str, ...]) -> str:
+    if len(names) <= 1:
+        return "".join(names)
+    return ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def venue_lineup_sentence() -> str:
+    """`venue_lineup` as one sentence, for a person or a prompt."""
+    trade, balances = venue_lineup()
+    out = (f"RUNECLAW places orders on {_and_join(trade)}, through keys the "
+           f"account's owner connects")
+    if balances:
+        out += (f"; {_and_join(balances)} can be linked for balances only, "
+                f"and it places no order there")
+    return out + "."
+
+
 def per_user_execution_refusal(venue_id: Optional[str]) -> Optional[str]:
     """None when a per-user executor may trade ``venue_id``; else why not.
 
