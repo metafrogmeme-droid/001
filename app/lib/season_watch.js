@@ -83,8 +83,9 @@ async function runOnce(now = new Date()) {
 let timer = null;
 function startSeasonWatch(intervalMs = 60_000) {
   if (timer) return;
-  timer = setInterval(() => { runOnce().catch(() => {}); }, intervalMs);
-  if (timer.unref) timer.unref();
+  // One schedule across instances (lib/shared_schedule): the flags on the season
+  // row already make a ceremony fire once; this makes the check happen on time.
+  timer = require('./shared_schedule').every('season_watch', intervalMs, () => runOnce());
 }
 
 module.exports = { startSeasonWatch, runOnce, transitions };

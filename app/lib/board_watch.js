@@ -15,11 +15,17 @@
  */
 
 const { getGateway, isConfigured } = require('./gateway');
+const jobState = require('./job_state');
+const schedule = require('./shared_schedule');
 
-let prev = null;                 // handle -> rank (null until first sweep)
+// The previous ranks (handle -> rank), shared by every instance (lib/job_state):
+// held in a variable, every 70-second instance's first sweep was the silent
+// baseline and none lived to a second, so no milestone was ever pushed.
+const STATE = 'board_watch';
+
 
 /** Reset the baseline (tests). */
-function resetBoardWatch() { prev = null; }
+function resetBoardWatch() { return jobState.clear(STATE); }
 
 /** Compose the digest line for a diff, or null when nothing moved. */
 function diffDigest(prevMap, rows) {
@@ -62,9 +68,11 @@ async function sweepBoard(fetchBoard, notify) {
     health.ok();
     if (!Array.isArray(rows)) return false;
     const now = new Map(rows.map(x => [String(x.handle), Number(x.rank)]));
-    if (prev === null) { prev = now; return false; }   // baseline only
+    const saved = await jobState.load(STATE);
+    await jobState.save(STATE, Object.fromEntries(now));
+    if (!saved.found) return false;                    // baseline only
+    const prev = new Map(Object.entries(saved.value || {}).map(([h, r]) => [h, Number(r)]));
     const digest = diffDigest(prev, rows);
-    prev = now;
     if (!digest) return false;
     let send = notify;
     if (!send) {
@@ -86,9 +94,8 @@ async function sweepBoard(fetchBoard, notify) {
 let timer = null;
 function startBoardWatch(intervalMs = 3_600_000) {
   if (timer) return;
-  sweepBoard().catch(() => {});
-  timer = setInterval(() => { sweepBoard().catch(() => {}); }, intervalMs);
-  if (timer.unref) timer.unref();
+  // One schedule across instances (lib/shared_schedule): hourly, not at every boot.
+  timer = schedule.every('board_watch', intervalMs, () => sweepBoard());
 }
 
 module.exports = { sweepBoard, startBoardWatch, resetBoardWatch, diffDigest };

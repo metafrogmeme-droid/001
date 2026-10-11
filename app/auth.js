@@ -88,11 +88,19 @@ function verifyTelegramAuth(data, botToken, nowSec) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-// Rate limiting: per-IP sliding window
-const loginAttempts = new Map(); // ip -> { count, firstAttempt, lockedUntil }
+// Rate limiting: per-IP. 10 failures per 15 minutes, then 5 minutes refused.
+//
+// SHARED BY EVERY INSTANCE (2026-10-11). This was a Map pruned on a timer, and
+// the web host replaces its instance about every 70 seconds with overlap, so
+// each instance counted from zero and the limit held for about a minute. The
+// count now lives in the database (lib/durable_attempts.js), falling back to
+// this process's memory only while the database does not answer.
 const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 min
 const RATE_LIMIT_MAX = 10;
 const LOCKOUT_DURATION = 5 * 60 * 1000; // 5 min lockout after max attempts
+const _ipAttempts = require('./lib/durable_attempts').attemptCounter({
+  name: 'ip', windowMs: RATE_LIMIT_WINDOW, max: RATE_LIMIT_MAX, lockoutMs: LOCKOUT_DURATION,
+});
 
 // RC-AUD-026: per-account (per-email) failed-login throttle. The per-IP limiter
 // above does not stop distributed / rotating-IP credential stuffing against a
@@ -102,51 +110,23 @@ const LOCKOUT_DURATION = 5 * 60 * 1000; // 5 min lockout after max attempts
 // THE COUNTER MOVED to lib/second_factor_lockout.js and this file now shares
 // it. It was login-only, under a comment claiming failed codes "can't be
 // brute-forced past the rate limits" — true here and false at /2fa/disable,
-// which checked the same codes with no limiter at all. Sharing one Map means a
-// failure at the step-up counts against the same account at login, which is
-// what makes the bound real rather than per-route.
+// which checked the same codes with no limiter at all. Sharing one counter
+// means a failure at the step-up counts against the same account at login,
+// which is what makes the bound real rather than per-route.
 const _lockout = require('./lib/second_factor_lockout');
 
-function _pruneAttemptMap(map) {
-  const now = Date.now();
-  for (const [key, entry] of map) {
-    if (now - entry.firstAttempt > RATE_LIMIT_WINDOW && (!entry.lockedUntil || now > entry.lockedUntil)) {
-      map.delete(key);
-    }
-  }
-  // Cap map size to prevent unbounded growth
-  if (map.size > 10000) {
-    const entries = [...map.entries()].sort((a, b) => a[1].firstAttempt - b[1].firstAttempt);
-    for (let i = 0; i < entries.length - 5000; i++) map.delete(entries[i][0]);
-  }
-}
-
-function pruneRateLimits() {
-  _pruneAttemptMap(loginAttempts);
-  // The per-account map prunes itself on its own timer inside the module.
-}
-const _pruneTimer = setInterval(pruneRateLimits, 60000);
-if (_pruneTimer.unref) _pruneTimer.unref(); // don't hold the event loop open (matches lib/rate_limit.js)
-
+/** True when this IP may try again. Async: the count is shared across instances. */
 function checkRateLimit(ip) {
-  const now = Date.now();
-  const entry = loginAttempts.get(ip);
-  if (!entry) return true;
-  if (entry.lockedUntil && now < entry.lockedUntil) return false;
-  if (now - entry.firstAttempt > RATE_LIMIT_WINDOW) { loginAttempts.delete(ip); return true; }
-  return entry.count < RATE_LIMIT_MAX;
+  return _ipAttempts.check(ip);
 }
 
+/** Count one attempt from this IP. */
 function recordAttempt(ip) {
-  const now = Date.now();
-  const entry = loginAttempts.get(ip) || { count: 0, firstAttempt: now };
-  entry.count++;
-  if (entry.count >= RATE_LIMIT_MAX) entry.lockedUntil = now + LOCKOUT_DURATION;
-  loginAttempts.set(ip, entry);
+  return _ipAttempts.record(ip);
 }
 
 // RC-AUD-026: per-account counterparts to the per-IP helpers above. Thin
-// delegates now — the state is shared with every other second-factor check.
+// delegates — the state is shared with every other second-factor check.
 const checkAccountLockout = _lockout.checkAccountLockout;
 const recordAccountFailure = _lockout.recordAccountFailure;
 const clearAccountFailures = _lockout.clearAccountFailures;
@@ -566,10 +546,10 @@ router.post('/register', async (req, res) => {
     // endpoint can't be used for automated mass account creation — it was
     // the only unthrottled auth route (deep-audit finding).
     const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
-    if (!checkRateLimit(clientIp)) {
+    if (!(await checkRateLimit(clientIp))) {
       return res.status(429).json({ error: 'Too many attempts. Try again later.' });
     }
-    recordAttempt(clientIp);
+    await recordAttempt(clientIp);
 
     const { email, password, ref } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
@@ -623,7 +603,7 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
-    if (!checkRateLimit(clientIp)) {
+    if (!(await checkRateLimit(clientIp))) {
       return res.status(429).json({ error: 'Too many login attempts. Try again later.' });
     }
 
@@ -632,22 +612,22 @@ router.post('/login', async (req, res) => {
 
     const normalizedEmail = email.trim().toLowerCase();
     // RC-AUD-026: per-account lockout, in addition to the per-IP check above.
-    if (!checkAccountLockout(normalizedEmail)) {
+    if (!(await checkAccountLockout(normalizedEmail))) {
       return res.status(429).json({ error: 'Too many login attempts. Try again later.' });
     }
 
     const [rows] = await pool.execute('SELECT * FROM users WHERE email = ?', [normalizedEmail]);
     if (rows.length === 0) {
-      recordAttempt(clientIp);
-      recordAccountFailure(normalizedEmail);
+      await recordAttempt(clientIp);
+      await recordAccountFailure(normalizedEmail);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const user = rows[0];
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
-      recordAttempt(clientIp);
-      recordAccountFailure(normalizedEmail);
+      await recordAttempt(clientIp);
+      await recordAccountFailure(normalizedEmail);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -669,8 +649,8 @@ router.post('/login', async (req, res) => {
         try { backups = JSON.parse(user.totp_backup_codes || '[]'); } catch (e) { backups = []; }
         const remaining = totp.consumeBackupCode(code, backups);
         if (remaining === null) {
-          recordAttempt(clientIp);
-          recordAccountFailure(normalizedEmail);
+          await recordAttempt(clientIp);
+          await recordAccountFailure(normalizedEmail);
           return res.status(401).json({
             error: 'Invalid two-factor code', two_factor_required: true,
           });
@@ -700,7 +680,7 @@ router.post('/login', async (req, res) => {
           'UPDATE users SET totp_backup_codes = ? WHERE id = ? AND totp_backup_codes <=> ?',
           [JSON.stringify(remaining), user.id, user.totp_backup_codes]);
         if (!upd || upd.affectedRows !== 1) {
-          recordAccountFailure(normalizedEmail);
+          await recordAccountFailure(normalizedEmail);
           return res.status(409).json({
             error: 'That backup code was just used. Try another one.',
             two_factor_required: true,
@@ -710,7 +690,7 @@ router.post('/login', async (req, res) => {
     }
 
     // Successful login — clear this account's failure counter.
-    clearAccountFailures(normalizedEmail);
+    await clearAccountFailures(normalizedEmail);
     await sendSession(req, res, user);
   } catch (err) {
     console.error('Login error:', err.stack || err.message);
@@ -815,15 +795,15 @@ router.post('/2fa/enable', authMiddleware, async (req, res) => {
     // ended up unbounded too.
     const enableKey = String(user.email || '').trim().toLowerCase()
       || _lockout.uidKey(req.user.user_id);
-    if (!_lockout.checkAccountLockout(enableKey)) {
+    if (!(await _lockout.checkAccountLockout(enableKey))) {
       return res.status(429).json({
         error: 'Too many incorrect codes. Try again in a few minutes.' });
     }
     if (!totp.verifyTotp(user.totp_secret, (req.body || {}).code)) {
-      _lockout.recordAccountFailure(enableKey);
+      await _lockout.recordAccountFailure(enableKey);
       return res.status(401).json({ error: 'Code does not match — check your authenticator app.' });
     }
-    _lockout.clearAccountFailures(enableKey);
+    await _lockout.clearAccountFailures(enableKey);
     const { codes, hashes } = totp.generateBackupCodes();
     // MIGRATE THE ROW HERE. This used to write `user.totp_secret` straight
     // back, so a legacy plaintext seed stayed plaintext for the life of the
@@ -861,7 +841,7 @@ router.post('/2fa/disable', authMiddleware, async (req, res) => {
     // sibling route, which REMOVES the factor, checked them under nothing.
     const acctKey = String(user.email || '').trim().toLowerCase()
       || _lockout.uidKey(req.user.user_id);
-    if (!_lockout.checkAccountLockout(acctKey)) {
+    if (!(await _lockout.checkAccountLockout(acctKey))) {
       secLog('2fa_disable_lockout', req);
       return res.status(429).json({
         error: 'Too many incorrect codes. Try again in a few minutes.' });
@@ -876,12 +856,12 @@ router.post('/2fa/disable', authMiddleware, async (req, res) => {
     if (!ok) {
       // Counted against the SAME account bucket as a failed login, so an
       // attacker cannot spend their budget here and then start fresh there.
-      _lockout.recordAccountFailure(acctKey);
-      recordAttempt(req.ip || (req.socket && req.socket.remoteAddress) || 'unknown');
+      await _lockout.recordAccountFailure(acctKey);
+      await recordAttempt(req.ip || (req.socket && req.socket.remoteAddress) || 'unknown');
       secLog('2fa_disable_bad_code', req);
       return res.status(401).json({ error: 'A valid current code (or backup code) is required to disable 2FA.' });
     }
-    _lockout.clearAccountFailures(acctKey);
+    await _lockout.clearAccountFailures(acctKey);
     await pool.execute(
       'UPDATE users SET totp_secret = ?, totp_enabled = ?, totp_backup_codes = ? WHERE id = ?',
       [null, 0, null, req.user.user_id]);
@@ -1181,7 +1161,7 @@ const _linkStore = require('./lib/wallet_link_store');
 router.post('/wallet/nonce', async (req, res) => {
   if (!_ethers) return res.status(503).json({ error: 'Wallet sign-in is not available on this deployment.' });
   const clientIp = req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
-  if (!checkRateLimit(clientIp)) return res.status(429).json({ error: 'Too many attempts. Try again later.' });
+  if (!(await checkRateLimit(clientIp))) return res.status(429).json({ error: 'Too many attempts. Try again later.' });
   const address = String((req.body || {}).address || '').trim();
   if (!_ADDR_RE.test(address)) return res.status(400).json({ error: 'A valid wallet address is required.' });
   const nonce = crypto.randomBytes(16).toString('hex');
@@ -1580,10 +1560,10 @@ router.post('/forgot-password', async (req, res) => {
   }
   try {
     const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
-    if (!checkRateLimit(clientIp)) {
+    if (!(await checkRateLimit(clientIp))) {
       return res.status(429).json({ error: 'Too many attempts. Try again later.' });
     }
-    recordAttempt(clientIp);
+    await recordAttempt(clientIp);
 
     const { email } = req.body || {};
     if (!email) return res.status(400).json({ error: 'Email required' });
@@ -1643,7 +1623,7 @@ router.post('/reset-password', async (req, res) => {
     // unauthenticated, and the user logs in with the password they just set.
     await revokeUserTokens(rows[0].id);
     // A successful reset clears any per-account lockout so the user can log in.
-    clearAccountFailures(String(rows[0].email).trim().toLowerCase());
+    await clearAccountFailures(String(rows[0].email).trim().toLowerCase());
     res.json({ ok: true });
   } catch (err) {
     console.error('Reset-password error:', err.stack || err.message);
@@ -1691,23 +1671,17 @@ router.post('/send-verification', authMiddleware, async (req, res) => {
 // -- Redirect-based OAuth2 (Discord, X) — login OR link to a logged-in account --
 //
 // Google/Telegram use client-side widgets; Discord and X need the server to
-// drive the authorization-code round-trip. Two short-lived in-memory stores back
-// it (single-replica, like the rate limiters above): oauthFlows holds the CSRF
-// state + PKCE verifier + optional link target between /start and /callback;
-// oauthLinkKeys is a one-time handoff so a logged-in browser can enter LINK mode
-// without putting its bearer token in a redirect URL.
-const oauthFlows = new Map();     // state -> { provider, verifier, linkUserId, exp }
-const oauthLinkKeys = new Map();  // linkKey -> { userId, exp }
+// drive the authorization-code round-trip. Two kinds of short-lived single-use
+// record back it: a 'flow' holds the CSRF state + PKCE verifier + optional link
+// target between /start and /callback; a 'link' key is a one-time handoff so a
+// logged-in browser can enter LINK mode without putting its bearer token in a
+// redirect URL. They were two in-memory Maps; the web host replaces its
+// instance about every 70 seconds, so a callback could land where its state
+// never was. They live in lib/oauth_state_store.js now, shared by every
+// instance.
+const _oauthStates = require('./lib/oauth_state_store');
 const OAUTH_FLOW_TTL_MS = 10 * 60 * 1000;
 const OAUTH_LINK_TTL_MS = 5 * 60 * 1000;
-
-function _sweepOauth() {
-  const now = Date.now();
-  for (const [k, v] of oauthFlows) if (v.exp < now) oauthFlows.delete(k);
-  for (const [k, v] of oauthLinkKeys) if (v.exp < now) oauthLinkKeys.delete(k);
-}
-const _oauthTimer = setInterval(_sweepOauth, 60000);
-if (_oauthTimer.unref) _oauthTimer.unref();
 
 function _oauthRedirectUri(provider) {
   // Providers require an absolute, pre-registered redirect URI. Operators set
@@ -1718,25 +1692,25 @@ function _oauthRedirectUri(provider) {
 
 // Authed: mint a one-time key so a logged-in user can LINK a provider to their
 // existing account (rather than creating/logging into a separate one).
-router.post('/oauth-link-token', authMiddleware, (req, res) => {
+router.post('/oauth-link-token', authMiddleware, async (req, res) => {
   const key = crypto.randomBytes(24).toString('hex');
-  oauthLinkKeys.set(key, { userId: req.user.user_id, exp: Date.now() + OAUTH_LINK_TTL_MS });
+  await _oauthStates.put('link', key, { userId: req.user.user_id }, Date.now() + OAUTH_LINK_TTL_MS);
   res.json({ link_key: key });
 });
 
 // Begin the redirect flow → 302 to the provider's consent screen.
-router.get('/oauth/:provider/start', (req, res) => {
+router.get('/oauth/:provider/start', async (req, res) => {
   const provider = req.params.provider;
   if (!oauth2.isProviderConfigured(provider)) {
     return res.status(503).send('This login provider is not configured.');
   }
   let linkUserId = null;
   const linkKey = req.query.link ? String(req.query.link) : '';
-  const lk = linkKey ? oauthLinkKeys.get(linkKey) : null;
-  if (lk && lk.exp > Date.now()) { linkUserId = lk.userId; oauthLinkKeys.delete(linkKey); }
+  const lk = linkKey ? await _oauthStates.take('link', linkKey) : null;
+  if (lk) linkUserId = lk.userId;
   const state = oauth2.randomState();
   const { verifier, challenge } = oauth2.pkcePair();
-  oauthFlows.set(state, { provider, verifier, linkUserId, exp: Date.now() + OAUTH_FLOW_TTL_MS });
+  await _oauthStates.put('flow', state, { provider, verifier, linkUserId }, Date.now() + OAUTH_FLOW_TTL_MS);
   const url = oauth2.buildAuthorizeUrl(provider, {
     redirectUri: _oauthRedirectUri(provider), state, challenge,
   });
@@ -1753,11 +1727,11 @@ router.get('/oauth/:provider/callback', async (req, res) => {
     const { code, state, error } = req.query;
     if (error) return fail(String(error));
     if (!code || !state) return fail('missing code or state');
-    const flow = oauthFlows.get(String(state));
-    if (!flow || flow.exp < Date.now() || flow.provider !== provider) {
+    // Claimed once, here or on any other instance; expired and missing read as null.
+    const flow = await _oauthStates.take('flow', String(state));
+    if (!flow || flow.provider !== provider) {
       return fail('invalid or expired login attempt');
     }
-    oauthFlows.delete(String(state));
 
     const accessToken = await oauth2.exchangeCode(provider, {
       code: String(code), redirectUri: _oauthRedirectUri(provider), verifier: flow.verifier,
@@ -1847,7 +1821,7 @@ router.delete('/account', authMiddleware, async (req, res) => {
         return res.status(401).json({ error: 'Password is incorrect.' });
       }
     }
-    const blk = stepUpBlock(user.totp_enabled, user.totp_secret, b.totp_code,
+    const blk = await stepUpBlock(user.totp_enabled, user.totp_secret, b.totp_code,
       'Enter your 6-digit authenticator code to delete your account.',
       _lockout.uidKey(req.user.user_id));
     if (blk) { secLog('account_delete_2fa', req); return res.status(blk.status).json(blk.body); }
