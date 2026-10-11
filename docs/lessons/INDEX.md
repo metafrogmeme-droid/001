@@ -278,5 +278,6 @@ about to change before changing it.
 
 - L22505: A PEAK WITH NO TIME BESIDE IT CANNOT SAY WHETHER TO ACT — `tests/test_phase_headroom.py`
 - L22521: THE NUDGE READ 110,529 ROWS FOR EVERY IDEA, AND THE STALL HAD NO NAME — `tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`
+- L22574: "72%" WAS A SCORE, AND "HIGH PROBABILITY" WAS AN UNTESTED RULE — `app/test/a_confidence_is_a_score_on_every_page.test.js`, `tests/test_a_confidence_is_a_score_not_a_probability.py`, `tests/test_a_figure_the_model_was_not_given_is_checked.py`, `tests/test_the_cheaper_tier_is_asked_by_the_same_rules.py`, `tests/test_the_critique_names_heuristics_not_probabilities.py`, `tests/test_the_critique_replay_joins_each_approval_to_its_outcome.py`
 
-## Operational docs (line 22574)
+## Operational docs (line 22637)

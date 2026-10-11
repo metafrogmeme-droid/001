@@ -114,6 +114,23 @@ THESIS_JSON_SCHEMA: dict = {
 }
 
 
+# The thesis system prompt for the cheaper scan tier, and for every fallback
+# provider. TERSE, NOT LOOSER: that tier's confidence feeds the same blend and
+# the same floors as the full one, and its prompt was one sentence, with no
+# counter-case, no "cite only what you were given" and no 0.55 no-trade rule.
+# It carries those three rules of the full prompt and nothing else of its
+# framework, so it stays cheap. "json" stays in it: the OpenAI-compatible
+# json_object response format requires the word.
+TERSE_THESIS_PROMPT = (
+    "You are RUNECLAW, a risk-first crypto analyst. "
+    "Return concise analysis in json format with keys: direction, "
+    "confidence, reasoning. Rules: cite only indicator values, patterns and "
+    "levels given in the data, never invent one; end the reasoning with "
+    "\"Against: \" and the single strongest reason the trade fails; if your "
+    "confidence is below 0.55, return direction null."
+)
+
+
 def _is_gated_signal_type(signal_type: str, skip_config: str) -> bool:
     """True if ``signal_type`` is in the comma-separated ``SKIP_SIGNAL_TYPES``
     set — an evidence-gated skip for a negative-edge family. Empty config skips
@@ -4316,11 +4333,10 @@ class Analyzer:
 
             # Full-model calls always keep the rich prompt (it already carries
             # the JSON output contract, so json_object mode is compatible);
-            # the terse prompt covers the cheap scan tier only.
+            # the terse prompt (`TERSE_THESIS_PROMPT`) covers the cheap scan
+            # tier only.
             sys_content = (
-                _TRADING_SYSTEM_PROMPT if use_full_model else
-                "You are RUNECLAW, a risk-first crypto analyst. "
-                "Return concise analysis in json format with keys: direction, confidence, reasoning."
+                _TRADING_SYSTEM_PROMPT if use_full_model else TERSE_THESIS_PROMPT
             )
 
             if sdk_type == "anthropic":
@@ -4844,10 +4860,7 @@ class Analyzer:
                     continue
 
                 sdk_type = fb_config.sdk_type()
-                sys_content = (
-                    "You are RUNECLAW, a risk-first crypto analyst. "
-                    "Return concise analysis in json format with keys: direction, confidence, reasoning."
-                )
+                sys_content = TERSE_THESIS_PROMPT
 
                 if sdk_type == "anthropic":
                     # AI-2: enforce the thesis contract on the fallback too

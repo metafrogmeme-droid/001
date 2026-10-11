@@ -21158,9 +21158,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **485 of 1266** reach for source text through `source_scan`, `code_only`
+Driven, **486 of 1267** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 485 is a FLOOR and the honest shape is
+source scan that rule does not see, so 486 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -22570,6 +22570,69 @@ and a comment's "`await asyncio.gather(...)` returns" was read as the gather,
 failing the rest test's ordering check against code nobody changed. Each slice
 takes the function by its node now (`inspect.getsource`).
 (`tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`.)
+
+**"72%" WAS A SCORE, AND "HIGH PROBABILITY" WAS AN UNTESTED RULE.** 11
+October, from a read-only audit of the confidence, the pre-trade critique and
+the thesis. Every card printed an idea's confidence as `72%`,
+which reads as a chance of winning. `displayed_confidence` answers the
+analyzer's blend, snapshotted before any calibration curve, or a producer's
+own score that never went through one, so no surface has ever printed a
+calibrated figure, whatever `CONFIDENCE_CALIBRATION_ENABLED` says. The one
+reading prints `score 72 (uncalibrated)` now (`ConfidenceReading.text`, which
+was `pct`), and the chat's pending-ideas block carries `SCORE_MEANING`, the
+sentence that says it is not a probability. The website words the figure
+through `confidence-score.js`, a twin whose words a JS test reads out of the
+Python source: the signal stream, the agents' picks, the chat chip, the embed
+card and its cast text, the sealed receipt, the landing card, the arena chip
+in all fourteen languages, the watchlist push and the research dossier. The
+landing card had printed a sealed 0.72 as `1%` (`Math.round(conf) + '%'` on a
+0-1 figure), and its test passed because the fixture said `72`, a value the
+producer never sends. No existing reading answers "the recorded win rate of
+this score's bin", so none is printed beside the score. Not changed, each a
+different quantity under the same word: the flight record's `confidence` (the
+field after the curve and the nudge), pattern percentages, the `min_confidence`
+filters a person types, and the recorded rows quoted back by the post-mortem
+and the reflection.
+
+**The critique's sentences said more than its rules.** A stop under 1% from
+entry was "high probability of stop hunt" and a score over 0.90 was "model may
+be overfitting", for a figure the rule-based confluence carries most of while
+no curve is applied. Each concern now names its reading, the bar it crossed and
+the word heuristic, and `CritiqueResult.rules` names the rule behind each; the
+halt is unchanged. What the halt would remove was then measured rather than
+argued: `scripts/critique_replay.py` runs the benchmark command's own path
+(`--dataset benchmark/majors_1h --honest --walk-forward 6`), asks the critique
+at every approval with the book's open count at that bar, and joins the verdict
+to the position. Its pooled positions match the benchmark of record (125, PF
+0.62). Of 320 approvals, 195 never filled; the most concerns any idea drew was
+two, so the four-concern HALT would have stopped none. The tight-stop rule
+fired on 206 (64%). WARN: 91 positions, PF 0.56; PASS: 34, PF 0.72. The
+confidence adjustment would take 55 approvals under the floor, which rejects a
+confirm no person made: 22 positions, 8 won, PF 0.34. Macro is not replayable
+and abstains. No intervals, discovery data: the numbers are for the operator,
+who decides whether the halt stays.
+
+**A figure the model wrote was checked only when a tool ran.** The thesis went
+onto every card unchecked ("never invent indicator values" was a prompt line),
+and chat's check sat behind `if tool_events:`. Both ask the chat's own shadow
+rule now (`grounding.shadow_check`): a chat turn with no tool against what it
+was given, a thesis against its own prompt, each bare value there standing as a
+dollar figure too, under a ledger key apart from the same model's chat rate.
+Nothing a person reads changes until a key's rate is below the line; then a
+thesis names its unverified figures FIRST, because the cards split the
+reasoning at its last "Against:" and an appended note would read as the
+counter-case. And the cheaper tier's one-sentence prompt, which every fallback
+provider was also asked with at either tier, carries the full prompt's three
+rules: cite only the data, end on "Against:", no direction below 0.55.
+
+Fifty-nine mutants in four rounds, all killed. Ratchets: JS honesty 144 -> 143
+and ruff `E501` 201 -> 200, each re-recorded in its commit.
+(`tests/test_a_confidence_is_a_score_not_a_probability.py`,
+`app/test/a_confidence_is_a_score_on_every_page.test.js`,
+`tests/test_the_critique_names_heuristics_not_probabilities.py`,
+`tests/test_the_critique_replay_joins_each_approval_to_its_outcome.py`,
+`tests/test_a_figure_the_model_was_not_given_is_checked.py`,
+`tests/test_the_cheaper_tier_is_asked_by_the_same_rules.py`.)
 
 ## Operational docs
 
