@@ -288,3 +288,4 @@ about to change before changing it.
 ## Operational docs (line 22953)
 
 - L22963: THE FREEZER LOST A BAR A PAGE, AND EVERY BACKTEST READ ACROSS THE HOLE — `tests/test_a_new_position_is_marked_at_its_fill.py`, `tests/test_the_freezer_keeps_every_bar_of_every_page.py`
+- L23024: THE CLOSE AND THE STOP SENT THE RECORD'S SIZE, AND THE VENUE HELD LESS — `tests/test_a_close_and_a_stop_send_what_the_venue_holds.py`

@@ -113,7 +113,9 @@ def test_the_markers_are_the_strings_close_position_returns():
     """tuple → source. A marker that drifts from close_position's wording is a
     reader that silently files every kept-open answer under 'closed'."""
     inner = _method("_close_position_inner")
-    assert 'return f"CLOSE FAILED for {trade_id}: {exc}"' in inner, (
+    # The detail names the refusal's class and the venue's code
+    # (`refusal_text`), never the raw message; the prefix is what is read.
+    assert 'return f"CLOSE FAILED for {trade_id}: {refusal_text(exc)}"' in inner, (
         "the failure answer changed shape; flatten_outcome no longer recognises it")
     for marker in CLOSE_KEPT_OPEN_MARKERS:
         assert marker in inner, (
