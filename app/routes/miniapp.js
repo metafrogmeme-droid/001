@@ -91,7 +91,7 @@ function framable(req, res, next) {
 
 router.use(framable);
 
-const COMMON_JS = ['/js/api-retry.js?v=1', '/js/farcaster-ready.js?v=3'];
+const COMMON_JS = ['/js/api-retry.js?v=2', '/js/farcaster-ready.js?v=3'];
 
 function page(title, bodyClass, script, meta, deps) {
   const scripts = COMMON_JS.concat(deps || [], [script])
