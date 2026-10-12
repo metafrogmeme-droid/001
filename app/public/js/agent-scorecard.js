@@ -45,13 +45,20 @@
    */
   function readings(metrics, pnlClass) {
     const m = metrics || {};
-    const ret = finite(m.total_return_pct);
-    const pf = finite(m.profit_factor);
-    const wr = finite(m.win_rate);
-    const dd = finite(m.max_drawdown_pct);
-    const sh = finite(m.sharpe_ratio);
     const tr = finite(m.total_trades);
-    const tone = (n) => pnlClass(n);
+    // No trades: the run measured a flat book, not a break-even result. Its
+    // 0.00% is not painted as a gain, and it has no ratios: the backtester
+    // writes 0.0 for each, which would read as a losing profit factor, a 0%
+    // win rate and a break-even Sharpe. The catalogue already sends them as
+    // null; a Lab run's raw metrics do not pass through it.
+    const flat = tr === 0;
+    const ratio = (v) => (flat ? null : finite(v));
+    const ret = finite(m.total_return_pct);
+    const pf = ratio(m.profit_factor);
+    const wr = ratio(m.win_rate);
+    const dd = finite(m.max_drawdown_pct);
+    const sh = ratio(m.sharpe_ratio);
+    const tone = (n) => (flat ? '' : pnlClass(n));
     return {
       // A count below 10 is a thin sample. null means the count was not read,
       // which is not "few trades".
@@ -178,6 +185,9 @@
   function withheldText(reason) {
     if (reason === 'below_one') {
       return 'Not offered for follow. Profit factor is below 1, and no eligibility record says this preset survives.';
+    }
+    if (reason === 'no_trades') {
+      return 'Not offered for follow. It took no trades in its benchmark window, so there is no verdict.';
     }
     if (reason === 'no_verdict') {
       return 'Not offered for follow. No measured verdict is on this preset.';

@@ -3,7 +3,7 @@
 A confirmed read prints an entry, a stop, a target and a verdict that the
 levels clear the R floor, and until now nothing on either card said that the
 same read, replayed over seventeen months of frozen snapshots, averaged
-+0.03R a setup after fees with an interval straddling zero. That figure lived
+about zero R a setup after fees with an interval straddling zero. That figure lived
 in a document. It is a written artefact now, read three ways and pinned to
 the snapshots it was read off and to the settings the live read uses, and
 these are the rules that keep it from becoming a number typed into a card.
