@@ -15,9 +15,10 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('./embed-read'), require('./confidence-score'));
-  } else root.RCEmbedRow = factory(root.RCEmbedRead, root.RCConfidenceScore);
-}(typeof self !== 'undefined' ? self : this, function (RD, CS) {
+    module.exports = factory(require('./embed-read'), require('./confidence-score'),
+      require('./rr-words'));
+  } else root.RCEmbedRow = factory(root.RCEmbedRead, root.RCConfidenceScore, root.RCRRWords);
+}(typeof self !== 'undefined' ? self : this, function (RD, CS, RW) {
   'use strict';
 
   function esc(s) {
@@ -106,6 +107,15 @@
   }
 
   /**
+   * What the fees leave of the ratio, in the bot's words ("5.7R after
+   * fees"), or null when the row states nothing about fees: a row written
+   * before the bot sent the figure says nothing rather than a guess.
+   */
+  function rrNet(sig) {
+    return RW ? RW.afterFees(sig, { places: 1, suffix: 'R' }) : null;
+  }
+
+  /**
    * A price, or an em dash. Never 0 for absent — 0 is a price nothing trades at
    * and printing it puts a real-looking number beside real ones.
    */
@@ -164,7 +174,7 @@
     var conf = CS ? CS.text(s.confidence) : null;
     if (conf !== null) bits.push('confidence ' + conf);
     var rr = rrLabel(s.rr);
-    if (rr) bits.push(rr + ' target');
+    if (rr) bits.push(rr + ' target' + (rrNet(s) ? ' (' + rrNet(s) + ')' : ''));
 
     var line = bits.join(' · ');
     return o.suffix ? line + '\n\n' + o.suffix : line;
@@ -203,6 +213,7 @@
     if (age) meta.push(esc(age));
 
     var rr = rrLabel(sig.rr);
+    var net = rr ? rrNet(sig) : null;
     var geo = JSON.stringify({
       entry: sig.entry_price, stop: sig.stop_loss,
       target: sig.take_profit, direction: dir,
@@ -227,7 +238,8 @@
       + '<div><dt>entry</dt><dd>' + esc(price(sig.entry_price)) + '</dd></div>'
       + '<div><dt>stop</dt><dd>' + esc(price(sig.stop_loss)) + '</dd></div>'
       + '<div><dt>target</dt><dd>' + esc(price(sig.take_profit)) + '</dd></div>'
-      + (rr ? '<div><dt>r:r</dt><dd>' + esc(rr) + '</dd></div>' : '')
+      + (rr ? '<div><dt>r:r</dt><dd>' + esc(rr)
+        + (net ? ' <small>(' + esc(net) + ')</small>' : '') + '</dd></div>' : '')
       + '</dl>'
       + shareHtml(sig, o)
       + '</article>';

@@ -242,6 +242,31 @@ def rr_words(costed: Optional[NetRewardRisk], *, places: int = 1, suffix: str = 
 
 def idea_rr_words(idea: object, **kw) -> str:
     """`rr_words` for an idea's own levels, at its own order type's entry rate."""
-    return rr_words(net_reward_risk(
+    return rr_words(idea_net_rr(idea), **kw)
+
+
+def idea_net_rr(idea: object) -> Optional[NetRewardRisk]:
+    """`net_reward_risk` for an idea's own levels, at its own order type."""
+    return net_reward_risk(
         getattr(idea, "entry_price", None), getattr(idea, "stop_loss", None),
-        getattr(idea, "take_profit", None), order_type=getattr(idea, "order_type", None)), **kw)
+        getattr(idea, "take_profit", None), order_type=getattr(idea, "order_type", None))
+
+
+def rr_fields(costed: Optional[NetRewardRisk]) -> dict:
+    """`rr_words`'s three states as fields, for a payload a page words.
+
+    ``net_rr`` is the ratio after fees, or ``None``; ``rr_fee_losing`` says
+    which ``None`` it is: ``True`` when the target does not cover the fees,
+    ``None`` when a level could not be read. A page that receives neither
+    key is reading a record written before them, and says nothing about fees.
+    """
+    if costed is None:
+        return {"net_rr": None, "rr_fee_losing": None}
+    if costed.net is None:
+        return {"net_rr": None, "rr_fee_losing": True}
+    return {"net_rr": round(costed.net, 2), "rr_fee_losing": False}
+
+
+def idea_rr_fields(idea: object) -> dict:
+    """`rr_fields` for an idea's own levels, at its own order type."""
+    return rr_fields(idea_net_rr(idea))

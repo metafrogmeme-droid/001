@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from bot.core.trade_costs import net_reward_risk, rr_fields
+
 # Keep payloads bounded — the chain is a JSONL file and rides the website sync.
 _REASONING_MAX = 320
 _MAX_VOTES = 12
@@ -159,6 +161,13 @@ def decision_idea_payload(idea: Any) -> dict:
             "sl": sl,
             "tp": tp,
             "rr": _round(rr, 2),
+            # What the fees leave of it, at the order type it names: the
+            # reading every card prints (`trade_costs.rr_fields`). A record
+            # written before these keys carries neither.
+            **rr_fields(net_reward_risk(
+                _get(idea, "entry_price"), _get(idea, "stop_loss"),
+                _get(idea, "take_profit"), order_type=_get(idea, "order_type"))),
+            "order_type": _trim(_get(idea, "order_type", ""), 16) or None,
             "strategy_type": _trim(_get(idea, "strategy_type", ""), 32),
             "signal_type": _trim(_get(idea, "signal_type", ""), 40),
             "timeframe": _trim(_get(idea, "timeframe", ""), 16),

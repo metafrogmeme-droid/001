@@ -49,6 +49,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 from bot.core.confirm_result import outcome_unverified, placed_nothing
 from bot.core.signal_confidence import displayed_confidence
+from bot.core.trade_costs import idea_rr_fields
 from bot.nlp.skill_memory import (
     not_run_memory,
     record_routed_turn,
@@ -2067,6 +2068,10 @@ def _setup_from_new_idea(engine, ideas_before: set) -> dict | None:
         "sl": sl,
         "tp": tp,
         "rr": round(float(rr), 2) if isinstance(rr, (int, float)) else None,
+        **idea_rr_fields(idea),
+        # "Trade this" re-proposes with it: the order type decides the fees
+        # the review nets out, and an omitted one is proposed as a limit.
+        "order_type": getattr(idea, "order_type", None) or "limit",
         "confidence": round(float(conf), 2) if isinstance(conf, (int, float)) else None,
     }
 
@@ -2469,6 +2474,9 @@ def _idea_payload(app, tg_handler, tg_id: str, idea, margin_usd,
         "sl": sl,
         "tp": tp,
         "rr": idea.risk_reward_ratio,
+        # What the fees leave of it, at this idea's order type: the reading
+        # the Telegram cards print (`trade_costs.rr_fields`).
+        **idea_rr_fields(idea),
         "sl_pct": round(abs(entry - sl) / entry * 100, 2),
         "tp_pct": round(abs(tp - entry) / entry * 100, 2),
         "margin_usd": margin_usd,

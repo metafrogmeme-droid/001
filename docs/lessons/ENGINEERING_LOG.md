@@ -21419,7 +21419,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **489 of 1302** reach for source text through `source_scan`, `code_only`
+Driven, **489 of 1303** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 489 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -23958,3 +23958,55 @@ mutants, all killed. A survivor showed that the "never more" check inside
 the true-down was unreached. The sync only asks when the row reads lower.
 It is reached when the row reads lower and this side holds more, and a test
 drives that now.)
+
+**THE WEBSITE PRINTED THE PRICE RATIO ALONE, AND TWO OF ITS DOORS PRICED
+FEES FOR AN ORDER NOBODY CHOSE.** 12 October, after every Telegram card
+learned to say "6.47 (5.74 after fees)". Every website card still printed
+6.47:
+- the chat and dashboard confirm cards;
+- the chat's setup card;
+- the signal stream;
+- the scan's entry cards;
+- the embed and its share line;
+- the flight card and the decision court.
+
+A page cannot work the net figure out for itself: the fee table is the
+bot's, and the order type is not on every record. So each payload a page
+renders an idea from now carries `trade_costs.rr_fields`: `net_rr`, and
+`rr_fee_losing` to say which absence a null `net_rr` is. `rr-words.js` words
+it once for every page. A record written before the fields says nothing
+about fees, never "0.00 after fees".
+
+The public stream stores both fields in two nullable columns. The ingest
+reads them null-preserving, because `Number(x) || 0` would store an absent
+figure as "the fees take it all". The in-memory pool returns whole rows
+whatever a SELECT names, so a column left out of the query passes every
+route test and is missing in MySQL. A test therefore reads the query
+itself. The sealed flight record carries the figure and the order type it
+was priced at, for new records only.
+
+Two doors dropped the order type the fees depend on, so the bot priced
+every review as a resting limit (the maker fee) even for a market ticket:
+- The dashboard's Review button posted a fixed body without it, and the
+  copilot proxy would have dropped it anyway.
+- The chat setup card's "Trade this" re-proposed every setup without one,
+  so each became a limit.
+
+Both carry it now. The chat trade card also labelled every entry "(limit)",
+whatever the order type. A market entry reads "(reference)", as the
+dashboard modal already said.
+
+The cards are lifted out of their bundles and run in a sandbox by their
+tests, so a helper defined outside a card's markers is a helper its test
+cannot see. The modal's helper is declared inside its block, and the chat
+setup card got markers of its own. Three changes are reached by no test of
+their own: the stream table's cell, the dashboard's flight card and the
+standalone flight page. Each calls the same reading the driven cards call.
+The ticket preview, which computes the ratio in the browser, says "on
+price" and points at Review. The Arena charges no fees, so its ratio stays
+as it is.
+(`tests/test_the_website_is_sent_what_the_fees_leave_of_a_ratio.py`,
+`app/test/an_idea_card_says_what_the_fees_leave_of_its_ratio.test.js`:
+twenty-one mutants, all killed. One first measured nothing, because its
+anchor matched twice: the ticket's submit builds the same expression the
+Review button does.)

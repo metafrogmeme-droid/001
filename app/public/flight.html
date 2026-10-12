@@ -99,6 +99,7 @@
 </div>
 
 <script src="/js/api-retry.js?v=2"></script>
+<script src="/js/rr-words.js?v=1"></script>
 <script>
 (function () {
   var HEX64 = /^[0-9a-f]{64}$/;
@@ -114,6 +115,12 @@
   }
   function shortHash(h) { h = String(h || ''); return h.length > 14 ? h.slice(0, 8) + '…' + h.slice(-4) : h; }
   function fmtPrice(v) { v = Number(v); if (!isFinite(v)) return '—'; return v >= 1 ? v.toFixed(4) : v.toPrecision(4); }
+  // What the fees leave of the ratio, as the sealed record states it
+  // (rr-words.js); a record sealed before the bot sent it says nothing.
+  function rrFees(idea) {
+    var W = window.RCRRWords; var c = W ? W.afterFees(idea, { places: 2, suffix: 'R' }) : null;
+    return c ? ' (' + esc(c) + ')' : '';
+  }
 
   // Re-derive the visible window's integrity in the browser — the same check the
   // API returns, so a visitor can confirm it rather than trust our number.
@@ -192,7 +199,7 @@
       +   '<div class="cell"><div class="h">Risk gate</div><div class="b">' + risk_l + '</div>'
       +     '<div class="h" style="margin-top:10px">Authorized by</div><div class="b">' + polText + '</div></div>'
       +   '<div class="cell"><div class="h">Model &amp; data provenance</div><div class="b">' + (prov_l || '—') + '</div></div>'
-      +   '<div class="cell"><div class="h">Trade geometry</div><div class="b">entry ' + fmtPrice(idea.entry) + ' · SL ' + fmtPrice(idea.sl) + ' · TP ' + fmtPrice(idea.tp) + (idea.rr ? ' · ' + esc(idea.rr) + 'R' : '') + (idea.timeframe ? ' · ' + esc(idea.timeframe) : '') + '</div></div>'
+      +   '<div class="cell"><div class="h">Trade geometry</div><div class="b">entry ' + fmtPrice(idea.entry) + ' · SL ' + fmtPrice(idea.sl) + ' · TP ' + fmtPrice(idea.tp) + (idea.rr ? ' · ' + esc(idea.rr) + 'R' + rrFees(idea) : '') + (idea.timeframe ? ' · ' + esc(idea.timeframe) : '') + '</div></div>'
       + '</div>'
       + '<div class="cell" style="margin-top:10px"><div class="h">Ledger</div><div class="b">decision <code>' + esc(rec.decision_id || '—') + '</code> · entry hash <code>' + esc(shortHash(rec.chain && rec.chain.entry_hash)) + '</code></div></div>'
       + '</article>';
