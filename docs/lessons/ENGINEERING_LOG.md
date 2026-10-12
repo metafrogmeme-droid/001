@@ -20525,7 +20525,8 @@ touched on purpose (`boot_resilience.test.js`: binding late was a blackout and a
 crash loop when the database was down), so that order stays.
 
 The host spreads calls across the instances that are up, so the same call made
-a moment later almost always reaches a ready one. `public/js/api-retry.js` is
+a moment later can reach a ready one (measured after it shipped: it rescued
+about 4 in 10, not "almost always"; see the next chapter). `public/js/api-retry.js` is
 the first script on every page (all 42 static pages, and first in the script
 list the `/embed` and `/miniapp` pages build), and wraps `fetch` once. It
 retries only the site's own `/api/` URLs, only a 503 whose body is the gate's
@@ -20548,6 +20549,41 @@ Seventeen mutants, all killed after one round: the first left one standing, a
 retry that read the 503 body itself instead of a copy, because no test read the
 body of a 503 the retry decided to leave alone; a page could then not have shown
 "database unreachable". (`app/test/the_pages_retry_the_sites_own_starting_answer.test.js`.)
+
+**THE STUCK INSTANCE WAS A CHECK THE DATABASE NEVER ANSWERED, READ AS "A TABLE IS MISSING".**
+Measured on the live site after #588 shipped: `/api/token` once a second for four
+minutes, plain and through the pages' own retry, beside `/readyz` and
+`/api/version`. Plain, 21 of 240 calls got `starting`; retried, 13 of 240. The
+retry rescued about 4 in 10, not the "almost always" the previous chapter
+claimed: the response headers (`x-fc-request-id`, an Envoy upstream time) say
+the host is a serverless function platform that hands each call to an instance
+with a free slot, and an instance that refuses at once always has one. Pairing
+each instance's `ready_since` with its start time (`/api/version`'s uptime, not
+its `started_at`, which is when that module was first required) said which
+instances were the problem: the ones that rotated were ready 1 to 6 seconds after
+starting, and ONE was not ready for 3.5 minutes. Its first attempt hit the 180 s
+attempt cap (`db_timeout`, `attempts: 1`) and the second took about 34 s. The
+owner's own reading after the deploy, 81 s from start to ready on the first
+attempt, is the same shape.
+
+`schemaIsCurrent` returned `false` on any error, "fail-safe". But false means
+"a table is missing", so a check the database did not answer ran all 33 CREATE
+statements, which on this host take minutes. One slow first contact (mysql2's
+connect gives up at 10 s) became a minutes-long `starting`. Unreadable had
+been read as a confident negative. The check now has three answers
+(`db.js::schemaPath`): every table present (`fast`), the database answered and
+something is missing (`ddl`), or it did not answer, which FAILS THE ATTEMPT so
+the retry loop asks again a second later on a fresh connection. The query
+carries its own 10 s limit, so a connection that answers nothing cannot hold the
+attempt either. It still never skips the migration: after three unanswered
+checks in a row the DDL runs anyway, so a database whose information_schema can
+never be read still gets its schema. `migration_ok` in `/diagz` now names the
+path taken. The old test pinned the old rule by its source text (`catch (e) {
+return false;`), so it is replaced by tests that drive `migrate()` itself, in a
+child with `DATABASE_URL` set and a pool that records what it is sent: every
+table present sends only the check; a missing table runs the DDL; an unanswered
+check fails twice with no DDL sent and the third runs it. Ten mutants, all
+killed. (`app/test/migration_ddl.test.js`.)
 
 ## Writing tests that scan source
 

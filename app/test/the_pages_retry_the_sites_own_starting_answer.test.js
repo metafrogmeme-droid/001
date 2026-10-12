@@ -259,5 +259,5 @@ test('a booted instance records how long its database check took and when it bec
     } catch (_) { /* not listening yet */ }
   }
   assert.ok(ok, `no migration_ok event. Log:\n${log}`);
-  assert.match(ok.detail, /^after_attempts=0 check_ms=\d+ ready_after_ms=\d+$/);
+  assert.match(ok.detail, /^after_attempts=0 path=memory check_ms=\d+ ready_after_ms=\d+$/);
 });
