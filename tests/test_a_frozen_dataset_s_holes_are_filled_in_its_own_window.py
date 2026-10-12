@@ -147,6 +147,36 @@ def test_an_hour_the_venue_does_not_answer_stays_missing(tmp_path):
     assert man["symbols"][SYM]["repaired"] == [_iso(HOLES[1])]
 
 
+class _Client:
+    """A ccxt client's `fetch_ohlcv`, recording what it was asked."""
+
+    def __init__(self, answer):
+        self.answer, self.asked = answer, []
+
+    async def fetch_ohlcv(self, symbol, timeframe, since=None, limit=None, params=None):
+        self.asked.append((symbol, timeframe, since, limit, params))
+        return self.answer
+
+
+def test_the_bitget_fetch_asks_four_bars_up_to_until_and_refuses_a_non_list():
+    client = _Client([_row(9), _row(10)])
+    fetch = snap.bitget_window_fetch(client, "1h")
+    assert asyncio.run(fetch(SYM, 1, 2)) == [_row(9), _row(10)]
+    assert client.asked == [(SYM, "1h", 1, 4, {"until": 2})]
+    with pytest.raises(TypeError, match="NoneType, not a list"):
+        asyncio.run(snap.bitget_window_fetch(_Client(None), "1h")(SYM, 1, 2))
+
+
+def test_the_bitget_fetch_never_hands_back_a_forming_bar():
+    """The hour still forming is not a bar: a repair must not compare
+    against it, still less store it."""
+    import time
+    now = int(time.time() * 1000) // HOUR * HOUR
+    rows = [[now - k * HOUR, 1.0, 2.0, 0.5, 1.5, 10.0] for k in (3, 2, 1, 0)]
+    got = asyncio.run(snap.bitget_window_fetch(_Client(rows), "1h")(SYM, 0, now + HOUR))
+    assert got == rows[:3], "the bar opened this hour is forming"
+
+
 def test_the_verifier_holds_a_repaired_bar_to_the_file(tmp_path):
     _frozen(tmp_path)
     man = _repair(tmp_path, Venue())

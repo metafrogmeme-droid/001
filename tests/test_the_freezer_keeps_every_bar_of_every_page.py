@@ -5,7 +5,9 @@ the bar at ``since``, and its recent candles (about the last two months) return
 only the bars after it. The pager started each page one bar past the last one
 it held, so on recent pages it lost that bar: every frozen dataset carried six
 missing bars per symbol, one every 201 hours, and every backtest read across
-each hole as if the hour had not happened. Driven against a venue that answers
+each hole as if the hour had not happened. Those datasets are repaired in
+their own windows now
+(`tests/test_a_frozen_dataset_s_holes_are_filled_in_its_own_window.py`). Driven against a venue that answers
 each way; the manifest names a hole, and the verifier holds it to the file.
 """
 from __future__ import annotations
@@ -128,9 +130,16 @@ def test_the_manifest_names_each_hole_and_the_verifier_holds_it(tmp_path):
     assert not ok and problems == ["BTC/USDT:USDT: missing bars differ from manifest"]
 
 
+#: The datasets frozen before the fix. Each carried the pager's six holes a
+#: symbol, and each was repaired in its own window (`snapshot --repair`,
+#: 2026-10-12) rather than re-frozen over a new one.
+REPAIRED = ("alts_1h", "alts_1h_v2", "alts_1h_v3", "corr_dense_1h",
+            "majors_1h", "majors_1h_v2", "majors_1h_v3")
+
+
 def test_the_committed_datasets_name_their_holes():
-    """Every dataset frozen before the fix carries the pager's six holes per
-    symbol, named in its manifest; none is re-frozen here."""
+    """Every committed dataset names its holes (none, or the hours the venue
+    would not vouch for), and the verifier holds the file to that list."""
     import glob
     import os
     manifests = sorted(glob.glob(os.path.join(snap.benchmark_root(), "*", "manifest.json")))
@@ -140,3 +149,17 @@ def test_the_committed_datasets_name_their_holes():
         for sym, entry in man["symbols"].items():
             assert "missing" in entry, (path, sym)
         assert snap.verify_dataset(os.path.dirname(path)) == (True, []), path
+
+
+@pytest.mark.parametrize("name", REPAIRED)
+def test_the_pager_s_holes_are_filled_in_the_datasets_it_left_them_in(name):
+    """Six hours a symbol were filled, none is left, and the manifest says
+    which hours came from the repair and when."""
+    import os
+    path = os.path.join(snap.benchmark_root(), name, "manifest.json")
+    man = json.loads(open(path, encoding="utf-8").read())
+    for sym, entry in man["symbols"].items():
+        assert entry["missing"] == [], (name, sym)
+        assert len(entry["repaired"]) == 6, (name, sym)
+    assert [r["filled"] for r in man["repairs"]] == [6 * len(man["symbols"])]
+    assert man["repairs"][0]["source"] == snap.REPAIR_SOURCE

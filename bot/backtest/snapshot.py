@@ -298,8 +298,18 @@ def bitget_window_fetch(exchange, timeframe: str):
     """A `repair_dataset` fetch over a ccxt Bitget client: the bars from
     ``since`` up to ``until``, one call (a repair asks for four hours at most)."""
     async def fetch(symbol: str, since: int, until: int) -> list:
-        return await exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=4,
+        rows = await exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=4,
                                           params={"until": until})
+        # ccxt answers Any. A non-list is not "no bars": it would read as a
+        # hole the venue could not vouch for, and hide a broken client.
+        if not isinstance(rows, list):
+            raise TypeError(f"{symbol}: the venue's candles are a {type(rows).__name__}, not a list")
+        # A hole lies between two stored bars, so its window ends at a closed
+        # one. A forming bar is dropped rather than trusted: its hour then has
+        # no equal neighbour, and the hole stays named.
+        from bot.utils.candles import drop_forming_candle
+        closed: list = drop_forming_candle(rows, timeframe)
+        return closed
     return fetch
 
 

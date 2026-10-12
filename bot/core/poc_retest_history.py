@@ -5,10 +5,10 @@ verdict that the levels clear the R floor, and `/pocshadow` prints what the
 setups the command recorded went on to pay. Neither said the one thing an
 operator deciding whether to take the setup most needs: replayed over
 seventeen months of frozen 1h snapshots, every closed bar, through the same
-read and the same scorer, the setup averaged +0.03R a trade after fees, with
-an interval straddling zero, and −0.39R on the window after the discovery
-data. That measurement lived in `docs/FROZEN_BENCHMARK.md` and nowhere a card
-could reach it.
+read and the same scorer, the setup averaged about zero R a trade after fees,
+with an interval straddling zero, and lost on the window after the discovery
+data (`benchmark/poc_retest/result.json` holds the figures). That measurement
+lived in `docs/FROZEN_BENCHMARK.md` and nowhere a card could reach it.
 
 A figure typed into a card is a claim; the parity card printed a benchmark
 its own record had retracted twice because it did exactly that. So the replay
