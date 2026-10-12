@@ -97,6 +97,11 @@ class ScannerParams:
     # Market classes, each behind its own leader with its own volume floor.
     # None is one class: ``leader`` over every other symbol.
     classes: tuple["ScanClass", ...] = ()
+    # The playbook's portfolio layer: positions open or resting at once, and
+    # alts of one class at once (`portfolio_cap`). None is no cap of the
+    # scanner's own; the house risk gate's apply either way.
+    max_concurrent: Optional[int] = None
+    max_correlated_alts: Optional[int] = None
 
     def stop_floor(self, symbol: str) -> float:
         """The tier floor for ``symbol``'s stop distance, as a fraction."""
@@ -121,9 +126,12 @@ _NUMBER_KEYS = ("min_score", "max_vwap_ext_pct", "atr_limit_mult", "limit_chase_
 #: Shares of a position: positive, and at most the whole of it.
 _FRACTION_KEYS = ("scale_out_fraction", "tp1_fraction")
 
+#: Counts of positions: a positive int each.
+_COUNT_KEYS = ("max_concurrent", "max_correlated_alts")
+
 #: Every preset key the scanner reads: the one list for `params_from_preset`,
 #: the runner's ``--scanner-config`` and the card's gate block.
-SCANNER_KEYS: tuple[str, ...] = _NUMBER_KEYS + (
+SCANNER_KEYS: tuple[str, ...] = _NUMBER_KEYS + _COUNT_KEYS + (
     "atr_period", "leader", "allow_short", "stop_floor_pct", "step_locks", "classes")
 
 
@@ -209,11 +217,13 @@ def params_from_preset(cfg: dict) -> Optional[ScannerParams]:
         if val is None:
             return None
         kw[key] = val
-    if "atr_period" in cfg:
-        p = cfg["atr_period"]
+    for key in ("atr_period",) + _COUNT_KEYS:
+        if key not in cfg:
+            continue
+        p = cfg[key]
         if isinstance(p, bool) or not isinstance(p, int) or p < 1:
             return None
-        kw["atr_period"] = p
+        kw[key] = p
     if "classes" in cfg:
         # A class carries its own leader and floor; the single-class keys
         # beside it would be a second answer to the same question.
@@ -348,8 +358,24 @@ def how_line(cfg: dict) -> str:
         f"so the share the +{_pct(p.tp1_pct)} target closes is a reading of its "
         f"description (its v0.1 share). Its breakout entries are not ported, so its "
         f"{p.time_stop_hours:g}-hour general stop closes nothing a pullback entry has "
-        f"not already closed."
+        f"not already closed." + _portfolio_words(p, leaders)
     )
+
+
+def _portfolio_words(p: ScannerParams, leaders: set) -> str:
+    """The portfolio sentence: the playbook's caps, and the house's limits."""
+    caps = []
+    if p.max_concurrent is not None:
+        caps.append(f"{p.max_concurrent} markets")
+    if p.max_correlated_alts is not None:
+        majors = sorted(set(p.stop_floor_pct) - set(leaders))
+        caps.append(f"{p.max_correlated_alts} of one class's alts (every market but "
+                    f"{', '.join(majors)} and the leaders)")
+    held = (f" It holds at most {' and '.join(caps)} at once, open or resting, so a "
+            f"pass places nothing while either is full." if caps else "")
+    return (held + " Every entry is sized and may be refused by the house risk gate; "
+            "the playbook's own per-trade loss cap and daily circuit are looser than "
+            "the house's and are not applied.")
 
 
 # ── one symbol's day, from closed 1h bars ────────────────────────────────────
@@ -761,6 +787,41 @@ def step_exit(state: ExitState, params: ScannerParams, *, open_: float, high: fl
         fills.append(ExitFill(state.remaining, close, "PULLBACK_TIME_STOP"))
         state.remaining = 0.0
     return fills
+
+
+def class_of(params: ScannerParams, symbol: str) -> Optional[str]:
+    """The name of the class ``symbol`` trades in: ``"all"`` for a preset
+    with one class, None for a symbol no class names."""
+    if not params.classes:
+        return "all"
+    base = _base(symbol)
+    return next((c.name for c in params.classes
+                 if base in c.members or base == c.leader), None)
+
+
+def is_alt(params: ScannerParams, symbol: str) -> bool:
+    """An alt is a market with no tier floor of its own (`stop_floor`'s
+    reading): the playbook's tiers are BTC and ETH, SOL and BNB, and alts."""
+    return _base(symbol) not in params.stop_floor_pct
+
+
+def portfolio_cap(params: ScannerParams, symbol: str, held: Sequence[str]) -> Optional[str]:
+    """Why ``symbol`` may not join ``held``, the scanner's open positions and
+    resting limits; None when it may.
+
+    The playbook's portfolio layer: at most ``max_concurrent`` at once, and
+    at most ``max_correlated_alts`` alts of one class, since a class's alts
+    move with its leader and with each other. A cap the preset does not set
+    is not applied here; the house risk gate's caps apply either way.
+    """
+    if params.max_concurrent is not None and len(held) >= params.max_concurrent:
+        return f"{params.max_concurrent} markets already held"
+    if params.max_correlated_alts is not None and is_alt(params, symbol):
+        cls = class_of(params, symbol)
+        alts = [h for h in held if is_alt(params, h) and class_of(params, h) == cls]
+        if len(alts) >= params.max_correlated_alts:
+            return f"{params.max_correlated_alts} of its class's alts already held"
+    return None
 
 
 def class_params(params: ScannerParams, cls: ScanClass) -> ScannerParams:

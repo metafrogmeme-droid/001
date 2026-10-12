@@ -21419,7 +21419,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **489 of 1300** reach for source text through `source_scan`, `code_only`
+Driven, **489 of 1302** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 489 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -23841,6 +23841,77 @@ never measured, so neither arm says it.
 `tests/test_the_offline_card_says_what_an_outage_changes.py`: fourteen
 mutants, all killed. The shadow check's rewrite is the same predicate, and
 its existing test still holds it.)
+
+**THE CHAT CORRECTED A TRUE NET RATIO INTO A FALSE ONE, AND EVERY OTHER CARD
+PRINTED THE PRICE RATIO ALONE.** 12 October, after the public post learned to
+say "6.5x (5.7x after fees)". The ticket, chat and co-pilot cards already said
+both, from `trade_costs.net_reward_risk`. Every other card printed the price
+ratio alone: the analysis and scan cards, the signal and scan images, the
+chart subtitle, the NEW SIGNAL alert and the `/trade` confirm card. The
+staged-draft card printed no ratio at all. Its co-pilot block drops its
+levels row for a card that carries its own, so the net figure appeared only
+when it tripped a flag. All of them now read one wording,
+`trade_costs.rr_words`: the price ratio, what the fees leave of it at the
+idea's own order type, a sentence when the target does not cover the fees,
+and a dash for a level that could not be read. The public post reads it too.
+The signal image's cell has room for the wording but not for the fee-losing
+sentence, so there alone a fee-losing target reads "loses after fees".
+
+Where the bot already said both, the chat made it false. The ticket tool
+writes "Gross R:R 6.47. Net R:R 5.74." When the model relayed that, the ratio
+corrector (`nlp/rr_honesty.py`) checked the net figure against the levels'
+quotient, called it wrong, and rewrote it. The reply then said "Net R:R 6.47",
+the gross figure under the word that said it was the other one. A "Net R:R"
+table column and "5.74 R:R net of fees" took the same path. Driven, all three
+shapes were rewritten. A claim qualified as net or after fees is now left as
+written: the fees depend on an order type the page does not state, and the
+corrector never writes a figure it cannot derive. A wrong gross claim beside
+a net one is still corrected, and so is a gross column beside a net column.
+
+An AST walk over `bot/` holds the field route: no f-string formats
+`risk_reward_ratio` except the critique's concern, which quotes the figure
+its own 1.5 bar compared. Three changes are reached by no test of their own:
+the staged-draft card's line, `/fullscan`'s order-type flag and `/scan`'s
+batch text. Each calls the same reading the driven cards call. mypy improved
+by one (`union-attr` 127 to 126) and is re-recorded here.
+(`tests/test_an_idea_card_says_what_the_fees_leave_of_its_ratio.py`:
+fourteen mutants, all killed.)
+
+**THE SCANNER'S PLAYBOOK NAMED A RISK LAYER, AND ONLY ITS TWO CAPS WERE
+TIGHTER THAN THE HOUSE'S.** 12 October, phase 4 of the Limit Entry Scanner.
+The playbook (`playbooks/runeclaw-limit-scanner/manifest.yaml`, and the spec
+the operator pasted) names its own risk layer: 10x leverage, a margin budget,
+a per-trade loss cap of 15% of that budget, a daily circuit that pauses at 30%
+of the budget and stops at 40%, at most 5 positions and at most 2 correlated
+alts. Every one of the scanner's entries already goes through the house risk
+gate. Set against it, the playbook's loss cap is ten times the house's 1.5% a
+trade, and its circuit is six to eight times the house's 5% day. Loosening the
+house's limits for a strategy whose card shows a profit factor below 1 would
+have bought nothing but larger losses, so the gate stays in charge and the
+card says the playbook's looser figures are not applied. 10x is the house
+standard already, sized at 5x notional, the operator's choice of 11 October.
+
+The two caps are tighter than anything the house applies to these markets.
+Every perpetual pools into one correlation bucket of three, by design until
+a global correlated cap exists (`RiskEngine._correlation_group`). The house
+also counts open positions only, so a resting limit is not held against the
+next. `limit_scanner.portfolio_cap` reads both caps over open positions and
+resting limits together. An alt is a market with no tier floor of its own
+(BTC and ETH, and SOL and BNB, have one), counted within its class. Because
+every scanner position is a limit that rested first, a cap counted at
+placement holds at every fill. A check at the fill was written first and
+removed: nothing could reach it. The two classes pass in turn on one bar, so
+the second is counted against the first's limit within the pass; one mutant
+found that only a two-class fixture can tell.
+
+Re-recorded at `1af9b1c5`: -6.17%, profit factor 0.64, 163 positions, a worst
+drawdown of 7.96% and 13 breaker trips, where it was -6.41%, 0.62, 164, 7.71%
+and 13. The alt cap held back a third metals alt 16 times. The concurrency
+cap never bit: the house gate and the one-limit-a-class pass keep the book
+under five. The card is still withheld from follow (profit factor below 1),
+and the live bot still does not run the rule.
+(`tests/test_the_scanner_holds_its_own_portfolio_caps.py`: ten mutants, all
+killed.)
 
 **A LIVE RECORD HELD MORE THAN THE VENUE BECAUSE TWO BOOKING SITES WROTE WHAT
 WAS ASKED, AND NOTHING EVER LOWERED IT.** 11 October, the M/USDT short

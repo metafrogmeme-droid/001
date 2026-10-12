@@ -66,6 +66,7 @@ from bot.core.trade_costs import (
     entry_rate_pct,
     exit_rate_pct,
     fee_usd,
+    idea_rr_words,
     net_reward_risk,
 )
 from bot.formatters.rich_cards import position_watch_line, render_open_positions
@@ -92,6 +93,11 @@ if TYPE_CHECKING:
     from bot.utils.user_store import UserStore
 
 logger = logging.getLogger(__name__)
+
+
+def _code(text: str) -> str:
+    """Inline code: the figure a card line leads with."""
+    return f"<code>{text}</code>"
 
 
 def _venue_leverage_now() -> int:
@@ -1318,8 +1324,6 @@ class TradingCommands:
             "entry": entry, "sl": sl, "tp": tp, "margin": margin_usd,
             "order_type": getattr(idea, "order_type", None)})
 
-        # Calculate R:R
-        rr = idea.risk_reward_ratio
         sl_dist = abs(entry - sl) / entry * 100
         tp_dist = abs(tp - entry) / entry * 100
 
@@ -1331,7 +1335,7 @@ class TradingCommands:
             f"{t('entry', lang)}:  <code>${entry:,.4f}</code>\n"
             f"{t('lbl_sl', lang)}:     <code>${sl:,.4f}</code> ({sl_dist:.1f}%)\n"
             f"{t('lbl_tp', lang)}:     <code>${tp:,.4f}</code> (+{tp_dist:.1f}%)\n"
-            f"{t('lbl_rr', lang)}:    <code>{rr:.2f}</code>\n"
+            f"{t('lbl_rr', lang)}:    {idea_rr_words(idea, places=2, suffix='', wrap=_code)}\n"
             f"{t('lbl_margin', lang)}: <code>{margin_text}</code>\n"
             f"{t('lbl_type', lang)}:   LIMIT\n"
             f"{'━' * 30}\n"
@@ -1678,7 +1682,6 @@ class TradingCommands:
                 entry, sl, tp = _num(idea.entry_price), _num(idea.stop_loss), _num(idea.take_profit)
                 sl_pct = abs(entry - sl) / entry * 100 if entry > 0 else 0
                 tp_pct = abs(tp - entry) / entry * 100 if entry > 0 else 0
-                rr = _num(idea.risk_reward_ratio)
                 pair = (idea.asset or "").replace("/USDT", "")
                 _otype = getattr(idea, 'order_type', 'market') or 'market'
                 _otype = str(_otype).upper()
@@ -1710,7 +1713,7 @@ class TradingCommands:
                     msg = (
                         f"{d_icon} <b>#{i} {html.escape(pair)}</b> — {_dir}{_st_tag}{_otype_tag}\n"
                         f"Entry: <code>${entry:,.4f}</code> | SL: <code>${sl:,.4f}</code> (-{sl_pct:.1f}%) | TP: <code>${tp:,.4f}</code> (+{tp_pct:.1f}%)\n"
-                        f"R:R 1:{rr:.1f} | Conf <b>{displayed_confidence(idea).text()}</b>"
+                        f"R:R {idea_rr_words(idea)} | Conf <b>{displayed_confidence(idea).text()}</b>"
                         + (f"\n<i>{html.escape(_why[:150])}</i>" if _why is not None else "")
                         + (f"\n⚖️ Against: {html.escape(_against[:150])}" if _against is not None else "")
                     )

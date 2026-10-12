@@ -17,7 +17,7 @@
     "no-redef": 3,
     "operator": 40,
     "return-value": 7,
-    "union-attr": 127,
+    "union-attr": 126,
     "var-annotated": 13
   }
 }
