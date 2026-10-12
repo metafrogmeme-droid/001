@@ -306,5 +306,15 @@
   "tx_untracked": "⏱ Keine Zeitausstiege: der Bot hat keinen Eintrag zu dieser Position, daher läuft keiner.",
   "tx_more": "Zeitausstiege für {n} weitere: öffne sie in /positions.",
   "grant_live_held": "<b>LIVE-TRADING ERTEILT — NICHT GESPEICHERT</b>\n\n- Nutzer: <code>{id}</code>\n- Die Freigabe gilt nur für diesen Bot-Prozess: <code>users.json</code> konnte nicht geschrieben werden ({cls}).\n- Ein Neustart vergisst sie, und nichts wendet sie erneut an. Datenträger reparieren, dann <code>/grant_live {id}</code> erneut ausführen — oder jetzt mit <code>/revoke_live {id}</code> zurücknehmen.",
-  "revoke_live_held": "<b>LIVE-TRADING ENTZOGEN — NICHT GESPEICHERT</b>\n\n- Nutzer: <code>{id}</code>\n- Der Entzug gilt nur für diesen Bot-Prozess: <code>users.json</code> konnte nicht geschrieben werden ({cls}).\n- Ein Neustart vergisst ihn: dieser Nutzer kann nach dem nächsten Neustart wieder live handeln, sofern <code>/revoke_live {id}</code> nicht erneut ausgeführt wird, sobald der Datenträger beschreibbar ist."
+  "revoke_live_held": "<b>LIVE-TRADING ENTZOGEN — NICHT GESPEICHERT</b>\n\n- Nutzer: <code>{id}</code>\n- Der Entzug gilt nur für diesen Bot-Prozess: <code>users.json</code> konnte nicht geschrieben werden ({cls}).\n- Ein Neustart vergisst ihn: dieser Nutzer kann nach dem nächsten Neustart wieder live handeln, sofern <code>/revoke_live {id}</code> nicht erneut ausgeführt wird, sobald der Datenträger beschreibbar ist.",
+  "lbl_position_guard": "Positionswächter",
+  "val_guard_off": "aus — wartende Orders werden einmal pro Zyklus gelesen",
+  "val_guard_every": "alle {s} s",
+  "val_guard_not_run": "noch nicht gelaufen",
+  "val_guard_timeout": "letzter Durchlauf hat das Zeitlimit überschritten — der Zyklus liest wartende Orders weiterhin",
+  "val_guard_error": "letzter Durchlauf fehlgeschlagen — der Zyklus liest wartende Orders weiterhin",
+  "val_guard_stale": "kein aktueller Durchlauf",
+  "val_guard_idle": "nichts wartend",
+  "val_guard_read": "{n} wartende Order(s) gelesen",
+  "val_sltp_unknown_short": "nicht erfasst"
 }

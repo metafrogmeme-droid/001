@@ -306,5 +306,15 @@
   "tx_untracked": "⏱ Sin salidas por tiempo: el bot no tiene registro de esta posición, así que no se ejecuta ninguna.",
   "tx_more": "Salidas por tiempo de {n} más: ábrelas en /positions.",
   "grant_live_held": "<b>TRADING EN VIVO CONCEDIDO — NO GUARDADO</b>\n\n- Usuario: <code>{id}</code>\n- La concesión solo rige en este proceso del bot: no se pudo escribir <code>users.json</code> ({cls}).\n- Un reinicio la olvida y nada la vuelve a aplicar. Repara el disco y ejecuta de nuevo <code>/grant_live {id}</code>, o deshazla ahora con <code>/revoke_live {id}</code>.",
-  "revoke_live_held": "<b>TRADING EN VIVO REVOCADO — NO GUARDADO</b>\n\n- Usuario: <code>{id}</code>\n- La revocación solo rige en este proceso del bot: no se pudo escribir <code>users.json</code> ({cls}).\n- Un reinicio la olvida: este usuario podrá operar en vivo de nuevo tras el próximo reinicio salvo que se ejecute otra vez <code>/revoke_live {id}</code> cuando el disco vuelva a ser escribible."
+  "revoke_live_held": "<b>TRADING EN VIVO REVOCADO — NO GUARDADO</b>\n\n- Usuario: <code>{id}</code>\n- La revocación solo rige en este proceso del bot: no se pudo escribir <code>users.json</code> ({cls}).\n- Un reinicio la olvida: este usuario podrá operar en vivo de nuevo tras el próximo reinicio salvo que se ejecute otra vez <code>/revoke_live {id}</code> cuando el disco vuelva a ser escribible.",
+  "lbl_position_guard": "Guardia de posiciones",
+  "val_guard_off": "desactivado — las órdenes en espera se leen una vez por ciclo",
+  "val_guard_every": "cada {s} s",
+  "val_guard_not_run": "aún no se ha ejecutado",
+  "val_guard_timeout": "la última pasada excedió el tiempo — el ciclo sigue leyendo las órdenes en espera",
+  "val_guard_error": "la última pasada falló — el ciclo sigue leyendo las órdenes en espera",
+  "val_guard_stale": "sin pasadas recientes",
+  "val_guard_idle": "nada en espera",
+  "val_guard_read": "{n} orden(es) en espera leída(s)",
+  "val_sltp_unknown_short": "no registrado"
 }

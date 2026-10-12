@@ -306,5 +306,15 @@
   "tx_untracked": "⏱ Sem saídas por tempo: o bot não tem registro desta posição, então nenhuma roda nela.",
   "tx_more": "Saídas por tempo de mais {n}: abra cada uma em /positions.",
   "grant_live_held": "<b>TRADING AO VIVO CONCEDIDO — NÃO SALVO</b>\n\n- Usuário: <code>{id}</code>\n- A concessão vale só para este processo do bot: não foi possível gravar <code>users.json</code> ({cls}).\n- Um reinício a esquece e nada a reaplica. Repare o disco e execute <code>/grant_live {id}</code> de novo — ou desfaça agora com <code>/revoke_live {id}</code>.",
-  "revoke_live_held": "<b>TRADING AO VIVO REVOGADO — NÃO SALVO</b>\n\n- Usuário: <code>{id}</code>\n- A revogação vale só para este processo do bot: não foi possível gravar <code>users.json</code> ({cls}).\n- Um reinício a esquece: este usuário poderá operar ao vivo de novo após o próximo reinício, a menos que <code>/revoke_live {id}</code> seja executado de novo quando o disco voltar a ser gravável."
+  "revoke_live_held": "<b>TRADING AO VIVO REVOGADO — NÃO SALVO</b>\n\n- Usuário: <code>{id}</code>\n- A revogação vale só para este processo do bot: não foi possível gravar <code>users.json</code> ({cls}).\n- Um reinício a esquece: este usuário poderá operar ao vivo de novo após o próximo reinício, a menos que <code>/revoke_live {id}</code> seja executado de novo quando o disco voltar a ser gravável.",
+  "lbl_position_guard": "Guarda de posições",
+  "val_guard_off": "desligado — as ordens pendentes são lidas uma vez por ciclo",
+  "val_guard_every": "a cada {s} s",
+  "val_guard_not_run": "ainda não executado",
+  "val_guard_timeout": "a última verificação excedeu o tempo — o ciclo ainda lê as ordens pendentes",
+  "val_guard_error": "a última verificação falhou — o ciclo ainda lê as ordens pendentes",
+  "val_guard_stale": "nenhuma verificação recente",
+  "val_guard_idle": "nada pendente",
+  "val_guard_read": "{n} ordem(ns) pendente(s) lida(s)",
+  "val_sltp_unknown_short": "não registrado"
 }

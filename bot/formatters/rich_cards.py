@@ -1406,6 +1406,68 @@ def session_skip_line(dropped: Optional[dict], lang: str = "en") -> str:
     return t("fmt_session_skipped", lang).format(classes=", ".join(parts))
 
 
+def _guard_seconds(value: Any, *, positive: bool) -> Optional[float]:
+    """A reading's seconds, or None when it holds no number: a bool is not
+    one, and neither is a negative age or a non-positive interval."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    if value < 0 or (positive and value == 0):
+        return None
+    return float(value)
+
+
+def position_guard_line(guard: Optional[dict], lang: str = "en",
+                        verbose: bool = False) -> str:
+    """Say whether the position guard is reading resting entry orders.
+
+    The guard (`RuneClawEngine._position_guard_loop`) asks about resting
+    entry orders between ticks, so a fill is protected within seconds rather
+    than when the tick reaches it. Its states:
+
+      healthy   a pass ran (or found nothing resting) within three intervals.
+                Omitted unless ``verbose``: /status is long, and every other
+                state renders.
+      off       switched off on a live account: resting orders are read once
+                a tick. A fact, in a muted colour.
+      not run   on, and no pass recorded yet. Unknown, never healthy.
+      stale     the last recorded pass is older than three intervals.
+      timeout / error   the last pass did not finish; the tick's own pass
+                still reads the orders, and the line says so.
+
+    Nothing on a paper account or with no reading at all: there is no venue
+    order for the guard to read. An outcome this function does not know
+    renders as unknown.
+    """
+    if not isinstance(guard, dict) or not guard.get("live"):
+        return ""
+    label = t("lbl_position_guard", lang)
+    if not guard.get("enabled"):
+        return f"\u26aa {label}: {t('val_guard_off', lang)}"
+    interval_s = _guard_seconds(guard.get("interval_s"), positive=True)
+    every = t("val_guard_every", lang, s=f"{interval_s:.0f}") if interval_s is not None else ""
+    outcome = guard.get("outcome")
+    age_s = _guard_seconds(guard.get("age_s"), positive=False)
+    age_txt = f"{age_s:.0f}s {t('val_ago', lang)}" if age_s is not None else ""
+    if outcome is None:
+        return f"\u26aa {label}: {t('val_guard_not_run', lang)}" + (f" ({every})" if every else "")
+    if outcome in ("timeout", "error"):
+        key = "val_guard_timeout" if outcome == "timeout" else "val_guard_error"
+        return (f"\u26a0\ufe0f {label}: {t(key, lang)}"
+                + (f" ({age_txt})" if age_txt else ""))
+    if outcome not in ("ran", "idle"):
+        return f"\u26aa {label}: {t('val_sltp_unknown_short', lang)}"
+    stale = age_s is not None and interval_s is not None and age_s > 3 * interval_s
+    if stale:
+        return (f"\u26a0\ufe0f {label}: {t('val_guard_stale', lang)}"
+                + (f" ({age_txt}" + (f", {every}" if every else "") + ")" if age_txt else ""))
+    if not verbose:
+        return ""
+    what = (t("val_guard_idle", lang) if outcome == "idle"
+            else t("val_guard_read", lang, n=guard.get("orders") or 0))
+    return (f"\u2705 {label}: {what}"
+            + (f" ({', '.join(x for x in (every, age_txt) if x)})" if (every or age_txt) else ""))
+
+
 def position_watch_line(watch: Optional[dict], lang: str = "en",
                         verbose: bool = False) -> str:
     """Say whether the SL/TP monitor actually ran on the last tick.
@@ -1602,6 +1664,7 @@ def render_status_card(
     phase_headroom: Optional[dict] = None,
     drawdown_source: Optional[str] = None,
     position_watch: Optional[dict] = None,
+    position_guard: Optional[dict] = None,
     tick_error: Optional[dict] = None,
     venue: Optional[str] = None,
     record_partial: bool = False,
@@ -1618,6 +1681,7 @@ def render_status_card(
     # the first while leaving the second as "could be". Empty on the healthy
     # path; every other state, including "no reading", renders.
     _watch_line = position_watch_line(position_watch, lang)
+    _guard_line = position_guard_line(position_guard, lang)
     status = f"\U0001f7e2 {t('val_active', lang)}" if active else f"\U0001f534 {t('val_halted', lang)}"
     # `"LIVE" if ... else "PAPER"` was two-valued, and the mode is not.
     # `live_readiness.mode_label()` also answers IDLE (SIMULATION_MODE off but
@@ -1728,6 +1792,7 @@ def render_status_card(
                if phase_headroom.get("timed_out") else "") + ")"
             + _headroom_when(phase_headroom, lang)]),
         *([] if not _watch_line else [f"- {_watch_line}"]),
+        *([] if not _guard_line else [f"- {_guard_line}"]),
         "",
         f"<b>{t('hdr_capital', lang)}</b>",
         # equity is None only in LIVE mode when the balance is unreadable —

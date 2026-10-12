@@ -306,5 +306,15 @@
   "tx_untracked": "⏱ 時間決済なし：ボットにこのポジションの記録がないため、何も実行されません。",
   "tx_more": "ほか {n} 件の時間決済：/positions で個別に確認してください。",
   "grant_live_held": "<b>ライブ取引を許可 — 未保存</b>\n\n- ユーザー: <code>{id}</code>\n- この許可はこのボットプロセスの間だけ有効です: <code>users.json</code> に書き込めませんでした ({cls})。\n- 再起動すると失われ、自動では再適用されません。ディスクを修復してから <code>/grant_live {id}</code> を再実行するか、今すぐ <code>/revoke_live {id}</code> で取り消してください。",
-  "revoke_live_held": "<b>ライブ取引を取り消し — 未保存</b>\n\n- ユーザー: <code>{id}</code>\n- この取り消しはこのボットプロセスの間だけ有効です: <code>users.json</code> に書き込めませんでした ({cls})。\n- 再起動すると失われます: ディスクが書き込み可能になってから <code>/revoke_live {id}</code> を再実行しない限り、このユーザーは次の再起動後に再びライブ取引できます。"
+  "revoke_live_held": "<b>ライブ取引を取り消し — 未保存</b>\n\n- ユーザー: <code>{id}</code>\n- この取り消しはこのボットプロセスの間だけ有効です: <code>users.json</code> に書き込めませんでした ({cls})。\n- 再起動すると失われます: ディスクが書き込み可能になってから <code>/revoke_live {id}</code> を再実行しない限り、このユーザーは次の再起動後に再びライブ取引できます。",
+  "lbl_position_guard": "ポジションガード",
+  "val_guard_off": "オフ — 待機中の注文はティックごとに1回読み取られます",
+  "val_guard_every": "{s}秒ごと",
+  "val_guard_not_run": "まだ実行されていません",
+  "val_guard_timeout": "前回のチェックがタイムアウト — ティックは引き続き待機中の注文を読み取ります",
+  "val_guard_error": "前回のチェックが失敗 — ティックは引き続き待機中の注文を読み取ります",
+  "val_guard_stale": "最近のチェックなし",
+  "val_guard_idle": "待機中の注文なし",
+  "val_guard_read": "待機中の注文{n}件を読み取り",
+  "val_sltp_unknown_short": "記録なし"
 }

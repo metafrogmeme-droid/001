@@ -306,5 +306,15 @@
   "tx_untracked": "⏱ Geen tijdsexits: de bot heeft geen gegevens van deze positie, dus er loopt er geen.",
   "tx_more": "Tijdsexits voor nog {n}: open ze in /positions.",
   "grant_live_held": "<b>LIVE TRADEN TOEGESTAAN — NIET OPGESLAGEN</b>\n\n- Gebruiker: <code>{id}</code>\n- De toestemming geldt alleen voor dit botproces: <code>users.json</code> kon niet worden geschreven ({cls}).\n- Een herstart vergeet hem en niets past hem opnieuw toe. Repareer de schijf en voer <code>/grant_live {id}</code> opnieuw uit — of maak hem nu ongedaan met <code>/revoke_live {id}</code>.",
-  "revoke_live_held": "<b>LIVE TRADEN INGETROKKEN — NIET OPGESLAGEN</b>\n\n- Gebruiker: <code>{id}</code>\n- De intrekking geldt alleen voor dit botproces: <code>users.json</code> kon niet worden geschreven ({cls}).\n- Een herstart vergeet hem: deze gebruiker kan na de volgende herstart weer live traden, tenzij <code>/revoke_live {id}</code> opnieuw wordt uitgevoerd zodra de schijf weer beschrijfbaar is."
+  "revoke_live_held": "<b>LIVE TRADEN INGETROKKEN — NIET OPGESLAGEN</b>\n\n- Gebruiker: <code>{id}</code>\n- De intrekking geldt alleen voor dit botproces: <code>users.json</code> kon niet worden geschreven ({cls}).\n- Een herstart vergeet hem: deze gebruiker kan na de volgende herstart weer live traden, tenzij <code>/revoke_live {id}</code> opnieuw wordt uitgevoerd zodra de schijf weer beschrijfbaar is.",
+  "lbl_position_guard": "Positiebewaker",
+  "val_guard_off": "uit — wachtende orders worden één keer per cyclus gelezen",
+  "val_guard_every": "elke {s} s",
+  "val_guard_not_run": "nog niet uitgevoerd",
+  "val_guard_timeout": "laatste ronde liep in een time-out — de cyclus leest wachtende orders nog steeds",
+  "val_guard_error": "laatste ronde mislukt — de cyclus leest wachtende orders nog steeds",
+  "val_guard_stale": "geen recente ronde",
+  "val_guard_idle": "niets wachtend",
+  "val_guard_read": "{n} wachtende order(s) gelezen",
+  "val_sltp_unknown_short": "niet vastgelegd"
 }
