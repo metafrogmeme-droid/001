@@ -2555,6 +2555,13 @@ class RunStrategySkill(BaseSkill):
             "step_locks": [[2.0, 1.5], [4.0, 3.0], [6.0, 4.5]],
             "pullback_time_stop_hours": 4,
             "time_stop_hours": 12,
+            # Its portfolio layer (`limit_scanner.portfolio_cap`): at most 5
+            # markets and 2 of one class's alts, open or resting. Its own
+            # per-trade loss cap (15% of its budget) and daily circuit (30%
+            # pause, 40% stop) are looser than the house risk gate's and are
+            # not on this preset: the gate sizes and refuses every entry.
+            "max_concurrent": 5,
+            "max_correlated_alts": 2,
             # Where its card is measured: its own frozen universe, every bar.
             "scorecard_window": {"dataset": "limit_scanner_1h", "last_bars": 6000},
         },

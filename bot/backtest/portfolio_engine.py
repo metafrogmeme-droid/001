@@ -37,6 +37,10 @@ if TYPE_CHECKING:
     from bot.core.limit_scanner import ScannerParams
 
 
+#: The outcome `_place_scanner_plan` names for a limit it rested.
+PLACED = "placed a limit"
+
+
 class PortfolioBacktester:
     """Drives N single-symbol engines over one shared portfolio/risk state."""
 
@@ -291,7 +295,12 @@ class PortfolioBacktester:
         and a regime's half size halves the gate's size. A symbol that holds
         a position or a resting limit is scored and not placed again.
         """
-        from bot.core.limit_scanner import SNAPSHOT_BARS, scan_classes, snapshot_from_bars
+        from bot.core.limit_scanner import (
+            SNAPSHOT_BARS,
+            portfolio_cap,
+            scan_classes,
+            snapshot_from_bars,
+        )
         from bot.core.strategy_gate import _base
 
         params = self._scanner
@@ -303,15 +312,25 @@ class PortfolioBacktester:
             eng._signals_generated += 1
             snaps.append(snapshot_from_bars(sym, eng._all_raw[max(0, idx[sym] - SNAPSHOT_BARS):idx[sym]],
                                             params))
-        held = frozenset(
-            [_base(p.asset) for p in self._portfolio._positions.values()]
-            + [_base(o["idea"].asset) for e in self._engines.values() for o in e._pending_limits])
+        # Open positions and resting limits both: every scanner position is a
+        # limit that rested first, so a cap counted here holds at every fill.
+        holding = ([p.asset for p in self._portfolio._positions.values()]
+                   + [o["idea"].asset for e in self._engines.values() for o in e._pending_limits])
+        held = frozenset(_base(s) for s in holding)
         for name, result in scan_classes(snaps, params, held):
             prefix = "" if name == "all" else f"{name}: "
             if result.plan is None:
                 self._count_pass(prefix + result.reason.split(": ", 1)[-1])
                 continue
-            self._count_pass(prefix + self._place_scanner_plan(result, snaps, streams, idx))
+            capped = portfolio_cap(params, result.plan.symbol, holding)
+            if capped is not None:
+                self._count_pass(prefix + "capped: " + capped)
+                continue
+            outcome = self._place_scanner_plan(result, snaps, streams, idx)
+            if outcome == PLACED:
+                holding.append(result.plan.symbol)
+            self._count_pass(prefix + outcome)
+
 
     def _place_scanner_plan(self, result, snaps: list, streams: dict, idx: dict) -> str:
         """Put one pass's plan through the risk gate and rest it; the outcome."""
@@ -356,7 +375,7 @@ class PortfolioBacktester:
             eng._preset_atr_by_idea[idea.id] = snap.atr
         eng.risk.register_pending_intent(idea)
         eng._rest_limit(idea, check, bar)
-        return "placed a limit"
+        return PLACED
 
     def _count_pass(self, outcome: str) -> None:
         self.scanner_passes[outcome] = self.scanner_passes.get(outcome, 0) + 1
