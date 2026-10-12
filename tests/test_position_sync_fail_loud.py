@@ -5,7 +5,9 @@ The v3 fetch used to return [] for BOTH "no positions" and "channel failed"
 leverage corrupted margin/risk math. The channel now distinguishes: [] =
 genuinely empty / not-applicable, None = FAILED. The sync audits ERROR + feeds
 the risk engine's warning-rate breaker on failure, WARNs on an anomalous empty
-book, counts unmatched positions, and audits quantity drift REPORT-ONLY.
+book, counts unmatched positions, and audits quantity drift. One drifted
+pass writes nothing; two running true a record down to a venue holding less
+(`test_a_record_is_trued_down_to_what_the_venue_holds`).
 """
 import pytest
 from unittest.mock import MagicMock
@@ -128,15 +130,16 @@ async def test_unmatched_position_counted_not_silent(tmp_path, monkeypatch, capl
 
 
 @pytest.mark.asyncio
-async def test_qty_drift_is_report_only(tmp_path, monkeypatch):
+async def test_one_drifted_pass_is_audited_not_written(tmp_path, monkeypatch):
     e, p = _exec(tmp_path, None)
-    # Exchange reports 1.0 vs tracked 2.0 — >1% drift, must audit but NOT write.
+    # Exchange reports 1.0 vs tracked 2.0 — >1% drift, must audit but NOT write
+    # on one pass.
     _patch_fetch(monkeypatch, [{"symbol": "XPTUSDT", "leverage": "10", "total": "1.0"}])
     calls = _audits(monkeypatch)
     await e.sync_positions_from_exchange()
     drifts = [c for c in calls if c.get("action") == "qty_sync" and c.get("result") == "DRIFT"]
     assert drifts, "qty drift must be audited"
-    assert p.quantity == 2.0                      # never auto-written
+    assert p.quantity == 2.0                      # one snapshot is never written
 
 
 @pytest.mark.asyncio

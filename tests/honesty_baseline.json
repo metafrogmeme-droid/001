@@ -101,7 +101,7 @@
       "bot/core/engine.py": 33,
       "bot/core/exchange_sync.py": 6,
       "bot/core/flag_status.py": 1,
-      "bot/core/live_executor.py": 80,
+      "bot/core/live_executor.py": 79,
       "bot/core/market_scanner.py": 4,
       "bot/core/order_flow.py": 5,
       "bot/core/position_telemetry.py": 3,

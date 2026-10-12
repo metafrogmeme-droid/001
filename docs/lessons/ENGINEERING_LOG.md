@@ -828,7 +828,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 642 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 641 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -21419,7 +21419,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **489 of 1299** reach for source text through `source_scan`, `code_only`
+Driven, **489 of 1300** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 489 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -23841,3 +23841,49 @@ never measured, so neither arm says it.
 `tests/test_the_offline_card_says_what_an_outage_changes.py`: fourteen
 mutants, all killed. The shadow check's rewrite is the same predicate, and
 its existing test still holds it.)
+
+**A LIVE RECORD HELD MORE THAN THE VENUE BECAUSE TWO BOOKING SITES WROTE WHAT
+WAS ASKED, AND NOTHING EVER LOWERED IT.** 11 October, the M/USDT short
+TI-e9db9a8b: every close and its stop were refused for size, because the
+record said more than Bitget held. The orders now size to the venue
+(`_sized_to_venue`). This is why the record said more.
+
+Two sites booked the requested size whenever the order stated no fill: the
+drift fallback's market leg (`float(order.get("filled", 0) or qty)`) and the
+limit fill. Bitget's create-order answer states no fill, so a market leg that
+filled part was booked as if it had filled in full. Both now ask
+`_confirmed_fill`. It takes the order's own figure, then the order read
+again, then what this side of the venue's book holds beyond a resting partial
+already counted, and never more than was asked. A book that shows nothing new
+is not booked as an empty fill. It is as likely a book that has not caught
+up, and a fill booked short is exposure no stop covers. It books the
+requested size, marked ESTIMATED.
+
+Nothing lowered a record afterwards. The position sync saw the drift and only
+reported it, for a reason that still holds: a ladder stage or a close in
+flight differs from one snapshot. It still reports. Now, when this side of
+the book holds LESS on two passes running, against the same record, with no
+close in flight, the record is trued down to it (`_true_down_to_venue`). A
+stage that lands between the two passes has changed the record by then, so
+its snapshot is never seen twice. Any pass that does not read the record
+short starts the count again. MORE is never written: it can be exposure the
+bot did not open. A flat or unread book trues nothing, because flat is
+reconcile's to decide. The v3 row the sync reads is keyed by symbol alone.
+The write takes its figure from this side of the book, as the close does, so
+a hedge's other leg is never this record's.
+
+One function over sat the same reading in the opposite direction. The drift
+fallback read a cancelled limit's fill with `float(_final.get("filled", 0) or
+0)`, so a read that stated no fill counted as nothing filled. It then
+marketed the full size on top of whatever had rested, up to twice the
+approved exposure. A raised read was already refused for exactly that
+reason. A read that states no fill is refused the same way now. Honesty
+improved by one (`or-zero-coerce` in `live_executor.py`, 80 to 79) and is
+re-recorded here. The causes this does not reach at their source are a
+venue-side reduction, a close the venue took but did not confirm, and a
+restart that restores an older size. The true-down is their backstop.
+(`tests/test_a_record_is_trued_down_to_what_the_venue_holds.py`: sixteen
+mutants, all killed. A survivor showed that the "never more" check inside
+the true-down was unreached. The sync only asks when the row reads lower.
+It is reached when the row reads lower and this side holds more, and a test
+drives that now.)
