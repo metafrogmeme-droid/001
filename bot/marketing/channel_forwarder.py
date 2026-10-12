@@ -52,21 +52,14 @@ def _decided_by_words(idea) -> str:
 
 
 def _rr_words(idea) -> str:
-    """Reward to risk, gross and net of the fees, from `net_reward_risk`.
+    """Reward to risk, gross and net of the fees: `trade_costs.idea_rr_words`.
 
     The post computed its own gross ratio, so a 6.5x call that pays 5.7x after
     a taker round trip was published at 6.5x, and an unreadable stop printed
-    a confident 0.0x. One reading now, the one the ticket and chat cards use.
+    a confident 0.0x. One reading now, the one every idea card uses.
     """
-    from bot.core.trade_costs import net_reward_risk
-    costed = net_reward_risk(idea.entry_price, idea.stop_loss, idea.take_profit,
-                             order_type=getattr(idea, "order_type", None))
-    if costed is None:
-        return "<code>\u2014</code> (a level could not be read)"
-    if costed.net is None:
-        return (f"<code>{costed.gross:.1f}x</code> "
-                "(the target does not cover the fees)")
-    return f"<code>{costed.gross:.1f}x</code> ({costed.net:.1f}x after fees)"
+    from bot.core.trade_costs import idea_rr_words
+    return idea_rr_words(idea, wrap=lambda s: f"<code>{s}</code>")
 
 
 class ChannelForwarder:
