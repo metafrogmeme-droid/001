@@ -598,6 +598,30 @@ def _compute_limit_entry(
 __all__ = ["Analyzer", "Regime", "_ema", "_compute_adx", "_sanitize_symbol"]
 
 
+#: Who decided a thesis, read off the source it was stamped with.
+DECIDED_BY_LLM = "llm"
+DECIDED_BY_RULES = "rules"
+
+
+def thesis_decided_by(source: object) -> Optional[str]:
+    """``DECIDED_BY_LLM`` for the model's own call (``LLM_<tier>``, a fallback
+    provider's, a cached copy of either), ``DECIDED_BY_RULES`` for the rule
+    engine's under any of its routes (``RULE_ENGINE_DECIDES`` when LLM_DECIDES
+    is off, a budget or throttle fallback), and None for anything else: a
+    recorded replay, a hand-typed ticket, a source nobody stamped. None is not
+    "the rules"; a surface that cannot tell says nothing about who decided.
+
+    An idea carries the source as ``model_provider`` (a rule thesis has no
+    model name, and the LLM's names its model under ``model_used``).
+    """
+    s = str(source or "")
+    if s.startswith("LLM_"):
+        return DECIDED_BY_LLM
+    if s.startswith("RULE_ENGINE"):
+        return DECIDED_BY_RULES
+    return None
+
+
 def _calibration_llm_fields(thesis: dict) -> dict:
     """The calibration row's model fields: the LLM's own call, and who decided.
 
@@ -4233,7 +4257,7 @@ class Analyzer:
                 background=background, _shadow=True)
             # Only the LLM's own call is its view: a shadow the pipeline sent
             # to the rule engine (budget, tier 1, throttle) is not.
-            if shadow is not None and str(shadow.get("source", "")).startswith("LLM_"):
+            if shadow is not None and thesis_decided_by(shadow.get("source")) == DECIDED_BY_LLM:
                 decision["shadow_llm"] = {
                     k: shadow.get(k) for k in ("direction", "confidence", "reasoning",
                                                "model_used", "source", "prompt_hash")}
