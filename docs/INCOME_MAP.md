@@ -2003,8 +2003,8 @@ the rows nobody could reach is a partial total printed as whole.
 *Replayed over the frozen snapshots (2026-09-24), it does not pay, and the
 record as first written would have said it did.* `scripts/poc_retest_replay.py`
 reads every closed 1h bar the way `observe_setup` does. At the operator's
-parameters the setup is +0.03R [−0.25, +0.30] over 262 scored setups on the
-two disjoint v2 snapshots, and −0.39R [−0.74, +0.01] over 45 on the fresh
+parameters the setup is +0.00R [−0.25, +0.28] over 262 scored setups on the
+two disjoint v2 snapshots, and −0.41R [−0.77, +0.09] over 47 on the fresh
 window. None of the 81 parameter cells clears zero, and a cell's rank on one
 window says nothing about its rank on the other. The record, though, armed any
 confirmed read whenever somebody asked, and scored it from its retest candle.

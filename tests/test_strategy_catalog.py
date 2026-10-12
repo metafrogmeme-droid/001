@@ -105,7 +105,7 @@ def test_copy_follow_shows_the_verdict_and_withholds_profit_factor_below_one(tmp
     the running-strategy record the live gate reads.
     """
     cards = {c["id"]: c for c in sc.catalog()}
-    for aid in ("full-scan", "safe-scalper", "eth-ma-trend"):
+    for aid in ("full-scan", "eth-ma-trend", "dip-sniper"):
         card = cards[aid]
         assert card["copy_follow"] is False
         assert card["copy_follow_reason"] == "below_one"
@@ -114,19 +114,25 @@ def test_copy_follow_shows_the_verdict_and_withholds_profit_factor_below_one(tmp
         assert score["folds"] is None
         assert isinstance(score["metrics"]["total_trades"], int)
         assert score["metrics"]["profit_factor"] < 1
-    for aid in ("dip-sniper", "momentum-hunter"):
+    # Re-recorded on the repaired majors window: neither took a trade. Their
+    # ratios are not measured, and "no trades" is not "below 1".
+    for aid in ("momentum-hunter", "safe-scalper"):
         card = cards[aid]
-        assert card["copy_follow"] is True
-        assert card["copy_follow_reason"] == "offered"
-        assert card["scorecard"]["data_mark"] == "discovery"
-        assert card["scorecard"]["folds"] is None
-        assert card["scorecard"]["metrics"]["profit_factor"] >= 1
+        assert card["copy_follow"] is False
+        assert card["copy_follow_reason"] == "no_trades"
+        m = card["scorecard"]["metrics"]
+        assert m["total_trades"] == 0
+        assert m["profit_factor"] is None and m["win_rate"] is None and m["sharpe_ratio"] is None
+        assert m["total_return_pct"] == 0.0, "a flat book is measured; only its ratios are not"
     for aid in ("daily-vol-rotation", "alt-sweep"):
         assert cards[aid]["copy_follow"] is False
         assert cards[aid]["copy_follow_reason"] == "no_verdict"
 
-    scored = {"metrics": {"profit_factor": 1, "total_trades": 0}, "data_mark": "discovery"}
+    scored = {"metrics": {"profit_factor": 1, "total_trades": 3}, "data_mark": "discovery"}
     assert sc.follow_listing(scored, MISSING) == (True, "offered")
+    never = {"metrics": {"profit_factor": 1, "total_trades": 0}, "data_mark": "discovery"}
+    assert sc.follow_listing(never, ELIGIBLE) == (False, "no_trades"), (
+        "no trades is no verdict, whatever the ratio field says or a record grants")
     below = {"metrics": {"profit_factor": 0.99, "total_trades": 4}, "data_mark": "discovery"}
     assert sc.follow_listing(below, MISSING) == (False, "below_one")
     zero = {"metrics": {"profit_factor": 0, "total_trades": 1}, "data_mark": "discovery"}

@@ -65,9 +65,9 @@ it (1.1 MB gzipped for 10 symbols × ~6000 bars) means a fresh sandbox runs the
 | | |
 |---|---|
 | Universe | 10 majors as USDT-M perps (BTC ETH SOL XRP DOGE ADA LINK AVAX LTC BNB) |
-| Bars | 5,994 × 1h per symbol (~250 days) |
+| Bars | 6,000 × 1h per symbol (~250 days) |
 | Window | 2025-10-27 → 2026-07-04 |
-| `dataset_hash` | `8dbe73514ce8…` |
+| `dataset_hash` | `ccc3f70b7ed7…` (was `8dbe73514ce8…` before the six hours a symbol the old pager skipped were filled in place, 2026-10-12) |
 | Size | 1.1 MB (gzipped CSV + `manifest.json`) |
 
 ## Honest baseline (this snapshot, `--honest --walk-forward 6`)
@@ -326,6 +326,20 @@ the win rate from 51.2% to 49.6%. No position held both a winning and a losing
 fill, so the gross win, the gross loss and the profit factor are unchanged.
 Fold by fold the trades are 50, 8, 21, 11, 22 and 13, from 52, 8, 22, 11, 23
 and 13 fills.
+
+**Re-recorded on 2026-10-12 at `5c46595e`, the commit that fills the pager's
+missing bars in place.** 196 pooled trades, 107/89, net −$1,965.82, PF 0.65,
+1 of 6 folds profitable, mean OOS −3.27%, worst −6.73%, on `dataset_hash`
+`ccc3f70b7ed7…`. That is the same window as `8dbe73514ce8…`, frozen on the same
+day, with the six hours a symbol the old pager skipped (60 bars in 60,000)
+taken from the venue, each only where the venue's hour either side equals the
+stored bar. The data moved the figure and the code did not: this commit's code
+on the old data gives 125 trades and net −$1,456.34, the record above to the
+cent. Fold by fold the trades are 40, 30, 27, 60, 13 and 26, where they were
+50, 8, 21, 11, 22 and 13. One fold of six is still the only profitable one and
+the profit factor is still below 1, so the verdict holds. A fold's trade
+count does not: 60 bars moved one fold from 11 trades to 60, so on windows
+this short a count is not a reading of the strategy.
 
 **The stamps above were taken on branches that were rebased before they
 merged.** `afec9d2a`, `cbbf9348`, `d8b0f7d6`, `b8c36630` and `facb316b` do not
@@ -1150,10 +1164,16 @@ The rule was written down before any v2 or v3 number was computed. Only
 
 | operator's parameters (0.25 ATR buffer, 5-candle window, 2R net, 2 ATR stop) | scored | target / stop | mean R [95% week clusters] | verdict |
 |---|---:|---:|---:|---|
-| v2, majors + alts pooled (disjoint, Feb 2025 → Jul 2026) | 262 | 63 / 199 | **+0.03 [−0.25, +0.30]** | too thin |
+| v2, majors + alts pooled (disjoint, Feb 2025 → Jul 2026) | 262 | 61 / 201 | **+0.00 [−0.25, +0.28]** | too thin |
 | v2 majors alone | 134 | 24 / 110 | −0.25 [−0.57, +0.12] | too thin |
-| v2 alts alone | 128 | 39 / 89 | +0.33 [−0.04, +0.73] | too thin |
-| fresh v3, majors + alts (retests after 2026-07-06T09:00Z) | 45 | 8 / 37 | **−0.39 [−0.74, +0.01]** | too thin |
+| v2 alts alone | 128 | 37 / 91 | +0.27 [−0.12, +0.64] | too thin |
+| fresh v3, majors + alts (retests after 2026-07-06T09:00Z) | 47 | 8 / 39 | **−0.41 [−0.77, +0.09]** | too thin |
+
+Re-recorded on 2026-10-12 on the repaired snapshots (the pager's missing bars
+filled in place). Before, the rows read +0.03 over 262 (63 / 199), +0.33 on
+the alts and −0.39 over 45 (8 / 37); the same code on the old data gives
++0.00 and −0.33 over 46, so the first row's move is the code's, made since
+the rows were written, and the fresh row's is both. No verdict changes.
 
 **It does not survive fees.** Over 17 months the mean is zero to two decimals;
 the two universes disagree in sign, and the fresh window leans negative.
@@ -1566,6 +1586,38 @@ from follow (profit factor below 1). The reset is an assumption about an
 operator, not live behaviour: live, a streak or drawdown trip waits for
 `/resume`. The frozen record (`benchmark/majors_1h/result.json`) is not a
 card and is not re-recorded.
+
+### The cards on the repaired window (2026-10-12)
+
+The six hours a symbol the old pager skipped all fall inside the cards'
+window, between 7 May and 18 June. Filled in place (`snapshot --repair`), the
+window keeps its last bar, and its 1,500 bars now start six hours later.
+Re-recorded at `5c46595e`, same command, same 24-bar reset:
+
+| card | on `8dbe73514ce8` | on `ccc3f70b7ed7` (repaired) | breaker trips |
+|---|---|---|---:|
+| Full Scan | −1.75%, PF 0.88, 40 trades | −6.37%, PF 0.48, 25 trades | 2 |
+| Dip Sniper | +3.24%, PF 1.62, 13 trades | −2.98%, PF 0.23, 4 trades | 0 |
+| Momentum Hunter | +0.45%, PF 1.80, 3 trades | no trades | 0 |
+| Safe Scalper | −0.18%, PF 0.00, 1 trade | no trades | 0 |
+| ETH MA trend | −2.50%, PF 0.00, 1 trade | −5.61%, PF 0.00, 1 trade | 0 |
+
+The Limit Entry Scanner card reads `limit_scanner_1h`, frozen with the fixed
+pager, and does not move. The control is the same code on the old data, which
+reproduces every old card exactly, so every move above is the 60 bars and the
+start they moved. The start alone moves Dip Sniper as far (re-run 2026-10-12):
+on the old data, a window that starts six bars later takes 2 trades for
+−0.26%; on the repaired data, one that starts at the old window's first hour
+takes 8 trades for +8.99% and never loses. These cards are a handful of trades
+each, and which handful depends on where the window starts. They were never
+evidence of an edge, and the table says so more loudly than the old one did.
+
+Two consequences. No card is offered for follow now: Dip Sniper's profit
+factor is below 1, and Momentum Hunter took no trades, which is no verdict at
+all. A run with no trades has no ratios either. The runner writes 0.0 for its
+profit factor, win rate and Sharpe, and every surface read that 0.0 as "traded
+and lost". The catalogue now sends them as null, the card prints dashes, and
+its flat 0.00% takes no colour.
 
 ## Refreshing the snapshot
 

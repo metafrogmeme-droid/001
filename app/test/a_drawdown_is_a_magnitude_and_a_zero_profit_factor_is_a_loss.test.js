@@ -18,8 +18,8 @@
  * kind is `agentBacktest` now; `copyLeader` had no other reader.
  *
  * Driven: each renderer is cut out by its own markers and run, and the
- * frozen ETH MA trend and Safe Scalper cards (profit factor 0) are the
- * fixture.
+ * frozen ETH MA trend card (one losing trade, profit factor 0) and Safe
+ * Scalper card (no trades, so no ratios) are the fixture.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -95,10 +95,10 @@ function compareMetric(withPainter = true) {
 test('compare: a drawdown is a magnitude, never a green "+"', () => {
   const metric = compareMetric();
   const dd = metric(ETH_MA.metrics, 'max_drawdown_pct');
-  assert.equal(dd.text, '15.86%');
+  assert.equal(dd.text, '15.49%');
   neutral(dd.cls, 'compare drawdown');
   const ret = metric(ETH_MA.metrics, 'total_return_pct');
-  assert.equal(ret.text, '-2.50%');
+  assert.equal(ret.text, '-5.61%');
   assert.equal(ret.cls, 'neg');
   // The other arm: a gain is still a gain.
   const up = metric({ total_return_pct: 3.24 }, 'total_return_pct');
@@ -108,12 +108,16 @@ test('compare: a drawdown is a magnitude, never a green "+"', () => {
 
 test('compare: a measured profit factor of 0 is a loss, 1.62 a gain', () => {
   const metric = compareMetric();
-  const zero = metric(SCALPER.metrics, 'profit_factor');
+  const zero = metric(ETH_MA.metrics, 'profit_factor');
   assert.equal(zero.text, '0.00');
   assert.equal(zero.cls, 'neg');
   const gain = metric({ profit_factor: 1.62 }, 'profit_factor');
   assert.equal(gain.cls, 'pos');
-  assert.equal(metric(SCALPER.metrics, 'win_rate').text, '0%');
+  assert.equal(metric(ETH_MA.metrics, 'win_rate').text, '0%');
+  // No trades is not a profit factor of 0: there is nothing to divide.
+  assert.equal(SCALPER.metrics.total_trades, 0);
+  assert.equal(metric(SCALPER.metrics, 'profit_factor').text, '—');
+  assert.equal(metric(SCALPER.metrics, 'win_rate').text, '—');
 });
 
 test('compare: an unread figure is the page dash, and so is a missing painter', () => {
@@ -150,7 +154,7 @@ test('Lab: profit factor 0 is a loss and a drawdown takes no colour', () => {
   assert.equal(pf.text, '0.00');
   assert.equal(pf.cls, 'neg');
   const dd = labTile(html, 'Max drawdown');
-  assert.equal(dd.text, '15.86%');
+  assert.equal(dd.text, '15.49%');
   neutral(dd.cls, 'Lab drawdown');
   assert.equal(labTile(html, 'Return').cls, 'neg');
   assert.equal(labTile(html, 'Net PnL').text, '$-25');
