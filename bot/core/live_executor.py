@@ -2542,6 +2542,9 @@ class LiveExecutor:
         # close_position() is called from check_positions, reconcile_positions,
         # and Telegram handler — all can race on the same trade_id.
         self._close_locks: dict[str, asyncio.Lock] = {}
+        #: A record the venue held less than on the last sync: trade id ->
+        #: (venue size, record size). Two equal passes true the record down.
+        self._venue_short_seen: dict[str, tuple[float, float]] = {}
         # C2-27: Track consecutive ticker fetch failures per symbol
         self._ticker_failure_count: dict[str, int] = {}
         # Callback: invoked after any position is closed (for balance cache invalidation)
@@ -9748,6 +9751,86 @@ class LiveExecutor:
             logger.debug("held size unread for %s: %s", symbol, type(exc).__name__)
             return None
 
+    async def _true_down_to_venue(self, pos) -> bool:
+        """Lower a record that says more than the venue holds; True when it did.
+
+        The sync's drift report never wrote the size, for a reason that still
+        holds: a ladder stage or a close in flight differs from one snapshot.
+        So the record is trued down only when the venue holds LESS on this
+        position's side (`_held_on_venue`, the side-aware reading the close
+        sizes with), no close is in flight, and the same lower figure was
+        read on the previous pass against the same record. A stage that
+        completed between the two passes has lowered the record by then, and
+        a snapshot taken mid-stage is not seen twice. MORE than the record is
+        never written: it can be exposure the bot did not open. A flat or
+        unread book trues nothing; flat is reconcile's to decide.
+        """
+        lock = self._close_locks.get(pos.trade_id)
+        if lock is not None and lock.locked():
+            return False
+        try:
+            exchange = await self._get_exchange()
+        except Exception:
+            return False
+        held = await self._held_on_venue(exchange, pos.symbol, pos.direction)
+        if held is None or held <= 0 or held >= pos.quantity * 0.99:
+            self._venue_short_seen.pop(pos.trade_id, None)
+            return False
+        seen = self._venue_short_seen.get(pos.trade_id)
+        reading = (held, pos.quantity)
+        if seen != reading:
+            self._venue_short_seen[pos.trade_id] = reading
+            return False
+        self._venue_short_seen.pop(pos.trade_id, None)
+        old = pos.quantity
+        pos.quantity = held
+        if old > 0:
+            pos.cost_usd = pos.cost_usd * held / old
+        audit(trade_log,
+              f"Qty sync {pos.symbol}: the record held {old}, the venue holds {held} on "
+              f"its side on two passes running; the record is trued down to it",
+              action="qty_sync", result="TRUED_DOWN", level=logging.WARNING,
+              data={"trade_id": pos.trade_id, "tracked": old, "venue": held})
+        return True
+
+    async def _confirmed_fill(self, exchange, order: dict, symbol: str, direction,
+                              requested: float, *, also_held: float = 0.0,
+                              order_id: Optional[str] = None) -> tuple[float, str]:
+        """How much an order filled, and where that figure came from.
+
+        The order's own ``filled``; else the order read again; else what the
+        venue's book holds on this side, less ``also_held`` (a resting
+        partial fill already counted), never more than ``requested``; else
+        ``requested``, marked ESTIMATED. A book that shows nothing beyond
+        ``also_held`` is not booked as an empty fill: it is as likely a book
+        that has not caught up, and a fill booked short is exposure no stop
+        covers. The sync's true-down (`_true_down_to_venue`) settles an
+        estimate the venue does not bear out. The drift fallback and the limit
+        fill booked ``requested`` whenever the order stated no fill, and
+        Bitget's create-order answer states none, so a market leg that
+        filled little was booked as if it filled in full: the record then
+        held more than the venue, and every close and stop sized to it was
+        refused for size (M/USDT, 11 October).
+        """
+        # A positive figure only: a create-order answer's 0.0 is a placeholder
+        # as often as a reading, and booking it would book an empty position.
+        stated = read_amount(order, "filled")
+        if stated is not None and stated > 0:
+            return stated, "order"
+        oid = order_id or order.get("id")
+        if oid:
+            try:
+                again = await self._fetch_order(exchange, oid, symbol)
+                read = read_amount(again, "filled")
+                if read is not None and read > 0:
+                    return read, "fetched_order"
+            except Exception as exc:
+                logger.debug("fill re-read failed for %s: %s", symbol, type(exc).__name__)
+        held = await self._held_on_venue(exchange, symbol, direction)
+        if held is not None and held - float(also_held) > 0:
+            return min(float(requested), held - float(also_held)), "venue_book"
+        return float(requested), "ESTIMATED"
+
     async def _sized_to_venue(self, exchange, symbol: str, direction,
                               recorded: float) -> float:
         """The size an order that reduces this position sends.
@@ -10023,9 +10106,11 @@ class LiveExecutor:
         Called on startup and periodically. Queries the v3 position API and
         updates any tracked position whose leverage differs from what the
         exchange states — stale leverage silently corrupts margin/risk math.
-        Quantity drift is detected and audited REPORT-ONLY (never auto-written:
-        partial-TP ladders, pyramids and in-flight closes legitimately diverge
-        from a point-in-time snapshot).
+        Quantity drift is audited. A venue holding MORE is never written; a
+        venue holding LESS on this side, read twice running against the same
+        record with no close in flight, trues the record down
+        (`_true_down_to_venue`): a ladder stage or a close in flight diverges
+        from one snapshot, not from two.
 
         WHICH ROW STATES THE LEVERAGE depends on the account, and it is the
         same row the post-fill guard reads (`governing_fill_leverage`). On a
@@ -10143,6 +10228,9 @@ class LiveExecutor:
 
         synced = 0
         unmatched = 0
+        # A short reading counts toward a true-down only on consecutive
+        # passes: a position this pass does not ask about starts again.
+        _short_asked: set[str] = set()
         for pos in open_pos:
             bitget_sym = pos.symbol.replace("/USDT", "USDT").replace(":USDT", "")
             ex_data = exchange_map.get(bitget_sym)
@@ -10228,7 +10316,9 @@ class LiveExecutor:
                                 "new": _avg})
                     changed = True
 
-            # Quantity drift — REPORT-ONLY (see docstring: never auto-write).
+            # Quantity drift: reported, and a venue holding LESS on two passes
+            # running trues the record down (`_true_down_to_venue`). More is
+            # report-only: it can be exposure the bot did not open.
             ex_qty_raw = ex_data.get("total") or ex_data.get("available")
             if ex_qty_raw is not None and pos.quantity > 0:
                 try:
@@ -10238,14 +10328,21 @@ class LiveExecutor:
                 if ex_qty > 0 and abs(ex_qty - pos.quantity) / pos.quantity > 0.01:
                     audit(trade_log,
                           f"Qty drift {pos.symbol}: tracked {pos.quantity} vs "
-                          f"exchange {ex_qty} (report-only)",
+                          f"exchange {ex_qty}",
                           action="qty_sync", result="DRIFT",
                           level=logging.WARNING,
                           data={"trade_id": pos.trade_id, "tracked": pos.quantity,
                                 "exchange": ex_qty})
+                    if ex_qty < pos.quantity:
+                        _short_asked.add(pos.trade_id)
+                        if await self._true_down_to_venue(pos):
+                            changed = True
 
             if changed:
                 synced += 1
+
+        for _tid in [t for t in self._venue_short_seen if t not in _short_asked]:
+            del self._venue_short_seen[_tid]
 
         if synced > 0:
             self._save_positions()
@@ -10860,8 +10957,9 @@ class LiveExecutor:
                         else:
                             _then = ("no order id came back (the order call raised or "
                                      "the venue returned none), so it cannot be "
-                                     "re-read and the stage is not retried; the "
-                                     "position sync corrects the quantity")
+                                     "re-read and the stage is not retried; if it "
+                                     "filled, the position sync trues the quantity "
+                                     "down once the venue shows less on two passes")
                         audit(trade_log,
                               f"Partial TP {act.stage} for {pos.symbol}: fill UNREAD "
                               f"— quantity and stop left unchanged; {_then}",
@@ -12032,7 +12130,16 @@ class LiveExecutor:
             if order_status in ("closed", "filled", "partially_filled"):
                 # Limit order filled (or partially filled) — transition to open position
                 fill_price = float(order.get("average", 0) or order.get("price", 0) or pos.entry_price)
-                filled_qty = float(order.get("filled", 0) or pos.quantity)
+                filled_qty, _qty_source = await self._confirmed_fill(
+                    exchange, order, pos.symbol, pos.direction, pos.quantity,
+                    order_id=pos.limit_order_id)
+                if _qty_source in ("venue_book", "ESTIMATED"):
+                    audit(trade_log,
+                          f"Limit fill {pos.symbol}: the order stated no filled amount; "
+                          f"booked {filled_qty} from {_qty_source}",
+                          action="fill_verify", result=_qty_source.upper(),
+                          data={"trade_id": trade_id, "requested": pos.quantity,
+                                "booked": filled_qty})
 
                 # ── Duplicate-fill guard (live incident: UNI double "TRADE
                 # OPENED"). The adoption sweep can mint a SECOND pending_fill
@@ -12838,7 +12945,11 @@ class LiveExecutor:
             pre_filled, pre_avg = 0.0, 0.0
             try:
                 _final = await self._fetch_order(exchange, pos.limit_order_id, pos.symbol)
-                pre_filled = float(_final.get("filled", 0) or 0)
+                _pf = read_amount(_final, "filled")
+                if _pf is None:
+                    # A read that states no fill is not "nothing filled".
+                    raise ValueError("the order states no filled amount")
+                pre_filled = _pf
                 pre_avg = float(_final.get("average", 0) or 0)
             except Exception as _pf_exc:
                 # An unread fill is NOT zero filled. Marketing the full size on
@@ -12919,7 +13030,15 @@ class LiveExecutor:
             else:
                 fill_price = float(cur_price)
                 _fb_source = ENTRY_ESTIMATED
-            filled_qty = float(order.get("filled", 0) or qty)
+            filled_qty, _qty_source = await self._confirmed_fill(
+                exchange, order, pos.symbol, pos.direction, qty, also_held=pre_filled)
+            if _qty_source in ("venue_book", "ESTIMATED"):
+                audit(trade_log,
+                      f"Drift fallback {pos.symbol}: the market leg stated no filled amount; "
+                      f"booked {filled_qty} from {_qty_source}",
+                      action="fill_verify", result=_qty_source.upper(),
+                      data={"trade_id": pos.trade_id, "requested": qty,
+                            "booked": filled_qty, "pre_filled": pre_filled})
             if pre_filled > 0:
                 # Blend the resting partial fill with the market fill so the
                 # tracked position matches the REAL exchange exposure and the
