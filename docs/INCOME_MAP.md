@@ -1695,7 +1695,7 @@ unl…
 ## Capabilities this map has no leaf for
 
 The critic re-read the tree after the fifteen classifiers finished and found
-capabilities none of them had named. The list is twenty-three now, and it was
+capabilities none of them had named. The list is twenty-four now, and it was
 written down as a smaller number in three places while growing under them —
 slices kept shipping capabilities the map still has no leaf for (the trade
 co-pilot, trade costs, why a stop could not be placed, the POC-retest setup)
@@ -1852,6 +1852,17 @@ The dated note — the summary the store already folds, the watchlist the user
 saved, and a question with no reply yet — is one read
 (`bot/nlp/chat_memory.py::read_note`). It writes nothing. A line that is
 not on record stays absent, and a file that will not read stays unread.
+
+**Chat market read**
+
+A market question the router has no rule for ("is SOL a buy right now") is
+answered from the engine's own read on that symbol: the `market_read` chat
+tool (`bot/nlp/chat_market_read.py::market_read`) runs the scanner's
+deterministic read (`bot/core/analyzer.py::Analyzer.scan_read`, the rule
+thesis and no LLM) on the analyzer's closed 1h bars from the engine's candle
+cache. It hands the model a direction or none, a score, the regime and the
+confluence oriented to the direction, and says what it did not read. It
+places nothing and queues no idea. A read that could not be made is unread.
 
 Browser side: app/public/js/copilot-review-model.js renders the block, and the
 dashboard ticket, the dashboard confirm modal (openTradeModal) and the chat
@@ -2149,24 +2160,28 @@ same two leaves and were not counted, including /quant, which CLAUDE.md
 records as only just wired.
 
 *Where.* All registered in bot/skills/telegram_handler.py and catalogued in
-`bot/skills/command_catalog.py::GROUPS`: /intraday (15m), /patterns, /squeeze,
+`bot/skills/command_catalog.py::GROUPS`: /intraday (15m), /squeeze,
 /sweep, /zones, /session, /mode, plus /quant (@guard("analyze"),
 bot/skills/quant_skill.py, skill quant_analyze — it LEFT
-tests/unreachable_skills_baseline.txt). Web counterparts: GET /api/patterns/*
+tests/unreachable_skills_baseline.txt). /patterns was listed here and is not
+a scan: it groups the learning store's closes by regime, every account's,
+so it is the operator's (`bot/skills/skill_registry.py::PatternsSkill`). Web counterparts: GET /api/patterns/*
 and /api/insight/* (app/routes/patterns.js, insight.js) feeding panels
 #c-mkpat, #c-spat, #c-insight, #c-tinsight.
 
 **Trading-cost / fee-reduction surface**
 
-Trading-cost / fee-reduction surface — a costs breakdown command and a
-documented lever inventory whose largest item is an off-code account setting
-(~20% off every fill), with maker-preferred limit entry in the engine.
+Trading-cost / fee-reduction surface — a documented lever inventory whose
+largest item is an off-code account setting (~20% off every fill), with
+maker-preferred limit entry in the engine.
 
-*Where.* Telegram /costs (`bot/skills/command_catalog.py::GROUPS#'("costs",'`, registered in
-telegram_handler.py); docs/FEE_REDUCTION.md (BGB discount runbook);
+*Where.* docs/FEE_REDUCTION.md (BGB discount runbook);
 bot/core/limit_entry.py, bot/core/cost.py, bot/core/slippage.py, maker-
 preference flags in bot/config.py and bot/core/venues.py; dashboard
-#c-venuepnl / #c-breakdown (app/lib/venue_breakdown.js).
+#c-venuepnl / #c-breakdown (app/lib/venue_breakdown.js). Telegram /costs
+(`bot/skills/command_catalog.py::GROUPS#'("costs",'`) was listed here as the costs breakdown and is not
+one: it is the operator's model and API spend against the LLM budget
+(`bot/skills/skill_registry.py::CostBreakdownSkill`), and prints nothing about a fill.
 
 ## What this sweep could not determine
 

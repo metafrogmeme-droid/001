@@ -141,7 +141,14 @@ def test_the_empty_reply_does_not_blame_availability():
     assert "temporarily unavailable" not in branch, (
         "the empty-completion reply still says the AI is unavailable — it is "
         "available, and that sentence sends an operator to the tunnel")
-    assert "key and endpoint are fine" in branch
+    # What every provider answering says about the keys goes to the
+    # OPERATOR, whose keys they are, through the surface's door
+    # (`fallback_door(..., operator=is_admin)`); "your key and endpoint are
+    # fine" to every reader was a claim about a key most of them never gave.
+    # Driven per surface and role in
+    # tests/test_a_failure_names_only_doors_its_surface_has.py.
+    assert "key and endpoint are fine" not in branch
+    assert "operator=is_admin" in branch
 
 
 def test_the_unreachable_reply_still_exists_for_the_case_it_fits():

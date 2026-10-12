@@ -176,7 +176,9 @@ test('the public stream route relays without any identity', async () => {
   const fr = frames(r.text);
   assert.deepEqual(fr.map((f) => f.event), ['delta', 'delta', 'final']);
   const call = seen.find((s) => s.url === '/gateway/chat/public/stream');
-  assert.deepEqual(call.body, { text: 'what is runeclaw', lang: 'es' });
+  const { visitor, ...rest } = call.body;
+  assert.deepEqual(rest, { text: 'what is runeclaw', lang: 'es' });
+  assert.match(visitor, /^[0-9a-f]{32}$/, 'the opaque per-visitor key, never an account');
 });
 
 test('the plain routes still answer JSON exactly as before', async () => {

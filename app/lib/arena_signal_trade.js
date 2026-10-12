@@ -209,7 +209,9 @@ function decorateForPicker(signals, ctx = {}) {
       signal_entry: signalEntry > 0 ? signalEntry : null,
       stop_loss: Number(s.stop_loss) > 0 ? Number(s.stop_loss) : null,
       take_profit: Number(s.take_profit) > 0 ? Number(s.take_profit) : null,
-      // Confidence is the engine's own number and is shown as a percent.
+      // Confidence is the engine's own score, sent x100 to one decimal. It
+      // is not a probability and the page words it as a score
+      // (RCConfidenceScore), never with a percent sign.
       confidence: s.confidence == null ? null : Math.round(Number(s.confidence) * 1000) / 10,
       pattern: s.pattern || null,
       created_at: s.created_at || null,

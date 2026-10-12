@@ -64,8 +64,12 @@
     "sha": "8c79f05320d03c22"
   },
   "js/chat.js": {
-    "v": 38,
-    "sha": "544f1300f8b48cbf"
+    "v": 39,
+    "sha": "dca5108f22cdcb65"
+  },
+  "js/confidence-score.js": {
+    "v": 1,
+    "sha": "a2992df44d7765fd"
   },
   "js/context-chips-model.js": {
     "v": 2,
@@ -80,8 +84,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 234,
-    "sha": "9b85a05e60586e05"
+    "v": 235,
+    "sha": "d3cc380b6b2c74f9"
   },
   "js/decision-court-model.js": {
     "v": 2,
@@ -112,8 +116,8 @@
     "sha": "3d66a71d40da7fd8"
   },
   "js/embed-row.js": {
-    "v": 2,
-    "sha": "747299db4fcd7754"
+    "v": 3,
+    "sha": "da54ce168a0d3718"
   },
   "js/embed-signals.js": {
     "v": 8,
@@ -156,8 +160,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 169,
-    "sha": "d1a0df4f31614562"
+    "v": 170,
+    "sha": "ebf25a2c6b817c00"
   },
   "js/icons.js": {
     "v": 6,

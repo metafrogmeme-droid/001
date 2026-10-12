@@ -106,7 +106,7 @@ def signal_card_caption(idea, record_line: Optional[str] = None) -> str:
     strategy = getattr(idea, "strategy_type", "").upper()
     strategy_text = f" [{strategy}]" if strategy else ""
     cap = (f"<b>{pair} {direction}</b>{strategy_text} | Conf "
-           f"{displayed_confidence(idea).pct()}")
+           f"{displayed_confidence(idea).text()}")
     # The recipient's own live record in this idea's asset class
     # (`class_record_line`), computed by the sender, which knows who that is.
     return cap + (f"\n{html.escape(record_line)}" if record_line else "")
@@ -687,7 +687,7 @@ class AlertsMonitor:
                 pair = idea.asset.replace("/USDT", "")
                 direction = idea.direction.value if hasattr(idea.direction, "value") else str(idea.direction)
                 # The measured reading, for the reason the caption above gives.
-                conf_txt = displayed_confidence(idea).pct()
+                conf_txt = displayed_confidence(idea).text()
                 from datetime import datetime as _dt, timezone as _tz
                 card_lines = [
                     ("\U0001f916 <b>AUTO-CONFIRM: OUTCOME UNVERIFIED</b>" if unverified

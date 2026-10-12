@@ -312,7 +312,11 @@
     const div = document.createElement('div');
     div.className = 'chat-card chat-setup';
     const rr = (s.rr != null) ? `R:R ${fmt(s.rr)}` : '';
-    const conf = (s.confidence != null) ? `<span class="chip chip--info">${Math.round(s.confidence * 100)}% conf</span>` : '';
+    // A score, never `72% conf`: no curve has mapped it to outcomes. A chip
+    // the wording model cannot write is left off rather than spelt here.
+    const CS = (typeof self !== 'undefined' && self.RCConfidenceScore) || null;
+    const confText = CS ? CS.text(s.confidence) : null;
+    const conf = confText ? `<span class="chip chip--info">confidence ${esc(confText)}</span>` : '';
     div.innerHTML = `
       <div class="kv-row"><span>${esc(s.symbol)}/USDT ${esc(dir)} ${conf}</span><b>${rr}</b></div>
       <div class="kv-row"><span>Entry · Stop · Target</span><b>$${fmt(s.entry, 4)} · $${fmt(s.sl, 4)} · $${fmt(s.tp, 4)}</b></div>

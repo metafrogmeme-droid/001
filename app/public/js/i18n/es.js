@@ -106,7 +106,7 @@
   ["arena.sig_unknown", "No se pudieron cargar las llamadas del motor: esta lista es desconocida, no está vacía."],
   ["arena.sig_drift", "se ha movido {p}% desde la llamada"],
   ["arena.sig_drift_t", "Cuánto se ha movido el mercado desde que se publicó la llamada. Se te ejecuta al precio en vivo, no a este."],
-  ["arena.sig_conf", "confianza {p}%"],
+  ["arena.sig_conf", "puntuación de confianza {p} (sin calibrar)"],
   ["arena.sig_now", "justo ahora"],
   ["arena.sig_min", "hace {n} min"],
   ["arena.sig_hr", "hace {n} h"],

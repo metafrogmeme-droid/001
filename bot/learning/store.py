@@ -200,8 +200,14 @@ class LearningStore:
         except Exception as e:
             logger.error("Failed to append to %s: %s", path, e)
 
-    def _read_jsonl(self, key: str, model_cls: Type[T]) -> list[T]:
-        """Read all records from a JSONL file."""
+    def _read_jsonl(self, key: str, model_cls: Type[T], *,
+                    strict: bool = False) -> list[T]:
+        """Read all records from a JSONL file.
+
+        A file that is there and will not read answers what was read before
+        the failure, which a caller cannot tell from a short file. ``strict``
+        raises instead, for a reader that prints what it read: an unreadable
+        log is not a log with no closes in it."""
         path = self._files[key]
         if not path.exists():
             return []
@@ -218,6 +224,8 @@ class LearningStore:
                         logger.warning("Skipping corrupt line %d in %s: %s", line_num, path, e)
         except Exception as e:
             logger.error("Failed to read %s: %s", path, e)
+            if strict:
+                raise
         return records
 
     # ── Overwrite (JSON) ───────────────────────────────────────────
@@ -262,8 +270,9 @@ class LearningStore:
         self._append_jsonl("decision", decision)
         logger.info("Decision recorded: %s → %s", decision.audit_id, decision.decision)
 
-    def get_decisions(self, symbol: Optional[str] = None, limit: int = 100) -> list[DecisionMemory]:
-        records = self._read_jsonl("decision", DecisionMemory)
+    def get_decisions(self, symbol: Optional[str] = None, limit: int = 100, *,
+                      strict: bool = False) -> list[DecisionMemory]:
+        records = self._read_jsonl("decision", DecisionMemory, strict=strict)
         if symbol:
             records = [r for r in records if r.symbol == symbol]
         return records[-limit:]

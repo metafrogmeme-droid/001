@@ -1103,6 +1103,11 @@ async def chat(req: ChatRequest,
     keys. The model is offered NO tools on this surface (bot/nlp/chat_facade.py
     says why), and the reply is Telegram-flavoured HTML, exactly what the web
     gateway returns. `answered_by` is "none" when no model produced the text.
+
+    This process is not the bot: its engine is a detached reader that runs no
+    tick. The prompt says so for the bot's idea queue, its breaker and entry
+    gate and its price feed, which were not read here, and names the book it
+    describes as this process's copy (`telegram_handler._not_the_bot`).
     """
     if engine is None:
         raise HTTPException(status_code=503, detail="Engine not initialized")

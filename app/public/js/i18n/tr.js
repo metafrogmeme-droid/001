@@ -106,7 +106,7 @@
   ["arena.sig_unknown", "Motorun çağrıları yüklenemedi — bu liste boş değil, bilinmiyor."],
   ["arena.sig_drift", "çağrıdan bu yana %{p} hareket etti"],
   ["arena.sig_drift_t", "Çağrı yayınlandığından beri piyasanın ne kadar hareket ettiği. Canlı fiyattan doldurulursunuz, bu fiyattan değil."],
-  ["arena.sig_conf", "güven %{p}"],
+  ["arena.sig_conf", "güven skoru {p} (kalibre edilmemiş)"],
   ["arena.sig_now", "az önce"],
   ["arena.sig_min", "{n} dk önce"],
   ["arena.sig_hr", "{n} sa önce"],

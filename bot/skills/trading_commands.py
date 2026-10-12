@@ -1710,7 +1710,7 @@ class TradingCommands:
                     msg = (
                         f"{d_icon} <b>#{i} {html.escape(pair)}</b> — {_dir}{_st_tag}{_otype_tag}\n"
                         f"Entry: <code>${entry:,.4f}</code> | SL: <code>${sl:,.4f}</code> (-{sl_pct:.1f}%) | TP: <code>${tp:,.4f}</code> (+{tp_pct:.1f}%)\n"
-                        f"R:R 1:{rr:.1f} | Conf <b>{displayed_confidence(idea).pct()}</b>"
+                        f"R:R 1:{rr:.1f} | Conf <b>{displayed_confidence(idea).text()}</b>"
                         + (f"\n<i>{html.escape(_why[:150])}</i>" if _why is not None else "")
                         + (f"\n⚖️ Against: {html.escape(_against[:150])}" if _against is not None else "")
                     )

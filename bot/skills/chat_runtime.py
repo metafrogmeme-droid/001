@@ -192,16 +192,40 @@ _CHAT_CANNOT_ACT_RULE = (
 #: string every surface reads, and its first draft said "linked with
 #: /connect" — the guard against exactly that shape caught it on the full
 #: run, and no suite the slice had been running could have.
+#:
+#: TWO MORE KEYS, and they are DICTIONARY KEYS rather than sentences, because
+#: what they name reaches a person in their own language, not the model:
+#: ``fallback`` is what still works on that surface when no chat model
+#: answered (the budget, deadline and empty-reply messages end with it), and
+#: ``diagnose`` is the operator's own next step for an empty reply, or "" on a
+#: surface where none can be taken. Those messages told web and public
+#: visitors to use /scan, /positions and /llmstatus (admin only, and no slash
+#: command runs in a web chat), and every reader that "your key and endpoint
+#: are fine", a key most of them never gave.
 LINK_DOOR: dict[str, dict[str, str]] = {
     "web": {"link": "the dashboard's Account > Connect an exchange step links "
                     "exchange keys",
             "state": "the dashboard's Account > API keys page shows the key "
                      "state, and re-entering the keys there replaces them",
-            "linked": "on the dashboard's Account > Connect an exchange step"},
+            "linked": "on the dashboard's Account > Connect an exchange step",
+            "fallback": "chat_door_words",
+            "diagnose": ""},
     "telegram": {"link": "/connect links exchange keys",
                  "state": "/exchange shows the key state, and re-linking with "
                           "/connect replaces them",
-                 "linked": "with /connect"},
+                 "linked": "with /connect",
+                 "fallback": "chat_door_commands",
+                 "diagnose": "chat_empty_operator_note"},
+    # The anonymous website visitor (`_llm_chat(public=True)`): no account, no
+    # command, no read of their own until they sign in.
+    "public": {"link": "signing in (free), then the dashboard's Account > "
+                       "Connect an exchange step, links exchange keys",
+               "state": "after signing in, the dashboard's Account > API keys "
+                        "page shows the key state",
+               "linked": "on the dashboard's Account > Connect an exchange "
+                         "step, after signing in",
+               "fallback": "chat_door_public",
+               "diagnose": ""},
 }
 
 
@@ -210,6 +234,22 @@ def link_door(surface: str) -> dict[str, str]:
     (the api bridge, an empty string) gets Telegram's commands, as the
     no-account block always has: the bridge is the operator's."""
     return LINK_DOOR.get(surface, LINK_DOOR["telegram"])
+
+
+def fallback_door(surface: str, lang: str = "en", *, operator: bool = False) -> str:
+    """What still works on this surface when no chat model answered, in the
+    reader's dictionary language (`ui_lang`).
+
+    ``operator`` adds the surface's ``diagnose`` step first, for the reader
+    who can take it (the caller decides: the empty-reply message, to an
+    admin). A surface with no such step adds nothing, so a web admin is not
+    sent to a slash command either.
+    """
+    door = link_door(surface)
+    out = t(door["fallback"], lang)
+    if operator and door["diagnose"]:
+        out = t(door["diagnose"], lang) + " " + out
+    return out
 
 def live_account_absence(user_id: str) -> str:
     """WHY the engine mapped this caller to no live account: ``"absent"``
@@ -614,7 +654,8 @@ _CHAT_TOOLS_RULE = (
     "- You have TOOLS in this conversation (they are listed in the API tool "
     "definitions). When the answer depends on the user's account, positions, "
     "open or pending orders, PnL, risk state, costs, the macro calendar, what "
-    "is moving, or why a trade was rejected, and a tool offered on this turn "
+    "is moving, the engine's read on a symbol, or why the engine did not "
+    "trade, and a tool offered on this turn "
     "reads it, CALL the tool and answer from what it returns. A "
     "tool's output is a measurement; your memory of an earlier turn is not — "
     "positions close and prices move. Earlier assistant turns may contain "
@@ -686,17 +727,24 @@ _REPLY_CONTRACTS: dict[str, str] = {
         "first sentence, then at most one line of why. Under 50 words, 2-4 "
         "lines, no headers, no sections. Do not add a closing prompt."
     ),
+    # The six headings this replaced asked for "Momentum — RSI, volume, order
+    # flow" and "Setup quality, 1-10" on every full analysis. No block and no
+    # tool supplies an RSI, an order-flow read or a quality grade, so a model
+    # obeying the shape had to invent them. Each part below names the reading
+    # that fills it, and a part with no reading is left out.
     "full_scan": (
-        "THIS TURN: a full analysis was asked for. Use these six headings, in "
-        "order, and keep the whole reply under 300 words:\n"
-        "  1. Verdict — bullish / bearish / choppy, and what to do\n"
-        "  2. Structure — trend, key levels\n"
-        "  3. Momentum — RSI, volume, order flow if relevant\n"
-        "  4. Long scenario / Short scenario\n"
-        "  5. Setup quality, 1-10\n"
-        "  6. What to watch next\n"
-        "Any number you cannot source from a block in this prompt is one you "
-        "leave out, not one you estimate."
+        "THIS TURN: a full analysis was asked for. If market_read is offered, "
+        "call it for the symbol first and build on what it returns. Under 300 "
+        "words, in this order, each part ONLY where a reading supplies it:\n"
+        "  1. Verdict: the engine read's direction, or that it found none\n"
+        "  2. Regime and confluence, as the read states them\n"
+        "  3. Price: from LIVE MARKET, with its age\n"
+        "  4. Your position, if ACTIVE POSITIONS holds one on this symbol\n"
+        "  5. What would change the read\n"
+        "Print no RSI, no timeframe-by-timeframe read, no order flow and no "
+        "setup-quality score: nothing on this turn measures them. If no "
+        "reading of this market is on the turn, say so first and give no "
+        "verdict. For levels, the full analysis is 'analyze <SYMBOL>'."
     ),
     "execution": (
         "THIS TURN: they are asking to act. If their own message asks for a "
@@ -809,6 +857,33 @@ _UNREAD_CONTRACT = (
 )
 
 
+#: ...AND ON THE PUBLIC PAGE THE UNREAD TURN IS STILL ON A PAGE WITH NO
+#: FEED. `_UNREAD_CONTRACT` tells the model to pick the shape itself, and one
+#: of the shapes it names is "a request for a full analysis gets sections".
+#: The public scan gate (`needs_live_market_data`) reads the ROUTER's English
+#: patterns, so "análisis completo de BTC con entrada, stop y objetivo" passed
+#: the gate, fell through to `standard`, and was handed that sentence on the
+#: one surface that can source no number at all. The public contract is
+#: chosen FIRST now, and a public turn whose shape was not read gets this one:
+#: the same honesty about the shape, and the public page's no-levels rule
+#: whatever the question turns out to be.
+_PUBLIC_UNREAD_CONTRACT = (
+    "THIS TURN: the shape of this question was NOT classified. The detector "
+    "that picks an answer shape reads English patterns, this turn is in "
+    "another language, and it fell through rather than measuring anything. "
+    "Whatever it asks, this is a public page with NO live market feed and no "
+    "account: you can neither read a price nor place an order here. So print "
+    "no entry, stop, target, size, price level, score or scan headings, not "
+    "even as an example: a number in that shape is read as a plan whatever "
+    "it is labelled. If they asked for an analysis, a scan or a trade plan, "
+    "say in your first line that this page has no live data, explain in "
+    "under 150 words how one WOULD be built, and tell them a signed-in "
+    "account gets the live one. Otherwise answer what was asked at the "
+    "length it needs: a one-line question gets a one-line answer, somebody "
+    "who sounds new gets terms defined inline."
+)
+
+
 def reply_contract(mode: str = "", public: bool = False,
                    reply_lang: str = "") -> str:
     """The one response contract for this turn.
@@ -820,7 +895,9 @@ def reply_contract(mode: str = "", public: bool = False,
     ``public`` is the anonymous-website surface, and it SELECTS a different
     contract rather than suppressing one — see `_PUBLIC_REPLY_CONTRACTS`. A
     visitor who asks for a scan still gets an answer; what they do not get is
-    a document shaped like a reading nobody took.
+    a document shaped like a reading nobody took. It is decided before the
+    language is: a public turn whose shape was not read gets
+    `_PUBLIC_UNREAD_CONTRACT`, never the members' `_UNREAD_CONTRACT`.
 
     ``reply_lang`` is the language the model has been told to answer in, and
     it decides whether the FALLTHROUGH means anything — see
@@ -835,10 +912,20 @@ def reply_contract(mode: str = "", public: bool = False,
     key = str(mode or "").strip().lower()
     if key not in _REPLY_CONTRACTS:
         key = DEFAULT_REPLY_MODE
-    if key == DEFAULT_REPLY_MODE and chat_language_name(reply_lang):
-        return "\n\nHOW LONG AND WHAT SHAPE\n" + _UNREAD_CONTRACT + "\n"
-    body = _PUBLIC_REPLY_CONTRACTS[key] if (
-        public and key in _PUBLIC_REPLY_CONTRACTS) else _REPLY_CONTRACTS[key]
+    unread = key == DEFAULT_REPLY_MODE and bool(chat_language_name(reply_lang))
+    if public:
+        # The public surface FIRST: what it can source decides the contract
+        # before the language does (`_PUBLIC_UNREAD_CONTRACT`).
+        if key in _PUBLIC_REPLY_CONTRACTS:
+            body = _PUBLIC_REPLY_CONTRACTS[key]
+        elif unread:
+            body = _PUBLIC_UNREAD_CONTRACT
+        else:
+            body = _REPLY_CONTRACTS[key]
+    elif unread:
+        body = _UNREAD_CONTRACT
+    else:
+        body = _REPLY_CONTRACTS[key]
     return "\n\nHOW LONG AND WHAT SHAPE\n" + body + "\n"
 
 
@@ -1006,7 +1093,7 @@ def compose_telegram_answer(answer: str, meta, *, is_social: bool = False) -> st
 
 
 def _chat_ret(text: str, cfg, return_meta: bool, tool_events=None,
-              is_admin: bool = False):
+              is_admin: bool = False, given=None):
     """Shape _llm_chat's return: plain string (default, every existing caller),
     or (string, meta) when the caller wants model transparency (the web
     gateway shows which model answered). Module-level — several test suites
@@ -1069,34 +1156,34 @@ def _chat_ret(text: str, cfg, return_meta: bool, tool_events=None,
         logger.debug("risk:reward correction skipped: %s", exc)
 
     # Shadow grounding. Figures with a unit are checked against this turn's
-    # tool results. The rate is recorded per model. The reply is annotated
-    # only once that rate is already below the line; until then the words
-    # the model wrote are what the user sees.
+    # tool results, or, on a turn that called no tool, against what the model
+    # was GIVEN (``given``: its prompt, history and question). That turn was
+    # never checked: the check sat behind `if tool_events:`, so a reply built
+    # from the prompt's price and position sections, or made up with no tool
+    # call at all, went out with no figure looked at. The rate is recorded
+    # per model. The reply is annotated only once that rate is already below
+    # the line; until then the words the model wrote are what the user sees.
     try:
-        from bot.nlp.grounding import (
-            annotation_on,
-            check_reply,
-            note,
-            rate,
-            unverified_note,
-        )
-        results = [str(e.get("result") or "") for e in (tool_events or [])
-                   if isinstance(e, dict)]
+        from bot.nlp.grounding import rate, shadow_check, unverified_note
         if tool_events:
-            checked, unverified = check_reply(text, results)
+            support = [str(e.get("result") or "") for e in tool_events
+                       if isinstance(e, dict)]
+            basis = "tools"
+        else:
+            support, basis = list(given or []), "prompt"
+        if support:
             model = getattr(cfg, "model", "") or ""
-            if checked and model:
-                note(model, checked, len(unverified))
+            sc = shadow_check(text, support, model, bool(is_admin))
+            if sc.checked and model:
                 audit(system_log,
                       f"Chat grounding {model}: "
-                      f"{len(unverified)} of {checked} unverified",
+                      f"{len(sc.unverified)} of {sc.checked} unverified",
                       action="chat_grounding", result="SHADOW",
-                      data={"model": model, "checked": checked,
-                            "unverified": len(unverified),
-                            "rate": rate(model)})
-            if (unverified and model
-                    and annotation_on(model, bool(is_admin))):
-                text = text.rstrip() + "\n\n" + unverified_note(unverified)
+                      data={"model": model, "checked": sc.checked,
+                            "unverified": len(sc.unverified),
+                            "basis": basis, "rate": rate(model)})
+            if sc.annotate:
+                text = text.rstrip() + "\n\n" + unverified_note(sc.unverified)
     except Exception as exc:  # never let a display fix break a reply
         logger.debug("grounding check skipped: %s", exc)
 

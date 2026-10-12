@@ -1362,6 +1362,23 @@ class LLMConfig:
     # these bind hosted fallbacks.
     chat_budget_usd: Optional[float] = _env_budget_opt("LLM_DAILY_BUDGET_CHAT_USD")
     thesis_budget_usd: Optional[float] = _env_budget_opt("LLM_DAILY_BUDGET_THESIS_USD")
+    # THE PUBLIC PREVIEW'S SLICE OF CHAT'S BUDGET. Anonymous website chat
+    # (`_llm_chat(public=True)`: /api/public/chat and the MCP ask_runeclaw
+    # tool) spends from chat's budget like every other chat turn, so a few
+    # hundred anonymous turns used up chat's share and every signed-in user
+    # was told the budget was gone. The preview stops at this fraction of
+    # chat's dollars and of the daily call limit (`cost.public_chat_budget_bound`);
+    # signed-in chat keeps the rest. Clamped to [0, 0.5] so it stays well
+    # under chat's own share; 0 turns the model off for the preview, and the
+    # built-in answers still work.
+    public_chat_budget_share: float = _env_float_bounded(
+        "LLM_PUBLIC_CHAT_BUDGET_SHARE", 0.2, 0.0, 0.5)
+    # Questions the model answers per visitor per UTC day on the public
+    # preview (`bot/web/public_chat_quota.py`). Counted in the bot process's
+    # memory against a key the website derives from the visitor's address,
+    # so a restart of either process starts every count again.
+    public_chat_daily_limit: int = int(_env_float_bounded(
+        "PUBLIC_CHAT_DAILY_LIMIT", 10, 1, 500))
     est_cost_per_analysis: float = _env_float("LLM_EST_COST_PER_ANALYSIS", 0.003)  # for backtest projection
     # Account cascading-fallback LLM calls against the daily budgets.
     # DEFAULT ON. This opened with a stale audit annotation asserting the

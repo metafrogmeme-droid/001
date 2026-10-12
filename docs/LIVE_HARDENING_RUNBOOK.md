@@ -953,9 +953,11 @@ outage is worse than not having the outage.
 2. **Run uninterrupted for 2–4 weeks.** The calibrator, setup expectancy,
    voter-weight OOS validation and replay backtests all unlock at ~50–100
    closed trades; restarts delay that.
-3. **`/whynot` when the bot feels quiet.** Structured no-trade reasons now back
-   it: all-`confidence` rejections → review per-strategy `min_confidence`;
-   `llm_direction_guard` rejections → LLM and voters are fighting.
+3. **`/whynot` when the bot feels quiet.** It counts every analysis of the
+   last six hours by the stage that ended it (`bot/core/why_not.py`): mostly
+   "below the bar" → review per-strategy `min_confidence`; "direction guard"
+   → LLM and voters are fighting; "regime gate" → the market is in a regime
+   the hard gates refuse. The risk gate's last refusal follows in detail.
 4. **Backtest invocation:** `python -m bot.backtest.runner --honest` (strict
    real data + next-open fills). Close-fill numbers flatter by ~0.9pp/run.
 5. **Backups:** `./scripts/backup_data.sh` (cron daily; see the script header).

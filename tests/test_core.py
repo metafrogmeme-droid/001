@@ -2569,16 +2569,21 @@ class TestLLMOptimizations:
         engine.cost.record_llm("gpt-4o", 1000, 500, category="thesis")
         engine.cost.record_infra(0.05)
 
+        # The card is the operator's (the deployment's spend, one ledger);
+        # who that is, is the engine's reading, answered here for one id.
+        engine._is_operator_user = lambda uid: uid == "op"
         skill = CostBreakdownSkill()
         loop = asyncio.new_event_loop()
         try:
-            result = loop.run_until_complete(skill.execute(engine))
+            result = loop.run_until_complete(skill.execute(engine, user_id="op"))
+            refused = loop.run_until_complete(skill.execute(engine))
         finally:
             loop.close()
-        assert "AGENT ECONOMICS" in result or "Agent Economics" in result
+        assert "MODEL &amp; API SPEND" in result
         assert "scan" in result.lower()
         assert "thesis" in result.lower()
-        assert "OPERATING" in result or "Operating Total" in result or "Operating" in result
+        assert "Operating total" in result
+        assert "shown to the operator only" in refused
 
 
 class TestSafetyGates:

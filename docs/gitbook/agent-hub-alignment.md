@@ -36,7 +36,7 @@ RUNECLAW exposes 12 internal skills that map directly to MCP tools. See [MCP Int
 | Portfolio management | `runeclaw_portfolio` -- balance, equity, positions, PnL, drawdown |
 | Risk management | `runeclaw_risk` -- checks status, circuit breaker, exposure limits |
 | Analysis | `runeclaw_analyze` -- technical indicators + LLM thesis + trade idea |
-| Explainability | `runeclaw_explain` -- full decision chain for any trade idea |
+| Explainability | `runeclaw_explain` -- the votes and rationale behind a pending trade idea |
 
 ### REST / WebSocket APIs
 

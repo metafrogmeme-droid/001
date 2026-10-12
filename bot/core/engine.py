@@ -727,6 +727,11 @@ class RuneClawEngine:
         self.scanner = MarketScanner()
         self.cost = CostTracker()
         self.analyzer = Analyzer(cost_tracker=self.cost)
+        # Why this engine did not trade, by symbol and time: the analyzer
+        # writes each analysis's outcome, this engine amends the ideas it
+        # drops and records the confirms that placed nothing (`/whynot`).
+        from bot.core.why_not import WhyNotLog
+        self.analyzer.why_not = WhyNotLog()
         # Learning auto-refit: keeps calibration/voter/expectancy learners fresh
         # as closed outcomes accrue (gated by CONFIG.analyzer.learning_auto_refit_*).
         from bot.learning.auto_refit import LearningAutoRefit
@@ -4255,6 +4260,36 @@ class RuneClawEngine:
         if len(self._last_rejections) > self._REJECTIONS_CAP:
             for k in list(self._last_rejections)[:-self._REJECTIONS_KEEP]:
                 self._last_rejections.pop(k, None)
+
+    def _why_not_dropped(self, idea: Any, stage: str, reason: str = "") -> None:
+        """The analysis that produced ``idea`` ended at ``stage`` here, not as
+        an idea. Never raises: the record is a reading, not a gate."""
+        from bot.core.why_not import WhyNotLog
+        log = getattr(getattr(self, "analyzer", None), "why_not", None)
+        if isinstance(log, WhyNotLog):
+            try:
+                log.amend(getattr(idea, "id", ""), stage, reason)
+            except Exception as exc:
+                system_log.debug("why-not amend skipped: %s", type(exc).__name__)
+
+    def _why_not_confirm(self, idea: Any, user_id: str, result: Any) -> None:
+        """Keep a confirm that placed nothing, with whose confirm it was.
+
+        The reason is `refusal_words`, never the answer itself: the answer can
+        carry a figure about the account it was refused on.
+        """
+        from bot.core.confirm_result import outcome_unverified, placed_nothing, refusal_words
+        from bot.core.why_not import WhyNotLog
+        log = getattr(getattr(self, "analyzer", None), "why_not", None)
+        if not isinstance(log, WhyNotLog):
+            return
+        try:
+            if outcome_unverified(result) or not placed_nothing(result):
+                return
+            log.refused_at_confirm(getattr(idea, "asset", "") if idea is not None else "",
+                                   user_id, refusal_words(result))
+        except Exception as exc:
+            system_log.debug("why-not confirm record skipped: %s", type(exc).__name__)
 
     def detach_state_persistence(self) -> None:
         """Make this engine a READER of the operator's state, never a writer.
@@ -7982,6 +8017,7 @@ class RuneClawEngine:
         # ── Smart pyramid / duplicate symbol guard ─────────────────
         _same = self._same_symbol_verdict(idea, symbol_key)
         if _same == "skip":
+            self._why_not_dropped(idea, "held")
             return None
         # Store pyramid flag for confirm_trade to apply half-size + SL-to-breakeven
         if _same == "pyramid":
@@ -8119,6 +8155,9 @@ class RuneClawEngine:
                             regime=_lq_regime, scope=SCOPE_PRE_RISK)
                 except Exception as _lq_exc:
                     system_log.debug("shadow book liquidity record skipped: %s", _lq_exc)
+                # The stage only: the guard's sentence carries this idea's
+                # size on the operator's book.
+                self._why_not_dropped(idea, "liquidity")
                 return None
 
         if risk_check.verdict == RiskVerdict.REJECTED:
@@ -8127,6 +8166,10 @@ class RuneClawEngine:
             # `HYPE:USDT` here while `whynot` looked up `HYPE`, so no rejection
             # of a perpetual was ever found by name.
             symbol_key = normalize_symbol(idea.asset)
+            # The checks' names and not their figures, which are the
+            # operator's account (a drawdown, an exposure, a daily loss).
+            self._why_not_dropped(idea, "risk", ", ".join(
+                str(c).split(":", 1)[0].strip() for c in risk_check.checks_failed or []))
             self._remember_rejection(symbol_key, {
                 "symbol": idea.asset,
                 "direction": idea.direction.value,
@@ -8454,6 +8497,7 @@ class RuneClawEngine:
         """
         idea = self._pending_ideas.get(trade_id, None)
         if idea is None:
+            self._why_not_confirm(None, user_id, "Trade not found or expired.")
             return "Trade not found or expired."
         key = normalize_symbol(idea.asset)
         lock = self._symbol_entry_locks.setdefault(key, asyncio.Lock())
@@ -8494,9 +8538,12 @@ class RuneClawEngine:
                           f"{_what} already exists",
                           action="dup_entry", result="SUPPRESSED",
                           data={"trade_id": trade_id, "symbol": idea.asset})
+                    self._why_not_confirm(idea, user_id, "\u23ed duplicate suppressed")
                     return (f"⏭️ Skipped {idea.asset}: already have "
                             f"{_what} for it (duplicate suppressed).")
-            return await self._confirm_trade_inner(trade_id, user_id)
+            result = await self._confirm_trade_inner(trade_id, user_id)
+            self._why_not_confirm(idea, user_id, result)
+            return result
 
     def _practice_book_symbols(self, user_id: str) -> list:
         """The symbols open on this caller's practice book.
@@ -8966,7 +9013,10 @@ class RuneClawEngine:
             self._sync_flight_records()
             return f"Trade REJECTED on re-check: {recheck.reason}{seal_note}"
 
-        # Adversarial self-critique gate (fail-open: errors = proceed with warning)
+        # Pre-trade critique: heuristic concerns, four of which HALT (fail-open
+        # in paper: errors = proceed with warning). None of its rules has been
+        # backtested; `scripts/critique_replay.py` measures what the halt
+        # would remove over the frozen benchmark.
         try:
             from bot.core.critique import TradeCritique
             critique = TradeCritique()
@@ -8983,7 +9033,8 @@ class RuneClawEngine:
                 }))
                 self._pending_pyramid.pop(trade_id, None)
                 self._transition(AgentState.IDLE, f"critique halted {trade_id}")
-                return f"Trade HALTED by adversarial review: {critique_result.bear_case}\nConcerns: {'; '.join(critique_result.concerns)}{seal_note}"
+                return (f"Trade HALTED by the pre-trade critique: {critique_result.bear_case}"
+                        f"\nHeuristic concerns: {'; '.join(critique_result.concerns)}{seal_note}")
             # Apply critique confidence adjustment
             if critique_result.confidence_adjustment != 0:
                 idea.confidence = max(0.0, min(1.0, idea.confidence + critique_result.confidence_adjustment))
@@ -9036,7 +9087,7 @@ class RuneClawEngine:
                       data={"trade_id": trade_id, "error": str(exc)[:200]})
                 self._pending_pyramid.pop(trade_id, None)
                 self._transition(AgentState.IDLE, f"critique error (live) {trade_id}")
-                return ("Trade REJECTED: adversarial critique could not complete "
+                return ("Trade REJECTED: the pre-trade critique could not complete "
                         "and live mode fails closed on critique errors.")
             audit(trade_log, f"Critique gate error (fail-open): {exc}",
                   action="critique", result="ERROR")
@@ -9776,8 +9827,8 @@ class RuneClawEngine:
                 _pyr_conf = displayed_confidence(idea)
                 if not _pyr_conf.clears(0.70):
                     audit(scan_log,
-                          f"Pyramid skipped: confidence {_pyr_conf.pct()} "
-                          f"({_pyr_conf.basis}) < 70% for {idea.asset}",
+                          f"Pyramid skipped: confidence {_pyr_conf.text()} "
+                          f"({_pyr_conf.basis}) < score 70 for {idea.asset}",
                           action="pyramid_low_conf", result="SKIPPED")
                     return "skip"
 
@@ -9802,7 +9853,7 @@ class RuneClawEngine:
                 is_pyramid_add = True
                 audit(scan_log,
                       f"Pyramid APPROVED: {idea.asset} {r_achieved:.2f}R profit, "
-                      f"conf {_pyr_conf.pct()} ({_pyr_conf.basis})",
+                      f"conf {_pyr_conf.text()} ({_pyr_conf.basis})",
                       action="pyramid_approved", result="APPROVED",
                       data={"r_achieved": round(r_achieved, 2),
                             "confidence": _pyr_conf.value,

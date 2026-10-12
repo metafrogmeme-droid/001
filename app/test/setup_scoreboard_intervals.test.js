@@ -83,14 +83,15 @@ test('the JS interval matches the Python functions on the same inputs', () => {
   // `bot.backtest.parity` loads `bot.config`, which imports dotenv, so that
   // import cannot run there. `wilson_lower_bound` and `mean_r_interval` use
   // the standard library. `_wilson` is compiled from its own source in
-  // parity.py, with that lower bound in scope: still that function, not a
-  // second formula written beside it.
+  // parity.py, with the readiness functions it reads in scope (it calls
+  // `wilson_interval` since the learning store's groups read the same
+  // arithmetic): still that function, not a second formula written beside it.
   const script = `
 import ast, json, math
 from pathlib import Path
 from typing import Optional
 from bot.core.shadow_book import mean_r_interval
-from bot.learning.readiness import wilson_lower_bound
+from bot.learning.readiness import wilson_interval, wilson_lower_bound
 
 tree = ast.parse(Path("bot/backtest/parity.py").read_text(encoding="utf-8"))
 picked = []
@@ -103,7 +104,8 @@ for node in tree.body:
         picked.append(node)
 if len(picked) != 2 or not isinstance(picked[-1], ast.FunctionDef):
     raise SystemExit("parity.py did not yield module-level _Z and _wilson")
-ns = {"wilson_lower_bound": wilson_lower_bound, "Optional": Optional}
+ns = {"wilson_interval": wilson_interval, "wilson_lower_bound": wilson_lower_bound,
+      "Optional": Optional}
 exec(compile(ast.Module(body=picked, type_ignores=[]), "bot/backtest/parity.py", "exec"), ns)
 _wilson = ns["_wilson"]
 wilson = []

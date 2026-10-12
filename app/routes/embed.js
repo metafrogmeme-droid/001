@@ -153,7 +153,8 @@ router.get('/signals', (req, res) => {
       // charts being the site's one chart style rather than a second, hand-drawn
       // one. The SVG stays as the fallback if it fails to load.
       ['/vendor/lightweight-charts.standalone.production.js?v=1', '/js/tv-chart.js?v=1',
-        '/js/embed-read.js?v=2', '/js/embed-row.js?v=2', '/js/signal-chart.js?v=2']));
+        '/js/embed-read.js?v=2', '/js/confidence-score.js?v=1', '/js/embed-row.js?v=3',
+        '/js/signal-chart.js?v=2']));
 });
 
 /**

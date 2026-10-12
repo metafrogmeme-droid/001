@@ -62,18 +62,17 @@ S-tier strategies get prioritized in future scans; D-tier ones get de-emphasized
 
 ### 4. Pattern Learner
 
-Detects recurring market patterns across different regimes (TREND_UP, RANGE, VOLATILE, etc.).
-
-It builds a growing library of high-probability setups. For example: *"Bull Flag + OBV divergence on 15m after NFP appears 9 times with 78% win rate."* These patterns feed the confluence voter model.
+Groups the closes in the learning store by the condition each row recorded: the market regime (TREND_UP, RANGE, VOLATILE, etc.), a macro state other than NORMAL, or low volatility. A group is what happened under that condition, not a pattern that predicts it, and nothing reads it to make a decision: it is printed by the operator's `/patterns` card and nowhere else.
 
 Observations only. **Patterns may NEVER override the risk engine** (enforced via Pydantic validator on `may_override_risk` field -- hardcoded `False`).
 
-**Implementation:** `bot/learning/patterns.py` -- `PatternLearner` class. Records `PatternRecord` objects with:
-- Pattern type (candlestick, indicator divergence, volume anomaly, etc.)
-- Regime context (which market conditions produced this pattern)
-- Win rate and sample size
-- `is_experimental` flag for patterns with < 10 occurrences
-- Confidence score (higher = more validated)
+**Implementation:** `bot/learning/patterns.py` -- `PatternLearner.outcome_groups`. Records `PatternRecord` objects with:
+- The dimension the group is cut on and the group's value on it
+- Wins, losses and flat closes, and the win rate over scored closes
+- The 95% Wilson interval on that win rate
+- `is_experimental` flag for groups with fewer than 20 scored closes
+
+It used to name a winning trend group "trend continuation" and a losing range group "breakout failure", with a "confidence" that was the win rate capped at 0.85. Neither name was checked against the trades, and no confidence is computed now. No return figure is either: the store's outcome rows carry P&L in dollars with no stop or size, from every account's closes.
 
 ---
 
@@ -218,7 +217,7 @@ further review, not one that has been acted on.
 | Command | Description |
 |---------|-------------|
 | `/learn` | Full learning dashboard: module health, learning score, strategy tiers, proposals |
-| `/patterns` | Detected recurring market patterns and success rates |
+| `/patterns` | The learning store's closes by regime, with win rates and their intervals (operator only) |
 | `/proposals` | Pending strategy improvement proposals |
 | `/feedback <id> <type> [text]` | Submit human feedback on a decision |
 

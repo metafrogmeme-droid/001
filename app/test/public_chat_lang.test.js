@@ -32,9 +32,10 @@ test('the client forwards the current UI locale on the public chat path only', (
 test('the public route validates the lang token and forwards it to the gateway', () => {
   // a short, charset-restricted language token — never arbitrary text.
   assert.match(route, /\/\^\[a-zA-Z-\]\{2,12\}\$\/\.test\(rawLang\)/);
-  // forwarded to the SAME account-free endpoint; the payload is text (+lang) only.
+  // forwarded to the SAME account-free endpoint; the payload is text (+lang)
+  // and the opaque visitor key the daily count is kept against.
   assert.match(route, /postGateway\('\/chat\/public', payload/);
-  assert.match(route, /const payload = lang \? \{ text, lang \} : \{ text \}/);
+  assert.match(route, /const payload = \{ text, \.\.\.\(lang \? \{ lang \} : \{\}\), \.\.\.\(visitor \? \{ visitor \} : \{\}\) \}/);
   // no identity resolution ever happens on the public path.
   assert.ok(!/telegram_id|resolveBotIdentity|authMiddleware/.test(route),
     'still no identity on the public path');

@@ -174,7 +174,7 @@ class ChannelForwarder:
             # measured blend was 70%, under a bare word "Confidence" on a
             # channel with `AI-generated signal` beneath it. A hand-typed
             # ticket's stamped 1.0 published as a measured 100%.
-            confidence = displayed_confidence(idea).pct()
+            confidence = displayed_confidence(idea).text()
             msg = (
                 f"\U0001f4e1 <b>RUNECLAW SIGNAL</b>\n"
                 f"{_sep}\n\n"

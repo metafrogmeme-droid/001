@@ -108,6 +108,22 @@ def wilson_lower_bound(successes: int, n: int, z: float = _VW_Z) -> float:
     return (centre - margin) / (1 + z2 / n)
 
 
+def wilson_interval(successes: int, n: int,
+                    z: float = _VW_Z) -> "tuple[float, float] | None":
+    """Both ends of the Wilson interval on ``successes / n``, or None for no
+    sample. The upper end is the lower end of the complement, which is the
+    interval's own symmetry: one piece of arithmetic, `wilson_lower_bound`.
+
+    It lived in `bot/backtest/parity.py` as a private helper; the learning
+    store's outcome groups needed the same two ends, and a second copy of an
+    interval is a second answer about how sure a rate is.
+    """
+    if n <= 0:
+        return None
+    return (wilson_lower_bound(successes, n, z),
+            1.0 - wilson_lower_bound(n - successes, n, z))
+
+
 # Calibration readiness rides on the fitter's own min_samples (30), but for
 # a RECOMMENDATION we want a fuller curve than the bare minimum.
 _CAL_RECOMMEND_SAMPLES = 50

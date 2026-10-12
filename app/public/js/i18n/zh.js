@@ -106,7 +106,7 @@
   ["arena.sig_unknown", "無法載入引擎的訊號 — 這份清單是未知，而不是空的。"],
   ["arena.sig_drift", "自訊號以來已走 {p}%"],
   ["arena.sig_drift_t", "自訊號發布以來市場走了多遠。你的成交價是即時標記價，不是這個價格。"],
-  ["arena.sig_conf", "信心 {p}%"],
+  ["arena.sig_conf", "信心分數 {p}（未校準）"],
   ["arena.sig_now", "剛剛"],
   ["arena.sig_min", "{n} 分鐘前"],
   ["arena.sig_hr", "{n} 小時前"],

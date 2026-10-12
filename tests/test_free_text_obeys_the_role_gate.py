@@ -453,6 +453,10 @@ class TestTheTableDoesNotDrift:
             # store already keeps. The permission is `memory`, held by
             # trader, paper and viewer — it is their own note.
             "memory_note": "memory",
+            # The engine's rule read on one symbol. No slash command: the
+            # nearest door is /analyze, @guard("analyze"), the same read-only
+            # question with the LLM and levels added.
+            "market_read": "analyze",
         }
 
     def test_halt_reaches_no_chat_transport(self):
