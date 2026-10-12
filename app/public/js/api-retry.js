@@ -10,10 +10,13 @@
  * "the website's database is not ready yet" at random while the instance
  * beside it was answering normally.
  *
- * The host spreads calls across the instances that are up, so the same call
- * made again a moment later almost always reaches a ready one. This wraps
- * `fetch` once, as the first script on every page, and retries exactly that
- * answer and nothing else:
+ * The same call made again a moment later can reach an instance that is
+ * ready, but measured live after this shipped it rescued only about 4 in 10
+ * of those refusals: the host hands each call to an instance with a free
+ * slot, and one that refuses at once always has one. This is the backstop.
+ * The fix is an instance not staying in `starting` for minutes (db.js
+ * schemaPath). This wraps `fetch` once, as the first script on every page,
+ * and retries exactly that answer and nothing else:
  *
  *   - only this site's own /api/ URLs;
  *   - only a 503 whose body is the gate's {error: 'starting'} with reason
