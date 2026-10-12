@@ -409,11 +409,54 @@ def amount_to_send(recorded: float, held: Optional[float]) -> float:
     return recorded
 
 
+def flash_close_applied(result) -> bool:
+    """Whether a venue flash close was APPLIED, not just accepted.
+
+    The envelope code says the request was accepted; the per-item list says
+    whether the close was applied. An accepted request with a failed item is a
+    position still open, and `all([])` is True, so an accepted request that
+    applied NOTHING must not read as a flat book either.
+    """
+    env = result if isinstance(result, dict) else {}
+    items = (env.get("data") or {}).get("list") if isinstance(env.get("data"), dict) else None
+    items = items or []
+    return (env.get("code") == "00000" and bool(items) and all(
+        not item.get("code") or item.get("code") == "00000"
+        for item in items if isinstance(item, dict)))
+
+
 #: Bitget refusals a person acts on, in words. Read by `refusal_text`.
 _VENUE_REFUSAL_WORDS: dict[str, str] = {
     "25231": "the close asked for more than the position the venue holds",
-    "25610": "the size is not on the market's size step",
+    # The venue's own words are "does not meet precision requirements", and it
+    # answered them for a whole-unit size under the 5 USDT minimum order value.
+    "25610": "the size does not meet the market's size rules (its step or its minimum value)",
 }
+
+#: Refusals of a close for its SIZE, which the flash close (no size, no
+#: minimum) answers: more than is held, or under the market's size rules.
+SIZE_REFUSALS = frozenset({"25231", "25610"})
+
+#: A stop refused for the position's size. The unified account's stop names
+#: no size (``tpslMode: "full"``): the venue sizes it to the whole position
+#: and refused that, so no retry places it.
+STOP_REFUSED_FOR_SIZE = "25610"
+
+
+def venue_code(exc) -> Optional[str]:
+    """The venue's refusal code in an order error, or None when it states none.
+
+    Read from the JSON's ``"code"`` field, or from the ``"25610: …"`` form the
+    stop placer records, never as a substring of the whole text:
+    ``requestTime`` is thirteen digits, and five of them can spell any code.
+    """
+    try:
+        text = str(exc)
+        m = (re.search(r'"code"\s*:\s*"?(\d{4,6})', text)
+             or re.match(r'\s*(\d{4,6})\s*:', text))
+    except Exception:
+        return None
+    return m.group(1) if m else None
 
 
 def refusal_text(exc: BaseException) -> str:
@@ -425,13 +468,9 @@ def refusal_text(exc: BaseException) -> str:
     name for the refusal, and the two this repo has met have words.
     """
     name = type(exc).__name__
-    try:
-        m = re.search(r'"code"\s*:\s*"?(\d{4,6})', str(exc))
-    except Exception:
-        m = None
-    if not m:
+    code = venue_code(exc)
+    if code is None:
         return name
-    code = m.group(1)
     words = _VENUE_REFUSAL_WORDS.get(code)
     return f"{name}, venue code {code}" + (f": {words}" if words else "")
 

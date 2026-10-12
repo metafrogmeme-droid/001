@@ -20526,7 +20526,8 @@ touched on purpose (`boot_resilience.test.js`: binding late was a blackout and a
 crash loop when the database was down), so that order stays.
 
 The host spreads calls across the instances that are up, so the same call made
-a moment later almost always reaches a ready one. `public/js/api-retry.js` is
+a moment later can reach a ready one (measured after it shipped: it rescued
+about 4 in 10, not "almost always"; see the next chapter). `public/js/api-retry.js` is
 the first script on every page (all 42 static pages, and first in the script
 list the `/embed` and `/miniapp` pages build), and wraps `fetch` once. It
 retries only the site's own `/api/` URLs, only a 503 whose body is the gate's
@@ -20549,6 +20550,41 @@ Seventeen mutants, all killed after one round: the first left one standing, a
 retry that read the 503 body itself instead of a copy, because no test read the
 body of a 503 the retry decided to leave alone; a page could then not have shown
 "database unreachable". (`app/test/the_pages_retry_the_sites_own_starting_answer.test.js`.)
+
+**THE STUCK INSTANCE WAS A CHECK THE DATABASE NEVER ANSWERED, READ AS "A TABLE IS MISSING".**
+Measured on the live site after #588 shipped: `/api/token` once a second for four
+minutes, plain and through the pages' own retry, beside `/readyz` and
+`/api/version`. Plain, 21 of 240 calls got `starting`; retried, 13 of 240. The
+retry rescued about 4 in 10, not the "almost always" the previous chapter
+claimed: the response headers (`x-fc-request-id`, an Envoy upstream time) say
+the host is a serverless function platform that hands each call to an instance
+with a free slot, and an instance that refuses at once always has one. Pairing
+each instance's `ready_since` with its start time (`/api/version`'s uptime, not
+its `started_at`, which is when that module was first required) said which
+instances were the problem: the ones that rotated were ready 1 to 6 seconds after
+starting, and ONE was not ready for 3.5 minutes. Its first attempt hit the 180 s
+attempt cap (`db_timeout`, `attempts: 1`) and the second took about 34 s. The
+owner's own reading after the deploy, 81 s from start to ready on the first
+attempt, is the same shape.
+
+`schemaIsCurrent` returned `false` on any error, "fail-safe". But false means
+"a table is missing", so a check the database did not answer ran all 33 CREATE
+statements, which on this host take minutes. One slow first contact (mysql2's
+connect gives up at 10 s) became a minutes-long `starting`. Unreadable had
+been read as a confident negative. The check now has three answers
+(`db.js::schemaPath`): every table present (`fast`), the database answered and
+something is missing (`ddl`), or it did not answer, which FAILS THE ATTEMPT so
+the retry loop asks again a second later on a fresh connection. The query
+carries its own 10 s limit, so a connection that answers nothing cannot hold the
+attempt either. It still never skips the migration: after three unanswered
+checks in a row the DDL runs anyway, so a database whose information_schema can
+never be read still gets its schema. `migration_ok` in `/diagz` now names the
+path taken. The old test pinned the old rule by its source text (`catch (e) {
+return false;`), so it is replaced by tests that drive `migrate()` itself, in a
+child with `DATABASE_URL` set and a pool that records what it is sent: every
+table present sends only the check; a missing table runs the DDL; an unanswered
+check fails twice with no DDL sent and the third runs it. Ten mutants, all
+killed. (`app/test/migration_ddl.test.js`.)
 
 ## Writing tests that scan source
 
@@ -21383,7 +21419,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **489 of 1293** reach for source text through `source_scan`, `code_only`
+Driven, **489 of 1295** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 489 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -23628,3 +23664,65 @@ read; a refused close names the code and not the JSON. Eight mutants, all
 killed. Two close-verification fixtures answered a fixed list of book reads
 and were given the sizing read in front, one of them having passed only
 because the extra read had shifted its own readings.)
+
+**THE SIZED CLOSE STILL ASKED FOR TOO MUCH: THE BOOK WAS READ WITHOUT ITS
+PARAMS, AND WHAT IT HELD WAS UNDER THE MINIMUM.** 11 October, the same M/USDT
+short, after the venue-sized close shipped: the close was still refused, now in
+its new words, "venue code 25231: the close asked for more than the position
+the venue holds". The size read had asked `fetch_positions` without the product
+params the 25227 branch has always sent, and a Bitget account answered an empty
+list, which is a flat reading, so the record's size went out uncapped. And the
+stop's refusal (25610) came from the unified account's strategy order, which
+sends no size at all: Bitget's v3 spec for MUSDT has a 5 USDT minimum order
+value, so a position that small cannot carry a stop, and the flatten that a
+stopless position gets went through the same refused close. The size is read
+from the futures book now, as the 25227 branch reads it; and a size refusal
+falls back to the flash close, which names no size and no minimum and closes
+what the venue holds, as 25227's branch already did. "The flash close was
+applied" is one reading for both branches now (`flash_close_applied`).
+
+Three things followed from the fallback itself:
+- **Both size refusals, not one.** A close sized to what is held, when that is
+  under the minimum, is refused for the minimum (25610, the stop's words), not
+  for the size. Fixing the read alone would have traded one refusal for the
+  other. `SIZE_REFUSALS` holds both.
+- **A code is read from its field.** The 25227 branch finds its code anywhere in
+  the error's text, and Bitget's `requestTime` is thirteen digits, five of
+  which can spell any code. `venue_code` reads the `"code"` field, and
+  `refusal_text` asks it too.
+- **What closed is what was held.** The booking prices the size it is handed,
+  and on its fallback rungs (a fill matched without the venue's P&L, or a
+  ticker) that was the record's: the very size the venue had just refused. The
+  held size is read before the flash close flattens it, and once the flash
+  close applied, the record is trued to it, margin scaled with it. An unread
+  book trues nothing and leaves the pricing to the venue's own close record.
+
+(`tests/test_a_close_refused_for_size_is_flash_closed.py`: either size refusal
+is flash-closed and booked as the bot's own close, for its reason; a flash
+close that applied nothing, or was not accepted, is still a failed close with
+the record untouched; a refusal whose time spells a code is not flash-closed;
+a 3-of-150 holding is booked and priced as 3. Nine mutants across both rounds,
+all killed.)
+
+**The stop was retried forever, and the alert asked for the refused stop.**
+After the deploy, 25610 kept repeating on every scan and no close followed it.
+The post-fill ladder flattens a position whose stop will not place (RC-AUD-001:
+protected, closed, or URGENT), and its flatten was the close refused above. The
+per-scan retry in `check_positions` never escalated. It retried a stop the
+venue sizes to the whole position and refuses for that size, which no retry
+can place, and its alert told the person to "place a stop on Bitget manually",
+which is the same order. It now has a sibling of the breach-by-rejection
+branch: a 25610 stop refusal flattens a bot-opened position through
+`close_position`, at most once per alert interval. An adopted or reclaimed
+position is never auto-closed (RC-AUD-022). Either way, the alert for a stop
+refused for size says to close the position, not to place the stop.
+`venue_code` reads the placer's `"25610: …"` record as well as a JSON field.
+(`tests/test_a_stop_refused_for_size_is_flattened.py`: flattened once, with
+the safety reason; a failed flatten is alerted with the right door and retried
+on the interval, not every scan; adopted, never closed; another refusal still
+asks for a stop. Seven mutants, all killed.)
+
+What this does not answer is how the record came to say more than the venue
+held. The fill paths read the venue's filled amount, and fall back to the
+requested one only when every read of it failed (`fill_fallback`, audited as
+ESTIMATED); the trade log of that position is what tells which path booked it.

@@ -156,6 +156,9 @@ async def test_a_refused_close_answers_with_the_code_not_the_json(tmp_path, monk
     monkeypatch.setattr(le.asyncio, "sleep", AsyncMock())
     venue = Venue(close_raises=Exception(LIVE_REFUSAL))
     e = _executor(tmp_path, venue, _pos())
+    # 25231 falls back to the flash close; here it applies nothing, so the
+    # close is still a failure and the answer is what this test reads.
+    e._flash_close_position = AsyncMock(return_value=None)
     msg = await e.close_position("TI-e9db9a8b", reason="manual")
     assert msg.startswith("CLOSE FAILED for TI-e9db9a8b: "), msg
     assert "venue code 25231" in msg and "requestTime" not in msg, msg

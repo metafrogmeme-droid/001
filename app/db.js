@@ -2607,8 +2607,9 @@ const EXPECTED_TABLES = Object.freeze([
 ]);
 
 /**
- * Is the schema already in place? Returns true only when EVERY expected table
- * exists — a partial schema must still run the full DDL.
+ * Is the schema already in place? True only when EVERY expected table exists
+ * (a partial schema must still run the full DDL), false when the database
+ * answered and something is missing, and a THROW when it did not answer.
  *
  * Why this exists: the migration is 33 distributed DDL statements, and on a
  * serverless cluster it takes minutes. Re-running it on every boot to create
@@ -2616,19 +2617,60 @@ const EXPECTED_TABLES = Object.freeze([
  * readiness gate closed the whole while, and spent connections doing nothing.
  * One information_schema query answers the same question in milliseconds.
  *
- * Fail-SAFE: any error returns false, so an unreadable check runs the
- * migration rather than skipping it. Being slow is recoverable; silently
- * skipping schema creation is not.
+ * The query carries its own time limit: a connection that answers nothing
+ * fails in SCHEMA_CHECK_TIMEOUT_MS, as a connect that answers nothing already
+ * does in mysql2's connectTimeout (10 s), instead of holding the instance
+ * not-ready for the whole migration attempt. What an unanswered check means is
+ * schemaPath()'s decision, below.
  */
+const SCHEMA_CHECK_TIMEOUT_MS = 10000;
+
 async function schemaIsCurrent() {
+  const [rows] = await pool.query({
+    sql: 'SELECT TABLE_NAME AS t FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()',
+    timeout: SCHEMA_CHECK_TIMEOUT_MS,
+  });
+  const have = new Set((rows || []).map((r) => String(r.t || r.TABLE_NAME || '').toLowerCase()));
+  return EXPECTED_TABLES.every((t) => have.has(t.toLowerCase()));
+}
+
+/**
+ * Which way migrate() goes: 'fast' (every table is there), 'ddl' (the database
+ * answered and something is missing), or a throw (it did not answer: this
+ * attempt fails, and server.js's retry loop asks again a second later, on a
+ * fresh connection).
+ *
+ * THREE ANSWERS, NOT TWO (2026-10-11). The check used to return false on any
+ * error, so a check the database never answered ran the full DDL. Measured on
+ * the live site: a new instance whose first contact with the database was slow
+ * spent its first attempt in the 33 statements until the 180 s attempt cap,
+ * and became ready 3.5 minutes after it started, answering every /api/ call
+ * `starting` the whole time; instances whose first check answered were ready
+ * in 1 to 6 seconds. An unanswered check still never SKIPS the migration: it
+ * keeps the instance not-ready, and after UNREADABLE_CHECKS_BEFORE_DDL of them
+ * in a row the DDL runs anyway, so a database whose information_schema can
+ * never be read still gets its schema.
+ */
+const UNREADABLE_CHECKS_BEFORE_DDL = 3;
+let _unreadableChecks = 0;
+
+async function schemaPath(check = schemaIsCurrent) {
+  let current;
   try {
-    const [rows] = await pool.query(
-      'SELECT TABLE_NAME AS t FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()');
-    const have = new Set((rows || []).map((r) => String(r.t || r.TABLE_NAME || '').toLowerCase()));
-    return EXPECTED_TABLES.every((t) => have.has(t.toLowerCase()));
-  } catch (e) {
-    return false;
+    current = await check();
+  } catch (err) {
+    _unreadableChecks += 1;
+    if (_unreadableChecks < UNREADABLE_CHECKS_BEFORE_DDL) throw err;
+    _unreadableChecks = 0;
+    return 'ddl';
   }
+  _unreadableChecks = 0;
+  return current ? 'fast' : 'ddl';
+}
+
+/** Test seam: forget the unanswered checks, as a fresh process has none. */
+function _resetSchemaPath() {
+  _unreadableChecks = 0;
 }
 
 /**
@@ -2693,9 +2735,10 @@ async function migrate() {
   if (USE_MYSQL) {
     // Fast path: if every table is already there, the 33 statements below
     // are no-ops that still cost minutes on a serverless cluster. Skip them.
-    if (await schemaIsCurrent()) {
+    // A check the database did not answer throws out of here (schemaPath).
+    if (await schemaPath() === 'fast') {
       console.log('Schema already current — skipping DDL');
-      return;
+      return 'fast';
     }
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -3676,8 +3719,10 @@ async function migrate() {
         INDEX idx_duel_picks_due (settle_state, resolves_at)
       )
     `);
+    return 'ddl';
   }
   // In-memory DB needs no migration
+  return 'memory';
 }
 
 /**
@@ -3744,7 +3789,7 @@ async function withTransaction(fn) {
 
 module.exports = {
   pool, migrate, lastStatement, describeSql, backend, withTransaction,
-  EXPECTED_TABLES, schemaIsCurrent, ensureVenueStatusTable,
+  EXPECTED_TABLES, schemaIsCurrent, schemaPath, _resetSchemaPath, UNREADABLE_CHECKS_BEFORE_DDL, ensureVenueStatusTable,
   // Exported for tests. The URL it normalises is the one thing in this process
   // that cannot be exercised end-to-end without a live database, so the string
   // handling is tested directly instead of being trusted.
