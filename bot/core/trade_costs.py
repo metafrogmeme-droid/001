@@ -64,10 +64,11 @@ a different term, with no caller today. It arrives with the code that reads it.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 from bot.config import CONFIG
 from bot.core.position_telemetry import live_rr, price_on_record
+from bot.core.signal_confidence import UNREAD_DASH
 
 #: A leg that RESTS on the book and is filled by somebody else crossing it.
 MAKER = "maker"
@@ -215,3 +216,32 @@ def net_reward_risk(entry: object, stop: object, target: object, *,
         entry_rate_pct=er,
         exit_rate_pct=xr,
     )
+
+
+def rr_words(costed: Optional[NetRewardRisk], *, places: int = 1, suffix: str = "x",
+             wrap: Callable[[str], str] = lambda s: s) -> str:
+    """A ticket's reward:risk for a person: the price ratio and, beside it,
+    what the fees leave of it.
+
+    ``6.5x (5.7x after fees)``; ``6.5x (the target does not cover the fees)``
+    when hitting the target loses money; a dash when a level could not be
+    read. ``wrap`` dresses the leading figure (a ``<code>`` tag on an HTML
+    card) and nothing else.
+
+    Every card printed the price ratio alone, so a call that pays 5.7x after
+    a taker round trip read 6.5x on every surface but the ticket and chat
+    cards, which said both.
+    """
+    if costed is None:
+        return f"{wrap(UNREAD_DASH)} (a level could not be read)"
+    gross = wrap(f"{costed.gross:.{places}f}{suffix}")
+    if costed.net is None:
+        return f"{gross} (the target does not cover the fees)"
+    return f"{gross} ({costed.net:.{places}f}{suffix} after fees)"
+
+
+def idea_rr_words(idea: object, **kw) -> str:
+    """`rr_words` for an idea's own levels, at its own order type's entry rate."""
+    return rr_words(net_reward_risk(
+        getattr(idea, "entry_price", None), getattr(idea, "stop_loss", None),
+        getattr(idea, "take_profit", None), order_type=getattr(idea, "order_type", None)), **kw)

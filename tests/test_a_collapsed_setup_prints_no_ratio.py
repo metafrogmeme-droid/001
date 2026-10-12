@@ -155,8 +155,9 @@ class TestTheCardsAskIt:
             return [text for text, _ in drawn]
 
         healthy, collapsed = card(0.0117), card(1e-05)
-        assert "1:4.8" in healthy
-        assert "1:4.8" not in collapsed, (
+        # The cell prints the price ratio and what the fees leave of it.
+        assert any(t.startswith("4.8 (") and t.endswith("after fees)") for t in healthy), healthy
+        assert not any(t.startswith("4.8") for t in collapsed), (
             "the card still claims a ratio over levels it cannot tell apart"
         )
         assert "—" in collapsed

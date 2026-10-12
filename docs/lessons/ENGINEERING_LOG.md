@@ -21419,7 +21419,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **489 of 1299** reach for source text through `source_scan`, `code_only`
+Driven, **489 of 1300** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 489 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -23841,3 +23841,38 @@ never measured, so neither arm says it.
 `tests/test_the_offline_card_says_what_an_outage_changes.py`: fourteen
 mutants, all killed. The shadow check's rewrite is the same predicate, and
 its existing test still holds it.)
+
+**THE CHAT CORRECTED A TRUE NET RATIO INTO A FALSE ONE, AND EVERY OTHER CARD
+PRINTED THE PRICE RATIO ALONE.** 12 October, after the public post learned to
+say "6.5x (5.7x after fees)". The ticket, chat and co-pilot cards already said
+both, from `trade_costs.net_reward_risk`. Every other card printed the price
+ratio alone: the analysis and scan cards, the signal and scan images, the
+chart subtitle, the NEW SIGNAL alert and the `/trade` confirm card. The
+staged-draft card printed no ratio at all. Its co-pilot block drops its
+levels row for a card that carries its own, so the net figure appeared only
+when it tripped a flag. All of them now read one wording,
+`trade_costs.rr_words`: the price ratio, what the fees leave of it at the
+idea's own order type, a sentence when the target does not cover the fees,
+and a dash for a level that could not be read. The public post reads it too.
+The signal image's cell has room for the wording but not for the fee-losing
+sentence, so there alone a fee-losing target reads "loses after fees".
+
+Where the bot already said both, the chat made it false. The ticket tool
+writes "Gross R:R 6.47. Net R:R 5.74." When the model relayed that, the ratio
+corrector (`nlp/rr_honesty.py`) checked the net figure against the levels'
+quotient, called it wrong, and rewrote it. The reply then said "Net R:R 6.47",
+the gross figure under the word that said it was the other one. A "Net R:R"
+table column and "5.74 R:R net of fees" took the same path. Driven, all three
+shapes were rewritten. A claim qualified as net or after fees is now left as
+written: the fees depend on an order type the page does not state, and the
+corrector never writes a figure it cannot derive. A wrong gross claim beside
+a net one is still corrected, and so is a gross column beside a net column.
+
+An AST walk over `bot/` holds the field route: no f-string formats
+`risk_reward_ratio` except the critique's concern, which quotes the figure
+its own 1.5 bar compared. Three changes are reached by no test of their own:
+the staged-draft card's line, `/fullscan`'s order-type flag and `/scan`'s
+batch text. Each calls the same reading the driven cards call. mypy improved
+by one (`union-attr` 127 to 126) and is re-recorded here.
+(`tests/test_an_idea_card_says_what_the_fees_leave_of_its_ratio.py`:
+fourteen mutants, all killed.)
