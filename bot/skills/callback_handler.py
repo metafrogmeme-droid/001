@@ -1720,6 +1720,7 @@ class CallbackHandler:
                 return
             from bot.core.copilot_context import review_ticket
             from bot.core.trade_copilot import review_card_html
+            from bot.core.trade_costs import idea_rr_words
             direction = (staged.direction.value if hasattr(staged.direction, "value")
                          else str(staged.direction))
             symbol = staged.asset.split("/")[0]
@@ -1733,6 +1734,10 @@ class CallbackHandler:
                 f"Entry: <code>{staged.entry_price}</code>\n"
                 f"SL: <code>{staged.stop_loss}</code>\n"
                 f"TP: <code>{staged.take_profit}</code>\n"
+                # The co-pilot block drops its levels row for a card that
+                # carries its own; this one carried no ratio at all, so the
+                # net figure showed only when it tripped a flag or a note.
+                f"R:R: {idea_rr_words(staged, places=2, suffix='', wrap=lambda t: f'<code>{t}</code>')}\n"
                 f"{review_card_html(rev)}\n"
                 f"<i>Nothing is placed until you confirm.</i>"
             )

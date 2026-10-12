@@ -38,6 +38,7 @@ from bot.core.position_telemetry import (
     price_on_record,
 )
 from bot.formatters.rich_cards import display_symbol, mode_badge
+from bot.core.trade_costs import idea_rr_words
 from bot.formatters.thesis_text import provenance_tag, split_counter_case, thesis_prose
 
 from bot.config import CONFIG, TRADFI_PERPETUALS
@@ -255,6 +256,10 @@ def _kv(key: str, val: str, w: int = 28) -> str:
 def _pill(text: str) -> str:
     """Inline code badge."""
     return f"<code>\u2009{text}\u2009</code>"
+
+def _code(text: str) -> str:
+    """Inline code, no padding: the figure a line leads with."""
+    return f"<code>{text}</code>"
 
 def _sparkline(values: list[float], w: int = 12) -> str:
     """Mini sparkline from block characters ▁▂▃▄▅▆▇█."""
@@ -960,7 +965,7 @@ class AnalyzeAssetSkill(BaseSkill):
             f"{ladder}"
             f"</pre>\n\n"
             f"  {conf_ring} Confidence \u2502{conf_bar}\u2502 {_pill(_conf.text())}\n"
-            f"  \u2606 Risk:Reward {_stars(rr)} {_pill(f'{rr}x')}\n\n"
+            f"  \u2606 Risk:Reward {_stars(rr)} {_pill(idea_rr_words(idea, places=2))}\n\n"
             f"{record_line}"
             f"{thesis_bq}"
             f"\U0001f4ce {_pill(idea.id)}"
@@ -2638,7 +2643,8 @@ class RunStrategySkill(BaseSkill):
             d_icon = _OK if idea.direction.value == "LONG" else _BAD
             results.append(
                 f"  {d_icon} <b>{_esc(idea.asset)}</b>  "
-                f"<code>{displayed_confidence(idea).text()}</code>  R:R <code>{idea.risk_reward_ratio}</code>"
+                f"<code>{displayed_confidence(idea).text()}</code>  "
+                f"R:R {idea_rr_words(idea, places=2, wrap=_code)}"
             )
 
         lines = [
@@ -2746,13 +2752,15 @@ class RunStrategySkill(BaseSkill):
             d_icon = _OK if idea.direction.value == "LONG" else _BAD
             results.append(
                 f"  {d_icon} <b>{_esc(idea.asset)}</b>  "
-                f"<code>{displayed_confidence(idea).text()}</code>  R:R <code>{idea.risk_reward_ratio}</code>"
+                f"<code>{displayed_confidence(idea).text()}</code>  "
+                f"R:R {idea_rr_words(idea, places=2, wrap=_code)}"
             )
             setups.append({
                 "sym": idea.asset, "dir": idea.direction.value,
                 "price": idea.entry_price, "entry": idea.entry_price,
                 "sl": idea.stop_loss, "tp": idea.take_profit,
                 "rr": idea.risk_reward_ratio, "score": idea.confidence,
+                "order_type": getattr(idea, "order_type", None),
                 # The ratio as the scanner measured it, or None: the card's
                 # renderer omits the stat it cannot read rather than print
                 # a 0x minted here.
@@ -3738,7 +3746,7 @@ class ProScanSkill(BaseSkill):
                     f"  Entry Zone    {_price(idea.entry_price):>13s}\n"
                     f"  Stop Loss     {_price(idea.stop_loss):>13s}  (-{_price(sl_d)})\n"
                     f"  Take Profit   {_price(idea.take_profit):>13s}  (+{_price(tp_d)})\n"
-                    f"  R:R           {idea.risk_reward_ratio:>10}x"
+                    f"  R:R           {idea_rr_words(idea, places=2)}"
                     f"</pre>"
                     f"  Quality: {_idea_sq_bar} "
                     f"<code>{_idea_sq_score}/{_idea_sq_max}</code> — <i>{_idea_sq_label}</i>"
@@ -3785,7 +3793,8 @@ class ProScanSkill(BaseSkill):
             one_glance_lines.append(f"\n{_gl_icon} <b>One-Glance Verdict: {_gl_text}</b>")
             one_glance_lines.append(
                 f"  {len(ideas_found)} actionable setup(s) detected  •  "
-                f"Best: <b>{_esc(best.asset)}</b> (confidence {displayed_confidence(best).text()}, {_best_rr:.1f}R)\n"
+                f"Best: <b>{_esc(best.asset)}</b> \u2014 confidence "
+                f"{displayed_confidence(best).text()}, R:R {idea_rr_words(best)}\n"
             )
         else:
             one_glance_lines.append("\n🔒 <b>One-Glance Verdict: Stand Down</b>")
@@ -4289,7 +4298,7 @@ class PlaybookSkill(BaseSkill):
                 lines.append(
                     f"  {d} <b>{_esc(idea.asset)}</b>  "
                     f"{_pill(displayed_confidence(idea).text())}  "
-                    f"R:R {idea.risk_reward_ratio}x"
+                    f"R:R {idea_rr_words(idea, places=2)}"
                 )
             lines.append("")
 

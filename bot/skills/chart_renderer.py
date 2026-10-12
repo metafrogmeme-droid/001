@@ -1578,7 +1578,8 @@ def _idea_meta(idea):
     bits.append(f"conf {displayed_confidence(idea).text()}")
     rr = getattr(idea, "risk_reward_ratio", None)
     if isinstance(rr, (int, float)) and rr > 0:
-        bits.append(f"R:R 1:{rr:.1f}")
+        from bot.core.trade_costs import idea_rr_words
+        bits.append(f"R:R {idea_rr_words(idea, suffix='')}")
     return pair, direction, "   ".join(bits), _levels_from_idea(idea)
 
 

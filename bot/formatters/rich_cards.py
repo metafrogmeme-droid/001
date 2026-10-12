@@ -473,15 +473,15 @@ def render_analysis_card(data: Dict[str, Any], idea: Optional[Any] = None) -> st
         entry, sl, tp = idea.entry_price, idea.stop_loss, idea.take_profit
         sl_pct = abs(entry - sl) / entry * 100
         tp_pct = abs(tp - entry) / entry * 100
-        rr = idea.risk_reward_ratio
         direction = idea.direction.value
+        from bot.core.trade_costs import idea_rr_words
 
         lines.append("")
         lines.append(f"<b>Setup \u2014 {direction} {'on Pullback' if direction == 'LONG' and entry < price else ''}:</b>")
         lines.append(f"- Entry: {_fmt_price(entry)}")
         lines.append(f"- SL: {_fmt_price(sl)} (-{sl_pct:.1f}%)")
         lines.append(f"- TP: {_fmt_price(tp)} (+{tp_pct:.1f}%)")
-        lines.append(f"- Risk/Reward: 1:{rr:.1f}")
+        lines.append(f"- Risk/Reward: {idea_rr_words(idea)}")
         lines.append(f"- Confidence: {displayed_confidence(idea).text()}")
 
     # Velocity gate warning. SILENCE IS TWO FACTS: a change measured inside
@@ -593,7 +593,8 @@ def render_comparison_table(assets: List[Dict[str, Any]],
                         entry_row[j] = _fmt_price(ii.entry_price)
                         sl_pct = abs(ii.entry_price - ii.stop_loss) / ii.entry_price * 100
                         sl_row[j] = f"-{sl_pct:.1f}%"
-                        rr_row[j] = f"1:{ii.risk_reward_ratio:.1f}"
+                        from bot.core.trade_costs import idea_rr_words
+                        rr_row[j] = idea_rr_words(ii)
                 rows.append(("Entry", entry_row))
                 rows.append(("SL Distance", sl_row))
                 rows.append(("R:R", rr_row))
@@ -684,7 +685,8 @@ def render_recommended_orders(assets: List[Dict[str, Any]],
         lines.append(f"<b>{a['pair']}</b> ({rank}):")
         lines.append(f"- Entry: {_fmt_price(idea.entry_price)}")
         lines.append(f"- SL: {_fmt_price(idea.stop_loss)} (-{sl_pct:.1f}%) | TP: {_fmt_price(idea.take_profit)} (+{tp_pct:.1f}%)")
-        lines.append(f"- R:R 1:{idea.risk_reward_ratio:.1f} | Conf: {displayed_confidence(idea).text()}")
+        from bot.core.trade_costs import idea_rr_words
+        lines.append(f"- R:R {idea_rr_words(idea)} | Conf: {displayed_confidence(idea).text()}")
         if i == best_idx and a["bid_depth"] > a["ask_depth"]:
             lines.append("- \u2705 Bid dominance \u2014 cleaner setup")
         elif a["ask_depth"] > a["bid_depth"] * 1.5:

@@ -1593,6 +1593,8 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
         sl_dist = abs(r["entry"] - r["sl"]) / r["entry"] * 100 if r["entry"] > 0 else 0
         tp_dist = abs(r["tp"] - r["entry"]) / r["entry"] * 100 if r["entry"] > 0 else 0
         r["rr"] = tp_dist / sl_dist if sl_dist > 0 else 0
+        # A pullback limit: the fee reading prices its entry at the maker rate.
+        r["order_type"] = "limit"
 
     # ── Render scan results card image ──
     card_sent = False
@@ -1650,8 +1652,11 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
         entry = r["entry"]
         sl = r["sl"]
         tp = r["tp"]
-        rr = r["rr"]
         direction = r["dir"]
+        # Gross and after fees, at the maker rate this resting limit pays.
+        from bot.core.trade_costs import net_reward_risk, rr_words
+        rr_text = rr_words(net_reward_risk(entry, sl, tp, order_type="limit"),
+                           suffix=":1", wrap=lambda s: f"<code>{s}</code>")
         sl_dist = abs(entry - sl) / entry * 100 if entry > 0 else 0
         tp_dist = abs(tp - entry) / entry * 100 if entry > 0 else 0
 
@@ -1664,7 +1669,7 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
             f"  Entry: <code>${entry:,.6g}</code>  (limit, on a pullback)\n"
             f"  TP:    <code>${tp:,.6g}</code>  (+{tp_dist:.1f}%)\n"
             f"  SL:    <code>${sl:,.6g}</code>  (-{sl_dist:.1f}%)\n"
-            f"  R:R:   <code>{rr:.1f}:1</code>  |  RSI {r['rsi']}  |  Vol {r['vol_ratio']}x\n"
+            f"  R:R:   {rr_text}  |  RSI {r['rsi']}  |  Vol {r['vol_ratio']}x\n"
             f"  Score: {score_icon} {score_pct}/100"
             + (f"\n  \U0001f512 <a href=\"{_verify[(sym, direction)]}\">verify this call</a>"
                if (sym, direction) in _verify else "")
