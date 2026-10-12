@@ -21419,7 +21419,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **489 of 1295** reach for source text through `source_scan`, `code_only`
+Driven, **489 of 1296** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 489 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -23726,3 +23726,31 @@ What this does not answer is how the record came to say more than the venue
 held. The fill paths read the venue's filled amount, and fall back to the
 requested one only when every read of it failed (`fill_fallback`, audited as
 ESTIMATED); the trade log of that position is what tells which path booked it.
+
+**EVERY RESTART HANDED EVERY DAILY CAP ITS WHOLE BUDGET BACK.** The chat
+audit found the anonymous preview's quota held in memory, and asked whether
+to persist it alone. It was not alone: `CostTracker` kept the day's whole
+ledger in memory, and the engine builds a fresh one at start, so every deploy
+began the day at $0. The combined dollar total, chat's share, the public
+preview's slice and the call limit were all spendable again after each
+restart, and on a day of several deploys a cap was a cap per process
+lifetime. The bot's ledger is kept on disk now (`data/llm_spend.json`),
+written after every booking and read back at start: the same day's figures
+are restored, the preview's subset with them, and an earlier day's are folded
+into the lifetime total, as the day boundary folds them. A file that will not
+read, or reads with a figure missing, is never written over
+(`bot/utils/json_store.py`): a ledger with a hole in it is not a smaller
+spend. The figures then count from the restart, and `/costs` says so, and
+that today's caps can be spent past their budget. An engine built outside the
+bot (`detach_state_persistence`) keeps its own ledger from nothing, as before,
+rather than a copy of the bot's day that never moves again. The per-visitor
+daily count is still in memory; it bounds one address, and the preview's
+dollar slice, which bounds them all, now outlives a restart.
+(`tests/test_the_day_s_llm_spend_outlives_a_restart.py`: a same-day start
+restores every figure the gates read, and a cap reached before a restart is
+reached after it; an earlier day is folded into the lifetime total; an
+unreadable or incomplete file is kept as it was and named on the card; no
+path writes nothing; a detached engine neither writes the bot's file nor
+shows a frozen day. Ten mutants, all killed, one of them after its fixture
+was given a ledger missing a single figure: the first fixture also lacked the
+category maps, which failed the read for another reason.)

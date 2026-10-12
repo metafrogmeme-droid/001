@@ -22,12 +22,17 @@ Per-category breakdown: scan / analyze / thesis / risk_decision / other.
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
+from bot.utils.atomic_write import atomic_write_json
+from bot.utils.json_store import READ, UNREADABLE, read_json_store
 from bot.utils.logger import audit, system_log
+
+logger = logging.getLogger(__name__)
 
 
 # USD per 1,000,000 tokens.  ILLUSTRATIVE — verify against current provider
@@ -422,18 +427,145 @@ def public_chat_budget_bound(snap: CostSummary, llm_cfg) -> str:
     return ""
 
 
+#: The file the bot's ledger is kept in, under its data directory.
+SPEND_FILE = "llm_spend.json"
+
+#: What the day's figures cover, one reading (`CostTracker.persistence`).
+SPEND_OFF = "off"                 # this process's own ledger; nothing kept on disk
+SPEND_RESTORED = "restored"       # today's spend before this start was read back
+SPEND_FRESH = "fresh"             # nothing spent today before this start
+SPEND_UNREADABLE = "unreadable"   # the file would not read: counted from this start
+
+_SUMMARY_NUMBERS = ("llm_cost_usd", "infra_cost_usd", "llm_calls", "prompt_tokens",
+                    "completion_tokens", "unpriced_calls", "public_chat_cost_usd",
+                    "public_chat_calls")
+
+
+def _summary_json(s: CostSummary) -> dict:
+    out: dict[str, Any] = {k: getattr(s, k) for k in _SUMMARY_NUMBERS}
+    out["cost_by_category"] = dict(s.cost_by_category)
+    out["calls_by_category"] = dict(s.calls_by_category)
+    return out
+
+
+def _summary_from_json(d: Any) -> Optional[CostSummary]:
+    """A ledger read back, or None when any figure is missing or not a number:
+    a ledger with a hole in it is not a smaller spend."""
+    if not isinstance(d, dict):
+        return None
+    s = CostSummary()
+    for k in _SUMMARY_NUMBERS:
+        v = d.get(k)
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        setattr(s, k, type(getattr(s, k))(v))
+    for k, kind in (("cost_by_category", float), ("calls_by_category", int)):
+        m = d.get(k)
+        if not isinstance(m, dict) or not all(
+                isinstance(v, (int, float)) and not isinstance(v, bool) for v in m.values()):
+            return None
+        setattr(s, k, {str(c): kind(v) for c, v in m.items()})
+    return s
+
+
+def _spend_file_check(data: dict) -> str:
+    if not isinstance(data.get("day"), str):
+        return "no day"
+    if _summary_from_json(data.get("daily")) is None:
+        return "the day's ledger is incomplete"
+    if _summary_from_json(data.get("lifetime")) is None:
+        return "the lifetime ledger is incomplete"
+    return ""
+
+
 class CostTracker:
     """Session operating-cost ledger.  Separate from trade PnL by design.
 
     Threading model: same single-threaded asyncio assumption as RiskEngine.
     RLock is defensive only.
+
+    THE DAY'S SPEND OUTLIVES A RESTART when the ledger is given a ``path``.
+    It lived in memory only, and the engine builds a fresh one at start, so a
+    restart began the day at $0: every daily cap that reads it -- the combined
+    dollar total, chat's share, the public preview's slice, the call limit --
+    was spendable again after each deploy. With a path, the ledger is written
+    after every booking, and a start reads it back: the same day's figures
+    are restored, and an earlier day's are folded into the lifetime total, as
+    the day boundary folds them. A file that will not read is never written
+    over (`bot/utils/json_store.py`), and the figures say they count from this
+    start (`persistence`). Without a path -- tests, and a process that
+    is not the bot (`detach_from_file`) -- it is this process's own ledger,
+    as before.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, path: Optional[str] = None) -> None:
         self._lock = threading.RLock()
         self._s = CostSummary()
         self._lifetime = CostSummary()  # W1 FIX: separate lifetime vs daily
         self._current_day: str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        self._path: Optional[str] = path
+        self.persistence: str = SPEND_OFF
+        self._unreadable_detail = ""
+        self._write_warned = False
+        if path is not None:
+            self._restore(path)
+
+    def _restore(self, path: str) -> None:
+        r = read_json_store(path, check=_spend_file_check)
+        if r.state == UNREADABLE:
+            self.persistence = SPEND_UNREADABLE
+            self._unreadable_detail = r.detail
+            logger.warning(
+                "The LLM spend ledger could not be read (%s): today's spend before "
+                "this start is unknown, and the file is kept as it is", r.detail)
+            return
+        if r.state != READ:
+            self.persistence = SPEND_FRESH
+            return
+        daily = _summary_from_json(r.data["daily"])
+        lifetime = _summary_from_json(r.data["lifetime"])
+        assert daily is not None and lifetime is not None  # the check passed
+        self._lifetime = lifetime
+        if r.data["day"] == self._current_day:
+            self._s = daily
+            self.persistence = SPEND_RESTORED
+        else:
+            self._s = daily
+            self._current_day = r.data["day"]
+            self._maybe_reset_daily()  # folds that day into the lifetime total
+            self.persistence = SPEND_FRESH
+
+    def detach_from_file(self) -> None:
+        """This ledger is a process's own, never the bot's file.
+
+        For an engine built outside the bot (`detach_state_persistence`): its
+        calls are its own, and what it read at start would be a copy of the
+        bot's day that never moves again, so it starts from nothing, as every
+        ledger did before the file existed.
+        """
+        with self._lock:
+            self._path = None
+            self._s = CostSummary()
+            self._lifetime = CostSummary()
+            self._current_day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            self.persistence = SPEND_OFF
+
+    def _save(self) -> None:
+        """Write the ledger whole. Never over a file that would not read; a
+        write that does not land is warned once and tried again next time."""
+        if self._path is None or self.persistence == SPEND_UNREADABLE:
+            return
+        try:
+            atomic_write_json(self._path, {
+                "day": self._current_day,
+                "daily": _summary_json(self._s),
+                "lifetime": _summary_json(self._lifetime),
+            })
+        except OSError as exc:
+            if not self._write_warned:
+                self._write_warned = True
+                logger.warning("The LLM spend ledger could not be written (%s); "
+                               "a restart would lose today's spend", type(exc).__name__)
 
     def _maybe_reset_daily(self) -> None:
         """W1 FIX: Reset daily counters at UTC day boundary."""
@@ -495,6 +627,7 @@ class CostTracker:
                 self._s.public_chat_calls += 1
             if not priced:
                 self._s.unpriced_calls += 1
+            self._save()
 
         audit(
             system_log,
@@ -517,7 +650,9 @@ class CostTracker:
     def record_infra(self, cost_usd: float, note: str = "") -> None:
         """Record an infrastructure cost (hosting, data feeds, etc.)."""
         with self._lock:
+            self._maybe_reset_daily()
             self._s.infra_cost_usd += cost_usd
+            self._save()
 
     def snapshot(self) -> CostSummary:
         """Return a frozen copy of current daily cost state."""
