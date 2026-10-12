@@ -644,7 +644,7 @@ class TestOnlyATakeableSetupIsArmed:
     """A read confirmed about a retest candle that closed hours ago is armed
     only if its entry has not traded since. Replayed over the frozen
     snapshots, the rule as first written read "survives, +2.04R" from a
-    once-a-day observer for a setup whose bar-by-bar record is +0.03R, and 125
+    once-a-day observer for a setup whose bar-by-bar record is about zero R, and 125
     of its 228 setups had resolved before the read that armed them."""
 
     END = 1_000_000_000_000

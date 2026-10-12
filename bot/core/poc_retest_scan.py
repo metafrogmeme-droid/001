@@ -230,7 +230,7 @@ async def observe_setup(exchange: Any, symbol: str, *,
     traded since then the outcome is partly or wholly already known. Armed and
     scored anyway, that is hindsight: replayed over the frozen snapshots, a
     record asked once a day read "survives, +2.04R" for a setup whose
-    bar-by-bar record is +0.03R (`poc_retest_record`'s header has the
+    bar-by-bar record is about zero R (`poc_retest_record`'s header has the
     numbers). Such a read is not armed, and `not_armed` says why. An armed
     setup records the bar it was armed on and is scored from the bar after it.
 

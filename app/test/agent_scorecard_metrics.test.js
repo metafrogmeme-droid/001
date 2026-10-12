@@ -11,7 +11,9 @@
  * signed return.
  *
  * Driven: the renderer runs, and the frozen Dip Sniper / Momentum Hunter
- * cards are the fixture. A scan of the source would stay green if the grid
+ * cards are the fixture. Momentum Hunter took no trades once the pager's
+ * missing bars were filled, so it is the flat-book case: a return of 0.00%
+ * that is no gain, and no ratios. A scan of the source would stay green if the grid
  * class were never reached.
  */
 const test = require('node:test');
@@ -181,22 +183,21 @@ test('Dip Sniper keeps the frozen figures, in a 3-column grid, caption outside',
   const sh = cell(parsed, 'Sharpe');
   const tr = cell(parsed, 'Trades');
 
-  assert.equal(ret.text, '+3.24%');
-  assert.equal(pf.text, '1.62');
-  assert.equal(wr.text, '62%');
-  assert.equal(dd.text, '2.75%');
-  assert.equal(sh.text, '1.24');
-  assert.equal(tr.text, '13');
+  assert.equal(ret.text, '-2.98%');
+  assert.equal(pf.text, '0.23');
+  assert.equal(wr.text, '25%');
+  assert.equal(dd.text, '2.98%');
+  assert.equal(sh.text, '-3.69');
+  assert.equal(tr.text, '4');
 
-  gain(ret.cls);
-  gain(pf.cls);
+  loss(ret.cls);
+  loss(pf.cls);
   neutral(wr.cls);
   neutral(dd.cls);
-  gain(sh.cls);
+  loss(sh.cls);
   neutral(tr.cls);
-  // On this card both readings are gains, so they share a class. A negative
-  // Sharpe sharing the loss class of a sub-1 profit factor is the synthetic
-  // case below — these frozen figures no longer show that pair.
+  // A negative Sharpe shares the loss class of a sub-1 profit factor. The
+  // gain pair is the synthetic case below.
   assert.equal(sh.cls, pf.cls);
   // Label above the number. Inline spans let a value run into the next column
   // once a card is narrower than the phone screenshot.
@@ -212,30 +213,37 @@ test('Dip Sniper keeps the frozen figures, in a 3-column grid, caption outside',
   // A frozen backtest, not a leader's record, and the caption names its figure.
   assert.match(after, /Max DD: <\/span><span class="muted small">the agent’s backtest/);
   assert.doesNotMatch(html, /leader/);
-  assert.match(html, /Frozen backtest · majors_1h · 1500 bars · #8dbe73514ce8/);
-  assert.doesNotMatch(html, /low sample/);
+  assert.match(html, /Frozen backtest · majors_1h · 1500 bars · #ccc3f70b7ed7/);
+  assert.match(html, /low sample · 4 trades/);
   assert.ok(!html.includes('$'), 'public card rendered a dollar');
 });
 
-test('Momentum Hunter grids the frozen figures, and a thin sample stays marked', () => {
-  const html = scoreBlock(cardFrom('momentum-hunter.json'));
+test('Momentum Hunter took no trades: a flat 0.00% is no gain, and it has no ratios', () => {
+  const raw = cardFrom('momentum-hunter.json');
+  // The committed card carries the runner's 0.0 for each ratio; the reading
+  // must not print them, whether or not the catalogue nulled them first.
+  assert.equal(raw.metrics.total_trades, 0);
+  assert.equal(raw.metrics.profit_factor, 0);
+  const html = scoreBlock(raw);
   const parsed = cells(html);
-  const pf = cell(parsed, 'Profit factor');
-  const sh = cell(parsed, 'Sharpe');
-  const dd = cell(parsed, 'Max DD');
-  assert.equal(cell(parsed, 'Return').text, '+0.45%');
-  assert.equal(pf.text, '1.80');
-  gain(pf.cls);
-  assert.equal(cell(parsed, 'Win rate').text, '33%');
-  neutral(cell(parsed, 'Win rate').cls);
-  assert.equal(dd.text, '0.57%');
-  neutral(dd.cls);
-  assert.equal(sh.text, '-0.49');
-  loss(sh.cls);
-  // Positions, not the ladder's fills (B4-04): it closed 3 positions in 5 fills.
-  assert.equal(cell(parsed, 'Trades').text, '3');
-  assert.match(html, /low sample · 3 trades/);
+  const ret = cell(parsed, 'Return');
+  assert.equal(ret.text, '+0.00%');
+  neutral(ret.cls);
+  for (const label of ['Profit factor', 'Win rate', 'Sharpe']) {
+    assert.equal(cell(parsed, label).text, '—', label);
+    neutral(cell(parsed, label).cls);
+  }
+  assert.equal(cell(parsed, 'Max DD').text, '0.00%');
+  neutral(cell(parsed, 'Max DD').cls);
+  assert.equal(cell(parsed, 'Trades').text, '0');
+  assert.match(html, /low sample · 0 trades/);
   assert.doesNotMatch(parsed.grid, /backtest</);
+  // The other arm: one trade is a measurement, and its 0.00 profit factor
+  // is a loss.
+  const one = cells(scoreBlock({ metrics: { ...raw.metrics, total_trades: 1, total_return_pct: -0.2 } }));
+  assert.equal(cell(one, 'Profit factor').text, '0.00');
+  loss(cell(one, 'Profit factor').cls);
+  assert.equal(cell(one, 'Win rate').text, '0%');
 });
 
 test('a gain is green, break-even profit factor follows pnlClass, drawdown stays uncoloured', () => {
@@ -334,25 +342,27 @@ function stratCell(html, key) {
 
 test('the public strategy page uses the same reading and a 3-column grid', () => {
   const html = strategyBlock(cardFrom('dip-sniper.json'));
-  assert.equal(stratCell(html, 'return').text, '+3.24%');
-  assert.equal(stratCell(html, 'return').cls, 'up');
-  assert.equal(stratCell(html, 'profit-factor').text, '1.62');
-  assert.equal(stratCell(html, 'profit-factor').cls, 'up');
-  assert.equal(stratCell(html, 'win-rate').text, '62%');
+  assert.equal(stratCell(html, 'return').text, '-2.98%');
+  assert.equal(stratCell(html, 'return').cls, 'down');
+  assert.equal(stratCell(html, 'profit-factor').text, '0.23');
+  assert.equal(stratCell(html, 'profit-factor').cls, 'down');
+  assert.equal(stratCell(html, 'win-rate').text, '25%');
   assert.equal(stratCell(html, 'win-rate').cls, '');
-  assert.equal(stratCell(html, 'max-dd').text, '2.75%');
+  assert.equal(stratCell(html, 'max-dd').text, '2.98%');
   assert.equal(stratCell(html, 'max-dd').cls, '');
-  assert.equal(stratCell(html, 'sharpe').text, '1.24');
-  assert.equal(stratCell(html, 'sharpe').cls, 'up');
+  assert.equal(stratCell(html, 'sharpe').text, '-3.69');
+  assert.equal(stratCell(html, 'sharpe').cls, 'down');
   assert.equal(stratCell(html, 'sharpe').cls, stratCell(html, 'profit-factor').cls);
-  assert.equal(stratCell(html, 'trades').text, '13');
+  assert.equal(stratCell(html, 'trades').text, '4');
 
   const mom = strategyBlock(cardFrom('momentum-hunter.json'));
-  assert.equal(stratCell(mom, 'profit-factor').text, '1.80');
-  assert.equal(stratCell(mom, 'profit-factor').cls, 'up');
-  assert.equal(stratCell(mom, 'sharpe').cls, 'down');
+  assert.equal(stratCell(mom, 'return').text, '+0.00%');
+  assert.equal(stratCell(mom, 'return').cls, '');
+  assert.equal(stratCell(mom, 'profit-factor').text, '—');
+  assert.equal(stratCell(mom, 'profit-factor').cls, '');
+  assert.equal(stratCell(mom, 'sharpe').cls, '');
   assert.equal(stratCell(mom, 'max-dd').cls, '');
-  assert.match(mom, /low sample · 3 trades/);
+  assert.match(mom, /low sample · 0 trades/);
 
   const unread = strategyBlock({
     metrics: { profit_factor: '', sharpe_ratio: null, max_drawdown_pct: NaN,
@@ -463,6 +473,16 @@ test('a refused eligibility record is said as refused, not as none', () => {
   assert.match(text, /record filed for this preset was refused/);
   assert.doesNotMatch(text, /no eligibility record/i);
   assert.match(Score.withheldText('below_one'), /no eligibility record says this preset survives/);
+});
+
+test('a preset that took no trades is withheld as no verdict, not as below 1', () => {
+  const text = Score.withheldText('no_trades');
+  assert.match(text, /took no trades in its benchmark window, so there is no verdict/);
+  assert.doesNotMatch(text, /below 1/);
+  const flat = { id: 'momentum-hunter', copy_follow: false, copy_follow_reason: 'no_trades' };
+  assert.equal(Score.followOffer(flat), 'withheld');
+  assert.match(Score.followButtonHtml(flat, true, false), /took no trades/);
+  assert.match(Score.withheldPicksText('no_trades'), /no verdict\. Its picks are no longer shown/);
 });
 
 test('a card says how often its breaker tripped and the reset it modelled', () => {

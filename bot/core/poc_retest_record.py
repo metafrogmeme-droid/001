@@ -24,7 +24,7 @@ outcome. Worse, a later read re-estimates the swing leg with the move that has
 since happened, so its target is often a high that price had already made.
 Replayed over the frozen snapshots (`scripts/poc_retest_replay.py observer`),
 a record asked once a day read "survives, +2.04R [+1.59, +2.50]" for a setup
-whose bar-by-bar record is +0.03R, and 125 of its 228 setups had resolved
+whose bar-by-bar record is about zero R, and 125 of its 228 setups had resolved
 before the read that armed them. The record exists to gate execution, so that
 verdict would have put real money on hindsight. A read whose entry has traded
 since its retest candle is not armed now (`entry_traded`), and an armed setup

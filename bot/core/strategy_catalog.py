@@ -524,6 +524,9 @@ def follow_listing(scorecard: Optional[dict], eligibility_state: str) -> tuple[b
             mark = raw_mark
     pf = _finite_number(metrics.get("profit_factor")) if metrics is not None else None
     trades = _count(metrics.get("total_trades")) if metrics is not None else None
+    if trades == 0 and mark in _VERDICT_MARKS:
+        # Measured, and it never traded: no verdict, and not "below 1".
+        return False, "no_trades"
     if pf is None or trades is None or mark not in _VERDICT_MARKS:
         return False, "no_verdict"
     if pf < 1:
@@ -598,6 +601,16 @@ def _load_scorecard(agent_id: str) -> Optional[dict]:
     # Bind once so isinstance narrows. A second ``card.get`` stays ``Any | None``
     # and ``.get`` on that union is not a dict read.
     metrics = raw_metrics if isinstance(raw_metrics, dict) else {}
+    # A run that took no trades has no ratios. The runner writes 0.0 for each,
+    # and the card copies the runner, but 0.0 is "traded and lost" to every
+    # reader: a profit factor painted as a loss and offered as "below 1", a
+    # win rate of 0%, a Sharpe at break-even. The count decides, as it does
+    # in `metrics.profit_factor_summary`.
+    no_trades = _count(metrics.get("total_trades")) == 0
+
+    def ratio(key: str):
+        return None if no_trades else metrics.get(key)
+
     return {
         "dataset": card.get("dataset", ""),
         "dataset_hash": (card.get("dataset_hash", "") or "")[:12],
@@ -607,10 +620,10 @@ def _load_scorecard(agent_id: str) -> Optional[dict]:
         "unmodeled": card.get("unmodeled", []),
         "metrics": {
             "total_return_pct": metrics.get("total_return_pct"),
-            "profit_factor": metrics.get("profit_factor"),
-            "win_rate": metrics.get("win_rate"),
+            "profit_factor": ratio("profit_factor"),
+            "win_rate": ratio("win_rate"),
             "max_drawdown_pct": metrics.get("max_drawdown_pct"),
-            "sharpe_ratio": metrics.get("sharpe_ratio"),
+            "sharpe_ratio": ratio("sharpe_ratio"),
             "total_trades": metrics.get("total_trades"),
         },
         "folds": _folds(card),

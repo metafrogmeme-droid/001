@@ -21419,7 +21419,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **489 of 1296** reach for source text through `source_scan`, `code_only`
+Driven, **489 of 1297** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 489 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -23754,3 +23754,61 @@ path writes nothing; a detached engine neither writes the bot's file nor
 shows a frozen day. Ten mutants, all killed, one of them after its fixture
 was given a ledger missing a single figure: the first fixture also lacked the
 category maps, which failed the read for another reason.)
+
+**THE PAGER'S HOLES WERE FILLED IN THEIR OWN WINDOWS, AND EVERY CARD MOVED.**
+12 October. The seven datasets frozen before the pager fix named their 474
+missing hours and kept them. Re-freezing would have replaced each window with
+one ending today, so every figure would have moved because the market had.
+`snapshot --repair` fills the named holes instead, and fills one only where
+the venue's hour either side of it equals the stored bar in all five fields:
+that is the evidence the missing hour belongs to the same series. Every stored
+row is kept byte for byte, the manifest keeps its freeze time, and it records
+which hours the repair supplied, when, and from where (`repaired`,
+`repairs`); the verifier holds the file to that list. All 474 qualified.
+
+The request window took three tries, because Bitget's two candle endpoints
+answer their bounds differently: `until` is exclusive on both, and `since` is
+inclusive on the history candles and exclusive on the recent ones. Asked for
+`(at−1h, at+2h)`, the recent holes came back without the hour before. Asked
+for `(at−2h, at+1h)`, every hole came back without the hour after. Asked for
+`(at−2h, at+2h)` with a limit of four, both endpoints return all three hours.
+The test venue answers both ways, and both wrong windows are killed as
+mutants. The fetch drops a forming bar, as every venue candle read must
+(`tests/test_every_candle_read_is_hygiened.py` caught the first draft), so a
+hole beside the current hour would stay named rather than be compared with a
+bar that has not closed.
+
+The cards moved much further than the data did. The 60 bars in the majors
+window took the benchmark of record from 125 trades and net −$1,456.34 to 196
+trades and net −$1,965.82, and one fold from 11 trades to 60. Dip Sniper went
+from +3.24% (PF 1.62, 13 trades) to −2.98% (PF 0.23, 4 trades). Momentum Hunter
+and Safe Scalper took no trades. A control, this code on the old data,
+reproduced every old figure to the cent, so the data moved them. The window's
+start alone moves them as far. On the old data, starting six bars later takes
+Dip Sniper to 2 trades for −0.26%. On the repaired data, starting at the old
+first hour gives 8 trades for +8.99% and no loss. A card of a handful of
+trades is one path, not an estimate. A figure that 60 bars, or a six-hour
+start, can swing from +3% to −3% was never evidence for following, and no
+card is offered for follow now.
+
+That exposed a reading nothing had needed until then. A run with no trades
+has no ratios, but the runner writes 0.0 for profit factor, win rate and
+Sharpe, and the card copies it. The agents page would have painted Momentum
+Hunter's profit factor of 0.00 as a loss, withheld it as "below 1", shown a
+0% win rate, and painted its flat 0.00% return green. The trade count decides
+now, as `metrics.profit_factor_summary` already said it should. The catalogue
+sends the three ratios as null when `total_trades` is 0. The web reading
+blanks them too, because a Lab run's raw metrics never pass through the
+catalogue. The flat return takes no colour, and follow is withheld as
+`no_trades` ("no verdict"), not as "below 1". One trade is still a
+measurement, and its 0.00 is still a loss. The docs that quoted the old
+figures (the record, the snapshot table, the cards table, the POC-retest rows
+and the income map) were re-taken from the new records. Docstrings that
+restated the POC figure point at its record now.
+(`tests/test_a_frozen_dataset_s_holes_are_filled_in_its_own_window.py`,
+`tests/test_the_freezer_keeps_every_bar_of_every_page.py`,
+`tests/test_strategy_catalog.py`, `app/test/agent_scorecard_metrics.test.js`,
+`app/test/a_drawdown_is_a_magnitude_and_a_zero_profit_factor_is_a_loss.test.js`,
+`app/test/copy.test.js`: fourteen mutants of the repair and its fetch,
+three of the catalogue, three of the web reading and two of the withheld
+reason, all killed.)

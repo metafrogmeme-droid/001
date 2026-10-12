@@ -222,6 +222,10 @@ test('a follow made before the withholding gets no picks, and unfollow still wor
     assert.strictEqual(g.picks, null);
     assert.strictEqual(g.name, 'Dip Sniper');
     assert.ok(!g.unavailable, 'withheld is not "gates unavailable"');
+    // A preset that took no trades is withheld for its own reason.
+    dip.copy_follow_reason = 'no_trades';
+    r = await req('GET', '/api/copy/picks', { token });
+    assert.strictEqual(r.data.agents[0].reason, 'no_trades');
     // An unrecognised reason is not passed through.
     dip.copy_follow_reason = 'something-else';
     r = await req('GET', '/api/copy/picks', { token });
