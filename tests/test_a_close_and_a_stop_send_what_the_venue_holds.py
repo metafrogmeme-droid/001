@@ -6,10 +6,11 @@ Every close was refused, on the tap and on `/liveclose`, with Bitget 25231
 refused too (25610), so the position sat open with no stop until the
 operator closed it by hand. MUSDT trades in whole units.
 
-The close and both classic stop paths sent the RECORD's size. Reconcile reads
-the venue's size and, by design, only reports the drift: the ladder, a pyramid
-and a close in flight all diverge from a snapshot. So the size is read where the
-order is sent (`LiveExecutor._sized_to_venue`). It is the record's size, never
+The close and both classic stop paths sent the RECORD's size. Reconcile read
+the venue's size and, by design, only reported the drift: the ladder, a pyramid
+and a close in flight all diverge from a snapshot. (Two passes running now true
+a record down: `test_a_record_is_trued_down_to_what_the_venue_holds`.) So the
+size is also read where the order is sent (`LiveExecutor._sized_to_venue`). It is the record's size, never
 more than the venue holds on that side, truncated to the market's grid. An
 unread book sends the record's size, as before.
 
