@@ -21419,7 +21419,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **489 of 1297** reach for source text through `source_scan`, `code_only`
+Driven, **489 of 1299** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 489 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -23812,3 +23812,32 @@ restated the POC figure point at its record now.
 `app/test/copy.test.js`: fourteen mutants of the repair and its fetch,
 three of the catalogue, three of the web reading and two of the withheld
 reason, all killed.)
+
+**THE PUBLIC CHANNEL CALLED A RULE-ENGINE CALL AI-GENERATED, AT ITS GROSS
+RATIO.** 12 October, a TIA long on the public channel: "R:R: 6.5x" over
+"🤖 AI-generated signal". Since 11 October the rule engine decides every trade
+by default (`AnalyzerConfig.llm_decides` off) and the model's read rides
+beside the call, not used to make it, so the footer was false on most calls.
+The footer reads who decided now. An idea carries its thesis's source as
+`model_provider`, and `analyzer.thesis_decided_by` reads the prefix: `LLM_`
+for the model's own call, `RULE_ENGINE` for any rule route, and None for
+anything else, which claims nothing. The analyzer's shadow check, which
+already asked that prefix, asks the same reading. The post had also computed
+its own gross ratio, beside `trade_costs.net_reward_risk`, which the ticket,
+chat and co-pilot cards already read. That call pays 5.7x after a taker round
+trip (6.0x resting as a limit), and the post now prints both. A ratio the
+reading refuses prints a dash where the old arithmetic printed 0.0x; a
+validated idea cannot reach that state, so the test builds one past
+validation and says so.
+
+The same claim sat one card over. The LLM-offline alert told the operator
+the bot was "RUNNING ON RULES … rule engine only — no AI thesis, weaker
+signals", and its all-clear said "AI theses are back online". With the rule
+engine deciding, an outage changes no trade: it pauses the model's read and
+the calibration rows that measure it, and the card says that now. With
+LLM_DECIDES on, it says the rules decide in the model's place. "Weaker" was
+never measured, so neither arm says it.
+(`tests/test_the_public_post_says_who_decided_and_what_the_fees_leave.py`,
+`tests/test_the_offline_card_says_what_an_outage_changes.py`: fourteen
+mutants, all killed. The shadow check's rewrite is the same predicate, and
+its existing test still holds it.)

@@ -34,6 +34,41 @@ _CLOSE_ICON_UNKNOWN = "\u26aa"
 _CONFIG_PATH = state_path("data/channel_config.json")
 
 
+def _decided_by_words(idea) -> str:
+    """The footer's claim about who made the call, read off the idea.
+
+    It said "AI-generated" on every call. Since the rule engine decides by
+    default (`AnalyzerConfig.llm_decides`, 11 October) the model's read rides
+    beside the call and is not used to make it, so on most calls the word was
+    false. An idea whose source says nothing claims nothing.
+    """
+    from bot.core.analyzer import DECIDED_BY_LLM, DECIDED_BY_RULES, thesis_decided_by
+    who = thesis_decided_by(getattr(idea, "model_provider", None))
+    if who == DECIDED_BY_LLM:
+        return "\U0001f916 AI-generated signal | "
+    if who == DECIDED_BY_RULES:
+        return "\u2699\ufe0f Rule-engine signal | "
+    return ""
+
+
+def _rr_words(idea) -> str:
+    """Reward to risk, gross and net of the fees, from `net_reward_risk`.
+
+    The post computed its own gross ratio, so a 6.5x call that pays 5.7x after
+    a taker round trip was published at 6.5x, and an unreadable stop printed
+    a confident 0.0x. One reading now, the one the ticket and chat cards use.
+    """
+    from bot.core.trade_costs import net_reward_risk
+    costed = net_reward_risk(idea.entry_price, idea.stop_loss, idea.take_profit,
+                             order_type=getattr(idea, "order_type", None))
+    if costed is None:
+        return "<code>\u2014</code> (a level could not be read)"
+    if costed.net is None:
+        return (f"<code>{costed.gross:.1f}x</code> "
+                "(the target does not cover the fees)")
+    return f"<code>{costed.gross:.1f}x</code> ({costed.net:.1f}x after fees)"
+
+
 class ChannelForwarder:
     """Forwards cleaned-up bot content to public Telegram groups/channels."""
 
@@ -156,9 +191,7 @@ class ChannelForwarder:
         try:
             d = "\U0001f7e2 LONG" if idea.direction.value == "LONG" else "\U0001f534 SHORT"
             asset = idea.asset
-            risk_amt = abs(idea.entry_price - idea.stop_loss)
-            reward_amt = abs(idea.take_profit - idea.entry_price)
-            rr = reward_amt / risk_amt if risk_amt > 0 else 0
+            rr = _rr_words(idea)
             sl_pct = abs(idea.entry_price - idea.stop_loss) / idea.entry_price * 100
             tp_pct = abs(idea.take_profit - idea.entry_price) / idea.entry_price * 100
             now = datetime.now(UTC).strftime("%H:%M UTC")
@@ -182,10 +215,10 @@ class ChannelForwarder:
                 f"Entry: <code>{_fmt_price(idea.entry_price)}</code>\n"
                 f"Stop Loss: <code>{_fmt_price(idea.stop_loss)}</code> ({sl_pct:.1f}%)\n"
                 f"Take Profit: <code>{_fmt_price(idea.take_profit)}</code> ({tp_pct:.1f}%)\n"
-                f"R:R: <code>{rr:.1f}x</code>\n"
+                f"R:R: {rr}\n"
                 f"Confidence: <code>{confidence}</code>\n\n"
                 f"{_sep}\n"
-                f"\U0001f916 AI-generated signal | {now}\n"
+                f"{_decided_by_words(idea)}{now}\n"
                 f"#RUNECLAW #{asset.split('/')[0] if '/' in asset else asset}"
             )
             await self._post(msg)
