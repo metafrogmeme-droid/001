@@ -357,6 +357,32 @@ def computed_ratio(text: str):
     return _ratio(*lv)
 
 
+#: A ratio stated NET OF FEES is a different quantity from the levels'
+#: quotient. The chat's ticket tool prints both ("Gross R:R 6.47. Net R:R
+#: 5.74."), and a relayed net figure was "corrected" to the gross one: the
+#: page then said "Net R:R 6.47", a false figure under the word that said it
+#: was the other one. The fees depend on the order type, which a page does
+#: not state, so a net claim is not checked here at all; it is never
+#: rewritten with a figure this module cannot derive.
+_NET_BEFORE = re.compile(
+    r"(?:\bnet(?:[ \t-]+of[ \t-]+fees?)?|\bafter[ \t-]+fees?)[ \t:-]*$", re.IGNORECASE)
+_NET_AFTER = re.compile(
+    r"[ \t]*x?[ \t]*\(?[ \t]*(?:after[ \t]+fees?|net(?:[ \t]+of[ \t]+fees?)?\b)",
+    re.IGNORECASE)
+
+
+def _is_net(text: str, start: int, end: int) -> bool:
+    """True when the claim spanning ``text[start:end]`` is qualified as net
+    of fees: "Net R:R 5.74", "R:R after fees: 5.74", "5.74 R:R net of fees"."""
+    return bool(_NET_BEFORE.search(text[max(0, start - 24):start])
+                or _NET_AFTER.match(text, end))
+
+
+def _is_net_header(cell: str) -> bool:
+    """A table column whose header says its ratio is net of fees."""
+    return bool(re.search(r"\bnet\b|after[ \t-]+fees?", cell, re.IGNORECASE))
+
+
 def _wrong(stated, actual):
     """True only for a plausible ratio that disagrees with the levels."""
     if stated is None:
@@ -372,6 +398,8 @@ def _correct_prose(text: str, actual: float):
 
     def _repl(m):
         nonlocal corrected
+        if _is_net(m.string, m.start("label"), m.end()):
+            return m.group(0)
         if not _wrong(_num(m.group("ratio")), actual):
             return m.group(0)
         corrected += 1
@@ -381,6 +409,8 @@ def _correct_prose(text: str, actual: float):
 
     def _repl_pre(m):
         nonlocal corrected
+        if _is_net(m.string, m.start(), m.end()):
+            return m.group(0)
         if not _wrong(_num(m.group("ratio")), actual):
             return m.group(0)
         corrected += 1
@@ -388,6 +418,8 @@ def _correct_prose(text: str, actual: float):
 
     def _repl_quot(m):
         nonlocal corrected
+        if _is_net(m.string, m.start(), m.end()):
+            return m.group(0)
         if not _wrong(_num(m.group("ratio")), actual):
             return m.group(0)
         corrected += 1
@@ -421,8 +453,9 @@ def _correct_table_rr(text: str, actual):
             continue
         head = [c.lower() for c in _cells(line)]
         rr = next((j for j, c in enumerate(head)
-                   if "r:r" in c or "r/r" in c
-                   or ("risk" in c and "reward" in c)), None)
+                   if ("r:r" in c or "r/r" in c
+                       or ("risk" in c and "reward" in c))
+                   and not _is_net_header(c)), None)
         if rr is None:
             continue
         cols = _table_columns(head)

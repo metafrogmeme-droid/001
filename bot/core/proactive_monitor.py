@@ -3821,6 +3821,13 @@ class ProactiveMonitor:
                     # and `format_rr` renders the dash that says so.
                     rr_ratio = printed_rr(idea.entry_price, idea.stop_loss,
                                           idea.take_profit)
+                    # Beside the price ratio, what the fees leave of it
+                    # (`trade_costs.idea_rr_words`), unless the levels print
+                    # as one price, where neither ratio is shown.
+                    from bot.core.trade_costs import idea_rr_words
+                    rr_line = (f"<code>{format_rr(None, suffix='')}</code>" if rr_ratio is None
+                               else idea_rr_words(idea, suffix="",
+                                                  wrap=lambda s: f"<code>{s}</code>"))
                     base = idea.asset.split('/')[0] if '/' in idea.asset else idea.asset
                     # THE DOOR IS A BUTTON ON THIS CARD. The last line said
                     # `Say "confirm"`, and "confirm" routes nowhere: no router
@@ -3873,7 +3880,7 @@ class ProactiveMonitor:
                             f"- Entry: <code>{_fmt_price(idea.entry_price)}</code>\n"
                             f"- Stop Loss: <code>{_fmt_price(idea.stop_loss)}</code>\n"
                             f"- Take Profit: <code>{_fmt_price(idea.take_profit)}</code>\n"
-                            f"- R:R Ratio: <code>{format_rr(rr_ratio, suffix='')}</code>\n"
+                            f"- R:R Ratio: {rr_line}\n"
                             "────────────────\n"
                             "\u23f3 Awaiting operator confirmation.\n"
                             f"\U0001f449 Say \"analyze {base}\" to review analysis"

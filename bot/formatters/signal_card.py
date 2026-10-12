@@ -256,6 +256,9 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
     tp2 = data.get("tp2", 0)
     margin = data.get("margin_usd", 0)
     rr = data.get("rr", 0)
+    # The cell's words when the caller priced the fees (`card_rr_text`);
+    # a caller that did not gets the price ratio alone, as before.
+    rr_cell = data.get("rr_text") or (f"1:{rr:.1f}" if rr else "\u2014")
     pattern = data.get("pattern", "")
     rsi = data.get("rsi", 0)
     # `.get("confidence", 0)` is the shapes table's "absent field is zero",
@@ -375,8 +378,7 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
     if tp2 and tp2 > 0:
         _draw_cell(col2_x, y, "TP2", _fmt(tp2), _GREEN)
     else:
-        rr_text = f"1:{rr:.1f}" if rr else "—"
-        _draw_cell(col2_x, y, "R:R", rr_text, _CYAN)
+        _draw_cell(col2_x, y, "R:R", rr_cell, _CYAN)
     y += CELL_H + CELL_GAP
 
     # Row 3: Margin | R:R (or Margin | Confidence)
@@ -389,8 +391,7 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
         conf_drawn = True
 
     if tp2 and tp2 > 0:
-        rr_text = f"1:{rr:.1f}" if rr else "—"
-        _draw_cell(col2_x, y, "R:R", rr_text, _CYAN)
+        _draw_cell(col2_x, y, "R:R", rr_cell, _CYAN)
     else:
         if margin and margin > 0:
             _draw_cell(col2_x, y, conf_label, conf_text, conf_color)
@@ -450,6 +451,23 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
     return buf.getvalue()
+
+
+def card_rr_text(idea) -> str:
+    """The R:R cell: the price ratio and what the fees leave of it.
+
+    `trade_costs.rr_words`, except where it would overflow the cell: a target
+    the fees eat reads "loses after fees" rather than the full sentence. A
+    dash where `printed_rr` says the levels print as one price.
+    """
+    from bot.core.trade_costs import net_reward_risk, rr_words
+    if printed_rr(idea.entry_price, idea.stop_loss, idea.take_profit) is None:
+        return "\u2014"
+    costed = net_reward_risk(idea.entry_price, idea.stop_loss, idea.take_profit,
+                             order_type=getattr(idea, "order_type", None))
+    if costed is not None and costed.net is None:
+        return f"{costed.gross:.1f} (loses after fees)"
+    return rr_words(costed, suffix="")
 
 
 def signal_card_from_idea(idea, rank: int = 1, scan_data: Optional[Dict] = None) -> bytes:
@@ -541,6 +559,7 @@ def signal_card_from_idea(idea, rank: int = 1, scan_data: Optional[Dict] = None)
         # so it read 4.8 over an entry, a stop and a target that were one
         # price at this card's own precision.
         "rr": printed_rr(idea.entry_price, idea.stop_loss, idea.take_profit),
+        "rr_text": card_rr_text(idea),
         "pattern": pattern,
         "rsi": rsi,
         # The raw-scale reading every gate on this page compares against, so
@@ -727,7 +746,12 @@ def render_scan_results_card(
         dy2 = dy + 36
         stats_parts = []
         if rr > 0:
-            stats_parts.append(f"R:R {rr:.1f}:1")
+            # Gross and after fees (`trade_costs.rr_words`), at the row's own
+            # order type: a scan row is a pullback limit, a setup carries its
+            # idea's.
+            from bot.core.trade_costs import net_reward_risk, rr_words
+            stats_parts.append("R:R " + rr_words(
+                net_reward_risk(entry, sl, tp, order_type=s.get("order_type")), suffix=":1"))
         if rsi > 0:
             stats_parts.append(f"RSI {rsi:.0f}")
         if vol_ratio > 0:
