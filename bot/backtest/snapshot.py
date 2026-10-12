@@ -211,6 +211,93 @@ async def snapshot_dataset(
     return manifest
 
 
+#: How a repaired bar was read, recorded beside it in the manifest.
+REPAIR_SOURCE = ("the venue's 1h candles for the missing hour and the hour either "
+                 "side; filled only when both neighbours equal the stored bars")
+
+
+async def repair_dataset(out_dir: str | Path, fetch, *, repaired_at: datetime | None = None) -> dict:
+    """Fill the bars a frozen dataset's manifest names as missing, in its own window.
+
+    A RE-FREEZE IS A DIFFERENT DATASET. The freezer reads up to now, so running
+    it again replaces the window, and every card measured on it moves because
+    the market moved, not because the holes were filled. The holes the old
+    pager left (six a symbol, every dataset frozen before it started each page
+    at the last bar held) are filled here instead, inside the window the
+    dataset already has.
+
+    ``fetch(symbol, since_ms, until_ms)`` returns ccxt rows. For each missing
+    hour it is asked for that hour and the hour either side. The hour is filled
+    only when both neighbours come back EQUAL to the stored bars, every field,
+    volume included: that is the venue's history agreeing with what was frozen,
+    and it is the only evidence that the missing bar belongs to the same
+    series. A hole whose neighbours differ, or that the venue does not answer,
+    stays named in ``missing``. Each filled hour is listed under ``repaired``,
+    and ``created_at`` is kept: the window's freeze time has not changed.
+    """
+    from bot.utils.candles import timeframe_to_ms
+    out = Path(out_dir)
+    man = load_manifest(out)
+    step = timeframe_to_ms(str(man.get("timeframe") or ""))
+    if step <= 0:
+        raise ValueError(f"unreadable timeframe in {out_dir}")
+    hashes: dict[str, str] = {}
+    filled_total = 0
+    for sym, entry in man.get("symbols", {}).items():
+        holes = list(entry.get("missing") or [])
+        if not holes:
+            hashes[sym] = entry["sha256"]
+            continue
+        path = out / entry["file"]
+        bars = DataLoader.from_csv(str(path))
+        by_ms = {int(b.timestamp.timestamp() * 1000): b for b in bars}
+        filled: list[str] = []
+        for ts in holes:
+            at = int(datetime.fromisoformat(ts).timestamp() * 1000)
+            rows = {int(r[0]): r for r in await fetch(sym, at - step, at + 2 * step)}
+
+            def same(ms: int) -> bool:
+                b, r = by_ms.get(ms), rows.get(ms)
+                return (b is not None and r is not None
+                        and (b.open, b.high, b.low, b.close, b.volume)
+                        == tuple(float(x) for x in r[1:6]))
+
+            if at in rows and same(at - step) and same(at + step):
+                new = DataLoader.from_ohlcv_list([rows[at]], sym)[0]
+                by_ms[at] = new
+                filled.append(ts)
+        if filled:
+            series = [by_ms[k] for k in sorted(by_ms)]
+            DataLoader.save_csv(series, str(path))
+            entry["bars"] = len(series)
+            entry["sha256"] = DataLoader.content_hash(series)
+            entry["missing"] = missing_timestamps(series, str(man["timeframe"]))
+            entry["repaired"] = sorted(set(entry.get("repaired") or []) | set(filled))
+            filled_total += len(filled)
+        hashes[sym] = entry["sha256"]
+        print(f"  {'✓' if not entry['missing'] else '!'} {sym}: filled {len(filled)} of "
+              f"{len(holes)}" + (f", {len(entry['missing'])} still missing" if entry["missing"] else ""))
+    if filled_total:
+        man["dataset_hash"] = dataset_hash(hashes)
+        man.setdefault("repairs", []).append({
+            "at": (repaired_at or datetime.now(UTC)).isoformat(),
+            "filled": filled_total,
+            "source": REPAIR_SOURCE,
+        })
+        _manifest_path(out).write_text(json.dumps(man, indent=2) + "\n")
+    print(f"  {filled_total} bar(s) filled; dataset_hash={man['dataset_hash'][:12]}…")
+    return man
+
+
+def bitget_window_fetch(exchange, timeframe: str):
+    """A `repair_dataset` fetch over a ccxt Bitget client: the bars from
+    ``since`` up to ``until``, one call (a repair asks for three)."""
+    async def fetch(symbol: str, since: int, until: int) -> list:
+        return await exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=3,
+                                          params={"until": until})
+    return fetch
+
+
 def load_manifest(out_dir: str | Path) -> dict:
     """Read the snapshot manifest. Raises FileNotFoundError if the dir is not
     a snapshot (so a mistyped --dataset path fails loudly, not silently)."""
@@ -333,6 +420,11 @@ def verify_dataset(out_dir: str | Path) -> tuple[bool, list[str]]:
                                        str(man.get("timeframe") or ""))
             if holes != entry["missing"]:
                 problems.append(f"{sym}: missing bars differ from manifest")
+        if entry.get("repaired"):
+            held = {b.timestamp.isoformat() for b in bars}
+            absent = [ts for ts in entry["repaired"] if ts not in held]
+            if absent:
+                problems.append(f"{sym}: {len(absent)} repaired bar(s) not in the file")
 
     if recomputed:
         recomputed_ds = dataset_hash(recomputed)
@@ -369,7 +461,22 @@ Examples:
                         help="Skip a symbol returning fewer than this many bars (default: 220)")
     parser.add_argument("--verify", action="store_true",
                         help="Verify an existing snapshot's integrity instead of fetching")
+    parser.add_argument("--repair", action="store_true",
+                        help="Fill the bars the manifest names as missing, in the "
+                             "snapshot's own window, instead of fetching a new one")
     return parser
+
+
+async def _repair_from_bitget(out_dir: str) -> dict:
+    import ccxt.async_support as ccxt
+    # Public candles from the live venue, never the sandbox (see `from_bitget`).
+    exchange = ccxt.bitget({"sandbox": False, "enableRateLimit": True,
+                            "aiohttp_trust_env": True})
+    try:
+        tf = str(load_manifest(out_dir).get("timeframe") or "")
+        return await repair_dataset(out_dir, bitget_window_fetch(exchange, tf))
+    finally:
+        await exchange.close()
 
 
 def main() -> None:
@@ -386,6 +493,13 @@ def main() -> None:
         for p in problems:
             print(f"      - {p}")
         sys.exit(1)
+
+    if args.repair:
+        asyncio.run(_repair_from_bitget(args.out))
+        ok, problems = verify_dataset(args.out)
+        for p in problems:
+            print(f"      - {p}")
+        sys.exit(0 if ok else 1)
 
     symbols = ([s.strip() for s in args.symbols.split(",") if s.strip()]
                or list(DEFAULT_BENCHMARK_SYMBOLS))
