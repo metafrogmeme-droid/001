@@ -17,6 +17,8 @@ import gzip
 import json
 from datetime import datetime, timezone
 
+import pytest
+
 from bot.backtest import snapshot as snap
 from bot.backtest.data_loader import DataLoader
 
@@ -48,15 +50,22 @@ def _frozen(tmp_path):
 
 
 class Venue:
-    """Every hour's bar, the bar at ``since`` included, up to ``until``."""
+    """Every hour's bar before ``until``, at most four, from ``since``.
 
-    def __init__(self, rows=None):
+    ``until`` is exclusive, as on both of Bitget's candle endpoints.
+    ``exclusive``: only bars after ``since``, as its recent candles answer;
+    otherwise the bar at ``since`` too, as its history candles do.
+    """
+
+    def __init__(self, rows=None, exclusive=False):
         self.rows = {r[0]: r for r in (rows or [_row(i) for i in range(N)])}
+        self.exclusive = exclusive
         self.calls: list[tuple] = []
 
     async def fetch(self, symbol, since, until):
         self.calls.append((symbol, since, until))
-        return [list(self.rows[k]) for k in sorted(self.rows) if since <= k <= until][:3]
+        return [list(self.rows[k]) for k in sorted(self.rows)
+                if (k > since if self.exclusive else k >= since) and k < until][:4]
 
 
 def _repair(tmp_path, venue):
@@ -69,10 +78,11 @@ def _lines(tmp_path):
         return fh.read().splitlines()
 
 
-def test_the_holes_are_filled_inside_the_same_window(tmp_path):
+@pytest.mark.parametrize("exclusive", [False, True], ids=["history", "recent"])
+def test_the_holes_are_filled_inside_the_same_window(tmp_path, exclusive):
     before = _frozen(tmp_path)
     old_lines = _lines(tmp_path)
-    man = _repair(tmp_path, Venue())
+    man = _repair(tmp_path, Venue(exclusive=exclusive))
     entry = man["symbols"][SYM]
     assert entry["missing"] == [] and entry["repaired"] == [_iso(i) for i in HOLES]
     assert entry["bars"] == N and entry["first"] == before["symbols"][SYM]["first"]
@@ -94,7 +104,7 @@ def test_each_hole_is_asked_with_the_hour_either_side(tmp_path):
     _frozen(tmp_path)
     venue = Venue()
     _repair(tmp_path, venue)
-    assert venue.calls == [(SYM, T0 + (i - 1) * HOUR, T0 + (i + 2) * HOUR) for i in HOLES]
+    assert venue.calls == [(SYM, T0 + (i - 2) * HOUR, T0 + (i + 2) * HOUR) for i in HOLES]
 
 
 def _rows_with(changed: int, **field):

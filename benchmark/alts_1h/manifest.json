@@ -3,15 +3,16 @@
   "timeframe": "1h",
   "limit": 6000,
   "created_at": "2026-07-04T19:30:01.688694+00:00",
-  "dataset_hash": "232d1946e46961d7f80ef7c9c97ef85e33684e434607c1fbe87697291e39a7f4",
+  "dataset_hash": "5fcd03bd8b5ef65b22ad3c27f5330eb1806df3bd29aca4f139010ea0a1c1849e",
   "symbols": {
     "APT/USDT:USDT": {
       "file": "APT_USDT_USDT.csv.gz",
-      "bars": 5994,
+      "bars": 6000,
       "first": "2025-10-27T20:00:00+00:00",
       "last": "2026-07-04T19:00:00+00:00",
-      "sha256": "b12c6af3f694758e532b1093596ac031766c58eddfc2ca5251804317ea6c5ec1",
-      "missing": [
+      "sha256": "9714678e08f75015d28959047f8fe87c3df8117d3f337704453efe7820168dc4",
+      "missing": [],
+      "repaired": [
         "2026-05-07T11:00:00+00:00",
         "2026-05-15T20:00:00+00:00",
         "2026-05-24T05:00:00+00:00",
@@ -22,11 +23,12 @@
     },
     "ARB/USDT:USDT": {
       "file": "ARB_USDT_USDT.csv.gz",
-      "bars": 5994,
+      "bars": 6000,
       "first": "2025-10-27T20:00:00+00:00",
       "last": "2026-07-04T19:00:00+00:00",
-      "sha256": "09c87a467ad85e7d20e2776384b4b21f65319855452bcd95fee040f36e519a18",
-      "missing": [
+      "sha256": "5109ad26a355c6eb9c4644f5f85a2a117a481e0a0916bda9de014336e6e14280",
+      "missing": [],
+      "repaired": [
         "2026-05-07T11:00:00+00:00",
         "2026-05-15T20:00:00+00:00",
         "2026-05-24T05:00:00+00:00",
@@ -37,11 +39,12 @@
     },
     "BLESS/USDT:USDT": {
       "file": "BLESS_USDT_USDT.csv.gz",
-      "bars": 5994,
+      "bars": 6000,
       "first": "2025-10-27T20:00:00+00:00",
       "last": "2026-07-04T19:00:00+00:00",
-      "sha256": "973f0729df73f99d9067830c6fc03abc3bcb53d8ef65aae4a81206f8fc7feef8",
-      "missing": [
+      "sha256": "061ed627576413c8bad630172cb06fb8599c5d60accbeab3902830494143ccef",
+      "missing": [],
+      "repaired": [
         "2026-05-07T11:00:00+00:00",
         "2026-05-15T20:00:00+00:00",
         "2026-05-24T05:00:00+00:00",
@@ -52,11 +55,12 @@
     },
     "FLOKI/USDT:USDT": {
       "file": "FLOKI_USDT_USDT.csv.gz",
-      "bars": 5994,
+      "bars": 6000,
       "first": "2025-10-27T20:00:00+00:00",
       "last": "2026-07-04T19:00:00+00:00",
-      "sha256": "1ba771c938891b077c7b7d04cde237ea1e23dc358ff804d3af1aaa8419b7ff1b",
-      "missing": [
+      "sha256": "06f36837a72f2962044d2bd423b2834e1f8cc79696af99b7ad5ee3d5160a86ef",
+      "missing": [],
+      "repaired": [
         "2026-05-07T11:00:00+00:00",
         "2026-05-15T20:00:00+00:00",
         "2026-05-24T05:00:00+00:00",
@@ -67,11 +71,12 @@
     },
     "HOME/USDT:USDT": {
       "file": "HOME_USDT_USDT.csv.gz",
-      "bars": 5994,
+      "bars": 6000,
       "first": "2025-10-27T20:00:00+00:00",
       "last": "2026-07-04T19:00:00+00:00",
-      "sha256": "05ed87c1d18671fd87e3de1cc5443e85c4984ef46204c0244d96f0ce5e5e7270",
-      "missing": [
+      "sha256": "770aaffaaee49575c20ec06ac6d136a08616ddc2ec841ceccf877f4f4d1a53db",
+      "missing": [],
+      "repaired": [
         "2026-05-07T11:00:00+00:00",
         "2026-05-15T20:00:00+00:00",
         "2026-05-24T05:00:00+00:00",
@@ -82,11 +87,12 @@
     },
     "PENGU/USDT:USDT": {
       "file": "PENGU_USDT_USDT.csv.gz",
-      "bars": 5994,
+      "bars": 6000,
       "first": "2025-10-27T20:00:00+00:00",
       "last": "2026-07-04T19:00:00+00:00",
-      "sha256": "d6a4d829ef517186678630fda9cf1a132207e795a7fe53a4d1733388386b467a",
-      "missing": [
+      "sha256": "98e2c05a906fe61d1ebe75b3f7aaa841a0ff0b4ec36f571b6bcd995e37331183",
+      "missing": [],
+      "repaired": [
         "2026-05-07T11:00:00+00:00",
         "2026-05-15T20:00:00+00:00",
         "2026-05-24T05:00:00+00:00",
@@ -97,11 +103,12 @@
     },
     "PEPE/USDT:USDT": {
       "file": "PEPE_USDT_USDT.csv.gz",
-      "bars": 5994,
+      "bars": 6000,
       "first": "2025-10-27T20:00:00+00:00",
       "last": "2026-07-04T19:00:00+00:00",
-      "sha256": "6124a9e29f0bcde0dfb8ff29971206ed533a56af0da5bf10980cf12d5fa906aa",
-      "missing": [
+      "sha256": "26738e707924b381eca4e3c39cf8792a5e693bc240b627def71a8f26dfc3195f",
+      "missing": [],
+      "repaired": [
         "2026-05-07T11:00:00+00:00",
         "2026-05-15T20:00:00+00:00",
         "2026-05-24T05:00:00+00:00",
@@ -112,11 +119,12 @@
     },
     "SEI/USDT:USDT": {
       "file": "SEI_USDT_USDT.csv.gz",
-      "bars": 5994,
+      "bars": 6000,
       "first": "2025-10-27T20:00:00+00:00",
       "last": "2026-07-04T19:00:00+00:00",
-      "sha256": "a51608cba26f0001ac05be55090868eb3d9092f90f7a58a4e5dd424e26d3d0dc",
-      "missing": [
+      "sha256": "fd4b66d00bb2819e2a38ddb2dd28295abfa278b0604b3df976f84e320dbaaa67",
+      "missing": [],
+      "repaired": [
         "2026-05-07T11:00:00+00:00",
         "2026-05-15T20:00:00+00:00",
         "2026-05-24T05:00:00+00:00",
@@ -127,11 +135,12 @@
     },
     "SYRUP/USDT:USDT": {
       "file": "SYRUP_USDT_USDT.csv.gz",
-      "bars": 5994,
+      "bars": 6000,
       "first": "2025-10-27T20:00:00+00:00",
       "last": "2026-07-04T19:00:00+00:00",
-      "sha256": "74bfd4832aa13e38d65ba431a851788abc83dd58f30ba6cca10bb1c0aca18a48",
-      "missing": [
+      "sha256": "167f3db0d5412e68a36ef79487095a96564c93069087a4bf9045784e4ba3a9e4",
+      "missing": [],
+      "repaired": [
         "2026-05-07T11:00:00+00:00",
         "2026-05-15T20:00:00+00:00",
         "2026-05-24T05:00:00+00:00",
@@ -142,11 +151,12 @@
     },
     "TAG/USDT:USDT": {
       "file": "TAG_USDT_USDT.csv.gz",
-      "bars": 5994,
+      "bars": 6000,
       "first": "2025-10-27T20:00:00+00:00",
       "last": "2026-07-04T19:00:00+00:00",
-      "sha256": "f216f904d936236bc52ccea5911b9119c84162876ecfe1d7021d51a42e1fa271",
-      "missing": [
+      "sha256": "e8595876eb9a1560bc7ee21d364a09d376347d1ad3f72fcfc3d901a2508967f8",
+      "missing": [],
+      "repaired": [
         "2026-05-07T11:00:00+00:00",
         "2026-05-15T20:00:00+00:00",
         "2026-05-24T05:00:00+00:00",
@@ -157,11 +167,12 @@
     },
     "TRUMP/USDT:USDT": {
       "file": "TRUMP_USDT_USDT.csv.gz",
-      "bars": 5994,
+      "bars": 6000,
       "first": "2025-10-27T20:00:00+00:00",
       "last": "2026-07-04T19:00:00+00:00",
-      "sha256": "e1b5114b7c43cc0319179db93e8671359959485d5f89e39d33bf50a3f864aa4f",
-      "missing": [
+      "sha256": "b9d8f4b3c6f55da6b52c70ae03f627a1473baac1ea57c3efc2d46097fa8bb4a8",
+      "missing": [],
+      "repaired": [
         "2026-05-07T11:00:00+00:00",
         "2026-05-15T20:00:00+00:00",
         "2026-05-24T05:00:00+00:00",
@@ -172,11 +183,12 @@
     },
     "WIF/USDT:USDT": {
       "file": "WIF_USDT_USDT.csv.gz",
-      "bars": 5994,
+      "bars": 6000,
       "first": "2025-10-27T20:00:00+00:00",
       "last": "2026-07-04T19:00:00+00:00",
-      "sha256": "f6a1f0224a9c7a1bddfd61561ed2e82dd34a81328abd4e646b5f11c8886931a1",
-      "missing": [
+      "sha256": "0083a85bc4657dd5447f3cd617e288600006b3c34c402adc85e453a58fc93e1b",
+      "missing": [],
+      "repaired": [
         "2026-05-07T11:00:00+00:00",
         "2026-05-15T20:00:00+00:00",
         "2026-05-24T05:00:00+00:00",
@@ -185,5 +197,12 @@
         "2026-06-18T08:00:00+00:00"
       ]
     }
-  }
+  },
+  "repairs": [
+    {
+      "at": "2026-10-12T06:43:24.839350+00:00",
+      "filled": 72,
+      "source": "the venue's 1h candles for the missing hour and the hour either side; filled only when both neighbours equal the stored bars"
+    }
+  ]
 }

@@ -227,7 +227,12 @@ async def repair_dataset(out_dir: str | Path, fetch, *, repaired_at: datetime | 
     dataset already has.
 
     ``fetch(symbol, since_ms, until_ms)`` returns ccxt rows. For each missing
-    hour it is asked for that hour and the hour either side. The hour is filled
+    hour it is asked from two hours before it to two hours after. Bitget's
+    ``until`` is exclusive on both its candle endpoints; its history candles
+    include the bar at ``since`` and its recent candles (about the last two
+    months) do not, so asking from one hour before lost the neighbour on every
+    recent hole. Under either answer this window holds the hour before, the
+    hour, and the hour after. The hour is filled
     only when both neighbours come back EQUAL to the stored bars, every field,
     volume included: that is the venue's history agreeing with what was frozen,
     and it is the only evidence that the missing bar belongs to the same
@@ -254,7 +259,7 @@ async def repair_dataset(out_dir: str | Path, fetch, *, repaired_at: datetime | 
         filled: list[str] = []
         for ts in holes:
             at = int(datetime.fromisoformat(ts).timestamp() * 1000)
-            rows = {int(r[0]): r for r in await fetch(sym, at - step, at + 2 * step)}
+            rows = {int(r[0]): r for r in await fetch(sym, at - 2 * step, at + 2 * step)}
 
             def same(ms: int) -> bool:
                 b, r = by_ms.get(ms), rows.get(ms)
@@ -291,9 +296,9 @@ async def repair_dataset(out_dir: str | Path, fetch, *, repaired_at: datetime | 
 
 def bitget_window_fetch(exchange, timeframe: str):
     """A `repair_dataset` fetch over a ccxt Bitget client: the bars from
-    ``since`` up to ``until``, one call (a repair asks for three)."""
+    ``since`` up to ``until``, one call (a repair asks for four hours at most)."""
     async def fetch(symbol: str, since: int, until: int) -> list:
-        return await exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=3,
+        return await exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=4,
                                           params={"until": until})
     return fetch
 
