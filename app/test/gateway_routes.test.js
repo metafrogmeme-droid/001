@@ -430,3 +430,18 @@ test('operator portfolio uses sync data: no gateway call, no paper write-through
     'SELECT equity FROM equity_snapshots WHERE user_id = ? ORDER BY snapshot_at DESC LIMIT 1', [1]);
   assert.strictEqual(parseFloat(snaps[0].equity), 8829.96);
 });
+
+// The Review button's order type. The proxy forwarded a fixed six-key body,
+// so the bot priced every review as a resting limit (the maker fee) even for
+// a market ticket, and the ratio it netted out was not the order's.
+test('copilot forwards the ticket order type, normalised as propose does', async () => {
+  const ticket = { direction: 'LONG', symbol: 'SOL', entry: 71, sl: 70, tp: 76 };
+  for (const [sent, forwarded] of [['market', 'market'], [undefined, 'limit'], ['banana', 'limit']]) {
+    seen.length = 0;
+    const body = sent === undefined ? ticket : { ...ticket, order_type: sent };
+    await request('POST', '/api/trade/copilot', { token: signUnlinked, body });
+    const hop = seen.find(s => s.url === '/gateway/trade/copilot');
+    assert.ok(hop, 'the proxy did not reach the gateway');
+    assert.strictEqual(hop.body.order_type, forwarded, String(sent));
+  }
+});

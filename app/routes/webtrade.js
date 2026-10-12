@@ -167,7 +167,7 @@ router.post('/confirm', tradeLimit, async (req, res) => {
   }
 });
 
-// POST /api/trade/copilot  body: { direction, symbol, entry, sl, tp, margin? }
+// POST /api/trade/copilot  body: { direction, symbol, entry, sl, tp, margin?, order_type? }
 // A read-only deterministic second opinion on a proposed trade — advice only.
 router.post('/copilot', tradeLimit, async (req, res) => {
   try {
@@ -181,6 +181,10 @@ router.post('/copilot', tradeLimit, async (req, res) => {
       direction: String(b.direction || '').toUpperCase(),
       symbol: String(b.symbol || '').toUpperCase(),
       entry: b.entry, sl: b.sl, tp: b.tp, margin: b.margin,
+      // The ticket's order type decides the entry leg's fee, so it decides
+      // the ratio the review nets out. Dropped here, every review priced a
+      // market ticket as a resting limit. Normalised as /propose does.
+      order_type: String(b.order_type || 'limit').trim().toLowerCase() === 'market' ? 'market' : 'limit',
     }, 12000);
     return gateway.relay(res, r);
   } catch (err) {

@@ -64,8 +64,8 @@
     "sha": "8c79f05320d03c22"
   },
   "js/chat.js": {
-    "v": 39,
-    "sha": "dca5108f22cdcb65"
+    "v": 40,
+    "sha": "c714e0d37fa78d3d"
   },
   "js/confidence-score.js": {
     "v": 1,
@@ -84,12 +84,12 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 235,
-    "sha": "d3cc380b6b2c74f9"
+    "v": 236,
+    "sha": "79405bbdb3e5b766"
   },
   "js/decision-court-model.js": {
-    "v": 2,
-    "sha": "33fb5835cf1ccbe3"
+    "v": 3,
+    "sha": "eb27752df89e7116"
   },
   "js/decision-log-model.js": {
     "v": 3,
@@ -116,8 +116,8 @@
     "sha": "3d66a71d40da7fd8"
   },
   "js/embed-row.js": {
-    "v": 3,
-    "sha": "da54ce168a0d3718"
+    "v": 4,
+    "sha": "803652f9f482450c"
   },
   "js/embed-signals.js": {
     "v": 8,
@@ -230,6 +230,10 @@
   "js/risk-backstop-model.js": {
     "v": 1,
     "sha": "6e482731fe53921c"
+  },
+  "js/rr-words.js": {
+    "v": 1,
+    "sha": "dd0556a762d1785d"
   },
   "js/rune-card.js": {
     "v": 1,

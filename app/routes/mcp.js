@@ -569,7 +569,8 @@ const TOOLS = {
       const limit = Math.min(parseInt(args?.limit) || 20, 50);
       const [rows] = await pool.execute(
         `SELECT signal_key, symbol, direction, confidence, pattern, regime,
-                entry_price, stop_loss, take_profit, rr, status, pnl, created_at
+                entry_price, stop_loss, take_profit, rr, net_rr, rr_fee_losing,
+                status, pnl, created_at
            FROM signals ORDER BY created_at DESC LIMIT ${limit}`, []);
       // /mcp is mounted with no auth, so the same §4 redaction the flight
       // tools get (sanitizeRecord, below) applies here: the outcome's SIGN is

@@ -1162,6 +1162,21 @@ function recordedLabel(value, max) {
  * signal_type, timeframe and source are stored beside the seal. A missing one
  * is null. A re-sync updates the outcome only, so the cell cannot move.
  */
+/** A ratio the bot stated, or null. `Number(x) || 0` would store an absent
+ *  after-fees figure as a measured zero, which reads as "the fees take it all". */
+function netRr(v) {
+  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** true/false as 1/0; anything else (absent, unread) null. */
+function feeLosing(v) {
+  if (v === true) return 1;
+  if (v === false) return 0;
+  return null;
+}
+
 router.post('/signals', async (req, res) => {
   try {
     const list = Array.isArray(req.body && req.body.signals) ? req.body.signals : [];
@@ -1223,6 +1238,11 @@ router.post('/signals', async (req, res) => {
         recordedLabel(s.signal_type, 64),
         recordedLabel(s.timeframe, 32),
         recordedLabel(s.source, 64),
+        // What the fees leave of `rr` (`trade_costs.rr_fields`), stored
+        // beside the seal like the three above. Null-preserving: an absent
+        // or unreadable figure is no figure, never a measured 0.
+        netRr(s.net_rr),
+        feeLosing(s.rr_fee_losing),
       ];
       try {
         await pool.execute(
@@ -1230,8 +1250,8 @@ router.post('/signals', async (req, res) => {
            (signal_key, symbol, direction, confidence, score, pattern, regime,
             entry_price, stop_loss, take_profit, rr, thesis, status, pnl,
             created_at, resolved_at, seal, seal_payload, sealed_at, expires_at,
-            signal_type, timeframe, source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            signal_type, timeframe, source, net_rr, rr_fee_losing)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            status = VALUES(status), pnl = VALUES(pnl),
            resolved_at = VALUES(resolved_at)`,
@@ -1239,7 +1259,8 @@ router.post('/signals', async (req, res) => {
         );
       } catch (err) {
         // A rolling deploy can serve before a pre-existing database has the
-        // three optional setup dimensions. Never stop the primary signal
+        // optional columns (the three setup dimensions, the after-fees
+        // ratio). Never stop the primary signal
         // stream for an exploratory scoreboard: preserve the original row
         // shape and let the next migration/cold start add the dimensions.
         if (!err || (err.code !== 'ER_BAD_FIELD_ERROR' && Number(err.errno) !== 1054)) throw err;

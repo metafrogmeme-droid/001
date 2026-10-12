@@ -32,8 +32,8 @@ router.get('/', async (req, res) => {
     const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const [rows] = await pool.execute(
       `SELECT signal_key, symbol, direction, confidence, score, pattern, regime,
-              entry_price, stop_loss, take_profit, rr, thesis, status, pnl,
-              created_at, resolved_at, seal
+              entry_price, stop_loss, take_profit, rr, net_rr, rr_fee_losing,
+              thesis, status, pnl, created_at, resolved_at, seal
        FROM signals ${clause}
        ORDER BY created_at DESC LIMIT ${limit}`,
       params
