@@ -194,53 +194,82 @@ _STRINGS: dict[str, dict[str, str]] = {
                "基本問題：RUNECLAW 是什麼、它如何管理風險、槓桿、流動性掃蕩，以及"
                "支援哪些交易所。"),
     },
+    # The failure messages below end with what still works, and that is the
+    # SURFACE's own (`chat_runtime.fallback_door`, from `LINK_DOOR`): they
+    # used to name /scan, /positions and /llmstatus to every reader, on a web
+    # chat that runs no slash command and to visitors with no account, and
+    # to tell everyone "your key and endpoint are fine" about a key only the
+    # operator gave. The call site appends the door; these hold no door.
     "chat_budget_exhausted": {
-        "en": ("I've used up today's AI budget — try again tomorrow, "
-               "or use a specific command like /scan or /positions."),
-        "zh": "今天的 AI 預算已用完 — 明天再試，或使用 /scan、/positions 等指令。",
+        "en": "I've used up today's AI budget — try again tomorrow.",
+        "zh": "今天的 AI 預算已用完 — 明天再試。",
     },
     "chat_share_exhausted": {
-        "en": ("Chat has used its share of today's AI budget — try again tomorrow, "
-               "or use a specific command like /scan or /positions. Trade analysis "
-               "keeps the rest."),
-        "zh": "聊天已用完今天 AI 預算中屬於它的份額 — 明天再試，或使用 /scan、/positions 等指令。其餘預算留給交易分析。",
+        "en": ("Chat has used its share of today's AI budget — try again "
+               "tomorrow. Trade analysis keeps the rest."),
+        "zh": "聊天已用完今天 AI 預算中屬於它的份額 — 明天再試。其餘預算留給交易分析。",
     },
     # Chat's own dollar cap, two ways: whether trade analysis has a cap of
     # its own decides which sentence is true (`chat_own_budget_exhausted` when
     # it does). The call site holds the same English.
     "chat_own_budget_exhausted": {
-        "en": ("Chat has used its own dollar budget for today — try again tomorrow, "
-               "or use a specific command like /scan or /positions. Trade analysis "
-               "is on a separate cap."),
-        "zh": ("聊天已用完今天它自己的美元預算 — 明天再試，"
-               "或使用 /scan、/positions 等指令。交易分析有另一個上限。"),
+        "en": ("Chat has used its own dollar budget for today — try again "
+               "tomorrow. Trade analysis is on a separate cap."),
+        "zh": "聊天已用完今天它自己的美元預算 — 明天再試。交易分析有另一個上限。",
     },
     "chat_own_budget_exhausted_shared": {
-        "en": ("Chat has used its own dollar budget for today — try again tomorrow, "
-               "or use a specific command like /scan or /positions. Trade analysis "
-               "has no cap of its own and counts against the daily total, chat's "
-               "spend included."),
-        "zh": ("聊天已用完今天它自己的美元預算 — 明天再試，"
-               "或使用 /scan、/positions 等指令。"
+        "en": ("Chat has used its own dollar budget for today — try again "
+               "tomorrow. Trade analysis has no cap of its own and counts "
+               "against the daily total, chat's spend included."),
+        "zh": ("聊天已用完今天它自己的美元預算 — 明天再試。"
                "交易分析沒有自己的上限，計入每日總額，其中也包括聊天的花費。"),
     },
     "chat_deadline": {
         "en": ("I stopped waiting before any model answered — that's a "
                "timeout on my side, not an answer, and nothing was analyzed. "
-               "Try again in a moment, or use a specific command like /scan "
-               "or /positions."),
+               "Try again in a moment."),
         "zh": ("我在任何模型回答之前就停止等待了 — 這是我這邊的逾時，不是答案，"
-               "也沒有任何東西被分析。請稍後再試，或使用 /scan、/positions 等指令。"),
+               "也沒有任何東西被分析。請稍後再試。"),
     },
     "chat_empty_completions": {
         "en": ("The model answered but returned nothing — every provider "
                "came back empty, which is a model or prompt problem rather "
-               "than a connection one. Your key and endpoint are fine. "
-               "Try /llmstatus for the last error, or a specific command "
-               "like /scan or /positions."),
+               "than a connection one."),
         "zh": ("模型有回應但沒有內容 — 每個供應商都回傳空白，這是模型或提示的問題，"
-               "而非連線問題。你的金鑰與端點沒有問題。用 /llmstatus 查看最近的錯誤，"
-               "或使用 /scan、/positions 等指令。"),
+               "而非連線問題。"),
+    },
+    # What still works, per surface (`LINK_DOOR[surface]["fallback"]`). The
+    # web's example sentences stay in ENGLISH in every translation, for the
+    # reason `chat_public_fallback` gives below: the router that answers them
+    # reads English patterns, so a translated example is a door that does
+    # not open.
+    "chat_door_commands": {
+        "en": ("Specific commands such as /scan and /positions still work: "
+               "they do not use this chat's model."),
+        "zh": "/scan、/positions 等指令仍可使用：它們不使用這個聊天的模型。",
+    },
+    "chat_door_words": {
+        "en": ("Asking in words for a specific read, such as “scan BTC” or "
+               "“my positions”, still works: those do not use this chat's "
+               "model."),
+        "zh": ("用文字要求特定的讀數，例如 “scan BTC” 或 “my positions”（英文），"
+               "仍然可用：這不使用這個聊天的模型。"),
+    },
+    "chat_door_public": {
+        "en": ("Signing in (free) opens the scanner, which does not use this "
+               "chat's model."),
+        "zh": "免費登入即可使用掃描器，它不使用這個聊天的模型。",
+    },
+    # The operator's half of an empty reply (`LINK_DOOR["telegram"]
+    # ["diagnose"]`): every provider asked returned without an error, which is
+    # what can be said about the keys, and it is said only to the operator,
+    # whose keys they are.
+    "chat_empty_operator_note": {
+        "en": ("Every provider asked took its key and answered, so the keys "
+               "and endpoints are not the fault; /llmstatus shows the last "
+               "error."),
+        "zh": ("每個被詢問的供應商都接受了金鑰並回應，所以問題不在金鑰與端點；"
+               "/llmstatus 會顯示最近的錯誤。"),
     },
     "chat_unavailable": {
         "en": ("I'm having trouble thinking right now — the AI is temporarily "
@@ -291,6 +320,34 @@ _STRINGS: dict[str, dict[str, str]] = {
                "我不會捏造價格或關卡。<br><br><b>免費登入</b>，我就會用目前的市場"
                "資料執行真正的掃描器。<br><br>"
                "<a href=\"/dashboard\">登入 →</a>"),
+    },
+    # The public preview's two limits, each named as the PREVIEW's: one per
+    # visitor per day (`public_chat_quota.limit_notice`), and its slice of
+    # chat's budget, shared by every visitor who is not signed in (the
+    # `PUBLIC_SHARE_BOUND` refusal in `_llm_chat`). Neither is "the bot's
+    # budget is used up", which is what a visitor was told before and which
+    # signed-in users were then told too.
+    "chat_public_daily_limit": {
+        "en": ("🚀 <b>This public preview answers {limit} questions a day for "
+               "each visitor, and you have had today's.</b><br><br>{reset}. "
+               "That is the preview's own limit, not the bot's budget: signing "
+               "in (free) gives you your own allowance.<br><br>"
+               "<a href=\"/dashboard\">Sign in →</a>"),
+        "zh": ("🚀 <b>這個公開預覽每位訪客每天回答 {limit} 個問題，你今天的已經用完。"
+               "</b><br><br>{reset}。這是預覽本身的上限，不是機器人的預算：免費登入"
+               "即可擁有你自己的額度。<br><br><a href=\"/dashboard\">登入 →</a>"),
+    },
+    "chat_public_share_exhausted": {
+        "en": ("The public preview has used its share of today's AI budget. "
+               "That share is one allowance for every visitor who is not signed "
+               "in, so it cannot answer more questions today; try again after "
+               "00:00 UTC. It is the preview's limit, not the bot's: signed-in "
+               "chat has its own budget.<br><br><a href=\"/dashboard\">Sign in "
+               "(free) →</a>"),
+        "zh": ("公開預覽已用完它在今天 AI 預算中的份額。這份額度由所有未登入的訪客"
+               "共用，所以今天無法再回答更多問題；請在 UTC 00:00 之後再試。這是預覽"
+               "的上限，不是機器人的：登入後的聊天有它自己的預算。<br><br>"
+               "<a href=\"/dashboard\">免費登入 →</a>"),
     },
     "chat_thinking_0": {"en": "<i>Looking at the chart...</i>", "zh": "<i>正在看圖表...</i>"},
     "chat_thinking_1": {"en": "<i>Checking the setup...</i>", "zh": "<i>正在檢查這個設定...</i>"},
@@ -420,8 +477,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "/deepscan \u2014 deep multi-timeframe scan\n"
             "/fullscan \u2014 full scan (all pairs)\n"
             "/analyze <i>BTC</i> \u2014 detailed coin analysis\n"
-            "/macro \u2014 macro outlook\n"
-            "/patterns \u2014 chart pattern detection"
+            "/macro \u2014 macro outlook"
         ),
         "zh": (
             "\U0001f50d <b>市場分析</b>\n"
@@ -429,8 +485,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "/deepscan \u2014 多時段深度掃描\n"
             "/fullscan \u2014 全幣種掃描\n"
             "/analyze <i>BTC</i> \u2014 詳細分析\n"
-            "/macro \u2014 宏觀展望\n"
-            "/patterns \u2014 圖表形態偵測"
+            "/macro \u2014 宏觀展望"
         ),
     },
     "help_trading": {
@@ -457,8 +512,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "/risk \u2014 risk dashboard\n"
             "/performance \u2014 performance stats\n"
             "/daily_report \u2014 daily summary\n"
-            "/journal \u2014 trade journal\n"
-            "/costs \u2014 fee breakdown"
+            "/journal \u2014 trade journal"
         ),
         "zh": (
             "\U0001f4ca <b>投資組合與風險</b>\n"
@@ -467,8 +521,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "/risk \u2014 風險控制面板\n"
             "/performance \u2014 績效統計\n"
             "/daily_report \u2014 每日報告\n"
-            "/journal \u2014 交易日誌\n"
-            "/costs \u2014 手續費明細"
+            "/journal \u2014 交易日誌"
         ),
     },
     "help_strategy": {

@@ -40,6 +40,13 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+def _tg(key: str, lang: str) -> str:
+    """A failure message as Telegram composes it: the message, then what
+    still works on that surface (`chat_runtime.fallback_door`)."""
+    from bot.skills.chat_runtime import fallback_door
+    return t(key, lang) + " " + fallback_door("telegram", lang)
+
+
 # ── the table ───────────────────────────────────────────────────────────────
 
 def test_every_chrome_key_exists_in_every_dictionary_language():
@@ -111,8 +118,8 @@ def chat_tier(monkeypatch):
 def test_budget_exhausted_speaks_the_users_language(chat_tier):
     en = _run(H._llm_chat(_stub(exhausted=True), "hi", user_id="u1"))
     zh = _run(H._llm_chat(_stub(exhausted=True), "hi", user_id="u1", reply_lang="zh"))
-    assert en == t("chat_budget_exhausted", "en")
-    assert zh == t("chat_budget_exhausted", "zh")
+    assert en == _tg("chat_budget_exhausted", "en")
+    assert zh == _tg("chat_budget_exhausted", "zh")
     assert "AI" in zh and any("一" <= ch <= "鿿" for ch in zh)
 
 
@@ -131,19 +138,19 @@ def test_empty_completions_speak_the_users_language(chat_tier, monkeypatch):
         return "   "
 
     monkeypatch.setattr(th_mod, "llm_complete", _empty)
-    assert _run(H._llm_chat(_stub(), "hi", user_id="u1", reply_lang="zh")) == t(
+    assert _run(H._llm_chat(_stub(), "hi", user_id="u1", reply_lang="zh")) == _tg(
         "chat_empty_completions", "zh")
 
 
 def test_a_language_the_dictionary_lacks_falls_back_to_english(chat_tier):
-    assert _run(H._llm_chat(_stub(exhausted=True), "hi", user_id="u1", reply_lang="sw")) == t(
+    assert _run(H._llm_chat(_stub(exhausted=True), "hi", user_id="u1", reply_lang="sw")) == _tg(
         "chat_budget_exhausted", "en")
 
 
 def test_a_file_backed_dictionary_language_gets_its_own_chrome(chat_tier):
     es = _run(H._llm_chat(_stub(exhausted=True), "hi", user_id="u1", reply_lang="es"))
-    assert es == t("chat_budget_exhausted", "es")
-    assert es != t("chat_budget_exhausted", "en") and "/scan" in es
+    assert es == _tg("chat_budget_exhausted", "es")
+    assert es != _tg("chat_budget_exhausted", "en") and "/scan" in es
 
 
 def test_the_english_texts_are_the_ones_the_source_scans_pin():

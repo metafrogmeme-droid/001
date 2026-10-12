@@ -106,7 +106,7 @@
   ["arena.sig_unknown", "엔진의 콜을 불러오지 못했습니다 — 이 목록은 비어 있는 것이 아니라 알 수 없는 상태입니다."],
   ["arena.sig_drift", "콜 이후 {p}% 이동"],
   ["arena.sig_drift_t", "콜이 게시된 이후 시장이 얼마나 움직였는지. 체결은 이 가격이 아니라 실시간 마크 가격으로 이루어집니다."],
-  ["arena.sig_conf", "신뢰도 {p}%"],
+  ["arena.sig_conf", "신뢰도 점수 {p} (보정 안 됨)"],
   ["arena.sig_now", "방금"],
   ["arena.sig_min", "{n}분 전"],
   ["arena.sig_hr", "{n}시간 전"],

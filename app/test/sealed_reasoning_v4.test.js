@@ -232,7 +232,9 @@ test('a sealed null renders as a dash, never as a measurement', () => {
   assert.ok(!/Math\.round\(\(p\.confidence \|\| 0\) \* 100\)/.test(html),
     'confidence is still rendered through `|| 0`, which prints an unmeasured '
     + 'call as 0% confident');
-  assert.match(html, /var pct = function \(x\) \{ return \(x === null \|\| x === undefined\) \? '—'/);
+  // The confidence helper is `conf` since it prints a score, not a percent
+  // (RCConfidenceScore); a sealed null is still a dash before anything else.
+  assert.match(html, /var conf = function \(x\) \{\s*if \(x === null \|\| x === undefined\) return '—';/);
   assert.match(html, /var val = function \(x\) \{ return \(x === null \|\| x === undefined\) \? '—'/);
 });
 

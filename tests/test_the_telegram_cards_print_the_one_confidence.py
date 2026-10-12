@@ -45,7 +45,7 @@ class TestTheChartSubtitle:
     def test_it_prints_the_blend_and_not_the_calibrated_field(self):
         from bot.skills.chart_renderer import _idea_meta
         _, _, subtitle, _ = _idea_meta(_idea())
-        assert "conf 70%" in subtitle and "31%" not in subtitle
+        assert "conf score 70 (uncalibrated)" in subtitle and "score 31" not in subtitle
 
     def test_a_stamp_is_not_a_measured_hundred_percent(self):
         from bot.skills.chart_renderer import _idea_meta
@@ -102,7 +102,7 @@ class TestTheAnalyzeCard:
 
     def test_it_prints_the_blend(self):
         line = _confidence_line(_analyze_card(_idea()))
-        assert "70%" in line and "31%" not in line
+        assert "score 70 (uncalibrated)" in line and "score 31" not in line
 
     def test_its_bar_is_drawn_from_the_blend(self):
         """The bar and the pill are one reading: 70% of twelve cells is eight
@@ -132,7 +132,7 @@ class TestThePendingIdeasRow:
 
     def test_the_model_is_told_the_blend(self):
         out = _pending_block([_idea()])
-        assert "confidence 70%" in out and "31%" not in out
+        assert "confidence score 70 (uncalibrated)" in out and "score 31" not in out
 
     def test_an_unreadable_confidence_is_said_not_dropped(self):
         """The row used to drop the clause when the field was not a number,

@@ -12,6 +12,7 @@
  */
 
 const { pool } = require('../db');
+const ConfidenceScore = require('../public/js/confidence-score');
 
 const MAX_ACTIVE_PER_USER = 10;
 
@@ -342,8 +343,11 @@ async function runOnce(notify) {
           if (hit) {
             v = 0;
             const b = String(hit.symbol).split('/')[0];
+            // A score, not `82% confidence`: no curve has mapped the figure
+            // to outcomes, and a push is read in one glance as a probability.
+            const confText = ConfidenceScore.text(hit.confidence);
             bodyOverride = `Engine signal: ${String(hit.direction || '').toUpperCase()} ${b}`
-              + (isFinite(parseFloat(hit.confidence)) ? ` (${Math.round(parseFloat(hit.confidence) * 100)}% confidence)` : '')
+              + (confText !== null ? ` (confidence ${confText})` : '')
               + ' — open Signals for the full read.';
           }
         } catch (e) { /* signals unavailable this pass */ }

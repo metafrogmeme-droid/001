@@ -72,7 +72,7 @@ class TestTheReading:
     def test_the_blend_wins_because_it_is_the_scale_the_gates_use(self):
         r = displayed_confidence(_analyzer_idea())
         assert r == ConfidenceReading(BLEND, "blend")
-        assert r.measured and r.pct() == "70%"
+        assert r.measured and r.text() == "score 70 (uncalibrated)"
 
     def test_a_bool_blend_is_a_flag_not_a_confidence(self):
         # `float(True)` is 1.0 — the value that clears every floor and prints
@@ -91,7 +91,7 @@ class TestTheReading:
         r = displayed_confidence(_idea(confidence=1.0, source="manual"))
         assert r == ConfidenceReading(None, "stamp")
         assert not r.measured
-        assert r.pct() == STAMP_TEXT
+        assert r.text() == STAMP_TEXT
 
     def test_a_producer_that_measured_its_own_score_is_read(self):
         # A scan row / drift re-offer sets no blend; its score is its own.
@@ -101,7 +101,7 @@ class TestTheReading:
     def test_nothing_readable_is_unread_and_never_raises(self):
         r = displayed_confidence(object())
         assert r == ConfidenceReading(None, "unread")
-        assert r.pct() == UNREAD_DASH
+        assert r.text() == UNREAD_DASH
 
     def test_a_stamp_and_an_unread_field_get_different_words(self):
         # Different facts: a figure nobody measured, and a field nobody read.
@@ -142,12 +142,15 @@ class TestOneMessage:
         caption = self._door(idea)["caption"]
         drawn = _drawn(idea)
 
-        assert "Conf 70%" in caption, caption
-        # The cell the image draws under CONFIDENCE, and the summary's Score.
-        assert "70%" in drawn
+        assert "Conf score 70 (uncalibrated)" in caption, caption
+        # The cell the image draws under its score label, and the summary.
+        assert "70" in drawn
+        assert "SCORE (UNCALIBRATED)" in drawn
+        assert any("score 70 (uncalibrated)" in t for t in drawn), drawn
         # The defect: the calibrated figure on one of the two surfaces.
-        assert "31%" not in caption
-        assert "31%" not in drawn
+        assert "score 31" not in caption
+        assert "31" not in drawn
+        assert not [t for t in drawn if "score 31" in t]
 
     def test_a_hand_typed_ticket_shows_no_fabricated_certainty(self):
         idea = _idea(confidence=1.0, source="manual")
@@ -155,12 +158,12 @@ class TestOneMessage:
         drawn = _drawn(idea)
 
         assert STAMP_TEXT in caption, caption
-        assert "100%" not in caption
-        assert "100%" not in drawn
+        assert "100" not in caption
+        assert "100" not in drawn
         # The cell abstains rather than printing the stamp.
         assert UNREAD_DASH in drawn
-        # And the summary makes no Score claim at all.
-        assert not [t for t in drawn if "Score" in t]
+        # And the summary makes no score claim at all.
+        assert not [t for t in drawn if "score " in t]
 
     def test_the_proactive_caption_matches_the_card(self):
         from bot.skills.alerts_monitor import signal_card_caption
@@ -169,9 +172,9 @@ class TestOneMessage:
         caption = signal_card_caption(idea)
         drawn = _drawn(idea)
 
-        assert "Conf 70%" in caption
-        assert "70%" in drawn
-        assert "31%" not in caption
+        assert "Conf score 70 (uncalibrated)" in caption
+        assert "70" in drawn
+        assert "score 31" not in caption
 
     def test_the_forwarded_channel_post_matches_the_card(self):
         from bot.marketing.channel_forwarder import ChannelForwarder
@@ -193,8 +196,8 @@ class TestOneMessage:
         )
 
         assert len(sent) == 1
-        assert "Confidence: <code>70%</code>" in sent[0]
-        assert "31%" not in sent[0]
+        assert "Confidence: <code>score 70 (uncalibrated)</code>" in sent[0]
+        assert "score 31" not in sent[0]
 
 
 class TestTheCheckLine:
@@ -435,7 +438,7 @@ class TestEveryReaderAsksIt:
             ("a field declaration",
              'class R:\n    blended_confidence_raw: float = 0.0\n'),
             ("the honest reader",
-             'def f(idea):\n    return displayed_confidence(idea).pct()\n'),
+             'def f(idea):\n    return displayed_confidence(idea).text()\n'),
             ("a producer ASSIGNING the field",
              'def f(idea, blend):\n    idea.blended_confidence_raw = blend\n'),
         ],
@@ -512,8 +515,8 @@ class TestTheMonitorCard:
         alerts = self._alerts(_analyzer_idea())
         assert alerts, "the drive's own fixture produced no signal"
         body = alerts[0].body
-        assert "70%" in body, body
-        assert "31%" not in body
+        assert "score 70 (uncalibrated)" in body, body
+        assert "score 31" not in body
 
     def test_a_flag_never_clears_the_alert_bar(self):
         """`float(x or 0.0)` read a blend of `True` as 1.0.

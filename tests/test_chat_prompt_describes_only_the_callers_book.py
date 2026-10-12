@@ -570,9 +570,10 @@ class TestTheDoorPerSurface:
         assert "surface=surface)" in chat
         sig = inspect.signature(th._no_live_account_block)
         assert list(sig.parameters) == ["absence", "surface"]
-        assert set(th._LINK_DOOR) == {"web", "telegram"}
+        assert set(th._LINK_DOOR) == {"web", "telegram", "public"}
         for door in th._LINK_DOOR.values():
             assert door["link"] and door["state"] and door["linked"]
+            assert door["fallback"]
         # One table: the stake notice reads the same door, so the handler's
         # name is the leaf's object and not a second copy of the sentences.
         from bot.skills import chat_runtime as cr

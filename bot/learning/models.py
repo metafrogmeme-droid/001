@@ -187,7 +187,19 @@ class StrategyScorecard(BaseModel):
 
 
 class PatternRecord(BaseModel):
-    """Detected recurring market pattern."""
+    """One group of closes in the learning store, and how it came out.
+
+    It was a "detected recurring market pattern": a regime group that won
+    over 55% was named a trend continuation and a range group that won under
+    40% a breakout failure, with no check that a single trade in it was a
+    breakout, and its "confidence" was the win rate capped at 0.85. What the
+    learner measures is a group's outcomes, so that is what the record holds:
+    the dimension it was cut on, the group's value on it, the counts and the
+    95% Wilson interval on the win rate. There is no confidence field: no
+    reading here is one. And no dollar average: the store's outcome rows carry
+    P&L in dollars with no stop and no size, across every account's closes,
+    so an average of them is not a return any trade made.
+    """
     # validate_assignment makes the may_override_risk validator fire on
     # post-construction assignment too — without it, `p.may_override_risk = True`
     # silently bypassed the safety invariant the docs claim is unbreakable.
@@ -195,16 +207,23 @@ class PatternRecord(BaseModel):
 
     audit_id: str = Field(default_factory=_audit_id)
     timestamp_utc: datetime = Field(default_factory=_utc_now)
+    #: The dimension the group is cut on: "regime", "macro_state" or
+    #: "volatility" (`patterns.GROUP_DIMENSIONS`).
     pattern_type: str = ""
     symbol: str = ""
     timeframe: str = ""
+    #: The group's value on that dimension ("TREND_UP", "FOMC_WINDOW", "low").
     market_regime: str = ""
-    confidence: float = 0.0
-    sample_size: int = 0
+    sample_size: int = 0          # scored closes: wins + losses + flat
     is_experimental: bool = True  # True if sample_size < 20
     description: str = ""
-    historical_win_rate: float = 0.0
-    avg_pnl: float = 0.0
+    #: Wins over scored closes, `win_rate.win_stats`' rule; None when none scored.
+    historical_win_rate: Optional[float] = None
+    wins: int = 0
+    losses: int = 0
+    flat: int = 0
+    #: The 95% Wilson interval on `historical_win_rate`; None with no sample.
+    win_rate_interval: Optional[tuple[float, float]] = None
     # Rule: patterns are observations, not trade commands
     may_override_risk: bool = False  # ALWAYS False
 

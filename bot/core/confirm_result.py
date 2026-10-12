@@ -23,20 +23,26 @@ from __future__ import annotations
 
 from typing import Any
 
-# `confirm_trade`'s own answers that place nothing, by how they begin. The
+# `confirm_trade`'s own answers that place nothing, by how they begin, each
+# with the words `/whynot` says for it. The words are a column on this table
+# and not a second list: a refusal added here is named there too. The
 # executor's answers are the executor's vocabulary
 # (`live_executor.execution_indicates_failure`) and are asked there.
-REFUSAL_PREFIXES = (
-    "Trade not found",
-    "Trade REJECTED",
-    "Trade HALTED",
-    "Execution denied",
-    "\U0001f6e1",                                   # the chosen strategy refused
-    "\u23ed",                                       # duplicate suppressed
-    "\u26d4",                                       # paper trading is disabled
-    "\u23f8 [PAPER]",                               # practice cooldown
-    "\u26a0\ufe0f [PAPER] Simulated fill failed",   # practice fill raised
-)
+REFUSAL_WORDS: dict[str, str] = {
+    "Trade not found": "the idea had expired or was not found",
+    "Trade REJECTED": "the re-check at confirm rejected it",
+    "Trade HALTED": "trading was halted",
+    "Execution denied": "execution was denied",
+    "\U0001f6e1": "the chosen strategy refused it",
+    "\u23ed": "a position or order on this symbol already existed",
+    "\u26d4": "paper trading is disabled on this bot",
+    "\u23f8 [PAPER]": "the practice book was cooling down",
+    "\u26a0\ufe0f [PAPER] Simulated fill failed": "the practice fill failed",
+}
+REFUSAL_PREFIXES = tuple(REFUSAL_WORDS)
+
+#: The words for a refusal that is the executor's own answer.
+EXECUTOR_REFUSAL_WORDS = "the order was not placed (the executor refused or failed)"
 
 
 def placed_nothing(result: Any) -> bool:
@@ -55,6 +61,20 @@ def placed_nothing(result: Any) -> bool:
     from bot.core.live_executor import execution_indicates_failure
 
     return execution_indicates_failure(result) or result.startswith(REFUSAL_PREFIXES)
+
+
+def refusal_words(result: Any) -> str:
+    """What a refusal is called where a person reads why nothing was placed.
+
+    Words from the table, never the answer itself: the answer can carry a
+    figure about the account it was refused on, and the record it feeds is
+    read on other surfaces. Only meaningful when `placed_nothing` is True.
+    """
+    text = result if isinstance(result, str) else ""
+    for prefix, words in REFUSAL_WORDS.items():
+        if text.startswith(prefix):
+            return words
+    return EXECUTOR_REFUSAL_WORDS
 
 
 def outcome_unverified(result: Any) -> bool:

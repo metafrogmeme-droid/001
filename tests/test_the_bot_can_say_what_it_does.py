@@ -807,11 +807,16 @@ def test_the_telegram_card_would_be_a_mostly_false_answer_here():
     # own panel is where the same reading is shown.
     # And again for /rclaw: a bare "rclaw" reaches no rule, so the token card
     # is a command a caller types, and on the web the /token page shows it.
+    # And again when /patterns left the Scan group for the operator's: it
+    # reads the learning store, every account's closes, so a non-admin is no
+    # longer shown it, and a bare "patterns" reached no rule either.
+    # And again when /costs followed it: the deployment's model spend, one
+    # ledger, is the operator's card, so a non-admin is not shown it either.
     # And again for the five scan doors (/limitscan, /multitrend, /altsweep,
     # /ethma, /volrotation): typed bare on the web none reaches a rule, so
     # all five land on the model; the web's door to the same board is the
     # strategy page's "Scan now".
-    assert (named, nothing, len(hits)) == (113, 104, 9), (named, nothing, hits)
+    assert (named, nothing, len(hits)) == (111, 102, 9), (named, nothing, hits)
     # The sharpest one: the universe sweep answered by a single-asset read.
     assert hits.get("scan") == "analyze_asset", hits
 

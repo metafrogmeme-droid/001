@@ -102,7 +102,8 @@ test('signal watch: pushes on a new watchlist signal, dedupes already-seen ones'
      3.4, 3.2, 3.9, 2.5, null, 'NEW', null, new Date().toISOString(), '']);
   assert.equal(await alerts.runOnce(notify), 1, 'new watchlist signal → push');
   assert.match(sent[0].payload.body, /LONG PENDLE/);
-  assert.match(sent[0].payload.body, /82% confidence/);
+  assert.match(sent[0].payload.body, /\(confidence score 82 \(uncalibrated\)\)/);
+  assert.doesNotMatch(sent[0].payload.body, /%/);
 
   assert.equal(await alerts.runOnce(notify), 0, 'same signal never double-fires');
 });

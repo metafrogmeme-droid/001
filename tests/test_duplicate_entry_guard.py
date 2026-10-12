@@ -26,6 +26,7 @@ class _FakeExec:
 class _FakeEngine:
     confirm_trade = RuneClawEngine.confirm_trade  # exercise the real wrapper
     _drop_pending_idea = RuneClawEngine._drop_pending_idea  # the wrapper's own exit
+    _why_not_confirm = RuneClawEngine._why_not_confirm  # the wrapper records a refused confirm
     # The wrapper asks these before it reads a book. This stand-in has no
     # user store, so the real reading answers "not practice" and the live
     # check runs, unless a test gives it one.

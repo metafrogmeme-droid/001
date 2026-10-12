@@ -138,7 +138,7 @@ def thesis_event(idea: Any) -> dict[str, Any]:
     symbol = str(getattr(idea, "asset", "") or "")
     reading = displayed_confidence(idea)
     return {
-        "title": f"{direction} {symbol} — confidence {reading.pct()}",
+        "title": f"{direction} {symbol} — confidence {reading.text()}",
         "body": str(getattr(idea, "reasoning", "") or "")[:300],
         "symbol": symbol,
         "data": {"direction": direction,

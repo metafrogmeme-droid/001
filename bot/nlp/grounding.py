@@ -1,10 +1,15 @@
-"""Shadow-check figures with a unit against this turn's tool readings.
+"""Shadow-check figures with a unit against what supports them.
 
 A figure in the reply is verified when a tool that actually read something
 returned the same number, in the same unit, within a small tolerance. An
 unread or absent result supports nothing, including zero. The rate is
 published per model. Replies are annotated only once that rate is below the
 threshold; until then the check records and leaves the words alone.
+
+A chat turn that called no tool is checked against what the model was GIVEN
+(its prompt, history and question), and a trade thesis against the values in
+its own prompt, under a ledger key of its own. `shadow_check` is the one rule
+all three ask.
 """
 from __future__ import annotations
 
@@ -166,6 +171,89 @@ def check_reply(reply: str, tool_results: list[str]) -> tuple[int, list[str]]:
                 support.append(scalar)
     unverified = [f.display for f in found if not any(_same(f, s) for s in support)]
     return len(found), unverified
+
+
+# ── one shadow rule, for a chat reply and for a trade thesis ────────────────
+
+#: How much of what a model was given the check reads. A chat turn's prompt,
+#: history and question, or a thesis prompt (capped at 4,000 characters), sit
+#: well inside it; the cap keeps the check bounded whatever a caller hands it.
+SUPPORT_MAX_CHARS = 200_000
+
+# A bare number in a prompt: not part of a name (`fib_618`), not already a
+# dollar, percent or ratio figure.
+_BARE_NUMBER = re.compile(r"(?<![\w.$:])-?\d+(?:\.\d+)?(?![\w.%:])")
+
+
+@dataclass(frozen=True)
+class ShadowCheck:
+    """One reply's figures, checked against what supports them."""
+    checked: int
+    unverified: list
+    #: True only when the ledger key's published rate is already below the
+    #: line, which is the rule `annotation_on` states.
+    annotate: bool
+
+
+def given_support(*texts: object) -> list[str]:
+    """What a model was GIVEN, as support for the figures it wrote back.
+
+    A turn that called no tool was answered from its prompt alone: the price
+    rows, the positions, the pending ideas, the history and the question. Each
+    text carries no reading line, which `check_reply` treats as a read, so a
+    figure the prompt stated is supported and one it did not is unverified.
+    Non-text and blank parts are left out, and the total is bounded.
+    """
+    out: list[str] = []
+    left = SUPPORT_MAX_CHARS
+    for t in texts:
+        if not isinstance(t, str) or not t.strip() or left <= 0:
+            continue
+        out.append(t[:left])
+        left -= len(out[-1])
+    return out
+
+
+def prompt_values(prompt: object) -> str:
+    """Each bare number in a prompt, offered back as a dollar figure.
+
+    The thesis prompt states most values bare (`BB_upper=63500.12`,
+    `VWAP=...`) and only the price and the POC with a unit, and a figure with
+    no unit supports nothing in `check_reply`. A model citing the band back as
+    `$63,500` wrote the value it was given, so each bare number also stands as
+    a dollar figure. Never as a percent, an R or a ratio: those the prompt
+    states with their unit or not at all.
+    """
+    if not isinstance(prompt, str):
+        return ""
+    return " ".join("$" + n for n in _BARE_NUMBER.findall(prompt[:SUPPORT_MAX_CHARS]))
+
+
+def shadow_check(text: str, support: list[str], ledger_key: str,
+                 is_admin: bool) -> ShadowCheck:
+    """Check, record under ``ledger_key``, and say whether to annotate.
+
+    The chat reply and the trade thesis both ask this, so the two cannot
+    drift into two rules: a turn that checked nothing records nothing, and
+    the words are annotated only once that key's own published rate is below
+    the line. Pure apart from the in-process ledger; never raises on text.
+    """
+    checked, unverified = check_reply(text or "", support or [])
+    if checked and ledger_key:
+        note(ledger_key, checked, len(unverified))
+    annotate = bool(unverified and ledger_key
+                    and annotation_on(ledger_key, bool(is_admin)))
+    return ShadowCheck(checked, unverified, annotate)
+
+
+def thesis_ledger_key(model: object) -> str:
+    """The ledger row a thesis model's figures are counted under.
+
+    Not the model's own name: the same model can serve chat, and a chat rate
+    and a thesis rate are measured against different supports.
+    """
+    name = str(model or "").strip()
+    return f"trade reasoning · {name}" if name else ""
 
 
 def tools_footer(events) -> str:

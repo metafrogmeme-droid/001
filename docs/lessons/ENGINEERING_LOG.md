@@ -1313,9 +1313,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 113 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 111 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 104 of the 113 reach the tool-less chat model and 9
+typed as the card prints them, 102 of the 111 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -1397,14 +1397,15 @@ second door.
 **Writing that module produced the same defect one layer down, and it was
 fail-OPEN.** `words_reach` narrowed only when `surface == "web"`, so every
 other string — `"public"`, `"api"`, a typo, `""` — fell through to the router's
-whole vocabulary plus every chat tool: **58 names including `halt`,
+whole vocabulary plus every chat tool: **59 names including `halt`,
 `close_position` and `emergency_stop`**, on the function whose entire job is
 deciding what the card may promise. (The figure is a live drive of what would
 fall through TODAY, not a note of what it was the day the branch was fixed,
 which is why it moves when the router gains an intent — it was 51 before the
-sweep's own timeframes got rules, 53 before `place_order`, and 56 before
-cross-venue exposure became a routed intent.) It answered MORE for an unrecognised
-surface than for the one it modelled best (telegram, 53), because the
+sweep's own timeframes got rules, 53 before `place_order`, 56 before
+cross-venue exposure became a routed intent, and 58 before the `market_read`
+chat tool.) It answered MORE for an unrecognised
+surface than for the one it modelled best (telegram, 54), because the
 unrecognised branch skipped the scan dispatch too and kept raw ROUTER INTENT
 names that are not skills at all. An unmeasured surface is neither "everything"
 nor "nothing": it raises. `public` and `api` are measured — `_chat_tools_for`
@@ -20595,7 +20596,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 266 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 267 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21418,9 +21419,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **485 of 1278** reach for source text through `source_scan`, `code_only`
+Driven, **489 of 1295** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 485 is a FLOOR and the honest shape is
+source scan that rule does not see, so 489 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -21644,7 +21645,7 @@ the pending decision, so the backlog reached 9 of 30 registered skills
 (`tests/unreachable_skills_baseline.txt`, same two-way ratchet). Five of them
 were in `bot/skills/macro_skills.py`, each advertising a slash command —
 `/macro`, `/eventrisk`, `/compliance`, `/approve`, `/kill` — that no transport
-reached. The backlog is **5** of 34 registered skills now (`draft_trade` and `memory_note` are registered and reached from chat, so neither is one of the five): `/eventrisk` and
+reached. The backlog is **5** of 35 registered skills now (`draft_trade`, `memory_note` and `market_read` are registered and reached from chat, so none is one of the five): `/eventrisk` and
 `/compliance` are wired, and the deciding question was never "can it run" but
 *who should be able to run it*. `/eventrisk` reuses `macro`, a permission
 trader and paper already hold;
@@ -22889,6 +22890,352 @@ and a comment's "`await asyncio.gather(...)` returns" was read as the gather,
 failing the rest test's ordering check against code nobody changed. Each slice
 takes the function by its node now (`inspect.getsource`).
 (`tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`.)
+
+**ANONYMOUS CHAT SPENT THE BUDGET SIGNED-IN CHAT ANSWERS FROM.** From the
+audit of the public chat on 11 October. The website's anonymous chat, and the
+MCP `ask_runeclaw` tool, which is the same chat on another wire, had six
+messages a minute per address and no daily limit, and every turn was booked
+to chat's one share of the LLM budget. At the defaults (a $1.00 total, half
+of it chat's) a few hundred anonymous turns spent that share, and from then
+on every signed-in user's chat said the AI budget was used up. Two limits now,
+and each refusal names the PREVIEW's limit, because the bot's budget is not
+what ran out:
+
+- a slice of chat's budget, `LLM_PUBLIC_CHAT_BUDGET_SHARE` (0.2, clamped to
+  0-0.5): `cost.public_chat_budget_bound` asks chat's own bound first, then
+  stops anonymous turns at that fraction of chat's dollars (`chat_cap_usd`)
+  and of the daily call limit, since in-house models book no dollars.
+  `record_llm(public=True)` books the preview's spend as a subset of chat's,
+  and an unreadable subset reads as all of chat's;
+- a per-visitor count per UTC day, `PUBLIC_CHAT_DAILY_LIMIT` (10), in
+  `bot/web/public_chat_quota.py`. The website sends an HMAC of the address
+  under a key it draws at start-up (`app/lib/visitor_key.js`), never the
+  address, from both doors, so the MCP tool is not a second allowance. A turn
+  no model answered is given back, as the signed-in quota does, and a turn
+  with no key is allowed and not counted. The count is in the bot's memory,
+  so a restart of either process starts it again; `.env.example` says so.
+
+Driven end to end: anonymous turns at $0.04 stop after three, under the $0.10
+slice, and a signed-in turn on the same tracker still answers. Twenty-four
+mutants, all killed. A scan in an older test counted `"chat_quota.refund("`
+as a substring and matched `public_chat_quota.refund(`; the gateway imports
+the new module under another name rather than widening that scan.
+(`tests/test_anonymous_chat_cannot_spend_the_signed_in_budget.py`,
+`app/test/the_public_chat_counts_a_visitor_not_an_address.test.js`.)
+
+**FIVE MORE CHAT SENTENCES SAID MORE THAN WAS TRUE.**
+
+- **A visitor asking in another language was invited to print levels.** The
+  scan gate and the reply contracts both read English patterns, and
+  `reply_contract` returned the members' unread contract ("a request for a
+  full analysis gets sections") before it looked at `public`. The public
+  surface is decided first now, and a public turn whose shape was not read
+  gets `_PUBLIC_UNREAD_CONTRACT`: no entry, stop, target, size or scan
+  headings. Driven through the gateway and the real `_llm_chat` in es, pt,
+  de, ja, ko and fr; the German and French cognates of "analysis" hit the
+  router's English word, so each has a second phrasing that reaches the model.
+- **The failure messages named doors the reader did not have.** The budget,
+  deadline and empty-reply messages told web and public readers to use
+  `/scan`, `/positions` and `/llmstatus`, and told everyone "your key and
+  endpoint are fine". `LINK_DOOR` gains a `public` surface and two dictionary
+  keys per surface, `fallback` and `diagnose`; `fallback_door` appends the
+  reader's own: commands on Telegram, sentences the web router answers on the
+  web (kept English in all fourteen languages, since the router reads
+  English), signing in for a visitor. What every provider answering says
+  about the keys goes to the operator on Telegram only, beside `/llmstatus`.
+  The operator's no-model message still names `/setllm` on the web; it is
+  the operator's own command and was left as it is.
+- **The public prompt described autonomous trading.** It opened "an
+  autonomous AI crypto-trading agent" while an untapped live order needs an
+  eligibility record and none ships. It now states the mechanism, which holds
+  in every state, and that the model cannot see whether a record exists.
+- **The prompt named four venues and the FAQ two.** `venues.venue_lineup` is
+  the one reading (`PER_USER_EXECUTION_VENUES`, and the rest of the registry
+  for balances only); the prompt is built with `venue_lineup_sentence` and the
+  FAQ's exchanges answer is built from it when asked. `faq_answer` returns a
+  `str` it built now, which took one no-any-return off the mypy baseline
+  (499 → 498).
+- **"NEVER suggest slash commands" sat under a rule naming /trade, /halt and
+  /pause as doors.** The line now forbids commands as padding and allows one
+  where a rule names it as the door, worded as that rule words it; a test
+  holds that every command the prompt names is inside the door rule.
+
+Twenty-four mutants, all killed on the first round (5 for the contract, 9 for
+the doors, 7 for the product claims, 3 for the prompt line).
+(`tests/test_a_public_turn_in_any_language_is_asked_for_no_levels.py`,
+`tests/test_a_failure_names_only_doors_its_surface_has.py`,
+`tests/test_the_public_chat_says_where_it_trades_and_who_taps.py`,
+`tests/test_the_chat_prompt_names_a_door_it_does_not_forbid.py`.)
+
+**THREE CARDS SAID MORE THAN THEY READ.** From a read-only audit of
+650680b4. Each card named something it never measured, and two of them
+printed the operator's book to people whose book it was not.
+
+**`/patterns` named groups after patterns nobody looked for.** The learning
+store's regime groups were relabelled by threshold. A trend group that won
+over 55% of five closes became `TREND_CONTINUATION`. A range or chop group
+that won under 40% became `BREAKOUT_FAILURE`, although no trade in it was
+checked to be a breakout. The "confidence" was `min(win_rate, 0.85)`. The
+card printed that confidence, a win rate with no interval, and an average in
+dollars taken over every account's closes, because `_on_live_position_closed`
+writes per-user closes into the store with no owner. Viewers, self-admitted
+paper users and web chat all held `patterns`.
+
+`PatternLearner.outcome_groups` now names each group by the dimension it was
+cut on (regime, a macro state other than NORMAL, low volatility). It reports
+every group with five scored closes, not only the striking ones, because
+picking the remarkable rates is how a five-trade coincidence reads as a
+finding. Counts use `win_rate.outcome_of`, so a 0.0 close is flat and a NaN
+is unscored. Each rate carries its 95% Wilson interval. That interval is
+`readiness.wilson_interval`, the helper parity already used privately, so
+there is one copy of the arithmetic. No return figure is printed: the outcome
+rows carry dollars with no stop and no size, so they cannot give R or
+percent. The card says which window it read (the newest 1,000 decision rows)
+and says when that log could not be read (`get_decisions(strict=True)`).
+Every other reader keeps the old behaviour. `patterns` is now held by no role
+but admin, and the card also asks `engine._is_operator_user` itself.
+
+The first round left two mutants standing. Both were in the card's own
+identity rule: it refuses an empty id, and it treats a check that raises as
+"no". Both survived because the engine's real reading already says no to "".
+The card's rule should not depend on the engine's, so a stand-in that says
+yes to everything now drives both. Eighteen mutants, all killed.
+(`tests/test_a_group_of_closes_is_named_for_what_it_measured.py`.)
+
+**`/costs` subtracted one person's bill from another person's balance.**
+"Net" was the caller's equity minus the operator's operating cost: a stock
+minus one day's flow, from two different books. "Per Trade" was the
+operator's cost divided by the caller's trade count. The breakdown walked
+five categories and skipped `chat`, while the total included it. The chat
+tool promised "against the daily budget", and the card showed no budget.
+`cost.chat_cap_usd` is now the one reading of chat's cap. The gate and the
+reply's audit line used to compute it inline. `cost.budget_reading` builds
+the budget lines from the gate functions themselves. Chat's remaining spend
+is clipped to the daily total, because the gate clips it. The analysis cap
+is not clipped, because `thesis_dollar_exhausted` does not clip it; the owner
+already holds that decision. Every booked category prints, so the parts add
+up to the total. An unpriced call turns every spent figure into "at least"
+and every remaining figure into "at most".
+
+The same claim appeared one card over in two places. The status card's
+"Net" is gone, and its spend rows show only to the operator. The paper
+portfolio waterfall now stops at the book's own Trading line, with no LLM,
+Infra, NET or Per Trd rows, and its tally says All-time, because the book
+persists. `costs` is admin-only. Twenty-three mutants, all killed.
+
+The methods ratchet then flagged `CacheStats.total_lookups`. Its only "caller"
+had been an unused local variable with the same name in the old card. A
+name-based sweep acquitted a method because of a variable's spelling. The
+method is deleted.
+(`tests/test_the_costs_card_is_the_operators_spend_against_its_budget.py`.)
+
+**`explain_trade` said "pending or historical" and searched only the pending
+book.** Its MCP description promised "omit to list pending ideas", but an
+omitted id answered "Trade  not found". Its "Signals:" line printed
+`idea.signals_used`, which the analyzer fills with
+`list(indicators.keys())`, so `session_high` and `_top_votes` appeared as if
+they were the signals behind the call. `signals_used` keeps that content,
+because the risk gate's HTF fallback, the journal, the flight recorder and
+the backtest all read it. The card now prints the idea's own
+`_confluence_votes` through `flight_recorder.compact_votes`, made public for
+this, so the card and the sealed record name the same voters. Three cases
+get three sentences: no breakdown on the idea, a breakdown where no vote
+moved the score, and the votes themselves. An omitted id lists the engine's
+own pending ideas. A person's ticket has no owner this skill could check a
+caller against, so tickets are counted but not listed. The description now
+says pending only. Fourteen mutants, all killed.
+(`tests/test_an_explanation_names_the_votes_that_drove_the_call.py`.)
+
+**Recorded, not changed.**
+
+- `/optimize` still prints the operator's estimated LLM savings in dollars to
+  trader and paper roles.
+- `SKILL_SAYS` calls it "parameter optimisation" over a card titled "Token
+  optimizer".
+- The learning dashboard still describes the patterns module as "Candle
+  pattern recognition".
+- `bot/main.py`'s console mode dispatches skills with no user id, so both
+  operator cards refuse it. No caller is nobody.
+- Neither chat surface can explain a pending idea. `SKILL_PERMISSION` is
+  derived from a command's `@guard`, and `explain_trade` has no command, so
+  giving it a permission is the owner's decision, not a table edit.
+
+**"WHY DIDN'T WE TRADE?" READ ONLY THE RISK GATE'S REFUSALS.** `/whynot` and its
+chat tool read `engine._last_rejections`, which is filled only when the risk
+gate refuses an idea. The analyzer ends most
+analyses before the gate: below the bar, at the regime gate, at the direction
+guard. It recorded each skip per symbol (`Analyzer._record_no_trade`) and nothing
+read that record (`get_no_trade_reason` is on the unreachable-methods baseline),
+so a day of skips was answered "No trades rejected since the bot last started",
+under a tool description that promised "the gate that rejected or skipped it".
+Three skip paths did not reach even that record: no thesis, the regime hard gate
+and the order-flow veto wrote only the one-slot `_last_rejection_diag`.
+
+`bot/core/why_not.py` keeps one row per analysis. The analyzer writes it where it
+decides, at `_record_no_trade` or under the idea's id, and the engine amends the
+row of an idea it drops itself (the same-symbol guard, the liquidity gate, the
+risk gate), so each analysis is counted once, at the stage that ended it. The
+card now opens "Of 85 analyses in the last 6h: 61 below the bar, 14 regime gate,
+6 direction guard, 4 risk gate", and the risk gate's detail card follows under
+its own name. What a row may carry was decided per stage. The risk gate's row
+names the failed checks and drops their figures, which are the operator's
+drawdown and exposure. The liquidity row keeps the stage only, because the
+guard's sentence carries the idea's size. A confirm that placed nothing is kept
+with the id of whoever confirmed and shown only to them, and the engine's own
+`auto` confirms only to the operator. Its words come from a column on
+`confirm_result`'s refusal table, not from the answer, because the answer can
+carry an account figure. The record is bounded (a day, at most 30,000 rows) and
+lives in the bot's memory, so a reading states its window and, when the record
+does not reach back that far, where it starts. A process that is not the bot
+answers that the record was not read there. The chat tool's reading line is now
+the record's own state (read, absent or unread), where any return used to be
+footed "read". The engine attaches the record to its own analyzer, so a
+backtest's analyzer keeps none. `get_no_trade_reason` stays on the baseline:
+the card reads the new record, and a second reader of the same write would be a
+second answer. The runbook said "structured no-trade reasons now back" `/whynot`.
+That was true of the store and not of the card, and it is true of both now.
+Thirty mutants, all killed on the first round.
+(`tests/test_why_no_trade_counts_every_analysis_by_the_stage_that_ended_it.py`,
+`bot/core/why_not.py`.)
+
+**AND THE MARKET QUESTIONS THE ROUTER MISSES WERE ANSWERED FROM NOTHING.** "is
+SOL a buy right now", "whats your read on HYPE" and "deep dive into ETH
+structure" match no router rule, so they reach the model. It had no reading of
+the market. The prompt's "WHEN TO SAY NO" asked it to judge "RSI stuck in
+no-man's land (40-60)" and "conflicting signals across timeframes", and the
+full-scan answer shape asked for "Momentum: RSI, volume, order flow" and "Setup
+quality, 1-10". No block and no tool supplies an RSI, a per-timeframe read, an
+order-flow read or a grade, and the engine has no RSI-band gate. A model that
+followed those instructions had to make the numbers up. `market_read` is
+now a chat tool over `Analyzer.scan_read`. Before it was wired, `scan_read`'s
+docstring claim was driven and holds: it asks no model, and it leaves the regime
+history, the no-trade record and the diagnostic slot as they were. Its one
+outside read is the voter-weight learner's cached file. The tool reads the
+analyzer's own closed 1h bars through `_cached_ohlcv`, under the cache key the
+sweep fills, within an 8 s budget inside `run_tool`'s 12 s. Its card lists
+what it did not read. The RSI and timeframe list is gone from the prompt, and
+each part of the full-scan shape names the reading that fills it. The tool is
+not tier-gated: it is the scan's own computation for one symbol, and `/scan`
+is free. Moving it to `pro` beside `analyze_asset` is the owner's call. The
+perpetual it falls back to for a perp-only listing is read through
+`RuneClawEngine.get_futures_exchange`, which had no caller and leaves the
+unreachable-methods baseline in this commit. Seventeen mutants, all killed on
+the first round.
+(`tests/test_a_market_question_is_answered_from_the_engines_read.py`,
+`bot/nlp/chat_market_read.py`.)
+
+**AND THE BRIDGE'S CHAT DESCRIBED ITS OWN EMPTY ENGINE AS THE BOT.** The api
+bridge answers `/chat` through the one chat brain, over its own engine, which
+`detach_state_persistence` makes a reader and which runs no tick. That chapter
+fixed its writes and its `/health`; the prompt the same engine builds was one
+door over. It said "PENDING TRADE IDEAS: none queued by the bot right now. The
+bot is not about to place anything on its own" about a queue no scan fills. It
+gave the breaker and the entry gate from this process's copy, and it called a
+price feed that this process never starts "not returning fresh ticks". On a
+reader engine (`_not_the_bot`, which asks the detach flag `is True`, so a
+stand-in engine is never read as one) each of those sections now says it was
+not read from the bot. The mode line says it is this process's configuration,
+because a runtime arm made in the bot does not reach the bridge. The positions
+and closed trades are this process's copy of the book, loaded from the bot's
+files and never refreshed, so they are labelled as that copy. A price the
+reader did read is still printed. The bot's own prompt is unchanged, and both
+arms are driven on a real engine. The bridge's `/health` already reads the
+bot's saved breaker (`persisted_breaker`), and the prompt could say that too,
+with its save time. That is left for the owner, because the saved breaker is
+not the warning-rate breaker or the venue halt, and the honest sentence is
+the shorter one. Nine mutants, all killed on the first round.
+(`tests/test_a_process_that_is_not_the_bot_does_not_describe_its_own_state_as_the_bots.py`.)
+
+**AND AN UNREADABLE MODEL REPLY WAS CALLED AN AMBIGUOUS MARKET.** Every
+missing thesis was recorded as "Ambiguous signal — confluence in neutral zone,
+no strong directional bias from RSI or MACD". That sentence is the rule
+engine's, and it was also written when the model's reply could not be parsed,
+so `/analyze` printed it beside "Confluence: 72%". `_llm_thesis` now fills a
+`why` whenever it answers None. A reply that could not be read is `unread`,
+with the field the parser failed on, and is recorded as `thesis_unread`: "The
+model's reply could not be read (no readable confidence)". A rule engine with
+no bias is `neutral`, with the route that sent the call to the rules (no LLM
+configured, the budget spent, every provider failed, and the rest). The nine
+rule-engine fallbacks go through one helper, `_rule_thesis`, so a route added
+later says so by construction, and all seven reachable through a stub are
+driven. A None that nothing explained is said as such. The same card printed
+the confluence bare beside "Bias: SHORT", and confluence is a bullishness score,
+so a strongly confirmed short read "30%". `bot/formatters/confluence.py`
+prints it for the direction it is read against: "80% for a SHORT (bullishness
+20%; 50% is neutral)". The chat's market read now uses that one reading too.
+The card's `if diag.get("confluence")` also hid a 0.0, which is the most bearish
+reading there is. Sixteen mutants, all killed on the first round. Recorded and
+not changed: on a below-the-bar decline the card's "Final score" is the blend
+after calibration and the setup-expectancy nudge, while the floor it sits
+beside is compared with the blend before both (`_blended_confidence_raw`). The
+two differ whenever either one moves the blend, and the nudge is on by
+default. The reason line quotes the compared figure, so the card can show two
+scores that disagree.
+(`tests/test_a_declined_analysis_names_why_it_had_no_thesis.py`,
+`bot/formatters/confluence.py`.)
+
+**"72%" WAS A SCORE, AND "HIGH PROBABILITY" WAS AN UNTESTED RULE.** 11
+October, from a read-only audit of the confidence, the pre-trade critique and
+the thesis. Every card printed an idea's confidence as `72%`,
+which reads as a chance of winning. `displayed_confidence` answers the
+analyzer's blend, snapshotted before any calibration curve, or a producer's
+own score that never went through one, so no surface has ever printed a
+calibrated figure, whatever `CONFIDENCE_CALIBRATION_ENABLED` says. The one
+reading prints `score 72 (uncalibrated)` now (`ConfidenceReading.text`, which
+was `pct`), and the chat's pending-ideas block carries `SCORE_MEANING`, the
+sentence that says it is not a probability. The website words the figure
+through `confidence-score.js`, a twin whose words a JS test reads out of the
+Python source: the signal stream, the agents' picks, the chat chip, the embed
+card and its cast text, the sealed receipt, the landing card, the arena chip
+in all fourteen languages, the watchlist push and the research dossier. The
+landing card had printed a sealed 0.72 as `1%` (`Math.round(conf) + '%'` on a
+0-1 figure), and its test passed because the fixture said `72`, a value the
+producer never sends. No existing reading answers "the recorded win rate of
+this score's bin", so none is printed beside the score. Not changed, each a
+different quantity under the same word: the flight record's `confidence` (the
+field after the curve and the nudge), pattern percentages, the `min_confidence`
+filters a person types, and the recorded rows quoted back by the post-mortem
+and the reflection.
+
+**The critique's sentences said more than its rules.** A stop under 1% from
+entry was "high probability of stop hunt" and a score over 0.90 was "model may
+be overfitting", for a figure the rule-based confluence carries most of while
+no curve is applied. Each concern now names its reading, the bar it crossed and
+the word heuristic, and `CritiqueResult.rules` names the rule behind each; the
+halt is unchanged. What the halt would remove was then measured rather than
+argued: `scripts/critique_replay.py` runs the benchmark command's own path
+(`--dataset benchmark/majors_1h --honest --walk-forward 6`), asks the critique
+at every approval with the book's open count at that bar, and joins the verdict
+to the position. Its pooled positions match the benchmark of record (125, PF
+0.62). Of 320 approvals, 195 never filled; the most concerns any idea drew was
+two, so the four-concern HALT would have stopped none. The tight-stop rule
+fired on 206 (64%). WARN: 91 positions, PF 0.56; PASS: 34, PF 0.72. The
+confidence adjustment would take 55 approvals under the floor, which rejects a
+confirm no person made: 22 positions, 8 won, PF 0.34. Macro is not replayable
+and abstains. No intervals, discovery data: the numbers are for the operator,
+who decides whether the halt stays.
+
+**A figure the model wrote was checked only when a tool ran.** The thesis went
+onto every card unchecked ("never invent indicator values" was a prompt line),
+and chat's check sat behind `if tool_events:`. Both ask the chat's own shadow
+rule now (`grounding.shadow_check`): a chat turn with no tool against what it
+was given, a thesis against its own prompt, each bare value there standing as a
+dollar figure too, under a ledger key apart from the same model's chat rate.
+Nothing a person reads changes until a key's rate is below the line; then a
+thesis names its unverified figures FIRST, because the cards split the
+reasoning at its last "Against:" and an appended note would read as the
+counter-case. And the cheaper tier's one-sentence prompt, which every fallback
+provider was also asked with at either tier, carries the full prompt's three
+rules: cite only the data, end on "Against:", no direction below 0.55.
+
+Fifty-nine mutants in four rounds, all killed. Ratchets: JS honesty 144 -> 143
+and ruff `E501` 201 -> 200, each re-recorded in its commit.
+(`tests/test_a_confidence_is_a_score_not_a_probability.py`,
+`app/test/a_confidence_is_a_score_on_every_page.test.js`,
+`tests/test_the_critique_names_heuristics_not_probabilities.py`,
+`tests/test_the_critique_replay_joins_each_approval_to_its_outcome.py`,
+`tests/test_a_figure_the_model_was_not_given_is_checked.py`,
+`tests/test_the_cheaper_tier_is_asked_by_the_same_rules.py`.)
 
 **THE LLM CHOSE EVERY LIVE DIRECTION, AND NOTHING HAD MEASURED IT.** 11
 October, the operator's decision on improvement plan C2: set the LLM's say to

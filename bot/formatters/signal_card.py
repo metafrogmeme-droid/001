@@ -97,7 +97,14 @@ from bot.core.position_telemetry import (  # noqa: E402
     format_rr,
     pct_on_record,
 )
-from bot.core.signal_confidence import displayed_confidence  # noqa: E402
+from bot.core.signal_confidence import (  # noqa: E402
+    SCORE_WORD,
+    UNCALIBRATED_WORD,
+    UNREAD_DASH,
+    displayed_confidence,
+    score_number,
+    score_text,
+)
 from bot.core.signal_levels import printed_rr  # noqa: E402
 
 #: What a card says where a percent nobody read would otherwise print
@@ -257,10 +264,17 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
     # wears, while every PRICE beside it abstains through `_fmt`, whose own
     # comment states the rule ten lines above. `confidence <= 1` also raised
     # on a `None`, so an explicit unread key took the card down.
+    #
+    # A SCORE, NOT A PERCENT. The cell drew ``72%`` under CONFIDENCE, which
+    # reads as a probability, and the one figure this card is handed (the
+    # caller passes `displayed_confidence(idea).value`) has never been
+    # through a calibration curve. The label carries the two words the
+    # reading prints and the value is the bare number.
     confidence = pct_on_record(data.get("confidence"))
-    if confidence is not None and confidence <= 1:
-        confidence = confidence * 100
-    conf_text = "—" if confidence is None else f"{confidence:.0f}%"
+    if confidence is not None and confidence > 1:
+        confidence = confidence / 100
+    conf_label = f"{SCORE_WORD} ({UNCALIBRATED_WORD})".upper()
+    conf_text = UNREAD_DASH if confidence is None else score_number(confidence)
     conf_color = _GRAY if confidence is None else _CYAN
     vol_x = data.get("volume_x", 0)
     summary = data.get("summary", "")
@@ -371,7 +385,7 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
         margin_text = f"${margin:,.1f}" if margin >= 1 else f"${margin:.2f}"
         _draw_cell(col1_x, y, "MARGIN", margin_text, _WHITE)
     else:
-        _draw_cell(col1_x, y, "CONFIDENCE", conf_text, conf_color)
+        _draw_cell(col1_x, y, conf_label, conf_text, conf_color)
         conf_drawn = True
 
     if tp2 and tp2 > 0:
@@ -379,7 +393,7 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
         _draw_cell(col2_x, y, "R:R", rr_text, _CYAN)
     else:
         if margin and margin > 0:
-            _draw_cell(col2_x, y, "CONFIDENCE", conf_text, conf_color)
+            _draw_cell(col2_x, y, conf_label, conf_text, conf_color)
         else:
             if rsi:
                 _draw_cell(col2_x, y, "RSI", f"{rsi:.1f}", _YELLOW if rsi > 70 or rsi < 30 else _WHITE)
@@ -392,7 +406,7 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
                 # readings that agree. `conf_drawn` is what the comment here
                 # used to CLAIM and the code did not check; driving the card
                 # is what said so.
-                _draw_cell(col2_x, y, "SCORE", conf_text, conf_color)
+                _draw_cell(col2_x, y, conf_label, conf_text, conf_color)
     y += CELL_H + CELL_GAP + 4
 
     # ── Pattern badge ──
@@ -419,7 +433,7 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
         # on `None.__format__`. The score is OMITTED rather than printed as a
         # zero: the bias and the RSI beside it are real readings and must not
         # be lost with it, which is the `omit` strategy for a composite line.
-        score_part = "" if confidence is None else f" | Score {confidence:.0f}%"
+        score_part = "" if confidence is None else f" | {score_text(confidence)}"
         auto_summary = f"{bias} | RSI {rsi:.1f}{score_part}{vol_part}"
         draw.text((PAD, y + 2), auto_summary, fill=_GRAY, font=font_summary)
         y += 22
@@ -506,7 +520,7 @@ def signal_card_from_idea(idea, rank: int = 1, scan_data: Optional[Dict] = None)
         # message, two numbers. `displayed_confidence` is the one reading.
         _conf_read = displayed_confidence(idea)
         if _conf_read.measured:
-            parts.append(f"Score {_conf_read.pct()}")
+            parts.append(_conf_read.text())
         if vol_x:
             parts.append(f"Vol {vol_x:.1f}x avg")
         if regime:
@@ -676,10 +690,13 @@ def render_scan_results_card(
             [rx, ry, rx + badge_tw + 4, ry + 20], radius=4, fill=dir_color)
         draw.text((rx + 2, ry + 3), badge_text, fill=(0, 0, 0), font=f_badge)
 
-        score_text = f"{score_pct}%"
-        score_tw = draw.textlength(score_text, font=f_rank)
+        # Under the SCORE label, a bare number: a setup's confidence or the
+        # scanner's momentum score, and neither is a probability, so the
+        # percent sign this drew read as one.
+        _score_txt = str(score_pct)
+        score_tw = draw.textlength(_score_txt, font=f_rank)
         score_x = W - PAD - 12 - score_tw
-        draw.text((score_x, ry - 1), score_text, fill=score_color, font=f_rank)
+        draw.text((score_x, ry - 1), _score_txt, fill=score_color, font=f_rank)
         sc_lbl_w = draw.textlength("SCORE", font=f_label)
         draw.text((score_x + (score_tw - sc_lbl_w) / 2, ry - 14),
                   "SCORE", fill=_GRAY, font=f_label)

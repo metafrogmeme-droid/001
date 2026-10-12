@@ -35,7 +35,7 @@ function source() {
   return html.slice(i, html.indexOf('</script>', i));
 }
 
-async function run(payload, { ok = true, reject = false } = {}) {
+async function run(payload, { ok = true, reject = false, score = true } = {}) {
   const els = {
     latestCall: { hidden: true },
     lcSym: { textContent: '' },
@@ -58,6 +58,9 @@ async function run(payload, { ok = true, reject = false } = {}) {
       ? Promise.reject(new Error('network down'))
       : Promise.resolve({ ok, json: () => Promise.resolve(payload) })),
   };
+  // The page loads confidence-score.js before this block; `score: false`
+  // drives the page where it did not load.
+  if (score) ctx.window.RCConfidenceScore = require('../public/js/confidence-score');
   vm.createContext(ctx);
   vm.runInContext(source(), ctx);
   for (let i = 0; i < 8; i++) await Promise.resolve();
@@ -72,7 +75,10 @@ const GOOD = {
   current: {
     signal_key: 'sig:btc:1234', symbol: 'BTC/USDT', direction: 'LONG',
     entry_price: 64210, stop_loss: 63400, take_profit: 65900,
-    confidence: 72, created_at: new Date(Date.now() - 3 * 60000).toISOString(),
+    // The signal row's own scale: the bot sends 0-1, and this fixture said
+    // 72, which is how the card's `Math.round(conf) + '%'` printed a real
+    // 0.72 as "1%" with every test green.
+    confidence: 0.72, created_at: new Date(Date.now() - 3 * 60000).toISOString(),
   },
 };
 
@@ -85,7 +91,18 @@ test('a real receipt renders and reveals the card', async () => {
   assert.strictEqual(e.lcDir.textContent, 'LONG');
   assert.strictEqual(e.lcSeal.textContent, SEAL);
   assert.match(e.lcLevels.textContent, /64210/);
-  assert.match(e.lcLevels.textContent, /72%/);
+  assert.match(e.lcLevels.textContent, /confidence score 72 \(uncalibrated\)/);
+  assert.doesNotMatch(e.lcLevels.textContent, /%/);
+});
+
+test('the confidence is a score, and without its wording it is left out', async () => {
+  // A probability's spelling is never printed; the page that could not load
+  // the wording omits the part like any other unread one.
+  const e = await run(GOOD, { score: false });
+  assert.strictEqual(e.latestCall.hidden, false);
+  assert.match(e.lcLevels.textContent, /64210/);
+  assert.doesNotMatch(e.lcLevels.textContent, /confidence/);
+  assert.doesNotMatch(e.lcLevels.textContent, /%/);
 });
 
 test('the verify link points at the call, key-escaped', async () => {

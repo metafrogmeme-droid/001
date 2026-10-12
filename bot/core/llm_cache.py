@@ -52,10 +52,6 @@ class CacheStats:
         total = self.hits + self.misses
         return round(self.hits / total, 4) if total > 0 else 0.0
 
-    @property
-    def total_lookups(self) -> int:
-        return self.hits + self.misses
-
 
 class SemanticLLMCache:
     """TTL-based LLM response cache with semantic bucketing.

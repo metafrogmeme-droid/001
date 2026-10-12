@@ -3830,7 +3830,7 @@ class ProactiveMonitor:
                             + reoffer_line
                             +
                             f"- Direction: {d}\n"
-                            f"- Confidence: <code>{_conf_read.pct()}</code>\n"
+                            f"- Confidence: <code>{_conf_read.text()}</code>\n"
                             # The repo's adaptive formatter: `:,.2f` printed a
                             # DOGE idea at 0.1234/0.1201/0.1299 as
                             # $0.12/$0.12/$0.13 and a PEPE one as $0.00 three

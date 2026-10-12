@@ -412,28 +412,34 @@ class TestStrategyEvaluation:
 # ══════════════════════════════════════════════════════════════════════
 
 class TestPatternLearning:
-    def test_detect_trend_continuation(self, store):
+    # These pinned the names the learner invented: a winning trend group was
+    # a "trend continuation" and a losing range group a "breakout failure",
+    # with nothing checking the trades were either. A group is named by the
+    # condition it was cut on now; tests/test_a_group_of_closes_is_named_for_
+    # what_it_measured.py drives what replaced them.
+    def test_a_winning_trend_group_is_a_regime_group(self, store):
         for i in range(10):
             store.record_decision(DecisionMemory(
                 market_regime="TREND_UP", pnl_result=50.0,
                 strategy_signal="test",
             ))
         pl = PatternLearner(store)
-        patterns = pl.detect_patterns()
-        trend_patterns = [p for p in patterns if p.pattern_type == PatternType.TREND_CONTINUATION.value]
-        assert len(trend_patterns) > 0
-        assert trend_patterns[0].may_override_risk is False  # CRITICAL
+        groups = pl.outcome_groups().groups
+        trend = [p for p in groups if p.market_regime == "TREND_UP"]
+        assert len(trend) == 1 and trend[0].pattern_type == "regime"
+        assert trend[0].may_override_risk is False  # CRITICAL
 
-    def test_detect_breakout_failure(self, store):
+    def test_a_losing_range_group_is_not_called_a_breakout(self, store):
         for i in range(8):
             store.record_decision(DecisionMemory(
                 market_regime="RANGE", pnl_result=-30.0,
                 strategy_signal="test",
             ))
         pl = PatternLearner(store)
-        patterns = pl.detect_patterns()
-        failures = [p for p in patterns if p.pattern_type == PatternType.BREAKOUT_FAILURE.value]
-        assert len(failures) > 0
+        groups = pl.outcome_groups().groups
+        assert [(p.pattern_type, p.market_regime, p.losses) for p in groups] == [
+            ("regime", "RANGE", 8)]
+        assert PatternType.BREAKOUT_FAILURE.value not in {p.pattern_type for p in groups}
 
     def test_experimental_flag_on_small_sample(self, store):
         for i in range(5):
@@ -441,8 +447,9 @@ class TestPatternLearning:
                 market_regime="TREND_DOWN", pnl_result=20.0,
             ))
         pl = PatternLearner(store)
-        patterns = pl.detect_patterns()
-        for p in patterns:
+        groups = pl.outcome_groups().groups
+        assert groups, "five scored closes meet the floor"
+        for p in groups:
             if p.sample_size < 20:
                 assert p.is_experimental is True
 
@@ -452,7 +459,9 @@ class TestPatternLearning:
                 market_regime="TREND_UP", pnl_result=100.0,
             ))
         pl = PatternLearner(store)
-        for p in pl.detect_patterns():
+        groups = pl.outcome_groups().groups
+        assert groups
+        for p in groups:
             assert p.may_override_risk is False
 
 

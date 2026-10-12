@@ -77,7 +77,7 @@ wiring line:
 | `runeclaw_analyze` | `analyze_asset` | Run AI + technical analysis on a specific asset, generate a trade idea |
 | `runeclaw_risk` | `check_risk` | Current risk metrics, drawdown and circuit-breaker status |
 | `runeclaw_portfolio` | `get_portfolio` | Paper-portfolio summary: balance, equity, win rate, PnL |
-| `runeclaw_explain` | `explain_trade` | Explain a pending or historical trade idea |
+| `runeclaw_explain` | `explain_trade` | Explain one pending trade idea by id (side, confidence, the votes that drove it, the model's rationale); omit the id to list the engine's pending ideas. Not a closed or expired idea |
 | `runeclaw_macro` | `macro_calendar` | Macro-event calendar: current risk state and upcoming events |
 | `runeclaw_shield` | built in (`_shield_evaluate`) | Fail-closed risk checks on a caller-supplied trade proposal; the checks that ran are named in the reply |
 | `runeclaw_fullscan` | built in (`_fullscan`) | Ranked signals across the scan universe (`quick`, `deep`, `swing`, `scalp`) |

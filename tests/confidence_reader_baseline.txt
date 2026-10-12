@@ -32,7 +32,6 @@ bot/learning/reflection.py  pct  a recorded decision row's own figure, quoted ba
 bot/learning/reflection.py  pct  the same row's figure in the sibling sentence of the same reflection
 bot/learning/reflection.py  cmp  the same row again: the reflection describes what was recorded, not what an idea claims now
 bot/learning/strategy_eval.py  cmp  a recorded trade row read back for strategy evaluation, not a live idea
-bot/skills/skill_registry.py  pct  a PATTERN's own confidence (PatternsSkill), which no calibration curve touches
 #
 # Receivers the rule no longer judges by name. Each is a different quantity
 # that shares the word, and the rule makes it LOUD rather than acquitting it.

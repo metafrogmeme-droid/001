@@ -162,7 +162,7 @@ is a discrete, auditable action.
 | `check_risk`         | Evaluate current risk metrics and circuit breaker     |
 | `execute_paper_trade`| Execute a confirmed trade on the paper portfolio      |
 | `get_portfolio`      | Display paper portfolio summary and stats             |
-| `explain_trade`      | Retrieve full reasoning for a trade idea              |
+| `explain_trade`      | Votes and rationale behind a PENDING idea (no id: list them) |
 | `rejected_trades`    | Show recent risk-rejected trade ideas with reasons    |
 | `run_backtest`       | Run backtest with synthetic data                      |
 | `halt`               | Emergency kill-switch: trip breaker, cancel all ideas  |
@@ -209,7 +209,8 @@ is a discrete, auditable action.
 ### When the user says "explain TI-..." or "why?"
 
 1. Run `explain_trade` with the trade ID
-2. Present the full reasoning, signals, and risk check
+2. Present the votes that drove it and the written rationale; a closed
+   trade is not explained here
 
 ### When the user asks something outside your scope
 

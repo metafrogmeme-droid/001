@@ -86,7 +86,9 @@ test('the answer is the public chat reply, as text and as the HTML it came in', 
   assert.match(out.note, /no memory between calls/);
   const gw = seen.find((s) => s.url === '/gateway/chat/public');
   assert.ok(gw, 'the gateway public chat route was asked');
-  assert.deepEqual(gw.body, { text: 'what is a liquidity sweep?', lang: 'es' });
+  const { visitor, ...rest } = gw.body;
+  assert.deepEqual(rest, { text: 'what is a liquidity sweep?', lang: 'es' });
+  assert.match(visitor, /^[0-9a-f]{32}$/, 'the website\'s per-visitor key, never the address');
   assert.equal(gw.secret, 'g'.repeat(64), 'the shared secret rides the call');
 });
 
@@ -108,7 +110,9 @@ test('a malformed language tag is dropped, never forwarded', async () => {
   const out = payload(await call({ question: 'hello', lang: 'x!; drop' }, { ip: '10.0.0.4' }));
   assert.equal(out.available, true);
   assert.ok(!('lang' in out));
-  assert.deepEqual(seen[0].body, { text: 'hello' });
+  const { visitor, ...rest } = seen[0].body;
+  assert.deepEqual(rest, { text: 'hello' });
+  assert.match(visitor, /^[0-9a-f]{32}$/);
 });
 
 test('the schema is enforced before the handler: missing, wrong type, too long, unknown', async () => {
