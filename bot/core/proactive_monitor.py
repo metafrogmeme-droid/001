@@ -354,6 +354,42 @@ def _signal_buttons(idea) -> tuple:
             "\n\U0001f449 Operator: tap ✅ Take it below to approve it")
 
 
+def _llm_decides() -> bool:
+    """Whether the model's thesis decides a trade (`AnalyzerConfig.llm_decides`).
+
+    A config without the field is read as the shipped default, off."""
+    return bool(getattr(CONFIG.analyzer, "llm_decides", False))
+
+
+def _llm_offline_head() -> str:
+    if _llm_decides():
+        return "\U0001f6a8 <b>LLM BRAIN OFFLINE — RUNNING ON RULES</b>"
+    return "\U0001f6a8 <b>LLM OFFLINE — THE MODEL'S READ IS PAUSED</b>"
+
+
+def _llm_offline_effect() -> str:
+    """What an outage changes, which depends on who decides a trade.
+
+    The card said "rule engine only — no AI thesis, weaker signals" in both
+    cases. With LLM_DECIDES off (the default since 11 October) the rule engine
+    already decides every trade, so an outage changes no decision; "weaker"
+    was never measured either way.
+    """
+    if _llm_decides():
+        return ("The bot is still scanning and trading, with the "
+                "<b>rule engine</b> deciding in the model's place until a "
+                "provider answers.")
+    return ("<b>Trading is unchanged</b>: the rule engine decides every trade "
+            "(LLM_DECIDES is off). What stops is the model's read beside each "
+            "call and the calibration rows that measure it.")
+
+
+def _llm_restored_effect() -> str:
+    if _llm_decides():
+        return "The model's thesis decides trades again."
+    return "The model's read beside each call resumes."
+
+
 class ProactiveMonitor:
     """Background monitor that generates alerts from engine state.
 
@@ -2671,11 +2707,10 @@ class ProactiveMonitor:
                     alert_type="LLM_DEGRADED", severity="CRITICAL",
                     title="LLM brain offline",
                     body=(
-                        "\U0001f6a8 <b>LLM BRAIN OFFLINE — RUNNING ON RULES</b>\n"
+                        f"{_llm_offline_head()}\n"
                         "────────────────\n"
                         f"{coverage}\n"
-                        "The bot is still scanning and trading, but on the "
-                        "<b>rule engine only</b> — no AI thesis, weaker signals.\n\n"
+                        f"{_llm_offline_effect()}\n\n"
                         + (("Primary provider's error: <code>"
                             + _html.escape(last_error[:160])
                             + "</code>\n") if last_error else "")
@@ -2696,7 +2731,7 @@ class ProactiveMonitor:
                     alert_type="LLM_RESTORED", severity="INFO",
                     title="LLM brain restored",
                     body="✅ <b>LLM brain restored</b> — a provider answered "
-                         "again. AI theses are back online.",
+                         "again. " + _llm_restored_effect(),
                     dedup_key="llm_restored",
                     # Same audience as the alert it clears. An all-clear that
                     # reaches a wider audience than the warning is its own
