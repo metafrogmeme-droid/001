@@ -58,8 +58,8 @@ function signalOutcome(pnl) {
 // payload. Prices are public market data (already on /api/insight) and stay.
 const PUBLIC_FIELDS = [
   'signal_key', 'symbol', 'direction', 'confidence', 'score', 'pattern',
-  'regime', 'entry_price', 'stop_loss', 'take_profit', 'rr', 'thesis',
-  'status', 'created_at', 'resolved_at', 'seal',
+  'regime', 'entry_price', 'stop_loss', 'take_profit', 'rr', 'net_rr',
+  'rr_fee_losing', 'thesis', 'status', 'created_at', 'resolved_at', 'seal',
 ];
 
 /** One signal row, public-safe: allowlisted fields plus the outcome label. */

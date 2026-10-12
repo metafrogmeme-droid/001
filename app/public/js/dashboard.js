@@ -13,6 +13,14 @@
           pnlClass, fmtAgo, dirChip, sanitizeBotHtml, toast, renderPanel,
           stateBlock, mustRead, wasRead, connectStream } = RC;
 
+  // A table cell: an idea's R:R, with what the fees leave of it under it
+  // (`rrWords`, declared in the confirm-modal block below).
+  const rrCell = (gross, src, places = 2) => {
+    const W = rrWords();
+    const clause = W ? W.afterFees(src, { places }) : null;
+    return `${fmt(gross, places)}${clause ? `<div class="small muted">${esc(clause)}</div>` : ''}`;
+  };
+
   // Resolved per CALL, never cached: the language switcher changes the answer
   // after boot. Declared here, above every use, so no caller depends on the
   // module having finished initialising. The inline English stays as the
@@ -2978,7 +2986,7 @@
               <td data-label="Score" class="r num">${esc(CS.text(s.confidence) || '—')}</td>
               <td data-label="Entry" class="r num">${fmtPrice(s.entry_price)}</td>
               <td data-label="Stop / Target" class="r num muted">${fmtPrice(s.stop_loss)} / ${fmtPrice(s.take_profit)}</td>
-              <td data-label="R:R" class="r num">${fmt(s.rr, 1)}</td>
+              <td data-label="R:R" class="r num">${rrCell(s.rr, s, 1)}</td>
               <td data-label="Status">${status}</td>
               <td data-label="Age" class="r muted small">${fmtAgo(s.created_at)}</td>
               <td data-label="" class="r">${tradeBtn}${arenaBtn}</td>
@@ -3275,6 +3283,14 @@
   }
 
   // ── the entry cards: renderer start ─────────────────────────
+  // A card's R:R as the bot wrote it, with what the fees leave of it under
+  // it (`rr-words.js`; the card is priced as the resting limit it is). A
+  // card written before the bot sent the figure says nothing about fees.
+  function ecRrCell(c) {
+    const W = (typeof self !== 'undefined' && self.RCRRWords) || null;
+    const clause = W ? W.afterFees(c, { places: 2 }) : null;
+    return esc(c.rr) + (clause ? `<div class="small muted">${esc(clause)}</div>` : '');
+  }
   // The entry-cards panel's words, the same shape: every key the model can
   // emit is resolved here and the renderer spells none of its own. `{ago}` is
   // a DURATION in ms from the model, rendered in this page's own words.
@@ -3334,7 +3350,7 @@
           <td data-label="Setup">${dirChip(c.direction)} <b>${esc(c.symbol)}</b></td>
           <td data-label="Entry" class="r num">${fmtPrice(parseFloat(c.entry))}</td>
           <td data-label="Stop / TP1" class="r num muted">${fmtPrice(parseFloat(c.stop_loss))} / ${fmtPrice(parseFloat(c.tp1))}</td>
-          <td data-label="R:R" class="r num">${esc(c.rr)}</td>
+          <td data-label="R:R" class="r num">${ecRrCell(c)}</td>
           <td data-label="Trigger" class="muted small">${esc(c.trigger || '')}</td>
         </tr>`).join('')}</tbody></table></div>
       ${notes.map(n => `<p class="${n.stale ? 'warn' : 'muted'} small mt-2">${esc(ecSay(WORDS, n))}</p>`).join('')}
@@ -3972,9 +3988,11 @@
         out.innerHTML = `<span class="neg">${dir === 'LONG' ? 'A long needs the stop below entry and target above.' : 'A short needs the stop above entry and target below.'}</span>`;
         return;
       }
+      // The price ratio only: the fees depend on the order type and the
+      // venue's rates, which the bot holds. Review nets them out.
       const rr = Math.abs(tp - e) / Math.abs(e - sl);
-      out.innerHTML = `R:R <b class="num" style="color:var(--gold-bright)">${rr.toFixed(2)}</b>
-        · stop ${fmt(Math.abs(e - sl) / e * 100, 1)}% away · target ${fmt(Math.abs(tp - e) / e * 100, 1)}% away`;
+      out.innerHTML = `R:R <b class="num" style="color:var(--gold-bright)">${rr.toFixed(2)}</b> on price
+        (Review shows it after fees) · stop ${fmt(Math.abs(e - sl) / e * 100, 1)}% away · target ${fmt(Math.abs(tp - e) / e * 100, 1)}% away`;
       sizer();
     }
     function sizer() {
@@ -4087,6 +4105,9 @@
         direction: $('tDir').value, symbol: $('tSym').value.trim().toUpperCase(),
         entry: parseFloat($('tEntry').value), sl: parseFloat($('tSl').value),
         tp: parseFloat($('tTp').value),
+        // The ticket's own order type: it decides the entry leg's fee, so a
+        // review without it priced every market ticket as a resting limit.
+        order_type: ($('tOrderType') && $('tOrderType').value === 'market') ? 'market' : 'limit',
       };
       const mr = $('tMargin').value.trim(); if (mr !== '') body.margin = Number(mr);
       if (!body.symbol || !body.entry || !body.sl || !body.tp) { out.innerHTML = '<span class="muted">Fill in symbol, entry, stop, and target first.</span>'; return; }
@@ -4196,6 +4217,16 @@
   // ── co-pilot review renderer end ─
 
   // ── trade confirm modal ─
+  // AN IDEA'S R:R AND WHAT THE FEES LEAVE OF IT, in the bot's words
+  // (`rr-words.js`, from the payload's `net_rr` / `rr_fee_losing`). A payload
+  // that states nothing about fees prints the price ratio alone, as before.
+  // Declared in this block (hoisted) so the block's own tests run them.
+  function rrWords() { return (typeof self !== 'undefined' && self.RCRRWords) || null; }
+  function rrText(gross, src, places = 2, suffix = '') {
+    const W = rrWords();
+    const t = W ? W.text(gross, src, { places, suffix }) : null;
+    return t != null ? esc(t) : fmt(gross, places);
+  }
   // THE REVIEW IS BESIDE THE CONFIRM BUTTON, not only in the ticket form. The
   // co-pilot's only door was the form's Review button, so a caller who filled
   // the ticket and pressed Trade reached THIS modal — the last screen before a
@@ -4215,7 +4246,7 @@
       <div class="kv-row"><span>${(pt.order_type === 'market') ? 'Entry (reference)' : 'Entry (limit)'}</span><b>$${fmt(pt.entry, 4)}</b></div>
       <div class="kv-row"><span>Stop loss</span><b>$${fmt(pt.sl, 4)} (−${fmt(pt.sl_pct, 1)}%)</b></div>
       <div class="kv-row"><span>Take profit</span><b>$${fmt(pt.tp, 4)} (+${fmt(pt.tp_pct, 1)}%)</b></div>
-      <div class="kv-row"><span>Risk : reward</span><b>${fmt(pt.rr)}</b></div>
+      <div class="kv-row"><span>Risk : reward</span><b>${rrText(pt.rr, pt)}</b></div>
       <div class="kv-row"><span>Margin</span><b>${pt.margin_usd ? fmtMoney(pt.margin_usd, 0) : 'auto (risk-sized)'}</b></div>
       ${live ? '' : '<p class="muted small mt-2">Executes on your paper portfolio. The risk engine re-checks everything now.</p>'}
       ${(!live && pt.live_reason) ? `<p class="muted small mt-2">🔓 To trade live on your own account: ${esc(pt.live_reason)}.</p>` : ''}
@@ -9493,7 +9524,7 @@
           <div><div class="small muted" style="margin-bottom:2px">Risk gate</div><div class="small">${riskLine}</div></div>
           ${provline ? `<div><div class="small muted" style="margin-bottom:2px">Model &amp; data provenance</div><div class="small">${provline}</div></div>` : ''}
           <div><div class="small muted" style="margin-bottom:2px">Trade geometry</div>
-            <div class="small">entry ${fmtPrice(idea.entry)} · SL ${fmtPrice(idea.sl)} · TP ${fmtPrice(idea.tp)}${idea.rr ? ` · ${idea.rr}R` : ''}${idea.timeframe ? ` · ${esc(idea.timeframe)}` : ''}</div></div>
+            <div class="small">entry ${fmtPrice(idea.entry)} · SL ${fmtPrice(idea.sl)} · TP ${fmtPrice(idea.tp)}${idea.rr ? ` · ${rrText(idea.rr, idea, 2, 'R')}` : ''}${idea.timeframe ? ` · ${esc(idea.timeframe)}` : ''}</div></div>
           <div><div class="small muted" style="margin-bottom:2px">Ledger</div>
             <div class="small">decision <code>${esc(rec.decision_id || '—')}</code> · entry hash <code>${esc(shortHash(rec.chain && rec.chain.entry_hash))}</code></div></div>
         </div>

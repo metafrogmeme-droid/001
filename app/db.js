@@ -3022,6 +3022,8 @@ async function migrate() {
         stop_loss DECIMAL(20,8) DEFAULT 0,
         take_profit DECIMAL(20,8) DEFAULT 0,
         rr DECIMAL(10,4) DEFAULT 0,
+        net_rr DECIMAL(10,4) DEFAULT NULL,
+        rr_fee_losing TINYINT(1) DEFAULT NULL,
         thesis TEXT DEFAULT NULL,
         status VARCHAR(16) DEFAULT 'NEW',
         pnl DECIMAL(20,8) DEFAULT NULL,
@@ -3054,6 +3056,11 @@ async function migrate() {
       'ALTER TABLE signals ADD COLUMN signal_type VARCHAR(64) DEFAULT NULL',
       'ALTER TABLE signals ADD COLUMN timeframe VARCHAR(32) DEFAULT NULL',
       'ALTER TABLE signals ADD COLUMN source VARCHAR(64) DEFAULT NULL',
+      // What the fees leave of `rr`, as the bot states it, and which absence
+      // a null `net_rr` is (1: the target does not cover the fees). Both
+      // null on a row written before them: no claim about fees, never 0.
+      'ALTER TABLE signals ADD COLUMN net_rr DECIMAL(10,4) DEFAULT NULL',
+      'ALTER TABLE signals ADD COLUMN rr_fee_losing TINYINT(1) DEFAULT NULL',
     ]) {
       try { await pool.execute(ddl); } catch (e) { /* exists */ }
     }

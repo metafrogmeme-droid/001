@@ -17,6 +17,7 @@ import urllib.error
 from typing import Optional
 
 from bot.core.signal_confidence import displayed_confidence
+from bot.core.trade_costs import net_reward_risk, rr_fields
 from bot.utils.models import REGIME_UNMEASURED, SOURCE_UNSTATED
 from bot.utils.site_url import site_url
 
@@ -568,6 +569,13 @@ def build_signal_payload(signal_key: str, idea, *, score: float = 0.0,
         "stop_loss": sl,
         "take_profit": tp,
         "rr": float(rr or 0),
+        # What the fees leave of it, at the idea's own order type: the one
+        # reading every card prints (`trade_costs.rr_fields`). Outside the
+        # seal, stored beside it, null-preserving on the way in.
+        **rr_fields(net_reward_risk(
+            _attr(idea, "entry_price", None), _attr(idea, "stop_loss", None),
+            _attr(idea, "take_profit", None),
+            order_type=_attr(idea, "order_type", None))),
         "thesis": _attr(idea, "reasoning", "") or _attr(idea, "thesis", ""),
         "status": status,
         "pnl": pnl,

@@ -55,6 +55,11 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.DecisionCourtModel = api;
 }(typeof self !== 'undefined' ? self : this, function (LOG) {
+  /** The R:R wording (`rr-words.js`), resolved when a court is drawn. */
+  function rrWords() {
+    if (typeof self !== 'undefined' && self.RCRRWords) return self.RCRRWords;
+    try { return require('./rr-words.js'); } catch (e) { return null; }
+  }
   'use strict';
 
   const W = {
@@ -267,7 +272,13 @@
     if (entry !== null) planRows.push({ label: W.lEntryPx, value: entry, price: true });
     if (stop !== null) planRows.push({ label: W.lStop, value: stop, price: true });
     if (target !== null) planRows.push({ label: W.lTarget, value: target, price: true });
-    if (rr !== null && rr > 0) planRows.push({ label: W.lRR, value: String(rr) });
+    if (rr !== null && rr > 0) {
+      // What the fees leave of it, as the record states it; a record sealed
+      // before the bot sent the figure says nothing about fees.
+      const RW = rrWords();
+      const fees = RW ? RW.afterFees(idea, { places: 2 }) : null;
+      planRows.push({ label: W.lRR, value: String(rr) + (fees ? ' (' + fees + ')' : '') });
+    }
 
     // ── setup ──
     const setupRows = [];

@@ -205,14 +205,25 @@
     return CR.render(rev, esc);
   }
 
+  // An idea's R:R and what the fees leave of it, in the bot's words
+  // (`rr-words.js`); the price ratio alone when the payload states nothing.
+  function rrText(gross, src) {
+    const W = (typeof self !== 'undefined' && self.RCRRWords) || null;
+    const t = W ? W.text(gross, src) : null;
+    return t != null ? esc(t) : fmt(gross);
+  }
+
   function appendTradeCard(pt) {
     const div = document.createElement('div');
     div.className = 'chat-card';
     const live = pt.mode === 'LIVE';
+    // The idea's own order type, as the confirm modal labels it: a market
+    // order's entry is a reference, not a price it rests at.
+    const market = pt.order_type === 'market';
     div.innerHTML = `
       <span class="mode-badge ${live ? 'mode-badge--live' : 'mode-badge--paper'}">${live ? 'LIVE — REAL MONEY' : 'PAPER'}</span>
-      <div class="kv-row"><span>${esc(pt.symbol)}/USDT ${esc(pt.direction)}</span><b>R:R ${fmt(pt.rr)}</b></div>
-      <div class="kv-row"><span>Entry (limit)</span><b>$${fmt(pt.entry, 4)}</b></div>
+      <div class="kv-row"><span>${esc(pt.symbol)}/USDT ${esc(pt.direction)}</span><b>R:R ${rrText(pt.rr, pt)}</b></div>
+      <div class="kv-row"><span>${market ? 'Entry (reference)' : 'Entry (limit)'}</span><b>$${fmt(pt.entry, 4)}</b></div>
       <div class="kv-row"><span>Stop · Target</span><b>$${fmt(pt.sl, 4)} · $${fmt(pt.tp, 4)}</b></div>
       <div class="mt-2">${copilotBlock(pt.copilot)}</div>
       <div class="row mt-3">
@@ -300,6 +311,7 @@
   }
   // ── chat trade card end ─
 
+  // ── chat setup action ─
   // "Trade this" — an analysis produced a concrete setup. One tap re-proposes
   // it through the SAME manual /api/trade/propose -> confirm rails (which run
   // every risk gate), then renders the normal Confirm/Cancel card. Anonymous
@@ -311,7 +323,7 @@
     if (!s.symbol || (dir !== 'LONG' && dir !== 'SHORT')) return;
     const div = document.createElement('div');
     div.className = 'chat-card chat-setup';
-    const rr = (s.rr != null) ? `R:R ${fmt(s.rr)}` : '';
+    const rr = (s.rr != null) ? `R:R ${rrText(s.rr, s)}` : '';
     // A score, never `72% conf`: no curve has mapped it to outcomes. A chip
     // the wording model cannot write is left off rather than spelt here.
     const CS = (typeof self !== 'undefined' && self.RCConfidenceScore) || null;
@@ -327,7 +339,10 @@
       btn.textContent = T('dd.ct_setting_up', 'Setting up\u2026');
       const r = await fetchJSON('/api/trade/propose', {
         method: 'POST',
-        body: { direction: dir, symbol: s.symbol, entry: s.entry, sl: s.sl, tp: s.tp },
+        // The idea's own order type: without it the proposal defaulted to a
+        // limit, and its review priced the fees of an order nobody chose.
+        body: { direction: dir, symbol: s.symbol, entry: s.entry, sl: s.sl, tp: s.tp,
+                ...(s.order_type ? { order_type: s.order_type } : {}) },
         timeoutMs: 20000,
       }).catch(() => ({ ok: false, data: null }));
       if (!r.ok || !r.data || !r.data.pending_trade) {
@@ -342,6 +357,7 @@
     body.appendChild(div);
     body.scrollTop = body.scrollHeight;
   }
+  // ── chat setup action end ─
 
   // Live portfolio strip in the chat header (logged-in only). Reuses the same
   // snapshot the dashboard shows; hides itself silently on any failure.

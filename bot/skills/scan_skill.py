@@ -13,6 +13,7 @@ from bot.core.chart_patterns import scan_all_chart_patterns
 from bot.utils.models import Direction, MarketSignal, RiskVerdict, TradeIdea
 from bot.utils.candles import drop_forming_candle, ohlc_on_record
 from bot.core.position_telemetry import price_on_record
+from bot.core.trade_costs import net_reward_risk, rr_fields
 from bot.formatters.rich_cards import (
     fetch_analysis_data,
     render_analysis_card,
@@ -852,6 +853,10 @@ def _build_scan_payload(results: list[dict], engine=None,
             "tp2": str(tp2),
             "margin": str(margin),
             "rr": str(rr),
+            # What the fees leave of it. The card's entry is a pullback below
+            # (above) the market, a resting limit, so it is priced at the
+            # maker rate, as the scan message prices it.
+            **rr_fields(net_reward_risk(entry, sl, tp1, order_type="limit")),
             "book_ratio": None if vr is None else round(vr, 2),
             "trigger": trigger,
             "thesis": f"{r['dir']} bias | RSI {_rsi_s} | Score {r['score']:.0%} | Vol {_vol_s} avg",
@@ -1163,6 +1168,10 @@ def _scan_signal_rows(payload: dict) -> list[dict]:
             "stop_loss": float(c.get("stop_loss", 0) or 0),
             "take_profit": float(c.get("tp1", 0) or 0),
             "rr": float(c.get("rr", 0) or 0),
+            # Carried as the card states them; a card written before them
+            # carries neither, and the row says nothing about fees.
+            "net_rr": c.get("net_rr"),
+            "rr_fee_losing": c.get("rr_fee_losing"),
             "thesis": c.get("thesis", "") or "",
             "status": "NEW",
             "pnl": None,
