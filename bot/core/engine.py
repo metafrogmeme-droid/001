@@ -22,7 +22,7 @@ from pathlib import Path
 from bot.config import CONFIG
 from bot.core.analyzer import Analyzer
 from bot.core.black_swan import BlackSwanDetector
-from bot.core.cost import CostTracker
+from bot.core.cost import SPEND_FILE, CostTracker
 from bot.core.margin_clamp import clamp_at_venue
 from bot.core.signal_levels import record_idea_levels
 from bot.core.size_trace import note_size_step, size_basis
@@ -725,7 +725,9 @@ class RuneClawEngine:
     def __init__(self) -> None:
         self.portfolio = PortfolioTracker()
         self.scanner = MarketScanner()
-        self.cost = CostTracker()
+        # The day's LLM spend is kept on disk, so a restart does not hand every
+        # daily cap its whole budget again (`CostTracker`).
+        self.cost = CostTracker(path=str(state_path(f"data/{SPEND_FILE}")))
         self.analyzer = Analyzer(cost_tracker=self.cost)
         # Why this engine did not trade, by symbol and time: the analyzer
         # writes each analysis's outcome, this engine amends the ideas it
@@ -4314,8 +4316,15 @@ class RuneClawEngine:
         ledger, rewritten whole from this process's memory on every sized
         evaluation (the bridge's `/analyze` is one), and a per-user engine's
         own state file. `risk_for` marks every engine it builds after this.
+        And its LLM spend ledger (`CostTracker.detach_from_file`), which
+        writes the bot's spend file after every booking.
         """
         self._state_persistence_detached = True
+        # The spend ledger too: its file is the bot's, and a copy of the bot's
+        # day read at this process's start never moves again.
+        _cost = getattr(self, "cost", None)
+        if _cost is not None:
+            _cost.detach_from_file()
         for _eng in [getattr(self, "risk", None),
                      *getattr(self, "_user_risk", {}).values()]:
             if _eng is not None:
