@@ -185,3 +185,25 @@ test('a followed community strategy also says its stream was not read', async ()
   assert.equal(g.community, true);
   assert.equal(g.picks, null);
 });
+
+test('a pick is listed only while its call is live, with its window', async () => {
+  // The one reading every door asks (SignalStatusModel.actionable): a call
+  // that ended inside its window is not a pick, and each pick carries the
+  // window its countdown reads (app/test/a_call_is_live_only_inside_its_window.test.js).
+  const at = Date.now();
+  for (const [key, status, leftMs] of [['live-pick', 'NEW', 5 * 60000],
+    ['ended-pick', 'STOP', 5 * 60000], ['late-pick', 'NEW', -60000]]) {
+    await origExecute(
+      `INSERT INTO signals (signal_key, symbol, direction, confidence, score, pattern,
+         regime, entry_price, stop_loss, take_profit, rr, thesis, status, pnl,
+         created_at, resolved_at, expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [key, 'ETH/USDT', 'SHORT', 0.8, 0.8, 'x', 'TREND_DOWN', 100, 105, 90, 2, '', status,
+        null, new Date(at).toISOString(), null, new Date(at + leftMs).toISOString()]);
+  }
+  const token = await follower('dip-sniper');
+  const r = await req('GET', '/api/copy/picks', { token });
+  assert.equal(r.status, 200);
+  const picks = r.data.agents[0].picks;
+  assert.deepEqual(picks.map((p) => p.signal_key), ['live-pick']);
+  assert.ok(Date.parse(picks[0].expires_at) > at, 'the pick carries its window');
+});

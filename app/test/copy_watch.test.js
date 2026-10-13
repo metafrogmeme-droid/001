@@ -20,8 +20,11 @@ const CATALOG = [
   { id: 'dip-sniper', name: 'Dip Sniper', icon: '🎯', copy_follow: true, copy_follow_reason: 'offered',
     scorecard: { gates: { confidence_threshold: 0.7, regime_filter: 'TREND_DOWN' } } },
 ];
+// Live: inside the window the bot stated, which the sweep reads through the
+// one model (SignalStatusModel.actionable).
 const SIG = (k, sym, conf, regime, dir = 'LONG') =>
-  ({ signal_key: k, symbol: sym, confidence: conf, regime, direction: dir });
+  ({ signal_key: k, symbol: sym, confidence: conf, regime, direction: dir,
+    expires_at: new Date(Date.now() + 5 * 60000) });
 
 test('newPicks returns only matches not already seen', () => {
   const byId = new Map(CATALOG.map(a => [a.id, a]));

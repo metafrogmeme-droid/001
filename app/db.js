@@ -609,6 +609,17 @@ class MemoryDB {
       // erasure of rows nobody looked for. Fall through to the throw.
     }
 
+    // MySQL returns only the columns a SELECT names. The signals branches
+    // below returned the whole stored row, so a read that forgot a column
+    // (`expires_at`, which decides whether a call may still be acted on)
+    // looked complete in every test. `*` keeps the whole row.
+    const projectSignals = (rows) => {
+      const m = sql.match(/select\s+([\s\S]+?)\s+from\s+signals\b/i);
+      if (!m || m[1].trim() === '*') return rows.map(r => ({ ...r }));
+      const cols = m[1].split(',').map(c => c.trim().split(/\s+/).pop().split('.').pop().toLowerCase());
+      return rows.map(r => { const o = {}; for (const c of cols) o[c] = r[c]; return o; });
+    };
+
     // -- SIGNALS -- (checked before TRADES: the stats query shares COUNT(*)/wins
     // aliases with trade handlers, so it must match here first.)
     if (cmd.includes('INSERT INTO SIGNALS')) {
@@ -669,7 +680,7 @@ class MemoryDB {
     if (cmd.includes('FROM SIGNALS') && cmd.includes('SIGNAL_KEY = ?')) {
       // Provable Calls verify: one sealed row by its stable key
       const rows = this.signals.filter(s => s.signal_key === params[0]);
-      return [rows.map(r => ({ ...r })), []];
+      return [projectSignals(rows), []];
     }
     if (cmd.includes('FROM SIGNALS') && cmd.includes('SEALED_AT >=')) {
       // Daily seal roots: seals minted inside one UTC day window
@@ -696,7 +707,7 @@ class MemoryDB {
       // perfectly fine in tests and traded the wrong symbol in production.
       const id = Number(params[0]);
       const rows = this.signals.filter(s => Number(s.id) === id);
-      return [rows.map(r => ({ ...r })), []];
+      return [projectSignals(rows), []];
     }
     if (cmd.includes('FROM SIGNALS') && cmd.includes('EXPIRES_AT >')) {
       // Live signals: the window the bot stated (WHERE expires_at > ?). A row
@@ -710,7 +721,7 @@ class MemoryDB {
         .filter(s => s.expires_at != null && new Date(s.expires_at).getTime() > now)
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
         .slice(0, lim);
-      return [rows.map(r => ({ ...r })), []];
+      return [projectSignals(rows), []];
     }
     if (cmd.includes('FROM SIGNALS') && cmd.includes('ID >')) {
       // Practice-follow sweep: WHERE id > ? ORDER BY id ASC LIMIT 5. The
@@ -721,7 +732,7 @@ class MemoryDB {
       const lim = m ? Number(m[1]) : 5;
       const rows = this.signals.filter(s => Number(s.id) > after)
         .sort((a, b) => Number(a.id) - Number(b.id)).slice(0, lim);
-      return [rows.map(r => ({ ...r })), []];
+      return [projectSignals(rows), []];
     }
 
     if (cmd.includes('FROM SIGNALS') && cmd.includes('ORDER BY ID DESC')) {
@@ -733,7 +744,7 @@ class MemoryDB {
       const rows = [...this.signals]
         .sort((a, b) => Number(b.id) - Number(a.id))
         .slice(0, limit);
-      return [rows.map(r => ({ ...r })), []];
+      return [projectSignals(rows), []];
     }
     if (cmd.includes('FROM SIGNALS') && cmd.includes('ORDER BY RESOLVED_AT')) {
       // Analytics. MySQL returns only the columns the SELECT names, and only
@@ -771,7 +782,7 @@ class MemoryDB {
       const rows = [...this.signals]
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
         .slice(0, limit);
-      return [rows, []];
+      return [projectSignals(rows), []];
     }
 
     // -- AGENT LETTERS (weekly fund-style letter; one row per ISO week) --
@@ -1122,11 +1133,22 @@ class MemoryDB {
       return [this.watchlist.map(r => ({ ...r })), []];   // pattern watch: everyone
     }
     if (cmd.includes('UPDATE ARENA_FOLLOWS')) {
-      // params: last_signal_id, user_id
+      // params: last_signal_id, user_id[, expected last_signal_id]. With the
+      // third, a compare-and-set: the claim lands only on the cursor it read,
+      // as MySQL's WHERE does, so two sweeps cannot both claim one stretch.
       const f = this.arenaFollows[params[1]];
       if (!f) return [{ affectedRows: 0 }, []];
+      if (cmd.includes('AND LAST_SIGNAL_ID = ?')
+          && Number(f.last_signal_id || 0) !== Number(params[2])) {
+        return [{ affectedRows: 0 }, []];
+      }
       f.last_signal_id = params[0];
       return [{ affectedRows: 1 }, []];
+    }
+    if (cmd.includes('FROM ARENA_FOLLOWS') && cmd.includes('ENABLED = 1')) {
+      // The minute sweep: every follower who has it on.
+      const rows = Object.values(this.arenaFollows).filter(f => Number(f.enabled) === 1);
+      return [rows.map(f => ({ user_id: f.user_id })), []];
     }
     if (cmd.includes('FROM ARENA_FOLLOWS')) {
       const f = this.arenaFollows[params[0]];

@@ -24278,3 +24278,61 @@ the four booking sites. Thirty-two mutants, all killed. The first fixture
 measured Haiku 5.5 at a million tokens, which is its long card, so the row
 looked wrong; the second had each cache key in one round only, so summing
 and overwriting the hand-back looked the same.)
+
+**THREE DOORS HAD THREE ANSWERS TO WHETHER A CALL WAS STILL LIVE.**
+13 October, the plan's F6, the "one definition of live" half. The bot states
+each signal's window (`expires_at`, `website_sync.signal_expires_at`): its
+creation plus the bot's own idea TTL, five minutes by default, the time the
+bot itself would still confirm the idea. The site answered "may this call
+still be acted on" three ways:
+- the copy picks and their push read that window;
+- the Arena's picker, its open route and practice-follow used a hand-written
+  6 hours (`MAX_SIGNAL_AGE_MS`), 72 times the bot's own;
+- the Signals stream and the Home panel read neither. Trade and Paper stayed
+  on a call until something ended it, and the public payload did not carry
+  the window, so nothing on the page could have read it.
+
+`SignalStatusModel.live` is the one reading now. A call is live up to and
+including the last instant of its window, as it is for the bot, which drops
+an idea only once it is OLDER than its TTL. A row that states no window is
+not live, the copy sweep's closed direction. `actionable` is pending,
+unscored and live. The payload carries `expires_at`, and the Arena's
+`callBlock` refuses past it as `expired`, naming when the window closed. The
+copy picks and push filter through the same model after their SQL, which
+also drops a call that ended inside its window.
+
+On a page, a live call shows a countdown beside its buttons. Each Trade,
+Paper, Copy and Ticket button carries its window, a one-second
+`SignalStatusModel.tick` hides it when the window closes, and its click
+handler asks the window again, because a page left open outlives the window.
+A pending call outside its window says "window closed", and one with no
+window says "no window stated": three sentences, never two.
+
+Practice-follow promises to mirror each call while it is live, and that is
+now minutes, not hours. It ran only on the follower's own account reads, so
+a follower who was not looking would have every call skipped as expired. The
+same sweep now also runs once a minute for every follower
+(`startFollowSweep`, on the shared schedule), filling only off a fresh mark.
+An account read and that sweep can run at once for one follower, so the
+sweep claims its stretch of the stream before opening anything:
+`UPDATE ... WHERE user_id = ? AND last_signal_id = ?`. Only the sweep whose
+claim lands opens those calls. Settling exits stays with the account read,
+as before.
+
+The in-memory database returned the whole stored row whatever a signals
+SELECT named, so a read that forgot `expires_at` would have passed every
+drive while every call read as not live in MySQL. Its signals reads project
+the named columns now, and the mutation round drops the column from each read
+that feeds the reading and watches a drive fail. The fixtures of ten suites
+built signal rows with no window; each was given one, since a row without a
+window is exactly the state the new rule refuses.
+(`app/test/a_call_is_live_only_inside_its_window.test.js`: the reading at
+its boundary; the countdown, the tick and the click; the stream, Home and
+Arena rows driven; the routes on the in-memory database; the minute sweep,
+its stale-mark refusal and the race; the copy picks and push. Forty-one
+mutants, all killed, `expires_at` dropped from each of the seven reads that
+feed the reading among them. Two of those first survived: the copy picks
+route and the copy push each read the window through their own SELECT, which
+no drive reached, so both are driven now; and a third was caught only by a
+source scan until the open route was driven through its id door as well as
+its key.)

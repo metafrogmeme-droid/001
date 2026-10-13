@@ -141,7 +141,8 @@ test('the board watch takes up the previous instance\'s baseline instead of star
 test('the copy watch announces a new pick on the instance after the baseline', async () => {
   const CATALOG = [{ id: 'dip-sniper', name: 'Dip Sniper', icon: '🎯', copy_follow: true,
     scorecard: { gates: { confidence_threshold: 0.7, regime_filter: 'TREND_DOWN' } } }];
-  const SIG = (k) => ({ signal_key: k, symbol: 'BTC/USDT', confidence: 0.8, regime: 'TREND_DOWN', direction: 'LONG' });
+  const SIG = (k) => ({ signal_key: k, symbol: 'BTC/USDT', confidence: 0.8, regime: 'TREND_DOWN', direction: 'LONG',
+    expires_at: new Date(Date.now() + 5 * 60000) });
   const deps = (signals) => ({
     loadFollowedAgentIds: async () => ['dip-sniper'],
     loadSignals: async () => signals,
@@ -269,11 +270,12 @@ test('every timed job the server starts is on the shared schedule', async (t) =>
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 1_800_000_000_000 });
   const flush = async () => { for (let i = 0; i < 40; i++) await new Promise((r) => setImmediate(r)); };
   const JOBS = { '../lib/alerts': 'startAlertEngine', '../lib/letter': 'startLetterSweep', '../lib/board_watch': 'startBoardWatch',
-    '../lib/arena_watch': 'startArenaWatch', '../lib/season_watch': 'startSeasonWatch', '../lib/pattern_watch': 'startPatternWatch' };
+    '../lib/arena_watch': 'startArenaWatch', '../lib/season_watch': 'startSeasonWatch', '../lib/pattern_watch': 'startPatternWatch',
+    '../routes/arena': 'startFollowSweep' };
   for (const m of [...Object.keys(JOBS), '../lib/shared_schedule', '../lib/job_state']) delete require.cache[require.resolve(m)];
   for (const [m, start] of Object.entries(JOBS)) require(m)[start]();
   t.mock.timers.tick(5_000); await flush();
   assert.deepStrictEqual(Object.keys(db.pool.jobRuns).sort(),
-    ['alert_engine', 'arena_watch', 'board_watch', 'letter_sweep', 'pattern_watch', 'season_watch'],
+    ['alert_engine', 'arena_follow', 'arena_watch', 'board_watch', 'letter_sweep', 'pattern_watch', 'season_watch'],
     'a job started outside the shared schedule runs once per instance, or never');
 });

@@ -60,14 +60,60 @@
   }
 
   /**
-   * May the panel offer to act on this signal? Only while the call is still
-   * pending, and never once an outcome label has arrived (an older server
-   * derives `outcome` from the R and sends no status beside it).
+   * When this call stops being live, as epoch ms, or null when the row states
+   * no window or one that does not read. The bot states it (`expires_at`,
+   * bot/utils/website_sync.py::signal_expires_at): the signal's creation plus
+   * the bot's own idea TTL, the time the bot itself would still confirm it.
+   * The site cannot read the bot's config, and a second copy of that number
+   * here would be a second answer about when a call is stale.
    */
-  function actionable(s) {
+  function liveUntil(s) {
+    const v = s ? s.expires_at : null;
+    if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null;
+    const t = v instanceof Date ? v.getTime() : new Date(v).getTime();
+    return isFinite(t) ? t : null;
+  }
+
+  function nowMs(now) {
+    if (now instanceof Date) return now.getTime();
+    return typeof now === 'number' && isFinite(now) ? now : Date.now();
+  }
+
+  /**
+   * Is the call inside the window the bot stated? Its last instant is still
+   * inside, as it is for the bot, which drops an idea only once it is OLDER
+   * than its TTL (engine `_expire_pending_ideas`). A row that states no
+   * window is not live: the closed direction, which the copy sweep has read
+   * since it began. ONE reading of "live" for every door that acts on a call: the
+   * Signals stream's Trade and Paper buttons, the Arena's picker, its open
+   * route and practice-follow, and the copy picks and their push.
+   */
+  function live(s, now) {
+    const until = liveUntil(s);
+    return until !== null && nowMs(now) <= until;
+  }
+
+  /**
+   * May a page offer to act on this signal? Only while the call is pending,
+   * before any outcome label has arrived (an older server derives `outcome`
+   * from the R and sends no status beside it), and inside its window.
+   */
+  function actionable(s, now) {
     if (!s) return false;
     const st = status(s);
-    return !st.final && (s.outcome === null || s.outcome === undefined);
+    return !st.final && (s.outcome === null || s.outcome === undefined) && live(s, now);
+  }
+
+  /**
+   * What is left of the window, for a countdown: `m:ss` while live (`0:00`
+   * in its last second), `null` when the window has closed or none was
+   * stated. Never a negative time.
+   */
+  function leftText(s, now) {
+    if (!live(s, now)) return null;
+    const left = Math.floor((liveUntil(s) - nowMs(now)) / 1000);
+    const sec = left % 60;
+    return Math.floor(left / 60) + ':' + (sec < 10 ? '0' : '') + sec;
   }
 
   /** A finite number, or null. */
@@ -75,6 +121,46 @@
     if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null;
     const n = Number(v);
     return isFinite(n) ? n : null;
+  }
+
+  /** Is the call an element was rendered for still live? Its `data-live-until`. */
+  function elementLive(el, now) {
+    if (!el || typeof el.getAttribute !== 'function') return false;
+    const v = el.getAttribute('data-live-until');
+    return v !== null && v !== '' && live({ expires_at: Number(v) }, now);
+  }
+
+  /**
+   * Bring every countdown and action under `root` up to `now`, and answer how
+   * many have closed. An element carrying `data-live-until` (epoch ms) is
+   * either a countdown, with a `data-live-word` holding `{t}` and a
+   * `data-closed-word`, or an action (a Trade or Paper button), which is
+   * hidden and disabled once the window closes. A page renders the actions
+   * only for a live call; this keeps them from outliving the window on a page
+   * left open, and the click handlers ask `elementLive` again.
+   */
+  function tick(root, now) {
+    if (!root || typeof root.querySelectorAll !== 'function') return 0;
+    const els = root.querySelectorAll('[data-live-until]');
+    let closed = 0;
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i];
+      const v = el.getAttribute('data-live-until');
+      const left = v === null || v === '' ? null : leftText({ expires_at: Number(v) }, now);
+      const word = el.getAttribute('data-live-word');
+      if (left !== null) {
+        if (word) el.textContent = word.replace('{t}', left);
+        continue;
+      }
+      closed += 1;
+      if (word) {
+        el.textContent = el.getAttribute('data-closed-word') || '';
+      } else {
+        el.hidden = true;
+        el.disabled = true;
+      }
+    }
+    return closed;
   }
 
   const OTHER = [
@@ -174,6 +260,8 @@
   return {
     PENDING: PENDING, TERMINAL: TERMINAL, CHIP: CHIP,
     word: word, status: status, actionable: actionable,
+    liveUntil: liveUntil, live: live, leftText: leftText,
+    elementLive: elementLive, tick: tick,
     otherLine: otherLine, avgR: avgR, avgCls: avgCls, statsHtml: statsHtml, BASIS: BASIS,
     receiptOutcome: receiptOutcome,
   };

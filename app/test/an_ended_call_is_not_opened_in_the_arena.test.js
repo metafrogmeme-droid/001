@@ -36,9 +36,11 @@ const { codeOnly } = require('./helpers/code_only');
 const read = (...p) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf8');
 const NOW = new Date('2026-09-28T12:00:00Z');
 const ago = (ms) => new Date(NOW.getTime() - ms);
+// Posted two minutes ago, inside the five-minute window the bot stated.
 const sig = (over) => Object.assign({
   id: 7, symbol: 'BTCUSDT', direction: 'LONG', status: 'NEW',
-  entry_price: 60000, stop_loss: 58000, take_profit: 66000, created_at: ago(10 * 60000),
+  entry_price: 60000, stop_loss: 58000, take_profit: 66000, created_at: ago(2 * 60000),
+  expires_at: ago(-3 * 60000),
 }, over || {});
 const plan = (over, ctx) => st.planSignalOpen(Object.assign({
   signal: sig(over), positions: [], balance: 10000,
@@ -65,13 +67,13 @@ test('a word this server does not know is not a current call', () => {
   assert.equal(st.callBlock(sig({ status: ' stop ' }), NOW), 'ended', 'the word is read case- and space-insensitively');
 });
 
-test('the order is direction, then ended, then stale', () => {
+test('the order is direction, then ended, then expired', () => {
   assert.equal(st.callBlock(sig({ direction: 'FLAT', status: 'STOP' }), NOW), 'direction');
-  assert.equal(st.callBlock(sig({ status: 'STOP', created_at: ago(3 * 86400e3) }), NOW), 'ended',
-    'an ended call is ended whatever its age');
-  assert.equal(st.callBlock(sig({ created_at: ago(st.MAX_SIGNAL_AGE_MS + 1) }), NOW), 'stale');
-  assert.equal(st.callBlock(sig({ created_at: ago(st.MAX_SIGNAL_AGE_MS) }), NOW), null,
-    'the age limit itself is still open, as the open route has always had it');
+  assert.equal(st.callBlock(sig({ status: 'STOP', expires_at: ago(3 * 86400e3) }), NOW), 'ended',
+    'an ended call is ended whatever its window says');
+  assert.equal(st.callBlock(sig({ expires_at: ago(1) }), NOW), 'expired');
+  assert.equal(st.callBlock(sig({ expires_at: NOW }), NOW), null,
+    'the window\'s last instant is still inside it, as it is for the bot');
 });
 
 // ── /open-signal's planner ───────────────────────────────────────────────
@@ -117,14 +119,14 @@ const follow = (signals, over) => planFollows(Object.assign({
   signals, positions: [], balance: 5000, prefs: PREFS, marks: MARKS, now: NOW,
 }, over || {}));
 
-test('practice-follow skips an ended call and a stale one, and moves past both', () => {
+test('practice-follow skips an ended call and an expired one, and moves past both', () => {
   const p = follow([
     sig({ id: 11, status: 'STOP' }),
-    sig({ id: 12, symbol: 'ETHUSDT', created_at: ago(48 * 3600e3) }),
+    sig({ id: 12, symbol: 'ETHUSDT', expires_at: ago(1) }),
     sig({ id: 13, symbol: 'SOLUSDT' }),
   ]);
   assert.deepEqual(p.opens.map((o) => o.signal_id), [13]);
-  assert.deepEqual(p.skips, [{ signal_id: 11, reason: 'ended' }, { signal_id: 12, reason: 'stale' }]);
+  assert.deepEqual(p.skips, [{ signal_id: 11, reason: 'ended' }, { signal_id: 12, reason: 'expired' }]);
   assert.equal(p.last_id, 13, 'a fact about the signal is final: the cursor moves past it');
 });
 
@@ -148,14 +150,15 @@ test('a fresh map that lacks a symbol is still a skip about that signal', () => 
 
 test('the three doors give one answer about each call', () => {
   // One reading, three readers: the refusal code, the picker's reason and the
-  // follow skip agree on every row of a corpus that crosses words and ages.
+  // follow skip agree on every row of a corpus that crosses words and windows
+  // (live, at its last instant, just closed, long closed, none stated).
   const words = [...SS.PENDING, ...SS.TERMINAL, 'CLOSED_EARLY', undefined];
-  const ages = [10 * 60000, st.MAX_SIGNAL_AGE_MS, st.MAX_SIGNAL_AGE_MS + 1, 3 * 86400e3];
+  const ages = [-3 * 60000, 0, 1, 3 * 86400e3, null];
   let id = 100;
   for (const w of words) {
     for (const a of ages) {
       for (const d of ['LONG', 'FLAT']) {
-        const s = sig({ id: ++id, status: w, created_at: ago(a), direction: d });
+        const s = sig({ id: ++id, status: w, expires_at: a === null ? null : ago(a), direction: d });
         const expect = st.callBlock(s, NOW);
         const r = st.planSignalOpen({ signal: s, positions: [], balance: 10000,
           margin: 200, leverage: 2, mark: 60600, now: NOW });
@@ -184,16 +187,17 @@ test('the server reads the outcome words off the one model', () => {
 });
 
 test('every Arena read of a signal selects the columns the reading needs', () => {
-  // A SCAN, and it says so: the in-memory database hands back whole rows
-  // whatever a SELECT names, so no drive here can see a dropped column -- and
-  // a row read without `status` is NEW to the reading, which is the defect.
+  // A SCAN, and it says so. The in-memory database projects the columns a
+  // signals SELECT names now, so the drives below see a dropped column too;
+  // this pins which reads feed the reading. A row read without `status` is
+  // NEW to it, and one read without `expires_at` is never live.
   const src = codeOnly(read('routes', 'arena.js'));
   const reads = src.match(/'SELECT [^']* FROM signals [^']*'/g) || [];
   const feeding = reads.filter((q) => /WHERE id = \?|WHERE signal_key = \?|WHERE id > \?|ORDER BY id DESC LIMIT 12/.test(q));
   assert.equal(feeding.length, 4, `the picker, the two open reads and the follow sweep: ${feeding.join(' | ')}`);
   for (const q of feeding) {
     const cols = q.slice('\'SELECT '.length, q.indexOf(' FROM signals')).split(',').map((c) => c.trim());
-    for (const need of ['direction', 'status', 'created_at']) assert.ok(cols.includes(need), `${need} missing from ${q}`);
+    for (const need of ['direction', 'status', 'created_at', 'expires_at']) assert.ok(cols.includes(need), `${need} missing from ${q}`);
   }
 });
 
@@ -237,11 +241,14 @@ async function user() {
   assert.ok(reg.data.token, 'registered');
   return reg.data.token;
 }
+// A pushed call carries the window the bot states: five minutes from its
+// creation, the default idea TTL.
 async function push(key, symbol, status, createdAt) {
+  const at = createdAt || new Date();
   await pool.execute(
-    'INSERT INTO signals (signal_key, symbol, direction, confidence, score, pattern, regime, entry_price, stop_loss, take_profit, rr, thesis, status, pnl, created_at, resolved_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    'INSERT INTO signals (signal_key, symbol, direction, confidence, score, pattern, regime, entry_price, stop_loss, take_profit, rr, thesis, status, pnl, created_at, resolved_at, expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
     [key, symbol, 'LONG', 0.7, 1, 't', 'trend', 100, 95, 110, 2, 't', status,
-      status === 'STOP' ? -1 : null, createdAt || new Date(), null]);
+      status === 'STOP' ? -1 : null, at, null, new Date(at.getTime() + 5 * 60000)]);
   const [rows] = await pool.execute('SELECT * FROM signals WHERE signal_key = ?', [key]);
   return rows[0];
 }
@@ -271,7 +278,7 @@ test('the picker reads the status column and marks the call ended', async () => 
   assert.equal(row.blocked_reason, 'ended');
 });
 
-test('practice-follow skips an ended and a stale call and opens the current one', async () => {
+test('practice-follow skips an ended and an expired call and opens the current one', async () => {
   const token = await user();
   assert.equal((await req('POST', '/api/arena/follow', { token, body: { enabled: true, margin: 200, leverage: 2 } })).status, 200);
   await push('ended-follow-stop', 'SOLUSDT', 'STOP', new Date(Date.now() - 20 * 60000));

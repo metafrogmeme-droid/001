@@ -958,6 +958,31 @@
     }).catch(() => { /* digest is a nicety — never block the dashboard */ });
   }
 
+  /* ═══════════════ A CALL'S WINDOW ═══════════════ */
+  // A call is live only inside the window the bot stated (`expires_at`: its
+  // creation plus the bot's idea TTL), the one reading every door asks
+  // (SignalStatusModel.live). Three sentences, never two: live with the time
+  // left, window closed, and no window stated. Nothing for a call that has
+  // ended: its status chip already says what became of it.
+  function liveLeft(s) {
+    const SS = self.SignalStatusModel;
+    if (!SS || SS.status(s).final) return '';
+    const until = SS.liveUntil(s);
+    if (until === null) {
+      return `<span class="muted small">${esc(T('dd.sig_nowin', 'no window stated'))}</span> `;
+    }
+    const closed = T('dd.sig_closed', 'window closed');
+    const left = SS.leftText(s);
+    if (left === null) return `<span class="muted small">${esc(closed)}</span> `;
+    const word = T('dd.sig_live', 'live {t}');
+    return `<span class="muted small" data-live-until="${esc(until)}" data-live-word="${esc(word)}"`
+      + ` data-closed-word="${esc(closed)}">${esc(word.replace('{t}', left))}</span> `;
+  }
+  function liveUntilOf(s) {
+    const SS = self.SignalStatusModel;
+    return SS ? SS.liveUntil(s) : null;
+  }
+
   /* ═══════════════ HOME ═══════════════ */
   async function homeSignalsLoader() {
     const r = await fetchJSON('/api/signals?limit=3', { auth: false });
@@ -973,7 +998,7 @@
       const SSh = self.SignalStatusModel;
       const tradeable = !!SSh && SSh.actionable(s) && s.entry_price && s.stop_loss && s.take_profit;
       const btn = tradeable
-        ? `<button class="btn btn--sm btn--primary" data-ptrade='${esc(JSON.stringify({ d: s.direction, sy: s.symbol, e: s.entry_price, sl: s.stop_loss, tp: s.take_profit }))}'>Trade</button>`
+        ? `${liveLeft(s)}<button class="btn btn--sm btn--primary" data-live-until="${esc(SSh.liveUntil(s))}" data-ptrade='${esc(JSON.stringify({ d: s.direction, sy: s.symbol, e: s.entry_price, sl: s.stop_loss, tp: s.take_profit }))}'>Trade</button>`
         : '';
       // The detail page. A missing SignalPage is a script that did not load,
       // and then the row offers no link rather than a URL built a second way.
@@ -2958,17 +2983,20 @@
             // UX-4: one-tap paper-trade — only for still-actionable signals
             // (pending + full geometry). A call that ended, or that a missing
             // model cannot place, shows nothing.
+            // Inside the window the bot stated (`expires_at`), and only
+            // there: past it the bot itself would no longer confirm the call.
             const live = SS ? SS.actionable(s) : false;
+            const until = live ? SS.liveUntil(s) : null;
             const canTrade = live && s.entry_price && s.stop_loss && s.take_profit;
             const tradeBtn = canTrade
-              ? `<button class="btn btn--sm" data-ptrade='${esc(JSON.stringify({ d: s.direction, sy: s.symbol, e: s.entry_price, sl: s.stop_loss, tp: s.take_profit }))}'>Trade</button>`
+              ? `<button class="btn btn--sm" data-live-until="${esc(until)}" data-ptrade='${esc(JSON.stringify({ d: s.direction, sy: s.symbol, e: s.entry_price, sl: s.stop_loss, tp: s.take_profit }))}'>Trade</button>`
               : '';
             // One-tap Arena open — the vUSDT paper account needs no Telegram
             // link and no full geometry, only a signal the engine still
             // stands behind. Fills at the LIVE mark server-side; the toast
             // reports the drift and any exit the market already passed.
             const arenaBtn = live && s.signal_key
-              ? `<button class="btn btn--ghost btn--sm" data-parena="${esc(s.signal_key)}" title="${esc(T('dd.arena_t', 'Open this call in your paper Arena account — filled at the live mark, never the signal price'))}">${esc(T('dd.b_arena', '🏟 Paper'))}</button>`
+              ? `<button class="btn btn--ghost btn--sm" data-live-until="${esc(until)}" data-parena="${esc(s.signal_key)}" title="${esc(T('dd.arena_t', 'Open this call in your paper Arena account — filled at the live mark, never the signal price'))}">${esc(T('dd.b_arena', '🏟 Paper'))}</button>`
               : '';
             // Opens the thesis page. The cell itself still opens the symbol
             // chart: the click handler ignores anchors, and the <b> stays the
@@ -2989,7 +3017,7 @@
               <td data-label="R:R" class="r num">${rrCell(s.rr, s, 1)}</td>
               <td data-label="Status">${status}</td>
               <td data-label="Age" class="r muted small">${fmtAgo(s.created_at)}</td>
-              <td data-label="" class="r">${tradeBtn}${arenaBtn}</td>
+              <td data-label="" class="r">${liveLeft(s)}${tradeBtn}${arenaBtn}</td>
             </tr>`;
           }).join('')}</tbody></table></div>`;
       }, { empty: { icon: 'icon-radar', text: 'No signals yet. They stream in as the engine scans the market.' } })
@@ -8097,8 +8125,9 @@
               <b>${esc(String(s.symbol || '').replace(/[:/].*$/, ''))}</b>
               <span class="chip ${sideKnown ? (up ? 'chip--up' : 'chip--down') : 'muted'}" style="font-size:10px">${sideKnown ? (up ? 'LONG' : 'SHORT') : '— no direction'}</span>
               <span class="muted small">confidence ${esc((self.RCConfidenceScore && self.RCConfidenceScore.text(s.confidence)) || '—')}${s.regime ? ' · ' + esc(s.regime) : ''}</span>
-              <button class="btn btn--sm btn--primary" data-pcopy='${esc(JSON.stringify({ k: s.signal_key, a: g.id }))}' style="margin-left:auto">${esc(T('rec.copy_b', '⚔️ Copy to Arena'))}</button>
-              <button class="btn btn--sm btn--ghost" data-ptrade='${pt}'>${esc(T('rec.ticket_b', 'Ticket'))}</button></div>`;
+              <span style="margin-left:auto">${liveLeft(s)}</span>
+              <button class="btn btn--sm btn--primary" data-live-until="${esc(liveUntilOf(s))}" data-pcopy='${esc(JSON.stringify({ k: s.signal_key, a: g.id }))}'>${esc(T('rec.copy_b', '⚔️ Copy to Arena'))}</button>
+              <button class="btn btn--sm btn--ghost" data-live-until="${esc(liveUntilOf(s))}" data-ptrade='${pt}'>${esc(T('rec.ticket_b', 'Ticket'))}</button></div>`;
         }).join('');
         return head + rows;
       }).join('');
@@ -8187,6 +8216,7 @@
       let req_;
       try { req_ = JSON.parse(b.getAttribute('data-pcopy')); } catch (_) { return; }
       if (!req_ || !req_.k) { toast(T('rec.no_key', 'This pick carries no signal key — use the ticket.')); return; }
+      if (!windowStillOpen(b)) return;
       b.disabled = true;
       const r = await fetchJSON('/api/arena/open-signal', { method: 'POST', body: {
         signal_key: req_.k, agent_slug: req_.a, margin: 200, leverage: 2,
@@ -10760,6 +10790,23 @@
     },
   });
 
+  // A button rendered for a live call is asked again when it is clicked: a
+  // page left open outlives the window, and the tick below hides it only
+  // once a second. A button that carries no window is not a signal's.
+  function windowStillOpen(btn) {
+    const SS = self.SignalStatusModel;
+    if (!btn.hasAttribute('data-live-until')) return true;
+    if (SS && SS.elementLive(btn)) return true;
+    toast(T('dd.sig_closed_t', 'This call\u2019s window has closed: the engine no longer stands behind it. Pick a current one.'));
+    return false;
+  }
+  // Every countdown and every live-call button on the page, brought up to
+  // the clock once a second (SignalStatusModel.tick).
+  setInterval(() => {
+    const SS = self.SignalStatusModel;
+    if (SS && document.body) SS.tick(document.body);
+  }, 1000);
+
   // Drill-down: click (or Enter/Space) any [data-sym] card opens the symbol
   // detail modal. Delegated on body so it survives every view re-render.
   document.body.addEventListener('click', (e) => {
@@ -10770,6 +10817,7 @@
     // signal-stream re-render.
     const abtn = e.target.closest('[data-parena]');
     if (abtn) {
+      if (!windowStillOpen(abtn)) return;
       (async () => {
         abtn.disabled = true;
         const r = await fetchJSON('/api/arena/open-signal', { method: 'POST', body: {
@@ -10797,10 +10845,10 @@
           parts.push(T('dd.arena_view', 'See it in the Arena →'));
           toast(parts.join(' '));
         } else {
-          // The route names WHY (stale, ended, already_open, limits) — translate the
+          // The route names WHY (expired, ended, already_open, limits) — translate the
           // coded refusals, pass the rest through as the server said it.
           const code = r?.data?.code;
-          const coded = { stale: ['arena.sig_b_stale', 'Too old to open'],
+          const coded = { expired: ['arena.sig_b_expired', 'Window closed'],
             ended: ['arena.sig_b_ended', 'Already over'],
             already_open: ['arena.sig_b_open', 'Already open'] }[code];
           toast(coded ? T(coded[0], coded[1])
@@ -10811,6 +10859,7 @@
     }
     const pbtn = e.target.closest('[data-ptrade]');
     if (pbtn) {
+      if (!windowStillOpen(pbtn)) return;
       try { tradePrefill = JSON.parse(pbtn.getAttribute('data-ptrade')); } catch (_) { tradePrefill = null; }
       if (location.hash.slice(1) === 'trade') showView('trade'); else location.hash = '#trade';
       return;

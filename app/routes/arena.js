@@ -139,8 +139,8 @@ async function loadPositions(userId) {
 }
 
 // Practice-follow sweep: mirror unprocessed engine signals into this PAPER
-// account at the live mark (lazy — runs on account reads, no background job).
-// Returns the refreshed { positions, balance } after any opens.
+// account at the live mark. It runs on account reads and once a minute for
+// every follower (startFollowSweep). Returns the refreshed positions.
 const followLib = require('../lib/arena_follow');
 const streaks = require('../lib/arena_streaks');
 async function sweepFollows(userId, positions, marks, marksFresh) {
@@ -154,13 +154,25 @@ async function sweepFollows(userId, positions, marks, marksFresh) {
   // the in-memory shim accepted it and kept every test green. The shim now
   // throws on `LIMIT ?` exactly like production does.
   const [sigs] = await pool.execute(
-    'SELECT id, symbol, direction, stop_loss, take_profit, status, created_at FROM signals WHERE id > ? ORDER BY id ASC LIMIT 5',
+    'SELECT id, symbol, direction, stop_loss, take_profit, status, created_at, expires_at FROM signals WHERE id > ? ORDER BY id ASC LIMIT 5',
     [Number(follow.last_signal_id) || 0]);
   if (!sigs.length) return { follow, positions };
   const acct = await loadAccount(userId);
   const plan = followLib.planFollows({ signals: sigs, positions, balance: acct.balance,
     prefs: { margin: follow.margin, leverage: follow.leverage }, marks,
     marksFresh: marksFresh !== false, now: new Date() });
+  // Claim the stretch of the stream this sweep read BEFORE opening anything.
+  // The account read and the minute sweep can run at once for one follower,
+  // and only the one whose claim lands opens these calls; the other opens
+  // nothing and leaves them to it. A claim always moves the cursor forward,
+  // so a landed claim always changes the row.
+  const from = Number(follow.last_signal_id) || 0;
+  if (plan.last_id > from) {
+    const [claim] = await pool.execute(
+      'UPDATE arena_follows SET last_signal_id = ? WHERE user_id = ? AND last_signal_id = ?',
+      [plan.last_id, userId, from]);
+    if (!(claim && Number(claim.affectedRows) > 0)) return { follow, positions };
+  }
   let bal = acct.balance;
   // A LIVE season's rule variants bind followed opens too — the cursor has
   // already advanced, so a non-compliant signal is skipped, never replayed.
@@ -194,10 +206,47 @@ async function sweepFollows(userId, positions, marks, marksFresh) {
   if (plan.opens.length) {
     await pool.execute('UPDATE arena_accounts SET balance = ? WHERE user_id = ?', [Math.round(bal * 100) / 100, userId]);
   }
-  if (plan.last_id > (Number(follow.last_signal_id) || 0)) {
-    await pool.execute('UPDATE arena_follows SET last_signal_id = ? WHERE user_id = ?', [plan.last_id, userId]);
-  }
   return { follow, positions: await loadPositions(userId) };
+}
+
+// Practice-follow promises to mirror each call while it is live, and a call
+// is live for the bot's idea TTL (`expires_at`, minutes, the window every
+// door reads through SignalStatusModel.live). Run only on account reads, a
+// follower who was not looking while a call was live had it skipped as
+// expired. So the same sweep also runs once a minute for every follower. It
+// fills only off a fresh mark, and leaves settling exits to the account read,
+// as before: a position whose exit has passed still takes a slot until then.
+async function sweepAllFollows(deps = {}) {
+  const health = require('../lib/watch_health').register('arena_follow');
+  try {
+    const [rows] = await pool.execute('SELECT user_id FROM arena_follows WHERE enabled = 1');
+    if (!rows.length) { health.ok(); return 0; }
+    const tick = await (deps.getTickersWithin || getTickersWithin)(6000);
+    if (!(tick && tick.ageMs <= FILL_MAX_AGE_MS)) {
+      health.skipped('no fresh marks: nothing is filled at a stale price');
+      return 0;
+    }
+    let opened = 0;
+    for (const r of rows) {
+      try {
+        const before = await loadPositions(r.user_id);
+        const swept = await sweepFollows(r.user_id, before, tick.map, true);
+        opened += Math.max(0, swept.positions.length - before.length);
+      } catch (e) {
+        // One follower's failed sweep never stops the others'.
+        console.error('Arena follow sweep:', e && e.name);
+      }
+    }
+    health.ok();
+    return opened;
+  } catch (e) {
+    health.failed(e);
+    return 0;
+  }
+}
+
+function startFollowSweep(intervalMs = 60 * 1000) {
+  return require('../lib/shared_schedule').every('arena_follow', intervalMs, () => sweepAllFollows());
 }
 
 // Settle automatic exits: liquidation (the margin is gone, no credit),
@@ -517,7 +566,7 @@ router.get('/signals', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.user_id;
     const [sigs] = await pool.execute(
-      'SELECT id, symbol, direction, entry_price, stop_loss, take_profit, confidence, pattern, status, created_at FROM signals ORDER BY id DESC LIMIT 12');
+      'SELECT id, symbol, direction, entry_price, stop_loss, take_profit, confidence, pattern, status, created_at, expires_at FROM signals ORDER BY id DESC LIMIT 12');
     // A mark is nice-to-have here, not required: the list must still render
     // when upstream is slow, and the open route re-checks the price anyway.
     let marks = {};
@@ -525,7 +574,6 @@ router.get('/signals', authMiddleware, async (req, res) => {
     const positions = await loadPositions(userId);
     res.json({
       signals: signalTrade.decorateForPicker(sigs, { positions, marks }),
-      max_age_ms: signalTrade.MAX_SIGNAL_AGE_MS,
       limits: { min_margin: arena.MIN_MARGIN, max_leverage: arena.MAX_LEVERAGE, max_open: arena.MAX_OPEN },
       open_count: positions.length,
       virtual: true,
@@ -553,9 +601,9 @@ router.post('/open-signal', authMiddleware, tradeLimit, async (req, res) => {
     }
     const [srows] = Number.isInteger(signalId) && signalId > 0
       ? await pool.execute(
-        'SELECT id, signal_key, symbol, direction, confidence, regime, entry_price, stop_loss, take_profit, status, created_at FROM signals WHERE id = ?', [signalId])
+        'SELECT id, signal_key, symbol, direction, confidence, regime, entry_price, stop_loss, take_profit, status, created_at, expires_at FROM signals WHERE id = ?', [signalId])
       : await pool.execute(
-        'SELECT id, signal_key, symbol, direction, confidence, regime, entry_price, stop_loss, take_profit, status, created_at FROM signals WHERE signal_key = ?', [signalKey]);
+        'SELECT id, signal_key, symbol, direction, confidence, regime, entry_price, stop_loss, take_profit, status, created_at, expires_at FROM signals WHERE signal_key = ?', [signalKey]);
     const sig = srows[0];
     if (!sig) return res.status(404).json({ error: 'That signal no longer exists' });
     // Signals arrive in whatever shape the bot speaks — 'BTC/USDT:USDT',
@@ -1304,3 +1352,5 @@ module.exports.openForUser = openForUser;
 module.exports.closeForUser = closeForUser;
 module.exports.loadPositions = loadPositions;
 module.exports.loadAccount = loadAccount;
+module.exports.sweepAllFollows = sweepAllFollows;
+module.exports.startFollowSweep = startFollowSweep;

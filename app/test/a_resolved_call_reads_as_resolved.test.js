@@ -131,9 +131,9 @@ test('the receipt loads the model before the script that reads it', () => {
 
 const DASH = codeOnly(read('public', 'js', 'dashboard.js'));
 
-function hsigLoader() {
-  const a = DASH.indexOf('async function homeSignalsLoader()');
-  assert.ok(a >= 0, 'the home signals loader moved');
+function hsigLoader(head = 'async function homeSignalsLoader()') {
+  const a = DASH.indexOf(head);
+  assert.ok(a >= 0, `${head} moved`);
   let depth = 0; let i = DASH.indexOf('{', a);
   for (; i < DASH.length; i++) {
     if (DASH[i] === '{') depth++;
@@ -147,15 +147,20 @@ async function renderHome(signals, { model = true } = {}) {
     self: model ? { SignalStatusModel: SS } : {},
     fetchJSON: async () => ({ ok: true, data: { signals } }),
     mustRead: () => {}, esc, dirChip: (d) => `[${d}]`, fmtPrice: (p) => String(p), fmtAgo: () => 'now',
-    JSON,
+    JSON, T: (k, d) => d,
   };
   vm.createContext(ctx);
+  // The countdown beside a live call's button is the dashboard's own helper.
+  vm.runInContext(hsigLoader('function liveLeft(s)'), ctx);
   const fn = vm.runInContext(`(${hsigLoader()})`, ctx);
   return fn();
 }
 
+// Inside the window the bot stated: a pending call outside it is not offered
+// either (app/test/a_call_is_live_only_inside_its_window.test.js).
 const row = (over) => Object.assign({ symbol: 'BTC/USDT', direction: 'LONG', pattern: 'p',
-  entry_price: 100, stop_loss: 95, take_profit: 110, created_at: '2026-09-28T12:00:00Z' }, over);
+  entry_price: 100, stop_loss: 95, take_profit: 110, created_at: '2026-09-28T12:00:00Z',
+  expires_at: new Date(Date.now() + 5 * 60000).toISOString() }, over);
 
 test('the home panel offers Trade on a pending call and not on an ended one', async () => {
   const html = await renderHome([
