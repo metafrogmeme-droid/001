@@ -8,7 +8,7 @@
 > number below is a **proposed baseline to be ratified**, not a fixed parameter.
 
 This is the condensed overview. The full design lives in
-[`docs/TOKEN_ROADMAP.md`](https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/TOKEN_ROADMAP.md).
+[`docs/TOKEN_ROADMAP.md`](https://github.com/metafrogmeme-droid/001/blob/main/docs/TOKEN_ROADMAP.md).
 
 `$RCLAW` supersedes the earlier `$CLAW` placeholder in the product roadmap.
 
@@ -70,7 +70,7 @@ flags. **Live trading limits, position size, and leverage are deliberately never
 those stay tied to KYC/compliance tiers.
 
 Full spec, worked examples, anti-gaming analysis, and the phased implementation plan:
-[`docs/TIER_MODEL.md`](https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/TIER_MODEL.md).
+[`docs/TIER_MODEL.md`](https://github.com/metafrogmeme-droid/001/blob/main/docs/TIER_MODEL.md).
 
 ## Allocation (1B, proposed)
 
@@ -190,8 +190,8 @@ wallet-adapter with Solflare/hardware support remains future work.
 
 ---
 
-See the [full roadmap](https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/TOKEN_ROADMAP.md)
+See the [full roadmap](https://github.com/metafrogmeme-droid/001/blob/main/docs/TOKEN_ROADMAP.md)
 for tokenomics detail, legal/compliance, the security checklist, KPIs, and the full list of
 open decisions to ratify before launch — and
-[§14 Verification status](https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/TOKEN_ROADMAP.md#14-verification-status--what-is-actually-proven)
+[§14 Verification status](https://github.com/metafrogmeme-droid/001/blob/main/docs/TOKEN_ROADMAP.md#14-verification-status--what-is-actually-proven)
 for precisely what has been proven versus merely built.

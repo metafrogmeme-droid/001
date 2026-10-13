@@ -62,7 +62,7 @@ Structured Audit Log
 ## Quick Links
 
 - **Try the Bot:** [@HTRUNECLAW_bot](https://t.me/HTRUNECLAW_bot) -- live on Telegram, try it now
-- **GitHub:** [RUNECLAW](https://github.com/Humanoid-Traders/RUNECLAW)
+- **GitHub:** [RUNECLAW](https://github.com/metafrogmeme-droid/001)
 - **Website:** [pmvc58g2.mule.page](https://pmvc58g2.mule.page/)
 - **Telegram:** [Join Community](https://t.me/+VRNgsmkR5pszZTdk)
 - **X / Twitter:** [@BaurPatric70363](https://x.com/BaurPatric70363)

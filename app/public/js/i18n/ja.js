@@ -1602,7 +1602,7 @@
   ["dv.reg3", "運営者が署名した登録のドライラン — サーバーが鍵を保持することはありません"],
   ["dv.ethos_h", "検証のエートス"],
   ["dv.ethos_p", "ダッシュボードを信じず、<b>約定を検証してください</b>。Proof-of-PnL バンドルは JSON として正規化されます（キーは再帰的にソート、空白なし、UTF-8、数値はすべて文字列）。<code>publish_hash = SHA-256(canonical)</code>。あなたのエージェントはどの言語でも再導出でき、一致しないものは拒否できます。安全判定は理由つきのヒューリスティックなフラグであり、決して判決ではありません。過去の実績が将来の結果を予測することはありません。"],
-  ["dv.footer_p", "取引可能な MCP ツールは運営者が個別に判断する別件であり、ここでは公開していません。2 つのオンチェーン主張（アンカーとツール登録、いずれも運営者署名）の本番投入について：<a href=\"https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/ONCHAIN_GOLIVE.md\" target=\"_blank\" rel=\"noopener\">docs/ONCHAIN_GOLIVE.md</a>。相互運用のロードマップ（ERC-8004 レジストリ、決済の足場 — 設計のみ、法的制約あり）：<a href=\"https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/INTEROP.md\" target=\"_blank\" rel=\"noopener\">docs/INTEROP.md</a>。"],
+  ["dv.footer_p", "取引可能な MCP ツールは運営者が個別に判断する別件であり、ここでは公開していません。2 つのオンチェーン主張（アンカーとツール登録、いずれも運営者署名）の本番投入について：<a href=\"https://github.com/metafrogmeme-droid/001/blob/main/docs/ONCHAIN_GOLIVE.md\" target=\"_blank\" rel=\"noopener\">docs/ONCHAIN_GOLIVE.md</a>。相互運用のロードマップ（ERC-8004 レジストリ、決済の足場 — 設計のみ、法的制約あり）：<a href=\"https://github.com/metafrogmeme-droid/001/blob/main/docs/INTEROP.md\" target=\"_blank\" rel=\"noopener\">docs/INTEROP.md</a>。"],
   ["sx.badge", "デジタルツイン"],
   ["sx.lede", "仮の持ち高を組み立て、それを壊してみてください。これはあなたのポートフォリオの<b>デジタルツイン</b>です。レバレッジのかかった各ポジションを、主要銘柄の −30% 下落、アルト暴落、ステーブルコインのデペッグ、清算の連鎖、ブラックスワンに通し、<b>ドローダウン</b>、どの建玉が<b>清算</b>されるか、そして何が最初にあなたを壊すかを示します。パーセントのみ — 架空のポートフォリオに対する仮定のシミュレーションであり、あなたの実残高では決してなく、投資助言でもありません。"],
   ["sx.book_h", "あなたの持ち高 — 組み立てる"],

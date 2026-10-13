@@ -60,7 +60,7 @@ class TestRegisterRateLimit:
 class TestSocialLinks:
     def test_product_footer_has_real_social_links(self):
         html = _read("app/public/index.html")
-        assert "github.com/Humanoid-Traders/RUNECLAW" in html   # GitHub
+        assert "github.com/metafrogmeme-droid/001" in html   # GitHub
         assert "t.me/+VRNgsmkR5pszZTdk" in html                 # community
         assert "t.me/HTRUNECLAW_bot" in html                    # bot (kept)
 

@@ -17,7 +17,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.11+-blue?logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/license-BUSL--1.1-blue" alt="License BUSL-1.1">
-  <a href="https://github.com/Humanoid-Traders/RUNECLAW/actions/workflows/ci.yml"><img src="https://github.com/Humanoid-Traders/RUNECLAW/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/metafrogmeme-droid/001/actions/workflows/ci.yml"><img src="https://github.com/metafrogmeme-droid/001/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <img src="https://img.shields.io/badge/tests-full%20suite%20gated%20in%20CI-brightgreen" alt="Full test suite gated in CI">
   <img src="https://img.shields.io/badge/security%20tests-run%20in%20CI-blueviolet" alt="Security tests run in CI">
   <img src="https://img.shields.io/badge/red%20team-risk%20engine%20%2B%20custody%2C%20run%20in%20CI-critical" alt="Red team: risk engine and custody, run in CI">
@@ -29,7 +29,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Humanoid-Traders/RUNECLAW">GitHub</a> &middot;
+  <a href="https://github.com/metafrogmeme-droid/001">GitHub</a> &middot;
   <a href="https://www.humanoid-traders.com/">Website</a> &middot;
   <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai">Documentation</a> &middot;
   <a href="https://t.me/HTRUNECLAW_bot">Live Bot</a> &middot;
@@ -457,7 +457,7 @@ python backtest_realdata.py --symbols all --llm
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/Humanoid-Traders/RUNECLAW.git
+git clone https://github.com/metafrogmeme-droid/001.git RUNECLAW
 cd RUNECLAW
 
 # 2. Create virtual environment
@@ -1018,7 +1018,7 @@ We believe the best hackathon projects are built on strong foundations. RUNECLAW
 
 ```bash
 # Get started in 60 seconds
-git clone https://github.com/Humanoid-Traders/RUNECLAW.git
+git clone https://github.com/metafrogmeme-droid/001.git RUNECLAW
 cd RUNECLAW && cp .env.example .env
 pip install -r bot/requirements.txt
 python -m bot.main --mode scan

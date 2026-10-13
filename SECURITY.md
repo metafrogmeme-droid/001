@@ -49,5 +49,5 @@ We follow a coordinated disclosure model. Please allow us reasonable time to add
 
 ---
 
-**Repository:** [github.com/Humanoid-Traders/RUNECLAW](https://github.com/Humanoid-Traders/RUNECLAW)
+**Repository:** [github.com/metafrogmeme-droid/001](https://github.com/metafrogmeme-droid/001)
 **License:** BUSL-1.1 (Business Source License 1.1)
