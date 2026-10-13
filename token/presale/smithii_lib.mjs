@@ -253,8 +253,8 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 /**
  * The record's presale terms, key by key. Throws for a config these sentences cannot describe
  * (a whitelist phase, buyer vesting, a refund, a pool not at the sale price) rather than print a
- * sentence that is no longer true. The dates carry no clock time: the 14:00 UTC in `schedule`
- * is a placeholder the operator has not confirmed.
+ * sentence that is no longer true. The dates carry no clock time, as they did while the 14:00
+ * UTC in `schedule` was a placeholder; Create fixed it on chain on 2026-10-13.
  */
 export function recordTerms(cfg) {
   const problems = scheduleProblems(cfg);

@@ -1602,7 +1602,7 @@
   ["dv.reg3", "운영자가 서명한 등록 예행 — 서버는 결코 키를 보관하지 않습니다"],
   ["dv.ethos_h", "검증의 원칙"],
   ["dv.ethos_p", "대시보드를 믿지 말고 — <b>체결을 검증하세요</b>. Proof-of-PnL 번들은 JSON으로 정규화됩니다: 키는 재귀적으로 정렬, 공백 없음, UTF-8(모든 숫자는 이미 문자열); <code>publish_hash = SHA-256(canonical)</code>. 에이전트는 어떤 언어로든 다시 계산해, 일치하지 않는 것은 거부할 수 있습니다. 안전 판독은 이유가 붙은 휴리스틱 플래그이지 결코 판결이 아닙니다. 과거 성과는 결코 미래 결과를 예측하지 않습니다."],
-  ["dv.footer_p", "거래가 가능한 MCP 도구는 운영자가 통제하는 별개의 결정이며 여기서는 공개하지 않습니다. 두 가지 온체인 주장(앵커 + 도구 등록, 둘 다 운영자 서명)의 운영 개시: <a href=\"https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/ONCHAIN_GOLIVE.md\" target=\"_blank\" rel=\"noopener\">docs/ONCHAIN_GOLIVE.md</a>. 상호운용성 로드맵(ERC-8004 레지스트리, 결제 골격 — 설계 단계이며 법적 제약 있음): <a href=\"https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/INTEROP.md\" target=\"_blank\" rel=\"noopener\">docs/INTEROP.md</a>."],
+  ["dv.footer_p", "거래가 가능한 MCP 도구는 운영자가 통제하는 별개의 결정이며 여기서는 공개하지 않습니다. 두 가지 온체인 주장(앵커 + 도구 등록, 둘 다 운영자 서명)의 운영 개시: <a href=\"https://github.com/metafrogmeme-droid/001/blob/main/docs/ONCHAIN_GOLIVE.md\" target=\"_blank\" rel=\"noopener\">docs/ONCHAIN_GOLIVE.md</a>. 상호운용성 로드맵(ERC-8004 레지스트리, 결제 골격 — 설계 단계이며 법적 제약 있음): <a href=\"https://github.com/metafrogmeme-droid/001/blob/main/docs/INTEROP.md\" target=\"_blank\" rel=\"noopener\">docs/INTEROP.md</a>."],
   ["sx.badge", "디지털 트윈"],
   ["sx.lede", "가상의 포지션을 구성한 뒤, 그것을 무너뜨려 보세요. 이것은 당신 포트폴리오의 <b>디지털 트윈</b>입니다 — 레버리지가 걸린 각 포지션을 메이저 −30% 급락, 알트 폭락, 스테이블코인 디페그, 청산 연쇄, 블랙스완에 차례로 통과시킨 뒤 <b>낙폭</b>, 어떤 포지션이 <b>청산</b>되는지, 무엇이 먼저 무너뜨리는지를 보여줍니다. 퍼센트만 표시 — 가상의 포트폴리오에 대한 가정 시뮬레이션이며, 결코 실제 잔고가 아니고 투자 조언도 아닙니다."],
   ["sx.book_h", "내 포지션 — 직접 구성하기"],

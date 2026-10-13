@@ -208,7 +208,7 @@ function buildManifest({ tools }) {
       dataRetention: 'none',
       sourceVisibility: 'open-source',
       reproducibleBuild: {
-        sourceCodeURI: 'https://github.com/Humanoid-Traders/RUNECLAW',
+        sourceCodeURI: 'https://github.com/metafrogmeme-droid/001',
       },
     },
   };

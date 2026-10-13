@@ -919,8 +919,10 @@ Everything below is a **proposed default that the team must ratify** — nothing
 - **Allocation percentages and all vesting schedules** (§4) — except the two rows below,
   which are now settled. The three schedules are the steps in `token/presale/locks.plan.json`,
   proposed 2026-10-10: community unlocks 5% at TGE (12.5M, the launch tranche; the operator's
-  decision of 2026-10-11, it was 20%) and then follows its 36-month line, and the clock time of the sale window, 14:00 UTC, is
-  unconfirmed (`smithii.config.json` → `schedule`).
+  decision of 2026-10-11, it was 20%) and then follows its 36-month line. *Settled 2026-10-13:
+  the three locks were created on chain with exactly these steps and cannot be edited or
+  cancelled, and Create fixed the sale window's clock time, 14:00 UTC, on chain
+  (`smithii.config.json` → `schedule`).*
 - ~~**DEX liquidity allocation**~~ — **settled: 20,001,000 (2.0001%)**, ratified 2026-07-26,
   with the 79,999,000 difference moved to the reserve bucket and earmarked for post-TGE
   liquidity. This was F-25 and it had to be decided before `presale:create`, because the LP

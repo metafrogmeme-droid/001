@@ -17,10 +17,10 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.11+-blue?logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/license-BUSL--1.1-blue" alt="License BUSL-1.1">
-  <a href="https://github.com/Humanoid-Traders/RUNECLAW/actions/workflows/ci.yml"><img src="https://github.com/Humanoid-Traders/RUNECLAW/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-862%20test%20functions%20defined-brightgreen" alt="862 Test Functions Defined">
-  <img src="https://img.shields.io/badge/security%20tests-29%20passing-blueviolet" alt="29 Security Tests">
-  <img src="https://img.shields.io/badge/red%20team-28%20scenarios%20%7C%20framework%20included-critical" alt="Red Team 28 Scenarios | Framework Included">
+  <a href="https://github.com/metafrogmeme-droid/001/actions/workflows/ci.yml"><img src="https://github.com/metafrogmeme-droid/001/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <img src="https://img.shields.io/badge/tests-full%20suite%20gated%20in%20CI-brightgreen" alt="Full test suite gated in CI">
+  <img src="https://img.shields.io/badge/security%20tests-run%20in%20CI-blueviolet" alt="Security tests run in CI">
+  <img src="https://img.shields.io/badge/red%20team-risk%20engine%20%2B%20custody%2C%20run%20in%20CI-critical" alt="Red team: risk engine and custody, run in CI">
   <img src="https://img.shields.io/badge/risk%20checks-21%20(16%20strict%20%2B%205%20advisory)-red" alt="21 Risk Checks">
   <img src="https://img.shields.io/badge/mode-live%20trading-green" alt="Live Trading">
   <img src="https://img.shields.io/badge/exchange-Bitget-blue" alt="Bitget">
@@ -29,12 +29,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Humanoid-Traders/RUNECLAW">GitHub</a> &middot;
-  <a href="https://pmvc58g2.mule.page/">網站</a> &middot;
+  <a href="https://github.com/metafrogmeme-droid/001">GitHub</a> &middot;
+  <a href="https://www.humanoid-traders.com/">網站</a> &middot;
   <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai">文件</a> &middot;
   <a href="https://t.me/HTRUNECLAW_bot">實機機器人</a> &middot;
   <a href="https://t.me/+VRNgsmkR5pszZTdk">Telegram</a> &middot;
-  <a href="https://x.com/BaurPatric70363">X / Twitter</a>
+  <a href="https://x.com/RUNECLAW_AI">X / Twitter</a>
 </p>
 
 <p align="center">
@@ -47,11 +47,38 @@
 
 ---
 
-> **免責聲明：** RUNECLAW 是為 Bitget AI Base Camp · Hackathon S1 打造的教育性原型。
-> 它**尚未達到正式生產水準**，在未經大量額外防護、獨立安全稽核、壓力測試與法規審查之前，
-> **絕不可**使用真實資金操作。
+> **免責聲明：** RUNECLAW 起初是 Bitget AI Base Camp · Hackathon S1 的參賽作品，目前仍是早期階段的軟體。
+> 它以小額部位進行實盤交易，且**尚未經過任何獨立第三方安全稽核**。使用真實資金運行它
+> **須自行承擔風險**：它尚未經過正式交易軟體所需的壓力測試、安全審查與法規審查。
 > 回測結果使用合成資料，無法預測未來表現。過往績效
 > 並不代表未來結果。本專案不構成財務建議。
+
+---
+
+## $RCLAW 代幣
+
+<!-- rclaw-record:start — 以下每個地址、連結與數字都取自代幣紀錄 (token/config/rclaw.mainnet.json)，tests/test_the_readme_states_the_token_record.py 會在兩者不一致時失敗 -->
+
+唯一官方的 $RCLAW 鑄造地址（Solana）：**`rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71qBK2CaNe`**（[Solscan](https://solscan.io/token/rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71qBK2CaNe)）。總供應量固定為 1,000,000,000（9 位小數）；鑄造權與凍結權皆已撤銷。任何其他使用此名稱的地址都不是我們的。
+
+**預售**（Smithii）：**https://tools.smithii.io/launch/solana/RUNECLAW**
+
+- 2026-10-15 14:00 UTC 開始，2026-10-29 14:00 UTC 結束，或於達到硬頂時提前結束
+- 每 SOL 可得 30,000.3 RCLAW · 每個錢包 0.25–25 SOL · 硬頂 5,000 SOL（軟頂 1,000 SOL 僅為目標，合約不強制執行）
+- 銷售結束時買家可領取 100%，買家無鎖倉；不提供退款。
+- 銷售結束後，團隊以銷售價格、用募得 SOL 的 80% 建立流動性池並銷毀 LP 代幣；銷售合約不會執行此步驟。
+
+**鎖倉分配**（Smithii Token Vesting：沒有取消或修改鎖倉的指令；只有建立鎖倉的錢包能在各日期當天或之後領取）：
+
+| 分配 | RCLAW | 解鎖（14:00 UTC） | 鎖倉帳戶 | |
+|---|---|---|---|---|
+| 社群與生態系 | 250,000,000 | 2026-10-29 5% · 2027-07-29 20% · 2028-04-29 25% · 2029-01-29 25% · 2029-10-29 25% | [`2hJYD7Gjafs88vDnXG1MTgfCyf46CwhoAhTMd7YZnKcj`](https://solscan.io/account/2hJYD7Gjafs88vDnXG1MTgfCyf46CwhoAhTMd7YZnKcj) | [證明頁](https://tools.smithii.io/vesting/solana/rclaw-community) |
+| 團隊與貢獻者 | 150,000,000 | 2028-04-29 25% · 2028-10-29 25% · 2029-04-29 25% · 2029-10-29 25% | [`2iXmFjKuVe25XMPMUAkrQCBDDRrx9Qk319SFTJ7Hucuz`](https://solscan.io/account/2iXmFjKuVe25XMPMUAkrQCBDDRrx9Qk319SFTJ7Hucuz) | [證明頁](https://tools.smithii.io/vesting/solana/rclaw-team) |
+| 顧問 | 20,000,000 | 2027-10-29 33% · 2028-04-29 33% · 2028-10-29 34% | [`BkH2rAhRW8bx4qha8tkdDT9MiCfvu34vkQbdN616gPU8`](https://solscan.io/account/BkH2rAhRW8bx4qha8tkdDT9MiCfvu34vkQbdN616gPU8) | [證明頁](https://tools.smithii.io/vesting/solana/rclaw-advisors) |
+
+Smithii 可以升級其銷售與鎖倉程式，目前運行的版本並未確認經過審計。以上每個地址都已從鏈上讀回核對（`token/` 中的 `npm run presale:smithii-verify` 與 `npm run presale:locks-verify`）。即時版本請見 **https://www.humanoid-traders.com/token** 與機器人（`/rclaw`）。我們絕不會主動私訊，也絕不會索取助記詞。
+
+<!-- rclaw-record:end -->
 
 ---
 
@@ -155,10 +182,10 @@ RUNECLAW 透過 `LLM_BASE_URL` 支援任何相容於 OpenAI 的 LLM 供應商：
 以 `/watch on|off` 為每個對話切換。唯讀 —— 此監控絕不會建立交易或修改風險。
 
 ### 紅隊壓力測試器 (NEW)
-一個對抗式引擎，以橫跨 10 個類別的 28 種情境攻擊風險引擎：
+一個對抗式引擎，以橫跨 11 個類別的 30 種情境攻擊風險引擎：
 閃崩、流動性枯竭、相關性拋售、植入過時資料、信心操控、
-R:R 操弄、規避斷路器、零值／負值、方向反轉以及最大部位灌爆。
-內含紅隊測試框架 —— 執行 28 種對抗式情境以驗證風險閘門行為。包含 ATR=0 的壞資料測試。
+R:R 操弄、規避斷路器、零值／負值、方向反轉、最大部位灌爆以及格式錯誤的輸入。
+內含紅隊測試框架 —— CI 會執行全部 30 種對抗式情境（`scripts/red_team.py`）以驗證風險閘門行為。包含 ATR=0 的壞資料測試。
 
 ### 交易前批判（啟發式疑慮）
 在每一筆已確認的交易執行前提出的規則式疑慮（`bot/core/critique.py`）：
@@ -383,7 +410,7 @@ python backtest_realdata.py --symbols all --llm
 
 ```bash
 # 1. 複製儲存庫
-git clone https://github.com/Humanoid-Traders/RUNECLAW.git
+git clone https://github.com/metafrogmeme-droid/001.git RUNECLAW
 cd RUNECLAW
 
 # 2. 建立虛擬環境
@@ -660,7 +687,7 @@ runeclaw/
 |   |   |-- smart_money.py      # Liquidation cascade, funding squeeze, whale tracking
 |   |   |-- multi_timeframe.py  # HTF alignment, market structure, BOS/CHoCH
 |   |   |-- strategy_modes.py   # 5 adaptive strategy modes with per-mode configs
-|   |   |-- red_team.py         # 28-scenario adversarial stress tester
+|   |   |-- red_team.py         # 30-scenario adversarial stress tester
 |   |   |-- black_swan.py       # Statistical anomaly detection (5 anomaly types)
 |   |   |-- sentiment.py        # Sentiment proxy engine (price/volume-based, 11th confluence voter)
 |   |   |-- swarm.py            # Multi-agent swarm protocol (experimental, in-process pub/sub)
@@ -940,7 +967,7 @@ RUNECLAW 開放協作。若你正為 Bitget AI Base Camp 開發並需要風險�
 
 ```bash
 # 60 秒內開始
-git clone https://github.com/Humanoid-Traders/RUNECLAW.git
+git clone https://github.com/metafrogmeme-droid/001.git RUNECLAW
 cd RUNECLAW && cp .env.example .env
 pip install -r bot/requirements.txt
 python -m bot.main --mode scan

@@ -1644,7 +1644,7 @@
     "dv.reg3": { en: "the operator-signed registration dry-run — the server never holds a key" },
     "dv.ethos_h": { en: "The verification ethos" },
     "dv.ethos_p": { en: "Don’t trust the dashboard — <b>verify the fills</b>. The Proof-of-PnL bundle canonicalizes as JSON with recursively sorted keys, no whitespace, UTF-8 (every number is already a string); <code>publish_hash = SHA-256(canonical)</code>. Your agent can re-derive it in any language and reject anything that doesn’t match. Safety reads are heuristic flags with reasons, never verdicts. Past performance never predicts future results." },
-    "dv.footer_p": { en: "Trade-capable MCP tools are a separate, operator-gated decision and are not exposed here. Operator go-live for the two on-chain claims (anchor + tool registration, both operator-signed): <a href=\"https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/ONCHAIN_GOLIVE.md\" target=\"_blank\" rel=\"noopener\">docs/ONCHAIN_GOLIVE.md</a>. Interoperability roadmap (ERC-8004 registries, payment scaffolding — design-only, legally gated): <a href=\"https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/INTEROP.md\" target=\"_blank\" rel=\"noopener\">docs/INTEROP.md</a>." },
+    "dv.footer_p": { en: "Trade-capable MCP tools are a separate, operator-gated decision and are not exposed here. Operator go-live for the two on-chain claims (anchor + tool registration, both operator-signed): <a href=\"https://github.com/metafrogmeme-droid/001/blob/main/docs/ONCHAIN_GOLIVE.md\" target=\"_blank\" rel=\"noopener\">docs/ONCHAIN_GOLIVE.md</a>. Interoperability roadmap (ERC-8004 registries, payment scaffolding — design-only, legally gated): <a href=\"https://github.com/metafrogmeme-droid/001/blob/main/docs/INTEROP.md\" target=\"_blank\" rel=\"noopener\">docs/INTEROP.md</a>." },
     "sx.badge": { en: "digital twin" },
     "sx.lede": { en: "Build a hypothetical book, then break it. This is your portfolio’s <b>digital twin</b> — it takes each leveraged position and runs it through a −30% majors drop, an alt crash, a stablecoin depeg, a liquidation cascade and a black swan, then shows your <b>drawdown</b>, which legs get <b>liquidated</b>, and what breaks you first. Percent-only — a what-if simulation on a made-up portfolio, never your real balance, and never investment advice." },
     "sx.book_h": { en: "Your book — build it" },
@@ -2224,7 +2224,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"c797e672","zh":"14594541","pt":"4fc23b80","fr":"fb5e8c0c","de":"bf94f55c","nl":"8aab1b69","ja":"be1647d6","ko":"d12ce866","ru":"ae54929a","tr":"76440d57","it":"3a5c7f9b","hi":"ddcd7418","ar":"08cab99c"};
+  var CHUNKS = {"es":"6008124a","zh":"abf89fed","pt":"b2ba7fc8","fr":"ed3a4f71","de":"3052b19a","nl":"7231b36f","ja":"7cb729ca","ko":"3cd4a5f5","ru":"43595311","tr":"0aa5fcf4","it":"f087985e","hi":"6ea0675f","ar":"a5cd1b86"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

