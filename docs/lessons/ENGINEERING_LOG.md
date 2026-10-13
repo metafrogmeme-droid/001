@@ -19796,10 +19796,21 @@ clone into `RUNECLAW`, the folder the next line enters. `tests/test_public_pages
 holds the public surfaces to it: no link to the suspended organisation, every `/blob/main/` or
 `/tree/main/` link names a file that exists, every relative README link resolves, and every clone command
 clones the live repository into the folder its `cd` names (five mutants, all killed). The audits, the
-hackathon submission and the archived pages keep the URLs they were written with. Not changed here,
-because they are the operator's to decide: which X account the header names, the repository URL inside
-LICENSE and NOTICE (license text), and the repository's About box, which only the GitHub settings page
-can set.
+hackathon submission and the archived pages keep the URLs they were written with.
+
+The operator then confirmed the presale facts and left the rest to judgment, which settled three more.
+The header's X link named a personal account while the token's own metadata (`rclaw-metadata.json`,
+`extensions.twitter`), the sale page and the lock certificates name `x.com/RUNECLAW_AI`; every X profile
+link on a public page is held to the metadata's now. LICENSE and NOTICE gave the suspended organisation
+as the contact and the repository; only those locators changed, never the licence terms. The README's
+disclaimer called RUNECLAW an educational prototype never to be used with real funds, beside a section
+saying it trades live; it now says what is true (live with small positions, no independent third-party
+audit, real funds at the reader's own risk) without dropping a warning. And the red team was "28
+scenarios across 10 categories" in both languages while CI's own step said 30: the eleventh category,
+malformed input, came later. `tests/test_the_readme_counts_what_runs.py` takes the figure from the run
+itself (`scripts/red_team.py --json`). Six mutants over the X, NOTICE and red-team guards, all killed.
+What only the operator can do is left to the operator: the repository's About box, which only GitHub's
+settings set, and the GitBook site's sync source.
 
 ## Public-surface rules
 
@@ -21500,7 +21511,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **490 of 1312** reach for source text through `source_scan`, `code_only`
+Driven, **490 of 1313** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 490 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

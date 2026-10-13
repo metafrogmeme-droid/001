@@ -34,7 +34,7 @@
   <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai">Documentation</a> &middot;
   <a href="https://t.me/HTRUNECLAW_bot">Live Bot</a> &middot;
   <a href="https://t.me/+VRNgsmkR5pszZTdk">Telegram</a> &middot;
-  <a href="https://x.com/BaurPatric70363">X / Twitter</a>
+  <a href="https://x.com/RUNECLAW_AI">X / Twitter</a>
 </p>
 
 <p align="center">
@@ -47,11 +47,12 @@
 
 ---
 
-> **DISCLAIMER:** RUNECLAW is an educational prototype built for the Bitget AI Base Camp · Hackathon S1.
-> It is **not production-ready** and should **never** be used with real funds without extensive
-> additional safeguards, independent security audits, stress testing, and regulatory review.
-> Backtest results use synthetic data and do not predict future performance. Past performance
-> is not indicative of future results. This project is not financial advice.
+> **DISCLAIMER:** RUNECLAW began as an entry to the Bitget AI Base Camp · Hackathon S1 and is
+> early-stage software. It trades live with small positions, and **no independent third-party
+> security audit has been performed**. Running it with real funds is **at your own risk**: it has
+> not had the stress testing, security review or regulatory review that production trading
+> software needs. Backtest results use synthetic data and do not predict future performance. Past
+> performance is not indicative of future results. This project is not financial advice.
 
 ---
 
@@ -226,10 +227,11 @@ Background coroutine that pushes unsolicited alerts without waiting for commands
 Toggle with `/watch on|off` per chat. Read-only -- the monitor never creates trades or modifies risk.
 
 ### Red Team Stress Tester (NEW)
-An adversarial engine that attacks the risk engine with 28 scenarios across 10 categories:
+An adversarial engine that attacks the risk engine with 30 scenarios across 11 categories:
 flash crashes, liquidity drains, correlated selloffs, stale data injection, confidence manipulation,
-R:R gaming, circuit breaker evasion, zero/negative values, direction inversion, and max position flooding.
-Red-team testing framework included -- runs 28 adversarial scenarios to verify risk gate behavior. Includes ATR=0 bad-data test.
+R:R gaming, circuit breaker evasion, zero/negative values, direction inversion, max position flooding,
+and malformed input. Red-team testing framework included -- CI runs all 30 adversarial scenarios
+(`scripts/red_team.py`) to verify risk gate behavior. Includes ATR=0 bad-data test.
 
 ### Pre-Trade Critique (heuristic concerns)
 Rule-based concerns asked on every confirmed trade before execution (`bot/core/critique.py`):
@@ -734,7 +736,7 @@ runeclaw/
 |   |   |-- smart_money.py      # Liquidation cascade, funding squeeze, whale tracking
 |   |   |-- multi_timeframe.py  # HTF alignment, market structure, BOS/CHoCH
 |   |   |-- strategy_modes.py   # 5 adaptive strategy modes with per-mode configs
-|   |   |-- red_team.py         # 28-scenario adversarial stress tester
+|   |   |-- red_team.py         # 30-scenario adversarial stress tester
 |   |   |-- black_swan.py       # Statistical anomaly detection (5 anomaly types)
 |   |   |-- sentiment.py        # Sentiment proxy engine (price/volume-based, 11th confluence voter)
 |   |   |-- swarm.py            # Multi-agent swarm protocol (experimental, in-process pub/sub)

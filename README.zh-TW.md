@@ -34,7 +34,7 @@
   <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai">文件</a> &middot;
   <a href="https://t.me/HTRUNECLAW_bot">實機機器人</a> &middot;
   <a href="https://t.me/+VRNgsmkR5pszZTdk">Telegram</a> &middot;
-  <a href="https://x.com/BaurPatric70363">X / Twitter</a>
+  <a href="https://x.com/RUNECLAW_AI">X / Twitter</a>
 </p>
 
 <p align="center">
@@ -47,9 +47,9 @@
 
 ---
 
-> **免責聲明：** RUNECLAW 是為 Bitget AI Base Camp · Hackathon S1 打造的教育性原型。
-> 它**尚未達到正式生產水準**，在未經大量額外防護、獨立安全稽核、壓力測試與法規審查之前，
-> **絕不可**使用真實資金操作。
+> **免責聲明：** RUNECLAW 起初是 Bitget AI Base Camp · Hackathon S1 的參賽作品，目前仍是早期階段的軟體。
+> 它以小額部位進行實盤交易，且**尚未經過任何獨立第三方安全稽核**。使用真實資金運行它
+> **須自行承擔風險**：它尚未經過正式交易軟體所需的壓力測試、安全審查與法規審查。
 > 回測結果使用合成資料，無法預測未來表現。過往績效
 > 並不代表未來結果。本專案不構成財務建議。
 
@@ -182,10 +182,10 @@ RUNECLAW 透過 `LLM_BASE_URL` 支援任何相容於 OpenAI 的 LLM 供應商：
 以 `/watch on|off` 為每個對話切換。唯讀 —— 此監控絕不會建立交易或修改風險。
 
 ### 紅隊壓力測試器 (NEW)
-一個對抗式引擎，以橫跨 10 個類別的 28 種情境攻擊風險引擎：
+一個對抗式引擎，以橫跨 11 個類別的 30 種情境攻擊風險引擎：
 閃崩、流動性枯竭、相關性拋售、植入過時資料、信心操控、
-R:R 操弄、規避斷路器、零值／負值、方向反轉以及最大部位灌爆。
-內含紅隊測試框架 —— 執行 28 種對抗式情境以驗證風險閘門行為。包含 ATR=0 的壞資料測試。
+R:R 操弄、規避斷路器、零值／負值、方向反轉、最大部位灌爆以及格式錯誤的輸入。
+內含紅隊測試框架 —— CI 會執行全部 30 種對抗式情境（`scripts/red_team.py`）以驗證風險閘門行為。包含 ATR=0 的壞資料測試。
 
 ### 交易前批判（啟發式疑慮）
 在每一筆已確認的交易執行前提出的規則式疑慮（`bot/core/critique.py`）：
@@ -687,7 +687,7 @@ runeclaw/
 |   |   |-- smart_money.py      # Liquidation cascade, funding squeeze, whale tracking
 |   |   |-- multi_timeframe.py  # HTF alignment, market structure, BOS/CHoCH
 |   |   |-- strategy_modes.py   # 5 adaptive strategy modes with per-mode configs
-|   |   |-- red_team.py         # 28-scenario adversarial stress tester
+|   |   |-- red_team.py         # 30-scenario adversarial stress tester
 |   |   |-- black_swan.py       # Statistical anomaly detection (5 anomaly types)
 |   |   |-- sentiment.py        # Sentiment proxy engine (price/volume-based, 11th confluence voter)
 |   |   |-- swarm.py            # Multi-agent swarm protocol (experimental, in-process pub/sub)

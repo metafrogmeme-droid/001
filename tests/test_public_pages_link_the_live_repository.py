@@ -14,9 +14,16 @@ this repository (``/blob/main/<path>`` or ``/tree/main/<path>``) and every
 relative link in a README names a path that exists. Historical records (the
 audits, the hackathon submission, archived pages) keep the URLs they were
 written with and are not scanned.
+
+The same pages name the project's X account, and the token's metadata names
+it too (``token/config/rclaw-metadata.json``, ``extensions.twitter``, the
+account the Smithii sale page and the lock certificates were given). The
+README and the GitBook named a personal account instead; every X profile link
+on a public page is held to the metadata's now.
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -28,6 +35,7 @@ DEAD = "github.com/Humanoid-Traders"
 
 PUBLIC = sorted(
     {ROOT / "README.md", ROOT / "README.zh-TW.md", ROOT / "SECURITY.md", ROOT / "agent_card.json",
+     ROOT / "LICENSE", ROOT / "NOTICE",
      ROOT / "app" / "public" / "js" / "i18n.js", ROOT / "app" / "lib" / "tool8257.js"}
     | set((ROOT / "docs" / "gitbook").glob("*.md"))
     | set((ROOT / "app" / "public").glob("*.html"))
@@ -43,7 +51,7 @@ def _rel(path: Path) -> str:
 
 def test_the_scan_reaches_the_surfaces_it_names():
     names = {_rel(p) for p in PUBLIC}
-    for must in ("README.md", "README.zh-TW.md", "SECURITY.md", "agent_card.json",
+    for must in ("README.md", "README.zh-TW.md", "SECURITY.md", "agent_card.json", "LICENSE", "NOTICE",
                  "app/public/index.html", "app/public/developers.html", "docs/gitbook/getting-started.md"):
         assert must in names, must
     assert all(p.exists() for p in PUBLIC)
@@ -80,3 +88,22 @@ def test_the_clone_command_clones_the_live_repository_into_the_folder_the_next_s
         assert url == f"https://{LIVE}.git", (name, url)
         if cd:
             assert folder == cd, (name, folder, cd)
+
+
+# A profile link, not a share or sign-in intent: x.com/<handle> or twitter.com/<handle>.
+X_PROFILE = re.compile(r"https://(?:x|twitter)\.com/(?!intent/|i/|share)([A-Za-z0-9_]{1,15})\b")
+
+
+def test_every_x_profile_link_is_the_tokens_own_account():
+    meta = json.loads((ROOT / "token" / "config" / "rclaw-metadata.json").read_text(encoding="utf-8"))
+    want = meta["extensions"]["twitter"]
+    handle = X_PROFILE.fullmatch(want)
+    assert handle, want
+    seen = {}
+    for path in PUBLIC:
+        for m in X_PROFILE.finditer(path.read_text(encoding="utf-8")):
+            seen.setdefault(m.group(1), set()).add(_rel(path))
+    assert set(seen) <= {handle.group(1)}, f"X accounts other than {want}: {seen}"
+    for name in ("README.md", "README.zh-TW.md", "docs/gitbook/README.md"):
+        assert name in seen.get(handle.group(1), set()), f"{name} does not link {want}"
+
