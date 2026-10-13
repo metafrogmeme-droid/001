@@ -19770,6 +19770,22 @@ presale's own lines. (`token/presale/the_record_states_the_locks.test.mjs`,
 `app/test/the_token_page_shows_the_locks.test.js`,
 `tests/test_the_rclaw_card_shows_the_locks.py`.)
 
+**THE GITHUB PAGE WAS A PUBLIC SURFACE THAT NAMED NO MINT, AND LINKED THE HOSTING PROVIDER.** Checked
+on 2026-10-13, after the sale and the locks went live: the repository's README (what github.com shows
+first, in English and 繁體中文) said nothing about $RCLAW, so the one page a careful buyer checks for the
+official mint carried none, and its header linked the site at `pmvc58g2.mule.page`, the hostname
+`app/test/canonical_host.test.js` already keeps out of every page. Its badges counted 2,644 tests in 227
+files (and 862 in the Chinese copy) against 1,311 test files that day: a count in a badge is a
+measurement somebody remembered. Both READMEs now carry a $RCLAW section between `rclaw-record` markers
+(the mint, the sale link and window, the terms, the three locks with their accounts and certificates),
+the canonical host, and badges with no counts. The section is a second copy of the token record, so
+`tests/test_the_readme_states_the_token_record.py` holds it to the record: every address in it must be
+one the record names and every record address must appear, and every Smithii link must be one of the
+record's exactly. The first draft compared the sale link as a substring, and a mutant linking
+`.../RUNECLAW2` passed it; it compares whole links now. Ten mutants, all killed after that fix. Not
+changed here, because they are the operator's to decide: which X account and which GitHub repository the
+header names, and the repository's About box, which only the GitHub settings page can set.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -21469,7 +21485,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **490 of 1310** reach for source text through `source_scan`, `code_only`
+Driven, **490 of 1311** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 490 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
