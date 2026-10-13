@@ -306,5 +306,15 @@
   "tx_untracked": "⏱ Zaman çıkışı yok: botun bu pozisyona ait kaydı yok, bu yüzden hiçbiri çalışmaz.",
   "tx_more": "{n} pozisyonun daha zaman çıkışları: /positions üzerinden açın.",
   "grant_live_held": "<b>CANLI İŞLEM İZNİ VERİLDİ — KAYDEDİLMEDİ</b>\n\n- Kullanıcı: <code>{id}</code>\n- İzin yalnızca bu bot süreci için geçerli: <code>users.json</code> yazılamadı ({cls}).\n- Yeniden başlatma bunu unutur ve hiçbir şey yeniden uygulamaz. Diski onarıp <code>/grant_live {id}</code> komutunu yeniden çalıştırın — ya da şimdi <code>/revoke_live {id}</code> ile geri alın.",
-  "revoke_live_held": "<b>CANLI İŞLEM İZNİ KALDIRILDI — KAYDEDİLMEDİ</b>\n\n- Kullanıcı: <code>{id}</code>\n- Kaldırma yalnızca bu bot süreci için geçerli: <code>users.json</code> yazılamadı ({cls}).\n- Yeniden başlatma bunu unutur: disk yeniden yazılabilir olduktan sonra <code>/revoke_live {id}</code> yeniden çalıştırılmazsa bu kullanıcı bir sonraki yeniden başlatmadan sonra yine canlı işlem yapabilir."
+  "revoke_live_held": "<b>CANLI İŞLEM İZNİ KALDIRILDI — KAYDEDİLMEDİ</b>\n\n- Kullanıcı: <code>{id}</code>\n- Kaldırma yalnızca bu bot süreci için geçerli: <code>users.json</code> yazılamadı ({cls}).\n- Yeniden başlatma bunu unutur: disk yeniden yazılabilir olduktan sonra <code>/revoke_live {id}</code> yeniden çalıştırılmazsa bu kullanıcı bir sonraki yeniden başlatmadan sonra yine canlı işlem yapabilir.",
+  "lbl_position_guard": "Pozisyon koruması",
+  "val_guard_off": "kapalı — bekleyen emirler her döngüde bir kez okunur",
+  "val_guard_every": "her {s} sn",
+  "val_guard_not_run": "henüz çalışmadı",
+  "val_guard_timeout": "son tarama zaman aşımına uğradı — döngü bekleyen emirleri okumaya devam ediyor",
+  "val_guard_error": "son tarama başarısız oldu — döngü bekleyen emirleri okumaya devam ediyor",
+  "val_guard_stale": "yakın zamanda tarama yok",
+  "val_guard_idle": "bekleyen emir yok",
+  "val_guard_read": "{n} bekleyen emir okundu",
+  "val_sltp_unknown_short": "kaydedilmedi"
 }

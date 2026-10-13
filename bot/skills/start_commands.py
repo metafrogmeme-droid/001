@@ -962,6 +962,10 @@ class StartCommands:
             # the symptom, which is the same hole the phase-cause carry fixed.
             position_watch=(self.engine.position_watch()
                             if hasattr(self.engine, "position_watch") else None),
+            # The position guard, which reads resting entry orders between
+            # ticks: off, not run, stale, failed, or healthy (omitted).
+            position_guard=(self.engine.position_guard()
+                            if hasattr(self.engine, "position_guard") else None),
             # What the last failing tick raised. Same reason as the two above:
             # the warning-rate breaker alert says new entries are suppressed
             # and sends the reader to /status, so /status has to be able to

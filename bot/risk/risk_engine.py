@@ -82,7 +82,7 @@ import threading
 import time
 from collections import deque
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, TypeGuard
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, TypeGuard, cast
 
 from bot.compat import UTC
 
@@ -718,6 +718,16 @@ class RiskEngine:
             return "equity_curve_pause"
         return ""
 
+    def _warnings_guard(self) -> threading.Lock:
+        """The warning deque's own lock, held only for its few operations, so
+        a warning recorded on the main loop never waits on an `evaluate` the
+        scan lane's thread holds `_lock` for. Made on first use;
+        ``dict.setdefault`` is atomic, so two threads get the same lock."""
+        lock = self.__dict__.get("_warnings_lock")
+        if lock is None:
+            lock = self.__dict__.setdefault("_warnings_lock", threading.Lock())
+        return cast(threading.Lock, lock)
+
     def record_warning(self, key: str) -> None:
         """Record an infrastructure warning event (EXCEPTION, CRITICAL_FAIL, etc).
 
@@ -727,13 +737,18 @@ class RiskEngine:
         trips and blocks new trades until the rate subsides.
         """
         now = time.time()
-        self._warning_events.append((now, key))
-        # Prune stale events
-        cutoff = now - self._warning_rate_window
-        while self._warning_events and self._warning_events[0][0] < cutoff:
-            self._warning_events.popleft()
-        # Count occurrences of this key in the window
-        count = sum(1 for _, k in self._warning_events if k == key)
+        # Under the deque's own lock (`_warnings_guard`): the executor records
+        # warnings on the main loop while `evaluate` prunes the same deque on
+        # the scan lane's thread, and two threads that both see it non-empty
+        # and both pop raise IndexError.
+        with self._warnings_guard():
+            self._warning_events.append((now, key))
+            # Prune stale events
+            cutoff = now - self._warning_rate_window
+            while self._warning_events and self._warning_events[0][0] < cutoff:
+                self._warning_events.popleft()
+            # Count occurrences of this key in the window
+            count = sum(1 for _, k in self._warning_events if k == key)
         if count > self._warning_rate_threshold:
             if not self._warning_rate_tripped:
                 self._warning_rate_tripped = True
@@ -767,10 +782,11 @@ class RiskEngine:
         if not self._warning_rate_tripped:
             return
         cutoff = self._now() - self._warning_rate_window
-        while self._warning_events and self._warning_events[0][0] < cutoff:
-            self._warning_events.popleft()
         key = self._warning_rate_trip_key
-        count = sum(1 for _, k in self._warning_events if k == key)
+        with self._warnings_guard():
+            while self._warning_events and self._warning_events[0][0] < cutoff:
+                self._warning_events.popleft()
+            count = sum(1 for _, k in self._warning_events if k == key)
         if count <= self._warning_rate_threshold:
             self._warning_rate_tripped = False
             audit(risk_log,
@@ -783,7 +799,9 @@ class RiskEngine:
         now = time.time()
         cutoff = now - self._warning_rate_window
         counts: dict[str, int] = {}
-        for ts, key in self._warning_events:
+        with self._warnings_guard():
+            events = list(self._warning_events)
+        for ts, key in events:
             if ts >= cutoff:
                 counts[key] = counts.get(key, 0) + 1
         return counts
@@ -3976,7 +3994,9 @@ class RiskEngine:
             return symbol
         from bot.core.live_executor import normalize_symbol
         want = normalize_symbol(symbol)
-        for key in self._price_history:
+        # A copy: the tick's positions pass records prices on the main loop
+        # while `evaluate` reads here on the scan lane's thread.
+        for key in list(self._price_history):
             if normalize_symbol(key) == want:
                 return key
         return symbol

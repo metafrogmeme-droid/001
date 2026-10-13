@@ -11287,6 +11287,55 @@ class LiveExecutor:
             trade_log.error("could not mark %s unprotected: %s",
                             pos.symbol, type(exc).__name__)
 
+    def guard_has_work(self) -> bool:
+        """Whether the position guard has anything to ask the venue about: a
+        resting entry order, or a submission whose answer was never read.
+        Read without touching the venue, so an idle book costs nothing."""
+        if self._unverified_submissions:
+            return True
+        return any(p.status == "pending_fill" for p in list(self._positions.values()))
+
+    async def guard_pass(self, entry_halt: Optional[str] = None) -> list[str]:
+        """The protective part of `check_positions`, for the position guard.
+
+        `check_positions` runs once a tick, after the scan and the analysis,
+        so a resting limit that filled while the analysis ran sat on the
+        venue with no stop until the tick reached it: minutes, on the ticks
+        that ran near the 300s analysis cap. This pass is what the guard runs
+        between ticks, every few seconds:
+
+          * a submission whose answer was never read is asked about first,
+            by client id, as `check_positions` does;
+          * each resting entry order is read: a fill is booked and its stop
+            and target placed, a cancelled order is taken off the book, and
+            under ``entry_halt`` the order is cancelled
+            (`_check_pending_limit` with ``fills_only``).
+
+        Nothing else. Open positions already carry the venue's stop placed at
+        the fill, and the trail, the scale-out ladder, the drift rule and the
+        expiry are the strategy's, measured at the tick's cadence.
+        """
+        if not self.guard_has_work():
+            return []
+        messages: list[str] = []
+        exchange = await self._get_exchange()
+        await self._probe_hold_mode_if_unknown()
+        messages.extend(await self._reconcile_unverified_submissions(exchange))
+        for trade_id, pos in list(self._positions.items()):
+            if pos.status != "pending_fill":
+                continue
+            # One order's fault costs only that order, as in check_positions.
+            try:
+                msg = await self._check_pending_limit(
+                    exchange, trade_id, pos, entry_halt=entry_halt, fills_only=True)
+                if msg:
+                    messages.append(msg)
+            except Exception as exc:
+                trade_log.error(
+                    "guard pass failed for %s (%s) -- other orders still checked: %s",
+                    pos.symbol, trade_id, type(exc).__name__)
+        return messages
+
     async def check_positions(self, entry_halt: Optional[str] = None) -> list[str]:
         """Check open positions against current prices. Returns list of close/update messages.
 
@@ -12071,7 +12120,8 @@ class LiveExecutor:
 
     async def _check_pending_limit(self, exchange: "ccxt.Exchange",
                                     trade_id: str, pos: LivePosition,
-                                    entry_halt: Optional[str] = None) -> Optional[str]:
+                                    entry_halt: Optional[str] = None,
+                                    fills_only: bool = False) -> Optional[str]:
         """Check if a pending limit order has been filled or should be cancelled.
 
         Returns a message string if status changed, else None.
@@ -12080,6 +12130,13 @@ class LiveExecutor:
         the same cancel flow as an expiry: the cancel is confirmed, the final
         fill is read, and a partial fill is adopted with this idea's levels,
         because that part is already a position on the venue.
+
+        ``fills_only`` is the position guard's pass (`guard_pass`): it books
+        and protects a fill, takes a cancelled order off the book, and cancels
+        under a halt, and does nothing else. The drift rule, the expiry and
+        the stale-row close are the strategy's, measured at the tick's
+        cadence; sampled every few seconds, a brief spike past the drift line
+        would cancel or chase a limit the tick would have left resting.
         """
         # ── HARD TIMEOUT: stale pending_fill safety net ──
         # A pending_fill row that has sat for 2x the normal expiry (8h by
@@ -12112,6 +12169,10 @@ class LiveExecutor:
             except Exception as exc:
                 read_exc = exc
         if order is None:
+            if fills_only:
+                # An unread order is read again on the next pass; the stale-row
+                # close is the tick's (see the docstring).
+                return None
             if stale_age > hard_timeout:
                 return await self._force_close_stale_pending(
                     exchange, trade_id, pos, stale_age, hard_timeout, read_exc)
@@ -12352,6 +12413,10 @@ class LiveExecutor:
                 # and the expiry never see the order.
                 if entry_halt:
                     cancel_reason = "entry_halted"
+                elif fills_only:
+                    # Still resting and nothing refuses entries: the drift
+                    # rule and the expiry are the tick's (see the docstring).
+                    return None
 
                 # ── PRICE DRIFT CANCEL (from Getclaw) ──
                 # If price has moved >X% away from the limit, the setup is stale.
@@ -16435,12 +16500,16 @@ class LiveExecutor:
 
     @property
     def open_positions(self) -> list[LivePosition]:
-        return [p for p in self._positions.values() if p.status in ("open", "pending_fill")]
+        # A copy first: the analysis reads this on the scan lane's thread
+        # while a positions pass on the main loop adds and removes rows, and
+        # a dict changing size under a Python-level loop raises.
+        return [p for p in list(self._positions.values())
+                if p.status in ("open", "pending_fill")]
 
     @property
     def closed_positions(self) -> list[LivePosition]:
         """All closed trades: in-memory + persisted from disk."""
-        in_mem = [p for p in self._positions.values() if p.status == "closed"]
+        in_mem = [p for p in list(self._positions.values()) if p.status == "closed"]
         # Merge: persisted closed trades + any in-memory closures not yet persisted
         seen_ids = {p.trade_id for p in self._closed_trades}
         merged = list(self._closed_trades)

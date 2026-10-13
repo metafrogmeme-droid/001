@@ -2567,6 +2567,21 @@ class MonitoringConfig:
     # comes near it. 0 disables (whole-tick cap still applies).
     tick_phase_timeout_sec: float = _env_float_bounded(
         "TICK_PHASE_TIMEOUT_SEC", 300.0, 0.0, 3600.0)
+    # THE POSITION GUARD. The tick reads positions once, after the scan and
+    # the analysis, so a resting limit that filled while the analysis ran
+    # had no stop until the tick reached it -- minutes, near the 300s cap.
+    # The guard asks about resting entry orders and unread submissions
+    # every POSITION_GUARD_INTERVAL_SEC between ticks, and books and protects
+    # a fill as soon as it reads one (`RuneClawEngine._position_guard_loop`).
+    # It does nothing else: the trail, the ladder, the drift rule and the
+    # expiry stay on the tick. Read with _env_switch so "off" means off.
+    position_guard_enabled: bool = _env_switch("POSITION_GUARD_ENABLED", True)
+    position_guard_interval_sec: float = _env_float_bounded(
+        "POSITION_GUARD_INTERVAL_SEC", 10.0, 5.0, 300.0)
+    # One guard pass may not outlast this; a pass that does is cancelled and
+    # said, and the tick's own pass still runs.
+    position_guard_pass_cap_sec: float = _env_float_bounded(
+        "POSITION_GUARD_PASS_CAP_SEC", 60.0, 5.0, 600.0)
     # Same idea for the light post-tick maintenance awaits (healthcheck ping,
     # web-credential pull, flatten requests, publishing) — each is throttled
     # and fail-open already, so a hung one is cancelled QUIETLY and the loop

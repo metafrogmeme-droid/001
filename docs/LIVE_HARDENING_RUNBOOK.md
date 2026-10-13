@@ -614,6 +614,31 @@ complete — open positions are unwatched for this tick
                                        action=positions_backstop INCOMPLETE
 ```
 
+### Were resting entries read between ticks? — the position guard line
+
+The tick reads positions once, after the scan and the analysis, so a resting
+limit that fills early in a tick would wait for the tick's positions phase to
+get its stop. The position guard (`RuneClawEngine._position_guard_loop`) reads
+resting entry orders and unread submissions every
+`POSITION_GUARD_INTERVAL_SEC` between ticks, and books and protects a fill as
+soon as it reads one. It does nothing else: the drift rule, the expiry, the
+trail and the ladder stay on the tick. It is live-only, and asks the venue
+nothing when no order is resting.
+
+`/status` shows it only when it needs you. A healthy guard is left out.
+
+| shown | means | do |
+|---|---|---|
+| (nothing on `/status`) | the last pass ran, or there was nothing resting | nothing |
+| `Position guard: off` | `POSITION_GUARD_ENABLED=0`; resting orders are read once a tick | turn it back on unless you turned it off on purpose |
+| `Position guard: not run yet` | live, and no pass has been recorded since the start | wait one interval; if it stays, check the engine is running |
+| `Position guard: last pass timed out` | a pass outlasted `POSITION_GUARD_PASS_CAP_SEC` and was cancelled | check the venue is answering; the tick still reads the orders |
+| `Position guard: last pass failed` | a pass raised; the audit line names the exception class | as above |
+| `Position guard: no recent pass` | the last recorded pass is older than three intervals | the guard's loop has stopped or is waiting on a long tick pass; check the engine |
+| `Position guard: not recorded` | an outcome this card does not know | read the log |
+
+The audit lines are `action=position_guard` with result `TIMEOUT` or `ERROR`.
+
 ### The caps, and what each one bounds
 
 | env | default | bounds |
@@ -621,6 +646,8 @@ complete — open positions are unwatched for this tick
 | `ANALYSIS_TIMEOUT_SEC` | 90 | one symbol's whole analysis. `0` disables |
 | `MARKET_DATA_TIMEOUT_MS` | 15000 | one request by the scanner's keyless data clients |
 | `TICK_PHASE_TIMEOUT_SEC` | 300 | one phase of the tick (positions / scan / analyze) |
+| `POSITION_GUARD_INTERVAL_SEC` | 10 | the wait between two position guard passes |
+| `POSITION_GUARD_PASS_CAP_SEC` | 60 | one position guard pass |
 | `GATEWAY_CONNECT_TIMEOUT_MS` | 4000 | the website's TCP connect to the bot gateway |
 
 `MARKET_DATA_TIMEOUT_MS` is deliberately **not** shared with the trading

@@ -306,5 +306,15 @@
   "tx_untracked": "⏱ Nessuna uscita a tempo: il bot non ha traccia di questa posizione, quindi non ne gira nessuna.",
   "tx_more": "Uscite a tempo per altre {n}: aprile in /positions.",
   "grant_live_held": "<b>TRADING LIVE CONCESSO — NON SALVATO</b>\n\n- Utente: <code>{id}</code>\n- La concessione vale solo per questo processo del bot: impossibile scrivere <code>users.json</code> ({cls}).\n- Un riavvio la dimentica e nulla la riapplica. Ripara il disco, poi esegui di nuovo <code>/grant_live {id}</code> — oppure annullala subito con <code>/revoke_live {id}</code>.",
-  "revoke_live_held": "<b>TRADING LIVE REVOCATO — NON SALVATO</b>\n\n- Utente: <code>{id}</code>\n- La revoca vale solo per questo processo del bot: impossibile scrivere <code>users.json</code> ({cls}).\n- Un riavvio la dimentica: questo utente potrà di nuovo operare live dopo il prossimo riavvio, a meno che <code>/revoke_live {id}</code> non venga eseguito di nuovo quando il disco torna scrivibile."
+  "revoke_live_held": "<b>TRADING LIVE REVOCATO — NON SALVATO</b>\n\n- Utente: <code>{id}</code>\n- La revoca vale solo per questo processo del bot: impossibile scrivere <code>users.json</code> ({cls}).\n- Un riavvio la dimentica: questo utente potrà di nuovo operare live dopo il prossimo riavvio, a meno che <code>/revoke_live {id}</code> non venga eseguito di nuovo quando il disco torna scrivibile.",
+  "lbl_position_guard": "Guardia delle posizioni",
+  "val_guard_off": "disattivata — gli ordini in attesa vengono letti una volta per ciclo",
+  "val_guard_every": "ogni {s} s",
+  "val_guard_not_run": "non ancora eseguita",
+  "val_guard_timeout": "l'ultimo passaggio è scaduto — il ciclo legge ancora gli ordini in attesa",
+  "val_guard_error": "l'ultimo passaggio non è riuscito — il ciclo legge ancora gli ordini in attesa",
+  "val_guard_stale": "nessun passaggio recente",
+  "val_guard_idle": "nulla in attesa",
+  "val_guard_read": "{n} ordine/i in attesa letto/i",
+  "val_sltp_unknown_short": "non registrato"
 }

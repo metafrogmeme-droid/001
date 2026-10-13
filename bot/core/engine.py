@@ -1626,7 +1626,9 @@ class RuneClawEngine:
                 if reg is None and symbol:
                     nsym = normalize_symbol(symbol)
                     reg = regimes.get(nsym) or next(
-                        (v for k, v in regimes.items() if normalize_symbol(k) == nsym),
+                        # A copy: the analyzer adds symbols on the scan
+                        # lane's thread while a close reads here.
+                        (v for k, v in list(regimes.items()) if normalize_symbol(k) == nsym),
                         None)
                 if reg is not None:
                     val = getattr(reg, "value", reg)
@@ -4698,6 +4700,12 @@ class RuneClawEngine:
         _consecutive_failures = 0
         _BACKOFF_CAP_S = 300.0
         _BACKOFF_EXP_MAX = 32
+        # The position guard runs beside the loop, and ends with it however
+        # it ends: returned, raised, or cancelled by bot.main's SIGTERM
+        # handler, which cancels this task before it calls stop().
+        if getattr(CONFIG.monitoring, "position_guard_enabled", True):
+            self._start_position_guard()
+            self._end_guard_with(asyncio.current_task())
         while self._running:
             try:
                 await self._tick_guarded()
@@ -5948,6 +5956,8 @@ class RuneClawEngine:
 
     async def stop(self) -> None:
         self._running = False
+        # First, before any executor's session closes under it.
+        await self._stop_position_guard()
         await self.ws_feed.stop()
         # The scan lane's exchange clients live on its loop. Close them
         # there, then close the ones this loop opened.
@@ -6438,6 +6448,10 @@ class RuneClawEngine:
         the gateway, the market socket, or this heartbeat.
         """
         from bot.core.scan_lane import scan_lane
+        # The loop that owns the executors' exchange clients. A read the
+        # batch makes of the venue is handed back to it
+        # (`exchange_sync.get_exchange_position_count`).
+        self._main_loop = asyncio.get_running_loop()
         return await scan_lane.run(factory)
 
     def _stamp_scan_heartbeat(self) -> None:
@@ -10733,7 +10747,168 @@ class RuneClawEngine:
         # never landed, already tracked: information, nothing closed.
         return first.startswith("SYNC:") or first.startswith("SUBMISSION:")
 
+    def _positions_lock(self) -> asyncio.Lock:
+        """The one lock every positions pass runs under.
+
+        The tick's pass, the back-stop, the backoff's pass and the position
+        guard all read and write the same books and send orders for them, so
+        no two may run at once. Made on first use, on the loop that uses it.
+        """
+        lock = getattr(self, "_position_pass_lock", None)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._position_pass_lock = lock
+        return lock
+
+    #: Outcomes a guard pass records. "busy" is not one: a pass that found
+    #: the books held by another pass read nothing and replaces no reading.
+    GUARD_OUTCOMES = ("ran", "idle", "timeout", "error")
+
+    async def _position_guard_loop(self) -> None:
+        """Ask about resting entry orders between ticks (D15).
+
+        The tick reads positions once, after the scan and the analysis, so a
+        resting limit that filled while the analysis ran had no stop until
+        the tick reached it: minutes, on the ticks that ran near the 300s
+        analysis cap. Every `position_guard_interval_sec` this asks each
+        executor that has a resting entry or an unread submission
+        (`LiveExecutor.guard_pass`), so a fill is booked and protected within
+        seconds. The loop outlives any one pass; it ends with the engine.
+        """
+        while self._running:
+            interval = float(getattr(CONFIG.monitoring,
+                                     "position_guard_interval_sec", 10.0) or 10.0)
+            await asyncio.sleep(max(1.0, interval))
+            if not self._running:
+                return
+            try:
+                await self._position_guard_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 -- the guard outlives a pass
+                system_log.debug("Position guard pass skipped: %s", type(exc).__name__)
+
+    async def _position_guard_once(self) -> str:
+        """One guard pass; returns what it did.
+
+        ``off`` (switched off, or not live), ``idle`` (no resting order and
+        no unread submission on any account: nothing is asked of the venue),
+        ``busy`` (another pass holds the books; it reads the same orders),
+        ``ran``, ``timeout`` or ``error``. Every outcome but ``off`` and
+        ``busy`` is recorded for `position_guard`.
+        """
+        if not getattr(CONFIG.monitoring, "position_guard_enabled", True) or not CONFIG.is_live():
+            return "off"
+        executors = [ex for ex in self._all_live_executors()
+                     if ex is not None and ex.guard_has_work()]
+        if not executors:
+            self._record_guard("idle", orders=0)
+            return "idle"
+        lock = self._positions_lock()
+        if lock.locked():
+            return "busy"
+        cap = float(getattr(CONFIG.monitoring, "position_guard_pass_cap_sec", 60.0) or 60.0)
+        orders = 0
+        outcome = "ran"
+        async with lock:
+            for _ex in executors:
+                orders += sum(1 for p in list(_ex._positions.values())
+                              if p.status == "pending_fill")
+                # One account's fault costs only that account's pass.
+                try:
+                    msgs = await asyncio.wait_for(
+                        _ex.guard_pass(entry_halt=self._entry_halt_reason(_ex)), timeout=cap)
+                except asyncio.TimeoutError:
+                    outcome = "timeout"
+                    audit(system_log,
+                          f"Position guard pass exceeded its {cap:.0f}s cap; the tick's "
+                          f"own pass still reads these orders",
+                          action="position_guard", result="TIMEOUT")
+                    continue
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 -- one account, not the guard
+                    if outcome == "ran":
+                        outcome = "error"
+                    audit(system_log,
+                          f"Position guard pass failed ({type(exc).__name__}); the "
+                          f"tick's own pass still reads these orders",
+                          action="position_guard", result="ERROR")
+                    continue
+                if msgs:
+                    await self._route_monitor_messages(_ex, msgs)
+        self._record_guard(outcome, orders=orders)
+        return outcome
+
+    def _record_guard(self, outcome: str, *, orders: int) -> None:
+        self._last_position_guard = {"outcome": outcome, "at": time.monotonic(),
+                                     "orders": orders}
+
+    def position_guard(self) -> dict:
+        """The guard's state for /status: whether it is on, how often it asks,
+        and its last recorded pass with that pass's age.
+
+        ``outcome`` and ``age_s`` are None until a pass has been recorded,
+        which the card says as "not run yet", never as healthy.
+        """
+        enabled = bool(getattr(CONFIG.monitoring, "position_guard_enabled", True))
+        interval = float(getattr(CONFIG.monitoring, "position_guard_interval_sec", 10.0) or 10.0)
+        rec = getattr(self, "_last_position_guard", None)
+        out: dict = {"enabled": enabled, "live": CONFIG.is_live(), "interval_s": interval,
+                     "outcome": None, "age_s": None, "orders": None}
+        if isinstance(rec, dict) and rec.get("outcome") in self.GUARD_OUTCOMES:
+            at = rec.get("at")
+            out["outcome"] = rec["outcome"]
+            out["orders"] = rec.get("orders")
+            if isinstance(at, (int, float)) and not isinstance(at, bool):
+                out["age_s"] = time.monotonic() - float(at)
+        return out
+
+    def _start_position_guard(self) -> None:
+        task = getattr(self, "_position_guard_task", None)
+        if task is not None and not task.done():
+            return
+        self._position_guard_task: Optional[asyncio.Task[None]] = asyncio.create_task(
+            self._position_guard_loop())
+
+    def _end_guard_with(self, task) -> None:
+        """Cancel the guard when ``task`` (the run loop) ends, however it ends."""
+        if task is None:
+            return
+
+        def _cancel_guard(_done) -> None:
+            guard = getattr(self, "_position_guard_task", None)
+            if guard is not None and not guard.done():
+                guard.cancel()
+
+        task.add_done_callback(_cancel_guard)
+
+    async def _stop_position_guard(self) -> None:
+        """Cancel the guard and wait for it, so nothing it started is cut off
+        by a closed exchange session."""
+        task = getattr(self, "_position_guard_task", None)
+        self._position_guard_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:  # noqa: BLE001 -- shutting down
+            system_log.debug("Position guard ended with %s", type(exc).__name__)
+
     async def _check_open_positions(self) -> None:
+        """The tick's positions pass, under the pass lock (`_positions_lock`).
+
+        A guard pass in flight finishes first; it is bounded by its own cap
+        (`position_guard_pass_cap_sec`), and this call runs under its
+        phase's.
+        """
+        async with self._positions_lock():
+            await self._run_positions_pass()
+
+    async def _run_positions_pass(self) -> None:
         """Monitor open positions for SL/TP hits.
 
         Records that it RAN — at the END — for _backstop_position_monitor.
@@ -10793,86 +10968,7 @@ class RuneClawEngine:
                 try:
                     live_closed = await _ex.check_positions(
                         entry_halt=self._entry_halt_reason(_ex))
-                    for msg in live_closed:
-                        # Distinguish limit fills from actual closes. A
-                        # "LIMIT → MARKET FALLBACK:" message is a position OPEN
-                        # (the limit converted to a market fill), not a close —
-                        # route it to the fill ("TRADE OPENED") path so it isn't
-                        # mislabeled as "❌ Trade Closed".
-                        is_fill = self._is_fill_message(msg)
-                        if is_fill:
-                            audit(trade_log, f"Limit order filled: {msg}",
-                                  action="limit_fill_notify", result="FILLED")
-                            try:
-                                await self._announce_executor_message(_ex, "fill", msg)
-                            except Exception as exc:
-                                logger.debug("Fill notify failed: %s", exc)
-                            continue
-
-                        # Periodic-sync adoption notices are informational —
-                        # the position is now tracked, nothing closed. Route
-                        # them to the sync callback (info card), never the
-                        # close card, and skip the loss-cooldown scan below.
-                        if self._is_sync_message(msg):
-                            audit(trade_log, f"Exchange sync: {msg}",
-                                  action="exchange_sync_notify",
-                                  result=("SUBMISSION" if msg.startswith("SUBMISSION:")
-                                          else "ADOPTED"))
-                            try:
-                                await self._announce_executor_message(_ex, "sync", msg)
-                            except Exception as exc:
-                                logger.debug("Sync notify failed: %s", exc)
-                            continue
-
-                        if self._is_unfilled_order_message(msg):
-                            # A resting order that ended without opening a
-                            # position: nothing closed, and the chain must
-                            # not say a position did.
-                            audit(trade_log, f"Resting order ended unfilled: {msg}",
-                                  action="limit_order_ended", result="UNFILLED")
-                        elif self._is_kept_open_message(msg):
-                            # A flatten that did not complete, or a stop that
-                            # could not be placed: the position is still
-                            # there, and the chain must not say it closed.
-                            audit(trade_log, f"Live position NOT closed: {msg}",
-                                  action="live_auto_close", result="NOT_CLOSED")
-                        else:
-                            audit(trade_log, f"Live position auto-closed: {msg}",
-                                  action="live_auto_close", result="CLOSED")
-                        try:
-                            await self._announce_executor_message(_ex, "close", msg)
-                        except Exception as exc:
-                            logger.debug("Close notify failed: %s", exc)
-                    # C-08 FIX: trigger cooldown on live losses. Read the losses
-                    # from the executor's closed-trade ledger for THIS tick
-                    # instead of _last_close_data per message — that shared slot
-                    # is last-write-wins, so with 2+ closes in one sweep every
-                    # message saw only the final close (a winning last close
-                    # masked an earlier loss, and the cooldown reason named the
-                    # wrong symbol). Only scanned when this tick closed something.
-                    #
-                    # THE PAUSE IS THE OPERATOR'S BOOK'S. `_tick` stops scanning
-                    # while it is set, for every account, so a per-user loss
-                    # arming it paused the agent for everybody. A per-user
-                    # account's own wait is its own risk engine's COOLDOWN
-                    # check, armed by `_on_live_position_closed` for a loss and
-                    # for a close nobody could price alike, and read at that
-                    # account's next confirm. Decided by IDENTITY: a per-user
-                    # executor with no id is not the operator's.
-                    if (_ex is self.live_executor
-                            and any(not self._is_fill_message(m)
-                                    and not self._is_sync_message(m)
-                                    for m in live_closed)):
-                        try:
-                            _cd_s = CONFIG.risk.cooldown_after_loss_seconds
-                            _reason = loss_cooldown_reason(
-                                getattr(_ex, '_closed_trades', []),
-                                datetime.now(UTC), _cd_s)
-                            if _reason:
-                                self._cooldown_until = time.monotonic() + _cd_s
-                                self._transition(AgentState.COOLING_DOWN, _reason)
-                        except Exception as exc:
-                            logger.debug("Loss-cooldown scan failed: %s", exc)
+                    await self._route_monitor_messages(_ex, live_closed)
                 except Exception as exc:
                     audit(system_log, f"Live position monitor error: {exc}",
                           action="live_monitor", result="ERROR")
@@ -10946,6 +11042,94 @@ class RuneClawEngine:
         # Reached only on completion — see the docstring. _tick clears this at
         # the top of every tick; _tick_guarded reads it in a finally.
         self._positions_monitored_tick = True
+
+    async def _route_monitor_messages(self, _ex, live_closed: list) -> None:
+        """Audit and announce what one executor's monitor pass returned.
+
+        One reading for the tick's pass (`_check_open_positions`) and the
+        position guard's (`_position_guard_once`), so a fill the guard books
+        is announced exactly as the tick would announce it.
+        """
+        for msg in live_closed:
+            # Distinguish limit fills from actual closes. A
+            # "LIMIT → MARKET FALLBACK:" message is a position OPEN
+            # (the limit converted to a market fill), not a close —
+            # route it to the fill ("TRADE OPENED") path so it isn't
+            # mislabeled as "❌ Trade Closed".
+            is_fill = self._is_fill_message(msg)
+            if is_fill:
+                audit(trade_log, f"Limit order filled: {msg}",
+                      action="limit_fill_notify", result="FILLED")
+                try:
+                    await self._announce_executor_message(_ex, "fill", msg)
+                except Exception as exc:
+                    logger.debug("Fill notify failed: %s", exc)
+                continue
+
+            # Periodic-sync adoption notices are informational —
+            # the position is now tracked, nothing closed. Route
+            # them to the sync callback (info card), never the
+            # close card, and skip the loss-cooldown scan below.
+            if self._is_sync_message(msg):
+                audit(trade_log, f"Exchange sync: {msg}",
+                      action="exchange_sync_notify",
+                      result=("SUBMISSION" if msg.startswith("SUBMISSION:")
+                              else "ADOPTED"))
+                try:
+                    await self._announce_executor_message(_ex, "sync", msg)
+                except Exception as exc:
+                    logger.debug("Sync notify failed: %s", exc)
+                continue
+
+            if self._is_unfilled_order_message(msg):
+                # A resting order that ended without opening a
+                # position: nothing closed, and the chain must
+                # not say a position did.
+                audit(trade_log, f"Resting order ended unfilled: {msg}",
+                      action="limit_order_ended", result="UNFILLED")
+            elif self._is_kept_open_message(msg):
+                # A flatten that did not complete, or a stop that
+                # could not be placed: the position is still
+                # there, and the chain must not say it closed.
+                audit(trade_log, f"Live position NOT closed: {msg}",
+                      action="live_auto_close", result="NOT_CLOSED")
+            else:
+                audit(trade_log, f"Live position auto-closed: {msg}",
+                      action="live_auto_close", result="CLOSED")
+            try:
+                await self._announce_executor_message(_ex, "close", msg)
+            except Exception as exc:
+                logger.debug("Close notify failed: %s", exc)
+        # C-08 FIX: trigger cooldown on live losses. Read the losses
+        # from the executor's closed-trade ledger for THIS tick
+        # instead of _last_close_data per message — that shared slot
+        # is last-write-wins, so with 2+ closes in one sweep every
+        # message saw only the final close (a winning last close
+        # masked an earlier loss, and the cooldown reason named the
+        # wrong symbol). Only scanned when this tick closed something.
+        #
+        # THE PAUSE IS THE OPERATOR'S BOOK'S. `_tick` stops scanning
+        # while it is set, for every account, so a per-user loss
+        # arming it paused the agent for everybody. A per-user
+        # account's own wait is its own risk engine's COOLDOWN
+        # check, armed by `_on_live_position_closed` for a loss and
+        # for a close nobody could price alike, and read at that
+        # account's next confirm. Decided by IDENTITY: a per-user
+        # executor with no id is not the operator's.
+        if (_ex is self.live_executor
+                and any(not self._is_fill_message(m)
+                        and not self._is_sync_message(m)
+                        for m in live_closed)):
+            try:
+                _cd_s = CONFIG.risk.cooldown_after_loss_seconds
+                _reason = loss_cooldown_reason(
+                    getattr(_ex, '_closed_trades', []),
+                    datetime.now(UTC), _cd_s)
+                if _reason:
+                    self._cooldown_until = time.monotonic() + _cd_s
+                    self._transition(AgentState.COOLING_DOWN, _reason)
+            except Exception as exc:
+                logger.debug("Loss-cooldown scan failed: %s", exc)
 
     async def _check_paper_positions(self, positions) -> None:
         """Monitor paper portfolio positions for SL/TP hits.

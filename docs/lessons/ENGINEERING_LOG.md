@@ -21419,7 +21419,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **489 of 1303** reach for source text through `source_scan`, `code_only`
+Driven, **489 of 1305** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 489 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -24010,3 +24010,92 @@ as it is.
 twenty-one mutants, all killed. One first measured nothing, because its
 anchor matched twice: the ticket's submit builds the same expression the
 Review button does.)
+
+**A LIMIT THAT FILLED MID-TICK WAITED FOR THE TICK TO GET ITS STOP.**
+12 October, from the plan's D15. The tick reads positions once, after the
+scan and the analysis. That read is where a resting entry
+order's fill is booked and its stop and target are placed
+(`LiveExecutor._check_pending_limit`). So a limit that filled early in a tick
+sat on the venue with no stop until the tick reached its positions phase. The
+analysis runs under a 300s cap, and on 10 October `/status` showed it peaking
+at 274s of it (the nudge chapter above). Nothing records how long a real fill
+waited. The bound is the scan plus the analysis.
+
+The position guard (`RuneClawEngine._position_guard_loop`) asks between ticks,
+every `POSITION_GUARD_INTERVAL_SEC` (10s). Each pass asks only the accounts
+that have a resting entry order or a submission whose answer was never read.
+`LiveExecutor.guard_has_work` decides that from memory alone, so an idle book
+costs the venue nothing. For each such account it runs
+`LiveExecutor.guard_pass`:
+- an unread submission is asked about by client id, as the tick does;
+- each resting order is read. A fill is booked and protected, a cancelled
+  order is taken off the book, and under an entry halt the order is
+  cancelled.
+
+It does nothing else. The drift rule, the expiry and the stale-row close stay
+on the tick (`fills_only`). Sampled every ten seconds, a brief spike past the
+drift line would cancel or chase a limit the tick would have left resting.
+The trail and the ladder are the strategy's too, and an open position already
+carries the stop placed at its fill.
+
+Every positions pass now runs under one lock (`_positions_lock`): the tick's,
+the back-stop's, the backoff's and the guard's. They read and write the same
+books and send orders for them. A guard that finds the lock held reads
+nothing and records nothing. The tick's pass waits for a guard pass in
+flight, which its own cap bounds (`POSITION_GUARD_PASS_CAP_SEC`, 60s).
+
+The guard starts with `run()` whether or not live is armed at boot, because
+`/golive` arms it at runtime, and each pass asks `is_live()` itself. It ends
+with the run loop, and `stop()` cancels and awaits it before any exchange
+session closes. `POSITION_GUARD_ENABLED=0` turns it off. `/status` names the
+guard only when it needs attention:
+- off;
+- not run yet;
+- the last pass timed out or failed;
+- no recent pass (older than three intervals);
+- an outcome the card does not know.
+
+A healthy guard is left out, like the healthy watch line beside it. The
+tick-loop tests stub the guard out: its loop sleeps on their virtual clock
+and would move the times they measure.
+
+**A SECOND WRITER BETWEEN TICKS MADE FIVE SHARED READS ROUTINE.** The analysis
+runs on the scan lane's own thread and loop. The main loop runs the gateway,
+Telegram and now the guard. A close from Telegram during an analysis could
+already reach these five; the guard makes them an every-ten-seconds event.
+- The analysis' position-limit check (`get_exchange_position_count`) used the
+  operator executor's ccxt client from the lane's thread. The client belongs
+  to the main loop: its session, its throttle and its timeouts are that
+  loop's. The read is handed to the main loop now
+  (`exchange_sync._on_the_clients_loop`), which `_off_gateway_loop` records.
+  With none recorded, or the recorded one stopped, the read runs where it is.
+- `LiveExecutor.open_positions` and `closed_positions` looped over
+  `_positions` while a pass added and removed rows. A dict that changes size
+  under a Python-level loop raises. They copy first.
+- `RiskEngine._price_history_key` looped over `_price_history` while the tick
+  recorded prices. It copies first.
+- `RuneClawEngine._outcome_regime` looped over the analyzer's regimes while
+  the analyzer added symbols. Its `except` turned the raise into the risk
+  engine's fallback regime, so a closed trade was silently tagged `UNKNOWN`.
+  It copies first.
+- The warning-rate deque was pruned check-then-`popleft` from both threads,
+  so the lane's prune could pop a warning the main loop had just recorded.
+  It has its own lock (`RiskEngine._warnings_guard`), not `RiskEngine._lock`.
+  `evaluate` holds that one for a whole evaluation on the lane's thread, and
+  a warning recorded on the main loop must never wait for it.
+
+A thread switch cannot be scheduled from a test. So each test runs the other
+thread's write at the point the loop yields (a `status` read, a
+`normalize_symbol` call, a deque index) and asserts the reading, not only
+the absence of a raise.
+(`tests/test_a_resting_fill_is_protected_between_ticks.py`,
+`tests/test_the_scan_lane_reads_shared_state_by_copy.py`: thirty-nine
+mutants, all killed. Two first hung rather than failed, because their tests
+waited on what the mutant removed: the busy test held the lock while asking
+the guard, and the timeout test's pass slept for an hour. Both bound their
+waits now. Five first survived. The halt reason, an unknown outcome, the
+card placing the line and an age that is no reading had no test of their
+own. The test that the guard ends
+with the run loop passed whatever the callback did, because `asyncio.run`
+cancels every task still running when it returns. It asks inside the loop
+now.)

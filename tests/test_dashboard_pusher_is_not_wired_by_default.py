@@ -138,6 +138,10 @@ async def test_shutdown_actually_closes_it():
         scanner = _Noop()
         live_executor = None
         _user_executors: dict = {}
+        # The real method, bound: shutdown ends the position guard first
+        # (`RuneClawEngine._stop_position_guard`), and a stand-in that wrote
+        # its own would forget the next thing shutdown asks for.
+        _stop_position_guard = RuneClawEngine._stop_position_guard
         dashboard_pusher = _Pusher()
 
     stub = _Stub()
@@ -166,6 +170,10 @@ async def test_shutdown_survives_the_pusher_being_absent():
         scanner = _Noop()
         live_executor = None
         _user_executors: dict = {}
+        # The real method, bound: shutdown ends the position guard first
+        # (`RuneClawEngine._stop_position_guard`), and a stand-in that wrote
+        # its own would forget the next thing shutdown asks for.
+        _stop_position_guard = RuneClawEngine._stop_position_guard
         dashboard_pusher = None
 
     try:

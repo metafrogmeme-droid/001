@@ -306,5 +306,15 @@
   "tx_untracked": "⏱ Aucune sortie temporelle : le bot n'a aucun enregistrement de cette position, donc aucune ne s'exécute.",
   "tx_more": "Sorties temporelles de {n} autres : ouvrez-les dans /positions.",
   "grant_live_held": "<b>TRADING RÉEL ACCORDÉ — NON ENREGISTRÉ</b>\n\n- Utilisateur : <code>{id}</code>\n- L'autorisation ne vaut que pour ce processus du bot : <code>users.json</code> n'a pas pu être écrit ({cls}).\n- Un redémarrage l'oublie et rien ne la réapplique. Réparez le disque, puis relancez <code>/grant_live {id}</code> — ou annulez-la maintenant avec <code>/revoke_live {id}</code>.",
-  "revoke_live_held": "<b>TRADING RÉEL RÉVOQUÉ — NON ENREGISTRÉ</b>\n\n- Utilisateur : <code>{id}</code>\n- La révocation ne vaut que pour ce processus du bot : <code>users.json</code> n'a pas pu être écrit ({cls}).\n- Un redémarrage l'oublie : cet utilisateur pourra de nouveau trader en réel après le prochain redémarrage, sauf si <code>/revoke_live {id}</code> est relancé une fois le disque à nouveau inscriptible."
+  "revoke_live_held": "<b>TRADING RÉEL RÉVOQUÉ — NON ENREGISTRÉ</b>\n\n- Utilisateur : <code>{id}</code>\n- La révocation ne vaut que pour ce processus du bot : <code>users.json</code> n'a pas pu être écrit ({cls}).\n- Un redémarrage l'oublie : cet utilisateur pourra de nouveau trader en réel après le prochain redémarrage, sauf si <code>/revoke_live {id}</code> est relancé une fois le disque à nouveau inscriptible.",
+  "lbl_position_guard": "Garde des positions",
+  "val_guard_off": "désactivé — les ordres en attente sont lus une fois par cycle",
+  "val_guard_every": "toutes les {s} s",
+  "val_guard_not_run": "pas encore exécuté",
+  "val_guard_timeout": "le dernier passage a expiré — le cycle lit toujours les ordres en attente",
+  "val_guard_error": "le dernier passage a échoué — le cycle lit toujours les ordres en attente",
+  "val_guard_stale": "aucun passage récent",
+  "val_guard_idle": "rien en attente",
+  "val_guard_read": "{n} ordre(s) en attente lu(s)",
+  "val_sltp_unknown_short": "non enregistré"
 }

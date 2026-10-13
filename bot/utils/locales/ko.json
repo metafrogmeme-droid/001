@@ -306,5 +306,15 @@
   "tx_untracked": "⏱ 시간 청산 없음: 봇에 이 포지션 기록이 없어 아무것도 실행되지 않습니다.",
   "tx_more": "{n}개 포지션의 시간 청산은 /positions에서 확인하세요.",
   "grant_live_held": "<b>라이브 거래 허용됨 — 저장되지 않음</b>\n\n- 사용자: <code>{id}</code>\n- 이 허용은 이 봇 프로세스에서만 유효합니다: <code>users.json</code>을 쓸 수 없었습니다 ({cls}).\n- 재시작하면 사라지며 자동으로 다시 적용되지 않습니다. 디스크를 복구한 뒤 <code>/grant_live {id}</code>를 다시 실행하거나, 지금 <code>/revoke_live {id}</code>로 취소하세요.",
-  "revoke_live_held": "<b>라이브 거래 취소됨 — 저장되지 않음</b>\n\n- 사용자: <code>{id}</code>\n- 이 취소는 이 봇 프로세스에서만 유효합니다: <code>users.json</code>을 쓸 수 없었습니다 ({cls}).\n- 재시작하면 사라집니다: 디스크에 쓸 수 있게 된 뒤 <code>/revoke_live {id}</code>를 다시 실행하지 않으면 이 사용자는 다음 재시작 후 다시 라이브 거래를 할 수 있습니다."
+  "revoke_live_held": "<b>라이브 거래 취소됨 — 저장되지 않음</b>\n\n- 사용자: <code>{id}</code>\n- 이 취소는 이 봇 프로세스에서만 유효합니다: <code>users.json</code>을 쓸 수 없었습니다 ({cls}).\n- 재시작하면 사라집니다: 디스크에 쓸 수 있게 된 뒤 <code>/revoke_live {id}</code>를 다시 실행하지 않으면 이 사용자는 다음 재시작 후 다시 라이브 거래를 할 수 있습니다.",
+  "lbl_position_guard": "포지션 가드",
+  "val_guard_off": "꺼짐 — 대기 주문은 틱마다 한 번 읽습니다",
+  "val_guard_every": "{s}초마다",
+  "val_guard_not_run": "아직 실행되지 않음",
+  "val_guard_timeout": "마지막 점검 시간 초과 — 틱은 여전히 대기 주문을 읽습니다",
+  "val_guard_error": "마지막 점검 실패 — 틱은 여전히 대기 주문을 읽습니다",
+  "val_guard_stale": "최근 점검 없음",
+  "val_guard_idle": "대기 주문 없음",
+  "val_guard_read": "대기 주문 {n}건 읽음",
+  "val_sltp_unknown_short": "기록 없음"
 }

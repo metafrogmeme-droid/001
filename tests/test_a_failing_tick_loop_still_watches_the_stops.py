@@ -130,6 +130,11 @@ def _engine(clock, *, tick, stop_after):
     e.checks = []
     e.tick_starts = []
     e.tick_ends = []
+    # The position guard is a separate watcher (resting entry orders between
+    # ticks, `test_a_resting_fill_is_protected_between_ticks`). Its loop
+    # sleeps on this file's virtual clock, which every sleep advances, so it
+    # would move the time these tests measure the TICK loop's watching by.
+    e._start_position_guard = lambda: None
 
     async def _check_open_positions():
         e.checks.append(clock.now)
@@ -403,3 +408,30 @@ class TestTheMonitorIsWatchedWhileTicksFail:
         assert all(b - a >= 300.0 for a, b in zip(told, told[1:])), told
         assert pinged == [], (
             "the external dead-man's switch was fed by failing ticks")
+
+
+class TestTheRunLoopOwnsThePositionGuard:
+    """`run()` starts the between-ticks position guard and ends it with
+    itself (the guard's own behaviour is
+    `test_a_resting_fill_is_protected_between_ticks`)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("enabled", [True, False])
+    async def test_run_starts_the_guard_and_ties_its_end_to_itself(self, clock, monitoring, enabled):
+        monitoring(tick_phase_timeout_sec=0.0, tick_hard_timeout_sec=0.0,
+                   position_guard_enabled=enabled)
+
+        async def ok(e):
+            return None
+        e = _engine(clock, tick=ok, stop_after=1)
+        started: list = []
+        tied: list = []
+        e._start_position_guard = lambda: started.append(1)
+        e._end_guard_with = lambda task: tied.append(task)
+        await e.run()
+
+        if enabled:
+            assert started == [1]
+            assert tied == [asyncio.current_task()]
+        else:
+            assert started == [] and tied == []
