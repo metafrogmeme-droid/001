@@ -37,6 +37,9 @@ DOCUMENTED_ENV = [
     ("ANALYSIS_TIMEOUT_SEC", "bot/config.py"),
     ("MARKET_DATA_TIMEOUT_MS", "bot/config.py"),
     ("TICK_PHASE_TIMEOUT_SEC", "bot/config.py"),
+    ("POSITION_GUARD_ENABLED", "bot/config.py"),
+    ("POSITION_GUARD_INTERVAL_SEC", "bot/config.py"),
+    ("POSITION_GUARD_PASS_CAP_SEC", "bot/config.py"),
     ("TOP_MOVERS_COUNT", "bot/config.py"),
     ("PUBLIC_GATEWAY_URL", "bot/config.py"),
     ("GATEWAY_CONNECT_TIMEOUT_MS", "app/lib/gateway.js"),
@@ -56,6 +59,8 @@ def test_a_documented_env_var_is_actually_read(name, where):
     ("ANALYSIS_TIMEOUT_SEC", "90"),
     ("MARKET_DATA_TIMEOUT_MS", "15000"),
     ("TICK_PHASE_TIMEOUT_SEC", "300"),
+    ("POSITION_GUARD_INTERVAL_SEC", "10"),
+    ("POSITION_GUARD_PASS_CAP_SEC", "60"),
 ])
 def test_a_quoted_default_is_the_real_default(name, default):
     """A wrong default is worse than none: it gets used to reason about
@@ -131,6 +136,36 @@ def test_the_sltp_monitor_vocabulary_is_what_the_card_renders():
         assert quoted in RUNBOOK, (
             f"the runbook does not quote {key} ({quoted!r}) — an operator "
             f"looking up a line they can see would not find it")
+
+
+def test_the_position_guard_vocabulary_is_what_the_card_renders():
+    """Same rule as the SL/TP table: every row the runbook quotes for the
+    guard is the English the card renders, so a reworded label fails here
+    until the table follows it."""
+    from bot.formatters.rich_cards import position_guard_line
+
+    on = {"live": True, "enabled": True, "interval_s": 10.0}
+    shown = [
+        position_guard_line({"live": True, "enabled": False}),
+        position_guard_line({**on, "outcome": None}),
+        position_guard_line({**on, "outcome": "timeout", "age_s": 5}),
+        position_guard_line({**on, "outcome": "error", "age_s": 5}),
+        position_guard_line({**on, "outcome": "ran", "age_s": 95}),
+        position_guard_line({**on, "outcome": "new-verdict"}),
+    ]
+    for line in shown:
+        assert line, "a state the table documents rendered nothing"
+        # "⚪ Position guard: off — resting orders ..." is quoted to the
+        # first clause, without its emoji or its parenthesis.
+        quoted = line.split(" ", 1)[1].split(" \u2014 ")[0].split(" (")[0]
+        assert f"`{quoted}`" in RUNBOOK, (
+            f"the runbook does not quote {quoted!r} -- an operator looking up "
+            f"a line they can see would not find it")
+    # The healthy guard is the row that says nothing.
+    assert position_guard_line({**on, "outcome": "ran", "age_s": 4, "orders": 1}) == ""
+    assert "(nothing on `/status`) | the last pass ran" in RUNBOOK
+    assert 'action="position_guard"' in Path("bot/core/engine.py").read_text(encoding="utf-8")
+    assert "`action=position_guard`" in RUNBOOK
 
 
 def test_the_backstop_audit_action_it_tells_you_to_grep_for_exists():

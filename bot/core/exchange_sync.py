@@ -577,6 +577,29 @@ async def sync_portfolio_with_exchange(engine) -> list[str]:
     return messages
 
 
+async def _on_the_clients_loop(engine, coro):
+    """Await ``coro`` on the loop that owns the executor's exchange client.
+
+    The analysis runs on the scan lane's own thread and loop
+    (`bot.core.scan_lane`), and its position-limit check reaches the
+    operator executor's ccxt client, which belongs to the main loop: its
+    session, its throttle and its timeouts are that loop's. Used from the
+    lane's thread it scheduled work onto the main loop from the wrong thread
+    while the main loop placed and cancelled orders through the same client.
+    So a call from any other loop is handed to the main loop and awaited
+    from here. A call on the main loop, or with no main loop recorded, runs
+    where it is.
+    """
+    main = getattr(engine, "_main_loop", None)
+    try:
+        here = asyncio.get_running_loop()
+    except RuntimeError:
+        here = None
+    if main is None or here is None or here is main or not main.is_running():
+        return await coro
+    return await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(coro, main))
+
+
 async def get_exchange_position_count(engine) -> int:
     """Return the number of actually open positions on the exchange.
 
@@ -598,7 +621,7 @@ async def get_exchange_position_count(engine) -> int:
         return _position_count_cache["count"]
 
     try:
-        book = await _fetch_exchange_positions(engine)
+        book = await _on_the_clients_loop(engine, _fetch_exchange_positions(engine))
         # FAIL-CLOSED FOR THE CAP: a row listed with no readable size may hold
         # a position, and this count decides whether another may be opened.
         count = len(book.rows) + len(book.unreadable)
