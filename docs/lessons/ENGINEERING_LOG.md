@@ -19770,6 +19770,48 @@ presale's own lines. (`token/presale/the_record_states_the_locks.test.mjs`,
 `app/test/the_token_page_shows_the_locks.test.js`,
 `tests/test_the_rclaw_card_shows_the_locks.py`.)
 
+**THE GITHUB PAGE WAS A PUBLIC SURFACE THAT NAMED NO MINT, AND LINKED THE HOSTING PROVIDER.** Checked
+on 2026-10-13, after the sale and the locks went live: the repository's README (what github.com shows
+first, in English and 繁體中文) said nothing about $RCLAW, so the one page a careful buyer checks for the
+official mint carried none, and its header linked the site at `pmvc58g2.mule.page`, the hostname
+`app/test/canonical_host.test.js` already keeps out of every page. Its badges counted 2,644 tests in 227
+files (and 862 in the Chinese copy) against 1,311 test files that day: a count in a badge is a
+measurement somebody remembered. Both READMEs now carry a $RCLAW section between `rclaw-record` markers
+(the mint, the sale link and window, the terms, the three locks with their accounts and certificates),
+the canonical host, and badges with no counts. The section is a second copy of the token record, so
+`tests/test_the_readme_states_the_token_record.py` holds it to the record: every address in it must be
+one the record names and every record address must appear, and every Smithii link must be one of the
+record's exactly. The first draft compared the sale link as a substring, and a mutant linking
+`.../RUNECLAW2` passed it; it compares whole links now. Ten mutants, all killed after that fix.
+
+The same check, asked of every link and not only the token's, found the larger fault. The
+`Humanoid-Traders` organisation was suspended on 2026-08-02, and the August audit had already recorded
+the README's clone URL and CI badge pointing at it (M27). Two months on, the dead organisation was still
+linked from the README's header, badge and both clone commands (in both languages), SECURITY.md, four
+GitBook pages, the agent card, the tool manifest's `sourceCodeURI` (not yet registered on chain, so its
+hash is still free to change), the website's footer on `/` and `/explore`, and the developer page and its
+translated footer in all fourteen languages. A finding written in an audit is not a fix, and nothing
+failed while it waited. All of them now link `github.com/metafrogmeme-droid/001`; the clone commands
+clone into `RUNECLAW`, the folder the next line enters. `tests/test_public_pages_link_the_live_repository.py`
+holds the public surfaces to it: no link to the suspended organisation, every `/blob/main/` or
+`/tree/main/` link names a file that exists, every relative README link resolves, and every clone command
+clones the live repository into the folder its `cd` names (five mutants, all killed). The audits, the
+hackathon submission and the archived pages keep the URLs they were written with.
+
+The operator then confirmed the presale facts and left the rest to judgment, which settled three more.
+The header's X link named a personal account while the token's own metadata (`rclaw-metadata.json`,
+`extensions.twitter`), the sale page and the lock certificates name `x.com/RUNECLAW_AI`; every X profile
+link on a public page is held to the metadata's now. LICENSE and NOTICE gave the suspended organisation
+as the contact and the repository; only those locators changed, never the licence terms. The README's
+disclaimer called RUNECLAW an educational prototype never to be used with real funds, beside a section
+saying it trades live; it now says what is true (live with small positions, no independent third-party
+audit, real funds at the reader's own risk) without dropping a warning. And the red team was "28
+scenarios across 10 categories" in both languages while CI's own step said 30: the eleventh category,
+malformed input, came later. `tests/test_the_readme_counts_what_runs.py` takes the figure from the run
+itself (`scripts/red_team.py --json`). Six mutants over the X, NOTICE and red-team guards, all killed.
+What only the operator can do is left to the operator: the repository's About box, which only GitHub's
+settings set, and the GitBook site's sync source.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -21469,7 +21511,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **490 of 1310** reach for source text through `source_scan`, `code_only`
+Driven, **490 of 1313** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 490 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

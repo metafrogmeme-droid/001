@@ -1602,7 +1602,7 @@
   ["dv.reg3", "由管理員簽署的註冊試跑 — 伺服器從不持有金鑰"],
   ["dv.ethos_h", "驗證的信條"],
   ["dv.ethos_p", "別相信儀表板 — <b>去驗證成交</b>。Proof-of-PnL 套件會正規化成 JSON：鍵遞迴排序、無空白、UTF-8（每個數字都已是字串）；<code>publish_hash = SHA-256(canonical)</code>。你的代理可以用任何語言重新推導，並拒絕任何對不上的東西。安全判讀是附理由的啟發式標記，絕不是定論。過往表現從不預示未來結果。"],
-  ["dv.footer_p", "具備交易能力的 MCP 工具是另一個由管理員把關的決定，並未在此開放。兩項鏈上聲明（錨定＋工具註冊，皆由管理員簽署）的上線流程：<a href=\"https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/ONCHAIN_GOLIVE.md\" target=\"_blank\" rel=\"noopener\">docs/ONCHAIN_GOLIVE.md</a>。互通性路線圖（ERC-8004 登錄、支付架構 — 僅為設計，受法規限制）：<a href=\"https://github.com/Humanoid-Traders/RUNECLAW/blob/main/docs/INTEROP.md\" target=\"_blank\" rel=\"noopener\">docs/INTEROP.md</a>。"],
+  ["dv.footer_p", "具備交易能力的 MCP 工具是另一個由管理員把關的決定，並未在此開放。兩項鏈上聲明（錨定＋工具註冊，皆由管理員簽署）的上線流程：<a href=\"https://github.com/metafrogmeme-droid/001/blob/main/docs/ONCHAIN_GOLIVE.md\" target=\"_blank\" rel=\"noopener\">docs/ONCHAIN_GOLIVE.md</a>。互通性路線圖（ERC-8004 登錄、支付架構 — 僅為設計，受法規限制）：<a href=\"https://github.com/metafrogmeme-droid/001/blob/main/docs/INTEROP.md\" target=\"_blank\" rel=\"noopener\">docs/INTEROP.md</a>。"],
   ["sx.badge", "數位分身"],
   ["sx.lede", "先建一個假設的持倉，再把它弄壞。這是你投資組合的<b>數位分身</b> — 它會把每個槓桿部位分別放進主流幣 −30% 下跌、山寨幣崩盤、穩定幣脫鉤、連環強平與黑天鵝之中，然後顯示你的<b>回撤</b>、哪些部位會被<b>強制平倉</b>，以及什麼會最先擊垮你。僅顯示百分比 — 這是對虛構投資組合的假設模擬，絕不是你的真實餘額，也絕不是投資建議。"],
   ["sx.book_h", "你的持倉 — 自己建立"],
