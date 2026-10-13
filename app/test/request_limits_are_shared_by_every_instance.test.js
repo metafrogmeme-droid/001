@@ -49,6 +49,16 @@ function call(mw, { method = 'POST', ip = '203.0.113.9' } = {}) {
 const settle = () => new Promise((r) => setTimeout(r, 15));
 const rows = () => Object.entries(db.pool.rateHits);
 
+/**
+ * Hold the clock mid-window, for a test whose count must fall inside one
+ * minute. The sliding estimate rounds the remaining allowance up (1.25 → 2
+ * slots, below), so a burst on the wall clock that straddles a minute admits
+ * one more than `max`: insight's 60 passed 61 of 120 on CI on 2026-10-13.
+ */
+function inOneWindow(t) {
+  t.mock.timers.enable({ apis: ['Date'], now: 29_000_400 * 60_000 + 30_000 });
+}
+
 const realExecute = db.pool.execute;
 test.beforeEach(() => {
   db.pool.execute = realExecute;
@@ -58,7 +68,8 @@ test.afterEach(() => { db.pool.execute = realExecute; });
 
 // ── the shared count ─────────────────────────────────────────────────────
 
-test('five a minute is five across two instances, not five each', async () => {
+test('five a minute is five across two instances, not five each', async (t) => {
+  inOneWindow(t);
   const a = instance().rateLimit({ name: 't.pair', max: 5, message: 'slow' });
   const b = instance().rateLimit({ name: 't.pair', max: 5, message: 'slow' });
   const out = [];
@@ -70,7 +81,8 @@ test('five a minute is five across two instances, not five each', async () => {
   assert.strictEqual(refused[0].headers['Retry-After'], 60);
 });
 
-test('a new instance starts from the count the last one left', async () => {
+test('a new instance starts from the count the last one left', async (t) => {
+  inOneWindow(t);
   const old = instance().rateLimit({ name: 't.rotate', max: 5 });
   for (let i = 0; i < 5; i++) assert.strictEqual((await call(old)).status, 200);
   const next = instance().rateLimit({ name: 't.rotate', max: 5 });
@@ -79,7 +91,8 @@ test('a new instance starts from the count the last one left', async () => {
   assert.strictEqual((await call(next, { ip: '198.51.100.4' })).status, 200);
 });
 
-test('a concurrent burst that waits is admitted exactly max times across instances', async () => {
+test('a concurrent burst that waits is admitted exactly max times across instances', async (t) => {
+  inOneWindow(t);
   const a = instance().rateLimit({ name: 't.burst', max: 5 });
   const b = instance().rateLimit({ name: 't.burst', max: 5 });
   const out = await Promise.all(Array.from({ length: 12 }, (_, i) => call(i % 2 ? b : a)));
@@ -88,7 +101,8 @@ test('a concurrent burst that waits is admitted exactly max times across instanc
   assert.strictEqual(rows()[0][1].hits, 5);
 });
 
-test('once a window\'s row exists, a counted request costs this instance one statement', async () => {
+test('once a window\'s row exists, a counted request costs this instance one statement', async (t) => {
+  inOneWindow(t);
   const lim = instance().rateLimit({ name: 't.cost', max: 5 });
   assert.strictEqual((await call(lim)).status, 200);          // reads the previous window, opens this one
   await settle();
@@ -142,7 +156,8 @@ test('a read is not held for the database; a write is', async () => {
   assert.deepStrictEqual([write.status, write.held], [200, true], 'the POST did not wait for the shared count');
 });
 
-test('a read past the shared limit is refused here once the count has said so, without asking again', async () => {
+test('a read past the shared limit is refused here once the count has said so, without asking again', async (t) => {
+  inOneWindow(t);
   const a = instance().rateLimit({ name: 't.reads', max: 5 });
   const b = instance().rateLimit({ name: 't.reads', max: 5 });
   for (let i = 0; i < 5; i++) assert.strictEqual((await call(a)).status, 200);
@@ -295,7 +310,8 @@ test('rows are pruned once their window can no longer be read', async (t) => {
 
 // ── the MCP window and the converted routers ─────────────────────────────
 
-test('the MCP chat window is shared: six a minute per caller across instances', async () => {
+test('the MCP chat window is shared: six a minute per caller across instances', async (t) => {
+  inOneWindow(t);
   const a = instance().slidingWindow({ name: 't.ask', windowMs: 60_000, max: 6 });
   const b = instance().slidingWindow({ name: 't.ask', windowMs: 60_000, max: 6 });
   const got = [];
@@ -313,7 +329,8 @@ async function serve(router) {
 }
 
 for (const [file, max] of [['market', 120], ['macro', 40], ['patterns', 60], ['insight', 60]]) {
-  test(`routes/${file}.js: its ${max}-a-minute limit is one limit across two instances`, async () => {
+  test(`routes/${file}.js: its ${max}-a-minute limit is one limit across two instances`, async (t) => {
+    inOneWindow(t);
     const routerOn = () => {
       delete require.cache[require.resolve(LIB)];
       delete require.cache[require.resolve(`../routes/${file}`)];
