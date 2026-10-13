@@ -19,6 +19,7 @@
 
 const { isConfigured: gatewayConfigured, getGateway } = require('./gateway');
 const { picksForAgent } = require('./agent_match');
+const SignalStatus = require('../public/js/signal-status-model.js');
 
 // The picks already announced ("agentId|signal_key"), shared by every instance
 // (lib/job_state). Held in a variable, every 70-second instance's first sweep
@@ -70,7 +71,11 @@ async function sweepCopy(deps = {}, notify) {
   try {
     const followed = await (deps.loadFollowedAgentIds || dbFollowedAgentIds)();
     if (!followed || !followed.length) { health.ok(); return 0; }
-    const signals = await (deps.loadSignals || dbSignals)();
+    // The SQL selects the window; the model is the reading every door asks
+    // (a pick that ended inside its window is not live either).
+    const now = deps.now instanceof Date ? deps.now : new Date();
+    const signals = (await (deps.loadSignals || dbSignals)())
+      .filter((s) => SignalStatus.actionable(s, now));
     const catalogue = await (deps.loadCatalogue || dbCatalogue)();
     if (!catalogue || !catalogue.length) { health.ok(); return 0; }
     const byId = new Map(catalogue.map(a => [a.id, a]));
@@ -134,7 +139,7 @@ async function dbFollowers(agentId) {
 async function dbSignals() {
   const { pool } = require('../db');
   const [rows] = await pool.execute(
-    `SELECT signal_key, symbol, direction, confidence, regime, status
+    `SELECT signal_key, symbol, direction, confidence, regime, status, expires_at
      FROM signals WHERE expires_at > ? ORDER BY created_at DESC LIMIT 100`, [new Date()]);
   return rows;
 }

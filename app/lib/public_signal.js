@@ -60,6 +60,9 @@ const PUBLIC_FIELDS = [
   'signal_key', 'symbol', 'direction', 'confidence', 'score', 'pattern',
   'regime', 'entry_price', 'stop_loss', 'take_profit', 'rr', 'net_rr',
   'rr_fee_losing', 'thesis', 'status', 'created_at', 'resolved_at', 'seal',
+  // The window the bot stated: a page offers to act on a call only inside it
+  // (SignalStatusModel.live). A time, not an amount.
+  'expires_at',
 ];
 
 /** One signal row, public-safe: allowlisted fields plus the outcome label. */

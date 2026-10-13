@@ -49,10 +49,10 @@ async function seedSignal(key, symbol, conf, regime) {
   await pool.execute(
     `INSERT INTO signals (signal_key, symbol, direction, confidence, score, pattern,
        regime, entry_price, stop_loss, take_profit, rr, thesis, status, pnl,
-       created_at, resolved_at, seal, seal_payload, sealed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       created_at, resolved_at, seal, seal_payload, sealed_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [key, symbol, 'LONG', conf, 80, 'breakout', regime, 60000, 58000, 66000, 3,
-      't', 'OPEN', null, new Date(), null, null, null, null]);
+      't', 'OPEN', null, new Date(), null, null, null, null, new Date(Date.now() + 5 * 60000)]);
 }
 
 test.before(async () => {

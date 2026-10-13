@@ -152,7 +152,8 @@
     "arena.sig_now": { en: "just now" },
     "arena.sig_min": { en: "{n}m ago" },
     "arena.sig_hr": { en: "{n}h ago" },
-    "arena.sig_b_stale": { en: "Too old to open" },
+    "arena.sig_b_expired": { en: "Window closed" },
+    "arena.sig_live": { en: "live for {t}" },
     "arena.sig_b_open": { en: "Already open" },
     "arena.sig_b_dir": { en: "No direction" },
     "arena.sig_b_ended": { en: "Already over" },
@@ -343,7 +344,7 @@
     "arena.b_open_app": { en: "Open the app" },
     "arena.lb_loading": { en: "Loading the board…" },
     "arena.ph_handle": { en: "Pick an anonymous handle to appear on the board" },
-    "arena.follow_rule": { en: "Signals are opened the next time you visit the Arena. A call older than 6 hours, or one that has already ended, is skipped rather than opened late." },
+    "arena.follow_rule": { en: "Each call is opened while it is live, within a minute of being posted, whether or not you are here. A call whose window has closed, or one that has already ended, is skipped rather than opened late." },
     "arena.follow_body": { en: "Mirror the engine’s live signal stream into your paper account: each new signal opens a position at your chosen size, filled at the <b>live mark</b>. It starts from the next signal — never back-fills old calls — and can never touch real funds." },
     "arena.disc": { en: "The Arena is <b>paper trading</b>: balances are virtual, no real funds ever move, and no order reaches any exchange. Prices are live public Bitget USDT-M marks; fills are simulated at the last price with no slippage or fees, so real trading results will differ. The public board shows percent return and opt-in anonymous handles only. Practice and competition — not investment advice." },
     "sec.prov_eyebrow": { en: "Provable Calls" },
@@ -1388,6 +1389,10 @@
     "sx.d_short": { en: "short" },
     "dd.b_arena": { en: "🏟 Paper" },
     "dd.arena_t": { en: "Open this call in your paper Arena account — filled at the live mark, never the signal price" },
+    "dd.sig_live": { en: "live for {t}" },
+    "dd.sig_closed": { en: "window closed" },
+    "dd.sig_nowin": { en: "no window stated" },
+    "dd.sig_closed_t": { en: "This call’s window has closed: the engine no longer stands behind it. Pick a current one." },
     "dd.arena_login": { en: "Log in to paper-trade signals in the Arena." },
     "dd.arena_view": { en: "See it in the Arena →" },
     "dd.h_nopf": { en: "No portfolio yet — place your first paper trade and your equity shows up here." },
@@ -2219,7 +2224,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"8f3ef2c8","zh":"e698b252","pt":"5ccc70af","fr":"05de5cc2","de":"0e25d65e","nl":"d146c611","ja":"2e8ae521","ko":"b0175968","ru":"eea0e6bf","tr":"0844c8d5","it":"9130d90c","hi":"db7344cd","ar":"7dc95542"};
+  var CHUNKS = {"es":"c797e672","zh":"14594541","pt":"4fc23b80","fr":"fb5e8c0c","de":"bf94f55c","nl":"8aab1b69","ja":"be1647d6","ko":"d12ce866","ru":"ae54929a","tr":"76440d57","it":"3a5c7f9b","hi":"ddcd7418","ar":"08cab99c"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

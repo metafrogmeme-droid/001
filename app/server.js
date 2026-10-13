@@ -1042,6 +1042,10 @@ async function migrateWithRetry() {
   // of its liq price (hysteresis re-arm at 6% — never spams a hovering market).
   require('./lib/arena_watch').startArenaWatch();
 
+  // Practice-follow: mirror each engine call into its followers' paper
+  // accounts while the call is live (minutes), not only when they look.
+  require('./routes/arena').startFollowSweep();
+
   // Season ceremonies: the starting gun (upcoming→live) and the final
   // whistle (→ended, crowning the champion) announce themselves — durable
   // flags mean a restart never replays a ceremony.

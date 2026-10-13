@@ -84,8 +84,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 237,
-    "sha": "de5ac8b901a58795"
+    "v": 238,
+    "sha": "769ddc0e2aeb577f"
   },
   "js/decision-court-model.js": {
     "v": 3,
@@ -160,8 +160,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 172,
-    "sha": "2cf6e900af5c4bb4"
+    "v": 173,
+    "sha": "dbbf2cbb4faf26cd"
   },
   "js/icons.js": {
     "v": 6,
@@ -260,8 +260,8 @@
     "sha": "d509819b86a1ce97"
   },
   "js/signal-status-model.js": {
-    "v": 1,
-    "sha": "4323d7e984b716e8"
+    "v": 2,
+    "sha": "bb0f462d42359431"
   },
   "js/solana_wallet.js": {
     "v": 4,

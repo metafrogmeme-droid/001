@@ -112,8 +112,9 @@ test('practice-follow inherits the signal\'s own stop/target when valid', async 
   PRICES = { SOLUSDT: { price: 100, change: 0, volume: 1 } };
   await req('POST', '/api/arena/follow', { token, body: { enabled: true, margin: 200, leverage: 2 } });
   await pool.execute(
-    'INSERT INTO signals (signal_key, symbol, direction, confidence, score, pattern, regime, entry_price, stop_loss, take_profit, rr, thesis, status, pnl, created_at, resolved_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-    ['tpsl-sig-1', 'SOLUSDT', 'LONG', 0.7, 1, 't', 'trend', 99, 94, 112, 2, 't', 'NEW', null, new Date(), null]);
+    'INSERT INTO signals (signal_key, symbol, direction, confidence, score, pattern, regime, entry_price, stop_loss, take_profit, rr, thesis, status, pnl, created_at, resolved_at, expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    ['tpsl-sig-1', 'SOLUSDT', 'LONG', 0.7, 1, 't', 'trend', 99, 94, 112, 2, 't', 'NEW', null, new Date(), null,
+      new Date(Date.now() + 5 * 60000)]);
   const a = await req('GET', '/api/arena/account', { token });
   const p = a.data.positions.find((x) => x.symbol === 'SOLUSDT');
   assert.ok(p, 'signal opened');

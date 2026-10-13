@@ -24,11 +24,14 @@ const { pool } = require('../db');
 
 const MARKS = { BTCUSDT: { price: 100 }, ETHUSDT: { price: 50 } };
 const PREFS = { margin: 200, leverage: 2 };
+// Inside the window the bot states for a call (`expires_at`), which every
+// door reads as `live` (SignalStatusModel.live).
+const LIVE = new Date(Date.now() + 5 * 60000);
 
 test('planFollows opens valid signals and tracks last_id', () => {
   const plan = planFollows({ signals: [
-    { id: 7, symbol: 'BTCUSDT', direction: 'LONG' },
-    { id: 9, symbol: 'ETHUSDT', direction: 'SHORT' },
+    { id: 7, symbol: 'BTCUSDT', direction: 'LONG', expires_at: LIVE },
+    { id: 9, symbol: 'ETHUSDT', direction: 'SHORT', expires_at: LIVE },
   ], positions: [], balance: 1000, prefs: PREFS, marks: MARKS });
   assert.equal(plan.opens.length, 2);
   assert.equal(plan.opens[0].price, 100);
@@ -37,10 +40,10 @@ test('planFollows opens valid signals and tracks last_id', () => {
 
 test('planFollows skips duplicates, full slots, thin balance and unknown marks', () => {
   const plan = planFollows({ signals: [
-    { id: 1, symbol: 'BTCUSDT', direction: 'LONG' },    // already open
-    { id: 2, symbol: 'NOPEUSDT', direction: 'LONG' },   // no mark
-    { id: 3, symbol: 'ETHUSDT', direction: 'LONG' },    // opens (uses last 200)
-    { id: 4, symbol: 'ETHUSDT', direction: 'SHORT' },   // now duplicate
+    { id: 1, symbol: 'BTCUSDT', direction: 'LONG', expires_at: LIVE },    // already open
+    { id: 2, symbol: 'NOPEUSDT', direction: 'LONG', expires_at: LIVE },   // no mark
+    { id: 3, symbol: 'ETHUSDT', direction: 'LONG', expires_at: LIVE },    // opens (uses last 200)
+    { id: 4, symbol: 'ETHUSDT', direction: 'SHORT', expires_at: LIVE },   // now duplicate
   ], positions: [{ symbol: 'BTCUSDT' }], balance: 200, prefs: PREFS, marks: MARKS });
   assert.equal(plan.opens.length, 1);
   assert.equal(plan.opens[0].symbol, 'ETHUSDT');
@@ -88,8 +91,9 @@ function req(method, p, { token, body } = {}) {
 
 async function pushSignal(key, symbol, direction) {
   await pool.execute(
-    'INSERT INTO signals (signal_key, symbol, direction, confidence, score, pattern, regime, entry_price, stop_loss, take_profit, rr, thesis, status, pnl, created_at, resolved_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-    [key, symbol, direction, 0.7, 1, 'test', 'trend', 100, 95, 110, 2, 't', 'NEW', null, new Date(), null]);
+    'INSERT INTO signals (signal_key, symbol, direction, confidence, score, pattern, regime, entry_price, stop_loss, take_profit, rr, thesis, status, pnl, created_at, resolved_at, expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    [key, symbol, direction, 0.7, 1, 'test', 'trend', 100, 95, 110, 2, 't', 'NEW', null, new Date(), null,
+      new Date(Date.now() + 5 * 60000)]);
 }
 
 test('a follower mirrors only signals emitted AFTER enabling, at the live mark', async () => {

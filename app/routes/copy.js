@@ -23,6 +23,7 @@ const { rateLimit, userKey } = require('../lib/rate_limit');
 const { isConfigured } = require('../lib/gateway');
 const { loadCatalogueChecked } = require('../lib/agent_catalogue');
 const { picksForAgent, rulesToGates } = require('../lib/agent_match');
+const SignalStatus = require('../public/js/signal-status-model.js');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -135,9 +136,12 @@ router.get('/picks', async (req, res) => {
     try {
       const [rows] = await pool.execute(
         `SELECT signal_key, symbol, direction, confidence, score, pattern, regime,
-                entry_price, stop_loss, take_profit, rr, thesis, created_at
+                entry_price, stop_loss, take_profit, rr, thesis, created_at, status, expires_at
          FROM signals WHERE expires_at > ? ORDER BY created_at DESC LIMIT 100`, [new Date()]);
-      signals = rows;
+      // The SQL selects the window; the model is the one reading of "live"
+      // every door asks, and it also drops a call that ended inside it.
+      const now = new Date();
+      signals = rows.filter((s) => SignalStatus.actionable(s, now));
     } catch (e) {
       console.error('Copy picks: signals unreadable:', e.message);
     }

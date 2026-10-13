@@ -22,10 +22,12 @@ const codes = i18n.LANGS.map((l) => l.code);
 const read = (...p) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf8');
 
 const NOW = new Date('2026-07-26T12:00:00Z');
+// Posted two minutes ago, inside a five-minute window the bot stated.
 const sig = (over) => Object.assign({
   id: 7, symbol: 'BTCUSDT', direction: 'LONG',
   entry_price: 60000, stop_loss: 58000, take_profit: 66000,
-  created_at: new Date(NOW.getTime() - 10 * 60000),
+  created_at: new Date(NOW.getTime() - 2 * 60000),
+  expires_at: new Date(NOW.getTime() + 3 * 60000),
 }, over || {});
 const plan = (over, ctx) => st.planSignalOpen(Object.assign({
   signal: sig(over), positions: [], balance: 10000,
@@ -88,14 +90,26 @@ test('a short’s exits are checked on the correct side', () => {
   assert.deepEqual(r.data.dropped, []);
 });
 
-test('a stale call is refused — the engine is not standing behind it any more', () => {
-  const old = plan({ created_at: new Date(NOW.getTime() - st.MAX_SIGNAL_AGE_MS - 60000) });
-  assert.equal(old.ok, false);
-  assert.equal(old.code, 'stale');
-  // The boundary itself is still open — refusing at exactly the limit would
-  // make the cutoff depend on clock jitter.
-  const edge = plan({ created_at: new Date(NOW.getTime() - st.MAX_SIGNAL_AGE_MS) });
-  assert.equal(edge.ok, true, 'a signal exactly at the age limit must still open');
+test('a call past its window is refused — the engine is not standing behind it any more', () => {
+  const past = plan({ expires_at: new Date(NOW.getTime() - 1) });
+  assert.equal(past.ok, false);
+  assert.equal(past.code, 'expired');
+  assert.match(past.error, /window closed at 11:59 UTC/);
+  // The window's last instant is still inside it, as it is for the bot, which
+  // drops an idea only once it is OLDER than its TTL.
+  assert.equal(plan({ expires_at: NOW }).ok, true, 'a call at the end of its window must still open');
+  // A row that states no window is not live: the closed direction.
+  for (const none of [null, undefined, '', 'not a time']) {
+    const r = plan({ expires_at: none });
+    assert.equal(r.code, 'expired', `expires_at ${String(none)} opened`);
+    assert.match(r.error, /states no window/);
+  }
+  // And it is the window, not the age: an hour-old call inside a long window
+  // opens, a one-minute-old call past a short one does not.
+  assert.equal(plan({ created_at: new Date(NOW.getTime() - 3600e3),
+    expires_at: new Date(NOW.getTime() + 60e3) }).ok, true);
+  assert.equal(plan({ created_at: new Date(NOW.getTime() - 60e3),
+    expires_at: new Date(NOW.getTime() - 1) }).code, 'expired');
 });
 
 test('no live mark means no trade — never a fill at a guessed price', () => {
@@ -141,11 +155,11 @@ test('the picker marks what cannot be opened, and why', () => {
   const rows = st.decorateForPicker([
     sig({ id: 1 }),
     sig({ id: 2, symbol: 'ETHUSDT' }),
-    sig({ id: 3, symbol: 'SOLUSDT', created_at: new Date(NOW.getTime() - st.MAX_SIGNAL_AGE_MS - 1) }),
+    sig({ id: 3, symbol: 'SOLUSDT', expires_at: new Date(NOW.getTime() - 1) }),
     sig({ id: 4, symbol: 'XRPUSDT', direction: '' }),
   ], { positions: [{ symbol: 'ETHUSDT' }], marks: { BTCUSDT: { price: 60600 } }, now: NOW });
   assert.deepEqual(rows.map((r) => [r.id, r.tradeable, r.blocked_reason]), [
-    [1, true, null], [2, false, 'already_open'], [3, false, 'stale'], [4, false, 'direction'],
+    [1, true, null], [2, false, 'already_open'], [3, false, 'expired'], [4, false, 'direction'],
   ]);
   assert.equal(rows[0].drift_pct, 1);
   assert.equal(rows[1].drift_pct, null, 'no mark must give no drift, not a made-up one');
@@ -267,7 +281,7 @@ test('a dropped exit is reported to the user, never silently swallowed', () => {
 test('every string on the signals panel exists in all 14 languages', () => {
   for (const k of ['arena.p_signals', 'arena.sig_body', 'arena.b_sig_open', 'arena.e_sig',
     'arena.sig_unknown', 'arena.sig_drift', 'arena.sig_drift_t', 'arena.sig_conf',
-    'arena.sig_now', 'arena.sig_min', 'arena.sig_hr', 'arena.sig_b_stale',
+    'arena.sig_now', 'arena.sig_min', 'arena.sig_hr', 'arena.sig_b_expired', 'arena.sig_live',
     'arena.sig_b_open', 'arena.sig_b_dir', 'arena.sig_b_no', 'arena.sig_filled',
     'arena.sig_filled_drift', 'arena.sig_dropped_tp', 'arena.sig_dropped_sl',
     'arena.sig_dropped_both', 'arena.sig_failed', 'arena.th_tp', 'arena.th_sl']) {
@@ -335,7 +349,7 @@ test('the dashboard stream has the one-tap Arena button and its handler', () => 
   assert.match(dash, /const arenaBtn = live && s\.signal_key/);
   assert.match(dash, /signal_key: abtn\.getAttribute\('data-parena'\)/);
   // The refusals the route encodes translate; free-text errors pass through.
-  assert.match(dash, /stale: \['arena\.sig_b_stale'/);
+  assert.match(dash, /expired: \['arena\.sig_b_expired'/);
   assert.match(dash, /already_open: \['arena\.sig_b_open'/);
   // And the toast carries the same honesty payload the Arena panel shows.
   for (const k of ['arena.sig_filled', 'arena.sig_filled_drift', 'arena.sig_dropped_both']) {

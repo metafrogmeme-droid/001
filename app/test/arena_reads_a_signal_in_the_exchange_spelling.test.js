@@ -83,10 +83,11 @@ async function register() {
 async function signal(key, symbol, direction, conf = 0.8) {
   await pool.execute(
     `INSERT INTO signals (signal_key, symbol, direction, confidence, score, pattern,
-       regime, entry_price, stop_loss, take_profit, rr, thesis, status, pnl, created_at, resolved_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       regime, entry_price, stop_loss, take_profit, rr, thesis, status, pnl, created_at, resolved_at,
+       expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [key, symbol, direction, conf, conf, 'breakout', 'TREND', 149, 140, 170, 2.2, null,
-     'NEW', null, new Date().toISOString(), '']);
+     'NEW', null, new Date().toISOString(), '', new Date(Date.now() + 5 * 60000).toISOString()]);
 }
 
 test.before(async () => {
@@ -103,6 +104,10 @@ test.before(async () => {
 });
 
 test.after(() => { if (server) server.close(); });
+
+// Inside the window the bot states for a call (`expires_at`), which every
+// door reads as `live` (SignalStatusModel.live).
+const LIVE = new Date(Date.now() + 5 * 60000);
 
 test('the one normalisation reads every dialect the scanner writes', () => {
   for (const s of ['SOL/USDT', 'SOL/USDT:USDT', 'SOLUSDT', 'sol/usdt', ' SOL/USDT ', 'SOL']) {
@@ -158,7 +163,7 @@ test('opening one named signal reads the colon dialect at its door', async () =>
 
 test('the follow planner and the picker read the colon dialect too', () => {
   const plan = planFollows({
-    signals: [{ id: 7, symbol: 'ARB/USDT:USDT', direction: 'SHORT' }],
+    signals: [{ id: 7, symbol: 'ARB/USDT:USDT', direction: 'SHORT', expires_at: LIVE }],
     positions: [], balance: 1000, prefs: { margin: 50, leverage: 2 }, marks: PRICES,
   });
   assert.deepEqual(plan.skips, []);
@@ -168,7 +173,7 @@ test('the follow planner and the picker read the colon dialect too', () => {
 
   const [row] = decorateForPicker(
     [{ id: 1, symbol: 'PENDLE/USDT:USDT', direction: 'LONG', entry_price: 3.5,
-       created_at: new Date().toISOString() }],
+       created_at: new Date().toISOString(), expires_at: LIVE }],
     { positions: [{ symbol: 'PENDLEUSDT' }], marks: PRICES });
   assert.equal(row.mark, 3.5);
   assert.equal(row.blocked_reason, 'already_open');
@@ -176,7 +181,7 @@ test('the follow planner and the picker read the colon dialect too', () => {
   // A row whose symbol names no base still finds no mark -- and says so as a
   // skip, rather than being matched to something.
   const none = planFollows({
-    signals: [{ id: 8, symbol: '', direction: 'LONG' }],
+    signals: [{ id: 8, symbol: '', direction: 'LONG', expires_at: LIVE }],
     positions: [], balance: 1000, prefs: { margin: 50, leverage: 2 }, marks: PRICES,
   });
   assert.deepEqual(none.skips, [{ signal_id: 8, reason: 'no_mark' }]);
