@@ -2152,5 +2152,8 @@
   ["tok.verify", "Solo esta dirección de mint es $RCLAW. Cualquier otro token que use el nombre o el logo no es nuestro — comprueba la dirección antes de operar con nada."],
   ["tok.not_offer", "Nada en esta página es asesoramiento financiero, una oferta de venta ni una solicitud de compra de ningún token. Los términos de la preventa aún pueden cambiar tras la revisión legal antes de que abra la venta; esta página muestra los vigentes."],
   ["tok.unread", "No se pudo leer el registro del token ahora mismo. No se muestra ninguna dirección de mint en su lugar — una dirección adivinada es peor que ninguna. Inténtalo de nuevo en un minuto."],
-  ["tok.bot_hint", "También en el bot de Telegram: /rclaw"]
+  ["tok.bot_hint", "También en el bot de Telegram: /rclaw"],
+  ["tok.tokenomics_h", "Tokenómica"],
+  ["tok.tokenomics_alt", "Tokenómica de $RCLAW: suministro fijo de 1.000.000.000 tokens, autoridades de mint y de congelación revocadas. Asignación prevista: Comunidad y ecosistema 25%, Tesorería / DAO 20%, Preventa pública 15%, Equipo y colaboradores 15%, Reserva y liquidez post-TGE 13%, Socios y creadores de mercado 8%, Liquidez DEX 2%, Asesores 2%."],
+  ["tok.tokenomics_note", "La asignación prevista, según la hoja de ruta del proyecto. Abre la imagen para verla a tamaño completo."]
 ]);

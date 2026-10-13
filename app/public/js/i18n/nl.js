@@ -2152,5 +2152,8 @@
   ["tok.verify", "Alleen dit mintadres is $RCLAW. Elke andere token met de naam of het logo is niet van ons — controleer het adres voordat je iets verhandelt."],
   ["tok.not_offer", "Niets op deze pagina is financieel advies, een verkoopaanbod of een uitnodiging om een token te kopen. De presale-voorwaarden kunnen na juridische toetsing nog veranderen voordat de verkoop opent; deze pagina toont de actuele."],
   ["tok.unread", "Het tokenregister kon nu niet worden gelezen. Er wordt geen mintadres in de plaats getoond — een geraden adres is erger dan geen. Probeer het over een minuut opnieuw."],
-  ["tok.bot_hint", "Ook in de Telegram-bot: /rclaw"]
+  ["tok.bot_hint", "Ook in de Telegram-bot: /rclaw"],
+  ["tok.tokenomics_h", "Tokenomics"],
+  ["tok.tokenomics_alt", "Tokenomics van $RCLAW: vaste voorraad van 1.000.000.000 tokens, mint- en freeze-bevoegdheid ingetrokken. Geplande verdeling: Community & ecosysteem 25%, Treasury / DAO 20%, Publieke presale 15%, Team & bijdragers 15%, Reserve & liquiditeit na TGE 13%, Partners & marketmakers 8%, DEX-liquiditeit 2%, Adviseurs 2%."],
+  ["tok.tokenomics_note", "De geplande verdeling, volgens de roadmap van het project. Open de afbeelding voor het volledige formaat."]
 ]);

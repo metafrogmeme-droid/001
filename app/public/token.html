@@ -53,6 +53,8 @@
   .tok-absent { margin: 0; color: var(--text-3); }
   .tok-foot { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.6; border-top: 1px solid var(--line); padding-top: var(--s3); margin-top: var(--s4); }
   @media (max-width: 520px) { .tok-row { grid-template-columns: 1fr; gap: 2px; } }
+  .tok-tokenomics a { display: block; margin-top: var(--s3); }
+  .tok-tokenomics img { display: block; width: 100%; max-width: 640px; height: auto; margin: 0 auto; border-radius: 12px; }
 </style>
 </head>
 <body>
@@ -65,10 +67,18 @@
   <h1 data-i18n="tok.h1">The $RCLAW token</h1>
   <p class="lede" data-i18n="tok.lede">RUNECLAW’s token lives on Solana. This page shows the one mint address that is $RCLAW, read from the project’s own record, and what has and has not been announced about the presale.</p>
   <div id="tok-root"><p class="tok-absent">…</p></div>
+  <section class="tok-card tok-tokenomics" aria-labelledby="tok-tokenomics-h">
+    <h2 id="tok-tokenomics-h" data-i18n="tok.tokenomics_h">Tokenomics</h2>
+    <p class="tok-prose" data-i18n="tok.tokenomics_note">The planned allocation, from the project’s roadmap. Open the image for full size.</p>
+    <a href="/rclaw_tokenomics_1000x1000.png?v=1" target="_blank" rel="noopener">
+      <img src="/rclaw_tokenomics_1000x1000.png?v=1" width="1000" height="1000" loading="lazy" decoding="async"
+        data-i18n-attr="alt:tok.tokenomics_alt" alt="$RCLAW tokenomics: a fixed supply of 1,000,000,000 tokens, mint and freeze authority revoked. Planned allocation: Community &amp; ecosystem 25%, Treasury / DAO 20%, Public presale 15%, Team &amp; contributors 15%, Reserve &amp; post-TGE liquidity 13%, Partners &amp; market makers 8%, DEX liquidity 2%, Advisors 2%.">
+    </a>
+  </section>
   <p class="tok-foot" data-i18n="tok.not_offer">Nothing on this page is financial advice, an offer to sell or a solicitation to buy any token. Presale terms may still change with legal review before the sale opens; this page shows the current ones.</p>
 </div>
 <script src="/js/api-retry.js?v=2"></script>
-<script src="/js/i18n-core.js?v=170"></script>
+<script src="/js/i18n-core.js?v=171"></script>
 <script src="/js/token-page.js?v=2"></script>
 </body>
 </html>

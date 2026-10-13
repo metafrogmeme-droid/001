@@ -2194,7 +2194,10 @@
     "tok.verify": { en: "Only this mint address is $RCLAW. Any other token using the name or logo is not ours — check the address before you trade anything." },
     "tok.not_offer": { en: "Nothing on this page is financial advice, an offer to sell or a solicitation to buy any token. Presale terms may still change with legal review before the sale opens; this page shows the current ones." },
     "tok.unread": { en: "The token record could not be read right now. No mint address is shown in its place — a guessed address is worse than none. Try again in a minute." },
-    "tok.bot_hint": { en: "Also in the Telegram bot: /rclaw" }
+    "tok.bot_hint": { en: "Also in the Telegram bot: /rclaw" },
+    "tok.tokenomics_h": { en: "Tokenomics" },
+    "tok.tokenomics_alt": { en: "$RCLAW tokenomics: a fixed supply of 1,000,000,000 tokens, mint and freeze authority revoked. Planned allocation: Community & ecosystem 25%, Treasury / DAO 20%, Public presale 15%, Team & contributors 15%, Reserve & post-TGE liquidity 13%, Partners & market makers 8%, DEX liquidity 2%, Advisors 2%." },
+    "tok.tokenomics_note": { en: "The planned allocation, from the project’s roadmap. Open the image for full size." }
   };
 
   // ── Split build ───────────────────────────────────────────────────────────
@@ -2206,7 +2209,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"8df21621","zh":"4846c21f","pt":"052e519d","fr":"67812ee1","de":"f017e510","nl":"4357a312","ja":"bdbc90a3","ko":"cff09458","ru":"5981d897","tr":"c720edf9","it":"8d777b83","hi":"bdcd55b4","ar":"edb8b51c"};
+  var CHUNKS = {"es":"46ffc19b","zh":"dd695f65","pt":"b367fd99","fr":"3b9b7d4d","de":"1b5076c8","nl":"ccd0e727","ja":"f94e6b84","ko":"252e1ba8","ru":"035c2615","tr":"2aa19b53","it":"a9ae2b95","hi":"876d0e68","ar":"165e66ed"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

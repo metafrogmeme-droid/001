@@ -2152,5 +2152,8 @@
   ["tok.verify", "Seule cette adresse de mint est $RCLAW. Tout autre token utilisant le nom ou le logo n’est pas le nôtre — vérifiez l’adresse avant tout échange."],
   ["tok.not_offer", "Rien sur cette page ne constitue un conseil financier, une offre de vente ni une sollicitation d’achat d’un token. Les conditions de la prévente peuvent encore changer après examen juridique avant l’ouverture de la vente ; cette page affiche celles en vigueur."],
   ["tok.unread", "Le registre du token n’a pas pu être lu pour l’instant. Aucune adresse de mint n’est affichée à la place — une adresse devinée est pire qu’aucune. Réessayez dans une minute."],
-  ["tok.bot_hint", "Aussi dans le bot Telegram : /rclaw"]
+  ["tok.bot_hint", "Aussi dans le bot Telegram : /rclaw"],
+  ["tok.tokenomics_h", "Tokenomics"],
+  ["tok.tokenomics_alt", "Tokenomics de $RCLAW : offre fixe de 1 000 000 000 tokens, autorités de mint et de gel révoquées. Répartition prévue : Communauté et écosystème 25 %, Trésorerie / DAO 20 %, Prévente publique 15 %, Équipe et contributeurs 15 %, Réserve et liquidité post-TGE 13 %, Partenaires et teneurs de marché 8 %, Liquidité DEX 2 %, Conseillers 2 %."],
+  ["tok.tokenomics_note", "La répartition prévue, selon la feuille de route du projet. Ouvrez l’image pour l’afficher en taille réelle."]
 ]);

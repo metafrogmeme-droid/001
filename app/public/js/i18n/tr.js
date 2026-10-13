@@ -2152,5 +2152,8 @@
   ["tok.verify", "Yalnızca bu mint adresi $RCLAW tokenıdır. Adı veya logoyu kullanan başka her token bizim değildir — herhangi bir işlem yapmadan önce adresi kontrol edin."],
   ["tok.not_offer", "Bu sayfadaki hiçbir şey finansal tavsiye, satış teklifi veya herhangi bir token alma çağrısı değildir. Ön satış koşulları, satış açılmadan önce hukuki incelemeyle hâlâ değişebilir; bu sayfa güncel olanları gösterir."],
   ["tok.unread", "Token kaydı şu anda okunamadı. Yerine hiçbir mint adresi gösterilmiyor — tahmin edilen bir adres hiç olmamasından kötüdür. Bir dakika sonra yeniden deneyin."],
-  ["tok.bot_hint", "Telegram botunda da: /rclaw"]
+  ["tok.bot_hint", "Telegram botunda da: /rclaw"],
+  ["tok.tokenomics_h", "Tokenomik"],
+  ["tok.tokenomics_alt", "$RCLAW tokenomiği: 1.000.000.000 tokenlık sabit arz, mint ve dondurma yetkisi iptal edildi. Planlanan dağılım: Topluluk ve ekosistem %25, Hazine / DAO %20, Herkese açık ön satış %15, Ekip ve katkıda bulunanlar %15, Rezerv ve TGE sonrası likidite %13, Ortaklar ve piyasa yapıcılar %8, DEX likiditesi %2, Danışmanlar %2."],
+  ["tok.tokenomics_note", "Projenin yol haritasındaki planlanan dağılım. Tam boyut için görseli açın."]
 ]);
