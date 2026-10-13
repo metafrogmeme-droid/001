@@ -21469,7 +21469,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **490 of 1309** reach for source text through `source_scan`, `code_only`
+Driven, **490 of 1310** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 490 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -24386,3 +24386,25 @@ route and the copy push each read the window through their own SELECT, which
 no drive reached, so both are driven now; and a third was caught only by a
 source scan until the open route was driven through its id door as well as
 its key.)
+
+**THE AUDIT PRINTED A CURRENT VALUE ITS MODEL HAD NEVER BEEN TOLD.** 13
+October. The nightly self-audit card read `OF_MAX_SPREAD_BPS=120 (in force:
+50)` over the rationale "Raised from 70 to 120 bps". The card's 50 was right:
+it is the order-flow default. The 70 was the model's own, because the prompt
+carried only the environment's overrides ("unset = default"). A flag left at
+its code default was a flag whose setting the model was never given, and the
+sentence it wrote in that gap was printed as the proposal's reasoning, beside
+the value that contradicts it. The card had been taught this once already:
+the no-op check and the `in force:` figure both read the resolved value
+(`effective_value`), and the prompt was the one reader left on the
+environment alone. It now gets every allowlisted flag's value in force,
+spelled as the card spells it (`values_in_force`), with `null` for one that
+could not be read, and the system prompt says a rationale names that value.
+What a model writes is still its own; this gives it the number instead of
+the gap. Both proposals that night loosened a guard during a losing window,
+one measured worse on the benchmark and the other not measurable there; the
+card said so, and applies nothing itself.
+(`tests/test_the_audit_is_told_the_values_in_force.py`: `SelfAudit.run`
+driven with the model's call captured; a default, an override and an
+unreadable value; the prompt and the card read one value. Five mutants, all
+killed.)

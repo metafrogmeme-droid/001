@@ -142,7 +142,10 @@ and how long it has held (`degraded_seconds`) — not a per-close attribution. \
 While `degraded`, entries are made by the rule engine, which these flags do \
 not govern the same way, so weigh how much of the window fell inside that \
 span before tuning the AI path off it; `null` means the brain state could \
-not be read. Respond with STRICT JSON only — an array \
+not be read. `VALUES IN FORCE` is what each flag is set to now (its \
+environment override, else the code default); a rationale that names a \
+flag's current value names that one, and `null` there means it could not \
+be read. Respond with STRICT JSON only — an array \
 of at most {max_proposals} objects, no prose, no markdown fences:
 [{{"flag": "<ALLOWLISTED_FLAG>", "value": <bool|number>, \
 "rationale": "<one sentence tied to the evidence>"}}]"""
@@ -222,6 +225,35 @@ def _same_value(current: Any, norm: str, kind: str) -> bool:
         # would drop a real proposal. Neither is safe to assert, so the
         # caller treats None-ish as "could not check" and measures it.
         return False
+
+
+def values_in_force(env: Optional[dict] = None) -> dict[str, Optional[str]]:
+    """Every allowlisted flag's value in force, spelled as the card spells it
+    (`_current_text`): the env override, else the code default; ``None`` for
+    a value that could not be read."""
+    return {k: _current_text(effective_value(k, env)) for k in ALLOWED_FLAGS}
+
+
+def audit_user_prompt(bounds: dict, evidence: dict,
+                      env: Optional[dict] = None) -> str:
+    """The audit's user prompt.
+
+    IT CARRIES THE VALUE IN FORCE OF EVERY FLAG. It sent the environment's
+    overrides alone ("unset = default"), so a flag at its code default was a
+    flag whose setting the model was never told. On 2026-10-13 it proposed
+    OF_MAX_SPREAD_BPS=120 under "Raised from 70 to 120 bps" while the card
+    printed `in force: 50`: the 50 is the order-flow default, which no
+    environment variable named, and the 70 was the model's own invention,
+    printed on the card as its reasoning.
+    """
+    if env is None:
+        env = {k: os.environ.get(k) for k in ALLOWED_FLAGS}
+    return ("ALLOWLISTED FLAGS AND BOUNDS:\n"
+            + json.dumps(bounds, indent=1)
+            + "\n\nVALUES IN FORCE (environment override, else the code default; "
+              "null = could not be read):\n"
+            + json.dumps(values_in_force(env))
+            + "\n\nEVIDENCE:\n" + json.dumps(evidence, default=str)[:12000])
 
 
 def _current_text(cur: Any) -> Optional[str]:
@@ -1081,13 +1113,7 @@ class SelfAudit:
             bounds = {k: ({"type": "bool"} if v["type"] == "bool" else
                           {"type": "number", "min": v["min"], "max": v["max"]})
                       for k, v in ALLOWED_FLAGS.items()}
-            user_prompt = (
-                "ALLOWLISTED FLAGS AND BOUNDS:\n"
-                + json.dumps(bounds, indent=1)
-                + "\n\nCURRENT ENV OVERRIDES (unset = default):\n"
-                + json.dumps({k: os.environ.get(k) for k in ALLOWED_FLAGS
-                              if os.environ.get(k) is not None})
-                + "\n\nEVIDENCE:\n" + json.dumps(evidence, default=str)[:12000])
+            user_prompt = audit_user_prompt(bounds, evidence)
 
             from bot.llm.provider import llm_complete
             text = await llm_complete(
