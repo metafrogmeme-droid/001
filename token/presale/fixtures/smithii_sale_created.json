@@ -1,0 +1,19 @@
+{
+  "_comment": [
+    "The sale as created on 2026-10-13, and the link the website and the bot print for it.",
+    "Create was signed at 2026-10-13T09:53:46Z (transaction 3sdv5ATTd8jagyg1GtX1bSceXjmx91SKxTXzXZkDksYPSdFESVoUNE9KHCavy94VdigZptrqzybAP1wQ85YHHv1w) by the authority below; `npm run presale:smithii-verify -- --authority <authority>` then read the launch back and every row passed (exit 0): price 33333 lamports, caps, limits, the window 2026-10-15T14:00Z to 2026-10-29T14:00Z, no whitelist phase, 150,001,500.015 RCLAW in the vault.",
+    "smithiiApi is what Smithii's own sale page loaded for saleUrl, verbatim for these fields (tools-api.smithii.io/api/v1/tools/mantis-protocol/get?name=RUNECLAW, read through the page): the link names this launch, not another sale with the same name.",
+    "the_record_states_the_sale.test.mjs derives the launch address from the mint and the authority the way the program does and holds the record's sale_url, this file and that address to each other."
+  ],
+  "readAt": "2026-10-13",
+  "saleUrl": "https://tools.smithii.io/launch/solana/RUNECLAW",
+  "authority": "39141hz9Tj3TsgucjdctsBWq6GzYrTy9d9BKqqLo4bJ7",
+  "launch": "3gRjv3VKdpDqRAi2SLujAUtXXyrfrqNupLpaEf3yoTiJ",
+  "smithiiApi": {
+    "launchPubkey": "3gRjv3VKdpDqRAi2SLujAUtXXyrfrqNupLpaEf3yoTiJ",
+    "authority": "39141hz9Tj3TsgucjdctsBWq6GzYrTy9d9BKqqLo4bJ7",
+    "mint": "rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71qBK2CaNe",
+    "launchName": "RUNECLAW",
+    "websiteURL": "https://www.humanoid-traders.com/token"
+  }
+}

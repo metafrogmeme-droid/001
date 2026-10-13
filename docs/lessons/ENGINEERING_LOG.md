@@ -19720,6 +19720,56 @@ they were not redrawn. A note that describes a schedule is a reading of it; hold
 numbers the way the steps are held, or it says less than they do.
 (`token/presale/locks_plan.test.mjs`.)
 
+**A LOCK CANNOT BE EDITED, SO ITS ADDRESS IS PUBLISHED ONLY AFTER THE CHAIN HAS BEEN READ.** On
+2026-10-13 the operator created the Community, Team and Advisors locks in
+Smithii's Token Vesting tool, sending a screenshot of every form before pressing
+Create. The
+form's date pickers read the browser's clock (Central European here, which the
+picker's Dutch day names gave away), and every unlock is 14:00 UTC, so the clock
+time to type moves with summer time: 16:00 in April and July, 15:00 in October
+and January, and 15:00 on 29 Oct 2028, the Sunday the clocks go back. Four
+wrong values reached the forms and were caught only by reading each period's
+end against UTC: the first Community period ended on the picker's default (29
+Dec, 16:02); two summer periods were typed as 15:00; moving the Team form's
+duration start spread every period out again (ends on 28 Jan and 14 Jun), and
+once that was fixed, two Team ends sat an hour off on either side of the October
+change, one of them an hour **early**. The Advisors form then had its duration
+ending at 16:00 on 29 Oct 2028 (15:00 UTC) against a last unlock at 15:00 (14:00
+UTC): the account stores that end beside the steps, and on the two locks already
+read it equalled the last unlock, so it was moved; the first edit changed the
+first period instead, to 15:00 on 29 Oct 2027, which is still summer time there
+(the clocks go back on the 31st that year), an hour early again. Fixing the
+duration then re-spread the first two periods, which were typed once more. A lock
+has no edit and no cancel, so each would have been permanent. `npm run presale:locks-plan -- --tz <zone>` prints
+the clock time per period; the form still has to be read against it, field by
+field, before Create.
+
+After Create, `npm run presale:locks-verify` (`token/presale/locks_verify.mjs`)
+reads each lock back: the account is the program's Anchor `Vesting` (layout
+recorded in `locks_lib.mjs`, decoded from the real locks), and its creator,
+mint, amount and every step's instant and percent are compared with the plan;
+the vault, the lock's own associated token account, must hold the whole amount,
+with no delegate and no close authority; and the program's upgrade authority
+and last deploy slot (318281477, 2025-02-03) are pinned, so a redeploy fails.
+Three outcomes, as for the sale: exit 0, 1 (a mismatch) or 3 (not read, or a
+lock the record says is not created yet). The record's `locks` block
+(`token/config/rclaw.mainnet.json`) is what the website's /token page and the
+bot's /rclaw card print: the plan's fields come from `recordLocks`, the lock
+account and claiming wallet from creating it. `--snapshot` saves every RPC
+answer verbatim; `the_record_states_the_locks.test.mjs` replays the snapshot
+through the same check, so the published addresses are held to bytes the chain
+returned, not bytes this repo wrote, and the page's "checked on" date is the
+snapshot's. Both readers print a certificate link only when it is Smithii's
+vesting certificate (`tests/fixtures/lock_certificate_cases.json`), and a lock
+not created yet says so in its own words, never "unreadable" and never blank.
+
+Two older tests asserted that **no** Solscan link, and no `tools.smithii.io`
+link, appeared anywhere on the page or the card. The locks add both, so the
+assertions now anchor to the field they guard: the explorer row, and the
+presale's own lines. (`token/presale/the_record_states_the_locks.test.mjs`,
+`app/test/the_token_page_shows_the_locks.test.js`,
+`tests/test_the_rclaw_card_shows_the_locks.py`.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -21419,7 +21469,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **490 of 1309** reach for source text through `source_scan`, `code_only`
+Driven, **490 of 1310** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 490 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

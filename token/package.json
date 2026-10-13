@@ -34,7 +34,8 @@
     "presale:verify": "node presale/genesis_presale.mjs verify",
     "presale:smithii-plan": "node presale/smithii_plan.mjs",
     "presale:smithii-verify": "node presale/smithii_verify.mjs",
-    "presale:locks-plan": "node presale/locks_plan.mjs"
+    "presale:locks-plan": "node presale/locks_plan.mjs",
+    "presale:locks-verify": "node presale/locks_verify.mjs"
   },
   "engines": {
     "node": ">=24.21.0"
