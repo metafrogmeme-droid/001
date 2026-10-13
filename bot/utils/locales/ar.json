@@ -316,5 +316,10 @@
   "val_guard_stale": "لا يوجد فحص حديث",
   "val_guard_idle": "لا شيء معلّق",
   "val_guard_read": "تمت قراءة {n} من الأوامر المعلّقة",
-  "val_sltp_unknown_short": "غير مسجّل"
+  "val_sltp_unknown_short": "غير مسجّل",
+  "lbl_venue_excess": "المنصة تحتفظ بأكثر من السجل",
+  "val_excess_unstopped": "لا يوجد وقف خسارة من البوت على الفائض",
+  "val_excess_whole_tpsl": "يغطيه TP/SL الخاص بالمركز",
+  "val_excess_cover_unread": "تغطية وقف الخسارة غير مقروءة",
+  "val_and_more": "و{n} أخرى"
 }

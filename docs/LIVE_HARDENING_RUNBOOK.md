@@ -639,6 +639,27 @@ nothing when no order is resting.
 
 The audit lines are `action=position_guard` with result `TIMEOUT` or `ERROR`.
 
+### Does the venue hold more than the record? — the venue size line
+
+Every five minutes the executor reads the venue's size on each side it holds
+and compares it with the sum of its records there
+(`LiveExecutor.check_venue_excess`). Two equal readings of MORE make it a
+reading: it is audited `QTY_EXCESS`, announced once as a `SYNC:` notice, and
+`/status` carries it until the venue no longer holds more. Nothing is written
+or placed for that quantity, because it can be a manual add.
+
+| shown | means | do |
+|---|---|---|
+| (nothing on `/status`) | no confirmed excess on any side | nothing |
+| `Venue holds more than the record: … (the extra has no stop of the bot's)` | stops are sized orders; the bot's covers its record only | close the extra on the venue or set a stop for it there |
+| `Venue holds more than the record: … (the position's TP/SL covers it)` | one TP/SL on the whole position; the extra closes with it | decide whether you meant to hold it |
+| `Venue holds more than the record: … (stop cover unread)` | the account type has not been read yet | check the venue's stops directly |
+
+Two records of one side that the venue holds in full are folded into one by
+the duplicate merge (`dedupe_duplicate_positions`), audited `FOLDED`, and
+their stop is re-placed for the whole where stops are sized.
+`DUPLICATE_FOLD_ENABLED=0` restores the plain drop.
+
 ### The caps, and what each one bounds
 
 | env | default | bounds |

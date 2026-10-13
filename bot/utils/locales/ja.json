@@ -316,5 +316,10 @@
   "val_guard_stale": "最近のチェックなし",
   "val_guard_idle": "待機中の注文なし",
   "val_guard_read": "待機中の注文{n}件を読み取り",
-  "val_sltp_unknown_short": "記録なし"
+  "val_sltp_unknown_short": "記録なし",
+  "lbl_venue_excess": "取引所の保有が記録より多い",
+  "val_excess_unstopped": "超過分にボットのストップはありません",
+  "val_excess_whole_tpsl": "ポジションのTP/SLが対象に含みます",
+  "val_excess_cover_unread": "ストップの対象範囲は未読取",
+  "val_and_more": "他{n}件"
 }

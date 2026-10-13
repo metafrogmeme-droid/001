@@ -1190,6 +1190,15 @@ _STRINGS: dict[str, dict[str, str]] = {
     "lbl_phase_headroom": {"en": "Slowest tick phase", "zh": "最慢循環階段"},
     "lbl_sltp_monitor": {"en": "SL/TP monitor", "zh": "止損／止盈監控"},
     # The position guard (`position_guard_line`).
+    # A side where the venue holds more than the record (`venue_excess_line`).
+    "lbl_venue_excess": {"en": "Venue holds more than the record",
+                         "zh": "交易所持倉多於記錄"},
+    "val_excess_unstopped": {"en": "the extra has no stop of the bot's",
+                             "zh": "多出部分沒有機器人的止損"},
+    "val_excess_whole_tpsl": {"en": "the position's TP/SL covers it",
+                              "zh": "倉位的止盈止損涵蓋它"},
+    "val_excess_cover_unread": {"en": "stop cover unread", "zh": "止損覆蓋未讀取"},
+    "val_and_more": {"en": "and {n} more", "zh": "另有 {n} 個"},
     "lbl_position_guard": {"en": "Position guard", "zh": "倉位守護"},
     "val_guard_off": {"en": "off — resting orders are read once a tick",
                       "zh": "已關閉 — 掛單每個循環只讀取一次"},
