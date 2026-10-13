@@ -42,7 +42,7 @@
     "claim": "100% when the sale ends. No vesting for buyers",
     "refunds": "None",
     "after_sale": "The team creates the pool at the sale price with 80% of the SOL raised and burns the LP. The sale contract does not do this.",
-    "sale_url": null
+    "sale_url": "https://tools.smithii.io/launch/solana/RUNECLAW"
   },
   "locks": {
     "_comment": "CREATED: the time locks of docs/TOKEN_ROADMAP.md section 4, made in Smithii Token Vesting, written the way the website (/token) and the bot (/rclaw) print them. bucket, tokens, schedule, unlocks and certificate_url are derived from token/presale/locks.plan.json (locks_lib.mjs, recordLocks); vesting_account and claim_wallet are what creating the lock decided. token/presale/the_record_states_the_locks.test.mjs holds every field to the plan and to a snapshot of the chain that npm run presale:locks-verify took; a lock not created yet has null in its three created fields, which every reader prints as not created yet. After editing, run node app/scripts/sync_content.js.",

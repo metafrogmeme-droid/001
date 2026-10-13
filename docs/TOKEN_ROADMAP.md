@@ -871,10 +871,18 @@ Counsel should review the wording. The facts are measured and not negotiable.
 - [ ] **The other ~850,000,000 are locked or vested before the sale opens**, and every
       address is published. The sale program locks and vests nothing, and on 2026-10-08 one
       wallet held all 1,000,000,000 (Jupiter token index, holderCount 1).
-- [ ] **`npm run presale:smithii-verify -- --authority <wallet>` passes right after Create and
+      *2026-10-13: the community, team and advisor locks (420,000,000) are created, read back
+      and published (`npm run presale:locks-verify`, the record's `locks` block). The treasury,
+      partners and reserve wait on the multisig, which does not exist yet.*
+- [x] **`npm run presale:smithii-verify -- --authority <wallet>` passes right after Create and
       before the first phase starts.** It is the only window in which `edit` can still fix a
       wrong value, and it settles the one assumption nothing else can: that the site rounds the
-      price the way Smithii's SDK does.
+      price the way Smithii's SDK does. *Done 2026-10-13: Create signed at 09:53 UTC by
+      `39141hz9Tj3TsgucjdctsBWq6GzYrTy9d9BKqqLo4bJ7`, launch
+      `3gRjv3VKdpDqRAi2SLujAUtXXyrfrqNupLpaEf3yoTiJ`; every row passed (33333 lamports, so the
+      rounding assumption held), 150,001,500.015 RCLAW in the vault. The sale page,
+      https://tools.smithii.io/launch/solana/RUNECLAW, is in the token record
+      (`token/presale/fixtures/smithii_sale_created.json` says what was read).*
 - [ ] **The pool is created and the LP burned in the window claims open**, and both
       transactions are published. Nothing enforces either.
 - [ ] **The program's upgrade authority and last-deploy slot are re-read on launch day**

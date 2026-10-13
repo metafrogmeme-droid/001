@@ -70,7 +70,11 @@ test('the record is the website\'s copy of the file the bot reads, byte for byte
   for (const k of TERM_KEYS) {
     assert.ok(typeof r.presale[k] === 'string' && r.presale[k].trim(), k);
   }
-  assert.strictEqual(r.presale.sale_url, null, 'no sale link before Create');
+  // The sale was created and read back on 2026-10-13 (token/presale/the_record_states_the_sale
+  // .test.mjs holds the link to the launch it opens); the page prints it as a link.
+  assert.strictEqual(r.presale.sale_url, 'https://tools.smithii.io/launch/solana/RUNECLAW');
+  assert.ok(page.isSaleUrl(r.presale.sale_url));
+  assert.ok(page.render(r).includes('<a href="https://tools.smithii.io/launch/solana/RUNECLAW"'));
 });
 
 test('the page prints every term the record announces, and no other', () => {
@@ -163,7 +167,10 @@ test('the announced presale prints each term as written', () => {
   assert.ok(html.includes('<dt>For sale</dt><dd><b>150,000,000 RCLAW</b></dd>'));
   assert.ok(html.includes('<dt>Price</dt><dd><b>30,000.3 RCLAW per SOL</b></dd>'));
   assert.ok(!html.includes('not announced yet'));
-  assert.strictEqual(count(html, esc(page.SALE_LINK_NONE)), 1);
+  assert.strictEqual(count(html, '<a href="https://tools.smithii.io/launch/solana/RUNECLAW"'), 1);
+  assert.strictEqual(count(html, esc(page.SALE_LINK_NONE)), 0);
+  // and a link not set yet says so, in its own words
+  assert.strictEqual(count(page.presaleHtml({ ...presale, sale_url: null }, 'RCLAW'), esc(page.SALE_LINK_NONE)), 1);
   assert.ok(html.includes(esc(page.BODY_ANNOUNCED)) && !html.includes(esc(page.BODY_SOON)));
   assert.ok(!/\$\s?\d/.test(html));
   // one term withdrawn reads "not announced yet" beside the others as written
