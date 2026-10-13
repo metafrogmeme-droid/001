@@ -11,7 +11,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { loadSmithiiConfig, loadTokenRecord, recordTerms } from './smithii_lib.mjs';
+import { launchAddress } from './smithii_verify.mjs';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const terms = (presale) => Object.fromEntries(
@@ -28,11 +35,21 @@ test('the record announces the sale with exactly the terms the config sets', () 
   assert.deepEqual(Object.keys(terms(presale)), Object.keys(want));
 });
 
-test('the sale link is not set before Create', () => {
-  // A link is announced only once the sale exists and presale:smithii-verify has read it back;
-  // until then the readers say "not created yet". This pins the state the record is in today,
-  // and is the line to change, with the link, after Create.
-  assert.equal(loadTokenRecord().presale.sale_url, null);
+test('the sale link names the sale that was created and read back', () => {
+  // A link is announced only once the sale exists and presale:smithii-verify has read it back
+  // (2026-10-13, every row passed; fixtures/smithii_sale_created.json says what was read). The
+  // launch address is derived from the mint and the signing wallet the way the program derives
+  // it, and Smithii's own page loads that launch for the link, so the link the website and the
+  // bot print opens this sale and no other.
+  const created = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'smithii_sale_created.json'), 'utf8'));
+  const cfg = loadSmithiiConfig();
+  const record = loadTokenRecord();
+  assert.equal(record.presale.sale_url, created.saleUrl);
+  assert.equal(launchAddress(cfg, created.authority).toBase58(), created.launch);
+  assert.deepEqual(
+    [created.smithiiApi.launchPubkey, created.smithiiApi.authority, created.smithiiApi.mint],
+    [created.launch, created.authority, record.mint]);
+  assert.equal(created.smithiiApi.launchName, created.saleUrl.split('/').pop());
 });
 
 test('each sentence follows the config value it states', () => {

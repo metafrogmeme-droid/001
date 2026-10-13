@@ -2,11 +2,12 @@
 // (the sale's scheduled end); this turns that into instants, whole-token amounts per step, the text the
 // tool's description box takes, and the funding table, and says what is wrong with a plan the tool
 // cannot create. Nothing here signs or sends; nothing here is typed in by hand twice.
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { deriveSmithiiSale, formatUnits, scheduleInstants } from './smithii_lib.mjs';
+import { base58Encode, deriveSmithiiSale, formatUnits, scheduleInstants } from './smithii_lib.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const LOCKS_PLAN = path.join(HERE, 'locks.plan.json');
@@ -202,3 +203,103 @@ export function fundingPlan({ cfg, rows, record, locks }) {
 }
 
 export const fmtBase = (u, decimals = 9) => formatUnits(u, decimals, 3);
+
+// ---------------------------------------------------------------------------------------------------------------
+// The locks as created. Smithii's program keeps each lock in an Anchor account named `Vesting` (its first 8 bytes
+// are sha256("account:Vesting")[0..8]). Read on mainnet on 2026-10-13 from the Community and Team locks, and
+// matching what the tool's form took for each:
+//   [0, 8)     the discriminator
+//   [8, 40)    creator: the wallet that created the lock, and with receivers off the only one that can claim
+//   [40, 72)   mint
+//   [72, 80)   amount, u64 base units
+//   [80, 88)   start, i64 unix seconds: the moment of creation; nothing unlocks at it
+//   [88, 96)   end, i64: the last step's instant
+//   [96, 100)  the number of steps, u32; then that many 9-byte steps: i64 instant, u8 percent of the amount
+// The bytes after the steps are not decoded, and nothing here depends on them. The tokens sit in the associated
+// token account of the Vesting account itself, so only the program can move them.
+
+export const VESTING_DISCRIMINATOR = createHash('sha256').update('account:Vesting').digest().subarray(0, 8);
+
+/** Where Smithii shows a lock's certificate; the tool builds it from the lock's url box (its slug). */
+export const CERTIFICATE_BASE = 'https://tools.smithii.io/vesting/solana/';
+
+/** A Vesting account's bytes, decoded; anything that is not one throws, with a sentence. */
+export function decodeVesting(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 100) throw new Error(`a Vesting account is at least 100 bytes; this is ${buf?.length ?? 'not a buffer'}`);
+  if (!buf.subarray(0, 8).equals(VESTING_DISCRIMINATOR)) throw new Error('the first 8 bytes are not the Vesting discriminator');
+  const n = buf.readUInt32LE(96);
+  if (n < 1 || 100 + 9 * n > buf.length) throw new Error(`the account says it has ${n} steps, which do not fit in ${buf.length} bytes`);
+  const steps = [];
+  for (let i = 0; i < n; i += 1) {
+    const off = 100 + 9 * i;
+    steps.push({ atS: Number(buf.readBigInt64LE(off)), percent: buf.readUInt8(off + 8) });
+  }
+  return {
+    creator: base58Encode(buf.subarray(8, 40)),
+    mint: base58Encode(buf.subarray(40, 72)),
+    amount: buf.readBigUInt64LE(72),
+    startS: Number(buf.readBigInt64LE(80)),
+    endS: Number(buf.readBigInt64LE(88)),
+    steps,
+  };
+}
+
+/**
+ * What the token record says about each lock, as far as the plan decides it: the bucket, its tokens, the
+ * schedule in one sentence, every unlock as a UTC instant and a percent, and the certificate link the tool
+ * gives its slug. The record adds what only creating the lock decides (the Vesting account and the wallet
+ * that claims), and token/presale/the_record_states_the_locks.test.mjs holds the record to this.
+ */
+export function recordLocks(plan, ctx) {
+  return deriveLocks(plan, ctx).map((l) => ({
+    bucket: l.bucket,
+    tokens: String(l.tokens),
+    schedule: l.describe,
+    unlocks: l.steps.map((s) => ({ at: s.atUtc, percent: s.percent })),
+    certificate_url: CERTIFICATE_BASE + l.slug,
+  }));
+}
+
+const lockRow = (check, ok, detail) => ({ check, status: ok ? 'PASS' : 'FAIL', detail });
+
+/**
+ * One created lock against the record and the plan. `item` is the record's entry, `unit` 10^decimals,
+ * `observed` = { owner, vesting (decoded), programId, mint }. Every row names the lock.
+ */
+export function compareLock(item, unit, observed) {
+  const name = item.bucket;
+  const v = observed.vesting;
+  const want = item.unlocks.map((u) => ({ atS: Date.parse(u.at) / 1000, percent: u.percent }));
+  const fmtStep = (s) => `${new Date(s.atS * 1000).toISOString().slice(0, 16)}Z ${s.percent}%`;
+  const rows = [
+    lockRow(`${name}: the lock is owned by the vesting program`, observed.owner === observed.programId, `owner ${observed.owner}`),
+    lockRow(`${name}: the claiming wallet is the one recorded`, v.creator === item.claim_wallet, `on chain ${v.creator}; recorded ${item.claim_wallet}`),
+    lockRow(`${name}: the lock holds RCLAW`, v.mint === observed.mint, `mint ${v.mint}`),
+    lockRow(`${name}: the amount is the bucket's`, v.amount === BigInt(item.tokens) * unit, `${v.amount} base units on chain; ${item.tokens} tokens recorded`),
+    lockRow(`${name}: the unlocks are the plan's`, v.steps.length === want.length && v.steps.every((s, i) => s.atS === want[i].atS && s.percent === want[i].percent),
+      `on chain ${v.steps.map(fmtStep).join(', ')}; planned ${want.map(fmtStep).join(', ')}`),
+    lockRow(`${name}: the lock ends at the last unlock`, v.endS === want[want.length - 1].atS, `end ${new Date(v.endS * 1000).toISOString()}`),
+  ];
+  return rows;
+}
+
+/**
+ * The tokens behind a lock: its vault, the Vesting account's own associated token account. Before the first
+ * unlock it must hold the whole amount; after it, a claim may have moved some, which is a WARN, never a PASS.
+ */
+export function compareLockVault(item, unit, observed, { nowS }) {
+  const name = item.bucket;
+  const amount = BigInt(item.tokens) * unit;
+  const firstS = Date.parse(item.unlocks[0].at) / 1000;
+  const rows = [
+    lockRow(`${name}: the vault belongs to the lock`, observed.owner === item.vesting_account, `owner ${observed.owner}`),
+    lockRow(`${name}: the vault holds RCLAW`, observed.mint === observed.expectedMint, `mint ${observed.mint}`),
+    lockRow(`${name}: nobody else can move the vault's tokens`, observed.delegate == null && observed.closeAuthority == null,
+      `delegate ${observed.delegate ?? 'none'}, close authority ${observed.closeAuthority ?? 'none'}`),
+  ];
+  const detail = `${observed.amount} base units in the vault; the lock is ${amount}`;
+  if (observed.amount === amount) rows.push(lockRow(`${name}: the vault holds the whole amount`, true, detail));
+  else if (nowS >= firstS && observed.amount < amount) rows.push({ check: `${name}: the vault holds the whole amount`, status: 'WARN', detail: `${detail}; the first unlock has passed, so a claim may have moved some` });
+  else rows.push(lockRow(`${name}: the vault holds the whole amount`, false, detail));
+  return rows;
+}

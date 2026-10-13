@@ -2194,7 +2194,20 @@
     "tok.verify": { en: "Only this mint address is $RCLAW. Any other token using the name or logo is not ours — check the address before you trade anything." },
     "tok.not_offer": { en: "Nothing on this page is financial advice, an offer to sell or a solicitation to buy any token. Presale terms may still change with legal review before the sale opens; this page shows the current ones." },
     "tok.unread": { en: "The token record could not be read right now. No mint address is shown in its place — a guessed address is worse than none. Try again in a minute." },
-    "tok.bot_hint": { en: "Also in the Telegram bot: /rclaw" }
+    "tok.bot_hint": { en: "Also in the Telegram bot: /rclaw" },
+    "tok.tokenomics_h": { en: "Tokenomics" },
+    "tok.tokenomics_alt": { en: "$RCLAW tokenomics: a fixed supply of 1,000,000,000 tokens, mint and freeze authority revoked. Planned allocation: Community & ecosystem 25%, Treasury / DAO 20%, Public presale 15%, Team & contributors 15%, Reserve & post-TGE liquidity 13%, Partners & market makers 8%, DEX liquidity 2%, Advisors 2%." },
+    "tok.tokenomics_note": { en: "The planned allocation, from the project’s roadmap. Open the image for full size." },
+    "tok.locks_h": { en: "Locked allocations" },
+    "tok.lock_amount": { en: "Locked" },
+    "tok.lock_schedule": { en: "Schedule" },
+    "tok.lock_unlocks": { en: "Unlocks" },
+    "tok.lock_account": { en: "Lock account" },
+    "tok.lock_wallet": { en: "Claiming wallet" },
+    "tok.lock_certificate": { en: "Certificate" },
+    "tok.lock_none": { en: "not created yet" },
+    "tok.locks_checked": { en: "Checked against the chain on" },
+    "tok.locks_body": { en: "Each lock is an account of Smithii’s Token Vesting program, which has no instruction to cancel or edit a lock: only the wallet named can claim, and only on or after each date. Smithii can upgrade that program, and no audit of the version running is established." }
   };
 
   // ── Split build ───────────────────────────────────────────────────────────
@@ -2206,7 +2219,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"8df21621","zh":"4846c21f","pt":"052e519d","fr":"67812ee1","de":"f017e510","nl":"4357a312","ja":"bdbc90a3","ko":"cff09458","ru":"5981d897","tr":"c720edf9","it":"8d777b83","hi":"bdcd55b4","ar":"edb8b51c"};
+  var CHUNKS = {"es":"8f3ef2c8","zh":"e698b252","pt":"5ccc70af","fr":"05de5cc2","de":"0e25d65e","nl":"d146c611","ja":"2e8ae521","ko":"b0175968","ru":"eea0e6bf","tr":"0844c8d5","it":"9130d90c","hi":"db7344cd","ar":"7dc95542"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};
