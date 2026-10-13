@@ -316,5 +316,10 @@
   "val_guard_stale": "nessun passaggio recente",
   "val_guard_idle": "nulla in attesa",
   "val_guard_read": "{n} ordine/i in attesa letto/i",
-  "val_sltp_unknown_short": "non registrato"
+  "val_sltp_unknown_short": "non registrato",
+  "lbl_venue_excess": "L'exchange detiene più della registrazione",
+  "val_excess_unstopped": "l'eccedenza non ha uno stop del bot",
+  "val_excess_whole_tpsl": "il TP/SL della posizione lo copre",
+  "val_excess_cover_unread": "copertura dello stop non letta",
+  "val_and_more": "e altri {n}"
 }

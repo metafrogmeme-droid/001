@@ -316,5 +316,10 @@
   "val_guard_stale": "최근 점검 없음",
   "val_guard_idle": "대기 주문 없음",
   "val_guard_read": "대기 주문 {n}건 읽음",
-  "val_sltp_unknown_short": "기록 없음"
+  "val_sltp_unknown_short": "기록 없음",
+  "lbl_venue_excess": "거래소 보유량이 기록보다 많음",
+  "val_excess_unstopped": "초과분에는 봇의 손절이 없음",
+  "val_excess_whole_tpsl": "포지션의 TP/SL이 이를 포함함",
+  "val_excess_cover_unread": "손절 적용 범위 미확인",
+  "val_and_more": "외 {n}개"
 }

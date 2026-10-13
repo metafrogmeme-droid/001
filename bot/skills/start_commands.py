@@ -843,6 +843,9 @@ class StartCommands:
             executor = self.engine.live_view(user_id).get("executor")
             open_count = (len(executor.open_positions)
                           if executor is not None else None)
+            _venue_excess = (executor.venue_excess()
+                             if executor is not None and hasattr(executor, "venue_excess")
+                             else None)
             # BUGFIX: closed_positions is ALL closed trades ever, so summing it
             # made "Daily PnL" an all-time cumulative figure that never reset.
             # Filter to positions closed TODAY (UTC) so it's genuinely daily.
@@ -862,6 +865,7 @@ class StartCommands:
                          if executor is not None and _daily["net"] is not None
                          else None)
         else:
+            _venue_excess = None
             equity = state.equity_usd if hasattr(state, "equity_usd") else 10_000.0
             open_count = state.open_positions
             _record_partial = False
@@ -966,6 +970,10 @@ class StartCommands:
             # ticks: off, not run, stale, failed, or healthy (omitted).
             position_guard=(self.engine.position_guard()
                             if hasattr(self.engine, "position_guard") else None),
+            # Sides where the venue holds more than this caller's record
+            # (`LiveExecutor.check_venue_excess`), read off the caller's own
+            # executor -- the same one the open count above was read from.
+            venue_excess=_venue_excess,
             # What the last failing tick raised. Same reason as the two above:
             # the warning-rate breaker alert says new entries are suppressed
             # and sends the reader to /status, so /status has to be able to

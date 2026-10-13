@@ -2545,6 +2545,12 @@ class LiveExecutor:
         #: A record the venue held less than on the last sync: trade id ->
         #: (venue size, record size). Two equal passes true the record down.
         self._venue_short_seen: dict[str, tuple[float, float]] = {}
+        #: A side the venue held MORE on than the records there, keyed by
+        #: (normalized symbol, direction) -> (venue size, records' size).
+        #: Two equal passes make it a reading (`check_venue_excess`).
+        self._venue_excess_seen: dict[tuple[str, str], tuple[float, float]] = {}
+        #: The confirmed readings, for /status and the alert's dedup.
+        self._venue_excess: dict[tuple[str, str], dict] = {}
         # C2-27: Track consecutive ticker fetch failures per symbol
         self._ticker_failure_count: dict[str, int] = {}
         # Callback: invoked after any position is closed (for balance cache invalidation)
@@ -5695,7 +5701,7 @@ class LiveExecutor:
             logger.warning("detect_untracked_positions() failed: %s", exc)
         return report
 
-    def dedupe_duplicate_positions(self) -> list[str]:
+    async def dedupe_duplicate_positions(self) -> list[str]:
         """Merge local records that refer to the SAME real exchange position
         or order but ended up tracked twice.
 
@@ -5710,12 +5716,28 @@ class LiveExecutor:
         the single real order shared by both, leaving the other record
         believing the order is still resting when it is not.
 
-        This never touches the exchange — it only closes the redundant LOCAL
-        record. Keeps the bot's own original record (it has real SL/TP levels;
-        an adoption artifact only has safety-default 3%/6% levels) or, failing
-        that, the earliest-opened record.
+        It closes the redundant LOCAL record and keeps the bot's own original
+        (it has real SL/TP levels; an adoption artifact only has safety-default
+        3%/6% levels) or, failing that, the earliest-opened record.
 
-        Returns human-readable messages describing each merge.
+        TWO OPEN RECORDS ARE ASKED ABOUT FIRST. A second resting order or a
+        race could also leave two REAL fills on one side, and dropping one
+        left its quantity on the venue with nothing tracking it: the venue
+        held more than the record, which nothing ever adopts on a tracked
+        side. So the venue's size on that side is read (`_held_on_venue`):
+          * it holds every record's quantity -> both are real, and the second
+            is FOLDED into the keeper (its quantity, margin and entry), whose
+            stop is then re-placed for the whole on an account whose stops are
+            sized (`_stops_are_sized`); the old stops are cancelled only once
+            the new one rests (`_place_sl_tp`);
+          * it does not read -> nothing is merged this pass;
+          * otherwise -> the second is a phantom of the same exposure and is
+            dropped, as before.
+        Resting orders are not positions, so a group with one is merged as
+        before. ``DUPLICATE_FOLD_ENABLED=0`` restores the plain drop.
+
+        Returns human-readable messages describing each merge, each a
+        ``SYNC:`` notice (information: nothing closed on the venue).
         """
         messages: list[str] = []
         groups: dict[tuple[str, str], list[LivePosition]] = {}
@@ -5728,28 +5750,219 @@ class LiveExecutor:
             return p.trade_id.startswith("ORPHAN-") or p.trade_id.startswith("TI-adopted-")
 
         _epoch = datetime.fromtimestamp(0, tz=UTC)
+        exchange = None
         for (sym, direction), group in groups.items():
             if len(group) < 2:
                 continue
             group.sort(key=lambda p: (_is_adoption_artifact(p), p.opened_at or _epoch))
             keeper, *dupes = group
+            fold = False
+            held: Optional[float] = None
+            total = sum(p.quantity for p in group)
+            if (CONFIG.execution.duplicate_fold_enabled
+                    and all(p.status == "open" for p in group)):
+                if exchange is None:
+                    try:
+                        exchange = await self._get_exchange()
+                    except Exception as exc:  # noqa: BLE001 -- unread, said below
+                        logger.debug("Dedupe could not reach the venue: %s",
+                                     type(exc).__name__)
+                held = (await self._held_on_venue(exchange, keeper.symbol, direction)
+                        if exchange is not None else None)
+                if held is None:
+                    audit(trade_log,
+                          f"Two records for {sym} {direction} left as they are this pass: "
+                          f"the venue's size on that side did not read",
+                          action="dedupe_position", result="UNREAD",
+                          data={"symbol": sym, "direction": direction,
+                                "records": [p.trade_id for p in group]})
+                    continue
+                fold = total > 0 and held >= total * 0.99
             for dup in dupes:
+                if fold:
+                    self._fold_duplicate(keeper, dup)
                 dup.status = "closed"
                 dup.closed_at = datetime.now(UTC)
                 dup.pnl_usd = 0.0
                 dup.close_reason = "duplicate_merged"
-                msg = (
-                    f"Merged duplicate local record for {sym} {direction}: "
-                    f"kept {keeper.trade_id}, dropped {dup.trade_id} "
-                    f"(no exchange action taken)"
-                )
+                if fold:
+                    msg = (
+                        f"SYNC: Folded a second record of {sym} {direction} into "
+                        f"{keeper.trade_id}: the venue holds both ({held:g} on that "
+                        f"side, records {total:g}), so {dup.trade_id}'s quantity is "
+                        f"{keeper.trade_id}'s now ({keeper.quantity:g})"
+                    )
+                else:
+                    msg = (
+                        f"SYNC: Merged duplicate local record for {sym} {direction}: "
+                        f"kept {keeper.trade_id}, dropped {dup.trade_id} "
+                        f"(no exchange action taken)"
+                    )
                 messages.append(msg)
-                audit(trade_log, msg, action="dedupe_position", result="MERGED",
+                audit(trade_log, msg, action="dedupe_position",
+                      result="FOLDED" if fold else "MERGED",
                       data={"symbol": sym, "direction": direction,
-                            "kept": keeper.trade_id, "dropped": dup.trade_id})
+                            "kept": keeper.trade_id, "dropped": dup.trade_id,
+                            "venue": held, "records": total})
+            if fold and exchange is not None:
+                note = await self._reprotect_folded(exchange, keeper)
+                if note:
+                    messages.append(note)
         if messages:
             self._save_positions()
         return messages
+
+    @staticmethod
+    def _fold_duplicate(keeper: "LivePosition", dup: "LivePosition") -> None:
+        """Carry ``dup``'s quantity into ``keeper``: both are real fills on one
+        side. The entry is the quantity-weighted mean when both entries are
+        on record; a keeper with none keeps none rather than taking a figure
+        that describes only part of the position."""
+        kq, dq = keeper.quantity, dup.quantity
+        whole = kq + dq
+        if keeper.entry_price > 0 and dup.entry_price > 0 and whole > 0:
+            keeper.entry_price = (keeper.entry_price * kq + dup.entry_price * dq) / whole
+        keeper.quantity = whole
+        keeper.cost_usd = keeper.cost_usd + dup.cost_usd
+
+    def _stops_are_sized(self) -> Optional[bool]:
+        """Whether this account's stops are sized trigger orders (True), one
+        TP/SL on the whole position (False: Bitget's unified account, the v3
+        ``tpslMode: full`` channel), or not yet known (None)."""
+        if not self._venue.supports_native_triggers:
+            return True
+        if self._is_uta is None:
+            return None
+        return not self._is_uta
+
+    async def _reprotect_folded(self, exchange, keeper: "LivePosition") -> Optional[str]:
+        """Re-place a folded record's stop for its whole quantity, where stops
+        are sized. Returns a notice when the whole is NOT covered by one stop.
+
+        Through `_place_missing_sltp`, the path for a record that already
+        names its orders: with both legs held it re-places the pair at the
+        record's (now whole) quantity, and the side's old stops are cancelled
+        only once the new stop rests, so a refusal leaves both records' own
+        stops standing, each covering its own part, and the record keeps the
+        ids it had. With one leg held it places only the missing one, which
+        leaves the held stop at its old size: said the same way."""
+        sized = self._stops_are_sized()
+        if sized is False:
+            return None       # the position's own TP/SL covers the whole
+        if sized is None or keeper.stop_loss <= 0 or keeper.take_profit <= 0:
+            audit(trade_log,
+                  f"Folded record {keeper.trade_id} ({keeper.symbol}) kept the stops it "
+                  f"had: {'the account type is unread' if sized is None else 'no levels on record'}",
+                  action="dedupe_position", result="NOT_REPROTECTED",
+                  data={"trade_id": keeper.trade_id})
+            return (f"SYNC: {keeper.symbol} {keeper.direction} -- the folded record's stop "
+                    f"was not re-placed for its whole {keeper.quantity:g}; each part's own "
+                    f"stop is still resting")
+        held_sl = keeper.sl_order_id
+        new_sl = None
+        try:
+            new_sl, _new_tp = await self._place_missing_sltp(exchange, keeper)
+        except Exception as exc:  # noqa: BLE001 -- said below
+            logger.warning("Re-protecting folded %s raised %s", keeper.symbol,
+                           type(exc).__name__)
+        if new_sl and new_sl != held_sl:
+            return None
+        audit(trade_log,
+              f"Folded record {keeper.trade_id} ({keeper.symbol}): no stop for its whole "
+              f"{keeper.quantity:g} was placed; each part's own stop is still resting",
+              action="dedupe_position", result="NOT_REPROTECTED", level=logging.WARNING,
+              data={"trade_id": keeper.trade_id})
+        return (f"SYNC: {keeper.symbol} {keeper.direction} -- the folded record's stop "
+                f"was not re-placed for its whole {keeper.quantity:g}; each part's own "
+                f"stop is still resting")
+
+    async def check_venue_excess(self) -> list[str]:
+        """Say when the venue holds MORE on a side than the records there.
+
+        Nothing writes that quantity: it can be exposure the bot did not open
+        (a manual add), and the executor keeps one record per symbol, whose
+        stop `_place_sl_tp` sizes to the record and which replaces the side's
+        other stops when it is placed -- a second record for the excess would
+        strip the first one's stop. So this reads and says: the venue's size
+        on each side the bot holds (`_held_on_venue`), against the sum of the
+        records there, twice running with no close in flight, as the
+        true-down reads it. A confirmed excess is audited (`QTY_EXCESS`),
+        announced once per distinct reading as a ``SYNC:`` notice saying what
+        the bot's stop covers, and kept for /status (`venue_excess`) until it
+        is gone. Unread is not "no excess": it keeps what was last confirmed.
+        """
+        if not CONFIG.is_live():
+            return []
+        groups: dict[tuple[str, str], list[LivePosition]] = {}
+        for p in list(self._positions.values()):
+            if p.status == "open":
+                groups.setdefault((normalize_symbol(p.symbol), p.direction), []).append(p)
+        for key in [k for k in self._venue_excess_seen if k not in groups]:
+            del self._venue_excess_seen[key]
+        for key in [k for k in self._venue_excess if k not in groups]:
+            del self._venue_excess[key]
+        if not groups:
+            return []
+        try:
+            exchange = await self._get_exchange()
+        except Exception as exc:  # noqa: BLE001 -- unread; asked again next pass
+            logger.debug("Excess check could not reach the venue: %s", type(exc).__name__)
+            return []
+        messages: list[str] = []
+        for key, rows in groups.items():
+            if any((lk := self._close_locks.get(r.trade_id)) is not None and lk.locked()
+                   for r in rows):
+                self._venue_excess_seen.pop(key, None)
+                continue
+            held = await self._held_on_venue(exchange, rows[0].symbol, rows[0].direction)
+            if held is None:
+                continue
+            total = sum(r.quantity for r in rows)
+            if total <= 0 or held <= total * 1.01:
+                self._venue_excess_seen.pop(key, None)
+                if self._venue_excess.pop(key, None) is not None:
+                    audit(trade_log,
+                          f"Qty excess on {key[0]} {key[1]} is gone: the venue holds "
+                          f"{held:g}, the records {total:g}",
+                          action="qty_sync", result="EXCESS_CLEARED",
+                          data={"symbol": key[0], "direction": key[1],
+                                "venue": held, "records": total})
+                continue
+            reading = (held, total)
+            if self._venue_excess_seen.get(key) != reading:
+                self._venue_excess_seen[key] = reading
+                continue
+            prev = self._venue_excess.get(key)
+            sized = self._stops_are_sized()
+            self._venue_excess[key] = {
+                "symbol": key[0], "direction": key[1], "venue": held, "records": total,
+                "excess": held - total, "stops_sized": sized,
+                "trade_ids": [r.trade_id for r in rows], "at": time.time()}
+            if prev is not None and (prev["venue"], prev["records"]) == reading:
+                continue
+            audit(trade_log,
+                  f"Qty excess on {key[0]} {key[1]}: the venue holds {held:g}, the records "
+                  f"{total:g}, on two passes running; nothing is written or placed for it",
+                  action="qty_sync", result="QTY_EXCESS", level=logging.WARNING,
+                  data={"symbol": key[0], "direction": key[1], "venue": held,
+                        "records": total, "stops_sized": sized})
+            if sized is True:
+                covers = (f"The bot's stop covers the record's {total:g} only: the other "
+                          f"{held - total:g} has no stop of the bot's.")
+            elif sized is False:
+                covers = ("The position's own TP/SL covers the whole position, so the extra "
+                          "closes with it.")
+            else:
+                covers = "Whether the bot's stop covers the extra is unread."
+            messages.append(
+                f"SYNC: {key[0]} {key[1]} -- the venue holds {held:g}, the bot's record "
+                f"{total:g}: {held - total:g} more than the bot opened. Nothing was placed "
+                f"or closed for it. {covers}")
+        return messages
+
+    def venue_excess(self) -> list[dict]:
+        """The confirmed excess readings (`check_venue_excess`), for /status."""
+        return [dict(v) for v in list(self._venue_excess.values())]
 
     def _fill_in_missing_levels(self, pos: "LivePosition", price: float) -> bool:
         """Give a perp position with NO STOP ON RECORD a protective pair, before
@@ -5865,7 +6078,7 @@ class LiveExecutor:
         adopted: list[str] = []
         if not CONFIG.is_live():
             return adopted
-        self.dedupe_duplicate_positions()
+        await self.dedupe_duplicate_positions()
 
         # Build cooldown set from recently closed positions
         _now = time.time()
@@ -11919,33 +12132,52 @@ class LiveExecutor:
         except Exception as exc:
             logger.warning("Position check error: %s", exc)
 
-        # ── Periodic exchange sync ──
-        # Every 5 minutes, check if the exchange has positions we're not tracking.
-        # This is the definitive fix for "lost positions" — the exchange is always
-        # the source of truth.
-        now_ts = time.time()
-        if now_ts - self._last_exchange_sync > self._EXCHANGE_SYNC_INTERVAL:
-            self._last_exchange_sync = now_ts
-            try:
-                adopted = await self.adopt_exchange_positions()
-                for sym in adopted:
-                    audit(trade_log, f"Periodic sync adopted orphan: {sym}",
-                          action="periodic_sync", result="ADOPTED")
-                    closed_messages.append(
-                        f"SYNC: Adopted untracked position {sym} from exchange"
-                    )
-                # Also adopt orphaned limit orders
-                adopted_orders = await self.adopt_exchange_limit_orders()
-                for sym in adopted_orders:
-                    audit(trade_log, f"Periodic sync adopted orphan limit order: {sym}",
-                          action="periodic_sync", result="ADOPTED_LIMIT")
-                    closed_messages.append(
-                        f"SYNC: Adopted untracked limit order {sym} from exchange"
-                    )
-            except Exception as sync_exc:
-                logger.debug("Periodic exchange sync failed: %s", sync_exc)
+        # ── Periodic exchange sync (`_periodic_exchange_sync`) ──
+        closed_messages.extend(await self._periodic_exchange_sync())
 
         return closed_messages
+
+    async def _periodic_exchange_sync(self) -> list[str]:
+        """Every `_EXCHANGE_SYNC_INTERVAL`, square the book with the venue.
+
+        The duplicate merge (`dedupe_duplicate_positions`) and the excess
+        check (`check_venue_excess`) first, then the adoption of positions
+        and resting orders the bot does not track: the exchange is the source
+        of truth for what exists. Returns the ``SYNC:`` notices, which the
+        engine routes as information (nothing closed).
+        """
+        messages: list[str] = []
+        now_ts = time.time()
+        if now_ts - self._last_exchange_sync <= self._EXCHANGE_SYNC_INTERVAL:
+            return messages
+        self._last_exchange_sync = now_ts
+        try:
+            # The merge's notices first (adoption runs it again and finds
+            # nothing left), then what the venue holds beyond the records.
+            messages.extend(await self.dedupe_duplicate_positions())
+            messages.extend(await self.check_venue_excess())
+        except Exception as exc:
+            logger.warning("Periodic size check failed: %s", type(exc).__name__)
+        try:
+            adopted = await self.adopt_exchange_positions()
+            for sym in adopted:
+                audit(trade_log, f"Periodic sync adopted orphan: {sym}",
+                      action="periodic_sync", result="ADOPTED")
+                messages.append(
+                    f"SYNC: Adopted untracked position {sym} from exchange"
+                )
+            # Also adopt orphaned limit orders
+            adopted_orders = await self.adopt_exchange_limit_orders()
+            for sym in adopted_orders:
+                audit(trade_log, f"Periodic sync adopted orphan limit order: {sym}",
+                      action="periodic_sync", result="ADOPTED_LIMIT")
+                messages.append(
+                    f"SYNC: Adopted untracked limit order {sym} from exchange"
+                )
+        except Exception as sync_exc:
+            logger.debug("Periodic exchange sync failed: %s", sync_exc)
+
+        return messages
 
     async def _reattempt_post_fill_sl(
         self, exchange: "ccxt.Exchange", pos: "LivePosition",
