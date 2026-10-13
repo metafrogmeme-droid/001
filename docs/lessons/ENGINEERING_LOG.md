@@ -24450,3 +24450,31 @@ card said so, and applies nothing itself.
 driven with the model's call captured; a default, an override and an
 unreadable value; the prompt and the card read one value. Five mutants, all
 killed.)
+
+**A COUNT ON THE WALL CLOCK STRADDLED A MINUTE, AND THE LIMIT IT TESTED ROUNDS UP.**
+On 2026-10-13 the web app's CI failed on
+`routes/insight.js: its 60-a-minute limit is one limit across two instances`:
+61 of 120 passed. The PR under test touched nothing under `app/`. The four
+route tests, and six other tests in
+`app/test/request_limits_are_shared_by_every_instance.test.js`, fired their
+requests on the wall clock and asserted a count that holds only inside one
+minute. The shared limiter's sliding estimate rounds the remaining allowance
+up, by design and pinned by `the previous window still counts…` ("1.25 → 2
+slots"). So a burst that crosses a boundary admits `max + 1`: `k` before it,
+then `ceil(max - k × overlap)`, which is `max - k + 1` while the overlap is
+just under one.
+
+The limiter was not changed. Rounding down breaks the pinned design, and the
+estimate is an approximation either way. The tests were wrong about their
+fixture. A test whose count must fall inside one minute now holds the clock
+mid-window (`inOneWindow(t)`); the tests that measure elapsed time, and those
+that already set their own clock, are untouched.
+
+Measured by shifting the process clock to land the route burst on a
+boundary, 200 to 440 ms before it in 15 ms steps. The old file failed all 17
+runs (market 121 of 240, macro 41 of 80) and the pinned file none. A pinned
+test still measures the sharing: with the shared count switched off, every
+pinned test fails. Under the pinned Node 24 the whole file passes; under Node
+22 the same file cancels eight tests on unchanged main ("the event loop has
+already resolved"), so run it with the pinned Node before reading anything
+into a cancellation.
