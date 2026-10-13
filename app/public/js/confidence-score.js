@@ -3,6 +3,12 @@
  *
  *   text(v[, scale]) -> 'score 72 (uncalibrated)' | null
  *   number(v[, scale]) -> '72' | null
+ *   patternText(v) -> 'detector score 72 (unmeasured)' | null
+ *
+ * A CHART PATTERN'S FIGURE is a third thing. Each detector writes a hand-set
+ * constant or clamp, and nothing records how a pattern's calls turned out, so
+ * `patternText` words it as the detector's score, unmeasured: the bot's
+ * `PATTERN_SCORE_WORD` and `UNMEASURED_WORD`, pinned by the same test.
  *
  * Every page printed a signal's confidence as `72%`, which reads as a
  * probability, and it is not one. The figure the bot publishes on a signal row
@@ -32,6 +38,8 @@
 
   var SCORE_WORD = 'score';
   var UNCALIBRATED_WORD = 'uncalibrated';
+  var PATTERN_SCORE_WORD = 'detector score';
+  var UNMEASURED_WORD = 'unmeasured';
   var MEANING = "A confidence score is the analyzer's own 0-100 rating of a setup. It is "
     + 'not a probability or a win rate: no fitted calibration curve has mapped '
     + 'it to outcomes, so never describe it as a chance or likelihood of '
@@ -59,11 +67,20 @@
     return n === null ? null : SCORE_WORD + ' ' + n + ' (' + UNCALIBRATED_WORD + ')';
   }
 
+  /** 'detector score 72 (unmeasured)' for a pattern's 0-1 figure, or null. */
+  function patternText(v) {
+    var n = number(v, 1);
+    return n === null ? null : PATTERN_SCORE_WORD + ' ' + n + ' (' + UNMEASURED_WORD + ')';
+  }
+
   return {
     SCORE_WORD: SCORE_WORD,
     UNCALIBRATED_WORD: UNCALIBRATED_WORD,
+    PATTERN_SCORE_WORD: PATTERN_SCORE_WORD,
+    UNMEASURED_WORD: UNMEASURED_WORD,
     MEANING: MEANING,
     number: number,
     text: text,
+    patternText: patternText,
   };
 }));

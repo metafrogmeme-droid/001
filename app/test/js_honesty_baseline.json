@@ -6,11 +6,11 @@
     "lib",
     "routes"
   ],
-  "total": 143,
+  "total": 139,
   "counts": {
     "or-zero": {
       "public/js/charts2d.js": 2,
-      "public/js/dashboard.js": 18,
+      "public/js/dashboard.js": 17,
       "lib/airdrops.js": 1,
       "lib/daily_rune.js": 1,
       "lib/holdings.js": 2,
@@ -35,9 +35,7 @@
       "lib/arena_seasons.js": 1,
       "lib/badges.js": 1,
       "lib/callseal.js": 5,
-      "lib/daily_rune.js": 1,
       "lib/envelope_replay.js": 2,
-      "lib/pattern_watch.js": 2,
       "routes/arena.js": 2,
       "routes/call.js": 6,
       "routes/cross_yield.js": 3,

@@ -45,6 +45,8 @@ test('the words and the sentence are the bot\'s own', () => {
   assert.equal(CS.SCORE_WORD, pyString(src, 'SCORE_WORD'));
   assert.equal(CS.UNCALIBRATED_WORD, pyString(src, 'UNCALIBRATED_WORD'));
   assert.equal(CS.MEANING, pyString(src, 'SCORE_MEANING'));
+  assert.equal(CS.PATTERN_SCORE_WORD, pyString(src, 'PATTERN_SCORE_WORD'));
+  assert.equal(CS.UNMEASURED_WORD, pyString(src, 'UNMEASURED_WORD'));
 });
 
 // ── the module ─────────────────────────────────────────────────────────────

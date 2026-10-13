@@ -10,6 +10,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 from bot.compat import UTC
 from bot.core.chart_patterns import scan_all_chart_patterns
+from bot.core.signal_confidence import pattern_score_text
 from bot.utils.models import Direction, MarketSignal, RiskVerdict, TradeIdea
 from bot.utils.candles import drop_forming_candle, ohlc_on_record
 from bot.core.position_telemetry import price_on_record
@@ -1470,7 +1471,8 @@ def _fmt_detail(r: dict) -> str:
              f"  Vol <code>{r['vol_ratio']}x</code>  SMA20 <code>${r['sma20']:,.6g}</code>",
              f"  Score {_score_bar(r['score'])} <b>{r['score']:.0%}</b>"]
     if r.get("patterns"):
-        pats = ", ".join(f"{p['name']}({p['signal']},{p['confidence']:.0%})" for p in r["patterns"][:3])
+        pats = ", ".join(f"{p['name']} ({p['signal']}, {pattern_score_text(p.get('confidence'))})"
+                         for p in r["patterns"][:3])
         lines.append(f"  Patterns: {pats}")
     return "\n".join(lines)
 
@@ -1837,7 +1839,8 @@ async def _scan_single(update: Update, context: ContextTypes.DEFAULT_TYPE,
         if result and result.get("patterns"):
             text += "\n\n<b>Chart Patterns:</b>\n"
             for p in result["patterns"][:5]:
-                text += (f"  \u2022 <b>{p['name']}</b> \u2014 {p['signal']} ({p.get('confidence',0):.0%})\n"
+                text += (f"  \u2022 <b>{p['name']}</b> \u2014 {p['signal']} "
+                         f"({pattern_score_text(p.get('confidence'))})\n"
                          f"    <i>{p.get('description','')}</i>\n")
 
         # Add risk verdict
@@ -1851,7 +1854,8 @@ async def _scan_single(update: Update, context: ContextTypes.DEFAULT_TYPE,
         if result and result["patterns"]:
             text += "\n\n<b>Chart Patterns:</b>\n"
             for p in result["patterns"][:5]:
-                text += (f"  \u2022 <b>{p['name']}</b> -- {p['signal']} ({p.get('confidence',0):.0%})\n"
+                text += (f"  \u2022 <b>{p['name']}</b> -- {p['signal']} "
+                         f"({pattern_score_text(p.get('confidence'))})\n"
                          f"    <i>{p.get('description','')}</i>\n")
 
     # THE BUTTON IS THE CARD'S IDEA. The card above prints the 1h analyzer's

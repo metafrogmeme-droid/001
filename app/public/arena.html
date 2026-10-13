@@ -438,7 +438,7 @@ window.addEventListener('unhandledrejection', rcReportPageError);
 <script src="/js/panel-error-model.js?v=4"></script>
 <script src="/js/app.js?v=15"></script>
 <script src="/js/i18n-core.js?v=170"></script>
-<script src="/js/confidence-score.js?v=1"></script>
+<script src="/js/confidence-score.js?v=2"></script>
 <script src="/js/arena_engine.js?v=1"></script>
 <script src="/js/sandbox.js?v=1" defer></script>
 <script src="/js/arena-risk-model.js?v=1"></script>
@@ -600,8 +600,10 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     if (pat && Array.isArray(pat.chart_patterns) && pat.chart_patterns.length) {
       pat.chart_patterns.slice(0, 3).forEach(function (cp) {
         var cls = cp.signal === 'bullish' ? 'up-c' : cp.signal === 'bearish' ? 'down-c' : '';
+        // The detector's score, never a percent (confidence-score.js).
+        var score = self.RCConfidenceScore && self.RCConfidenceScore.patternText(cp.confidence);
         chips.push('<span class="read-chip ' + cls + '" title="' + esc(cp.description || '') + '">'
-          + esc(cp.name) + ' ' + Math.round((Number(cp.confidence) || 0) * 100) + '%</span>');
+          + esc(cp.name) + (score ? ' · ' + esc(score) : '') + '</span>');
       });
     }
     var cmap = pat && (pat.candlestick_patterns || pat.candle_patterns);

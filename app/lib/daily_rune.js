@@ -6,12 +6,18 @@
  * Arena pulse (traders + closes in 24h) and the current season. Anything
  * missing is OMITTED — the digest never invents a headline.
  *
- * §4: public surface — pattern names + confidence percent (the engine's
+ * §4: public surface — pattern names + the detector's score (the engine's
  * read of public market structure), counts, and win rates only. No dollar
  * amounts of any kind.
+ *
+ * The pattern's figure is the detector's own hand-set score, unmeasured: no
+ * record says how a pattern's calls turned out. So it picks which pattern to
+ * name and nothing more: there is no floor on it, and the page prints it as
+ * a score (`RCConfidenceScore.patternText`), never a percent.
  */
 
 const { pool } = require('../db');
+const CS = require('../public/js/confidence-score');
 
 /** Pure assembly from pre-fetched pieces; every part optional. */
 function buildToday(parts) {
@@ -21,13 +27,15 @@ function buildToday(parts) {
     let best = null;
     for (const h of hits) {
       for (const p of h.chart_patterns || []) {
-        const c = Number(p.confidence) || 0;
+        // An unread score is not a score of zero: it cannot rank.
+        if (CS.number(p.confidence) === null) continue;
+        const c = Number(p.confidence);
         if (p.name && (!best || c > best.confidence)) {
           best = { symbol: h.symbol, name: p.name, signal: p.signal || 'neutral', confidence: c };
         }
       }
     }
-    if (best && best.confidence >= 0.55) out.top_pattern = best;
+    if (best) out.top_pattern = best;
   }
   const sig = parts && parts.signals;
   if (sig && (sig.created_today || sig.resolved_today)) {

@@ -307,3 +307,4 @@ about to change before changing it.
 - L24014: A LIMIT THAT FILLED MID-TICK WAITED FOR THE TICK TO GET ITS STOP
 - L24062: A SECOND WRITER BETWEEN TICKS MADE FIVE SHARED READS ROUTINE — `tests/test_a_resting_fill_is_protected_between_ticks.py`, `tests/test_the_scan_lane_reads_shared_state_by_copy.py`
 - L24103: THE DUPLICATE MERGE DROPPED A REAL FILL, AND THE VENUE HELD MORE IN SILENCE — `tests/test_a_second_real_fill_is_folded_not_dropped.py`, `tests/test_one_non_fill_vocabulary.py`
+- L24163: A DETECTOR'S HAND-SET NUMBER WAS PRINTED AS A WIN RATE ON EVERY PATTERN SURFACE — `app/test/a_pattern_score_is_never_a_percent.test.js`, `tests/test_a_pattern_score_is_never_a_percent.py`
