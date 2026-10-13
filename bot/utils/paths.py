@@ -63,3 +63,32 @@ def env_state_path(env_var: str, default_relative: str) -> Path:
     """
     raw = (os.getenv(env_var) or "").strip()
     return state_path(raw or default_relative)
+
+
+def repo_path(relative: str) -> Path:
+    """Absolute path to a file the repository itself ships, independent of the cwd.
+
+    Today this resolves exactly as `state_path` does. They are two functions
+    because they answer two questions: `state_path` is where the bot's own
+    durable state lives, which a test-only state root may one day relocate,
+    and `repo_path` is where a committed input lives (the macro calendar
+    seed, an eligibility record, a config list), which nothing relocates. A
+    seed read through `state_path` would vanish from under a test state root
+    and read as "no calendar", which fails every entry closed.
+
+    THE INCIDENT SHAPE. `MacroEventProvider(seed_path=Path("config/…"))`
+    resolved against the working directory. An engine built from any other
+    directory found no seed, marked the calendar blind and returned
+    BLOCK_NEW_ENTRIES for every entry, with nothing saying the file was
+    simply looked for in the wrong place.
+    """
+    p = Path(relative).expanduser()
+    return p if p.is_absolute() else (REPO_ROOT / p)
+
+
+def env_repo_path(env_var: str, default_relative: str) -> Path:
+    """`repo_path` for a value an operator may override by environment. A
+    relative override is anchored too, and a blank one reads as unset, as in
+    `env_state_path`."""
+    raw = (os.getenv(env_var) or "").strip()
+    return repo_path(raw or default_relative)

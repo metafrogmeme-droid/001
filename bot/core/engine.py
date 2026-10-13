@@ -65,7 +65,7 @@ from bot.core.dashboard_pusher import (
 )
 from bot.utils.audit_chain import AuditChain, DecisionRecord
 from bot.utils.durable_io import fsync_dir
-from bot.utils.paths import env_state_path, state_path
+from bot.utils.paths import env_repo_path, env_state_path, repo_path, state_path
 from bot.utils.logger import audit, system_log, trade_log, scan_log
 
 #: Stages of one analysis, in the order they run. Module-level, not a class
@@ -755,7 +755,7 @@ class RuneClawEngine:
             fail_closed_when_stale=CONFIG.risk.macro_calendar_fail_closed_when_stale,
         )
         self.macro_provider = MacroEventProvider(
-            seed_path=Path("config/macro_calendar.seed.json"),
+            seed_path=repo_path("config/macro_calendar.seed.json"),
             funding_provider=self.exchange_flow.funding_rate_provider,
         )
         self.risk = RiskEngine(
@@ -1992,7 +1992,7 @@ class RuneClawEngine:
             import json as _json
             import os as _os
             from bot.guardian import intent_policy as _ip
-            path = _os.getenv("INTENT_POLICY_PATH", "config/intent_policy.json")
+            path = self._intent_policy_path()
             if not _os.path.exists(path):
                 engine.set_intent_policy(None)
                 return None
@@ -2020,8 +2020,12 @@ class RuneClawEngine:
         return self._load_intent_policy_onto(self.risk, owner="operator")
 
     def _intent_policy_path(self) -> str:
-        import os as _os
-        return _os.getenv("INTENT_POLICY_PATH", "config/intent_policy.json")
+        """The operator's intent policy file: INTENT_POLICY_PATH, else
+        config/intent_policy.json, anchored to the repository so the loader,
+        the authoring write and the mode flip all read the file the operator
+        wrote wherever the process was launched from. The one definition; the
+        loader asks it too."""
+        return str(env_repo_path("INTENT_POLICY_PATH", "config/intent_policy.json"))
 
     def write_intent_policy(self, policy: dict) -> Optional[dict]:
         """Guardian Intent authoring: persist a compiled policy to disk and

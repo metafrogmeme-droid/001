@@ -45,7 +45,7 @@ from pathlib import Path
 from typing import NamedTuple, Optional
 
 from bot.utils.json_store import FRESH, READ, read_json_store
-from bot.utils.paths import REPO_ROOT, state_path
+from bot.utils.paths import REPO_ROOT, repo_path
 
 #: Where records live, relative to the repo root.
 RECORD_DIR = "benchmark/eligibility"
@@ -147,7 +147,7 @@ def record_path(strategy: str, root: Optional[Path] = None) -> Path:
     rel = f"{RECORD_DIR}/{strategy}.json"
     if root is not None:
         return Path(root) / rel
-    return state_path(rel)
+    return repo_path(rel)
 
 
 def read_eligibility(strategy: Optional[str] = None,
