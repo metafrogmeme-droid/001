@@ -23,7 +23,8 @@ never routed to it, regardless of any table, env, or toggle below.
    call path now raises on it so callers fall back to the rule engine
    instead of treating an empty string as an answer.
 
-Pricing: **$10 / $50 per MTok** (input/output) — 2x Opus 4.8, ~3x Sonnet 5.
+Pricing: **$10 / $50 per MTok** (input/output) — 2x Opus 4.8, 5x Sonnet 5
+($2 / $10). `bot/core/cost.py::LLM_PRICING` books it.
 That is why ULTRA is an explicit opt-in and never a default.
 
 ## AI-1 — ULTRA mode (SHIPPED in this change)

@@ -1361,6 +1361,9 @@ async def llm_complete(
     the response carried no usage. The chat cost path used to book
     ``len(text) // 4`` while this exact number sat on the response it had just
     parsed; the daily budget guard then compared spend against the estimate.
+    Beside the pair it adds ``cache_read`` / ``cache_write``, the prompt
+    cache's tokens, which an Anthropic response bills apart from ``in``
+    (`bot.llm.usage.cache_kwargs` hands them to ``record_llm``).
 
     ``on_delta``: an opt-in listener, ``on_delta(text)`` (sync or async),
     called with each fragment of the reply AS THE MODEL PRODUCES IT. With a
@@ -1422,8 +1425,10 @@ async def llm_complete(
                 messages.append({"role": "user", "content": user_prompt})
 
             # Build system with cache_control for prompt caching
-            # System prompt is large and identical across calls — caching
-            # drops input cost from $5/MTok to $0.50/MTok (90% savings)
+            # A cache read bills at a tenth of the input price (less on Opus
+            # 5.5 and Fable 5.1) and a write at 1.25x; `cost.llm_call_cost`
+            # books both. It saves only when the block is byte-identical
+            # across calls.
             system_content = [
                 {
                     "type": "text",
@@ -1580,6 +1585,14 @@ def _hand_back_usage(usage_out: dict | None, response) -> None:
     usage_out["in"] = int(usage_out.get("in", 0)) + pair[0]
     usage_out["out"] = int(usage_out.get("out", 0)) + pair[1]
     usage_out["calls"] = int(usage_out.get("calls", 0)) + 1
+    # The prompt cache's reads and writes, billed apart from the input
+    # (`bot.core.cost.llm_call_cost`). Added only where the response reported
+    # some: an absent key is a call that billed nothing apart from ``in``
+    # (`bot.llm.usage.cache_kwargs`).
+    from bot.llm.usage import cache_pair
+    for key, count in zip(("cache_read", "cache_write"), cache_pair(response)):
+        if count:
+            usage_out[key] = int(usage_out.get(key, 0)) + count
 
 
 async def _emit(listener, *args) -> None:

@@ -8,9 +8,11 @@ flapping primary could silently blow through BOTH the daily call limit and the
 daily dollar cap via fallbacks.
 
 When CONFIG.llm.fallback_cost_accounting_enabled is ON, each successful fallback
-call increments _llm_calls_today and records cost (exact usage on OpenAI-compat
-providers; a char-length estimate on the Anthropic path, whose helper discards
-usage). Default OFF keeps accounting byte-identical to today.
+call increments _llm_calls_today and records cost: the measured usage on every
+provider, the Anthropic path's prompt-cache reads and writes included
+(tests/test_the_cost_table_is_the_list_price_and_the_cache_is_booked.py), and a
+char-length estimate only for a response that reported none. The flag is on by
+default; off, a fallback call books nothing.
 """
 
 import asyncio
