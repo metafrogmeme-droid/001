@@ -43,5 +43,89 @@
     "refunds": "None",
     "after_sale": "The team creates the pool at the sale price with 80% of the SOL raised and burns the LP. The sale contract does not do this.",
     "sale_url": null
+  },
+  "locks": {
+    "_comment": "CREATED: the time locks of docs/TOKEN_ROADMAP.md section 4, made in Smithii Token Vesting, written the way the website (/token) and the bot (/rclaw) print them. bucket, tokens, schedule, unlocks and certificate_url are derived from token/presale/locks.plan.json (locks_lib.mjs, recordLocks); vesting_account and claim_wallet are what creating the lock decided. token/presale/the_record_states_the_locks.test.mjs holds every field to the plan and to a snapshot of the chain that npm run presale:locks-verify took; a lock not created yet has null in its three created fields, which every reader prints as not created yet. After editing, run node app/scripts/sync_content.js.",
+    "verified_at": "2026-10-13",
+    "items": [
+      {
+        "bucket": "Community & ecosystem",
+        "tokens": "250000000",
+        "schedule": "5 unlocks (5%, 20%, 25%, 25%, 25%): at TGE, then every 9 months (the last at month 36)",
+        "unlocks": [
+          {
+            "at": "2026-10-29T14:00:00Z",
+            "percent": 5
+          },
+          {
+            "at": "2027-07-29T14:00:00Z",
+            "percent": 20
+          },
+          {
+            "at": "2028-04-29T14:00:00Z",
+            "percent": 25
+          },
+          {
+            "at": "2029-01-29T14:00:00Z",
+            "percent": 25
+          },
+          {
+            "at": "2029-10-29T14:00:00Z",
+            "percent": 25
+          }
+        ],
+        "certificate_url": "https://tools.smithii.io/vesting/solana/rclaw-community",
+        "vesting_account": "2hJYD7Gjafs88vDnXG1MTgfCyf46CwhoAhTMd7YZnKcj",
+        "claim_wallet": "2p7bvpRc7dTW4bgmGJYVGHMkCqUH3rwYF3ZJXYNe9LeA"
+      },
+      {
+        "bucket": "Team & contributors",
+        "tokens": "150000000",
+        "schedule": "12-month cliff, then 4 unlocks of 25% every 6 months (the last at month 36)",
+        "unlocks": [
+          {
+            "at": "2028-04-29T14:00:00Z",
+            "percent": 25
+          },
+          {
+            "at": "2028-10-29T14:00:00Z",
+            "percent": 25
+          },
+          {
+            "at": "2029-04-29T14:00:00Z",
+            "percent": 25
+          },
+          {
+            "at": "2029-10-29T14:00:00Z",
+            "percent": 25
+          }
+        ],
+        "certificate_url": "https://tools.smithii.io/vesting/solana/rclaw-team",
+        "vesting_account": "2iXmFjKuVe25XMPMUAkrQCBDDRrx9Qk319SFTJ7Hucuz",
+        "claim_wallet": "5N5n2vpCvG68XndXYDBm18joWXYGTSJgzWQtwwHNxDrS"
+      },
+      {
+        "bucket": "Advisors",
+        "tokens": "20000000",
+        "schedule": "6-month cliff, then 3 unlocks (33%, 33%, 34%) every 6 months (the last at month 24)",
+        "unlocks": [
+          {
+            "at": "2027-10-29T14:00:00Z",
+            "percent": 33
+          },
+          {
+            "at": "2028-04-29T14:00:00Z",
+            "percent": 33
+          },
+          {
+            "at": "2028-10-29T14:00:00Z",
+            "percent": 34
+          }
+        ],
+        "certificate_url": "https://tools.smithii.io/vesting/solana/rclaw-advisors",
+        "vesting_account": "BkH2rAhRW8bx4qha8tkdDT9MiCfvu34vkQbdN616gPU8",
+        "claim_wallet": "7rkwK2beYZR7dYS9zyPivqDvBpGxRwvm3BKKXshyUpSG"
+      }
+    ]
   }
 }

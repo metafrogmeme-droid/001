@@ -2155,5 +2155,15 @@
   ["tok.bot_hint", "Também no bot do Telegram: /rclaw"],
   ["tok.tokenomics_h", "Tokenomics"],
   ["tok.tokenomics_alt", "Tokenomics de $RCLAW: oferta fixa de 1.000.000.000 tokens, autoridades de mint e de congelamento revogadas. Alocação planeada: Comunidade e ecossistema 25%, Tesouraria / DAO 20%, Pré-venda pública 15%, Equipa e colaboradores 15%, Reserva e liquidez pós-TGE 13%, Parceiros e market makers 8%, Liquidez DEX 2%, Consultores 2%."],
-  ["tok.tokenomics_note", "A alocação planeada, segundo o roteiro do projeto. Abra a imagem para a ver em tamanho completo."]
+  ["tok.tokenomics_note", "A alocação planeada, segundo o roteiro do projeto. Abra a imagem para a ver em tamanho completo."],
+  ["tok.locks_h", "Alocações bloqueadas"],
+  ["tok.lock_amount", "Bloqueado"],
+  ["tok.lock_schedule", "Calendário"],
+  ["tok.lock_unlocks", "Desbloqueios"],
+  ["tok.lock_account", "Conta do bloqueio"],
+  ["tok.lock_wallet", "Carteira que resgata"],
+  ["tok.lock_certificate", "Certificado"],
+  ["tok.lock_none", "ainda não criado"],
+  ["tok.locks_checked", "Verificado contra a cadeia em"],
+  ["tok.locks_body", "Cada bloqueio é uma conta do programa Token Vesting da Smithii, que não tem nenhuma instrução para cancelar ou editar um bloqueio: só a carteira indicada pode resgatar, e só na data indicada ou depois. A Smithii pode atualizar esse programa, e não está estabelecida nenhuma auditoria da versão em execução."]
 ]);

@@ -34,6 +34,19 @@
   const SALE_URL = /^https:\/\/(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)*smithii\.io(?:\/[A-Za-z0-9._~%\/?#=&+-]*)?$/;
   const SALE_URL_MAX = 300;
   /**
+   * The only certificate link this page will print for a lock: Smithii's vesting certificate for a
+   * Solana lock, a lowercase slug and nothing after it. The bot holds the same rule; the test holds
+   * both to tests/fixtures/lock_certificate_cases.json.
+   */
+  const CERTIFICATE_URL = /^https:\/\/tools\.smithii\.io\/vesting\/solana\/[a-z0-9-]{1,30}$/;
+  const SOLSCAN_ACCOUNT = 'https://solscan.io/account/';
+  /** An unlock instant as the record writes it: a whole minute in UTC. */
+  const UNLOCK_AT = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}):00Z$/;
+  const LOCK_NONE = 'not created yet';
+  const LOCKS_BODY = 'Each lock is an account of Smithii’s Token Vesting program, which has no instruction to '
+    + 'cancel or edit a lock: only the wallet named can claim, and only on or after each date. Smithii can '
+    + 'upgrade that program, and no audit of the version running is established.';
+  /**
    * The presale terms, in the order a buyer reads them: [record key, i18n key, English label].
    * Every key is a key of the record's presale block, and the test holds this list to the
    * record both ways, so a term the record announces cannot go unprinted.
@@ -167,6 +180,78 @@
       + '</section>';
   }
 
+  function notCreated() {
+    return '<span class="tok-na">' + esc(say('tok.lock_none', LOCK_NONE)) + '</span>';
+  }
+
+  /** An address a lock names, in three values: null is not created yet, a bad shape is unreadable. */
+  function lockAddressCell(v, link) {
+    if (v === null) return notCreated();
+    if (typeof v !== 'string' || !BASE58_ADDRESS.test(v)) return unreadable();
+    const code = '<code>' + esc(v) + '</code>';
+    return link ? '<a href="' + SOLSCAN_ACCOUNT + esc(v) + '" target="_blank" rel="noopener">' + code + '</a>' : code;
+  }
+
+  /** True only for a link this page may print: see CERTIFICATE_URL. */
+  function isCertificateUrl(v) {
+    return typeof v === 'string' && CERTIFICATE_URL.test(v);
+  }
+
+  function certificateCell(v) {
+    if (v === null) return notCreated();
+    if (!isCertificateUrl(v)) return unreadable();
+    return '<a href="' + esc(v) + '" target="_blank" rel="noopener noreferrer">' + esc(v) + '</a>';
+  }
+
+  /** Every unlock as "2026-10-29 14:00 UTC · 5%"; one entry of another shape makes the whole list unreadable. */
+  function unlocksCell(v) {
+    if (!Array.isArray(v) || v.length === 0) return unreadable();
+    const lines = [];
+    for (const u of v) {
+      const m = u && typeof u.at === 'string' ? UNLOCK_AT.exec(u.at) : null;
+      if (!m || !Number.isInteger(u.percent) || u.percent < 1 || u.percent > 100) return unreadable();
+      lines.push(esc(m[1] + ' ' + m[2]) + ' UTC · <b>' + u.percent + '%</b>');
+    }
+    return lines.join('<br>');
+  }
+
+  function lockHtml(item, symbol) {
+    const it = (item && typeof item === 'object') ? item : {};
+    const get = (k) => (has(it, k) ? it[k] : undefined);
+    const bucket = typeof it.bucket === 'string' && it.bucket ? esc(it.bucket) : unreadable();
+    const n = supplyText(get('tokens'));
+    let rows = '';
+    rows += row('tok.lock_amount', 'Locked', n === null ? unreadable() : '<b>' + n + ' ' + esc(symbol) + '</b>');
+    rows += row('tok.lock_schedule', 'Schedule',
+      typeof it.schedule === 'string' && it.schedule ? esc(it.schedule) : unreadable());
+    rows += row('tok.lock_unlocks', 'Unlocks', unlocksCell(get('unlocks')));
+    rows += row('tok.lock_account', 'Lock account', has(it, 'vesting_account') ? lockAddressCell(it.vesting_account, true) : unreadable());
+    rows += row('tok.lock_wallet', 'Claiming wallet', has(it, 'claim_wallet') ? lockAddressCell(it.claim_wallet, false) : unreadable());
+    rows += row('tok.lock_certificate', 'Certificate', has(it, 'certificate_url') ? certificateCell(it.certificate_url) : unreadable());
+    return '<h3 class="tok-lock-h">' + bucket + '</h3><dl class="tok-facts">' + rows + '</dl>';
+  }
+
+  /**
+   * The time locks, from the record's locks block. A record without the block says the locks could
+   * not be read; null says none is created yet; each lock then prints in its own three values.
+   */
+  function locksHtml(token, symbol) {
+    const sym = typeof symbol === 'string' && symbol ? symbol : 'RCLAW';
+    const head = '<section class="tok-card tok-locks"><h2>' + esc(say('tok.locks_h', 'Locked allocations')) + '</h2>';
+    const t = (token && typeof token === 'object') ? token : {};
+    if (!has(t, 'locks')) return head + '<p class="tok-absent">' + unreadable() + '</p></section>';
+    if (t.locks === null) return head + '<p>' + notCreated() + '</p></section>';
+    const items = t.locks && Array.isArray(t.locks.items) ? t.locks.items : null;
+    if (items === null || items.length === 0) return head + '<p class="tok-absent">' + unreadable() + '</p></section>';
+    let body = '';
+    for (const item of items) body += lockHtml(item, sym);
+    const checked = typeof t.locks.verified_at === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.locks.verified_at)
+      ? '<p class="tok-prose">' + esc(say('tok.locks_checked', 'Checked against the chain on')) + ' ' + esc(t.locks.verified_at) + '.</p>'
+      : '';
+    return head + body
+      + '<p class="tok-prose">' + esc(say('tok.locks_body', LOCKS_BODY)) + '</p>' + checked + '</section>';
+  }
+
   function render(token) {
     if (!token || typeof token !== 'object') return fault();
     if (typeof token.mint !== 'string' || !BASE58_ADDRESS.test(token.mint)) return fault();
@@ -220,6 +305,7 @@
     facts += '</dl></section>';
     out += facts;
     out += presaleHtml(token.presale, symbol);
+    out += locksHtml(token, symbol);
     out += '<p class="tok-bot">' + esc(say('tok.bot_hint', 'Also in the Telegram bot: /rclaw')) + '</p>';
     return out;
   }
@@ -266,8 +352,8 @@
 
   return {
     render, fault, supplyText, authorityHtml, presaleHtml, presaleCell, allocationCell, saleLinkCell,
-    isSaleUrl, boot, wireCopy,
+    isSaleUrl, boot, wireCopy, locksHtml, lockHtml, unlocksCell, certificateCell, isCertificateUrl,
     UNREAD, NOT_ANNOUNCED, AUTH_NONE, UNREADABLE, BASE58_ADDRESS, SALE_URL, SALE_LINK_NONE, TERMS,
-    BODY_SOON, BODY_ANNOUNCED,
+    BODY_SOON, BODY_ANNOUNCED, CERTIFICATE_URL, LOCK_NONE, LOCKS_BODY,
   };
 }));

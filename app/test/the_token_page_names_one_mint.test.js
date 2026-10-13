@@ -232,7 +232,10 @@ test('an explorer link that does not name this mint is not rendered', () => {
   const r = record();
   r.explorer = 'https://solscan.io/token/So11111111111111111111111111111111111111112';
   const html = page.render(r);
-  assert.ok(!html.includes('solscan.io'), 'a link to another mint beside this address');
+  // Anchored to the token link itself: the locks section links Solscan's account pages, which is
+  // not a link to a mint.
+  assert.ok(!html.includes('solscan.io/token/'), 'a link to another mint beside this address');
+  assert.ok(!html.includes('View on Solscan'), 'the explorer row is not painted');
   assert.ok(html.includes(MINT));
 });
 

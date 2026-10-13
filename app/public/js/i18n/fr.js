@@ -2155,5 +2155,15 @@
   ["tok.bot_hint", "Aussi dans le bot Telegram : /rclaw"],
   ["tok.tokenomics_h", "Tokenomics"],
   ["tok.tokenomics_alt", "Tokenomics de $RCLAW : offre fixe de 1 000 000 000 tokens, autorités de mint et de gel révoquées. Répartition prévue : Communauté et écosystème 25 %, Trésorerie / DAO 20 %, Prévente publique 15 %, Équipe et contributeurs 15 %, Réserve et liquidité post-TGE 13 %, Partenaires et teneurs de marché 8 %, Liquidité DEX 2 %, Conseillers 2 %."],
-  ["tok.tokenomics_note", "La répartition prévue, selon la feuille de route du projet. Ouvrez l’image pour l’afficher en taille réelle."]
+  ["tok.tokenomics_note", "La répartition prévue, selon la feuille de route du projet. Ouvrez l’image pour l’afficher en taille réelle."],
+  ["tok.locks_h", "Allocations verrouillées"],
+  ["tok.lock_amount", "Verrouillé"],
+  ["tok.lock_schedule", "Calendrier"],
+  ["tok.lock_unlocks", "Déblocages"],
+  ["tok.lock_account", "Compte du verrou"],
+  ["tok.lock_wallet", "Portefeuille bénéficiaire"],
+  ["tok.lock_certificate", "Certificat"],
+  ["tok.lock_none", "pas encore créé"],
+  ["tok.locks_checked", "Vérifié sur la chaîne le"],
+  ["tok.locks_body", "Chaque verrou est un compte du programme Token Vesting de Smithii, qui n’a aucune instruction pour annuler ou modifier un verrou : seul le portefeuille indiqué peut réclamer, et seulement à chaque date ou après. Smithii peut mettre à jour ce programme, et aucun audit de la version en service n’est établi."]
 ]);

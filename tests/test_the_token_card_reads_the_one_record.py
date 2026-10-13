@@ -235,7 +235,9 @@ def test_a_sale_link_anywhere_else_is_unreadable_and_not_printed(url):
     presale = {**load_record()["presale"], "sale_url": url}
     card = render_token_card(_record(presale=presale))
     assert "Sale link: unreadable" in _presale_lines(card)
-    assert "<a href=\"https://tools" not in card and "<a href=\"http" not in card.split("View on Solscan")[1]
+    # Anchored to the presale's own lines: the locks below it link Smithii's
+    # vesting certificates and Solscan's account pages, which are not sale links.
+    assert "<a href=" not in "\n".join(_presale_lines(card))
     if isinstance(url, str) and url.strip():
         assert url.strip() not in card and html.escape(url.strip()) not in card
 

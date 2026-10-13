@@ -193,6 +193,14 @@ tune before launch, not a fixed parameter:
 > a time lock.
 > `token/presale/locks.plan.json` is the schedule; `npm run presale:locks-plan` prints the dates,
 > the form entries and who must hold which tokens before anything is created.
+>
+> **Created (2026-10-13).** All three locks exist on mainnet with exactly these unlocks, all at
+> 14:00 UTC, each holding its whole amount. Each lock's account, the wallet that claims and
+> Smithii's certificate link are in the token record's `locks` block
+> (`token/config/rclaw.mainnet.json`), which the website's /token page and the bot's /rclaw card
+> print. `npm run presale:locks-verify` reads every lock back from the chain and compares it with
+> the plan and the record, and fails if the vesting program is redeployed or its upgrade authority
+> changes; the test suite runs the same check on a snapshot it took.
 
 > **Venue note (2026-10-08).** The pool-sizing argument below — the F-25 decision — was forced
 > by Metaplex Genesis, whose LP token side is fixed when the bucket is created. Smithii's program

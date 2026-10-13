@@ -2155,5 +2155,15 @@
   ["tok.bot_hint", "Telegram 봇에서도: /rclaw"],
   ["tok.tokenomics_h", "토크노믹스"],
   ["tok.tokenomics_alt", "$RCLAW 토크노믹스: 총 공급량 1,000,000,000개 고정, 민트 및 동결 권한 폐기. 계획된 배분: 커뮤니티 및 생태계 25%, 트레저리 / DAO 20%, 공개 프리세일 15%, 팀 및 기여자 15%, 리저브 및 TGE 이후 유동성 13%, 파트너 및 마켓 메이커 8%, DEX 유동성 2%, 어드바이저 2%."],
-  ["tok.tokenomics_note", "프로젝트 로드맵에 따른 계획된 배분입니다. 이미지를 열면 전체 크기로 볼 수 있습니다."]
+  ["tok.tokenomics_note", "프로젝트 로드맵에 따른 계획된 배분입니다. 이미지를 열면 전체 크기로 볼 수 있습니다."],
+  ["tok.locks_h", "잠긴 배분"],
+  ["tok.lock_amount", "잠긴 수량"],
+  ["tok.lock_schedule", "일정"],
+  ["tok.lock_unlocks", "언락"],
+  ["tok.lock_account", "잠금 계정"],
+  ["tok.lock_wallet", "수령 지갑"],
+  ["tok.lock_certificate", "증명서"],
+  ["tok.lock_none", "아직 생성되지 않음"],
+  ["tok.locks_checked", "체인과 대조한 날짜:"],
+  ["tok.locks_body", "각 잠금은 Smithii Token Vesting 프로그램의 계정이며, 이 프로그램에는 잠금을 취소하거나 수정하는 명령이 없습니다. 명시된 지갑만 각 날짜 당일 또는 이후에 수령할 수 있습니다. Smithii는 이 프로그램을 업그레이드할 수 있으며, 현재 실행 중인 버전에 대한 감사는 확인되지 않았습니다."]
 ]);

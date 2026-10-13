@@ -2155,5 +2155,15 @@
   ["tok.bot_hint", "También en el bot de Telegram: /rclaw"],
   ["tok.tokenomics_h", "Tokenómica"],
   ["tok.tokenomics_alt", "Tokenómica de $RCLAW: suministro fijo de 1.000.000.000 tokens, autoridades de mint y de congelación revocadas. Asignación prevista: Comunidad y ecosistema 25%, Tesorería / DAO 20%, Preventa pública 15%, Equipo y colaboradores 15%, Reserva y liquidez post-TGE 13%, Socios y creadores de mercado 8%, Liquidez DEX 2%, Asesores 2%."],
-  ["tok.tokenomics_note", "La asignación prevista, según la hoja de ruta del proyecto. Abre la imagen para verla a tamaño completo."]
+  ["tok.tokenomics_note", "La asignación prevista, según la hoja de ruta del proyecto. Abre la imagen para verla a tamaño completo."],
+  ["tok.locks_h", "Asignaciones bloqueadas"],
+  ["tok.lock_amount", "Bloqueado"],
+  ["tok.lock_schedule", "Calendario"],
+  ["tok.lock_unlocks", "Desbloqueos"],
+  ["tok.lock_account", "Cuenta del bloqueo"],
+  ["tok.lock_wallet", "Billetera que reclama"],
+  ["tok.lock_certificate", "Certificado"],
+  ["tok.lock_none", "aún no creado"],
+  ["tok.locks_checked", "Verificado contra la cadena el"],
+  ["tok.locks_body", "Cada bloqueo es una cuenta del programa Token Vesting de Smithii, que no tiene ninguna instrucción para cancelar ni editar un bloqueo: solo la billetera indicada puede reclamar, y solo en cada fecha o después. Smithii puede actualizar ese programa, y no consta ninguna auditoría de la versión en funcionamiento."]
 ]);

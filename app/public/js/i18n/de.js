@@ -2155,5 +2155,15 @@
   ["tok.bot_hint", "Auch im Telegram-Bot: /rclaw"],
   ["tok.tokenomics_h", "Tokenomics"],
   ["tok.tokenomics_alt", "$RCLAW-Tokenomics: feste Gesamtmenge von 1.000.000.000 Token, Mint- und Freeze-Berechtigung widerrufen. Geplante Verteilung: Community & Ökosystem 25 %, Treasury / DAO 20 %, öffentlicher Presale 15 %, Team & Mitwirkende 15 %, Reserve & Liquidität nach dem TGE 13 %, Partner & Market Maker 8 %, DEX-Liquidität 2 %, Berater 2 %."],
-  ["tok.tokenomics_note", "Die geplante Verteilung laut Roadmap des Projekts. Für die volle Größe das Bild öffnen."]
+  ["tok.tokenomics_note", "Die geplante Verteilung laut Roadmap des Projekts. Für die volle Größe das Bild öffnen."],
+  ["tok.locks_h", "Gesperrte Zuteilungen"],
+  ["tok.lock_amount", "Gesperrt"],
+  ["tok.lock_schedule", "Zeitplan"],
+  ["tok.lock_unlocks", "Freigaben"],
+  ["tok.lock_account", "Sperrkonto"],
+  ["tok.lock_wallet", "Berechtigte Wallet"],
+  ["tok.lock_certificate", "Zertifikat"],
+  ["tok.lock_none", "noch nicht erstellt"],
+  ["tok.locks_checked", "Gegen die Chain geprüft am"],
+  ["tok.locks_body", "Jede Sperre ist ein Konto des Token-Vesting-Programms von Smithii, das keine Anweisung zum Abbrechen oder Ändern einer Sperre hat: Nur die genannte Wallet kann beanspruchen, und erst ab dem jeweiligen Datum. Smithii kann dieses Programm aktualisieren, und ein Audit der laufenden Version ist nicht belegt."]
 ]);
