@@ -20646,7 +20646,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 267 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 268 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21469,9 +21469,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **489 of 1308** reach for source text through `source_scan`, `code_only`
+Driven, **490 of 1309** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 489 is a FLOOR and the honest shape is
+source scan that rule does not see, so 490 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -24257,3 +24257,74 @@ text only.
 all killed. One first survived: no test had sent the digest a count that
 needed escaping, so an unescaped count passed. The test sends markup in
 every count now.)
+
+**THE DOLLAR GUARD READ A PRICE TABLE THAT WAS WRONG BOTH WAYS AND NEVER SAW THE CACHE.**
+13 October, the cost half of the plan's E1 (chat's own share of the budget
+shipped earlier). Every daily dollar cap compares `CostTracker`'s booked
+spend with its budget, so a cap is only as true as the price each call is
+booked at. Read against Anthropic's first-party model table of 6 October:
+- `claude-sonnet-5`, which every chat and analysis tier routes to, was
+  booked at $3/$15 against a $2/$10 list price. A million tokens each way
+  booked $18 for $12 spent, so the guard tripped at two thirds of its budget
+  and the analysis fell back to rules early.
+- `claude-opus-4-8` was booked at $15/$75 against $5/$25.
+- Haiku 4.5 was booked at $0.80/$4 against $1/$5, under the price: an
+  under-booked model trips the guard late, which is the direction that costs
+  money.
+- Opus 5.5, Opus 5, Sonnet 5.5, Haiku 5.5 and the Mythos rows were not in
+  the table, and fell to a family price.
+
+Every current Anthropic model has its own row now. Haiku 5.5 has two rate
+cards, chosen by the whole prompt's length: above 100k tokens, cache
+included, it bills $0.50/$2.50 instead of $0.10/$0.50, and the row carries
+both. The family prices stay at the top of each family's range (Opus
+$15/$75, Sonnet $3/$15, Haiku $1/$5), against the plan's suggested $5/$25
+for Opus. A family price only answers an id with no row: a dated snapshot,
+or an older model a tier was pointed at, and Opus 4.1 and 4 still list at
+$15/$75. A test holds each family at or above every row it covers.
+
+The cache was the larger gap. Both Anthropic call paths mark the system
+prompt `cache_control`, and a response reports the cache's reads and writes
+BESIDE `input_tokens` (`cache_read_input_tokens`,
+`cache_creation_input_tokens`), billed at their own rates. A write costs
+1.25 times the input price. A read costs a tenth of it, a twentieth on Opus
+5.5 and a fortieth on Fable 5.1. Only `input_tokens` was booked, so a call
+that wrote a 20k-token system prompt was booked as the few hundred tokens of
+its question. `llm_call_cost` books all four quantities now, and every place
+that books an Anthropic response hands it the two cache counts:
+- the analyzer's thesis, through `_book_anthropic_usage`, a seam made for
+  it, since nothing could drive the thesis call itself;
+- its fallback chain, which booked a character-length estimate because,
+  its comment said, `llm_complete` discarded usage. It had taken a
+  `usage_out` for months. It books what was measured now, and estimates
+  only a half the response did not report;
+- the chat's reply and its history fold, through `usage_out`.
+
+`bot.llm.usage.cache_kwargs` is the one reading of a `usage_out`'s cache
+counts. An absent count is zero there, and for the cache that is a
+measurement: a response that reports no cache billed nothing apart from its
+input, and an OpenAI-compatible count holds its cached tokens inside
+`prompt_tokens`. Written inline at three sites first, it added six
+`or 0` shapes to the honesty ratchet; one named reading added none. Its
+`**` call needed a `TypedDict` return, or mypy read a `dict[str, int]` as
+able to fill the positional `symbol`.
+
+`CACHE_WRITE_MULTIPLIER` is the five-minute write price. A one-hour mark
+writes at twice the input price, which this table would under-book, so a
+scan holds every `cache_control` in `bot/` to the five-minute lifetime.
+
+What the change does to a cap is not one number. Sonnet 5 traffic now books
+two thirds of what it did, and every cache write now books at all. Whether a
+day's booked total rises or falls depends on how often the system prompt is
+written rather than read, and the plan's own diagnosis says the cached block
+carries live data, so it is written every call (E7). The first days of
+`/costs` after deploy are the measurement. A budget set from the old booking
+should be re-set from them.
+(`tests/test_the_cost_table_is_the_list_price_and_the_cache_is_booked.py`:
+every current row at its list price read at a 100k-token prompt; each
+family's top; the cache arithmetic; Haiku 5.5's line, at it and one token
+over, cache counted; the usage hand-back, summed over a tool loop's rounds;
+the four booking sites. Thirty-two mutants, all killed. The first fixture
+measured Haiku 5.5 at a million tokens, which is its long card, so the row
+looked wrong; the second had each cache key in one round only, so summing
+and overwriting the hand-back looked the same.)

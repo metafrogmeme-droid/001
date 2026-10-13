@@ -41,6 +41,7 @@ from bot.core.cost import (
 from bot.core.limit_input import (consume_pending, limit_expired_text,
                                   read_pending, typed_limit_outside_levels)
 from bot.nlp.button_actions import action_label
+from bot.llm.usage import cache_kwargs
 # The chat's runtime pieces that are not the handler — the per-user rate
 # limiter, the chain's timing constants, the thinking phrases, the two tool
 # rules, the Telegram edit-stream, the event fan-out and the `_chat_ret`
@@ -3332,6 +3333,9 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                         # The preview's subset of chat's spend, which its
                         # own slice of the budget is measured against.
                         public=public,
+                        # The cached system prompt's reads and writes, billed
+                        # beside the input (`cost.llm_call_cost`).
+                        **cache_kwargs(_usage),
                     )
 
                 # An empty completion is NOT an answer. `answer` can be "" on a
@@ -3750,7 +3754,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 _ct = (_out if isinstance(_out, int) and not isinstance(_out, bool)
                        else len(note or "") // 4)
                 _cost.record_llm(model=cfg.model, prompt_tokens=_pt,
-                                 completion_tokens=_ct, category="chat")
+                                 completion_tokens=_ct, category="chat",
+                                 **cache_kwargs(_usage))
             note = (note or "").strip()
             # The note is the model's own text, and the turns it folds hold
             # `[skill] result:` blocks — the one shape `strip_fabricated_tool_
