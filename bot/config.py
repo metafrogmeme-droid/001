@@ -2191,6 +2191,12 @@ class ExecutionConfig:
     # position (which may be pre-existing / intentional); the local static SL
     # check remains the close-on-breach backstop.
     unprotected_escalation_enabled: bool = _env_bool("UNPROTECTED_ESCALATION_ENABLED", True)
+    # The duplicate merge asks the venue before dropping a second OPEN record
+    # of one side: when the venue holds both records' quantity, the second is
+    # folded into the first and its stop re-placed for the whole, rather than
+    # dropped and left on the venue untracked
+    # (`LiveExecutor.dedupe_duplicate_positions`). Off restores the plain drop.
+    duplicate_fold_enabled: bool = _env_switch("DUPLICATE_FOLD_ENABLED", True)
     # Minimum seconds between repeat operator alerts for the same still-
     # unprotected position (throttle so it never spams).
     unprotected_alert_interval_s: float = _env_float_bounded(

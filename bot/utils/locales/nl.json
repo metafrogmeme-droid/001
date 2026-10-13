@@ -316,5 +316,10 @@
   "val_guard_stale": "geen recente ronde",
   "val_guard_idle": "niets wachtend",
   "val_guard_read": "{n} wachtende order(s) gelezen",
-  "val_sltp_unknown_short": "niet vastgelegd"
+  "val_sltp_unknown_short": "niet vastgelegd",
+  "lbl_venue_excess": "Beurs houdt meer aan dan het record",
+  "val_excess_unstopped": "het overschot heeft geen stop van de bot",
+  "val_excess_whole_tpsl": "de TP/SL van de positie dekt het",
+  "val_excess_cover_unread": "stopdekking niet gelezen",
+  "val_and_more": "en nog {n}"
 }

@@ -316,5 +316,10 @@
   "val_guard_stale": "nenhuma verificação recente",
   "val_guard_idle": "nada pendente",
   "val_guard_read": "{n} ordem(ns) pendente(s) lida(s)",
-  "val_sltp_unknown_short": "não registrado"
+  "val_sltp_unknown_short": "não registrado",
+  "lbl_venue_excess": "A corretora detém mais do que o registro",
+  "val_excess_unstopped": "o excedente não tem stop do bot",
+  "val_excess_whole_tpsl": "o TP/SL da posição o cobre",
+  "val_excess_cover_unread": "cobertura do stop não lida",
+  "val_and_more": "e mais {n}"
 }

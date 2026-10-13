@@ -15,9 +15,11 @@ while the OTHER record keeps believing it is still live.
 dedupe_duplicate_positions() merges same (symbol, direction) groups down to
 one record — preferring the bot's own original (non-adoption-artifact)
 record, or the earliest-opened one — and marks the rest closed locally.
-It never touches the exchange.
+It places and cancels nothing for a resting order; two OPEN records are
+asked about first (`tests/test_a_second_real_fill_is_folded_not_dropped.py`).
 """
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -58,7 +60,7 @@ class TestDedupeDuplicatePositions:
         executor._positions[original.trade_id] = original
         executor._positions[orphan.trade_id] = orphan
 
-        messages = executor.dedupe_duplicate_positions()
+        messages = asyncio.run(executor.dedupe_duplicate_positions())
 
         assert len(messages) == 1
         assert "TI-f3efabde" in messages[0]
@@ -76,7 +78,7 @@ class TestDedupeDuplicatePositions:
         executor._positions["ORPHAN-14561"] = _pos("ORPHAN-14561")
         # No exchange stub is wired up at all -- if the merge tried to touch
         # the exchange it would raise (self._exchange is None).
-        messages = executor.dedupe_duplicate_positions()
+        messages = asyncio.run(executor.dedupe_duplicate_positions())
         assert len(messages) == 1
 
     def test_no_duplicates_is_a_no_op(self):
@@ -84,7 +86,7 @@ class TestDedupeDuplicatePositions:
         executor._positions["TI-f3efabde"] = _pos("TI-f3efabde")
         executor._positions["TI-other0001"] = _pos(
             "TI-other0001", symbol="AMD/USDT:USDT", direction="LONG", entry=575.22)
-        messages = executor.dedupe_duplicate_positions()
+        messages = asyncio.run(executor.dedupe_duplicate_positions())
         assert messages == []
         assert executor._positions["TI-f3efabde"].status == "pending_fill"
         assert executor._positions["TI-other0001"].status == "pending_fill"
@@ -96,7 +98,7 @@ class TestDedupeDuplicatePositions:
         executor._positions[older.trade_id] = older
         executor._positions[newer.trade_id] = newer
 
-        executor.dedupe_duplicate_positions()
+        asyncio.run(executor.dedupe_duplicate_positions())
 
         assert executor._positions["TI-older0001"].status == "pending_fill"
         assert "TI-newer0002" not in executor._positions
@@ -109,7 +111,7 @@ class TestDedupeDuplicatePositions:
         executor._positions[long_pos.trade_id] = long_pos
         executor._positions[short_pos.trade_id] = short_pos
 
-        messages = executor.dedupe_duplicate_positions()
+        messages = asyncio.run(executor.dedupe_duplicate_positions())
 
         assert messages == []
         assert executor._positions["TI-long00001"].status == "pending_fill"

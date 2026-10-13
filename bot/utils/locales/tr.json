@@ -316,5 +316,10 @@
   "val_guard_stale": "yakın zamanda tarama yok",
   "val_guard_idle": "bekleyen emir yok",
   "val_guard_read": "{n} bekleyen emir okundu",
-  "val_sltp_unknown_short": "kaydedilmedi"
+  "val_sltp_unknown_short": "kaydedilmedi",
+  "lbl_venue_excess": "Borsadaki pozisyon kayıttan fazla",
+  "val_excess_unstopped": "fazlalığın botun stopu yok",
+  "val_excess_whole_tpsl": "pozisyonun TP/SL'si bunu kapsıyor",
+  "val_excess_cover_unread": "stop kapsamı okunamadı",
+  "val_and_more": "ve {n} tane daha"
 }
