@@ -51,7 +51,7 @@ def test_every_non_fill_reason_the_executor_writes_is_in_the_set():
     # "manual") is written through the same assignment and must NOT be here.
     lifecycle = {w for w in written if w in {
         "canceled", "cancelled", "rejected", "expired", "price_drift",
-        "stale_pending", "duplicate_fill_suppressed"}}
+        "stale_pending", "duplicate_fill_suppressed", "duplicate_merged"}}
     # Every `cancel_reason` is a lifecycle reason by construction: it names
     # why a RESTING order was cancelled, and the cancel flow copies it into
     # close_reason. Read off the writer rather than listed above, so a cancel
@@ -60,8 +60,10 @@ def test_every_non_fill_reason_the_executor_writes_is_in_the_set():
     assert lifecycle, "the writer scan found nothing — the pattern is stale"
     missing = lifecycle - SET
     assert not missing, f"the executor books these as never-filled and the set does not know them: {sorted(missing)}"
-    # and each of the three the copies disagreed about is really written
-    assert {"rejected", "stale_pending", "duplicate_fill_suppressed"} <= written
+    # and each of the three the copies disagreed about is really written,
+    # and the merge's second record
+    assert {"rejected", "stale_pending", "duplicate_fill_suppressed",
+            "duplicate_merged"} <= written
 
 
 def _row(reason, pnl=0.0, tid="T-1"):
@@ -76,7 +78,7 @@ def test_a_rejected_order_is_not_a_fill_anywhere():
 
 
 def test_stale_and_duplicate_rows_are_not_trades_on_the_cards_either():
-    for reason in ("stale_pending", "duplicate_fill_suppressed"):
+    for reason in ("stale_pending", "duplicate_fill_suppressed", "duplicate_merged"):
         assert trade_filter.is_countable(_row(reason)) is False, reason
         assert live_stats.real_closed_trades([_row(reason)]) == [], reason
         assert close_reason.is_filled_close(reason, 0.0) is False, reason

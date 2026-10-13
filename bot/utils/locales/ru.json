@@ -316,5 +316,10 @@
   "val_guard_stale": "нет недавних проходов",
   "val_guard_idle": "нет ожидающих ордеров",
   "val_guard_read": "прочитано ожидающих ордеров: {n}",
-  "val_sltp_unknown_short": "не записано"
+  "val_sltp_unknown_short": "не записано",
+  "lbl_venue_excess": "На бирже больше, чем в записи",
+  "val_excess_unstopped": "у излишка нет стопа бота",
+  "val_excess_whole_tpsl": "TP/SL позиции покрывает его",
+  "val_excess_cover_unread": "покрытие стопом не прочитано",
+  "val_and_more": "и ещё {n}"
 }

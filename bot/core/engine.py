@@ -11071,10 +11071,14 @@ class RuneClawEngine:
             # them to the sync callback (info card), never the
             # close card, and skip the loss-cooldown scan below.
             if self._is_sync_message(msg):
+                # What the notice is, from its own words: an adoption, a
+                # submission's fate, or a size notice (a merged or folded
+                # record, a venue holding more than the record).
                 audit(trade_log, f"Exchange sync: {msg}",
                       action="exchange_sync_notify",
                       result=("SUBMISSION" if msg.startswith("SUBMISSION:")
-                              else "ADOPTED"))
+                              else "ADOPTED" if msg.startswith("SYNC: Adopted")
+                              else "SIZE"))
                 try:
                     await self._announce_executor_message(_ex, "sync", msg)
                 except Exception as exc:

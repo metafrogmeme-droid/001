@@ -316,5 +316,10 @@
   "val_guard_stale": "kein aktueller Durchlauf",
   "val_guard_idle": "nichts wartend",
   "val_guard_read": "{n} wartende Order(s) gelesen",
-  "val_sltp_unknown_short": "nicht erfasst"
+  "val_sltp_unknown_short": "nicht erfasst",
+  "lbl_venue_excess": "Börse hält mehr als der Datensatz",
+  "val_excess_unstopped": "der Überschuss hat keinen Stop des Bots",
+  "val_excess_whole_tpsl": "der TP/SL der Position deckt ihn ab",
+  "val_excess_cover_unread": "Stop-Abdeckung nicht gelesen",
+  "val_and_more": "und {n} weitere"
 }

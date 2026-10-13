@@ -73,9 +73,15 @@ def is_profit_locking_stop(
 # them. The other two names are this object now, and the guard reads every
 # reason the executor writes for a never-filled order out of its source and
 # checks each is here — a writer and a reader that agree by construction.
+#
+# `duplicate_merged` is the second record of ONE position, closed by the
+# duplicate merge (`LiveExecutor.dedupe_duplicate_positions`) at a written
+# 0.0: the trade is the record it was merged into. Missing here, every merge
+# counted as a break-even trade on every card.
 NON_FILL_CLOSE_REASONS = frozenset({
     "expired", "canceled", "cancelled", "rejected", "price_drift",
     "stale_pending", "duplicate_fill_suppressed", "entry_halted",
+    "duplicate_merged",
 })
 
 

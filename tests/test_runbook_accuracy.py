@@ -40,6 +40,7 @@ DOCUMENTED_ENV = [
     ("POSITION_GUARD_ENABLED", "bot/config.py"),
     ("POSITION_GUARD_INTERVAL_SEC", "bot/config.py"),
     ("POSITION_GUARD_PASS_CAP_SEC", "bot/config.py"),
+    ("DUPLICATE_FOLD_ENABLED", "bot/config.py"),
     ("TOP_MOVERS_COUNT", "bot/config.py"),
     ("PUBLIC_GATEWAY_URL", "bot/config.py"),
     ("GATEWAY_CONNECT_TIMEOUT_MS", "app/lib/gateway.js"),
@@ -166,6 +167,20 @@ def test_the_position_guard_vocabulary_is_what_the_card_renders():
     assert "(nothing on `/status`) | the last pass ran" in RUNBOOK
     assert 'action="position_guard"' in Path("bot/core/engine.py").read_text(encoding="utf-8")
     assert "`action=position_guard`" in RUNBOOK
+
+
+def test_the_venue_size_vocabulary_is_what_the_card_renders():
+    from bot.formatters.rich_cards import venue_excess_line
+
+    for sized in (True, False, None):
+        line = venue_excess_line([{"symbol": "SOL", "direction": "LONG",
+                                   "excess": 1.5, "stops_sized": sized}])
+        label = line.split(" ", 1)[1].split(":")[0]
+        cover = line[line.rindex("(") + 1:-1]
+        assert f"`{label}: … ({cover})`" in RUNBOOK, (label, cover)
+    src = Path("bot/core/live_executor.py").read_text(encoding="utf-8")
+    for result in ("QTY_EXCESS", "FOLDED"):
+        assert f'"{result}"' in src and f"`{result}`" in RUNBOOK, result
 
 
 def test_the_backstop_audit_action_it_tells_you_to_grep_for_exists():

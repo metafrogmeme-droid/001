@@ -1416,6 +1416,35 @@ def _guard_seconds(value: Any, *, positive: bool) -> Optional[float]:
     return float(value)
 
 
+def venue_excess_line(rows: Optional[list], lang: str = "en") -> str:
+    """The sides where the venue holds MORE than the bot's record
+    (`LiveExecutor.check_venue_excess`), or "" when none is confirmed.
+
+    Nothing is placed for that quantity, so the line says what the bot's
+    stop covers: on sized stops the excess has none of the bot's; under the
+    position's own TP/SL it closes with the rest; unread is said as unread.
+    """
+    if not isinstance(rows, list) or not rows:
+        return ""
+    parts = []
+    for r in rows[:3]:
+        if not isinstance(r, dict):
+            continue
+        excess = r.get("excess")
+        if not isinstance(excess, (int, float)) or isinstance(excess, bool) or excess <= 0:
+            continue
+        sized = r.get("stops_sized")
+        cover = (t("val_excess_unstopped", lang) if sized is True
+                 else t("val_excess_whole_tpsl", lang) if sized is False
+                 else t("val_excess_cover_unread", lang))
+        parts.append(f"{r.get('symbol', '?')} {r.get('direction', '?')} +{excess:g} ({cover})")
+    if not parts:
+        return ""
+    more = len(rows) - 3
+    tail = f" {t('val_and_more', lang, n=more)}" if more > 0 else ""
+    return f"\u26a0\ufe0f {t('lbl_venue_excess', lang)}: " + "; ".join(parts) + tail
+
+
 def position_guard_line(guard: Optional[dict], lang: str = "en",
                         verbose: bool = False) -> str:
     """Say whether the position guard is reading resting entry orders.
@@ -1665,6 +1694,7 @@ def render_status_card(
     drawdown_source: Optional[str] = None,
     position_watch: Optional[dict] = None,
     position_guard: Optional[dict] = None,
+    venue_excess: Optional[list] = None,
     tick_error: Optional[dict] = None,
     venue: Optional[str] = None,
     record_partial: bool = False,
@@ -1682,6 +1712,7 @@ def render_status_card(
     # path; every other state, including "no reading", renders.
     _watch_line = position_watch_line(position_watch, lang)
     _guard_line = position_guard_line(position_guard, lang)
+    _excess_line = venue_excess_line(venue_excess, lang)
     status = f"\U0001f7e2 {t('val_active', lang)}" if active else f"\U0001f534 {t('val_halted', lang)}"
     # `"LIVE" if ... else "PAPER"` was two-valued, and the mode is not.
     # `live_readiness.mode_label()` also answers IDLE (SIMULATION_MODE off but
@@ -1793,6 +1824,7 @@ def render_status_card(
             + _headroom_when(phase_headroom, lang)]),
         *([] if not _watch_line else [f"- {_watch_line}"]),
         *([] if not _guard_line else [f"- {_guard_line}"]),
+        *([] if not _excess_line else [f"- {_excess_line}"]),
         "",
         f"<b>{t('hdr_capital', lang)}</b>",
         # equity is None only in LIVE mode when the balance is unreadable —

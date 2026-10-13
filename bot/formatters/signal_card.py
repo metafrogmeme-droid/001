@@ -79,6 +79,7 @@ _CLOSE_REASON_LABELS: dict[str, tuple[str, str]] = {
     "entry_halted": ("\U0001f4c4", "Order Cancelled — Entries Refused"),
     "stale_pending": ("\U0001f4c4", "Order Expired"),
     "duplicate_fill_suppressed": ("\U0001f4c4", "Duplicate Fill Suppressed"),
+    "duplicate_merged": ("\U0001f4c4", "Duplicate Record Merged"),
 }
 
 

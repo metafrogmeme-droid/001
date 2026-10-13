@@ -21419,7 +21419,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **489 of 1305** reach for source text through `source_scan`, `code_only`
+Driven, **489 of 1306** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 489 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -24099,3 +24099,63 @@ own. The test that the guard ends
 with the run loop passed whatever the callback did, because `asyncio.run`
 cancels every task still running when it returns. It asks inside the loop
 now.)
+
+**THE DUPLICATE MERGE DROPPED A REAL FILL, AND THE VENUE HELD MORE IN SILENCE.**
+12 October, the rest of the plan's D6 (the true-down chapter above did the
+venue-holds-less half). `dedupe_duplicate_positions` closed every second
+record of one side as a phantom of the first. That is right for the incident
+it was written for: an adoption that re-tracked a position the bot already
+held. It is wrong when both records are real fills. The duplicate-symbol
+guard's own comment names the case: a resting order let a second one through,
+both filled, and the merge then left one record's quantity on the venue with
+nothing tracking it. Adoption never picks that up, because it skips a side
+the bot already holds. The venue then held more than the record, and the
+sync audited `DRIFT` every five minutes and nothing else.
+
+The merge asks the venue now, for two OPEN records (`_held_on_venue`):
+- **the venue holds both records' quantity:** the second is FOLDED into the
+  first (quantity, margin, quantity-weighted entry). Where stops are sized
+  orders, the stop is re-placed for the whole at the kept record's levels,
+  through `_place_missing_sltp`: the side's old stops are cancelled only
+  once the new one rests, so a refusal leaves each part's own stop standing
+  and the record keeps its ids, and says so. (The first version called
+  `_place_sl_tp` directly. The full gate's rule that only a record naming
+  no orders may do that, `test_every_direct_caller_of_the_placer_places_a_first_protection`,
+  refused it; none of the slice's own suites ran it.) On a unified account
+  the one TP/SL on the whole position already covers both. An account type
+  nobody has read places nothing and says so.
+- **the venue's size does not read:** nothing is merged this pass.
+- **anything else:** the second is the phantom it always was, dropped.
+
+Resting orders are not positions, so a group holding one merges as before.
+`DUPLICATE_FOLD_ENABLED=0` restores the plain drop. A merged record was also
+booked at 0.0 under `duplicate_merged`, a reason no card knew, so every merge
+counted as a break-even trade. It is a non-fill now (`NON_FILL_CLOSE_REASONS`),
+and the vocabulary test reads it off the writer with the others.
+
+The plan said to adopt a venue's EXCESS as a separate record with its own
+stop. That is not done, and the reason is in the code. The executor keeps
+one record per symbol (the duplicate-symbol guard), and `_place_sl_tp`
+replaces every stop on that side when it places one. A second record with no
+stop id would be re-protected by the periodic missing-leg check
+(`_place_missing_sltp`), which strips the first record's stop; the first
+would then re-place its own and strip the second's. So `check_venue_excess`
+says it instead, for the venue's size on each side against the SUM of the
+records there:
+- twice running, with no close in flight, as the true-down reads it;
+- audited `QTY_EXCESS`;
+- announced once per distinct reading as a `SYNC:` notice saying what the
+  bot's stop covers: the record only, on sized stops; the whole position,
+  under one TP/SL; or unread;
+- kept for `/status` (`venue_excess_line`, read off the caller's own
+  executor) until the venue no longer holds more. An unread venue keeps the
+  last confirmed reading: unread is not "gone".
+
+Nothing is written or placed for that quantity, because it can be a manual
+add. The five-minute block that runs the merge, this check and adoption is
+`_periodic_exchange_sync` now, so a test drives it. Every one of its notices
+starts `SYNC:`, so the engine routes them as information, not as a close.
+The audit says `SIZE` for these rather than `ADOPTED`, which it said for
+every `SYNC:` line.
+(`tests/test_a_second_real_fill_is_folded_not_dropped.py`,
+`tests/test_one_non_fill_vocabulary.py`: twenty-seven mutants, all killed.)

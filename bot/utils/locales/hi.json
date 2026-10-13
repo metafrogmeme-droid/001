@@ -316,5 +316,10 @@
   "val_guard_stale": "हाल में कोई जाँच नहीं",
   "val_guard_idle": "कुछ भी लंबित नहीं",
   "val_guard_read": "{n} लंबित ऑर्डर पढ़े गए",
-  "val_sltp_unknown_short": "दर्ज नहीं"
+  "val_sltp_unknown_short": "दर्ज नहीं",
+  "lbl_venue_excess": "एक्सचेंज पर रिकॉर्ड से अधिक है",
+  "val_excess_unstopped": "अतिरिक्त पर बॉट का स्टॉप नहीं है",
+  "val_excess_whole_tpsl": "पोज़िशन का TP/SL इसे कवर करता है",
+  "val_excess_cover_unread": "स्टॉप कवरेज पढ़ा नहीं गया",
+  "val_and_more": "और {n} अन्य"
 }
