@@ -357,8 +357,9 @@ the marketplace (/api/strategies) and pin one to their own confirms
 `app/routes/copy.js::#'"follow" is a bookmark'` states it: "follow is a bookmark + a personalised would-take
 feed. It moves NO funds and places NO trades — copying is user-initiated and
 paper-only via the normal trade ticket." The Arena auto-follow mirrors the
-engine's own signals, not a leader's fills, into virtual vUSDT; it is a lazy
-sweep on account reads with no background job and a 5-signal-per-read cap.
+engine's own signals, not a leader's fills, into virtual vUSDT, each while
+it is live (`app/routes/arena.js::sweepAllFollows`, once a minute, and on
+account reads), with a 5-signal-per-sweep cap.
 There is no leader/follower allocation model, no proportional sizing off a
 leader's equity, no performance-fee or revenue split, and no per-follower
 execution on a real venue.

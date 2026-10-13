@@ -22,9 +22,14 @@
  *      us; carrying it forward would open a position that instantly "hits"
  *      its target. Dropping it leaves the level empty and says so.
  *
- *   3. A stale signal is refused outright. Past MAX_SIGNAL_AGE_MS the call is
- *      no longer the engine's current read of the market, and letting someone
- *      open it would put the engine's name on a decision it is not making.
+ *   3. A call past its window is refused outright. The bot states each
+ *      signal's window (`expires_at`: its creation plus the bot's own idea
+ *      TTL, the time it would still confirm the idea itself), and past it the
+ *      call is no longer the engine's current read of the market: letting
+ *      someone open it would put the engine's name on a decision it is not
+ *      making. This was a hand-written 6 hours here while the copy sweep read
+ *      the bot's window and the Signals stream read neither, three answers to
+ *      one question. `SignalStatus.live` is the one reading now.
  *
  *   4. A call that has ENDED is refused for the same reason, whatever its age.
  *      The bot walks each signal on hourly candles and re-sends it with the
@@ -49,9 +54,6 @@ const arena = require('./arena');
 const { exchangeSymbol } = require('./agent_match');
 const SignalStatus = require('../public/js/signal-status-model.js');
 
-// A call older than this is history, not a position to take.
-const MAX_SIGNAL_AGE_MS = 6 * 60 * 60 * 1000;   // 6 hours
-
 // Beyond this much drift from the signal's own entry, the trade the user is
 // about to take is materially not the trade the engine described. It is still
 // allowed — it is their paper account — but the plan flags it so the UI can
@@ -72,20 +74,25 @@ const ENDED = {
 /**
  * Is this call still one the engine stands behind? `null` when it is, else
  * the reason it is not: 'direction' (no LONG/SHORT), 'ended' (the row carries
- * a final outcome word, or a word this server does not know) or 'stale'
- * (older than MAX_SIGNAL_AGE_MS). Checked in that order: an ended call is
- * ended whatever its age. A row that states no word is NEW, which is what the
- * table's own default says.
+ * a final outcome word, or a word this server does not know) or 'expired'
+ * (outside the window the bot stated, or a row that states none). Checked in
+ * that order: an ended call is ended whatever its window says. A row that
+ * states no word is NEW, which is what the table's own default says.
  */
 function callBlock(s, now) {
   const direction = String((s && s.direction) || '').trim().toUpperCase();
   if (direction !== 'LONG' && direction !== 'SHORT') return 'direction';
   if (SignalStatus.status(s).final) return 'ended';
-  const at = now instanceof Date ? now : new Date();
-  const createdAt = s.created_at ? new Date(s.created_at) : null;
-  const ageMs = createdAt && !isNaN(createdAt.getTime()) ? at.getTime() - createdAt.getTime() : null;
-  if (ageMs != null && ageMs > MAX_SIGNAL_AGE_MS) return 'stale';
+  if (!SignalStatus.live(s, now instanceof Date ? now : new Date())) return 'expired';
   return null;
+}
+
+/** The refusal for a call past its window, naming when it closed. */
+function expiredError(s) {
+  const until = SignalStatus.liveUntil(s);
+  const when = until === null ? 'it states no window'
+    : 'its window closed at ' + new Date(until).toISOString().slice(11, 16) + ' UTC';
+  return `That call is no longer live — ${when}, and the engine no longer stands behind it. Open a current one.`;
 }
 
 /** The refusal for an ended call, naming what became of it. */
@@ -97,7 +104,7 @@ function endedError(s) {
 
 /**
  * @param {object} ctx
- *   signal    — { id, symbol, direction, entry_price, stop_loss, take_profit, status, created_at }
+ *   signal    — { id, symbol, direction, entry_price, stop_loss, take_profit, status, created_at, expires_at }
  *   positions — currently open arena positions ([{ symbol }])
  *   balance   — free balance (open margins already deducted)
  *   margin    — vUSDT the user wants on this one
@@ -118,10 +125,7 @@ function planSignalOpen(ctx = {}) {
     return { ok: false, code: 'direction', error: 'That signal has no tradeable direction' };
   }
   if (block === 'ended') return { ok: false, code: 'ended', error: endedError(s) };
-  if (block === 'stale') {
-    return { ok: false, code: 'stale',
-      error: 'That call is more than 6 hours old — the engine has moved on. Open a current one.' };
-  }
+  if (block === 'expired') return { ok: false, code: 'expired', error: expiredError(s) };
   const createdAt = s.created_at ? new Date(s.created_at) : null;
   const ageMs = createdAt && !isNaN(createdAt.getTime()) ? now.getTime() - createdAt.getTime() : null;
 
@@ -216,6 +220,9 @@ function decorateForPicker(signals, ctx = {}) {
       pattern: s.pattern || null,
       created_at: s.created_at || null,
       age_ms: ageMs,
+      // The window, as epoch ms, for the picker's countdown: the same
+      // reading `tradeable` was decided by.
+      expires_at: SignalStatus.liveUntil(s),
       mark: mark > 0 ? mark : null,
       drift_pct: mark > 0 && signalEntry > 0
         ? Math.round((mark / signalEntry - 1) * 10000) / 100 : null,
@@ -225,4 +232,4 @@ function decorateForPicker(signals, ctx = {}) {
   });
 }
 
-module.exports = { planSignalOpen, decorateForPicker, callBlock, MAX_SIGNAL_AGE_MS, DRIFT_WARN_PCT };
+module.exports = { planSignalOpen, decorateForPicker, callBlock, DRIFT_WARN_PCT };

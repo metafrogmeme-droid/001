@@ -33,7 +33,7 @@ router.get('/', async (req, res) => {
     const [rows] = await pool.execute(
       `SELECT signal_key, symbol, direction, confidence, score, pattern, regime,
               entry_price, stop_loss, take_profit, rr, net_rr, rr_fee_losing,
-              thesis, status, pnl, created_at, resolved_at, seal
+              thesis, status, pnl, created_at, resolved_at, seal, expires_at
        FROM signals ${clause}
        ORDER BY created_at DESC LIMIT ${limit}`,
       params

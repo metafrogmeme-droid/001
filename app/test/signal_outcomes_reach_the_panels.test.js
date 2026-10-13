@@ -75,14 +75,17 @@ test('an absent word is NEW, and a word the page does not know is final', () => 
 });
 
 test('only a pending call with no outcome may be acted on', () => {
-  assert.equal(SS.actionable({ status: 'NEW' }), true);
-  assert.equal(SS.actionable({ status: 'OPEN' }), true);
-  assert.equal(SS.actionable({}), true);
-  for (const w of SS.TERMINAL) assert.equal(SS.actionable({ status: w }), false, w);
-  assert.equal(SS.actionable({ status: 'LIQUIDATED' }), false);
+  // Every row here is inside its window; the window is the third condition
+  // (app/test/a_call_is_live_only_inside_its_window.test.js).
+  const W = { expires_at: Date.now() + 60000 };
+  assert.equal(SS.actionable({ status: 'NEW', ...W }), true);
+  assert.equal(SS.actionable({ status: 'OPEN', ...W }), true);
+  assert.equal(SS.actionable({ ...W }), true);
+  for (const w of SS.TERMINAL) assert.equal(SS.actionable({ status: w, ...W }), false, w);
+  assert.equal(SS.actionable({ status: 'LIQUIDATED', ...W }), false);
   // An older server derives the outcome from the R and sends no word.
-  assert.equal(SS.actionable({ status: 'NEW', outcome: 'WIN' }), false);
-  assert.equal(SS.actionable({ status: 'NEW', outcome: 'FLAT' }), false);
+  assert.equal(SS.actionable({ status: 'NEW', outcome: 'WIN', ...W }), false);
+  assert.equal(SS.actionable({ status: 'NEW', outcome: 'FLAT', ...W }), false);
   assert.equal(SS.actionable(null), false);
 });
 
