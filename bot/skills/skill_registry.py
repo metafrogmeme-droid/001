@@ -21,6 +21,8 @@ from typing import Any, Optional
 from bot.core.signal_confidence import (
     ConfidenceReading,
     displayed_confidence,
+    pattern_score_text,
+    pattern_score_value,
 )
 from bot.core.live_executor import (
     committed_margin,
@@ -4614,16 +4616,20 @@ class DeepScanSkill(BaseSkill):
                 f"{rsi_icon} RSI <code>{rsi_val:.0f}{rsi_tag}</code>{spike}"
             )
 
-            # Chart patterns with confidence bar
+            # Chart patterns with the detector's score. A score, never a
+            # percent: each detector writes a hand-set figure and nothing has
+            # measured how a pattern's calls turned out (`pattern_score_text`).
             if h["chart_patterns"]:
                 for cp in h["chart_patterns"][:3]:
                     sig_icon = _OK if cp["signal"] == "bullish" else _BAD if cp["signal"] == "bearish" else _NEU
-                    conf = cp["confidence"]
-                    filled = int(conf * 6)
-                    bar_str = "\u2588" * filled + "\u2591" * (6 - filled)
+                    conf = pattern_score_value(cp.get("confidence"))
+                    bar_str = ""
+                    if conf is not None:
+                        filled = int(max(0.0, min(1.0, conf)) * 6)
+                        bar_str = "\u2588" * filled + "\u2591" * (6 - filled) + " "
                     lines.append(
                         f"  {sig_icon} {cp['name']}  "
-                        f"{bar_str} <code>{conf:.0%}</code>"
+                        f"{bar_str}<code>{pattern_score_text(conf)}</code>"
                     )
 
             # Candlestick patterns — compact badges

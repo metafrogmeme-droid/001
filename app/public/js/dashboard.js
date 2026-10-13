@@ -3113,16 +3113,25 @@
       rsiHtml = `<span class="num" style="color:${col}">RSI ${fmt(rsi, 0)}${tag}</span>`;
     }
     const vol = h.vol_spike ? '<span class="chip chip--warn">VOL</span>' : '';
+    // The number beside each bar is the detector's 0-100 score, never a
+    // percent: each detector writes a hand-set figure and nothing has measured
+    // how a pattern's calls turned out (confidence-score.js `patternText`).
+    const PS = self.RCConfidenceScore;
     const pats = (h.chart_patterns || []).slice(0, 4).map(cp => {
       const col = _dsSigCol(String(cp.signal || 'neutral'));
-      const pct = Math.round(Math.max(0, Math.min(1, Number(cp.confidence || 0))) * 100);
+      const num = PS ? PS.number(cp.confidence) : null;
+      const width = num === null ? 0 : Math.max(0, Math.min(100, Number(num)));
+      const said = num === null ? '' : PS.patternText(cp.confidence);
       return `<div style="display:flex;align-items:center;gap:8px;margin:5px 0">
         <span style="width:8px;height:8px;border-radius:50%;background:${col};flex:none"></span>
         <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(cp.name || '')}</span>
-        <span class="ref-bar" style="width:88px;flex:none"><span style="width:${pct}%;background:${col}"></span></span>
-        <span class="num muted" style="width:36px;text-align:right;flex:none">${pct}%</span>
+        <span class="ref-bar" style="width:88px;flex:none"><span style="width:${width}%;background:${col}"></span></span>
+        <span class="num muted" style="width:36px;text-align:right;flex:none" title="${esc(said)}">${num === null ? '—' : num}</span>
       </div>`;
     }).join('');
+    const patsLegend = (pats && PS)
+      ? `<div class="muted" style="font-size:11px;margin-top:2px">${esc(PS.PATTERN_SCORE_WORD)} 0-100, ${esc(PS.UNMEASURED_WORD)}</div>`
+      : '';
     const candles = h.candle_patterns || {};
     const chips = Object.keys(candles).slice(0, 6).map(k => {
       const sig = String(candles[k] || 'neutral');
@@ -3144,7 +3153,7 @@
         <span style="display:flex;gap:8px;align-items:center">${_dsArrow(chg)} <b>${sym}</b> ${priceHtml} ${chgHtml}</span>
         <span style="display:flex;gap:8px;align-items:center">${rsiHtml} ${vol}</span>
       </div>
-      ${pats ? `<div class="mt-2">${pats}</div>` : '<p class="muted small mt-1">No chart patterns.</p>'}
+      ${pats ? `<div class="mt-2">${pats}${patsLegend}</div>` : '<p class="muted small mt-1">No chart patterns.</p>'}
       ${chips ? `<div class="mt-2" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="muted">🕯</span> ${chips}</div>` : ''}
       ${mini}
     </div>`;

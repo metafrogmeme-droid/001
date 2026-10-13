@@ -957,7 +957,7 @@
 <script src="/js/app.js?v=15"></script>
 <script src="/js/copilot-review-model.js?v=3" defer></script>
 <script src="/js/trade-confirm-model.js?v=2" defer></script>
-<script src="/js/confidence-score.js?v=1"></script>
+<script src="/js/confidence-score.js?v=2"></script>
 <script src="/js/chat-caption.js?v=1" defer></script>
 <script src="/js/rr-words.js?v=1"></script>
 <script src="/js/chat.js?v=40" defer></script>
@@ -1999,18 +1999,23 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
       var bits = [];
       if (d.top_pattern) {
         bits.push('<svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-compass"></use></svg> ' + esc(String(d.top_pattern.symbol).replace('/USDT', '').replace(/USDT$/, ''))
-          + ' · ' + esc(d.top_pattern.name) + ' (' + Math.round(d.top_pattern.confidence * 100) + '%)');
+          + ' · ' + esc(d.top_pattern.name)
+          // The detector's score, never a percent (confidence-score.js).
+          + ((self.RCConfidenceScore && self.RCConfidenceScore.patternText(d.top_pattern.confidence))
+            ? ' (' + esc(self.RCConfidenceScore.patternText(d.top_pattern.confidence)) + ')' : ''));
       }
       if (d.signals && d.signals.created_today) {
-        var s = d.signals.created_today + ' signal' + (d.signals.created_today === 1 ? '' : 's') + ' today';
-        if (d.signals.resolved_today) s += ', ' + d.signals.wins_today + '/' + d.signals.resolved_today + ' wins';
+        var s = esc(d.signals.created_today) + ' signal' + (d.signals.created_today === 1 ? '' : 's') + ' today';
+        if (d.signals.resolved_today) s += ', ' + esc(d.signals.wins_today) + '/' + esc(d.signals.resolved_today) + ' wins';
         bits.push('<svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-radar"></use></svg> ' + s);
       }
-      if (d.arena && d.arena.closes_24h) bits.push('<svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-users"></use></svg> ' + d.arena.traders + ' traders · ' + d.arena.closes_24h + ' closes in 24h');
+      if (d.arena && d.arena.closes_24h) bits.push('<svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-users"></use></svg> ' + esc(d.arena.traders) + ' traders · ' + esc(d.arena.closes_24h) + ' closes in 24h');
       if (d.season && d.season.status === 'live') bits.push('<svg class="icon" style="width:12px;height:12px" aria-hidden="true"><use href="#icon-flag"></use></svg> ' + esc(d.season.name) + ' is LIVE');
       if (bits.length < 2) return;   // one lonely stat isn't a digest
       var el = document.getElementById('todayStrip');
-      el.textContent = 'Today on RUNECLAW — ' + bits.join('  ·  ');
+      // As markup: each bit carries an svg icon, which `textContent` printed
+      // as its source text. Every value from the payload is escaped above.
+      el.innerHTML = 'Today on RUNECLAW — ' + bits.join('  ·  ');
       el.hidden = false;
     })
     .catch(function () { /* digest is decoration on the band */ });
