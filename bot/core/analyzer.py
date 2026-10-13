@@ -28,6 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from bot.compat import UTC
 from bot.llm import failure_cause as _fc
+from bot.llm.usage import cache_kwargs, cache_pair
 from bot.risk.quality_ladder import confidence_on_record
 from bot.core.cost import thesis_dollar_exhausted
 from bot.core.position_telemetry import price_on_record
@@ -4618,16 +4619,7 @@ class Analyzer:
                     if not raw_text:
                         raw_text = response.content[0].text if hasattr(response.content[0], "text") else ""
                 self._llm_calls_today += 1
-                # Anthropic returns usage in response.usage
-                _usage = getattr(response, "usage", None)
-                if _usage is not None and self._cost is not None:
-                    self._cost.record_llm(
-                        model=model,
-                        prompt_tokens=getattr(_usage, "input_tokens", 0) or 0,
-                        completion_tokens=getattr(_usage, "output_tokens", 0) or 0,
-                        symbol=signal.symbol,
-                        category=category,
-                    )
+                self._book_anthropic_usage(response, model, signal.symbol, category)
                 result = self._parse_llm_response(raw_text or "")
             else:
                 # OpenAI-compatible path (OpenAI, Groq, Gemini, DeepSeek, etc.)
@@ -4950,6 +4942,30 @@ class Analyzer:
                 getattr(CONFIG.analyzer, "llm_background_scans", True)),
         }
 
+    def _book_anthropic_usage(self, response, model: str, symbol: str,
+                              category: str) -> None:
+        """Book one Anthropic thesis response's measured usage.
+
+        The system prompt is cached (``cache_control`` in `_llm_thesis`), so
+        a response reports the cache's reads and writes BESIDE
+        ``input_tokens`` and they bill at their own rates
+        (`bot.core.cost.llm_call_cost`). Booking ``input_tokens`` alone left
+        every cache write (1.25x the input price) out of the guard's total.
+        """
+        _usage = getattr(response, "usage", None)
+        if _usage is None or self._cost is None:
+            return
+        _cache_read, _cache_write = cache_pair(response)
+        self._cost.record_llm(
+            model=model,
+            prompt_tokens=getattr(_usage, "input_tokens", 0) or 0,
+            completion_tokens=getattr(_usage, "output_tokens", 0) or 0,
+            symbol=symbol,
+            category=category,
+            cache_read_tokens=_cache_read,
+            cache_write_tokens=_cache_write,
+        )
+
     async def _try_llm_fallback(
         self,
         prompt: str,
@@ -5033,12 +5049,18 @@ class Analyzer:
                     # AI-2: enforce the thesis contract on the fallback too
                     # (claude-sonnet-5 supports output_config.format; the
                     # schema is silently skipped for models that don't).
+                    _fb_usage: dict = {}
                     raw_text = await llm_complete(fb_client, fb_config, sys_content, prompt,
-                                                  json_schema=THESIS_JSON_SCHEMA)
-                    # llm_complete discards usage → estimate from char length so
-                    # the dollar guard still sees (approximate) fallback spend.
-                    _pt = self._estimate_tokens(sys_content + prompt)
-                    _ct = self._estimate_tokens(raw_text or "")
+                                                  json_schema=THESIS_JSON_SCHEMA,
+                                                  usage_out=_fb_usage)
+                    # The measured usage, cached system prompt included; an
+                    # estimate from char length only where the response
+                    # reported none, so the guard still sees the spend.
+                    _pt = (_fb_usage["in"] if "in" in _fb_usage
+                           else self._estimate_tokens(sys_content + prompt))
+                    _ct = (_fb_usage["out"] if "out" in _fb_usage
+                           else self._estimate_tokens(raw_text or ""))
+                    _fb_cache = cache_kwargs(_fb_usage)
                 else:
                     resp = await asyncio.wait_for(
                         fb_client.chat.completions.create(
@@ -5062,6 +5084,8 @@ class Analyzer:
                         else self._estimate_tokens(sys_content + prompt)
                     _ct = (getattr(_u, "completion_tokens", 0) or 0) if _u is not None \
                         else self._estimate_tokens(raw_text or "")
+                    # An OpenAI-compatible count holds its cached tokens.
+                    _fb_cache = cache_kwargs({})
 
                 # Account this billable fallback call against the daily budgets
                 # (deep-audit medium). Done here — after a successful API response,
@@ -5076,6 +5100,7 @@ class Analyzer:
                             completion_tokens=_ct,
                             symbol=signal.symbol,
                             category="thesis" if use_full_model else "analyze",
+                            **_fb_cache,
                         )
 
                 result = self._parse_llm_response(raw_text or "")

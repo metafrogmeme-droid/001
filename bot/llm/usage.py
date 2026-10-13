@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import os
 import threading
-from typing import Optional
+from typing import Optional, TypedDict
 
 _LOCK = threading.Lock()
 
@@ -79,6 +79,54 @@ def usage_pair(response) -> Optional[tuple[int, int]]:
         return ti, to
     except Exception:
         return None
+
+
+def cache_pair(response) -> tuple[int, int]:
+    """The prompt cache's (read, write) tokens off a provider response.
+
+    An Anthropic response reports them BESIDE ``input_tokens``
+    (``cache_read_input_tokens`` / ``cache_creation_input_tokens``), and
+    bills them at their own rates, so a cost read from ``usage_pair`` alone
+    left a cached call's writes unbooked. An OpenAI-compatible response
+    counts cached tokens inside ``prompt_tokens`` and has no such fields, and
+    a call that used no cache reports none: both are (0, 0), which here is a
+    measurement -- nothing was billed apart from the input -- not a gap.
+    """
+    try:
+        u = getattr(response, "usage", None)
+        if u is None:
+            return 0, 0
+        return (cache_token_count(getattr(u, "cache_read_input_tokens", None)),
+                cache_token_count(getattr(u, "cache_creation_input_tokens", None)))
+    except Exception:
+        return 0, 0
+
+
+def cache_token_count(value) -> int:
+    """One reported cache count as a whole number of tokens.
+
+    Absent (None, a non-number, a negative) is 0, and for the cache that is
+    a measurement: a response that reports no cache reads or writes billed
+    none, and the caller's input count already holds the whole prompt.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    return max(0, int(value))
+
+
+class CacheTokens(TypedDict):
+    """``CostTracker.record_llm``'s two cache arguments."""
+    cache_read_tokens: int
+    cache_write_tokens: int
+
+
+def cache_kwargs(usage_out: dict) -> CacheTokens:
+    """``record_llm``'s cache arguments from a ``usage_out`` dict that
+    `bot.llm.provider.llm_complete` / `llm_complete_with_tools` filled. An empty dict
+    is a call that reported no cache, or a provider whose input count holds
+    its cached tokens: (0, 0)."""
+    return CacheTokens(cache_read_tokens=cache_token_count(usage_out.get("cache_read")),
+                       cache_write_tokens=cache_token_count(usage_out.get("cache_write")))
 
 
 def record_from_response(model: str, response) -> None:

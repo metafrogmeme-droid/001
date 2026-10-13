@@ -28,6 +28,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from bot.llm.usage import cache_token_count
 from bot.utils.atomic_write import atomic_write_json
 from bot.utils.json_store import READ, UNREADABLE, read_json_store
 from bot.utils.logger import audit, system_log
@@ -35,27 +36,58 @@ from bot.utils.logger import audit, system_log
 logger = logging.getLogger(__name__)
 
 
-# USD per 1,000,000 tokens.  ILLUSTRATIVE — verify against current provider
-# pricing, which changes and differs by model.  Do not trust these numbers.
-# Keep in config/env for production; hardcoded here for prototype convenience.
+# USD per 1,000,000 tokens. The Anthropic rows are Anthropic's first-party
+# list prices as of 2026-10-06 (the Claude API reference's model table); the
+# others are approximations nobody here has re-read against their provider.
+#
+# THE TABLE WAS WRONG BOTH WAYS. claude-sonnet-5, the model every chat and
+# analysis tier routes to, was booked at $3/$15 against a $2/$10 list price,
+# so the daily dollar guard tripped at two thirds of the spend it was set
+# for and the analysis fell back to rules early. claude-opus-4-8 was booked
+# at $15/$75 against $5/$25. Haiku 4.5 was UNDER-booked ($0.80/$4 against
+# $1/$5), which is the dangerous direction: an under-price trips the guard
+# late. Every current Anthropic model has its own row now.
+#
+# ``cache_read`` is the price of a prompt-cache read where it is not the
+# usual tenth of the input price (Opus 5.5 reads at a twentieth, Fable 5.1
+# and Mythos 5.1 at a fortieth). A cache WRITE costs 1.25x the input price
+# for the default five-minute lifetime, which is the only one this bot asks
+# for (`cache_control: {"type": "ephemeral"}`). `llm_call_cost` reads both.
 LLM_PRICING: dict[str, dict[str, float]] = {
     "gpt-4o":              {"in": 2.50,  "out": 10.00},
     "gpt-4o-mini":         {"in": 0.15,  "out": 0.60},
-    "claude-sonnet-5":   {"in": 3.00,  "out": 15.00},
+    "claude-fable-5-1":    {"in": 10.00, "out": 50.00, "cache_read": 0.25},
+    "claude-mythos-5-1":   {"in": 10.00, "out": 50.00, "cache_read": 0.25},
+    # ULTRA's thesis/learning model. It was once in neither this table nor
+    # the family list, so every ULTRA thesis call booked $0.00 and disarmed
+    # the daily dollar guard on the most expensive model in the product.
+    "claude-fable-5":      {"in": 10.00, "out": 50.00},
+    "claude-mythos-5":     {"in": 10.00, "out": 50.00},
+    "claude-opus-5-5":     {"in": 4.00,  "out": 20.00, "cache_read": 0.20},
+    "claude-opus-5":       {"in": 5.00,  "out": 25.00},
+    "claude-opus-4-8":     {"in": 5.00,  "out": 25.00},
+    "claude-opus-4-7":     {"in": 5.00,  "out": 25.00},
+    "claude-opus-4-6":     {"in": 5.00,  "out": 25.00},
+    "claude-sonnet-5-5":   {"in": 2.00,  "out": 10.00},
+    "claude-sonnet-5":     {"in": 2.00,  "out": 10.00},
     "claude-sonnet-4-6":   {"in": 3.00,  "out": 15.00},
-    "claude-opus-4-8":     {"in": 15.00, "out": 75.00},
-    "claude-haiku-4-5-20251001":    {"in": 0.80,  "out": 4.00},
+    # Two rate cards, chosen by the whole prompt's length (uncached input
+    # plus the cache's reads and writes): above ``long_above`` tokens the
+    # call bills at ``long_in`` / ``long_out`` (`llm_call_cost`).
+    "claude-haiku-5-5":    {"in": 0.10,  "out": 0.50,
+                            "long_above": 100_000, "long_in": 0.50, "long_out": 2.50},
+    "claude-haiku-4-5":    {"in": 1.00,  "out": 5.00},
+    "claude-haiku-4-5-20251001":    {"in": 1.00,  "out": 5.00},
     "claude-3-5-sonnet-20241022": {"in": 3.00, "out": 15.00},
     "claude-sonnet-4-20250514":   {"in": 3.00, "out": 15.00},
-    # ULTRA's thesis/learning model. It was in NEITHER this table nor the
-    # family list below, so `resolve_llm_price` answered (None, False) and
-    # every ULTRA thesis call booked $0.00 — disarming the daily dollar guard
-    # on the most expensive model in the product. The figure is the one the
-    # product itself advertises when an operator turns ULTRA on: "Fable 5
-    # bills $10/$50 per MTok" (bot/llm/provider.py, the ultra toggle message).
-    "claude-fable-5":      {"in": 10.00, "out": 50.00},
-    "claude-fable-5-1":    {"in": 10.00, "out": 50.00},
 }
+
+#: A prompt-cache write's price as a multiple of the input price, for the
+#: five-minute lifetime this bot asks for.
+CACHE_WRITE_MULTIPLIER = 1.25
+#: A prompt-cache read's price as a multiple of the input price, where a
+#: model's row names no ``cache_read`` of its own.
+CACHE_READ_MULTIPLIER = 0.10
 
 # Family-prefix fallback (checked in order, first prefix match wins) for model
 # IDs not in the exact table above. The operator can point any tier at any
@@ -67,10 +99,18 @@ LLM_PRICING: dict[str, dict[str, float]] = {
 # not in the table). Family pricing is an approximation — Anthropic has kept
 # per-family pricing stable across versions — and an approximate cost that
 # arms the budget guard beats an exact $0 that doesn't.
+#
+# EACH ANTHROPIC FAMILY IS PRICED AT THE TOP OF ITS RANGE. Every current
+# model has an exact row, so a family price only answers an id nobody listed:
+# a dated snapshot, or an older model someone pointed a tier at. Opus 4.1 and
+# 4 list at $15/$75, Sonnet 4.x at $3/$15 and Haiku 4.5 at $1/$5, so those
+# are the family prices. A lower family price would under-book such an id,
+# and an under-booked model does not trip the guard; an over-booked one trips
+# it early, which is recoverable.
 LLM_PRICING_FAMILIES: list[tuple[str, dict[str, float]]] = [
     ("claude-opus-",   {"in": 15.00, "out": 75.00}),
     ("claude-sonnet-", {"in": 3.00,  "out": 15.00}),
-    ("claude-haiku-",  {"in": 0.80,  "out": 4.00}),
+    ("claude-haiku-",  {"in": 1.00,  "out": 5.00}),
     ("claude-3-",      {"in": 3.00,  "out": 15.00}),
     ("gpt-4o-mini",    {"in": 0.15,  "out": 0.60}),
     ("gpt-4",          {"in": 2.50,  "out": 10.00}),
@@ -119,6 +159,35 @@ LLM_PRICING_FAMILIES: list[tuple[str, dict[str, float]]] = [
     # under-estimate does not trip it at all.
     ("claude-",          {"in": 15.00, "out": 75.00}),
 ]
+
+
+def llm_call_cost(price: dict[str, float], prompt_tokens: int, completion_tokens: int,
+                  cache_read_tokens: int = 0, cache_write_tokens: int = 0) -> float:
+    """One call's dollars at ``price`` (a `resolve_llm_price` row).
+
+    ``prompt_tokens`` is the uncached input: an Anthropic response's
+    ``input_tokens`` excludes the cache, whose reads and writes it reports
+    separately and bills at their own rates. An OpenAI-compatible response
+    counts its cached tokens inside ``prompt_tokens`` and reports no writes,
+    so its callers pass neither and nothing is counted twice.
+
+    A row with ``long_above`` has a second rate card for a prompt longer than
+    that many tokens, the cache's included (Haiku 5.5).
+    """
+    in_price, out_price = price["in"], price["out"]
+    read_price = price.get("cache_read")
+    long_above = price.get("long_above")
+    if (long_above is not None
+            and prompt_tokens + cache_read_tokens + cache_write_tokens > long_above):
+        # A long prompt's rate card; its cache reads are a tenth of its input.
+        in_price, out_price = price["long_in"], price["long_out"]
+        read_price = None
+    if read_price is None:
+        read_price = in_price * CACHE_READ_MULTIPLIER
+    return ((prompt_tokens / 1_000_000) * in_price
+            + (completion_tokens / 1_000_000) * out_price
+            + (cache_read_tokens / 1_000_000) * read_price
+            + (cache_write_tokens / 1_000_000) * in_price * CACHE_WRITE_MULTIPLIER)
 
 
 def resolve_llm_price(model: str) -> tuple[Optional[dict], bool]:
@@ -592,8 +661,16 @@ class CostTracker:
         symbol: str = "",
         category: str = "other",
         public: bool = False,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
     ) -> float:
         """Record an LLM API call.  Returns USD cost (0.0 if model is unpriced).
+
+        ``cache_read_tokens`` / ``cache_write_tokens``: the prompt cache's
+        reads and writes, which an Anthropic response reports beside (not
+        inside) ``input_tokens`` and bills at their own rates
+        (`llm_call_cost`). Left out, a cached call's writes -- 1.25x the
+        input price -- were spend the guard never saw.
 
         Fail-closed accounting: unknown model -> tokens recorded, cost = 0,
         but unpriced_calls is incremented so the operator knows the true cost
@@ -607,10 +684,10 @@ class CostTracker:
         """
         price, _exact = resolve_llm_price(model)
         priced = price is not None
-        cost = (
-            (prompt_tokens / 1_000_000) * price["in"]
-            + (completion_tokens / 1_000_000) * price["out"]
-        ) if priced else 0.0
+        cache_read_tokens = cache_token_count(cache_read_tokens)
+        cache_write_tokens = cache_token_count(cache_write_tokens)
+        cost = llm_call_cost(price, prompt_tokens, completion_tokens,
+                             cache_read_tokens, cache_write_tokens) if price is not None else 0.0
 
         cat = category if category in COST_CATEGORIES else "other"
 
@@ -638,6 +715,9 @@ class CostTracker:
                 "model": model,
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
+                **({"cache_read_tokens": cache_read_tokens,
+                    "cache_write_tokens": cache_write_tokens}
+                   if cache_read_tokens or cache_write_tokens else {}),
                 "cost_usd": round(cost, 6),
                 "symbol": symbol,
                 "priced": priced,

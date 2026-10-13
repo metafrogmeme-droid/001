@@ -143,7 +143,9 @@ class TestBudgetGuard:
         # Any future dated Anthropic ID prices by family, never $0.
         for mid, lo in (("claude-sonnet-4-5-20250929", 3.0),
                         ("claude-opus-4-7-20260105", 15.0),
-                        ("claude-haiku-4-5-20251001", 0.8),
+                        # $1/$5 list; booked at $0.80 until E1, an
+                        # under-booking the guard tripped late on.
+                        ("claude-haiku-4-5-20251001", 1.0),
                         # Non-Anthropic routing defaults are now family-priced too
                         # so they can't book $0 and disarm the budget guard.
                         ("llama-3.3-70b-versatile", 0.20),
