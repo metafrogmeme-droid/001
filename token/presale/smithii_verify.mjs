@@ -81,6 +81,14 @@ export function makeRpc(url, { fetchImpl = fetch, sleepImpl = sleep, tries = 5 }
   };
 }
 
+/** The Launch account the program derives for this mint and the wallet that signs Create. */
+export function launchAddress(cfg, authority) {
+  const [key] = PublicKey.findProgramAddressSync(
+    [Buffer.from('launch'), new PublicKey(cfg.token.mint).toBuffer(), new PublicKey(authority).toBuffer()],
+    new PublicKey(cfg.program.id));
+  return key;
+}
+
 /**
  * Run every check and return the rows. `rpcCall(method, params)` resolves to
  * { ok, value } or { ok: false, error }; a test hands in canned answers.
@@ -94,10 +102,7 @@ export async function verifySmithii({ cfg, record, authority, launchHint, rpcCal
   const unverified = (check, why) => add(check, 'UNVERIFIED', `could not read: ${why}`);
 
   const mint = new PublicKey(cfg.token.mint);
-  const programId = new PublicKey(cfg.program.id);
-  const authorityKey = new PublicKey(authority);
-  const [launchKey] = PublicKey.findProgramAddressSync(
-    [Buffer.from('launch'), mint.toBuffer(), authorityKey.toBuffer()], programId);
+  const launchKey = launchAddress(cfg, authority);
   const vaultKey = getAssociatedTokenAddressSync(mint, launchKey, true);
   const context = { launch: launchKey.toBase58(), vault: vaultKey.toBase58() };
 

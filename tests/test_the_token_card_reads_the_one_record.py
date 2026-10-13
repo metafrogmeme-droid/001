@@ -95,13 +95,18 @@ def test_the_record_is_the_file_both_surfaces_read():
     assert rec["explorer"] == f"https://solscan.io/token/{MINT}"
     # The presale is announced (2026-10-10): every term is a sentence the
     # card prints as written (token/presale/the_record_states_the_sale.test.mjs
-    # holds them to the sale config), and the sale link is not set before
-    # Create, which the record says with null rather than a placeholder.
+    # holds them to the sale config).
     presale = rec["presale"]
     assert presale["status"] == "announced"
     for field in TERM_KEYS:
         assert isinstance(presale[field], str) and presale[field].strip(), field
-    assert presale["sale_url"] is None
+    # The sale was created and read back on 2026-10-13
+    # (token/presale/the_record_states_the_sale.test.mjs holds the link to the
+    # launch it opens); the card prints it as a link.
+    assert presale["sale_url"] == "https://tools.smithii.io/launch/solana/RUNECLAW"
+    assert token_card.is_sale_url(presale["sale_url"])
+    assert ('Sale link: <a href="https://tools.smithii.io/launch/solana/RUNECLAW">'
+            in render_token_card(rec))
 
 
 def test_the_card_prints_every_term_the_record_announces_and_no_other():
@@ -195,7 +200,9 @@ def test_the_announced_presale_prints_each_term_as_written():
     assert "For sale: 150,000,000 RCLAW" in lines
     assert "Hard cap: 5,000 SOL (soft cap 1,000 SOL: a target, not enforced)" in lines
     assert "Refunds: None" in lines
-    assert f"Sale link: {token_card.SALE_LINK_NONE}" in lines
+    url = "https://tools.smithii.io/launch/solana/RUNECLAW"
+    assert f'Sale link: <a href="{url}">{url}</a>' in lines
+    assert token_card.SALE_LINK_NONE not in card
     assert lines[-1].startswith("Smithii's sale contract enforces the price")
     assert "It will be announced here" not in card
     assert "not announced yet" not in card
@@ -205,6 +212,10 @@ def test_the_announced_presale_prints_each_term_as_written():
     lines = _presale_lines(render_token_card(_record(presale=presale)))
     assert "Price: not announced yet" in lines
     assert "Venue: Smithii launchpad (Solana)" in lines
+    # and a link not set yet says so, in its own words
+    presale = {**load_record()["presale"], "sale_url": None}
+    lines = _presale_lines(render_token_card(_record(presale=presale)))
+    assert f"Sale link: {token_card.SALE_LINK_NONE}" in lines
 
 
 @pytest.mark.parametrize("key", TERM_KEYS + ["sale_url"])
@@ -235,7 +246,9 @@ def test_a_sale_link_anywhere_else_is_unreadable_and_not_printed(url):
     presale = {**load_record()["presale"], "sale_url": url}
     card = render_token_card(_record(presale=presale))
     assert "Sale link: unreadable" in _presale_lines(card)
-    assert "<a href=\"https://tools" not in card and "<a href=\"http" not in card.split("View on Solscan")[1]
+    # Anchored to the presale's own lines: the locks below it link Smithii's
+    # vesting certificates and Solscan's account pages, which are not sale links.
+    assert "<a href=" not in "\n".join(_presale_lines(card))
     if isinstance(url, str) and url.strip():
         assert url.strip() not in card and html.escape(url.strip()) not in card
 

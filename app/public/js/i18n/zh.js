@@ -2157,5 +2157,18 @@
   ["tok.verify", "只有這個鑄造地址才是 $RCLAW。任何使用相同名稱或標誌的其他代幣都不是我們的 — 交易前請先核對地址。"],
   ["tok.not_offer", "本頁內容均不構成財務建議、出售要約或購買任何代幣的邀約。預售條款在銷售開放前仍可能因法律審查而變更；本頁顯示的是目前的條款。"],
   ["tok.unread", "目前無法讀取代幣記錄。不會以任何鑄造地址代替 — 猜測的地址比沒有更糟。請稍後再試。"],
-  ["tok.bot_hint", "Telegram 機器人中亦可用：/rclaw"]
+  ["tok.bot_hint", "Telegram 機器人中亦可用：/rclaw"],
+  ["tok.tokenomics_h", "代幣經濟"],
+  ["tok.tokenomics_alt", "$RCLAW 代幣經濟：固定供應量 1,000,000,000 枚，鑄造權與凍結權已撤銷。規劃分配：社群與生態系 25%、國庫 / DAO 20%、公開預售 15%、團隊與貢獻者 15%、儲備與 TGE 後流動性 13%、合作夥伴與做市商 8%、DEX 流動性 2%、顧問 2%。"],
+  ["tok.tokenomics_note", "依專案路線圖規劃的分配。點開圖片可查看完整尺寸。"],
+  ["tok.locks_h", "鎖倉分配"],
+  ["tok.lock_amount", "鎖定數量"],
+  ["tok.lock_schedule", "解鎖時程"],
+  ["tok.lock_unlocks", "解鎖"],
+  ["tok.lock_account", "鎖倉帳戶"],
+  ["tok.lock_wallet", "領取錢包"],
+  ["tok.lock_certificate", "證明頁"],
+  ["tok.lock_none", "尚未建立"],
+  ["tok.locks_checked", "已於以下日期與鏈上核對"],
+  ["tok.locks_body", "每個鎖倉都是 Smithii Token Vesting 程式的一個帳戶，該程式沒有取消或修改鎖倉的指令：只有列出的錢包能領取，且只能在各日期當天或之後領取。Smithii 可以升級該程式，目前運行的版本並未確認經過審計。"]
 ]);

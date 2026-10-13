@@ -2157,5 +2157,18 @@
   ["tok.verify", "Solo questo indirizzo di mint è $RCLAW. Qualsiasi altro token che usi il nome o il logo non è nostro — controlla l’indirizzo prima di scambiare qualsiasi cosa."],
   ["tok.not_offer", "Nulla in questa pagina è consulenza finanziaria, un’offerta di vendita o una sollecitazione all’acquisto di alcun token. I termini della prevendita possono ancora cambiare dopo la revisione legale prima dell’apertura della vendita; questa pagina mostra quelli attuali."],
   ["tok.unread", "Il registro del token non è leggibile in questo momento. Nessun indirizzo di mint viene mostrato al suo posto — un indirizzo indovinato è peggio di nessuno. Riprova tra un minuto."],
-  ["tok.bot_hint", "Anche nel bot Telegram: /rclaw"]
+  ["tok.bot_hint", "Anche nel bot Telegram: /rclaw"],
+  ["tok.tokenomics_h", "Tokenomics"],
+  ["tok.tokenomics_alt", "Tokenomics di $RCLAW: offerta fissa di 1.000.000.000 token, autorità di mint e di congelamento revocate. Ripartizione prevista: Community ed ecosistema 25%, Tesoreria / DAO 20%, Prevendita pubblica 15%, Team e collaboratori 15%, Riserva e liquidità post-TGE 13%, Partner e market maker 8%, Liquidità DEX 2%, Consulenti 2%."],
+  ["tok.tokenomics_note", "La ripartizione prevista, secondo la roadmap del progetto. Apri l’immagine per vederla a grandezza intera."],
+  ["tok.locks_h", "Allocazioni bloccate"],
+  ["tok.lock_amount", "Bloccato"],
+  ["tok.lock_schedule", "Calendario"],
+  ["tok.lock_unlocks", "Sblocchi"],
+  ["tok.lock_account", "Account del blocco"],
+  ["tok.lock_wallet", "Wallet che riscuote"],
+  ["tok.lock_certificate", "Certificato"],
+  ["tok.lock_none", "non ancora creato"],
+  ["tok.locks_checked", "Verificato sulla catena il"],
+  ["tok.locks_body", "Ogni blocco è un account del programma Token Vesting di Smithii, che non ha alcuna istruzione per annullare o modificare un blocco: solo il wallet indicato può riscuotere, e solo alla data indicata o dopo. Smithii può aggiornare quel programma, e non risulta alcun audit della versione in esecuzione."]
 ]);

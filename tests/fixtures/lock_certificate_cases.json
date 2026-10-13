@@ -1,0 +1,34 @@
+{
+  "_comment": "The one list both readers of the token record are held to for a lock's certificate link: the website (app/public/js/token-page.js, CERTIFICATE_URL) and the bot (bot/formatters/token_card.py, CERTIFICATE_URL) print locks.items[].certificate_url as a link only when it is Smithii's vesting certificate for a Solana lock, https on tools.smithii.io, a lowercase slug of at most 30 characters (what the tool's url box keeps, token/presale/locks.plan.json) and nothing after it. Anything else is unreadable and not printed. app/test/the_token_page_shows_the_locks.test.js and tests/test_the_rclaw_card_shows_the_locks.py both read this file.",
+  "accept": [
+    "https://tools.smithii.io/vesting/solana/rclaw-community",
+    "https://tools.smithii.io/vesting/solana/rclaw-team",
+    "https://tools.smithii.io/vesting/solana/rclaw-advisors",
+    "https://tools.smithii.io/vesting/solana/a",
+    "https://tools.smithii.io/vesting/solana/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "refuse": [
+    "http://tools.smithii.io/vesting/solana/rclaw-team",
+    "https://tools.smithii.io/vesting/solana/rclaw-team/",
+    "https://tools.smithii.io/vesting/solana/rclaw-team?ref=x",
+    "https://tools.smithii.io/vesting/solana/rclaw-team#top",
+    "https://tools.smithii.io/vesting/solana/RCLAW-TEAM",
+    "https://tools.smithii.io/vesting/solana/rclaw_team",
+    "https://tools.smithii.io/vesting/solana/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "https://tools.smithii.io/vesting/solana/",
+    "https://tools.smithii.io/vesting/ethereum/rclaw-team",
+    "https://tools.smithii.io/launchpad/solana/rclaw-team",
+    "https://smithii.io/vesting/solana/rclaw-team",
+    "https://tools.smithii.io.evil.example/vesting/solana/rclaw-team",
+    "https://tools.smithii.io@evil.example/vesting/solana/rclaw-team",
+    "https://evil.example/?next=https://tools.smithii.io/vesting/solana/rclaw-team",
+    "https://tools.smithii.io:8443/vesting/solana/rclaw-team",
+    "https://TOOLS.SMITHII.IO/vesting/solana/rclaw-team",
+    "https://tools.smithii.io/vesting/solana/rclaw-team\n",
+    " https://tools.smithii.io/vesting/solana/rclaw-team",
+    "https://tools.smithii.io/vesting/solana/rclaw\"><script>alert(1)</script>",
+    "javascript:alert(1)//tools.smithii.io/vesting/solana/rclaw-team",
+    "//tools.smithii.io/vesting/solana/rclaw-team",
+    ""
+  ]
+}
