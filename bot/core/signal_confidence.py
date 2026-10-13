@@ -81,6 +81,40 @@ SCORE_MEANING = (
     "winning.")
 
 
+#: A chart-pattern detection's figure is neither a probability nor the
+#: analyzer's blend. Each detector in `bot.core.chart_patterns` writes a
+#: hand-set constant or a clamp (``0.70 if broke else 0.55``), and nothing
+#: records how a pattern's calls turned out, so there is no win rate behind
+#: it to calibrate against. Printed as ``72%`` it read as one. It is printed
+#: as the detector's score and says it is unmeasured
+#: (`pattern_score_text`); the website's twin is pinned to these words.
+PATTERN_SCORE_WORD = "detector score"
+UNMEASURED_WORD = "unmeasured"
+
+
+def pattern_score_value(value: Any) -> Optional[float]:
+    """A detection's 0-1 figure, or None when it holds no number. A bool is
+    not one; a missing figure is not a score of zero."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    if v != v or v in (float("inf"), float("-inf")):
+        return None
+    return v
+
+
+def pattern_score_text(value: Any, *, dash: str = UNREAD_DASH) -> str:
+    """``detector score 72 (unmeasured)`` for a detection's 0-1 figure,
+    ``dash`` when it holds no number."""
+    v = pattern_score_value(value)
+    if v is None:
+        return dash
+    return f"{PATTERN_SCORE_WORD} {score_number(v)} ({UNMEASURED_WORD})"
+
+
 def score_number(value: float) -> str:
     """A raw-scale 0-1 figure as the 0-100 number a card prints, no sign."""
     return f"{value * 100:.0f}"

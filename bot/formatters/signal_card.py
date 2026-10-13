@@ -98,10 +98,13 @@ from bot.core.position_telemetry import (  # noqa: E402
     pct_on_record,
 )
 from bot.core.signal_confidence import (  # noqa: E402
+    PATTERN_SCORE_WORD,
     SCORE_WORD,
     UNCALIBRATED_WORD,
+    UNMEASURED_WORD,
     UNREAD_DASH,
     displayed_confidence,
+    pattern_score_value,
     score_number,
     score_text,
 )
@@ -929,13 +932,15 @@ def render_patterns_card(
         draw.text((W - PAD - 14 - rsi_w, hy + 1), rsi_txt, fill=rsi_c, font=f_price)
 
         ry = hy + HDR_ROW
-        # ── Chart patterns with confidence bars ──
+        # ── Chart patterns with the detector's score ──
+        # The number after the bar is the detector's 0-100 score, never a
+        # percent (`pattern_score_text`); the footer names it once.
         bar_w = 96
-        bar_x = W - PAD - 14 - 44 - bar_w  # leave room for the "NN%" after the bar
+        bar_x = W - PAD - 14 - 44 - bar_w  # leave room for the score after the bar
         for cp in (h.get("chart_patterns") or [])[:3]:
             sig = str(cp.get("signal", "neutral"))
             sc = _sig_color(sig)
-            conf = float(cp.get("confidence", 0) or 0)
+            conf = pattern_score_value(cp.get("confidence"))
             # signal dot
             draw.ellipse([PAD + 16, ry + 4, PAD + 24, ry + 12], fill=sc)
             name = str(cp.get("name", ""))
@@ -946,11 +951,13 @@ def render_patterns_card(
             # bar track + fill
             draw.rounded_rectangle([bar_x, ry + 3, bar_x + bar_w, ry + 12],
                                    radius=4, fill=_DIM)
-            fill_w = int(max(0.0, min(1.0, conf)) * bar_w)
+            fill_w = int(max(0.0, min(1.0, conf)) * bar_w) if conf is not None else 0
             if fill_w > 0:
                 draw.rounded_rectangle([bar_x, ry + 3, bar_x + fill_w, ry + 12],
                                        radius=4, fill=sc)
-            draw.text((bar_x + bar_w + 8, ry), f"{conf:.0%}", fill=_GRAY, font=f_small)
+            draw.text((bar_x + bar_w + 8, ry),
+                      score_number(conf) if conf is not None else UNREAD_DASH,
+                      fill=_GRAY, font=f_small)
             ry += PAT_ROW
 
         # ── Candlestick badges ──
@@ -975,7 +982,10 @@ def render_patterns_card(
 
     # ── Footer ──
     draw.rectangle([0, H - 3, W, H], fill=_ACCENT_GOLD)
-    foot = "Patterns are observations, not signals"
+    # What the number beside each bar is: the detector's score, which nothing
+    # has measured, and never a percent.
+    foot = (f"Bars: {PATTERN_SCORE_WORD} 0-100, {UNMEASURED_WORD} · "
+            f"observations, not signals")
     draw.text((PAD, H - 20), foot, fill=_DIM, font=f_small)
     wm_w = draw.textlength("RUNECLAW", font=f_small)
     draw.text((W - PAD - wm_w, H - 20), "RUNECLAW", fill=_DIM, font=f_small)

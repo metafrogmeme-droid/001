@@ -4,22 +4,29 @@
  *
  * Every two minutes the latest synced deep-scan pattern block is checked
  * against OPEN paper positions: when the engine's detectors report a NEW
- * high-confidence chart pattern (Elliott, Wyckoff, H&S, …) on a symbol a
- * user is holding, that user gets ONE web push ("🧭 BTCUSDT: Elliott 5-Wave
- * Impulse (78%) — you have a LONG open"). Dedupe is per
- * (user, symbol, pattern) with a 12h TTL — a persistent pattern never
- * spams, and a fresh read after it fades can announce again.
+ * chart pattern (Elliott, Wyckoff, H&S, …) on a symbol a user is holding,
+ * that user gets ONE web push ("🧭 BTCUSDT: Elliott 5-Wave Impulse
+ * (bullish, detector score 78 (unmeasured)) — you have a LONG open").
+ * Dedupe is per (user, symbol, pattern) with a 12h TTL — a persistent
+ * pattern never spams, and a fresh read after it fades can announce again.
+ *
+ * NO CONFIDENCE FLOOR. The figure is the detector's own hand-set score, and
+ * nothing has measured how a pattern's calls turned out, so a floor on it
+ * selected detectors by the constants they were written with, not patterns
+ * by how good they are. The push says what the figure is
+ * (`RCConfidenceScore.patternText`); the per-symbol cap and the 12h window
+ * bound how often it speaks.
  *
  * One source of truth: patterns come ONLY from the engine's own synced
  * deepscan block — nothing is re-detected here. §4: the push goes to the
- * position's owner only and carries symbol + pattern name + confidence
- * percent (the engine's read of public market structure) — no amounts.
+ * position's owner only and carries symbol + pattern name + the detector's
+ * score (the engine's read of public market structure) — no amounts.
  */
 
 const { pool } = require('../db');
 const push = require('./push');
+const CS = require('../public/js/confidence-score');
 
-const MIN_CONFIDENCE = 0.6;      // engine confidence floor for a push
 const TTL_MS = 12 * 3600 * 1000; // per (user, symbol, pattern) silence window
 const MAX_PER_SYMBOL = 2;        // top patterns per symbol per sweep
 
@@ -43,7 +50,7 @@ function transitions(hits, interests, seen, now = Date.now()) {
     const b = base(h.symbol);
     if (!b) continue;
     bySym.set(b, (h.chart_patterns || [])
-      .filter((p) => p && p.name && (Number(p.confidence) || 0) >= MIN_CONFIDENCE)
+      .filter((p) => p && p.name)
       .slice(0, MAX_PER_SYMBOL));
   }
   const next = new Map();
@@ -62,7 +69,9 @@ function transitions(hits, interests, seen, now = Date.now()) {
         user_id: pos.user_id, symbol: pos.symbol,
         direction: pos.direction || null,
         name: pat.name, signal: pat.signal || 'neutral',
-        confidence: Number(pat.confidence) || 0,
+        // The detector's figure as it was read, or null: an absent score is
+        // not a score of zero.
+        confidence: CS.number(pat.confidence) === null ? null : Number(pat.confidence),
       });
     }
   }
@@ -123,7 +132,8 @@ async function _sweepPatterns(scan, pushMod) {
       : `it's on your watchlist`;
     await pushMod.notifySubscribers({
       title: '🧭 Engine pattern on your symbol',
-      body: `${n.symbol}: ${n.name} (${Math.round(n.confidence * 100)}%, ${n.signal}) — `
+      body: `${n.symbol}: ${n.name} (${n.signal}`
+        + `${CS.patternText(n.confidence) ? ', ' + CS.patternText(n.confidence) : ''}) — `
         + `${why}. See the chart in the Arena.`,
       url: '/arena',
     }, [n.user_id]).catch(() => {});
@@ -138,4 +148,4 @@ function startPatternWatch(intervalMs = 120_000) {
 /** Forget what was announced (tests). */
 function resetPatternWatch() { return jobState.clear(STATE); }
 
-module.exports = { startPatternWatch, runOnce, transitions, resetPatternWatch, MIN_CONFIDENCE, TTL_MS, MAX_PER_SYMBOL };
+module.exports = { startPatternWatch, runOnce, transitions, resetPatternWatch, TTL_MS, MAX_PER_SYMBOL };

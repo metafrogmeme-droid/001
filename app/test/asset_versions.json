@@ -68,8 +68,8 @@
     "sha": "c714e0d37fa78d3d"
   },
   "js/confidence-score.js": {
-    "v": 1,
-    "sha": "a2992df44d7765fd"
+    "v": 2,
+    "sha": "eae59726fc5089ab"
   },
   "js/context-chips-model.js": {
     "v": 2,
@@ -84,8 +84,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 236,
-    "sha": "79405bbdb3e5b766"
+    "v": 237,
+    "sha": "de5ac8b901a58795"
   },
   "js/decision-court-model.js": {
     "v": 3,

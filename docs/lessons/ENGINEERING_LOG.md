@@ -828,7 +828,7 @@ Two practices found these; the rule alone found none of them.
 Reading every diff and auditing the previous PR both work and neither scales.
 `scripts/honesty_gate.py` parses `bot/` and `scripts/` and counts five of those
 eight shapes per file, against `tests/honesty_baseline.json` — a two-way
-ratchet on 641 hits, same rule as `known_failures.txt`. It claims exactly one
+ratchet on 637 hits, same rule as `known_failures.txt`. It claims exactly one
 thing: **these shapes did not increase.** A hit is a place to LOOK, and most of
 them are not defects, which is the whole reason they are recorded rather than
 swept: `patterns.py` computes a rate `if completed else 0` two lines under
@@ -21419,7 +21419,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **489 of 1305** reach for source text through `source_scan`, `code_only`
+Driven, **489 of 1306** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 489 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -24099,3 +24099,51 @@ own. The test that the guard ends
 with the run loop passed whatever the callback did, because `asyncio.run`
 cancels every task still running when it returns. It asks inside the loop
 now.)
+
+**A DETECTOR'S HAND-SET NUMBER WAS PRINTED AS A WIN RATE ON EVERY PATTERN SURFACE.**
+13 October, the relabel half of the plan's F4. The /patterns half was done
+earlier ("THREE CARDS SAID MORE THAN THEY READ"). Every chart-pattern
+detection carries a `confidence`, and each detector in
+`bot/core/chart_patterns.py` writes it by hand: `0.70 if broke else 0.55`,
+`min(0.85, max(0.50, conf))`. Nothing records how a pattern's calls turned
+out. There is no pattern history to calibrate it against, and none was ever
+built. These surfaces printed it as `72%`, which reads as a win probability:
+- `/deepscan` and its PNG card;
+- the single-symbol deep scan and the scan's detail line;
+- the dashboard's deep-scan cards, on every board they feed;
+- the Arena's read chips;
+- the front door's daily digest;
+- the pattern-watch push.
+
+It is worded once now, beside the signal's `score 72 (uncalibrated)`:
+`detector score 72 (unmeasured)` (`signal_confidence.pattern_score_text`, and
+its twin `RCConfidenceScore.patternText`, pinned to the same words). The PNG
+has no room for the words beside the bar, so it prints the bare 0-100 number
+and its footer names it once, as the dashboard card's legend does. An unread
+figure is a dash, or is left out. It is never a zero, and four
+`or 0`/`get(..., 0)` shapes went with it (honesty 641 to 637, JS 143 to 139).
+
+Two gates ranked on the number as if it measured something:
+- `pattern_watch` pushed only patterns at or above 0.6;
+- the digest named a pattern only at or above 0.55.
+
+A floor on a hand-set constant selects detectors by the constant they were
+written with, not patterns by how good they are, so both floors are gone. The
+push's per-symbol cap and its 12-hour window still bound how often it speaks.
+The digest names the highest score, and a pattern with no score cannot rank.
+
+The digest also wrote its strip with `textContent`, while every item in it
+carries an svg icon. The front door therefore printed the icons' source text.
+It writes markup now, with every value from the payload escaped. Found by
+driving the strip, which nothing had done.
+
+Every page surface is lifted out of its page and run: the card from the
+dashboard's IIFE, the chips from the Arena's inline script, and the digest's
+fetch chain against a stubbed `/api/today`. A pattern's score and a bar's
+CSS `width:71%` are both "71%" to a regex, so the page tests read the visible
+text only.
+(`tests/test_a_pattern_score_is_never_a_percent.py`,
+`app/test/a_pattern_score_is_never_a_percent.test.js`: twenty-four mutants,
+all killed. One first survived: no test had sent the digest a count that
+needed escaping, so an unescaped count passed. The test sends markup in
+every count now.)

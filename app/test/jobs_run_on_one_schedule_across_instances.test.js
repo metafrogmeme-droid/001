@@ -254,11 +254,13 @@ test('the pattern watch does not announce the same pattern again on the next ins
   assert.deepStrictEqual(sent[0].ids, [21]);
   await fresh().runOnce(deps(0.78));
   assert.strictEqual(sent.length, 1, 'the next instance announced the same pattern again');
-  // the other arm: a pattern under the confidence floor is never announced
+  // the other arm: a pattern the next instance has NOT announced is, so the
+  // silence above is the shared record, not an instance that never sends
   db.pool.arenaPositions.push({ id: 8, user_id: 22, symbol: 'ETHUSDT', direction: 'SHORT', entry: 100, margin: 100, leverage: 5 });
   await fresh().runOnce({ ...deps(0.4), getLatestScan: async () => ({ deepscan: { hits: [{ symbol: 'ETH/USDT',
     chart_patterns: [{ name: 'Head and Shoulders', signal: 'bearish', confidence: 0.4 }] }] } }) });
-  assert.strictEqual(sent.length, 1);
+  assert.strictEqual(sent.length, 2);
+  assert.deepStrictEqual(sent[1].ids, [22]);
 });
 
 test('every timed job the server starts is on the shared schedule', async (t) => {
