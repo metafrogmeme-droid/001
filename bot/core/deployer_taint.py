@@ -52,10 +52,11 @@ import os
 import re
 from typing import Any, Optional
 
+from bot.utils.paths import repo_path
+
 logger = logging.getLogger(__name__)
 
-_HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-CONFIG_DIR = os.path.join(_HERE, "config")
+CONFIG_DIR = str(repo_path("config"))
 
 MIXER_LIST = os.path.join(CONFIG_DIR, "mixer_addresses.json")
 RUG_BYTECODE_LIST = os.path.join(CONFIG_DIR, "rug_bytecode.json")

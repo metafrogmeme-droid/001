@@ -24478,3 +24478,41 @@ pinned test fails. Under the pinned Node 24 the whole file passes; under Node
 22 the same file cancels eight tests on unchanged main ("the event loop has
 already resolved"), so run it with the pinned Node before reading anything
 into a cancellation.
+
+**A COMMITTED INPUT WAS LOOKED FOR WHEREVER THE PROCESS STOOD, AND NOT FINDING IT BLOCKED EVERY ENTRY.**
+Plan item D10. The engine built its macro provider with
+`seed_path=Path("config/macro_calendar.seed.json")`, which resolves against
+the working directory. From any other directory the seed was not found, the
+calendar was marked blind, and `MacroEventProvider.get_context` answered
+BLOCK_NEW_ENTRIES ("No macro calendar available") for every entry. Nothing
+said the file had been looked for in the wrong place. `bot/main.py` refuses a
+wrong working directory at boot (`state_guard`), but `api_bridge.py` and
+`bot/mcp/server.py` build an engine with no such check. The intent policy had
+the same shape twice: the loader spelled out its own
+`os.getenv("INTENT_POLICY_PATH", "config/intent_policy.json")` beside
+`_intent_policy_path`, so the file the operator authored and the file the
+engine loaded agreed only while both stood in the repo root.
+
+`bot.utils.paths.repo_path` (and `env_repo_path`) now anchor a committed input
+to the repository. Today they resolve as `state_path` does. They are separate
+because they answer separate questions: `state_path` is where the bot's own
+state lives, which a test-only state root (G2) will relocate, and `repo_path`
+is where a committed input lives, which nothing relocates. A seed read through
+`state_path` would vanish under that root and read as a blind calendar. The
+seed, the intent policy (one definition; the loader asks it), the eligibility
+records and the deployer-taint lists resolve through it. The durable-path
+guard now reads `config/` literals as findings too, and accepts one only
+inside `repo_path`.
+
+Not changed here: `bot.backtest.snapshot.benchmark_root` still resolves the
+benchmark directory against the working directory. Its callers hand that path
+to a backtest subprocess whose output the Lab returns on a failed run, so an
+anchored, absolute path would print the server's filesystem layout there.
+Fixing it means changing how those callers name the dataset, which is its own
+change.
+(`tests/test_durable_paths_are_not_cwd_dependent.py`: an engine built from a
+temporary directory reads the seed and is not blind, against the old relative
+construction, which is; the committed example policy, named by a relative
+override, loads from outside the repo root; the helpers; every repo input
+absolute and under the repo; the guard's new findings and non-findings. Eight
+mutants, all killed.)
