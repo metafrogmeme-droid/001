@@ -9,6 +9,9 @@
  *
  * The id is a query parameter. A slash in a path segment does not survive a
  * hop, and a signal id is allowed to carry one.
+ *
+ * A live call's side and thesis are a member's: a visitor reads which market
+ * it is on, and the rest once it resolves (lib/signal_access.js).
  */
 
 'use strict';
@@ -16,6 +19,10 @@
 const express = require('express');
 const { pool } = require('../db');
 const { storedThesis } = require('../public/js/thesis-model');
+const { signedIn, signalResolved, LOCK_NOTE, viewerCacheControl } = require('../lib/signal_access');
+
+// Identifies, never refuses. Lazy, as routes/sync.js requires it.
+const optionalAuth = (req, res, next) => require('../auth').optionalAuth(req, res, next);
 
 const router = express.Router();
 
@@ -36,16 +43,27 @@ function requestedKey(query) {
 }
 
 // GET /api/signal?key=
-router.get('/', async (req, res) => {
+router.get('/', optionalAuth, async (req, res) => {
   const asked = requestedKey(req.query);
   if (!asked.key) return res.status(asked.status).json({ error: asked.error });
   try {
     const [rows] = await pool.execute(
-      'SELECT signal_key, symbol, direction, thesis FROM signals WHERE signal_key = ?',
+      'SELECT signal_key, symbol, direction, thesis, status FROM signals WHERE signal_key = ?',
       [asked.key]
     );
     const row = rows && rows[0];
     if (!row) return res.status(404).json({ error: 'signal_not_found' });
+    viewerCacheControl(res, 0);
+    // Resolved by its word alone: this read selects no outcome, and a row
+    // whose word this build does not know stays a member's.
+    if (!signedIn(req) && !signalResolved({ status: row.status })) {
+      return res.json({
+        signal_key: row.signal_key,
+        symbol: row.symbol == null ? null : String(row.symbol),
+        locked: true,
+        note: LOCK_NOTE,
+      });
+    }
     const read = storedThesis(row.thesis);
     // Allowlist. Prices, R, the seal and the outcome are other sentences.
     // A signal's pnl is not on this payload.

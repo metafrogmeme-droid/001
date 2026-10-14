@@ -37,6 +37,7 @@ const { optionalAuth } = require('../auth');
 const { getLatestFlight } = require('./sync');
 const { inspectWindow, sanitizeRecord } = require('../lib/flight');
 const { isOperator } = require('../lib/operator_view');
+const { signedIn, flightRecordFor, viewerCacheControl } = require('../lib/signal_access');
 
 const router = express.Router();
 // Identifies, never refuses — see optionalAuth in auth.js.
@@ -54,6 +55,9 @@ router.use(optionalAuth);
  * (`lib/operator_view.js`).
  */
 const publicSafe = (operator, value) => (operator === true ? value : sanitizeRecord(value));
+// A decision whose trade is still live is a member's (lib/signal_access.js):
+// the operator's dollars are one question, the engine's live call another.
+const forViewer = (req, operator, rec) => flightRecordFor(signedIn(req), publicSafe(operator, rec));
 
 /** What a redacted view says about itself. True for an anonymous caller and a
  * signed-in one alike, so it names no door neither of them can open. */
@@ -65,6 +69,10 @@ const WITHHELD = 'Public view — percent/ratio only, no dollar amounts. Dollar 
  * Returns the recent flight records + the engine-verified chain status.
  */
 router.get('/flight', async (req, res) => {
+  // The answer depends on who asks (the operator's figures, a member's live
+  // calls), and it set no cache header at all: a shared cache keyed on the
+  // URL could have handed the operator's records to the next visitor.
+  viewerCacheControl(res, 0);
   try {
     const flight = await getLatestFlight();
     if (!flight || !Array.isArray(flight.records)) {
@@ -94,7 +102,7 @@ router.get('/flight', async (req, res) => {
     const records = flight.records.slice(0, limit);
     const operator = await isOperator(req);
     res.json({
-      records: records.map((r) => publicSafe(operator, r)),
+      records: records.map((r) => forViewer(req, operator, r)),
       chain: flight.chain || {},
       policy: publicSafe(operator, flight.policy || null),
       guardian_status: flight.guardian_status || null,
@@ -116,6 +124,7 @@ router.get('/flight', async (req, res) => {
  * Returns one full decision record (with its outcome) by decision id.
  */
 router.get('/flight/:decisionId', async (req, res) => {
+  viewerCacheControl(res, 0);
   try {
     const flight = await getLatestFlight();
     const records = (flight && Array.isArray(flight.records)) ? flight.records : [];
@@ -123,7 +132,7 @@ router.get('/flight/:decisionId', async (req, res) => {
     if (!rec) return res.status(404).json({ error: 'Decision not found in recent window' });
     const operator = await isOperator(req);
     res.json({
-      record: publicSafe(operator, rec),
+      record: forViewer(req, operator, rec),
       chain: (flight && flight.chain) || {},
       disclosure: operator ? undefined : WITHHELD,
     });
@@ -142,6 +151,7 @@ router.get('/flight/:decisionId', async (req, res) => {
  * don't yet send an `incidents` array. Percent/flags only, no dollar amounts.
  */
 router.get('/incidents', async (req, res) => {
+  viewerCacheControl(res, 0);
   try {
     const flight = await getLatestFlight();
     // The same three states as /flight above, for the same reason: a

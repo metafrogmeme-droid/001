@@ -84,8 +84,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 238,
-    "sha": "769ddc0e2aeb577f"
+    "v": 240,
+    "sha": "5a752c6d0a47c608"
   },
   "js/decision-court-model.js": {
     "v": 3,
@@ -116,8 +116,8 @@
     "sha": "3d66a71d40da7fd8"
   },
   "js/embed-row.js": {
-    "v": 4,
-    "sha": "803652f9f482450c"
+    "v": 5,
+    "sha": "35ec0c125066def8"
   },
   "js/embed-signals.js": {
     "v": 8,
@@ -160,8 +160,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 174,
-    "sha": "2d476f945ad4409e"
+    "v": 175,
+    "sha": "e2d1ff44bc23b57f"
   },
   "js/icons.js": {
     "v": 6,
@@ -256,20 +256,20 @@
     "sha": "2e83ab4f03fab28f"
   },
   "js/signal-page.js": {
-    "v": 1,
-    "sha": "d509819b86a1ce97"
+    "v": 2,
+    "sha": "46dbdf4dd88840d3"
   },
   "js/signal-status-model.js": {
-    "v": 2,
-    "sha": "bb0f462d42359431"
+    "v": 3,
+    "sha": "e8a9a46237897643"
   },
   "js/solana_wallet.js": {
     "v": 4,
     "sha": "4321eaebf37b67a2"
   },
   "js/strategy-scan.js": {
-    "v": 1,
-    "sha": "aeb04e2eca0e6990"
+    "v": 2,
+    "sha": "5461c1024e0b135e"
   },
   "js/strengthmap.js": {
     "v": 8,

@@ -15,6 +15,8 @@
  * wrong.
  */
 
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'j'.repeat(64);
+
 const test = require('node:test');
 const assert = require('node:assert');
 const http = require('node:http');

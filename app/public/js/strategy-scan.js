@@ -59,8 +59,26 @@
     return '<div class="rec-row" style="font-size:12px;padding:3px 0">' + cells + '</div>';
   }
 
+  // A board the server withheld from a visitor (app/lib/signal_access.js):
+  // which markets it read, and the sentence saying the reading is a
+  // member's. Never an empty board, which would read as "no side anywhere".
+  function lockedBody(b) {
+    const read = (b.read || []).map(function (s) { return esc(s); }).join(', ');
+    return (read ? '<p style="font-size:12px">Read: ' + read + '</p>' : '')
+      + '<p style="margin-top:8px"><b>' + esc(b.verdict) + '</b></p>'
+      + '<p><a class="btn btn--sm" href="/">Sign in to see the trade</a></p>';
+  }
+
   // The board the bot returned, as markup.
   function boardHtml(b) {
+    const unreadLocked = (b.unread || []).length
+      ? '<p class="muted" style="font-size:11px">Unread: '
+        + b.unread.map(function (u) { return esc(u.symbol) + ' (' + esc(u.why) + ')'; }).join(', ') + '.</p>'
+      : '';
+    if (b.locked === true) {
+      return '<p class="prov">At the ' + esc(b.bar_close) + ' close.</p>' + lockedBody(b) + unreadLocked
+        + '<p class="prov">Nothing is placed or queued: the live bot does not run this rule.</p>';
+    }
     const body = b.rule === 'limit_entry'
       ? (b.classes || []).map(classHtml).join('')
       : (b.rows || []).map(function (r) { return rowHtml(b.rule, r); }).join('');

@@ -21,6 +21,7 @@
  */
 
 process.env.BOT_SYNC_SECRET = process.env.BOT_SYNC_SECRET || 's'.repeat(48);
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'j'.repeat(64);
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -85,6 +86,12 @@ function request(method, p, body) {
     const payload = body ? JSON.stringify(body) : null;
     const headers = { 'X-Bot-Secret': process.env.BOT_SYNC_SECRET };
     if (payload) headers['Content-Type'] = 'application/json';
+    // The stream is read as a signed-in member: these rows are live calls,
+    // whose levels a visitor is not sent (lib/signal_access.js).
+    if (method === 'GET') {
+      headers.Authorization = 'Bearer ' + require('jsonwebtoken').sign(
+        { user_id: 4242, email: 'member@test.dev' }, process.env.JWT_SECRET);
+    }
     const req = http.request(base + p, { method, headers }, (res) => {
       let data = '';
       res.on('data', (c) => { data += c; });

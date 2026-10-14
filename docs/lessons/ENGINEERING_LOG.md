@@ -24630,3 +24630,71 @@ records `"live"`, or `"demo"` on a sandbox venue, with the confluence apart
 from the confidence; a close reads the executor it was handed; and each of the
 three wiring sites binds its own executor. Twelve mutants, all killed, each by
 the test that names it.)
+
+**A LIVE CALL WAS PUBLIC ON NINE DOORS, AND THE PUSH THAT SENT ITS LEVELS OUTLIVED THE SIGN-OUT.**
+The product owner asked for the engine's signals to be exclusive to signed-in
+members. Mapping it found that the levels left through far more than the
+signal stream, every one on purpose at the time ("prices are public market
+facts", the §4 rule's own words, which was a rule about dollars):
+`/api/signals`; the sealed-call receipt (`current` and the sealed payload);
+the scan's entry cards and each market's side and score; the mind-stream feed
+and the SSE stream that rebroadcast each event; the MCP and ERC-8257 tool
+doors; the embeddable board; a strategy's "scan now" plan and verdict; the
+flight records' ideas; and the web push for an open. A push subscription
+outlives a sign-out (nothing deletes it at logout), so a signed-out phone kept
+receiving entry, stop and target on its lock screen.
+
+`app/lib/signal_access.js` is the one reading, and every door asks it. A live
+call is a member's; a resolved one (a terminal word the signal model knows,
+or an outcome read) is everyone's, because a track record that hid its own
+calls would be a claim nobody could check. Its first argument opens only on
+`=== true`, as `scanFor` does for the operator, so a request object or a user
+row passed by habit does not serve the trade. An unknown status word stays
+locked: the model files it as final so no page offers to act on it, and the
+same word must not open the trade here. Provable Calls keeps working as a
+commitment: the seal is public from the start and the payload is revealed at
+resolution, so the browser check still runs then; the MCP `verify_call`
+answers `seal_matches_payload: null` for a withheld payload, never a mismatch
+computed over nothing.
+
+Four things the obvious version would have got wrong:
+- **A filter is a field.** `?direction=LONG` returning a locked row says the
+  row is a long by its presence. For a visitor, a filter on a hidden field
+  answers over resolved calls only, whichever way it points.
+- **A cache is a viewer.** `/api/call` answered `Cache-Control: public,
+  max-age=15`. Once the answer depends on who asks, a shared cache keyed on
+  the URL would hand one viewer's answer to the next, so every such answer
+  is `private` and varies on the cookie. The guardian flight routes, whose
+  answer already depended on the operator check, set no cache header at all;
+  the new route sweep found them.
+- **The stream decides per connection.** The SSE `activity` event is one
+  broadcast to every client. Each connection records at connect whether a
+  member opened it, and the sender passes a visitors' form beside the event.
+- **A refused idea was never a call.** The risk gate's refusal returns before
+  the idea is published, so a flight record whose outcome starts REJECTED
+  stays whole for a visitor. A failed execution does not: its idea is still
+  pending.
+
+Arena receipts stay public: they are a member's own paper trade, reachable
+only through a key its owner shared. Chart-pattern and insight reads stay
+public too: they are analysis of a market a visitor names, not the engine's
+call. The scan's per-market setup word stays, since it names no side, as a
+locked signal row names its market.
+
+Found beside it, and fixed because it was one line from the card being
+changed: the call's social-preview image read `direction` and `symbol` off
+the receipt's top level, where `lookupCall` puts neither, and drew an empty
+line over every call.
+
+Not changed here, and recorded: the Telegram side (group and channel posts
+of full signals, groups enrolled on sight) is its own change; and
+`app/lib/letter.js` pushes the private letter's headline, with the operator's
+dollar net, to every subscriber, which is the signed-in-is-not-the-operator
+rule and its own fix.
+(`app/test/a_live_call_is_a_members.test.js`: every door driven twice against
+a planted live SHORT at prices that occur nowhere else, a visitor reading none
+of its fingerprints and a member reading them; the filter, the stream per
+connection, the push, the MCP door keyed and keyless, the public ERC-8257 door;
+`app/test/a_locked_call_renders_as_locked.test.js`: each renderer says "live
+call" for a locked row, never "no direction", a mismatch, or a quiet board.
+Twenty mutants, all killed, each by the test that names it.)

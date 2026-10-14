@@ -951,7 +951,7 @@
   </form>
 </section>
 
-<script src="/js/i18n-core.js?v=174"></script>
+<script src="/js/i18n-core.js?v=175"></script>
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=4"></script>
 <script src="/js/app.js?v=15"></script>
@@ -1907,6 +1907,22 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
     .then(function (d) {
       var cur = d && d.current;
       if (!d || !HEX64.test(String(d.seal || '')) || !cur || !cur.signal_key) return;
+      // A live call, to a visitor: its market and its seal, and where to see
+      // the rest (app/lib/signal_access.js). The seal is the front door's
+      // claim, and it is public from the start.
+      if (d.locked === true && cur.symbol) {
+        document.getElementById('lcSym').textContent = String(cur.symbol);
+        var ld = document.getElementById('lcDir');
+        ld.textContent = '🔒';
+        ld.className = 'muted';
+        document.getElementById('lcLevels').textContent = window.T
+          ? window.T('sig.lock_row', 'Live call — sign in to see the side and levels')
+          : 'Live call — sign in to see the side and levels';
+        document.getElementById('lcSeal').textContent = d.seal;
+        document.getElementById('lcVerify').href = '/call/' + encodeURIComponent(cur.signal_key);
+        box.hidden = false;
+        return;
+      }
       if (!cur.symbol || !cur.direction) return;
       document.getElementById('lcSym').textContent = String(cur.symbol);
       var dir = String(cur.direction).toUpperCase();

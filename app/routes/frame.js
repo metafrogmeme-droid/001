@@ -9,6 +9,14 @@
  *   points at the page that CAN ("open to re-derive it yourself").
  * - The card carries symbol + direction only — sealed public facts. No
  *   prices, no outcomes, no numbers that could read as a pitch in a feed.
+ * - A LIVE call's direction is a member's (lib/signal_access.js), and a feed
+ *   image is seen by everyone, so a live call's card names its market and
+ *   says it is live; its side is drawn once it resolves. The server still
+ *   recomputes the seal from the full receipt, which it holds: the check
+ *   needs the payload, the drawing does not show it.
+ * - They read the receipt's `current` block, where `lookupCall` puts the
+ *   symbol and side. The card read them off the top level, where nothing
+ *   is, and drew an empty line over every call.
  * - An unknown key answers an honest NOT-FOUND card (a broken image would
  *   say nothing; the truth is "no sealed call under this key").
  */
@@ -18,6 +26,7 @@ const crypto = require('crypto');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
 const { Card, COLORS } = require('../lib/pixel_card');
 const { KEY_RE } = require('../lib/frame_meta');
+const { receiptFor } = require('../lib/signal_access');
 
 const router = express.Router();
 router.use(rateLimit({ name: 'frame', windowMs: 60000, max: 30, key: ipKey }));
@@ -37,6 +46,11 @@ function baseCard(subtitle) {
   return c;
 }
 
+/**
+ * `{ png, final }`. `final` is whether the card can never change: a live
+ * call's card is redrawn once the call resolves, so only a resolved call's
+ * card (or a not-found one) is kept for good.
+ */
 async function renderFor(key, rechecked) {
   const { lookupCall } = require('./call');
   const r = await lookupCall(key);
@@ -45,12 +59,21 @@ async function renderFor(key, rechecked) {
     c.center('NO SEALED CALL', 180, 3, COLORS.down);
     c.center('UNDER THIS KEY', 230, 3, COLORS.down);
     c.center('UNKNOWN IS NOT A VERDICT', 300, 2, COLORS.muted);
-    return c.png();
+    return { png: c.png(), final: false };
   }
   const d = r.body;
-  const dir = String(d.direction || '').toUpperCase();
-  const line = `${String(d.symbol || '').toUpperCase()} ${dir}`.trim();
-  c.center(line, 150, 4, dir === 'SHORT' ? COLORS.down : COLORS.up);
+  // Drawn from what a visitor may read: everyone sees a feed image.
+  const shown = receiptFor(false, d);
+  const cur = shown.current || {};
+  const sym = String(cur.symbol || '').toUpperCase();
+  if (shown.locked === true) {
+    const liveLine = (sym + ' LIVE CALL').trim();
+    c.center(liveLine, 150, 4, COLORS.text);
+  } else {
+    const dir = String(cur.direction || '').toUpperCase();
+    const line = (sym + ' ' + dir).trim();
+    c.center(line, 150, 4, dir === 'SHORT' ? COLORS.down : COLORS.up);
+  }
   c.center('SEAL ' + String(d.seal || '').slice(0, 32), 220, 2, COLORS.text);
   const recomputed = crypto.createHash('sha256')
     .update(String(d.seal_payload || ''), 'utf8').digest('hex');
@@ -64,11 +87,16 @@ async function renderFor(key, rechecked) {
     const at = new Date().toISOString().slice(0, 16).replace('T', ' ');
     c.center('RECHECKED ' + at + ' UTC - TAP RE-VERIFY ANYTIME', 302, 2, COLORS.gold);
     c.center('OPEN TO RE-DERIVE THE HASH IN YOUR OWN BROWSER', 356, 2, COLORS.muted);
-    return c.png();
+    return { png: c.png(), final: false };
+  }
+  if (shown.locked === true) {
+    c.center('SEALED NOW - REVEALED WHEN IT RESOLVES', 320, 2, COLORS.muted);
+    c.center('SIGN IN TO SEE THE TRADE WHILE IT IS LIVE', 356, 2, COLORS.muted);
+    return { png: c.png(), final: false };
   }
   c.center('SEALED AT DECISION TIME - BEFORE THE OUTCOME', 320, 2, COLORS.muted);
   c.center('OPEN TO RE-DERIVE THE HASH IN YOUR OWN BROWSER', 356, 2, COLORS.muted);
-  return c.png();
+  return { png: c.png(), final: true };
 }
 
 router.get('/call/:key/image', async (req, res) => {
@@ -81,19 +109,27 @@ router.get('/call/:key/image', async (req, res) => {
       const bucket = key + '|R' + new Date().toISOString().slice(0, 16);
       let rp = cache.get(bucket);
       if (!rp) {
-        rp = await renderFor(key, true);
+        rp = (await renderFor(key, true)).png;
         if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
         cache.set(bucket, rp);
       }
       return res.type('png').set('Cache-Control', 'public, max-age=60').send(rp);
     }
+    // Only a card that can never change is kept for good. A live call's card
+    // is redrawn (rate-limited above) so its side appears once it resolves,
+    // and an edge cache holds it a minute rather than five.
     let png = cache.get(key);
+    let final = Boolean(png);
     if (!png) {
-      png = await renderFor(key);
-      if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
-      cache.set(key, png);
+      const out = await renderFor(key);
+      png = out.png;
+      final = out.final;
+      if (final) {
+        if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
+        cache.set(key, png);
+      }
     }
-    res.type('png').set('Cache-Control', 'public, max-age=300').send(png);
+    res.type('png').set('Cache-Control', `public, max-age=${final ? 300 : 60}`).send(png);
   } catch (err) {
     console.error('Frame image error:', err.stack || err.message);
     res.status(500).json({ error: 'Card unavailable' });

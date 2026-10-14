@@ -32,7 +32,10 @@ function server(rows, { explode = false } = {}) {
         err.name = 'QueryFailed';
         throw err;
       }
-      assert.match(sql, /SELECT signal_key, symbol, direction, thesis FROM signals/);
+      // The session check (auth.js tokenIsCurrent) asks for the member's
+      // token epoch; no row is "cannot tell", which honours the session.
+      if (/FROM users/.test(sql)) return [[]];
+      assert.match(sql, /SELECT signal_key, symbol, direction, thesis, status FROM signals/);
       assert.ok(!/pnl|entry_price|seal/.test(sql), 'the thesis read selects a later sentence');
       const key = params && params[0];
       return [rows.filter((r) => r.signal_key === key)];
@@ -50,7 +53,7 @@ function get(rows, url, opts) {
   return new Promise((resolve, reject) => {
     const s = server(rows, opts);
     s.listen(0, '127.0.0.1', () => {
-      http.get({ port: s.address().port, path: url }, (res) => {
+      http.get({ port: s.address().port, path: url, headers: (opts && opts.headers) || {} }, (res) => {
         let b = '';
         res.on('data', (d) => { b += d; });
         res.on('end', () => {
@@ -64,9 +67,32 @@ function get(rows, url, opts) {
   });
 }
 
+// RESOLVED by default: a live call's side and thesis are a member's
+// (lib/signal_access.js), and the tests below are about how the thesis is
+// read, which a resolved call shows anyone. The lock has its own tests.
 const row = (over) => Object.assign({
   signal_key: 'TI-abc', symbol: 'BTC/USDT', direction: 'LONG', thesis: null,
+  status: 'TARGET',
 }, over);
+const MEMBER = { Authorization: 'Bearer ' + require('jsonwebtoken').sign(
+  { user_id: 4242, email: 'member@test.dev' }, process.env.JWT_SECRET) };
+
+test('a live call\'s side and thesis are a member\'s; its market is not', async () => {
+  const live = [row({ status: 'NEW', thesis: TAG + 'RSI 58 over VWAP. Against: funding is crowded.' })];
+  const visitor = await get(live, '/api/signal?key=TI-abc');
+  assert.strictEqual(visitor.status, 200);
+  assert.strictEqual(visitor.body.locked, true);
+  assert.strictEqual(visitor.body.symbol, 'BTC/USDT');
+  for (const f of ['direction', 'thesis', 'counter_case']) {
+    assert.ok(!(f in visitor.body), `a visitor read the live call's ${f}`);
+  }
+  const member = await get(live, '/api/signal?key=TI-abc', { headers: MEMBER });
+  assert.strictEqual(member.body.direction, 'LONG');
+  assert.strictEqual(member.body.thesis, 'RSI 58 over VWAP.');
+  // An unknown word is not read as resolved.
+  const odd = await get([row({ status: 'SOMETHING_NEW', thesis: 'x' })], '/api/signal?key=TI-abc');
+  assert.strictEqual(odd.body.locked, true);
+});
 
 test('a present thesis and a present counter-case are the stored sentences', async () => {
   const { status, body } = await get(

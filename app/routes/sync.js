@@ -17,6 +17,7 @@ const { pool, withTransaction } = require('../db');
 const optionalAuth = (req, res, next) => require('../auth').optionalAuth(req, res, next);
 const { scrub, DOLLAR_KEY } = require('../lib/flight');
 const { publicFeedEvent } = require('../lib/public_feed');
+const { signedIn, scanCallsFor, feedEventFor, viewerCacheControl } = require('../lib/signal_access');
 const { isOperator } = require('../lib/operator_view');
 const { readLiveMode, modeWord } = require('../lib/live_mode');
 const { winStats, realizedTotal, aggregateStats } = require('../public/js/trade-stats');
@@ -62,8 +63,8 @@ const router = express.Router();
 
 // Best-effort nudge to connected dashboards -- never let a broadcast issue
 // affect the actual sync response (the bot's write already succeeded).
-function nudge(type, data) {
-  try { broadcast(type, data); } catch (e) { /* non-fatal */ }
+function nudge(type, data, opts) {
+  try { broadcast(type, data, opts); } catch (e) { /* non-fatal */ }
 }
 
 // Dedupe key for the most recently notified closed trade. The full-replace
@@ -193,7 +194,12 @@ router.get('/scan', optionalAuth, async (req, res) => {
   const operator = await isOperator(req);
   await getLatestScan();
   if (latestScan) {
-    return res.json({ scan: scanFor(operator, latestScan) });
+    // Two questions, two readings: the operator's account figures
+    // (`scanFor`), and the engine's calls, which are any member's
+    // (`scanCallsFor`). The answer depends on the viewer, so no shared cache
+    // may keep it.
+    viewerCacheControl(res, 0);
+    return res.json({ scan: scanCallsFor(signedIn(req), scanFor(operator, latestScan)) });
   }
   // A saved scan this process could not read is not "no scan yet".
   if (!savedScanRead) {
@@ -890,21 +896,33 @@ router.post('/events', async (req, res) => {
         continue;
       }
       inserted++;
-      nudge('activity', {
+      const streamed = {
         event_type: type, severity, symbol, title, body,
         data: (ev.data && typeof ev.data === 'object') ? ev.data : {},
         created_at: at.toISOString(),
-      });
+      };
+      // A live call's side and levels are a member's; a visitor's
+      // connection gets the event's locked form (lib/signal_access.js).
+      nudge('activity', streamed, { forVisitors: feedEventFor(false, streamed) });
       // Web push for the moments users actually want on their phone: trades
       // and alerts (scans/theses would be spam). Fire-and-forget — a push
       // service hiccup must never slow the bot's ingest.
+      //
+      // An open's push carries no side and no levels: a subscription is a
+      // member's when it is made and outlives a sign-out (nothing deletes it
+      // at logout), and a lock screen is read by whoever holds the phone. It
+      // says which market opened; the levels are one tap away, behind the
+      // sign-in (lib/signal_access.js).
       if (type === 'trade_open' || type === 'trade_close'
           || (type === 'alert' && severity !== 'info')) {
         try {
           const { notifySubscribers } = require('../lib/push');
+          const pushed = feedEventFor(false, streamed);
+          const pushBody = pushed.locked === true
+            ? 'Open the live feed to see the levels.' : (body || 'Open the live feed for details.');
           setImmediate(() => notifySubscribers({
-            title: `RUNECLAW — ${title}`,
-            body: body || 'Open the live feed for details.',
+            title: `RUNECLAW — ${pushed.title}`,
+            body: pushBody,
             url: '/dashboard#feed',
           }).catch(() => {}));
         } catch (e) { /* push is optional */ }

@@ -154,7 +154,7 @@ router.get('/signals', (req, res) => {
       // one. The SVG stays as the fallback if it fails to load.
       ['/vendor/lightweight-charts.standalone.production.js?v=1', '/js/tv-chart.js?v=1',
         '/js/embed-read.js?v=2', '/js/confidence-score.js?v=2', '/js/rr-words.js?v=1',
-        '/js/embed-row.js?v=4',
+        '/js/embed-row.js?v=5',
         '/js/signal-chart.js?v=2']));
 });
 

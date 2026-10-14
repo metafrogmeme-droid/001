@@ -91,7 +91,7 @@ function sameAfterStorage(key, sealed, live) {
      fetch callback, and "usually resolved by then" is a race, not an order. -->
 <script src="/js/thesis-model.js?v=2"></script>
 <script src="/js/confidence-score.js?v=2"></script>
-<script src="/js/signal-status-model.js?v=2"></script>
+<script src="/js/signal-status-model.js?v=3"></script>
 <script src="/js/anchor_cell.js?v=1"></script>
 <script>
 (function () {
@@ -201,6 +201,26 @@ function sameAfterStorage(key, sealed, live) {
     .then(function (res) {
       var d = res.d;
       if (res.status !== 200 || !d || !d.seal) { fail((d && d.error) || 'Call not found'); return; }
+      // A LIVE call, to a visitor: the server sends the seal and withholds
+      // what it commits to until the call resolves (app/lib/signal_access.js).
+      // There is no payload to hash, so no verdict is drawn either way: "verified"
+      // would be a claim about bytes this page never saw, and "mismatch" a
+      // false accusation. The seal is shown so it can be checked once revealed.
+      if (d.locked === true) {
+        var lc = d.current || {};
+        out.innerHTML = '<div class="verdict">'
+          + '<div class="big">🔏 Sealed — revealed when the call resolves</div>'
+          + esc(d.note || 'Live calls are for signed-in members.') + '</div>'
+          + '<div class="kv">'
+          + '<span class="k">Market</span><span>' + esc(lc.symbol || '—') + '</span>'
+          + '<span class="k">Sealed at</span><span>' + esc(d.sealed_at || '') + '</span>'
+          + '<span class="k">Status</span><span>' + esc((d.outcome && d.outcome.status) || 'live') + '</span>'
+          + '</div>'
+          + '<div style="margin-top:var(--s3)"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Seal (SHA-256)</div><div class="hash">' + esc(d.seal) + '</div></div>'
+          + '<p style="margin-top:var(--s3)"><a class="btn" href="/">Sign in to see the trade</a></p>';
+        appendAnchor(d);
+        return;
+      }
       return sha256hex(d.seal_payload).then(function (hex) {
         var intact = hex === d.seal;
         var p;
@@ -342,7 +362,7 @@ function sameAfterStorage(key, sealed, live) {
     .catch(function () { fail('The verify feed is unavailable right now — try again shortly.'); });
 })();
 </script>
-<script src="/js/i18n-core.js?v=174"></script>
+<script src="/js/i18n-core.js?v=175"></script>
   <script>
   (function () {
     // The share payload is the receipt URL + an honest line. No numbers ride

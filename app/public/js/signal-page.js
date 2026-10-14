@@ -138,6 +138,15 @@
    * both readings is unreadable — it is not "no thesis".
    */
   function render(payload) {
+    // A live call, to a visitor: the server sends its market and withholds
+    // the side and the thesis until it resolves (app/lib/signal_access.js).
+    // Said as that, never as "no thesis recorded", which would be a claim
+    // about the record.
+    if (payload && payload.locked === true) {
+      return identity({ symbol: payload.symbol })
+        + '<p>' + esc(payload.note || '') + '</p>'
+        + '<p><a class="btn" href="/">Sign in to see the trade</a></p>';
+    }
     const thesisState = fieldState(payload, 'thesis');
     const counterState = fieldState(payload, 'counter_case');
     if (thesisState === 'unreadable' || counterState === 'unreadable') return fault('unavailable');

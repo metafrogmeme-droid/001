@@ -4,12 +4,22 @@
  * The dashboard previously only learned about new scans/trades/signals by
  * polling on a timer (5-60s). This gives connected clients an immediate
  * "something changed, go re-fetch" nudge over one long-lived HTTP response.
- * No sensitive data rides on the stream itself -- clients still fetch the
- * real payload from the existing (possibly authed) REST endpoints; this is
- * just a public "refresh now" signal, same trust level as /api/bot/sync/scan.
+ * Most events are a bare "refresh now". One is not: `activity` carries the
+ * mind-stream event itself, and a thesis, an open or a stop move names a
+ * live call's side and levels. A live call is a signed-in member's
+ * (lib/signal_access.js), so each connection records at connect whether a
+ * member opened it, and an event the sender gave a visitors' form is written
+ * in that form to everyone else. The answer is read once, at connect: a
+ * session that ends mid-stream keeps what it was shown until the browser
+ * reconnects, which EventSource does on its own.
  */
 
 const express = require('express');
+const { signedIn } = require('../lib/signal_access');
+
+// Lazy, as routes/sync.js does: auth.js requires the database layer, and this
+// module is required by the sync route that the database layer's tests load.
+const optionalAuth = (req, res, next) => require('../auth').optionalAuth(req, res, next);
 
 const router = express.Router();
 
@@ -41,15 +51,23 @@ function drop(res) {
   if (n <= 0) perIp.delete(k); else perIp.set(k, n);
 }
 
-function broadcast(type, data) {
+/**
+ * Write one event to every connection. `opts.forVisitors`, when given, is the
+ * event as a visitor may see it, and goes to every connection a member did
+ * not open; without it every connection gets `data`.
+ */
+function broadcast(type, data, opts) {
   if (clients.size === 0) return;
-  const payload = `event: ${type}\ndata: ${JSON.stringify(data || {})}\n\n`;
+  const frame = (d) => `event: ${type}\ndata: ${JSON.stringify(d || {})}\n\n`;
+  const member = frame(data);
+  const visitor = opts && Object.prototype.hasOwnProperty.call(opts, 'forVisitors')
+    ? frame(opts.forVisitors) : member;
   for (const res of clients) {
-    try { res.write(payload); } catch (e) { drop(res); }
+    try { res.write(res.__rcMember === true ? member : visitor); } catch (e) { drop(res); }
   }
 }
 
-router.get('/', (req, res) => {
+router.get('/', optionalAuth, (req, res) => {
   if (clients.size >= MAX_CLIENTS) {
     return res.status(503).end();
   }
@@ -68,6 +86,7 @@ router.get('/', (req, res) => {
   res.write(': connected\n\n');
 
   res.__rcIpKey = key;
+  res.__rcMember = signedIn(req);
   clients.add(res);
   perIp.set(key, (perIp.get(key) || 0) + 1);
 
