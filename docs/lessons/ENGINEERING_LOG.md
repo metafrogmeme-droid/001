@@ -19880,7 +19880,10 @@ findings were: Halborn's medium and low (multi-recipient Merkle splits, zero-amo
 features the three locks do not use. That sentence carries both deploy dates, and
 `token/presale/the_record_names_smithii_audits.test.mjs` holds it to `smithii.config.json` and
 `locks.plan.json` in all fourteen languages, and fails if either program is redeployed after its latest
-final report, so the sentence cannot outlive the fact. The page links only Halborn's and CoinFabrik's
+final report, so the sentence cannot outlive the fact. The first CI run on it failed `token/presale/smithii_sale.test.mjs`:
+the roadmap gave Halborn's engagement as "28 Mar–2 Apr 2025", and that guard reads every date range in
+the sale's documents as a statement of the sale window. It was right to; the dates are now written
+2025-03-28 to 2025-04-02, which no reader takes for the sale. The page links only Halborn's and CoinFabrik's
 own report pages (`app/test/the_token_page_names_smithii_audits.test.js`). The /rclaw card keeps its
 shorter note: it has no room left under the bot's split point. Ten mutants, all killed.
 

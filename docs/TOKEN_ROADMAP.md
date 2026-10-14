@@ -187,7 +187,7 @@ tune before launch, not a fixed parameter:
 > and only that wallet can claim; nothing can cancel or edit a lock. The tool's program is
 > **upgradeable**, by the same off-curve authority as Smithii's sale program (who can sign for it
 > is not visible), and was last deployed (2025-02-03) before its audit's fixes (Halborn, assessed
-> 28 Mar–2 Apr 2025, final report 24 Apr 2025: one medium and one low finding, both fixed, neither in a
+> 2025-03-28 to 2025-04-02, final report 2025-04-24: one medium and one low finding, both fixed, neither in a
 > feature these locks use: multi-recipient Merkle splits and zero-amount locks), so
 > **the locks are not called audited**. The record's `smithii_audits` block lists Smithii's audits
 > with their links, and /token prints them with that qualification. Treasury, partners and the rest of the reserve are
