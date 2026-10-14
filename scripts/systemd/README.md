@@ -98,13 +98,38 @@ exit 143; the units perform their own port waits, and verification follows.
 
 ```bash
 scripts/verify_deploy_source.sh || { echo "WRONG CODE — not starting"; exit 1; }
+```
+
+Then restart through the manager that holds the units. Installed as above,
+they are **system** units:
+
+```bash
+sudo systemctl restart runeclaw-bot
+```
+```bash
+sudo systemctl restart runeclaw-bridge
+```
+
+The production box has been restarted with `systemctl --user` (2026-09-17),
+which means its units live with the **user** manager instead:
+
+```bash
 systemctl --user restart runeclaw-bot
+```
+```bash
 systemctl --user restart runeclaw-bridge
+```
+
+`runeclaw-status.sh` says which, on each unit's line (`system unit` or
+`user unit`), so run it first if you are not sure. Then, as its own command:
+
+```bash
 scripts/systemd/runeclaw-status.sh || { echo "DEPLOY FAILED"; exit 1; }
 ```
 
 which keeps every guarantee the launcher had — right code, both processes, both
-ports answering — and adds the one it never had.
+ports answering — and adds the one it never had. For a user unit the logs are
+`journalctl --user -u runeclaw-bot`.
 
 ## Logs move to journald
 

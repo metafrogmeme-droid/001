@@ -21511,7 +21511,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **490 of 1313** reach for source text through `source_scan`, `code_only`
+Driven, **490 of 1314** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 490 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -24538,3 +24538,95 @@ both forms of the loopback address hash to hex containing `127`: the old
 assertion failed and the new one passes. Two mutants, both killed: a server
 that sends the raw address, and one that sends an unkeyed hash of it, which
 is 32 hex characters too.
+
+**THE AUDIT WAS GIVEN A SETTING'S NUMBER AND NOT WHAT THE NUMBER WAS, AND READ IT AS THE MARKET.**
+The nightly card of 2026-10-14 proposed `VOLATILITY_GUARD_ATR_PCT=15 (in
+force: 7)` under the rationale "ATR at 7.0% — a low read — with a negative
+net and a loss streak approaching the threshold warrants raising the guard
+to 15.0%". Its measured line was red (−2.05% against the −1.07% baseline,
+PF 0.85 against 0.92). The 7.0 was the guard's own threshold, which the
+previous fix had begun sending as the value in force. The evidence carries no
+ATR reading at all: closed trades, the window summary, the shadow gates, the
+governor and the brain state. And raising that threshold admits more volatile
+entries, so "raising the guard" loosened it in a losing window. The model had
+been given each flag's name, bounds and current value, and nothing saying what
+the value was or which way loosened it.
+
+`self_audit.FLAG_MEANINGS` now says, for every allowlisted flag, what it
+controls, in which unit, and which direction loosens it. `flag_bounds()` sends
+it beside the bounds. The system prompt says a flag's value is a setting and
+never a market reading, that the evidence carries no ATR, volatility, spread,
+depth or funding reading, and that a proposal which loosens a guard says so.
+Nothing about which flags may be proposed, their bounds or how a proposal is
+validated, measured or applied changed; the measured line stays the verdict.
+(`tests/test_the_audit_is_told_the_values_in_force.py`: the bounds block
+carries each flag's meaning, driven through `SelfAudit.run`; every allowlisted
+flag has one and none is stale; each number flag says which way raising it
+moves; the prompt's settings sentence. Five mutants, all killed.)
+
+**THE STATUS TOOL ASKED ONE SYSTEMD MANAGER, AND THE BOX RAN ITS UNITS UNDER THE OTHER.**
+`scripts/systemd/` ships system units (`User=mulerun`, installed to
+`/etc/systemd/system`), and `runeclaw-status.sh`, the tool the unit files tell
+an operator to run instead of `systemctl status`, asked only the system
+manager. The production box was restarted with `systemctl --user restart
+runeclaw-bot` (2026-09-17, recorded above), so its units live with the user
+manager, and there the tool printed "NOT INSTALLED — Nothing supervises this
+process" about running, supervised units: a confident absence where the truth
+was "asked the wrong manager". The README's restart block showed `--user`
+under an install section that installs system units, so it was wrong for
+whichever box followed the install.
+
+The tool now looks for each unit in the system manager, then the user manager,
+queries it through the manager that holds it, and names that manager on the
+unit's line (`system unit` / `user unit`). A unit the system manager lacks,
+asked from a shell that cannot reach the user manager, reads `UNREAD` and
+exits 3, never `NOT INSTALLED`. The README gives both restart forms and says
+the status line decides between them.
+(`tests/test_systemd_units_supervise.py`: a fake systemd that keeps the two
+managers apart and answers only for the units each holds; a user unit is found
+and named, a system unit still is, a unit in neither is not installed, and an
+unreachable user manager is unread. Five mutants, all killed. One first
+survived, querying a user unit through the system manager, because the fake
+answered `active` for any unit; it answers per manager now.)
+
+**EVERY LIVE DECISION WAS LEARNED AS A PAPER ONE, AND ITS CONFLUENCE WAS ITS CONFIDENCE AGAIN.**
+`DecisionMemory.mode` defaults to `"paper"`, and none of the engine's five
+learning writers passed it: the live confirm, the risk rejection (live or
+paper), the paper fill, the live close and the paper close. So every live
+entry, live-mode rejection and live close was written `"paper"`, and the
+field's own vocabulary (`paper | demo | live-blocked`) had no `"live"` to
+write. Nothing decides anything from `mode` yet (a reflection row copies it).
+That is why it went unseen, and also why it had to be fixed before anything
+does: the live/backtest parity work needs to
+separate live evidence from paper evidence, and a row that says "paper" about
+a filled live order is the reading that work would have trusted. The three
+decision writers had a second field of the same shape. They wrote
+`confluence_score=idea.confidence`, a second copy of `confidence`, while the
+analyzer's voter consensus sat unread on `idea.confluence_score`.
+
+`bot.core.engine.decision_mode` is now the one reading. It returns `"paper"`
+off the live path. On it, it returns `"demo"` when the executor's own venue
+client trades in its test environment (`venue_sandbox`), else `"live"`. Every
+writer states its mode, and the decision writers carry the analyzer's figure
+(None for an idea the analyzer did not build, never a 0).
+
+The close was the part with a door to get wrong. `_on_live_position_closed`
+knew only a `user_id`, and the obvious reading, `_executor_for(user_id)`, is a
+BUILDER: it can construct and cache an executor, inside a callback that runs
+because a position closed. The cache lookup next to it keys by
+`venue/user_id`, so `_user_executors.get(user_id)` misses. Each wiring site
+(the operator's at startup, a user's in `_executor_for`, the swap in
+`switch_venue`) now binds the executor it wires into its own callback, by
+default argument, the same late-binding guard the `uid` already had. A close
+with no executor named reads `"live"` and asks about no venue. The first
+draft of the reading defaulted an unread venue to Bitget, which answers for
+an account it may not be.
+(`tests/test_a_live_decision_is_recorded_as_live.py`: the reading's three
+answers and its unread-venue case; an AST walk over `bot/` that every learning
+writer states a mode, with the orchestrator's two `**kwargs` pass-throughs
+named two-way; every engine decision carries the analyzer's confluence; both
+fields survive the store; a live confirm through the seal-failure harness
+records `"live"`, or `"demo"` on a sandbox venue, with the confluence apart
+from the confidence; a close reads the executor it was handed; and each of the
+three wiring sites binds its own executor. Twelve mutants, all killed, each by
+the test that names it.)

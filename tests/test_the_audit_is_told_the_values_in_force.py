@@ -25,6 +25,7 @@ import bot.llm.provider as prov
 from bot.core import self_audit as sa_mod
 from bot.core.self_audit import (
     ALLOWED_FLAGS,
+    FLAG_MEANINGS,
     SelfAudit,
     audit_user_prompt,
     values_in_force,
@@ -93,3 +94,51 @@ def test_a_value_that_cannot_be_read_is_null_not_a_default(monkeypatch):
     given = _block(audit_user_prompt({}, {}, env={}))
     assert given["VOLATILITY_GUARD_ATR_PCT"] is None
     assert given["OF_MAX_SPREAD_BPS"] == "50", "one unread value blanks no other"
+
+
+# ── what each value IS ───────────────────────────────────────────────────────
+#
+# On 2026-10-14 the card read
+#
+#     VOLATILITY_GUARD_ATR_PCT=15 (in force: 7)
+#       ATR at 7.0% — a low read — … warrants raising the guard to 15.0%.
+#
+# The 7.0 was the guard's own threshold, which the evidence never pairs with
+# any ATR reading (it carries none), and raising that threshold admits MORE
+# volatile entries: the model was given a name, bounds and a value, and
+# nothing saying what the value is or which way loosens it.
+
+def _bounds(prompt: str) -> dict:
+    m = re.search(r"ALLOWLISTED FLAGS AND BOUNDS:\n(\{.*?\n\})\n\nVALUES IN FORCE", prompt, re.S)
+    assert m, prompt[:400]
+    return json.loads(m.group(1))
+
+
+def test_the_model_is_told_what_each_flag_means(tmp_path, monkeypatch):
+    _, user = _asked(tmp_path, monkeypatch)
+    bounds = _bounds(user)
+    assert set(bounds) == set(ALLOWED_FLAGS)
+    for flag, b in bounds.items():
+        assert b["means"] == FLAG_MEANINGS[flag], flag
+    guard = bounds["VOLATILITY_GUARD_ATR_PCT"]
+    assert (guard["min"], guard["max"]) == (3, 15)
+    assert "not a reading of current volatility" in guard["means"]
+    assert "admits more volatile entries (loosens)" in guard["means"]
+
+
+def test_every_allowlisted_flag_has_a_meaning_and_no_meaning_is_stale():
+    assert set(FLAG_MEANINGS) == set(ALLOWED_FLAGS), (
+        set(FLAG_MEANINGS) ^ set(ALLOWED_FLAGS))
+    for flag, spec in ALLOWED_FLAGS.items():
+        text = FLAG_MEANINGS[flag]
+        if spec["type"] == "bool":
+            assert text.startswith("on "), (flag, "say what ON does")
+        else:
+            assert "raising it" in text, (flag, "say which way raising moves")
+
+
+def test_a_setting_is_never_presented_as_a_market_reading(tmp_path, monkeypatch):
+    system, _ = _asked(tmp_path, monkeypatch)
+    assert "a SETTING, never a market reading" in system
+    assert "carries no ATR, volatility, spread, depth or funding reading" in system
+    assert "says it loosens it" in system

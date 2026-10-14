@@ -340,3 +340,90 @@ def test_the_status_script_separates_unknown_from_down() -> None:
     assert "NOT INSTALLED" in src
     assert "exit 3" in src, "there is no could-not-tell exit"
     assert re.search(r"systemctl is not available", src)
+
+
+# ── which manager holds the units ────────────────────────────────────────────
+#
+# The unit files install as SYSTEM units, and the status script asked only the
+# system manager. The production box was restarted with `systemctl --user
+# restart runeclaw-bot` (2026-09-17), so there the script printed "NOT
+# INSTALLED — Nothing supervises this process" about running, supervised
+# units. Driven against a fake systemd that keeps the two managers apart.
+
+def _fake_systemd(tmp_path: Path, *, system=(), user=(), user_bus=True) -> dict:
+    import os
+    import stat
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir(parents=True, exist_ok=True)
+    sc = bindir / "systemctl"
+    sc.write_text(
+        "#!/usr/bin/env bash\n"
+        "scope=system\n"
+        'if [ "$1" = "--user" ]; then scope=user; shift;\n'
+        f'  [ "{int(user_bus)}" = 1 ] || {{ echo "Failed to connect to bus" >&2; exit 1; }}\n'
+        "fi\n"
+        f'system_units=" {" ".join(system)} "\n'
+        f'user_units=" {" ".join(user)} "\n'
+        '[ "$scope" = user ] && have="$user_units" || have="$system_units"\n'
+        'unit="${@: -1}"; unit="${unit%.service}"\n'
+        'held=0; case "$have" in *" $unit "*) held=1 ;; esac\n'
+        "# Each manager answers only for the units it holds, so a query sent to\n"
+        "# the wrong manager reads the unit as missing, as systemd does.\n"
+        'case "$1" in\n'
+        "  show-environment) exit 0 ;;\n"
+        '  list-unit-files) [ "$held" = 1 ] && { echo "$unit.service enabled"; exit 0; }; exit 1 ;;\n'
+        '  is-active) [ "$held" = 1 ] && echo active || { echo inactive; exit 3; } ;;\n'
+        '  is-enabled) [ "$held" = 1 ] && echo enabled || { echo not-found; exit 1; } ;;\n'
+        '  show) [ "$held" = 1 ] && echo 0 ;;\n'
+        "esac\n", encoding="utf-8")
+    sc.chmod(sc.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    env = dict(os.environ)
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    return env
+
+
+def _status(env: dict):
+    import subprocess
+
+    return subprocess.run([str(HERE / "runeclaw-status.sh")], capture_output=True,
+                          text=True, timeout=90, env=env)
+
+
+def _line(out: str, unit: str) -> str:
+    return next((ln for ln in out.splitlines() if f" {unit} " in f" {ln} "), "")
+
+
+STATUS_UNITS = ("runeclaw-bot", "runeclaw-bridge", "runeclaw-gateway")
+
+
+def test_a_user_unit_is_found_and_named_as_one(tmp_path):
+    r = _status(_fake_systemd(tmp_path, user=STATUS_UNITS))
+    assert "NOT INSTALLED" not in r.stdout, r.stdout
+    for unit in STATUS_UNITS:
+        assert "user unit" in _line(r.stdout, unit), (unit, r.stdout)
+    # the gateway has no port probe, so its line is the clean verdict
+    assert _line(r.stdout, "runeclaw-gateway").startswith("OK"), r.stdout
+
+
+def test_a_system_unit_is_still_found_and_named_as_one(tmp_path):
+    r = _status(_fake_systemd(tmp_path, system=STATUS_UNITS))
+    for unit in STATUS_UNITS:
+        assert "system unit" in _line(r.stdout, unit), (unit, r.stdout)
+
+
+def test_a_unit_in_neither_manager_is_not_installed(tmp_path):
+    r = _status(_fake_systemd(tmp_path))
+    assert r.returncode == 1, r.stdout
+    for unit in STATUS_UNITS:
+        assert _line(r.stdout, unit).startswith("NOT INSTALLED"), (unit, r.stdout)
+
+
+def test_an_unreachable_user_manager_is_unread_not_absent(tmp_path):
+    """Three values: a unit the system manager lacks, asked from a shell that
+    cannot reach the user manager, is neither installed nor absent."""
+    r = _status(_fake_systemd(tmp_path, user=STATUS_UNITS, user_bus=False))
+    assert "NOT INSTALLED" not in r.stdout, r.stdout
+    assert r.returncode == 3, (r.returncode, r.stdout)
+    for unit in STATUS_UNITS:
+        assert _line(r.stdout, unit).startswith("UNREAD"), (unit, r.stdout)
