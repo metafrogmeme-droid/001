@@ -50,34 +50,63 @@ fi
 have_curl=1
 command -v curl >/dev/null 2>&1 || have_curl=0
 
+# WHICH MANAGER HOLDS EACH UNIT. The unit files here install as SYSTEM units
+# (`User=mulerun`, /etc/systemd/system), and every query below asked only the
+# system manager. The production box was restarted with `systemctl --user
+# restart runeclaw-bot` (2026-09-17, docs/lessons/ENGINEERING_LOG.md), so its
+# units live with the user manager, and this script answered "NOT INSTALLED —
+# Nothing supervises this process" about units that were running and
+# supervised. A unit is now looked for in the system manager, then in the
+# user manager, and its line says which. The user manager can be unreachable
+# (no login session, a `sudo` shell with no user bus); a unit the system
+# manager lacks is then UNREAD, not absent.
+user_manager_ok=0
+systemctl --user show-environment >/dev/null 2>&1 && user_manager_ok=1
+
+# `listed <scope-flag...> <unit>` -- the manager has a unit file for it.
+listed() {
+  local unit="${@: -1}"
+  set -- "${@:1:$#-1}"
+  systemctl "$@" list-unit-files "${unit}.service" >/dev/null 2>&1 \
+    && [ -n "$(systemctl "$@" list-unit-files --no-legend "${unit}.service" 2>/dev/null)" ]
+}
+
 worst=0
 for unit in $UNITS; do
   # `systemctl status` exits non-zero for BOTH "inactive" and "no such unit",
   # so the two are separated explicitly. An uninstalled unit reported as
   # "inactive" reads as a service that is merely stopped and could be started —
   # when in fact nothing would ever restart it.
-  if ! systemctl list-unit-files "${unit}.service" >/dev/null 2>&1 \
-     || [ -z "$(systemctl list-unit-files --no-legend "${unit}.service" 2>/dev/null)" ]; then
-    echo "NOT INSTALLED  ${unit} — no unit file. Nothing supervises this process."
+  if listed "$unit"; then
+    scope="system"; sc=(systemctl)
+  elif [ "$user_manager_ok" -eq 1 ] && listed --user "$unit"; then
+    scope="user"; sc=(systemctl --user)
+  elif [ "$user_manager_ok" -eq 1 ]; then
+    echo "NOT INSTALLED  ${unit} — no unit file, system or user. Nothing supervises this process."
     [ "$worst" -lt 1 ] && worst=1
+    continue
+  else
+    echo "UNREAD         ${unit} — not a system unit, and the user manager could not be"
+    echo "               reached from this shell, so a user unit could not be looked for."
+    [ "$worst" -eq 0 ] && worst=3
     continue
   fi
 
-  active="$(systemctl is-active "$unit" 2>/dev/null || true)"
-  enabled="$(systemctl is-enabled "$unit" 2>/dev/null || true)"
+  active="$("${sc[@]}" is-active "$unit" 2>/dev/null || true)"
+  enabled="$("${sc[@]}" is-enabled "$unit" 2>/dev/null || true)"
   # NRestarts is what makes a crashloop legible. An empty read is reported as
   # unknown rather than folded into 0 — "it has never restarted" and "I could
   # not find out" are different claims, and only one of them is reassuring.
-  restarts="$(systemctl show -p NRestarts --value "$unit" 2>/dev/null || true)"
+  restarts="$("${sc[@]}" show -p NRestarts --value "$unit" 2>/dev/null || true)"
   case "$restarts" in
     ''|*[!0-9]*) restarts_label="restarts: unknown" ; restarts_n=-1 ;;
     *)           restarts_label="restarts: ${restarts}" ; restarts_n="$restarts" ;;
   esac
 
-  since="$(systemctl show -p ActiveEnterTimestamp --value "$unit" 2>/dev/null || true)"
+  since="$("${sc[@]}" show -p ActiveEnterTimestamp --value "$unit" 2>/dev/null || true)"
   [ -z "$since" ] && since="unknown"
 
-  line="  ${unit}  [${active:-unknown}${enabled:+, $enabled}]  ${restarts_label}  since: ${since}"
+  line="  ${unit}  [${active:-unknown}${enabled:+, $enabled}, ${scope} unit]  ${restarts_label}  since: ${since}"
 
   if [ "$active" != "active" ]; then
     echo "DOWN           ${line}"
@@ -135,7 +164,8 @@ done
 echo
 case "$worst" in
   0) echo "All checked units are up, serving, and not looping." ;;
-  1) echo "Something is wrong above. journalctl -u <unit> -n 50 --no-pager" ;;
+  1) echo "Something is wrong above. journalctl -u <unit> -n 50 --no-pager" ;
+     echo "  (journalctl --user -u <unit> … for a user unit)" ;;
   3) echo "Some checks could not run — read the lines above as incomplete," ;
      echo "  not as a clean bill of health." ;;
 esac

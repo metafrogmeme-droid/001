@@ -24563,3 +24563,28 @@ validated, measured or applied changed; the measured line stays the verdict.
 carries each flag's meaning, driven through `SelfAudit.run`; every allowlisted
 flag has one and none is stale; each number flag says which way raising it
 moves; the prompt's settings sentence. Five mutants, all killed.)
+
+**THE STATUS TOOL ASKED ONE SYSTEMD MANAGER, AND THE BOX RAN ITS UNITS UNDER THE OTHER.**
+`scripts/systemd/` ships system units (`User=mulerun`, installed to
+`/etc/systemd/system`), and `runeclaw-status.sh`, the tool the unit files tell
+an operator to run instead of `systemctl status`, asked only the system
+manager. The production box was restarted with `systemctl --user restart
+runeclaw-bot` (2026-09-17, recorded above), so its units live with the user
+manager, and there the tool printed "NOT INSTALLED — Nothing supervises this
+process" about running, supervised units: a confident absence where the truth
+was "asked the wrong manager". The README's restart block showed `--user`
+under an install section that installs system units, so it was wrong for
+whichever box followed the install.
+
+The tool now looks for each unit in the system manager, then the user manager,
+queries it through the manager that holds it, and names that manager on the
+unit's line (`system unit` / `user unit`). A unit the system manager lacks,
+asked from a shell that cannot reach the user manager, reads `UNREAD` and
+exits 3, never `NOT INSTALLED`. The README gives both restart forms and says
+the status line decides between them.
+(`tests/test_systemd_units_supervise.py`: a fake systemd that keeps the two
+managers apart and answers only for the units each holds; a user unit is found
+and named, a system unit still is, a unit in neither is not installed, and an
+unreachable user manager is unread. Five mutants, all killed. One first
+survived, querying a user unit through the system manager, because the fake
+answered `active` for any unit; it answers per manager now.)
