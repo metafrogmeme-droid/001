@@ -202,7 +202,11 @@ function migrateAgainst(answer, calls = 1) {
     const sent = [];
     db.pool.query = async (q) => {
       const sql = typeof q === 'string' ? q : q.sql;
-      sent.push(sql.includes('information_schema') ? 'CHECK' : (sql.match(/CREATE TABLE IF NOT EXISTS (\\w+)/) || [, 'OTHER'])[1]);
+      const kind = sql.includes('information_schema.TABLES') ? 'CHECK'
+        : sql.includes('information_schema.COLUMNS') ? 'SIGNAL_COLUMNS'
+          : sql.startsWith('ALTER TABLE signals') ? 'ALTER_SIGNALS'
+            : (sql.match(/CREATE TABLE IF NOT EXISTS (\\w+)/) || [, 'OTHER'])[1];
+      sent.push(kind);
       return (${answer})(sql);
     };
     db.pool.execute = async () => [{ affectedRows: 0 }, []];
@@ -220,12 +224,25 @@ function migrateAgainst(answer, calls = 1) {
   return JSON.parse(out.slice(out.indexOf('{')));
 }
 
-test('migrate with every table present sends the check and nothing else', () => {
-  const { EXPECTED_TABLES } = require('../db');
-  const r = migrateAgainst(`async (sql) => sql.includes('information_schema')
-    ? [${JSON.stringify(EXPECTED_TABLES.map((t) => ({ t })))}] : [[], []]`);
+test('migrate with every table and required signal column present skips full DDL', () => {
+  const { EXPECTED_TABLES, REQUIRED_SIGNAL_COLUMNS } = require('../db');
+  const tables = JSON.stringify(EXPECTED_TABLES.map((t) => ({ t })));
+  const columns = JSON.stringify(Object.keys(REQUIRED_SIGNAL_COLUMNS).map((c) => ({ c })));
+  const r = migrateAgainst(`async (sql) => sql.includes('information_schema.TABLES')
+    ? [${tables}] : sql.includes('information_schema.COLUMNS')
+      ? [${columns}] : [[], []]`);
   assert.deepEqual(r.outcomes, ['fast']);
-  assert.deepEqual(r.sent, ['CHECK']);
+  assert.deepEqual(r.sent, ['CHECK', 'SIGNAL_COLUMNS']);
+});
+
+test('the fast path adds missing signal columns instead of skipping them forever', () => {
+  const { EXPECTED_TABLES } = require('../db');
+  const tables = JSON.stringify(EXPECTED_TABLES.map((t) => ({ t })));
+  const r = migrateAgainst(`async (sql) => sql.includes('information_schema.TABLES')
+    ? [${tables}] : sql.includes('information_schema.COLUMNS')
+      ? [[]] : [[], []]`);
+  assert.deepEqual(r.outcomes, ['fast']);
+  assert.deepEqual(r.sent, ['CHECK', 'SIGNAL_COLUMNS', 'ALTER_SIGNALS']);
 });
 
 test('migrate with a table missing runs the DDL', () => {
