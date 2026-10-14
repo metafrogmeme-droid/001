@@ -257,7 +257,27 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     /link <token>
     Called by the user after they register on the website and copy their token.
+
+    A private chat only. The link binds a website account to THIS chat's id,
+    so run in a group it bound the account to the group: the account's alerts
+    and its live-control confirmations would go to everyone in it. The room
+    gate (`bot/skills/public_room.py`) refuses it in a group before it gets
+    here; this is the command keeping its own door, for any route that does
+    not pass that gate.
     """
+    # The room gate's own reading of "a group" (a group, supergroup or
+    # channel), not a second one: the two must refuse the same chats.
+    from bot.skills.public_room import is_public_room, private_only_notice
+    _chat = update.effective_chat
+    if _chat is None or is_public_room(update):
+        _msg = update.message
+        if _msg is not None:
+            await _msg.reply_text(
+                private_only_notice(
+                    _user_lang(str(getattr(update.effective_user, "id", ""))),
+                    getattr(getattr(context, "bot", None), "username", None), "link"),
+                parse_mode="HTML")
+        return
     chat_id = str(update.effective_chat.id)
     username = update.effective_user.username or ""
 

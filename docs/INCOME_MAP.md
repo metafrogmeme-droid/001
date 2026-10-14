@@ -1223,9 +1223,9 @@ needs TIER_GATE_ENABLED, or TOKEN_TIER_GATE_ENABLED with RCLAW_MINT, and none
 of them is set anywhere, and
 `docs/TOKEN_ROADMAP.md::#"minted but not launched: no sale has run"` says the token "is minted but not launched: no sale has run and no pool exists." Most
 importantly for this leaf: a USER cannot run a community here at all —
-/channel and /broadcast are gated to a bot admin or a Telegram group
-admin/creator, there is no user-created group, no members list, no dues, no
-gated chat.
+/broadcast is the bot operator's, and /channel lets a Telegram group's
+admin only opt that one group in or out of the teasers; there is no
+user-created group, no members list, no dues, no gated chat.
 
 *The verifier refused part of this row.* Status PARTIAL survives (the community layer is genuinely shipped and
 reachable — I confirmed /api/arena, /api/duel + /api/public/duel, /api/copy,
