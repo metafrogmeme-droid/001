@@ -44,7 +44,7 @@ import re
 
 import pytest
 
-from bot.utils.paths import REPO_ROOT, env_state_path, state_path
+from bot.utils.paths import REPO_ROOT, env_repo_path, env_state_path, repo_path, state_path
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -96,6 +96,100 @@ def test_a_blank_env_override_is_not_a_path(monkeypatch):
     and a directory. It must read as unset."""
     monkeypatch.setenv("SOME_PATH", "   ")
     assert env_state_path("SOME_PATH", "data/default.db") == ROOT / "data" / "default.db"
+
+
+# ── a committed input: repo_path ────────────────────────────────────────────
+
+def test_a_repo_input_is_anchored_wherever_the_process_stands(tmp_path, monkeypatch):
+    here = repo_path("config/macro_calendar.seed.json")
+    assert here == ROOT / "config" / "macro_calendar.seed.json"
+    monkeypatch.chdir(tmp_path)
+    assert repo_path("config/macro_calendar.seed.json") == here
+    assert repo_path(str(tmp_path / "x.json")) == tmp_path / "x.json"
+
+
+def test_a_repo_input_override_is_anchored_and_a_blank_one_is_unset(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SOME_INPUT", "config/custom.json")
+    assert env_repo_path("SOME_INPUT", "config/default.json") == ROOT / "config" / "custom.json"
+    monkeypatch.setenv("SOME_INPUT", str(tmp_path / "abs.json"))
+    assert env_repo_path("SOME_INPUT", "config/default.json") == tmp_path / "abs.json"
+    monkeypatch.setenv("SOME_INPUT", "  ")
+    assert env_repo_path("SOME_INPUT", "config/default.json") == ROOT / "config" / "default.json"
+
+
+def test_an_engine_started_elsewhere_reads_the_macro_seed(tmp_path, monkeypatch):
+    """D10's drive. The seed was `Path("config/macro_calendar.seed.json")`: an
+    engine built from any other directory found no seed, marked the calendar
+    blind, and `get_context` answered BLOCK_NEW_ENTRIES for every entry."""
+    from bot.core.engine import RuneClawEngine
+
+    monkeypatch.chdir(tmp_path)
+    eng = RuneClawEngine()
+    ctx = eng.macro_provider.get_context("BTC/USDT")
+    assert not ctx.is_blind, ctx.explanation
+    assert "No macro calendar" not in ctx.explanation
+    assert eng.macro_provider._seed_path == ROOT / "config" / "macro_calendar.seed.json"
+
+
+def test_a_seed_named_relative_to_the_cwd_is_what_blocked_entries(tmp_path, monkeypatch):
+    """CONTROL, the old construction. From another directory a relative seed is
+    not found, and that alone blocks every new entry."""
+    from pathlib import Path
+
+    from bot.core.macro_events import MacroEventProvider
+
+    monkeypatch.chdir(tmp_path)
+    ctx = MacroEventProvider(seed_path=Path("config/macro_calendar.seed.json"),
+                             failsafe=True).get_context("BTC/USDT")
+    assert ctx.is_blind and ctx.risk_state == "BLOCK_NEW_ENTRIES"
+
+
+def test_the_intent_policy_is_read_from_one_anchored_file(tmp_path, monkeypatch):
+    """The loader spelled out its own `os.getenv(..., "config/intent_policy.json")`
+    beside `_intent_policy_path`, so the file the operator authored and the file
+    the engine loaded agreed only while every process stood in the repo root.
+    Driven with the committed example as a relative override, from elsewhere."""
+    from bot.config import CONFIG
+    from bot.core.engine import RuneClawEngine
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("INTENT_POLICY_PATH", raising=False)
+    eng = RuneClawEngine()
+    assert eng._intent_policy_path() == str(ROOT / "config" / "intent_policy.json")
+
+    monkeypatch.setenv("INTENT_POLICY_PATH", "config/intent_policy.example.json")
+    assert eng._intent_policy_path() == str(ROOT / "config" / "intent_policy.example.json")
+
+    bound = []
+
+    class _Target:
+        def set_intent_policy(self, policy):
+            bound.append(policy)
+
+    old = CONFIG.risk.intent_policy_enabled
+    object.__setattr__(CONFIG.risk, "intent_policy_enabled", True)
+    try:
+        policy = eng._load_intent_policy_onto(_Target())
+    finally:
+        object.__setattr__(CONFIG.risk, "intent_policy_enabled", old)
+    assert policy is not None and bound and bound[-1] is policy, (
+        "the example policy was not loaded from outside the repo root")
+
+
+@pytest.mark.parametrize("get", [
+    pytest.param(lambda: pathlib.Path(__import__("bot.core.deployer_taint", fromlist=["x"]).MIXER_LIST),
+                 id="mixer-list"),
+    pytest.param(lambda: pathlib.Path(__import__("bot.core.deployer_taint", fromlist=["x"]).RUG_BYTECODE_LIST),
+                 id="rug-bytecode-list"),
+    pytest.param(lambda: __import__("bot.core.live_eligibility", fromlist=["x"]).record_path("s"),
+                 id="eligibility-record"),
+])
+def test_every_repo_input_is_absolute_and_under_the_repo(get, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    p = get()
+    assert p.is_absolute(), f"{p} is relative — the cwd decides which file is read"
+    assert str(p).startswith(str(ROOT)), p
 
 
 # ── every durable path, driven ──────────────────────────────────────────────
@@ -276,13 +370,13 @@ def test_the_backup_root_no_longer_defaults_to_the_cwd():
 #: So the shape is no longer enumerated. Every literal is a finding unless it
 #: is an argument to the anchoring helpers (stripped by `_ANCHORED`) or is
 #: listed, with a reason, in the baseline.
-_LITERAL = re.compile(r'["\'](?:data|logs)/[^"\']*["\']')
+_LITERAL = re.compile(r'["\'](?:data|logs|config)/[^"\']*["\']')
 #: `[frbu]*` and the `\s*` before it are load-bearing: the wrapped value is
 #: often an f-string, and often on the next line. Without them a correctly
 #: anchored path is reported as a defect, and the fix for that false positive
 #: is to stop anchoring — the guard would be arguing against itself.
 _ANCHORED = re.compile(
-    r'(?:env_)?state_path\(\s*(?:["\'][A-Z_]+["\']\s*,\s*)?[frbFRB]*["\'](?:data|logs)/[^"\']*["\']')
+    r'(?:env_)?(?:state|repo)_path\(\s*(?:["\'][A-Z_]+["\']\s*,\s*)?[frbFRB]*["\'](?:data|logs|config)/[^"\']*["\']')
 
 #: A bare ``"data"`` bound to a module-level name. `_LITERAL` needs the slash,
 #: so a directory constant joined into a path later was invisible to it:
@@ -292,7 +386,7 @@ _ANCHORED = re.compile(
 #: constructor). A bare ``"data"`` anywhere is mostly a JSON key, so this is
 #: the one shape rather than every occurrence: a name bound to the directory.
 _DIR_CONSTANT = re.compile(
-    r'^[ \t]*[A-Za-z_]\w*[ \t]*(?::[ \t]*\w+[ \t]*)?=[ \t]*["\'](?:data|logs)["\']',
+    r'^[ \t]*[A-Za-z_]\w*[ \t]*(?::[ \t]*\w+[ \t]*)?=[ \t]*["\'](?:data|logs|config)["\']',
     re.M)
 
 BASELINE = ROOT / "tests" / "durable_path_baseline.txt"
@@ -330,8 +424,11 @@ def _found() -> set[tuple[str, str]]:
 
 @pytest.mark.parametrize("src, finding", [
     ('DATA_DIR = "data"\n', 'DATA_DIR = "data"'),
+    ('seed_path=Path("config/macro_calendar.seed.json")\n', '"config/macro_calendar.seed.json"'),
+    ('path = os.getenv("INTENT_POLICY_PATH", "config/intent_policy.json")\n', '"config/intent_policy.json"'),
     ("LOG_DIR: str = 'logs'\n", "LOG_DIR: str = 'logs'"),
     ('    _ROOT = "data"\n', '_ROOT = "data"'),
+    ('CONFIG_DIR = "config"\n', 'CONFIG_DIR = "config"'),
 ])
 def test_a_directory_constant_is_a_finding(src, finding):
     assert finding in _scan(src)
@@ -343,6 +440,9 @@ def test_a_directory_constant_is_a_finding(src, finding):
     'DATA_DIR = state_path("data")\n',
     'kind = "database"\n',
     'if head == "data":\n    pass\n',
+    'payload["config"] = summary\n',
+    'seed = repo_path("config/macro_calendar.seed.json")\n',
+    'p = env_repo_path("INTENT_POLICY_PATH", "config/intent_policy.json")\n',
 ])
 def test_a_json_key_or_an_anchored_directory_is_not(src):
     assert not _scan(src)
@@ -369,11 +469,13 @@ def test_no_module_resolves_durable_state_against_the_cwd():
     assert not new, (
         "durable state is being resolved against the working directory:\n  "
         + "\n  ".join(f"{f}  {lit}" for f, lit in new)
-        + "\n\nUse bot.utils.paths.state_path / env_state_path. A relative "
-          "path means whoever launches the process decides which file it "
-          "reads, and a missing file is CREATED rather than reported. If the "
-          "value IS anchored downstream, add it to tests/"
-          "durable_path_baseline.txt with the reason.")
+        + "\n\nUse bot.utils.paths.state_path / env_state_path for state, "
+          "and repo_path / env_repo_path for a committed input under config/. "
+          "A relative path means whoever launches the process decides which "
+          "file it reads; a missing state file is CREATED rather than "
+          "reported, and a missing input reads as absent (a blind macro "
+          "calendar blocks every entry). If the value IS anchored downstream, "
+          "add it to tests/durable_path_baseline.txt with the reason.")
 
 
 def test_the_baseline_has_no_stale_entries():
