@@ -33,7 +33,7 @@ class ExperienceMemory:
         confidence: float,
         blended_confidence_raw: float = 0.0,
         confidence_basis: str = "",
-        confluence_score: float,
+        confluence_score: Optional[float],
         entry_price: float,
         stop_loss: float,
         take_profit: float,
@@ -104,6 +104,7 @@ class ExperienceMemory:
         market_regime: str = "",
         trade_id: str = "",
         source: str = "live_outcome",
+        mode: str = "paper",
     ) -> DecisionMemory:
         """Record a CLOSED-trade outcome as a COMPLETE, queryable record.
 
@@ -125,6 +126,7 @@ class ExperienceMemory:
             pnl_result=pnl_result,
             decision=f"OUTCOME:{trade_id}" if trade_id else "OUTCOME",
             paper_trade_id=trade_id,
+            mode=mode,
         )
         self._store.record_decision(record)
         return record

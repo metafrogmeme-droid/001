@@ -81,7 +81,13 @@ class DecisionMemory(BaseModel):
     audit_id: str = Field(default_factory=_audit_id)
     timestamp_utc: datetime = Field(default_factory=_utc_now)
     source: str = "runeclaw_engine"
-    mode: str = "paper"  # paper | demo | live-blocked
+    # Where this decision's trade would land: "paper", "demo" (a live
+    # executor whose venue client trades in its test environment) or "live".
+    # Every engine writer states it (`bot.core.engine.decision_mode`); the
+    # default is only what a bare construction gets. It used to be the value
+    # every live entry, live-mode rejection and live close was written with,
+    # because no writer passed it and the vocabulary had no "live".
+    mode: str = "paper"  # paper | demo | live | live-blocked
     symbol: str = ""
     timeframe: str = "1h"
     market_regime: str = ""
@@ -104,7 +110,11 @@ class DecisionMemory(BaseModel):
     # carried from another idea) -- `quality_ladder.confidence_basis`. ""
     # is a row written before this field existed, which is not "measured".
     confidence_basis: str = ""
-    confluence_score: float = 0.0
+    # The analyzer's deterministic voter consensus for the symbol (0 = every
+    # voter bearish, 1 = every voter bullish; agreement with a SHORT is
+    # 1 - this), or None for an idea the analyzer did not build. Engine rows
+    # wrote `idea.confidence` here, a second copy of `confidence`.
+    confluence_score: Optional[float] = None
     entry_price: float = 0.0
     stop_loss: float = 0.0
     take_profit: float = 0.0

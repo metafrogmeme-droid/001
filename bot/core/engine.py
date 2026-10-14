@@ -683,6 +683,33 @@ def _executor_account(ex) -> str:
         return ""
 
 
+def decision_mode(executor=None, *, live: bool) -> str:
+    """The ``mode`` a learning row carries: where this decision's trade lands.
+
+    ``"paper"`` off the live path. On it, ``"demo"`` when the executor's venue
+    client trades in its test or demo environment (``venue_sandbox``), else
+    ``"live"``. Every engine writer of a decision or outcome row passes this.
+    None did, so every live entry, live-mode rejection and live close was
+    written ``"paper"`` (the model's default), and the vocabulary had no
+    ``"live"`` to write.
+
+    The venue is the EXECUTOR's own, never a default: an executor with no
+    readable venue reads ``"live"``, because the order path was live and the
+    demo distinction is the one thing an unread venue loses. Guessing the
+    operator's venue for it would answer for an account it may not be.
+    """
+    if not live:
+        return "paper"
+    venue = getattr(getattr(executor, "_venue", None), "id", None)
+    if not venue:
+        return "live"
+    try:
+        from bot.core.exchange_credentials import venue_sandbox
+        return "demo" if venue_sandbox(venue) else "live"
+    except Exception:  # noqa: BLE001 -- same reasoning as an unread venue
+        return "live"
+
+
 class _LiveRecheck(NamedTuple):
     """What one pre-execution re-check read about one account. NAMED, because
     positions are how readers drift.
@@ -813,7 +840,9 @@ class RuneClawEngine:
         # unless per-user live trading is enabled.
         self.live_executor = LiveExecutor()
         # Wire balance cache invalidation + per-symbol SL cooldown
-        self.live_executor.on_position_closed = lambda pos: self._on_live_position_closed(pos)
+        self.live_executor.on_position_closed = (
+            lambda pos, ex=self.live_executor: self._on_live_position_closed(
+                pos, executor=ex))
         # Wire risk engine for warning rate circuit breaker
         self.live_executor._risk_engine = self.risk
         # A restart used to lift a governor PAUSE (the window is memory, the record disk). Live only.
@@ -1728,7 +1757,8 @@ class RuneClawEngine:
         except Exception as _j_exc:
             logger.debug("Journal record skipped for live close: %s", _j_exc)
 
-    def _on_live_position_closed(self, pos, user_id: str = "") -> None:
+    def _on_live_position_closed(self, pos, user_id: str = "",
+                                 executor=None) -> None:
         """Handle live position close: invalidate cache + set SL cooldown.
 
         ``user_id`` identifies the account that closed the trade (the operator
@@ -1738,6 +1768,10 @@ class RuneClawEngine:
         realized losses were recorded against the operator engine, so their own
         daily-loss / drawdown / streak breakers never tripped and the operator's
         breakers absorbed every user's losses.
+
+        ``executor`` is the executor that closed it, bound at wiring, so the
+        learning row's ``mode`` reads that account's venue (a demo close is not
+        a live one). Absent, the row reads ``"live"`` and claims no venue.
         """
         self._invalidate_live_balance_cache()
 
@@ -1755,6 +1789,7 @@ class RuneClawEngine:
                     pnl_result=float(_pnl),
                     market_regime=self._outcome_regime(getattr(pos, "symbol", "")),
                     trade_id=getattr(pos, "trade_id", ""),
+                    mode=decision_mode(executor, live=True),
                 )
         except Exception as _lo_exc:
             logger.debug("Learning outcome record skipped: %s", _lo_exc)
@@ -2713,7 +2748,8 @@ class RuneClawEngine:
             # late-binding closure trap) so a per-user live close feeds THAT
             # user's risk engine, not the operator's (audit C1).
             ex.on_position_closed = (
-                lambda pos, uid=user_id: self._on_live_position_closed(pos, uid))
+                lambda pos, uid=user_id, ex=ex: self._on_live_position_closed(
+                    pos, uid, executor=ex))
             # _risk_engine here only forwards INFRASTRUCTURE warnings (feed
             # staleness etc.), which are shared market-level state — keep it on
             # the operator engine. Per-user ACCOUNT breakers are routed via the
@@ -3036,7 +3072,9 @@ class RuneClawEngine:
             new_exec = LiveExecutor()  # reads get_venue() -> the new override
             # Re-run the __init__ wiring (see engine startup: on_position_closed,
             # _risk_engine, _ws_feed, _slippage_tracker).
-            new_exec.on_position_closed = lambda pos: self._on_live_position_closed(pos)
+            new_exec.on_position_closed = (
+                lambda pos, ex=new_exec: self._on_live_position_closed(
+                    pos, executor=ex))
             new_exec._risk_engine = self.risk
             new_exec._ws_feed = self.ws_feed
             new_exec._slippage_tracker = getattr(self, "slippage", None)
@@ -8224,7 +8262,9 @@ class RuneClawEngine:
                 # same field (falls back to confidence when unset).
                 blended_confidence_raw=getattr(idea, "blended_confidence_raw", None) or 0.0,
                 confidence_basis=confidence_basis(idea),
-                confluence_score=idea.confidence,
+                confluence_score=idea.confluence_score,
+                # evaluated against the live book when the bot is live
+                mode=decision_mode(self.live_executor, live=CONFIG.is_live()),
                 entry_price=idea.entry_price,
                 stop_loss=idea.stop_loss,
                 take_profit=idea.take_profit,
@@ -8429,7 +8469,8 @@ class RuneClawEngine:
                     confidence=idea.confidence,
                     blended_confidence_raw=getattr(idea, "blended_confidence_raw", None) or 0.0,
                     confidence_basis=confidence_basis(idea),
-                    confluence_score=idea.confidence,
+                    confluence_score=idea.confluence_score,
+                    mode="paper",
                     entry_price=idea.entry_price,
                     stop_loss=idea.stop_loss,
                     take_profit=idea.take_profit,
@@ -9690,7 +9731,9 @@ class RuneClawEngine:
             # field (falls back to confidence when unset).
             blended_confidence_raw=getattr(idea, "blended_confidence_raw", None) or 0.0,
             confidence_basis=confidence_basis(idea),
-            confluence_score=idea.confidence,
+            confluence_score=idea.confluence_score,
+            # this path is only reached in live mode (the returns above)
+            mode=decision_mode(executor, live=True),
             entry_price=idea.entry_price,
             stop_loss=idea.stop_loss,
             take_profit=idea.take_profit,
@@ -11379,6 +11422,7 @@ class RuneClawEngine:
                             market_regime=self._outcome_regime(c.asset),
                             trade_id=getattr(c, 'trade_id', '') or '',
                             source="paper_outcome",
+                            mode="paper",
                         )
                 except Exception as _lp_exc:
                     logger.debug("Paper-close learning record skipped: %s", _lp_exc)

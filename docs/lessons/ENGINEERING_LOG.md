@@ -21511,7 +21511,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **490 of 1313** reach for source text through `source_scan`, `code_only`
+Driven, **490 of 1314** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 490 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -24588,3 +24588,45 @@ and named, a system unit still is, a unit in neither is not installed, and an
 unreachable user manager is unread. Five mutants, all killed. One first
 survived, querying a user unit through the system manager, because the fake
 answered `active` for any unit; it answers per manager now.)
+
+**EVERY LIVE DECISION WAS LEARNED AS A PAPER ONE, AND ITS CONFLUENCE WAS ITS CONFIDENCE AGAIN.**
+`DecisionMemory.mode` defaults to `"paper"`, and none of the engine's five
+learning writers passed it: the live confirm, the risk rejection (live or
+paper), the paper fill, the live close and the paper close. So every live
+entry, live-mode rejection and live close was written `"paper"`, and the
+field's own vocabulary (`paper | demo | live-blocked`) had no `"live"` to
+write. Nothing decides anything from `mode` yet (a reflection row copies it).
+That is why it went unseen, and also why it had to be fixed before anything
+does: the live/backtest parity work needs to
+separate live evidence from paper evidence, and a row that says "paper" about
+a filled live order is the reading that work would have trusted. The three
+decision writers had a second field of the same shape. They wrote
+`confluence_score=idea.confidence`, a second copy of `confidence`, while the
+analyzer's voter consensus sat unread on `idea.confluence_score`.
+
+`bot.core.engine.decision_mode` is now the one reading. It returns `"paper"`
+off the live path. On it, it returns `"demo"` when the executor's own venue
+client trades in its test environment (`venue_sandbox`), else `"live"`. Every
+writer states its mode, and the decision writers carry the analyzer's figure
+(None for an idea the analyzer did not build, never a 0).
+
+The close was the part with a door to get wrong. `_on_live_position_closed`
+knew only a `user_id`, and the obvious reading, `_executor_for(user_id)`, is a
+BUILDER: it can construct and cache an executor, inside a callback that runs
+because a position closed. The cache lookup next to it keys by
+`venue/user_id`, so `_user_executors.get(user_id)` misses. Each wiring site
+(the operator's at startup, a user's in `_executor_for`, the swap in
+`switch_venue`) now binds the executor it wires into its own callback, by
+default argument, the same late-binding guard the `uid` already had. A close
+with no executor named reads `"live"` and asks about no venue. The first
+draft of the reading defaulted an unread venue to Bitget, which answers for
+an account it may not be.
+(`tests/test_a_live_decision_is_recorded_as_live.py`: the reading's three
+answers and its unread-venue case; an AST walk over `bot/` that every learning
+writer states a mode, with the orchestrator's two `**kwargs` pass-throughs
+named two-way; every engine decision carries the analyzer's confluence; both
+fields survive the store; a live confirm through the seal-failure harness
+records `"live"`, or `"demo"` on a sandbox venue, with the confluence apart
+from the confidence; a close reads the executor it was handed; and each of the
+three wiring sites binds its own executor. Twelve mutants, all killed, each by
+the test that names it.)
