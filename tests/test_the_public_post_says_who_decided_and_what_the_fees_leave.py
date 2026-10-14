@@ -33,11 +33,13 @@ TIA = dict(id="T1", asset="TIA/USDT", direction=Direction.LONG,
 
 def _post_idea(idea) -> str:
     fwd = ChannelForwarder.__new__(ChannelForwarder)
-    fwd._enabled, fwd._group_ids = True, {1}
+    fwd._enabled, fwd._group_ids, fwd._bot = True, {1}, None
     sent: list[str] = []
 
-    async def _send(msg):
-        sent.append(msg)
+    # The card under test is the members' room's (`members_text`); every
+    # other group reads a teaser naming the market alone.
+    async def _send(msg, members_text=None):
+        sent.append(members_text if members_text is not None else msg)
 
     fwd._post = _send
     asyncio.run(fwd.post_signal(idea))

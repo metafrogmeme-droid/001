@@ -218,10 +218,13 @@ def _forwarder():
     fwd._enabled, fwd._group_ids = True, {1}
     sent = []
 
-    async def _post(msg):
-        sent.append(msg)
+    # The full card is the members' room's (`members_text`); `msg` is the
+    # teaser every other group reads.
+    async def _post(msg, members_text=None):
+        sent.append(members_text if members_text is not None else msg)
 
     fwd._post = _post
+    fwd._bot = None
     return fwd, sent
 
 

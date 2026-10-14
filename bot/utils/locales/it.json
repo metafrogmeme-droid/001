@@ -321,5 +321,9 @@
   "val_excess_unstopped": "l'eccedenza non ha uno stop del bot",
   "val_excess_whole_tpsl": "il TP/SL della posizione lo copre",
   "val_excess_cover_unread": "copertura dello stop non letta",
-  "val_and_more": "e altri {n}"
+  "val_and_more": "e altri {n}",
+  "tg_private_only": "I segnali attivi, i conti e il trading sono per i membri, in una chat privata con me: {link}. Chiedimelo lì.",
+  "tg_private_only_cmd": "{cmd} risponde in una chat privata: i segnali attivi e i conti sono per i membri. Apri {link} e invialo lì.",
+  "tg_private_chat_words": "una chat privata con me",
+  "tg_private_only_tap": "Si apre in una chat privata con me: i segnali attivi e i conti sono per i membri."
 }

@@ -325,16 +325,22 @@ class AccessCommands:
                 f"Groups: <code>{len(groups)}</code>\n"
             )
             if groups:
+                full = set(self.forwarder.full_ids)
                 for gid in groups:
-                    msg += f"\u2022 <code>{gid}</code>\n"
+                    kind = "full calls" if gid in full else "teaser"
+                    msg += f"\u2022 <code>{gid}</code> \u2014 {kind}\n"
             msg += (
                 "\n<b>Commands:</b>\n"
                 "<code>/channel on</code> \u2014 enable auto-posting\n"
                 "<code>/channel off</code> \u2014 disable auto-posting\n"
                 "<code>/channel add &lt;chat_id&gt;</code> \u2014 add group\n"
                 "<code>/channel remove &lt;chat_id&gt;</code> \u2014 remove group\n"
-                "<code>/channel test</code> \u2014 send test message\n\n"
-                "<i>Groups are also auto-detected when the bot receives a message in them.</i>"
+                "<code>/channel test</code> \u2014 send test message\n"
+                "<code>/channel full &lt;chat_id&gt;</code> \u2014 a members' room: full call cards (bot admin)\n"
+                "<code>/channel teaser &lt;chat_id&gt;</code> \u2014 back to teasers (bot admin)\n\n"
+                "<i>A group gets a teaser for a live call: the market, and a link to "
+                "the private chat where members read it. Closes are posted whole. "
+                "Running /channel in a group adds that group.</i>"
             )
             await self._send(update, msg)
             return
@@ -360,6 +366,27 @@ class AccessCommands:
                 await self._send(update, f"\u2705 Group <code>{gid}</code> removed.")
             except ValueError:
                 await self._send(update, "\u274c Invalid chat ID.")
+        elif sub in ("full", "teaser") and len(args) >= 2:
+            # Which room reads a live call in full is the operator's decision
+            # about who is a member, so a group admin cannot make their own
+            # group a members' room.
+            if not is_bot_admin:
+                await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
+                return
+            try:
+                gid = int(args[1])
+            except ValueError:
+                await self._send(update, "\u274c Invalid chat ID.")
+                return
+            if gid not in self.forwarder.group_ids:
+                await self._send(update,
+                    f"\u274c <code>{gid}</code> is not a registered group. Add it first.")
+                return
+            self.forwarder.set_full(gid, sub == "full")
+            await self._send(update, (
+                f"\u2705 <code>{gid}</code> now gets full call cards."
+                if sub == "full" else
+                f"\u2705 <code>{gid}</code> now gets teasers."))
         elif sub == "test":
             now = datetime.now(UTC).strftime("%H:%M UTC")
             await self.forwarder.post_custom(

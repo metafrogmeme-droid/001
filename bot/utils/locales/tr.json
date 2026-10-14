@@ -321,5 +321,9 @@
   "val_excess_unstopped": "fazlalığın botun stopu yok",
   "val_excess_whole_tpsl": "pozisyonun TP/SL'si bunu kapsıyor",
   "val_excess_cover_unread": "stop kapsamı okunamadı",
-  "val_and_more": "ve {n} tane daha"
+  "val_and_more": "ve {n} tane daha",
+  "tg_private_only": "Aktif sinyaller, hesaplar ve işlem üyeler içindir; benimle özel sohbette: {link}. Bana orada sorun.",
+  "tg_private_only_cmd": "{cmd} özel sohbette yanıt verir: aktif sinyaller ve hesaplar üyeler içindir. {link} açın ve orada gönderin.",
+  "tg_private_chat_words": "benimle özel bir sohbet",
+  "tg_private_only_tap": "Bu benimle özel sohbette açılır: aktif sinyaller ve hesaplar üyeler içindir."
 }

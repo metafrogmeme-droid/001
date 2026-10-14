@@ -321,5 +321,9 @@
   "val_excess_unstopped": "超過分にボットのストップはありません",
   "val_excess_whole_tpsl": "ポジションのTP/SLが対象に含みます",
   "val_excess_cover_unread": "ストップの対象範囲は未読取",
-  "val_and_more": "他{n}件"
+  "val_and_more": "他{n}件",
+  "tg_private_only": "進行中のシグナル、口座、取引はメンバー向けで、私との個人チャットで利用できます：{link}。そちらで質問してください。",
+  "tg_private_only_cmd": "{cmd} は個人チャットで応答します。進行中のシグナルと口座はメンバー向けです。{link} を開いてそちらで送信してください。",
+  "tg_private_chat_words": "私との個人チャット",
+  "tg_private_only_tap": "これは私との個人チャットで開きます。進行中のシグナルと口座はメンバー向けです。"
 }

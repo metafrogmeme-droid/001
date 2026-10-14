@@ -166,6 +166,9 @@ def _wire(engine, watchers=(OPERATOR, WATCHER)):
     fwd = ChannelForwarder.__new__(ChannelForwarder)
     fwd._bot, fwd._group_ids = None, {-1001}
     fwd._lock, fwd._enabled = threading.Lock(), True
+    # A members' room: these tests read the full card. A group that is
+    # not one reads a teaser (tests/test_a_group_reads_a_teaser.py).
+    fwd._full_ids = {-1001}
     recorded: list = []
     host = NS(engine=engine, monitor=mon, forwarder=fwd,
               users=NS(all_tiers=lambda: {}, get=lambda uid: None,
@@ -300,6 +303,9 @@ class TestOnlyTheEnginesOwnIdeaIsASignal:
         fwd = ChannelForwarder.__new__(ChannelForwarder)
         fwd._bot, fwd._group_ids = _Bot(), {-1001}
         fwd._lock, fwd._enabled = threading.Lock(), True
+        # A members' room: these tests read the full card. A group that is
+        # not one reads a teaser (tests/test_a_group_reads_a_teaser.py).
+        fwd._full_ids = {-1001}
         levels = {"symbol": "PEPE/USDT:USDT", "direction": "LONG", "entry": 0.0000102,
                   "stop": 0.0000098, "target": 0.0000115, "entry_estimated": False}
         asyncio.run(fwd.post_trade_opened(levels))

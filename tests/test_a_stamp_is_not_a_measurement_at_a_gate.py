@@ -298,8 +298,10 @@ class TestThePublicPostAndTheCaptions:
         fwd._enabled, fwd._group_ids = True, {1}
         sent = []
 
-        async def _post(msg):
-            sent.append(msg)
+        # The full card is the members' room's (`members_text`); a group
+        # that is not one reads a teaser with no figure at all.
+        async def _post(msg, members_text=None):
+            sent.append(members_text if members_text is not None else msg)
 
         fwd._post = _post
         idea = _idea(confidence=0.31, blended_confidence_raw=0.70)
@@ -317,8 +319,10 @@ class TestThePublicPostAndTheCaptions:
         fwd._enabled, fwd._group_ids = True, {1}
         sent = []
 
-        async def _post(msg):
-            sent.append(msg)
+        # The full card is the members' room's (`members_text`); a group
+        # that is not one reads a teaser with no figure at all.
+        async def _post(msg, members_text=None):
+            sent.append(members_text if members_text is not None else msg)
 
         fwd._post = _post
         asyncio.run(fwd.post_signal(_idea(**STAMP)))

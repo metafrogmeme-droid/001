@@ -3491,6 +3491,14 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         """
         @functools.wraps(handler)
         async def _wrapped(update, ctx):
+            # A group is a public room: only a command that names no live
+            # call and no account answers there, and every other one says
+            # where it does (`bot/skills/public_room.py`). Asked here because
+            # this is the one place every registered command passes.
+            from bot.skills.public_room import is_public_room, room_allows
+            if is_public_room(update) and not room_allows(cmd):
+                await self._room_refusal(update, cmd)
+                return
             token = _REPLY_CAPTURE.set([])
             try:
                 await handler(update, ctx)
@@ -3627,6 +3635,19 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         """
         @functools.wraps(handler)
         async def _wrapped(update, ctx):
+            # A button tapped in a public room opens in a private chat, the
+            # command gate's rule on the other door (`public_room`).
+            from bot.skills.public_room import is_public_room, room_allows_button
+            _query = getattr(update, "callback_query", None)
+            if is_public_room(update) and not room_allows_button(
+                    getattr(_query, "data", None)):
+                if _query is not None:
+                    try:
+                        await _query.answer(
+                            t("tg_private_only_tap", self._lang(update)), show_alert=True)
+                    except Exception as _exc:  # noqa: BLE001 -- an answer that failed is the tap unanswered
+                        logger.debug("room tap answer failed: %s", type(_exc).__name__)
+                return
             token = _REPLY_CAPTURE.set([])
             action = action_label(
                 getattr(getattr(update, "callback_query", None), "data", None))
@@ -3971,12 +3992,20 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # reached the chat model as a decoy. Unknown handle: nothing stripped.
         text = strip_bot_mention(text, await self._bot_username())
 
-        # Auto-detect group chats for channel forwarder
-        chat = update.effective_chat
-        if chat and chat.type in ("group", "supergroup", "channel"):
-            self.forwarder.detect_group(chat.id, chat.type, chat.title or "")
+        # A group no longer enrols itself for the channel posts by being
+        # written in: anyone could add the bot to a group and have it receive
+        # every post from then on. A group is added by `/channel`, run by a
+        # bot admin or that group's own admin.
 
         if not text:
+            return
+
+        # A group is a public room: it gets the public chat the website's
+        # visitor gets, and never the router (`_public_room_turn`). Before
+        # first contact on purpose: talking in a group registers nobody.
+        from bot.skills.public_room import is_public_room
+        if is_public_room(update):
+            await self._public_room_turn(update, text)
             return
 
         # ── First contact ────────────────────
@@ -4991,6 +5020,54 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         if update.effective_chat:
             return str(update.effective_chat.id)
         return ""
+
+    async def _room_refusal(self, update, cmd: str = "") -> None:
+        """What a public room reads instead of a member's answer: the private
+        chat, as a link (`bot/skills/public_room.py`)."""
+        from bot.skills.public_room import private_only_notice
+        await self._send(update, private_only_notice(
+            self._lang(update), await self._bot_username(), cmd))
+
+    async def _public_room_turn(self, update, text: str) -> None:
+        """Free text in a public room: the public chat a website visitor gets.
+
+        No router, because every skill it reaches is a member's; no history,
+        no account and no live call in the prompt (`_llm_chat(public=True)`),
+        under the public reply contract, which asks for no levels. A turn
+        that needs the live scanner, or that the router reads as a skill
+        ("analyze BTC", "show my positions"), is pointed at the private chat.
+        The public preview's daily allowance is counted per person
+        (`public_room.room_visitor_key`), and a turn no model answered gives
+        it back, as the website's does.
+        """
+        from bot.guardian.firewall import hardened_prompt
+        from bot.nlp.intent_router import IntentRouter, detect_reply_mode, needs_live_market_data
+        from bot.skills.public_room import room_visitor_key
+        from bot.web import public_chat_quota as preview_quota
+        intent = IntentRouter().classify_rules(text)
+        if needs_live_market_data(text) or (intent.skill and intent.confidence >= 0.8):
+            await self._room_refusal(update)
+            return
+        verdict = None
+        try:
+            if self.engine is not None:
+                verdict = self.engine.firewall_scan(text, source="telegram_room", user_id="")
+        except Exception as _fw_exc:  # noqa: BLE001 -- an unread verdict hardens nothing, as on the web
+            logger.debug("room firewall scan failed: %s", type(_fw_exc).__name__)
+        key = room_visitor_key(self._get_tg_id(update))
+        if not preview_quota.consume(key).get("allowed"):
+            # The preview's allowance is spent; a member's is in the private
+            # chat, which is where this points.
+            await self._room_refusal(update)
+            return
+        res = await self._llm_chat(
+            hardened_prompt(text, verdict), user_id="", user_name="",
+            is_admin=False, public=True, reply_lang=self._lang(update),
+            return_meta=True, surface="telegram", reply_mode=detect_reply_mode(text))
+        answer, meta = res if isinstance(res, tuple) else (res, None)
+        if not meta:
+            preview_quota.refund(key)
+        await self._send(update, answer)
 
     async def _bot_username(self, bot=None) -> Optional[str]:
         """This bot's @handle, from Telegram, cached. None if unknown.
