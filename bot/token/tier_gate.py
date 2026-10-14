@@ -1,7 +1,14 @@
-"""$RCLAW token-tier gate — DRAFT, feature-flagged OFF by default.
+"""Membership tiers, and the $RCLAW token-tier gate — OFF by default.
 
-Maps an on-chain **$RCLAW** balance/stake to an access tier and uses it to gate
-premium features across two tiers: `pro` for per-call analysis (/scalp
+A member's tier is the higher of the one the operator GRANTS (``/set_tier``,
+read by :func:`granted_tier`) and the one a stake EARNS (:func:`stake_tier`,
+read only while the token gate below is on): :func:`tier_reading` is the one
+reading, and every tier decision and card asks it. The ladder refuses nobody
+until :func:`tiers_enforced` (``TIER_GATE_ENABLED``, or the token gate), and
+:func:`plan_ladder` says what each tier buys, read from what enforces it.
+
+The token half maps an on-chain **$RCLAW** balance/stake to an access tier and
+uses it to gate premium features across two tiers: `pro` for per-call analysis (/scalp
 /intraday /swing /deepscan /patterns /analyze) and `elite` for research-grade
 work (/backtest /walkforward /optimize /learn). Safety commands — /halt,
 risk, portfolio, whynot — are in NEVER_GATED and can never be sold. It is modeled
@@ -154,7 +161,10 @@ def _assert_never_gated(table: dict[str, str]) -> None:
         )
 
 
-_TIER_RANK = {"basic": 0, "pro": 1, "elite": 2, "admin": 3}
+#: Each tier's rank, from the one list of tiers (`bot.utils.user_store.TIERS`).
+#: This module had its own copy; a fourth tier added to the store would have
+#: been unknown here and refused by `RCLAW_TIER_FEATURES`.
+from bot.utils.user_store import TIER_RANK as _TIER_RANK  # noqa: E402
 
 # Hosts this draft gate is allowed to read from. An *allowlist*, not a denylist:
 # an unrecognised host fails closed, so a private or rebranded mainnet endpoint
@@ -222,6 +232,126 @@ def _env(name: str, default: str = "") -> str:
 # Evaluated here rather than beside its definition: the loader needs _env,
 # _TIER_RANK and GateMisconfigured, all of which are defined above this point.
 FEATURE_MIN_TIER: dict[str, str] = _load_feature_min_tier()
+
+#: A tier's name, as a person reads it.
+TIER_NAMES: dict[str, str] = {"basic": "Basic", "pro": "Pro", "elite": "Elite",
+                              "admin": "Operator"}
+
+#: The commands a person types for each gated feature, each with the role
+#: permission its handler's `@guard` asks, for every card that says what a
+#: tier unlocks. A test reads every `_token_gate_blocks` call site and checks
+#: its handler is registered under a command named here with the permission
+#: named here, so a feature gated tomorrow cannot reach a card as an internal
+#: identifier, and a card cannot offer a command the caller's role refuses
+#: (`/patterns` is on the ladder at Pro and held by no role but the
+#: operator's: a Pro member was being sold a command that answers "your role
+#: cannot use that").
+FEATURE_COMMANDS: dict[str, tuple[tuple[str, str], ...]] = {
+    "premium_scan": (("scalp", "scan"), ("intraday", "scan"), ("swing", "scan")),
+    "deepscan": (("deepscan", "deepscan"),),
+    "patterns": (("patterns", "patterns"),),
+    "analyze_asset": (("analyze", "analyze"),),
+    "quant_analyze": (("quant", "analyze"),),
+    "run_backtest": (("backtest", "backtest"),),
+    "walk_forward": (("walkforward", "walkforward"),),
+    "optimize": (("optimize", "optimize"),),
+    "learning": (("learn", "learn"),),
+}
+
+
+def _role_allows(users, uid, permission: str) -> bool:
+    """May this caller's role run a command guarded by ``permission`` at all?
+    A store that cannot say is not a yes: the card leaves the command out."""
+    try:
+        return users.permission_denial(uid, permission) is None
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def plan_ladder(users=None, uid=None) -> dict:
+    """What each tier buys on THIS deployment, read from what enforces it.
+
+    Every card that names a tier renders this, so none of them can list a
+    benefit nothing grants. Three things differ by tier, each read from its
+    own enforcer: the commands on the ladder (FEATURE_MIN_TIER, refused only
+    while ``tiers_enforced``), the daily chat questions (``chat_quota``, which
+    has its own switch), and the operator-funded model on a hand-run
+    ``/analyze`` (``PER_USER_LLM_TIERS_ENABLED``). Live trading, position size
+    and leverage are never on it (docs/TIER_MODEL.md §6).
+
+    With a caller (``users``, ``uid``) a command is listed only if the
+    caller's role may run it: the tier is not the only gate in front of it.
+    """
+    from bot.web import chat_quota
+    try:
+        from bot.config import CONFIG
+        routed = bool(getattr(CONFIG.analyzer, "per_user_llm_tiers_enabled", False))
+    except Exception:  # noqa: BLE001
+        routed = None  # unread: the card says it could not tell
+    from bot.llm.provider import routing_for_user_tier
+
+    limit = chat_quota.free_daily_limit() if chat_quota.quota_enabled() else None
+    shown = [t for t in _TIER_RANK if t != "admin"]
+    if any(v == "admin" for v in FEATURE_MIN_TIER.values()):
+        shown.append("admin")
+    tiers = []
+    for tier in shown:
+        unlocks = []
+        for f, need in sorted(FEATURE_MIN_TIER.items()):
+            if need != tier:
+                continue
+            pairs = FEATURE_COMMANDS.get(f)
+            if pairs is None:
+                # An operator-gated feature with no command of its own
+                # (RCLAW_TIER_FEATURES): named as the operator wrote it.
+                unlocks.append({"feature": f, "commands": []})
+                continue
+            commands = [c for c, perm in pairs
+                        if users is None or _role_allows(users, uid, perm)]
+            if commands:
+                unlocks.append({"feature": f, "commands": commands})
+        tiers.append({
+            "tier": tier,
+            "name": TIER_NAMES.get(tier, tier),
+            "unlocks": unlocks,
+            # None: no daily cap (the quota is off, or this tier is exempt).
+            "chat_per_day": None if chat_quota.is_quota_exempt(tier) else limit,
+            "premium_analyze": (None if routed is None
+                                else bool(routed and routing_for_user_tier(tier))),
+        })
+    stake = gate_enabled()
+    return {
+        "enforced": tiers_enforced(),
+        "stake": stake,
+        "stake_min": ({"pro": int(_env_float("RCLAW_TIER_PRO_MIN", 10_000.0)),
+                       "elite": int(_env_float("RCLAW_TIER_ELITE_MIN", 100_000.0))}
+                      if stake else None),
+        "tiers": tiers,
+    }
+
+
+def tier_reading(users, uid) -> dict:
+    """One member's tier and where it came from, for ``/tier`` and the
+    website's plan card. The same three readings ``check_user`` asks."""
+    granted, readable = granted_tier(users, uid)
+    out: dict = {
+        "granted": granted,
+        "granted_readable": readable,
+        "granted_known": granted in _TIER_RANK,
+        "stake": None,
+        "stake_reason": None,
+    }
+    best = granted if granted in _TIER_RANK else None
+    if gate_enabled():
+        staked, out["stake_reason"] = stake_tier(users, uid)
+        out["stake"] = staked
+        if staked is not None and (best is None or _TIER_RANK[staked] > _TIER_RANK[best]):
+            best = staked
+    # A stored word this bot does not rank is no grant: it counts as Basic,
+    # and `granted_known` lets the card name it. None is the one answer that
+    # is not Basic: the grant could not be read and no stake stood in.
+    out["tier"] = best if best is not None else ("basic" if readable else None)
+    return out
 
 
 def _env_bool(name: str) -> bool:
@@ -372,6 +502,23 @@ def gate_enabled() -> bool:
     byte-for-byte.
     """
     return _env_bool("TOKEN_TIER_GATE_ENABLED") and bool(mint_address())
+
+
+def tiers_enforced() -> bool:
+    """Whether the ladder (FEATURE_MIN_TIER) refuses anyone at all.
+
+    TWO SWITCHES, because a tier has two sources. ``TIER_GATE_ENABLED`` turns
+    the ladder on for the tier the operator grants with ``/set_tier``;
+    ``TOKEN_TIER_GATE_ENABLED`` (with a mint) adds the tier a stake earns.
+    Either one enforces it. Before this, the only switch was the token's, so a
+    granted Pro or Elite bought nothing: with the token gate off nobody was
+    refused, and with it on a grant was ignored and only a stake counted.
+
+    Off by default, and that is the operator's pricing decision rather than a
+    safety one: switched on, the ladder refuses Basic members the features it
+    names, and nobody should lose a command in a deploy they did not choose.
+    """
+    return _env_bool("TIER_GATE_ENABLED") or gate_enabled()
 
 
 def _rpc(method: str, params: list) -> Optional[dict]:
@@ -802,47 +949,52 @@ def feature_for(skill: str) -> str:
     return _SKILL_FEATURE.get(skill, skill)
 
 
-def check_user(users, uid, feature: str) -> tuple[bool, str]:
-    """Whether ``uid`` may use ``feature``, and WHY if not.
+def granted_tier(users, uid) -> tuple[Optional[str], bool]:
+    """The tier the operator granted ``uid`` (``/set_tier``), and whether the
+    store could say.
 
-    Returns ``(allowed, reason)``. The reason matters because "you have not
-    staked enough" and "we could not check your stake" are different messages to
-    show a user, and conflating them tells someone holding 100,000 $RCLAW to go
-    and stake more during an RPC outage.
+    ``(tier, True)`` is a reading: the stored word, which is Basic for anyone
+    never granted anything. ``(None, True)`` is a store that keeps no grants at
+    all (a wallet-only stand-in). ``(None, False)`` is a store that raised:
+    UNREADABLE, which is not Basic, because Basic is the answer that refuses a
+    member who paid.
+    """
+    getter = getattr(users, "get_tier", None)
+    if getter is None:
+        return None, True
+    try:
+        tier = getter(uid)
+    except Exception as exc:  # noqa: BLE001
+        system_log.warning("tier_gate: could not read %s's granted tier (%s)",
+                           uid, type(exc).__name__)
+        return None, False
+    return (str(tier).strip().lower() if tier else None), True
+
+
+def stake_tier(users, uid) -> tuple[Optional[str], str]:
+    """The tier ``uid``'s stake earns, or ``None`` and the reason there is none.
 
     Reasons: ``ok``, ``no_wallet``, ``unverified``, ``bad_wallet``,
-    ``misconfigured``, ``unavailable``, ``insufficient``.
-
-    - Gate disabled       -> always True (no behavior change).
-    - No wallet linked    -> False (must link a wallet holding $RCLAW).
-    - Wallet unverified   -> False (an unproven address carries no tier).
-    - Misconfigured gate  -> False (fail CLOSED; permanent operator fault).
-    - RPC/infra error     -> last known good tier if read recently, else False.
-                             (bounded grace, not an open gate; see _grace_seconds)
-    - Otherwise, the stake-derived tier must meet the feature's minimum.
+    ``misconfigured``, ``unavailable``. Asked only while the token gate is on
+    (``gate_enabled``): it reads the chain.
     """
-    if not gate_enabled():
-        return True, "ok"
-    required = FEATURE_MIN_TIER.get(feature)
-    if required is None:
-        return True, "ok"  # ungated feature
     wallet = _resolve_wallet(users, uid)
     if not wallet:
-        return False, "no_wallet"
+        return None, "no_wallet"
     # A stored address that is not a real pubkey makes the RPC return an error,
     # which `staked_of`/`balance_of` report as None — the same sentinel used for
     # a transient outage, which fails OPEN. Invalid input must never reach that
     # path: it is attacker-supplied, so treating it as an infra blip is an
     # authorization bypass, not resilience.
     if not _is_solana_pubkey(wallet):
-        system_log.warning("tier_gate: denying %s — stored wallet is not a valid pubkey", uid)
-        return False, "bad_wallet"
+        system_log.warning("tier_gate: %s's stored wallet is not a valid pubkey; it earns no tier", uid)
+        return None, "bad_wallet"
     # An address nobody proved control of is just a string the user typed. Until
     # it carries a verified signature it must not confer a tier, or anyone can
     # paste a whale's address and inherit their access.
     if not wallet_verified(users, uid):
-        system_log.info("tier_gate: denying %s — linked wallet is unverified", uid)
-        return False, "unverified"
+        system_log.info("tier_gate: %s's linked wallet is unverified; it earns no tier", uid)
+        return None, "unverified"
     # Prefer on-chain STAKED balance when a staking program is configured;
     # otherwise fall back to raw wallet balance.
     lock_secs = 0.0
@@ -861,12 +1013,10 @@ def check_user(users, uid, feature: str) -> tuple[bool, str]:
             bal = balance_of(wallet)
     except GateMisconfigured as exc:
         system_log.error("tier_gate: enabled but misconfigured; denying access (%s)", exc)
-        return False, "misconfigured"  # fail CLOSED on a permanent configuration fault
+        return None, "misconfigured"  # fail CLOSED on a permanent configuration fault
     if bal is not None:
         _remember_balance(wallet, bal, lock_secs)
-        have = tier_for_stake(bal, lock_seconds_remaining=lock_secs)
-        ok = _TIER_RANK.get(have, 0) >= _TIER_RANK.get(required, 99)
-        return ok, ("ok" if ok else "insufficient")
+        return tier_for_stake(bal, lock_seconds_remaining=lock_secs), "ok"
 
     # The RPC could not answer. This used to `return True` unconditionally, and
     # the intent was right — a paying user should not lose access to a blip —
@@ -891,15 +1041,70 @@ def check_user(users, uid, feature: str) -> tuple[bool, str]:
     cached = _cached_balance(wallet)
     if cached is None:
         system_log.warning(
-            "tier_gate: DENYING %s — RPC unavailable and no recent stake reading for this wallet", uid
+            "tier_gate: no stake tier for %s — RPC unavailable and no recent stake reading for this wallet", uid
         )
-        return False, "unavailable"
+        return None, "unavailable"
     have = tier_for_stake(cached, lock_seconds_remaining=_cached_lock(wallet))
     system_log.warning(
         "tier_gate: RPC unavailable — serving %s from cached stake reading (tier %s)", uid, have
     )
-    ok = _TIER_RANK.get(have, 0) >= _TIER_RANK.get(required, 99)
-    return ok, ("ok" if ok else "insufficient")
+    return have, "ok"
+
+
+def effective_tier(users, uid) -> Optional[str]:
+    """The tier ``uid`` holds: the higher of the operator's grant and the
+    stake's, the one reading every tier decision asks.
+
+    The stake is read only while the token gate is on. A stored word this bot
+    does not rank is no grant, so it counts as Basic (``/tier`` names it). None
+    means the grant could not be read and no stake reading stands in for it:
+    the caller says so rather than serving Basic.
+    """
+    tier = tier_reading(users, uid)["tier"]
+    return None if tier is None else str(tier)
+
+
+def check_user(users, uid, feature: str) -> tuple[bool, str]:
+    """Whether ``uid`` may use ``feature``, and WHY if not.
+
+    Returns ``(allowed, reason)``. The reason matters because "you have not
+    staked enough" and "we could not check your stake" are different messages to
+    show a user, and conflating them tells someone holding 100,000 $RCLAW to go
+    and stake more during an RPC outage.
+
+    Reasons: ``ok``, ``insufficient``, ``tier_unreadable``, and the stake's
+    own (``no_wallet``, ``unverified``, ``bad_wallet``, ``misconfigured``,
+    ``unavailable``).
+
+    - Ladder not enforced    -> always True (see ``tiers_enforced``).
+    - Granted tier suffices  -> True, without reading the chain.
+    - No token gate          -> the grant is the whole reading: ``insufficient``,
+                                or ``tier_unreadable`` when the store raised.
+    - Token gate on          -> the stake decides what the grant did not:
+      - No wallet linked     -> False (must link a wallet holding $RCLAW).
+      - Wallet unverified    -> False (an unproven address carries no tier).
+      - Misconfigured gate   -> False (fail CLOSED; permanent operator fault).
+      - RPC/infra error      -> last known good tier if read recently, else False.
+                                (bounded grace, not an open gate; see _grace_seconds)
+      - Otherwise, the stake-derived tier must meet the feature's minimum.
+    """
+    if not tiers_enforced():
+        return True, "ok"
+    required = FEATURE_MIN_TIER.get(feature)
+    if required is None:
+        return True, "ok"  # ungated feature
+    need = _TIER_RANK.get(required, 99)
+    granted, readable = granted_tier(users, uid)
+    if granted is not None and _TIER_RANK.get(granted, -1) >= need:
+        return True, "ok"
+    if not gate_enabled():
+        return False, ("insufficient" if readable else "tier_unreadable")
+    have, reason = stake_tier(users, uid)
+    if have is None:
+        return False, reason
+    if _TIER_RANK.get(have, 0) >= need:
+        return True, "ok"
+    return False, ("insufficient" if readable else "tier_unreadable")
 
 
 def allows_user(users, uid, feature: str) -> bool:
@@ -922,7 +1127,7 @@ def unavailable_message() -> str:
     )
 
 
-def upgrade_message(mode: str = "premium scan") -> str:
+def upgrade_message(mode: str = "premium scan", feature: Optional[str] = None) -> str:
     """User-facing prompt shown when the gate blocks a paid capability.
 
     `mode` IS THE WHOLE NOUN PHRASE. It used to be a bare word with " scan"
@@ -934,12 +1139,55 @@ def upgrade_message(mode: str = "premium scan") -> str:
     scan", "Analysis scan", "Patterns scan" — on the sentence asking somebody
     to go and buy something. The capability this refuses is the caller's to
     name, and it is the only party that knows.
+
+    THE TIER IS THE FEATURE'S. The sentence used to say "a staked-tier feature"
+    and ask for the Pro stake whatever was refused, so a Basic member refused
+    /backtest (an Elite feature) was told to stake 10,000 $RCLAW, which would
+    have bought them nothing; and with the token gate off it asked for a stake
+    the bot could not read. ``feature`` names the tier, and the route to it is
+    the one this deployment has: a grant, and a stake only where one is read.
     """
-    pro_min = int(_env_float("RCLAW_TIER_PRO_MIN", 10_000.0))
-    return (
-        f"\U0001f512 <b>{mode.capitalize()} is a staked-tier feature.</b>\n"
-        f"Stake at least <b>{pro_min:,} $RCLAW</b>, then link and verify your wallet:\n"
+    required = FEATURE_MIN_TIER.get(feature or "", "pro")
+    name = TIER_NAMES.get(required, required.capitalize())
+    article = "an" if name[:1].lower() in "aeiou" else "a"
+    head = f"\U0001f512 <b>{mode.capitalize()} is {article} {name} feature.</b>\n"
+    if not gate_enabled():
+        return head + (
+            "Tiers are granted by the operator. <code>/tier</code> shows yours and "
+            "what each one includes."
+        )
+    stake_min = int(_env_float(
+        "RCLAW_TIER_ELITE_MIN" if required == "elite" else "RCLAW_TIER_PRO_MIN",
+        100_000.0 if required == "elite" else 10_000.0))
+    return head + (
+        f"Your tier is the higher of the one the operator grants and the one your "
+        f"stake earns. {name} takes a stake of at least <b>{stake_min:,} $RCLAW</b>; "
+        f"link and verify your wallet:\n"
         f"<code>/linkwallet &lt;address&gt;</code> → sign the message → "
         f"<code>/linkwallet verify &lt;signature&gt;</code>\n"
         f"<i>(Draft feature — $RCLAW is a gated Vision item.)</i>"
     )
+
+
+def tier_unreadable_message() -> str:
+    """Shown when the GRANTED tier could not be read: not "upgrade", which is
+    the answer that sells a paying member what they already have."""
+    return (
+        "\U000023f3 <b>Can't read your tier right now.</b>\n"
+        "The bot could not read its member records, so it could not confirm what "
+        "your tier includes. This is on our side, not yours. Please try again in "
+        "a minute."
+    )
+
+
+def refusal_message(reason: str, mode: str, feature: Optional[str] = None) -> str:
+    """The sentence for one refusal: a different fix for each reason.
+
+    The three dispatch doors each chose between two messages inline, and a
+    third reason would have been added to one of them.
+    """
+    if reason == "unavailable":
+        return unavailable_message()
+    if reason == "tier_unreadable":
+        return tier_unreadable_message()
+    return upgrade_message(mode, feature)

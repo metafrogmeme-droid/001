@@ -88,13 +88,14 @@ def test_grant_and_revoke_live():
 
 def test_set_tier_and_users():
     tiers_str = " / ".join(f"<code>{x}</code>" for x in TIERS)
+    # The per-tier lines are gone: they promised Elite "Live eligible,
+    # priority signals, early access", which no tier grants. /tier reads
+    # what each tier includes from what enforces it.
     _eq(f"\U0001f4cb {t('set_tier_usage', L, tiers=tiers_str)}",
-        "\U0001f4cb <b>Usage</b>\n\n<code>/set_tier &lt;telegram_id&gt; &lt;tier&gt;</code>\n\n"
+        "\U0001f4cb <b>Usage</b>\n\n<code>/set_tier &lt;telegram_id | web:id&gt; &lt;tier&gt;</code>\n\n"
         f"Tiers: {tiers_str}\n\n"
-        "\U0001f7e2 <b>basic</b> — Paper trading, basic analysis\n"
-        "\U0001f535 <b>pro</b> — + Backtesting, patterns, strategies\n"
-        "\U0001f7e1 <b>elite</b> — + Live eligible, priority signals, early access\n"
-        "\U0001f534 <b>admin</b> — Full access")
+        "What each tier includes on this bot: /tier. Live trading is never part "
+        "of a tier; /grant_live decides it.")
     valid = ", ".join(f"<code>{x}</code>" for x in TIERS)
     _eq(f"\U0001f534 {t('invalid_tier', L, tier='gold', valid=valid)}",
         f"\U0001f534 Invalid tier: <code>gold</code>\nValid: {valid}")
@@ -103,9 +104,10 @@ def test_set_tier_and_users():
     _eq(f"\U0001f3af {t('set_tier_result', L, name='Bob', id='123', tier_label='🟡 elite', role='trader')}",
         "\U0001f3af <b>TIER UPDATED</b>\n\n- User: <b>Bob</b> (<code>123</code>)\n"
         "- Tier: 🟡 elite\n- Role: <code>trader</code>")
-    _eq(f"\U0001f3af {t('account_upgraded', L, tier_label='🟡 elite')}",
-        "\U0001f3af <b>Account Upgraded</b>\n\nYour tier has been updated to: 🟡 elite\n"
-        "Use /start to see your new features.")
+    # "Changed", not "Upgraded": the same command lowers a tier.
+    _eq(f"\U0001f3af {t('tier_changed', L, tier_label='🟡 elite')}",
+        "\U0001f3af <b>Your tier changed</b>\n\nYour tier is now: 🟡 elite\n"
+        "/tier shows what it includes.")
     _eq(f"\U0001f4cb {t('no_registered_users', L)}", "\U0001f4cb <b>No registered users</b>")
     _eq(f"👥 {t('users_header', L, n=5)}\n", "👥 <b>REGISTERED USERS</b>  (5 total)\n")
     _eq(f"\n<i>{t('users_more', L, n=20)}</i>", "\n<i>Showing last 15 of 20</i>")
@@ -119,7 +121,8 @@ def test_all_admin_keys_have_chinese():
         "user_not_found_id_period", "user_not_found", "grant_live_usage",
         "grant_live_not_approved", "grant_live_result", "grant_live_failed",
         "revoke_live_usage", "revoke_live_result", "set_tier_usage", "invalid_tier",
-        "set_tier_result", "account_upgraded", "set_tier_failed", "no_registered_users",
+        "set_tier_result", "tier_changed", "set_tier_failed", "set_tier_web_admin",
+        "no_registered_users",
         "users_header", "users_more",
     ]
     for k in keys:

@@ -1139,8 +1139,8 @@ _STRINGS: dict[str, dict[str, str]] = {
                "ke_live {id}</code>，否則此用戶在下次重啟後又能實盤交易。"),
     },
     "set_tier_usage": {
-        "en": "<b>Usage</b>\n\n<code>/set_tier &lt;telegram_id&gt; &lt;tier&gt;</code>\n\nTiers: {tiers}\n\n\U0001f7e2 <b>basic</b> — Paper trading, basic analysis\n\U0001f535 <b>pro</b> — + Backtesting, patterns, strategies\n\U0001f7e1 <b>elite</b> — + Live eligible, priority signals, early access\n\U0001f534 <b>admin</b> — Full access",
-        "zh": "<b>用法</b>\n\n<code>/set_tier &lt;telegram_id&gt; &lt;tier&gt;</code>\n\n等級: {tiers}\n\n\U0001f7e2 <b>basic</b> — 模擬交易、基礎分析\n\U0001f535 <b>pro</b> — ＋回測、形態、策略\n\U0001f7e1 <b>elite</b> — ＋可實盤、優先信號、搶先體驗\n\U0001f534 <b>admin</b> — 完整存取",
+        "en": "<b>Usage</b>\n\n<code>/set_tier &lt;telegram_id | web:id&gt; &lt;tier&gt;</code>\n\nTiers: {tiers}\n\nWhat each tier includes on this bot: /tier. Live trading is never part of a tier; /grant_live decides it.",
+        "zh": "<b>用法</b>\n\n<code>/set_tier &lt;telegram_id | web:id&gt; &lt;tier&gt;</code>\n\n等級: {tiers}\n\n各等級在本機器人包含的功能：/tier。實盤交易從不屬於任何等級，由 /grant_live 決定。",
     },
     "invalid_tier": {
         "en": "Invalid tier: <code>{tier}</code>\nValid: {valid}",
@@ -1150,11 +1150,15 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "<b>TIER UPDATED</b>\n\n- User: <b>{name}</b> (<code>{id}</code>)\n- Tier: {tier_label}\n- Role: <code>{role}</code>",
         "zh": "<b>等級已更新</b>\n\n- 用戶: <b>{name}</b> (<code>{id}</code>)\n- 等級: {tier_label}\n- 角色: <code>{role}</code>",
     },
-    "account_upgraded": {
-        "en": "<b>Account Upgraded</b>\n\nYour tier has been updated to: {tier_label}\nUse /start to see your new features.",
-        "zh": "<b>帳號已升級</b>\n\n你的等級已更新為: {tier_label}\n使用 /start 查看新功能。",
+    "tier_changed": {
+        "en": "<b>Your tier changed</b>\n\nYour tier is now: {tier_label}\n/tier shows what it includes.",
+        "zh": "<b>你的等級已變更</b>\n\n你目前的等級: {tier_label}\n/tier 會列出它包含的功能。",
     },
     "set_tier_failed": {"en": "Failed to update tier.", "zh": "更新等級失敗。"},
+    "set_tier_web_admin": {
+        "en": "The operator tier needs a linked Telegram account. A website-only member can be basic, pro or elite.",
+        "zh": "營運者等級需要已連結的 Telegram 帳戶。僅使用網站的會員可設為 basic、pro 或 elite。",
+    },
     "no_registered_users": {"en": "<b>No registered users</b>", "zh": "<b>沒有已註冊的用戶</b>"},
     "users_header": {"en": "<b>REGISTERED USERS</b>  ({n} total)", "zh": "<b>已註冊用戶</b>  (共 {n} 位)"},
     "users_more": {"en": "Showing last 15 of {n}", "zh": "顯示最近 15 筆，共 {n} 筆"},

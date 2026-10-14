@@ -162,6 +162,7 @@ strategy is_admin
 sweep guard
 swing guard
 sync require_registered
+tier guard
 token guard
 trade guard
 twin is_admin

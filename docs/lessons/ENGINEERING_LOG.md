@@ -1313,9 +1313,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 111 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 112 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 102 of the 111 reach the tool-less chat model and 9
+typed as the card prints them, 103 of the 112 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -20688,7 +20688,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 269 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 270 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21511,9 +21511,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **491 of 1315** reach for source text through `source_scan`, `code_only`
+Driven, **492 of 1316** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 491 is a FLOOR and the honest shape is
+source scan that rule does not see, so 492 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -24762,3 +24762,74 @@ forgotten with its group and not revived by re-adding it, the door in words
 without a handle; `/channel full` refused to a group admin and to an
 unregistered id. Eighteen mutants, all killed, each by the test that names
 it.)
+
+**THREE THINGS WERE CALLED A TIER, AND THE ONE THE OPERATOR SET WAS THE ONE NOTHING READ.**
+The ask was "make the tier system work". Mapping it found three readings of a
+member's tier, and none of them agreed:
+- **The grant.** `/set_tier` wrote a tier into the member store. The ladder
+  that refuses features (`tier_gate.FEATURE_MIN_TIER`) never read it. With
+  the token gate off nobody was refused anything; with it on, only a stake
+  counted, so an operator's Elite was refused /backtest.
+- **The table.** `user_store.TIER_FEATURES` listed what each tier bought.
+  Nothing read it (`has_feature` had no caller and sat in the unreachable
+  baseline), Pro was a copy of Basic word for word, and Elite listed live
+  trading eligibility, which the tier model rules out (docs/TIER_MODEL.md §6).
+- **The website's card.** It carried its own table: Pro "Live trading
+  eligibility" and "premium models on your scans", Elite "Higher live caps"
+  and "Early access". No tier granted any of them. `/me` printed a fourth
+  copy: the website's plan column, written into the bot's SQLite row once at
+  link time ("free") and never again.
+The doors around them were broken too. `/set_tier` refused a website-only
+member (`web:<id>` is not digits), and the website's mirror matched rows on
+`telegram_id` only, so such a member could not hold a tier at all. The mirror
+cut its input at 500 rows and answered ok. The chat quota's exempt set held a
+fifth tier, "premium", that nothing writes. And the refusal asked every member
+for the Pro stake, so a Basic member refused an Elite command was told to
+stake an amount that would have bought them nothing, and with the token gate
+off it asked for a stake the bot could not read.
+
+Now one reading: `tier_gate.tier_reading` is the higher of the grant and the
+stake (the stake read only while the token gate is on), and the ladder, the
+chat quota, the per-tier model on /analyze, `/tier`, `/me` and the website's
+card all ask it. Three rules held it together:
+- **A tier is enforced by a switch the operator throws.** `TIER_GATE_ENABLED`
+  turns the ladder on for grants; off by default, because switching it on
+  takes commands away from Basic members, and that is a pricing decision, not
+  a deploy's.
+- **A card is rendered from what enforces it.** `plan_ladder` reads the
+  ladder (including the operator's override), the chat quota's switch and
+  limit, and the model routing. A card listing commands now also asks the
+  caller's role: `/patterns` is on the ladder at Pro and held by no role but
+  the operator's, so a Pro member was being sold a command that answers "your
+  role cannot use that".
+- **Unreadable is not Basic.** A grant the store could not read refuses with
+  "can't read your tier", never an upgrade pitch; a stored word the bot does
+  not rank counts as Basic and is named on the card; the plan card throws on
+  an answer with no ladder, so the panel shows its error state.
+The member's tier follows them: a grant made to `web:<id>` is carried to the
+Telegram id when they link, upward only, and the website is sent that one
+member's tier without the push standing for the whole map. A web key can
+never be made the operator: the site reads plan `admin` as the operator.
+
+Left for their own change: metered entitlements (TIER_MODEL §6's deep scans
+and backtest hours per month) are not built; the ladder is still boolean. And
+the payment rail is undecided, so a tier is still granted by hand.
+
+The mutation round found two holes in the first draft, both of a kind this log
+already names. The in-memory database applied the "not linked" condition on its
+own instead of reading it out of the statement, so a route that dropped the
+clause still passed; and the test sent the linked account's current grant after
+its stale web key, so even an honest shim was rescued by row order. The shim now
+reads the clause from the SQL, and the stale row goes last.
+(`tests/test_a_tier_buys_what_its_card_says.py`, on the real member store and
+the real `/set_tier` and `/link` bodies: the ladder at every rung both ways, the
+safety commands at every tier, an unreadable grant, a word the bot does not
+rank, a sufficient grant never reading the chain, grant and stake to the higher,
+the operator's override, the role filter, the chat line and the exemption, every
+gated command against its `@guard`, a web id granted and never made the
+operator, lookalike ids, "changed" on a downgrade, the paged push, the grant
+carried at link, and the raw grant read only where the grant is the subject;
+`app/test/a_plan_card_is_the_bots_tier.test.js`: the mirror for web and linked
+members, the operator refused through a web key, the 413, the route asking about
+the caller and caching privately, a failed read, and the card. Thirty-eight
+mutants, all killed, each by the test that names it.)

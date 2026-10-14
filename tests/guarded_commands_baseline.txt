@@ -121,6 +121,7 @@ _cmd_status status
 _cmd_stockscan scan
 _cmd_sweep scan
 _cmd_swing scan
+_cmd_tier tier
 _cmd_token token
 _cmd_trade trade
 _cmd_unstake stake

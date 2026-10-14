@@ -1,6 +1,6 @@
 {
   "access_granted": "<b>Accesso concesso</b>\n{sep}\nIl tuo account RUNECLAW è stato approvato.\n- Ruolo: <code>{role}</code>\n\nUsa /start per iniziare a fare trading.",
-  "account_upgraded": "<b>Account aggiornato</b>\n\nIl tuo livello è ora: {tier_label}\nUsa /start per vedere le nuove funzioni.",
+  "tier_changed": "<b>Il tuo livello è cambiato</b>\n\nOra il tuo livello è: {tier_label}\n/tier mostra cosa include.",
   "admin_only": "Questo è un comando da operatore: funziona solo dalla chat dell'operatore. Tutto ciò che puoi usare è in /help.",
   "admin_only_llm_reset": "<b>Solo amministratori</b>\n\nRipristinare provider/chiave del LLM è riservato agli amministratori.",
   "admin_only_llm_set": "<b>Solo amministratori</b>\n\nCambiare provider/chiave del LLM è riservato agli amministratori.",
@@ -217,8 +217,9 @@
   "risk_reward": "Rischio/Rendimento",
   "scanning": "Scansione del mercato...",
   "set_tier_failed": "Impossibile aggiornare il livello.",
+  "set_tier_web_admin": "Il livello operatore richiede un account Telegram collegato. Un membro solo del sito può essere basic, pro o elite.",
   "set_tier_result": "<b>LIVELLO AGGIORNATO</b>\n\n- Utente: <b>{name}</b> (<code>{id}</code>)\n- Livello: {tier_label}\n- Ruolo: <code>{role}</code>",
-  "set_tier_usage": "<b>Uso</b>\n\n<code>/set_tier &lt;telegram_id&gt; &lt;tier&gt;</code>\n\nLivelli: {tiers}\n\n🟢 <b>basic</b> — Trading paper, analisi di base\n🔵 <b>pro</b> — + Backtesting, pattern, strategie\n🟡 <b>elite</b> — + Idoneo al live, segnali prioritari, accesso anticipato\n🔴 <b>admin</b> — Accesso completo",
+  "set_tier_usage": "<b>Uso</b>\n\n<code>/set_tier &lt;telegram_id | web:id&gt; &lt;tier&gt;</code>\n\nLivelli: {tiers}\n\nCosa include ogni livello su questo bot: /tier. Il trading dal vivo non fa mai parte di un livello; lo decide /grant_live.",
   "status_active": "Attivo",
   "status_paused": "In pausa",
   "status_title": "STATO RUNECLAW",

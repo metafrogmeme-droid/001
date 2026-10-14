@@ -35,7 +35,7 @@ def db(tmp_path, monkeypatch):
     return uid
 
 
-def _me(lang="en") -> str:
+def _me(lang="en", context=None) -> str:
     replies: list[str] = []
 
     class Msg:
@@ -46,14 +46,17 @@ def _me(lang="en") -> str:
         effective_chat=types.SimpleNamespace(id=4242, type="private"),
         message=Msg(), effective_user=types.SimpleNamespace(id=4242))
     with mock.patch.object(um, "_user_lang", return_value=lang):
-        asyncio.run(um.cmd_me(upd, types.SimpleNamespace(args=[])))
+        asyncio.run(um.cmd_me(upd, context or types.SimpleNamespace(args=[])))
     assert len(replies) == 1, replies
     return replies[0]
 
 
 def test_the_card_prints_no_balance_pnl_or_trade_count(db):
     card = _me()
-    assert "ann@example.test" in card and "free" in card, card
+    # No member store reachable from this context: the plan is said to be
+    # unread, never the "free" the website's column held at link time.
+    assert "ann@example.test" in card and "could not be read" in card, card
+    assert "free" not in card, card
     for gone in ("10000", "$0.00", "Equity", "P&amp;L", "Trades:"):
         assert gone not in card, (gone, card)
 
@@ -120,3 +123,17 @@ def test_the_command_list_does_not_promise_a_portfolio():
     row = dict(entry for _title, _audience, entries in cc.GROUPS for entry in entries)
     assert "portfolio" not in row["me"].lower(), row["me"]
     assert "投資組合" not in cc.DESC_ZH["me"], cc.DESC_ZH["me"]
+
+
+def test_the_plan_is_the_tier_the_bot_holds(db, tmp_path):
+    """The plan line read the SQLite row's copy of the website's plan column,
+    written once at link time ("free") and never again, so a member the
+    operator granted Pro read "free" here forever. It reads the bot's tier."""
+    from bot.utils.user_store import UserStore
+    store = UserStore(str(tmp_path / "users.json"))
+    store.register("4242", name="ann")
+    assert store.set_tier("4242", "pro")
+    ctx = types.SimpleNamespace(args=[], application=types.SimpleNamespace(
+        bot_data={"telegram_handler": types.SimpleNamespace(users=store)}))
+    card = _me(context=ctx)
+    assert "<code>Pro</code>" in card and "free" not in card, card

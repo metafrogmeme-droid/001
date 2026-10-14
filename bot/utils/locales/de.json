@@ -1,6 +1,6 @@
 {
   "access_granted": "<b>Zugang gewährt</b>\n{sep}\nDein RUNECLAW-Konto wurde freigegeben.\n- Rolle: <code>{role}</code>\n\nMit /start geht es los.",
-  "account_upgraded": "<b>Konto hochgestuft</b>\n\nDeine Stufe ist jetzt: {tier_label}\nMit /start siehst du deine neuen Funktionen.",
+  "tier_changed": "<b>Deine Stufe hat sich geändert</b>\n\nDeine Stufe ist jetzt: {tier_label}\n/tier zeigt, was sie enthält.",
   "admin_only": "Das ist ein Operator-Befehl: Er läuft nur aus dem Chat des Operators. Alles, was du nutzen kannst, steht in /help.",
   "admin_only_llm_reset": "<b>Nur Admins</b>\n\nDas Zurücksetzen von LLM-Anbieter/Schlüssel ist Admins vorbehalten.",
   "admin_only_llm_set": "<b>Nur Admins</b>\n\nDas Ändern von LLM-Anbieter/Schlüssel ist Admins vorbehalten.",
@@ -217,8 +217,9 @@
   "risk_reward": "Chance/Risiko",
   "scanning": "Scanne den Markt...",
   "set_tier_failed": "Stufe konnte nicht aktualisiert werden.",
+  "set_tier_web_admin": "Die Operator-Stufe braucht ein verknüpftes Telegram-Konto. Ein reines Website-Mitglied kann basic, pro oder elite sein.",
   "set_tier_result": "<b>STUFE AKTUALISIERT</b>\n\n- Nutzer: <b>{name}</b> (<code>{id}</code>)\n- Stufe: {tier_label}\n- Rolle: <code>{role}</code>",
-  "set_tier_usage": "<b>Verwendung</b>\n\n<code>/set_tier &lt;telegram_id&gt; &lt;tier&gt;</code>\n\nStufen: {tiers}\n\n🟢 <b>basic</b> — Paper-Trading, Basisanalyse\n🔵 <b>pro</b> — + Backtesting, Muster, Strategien\n🟡 <b>elite</b> — + Live-berechtigt, Priority-Signale, Frühzugang\n🔴 <b>admin</b> — Vollzugriff",
+  "set_tier_usage": "<b>Verwendung</b>\n\n<code>/set_tier &lt;telegram_id | web:id&gt; &lt;tier&gt;</code>\n\nStufen: {tiers}\n\nWas jede Stufe in diesem Bot enthält: /tier. Live-Trading ist nie Teil einer Stufe; darüber entscheidet /grant_live.",
   "status_active": "Aktiv",
   "status_paused": "Pausiert",
   "status_title": "RUNECLAW-STATUS",

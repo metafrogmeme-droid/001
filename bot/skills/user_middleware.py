@@ -74,6 +74,58 @@ def _user_lang(chat_id) -> str:
         return "en"
 
 
+def _handler_users(context):
+    """The bot's own member store, the instance `/set_tier` writes through,
+    or None. Not a fresh `UserStore()`: a tier changed a second ago lives in
+    the handler's instance, and `_user_lang`'s minute-old copy cannot see it."""
+    bot_data = getattr(getattr(context, "application", None), "bot_data", None)
+    if not isinstance(bot_data, dict):
+        return None
+    return getattr(bot_data.get("telegram_handler"), "users", None)
+
+
+def _tier_words(users, chat_id: str) -> str:
+    """The member's tier as `/tier` names it, or that it could not be read.
+
+    The plan these cards printed was the website's `plan` column, copied into
+    the bot's SQLite row once, at link time, and never again: "free" for
+    everyone, whatever `/set_tier` said afterwards.
+    """
+    if users is None:
+        return "could not be read"
+    from bot.token.tier_gate import TIER_NAMES, tier_reading
+    tier = tier_reading(users, chat_id)["tier"]
+    if tier is None:
+        return "could not be read"
+    return TIER_NAMES.get(str(tier), str(tier))
+
+
+def _carry_web_grant(users, website_user_id: int, chat_id: str) -> None:
+    """A member granted a tier as ``web:<id>`` keeps it when they link.
+
+    From the link on, the bot reads them by their Telegram id (the website's
+    `resolveBotIdentity`), so a grant left on the web key would read as Basic
+    on every surface. Carried only upward, never the operator tier (which a
+    web key cannot hold), and only onto a member the store already knows.
+    """
+    if users is None:
+        return
+    from bot.utils.user_store import TIER_RANK
+    web_key = f"web:{website_user_id}"
+    try:
+        if not users.get(web_key) or not users.get(chat_id):
+            return
+        web_tier = users.get_tier(web_key)
+        chat_tier = users.get_tier(chat_id)
+    except Exception:  # noqa: BLE001
+        log.warning("link: could not read the tiers to carry for %s", chat_id)
+        return
+    if web_tier == "admin" or web_tier not in TIER_RANK:
+        return
+    if TIER_RANK[web_tier] > TIER_RANK.get(chat_tier, -1):
+        users.set_tier(chat_id, web_tier)
+
+
 class LocalUserConflict(Exception):
     """The bot-side row at this id belongs to somebody else.
 
@@ -314,6 +366,17 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(t("link_other_account", _user_lang(chat_id)))
         return
 
+    # The tier follows the person, and the website's copy follows the tier.
+    users = _handler_users(context)
+    _carry_web_grant(users, user_id, chat_id)
+    if users is not None:
+        try:
+            from bot.utils.website_sync import sync_tiers_in_background
+            sync_tiers_in_background({chat_id: users.get_tier(chat_id)},
+                                     remember=False)
+        except Exception:  # noqa: BLE001
+            log.warning("link: tier push to the website was not started")
+
     # NOTHING IS PUSHED ON A LINK. An "initial sync" used to go out here:
     # `sync_in_background(user_id, portfolio.get("equity", 800), [], [])`,
     # built from `user_portfolio`, a table nothing writes -- so it was always
@@ -326,8 +389,8 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # (`app/routes/portfolio.js`), so there was never anything to push.
 
     await update.message.reply_text(
-        t("link_success", _user_lang(chat_id), email=email, plan=plan,
-          url=REGISTER_URL))
+        t("link_success", _user_lang(chat_id), email=email,
+          plan=_tier_words(users, chat_id), url=REGISTER_URL))
 
 
 # -- /unlink command ---------------------------------------------------------
@@ -388,9 +451,12 @@ async def cmd_me(update: Update, context: ContextTypes.DEFAULT_TYPE,
     card says the dashboard reads the account from the bot instead.
     """
     s = uc.settings
+    chat_id = str(update.effective_chat.id)
     await update.message.reply_text(
-        t("me_account", _user_lang(str(update.effective_chat.id)),
-          email=uc.user.email, plan=uc.user.plan, llm=s.llm_provider,
+        t("me_account", _user_lang(chat_id),
+          email=uc.user.email,
+          plan=_tier_words(_handler_users(context), chat_id),
+          llm=s.llm_provider,
           notif=('on' if s.notifications_on else 'off'), url=REGISTER_URL),
         parse_mode="HTML",
     )

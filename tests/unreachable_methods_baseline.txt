@@ -232,4 +232,3 @@ bot/skills/getclaw_wrapper.py:GetClawAdapter.evaluate_signal
 bot/skills/getclaw_wrapper.py:GetClawAdapter.to_getclaw_format
 bot/utils/user_store.py:UserStore.count_by_tier
 bot/utils/user_store.py:UserStore.get_lang
-bot/utils/user_store.py:UserStore.has_feature

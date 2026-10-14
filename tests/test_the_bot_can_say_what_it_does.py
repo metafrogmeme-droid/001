@@ -816,7 +816,7 @@ def test_the_telegram_card_would_be_a_mostly_false_answer_here():
     # /ethma, /volrotation): typed bare on the web none reaches a rule, so
     # all five land on the model; the web's door to the same board is the
     # strategy page's "Scan now".
-    assert (named, nothing, len(hits)) == (111, 102, 9), (named, nothing, hits)
+    assert (named, nothing, len(hits)) == (112, 103, 9), (named, nothing, hits)
     # The sharpest one: the universe sweep answered by a single-asset read.
     assert hits.get("scan") == "analyze_asset", hits
 

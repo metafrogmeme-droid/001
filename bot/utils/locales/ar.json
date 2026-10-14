@@ -1,6 +1,6 @@
 {
   "access_granted": "<b>تم منح الوصول</b>\n{sep}\nتمت الموافقة على حساب RUNECLAW الخاص بك.\n- الدور: <code>{role}</code>\n\nاستخدم /start لبدء التداول.",
-  "account_upgraded": "<b>تمت ترقية الحساب</b>\n\nتم تحديث مستواك إلى: {tier_label}\nاستخدم /start لرؤية ميزاتك الجديدة.",
+  "tier_changed": "<b>تغيّر مستواك</b>\n\nمستواك الآن: {tier_label}\nيعرض /tier ما يتضمنه.",
   "admin_only": "هذا أمر خاص بالمشغّل: يعمل فقط من دردشة المشغّل. كل ما يمكنك استخدامه موجود في /help.",
   "admin_only_llm_reset": "<b>للمشرفين فقط</b>\n\nإعادة ضبط مزوّد/مفتاح LLM مقصورة على المشرفين.",
   "admin_only_llm_set": "<b>للمشرفين فقط</b>\n\nتغيير مزوّد/مفتاح LLM مقصور على المشرفين.",
@@ -217,8 +217,9 @@
   "risk_reward": "المخاطرة/العائد",
   "scanning": "جارٍ مسح السوق...",
   "set_tier_failed": "تعذّر تحديث المستوى.",
+  "set_tier_web_admin": "يتطلب مستوى المشغّل حساب Telegram مرتبطًا. يمكن لعضو الموقع فقط أن يكون basic أو pro أو elite.",
   "set_tier_result": "<b>تم تحديث المستوى</b>\n\n- المستخدم: <b>{name}</b> (<code>{id}</code>)\n- المستوى: {tier_label}\n- الدور: <code>{role}</code>",
-  "set_tier_usage": "<b>الاستخدام</b>\n\n<code>/set_tier &lt;telegram_id&gt; &lt;tier&gt;</code>\n\nالمستويات: {tiers}\n\n🟢 <b>basic</b> — تداول تجريبي، تحليل أساسي\n🔵 <b>pro</b> — + اختبار رجعي، أنماط، استراتيجيات\n🟡 <b>elite</b> — + مؤهل للتداول الحقيقي، إشارات ذات أولوية، وصول مبكر\n🔴 <b>admin</b> — وصول كامل",
+  "set_tier_usage": "<b>الاستخدام</b>\n\n<code>/set_tier &lt;telegram_id | web:id&gt; &lt;tier&gt;</code>\n\nالمستويات: {tiers}\n\nما يتضمنه كل مستوى في هذا البوت: /tier. التداول الحقيقي ليس جزءًا من أي مستوى أبدًا؛ يقرره /grant_live.",
   "status_active": "نشط",
   "status_paused": "متوقف مؤقتاً",
   "status_title": "حالة RUNECLAW",
