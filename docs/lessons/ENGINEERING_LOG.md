@@ -21511,7 +21511,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **492 of 1316** reach for source text through `source_scan`, `code_only`
+Driven, **492 of 1317** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 492 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -24833,3 +24833,38 @@ carried at link, and the raw grant read only where the grant is the subject;
 members, the operator refused through a web key, the 413, the route asking about
 the caller and caching privately, a failed read, and the card. Thirty-eight
 mutants, all killed, each by the test that names it.)
+
+**ONE GROUP'S ADMIN COULD SPEAK FOR THE BOT IN EVERY GROUP, AND THE LETTER'S PUSH CARRIED THE OPERATOR'S DOLLARS TO EVERY SUBSCRIBER.**
+Two of the findings left over from the group chapter above, and one from the
+live-call chapter before it.
+- **`/broadcast` and `/channel`.** Both took an admin of ANY group the bot sits
+  in as if they were the bot's operator, because "is an admin" was asked of
+  the chat the command came from and then applied to every chat. One group's
+  admin could post any text under the bot's name into every registered group
+  (a phishing door in the product's own voice), switch the operator's posting
+  off, read every other group's id, remove them, add arbitrary ids, and post a
+  test to all of them. Now `/broadcast` is the operator's. A group's admin
+  reaches that group only: running `/channel` there opts it in, `/channel`
+  shows its own status, and `/channel remove <its id>` takes it out.
+- **`/link`.** It binds a website account to the chat it runs in, so in a
+  group it bound the account to the group, and the account's alerts and
+  live-control confirmations would have gone to everyone there. The room gate
+  already refused it in a group; the command now keeps its own door as well.
+- **The weekly-letter push.** `sweepLetters` announced a new week with the
+  STORED letter's headline, which is the operator's private letter ("$812.34
+  net — 67% winners"), through `notifySubscribers(payload, null)`: every push
+  subscription on the site. The public letter already said the same week in
+  percent. The push now says that one, and a public letter that cannot be read
+  sends no figure rather than the private one.
+The letter's first test could not have caught it: an empty week reads "A flat
+week, by choice" in both letters. The fixture seeds a winning week and first
+asserts that the private headline it produced does carry a dollar figure.
+`TELEGRAM_CHAT_ID` set to a group's id is documented rather than refused: an
+operator's own team group is a legitimate place for the alerts.
+(`tests/test_a_group_admin_reaches_only_their_group.py`: `/broadcast` refused
+to a group admin and served to the operator; every global `/channel` setting
+refused to a group admin; their own group opted in, shown alone and taken out;
+a plain member refused; `/link` refused in a group, supergroup and channel and
+reaching the token check in a private chat. `app/test/the_letter_push_names_no_dollar.test.js`:
+the push body is the public headline on a week whose private headline is in
+dollars. Nine mutants, all killed, each by the test that names it.)

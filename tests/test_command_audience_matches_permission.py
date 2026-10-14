@@ -284,9 +284,11 @@ def test_an_ungated_operator_command_is_a_leak_not_an_acquittal():
 
     /approvals' body reads no role — its whole gate is the decorator — so
     the body with the decorator's permission taken away is exactly the shape
-    it shipped in, and the rule must fire on it. /broadcast reads the role in
+    it shipped in, and the rule must fire on it. /channel reads the role in
     a shape the early-return regex cannot parse (a local, then a Telegram
-    group-admin fallback), and the rule must not.
+    group-admin fallback for the admin's own group), and the rule must not.
+    /broadcast used to be that sample; it is the operator's alone now, and
+    gates early.
     """
     funcs, _ = _handler_index()
     approvals = _body(funcs, "_cmd_approvals")
@@ -297,8 +299,11 @@ def test_an_ungated_operator_command_is_a_leak_not_an_acquittal():
 
     broadcast = _body(funcs, "_cmd_broadcast")
     assert _permission_string(funcs, "_cmd_broadcast") is None
-    assert not _gates_on_admin(broadcast), "the premise moved: /broadcast now gates early"
-    assert not _gated_by_nothing(None, broadcast)
+    assert _gates_on_admin(broadcast), "/broadcast is the operator's: it gates early"
+    channel = _body(funcs, "_cmd_channel")
+    assert _permission_string(funcs, "_cmd_channel") is None
+    assert not _gates_on_admin(channel), "the premise moved: /channel now gates early"
+    assert not _gated_by_nothing(None, channel)
 
 
 def test_llm_config_commands_require_admin():
