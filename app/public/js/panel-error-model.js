@@ -65,6 +65,10 @@
       fallback: 'This site is not connected to the trading bot — '
         + 'the operator needs to finish that setup.',
     },
+    signal_stream_unavailable: {
+      key: 'dd.err_panel', action: 'retry', icon: 'icon-offline',
+      fallback: 'The signal stream could not be read — try again in a moment.',
+    },
     admin_only: {
       key: 'dd.err_operator_only', action: 'none', icon: 'icon-lock',
       fallback: 'This panel is for the operator account only.',

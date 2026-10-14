@@ -45,14 +45,25 @@ router.get('/', optionalAuth, async (req, res) => {
       if (Number.isFinite(mc)) { where.push('confidence >= ?'); params.push(mc); }
     }
     const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    const [rows] = await pool.execute(
+    const signalSelect = (withFeeFields) =>
       `SELECT signal_key, symbol, direction, confidence, score, pattern, regime,
-              entry_price, stop_loss, take_profit, rr, net_rr, rr_fee_losing,
+              entry_price, stop_loss, take_profit, rr,
+              ${withFeeFields ? 'net_rr, rr_fee_losing' : 'NULL AS net_rr, NULL AS rr_fee_losing'},
               thesis, status, pnl, created_at, resolved_at, seal, expires_at
        FROM signals ${clause}
-       ORDER BY created_at DESC LIMIT ${limit}`,
-      params
-    );
+       ORDER BY created_at DESC LIMIT ${limit}`;
+    let rows;
+    try {
+      [rows] = await pool.execute(signalSelect(true), params);
+    } catch (err) {
+      // The after-fees fields are additive. During a rolling schema upgrade a
+      // pre-existing database can serve before they exist, just as the writer
+      // and analytics readers already allow. Preserve the stream and state the
+      // fields as unread instead of turning one absent optional column into a
+      // false claim that the bot is disconnected.
+      if (!err || (err.code !== 'ER_BAD_FIELD_ERROR' && Number(err.errno) !== 1054)) throw err;
+      [rows] = await pool.execute(signalSelect(false), params);
+    }
     const member = signedIn(req);
     const hiddenFilter = HIDDEN_FILTERS.some((k) => req.query[k] !== undefined && req.query[k] !== '');
     const seen = member || !hiddenFilter ? rows : rows.filter(signalResolved);
