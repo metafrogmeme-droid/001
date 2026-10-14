@@ -61,6 +61,10 @@ function req(method, p, { body, headers } = {}) {
 }
 
 const BOT = { 'X-Bot-Secret': 's'.repeat(48) };
+// A signed-in member. A live call's payload is a member's until it resolves
+// (lib/signal_access.js); a visitor gets the seal alone.
+const MEMBER = { Authorization: 'Bearer ' + require('jsonwebtoken').sign(
+  { user_id: 4242, email: 'member@test.dev' }, process.env.JWT_SECRET) };
 
 const CALL = {
   signal_key: 'sig:btc:latest-test',
@@ -103,7 +107,7 @@ test('a sealed call is served complete, with a verifiable seal', async () => {
     { headers: BOT, body: { signals: [CALL] } });
   assert.strictEqual(seeded.status, 200, 'the fixture seeds a signal');
 
-  const r = await req('GET', '/api/call/latest');
+  const r = await req('GET', '/api/call/latest', { headers: MEMBER });
   assert.strictEqual(r.status, 200, 'and the endpoint serves it');
   assert.match(String(r.body.seal), /^[0-9a-f]{64}$/, 'a real sha256');
   assert.ok(r.body.current && r.body.current.signal_key, 'carries a key to verify');
@@ -111,12 +115,28 @@ test('a sealed call is served complete, with a verifiable seal', async () => {
   assert.strictEqual(r.body.kind, 'signal');
   assert.ok(r.body.seal_payload, 'the exact sealed string, for re-derivation');
   assert.match(String(r.cache || ''), /max-age/, 'the busiest page gets a cache header');
+  assert.match(String(r.cache || ''), /private/, 'a member\'s answer is never kept by a shared cache');
+});
+
+test('a visitor gets the live call\'s seal, and not what it commits to', async () => {
+  const r = await req('GET', '/api/call/latest');
+  assert.strictEqual(r.status, 200, 'the front door still has a receipt');
+  assert.match(String(r.body.seal), /^[0-9a-f]{64}$/, 'the seal is public from the start');
+  assert.ok(r.body.sealed_at, 'and so is when it was sealed');
+  assert.strictEqual(r.body.locked, true);
+  assert.strictEqual(r.body.seal_payload, null, 'the payload waits for resolution');
+  assert.strictEqual(r.body.current.symbol, 'BTC/USDT', 'the market is named');
+  for (const f of ['direction', 'entry_price', 'stop_loss', 'take_profit', 'confidence', 'thesis']) {
+    assert.ok(!(f in r.body.current), `a visitor read the live call's ${f}`);
+  }
+  assert.ok(!JSON.stringify(r.body).includes('64210.5'), 'the entry reached a visitor');
+  assert.match(String(r.cache || ''), /private/, 'a visitor\'s answer is never kept by a shared cache');
 });
 
 test('the served seal actually verifies', async () => {
   // The whole promise of the card is "check this yourself", so the test does
   // exactly what the visitor's browser will do rather than trusting the field.
-  const r = await req('GET', '/api/call/latest');
+  const r = await req('GET', '/api/call/latest', { headers: MEMBER });
   assert.strictEqual(r.status, 200);
   const derived = require('node:crypto')
     .createHash('sha256').update(r.body.seal_payload, 'utf8').digest('hex');
@@ -127,11 +147,13 @@ test('the served seal actually verifies', async () => {
 // ── the public-surface rule ───────────────────────────────────────────────
 
 test('the receipt carries no dollar figure', async () => {
-  const r = await req('GET', '/api/call/latest');
-  assert.strictEqual(r.status, 200);
-  const flat = JSON.stringify(r.body);
-  assert.ok(!/"pnl"/.test(flat), 'pnl never reaches a public receipt');
-  assert.ok(!/"margin"/.test(flat));
+  for (const headers of [{}, MEMBER]) {
+    const r = await req('GET', '/api/call/latest', { headers });
+    assert.strictEqual(r.status, 200);
+    const flat = JSON.stringify(r.body);
+    assert.ok(!/"pnl"/.test(flat), 'pnl never reaches a public receipt');
+    assert.ok(!/"margin"/.test(flat));
+  }
 });
 
 // ── the wiring, which behaviour here cannot reach ─────────────────────────

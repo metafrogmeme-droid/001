@@ -5,7 +5,9 @@
  * opens/closes, stop moves, alerts, stance changes), pushed by the bot via
  * POST /api/bot/sync/events and stored in the bounded agent_events ring.
  * Public by design: this powers the landing page's "watch the agent think"
- * section and the dashboard timeline. The bot sends operator activity only,
+ * section and the dashboard timeline. A live call's event (a thesis, an
+ * open, a stop move) is a member's: a visitor reads its locked form
+ * (lib/signal_access.js). The bot sends operator activity only,
  * and every event is passed through `publicFeedEvent` (no dollar amount of
  * the account) at the ingest and again here; a 5s micro-cache keeps hot
  * reload traffic off the DB.
@@ -14,6 +16,16 @@
 const express = require('express');
 const { pool } = require('../db');
 const { publicFeedEvent } = require('../lib/public_feed');
+const { signedIn, feedEventFor, viewerCacheControl } = require('../lib/signal_access');
+
+// Identifies, never refuses. Lazy, as routes/sync.js requires it.
+const optionalAuth = (req, res, next) => require('../auth').optionalAuth(req, res, next);
+
+/** The cached public events, each shaped for this viewer. */
+function forViewer(req, events) {
+  const member = signedIn(req);
+  return events.map((ev) => feedEventFor(member, ev));
+}
 
 const router = express.Router();
 
@@ -25,10 +37,11 @@ function safeParse(s) {
   try { return JSON.parse(s); } catch (e) { return {}; }
 }
 
-router.get('/recent', async (req, res) => {
+router.get('/recent', optionalAuth, async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 100);
+  viewerCacheControl(res, 0);
   if (cache.events && cache.limit === limit && Date.now() - cache.at < CACHE_MS) {
-    return res.json({ events: cache.events });
+    return res.json({ events: forViewer(req, cache.events) });
   }
   try {
     // LIMIT inlined (sanitized int above): placeholder LIMITs break on some
@@ -50,7 +63,7 @@ router.get('/recent', async (req, res) => {
         ? r.created_at.toISOString() : String(r.created_at || ''),
     }));
     cache = { at: Date.now(), limit, events };
-    res.json({ events });
+    res.json({ events: forViewer(req, events) });
   } catch (err) {
     console.error('Feed recent error:', err.stack || err.message);
     // `{events:[]}` is the mind-stream saying the agent has thought nothing.

@@ -1,7 +1,9 @@
 /**
  * Signal stream (read).
  * Serves the global signal stream the bot pushes via /api/bot/sync/signals.
- * Public market data (like /api/bot/sync/scan) — no auth required.
+ * No sign-in required to read it, and a live call is a member's: a visitor
+ * reads which market and when, and the whole call once it resolves
+ * (lib/signal_access.js). The statistics below carry no call and stay public.
  */
 
 const express = require('express');
@@ -10,14 +12,27 @@ const { computeAnalytics } = require('../lib/signal_analytics');
 const { loadCellRegistrations } = require('../lib/cell_registrations');
 const { readCalibrationCurve } = require('../lib/calibration_curve');
 const { unavailableReading } = require('../public/js/calibration-chart');
-const { publicSignal, publicAnalytics } = require('../lib/public_signal');
+const { publicAnalytics } = require('../lib/public_signal');
+const { signedIn, signalFor, signalResolved, viewerCacheControl } = require('../lib/signal_access');
+
+// Identifies, never refuses. Lazy, as routes/sync.js requires it.
+const optionalAuth = (req, res, next) => require('../auth').optionalAuth(req, res, next);
 const SignalStatus = require('../public/js/signal-status-model.js');
 
 const router = express.Router();
 
 // GET /api/signals?limit=&status=&symbol=&direction=&min_confidence=
 // Recent global signals, newest first. Optional filters.
-router.get('/', async (req, res) => {
+//
+// A FILTER ON A HIDDEN FIELD ANSWERS OVER RESOLVED CALLS ONLY, for a visitor.
+// `?direction=LONG` returning a locked row would say the row is a long, and
+// `?min_confidence=` the same about its confidence, through the row's mere
+// presence. So for a visitor a live call is left out of any answer filtered
+// on its side or confidence, whichever way the filter points, and its
+// absence from one says nothing it would not say from the other.
+const HIDDEN_FILTERS = ['direction', 'min_confidence'];
+
+router.get('/', optionalAuth, async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 50, 200);
     const where = [];
@@ -38,7 +53,11 @@ router.get('/', async (req, res) => {
        ORDER BY created_at DESC LIMIT ${limit}`,
       params
     );
-    res.json({ signals: rows.map(publicSignal) });
+    const member = signedIn(req);
+    const hiddenFilter = HIDDEN_FILTERS.some((k) => req.query[k] !== undefined && req.query[k] !== '');
+    const seen = member || !hiddenFilter ? rows : rows.filter(signalResolved);
+    viewerCacheControl(res, 0);
+    res.json({ signals: seen.map((r) => signalFor(member, r)) });
   } catch (err) {
     console.error('Signals fetch error:', err.stack || err.message);
     // "Fail soft — an empty stream is better than a dashboard error" was the

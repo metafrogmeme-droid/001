@@ -94,12 +94,23 @@
   }
 
   /**
+   * Is this row a live call the server withheld from this viewer? A visitor
+   * reads a live call's market and time, and its side and levels once it
+   * resolves (app/lib/signal_access.js). Only the server's own marker says
+   * so: a row that merely lacks a field is not locked.
+   */
+  function locked(s) {
+    return !!s && s.locked === true;
+  }
+
+  /**
    * May a page offer to act on this signal? Only while the call is pending,
    * before any outcome label has arrived (an older server derives `outcome`
-   * from the R and sends no status beside it), and inside its window.
+   * from the R and sends no status beside it), and inside its window. A
+   * locked row carries no levels to act on.
    */
   function actionable(s, now) {
-    if (!s) return false;
+    if (!s || locked(s)) return false;
     const st = status(s);
     return !st.final && (s.outcome === null || s.outcome === undefined) && live(s, now);
   }
@@ -259,7 +270,7 @@
 
   return {
     PENDING: PENDING, TERMINAL: TERMINAL, CHIP: CHIP,
-    word: word, status: status, actionable: actionable,
+    word: word, status: status, actionable: actionable, locked: locked,
     liveUntil: liveUntil, live: live, leftText: leftText,
     elementLive: elementLive, tick: tick,
     otherLine: otherLine, avgR: avgR, avgCls: avgCls, statsHtml: statsHtml, BASIS: BASIS,

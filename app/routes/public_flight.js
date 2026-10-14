@@ -17,17 +17,31 @@ const express = require('express');
 const { rateLimit, ipKey } = require('../lib/rate_limit');
 const { getLatestFlight } = require('./sync');
 const { inspectWindow, sanitizeRecord } = require('../lib/flight');
+const { signedIn, flightRecordFor, viewerCacheControl } = require('../lib/signal_access');
+
+// Identifies, never refuses: a decision whose trade is still live is a
+// member's (lib/signal_access.js). Lazy, as routes/sync.js requires it.
+const optionalAuth = (req, res, next) => require('../auth').optionalAuth(req, res, next);
 
 const router = express.Router();
 router.use(rateLimit({ name: 'public_flight', windowMs: 60000, max: 30, key: ipKey, message: 'rate_limited' }));
+router.use(optionalAuth);
+
+/** The cached public body, with each live decision shaped for this viewer. */
+function forViewer(req, body) {
+  if (!body || !Array.isArray(body.records)) return body;
+  const member = signedIn(req);
+  return { ...body, records: body.records.map((r) => flightRecordFor(member, r)) };
+}
 
 const CACHE_MS = 20 * 1000;
 let cache = null; // { at, body }
 
 router.get('/', async (req, res) => {
-  res.setHeader('Cache-Control', 'no-cache');
+  viewerCacheControl(res, 0);
+  res.setHeader('Cache-Control', 'no-cache, private');
   const now = Date.now();
-  if (cache && (now - cache.at) < CACHE_MS) return res.json(cache.body);
+  if (cache && (now - cache.at) < CACHE_MS) return res.json(forViewer(req, cache.body));
   try {
     const flight = await getLatestFlight();
     if (!flight || !Array.isArray(flight.records)) {
@@ -51,7 +65,7 @@ router.get('/', async (req, res) => {
         + 'Prices are public market data. The chain is engine-verified; the window check is re-derivable below.',
     };
     cache = { at: now, body };
-    res.json(body);
+    res.json(forViewer(req, body));
   } catch (err) {
     console.error('Public flight error:', err.stack || err.message);
     res.status(502).json({ error: 'Flight recorder unavailable' });
@@ -59,13 +73,15 @@ router.get('/', async (req, res) => {
 });
 
 router.get('/:decisionId', async (req, res) => {
-  res.setHeader('Cache-Control', 'no-cache');
+  viewerCacheControl(res, 0);
+  res.setHeader('Cache-Control', 'no-cache, private');
   try {
     const flight = await getLatestFlight();
     const records = (flight && Array.isArray(flight.records)) ? flight.records : [];
     const rec = records.find((r) => r && r.decision_id === req.params.decisionId);
     if (!rec) return res.status(404).json({ error: 'Decision not found in recent window' });
-    res.json({ record: sanitizeRecord(rec), chain: (flight && flight.chain) || {} });
+    res.json({ record: flightRecordFor(signedIn(req), sanitizeRecord(rec)),
+               chain: (flight && flight.chain) || {} });
   } catch (err) {
     console.error('Public flight-by-id error:', err.stack || err.message);
     res.status(502).json({ error: 'Flight recorder unavailable' });

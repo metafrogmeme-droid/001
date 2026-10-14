@@ -38,7 +38,18 @@ test('verify_call returns the record with a server-side recomputation check', as
       fixed.entry_price, fixed.stop_loss, fixed.take_profit, 0, null, 'NEW', null,
       fixed.created_at, null, receipt.seal, receipt.seal_payload, fixed.created_at]);
 
-  const out = await TOOLS.verify_call.handler({ key: 'mcpv1' });
+  // A live call's payload is a member's (lib/signal_access.js): a caller
+  // with an Arena key is one. Without a key, the seal arrives and the check
+  // is not run, which says so (null) rather than reporting a mismatch.
+  const visitor = await TOOLS.verify_call.handler({ key: 'mcpv1' });
+  assert.equal(visitor.found, true);
+  assert.equal(visitor.seal, receipt.seal, 'the seal is public from the start');
+  assert.equal(visitor.locked, true);
+  assert.equal(visitor.seal_payload, null);
+  assert.equal(visitor.seal_matches_payload, null, 'no payload, no verdict either way');
+  assert.ok(!JSON.stringify(visitor).includes('64000'), 'the entry reached a keyless caller');
+
+  const out = await TOOLS.verify_call.handler({ key: 'mcpv1' }, { userId: 7 });
   assert.equal(out.found, true);
   assert.equal(out.kind, 'signal');
   assert.equal(out.seal, receipt.seal);

@@ -1454,8 +1454,13 @@ ERC-8257 invoke endpoint, and the public REST list printed on
 developers.html), and can frame its signal and Arena cards inside their own
 site — /embed is the one carve-out from the site-wide frame-ancestors 'none',
 GET-only, cookie-less and actionless by construction
-(`app/routes/embed.js::#"Embeddable surfaces"`). A logged-in user can also run a bounded backtest
-in the Lab against frozen benchmark snapshots.
+(`app/routes/embed.js::#"Embeddable surfaces"`). A live call is the one thing
+that data layer withholds without an account: its side, entry, stop and target
+need a signed-in session (REST, the stream, the embed) or an Arena key (MCP),
+and without one it is listed by market and time, with its seal, and published
+in full once it resolves (`app/lib/signal_access.js::signalFor`). A logged-in
+user can also run a bounded backtest in the Lab against frozen benchmark
+snapshots.
 
 *Gap.* No surface in the product builds a tool: no custom panels, no saved queries,
 no scripting, and no webhooks at all (a grep for 'webhook' across app/routes,

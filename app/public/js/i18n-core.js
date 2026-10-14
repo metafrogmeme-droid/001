@@ -873,6 +873,9 @@
     "dd.ec_partial": { en: "Showing {cards} of {above} candidate(s) above the floor." },
     "dd.ec_dropped": { en: "{n} could not be priced and is not shown." },
     "dd.ec_footer": { en: "The engine’s own candidates — not personal advice. Confirmations run through its risk gate." },
+    "sig.lock_row": { en: "Live call — sign in to see the side and levels" },
+    "sig.lock_cta": { en: "Sign in to see the trade" },
+    "sig.lock_note": { en: "Live calls are for signed-in members: direction, entry, stop and target. Every call is published in full once it resolves, and its seal is public from the start." },
     "dd.et_k_agent_s": { en: "the agent’s record" },
     "dd.et_k_agent_l": { en: "Deepest fall from peak on the agent’s published track record — not your account." },
     "dd.et_k_closed_s": { en: "your closed trades" },
@@ -2224,7 +2227,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"6008124a","zh":"abf89fed","pt":"b2ba7fc8","fr":"ed3a4f71","de":"3052b19a","nl":"7231b36f","ja":"7cb729ca","ko":"3cd4a5f5","ru":"43595311","tr":"0aa5fcf4","it":"f087985e","hi":"6ea0675f","ar":"a5cd1b86"};
+  var CHUNKS = {"es":"0f526837","zh":"07770c01","pt":"7470565e","fr":"ed78de17","de":"2adfd4d1","nl":"7c813a85","ja":"95c9cfb3","ko":"2b731f2a","ru":"d965578f","tr":"9d957256","it":"9678fa8c","hi":"890fb8fa","ar":"b710459e"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

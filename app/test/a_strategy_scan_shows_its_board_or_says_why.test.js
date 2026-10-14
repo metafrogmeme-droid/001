@@ -36,6 +36,11 @@ const BOARD = {
 
 let calls, answer;
 
+// A signed-in member. A strategy's board is its call now, so it is a
+// member's (lib/signal_access.js); a visitor reads its frame.
+const MEMBER = { Authorization: 'Bearer ' + require('jsonwebtoken').sign(
+  { user_id: 4242, email: 'member@test.dev' }, process.env.JWT_SECRET) };
+
 async function withRouter(fn) {
   // A fresh router per test: its limiter and cache are module state. The
   // limiter's count is shared since request limits moved into one table for
@@ -51,8 +56,8 @@ async function withRouter(fn) {
   app.use('/api/public/strategies', require('../routes/public_strategies'));
   const server = await new Promise((res) => { const s = app.listen(0, '127.0.0.1', () => res(s)); });
   const base = `http://127.0.0.1:${server.address().port}`;
-  const get = (p) => new Promise((resolve, reject) => {
-    const r = http.request(`${base}${p}`, { method: 'GET' }, (res) => {
+  const get = (p, headers) => new Promise((resolve, reject) => {
+    const r = http.request(`${base}${p}`, { method: 'GET', headers: headers || {} }, (res) => {
       let d = '';
       res.on('data', (c) => { d += c; });
       res.on('end', () => resolve({ status: res.statusCode, data: JSON.parse(d || '{}') }));
@@ -66,13 +71,23 @@ async function withRouter(fn) {
 test('the route relays the board, with the id as a query parameter, and caches it a minute', async () => {
   answer = () => ({ status: 200, data: { public: true, board: BOARD } });
   await withRouter(async (get) => {
-    const r = await get('/api/public/strategies/scan?id=alt-sweep');
+    const r = await get('/api/public/strategies/scan?id=alt-sweep', MEMBER);
     assert.equal(r.status, 200);
     assert.deepEqual(r.data.board, BOARD);
     assert.deepEqual(calls, ['/public/strategy-scan?id=alt-sweep']);
-    const again = await get('/api/public/strategies/scan?id=alt-sweep');
+    const again = await get('/api/public/strategies/scan?id=alt-sweep', MEMBER);
     assert.equal(again.status, 200);
+    assert.deepEqual(again.data.board, BOARD, 'the cache serves a member the whole board');
     assert.equal(calls.length, 1, 'the second ask inside a minute was the cache');
+    // A visitor is served from the same cached read, shaped for a visitor.
+    const visitor = await get('/api/public/strategies/scan?id=alt-sweep');
+    assert.equal(visitor.status, 200);
+    assert.equal(calls.length, 1, 'a visitor\'s answer is the same read, not another');
+    assert.equal(visitor.data.board.locked, true);
+    assert.ok(!('rows' in visitor.data.board), 'a visitor read the board\'s sides');
+    assert.ok(!/LONG|SHORT|long ADA/.test(JSON.stringify(visitor.data)), 'a side reached a visitor');
+    assert.deepEqual(visitor.data.board.unread, BOARD.unread, 'which markets went unread is the frame');
+    assert.equal(visitor.data.board.bar_close, BOARD.bar_close);
     await get('/api/public/strategies/scan?id=eth-ma-trend');
     assert.equal(calls.length, 2, 'another id is another read');
   });
@@ -179,7 +194,7 @@ test('the section is offered only on a card that names a scan door, and the page
   assert.equal(Scan.blockHtml({ id: 'full-scan', scan: null }), '');
   assert.match(Scan.blockHtml({ id: 'alt-sweep', scan: '/altsweep' }), /In the bot: <code>\/altsweep<\/code>/);
   const strat = codeOnly(fs.readFileSync(path.join(APP, 'public', 'strategy.html'), 'utf8'));
-  assert.match(strat, /<script src="\/js\/strategy-scan\.js\?v=1"><\/script>/);
+  assert.match(strat, /<script src="\/js\/strategy-scan\.js\?v=\d+"><\/script>/);
   assert.match(strat, /window\.StrategyScan\.blockHtml\(a\)/);
   assert.match(strat, /window\.StrategyScan\.run\(a\.id, document\.getElementById\('scanOut'\)/);
   const agents = codeOnly(fs.readFileSync(path.join(APP, 'public', 'agents.html'), 'utf8'));

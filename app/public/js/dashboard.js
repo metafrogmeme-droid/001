@@ -990,6 +990,10 @@
     const sigs = r.data?.signals || [];
     if (!sigs.length) return null;
     return sigs.map(s => {
+      // A live call the server withheld names its market and its age, and
+      // says how to see the rest. Never a "— no direction" chip: the side is
+      // known, and kept for members.
+      if (self.SignalStatusModel && self.SignalStatusModel.locked(s)) return lockedSignalRow(s);
       // Actionable signals get a one-tap Trade button (prefills the ticket
       // with this signal's geometry) — same mechanism, and the same reading,
       // as the Signals stream. It tested `s.pnl == null`, a field the public
@@ -1011,6 +1015,41 @@
       </div>`;
     }).join('') + `<a class="btn btn--ghost btn--sm mt-2" href="#signals">All signals →</a>`;
   }
+
+  // ── a locked call: renderers start ──────────────────────────
+  // A live call is a signed-in member's (app/lib/signal_access.js): a visitor
+  // is sent its market, time and seal, and the server marks it `locked`.
+  function lockNoteText() {
+    return T('sig.lock_note', 'Live calls are for signed-in members: direction, entry, stop and target. Every call is published in full once it resolves, and its seal is public from the start.');
+  }
+  function lockChip() {
+    return `<span class="chip muted" title="${esc(lockNoteText())}">🔒</span>`;
+  }
+  function lockCta() {
+    return `<a class="btn btn--sm" href="/">${esc(T('sig.lock_cta', 'Sign in to see the trade'))}</a>`;
+  }
+  function lockedSignalRow(s) {
+    return `
+      <div class="kv-row">
+        <span class="row" style="gap:8px">${lockChip()}<b style="font-family:var(--font-ui)">${esc(s.symbol)}</b><span class="muted small">${esc(T('sig.lock_row', 'Live call — sign in to see the side and levels'))}</span></span>
+        <span class="row" style="gap:8px;align-items:center"><span class="num muted">${fmtAgo(s.created_at)}</span>${lockCta()}</span>
+      </div>`;
+  }
+  function lockedStreamRow(s) {
+    const verify = s.seal && s.signal_key
+      ? ` · <a href="/call/${encodeURIComponent(s.signal_key)}" title="Sealed at decision time — what it commits to is revealed when the call resolves">🔏 sealed</a>` : '';
+    return `<tr>
+      <td data-label="Signal" class="td--stack">${lockChip()} <b>${esc(s.symbol)}</b><div class="muted small">${esc(T('sig.lock_row', 'Live call — sign in to see the side and levels'))}${verify}</div></td>
+      <td data-label="Score" class="r num muted">—</td>
+      <td data-label="Entry" class="r num muted">🔒</td>
+      <td data-label="Stop / Target" class="r num muted">🔒</td>
+      <td data-label="R:R" class="r num muted">—</td>
+      <td data-label="Status"><span class="chip">${esc((self.SignalStatusModel ? self.SignalStatusModel.status(s).label : s.status) || 'NEW')}</span></td>
+      <td data-label="Age" class="r muted small">${fmtAgo(s.created_at)}</td>
+      <td data-label="" class="r">${lockCta()}</td>
+    </tr>`;
+  }
+  // ── a locked call: renderers end ────────────────────────────
 
   function refreshHomeSignals() {
     const el = C('hsig');
@@ -2963,6 +3002,7 @@
         return `<div class="tbl-wrap"><table class="tbl tbl--collapse">
           <thead><tr><th>Signal</th><th class="r">Score</th><th class="r">Entry</th><th class="r">Stop / Target</th><th class="r">R:R</th><th>Status</th><th class="r">Age</th><th class="r"></th></tr></thead>
           <tbody>${sigs.map(s => {
+            if (self.SignalStatusModel && self.SignalStatusModel.locked(s)) return lockedStreamRow(s);
             // `Number(s.pnl) > 0 ? WIN : LOSS` called a break-even resolution a
             // LOSS, and the server no longer publishes the amount anyway — the
             // outcome arrives as a label, with FLAT as its own answer.
@@ -3377,6 +3417,14 @@
     const WORDS = ecWords();
     if (EC.state(scan) !== 'cards') {
       return `<p class="muted">${esc(ecSay(WORDS, EC.why(scan)))}</p>`;
+    }
+    // A visitor is sent each card's market and nothing else; the levels are a
+    // member's (app/lib/signal_access.js). Named, never drawn as empty cells.
+    if (scan && scan.calls_locked === true) {
+      const syms = (scan.entry_cards || []).map(c => esc(c && c.symbol)).filter(Boolean);
+      return `<p>${lockChip()} <b>${syms.slice(0, 8).join(' · ')}</b></p>
+        <p class="muted small mt-2">${esc(lockNoteText())}</p>
+        <p class="mt-2">${lockCta()}</p>`;
     }
     const cards = EC.cardList(scan);
     const notes = EC.note(scan, now);

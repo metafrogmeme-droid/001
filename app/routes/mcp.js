@@ -31,7 +31,15 @@ const { safeErrorText } = require('../lib/safe_error');
 const { classifyPnls, outcomeOf, recordCoverage } = require('./track');
 const { sanitizeRecord } = require('../lib/flight');
 const { publicFeedEvent } = require('../lib/public_feed');
-const { publicSignal } = require('../lib/public_signal');
+const { signalFor, receiptFor, feedEventFor, flightRecordFor } = require('../lib/signal_access');
+
+/**
+ * Is this tool call from a member? An Arena key is minted by a signed-in
+ * account and is resolved once per request (`router.post` below), so a
+ * verified key is the MCP door's sign-in. The public ERC-8257 dispatcher
+ * passes no context at all, and reads as a visitor.
+ */
+const memberCall = (ctx) => Boolean(ctx && ctx.userId);
 const { getGateway, isConfigured: gatewayConfigured } = require('../lib/gateway');
 // The module itself as well as the two names above: ask_runeclaw reads
 // `gateway.postGateway` at call time, so a test can stand in a gateway
@@ -377,17 +385,23 @@ const TOOLS = {
       required: ['key'],
       additionalProperties: false,
     },
-    handler: async (args) => {
+    handler: async (args, ctx) => {
       const { lookupCall } = require('./call');
       const r = await lookupCall(String((args && args.key) || ''));
       if (r.code !== 200) return { found: false, error: r.body.error };
+      // A live call's payload is a member's until it resolves; its seal is
+      // public from the start (lib/signal_access.js).
+      const body = receiptFor(memberCall(ctx), r.body);
       const crypto = require('crypto');
       // The one check the server can honestly perform FOR the caller — and
-      // the caller can (and should) repeat it from the same two fields.
-      const recomputed = crypto.createHash('sha256')
-        .update(String(r.body.seal_payload || ''), 'utf8').digest('hex');
-      return { found: true, ...r.body,
-        seal_matches_payload: recomputed === String(r.body.seal),
+      // the caller can (and should) repeat it from the same two fields. A
+      // withheld payload is no payload: the check is not run and says so
+      // (null), rather than hashing nothing and reporting a mismatch.
+      const withheld = body.locked === true;
+      const recomputed = withheld ? null : crypto.createHash('sha256')
+        .update(String(body.seal_payload || ''), 'utf8').digest('hex');
+      return { found: true, ...body,
+        seal_matches_payload: withheld ? null : recomputed === String(body.seal),
         verify_yourself: 'seal = sha256(utf8(seal_payload)). Merkle: parent = '
           + 'sha256(utf8(leftHex+rightHex)), leaves deduped + sorted asc. '
           + 'Anchor calldata = hex(utf8("RCROOT1:<day>:<root>")) on Base.' };
@@ -559,24 +573,27 @@ const TOOLS = {
   get_signals: {
     description: 'The most recent trade signals the engine generated — taken '
       + 'or not — with direction, confidence, pattern, entry/stop/target and '
-      + 'resolved outcome where known.',
+      + 'resolved outcome where known. A call that is still live carries its '
+      + 'trade only for a caller with an Arena key; without one it is listed '
+      + 'by market and time, and published in full once it resolves.',
     inputSchema: {
       type: 'object',
       properties: { limit: { type: 'integer', minimum: 1, maximum: 50 } },
       additionalProperties: false,
     },
-    handler: async (args) => {
+    handler: async (args, ctx) => {
       const limit = Math.min(parseInt(args?.limit) || 20, 50);
       const [rows] = await pool.execute(
         `SELECT signal_key, symbol, direction, confidence, pattern, regime,
                 entry_price, stop_loss, take_profit, rr, net_rr, rr_fee_losing,
-                status, pnl, created_at
+                status, pnl, created_at, expires_at, seal
            FROM signals ORDER BY created_at DESC LIMIT ${limit}`, []);
       // /mcp is mounted with no auth, so the same §4 redaction the flight
       // tools get (sanitizeRecord, below) applies here: the outcome's SIGN is
       // public, its magnitude is not. `pnl` was emitted raw straight from the
       // SELECT — the third of the three surfaces sharing that channel.
-      return { signals: rows.map(publicSignal) };
+      const member = memberCall(ctx);
+      return { signals: rows.map((r) => signalFor(member, r)) };
     },
   },
 
@@ -608,13 +625,16 @@ const TOOLS = {
     // and lib/flight.js says in its header that the dollar-carrying record is
     // reserved for the authed view. The rule was written, the tool was written,
     // one of two public surfaces used it.
-    handler: async (args) => {
+    handler: async (args, ctx) => {
       const flight = await getLatestFlight();
       const all = (flight && Array.isArray(flight.records)) ? flight.records : [];
       const chain = (flight && flight.chain) || {};
+      // A decision whose trade is still live is a member's.
+      const member = memberCall(ctx);
+      const shaped = (rec) => flightRecordFor(member, sanitizeRecord(rec));
       if (args && args.decision_id) {
         const rec = all.find((r) => r && r.decision_id === args.decision_id);
-        return { record: rec ? sanitizeRecord(rec) : null, chain };
+        return { record: rec ? shaped(rec) : null, chain };
       }
       const limit = Math.min(parseInt(args?.limit) || 20, 50);
       return {
@@ -630,7 +650,7 @@ const TOOLS = {
           entries: chain.length ?? null,
           tip_hash: chain.tip_hash ?? null,
         },
-        records: all.slice(0, limit).map(sanitizeRecord),
+        records: all.slice(0, limit).map(shaped),
         source: 'engine-side hash-chained audit ledger (logs/audit_chain.jsonl)',
         disclosure: 'Percent, ratio and R-multiple only — no dollar amounts. '
           + 'The full record is reserved for the authenticated operator view.',
@@ -646,14 +666,16 @@ const TOOLS = {
       properties: { limit: { type: 'integer', minimum: 1, maximum: 50 } },
       additionalProperties: false,
     },
-    handler: async (args) => {
+    handler: async (args, ctx) => {
       const limit = Math.min(parseInt(args?.limit) || 20, 50);
       const [rows] = await pool.execute(
         `SELECT event_type, severity, symbol, title, body, created_at
            FROM agent_events ORDER BY id DESC LIMIT ${limit}`, []);
       // The ring holds rows written before the ingest scrubbed them, so the
-      // public shape is applied here too (no dollar amount of the account).
-      return { events: rows.map(publicFeedEvent) };
+      // public shape is applied here too (no dollar amount of the account),
+      // and a live call's event is a member's.
+      const member = memberCall(ctx);
+      return { events: rows.map((r) => feedEventFor(member, publicFeedEvent(r))) };
     },
   },
 

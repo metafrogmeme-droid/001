@@ -200,6 +200,24 @@
   function rowHtml(s, opts) {
     var o = opts || {};
     var sig = s || {};
+    // A live call the server withheld (app/lib/signal_access.js): this page
+    // is framed on somebody else's site and is never signed in, so every live
+    // call reaches it locked. Its market and age, and where to see the rest;
+    // no chart slot, because a chart without its levels is a different claim.
+    if (sig.locked === true) {
+      var lsym = splitSymbol(sig.symbol);
+      var lage = ageLabel(sig.created_at, o.nowMs);
+      return '<article class="e-row e-row--locked">'
+        + '<header class="e-head">'
+        + '<span class="e-dir e-flat">LIVE</span>'
+        + '<b class="e-sym">' + esc(lsym.base || '—') + '</b>'
+        + '</header>'
+        + (lage ? '<p class="e-meta">' + esc(lage) + '</p>' : '')
+        + '<p class="e-meta">Live call: the side and levels are for signed-in members, '
+        + 'and published in full once it resolves · '
+        + '<a href="/" target="_blank" rel="noopener">sign in on RUNECLAW</a></p>'
+        + '</article>';
+    }
     var dir = String(sig.direction || '').toUpperCase();
     var dirCls = dir === 'LONG' ? 'e-long' : dir === 'SHORT' ? 'e-short' : 'e-flat';
     var sym = splitSymbol(sig.symbol);

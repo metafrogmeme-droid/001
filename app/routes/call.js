@@ -8,11 +8,22 @@
  * drift — there should never be any), and the outcome. The client
  * re-derives sha256(seal_payload) with WebCrypto and compares — the server
  * is never trusted to say "verified".
+ *
+ * A LIVE CALL IS A MEMBER'S. While an engine signal is unresolved, a visitor
+ * gets the seal, its time and its anchor, and not the payload or the
+ * decision-time values: the seal commits now, the payload is
+ * revealed when the call resolves, and the check above still runs then
+ * (lib/signal_access.js). The answer depends on the viewer, so no shared
+ * cache may keep it.
  */
 
 const express = require('express');
 const { pool } = require('../db');
 const { anchorFor } = require('../lib/seal_roots');
+const { signedIn, signalResolved, receiptFor, viewerCacheControl } = require('../lib/signal_access');
+
+// Identifies, never refuses. Lazy, as routes/sync.js requires it.
+const optionalAuth = (req, res, next) => require('../auth').optionalAuth(req, res, next);
 
 const router = express.Router();
 
@@ -149,7 +160,11 @@ async function lookupCall(key) {
       // the outcome existed. status and resolved_at carry that. A signal row
       // has entry_price but no exit, so there is no honest percentage to put
       // here either — omit, never invent.
-      outcome: { status: s.status, resolved_at: s.resolved_at },
+      //
+      // `resolved` is a boolean about the row (a terminal word, or an outcome
+      // read), never the outcome's amount: the reading that decides whether
+      // a visitor may see the call (lib/signal_access.js::signalResolved).
+      outcome: { status: s.status, resolved_at: s.resolved_at, resolved: signalResolved(s) },
     } };
   }
 }
@@ -170,11 +185,12 @@ async function lookupCall(key) {
 const LATEST_CACHE_MS = 20000;
 let latestCache = { at: 0, body: null };
 
-router.get('/latest', async (req, res) => {
+router.get('/latest', optionalAuth, async (req, res) => {
   try {
+    // The cache holds the whole receipt; each viewer is shaped from it.
     if (latestCache.body && Date.now() - latestCache.at < LATEST_CACHE_MS) {
-      res.set('Cache-Control', 'public, max-age=15');
-      return res.json(latestCache.body);
+      viewerCacheControl(res, 15);
+      return res.json(receiptFor(signedIn(req), latestCache.body));
     }
     const [rows] = await pool.execute(
       'SELECT signal_key FROM signals WHERE seal IS NOT NULL ORDER BY created_at DESC LIMIT 1');
@@ -194,8 +210,8 @@ router.get('/latest', async (req, res) => {
       return res.status(503).json({ error: 'Verify feed unavailable' });
     }
     latestCache = { at: Date.now(), body: r.body };
-    res.set('Cache-Control', 'public, max-age=15');
-    return res.json(r.body);
+    viewerCacheControl(res, 15);
+    return res.json(receiptFor(signedIn(req), r.body));
   } catch (err) {
     console.error('Latest call error:', err.stack || err.message);
     // 503, never an empty 200. A landing widget that received {} would have
@@ -204,11 +220,12 @@ router.get('/latest', async (req, res) => {
   }
 });
 
-router.get('/:key', async (req, res) => {
+router.get('/:key', optionalAuth, async (req, res) => {
   try {
     const r = await lookupCall(String(req.params.key || ''));
-    if (r.code === 200) res.set('Cache-Control', 'public, max-age=15');
-    res.status(r.code).json(r.body);
+    if (r.code !== 200) return res.status(r.code).json(r.body);
+    viewerCacheControl(res, 15);
+    res.status(200).json(receiptFor(signedIn(req), r.body));
   } catch (err) {
     console.error('Call verify error:', err.stack || err.message);
     res.status(500).json({ error: 'Verify feed unavailable' });

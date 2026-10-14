@@ -550,6 +550,14 @@ RULES: list[Rule] = [
             # because a hard gate would take the market data from anonymous
             # readers; it is not a claim that the payload is all public.
             "sync.js:GET /scan",
+            # Signals and strategies read the viewer only to decide whether a
+            # live call's side and levels are shown (lib/signal_access.js):
+            # their list and scan routes carry optionalAuth for that, which is
+            # what makes these modules look mixed. These three name no live
+            # call: the published strategy cards, and the outcome statistics,
+            # which are public by design (a resolved call is public).
+            "public_strategies.js:GET /",
+            "signals.js:GET /stats", "signals.js:GET /analytics",
             # app/auth.js — the routes that CANNOT require a session, because
             # they are how a session is obtained or recovered. Listed one by one
             # so a new unauthenticated route here has to be argued for.
