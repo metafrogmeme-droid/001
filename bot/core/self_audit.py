@@ -94,6 +94,70 @@ ALLOWED_FLAGS: dict[str, dict[str, Any]] = {
     "OF_MIN_DEPTH_USD": {"type": "float", "min": 500, "max": 50_000},
 }
 
+#: WHAT EACH ALLOWLISTED FLAG CONTROLS, and which way loosens it. Sent to the
+#: model beside the bounds. It was given a name, bounds and the value in
+#: force, and nothing saying what the value IS: on 2026-10-14 it proposed
+#: VOLATILITY_GUARD_ATR_PCT=15 under "ATR at 7.0% — a low read … warrants
+#: raising the guard". The 7.0 was the guard's own threshold, read as a
+#: market reading the evidence never carried, and raising that threshold
+#: admits MORE volatile entries, so "raising the guard" loosened it during a
+#: losing window. Pinned two ways against ALLOWED_FLAGS by
+#: tests/test_the_audit_is_told_the_values_in_force.py.
+FLAG_MEANINGS: dict[str, str] = {
+    "EQUITY_THROTTLE_ENABLED": (
+        "on scales position size down as the rolling profit factor of recent "
+        "closes falls (never up, never to zero); off leaves size alone"),
+    "ENTRY_TIMING_ENABLED": (
+        "on makes a qualified idea wait for a confirmed lower-timeframe turn "
+        "before it executes, and drop if its stop is touched first; fewer, "
+        "later entries"),
+    "STRUCTURE_TRAIL_ENABLED": (
+        "on adds a swing-low ratchet to the trailing stop; measured inert "
+        "under the current trail settings"),
+    "CANDLE_ENTRY_VETO_ENABLED": (
+        "on skips a pullback limit entry when the last closed candle is a "
+        "strong reversal pattern against the trade"),
+    "REENTRY_COOLDOWN_SECONDS": (
+        "seconds after a symbol's last real fill before a fresh entry on that "
+        "symbol is allowed; raising it tightens, 0 turns it off"),
+    "TREND_UP_SIZE_MULT": (
+        "position size multiplier in the TREND_UP regime only; raising it "
+        "takes larger positions there"),
+    "LIVE_PERF_REDUCE_WINRATE": (
+        "the live governor's win-rate threshold (a fraction) at or below which "
+        "it cuts size; raising it cuts size sooner (tightens)"),
+    "LIVE_PERF_REDUCE_MULT": (
+        "the size multiplier the live governor applies while cutting size; "
+        "raising it cuts less (loosens)"),
+    "VOLATILITY_GUARD_ATR_PCT": (
+        "the threshold, in percent of price, above which an entry's ATR is "
+        "refused; it is a setting, not a reading of current volatility; "
+        "raising it admits more volatile entries (loosens)"),
+    "SYMBOL_LOSS_STREAK_THRESHOLD": (
+        "consecutive losses on one symbol before that symbol is benched for a "
+        "long cooldown; raising it benches later (loosens)"),
+    "OF_MAX_SPREAD_BPS": (
+        "the widest bid-ask spread, in basis points, at which an entry is "
+        "allowed; raising it admits wider spreads (loosens)"),
+    "OF_MIN_DEPTH_USD": (
+        "the floor, in dollars, of the top-of-book depth an entry needs "
+        "(scaled up with position size); raising it demands deeper books "
+        "(tightens)"),
+}
+
+
+def flag_bounds() -> dict[str, dict[str, Any]]:
+    """What the model is told about each allowlisted flag: its type, its
+    bounds and what it means (FLAG_MEANINGS)."""
+    out: dict[str, dict[str, Any]] = {}
+    for k, v in ALLOWED_FLAGS.items():
+        b: dict[str, Any] = ({"type": "bool"} if v["type"] == "bool" else
+                             {"type": "number", "min": v["min"], "max": v["max"]})
+        b["means"] = FLAG_MEANINGS[k]
+        out[k] = b
+    return out
+
+
 #: FLAGS THE FROZEN BENCHMARK CANNOT EXERCISE, with the reason. This is a
 #: fact about the HARNESS, not about the flag: the backtest never constructs
 #: the object these live on, so no dataset, no window and no night will ever
@@ -145,7 +209,11 @@ span before tuning the AI path off it; `null` means the brain state could \
 not be read. `VALUES IN FORCE` is what each flag is set to now (its \
 environment override, else the code default); a rationale that names a \
 flag's current value names that one, and `null` there means it could not \
-be read. Respond with STRICT JSON only — an array \
+be read. A flag's value is a SETTING, never a market reading: the evidence \
+carries no ATR, volatility, spread, depth or funding reading, so a rationale \
+never states one. Each flag's `means` says what it controls and which \
+direction loosens it; a proposal that loosens a guard says it loosens it. \
+Respond with STRICT JSON only — an array \
 of at most {max_proposals} objects, no prose, no markdown fences:
 [{{"flag": "<ALLOWLISTED_FLAG>", "value": <bool|number>, \
 "rationale": "<one sentence tied to the evidence>"}}]"""
@@ -1110,10 +1178,7 @@ class SelfAudit:
 
             evidence = self.gather_evidence(engine)
             max_props = int(getattr(CONFIG, "self_audit_max_proposals", 2))
-            bounds = {k: ({"type": "bool"} if v["type"] == "bool" else
-                          {"type": "number", "min": v["min"], "max": v["max"]})
-                      for k, v in ALLOWED_FLAGS.items()}
-            user_prompt = audit_user_prompt(bounds, evidence)
+            user_prompt = audit_user_prompt(flag_bounds(), evidence)
 
             from bot.llm.provider import llm_complete
             text = await llm_complete(

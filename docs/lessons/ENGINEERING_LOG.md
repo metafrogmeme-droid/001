@@ -24538,3 +24538,28 @@ both forms of the loopback address hash to hex containing `127`: the old
 assertion failed and the new one passes. Two mutants, both killed: a server
 that sends the raw address, and one that sends an unkeyed hash of it, which
 is 32 hex characters too.
+
+**THE AUDIT WAS GIVEN A SETTING'S NUMBER AND NOT WHAT THE NUMBER WAS, AND READ IT AS THE MARKET.**
+The nightly card of 2026-10-14 proposed `VOLATILITY_GUARD_ATR_PCT=15 (in
+force: 7)` under the rationale "ATR at 7.0% — a low read — with a negative
+net and a loss streak approaching the threshold warrants raising the guard
+to 15.0%". Its measured line was red (−2.05% against the −1.07% baseline,
+PF 0.85 against 0.92). The 7.0 was the guard's own threshold, which the
+previous fix had begun sending as the value in force. The evidence carries no
+ATR reading at all: closed trades, the window summary, the shadow gates, the
+governor and the brain state. And raising that threshold admits more volatile
+entries, so "raising the guard" loosened it in a losing window. The model had
+been given each flag's name, bounds and current value, and nothing saying what
+the value was or which way loosened it.
+
+`self_audit.FLAG_MEANINGS` now says, for every allowlisted flag, what it
+controls, in which unit, and which direction loosens it. `flag_bounds()` sends
+it beside the bounds. The system prompt says a flag's value is a setting and
+never a market reading, that the evidence carries no ATR, volatility, spread,
+depth or funding reading, and that a proposal which loosens a guard says so.
+Nothing about which flags may be proposed, their bounds or how a proposal is
+validated, measured or applied changed; the measured line stays the verdict.
+(`tests/test_the_audit_is_told_the_values_in_force.py`: the bounds block
+carries each flag's meaning, driven through `SelfAudit.run`; every allowlisted
+flag has one and none is stale; each number flag says which way raising it
+moves; the prompt's settings sentence. Five mutants, all killed.)
