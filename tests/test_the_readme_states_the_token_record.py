@@ -3,7 +3,8 @@
 The repository's README is the first page many people see, and a presale is
 when a forged mint or sale link costs money. Both READMEs (English and
 繁體中文) carry a $RCLAW section between ``rclaw-record`` markers: the mint,
-the sale link, the sale window and terms, and the three locks. Each is a
+the sale link, the sale window and terms, the three locks and the treasury
+multisig. Each is a
 second copy of ``token/config/rclaw.mainnet.json``, which the website's /token
 page and the bot's /rclaw card print and which the token tests hold to the
 chain, so this file holds every copy here to that record: a changed address,
@@ -61,7 +62,8 @@ def test_the_mint_is_the_records_and_links_its_own_explorer_page(name, record):
 def test_every_address_in_the_section_is_one_the_record_names(name, record):
     # A mistyped or forged address is the failure that matters on this page,
     # and it would not match any field: hold the whole section to the record.
-    known = {record["mint"]} | {i["vesting_account"] for i in record["locks"]["items"]}
+    known = ({record["mint"]} | {i["vesting_account"] for i in record["locks"]["items"]}
+             | {record["multisig"]["vault"], record["multisig"]["account"]})
     found = set(ADDRESS.findall(_section(name)))
     assert found <= known, f"{name}: addresses the record does not name: {sorted(found - known)}"
     assert known <= found, f"{name}: record addresses missing: {sorted(known - found)}"
@@ -115,3 +117,28 @@ def test_the_page_links_the_sites_own_host(name):
     assert f'<a href="{SITE}/">' in text, "the header's website link"
     assert f"{SITE}/token" in _section(name)
     assert DEPLOY_HOST not in text, "the hosting provider's hostname is not the site's address"
+
+
+@pytest.mark.parametrize("name", READMES)
+def test_the_treasury_multisig_is_the_records(name, record):
+    ms = record["multisig"]
+    vault, account = ms["vault"], ms["account"]
+    lines = [line for line in _section(name).splitlines() if f"solscan.io/account/{vault}" in line]
+    assert len(lines) == 1, f"{name}: {len(lines)} lines link the vault"
+    line = lines[0]
+    assert f"[`{vault}`](https://solscan.io/account/{vault})" in line
+    assert f"[`{account}`](https://solscan.io/account/{account})" in line
+    numbers = _numbers(line)
+    hours, rest = divmod(ms["time_lock_seconds"], 3600)
+    assert rest == 0, "the README states the time lock in hours"
+    for figure in ([f"{int(ms['holds_tokens']):,}", str(ms["threshold"]), str(len(ms["members"])), str(hours)]
+                   + [f"{int(b['tokens']):,}" for b in ms["buckets"]]):
+        assert figure in numbers, (name, figure)
+    assert ms["verified_at"] in line, (name, "the date the balance was read")
+    # The members' wallets are in the record for the verifier, not on this page.
+    assert not any(m in line for m in ms["members"])
+    if name == "README.md":
+        assert f"{ms['threshold']} of {len(ms['members'])} members and then a {hours}-hour time lock" in line
+        for b in ms["buckets"]:
+            assert f"{b['bucket']} {int(b['tokens']):,}" in line, b["bucket"]
+        assert "not a lock" in line

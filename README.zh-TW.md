@@ -76,7 +76,9 @@
 | 團隊與貢獻者 | 150,000,000 | 2028-04-29 25% · 2028-10-29 25% · 2029-04-29 25% · 2029-10-29 25% | [`2iXmFjKuVe25XMPMUAkrQCBDDRrx9Qk319SFTJ7Hucuz`](https://solscan.io/account/2iXmFjKuVe25XMPMUAkrQCBDDRrx9Qk319SFTJ7Hucuz) | [證明頁](https://tools.smithii.io/vesting/solana/rclaw-team) |
 | 顧問 | 20,000,000 | 2027-10-29 33% · 2028-04-29 33% · 2028-10-29 34% | [`BkH2rAhRW8bx4qha8tkdDT9MiCfvu34vkQbdN616gPU8`](https://solscan.io/account/BkH2rAhRW8bx4qha8tkdDT9MiCfvu34vkQbdN616gPU8) | [證明頁](https://tools.smithii.io/vesting/solana/rclaw-advisors) |
 
-Smithii 可以升級其銷售與鎖倉程式，目前運行的版本並未確認經過審計。以上每個地址都已從鏈上讀回核對（`token/` 中的 `npm run presale:smithii-verify` 與 `npm run presale:locks-verify`）。即時版本請見 **https://www.humanoid-traders.com/token** 與機器人（`/rclaw`）。我們絕不會主動私訊，也絕不會索取助記詞。
+**金庫多簽錢包**（Squads v4；該程式無法升級）：金庫帳戶 [`G3sr3bF9RTYa8AcZVb65M78fEEPzN9YCirNyGygFCC76`](https://solscan.io/account/G3sr3bF9RTYa8AcZVb65M78fEEPzN9YCirNyGygFCC76) 持有 309,997,299 RCLAW（2026-10-14 鏈上核對）：金庫／DAO 200,000,000 · 合作夥伴與做市商 80,000,000 · 儲備／保險基金 29,997,299。轉出代幣或變更這些規則，需 3 名成員中的 2 名核准，再等待 48 小時的時間鎖。多簽帳戶 [`3epS2jErLKXbxJXKnsn4ziK7VEMwVi9QcKMEZR9R21mQ`](https://solscan.io/account/3epS2jErLKXbxJXKnsn4ziK7VEMwVi9QcKMEZR9R21mQ)。這是有延遲的託管，而非鎖倉。
+
+Smithii 可以升級其銷售與鎖倉程式，目前運行的版本並未確認經過審計。以上每個地址都已從鏈上讀回核對（`token/` 中的 `npm run presale:smithii-verify`、`npm run presale:locks-verify` 與 `npm run presale:multisig-verify`）。即時版本請見 **https://www.humanoid-traders.com/token** 與機器人（`/rclaw`）。我們絕不會主動私訊，也絕不會索取助記詞。
 
 <!-- rclaw-record:end -->
 

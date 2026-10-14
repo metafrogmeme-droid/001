@@ -61,10 +61,11 @@ function readRecord(file) {
 
 /**
  * What the public route serves: the record minus its editor notes (in it,
- * its presale block and its locks block) and the basis column. Nothing here
- * is a dollar figure or a user's account; a presale price, once announced, is
- * a term of the sale and arrives as whatever string the announcement uses,
- * and a lock's addresses are public chain accounts.
+ * its presale block, its locks block and its multisig block) and the basis
+ * column. Nothing here is a dollar figure or a user's account; a presale
+ * price, once announced, is a term of the sale and arrives as whatever string
+ * the announcement uses, and a lock's or the multisig's addresses are public
+ * chain accounts.
  */
 function publicRecord(record) {
   const out = {};
@@ -72,7 +73,7 @@ function publicRecord(record) {
     if (k.startsWith('_') || k === 'basis') continue;
     out[k] = v;
   }
-  for (const block of ['presale', 'locks']) {
+  for (const block of ['presale', 'locks', 'multisig']) {
     if (!out[block] || typeof out[block] !== 'object' || Array.isArray(out[block])) continue;
     const kept = {};
     for (const [k, v] of Object.entries(out[block])) {

@@ -2173,5 +2173,16 @@
   ["tok.lock_certificate", "Certificaat"],
   ["tok.lock_none", "nog niet aangemaakt"],
   ["tok.locks_checked", "Gecontroleerd tegen de chain op"],
-  ["tok.locks_body", "Elke lock is een account van het Token Vesting-programma van Smithii, dat geen instructie heeft om een lock te annuleren of te wijzigen: alleen de genoemde wallet kan claimen, en pas op of na elke datum. Smithii kan dat programma bijwerken, en een audit van de draaiende versie is niet vastgesteld."]
+  ["tok.locks_body", "Elke lock is een account van het Token Vesting-programma van Smithii, dat geen instructie heeft om een lock te annuleren of te wijzigen: alleen de genoemde wallet kan claimen, en pas op of na elke datum. Smithii kan dat programma bijwerken, en een audit van de draaiende versie is niet vastgesteld."],
+  ["tok.ms_h", "Treasury-multisig"],
+  ["tok.ms_holds", "Bevat"],
+  ["tok.ms_approvals", "Goedkeuringen"],
+  ["tok.ms_quorum", "{n} van {m} leden"],
+  ["tok.ms_timelock", "Tijdvergrendeling"],
+  ["tok.ms_hours", "{h} uur"],
+  ["tok.ms_seconds", "{s} seconden"],
+  ["tok.ms_no_delay", "geen: een goedgekeurde overdracht wordt meteen uitgevoerd"],
+  ["tok.ms_vault", "Kluis (bevat de tokens)"],
+  ["tok.ms_account", "Multisig-account"],
+  ["tok.ms_body", "De kluis wordt beheerd door een Squads v4-multisig. Tokens eruit halen, of de leden, goedkeuringen of tijdvergrendeling wijzigen, vereist de getoonde goedkeuringen en daarna de wachttijd van de tijdvergrendeling. Het Squads v4-programma kan niet worden bijgewerkt. Dit is bewaring met vertraging, geen lock: na goedkeuring en de wachttijd kunnen tokens bewegen."]
 ]);

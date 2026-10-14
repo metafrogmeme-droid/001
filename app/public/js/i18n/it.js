@@ -2173,5 +2173,16 @@
   ["tok.lock_certificate", "Certificato"],
   ["tok.lock_none", "non ancora creato"],
   ["tok.locks_checked", "Verificato sulla catena il"],
-  ["tok.locks_body", "Ogni blocco è un account del programma Token Vesting di Smithii, che non ha alcuna istruzione per annullare o modificare un blocco: solo il wallet indicato può riscuotere, e solo alla data indicata o dopo. Smithii può aggiornare quel programma, e non risulta alcun audit della versione in esecuzione."]
+  ["tok.locks_body", "Ogni blocco è un account del programma Token Vesting di Smithii, che non ha alcuna istruzione per annullare o modificare un blocco: solo il wallet indicato può riscuotere, e solo alla data indicata o dopo. Smithii può aggiornare quel programma, e non risulta alcun audit della versione in esecuzione."],
+  ["tok.ms_h", "Multisig della tesoreria"],
+  ["tok.ms_holds", "Contiene"],
+  ["tok.ms_approvals", "Approvazioni"],
+  ["tok.ms_quorum", "{n} membri su {m}"],
+  ["tok.ms_timelock", "Blocco temporale"],
+  ["tok.ms_hours", "{h} ore"],
+  ["tok.ms_seconds", "{s} secondi"],
+  ["tok.ms_no_delay", "nessuno: un trasferimento approvato viene eseguito subito"],
+  ["tok.ms_vault", "Cassaforte (detiene i token)"],
+  ["tok.ms_account", "Account multisig"],
+  ["tok.ms_body", "La cassaforte è controllata da un multisig Squads v4. Spostare token da essa, o cambiarne i membri, le approvazioni o il blocco temporale, richiede le approvazioni indicate e poi l’attesa del blocco temporale. Il programma Squads v4 non può essere aggiornato. È una custodia con ritardo, non un blocco: una volta approvati e trascorsa l’attesa, i token possono muoversi."]
 ]);

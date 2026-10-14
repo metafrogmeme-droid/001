@@ -57,6 +57,11 @@ LOCKS_NOTE = ("Each lock is an account of Smithii's Token Vesting program, which
               "instruction to cancel or edit a lock: only the wallet named can claim, and only "
               "on or after each date. Smithii can upgrade that program, and no audit of the "
               "version running is established.")
+# Shorter than the website's sentence: the card is one Telegram message, and
+# the multisig's own account (which holds nothing) is left to /token.
+MULTISIG_NOTE = ("Moving tokens out, or changing these rules, needs the approvals shown and then "
+                 "the time lock's wait; the Squads v4 program cannot be upgraded. Custody with a "
+                 "delay, not a lock.")
 _MISSING = object()
 
 
@@ -221,6 +226,73 @@ def locks_lines(record: Mapping[str, Any], symbol: str = "RCLAW") -> list[str]:
     return lines
 
 
+def _quorum(ms: Mapping[str, Any]) -> str:
+    """``2 of 3 members`` from the threshold and the member list; anything else is unreadable."""
+    n = ms.get("threshold")
+    members = ms.get("members")
+    if (not isinstance(members, list)
+            or not all(isinstance(k, str) and BASE58_ADDRESS.fullmatch(k) for k in members)):
+        return UNREADABLE
+    if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= len(members):
+        return UNREADABLE
+    return f"{n} of {len(members)} members"
+
+
+def _time_lock(seconds: Any) -> str:
+    """The delay in hours when it is whole hours, else seconds; 0 is a real "none"."""
+    if not isinstance(seconds, int) or isinstance(seconds, bool) or seconds < 0:
+        return UNREADABLE
+    if seconds == 0:
+        return "none: an approved transfer executes at once"
+    return f"{seconds // 3600} hours" if seconds % 3600 == 0 else f"{seconds} seconds"
+
+
+def _holds(ms: Mapping[str, Any], symbol: str) -> str:
+    """The vault's total, then each bucket; one bucket of another shape makes it unreadable."""
+    total = ms.get("holds_tokens")
+    buckets = ms.get("buckets")
+    if not (isinstance(total, str) and total.isascii() and total.isdigit()):
+        return UNREADABLE
+    if not isinstance(buckets, list) or not buckets:
+        return UNREADABLE
+    parts = []
+    for b in buckets:
+        name = b.get("bucket") if isinstance(b, dict) else None
+        tokens = b.get("tokens") if isinstance(b, dict) else None
+        if not (isinstance(name, str) and name and isinstance(tokens, str)
+                and tokens.isascii() and tokens.isdigit()):
+            return UNREADABLE
+        parts.append(f"{html.escape(name)} {int(tokens):,}")
+    return f"{int(total):,} {html.escape(symbol)} ({' · '.join(parts)})"
+
+
+def multisig_lines(record: Mapping[str, Any], symbol: str = "RCLAW") -> list[str]:
+    """The treasury multisig, from the record's multisig block, in three values.
+
+    A record without the block says it could not be read; ``null`` says it
+    is not created yet; each field then prints on its own.
+    """
+    head = "🏦 <b>Treasury multisig</b>"
+    if "multisig" not in record:
+        return [f"{head}: {UNREADABLE}"]
+    ms = record["multisig"]
+    if ms is None:
+        return [f"{head}: {LOCK_NONE}"]
+    if not isinstance(ms, dict):
+        return [f"{head}: {UNREADABLE}"]
+    lines = [
+        head,
+        f"Holds: {_holds(ms, symbol)}",
+        f"Approvals: {_quorum(ms)} · time lock: {_time_lock(ms.get('time_lock_seconds'))}",
+        f"Vault: {_lock_address(ms.get('vault', _MISSING), link=True)}",
+        MULTISIG_NOTE,
+    ]
+    checked = ms.get("verified_at")
+    if isinstance(checked, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", checked):
+        lines.append(f"Checked against the chain on {checked}.")
+    return lines
+
+
 def env_mint_line(record_mint: str, env_mint: Optional[str]) -> str:
     """For the operator: what the tier gate's ``RCLAW_MINT`` names, in three values."""
     if not env_mint:
@@ -256,6 +328,8 @@ def render_token_card(record: Mapping[str, Any], *, operator: bool = False,
     lines.extend(presale_lines(record["presale"], str(record["symbol"])))
     lines.append("")
     lines.extend(locks_lines(record, str(record["symbol"])))
+    lines.append("")
+    lines.extend(multisig_lines(record, str(record["symbol"])))
     lines.append("")
     lines.append(f"⚠️ Only this mint address is ${html.escape(str(record['symbol']))}. "
                  "Any other address using the name is not ours.")

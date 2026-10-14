@@ -98,8 +98,10 @@ That tool has no linear mode, so each schedule is a staircase: a step's share ca
 full once its date has passed. A lock cannot be cancelled or edited, but the tool's program is
 upgradeable by an off-curve authority (the same one as the sale program; who can sign for it is
 not visible) and was last deployed before its audit's fixes, so these locks are not called
-audited. Treasury, partners and the rest of the reserve sit in a multisig, which is custody
-with approvals, not a time lock. **Presale buyers are not vested:** they can claim
+audited. Treasury, partners and the rest of the reserve sit in a Squads v4 multisig (since
+2026-10-14): moving them needs its members' approvals and then its time lock's wait, which is
+custody with a delay, not a lock. The vault's address, the approvals and the delay are on
+humanoid-traders.com/token. **Presale buyers are not vested:** they can claim
 everything the moment the sale ends.
 
 The pool is created by the team after the raise, so it is sized then. Opening at the sale price

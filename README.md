@@ -77,7 +77,9 @@ The one official $RCLAW mint, on Solana: **`rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71q
 | Team & contributors | 150,000,000 | 2028-04-29 25% · 2028-10-29 25% · 2029-04-29 25% · 2029-10-29 25% | [`2iXmFjKuVe25XMPMUAkrQCBDDRrx9Qk319SFTJ7Hucuz`](https://solscan.io/account/2iXmFjKuVe25XMPMUAkrQCBDDRrx9Qk319SFTJ7Hucuz) | [certificate](https://tools.smithii.io/vesting/solana/rclaw-team) |
 | Advisors | 20,000,000 | 2027-10-29 33% · 2028-04-29 33% · 2028-10-29 34% | [`BkH2rAhRW8bx4qha8tkdDT9MiCfvu34vkQbdN616gPU8`](https://solscan.io/account/BkH2rAhRW8bx4qha8tkdDT9MiCfvu34vkQbdN616gPU8) | [certificate](https://tools.smithii.io/vesting/solana/rclaw-advisors) |
 
-Smithii can upgrade its sale and vesting programs, and no audit of the versions running is established. Each address above was read back from the chain (`npm run presale:smithii-verify`, `npm run presale:locks-verify` in `token/`). The live version is at **https://www.humanoid-traders.com/token** and in the bot (`/rclaw`). We never DM first and never ask for a seed phrase.
+**Treasury multisig** (Squads v4; that program cannot be upgraded): the vault [`G3sr3bF9RTYa8AcZVb65M78fEEPzN9YCirNyGygFCC76`](https://solscan.io/account/G3sr3bF9RTYa8AcZVb65M78fEEPzN9YCirNyGygFCC76) holds 309,997,299 RCLAW (read 2026-10-14): Treasury / DAO 200,000,000 · Partnerships & market makers 80,000,000 · Reserve / insurance fund 29,997,299. Moving tokens out, or changing these rules, needs 2 of 3 members and then a 48-hour time lock. Multisig account [`3epS2jErLKXbxJXKnsn4ziK7VEMwVi9QcKMEZR9R21mQ`](https://solscan.io/account/3epS2jErLKXbxJXKnsn4ziK7VEMwVi9QcKMEZR9R21mQ). This is custody with a delay, not a lock.
+
+Smithii can upgrade its sale and vesting programs, and no audit of the versions running is established. Each address above was read back from the chain (`npm run presale:smithii-verify`, `npm run presale:locks-verify`, `npm run presale:multisig-verify` in `token/`). The live version is at **https://www.humanoid-traders.com/token** and in the bot (`/rclaw`). We never DM first and never ask for a seed phrase.
 
 <!-- rclaw-record:end -->
 

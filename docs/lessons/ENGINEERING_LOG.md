@@ -19812,6 +19812,48 @@ itself (`scripts/red_team.py --json`). Six mutants over the X, NOTICE and red-te
 What only the operator can do is left to the operator: the repository's About box, which only GitHub's
 settings set, and the GitBook site's sync source.
 
+**THE TREASURY MULTISIG IS CUSTODY WITH A DELAY, AND "EXECUTED" ON A SCREEN WAS TWICE NOT THE PROPOSAL ASKED
+ABOUT.** On 2026-10-14 the 309,997,299 RCLAW still in the wallet that minted (treasury, partnerships and the
+reserve's remainder; the pool's share had left with the presale tokens) moved into a Squads v4 multisig
+the operator created on a phone: three member wallets, two approvals, and a time lock set by a config
+proposal. Every step was checked against the chain, not the app, and the chain disagreed three times.
+The Squads app's URL and its Receive screen show the **vault** (`["multisig", multisig, "vault", 0]`), and
+the first reading took that for the multisig; decoding the creation transaction named the multisig
+account, a different address, and a transfer to that account would be stranded, since the program signs
+only for its vaults. Then "time lock set" was a config proposal approved by two members and never
+executed: no member wallet had signed an Execute, not even a failed one, so the wallet had never sent it.
+Then "executed now" was a new proposal, a copy of the earlier one-token test send, created, approved and
+executed by mistake from the Send screen, while the time-lock proposal still sat unexecuted in the app's
+separate Config tab; the screenshot showed the Vault tab. The third Execute landed. Meanwhile the tokens
+had gone in before the delay was on, guarded for those minutes by the two approvals alone. A reply
+that says something is done is a claim about the chain, and it gets read like one.
+
+`npm run presale:multisig-verify` (`token/presale/multisig_verify.mjs`, decoders in
+`multisig_lib.mjs`) reads it back: the Squads v4 program has no upgrade authority (immutable since
+slot 302582236, unlike both Smithii programs); the multisig account is a `Multisig` owned by it, its
+threshold, its voting members (a member that keeps a seat but loses the vote turns "2 of 3" into "2 of
+2", so the set compared is the voters) and its time lock are the record's, and it has no config
+authority, the one key that could change all three alone; the record's vault is that multisig's vault
+#0; the vault's RCLAW equals the record's figure, with no delegate or close authority; and every
+proposal ever created is read, an approved one, or a draft or active one not yet stale, being a WARN
+that names it, since custody with a delay means tokens can move once one passes. A balance that differs
+from the record either way FAILS: the page prints that figure as what the vault holds, so a transfer out
+is a re-record, not a drift to tolerate. The record's `multisig` block is what /token and /rclaw print,
+and `the_record_states_the_multisig.test.mjs` replays a snapshot through the same check and breaks each
+field to see its row fail. The buckets are held to the roadmap's table: treasury and partnerships whole,
+the reserve the remainder, no more than its row.
+
+Adding the section took the /rclaw card to 4,220 characters. Its test compared the card with Telegram's
+4,096, but `_send` splits any reply over its own `MAX_LEN` of 4,000, so a card between the two passed
+and went out as two messages. The test now reads that split point out of `_send` by AST, and the card
+prints the vault and a shorter note, leaving the multisig's own account to /token and the README.
+(`token/presale/the_record_states_the_multisig.test.mjs`,
+`app/test/the_token_page_shows_the_multisig.test.js`, `tests/test_the_rclaw_card_shows_the_multisig.py`,
+`tests/test_the_readme_states_the_token_record.py`, `tests/test_the_rclaw_card_shows_the_locks.py`.
+Twenty-eight mutants over the verifier, the page, the card and both READMEs; the one that survived
+dropped the refusal of a vault token account that is not an RCLAW account the vault owns, and a test
+now names that row.)
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -21511,7 +21553,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **491 of 1315** reach for source text through `source_scan`, `code_only`
+Driven, **491 of 1316** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 491 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

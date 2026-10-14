@@ -127,5 +127,35 @@
         "claim_wallet": "7rkwK2beYZR7dYS9zyPivqDvBpGxRwvm3BKKXshyUpSG"
       }
     ]
+  },
+  "multisig": {
+    "_comment": "CREATED 2026-10-14: the Squads v4 multisig that holds the treasury, the partnerships bucket and the rest of the reserve (docs/TOKEN_ROADMAP.md section 4), written the way the website (/token) and the bot (/rclaw) print it. account is the multisig; vault is its vault #vault_index, the only address that holds its tokens (a transfer to account itself is lost). threshold, members and time_lock_seconds are what the multisig enforces; holds_tokens is the vault's RCLAW on verified_at, and buckets split it as section 4 earmarks it: treasury and partnerships whole, the reserve the remainder after the 100,001,701 that went to the pool wallet with the presale and DEX liquidity. token/presale/the_record_states_the_multisig.test.mjs holds every field to a snapshot `npm run presale:multisig-verify -- --snapshot` took. After any transfer into or out of the vault, re-take the snapshot and re-record holds_tokens and buckets. After editing, run node app/scripts/sync_content.js.",
+    "verified_at": "2026-10-14",
+    "program": "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf",
+    "account": "3epS2jErLKXbxJXKnsn4ziK7VEMwVi9QcKMEZR9R21mQ",
+    "vault_index": 0,
+    "vault": "G3sr3bF9RTYa8AcZVb65M78fEEPzN9YCirNyGygFCC76",
+    "threshold": 2,
+    "members": [
+      "3gQXFbUjmUXJwYAuN96SkEmu4E8JJn7LRo3kJUWcfMMS",
+      "EEoMVamYkEvZEDXe7cyMGCLg5BUGNAuvSXC1w2LWELVy",
+      "GJ2LoYbMFAM6yGmPyq2S3D5tkqXV2CtbEMSDpevxeASa"
+    ],
+    "time_lock_seconds": 172800,
+    "holds_tokens": "309997299",
+    "buckets": [
+      {
+        "bucket": "Treasury / DAO",
+        "tokens": "200000000"
+      },
+      {
+        "bucket": "Partnerships & market makers",
+        "tokens": "80000000"
+      },
+      {
+        "bucket": "Reserve / insurance fund",
+        "tokens": "29997299"
+      }
+    ]
   }
 }

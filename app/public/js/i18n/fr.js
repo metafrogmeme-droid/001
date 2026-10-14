@@ -2173,5 +2173,16 @@
   ["tok.lock_certificate", "Certificat"],
   ["tok.lock_none", "pas encore créé"],
   ["tok.locks_checked", "Vérifié sur la chaîne le"],
-  ["tok.locks_body", "Chaque verrou est un compte du programme Token Vesting de Smithii, qui n’a aucune instruction pour annuler ou modifier un verrou : seul le portefeuille indiqué peut réclamer, et seulement à chaque date ou après. Smithii peut mettre à jour ce programme, et aucun audit de la version en service n’est établi."]
+  ["tok.locks_body", "Chaque verrou est un compte du programme Token Vesting de Smithii, qui n’a aucune instruction pour annuler ou modifier un verrou : seul le portefeuille indiqué peut réclamer, et seulement à chaque date ou après. Smithii peut mettre à jour ce programme, et aucun audit de la version en service n’est établi."],
+  ["tok.ms_h", "Multisig de trésorerie"],
+  ["tok.ms_holds", "Détient"],
+  ["tok.ms_approvals", "Approbations"],
+  ["tok.ms_quorum", "{n} membres sur {m}"],
+  ["tok.ms_timelock", "Délai de sécurité"],
+  ["tok.ms_hours", "{h} heures"],
+  ["tok.ms_seconds", "{s} secondes"],
+  ["tok.ms_no_delay", "aucun : un transfert approuvé s’exécute immédiatement"],
+  ["tok.ms_vault", "Coffre (détient les jetons)"],
+  ["tok.ms_account", "Compte multisig"],
+  ["tok.ms_body", "Le coffre est contrôlé par un multisig Squads v4. Sortir des jetons, ou modifier ses membres, ses approbations ou son délai de sécurité, exige les approbations indiquées puis l’attente de ce délai. Le programme Squads v4 ne peut pas être mis à jour. C’est une garde avec délai, pas un verrou : une fois approuvés et le délai écoulé, les jetons peuvent bouger."]
 ]);

@@ -2215,7 +2215,18 @@
     "tok.lock_certificate": { en: "Certificate" },
     "tok.lock_none": { en: "not created yet" },
     "tok.locks_checked": { en: "Checked against the chain on" },
-    "tok.locks_body": { en: "Each lock is an account of Smithii’s Token Vesting program, which has no instruction to cancel or edit a lock: only the wallet named can claim, and only on or after each date. Smithii can upgrade that program, and no audit of the version running is established." }
+    "tok.locks_body": { en: "Each lock is an account of Smithii’s Token Vesting program, which has no instruction to cancel or edit a lock: only the wallet named can claim, and only on or after each date. Smithii can upgrade that program, and no audit of the version running is established." },
+    "tok.ms_h": { en: "Treasury multisig" },
+    "tok.ms_holds": { en: "Holds" },
+    "tok.ms_approvals": { en: "Approvals" },
+    "tok.ms_quorum": { en: "{n} of {m} members" },
+    "tok.ms_timelock": { en: "Time lock" },
+    "tok.ms_hours": { en: "{h} hours" },
+    "tok.ms_seconds": { en: "{s} seconds" },
+    "tok.ms_no_delay": { en: "none: an approved transfer executes at once" },
+    "tok.ms_vault": { en: "Vault (holds the tokens)" },
+    "tok.ms_account": { en: "Multisig account" },
+    "tok.ms_body": { en: "The vault is held by a Squads v4 multisig. Moving tokens out of it, or changing its members, its approvals or its time lock, needs the approvals shown and then the time lock’s wait. The Squads v4 program cannot be upgraded. This is custody with a delay, not a lock: once approved and past the wait, tokens can move." }
   };
 
   // ── Split build ───────────────────────────────────────────────────────────
@@ -2227,7 +2238,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"0f526837","zh":"07770c01","pt":"7470565e","fr":"ed78de17","de":"2adfd4d1","nl":"7c813a85","ja":"95c9cfb3","ko":"2b731f2a","ru":"d965578f","tr":"9d957256","it":"9678fa8c","hi":"890fb8fa","ar":"b710459e"};
+  var CHUNKS = {"es":"362260b4","zh":"a7d3f3c1","pt":"0d2ef49e","fr":"2faa3e7d","de":"5108f7d8","nl":"7cb19856","ja":"6dd3db0b","ko":"58f28adf","ru":"2b5034ca","tr":"f9eabba0","it":"0a7234af","hi":"a382aec9","ar":"cb550105"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

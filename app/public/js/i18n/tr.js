@@ -2173,5 +2173,16 @@
   ["tok.lock_certificate", "Sertifika"],
   ["tok.lock_none", "henüz oluşturulmadı"],
   ["tok.locks_checked", "Zincirle şu tarihte doğrulandı:"],
-  ["tok.locks_body", "Her kilit, Smithii’nin Token Vesting programındaki bir hesaptır ve bu programda bir kilidi iptal eden ya da düzenleyen bir talimat yoktur: yalnızca belirtilen cüzdan talep edebilir, o da yalnızca her tarihte veya sonrasında. Smithii bu programı güncelleyebilir ve çalışan sürümün denetlendiği doğrulanmamıştır."]
+  ["tok.locks_body", "Her kilit, Smithii’nin Token Vesting programındaki bir hesaptır ve bu programda bir kilidi iptal eden ya da düzenleyen bir talimat yoktur: yalnızca belirtilen cüzdan talep edebilir, o da yalnızca her tarihte veya sonrasında. Smithii bu programı güncelleyebilir ve çalışan sürümün denetlendiği doğrulanmamıştır."],
+  ["tok.ms_h", "Hazine çoklu imza cüzdanı"],
+  ["tok.ms_holds", "İçerik"],
+  ["tok.ms_approvals", "Onaylar"],
+  ["tok.ms_quorum", "{m} üyeden {n}"],
+  ["tok.ms_timelock", "Zaman kilidi"],
+  ["tok.ms_hours", "{h} saat"],
+  ["tok.ms_seconds", "{s} saniye"],
+  ["tok.ms_no_delay", "yok: onaylanan bir transfer hemen yürütülür"],
+  ["tok.ms_vault", "Kasa (tokenları tutar)"],
+  ["tok.ms_account", "Çoklu imza hesabı"],
+  ["tok.ms_body", "Kasa bir Squads v4 çoklu imza cüzdanı tarafından yönetilir. Kasadan token çıkarmak ya da üyelerini, onay sayısını veya zaman kilidini değiştirmek, gösterilen onayları ve ardından zaman kilidinin bekleme süresini gerektirir. Squads v4 programı güncellenemez. Bu bir kilit değil, gecikmeli bir saklamadır: onaylanıp bekleme süresi geçtikten sonra tokenlar hareket edebilir."]
 ]);

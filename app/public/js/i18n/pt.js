@@ -2173,5 +2173,16 @@
   ["tok.lock_certificate", "Certificado"],
   ["tok.lock_none", "ainda não criado"],
   ["tok.locks_checked", "Verificado contra a cadeia em"],
-  ["tok.locks_body", "Cada bloqueio é uma conta do programa Token Vesting da Smithii, que não tem nenhuma instrução para cancelar ou editar um bloqueio: só a carteira indicada pode resgatar, e só na data indicada ou depois. A Smithii pode atualizar esse programa, e não está estabelecida nenhuma auditoria da versão em execução."]
+  ["tok.locks_body", "Cada bloqueio é uma conta do programa Token Vesting da Smithii, que não tem nenhuma instrução para cancelar ou editar um bloqueio: só a carteira indicada pode resgatar, e só na data indicada ou depois. A Smithii pode atualizar esse programa, e não está estabelecida nenhuma auditoria da versão em execução."],
+  ["tok.ms_h", "Multisig da tesouraria"],
+  ["tok.ms_holds", "Contém"],
+  ["tok.ms_approvals", "Aprovações"],
+  ["tok.ms_quorum", "{n} de {m} membros"],
+  ["tok.ms_timelock", "Bloqueio de tempo"],
+  ["tok.ms_hours", "{h} horas"],
+  ["tok.ms_seconds", "{s} segundos"],
+  ["tok.ms_no_delay", "nenhum: uma transferência aprovada é executada de imediato"],
+  ["tok.ms_vault", "Cofre (guarda os tokens)"],
+  ["tok.ms_account", "Conta multisig"],
+  ["tok.ms_body", "O cofre é controlado por uma multisig da Squads v4. Retirar tokens dele, ou alterar os seus membros, as suas aprovações ou o seu bloqueio de tempo, exige as aprovações indicadas e depois a espera do bloqueio de tempo. O programa Squads v4 não pode ser atualizado. Isto é custódia com atraso, não um bloqueio: depois de aprovados e passada a espera, os tokens podem ser movidos."]
 ]);

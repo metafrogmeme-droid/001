@@ -2173,5 +2173,16 @@
   ["tok.lock_certificate", "Certificado"],
   ["tok.lock_none", "aún no creado"],
   ["tok.locks_checked", "Verificado contra la cadena el"],
-  ["tok.locks_body", "Cada bloqueo es una cuenta del programa Token Vesting de Smithii, que no tiene ninguna instrucción para cancelar ni editar un bloqueo: solo la billetera indicada puede reclamar, y solo en cada fecha o después. Smithii puede actualizar ese programa, y no consta ninguna auditoría de la versión en funcionamiento."]
+  ["tok.locks_body", "Cada bloqueo es una cuenta del programa Token Vesting de Smithii, que no tiene ninguna instrucción para cancelar ni editar un bloqueo: solo la billetera indicada puede reclamar, y solo en cada fecha o después. Smithii puede actualizar ese programa, y no consta ninguna auditoría de la versión en funcionamiento."],
+  ["tok.ms_h", "Multifirma de tesorería"],
+  ["tok.ms_holds", "Contiene"],
+  ["tok.ms_approvals", "Aprobaciones"],
+  ["tok.ms_quorum", "{n} de {m} miembros"],
+  ["tok.ms_timelock", "Bloqueo temporal"],
+  ["tok.ms_hours", "{h} horas"],
+  ["tok.ms_seconds", "{s} segundos"],
+  ["tok.ms_no_delay", "ninguno: una transferencia aprobada se ejecuta de inmediato"],
+  ["tok.ms_vault", "Bóveda (contiene los tokens)"],
+  ["tok.ms_account", "Cuenta multifirma"],
+  ["tok.ms_body", "La bóveda está controlada por una multifirma de Squads v4. Sacar tokens de ella, o cambiar sus miembros, sus aprobaciones o su bloqueo temporal, requiere las aprobaciones indicadas y después la espera del bloqueo temporal. El programa Squads v4 no se puede actualizar. Es una custodia con demora, no un bloqueo: una vez aprobados y pasada la espera, los tokens pueden moverse."]
 ]);

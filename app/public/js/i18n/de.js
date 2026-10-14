@@ -2173,5 +2173,16 @@
   ["tok.lock_certificate", "Zertifikat"],
   ["tok.lock_none", "noch nicht erstellt"],
   ["tok.locks_checked", "Gegen die Chain geprüft am"],
-  ["tok.locks_body", "Jede Sperre ist ein Konto des Token-Vesting-Programms von Smithii, das keine Anweisung zum Abbrechen oder Ändern einer Sperre hat: Nur die genannte Wallet kann beanspruchen, und erst ab dem jeweiligen Datum. Smithii kann dieses Programm aktualisieren, und ein Audit der laufenden Version ist nicht belegt."]
+  ["tok.locks_body", "Jede Sperre ist ein Konto des Token-Vesting-Programms von Smithii, das keine Anweisung zum Abbrechen oder Ändern einer Sperre hat: Nur die genannte Wallet kann beanspruchen, und erst ab dem jeweiligen Datum. Smithii kann dieses Programm aktualisieren, und ein Audit der laufenden Version ist nicht belegt."],
+  ["tok.ms_h", "Treasury-Multisig"],
+  ["tok.ms_holds", "Bestand"],
+  ["tok.ms_approvals", "Zustimmungen"],
+  ["tok.ms_quorum", "{n} von {m} Mitgliedern"],
+  ["tok.ms_timelock", "Zeitsperre"],
+  ["tok.ms_hours", "{h} Stunden"],
+  ["tok.ms_seconds", "{s} Sekunden"],
+  ["tok.ms_no_delay", "keine: eine genehmigte Übertragung wird sofort ausgeführt"],
+  ["tok.ms_vault", "Tresor (hält die Token)"],
+  ["tok.ms_account", "Multisig-Konto"],
+  ["tok.ms_body", "Der Tresor wird von einem Squads-v4-Multisig verwaltet. Token daraus zu bewegen oder seine Mitglieder, Zustimmungen oder Zeitsperre zu ändern, erfordert die angegebenen Zustimmungen und danach die Wartezeit der Zeitsperre. Das Squads-v4-Programm kann nicht aktualisiert werden. Das ist Verwahrung mit Verzögerung, keine Sperre: Nach Zustimmung und Ablauf der Wartezeit können Token bewegt werden."]
 ]);

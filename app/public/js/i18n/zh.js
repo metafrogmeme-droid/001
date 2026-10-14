@@ -2173,5 +2173,16 @@
   ["tok.lock_certificate", "證明頁"],
   ["tok.lock_none", "尚未建立"],
   ["tok.locks_checked", "已於以下日期與鏈上核對"],
-  ["tok.locks_body", "每個鎖倉都是 Smithii Token Vesting 程式的一個帳戶，該程式沒有取消或修改鎖倉的指令：只有列出的錢包能領取，且只能在各日期當天或之後領取。Smithii 可以升級該程式，目前運行的版本並未確認經過審計。"]
+  ["tok.locks_body", "每個鎖倉都是 Smithii Token Vesting 程式的一個帳戶，該程式沒有取消或修改鎖倉的指令：只有列出的錢包能領取，且只能在各日期當天或之後領取。Smithii 可以升級該程式，目前運行的版本並未確認經過審計。"],
+  ["tok.ms_h", "金庫多簽錢包"],
+  ["tok.ms_holds", "持有"],
+  ["tok.ms_approvals", "所需核准"],
+  ["tok.ms_quorum", "{m} 名成員中的 {n} 名"],
+  ["tok.ms_timelock", "時間鎖"],
+  ["tok.ms_hours", "{h} 小時"],
+  ["tok.ms_seconds", "{s} 秒"],
+  ["tok.ms_no_delay", "無：核准後的轉帳會立即執行"],
+  ["tok.ms_vault", "金庫帳戶（存放代幣）"],
+  ["tok.ms_account", "多簽帳戶"],
+  ["tok.ms_body", "金庫由 Squads v4 多簽錢包控管。從中轉出代幣，或變更其成員、核准門檻或時間鎖，都需要上列的核准，並等待時間鎖期滿。Squads v4 程式無法升級。這是有延遲的託管，而非鎖倉：一經核准並等待期滿，代幣即可轉出。"]
 ]);
