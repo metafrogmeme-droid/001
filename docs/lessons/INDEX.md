@@ -315,3 +315,4 @@ about to change before changing it.
 - L24432: THE AUDIT PRINTED A CURRENT VALUE ITS MODEL HAD NEVER BEEN TOLD — `tests/test_the_audit_is_told_the_values_in_force.py`
 - L24454: A COUNT ON THE WALL CLOCK STRADDLED A MINUTE, AND THE LIMIT IT TESTED ROUNDS UP — `app/test/request_limits_are_shared_by_every_instance.test.js`
 - L24482: A COMMITTED INPUT WAS LOOKED FOR WHEREVER THE PROCESS STOOD, AND NOT FINDING IT BLOCKED EVERY ENTRY — `tests/test_durable_paths_are_not_cwd_dependent.py`
+- L24520: A HEX DIGEST CONTAINED "127", AND THE TEST READ THAT AS THE ADDRESS CROSSING — `app/test/gateway_routes.test.js`

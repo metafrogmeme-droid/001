@@ -298,8 +298,14 @@ test('public chat works with NO auth and forwards only { text } and the opaque v
   // address (lib/visitor_key.js).
   const { visitor, ...rest } = seen[0].body;
   assert.deepStrictEqual(rest, { text: 'what is runeclaw?' });
-  assert.match(visitor, /^[0-9a-f]{32}$/);
-  assert.ok(!visitor.includes('127'), 'the address does not cross');
+  // Hex holds no `.` or `:`, so no address character crosses. The key is
+  // asserted as what it is, this request's address under the server's key.
+  // `!visitor.includes('127')` failed about one run in 140: the key is drawn
+  // at random per process, so the digest is effectively random hex.
+  assert.match(visitor, /^[0-9a-f]{32}$/, 'the address does not cross');
+  const { visitorKey } = require('../lib/visitor_key');
+  assert.ok([visitorKey('127.0.0.1'), visitorKey('::ffff:127.0.0.1')].includes(visitor),
+    'the key is not the HMAC of the request\'s own address');
   assert.strictEqual(seen[0].body.telegram_id, undefined);
 });
 

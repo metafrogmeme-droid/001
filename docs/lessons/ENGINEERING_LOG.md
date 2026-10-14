@@ -24516,3 +24516,25 @@ construction, which is; the committed example policy, named by a relative
 override, loads from outside the repo root; the helpers; every repo input
 absolute and under the repo; the guard's new findings and non-findings. Eight
 mutants, all killed.)
+
+**A HEX DIGEST CONTAINED "127", AND THE TEST READ THAT AS THE ADDRESS CROSSING.**
+On 2026-10-13 the web app's CI failed on `public chat works with NO auth and
+forwards only { text } and the opaque visitor key`
+(`app/test/gateway_routes.test.js`). The PR under test touched nothing under
+`app/`. The assertion was `!visitor.includes('127')`. The visitor key is an
+HMAC of the request's address under a key drawn at random when the server
+starts (`app/lib/visitor_key.js`), cut to 32 hex characters. So it is
+effectively random hex, and random hex contains `127` in about one run in 140
+(30 positions × 1/16³). The address itself can never appear in it, since hex
+holds no `.` or `:`. It was the short-absent-string shape the guide warns
+about, on a value that is random by design.
+
+The test now asserts the positive rendering, as
+`the_public_chat_counts_a_visitor_not_an_address.test.js` already did: the
+key is 32 hex characters (no address character can cross) and equals
+`visitorKey()` of the request's own address (`127.0.0.1` or
+`::ffff:127.0.0.1`). Reproduced by handing `visitor_key.js` a key under which
+both forms of the loopback address hash to hex containing `127`: the old
+assertion failed and the new one passes. Two mutants, both killed: a server
+that sends the raw address, and one that sends an unkeyed hash of it, which
+is 32 hex characters too.
