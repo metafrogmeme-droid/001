@@ -624,6 +624,9 @@ def test_the_baseline_excuses_only_what_it_names():
 # "Learning scan", "Optimize scan", "Analysis scan", "Patterns scan".
 
 UPGRADE = "upgrade_message"
+#: The door the three dispatch sites call now: `(reason, mode, feature)`, so
+#: the display word is its SECOND argument.
+REFUSAL = "refusal_message"
 
 
 def _walk_with_chain(trees):
@@ -657,7 +660,7 @@ def test_the_refusal_names_only_the_capability_it_was_given():
     from bot.token.tier_gate import upgrade_message
 
     line = upgrade_message("zzz").split("\n")[0]
-    assert "Zzz is a staked-tier feature" in line, line
+    assert "Zzz is a Pro feature" in line, line
     for noun in _CATEGORY_NOUNS:
         assert noun not in line.lower(), (
             f"`upgrade_message` adds the noun {noun!r} the caller did not "
@@ -692,6 +695,8 @@ def test_no_display_word_is_a_feature_identifier():
                 arg = _arg_at(node, 2, "display")
             elif name == UPGRADE:
                 arg = _arg_at(node, 0, "mode")
+            elif name == REFUSAL:
+                arg = _arg_at(node, 1, "mode")
             else:
                 continue
             if arg is None:
@@ -805,14 +810,14 @@ def test_the_pane_renders_the_display_word_it_was_given():
         host = types.SimpleNamespace(users=object())
         out = TelegramHandler._pane_gate_blocks(
             host, "learning", "u", "the learning report")
-        assert out and "The learning report is a staked-tier feature" in out, out
-        assert "Learning is a staked-tier" not in out, out
+        assert out and "The learning report is an Elite feature" in out, out
+        assert "Learning is an Elite" not in out, out
 
         # And with no display, the feature is the fallback every caller
         # without one has always had — stated, so the day it changes this
         # says so rather than the pane quietly starting to print nothing.
         bare = TelegramHandler._pane_gate_blocks(host, "learning", "u")
-        assert bare and "Learning is a staked-tier feature" in bare, bare
+        assert bare and "Learning is an Elite feature" in bare, bare
     finally:
         tier_gate._resolve_wallet = resolve
         os.environ.clear()

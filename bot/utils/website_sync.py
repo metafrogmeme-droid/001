@@ -684,10 +684,24 @@ def sync_agent_events(events: list[dict]) -> bool:
 _last_tiers_sent: str = ""   # hash of the last successfully-pushed map
 
 
-def sync_tiers(tier_map: dict) -> bool:
+#: Rows per POST. The website's route takes at most this many per request
+#: (app/routes/sync.js `TIER_ROWS_PER_REQUEST`), so the map goes in pages.
+#: It used to go in one body that the route cut at 500 rows, silently: the
+#: 501st member's tier never reached the site, and the push reported success.
+TIER_ROWS_PER_POST = 500
+
+
+def sync_tiers(tier_map: dict, *, remember: bool = True) -> bool:
     """Mirror {telegram_id: tier} to the website so users.plan matches the
-    bot's tier authority. Skips the POST when nothing changed since the
-    last successful push (tiers change rarely; no need to spam)."""
+    bot's tier authority. Website-only members go as their store key,
+    ``web:<site user id>``, which the route maps to the site's own row.
+
+    Skips the POST when nothing changed since the last successful push (tiers
+    change rarely; no need to spam). ``remember=False`` sends a partial map
+    (one member, at link time) without touching that record: a partial map
+    is not the state of every member, and remembering it would let the next
+    full push be skipped or stand for less than it does.
+    """
     global _last_tiers_sent
     if not tier_map:
         return True
@@ -695,24 +709,38 @@ def sync_tiers(tier_map: dict) -> bool:
     import json as _json
     digest = hashlib.sha256(
         _json.dumps(tier_map, sort_keys=True).encode()).hexdigest()
-    if digest == _last_tiers_sent:
+    if remember and digest == _last_tiers_sent:
         return True
-    # UPDATE-by-key, so replaying it lands the same rows on the same users.
-    result = _post("/api/bot/sync/tiers", {
-        "tiers": [{"telegram_id": k, "tier": v}
-                  for k, v in tier_map.items()],
-    }, retries=3, backoff=_COLD_START_BACKOFF, timeout=_COLD_START_TIMEOUT)
-    if result and result.get("ok"):
+    rows = [{"telegram_id": k, "tier": v} for k, v in tier_map.items()]
+    updated = 0
+    counted = True   # every page said how many rows it changed
+    for start in range(0, len(rows), TIER_ROWS_PER_POST):
+        # UPDATE-by-key, so replaying a page lands the same rows on the
+        # same users; a failed page fails the push, so the next one resends.
+        result = _post("/api/bot/sync/tiers",
+                       {"tiers": rows[start:start + TIER_ROWS_PER_POST]},
+                       retries=3, backoff=_COLD_START_BACKOFF,
+                       timeout=_COLD_START_TIMEOUT)
+        if not (result and result.get("ok")):
+            log.warning("Tier sync failed at row %d of %d", start, len(rows))
+            return False
+        n = result.get("updated")
+        if isinstance(n, int):
+            updated += n
+        else:
+            counted = False
+    if remember:
         _last_tiers_sent = digest
-        log.info(f"Synced {result.get('updated', 0)} user tier(s) to website")
-        return True
-    log.warning("Tier sync failed")
-    return False
+    # A page that did not say how many rows it changed is not zero rows.
+    log.info("Synced %s user tier(s) to website",
+             updated if counted else f"at least {updated}")
+    return True
 
 
-def sync_tiers_in_background(tier_map: dict) -> None:
+def sync_tiers_in_background(tier_map: dict, *, remember: bool = True) -> None:
     """Non-blocking tier sync."""
     if not tier_map:
         return
-    t = threading.Thread(target=sync_tiers, args=(dict(tier_map),), daemon=True)
+    t = threading.Thread(target=sync_tiers, args=(dict(tier_map),),
+                         kwargs={"remember": remember}, daemon=True)
     t.start()

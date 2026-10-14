@@ -1,6 +1,6 @@
 {
   "access_granted": "<b>Erişim verildi</b>\n{sep}\nRUNECLAW hesabınız onaylandı.\n- Rol: <code>{role}</code>\n\nİşleme başlamak için /start kullanın.",
-  "account_upgraded": "<b>Hesap yükseltildi</b>\n\nSeviyeniz güncellendi: {tier_label}\nYeni özelliklerinizi görmek için /start kullanın.",
+  "tier_changed": "<b>Kademeniz değişti</b>\n\nKademeniz artık: {tier_label}\n/tier neleri kapsadığını gösterir.",
   "admin_only": "Bu bir operatör komutu: yalnızca operatörün sohbetinden çalışır. Kullanabileceğiniz her şey /help içinde.",
   "admin_only_llm_reset": "<b>Yalnızca yönetici</b>\n\nLLM sağlayıcısını/anahtarını sıfırlamak yöneticilere özeldir.",
   "admin_only_llm_set": "<b>Yalnızca yönetici</b>\n\nLLM sağlayıcısını/anahtarını değiştirmek yöneticilere özeldir.",
@@ -217,8 +217,9 @@
   "risk_reward": "Risk/Getiri",
   "scanning": "Piyasa taranıyor...",
   "set_tier_failed": "Seviye güncellenemedi.",
+  "set_tier_web_admin": "Operatör kademesi bağlı bir Telegram hesabı gerektirir. Yalnızca web sitesi üyesi basic, pro veya elite olabilir.",
   "set_tier_result": "<b>SEVİYE GÜNCELLENDİ</b>\n\n- Kullanıcı: <b>{name}</b> (<code>{id}</code>)\n- Seviye: {tier_label}\n- Rol: <code>{role}</code>",
-  "set_tier_usage": "<b>Kullanım</b>\n\n<code>/set_tier &lt;telegram_id&gt; &lt;tier&gt;</code>\n\nSeviyeler: {tiers}\n\n🟢 <b>basic</b> — Paper trading, temel analiz\n🔵 <b>pro</b> — + Geriye dönük test, formasyonlar, stratejiler\n🟡 <b>elite</b> — + Canlıya uygun, öncelikli sinyaller, erken erişim\n🔴 <b>admin</b> — Tam erişim",
+  "set_tier_usage": "<b>Kullanım</b>\n\n<code>/set_tier &lt;telegram_id | web:id&gt; &lt;tier&gt;</code>\n\nKademeler: {tiers}\n\nBu botta her kademenin neleri kapsadığı: /tier. Canlı işlem hiçbir kademenin parçası değildir; buna /grant_live karar verir.",
   "status_active": "Aktif",
   "status_paused": "Duraklatıldı",
   "status_title": "RUNECLAW DURUMU",

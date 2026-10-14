@@ -138,8 +138,9 @@ SCAN_DISPATCH; /fullscan accepts a `swing` argument.
 *Gap.* Swing here means swing-on-perpetuals; there is no spot swing book. The
 strategy_type is assigned by the analyzer — a user cannot force a given idea
 to be treated as a swing, only pick the scan timeframe. Tier feature
-`premium_scan` nominally gates /swing at pro, though the whole $RCLAW gate is
-off by default.
+`premium_scan` gates /swing at pro (`bot/token/tier_gate.py::check_user`), by
+the tier the operator grants or a stake earns, and only once the ladder is
+switched on (`bot/token/tier_gate.py::tiers_enforced`); it is off by default.
 
 *The verifier refused part of this row.* The row used to say that
 bot/skills/skill_registry.py reads those multipliers when it builds the SL/TP
@@ -396,7 +397,8 @@ runs /golive and the caller passes _can_trade_live. Users cannot author
 strategy CODE: the presets are that named table plus threshold fields,
 and published community strategies are declarative rule configs, not
 executable logic. Several tier features (backtest/walkforward/optimize at
-elite) nominally gate behind $RCLAW, though that gate is off by default.
+elite) gate on the member's tier, granted or staked, once the ladder is
+switched on; it is off by default.
 
 
 ### Long-Term Capital
@@ -844,8 +846,8 @@ it (`app/routes/reputation.js::get('/')#"res.json({ ...computeReputation"`), no 
 anywhere reads a reputation score, badge or achievement, and
 `app/lib/achievements.js::#"No dollar ever unlocks"` states the posture outright — 'No dollar ever
 unlocks anything, no scarcity is manufactured, nothing is for sale.' The one
-tier system that does gate features ($RCLAW tier_gate) keys on an on-chain
-STAKE, not reputation, and is inert by default. The only reputation-shaped
+tier system that does gate features (`bot/token/tier_gate.py::effective_tier`) keys on
+the operator's grant or an on-chain STAKE, not reputation, and is inert by default. The only reputation-shaped
 perks ever written down are the referral ladder's fee credits and revenue
 share, which their own rows label not-in-force pending a token that does not
 exist. So: reputation is measured and displayed today; it buys nothing.
@@ -1206,17 +1208,19 @@ the referral graph made visible on the Duel board (one recruit makes you a
 captain — the 'Connector' tier at `app/auth.js::REFERRAL_TIERS#"name: 'Connector'"` is the one tier marked
 state:'live'). Copy-follow, the strategy marketplace, the Arena, the public
 leaderboard and the operator's Telegram broadcast channel all exist. An
-ACCESS-TIER mechanism also exists: basic/pro/elite plans, a 5-question/day
-free chat quota with pro/elite/admin exempt (`bot/web/chat_quota.py::_EXEMPT_TIERS`), and a
-per-feature tier map in bot/token/tier_gate.py.
+ACCESS-TIER mechanism also exists: basic/pro/elite plans granted by the
+operator (/set_tier, including a website-only member), a 5-question/day free
+chat quota with Pro and above exempt (`bot/web/chat_quota.py::_exempt_tiers`), and a
+per-feature ladder that every plan card renders (`bot/token/tier_gate.py::plan_ladder`).
 
 *Gap.* There is no payment rail anywhere in the tree — no Stripe, no checkout, no
 billing, no invoice, no x402 pricing block (`app/test/tool8257.test.js::#"assert.ok(!('pricing' in m"`
-asserts the manifest has none). The plan card is STATIC and says so: "Tiers
-are granted by the operator through the Telegram bot… online checkout is
-coming later" (`app/public/js/dashboard.js::renderAccount#"online checkout is coming later"`). The $RCLAW tier gate that would enforce a
-paid tier is wired at four call sites but INERT — gate_enabled() needs
-TOKEN_TIER_GATE_ENABLED and RCLAW_MINT, neither of which is set anywhere, and
+asserts the manifest has none). The plan card draws the bot's ladder and names
+no checkout: "Tiers are granted by the operator"
+(`app/public/js/plan-card-model.js::cardHtml#"Tiers are granted by the operator"`). The ladder that would enforce a
+paid tier is wired at four call sites but INERT by default — tiers_enforced()
+needs TIER_GATE_ENABLED, or TOKEN_TIER_GATE_ENABLED with RCLAW_MINT, and none
+of them is set anywhere, and
 `docs/TOKEN_ROADMAP.md::#"minted but not launched: no sale has run"` says the token "is minted but not launched: no sale has run and no pool exists." Most
 importantly for this leaf: a USER cannot run a community here at all —
 /channel and /broadcast are gated to a bot admin or a Telegram group
@@ -1366,7 +1370,8 @@ And nothing in the tree serves the freelance side of this leaf: no client
 intake, no scope/quote, no deliverable handoff, no invoicing and no payment
 rails — `app/test/interop_design.test.js::#"test('design-only"` structurally asserts that no
 x402/X-PAYMENT/facilitator/payTo/402 machinery exists in any app/routes file,
-and the plan card says 'online checkout is coming later' (`app/public/js/dashboard.js::renderAccount#"online checkout is coming later"`).
+and the plan card names no checkout, only that tiers are granted by the operator
+(`app/public/js/plan-card-model.js::cardHtml#"Tiers are granted by the operator"`).
 This is a tool a smart-contract dev could use on their own work; it is not a
 way to be paid for that work.
 

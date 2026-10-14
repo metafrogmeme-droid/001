@@ -36,11 +36,21 @@ test('the meter shows the remaining count and an upgrade CTA on the last questio
 });
 
 test('the Membership plans answer the chat cap the meter surfaces', () => {
-  const dash = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8');
-  // Basic names the daily cap; Pro sells unlimited — the value prop the free
-  // user hit is reflected right where the upgrade CTA lands.
-  assert.match(dash, /AI chat \(5 questions\/day\)/);
-  assert.match(dash, /Unlimited AI chat/);
+  // Basic names the daily cap; Pro has none. The card used to write "5
+  // questions/day" into its own table whatever the bot's limit or switch
+  // said; it now draws the cap the bot reports for each tier
+  // (tier_gate.plan_ladder reads chat_quota), so the card and the meter
+  // read one number.
+  const PlanCard = require('../public/js/plan-card-model.js');
+  const esc = (x) => String(x);
+  const ladder = (cap) => ({ enforced: true, stake: false, tiers: [
+    { tier: 'basic', name: 'Basic', unlocks: [], chat_per_day: cap },
+    { tier: 'pro', name: 'Pro', unlocks: [], chat_per_day: null }] });
+  const html = PlanCard.cardHtml({ reading: { tier: 'basic' }, ladder: ladder(5) }, esc);
+  assert.match(html, /AI chat: 5 questions a day/);
+  assert.match(html, /AI chat: no daily cap/);
+  const seven = PlanCard.cardHtml({ reading: { tier: 'basic' }, ladder: ladder(7) }, esc);
+  assert.match(seven, /AI chat: 7 questions a day/, 'the card printed its own number, not the bot\'s');
 });
 
 test('the last-question meter tells the user when the free allowance resets', () => {

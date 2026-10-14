@@ -1,6 +1,6 @@
 {
   "access_granted": "<b>पहुँच प्रदान की गई</b>\n{sep}\nआपका RUNECLAW खाता स्वीकृत हो गया है।\n- भूमिका: <code>{role}</code>\n\nट्रेडिंग शुरू करने के लिए /start इस्तेमाल करें।",
-  "account_upgraded": "<b>खाता अपग्रेड</b>\n\nआपका स्तर अपडेट हुआ: {tier_label}\nअपनी नई सुविधाएँ देखने के लिए /start इस्तेमाल करें।",
+  "tier_changed": "<b>आपका स्तर बदल गया</b>\n\nअब आपका स्तर: {tier_label}\n/tier बताता है कि इसमें क्या शामिल है।",
   "admin_only": "यह ऑपरेटर का कमांड है — यह केवल ऑपरेटर की चैट से चलता है। आप जो कुछ इस्तेमाल कर सकते हैं, वह /help में है।",
   "admin_only_llm_reset": "<b>केवल एडमिन</b>\n\nLLM प्रदाता/कुंजी रीसेट करना केवल एडमिन के लिए है।",
   "admin_only_llm_set": "<b>केवल एडमिन</b>\n\nLLM प्रदाता/कुंजी बदलना केवल एडमिन के लिए है।",
@@ -217,8 +217,9 @@
   "risk_reward": "जोखिम/लाभ",
   "scanning": "बाज़ार स्कैन हो रहा है...",
   "set_tier_failed": "स्तर अपडेट नहीं हो सका।",
+  "set_tier_web_admin": "ऑपरेटर स्तर के लिए जुड़ा हुआ Telegram खाता चाहिए। केवल वेबसाइट वाला सदस्य basic, pro या elite हो सकता है।",
   "set_tier_result": "<b>स्तर अपडेट</b>\n\n- उपयोगकर्ता: <b>{name}</b> (<code>{id}</code>)\n- स्तर: {tier_label}\n- भूमिका: <code>{role}</code>",
-  "set_tier_usage": "<b>उपयोग</b>\n\n<code>/set_tier &lt;telegram_id&gt; &lt;tier&gt;</code>\n\nस्तर: {tiers}\n\n🟢 <b>basic</b> — पेपर ट्रेडिंग, बुनियादी विश्लेषण\n🔵 <b>pro</b> — + बैकटेस्टिंग, पैटर्न, रणनीतियाँ\n🟡 <b>elite</b> — + लाइव के योग्य, प्राथमिकता सिग्नल, शुरुआती पहुँच\n🔴 <b>admin</b> — पूर्ण पहुँच",
+  "set_tier_usage": "<b>उपयोग</b>\n\n<code>/set_tier &lt;telegram_id | web:id&gt; &lt;tier&gt;</code>\n\nस्तर: {tiers}\n\nइस बॉट पर हर स्तर में क्या शामिल है: /tier. लाइव ट्रेडिंग कभी किसी स्तर का हिस्सा नहीं होती; इसका फ़ैसला /grant_live करता है।",
   "status_active": "सक्रिय",
   "status_paused": "रुका हुआ",
   "status_title": "RUNECLAW स्थिति",

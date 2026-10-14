@@ -2192,6 +2192,16 @@ class MemoryDB {
       return [{ affectedRows: u ? 1 : 0 }, []];
     }
 
+    if (cmd.startsWith('UPDATE USERS SET PLAN = ? WHERE ID = ?')) {
+      // Tier sync for a website-only member: params [plan, id]. The "not
+      // linked" condition is read OUT OF THE STATEMENT, not restated here: a
+      // shim that applied it on its own would pass a route that dropped it.
+      const guarded = cmd.includes('TELEGRAM_LINKED IS NULL OR TELEGRAM_LINKED = FALSE');
+      const u = this.users.find(x => x.id === params[1] && (!guarded || !x.telegram_linked));
+      if (u) u.plan = params[0];
+      return [{ affectedRows: u ? 1 : 0 }, []];
+    }
+
     if (cmd.includes('UPDATE USERS SET PLAN')) {
       // Tier sync: params [plan, telegram_id]
       const u = this.users.find(x => String(x.telegram_id) === String(params[1]));

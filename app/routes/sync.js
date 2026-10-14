@@ -667,21 +667,56 @@ router.post('/trade-event', async (req, res) => {
  * Bot mirrors its membership tiers ({telegram_id, tier} rows) so users.plan
  * follows the bot's tier authority — /set_tier in Telegram is the ONLY way
  * a tier changes; this endpoint just reflects it. (X-Bot-Secret authed.)
+ *
+ * Two kinds of key, because the bot keys two kinds of member:
+ *   - a Telegram id, matched on users.telegram_id;
+ *   - "web:<id>", a website-only member, matched on users.id, and only while
+ *     the account is NOT linked: once linked the bot reads the member by
+ *     their Telegram id, so the web key's row is an old grant and must not
+ *     overwrite the current one. It never writes 'admin': the site reads
+ *     plan 'admin' as the operator (lib/operator_view.js), and an operator is
+ *     a vouched Telegram identity, not a sign-up.
+ * Web keys were dropped here before (no row has telegram_id "web:12"), so a
+ * website-only member could not hold a tier at all.
+ *
+ * At most TIER_ROWS_PER_REQUEST rows per request; the bot sends pages
+ * (bot/utils/website_sync.py TIER_ROWS_PER_POST). A longer body is refused
+ * whole rather than cut: a cut list answered ok and the members past the cut
+ * never got their tier.
  */
 const VALID_TIERS = new Set(['basic', 'pro', 'elite', 'admin']);
+const TIER_ROWS_PER_REQUEST = 500;
+const WEB_MEMBER_KEY = /^web:([1-9][0-9]{0,18})$/;
 router.post('/tiers', async (req, res) => {
   try {
-    const rows = Array.isArray(req.body?.tiers) ? req.body.tiers.slice(0, 500) : [];
+    const rows = Array.isArray(req.body?.tiers) ? req.body.tiers : [];
+    if (rows.length > TIER_ROWS_PER_REQUEST) {
+      return res.status(413).json({
+        error: 'too_many_rows', max: TIER_ROWS_PER_REQUEST, received: rows.length });
+    }
     let updated = 0;
+    let skipped = 0;
     for (const r of rows) {
-      const tgId = String(r?.telegram_id || '').trim();
+      const key = String(r?.telegram_id || '').trim();
       const tier = String(r?.tier || '').toLowerCase();
-      if (!tgId || !VALID_TIERS.has(tier)) continue;
-      const [result] = await pool.execute(
-        'UPDATE users SET plan = ? WHERE telegram_id = ?', [tier, tgId]);
+      if (!key || !VALID_TIERS.has(tier)) { skipped += 1; continue; }
+      const web = WEB_MEMBER_KEY.exec(key);
+      let result;
+      if (web) {
+        if (tier === 'admin') { skipped += 1; continue; }
+        [result] = await pool.execute(
+          'UPDATE users SET plan = ? WHERE id = ? AND (telegram_linked IS NULL OR telegram_linked = FALSE)',
+          [tier, Number(web[1])]);
+      } else if (/^-?[0-9]{1,20}$/.test(key)) {
+        [result] = await pool.execute(
+          'UPDATE users SET plan = ? WHERE telegram_id = ?', [tier, key]);
+      } else {
+        skipped += 1;
+        continue;
+      }
       updated += (result && result.affectedRows) || 0;
     }
-    res.json({ ok: true, received: rows.length, updated });
+    res.json({ ok: true, received: rows.length, updated, skipped });
   } catch (err) {
     console.error('Tier sync error:', err.stack || err.message);
     res.status(500).json({ error: 'Tier sync failed' });

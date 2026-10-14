@@ -1310,6 +1310,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             ("stockscan", self._cmd_stockscan),
             # Multi-user commands
             ("link", _cmd_link), ("unlink", _cmd_unlink), ("me", _cmd_me),
+            ("tier", self._cmd_tier),
             ("sync", _cmd_sync),
             ("lang", self._cmd_lang),
             ("autoconfirm", self._cmd_autoconfirm),
@@ -1895,8 +1896,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             allowed, reason = tier_gate.check_user(self.users, user_id, feature)
             if allowed:
                 return None
-            return (tier_gate.unavailable_message() if reason == "unavailable"
-                    else tier_gate.upgrade_message(display or feature))
+            return tier_gate.refusal_message(reason, display or feature, feature)
         except Exception as exc:
             system_log.debug("pane token gate check skipped: %s", exc)
             return None
@@ -4887,7 +4887,9 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         _is_admin_caller = self._is_admin(update)
         _tier: Optional[str]
         try:
-            _tier = "admin" if _is_admin_caller else self.users.get_tier(tg_id)
+            from bot.token.tier_gate import effective_tier
+            _tier = ("admin" if _is_admin_caller
+                     else effective_tier(self.users, tg_id))
         except Exception:
             # Unreadable is not "basic": an unclassifiable caller is not
             # metered, for the reason the web path gives at its own except.
@@ -5884,8 +5886,9 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         and separating them is what lets the natural-language path be gated too
         — it dispatches the same skills under different words.
 
-        No-op unless TOKEN_TIER_GATE_ENABLED + a mint are configured (draft
-        feature — see docs/TOKEN_ROADMAP.md). Fail-open on any internal error.
+        No-op unless the ladder is enforced (`tier_gate.tiers_enforced`: an
+        operator's TIER_GATE_ENABLED, or the draft token gate with a mint).
+        Fail-open on any internal error.
         """
         try:
             from bot.token import tier_gate
@@ -5897,10 +5900,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # "we could not check" is not "you did not stake enough". Telling a
             # user holding 100,000 $RCLAW to stake more because an RPC timed out
             # reads as the token being broken, and it is our fault, not theirs.
-            if reason == "unavailable":
-                await self._send(update, tier_gate.unavailable_message())
-            else:
-                await self._send(update, tier_gate.upgrade_message(mode))
+            await self._send(update, tier_gate.refusal_message(reason, mode, feature))
             return True
         except Exception as exc:
             system_log.debug("token gate check skipped: %s", exc)

@@ -885,10 +885,14 @@ class ScanCommands:
 
         try:
             _tg_id = self._get_tg_id(update)
+            from bot.token.tier_gate import effective_tier as _effective_tier
             result = await self.registry.dispatch("analyze_asset",
                 self.engine, symbol=symbol, is_admin=admin,
                 user_id=_tg_id,
-                user_tier=(self.users.get(_tg_id) or {}).get("tier"))
+                # The tier the ladder reads, so a stake that earns Pro routes
+                # like a grant of Pro does. None (unreadable) keeps the
+                # default model, which is never a downgrade.
+                user_tier=_effective_tier(self.users, _tg_id))
         except Exception as exc:
             system_log.error("analyze_asset failed for %s: %s", symbol, exc, exc_info=True)
             await self._send(update,

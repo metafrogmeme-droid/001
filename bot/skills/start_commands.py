@@ -1,6 +1,6 @@
 """The start-here command group — a slice out of the handler.
 
-`/start`, `/help`, `/status`, `/health`, `/dashboard`, `/version`, `/rclaw`, `/lang`,
+`/start`, `/help`, `/status`, `/health`, `/dashboard`, `/version`, `/rclaw`, `/tier`, `/lang`,
 `/leaderboard`, `/arena` and `/duel`, with the unknown-command reply, the
 duel keyboard and its pick callback, the viewer-board handle read, and the
 three status helpers (`_status_market_bias`, `_tick_age_s`,
@@ -147,6 +147,23 @@ class StartCommands:
             from bot.token.tier_gate import mint_address
             env_mint = mint_address()
         await self._send(update, render_token_card(record, operator=operator, env_mint=env_mint))
+
+    @guard("tier")
+    async def _cmd_tier(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """/tier — the caller's tier, where it came from, and what each tier
+        includes on this bot.
+
+        Read from what decides it (`tier_gate.tier_reading`, `plan_ladder`),
+        with the caller's role applied to the commands it lists: the tier is
+        not the only gate in front of a command, and a card offering one the
+        role refuses is a door that does not open.
+        """
+        from bot.formatters.tier_card import render_tier_card
+        from bot.token import tier_gate
+        tg_id = self._get_tg_id(update)
+        await self._send(update, render_tier_card(
+            tier_gate.tier_reading(self.users, tg_id),
+            tier_gate.plan_ladder(self.users, tg_id)))
 
     async def _cmd_start(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """GetClaw welcome — auto-registers new users."""

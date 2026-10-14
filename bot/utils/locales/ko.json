@@ -1,6 +1,6 @@
 {
   "access_granted": "<b>접근 허용</b>\n{sep}\nRUNECLAW 계정이 승인되었습니다.\n- 역할: <code>{role}</code>\n\n/start로 거래를 시작하세요.",
-  "account_upgraded": "<b>계정 업그레이드</b>\n\n등급이 변경되었습니다: {tier_label}\n/start로 새 기능을 확인하세요.",
+  "tier_changed": "<b>등급이 변경되었습니다</b>\n\n현재 등급: {tier_label}\n/tier 에서 포함된 기능을 볼 수 있습니다.",
   "admin_only": "이것은 운영자 명령어로, 운영자 채팅에서만 실행됩니다. 사용할 수 있는 모든 것은 /help에 있습니다.",
   "admin_only_llm_reset": "<b>관리자 전용</b>\n\nLLM 공급자/키 재설정은 관리자만 할 수 있습니다.",
   "admin_only_llm_set": "<b>관리자 전용</b>\n\nLLM 공급자/키 변경은 관리자만 할 수 있습니다.",
@@ -217,8 +217,9 @@
   "risk_reward": "손익비",
   "scanning": "시장 스캔 중...",
   "set_tier_failed": "등급 변경에 실패했습니다.",
+  "set_tier_web_admin": "운영자 등급에는 연결된 Telegram 계정이 필요합니다. 웹사이트 전용 회원은 basic, pro, elite 중 하나가 될 수 있습니다.",
   "set_tier_result": "<b>등급 변경됨</b>\n\n- 사용자: <b>{name}</b> (<code>{id}</code>)\n- 등급: {tier_label}\n- 역할: <code>{role}</code>",
-  "set_tier_usage": "<b>사용법</b>\n\n<code>/set_tier &lt;telegram_id&gt; &lt;tier&gt;</code>\n\n등급: {tiers}\n\n🟢 <b>basic</b> — 모의 거래, 기본 분석\n🔵 <b>pro</b> — + 백테스트, 패턴, 전략\n🟡 <b>elite</b> — + 실거래 자격, 우선 시그널, 조기 액세스\n🔴 <b>admin</b> — 전체 접근",
+  "set_tier_usage": "<b>사용법</b>\n\n<code>/set_tier &lt;telegram_id | web:id&gt; &lt;tier&gt;</code>\n\n등급: {tiers}\n\n이 봇에서 각 등급에 포함된 기능: /tier. 실거래는 어떤 등급에도 포함되지 않으며 /grant_live로 결정됩니다.",
   "status_active": "활성",
   "status_paused": "일시정지",
   "status_title": "RUNECLAW 상태",

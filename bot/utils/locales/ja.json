@@ -1,6 +1,6 @@
 {
   "access_granted": "<b>アクセスが許可されました</b>\n{sep}\nRUNECLAWアカウントが承認されました。\n- ロール: <code>{role}</code>\n\n/start で取引を始めましょう。",
-  "account_upgraded": "<b>アカウントをアップグレードしました</b>\n\nティアが更新されました: {tier_label}\n/start で新しい機能を確認してください。",
+  "tier_changed": "<b>ティアが変更されました</b>\n\n現在のティア: {tier_label}\n/tier で内容を確認できます。",
   "admin_only": "これはオペレーター用コマンドで、オペレーターのチャットからしか実行できません。使えるものはすべて /help にあります。",
   "admin_only_llm_reset": "<b>管理者専用</b>\n\nLLMプロバイダー/キーのリセットは管理者に限られます。",
   "admin_only_llm_set": "<b>管理者専用</b>\n\nLLMプロバイダー/キーの変更は管理者に限られます。",
@@ -217,8 +217,9 @@
   "risk_reward": "リスク/リワード",
   "scanning": "市場をスキャン中...",
   "set_tier_failed": "ティアの更新に失敗しました。",
+  "set_tier_web_admin": "オペレーターのティアには連携済みの Telegram アカウントが必要です。ウェブサイトのみの会員は basic、pro、elite のいずれかにできます。",
   "set_tier_result": "<b>ティアを更新しました</b>\n\n- ユーザー: <b>{name}</b>（<code>{id}</code>）\n- ティア: {tier_label}\n- ロール: <code>{role}</code>",
-  "set_tier_usage": "<b>使い方</b>\n\n<code>/set_tier &lt;telegram_id&gt; &lt;tier&gt;</code>\n\nティア: {tiers}\n\n🟢 <b>basic</b> — ペーパートレード、基本分析\n🔵 <b>pro</b> — + バックテスト、パターン、戦略\n🟡 <b>elite</b> — + ライブ適格、優先シグナル、早期アクセス\n🔴 <b>admin</b> — フルアクセス",
+  "set_tier_usage": "<b>使い方</b>\n\n<code>/set_tier &lt;telegram_id | web:id&gt; &lt;tier&gt;</code>\n\nティア: {tiers}\n\nこのボットで各ティアに含まれる内容: /tier。ライブ取引はどのティアにも含まれません。/grant_live で決まります。",
   "status_active": "稼働中",
   "status_paused": "一時停止中",
   "status_title": "RUNECLAWの状態",

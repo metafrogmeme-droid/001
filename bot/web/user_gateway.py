@@ -463,8 +463,7 @@ def _web_skill_denied(tg_handler, tg_id: str, skill_name: str,
             # a refusal. `display` is the word Telegram shows for the same
             # refusal; it defaults to the skill name, which is what every
             # caller without one has always got.
-            msg = (tier_gate.unavailable_message() if reason == "unavailable"
-                   else tier_gate.upgrade_message(display or skill_name))
+            msg = tier_gate.refusal_message(reason, display or skill_name, _feature)
             return web.json_response({"reply_html": msg, "error": f"tier_{reason}"},
                                      status=402)
     except Exception as exc:  # never take the gateway down on a gate bug
@@ -1234,7 +1233,11 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
     # N questions/day (default 5) then an upgrade prompt instead of an LLM call.
     _is_admin = _is_admin_id(tg_handler, tg_id)
     try:
-        _tier = "admin" if _is_admin else tg_handler.users.get_tier(tg_id)
+        from bot.token.tier_gate import effective_tier
+        # The tier the ladder reads (the grant, or a stake above it); None
+        # when the grant could not be read, which the guard below leaves
+        # unmetered.
+        _tier = "admin" if _is_admin else effective_tier(tg_handler.users, tg_id)
     except Exception:
         # NOT "basic". `basic` is not quota-exempt, so a store read that threw
         # billed a pro or elite subscriber against the 5/day FREE cap and then
@@ -1604,7 +1607,11 @@ async def handle_contract_studio(request: web.Request) -> web.Response:
 
     _is_admin = _is_admin_id(tg_handler, tg_id)
     try:
-        _tier = "admin" if _is_admin else tg_handler.users.get_tier(tg_id)
+        from bot.token.tier_gate import effective_tier
+        # The tier the ladder reads (the grant, or a stake above it); None
+        # when the grant could not be read, which the guard below leaves
+        # unmetered.
+        _tier = "admin" if _is_admin else effective_tier(tg_handler.users, tg_id)
     except Exception:
         # NOT "basic". `basic` is not quota-exempt, so a store read that threw
         # billed a pro or elite subscriber against the 5/day FREE cap and then
@@ -4269,6 +4276,32 @@ def _llm_fingerprint(key: str) -> str:
     return f"{key[:6]}...{hashlib.sha256(key.encode()).hexdigest()[:8]}"
 
 
+async def handle_tier(request: web.Request) -> web.Response:
+    """GET /gateway/tier?telegram_id=... — the caller's tier and what each
+    tier includes here: the two readings `/tier` renders in Telegram
+    (`tier_gate.tier_reading`, `tier_gate.plan_ladder`).
+
+    The website's plan card listed benefits from a hand-written table in
+    dashboard.js ("Higher live caps", "Live trading eligibility", "Early
+    access") that nothing granted; it renders this instead, so the site and
+    the bot cannot describe two different tiers. No wallet, no stake amount:
+    the tier each reading names, and the reason a stake earns none.
+    """
+    tg_handler = request.app["tg_handler"]
+    tg_id = str(request.query.get("telegram_id") or "").strip()
+    denied: Optional[web.Response] = _guard_user(tg_handler, tg_id)
+    if denied is not None:
+        return denied
+    from bot.token import tier_gate
+    reading = tier_gate.tier_reading(tg_handler.users, tg_id)
+    return web.json_response({
+        "reading": {k: reading.get(k) for k in (
+            "tier", "granted", "granted_known", "granted_readable",
+            "stake", "stake_reason")},
+        "ladder": tier_gate.plan_ladder(tg_handler.users, tg_id),
+    })
+
+
 async def handle_llm_status(request: web.Request) -> web.Response:
     """GET /gateway/llm?telegram_id=... — the caller's LLM connection status.
     Never returns the key itself — only a fingerprint."""
@@ -5538,6 +5571,7 @@ def build_gateway(engine, tg_handler) -> web.Application:
     app.router.add_get("/guardian/review", handle_guardian_review)
     app.router.add_post("/guardian/review/tighten", handle_guardian_review_tighten)
     # LLM connect (WEB-1): per-user BYOK key + admin ULTRA toggle.
+    app.router.add_get("/tier", handle_tier)
     app.router.add_get("/llm", handle_llm_status)
     app.router.add_post("/llm", handle_llm_set)
     app.router.add_post("/llm/clear", handle_llm_clear)

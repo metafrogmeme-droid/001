@@ -261,12 +261,17 @@ def test_the_two_surfaces_refuse_it_in_the_same_words(monkeypatch, tmp_path,
         execute=AsyncMock(side_effect=AssertionError("must not run"))))
     handler.users.permission_denial = lambda uid, perm: None
     handler.users.get_sol_wallet = lambda uid: None
+    # The harness's member is granted Elite, and a grant is now what the
+    # ladder reads first, so an Elite member is served. The refusal is a
+    # Basic member's.
+    handler.users.get_tier = lambda uid: "basic"
     said = _web_turn(gw, handler, TYPED[intent])["reply_html"]
 
     # The same sentence Telegram builds for the same words: its `mode`, which
     # is `dispatch_kwargs`' mode or "deep" for the universe sweep.
     mode = dispatch_kwargs(intent).get("mode") or "deep"
-    assert said == tier_gate.upgrade_message(mode), (intent, said)
+    assert said == tier_gate.upgrade_message(
+        mode, tier_gate.feature_for(dispatches_to(intent))), (intent, said)
     # ...and never the internal names.
     for internal in (dispatches_to(intent), tier_gate.feature_for(
             dispatches_to(intent))):
