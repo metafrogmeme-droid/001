@@ -19884,6 +19884,28 @@ final report, so the sentence cannot outlive the fact. The page links only Halbo
 own report pages (`app/test/the_token_page_names_smithii_audits.test.js`). The /rclaw card keeps its
 shorter note: it has no room left under the bot's split point. Ten mutants, all killed.
 
+**/DOCS SERVES THE FOLDER THE README LINKS, AND ITS TABLE OF CONTENTS IS HELD TO THE FOLDER.** On
+2026-10-14 the operator asked for the docs on the website as well as on GitHub. `/docs` and
+`/docs/<page>` now serve `docs/gitbook/` from its copy under `app/content/docs/`: the web deploy carries
+nothing beside `app/`, the record's and the lessons' finding, so `app/scripts/sync_content.js` mirrors
+folders from one table and the drift test covers this one too. `SUMMARY.md` stays the table of contents,
+as it was for GitBook, and `app/test/the_docs_page_serves_the_docs_folder.test.js` holds it and the folder
+to each other both ways: a page the table does not name is unreachable, and a page it names that the
+folder lacks would blank the docs (the route answers 503 `docs_unreadable`, never an empty list). The
+renderer (`app/lib/docs_pages.js`) is escape-first like the lessons' and prints a link only where the
+site can vouch for it: https, another page of the docs, or an image the folder carries. Any other target
+keeps its text and loses its href, and the test counts every page link and image in the sources against
+what was printed, so a page renamed without its links fails. Two defects came from looking at the
+rendered page, not from the tests. Every `/docs/<page>` carried the shell's canonical and title, telling
+a crawler and every link preview that twenty-one pages were one; the server now writes each page's
+title, canonical and og tags into the shell (an unknown page is a 404, an unreadable folder is not). On a
+phone the contents filled the first screen; they now start folded. The site's own Docs links (`/`,
+`/explore`) point at `/docs`; the READMEs, the agent card and the gateway site keep the GitHub folder,
+which every page also links as its source. The Live Market Validation page prints a backtest in dollars
+on a hypothetical $10,000 balance and screenshots that name a Bitget sub-account. Both were public on
+GitHub and GitBook already, and the page publishes them as written: a backtest's balance is not an
+account's money, and whether that page stays is the operator's call. Nineteen mutants, all killed.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —

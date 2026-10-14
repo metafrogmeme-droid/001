@@ -2186,5 +2186,18 @@
   ["tok.ms_no_delay", "geen: een goedgekeurde overdracht wordt meteen uitgevoerd"],
   ["tok.ms_vault", "Kluis (bevat de tokens)"],
   ["tok.ms_account", "Multisig-account"],
-  ["tok.ms_body", "De kluis wordt beheerd door een Squads v4-multisig. Tokens eruit halen, of de leden, goedkeuringen of tijdvergrendeling wijzigen, vereist de getoonde goedkeuringen en daarna de wachttijd van de tijdvergrendeling. Het Squads v4-programma kan niet worden bijgewerkt. Dit is bewaring met vertraging, geen lock: na goedkeuring en de wachttijd kunnen tokens bewegen."]
+  ["tok.ms_body", "De kluis wordt beheerd door een Squads v4-multisig. Tokens eruit halen, of de leden, goedkeuringen of tijdvergrendeling wijzigen, vereist de getoonde goedkeuringen en daarna de wachttijd van de tijdvergrendeling. Het Squads v4-programma kan niet worden bijgewerkt. Dit is bewaring met vertraging, geen lock: na goedkeuring en de wachttijd kunnen tokens bewegen."],
+  ["docs.h1", "Documentatie"],
+  ["docs.lede", "Hoe RUNECLAW werkt: aan de slag, de architectuur, de commando’s, de risicocontroles, de $RCLAW-token en de API. Dezelfde pagina’s staan in de repository van het project op GitHub."],
+  ["docs.toc_h", "Inhoud"],
+  ["docs.token_link", "$RCLAW-token"],
+  ["docs.foot", "Niets in de documentatie is financieel advies, een aanbod tot verkoop of een uitnodiging tot aankoop van een token."],
+  ["docs.on_github", "Lees de documentatie op GitHub"],
+  ["docs.toc_unread", "De inhoudsopgave kon op dit moment niet worden gelezen."],
+  ["docs.page_unread", "Deze pagina kon op dit moment niet worden gelezen. Probeer het over een minuut opnieuw."],
+  ["docs.no_page", "Op dit adres staat geen documentatiepagina. De inhoudsopgave toont alle pagina’s."],
+  ["docs.source", "Deze pagina op GitHub"],
+  ["docs.english", "De documentatie is in het Engels geschreven."],
+  ["docs.prev", "← Vorige"],
+  ["docs.next", "Volgende →"]
 ]);

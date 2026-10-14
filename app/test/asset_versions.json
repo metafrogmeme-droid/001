@@ -95,6 +95,10 @@
     "v": 3,
     "sha": "4f6c6c648d75dc55"
   },
+  "js/docs-page.js": {
+    "v": 1,
+    "sha": "51e50b30dee446f2"
+  },
   "js/duel.js": {
     "v": 1,
     "sha": "5dbbfd3297612824"
@@ -160,8 +164,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 177,
-    "sha": "ccb28178ffb71482"
+    "v": 178,
+    "sha": "8c3ff4782e4e51e2"
   },
   "js/icons.js": {
     "v": 6,
@@ -210,6 +214,10 @@
   "js/panel-error-model.js": {
     "v": 5,
     "sha": "28bd4a1b316060ff"
+  },
+  "js/plan-card-model.js": {
+    "v": 1,
+    "sha": "3c147ef2a8704aa3"
   },
   "js/radar3d.js": {
     "v": 3,
@@ -338,9 +346,5 @@
   "vendor/lightweight-charts.standalone.production.js": {
     "v": 1,
     "sha": "c7dda807d662a95b"
-  },
-  "js/plan-card-model.js": {
-    "v": 1,
-    "sha": "3c147ef2a8704aa3"
   }
 }

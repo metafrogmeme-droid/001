@@ -2186,5 +2186,18 @@
   ["tok.ms_no_delay", "yok: onaylanan bir transfer hemen yürütülür"],
   ["tok.ms_vault", "Kasa (tokenları tutar)"],
   ["tok.ms_account", "Çoklu imza hesabı"],
-  ["tok.ms_body", "Kasa bir Squads v4 çoklu imza cüzdanı tarafından yönetilir. Kasadan token çıkarmak ya da üyelerini, onay sayısını veya zaman kilidini değiştirmek, gösterilen onayları ve ardından zaman kilidinin bekleme süresini gerektirir. Squads v4 programı güncellenemez. Bu bir kilit değil, gecikmeli bir saklamadır: onaylanıp bekleme süresi geçtikten sonra tokenlar hareket edebilir."]
+  ["tok.ms_body", "Kasa bir Squads v4 çoklu imza cüzdanı tarafından yönetilir. Kasadan token çıkarmak ya da üyelerini, onay sayısını veya zaman kilidini değiştirmek, gösterilen onayları ve ardından zaman kilidinin bekleme süresini gerektirir. Squads v4 programı güncellenemez. Bu bir kilit değil, gecikmeli bir saklamadır: onaylanıp bekleme süresi geçtikten sonra tokenlar hareket edebilir."],
+  ["docs.h1", "Dokümantasyon"],
+  ["docs.lede", "RUNECLAW nasıl çalışır: başlarken, mimari, komutlar, risk kontrolleri, $RCLAW tokenı ve API. Aynı sayfalar projenin GitHub deposunda da bulunur."],
+  ["docs.toc_h", "İçindekiler"],
+  ["docs.token_link", "$RCLAW tokenı"],
+  ["docs.foot", "Dokümantasyondaki hiçbir şey finansal tavsiye, herhangi bir tokenı satma teklifi veya satın alma daveti değildir."],
+  ["docs.on_github", "Dokümantasyonu GitHub’da okuyun"],
+  ["docs.toc_unread", "İçindekiler şu anda okunamadı."],
+  ["docs.page_unread", "Bu sayfa şu anda okunamadı. Bir dakika sonra tekrar deneyin."],
+  ["docs.no_page", "Bu adreste bir dokümantasyon sayfası yok. İçindekiler tüm sayfaları listeler."],
+  ["docs.source", "Bu sayfa GitHub’da"],
+  ["docs.english", "Dokümantasyon İngilizce yazılmıştır."],
+  ["docs.prev", "← Önceki"],
+  ["docs.next", "Sonraki →"]
 ]);

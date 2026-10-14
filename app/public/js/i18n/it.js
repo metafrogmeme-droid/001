@@ -2186,5 +2186,18 @@
   ["tok.ms_no_delay", "nessuno: un trasferimento approvato viene eseguito subito"],
   ["tok.ms_vault", "Cassaforte (detiene i token)"],
   ["tok.ms_account", "Account multisig"],
-  ["tok.ms_body", "La cassaforte è controllata da un multisig Squads v4. Spostare token da essa, o cambiarne i membri, le approvazioni o il blocco temporale, richiede le approvazioni indicate e poi l’attesa del blocco temporale. Il programma Squads v4 non può essere aggiornato. È una custodia con ritardo, non un blocco: una volta approvati e trascorsa l’attesa, i token possono muoversi."]
+  ["tok.ms_body", "La cassaforte è controllata da un multisig Squads v4. Spostare token da essa, o cambiarne i membri, le approvazioni o il blocco temporale, richiede le approvazioni indicate e poi l’attesa del blocco temporale. Il programma Squads v4 non può essere aggiornato. È una custodia con ritardo, non un blocco: una volta approvati e trascorsa l’attesa, i token possono muoversi."],
+  ["docs.h1", "Documentazione"],
+  ["docs.lede", "Come funziona RUNECLAW: primi passi, l’architettura, i comandi, i controlli del rischio, il token $RCLAW e l’API. Le stesse pagine sono nel repository del progetto su GitHub."],
+  ["docs.toc_h", "Indice"],
+  ["docs.token_link", "Token $RCLAW"],
+  ["docs.foot", "Nulla nella documentazione costituisce consulenza finanziaria, un’offerta di vendita o una sollecitazione all’acquisto di alcun token."],
+  ["docs.on_github", "Leggi la documentazione su GitHub"],
+  ["docs.toc_unread", "Al momento non è stato possibile leggere l’indice."],
+  ["docs.page_unread", "Al momento non è stato possibile leggere questa pagina. Riprova tra un minuto."],
+  ["docs.no_page", "A questo indirizzo non c’è alcuna pagina della documentazione. L’indice elenca tutte le pagine."],
+  ["docs.source", "Questa pagina su GitHub"],
+  ["docs.english", "La documentazione è scritta in inglese."],
+  ["docs.prev", "← Precedente"],
+  ["docs.next", "Successivo →"]
 ]);

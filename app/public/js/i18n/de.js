@@ -2186,5 +2186,18 @@
   ["tok.ms_no_delay", "keine: eine genehmigte Übertragung wird sofort ausgeführt"],
   ["tok.ms_vault", "Tresor (hält die Token)"],
   ["tok.ms_account", "Multisig-Konto"],
-  ["tok.ms_body", "Der Tresor wird von einem Squads-v4-Multisig verwaltet. Token daraus zu bewegen oder seine Mitglieder, Zustimmungen oder Zeitsperre zu ändern, erfordert die angegebenen Zustimmungen und danach die Wartezeit der Zeitsperre. Das Squads-v4-Programm kann nicht aktualisiert werden. Das ist Verwahrung mit Verzögerung, keine Sperre: Nach Zustimmung und Ablauf der Wartezeit können Token bewegt werden."]
+  ["tok.ms_body", "Der Tresor wird von einem Squads-v4-Multisig verwaltet. Token daraus zu bewegen oder seine Mitglieder, Zustimmungen oder Zeitsperre zu ändern, erfordert die angegebenen Zustimmungen und danach die Wartezeit der Zeitsperre. Das Squads-v4-Programm kann nicht aktualisiert werden. Das ist Verwahrung mit Verzögerung, keine Sperre: Nach Zustimmung und Ablauf der Wartezeit können Token bewegt werden."],
+  ["docs.h1", "Dokumentation"],
+  ["docs.lede", "Wie RUNECLAW funktioniert: Einstieg, Architektur, Befehle, Risikoprüfungen, der $RCLAW-Token und die API. Dieselben Seiten liegen im Repository des Projekts auf GitHub."],
+  ["docs.toc_h", "Inhalt"],
+  ["docs.token_link", "$RCLAW-Token"],
+  ["docs.foot", "Nichts in der Dokumentation ist eine Finanzberatung, ein Verkaufsangebot oder eine Aufforderung zum Kauf eines Tokens."],
+  ["docs.on_github", "Dokumentation auf GitHub lesen"],
+  ["docs.toc_unread", "Das Inhaltsverzeichnis konnte gerade nicht gelesen werden."],
+  ["docs.page_unread", "Diese Seite konnte gerade nicht gelesen werden. Versuchen Sie es in einer Minute erneut."],
+  ["docs.no_page", "Unter dieser Adresse gibt es keine Dokumentationsseite. Das Inhaltsverzeichnis listet alle Seiten auf."],
+  ["docs.source", "Diese Seite auf GitHub"],
+  ["docs.english", "Die Dokumentation ist auf Englisch verfasst."],
+  ["docs.prev", "← Zurück"],
+  ["docs.next", "Weiter →"]
 ]);

@@ -2186,5 +2186,18 @@
   ["tok.ms_no_delay", "nenhum: uma transferência aprovada é executada de imediato"],
   ["tok.ms_vault", "Cofre (guarda os tokens)"],
   ["tok.ms_account", "Conta multisig"],
-  ["tok.ms_body", "O cofre é controlado por uma multisig da Squads v4. Retirar tokens dele, ou alterar os seus membros, as suas aprovações ou o seu bloqueio de tempo, exige as aprovações indicadas e depois a espera do bloqueio de tempo. O programa Squads v4 não pode ser atualizado. Isto é custódia com atraso, não um bloqueio: depois de aprovados e passada a espera, os tokens podem ser movidos."]
+  ["tok.ms_body", "O cofre é controlado por uma multisig da Squads v4. Retirar tokens dele, ou alterar os seus membros, as suas aprovações ou o seu bloqueio de tempo, exige as aprovações indicadas e depois a espera do bloqueio de tempo. O programa Squads v4 não pode ser atualizado. Isto é custódia com atraso, não um bloqueio: depois de aprovados e passada a espera, os tokens podem ser movidos."],
+  ["docs.h1", "Documentação"],
+  ["docs.lede", "Como o RUNECLAW funciona: primeiros passos, a arquitetura, os comandos, as verificações de risco, o token $RCLAW e a API. As mesmas páginas estão no repositório do projeto no GitHub."],
+  ["docs.toc_h", "Conteúdo"],
+  ["docs.token_link", "Token $RCLAW"],
+  ["docs.foot", "Nada na documentação é aconselhamento financeiro, uma oferta de venda ou uma solicitação de compra de qualquer token."],
+  ["docs.on_github", "Ler a documentação no GitHub"],
+  ["docs.toc_unread", "Não foi possível ler o índice neste momento."],
+  ["docs.page_unread", "Não foi possível ler esta página neste momento. Tente novamente dentro de um minuto."],
+  ["docs.no_page", "Não há nenhuma página de documentação neste endereço. O índice lista todas as páginas."],
+  ["docs.source", "Esta página no GitHub"],
+  ["docs.english", "A documentação está escrita em inglês."],
+  ["docs.prev", "← Anterior"],
+  ["docs.next", "Seguinte →"]
 ]);

@@ -2186,5 +2186,18 @@
   ["tok.ms_no_delay", "ninguno: una transferencia aprobada se ejecuta de inmediato"],
   ["tok.ms_vault", "Bóveda (contiene los tokens)"],
   ["tok.ms_account", "Cuenta multifirma"],
-  ["tok.ms_body", "La bóveda está controlada por una multifirma de Squads v4. Sacar tokens de ella, o cambiar sus miembros, sus aprobaciones o su bloqueo temporal, requiere las aprobaciones indicadas y después la espera del bloqueo temporal. El programa Squads v4 no se puede actualizar. Es una custodia con demora, no un bloqueo: una vez aprobados y pasada la espera, los tokens pueden moverse."]
+  ["tok.ms_body", "La bóveda está controlada por una multifirma de Squads v4. Sacar tokens de ella, o cambiar sus miembros, sus aprobaciones o su bloqueo temporal, requiere las aprobaciones indicadas y después la espera del bloqueo temporal. El programa Squads v4 no se puede actualizar. Es una custodia con demora, no un bloqueo: una vez aprobados y pasada la espera, los tokens pueden moverse."],
+  ["docs.h1", "Documentación"],
+  ["docs.lede", "Cómo funciona RUNECLAW: primeros pasos, la arquitectura, los comandos, las comprobaciones de riesgo, el token $RCLAW y la API. Las mismas páginas están en el repositorio del proyecto en GitHub."],
+  ["docs.toc_h", "Contenido"],
+  ["docs.token_link", "Token $RCLAW"],
+  ["docs.foot", "Nada en la documentación es asesoramiento financiero, una oferta de venta ni una solicitud de compra de ningún token."],
+  ["docs.on_github", "Leer la documentación en GitHub"],
+  ["docs.toc_unread", "No se pudo leer el índice en este momento."],
+  ["docs.page_unread", "No se pudo leer esta página en este momento. Inténtalo de nuevo en un minuto."],
+  ["docs.no_page", "No hay ninguna página de documentación en esta dirección. El índice enumera todas las páginas."],
+  ["docs.source", "Esta página en GitHub"],
+  ["docs.english", "La documentación está escrita en inglés."],
+  ["docs.prev", "← Anterior"],
+  ["docs.next", "Siguiente →"]
 ]);

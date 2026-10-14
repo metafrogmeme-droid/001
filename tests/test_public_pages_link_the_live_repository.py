@@ -44,6 +44,7 @@ PUBLIC = sorted(
     {ROOT / "README.md", ROOT / "README.zh-TW.md", ROOT / "SECURITY.md", ROOT / "agent_card.json",
      ROOT / "LICENSE", ROOT / "NOTICE",
      ROOT / "app" / "public" / "js" / "i18n.js", ROOT / "app" / "lib" / "tool8257.js",
+     ROOT / "app" / "lib" / "docs_pages.js", ROOT / "app" / "public" / "js" / "docs-page.js",
      ROOT / "site" / "src" / "components" / "PlatformLink.tsx",
      # website/ is site/'s committed build (CI fails when it differs); its archive/ keeps old pages as written.
      ROOT / "website" / "index.html", ROOT / "website" / "404.html"}
@@ -131,9 +132,16 @@ def test_no_public_page_links_a_gitbook_site(path):
 
 
 def test_every_docs_link_is_the_docs_folder_on_github():
+    """Off the website, "Docs" is the folder on GitHub. On it, "Docs" is /docs, which serves the
+    same folder (app/lib/docs_pages.js) and links each page's source in it."""
     assert (ROOT / "docs" / "gitbook" / "README.md").exists(), "GitHub renders the folder's README as its front page"
-    for name in ("README.md", "README.zh-TW.md", "app/public/index.html", "app/public/explore.html",
-                 "site/src/components/PlatformLink.tsx", "website/index.html"):
+    for name in ("README.md", "README.zh-TW.md", "site/src/components/PlatformLink.tsx", "website/index.html"):
         assert DOCS in (ROOT / name).read_text(encoding="utf-8"), f"{name} does not link {DOCS}"
     card = json.loads((ROOT / "agent_card.json").read_text(encoding="utf-8"))
     assert card["documentation"] == DOCS
+    for name in ("app/public/index.html", "app/public/explore.html"):
+        html = (ROOT / name).read_text(encoding="utf-8")
+        links = re.findall(r'<a [^>]*data-i18n="nav\.docs"[^>]*>', html)
+        assert links and all(a.startswith('<a href="/docs" ') for a in links), f"{name}: {links}"
+    for name in ("app/lib/docs_pages.js", "app/public/js/docs-page.js"):
+        assert DOCS in (ROOT / name).read_text(encoding="utf-8"), f"{name} does not link {DOCS}"

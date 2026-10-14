@@ -2228,7 +2228,20 @@
     "tok.ms_no_delay": { en: "none: an approved transfer executes at once" },
     "tok.ms_vault": { en: "Vault (holds the tokens)" },
     "tok.ms_account": { en: "Multisig account" },
-    "tok.ms_body": { en: "The vault is held by a Squads v4 multisig. Moving tokens out of it, or changing its members, its approvals or its time lock, needs the approvals shown and then the time lock’s wait. The Squads v4 program cannot be upgraded. This is custody with a delay, not a lock: once approved and past the wait, tokens can move." }
+    "tok.ms_body": { en: "The vault is held by a Squads v4 multisig. Moving tokens out of it, or changing its members, its approvals or its time lock, needs the approvals shown and then the time lock’s wait. The Squads v4 program cannot be upgraded. This is custody with a delay, not a lock: once approved and past the wait, tokens can move." },
+    "docs.h1": { en: "Documentation" },
+    "docs.lede": { en: "How RUNECLAW works: getting started, the architecture, the commands, the risk checks, the $RCLAW token and the API. The same pages are in the project’s repository on GitHub." },
+    "docs.toc_h": { en: "Contents" },
+    "docs.token_link": { en: "$RCLAW token" },
+    "docs.foot": { en: "Nothing in the documentation is financial advice, an offer to sell or a solicitation to buy any token." },
+    "docs.on_github": { en: "Read the documentation on GitHub" },
+    "docs.toc_unread": { en: "The table of contents could not be read right now." },
+    "docs.page_unread": { en: "This page could not be read right now. Try again in a minute." },
+    "docs.no_page": { en: "There is no documentation page at this address. The contents list every page." },
+    "docs.source": { en: "This page on GitHub" },
+    "docs.english": { en: "The documentation is written in English." },
+    "docs.prev": { en: "← Previous" },
+    "docs.next": { en: "Next →" }
   };
 
   // ── Split build ───────────────────────────────────────────────────────────
@@ -2240,7 +2253,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"a84e7bd7","zh":"a02925e5","pt":"0b8296de","fr":"d525621a","de":"138b7a94","nl":"48348b6b","ja":"a91a76c3","ko":"749d4853","ru":"7600c0f2","tr":"bed5b579","it":"a147a675","hi":"c1f38e96","ar":"17c00246"};
+  var CHUNKS = {"es":"0fff81ab","zh":"59e362d4","pt":"1b418b66","fr":"07d3b181","de":"0666a6f6","nl":"1801ff88","ja":"8de9141f","ko":"c81abb47","ru":"59f875d3","tr":"0757f84f","it":"f81749b3","hi":"2935218a","ar":"eab7fd6a"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

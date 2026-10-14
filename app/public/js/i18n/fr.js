@@ -2186,5 +2186,18 @@
   ["tok.ms_no_delay", "aucun : un transfert approuvé s’exécute immédiatement"],
   ["tok.ms_vault", "Coffre (détient les jetons)"],
   ["tok.ms_account", "Compte multisig"],
-  ["tok.ms_body", "Le coffre est contrôlé par un multisig Squads v4. Sortir des jetons, ou modifier ses membres, ses approbations ou son délai de sécurité, exige les approbations indiquées puis l’attente de ce délai. Le programme Squads v4 ne peut pas être mis à jour. C’est une garde avec délai, pas un verrou : une fois approuvés et le délai écoulé, les jetons peuvent bouger."]
+  ["tok.ms_body", "Le coffre est contrôlé par un multisig Squads v4. Sortir des jetons, ou modifier ses membres, ses approbations ou son délai de sécurité, exige les approbations indiquées puis l’attente de ce délai. Le programme Squads v4 ne peut pas être mis à jour. C’est une garde avec délai, pas un verrou : une fois approuvés et le délai écoulé, les jetons peuvent bouger."],
+  ["docs.h1", "Documentation"],
+  ["docs.lede", "Comment fonctionne RUNECLAW : prise en main, architecture, commandes, contrôles de risque, jeton $RCLAW et API. Les mêmes pages se trouvent dans le dépôt du projet sur GitHub."],
+  ["docs.toc_h", "Sommaire"],
+  ["docs.token_link", "Jeton $RCLAW"],
+  ["docs.foot", "Rien dans la documentation ne constitue un conseil financier, une offre de vente ou une sollicitation d’achat d’un jeton."],
+  ["docs.on_github", "Lire la documentation sur GitHub"],
+  ["docs.toc_unread", "Le sommaire n’a pas pu être lu pour le moment."],
+  ["docs.page_unread", "Cette page n’a pas pu être lue pour le moment. Réessayez dans une minute."],
+  ["docs.no_page", "Aucune page de documentation n’existe à cette adresse. Le sommaire liste toutes les pages."],
+  ["docs.source", "Cette page sur GitHub"],
+  ["docs.english", "La documentation est rédigée en anglais."],
+  ["docs.prev", "← Précédent"],
+  ["docs.next", "Suivant →"]
 ]);
