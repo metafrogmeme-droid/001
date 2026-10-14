@@ -40,8 +40,9 @@ PUBLIC_CHAT_TYPES = frozenset({"group", "supergroup", "channel"})
 #: account: help and identity, market reads (movers, chart patterns, the
 #: macro calendar, one symbol's event risk, funding rates, sector radars, a
 #: contract read), public statistics (signal outcomes per pair, the
-#: leaderboard), the token, and the two channel tools that manage this room's
-#: posts. `/news` and `/patterns` are NOT here: the first alerts on the
+#: leaderboard), the token, and the two channel tools: `/channel`, with which
+#: a group's admin opts that group in or out, and `/broadcast`, the
+#: operator's. `/news` and `/patterns` are NOT here: the first alerts on the
 #: positions held and the second groups the book's own closes, both an
 #: account. Everything else answers in a private chat.
 ROOM_COMMANDS = frozenset({

@@ -319,11 +319,22 @@ class AccessCommands:
             await self._send(update, f"\U0001f534 {t('set_tier_failed', self._lang(update))}")
 
     async def _cmd_channel(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """/channel — manage marketing channel auto-posting."""
-        # Allow bot admins OR Telegram group admins
+        """/channel — manage marketing channel auto-posting.
+
+        TWO AUDIENCES, TWO REACHES. The bot's operator runs the forwarder:
+        the switch, every registered group, posting to all of them, and which
+        group reads full calls. An admin of a group the bot sits in manages
+        THAT group: running /channel there adds it, /channel shows its own
+        status, and /channel remove takes it out. Every subcommand used to be
+        open to any group's admin, so the admin of one group could switch the
+        operator's posting off, read the list of every other group, remove
+        them, add arbitrary ids, and post a test to all of them.
+        """
         is_bot_admin = self._is_admin(update)
+        chat = update.effective_chat
+        in_group = bool(chat and chat.type in ("group", "supergroup"))
         is_group_admin = False
-        if not is_bot_admin and update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
+        if not is_bot_admin and in_group:
             try:
                 member = await ctx.bot.get_chat_member(
                     update.effective_chat.id, update.effective_user.id)
@@ -333,13 +344,22 @@ class AccessCommands:
         if not is_bot_admin and not is_group_admin:
             await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
             return
+        own_group = chat.id if (in_group and chat is not None) else None
 
-        # Auto-detect this group if command is run in one
-        chat = update.effective_chat
-        if chat and chat.type in ("group", "supergroup"):
+        # Running /channel in a group adds that group: a group admin opting
+        # their own group in to the teasers.
+        if in_group and chat is not None:
             self.forwarder.detect_group(chat.id, chat.type, chat.title or "")
 
         args = ctx.args or []
+        if not args and not is_bot_admin:
+            kind = "full calls" if own_group in set(self.forwarder.full_ids) else "teasers"
+            await self._send(update, (
+                f"\U0001f4e1 <b>Channel Forwarder</b>\n\n"
+                f"This group (<code>{own_group}</code>) is registered and gets {kind}.\n"
+                f"<code>/channel remove {own_group}</code> \u2014 stop posting here.\n\n"
+                f"<i>Every other setting is the bot operator's.</i>"))
+            return
         if not args:
             groups = self.forwarder.group_ids
             status = "\U0001f7e2 ON" if self.forwarder.is_enabled else "\U0001f534 OFF"
@@ -372,6 +392,18 @@ class AccessCommands:
             return
 
         sub = args[0].lower()
+        if not is_bot_admin:
+            # A group admin reaches their own group only: remove (or add) by
+            # its own id. Anything global is the operator's.
+            target = None
+            if sub in ("add", "remove") and len(args) >= 2:
+                try:
+                    target = int(args[1])
+                except ValueError:
+                    target = None
+            if target is None or target != own_group:
+                await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
+                return
         if sub == "on":
             self.forwarder.set_enabled(True)
             await self._send(update, "\U0001f7e2 Channel auto-posting <b>enabled</b>.")
@@ -426,17 +458,14 @@ class AccessCommands:
                 "\u274c Unknown subcommand. Use <code>/channel</code> for help.")
 
     async def _cmd_broadcast(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """/broadcast <message> — send a custom message to all marketing channels."""
-        is_bot_admin = self._is_admin(update)
-        is_group_admin = False
-        if not is_bot_admin and update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
-            try:
-                member = await ctx.bot.get_chat_member(
-                    update.effective_chat.id, update.effective_user.id)
-                is_group_admin = member.status in ("creator", "administrator")
-            except Exception:
-                pass
-        if not is_bot_admin and not is_group_admin:
+        """/broadcast <message> — send a custom message to all marketing channels.
+
+        The bot's operator only. It used to accept an admin of ANY group the
+        bot sits in, so one group's admin could post any text, under the
+        bot's name, into every other group: a phishing door with the
+        product's own voice.
+        """
+        if not self._is_admin(update):
             await self._send(update, f"\U0001f512 {t('admin_only', self._lang(update))}")
             return
         args = ctx.args or []

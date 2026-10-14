@@ -682,10 +682,19 @@ async function sweepLetters(notify) {
         const { notifySubscribers } = require('./push');
         send = notifySubscribers;
       }
+      // The PUBLIC headline (percent and count), never the stored letter's:
+      // the stored one is the operator's account in dollars, and this push
+      // goes to every subscriber. A public letter that cannot be read sends
+      // no figure at all rather than the private one in its place.
+      let headline = null;
+      try {
+        const pub = await getPublicLetter(week.key);
+        headline = pub && pub.headline ? pub.headline : null;
+      } catch (e) { headline = null; }
       try {
         await send({
           title: '📜 Your weekly agent letter is ready',
-          body: `${week.key}: ${r.letter.headline}`,
+          body: headline ? `${week.key}: ${headline}` : `${week.key}: the week in review`,
           url: '/dashboard#home',
         }, null);
       } catch (e) { /* push best-effort */ }

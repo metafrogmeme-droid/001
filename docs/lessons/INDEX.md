@@ -324,3 +324,4 @@ about to change before changing it.
 - L24706: A LIVE CALL WAS PUBLIC ON NINE DOORS, AND THE PUSH THAT SENT ITS LEVELS OUTLIVED THE SIGN-OUT — `app/test/a_live_call_is_a_members.test.js`, `app/test/a_locked_call_renders_as_locked.test.js`
 - L24774: A GROUP WAS ANSWERED AS A PRIVATE CHAT, AND ANY GROUP THE BOT WAS WRITTEN IN SUBSCRIBED ITSELF TO THE CALLS — `tests/test_a_group_reads_a_teaser.py`
 - L24838: THREE THINGS WERE CALLED A TIER, AND THE ONE THE OPERATOR SET WAS THE ONE NOTHING READ — `app/test/a_plan_card_is_the_bots_tier.test.js`, `tests/test_a_tier_buys_what_its_card_says.py`
+- L24909: ONE GROUP'S ADMIN COULD SPEAK FOR THE BOT IN EVERY GROUP, AND THE LETTER'S PUSH CARRIED THE OPERATOR'S DOLLARS TO EVERY SUBSCRIBER — `app/test/the_letter_push_names_no_dollar.test.js`, `tests/test_a_group_admin_reaches_only_their_group.py`
