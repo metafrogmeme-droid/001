@@ -744,9 +744,10 @@ def test_the_api_facade_carries_its_public_flag_with_the_mode():
 
 def test_every_general_chat_surface_delivers_the_turns_shape():
     """The corollary this repo states as a rule: ask which OTHER surface makes
-    the same claim before calling the fix done. Four do -- Telegram, the web's
-    signed-in chat, public chat and the API facade -- and the fourth was found
-    by enumerating `_llm_chat`'s callers rather than by remembering them.
+    the same claim before calling the fix done. Five do -- Telegram, the web's
+    signed-in chat, public chat, the API facade and a Telegram group's public
+    room -- and the fourth was found by enumerating `_llm_chat`'s callers
+    rather than by remembering them.
 
     The four left out are deliberate, and they are counted here so the
     omission is a decision on record rather than a gap: two vision handlers,
@@ -779,11 +780,14 @@ def test_every_general_chat_surface_delivers_the_turns_shape():
             kw = {k.arg for k in node.keywords}
             (carriers if "reply_mode" in kw else plain).append(where)
 
-    assert len(carriers) == 4, (
-        "telegram chat + web authed + public + api facade", carriers)
+    # The fifth is a Telegram group's free text (`_public_room_turn`): the
+    # public chat, on Telegram, so it carries the turn's shape as the
+    # website's public chat does.
+    assert len(carriers) == 5, (
+        "telegram chat + web authed + public + api facade + telegram room", carriers)
     assert len(plain) == 4, (
         "two vision handlers + contract studio + research", plain)
     # And the total is pinned, because the failure this whole test is about is
     # a caller nobody enumerated. A new `_llm_chat` call site fails here until
     # somebody decides which list it belongs in.
-    assert len(carriers) + len(plain) == 8, "a new caller appeared -- decide"
+    assert len(carriers) + len(plain) == 9, "a new caller appeared -- decide"

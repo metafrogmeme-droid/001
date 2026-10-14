@@ -48,6 +48,7 @@ bot/nlp/intent_router.py  cmp  the router grading its own IntentResult (the 0.8 
 bot/nlp/intent_router.py  cmp  the same IntentResult at the router's 0.5 clarification bar
 bot/risk/quality_ladder.py  cmp  the same reading against a rung's floor: the ladder's own gate on its own reading
 bot/skills/telegram_handler.py  cmp  an IntentResult at the 0.8 dispatch bar, not a trade's confidence
+bot/skills/telegram_handler.py  cmp  an IntentResult at the 0.8 dispatch bar in a public room: a skill turn is pointed at the private chat
 bot/skills/telegram_handler.py  cmp  an IntentResult at the 0.5 clarification bar
 bot/web/user_gateway.py  cmp  an IntentResult at the 0.8 dispatch bar (the web chat turn)
 bot/web/user_gateway.py  cmp  an IntentResult at the 0.8 bar, a second branch of the same turn

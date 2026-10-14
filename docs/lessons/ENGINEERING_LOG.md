@@ -20688,7 +20688,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 268 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 269 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21511,9 +21511,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **490 of 1314** reach for source text through `source_scan`, `code_only`
+Driven, **491 of 1315** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 490 is a FLOOR and the honest shape is
+source scan that rule does not see, so 491 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -24698,3 +24698,67 @@ connection, the push, the MCP door keyed and keyless, the public ERC-8257 door;
 `app/test/a_locked_call_renders_as_locked.test.js`: each renderer says "live
 call" for a locked row, never "no direction", a mismatch, or a quiet board.
 Twenty mutants, all killed, each by the test that names it.)
+
+**A GROUP WAS ANSWERED AS A PRIVATE CHAT, AND ANY GROUP THE BOT WAS WRITTEN IN SUBSCRIBED ITSELF TO THE CALLS.**
+The website keeps a live call for signed-in members. Mapping the same rule on
+Telegram found that the bot drew no line between a private chat and a group,
+which is read by whoever is in it:
+- `_handle_message` enrolled every group it received a text message in for
+  the channel posts, before any registration or access check, and the posts
+  were the full call cards (side, entry, stop, target, confidence) and the
+  operator's live open;
+- about ten commands printed the live calls or the operator's book into the
+  group (`/latest_signal`, `/positions`, `/portfolio`, `/fullscan`,
+  `/analyze`, `/scalp`, ...), their buttons did the same when tapped, and a
+  stranger's first command there admitted them (`PAPER_AUTO_ACCEPT`);
+- free text in a group was routed to the same skills, and the chat model's
+  prompt carried the pending ideas and the open positions.
+Only six of about 150 commands asked the chat type at all.
+
+`bot/skills/public_room.py` is the line. A group, supergroup or channel is a
+public room. It is an ALLOWLIST, so a command added tomorrow that prints a
+call is private until somebody lists it, the opposite default from a
+denylist. The rules:
+- **Commands.** Only a command in `ROOM_COMMANDS` answers in a room (help,
+  market reads, signal outcomes, the leaderboard, the token, the channel
+  tools). Every other one points at the private chat by link. The gate sits
+  in `_remembering`, the one place every registered command passes, and its
+  button twin in `_remembering_button`, which lets the language picker
+  through and nothing else.
+- **Free text.** A room gets the public chat the website's anonymous visitor
+  gets (`_llm_chat(public=True)`: no history, no account, no live call in its
+  prompt, the public reply contract), never the router. A turn the router
+  reads as a skill, or one that needs the live scanner, is pointed at the
+  private chat. The public preview's allowance is counted per person, by a
+  digest of the account, never the account.
+- **The channel.** It posts a teaser (the market, and where a member reads
+  it) unless a bot admin marked the group as a members' room
+  (`/channel full <id>`). A close is posted whole, as the website publishes a
+  resolved call, and a group is added only by `/channel`.
+
+Two things the first draft got wrong, both found by the mutation round. The
+members' rooms were filtered to registered groups on READ. So a `full` set
+on an id before it was added, or left on a group after it was removed, was
+invisible to every test, and would have come back as a members' room the day
+that group was added. Each test now re-adds the group and reads again. And
+`/news` and `/patterns` were first listed as room commands, being market
+reads by their names, when the first alerts on the positions held and the
+second groups the book's own closes. The handler's own docstring decided,
+not its name.
+
+Found and left for their own change: an admin of ANY group the bot sits in
+can run `/broadcast` and `/channel on|off|add|remove|test` across every group
+(a test pins `/broadcast`'s group-admin fallback); `/link` run in a group
+links the group's id; and `TELEGRAM_CHAT_ID` set to a negative id would
+deliver the signal alerts to that group.
+(`tests/test_a_group_reads_a_teaser.py`: the room reading; every member
+command refused in a room and served in a private chat, every room command
+served in a room, the list two-way against the registered commands; buttons
+both ways and the language picker; free text pointed at the private chat or
+given the public chat, registering nobody and enrolling nothing; the preview
+counted per person and refusing when spent; the teaser against the members'
+room card, the open as a teaser and the close whole, a members' room saved,
+forgotten with its group and not revived by re-adding it, the door in words
+without a handle; `/channel full` refused to a group admin and to an
+unregistered id. Eighteen mutants, all killed, each by the test that names
+it.)

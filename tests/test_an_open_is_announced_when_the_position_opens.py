@@ -420,6 +420,9 @@ def _forwarder():
     fwd = ChannelForwarder.__new__(ChannelForwarder)
     fwd._bot, fwd._group_ids = _Bot(), {-1001}
     fwd._lock, fwd._enabled = threading.Lock(), True
+    # A members' room: these tests read the full card. A group that is
+    # not one reads a teaser (tests/test_a_group_reads_a_teaser.py).
+    fwd._full_ids = {-1001}
     return fwd
 
 

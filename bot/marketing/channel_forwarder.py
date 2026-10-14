@@ -63,11 +63,23 @@ def _rr_words(idea) -> str:
 
 
 class ChannelForwarder:
-    """Forwards cleaned-up bot content to public Telegram groups/channels."""
+    """Forwards cleaned-up bot content to public Telegram groups/channels.
+
+    A LIVE CALL IS A MEMBER'S, IN A GROUP AS ON THE WEBSITE. A group is read
+    by whoever is in it, registered or not, so a new call and the agent's
+    open are posted as a TEASER: the market, and where a member reads the
+    rest (a private chat with the bot). The full card goes only to a group a
+    bot admin marked as a members' room (`/channel full <id>`), and a
+    resolved trade (a close) is posted whole to every group, as the website
+    publishes a resolved call. `app/lib/signal_access.js` is the same rule
+    on the website.
+    """
 
     def __init__(self) -> None:
         self._bot = None
         self._group_ids: set[int] = set()
+        # Groups a bot admin marked as members' rooms: they get the full card.
+        self._full_ids: set[int] = set()
         self._lock = threading.Lock()
         self._enabled = True
         self._load_config()
@@ -80,6 +92,7 @@ class ChannelForwarder:
                 with open(_CONFIG_PATH) as f:
                     data = json.load(f)
                 self._group_ids = set(data.get("group_ids", []))
+                self._full_ids = set(data.get("full_ids", []))
                 self._enabled = data.get("enabled", True)
             except (json.JSONDecodeError, OSError):
                 pass
@@ -87,6 +100,7 @@ class ChannelForwarder:
     def _save_config(self) -> None:
         atomic_write_json(_CONFIG_PATH, {
             "group_ids": list(self._group_ids),
+            "full_ids": list(self._full_ids),
             "enabled": self._enabled,
         })
 
@@ -108,7 +122,38 @@ class ChannelForwarder:
         """Remove a group from auto-posting."""
         with self._lock:
             self._group_ids.discard(chat_id)
+            self._full_ids.discard(chat_id)
             self._save_config()
+
+    def set_full(self, chat_id: int, full: bool) -> None:
+        """Mark a registered group as a members' room (the full card) or not
+        (the teaser). Only a bot admin reaches this (`/channel full|teaser`):
+        which room is a members' room is the operator's decision about who
+        reads a live call."""
+        with self._lock:
+            if full:
+                self._full_ids.add(chat_id)
+            else:
+                self._full_ids.discard(chat_id)
+            self._save_config()
+        audit(system_log, f"Marketing group {chat_id} set to "
+              f"{'full calls' if full else 'teaser'}",
+              action="channel_full" if full else "channel_teaser", result="OK")
+
+    @property
+    def full_ids(self) -> list[int]:
+        return [g for g in self._full_ids if g in self._group_ids]
+
+    def _members_door(self) -> str:
+        """Where a member reads the rest: the bot's private chat, as a link
+        when the bot's handle reads, and in words when it does not."""
+        try:
+            handle = str(getattr(self._bot, "username", "") or "").lstrip("@")
+        except Exception:  # noqa: BLE001 -- an uninitialised bot has no handle
+            handle = ""
+        if handle:
+            return f'<a href="https://t.me/{html.escape(handle)}">@{html.escape(handle)}</a>'
+        return "a private chat with the RUNECLAW bot"
 
     def set_enabled(self, enabled: bool) -> None:
         with self._lock:
@@ -142,8 +187,11 @@ class ChannelForwarder:
 
     # ── Post methods ──────────────────────────────────────────
 
-    async def _post(self, text: str, disable_notification: bool = False) -> None:
-        """Post to all registered groups."""
+    async def _post(self, text: str, disable_notification: bool = False,
+                    *, members_text: Optional[str] = None) -> None:
+        """Post to all registered groups. ``members_text``, when given, is the
+        full card, and goes only to a group marked as a members' room; every
+        other group gets ``text``."""
         if not self._bot or not self._enabled or not self._group_ids:
             return
         # Every method in this class writes to a PUBLIC group, so the §4
@@ -152,6 +200,9 @@ class ChannelForwarder:
         # (post_signal publishes Entry/SL/TP, and those are market facts);
         # anything else carrying a dollar sign does not.
         text, _removed = scrub_money(text)
+        if members_text is not None:
+            members_text, _removed_m = scrub_money(members_text)
+            _removed += _removed_m
         if _removed:
             # Not a success. The scrubber is the backstop; a caller that
             # composed private text is the actual defect, and it stays visible.
@@ -159,10 +210,12 @@ class ChannelForwarder:
                 "Marketing post carried %d dollar amount(s) to a PUBLIC group "
                 "and they were stripped before sending. The caller is composing "
                 "private text — fix it there.", _removed)
+        full_ids = set(self._full_ids)
         for gid in list(self._group_ids):
+            body = members_text if (members_text is not None and gid in full_ids) else text
             try:
                 await self._bot.send_message(
-                    chat_id=gid, text=text, parse_mode="HTML",
+                    chat_id=gid, text=body, parse_mode="HTML",
                     disable_notification=disable_notification,
                     disable_web_page_preview=True)
             except Exception as exc:
@@ -201,6 +254,15 @@ class ChannelForwarder:
             # channel with `AI-generated signal` beneath it. A hand-typed
             # ticket's stamped 1.0 published as a measured 100%.
             confidence = displayed_confidence(idea).text()
+            tag = asset.split('/')[0] if '/' in asset else asset
+            # The teaser names the market and the door; never the side.
+            teaser = (
+                f"\U0001f4e1 <b>RUNECLAW</b> — new call on <b>{html.escape(asset)}</b>\n\n"
+                f"The side, entry, stop and target are for members while the "
+                f"call is live: open {self._members_door()} to read it. "
+                f"Every call is published in full once it resolves.\n\n"
+                f"#RUNECLAW #{html.escape(tag)}"
+            )
             msg = (
                 f"\U0001f4e1 <b>RUNECLAW SIGNAL</b>\n"
                 f"{_sep}\n\n"
@@ -214,7 +276,7 @@ class ChannelForwarder:
                 f"{_decided_by_words(idea)}{now}\n"
                 f"#RUNECLAW #{asset.split('/')[0] if '/' in asset else asset}"
             )
-            await self._post(msg)
+            await self._post(teaser, members_text=msg)
         except Exception as exc:
             system_log.debug("post_signal error: %s", exc)
 
@@ -250,7 +312,14 @@ class ChannelForwarder:
                 f"\U0001f916 RUNECLAW | {now}\n"
                 f"#RUNECLAW #{html.escape(asset.split('/')[0] if '/' in asset else asset)}"
             )
-            await self._post(msg)
+            teaser = (
+                f"\u2705 <b>RUNECLAW opened a position on {html.escape(asset)}</b> | LIVE\n\n"
+                f"Its side and levels are for members while it is open: "
+                f"{self._members_door()}. The result is posted here when it "
+                f"closes.\n\n"
+                f"#RUNECLAW #{html.escape(asset.split('/')[0] if '/' in asset else asset)}"
+            )
+            await self._post(teaser, members_text=msg)
         except Exception as exc:
             system_log.debug("post_trade_opened error: %s", type(exc).__name__)
 

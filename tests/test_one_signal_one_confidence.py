@@ -184,11 +184,14 @@ class TestOneMessage:
         host = types.SimpleNamespace(
             _enabled=True,
             _group_ids=["1"],
-            _post=lambda text: sent.append(text),
+            _bot=None,
         )
+        # The real method, bound: a hand-written stand-in forgets the next one.
+        host._members_door = types.MethodType(ChannelForwarder._members_door, host)
 
-        async def _post(text):
-            sent.append(text)
+        # The full card is the members' room's (`members_text`).
+        async def _post(text, members_text=None):
+            sent.append(members_text if members_text is not None else text)
 
         host._post = _post
         asyncio.get_event_loop_policy().new_event_loop().run_until_complete(

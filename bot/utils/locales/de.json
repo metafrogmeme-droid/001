@@ -321,5 +321,9 @@
   "val_excess_unstopped": "der Überschuss hat keinen Stop des Bots",
   "val_excess_whole_tpsl": "der TP/SL der Position deckt ihn ab",
   "val_excess_cover_unread": "Stop-Abdeckung nicht gelesen",
-  "val_and_more": "und {n} weitere"
+  "val_and_more": "und {n} weitere",
+  "tg_private_only": "Laufende Signale, Konten und Trading sind Mitgliedern vorbehalten, in einem privaten Chat mit mir: {link}. Frag mich dort.",
+  "tg_private_only_cmd": "{cmd} antwortet in einem privaten Chat: Laufende Signale und Konten sind Mitgliedern vorbehalten. Öffne {link} und sende es dort.",
+  "tg_private_chat_words": "einen privaten Chat mit mir",
+  "tg_private_only_tap": "Das öffnet sich in einem privaten Chat mit mir: Laufende Signale und Konten sind Mitgliedern vorbehalten."
 }

@@ -321,5 +321,9 @@
   "val_excess_unstopped": "초과분에는 봇의 손절이 없음",
   "val_excess_whole_tpsl": "포지션의 TP/SL이 이를 포함함",
   "val_excess_cover_unread": "손절 적용 범위 미확인",
-  "val_and_more": "외 {n}개"
+  "val_and_more": "외 {n}개",
+  "tg_private_only": "진행 중인 신호, 계정, 거래는 회원 전용이며 저와의 개인 채팅에서 이용할 수 있습니다: {link}. 그곳에서 물어보세요.",
+  "tg_private_only_cmd": "{cmd} 는 개인 채팅에서 응답합니다: 진행 중인 신호와 계정은 회원 전용입니다. {link} 을 열고 그곳에서 보내세요.",
+  "tg_private_chat_words": "저와의 개인 채팅",
+  "tg_private_only_tap": "이 기능은 저와의 개인 채팅에서 열립니다: 진행 중인 신호와 계정은 회원 전용입니다."
 }

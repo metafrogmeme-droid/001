@@ -321,5 +321,9 @@
   "val_excess_unstopped": "het overschot heeft geen stop van de bot",
   "val_excess_whole_tpsl": "de TP/SL van de positie dekt het",
   "val_excess_cover_unread": "stopdekking niet gelezen",
-  "val_and_more": "en nog {n}"
+  "val_and_more": "en nog {n}",
+  "tg_private_only": "Lopende signalen, accounts en traden zijn voor leden, in een privéchat met mij: {link}. Vraag het me daar.",
+  "tg_private_only_cmd": "{cmd} antwoordt in een privéchat: lopende signalen en accounts zijn voor leden. Open {link} en stuur het daar.",
+  "tg_private_chat_words": "een privéchat met mij",
+  "tg_private_only_tap": "Dit opent in een privéchat met mij: lopende signalen en accounts zijn voor leden."
 }

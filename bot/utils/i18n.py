@@ -310,6 +310,28 @@ _STRINGS: dict[str, dict[str, str]] = {
                "“Which exchanges are supported?”。登入並連接交易所，即可使用即時"
                "市場掃描、你自己的投資組合與完整的對話式分析。"),
     },
+    # A group is a public room (`bot/skills/public_room.py`): a live call,
+    # an account and a trade are answered in a private chat, and a room
+    # is told where that is. Telegram HTML, never the website's <br>.
+    "tg_private_only": {
+        "en": ("Live calls, accounts and trading are for members, in a "
+               "private chat with me: {link}. Ask me there."),
+        "zh": "即時訊號、帳戶與交易僅供會員使用，請在與我的私人聊天中進行：{link}。請在那裡問我。",
+    },
+    "tg_private_only_cmd": {
+        "en": ("{cmd} answers in a private chat: live calls and accounts "
+               "are for members. Open {link} and send it there."),
+        "zh": "{cmd} 只在私人聊天中回覆：即時訊號與帳戶僅供會員使用。請開啟 {link} 並在那裡傳送。",
+    },
+    "tg_private_chat_words": {
+        "en": "a private chat with me",
+        "zh": "與我的私人聊天",
+    },
+    "tg_private_only_tap": {
+        "en": ("This opens in a private chat with me: live calls and "
+               "accounts are for members."),
+        "zh": "此功能僅在與我的私人聊天中開啟：即時訊號與帳戶僅供會員使用。",
+    },
     "chat_public_scan_gate": {
         "en": ("⚔️ A real scan needs the live data feed, and this "
                "public chat doesn't have one — I won't invent prices or "
