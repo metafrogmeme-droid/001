@@ -58,8 +58,19 @@ def test_free_user_gets_exactly_the_limit_then_refused(isolated_store):
     assert chat_quota.consume(uid, "basic")["allowed"] is False
 
 
+def test_a_word_no_store_writes_is_not_a_paid_tier(isolated_store):
+    """"premium" sat in a hand-written exempt set beside the four real tiers.
+    No store writes it and no command grants it, so it was an unmetered
+    answer for a tier nobody can hold. The exemption is now read off the one
+    list of tiers: Pro and above."""
+    assert chat_quota.is_quota_exempt("premium") is False
+    assert chat_quota.is_quota_exempt("basic") is False
+    r = chat_quota.consume("web:9", "premium")
+    assert r.get("exempt") is not True, r
+
+
 def test_paid_and_admin_tiers_are_exempt(isolated_store):
-    for tier in ("pro", "elite", "admin", "premium"):
+    for tier in ("pro", "elite", "admin"):
         for _ in range(50):                      # far past any free limit
             r = chat_quota.consume("web:2", tier)
             assert r["allowed"] is True and r["exempt"] is True
@@ -139,4 +150,4 @@ def test_handler_gates_free_chat_and_is_quota_aware():
     src = inspect.getsource(user_gateway._chat_turn)
     assert "chat_quota" in src                    # the gate is wired in
     assert "quota_exceeded" in src                # refusal intent
-    assert "get_tier" in src                      # tier drives exemption
+    assert "effective_tier" in src                # the ladder's tier drives exemption

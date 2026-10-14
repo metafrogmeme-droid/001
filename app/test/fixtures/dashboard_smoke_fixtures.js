@@ -16,6 +16,16 @@ const tickers = [
 ];
 module.exports = [
   ['/api/auth/me', me],
+  // The bot's tier reading, as its gateway's /tier answers: the plan card
+  // draws this, and a body with no ladder is a failed read it refuses.
+  ['/api/tier', {
+    reading: { tier: 'pro', granted: 'pro', granted_known: true, granted_readable: true, stake: null, stake_reason: null },
+    ladder: { enforced: false, stake: false, stake_min: null, tiers: [
+      { tier: 'basic', name: 'Basic', unlocks: [], chat_per_day: 5, premium_analyze: false },
+      { tier: 'pro', name: 'Pro', unlocks: [{ feature: 'deepscan', commands: ['deepscan'] }], chat_per_day: null, premium_analyze: false },
+      { tier: 'elite', name: 'Elite', unlocks: [{ feature: 'run_backtest', commands: ['backtest'] }], chat_per_day: null, premium_analyze: false },
+    ] },
+  }],
   // The engine's scan, as the sync route serves it to a signed-in reader:
   // every subject the home view's context row reads is READ here — a stamp
   // this site put on it at ingest, a BTC anchor beside the regime, a venue,

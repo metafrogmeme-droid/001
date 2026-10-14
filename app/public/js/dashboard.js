@@ -6525,28 +6525,16 @@
     }, { empty: { text: 'Could not load your profile.' } });
 
     renderPanel(C('aplan'), async () => {
-      mustRead(me);
-      // 'free' is the pre-tier-sync default; the bot's tier authority calls
-      // the same thing 'basic'. One label for both.
-      const raw = String(me.data.plan || 'basic').toLowerCase();
-      const plan = raw === 'free' ? 'basic' : raw;
-      const PLANS = [
-        { id: 'basic', name: 'Basic', pts: ['Paper trading with the real risk gate', 'Live charts, signals & AI chat (5 questions/day)', 'Strategy Lab backtests'] },
-        { id: 'pro', name: 'Pro', pts: ['Unlimited AI chat + premium models on your scans', 'Live trading eligibility (linked + approved)', 'Priority support'] },
-        { id: 'elite', name: 'Elite', pts: ['Everything in Pro', 'Higher live caps', 'Early access to new agent features'] },
-      ];
-      const cards = PLANS.map(p => `
-        <div class="tile" style="flex:1;min-width:180px;border:1px solid ${p.id === plan ? 'var(--gold)' : 'var(--line)'};border-radius:var(--radius);padding:var(--s3) var(--s4)">
-          <div style="display:flex;justify-content:space-between;align-items:baseline">
-            <b>${esc(p.name)}</b>${p.id === plan ? '<span class="chip chip--gold">your plan</span>' : ''}
-          </div>
-          <ul class="small" style="margin:8px 0 0 16px;color:var(--text-2);display:flex;flex-direction:column;gap:4px">
-            ${p.pts.map(t2 => `<li>${esc(t2)}</li>`).join('')}
-          </ul>
-        </div>`).join('');
-      return `<div class="row" style="gap:var(--s3);flex-wrap:wrap;align-items:stretch">${cards}</div>
-        <p class="muted small mt-3">Tiers are granted by the operator through the Telegram bot. Interested in Pro or Elite? Ask in <a href="https://t.me/HTRUNECLAW_bot" target="_blank" rel="noopener">@HTRUNECLAW_bot</a> — online checkout is coming later.</p>`;
-    }, { empty: { text: 'Membership info unavailable.' } });
+      // GUARD: the tier is the bot's reading (GET /api/tier), and a read
+      // that failed is said, never drawn as Basic. The card used to carry
+      // its own table of benefits, which no tier granted.
+      // A 404 passes mustRead (it means "none" elsewhere); here it is an
+      // answer with no ladder, which cardHtml refuses, so the panel still
+      // shows its error state.
+      const tier = await fetchJSON('/api/tier', { timeoutMs: 10000 }).catch(() => null);
+      mustRead(tier);
+      return PlanCardModel.cardHtml(tier.data, esc);
+    }, { timeoutMs: 12000, empty: { text: 'Membership info unavailable.' } });
     setTimeout(() => {
       const b = document.getElementById('logoutBtn');
       if (b) b.onclick = RC.logout;

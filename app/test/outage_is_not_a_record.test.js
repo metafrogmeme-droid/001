@@ -40,8 +40,8 @@ const express = require('express');
 const APP = path.join(__dirname, '..');
 
 /** Mount one route module over a pool whose every query throws. */
-function deadServer(mount, routeFile) {
-  const pool = {
+function deadServer(mount, routeFile, suppliedPool = null) {
+  const pool = suppliedPool || {
     execute: async () => { throw new Error('ER_LOCK_WAIT_TIMEOUT: deadlock'); },
     query: async () => { throw new Error('ER_LOCK_WAIT_TIMEOUT: deadlock'); },
   };
@@ -59,9 +59,9 @@ function deadServer(mount, routeFile) {
   return http.createServer(app);
 }
 
-function get(mount, routeFile, urlPath) {
+function get(mount, routeFile, urlPath, pool = null) {
   return new Promise((resolve, reject) => {
-    const s = deadServer(mount, routeFile);
+    const s = deadServer(mount, routeFile, pool);
     s.listen(0, '127.0.0.1', () => {
       http.get({ port: s.address().port, path: urlPath }, (res) => {
         let b = '';
@@ -76,6 +76,34 @@ function get(mount, routeFile, urlPath) {
     });
   });
 }
+
+test('the signal stream survives a rolling schema gap in optional fee fields', async () => {
+  let calls = 0;
+  const row = {
+    signal_key: 'sig-1', symbol: 'BTC/USDT', direction: 'LONG', confidence: 0.7,
+    score: 1, pattern: 'breakout', regime: 'trend', entry_price: 100,
+    stop_loss: 99, take_profit: 102, rr: 2, thesis: 'measured', status: 'NEW',
+    pnl: null, created_at: new Date(), resolved_at: null, seal: 'abc', expires_at: null,
+  };
+  const pool = {
+    execute: async (sql) => {
+      calls += 1;
+      if (calls === 1) {
+        const err = new Error('unknown optional field');
+        err.code = 'ER_BAD_FIELD_ERROR'; err.errno = 1054;
+        throw err;
+      }
+      assert.match(sql, /NULL AS net_rr, NULL AS rr_fee_losing/);
+      return [[row], []];
+    },
+  };
+  const { status, body } = await get(
+    '/api/signals', 'signals.js', '/api/signals?limit=1', pool);
+  assert.strictEqual(status, 200);
+  assert.strictEqual(calls, 2);
+  assert.strictEqual(body.signals.length, 1);
+  assert.strictEqual(body.signals[0].signal_key, 'sig-1');
+});
 
 // Silence the console.error each handler now emits — the log is asserted
 // separately below, and 4 stack traces make a passing run look broken.

@@ -7,6 +7,14 @@
 > remains a gated "◆ Vision" item behind the Guardrails in
 > [`TOKEN_ROADMAP.md`](./TOKEN_ROADMAP.md) §10–§11.
 
+> **What runs today (2026-10-14).** A member's tier is the higher of the one the operator
+> grants (`/set_tier`, a website-only member included) and the one a stake earns while the
+> token gate is on (`bot/token/tier_gate.py`, `effective_tier`). The ladder is still the
+> boolean `FEATURE_MIN_TIER`, not §6's metered credits (Phase E), and it refuses nobody until
+> the operator sets `TIER_GATE_ENABLED`. `/tier` and the website's plan card render what each
+> tier includes from `plan_ladder`, which reads the ladder, the chat quota and the per-tier
+> model routing that enforce it. Live limits stay off it, as §6 says.
+
 ---
 
 ## 1. Why change

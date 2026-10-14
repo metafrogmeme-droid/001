@@ -63,6 +63,17 @@ def _cap_held(target_id: str, usd, cls: str) -> str:
             "again.")
 
 
+def _is_ascii_digits(value: str) -> bool:
+    return bool(value) and value.isascii() and value.isdigit()
+
+
+def _is_web_member_id(value: str) -> bool:
+    """`web:<id>`, the store's key for a website-only member, read by the
+    gateway's own pattern (the one door that provisions them)."""
+    from bot.web.user_gateway import _is_web_id
+    return _is_web_id(value)
+
+
 class AccessCommands:
     """The operator's admission, role and grant commands. Host contract below."""
 
@@ -256,13 +267,25 @@ class AccessCommands:
             return
         target_id = args[0].strip()
         tier = args[1].strip().lower()
-        if not target_id.isdigit():
+        # A website-only member is `web:<site user id>` in this store
+        # (bot/web/user_gateway.py). It used to be refused here as "not a
+        # Telegram id", so a member who never linked Telegram could not be
+        # granted anything, and the website mirror had nothing to show them.
+        # ASCII digits only: `str.isdigit` is true for "١٢" and "１２".
+        is_web = _is_web_member_id(target_id)
+        if not (is_web or _is_ascii_digits(target_id)):
             await self._send(update, f"\U0001f534 {t('invalid_tg_id', self._lang(update))}")
             return
         from bot.utils.user_store import TIERS
         if tier not in TIERS:
             await self._send(update,
                 f"\U0001f534 {t('invalid_tier', self._lang(update), tier=html.escape(tier), valid=', '.join(f'<code>{_t}</code>' for _t in TIERS))}")
+            return
+        if is_web and tier == "admin":
+            # The website reads `plan == 'admin'` as THE OPERATOR
+            # (app/lib/operator_view.js). An operator is a vouched Telegram
+            # identity; a website account is one sign-up away.
+            await self._send(update, f"\U0001f534 {t('set_tier_web_admin', self._lang(update))}")
             return
         user = self.users.get(target_id)
         if not user:
@@ -281,14 +304,17 @@ class AccessCommands:
             tier_label = self.users.tier_label(target_id)
             await self._send(update,
                 f"\U0001f3af {t('set_tier_result', self._lang(update), name=html.escape(name), id=target_id, tier_label=tier_label, role=user.get('role', 'trader'))}")
-            # Notify the user
-            try:
-                await ctx.bot.send_message(
-                    chat_id=int(target_id),
-                    text=(f"\U0001f3af {t('account_upgraded', get_user_lang(self.users, target_id), tier_label=tier_label)}"),
-                    parse_mode="HTML")
-            except Exception:
-                pass
+            # Tell the member: "changed", not "upgraded", since the same
+            # command lowers a tier. A website-only member has no chat to
+            # write to; their plan card reads the change.
+            if not is_web:
+                try:
+                    await ctx.bot.send_message(
+                        chat_id=int(target_id),
+                        text=(f"\U0001f3af {t('tier_changed', get_user_lang(self.users, target_id), tier_label=tier_label)}"),
+                        parse_mode="HTML")
+                except Exception:
+                    pass
         else:
             await self._send(update, f"\U0001f534 {t('set_tier_failed', self._lang(update))}")
 

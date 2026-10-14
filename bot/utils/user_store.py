@@ -145,6 +145,9 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "idleyield",
         # The caller's own dated chat note. It reads nothing shared.
         "memory",
+        # /tier: the caller's own tier and what each tier includes. It reads
+        # the caller's grant and the deployment's ladder, nothing shared.
+        "tier",
         # /mystrategy: a trader's own tighten-only confirm gate — it can only
         # REFUSE that trader's confirms, touches nothing shared, so it belongs
         # to exactly the role that can confirm trades.
@@ -177,7 +180,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "nft", "spot", "airdrops", "etf",
         "replay", "letter", "venue_router", "meme_radar", "wallet", "defi", "price_alert",
         "idleyield",
-        "mystrategy", "memory",
+        "mystrategy", "memory", "tier",
     },
     "viewer": {
         "lang",
@@ -187,7 +190,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "nft", "spot", "airdrops", "etf",
         "replay", "letter", "venue_router", "meme_radar", "wallet", "defi", "price_alert",
         "idleyield",
-        "memory",
+        "memory", "tier",
     },
     # "journal" STAYS here even though /journal moved to an operator group.
     # It is not /journal's permission alone — `/daily_report` is `@guard("journal")`
@@ -199,80 +202,22 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     "pending": {"start", "help", "lang"},
 }
 
-# ── Tiers: feature gating ──────────────────────────────────────
-# Each tier inherits all features from lower tiers.
-# Tier hierarchy: basic < pro < elite < admin
+# ── Tiers ─────────────────────────────────────────────────────
+# The tier an operator GRANTS (`/set_tier`), in rank order: basic < pro <
+# elite < admin. What a tier buys is not written here. It is the ladder in
+# `bot/token/tier_gate.py` (FEATURE_MIN_TIER, which the operator can retune)
+# and the chat quota's exemption, and `tier_gate.plan_ladder()` renders both
+# for every card that names a tier.
+#
+# A per-tier feature table used to sit here. Nothing read it (`has_feature`
+# had no caller), `pro` was a copy of `basic` word for word, and `elite` listed
+# `live_trading_eligible`, which the tier model rules out in so many words
+# (docs/TIER_MODEL.md §6: live limits are never tier-gated). A table nothing
+# enforces is a claim, and that one was printed on the website's plan card.
 TIERS = ("basic", "pro", "elite", "admin")
 
-TIER_FEATURES: dict[str, set[str]] = {
-    "basic": {
-        # Free tier: all features in paper mode (no live trading)
-        "paper_trading",
-        "scan", "deepscan",
-        "analyze",
-        "dashboard",
-        "portfolio",
-        "risk_status",
-        "macro_view",
-        "backtest",
-        "walkforward",
-        "journal",
-        "patterns",
-        "proposals",
-        "optimize",
-        "strategy_presets",
-        "chart_alerts",
-        "order_flow",
-        "priority_signals",
-        "early_access",
-    },
-    "pro": {
-        # Pro tier: same as basic for now (reserved for future differentiation)
-        "paper_trading",
-        "scan", "deepscan",
-        "analyze",
-        "dashboard",
-        "portfolio",
-        "risk_status",
-        "macro_view",
-        "backtest",
-        "walkforward",
-        "journal",
-        "patterns",
-        "proposals",
-        "optimize",
-        "strategy_presets",
-        "chart_alerts",
-        "order_flow",
-        "priority_signals",
-        "early_access",
-    },
-    "elite": {
-        # Elite tier: everything + live trading eligible
-        "paper_trading",
-        "live_trading_eligible",  # can be granted live by admin
-        "scan", "deepscan",
-        "analyze",
-        "dashboard",
-        "portfolio",
-        "risk_status",
-        "macro_view",
-        "backtest",
-        "walkforward",
-        "journal",
-        "patterns",
-        "proposals",
-        "optimize",
-        "strategy_presets",
-        "chart_alerts",
-        "order_flow",
-        "priority_signals",
-        "early_access",
-    },
-    "admin": {
-        "*",  # everything
-    },
-}
+#: Each tier's rank. An unknown word has no rank, so it is never a grant.
+TIER_RANK: dict[str, int] = {name: i for i, name in enumerate(TIERS)}
 
 # Default tier for new auto-approved users
 DEFAULT_TIER = "basic"
@@ -1180,22 +1125,6 @@ class UserStore:
                   action="tier_change", result="OK")
             return True
 
-    def has_feature(self, telegram_id: int | str, feature: str) -> bool:
-        """Check if a user's tier grants access to a specific feature.
-
-        Usage:
-            if users.has_feature(uid, "backtest"):
-                # run backtest
-            else:
-                # "Upgrade to Pro to unlock backtesting"
-        """
-        user = self.get(telegram_id)
-        if not user:
-            return feature in TIER_FEATURES.get(DEFAULT_TIER, set())
-        tier = user.get("tier", DEFAULT_TIER)
-        features = TIER_FEATURES.get(tier, set())
-        return "*" in features or feature in features
-
     def get_sol_wallet(self, telegram_id: int | str) -> str | None:
         """Return the user's linked Solana wallet address, or None.
 
@@ -1262,7 +1191,9 @@ class UserStore:
             "elite": "\U0001f7e1 Elite",
             "admin": "\U0001f534 Admin",
         }
-        return labels.get(tier, "\U0001f7e2 Basic")
+        # A stored word this bot does not know is shown as itself, muted: it
+        # is not Basic, it is a tier nobody can rank.
+        return labels.get(tier, f"\u26aa {tier}")
 
     # ── Command permission check ───────────────────────────────
 

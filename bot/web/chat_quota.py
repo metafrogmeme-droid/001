@@ -39,8 +39,12 @@ log = logging.getLogger("runeclaw.chat_quota")
 # limit can be tuned to the funded budget without a code change.
 DEFAULT_FREE_DAILY_LIMIT = 5
 
-# Tiers that are NEVER quota-limited (paid + operator).
-_EXEMPT_TIERS = frozenset({"pro", "elite", "admin", "premium"})
+# Tiers that are NEVER quota-limited: Pro and above, read off the one list of
+# tiers. This was a hand-written set holding a fifth tier, "premium", which no
+# store writes and no command grants.
+def _exempt_tiers() -> frozenset:
+    from bot.utils.user_store import TIER_RANK
+    return frozenset(t for t, rank in TIER_RANK.items() if rank >= TIER_RANK["pro"])
 
 # Anchored to the repo root, not the cwd — see bot/utils/paths.py. A quota
 # store that moves with the working directory silently resets every free
@@ -75,7 +79,7 @@ def quota_enabled() -> bool:
 
 def is_quota_exempt(tier: Optional[str]) -> bool:
     """Paid tiers and admin are never limited."""
-    return str(tier or "").strip().lower() in _EXEMPT_TIERS
+    return str(tier or "").strip().lower() in _exempt_tiers()
 
 
 def _today() -> str:

@@ -355,6 +355,7 @@ _TIER_BUCKET: dict[str, str] = {
     "bad_wallet": "wallet",        # stored value is not an address
     "misconfigured": "unreadable",  # an operator fault, not the caller's
     "unavailable": "unreadable",   # RPC/infra — nobody could check
+    "tier_unreadable": "unreadable",  # the member records raised
 }
 
 

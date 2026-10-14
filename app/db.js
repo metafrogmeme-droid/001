@@ -2192,6 +2192,16 @@ class MemoryDB {
       return [{ affectedRows: u ? 1 : 0 }, []];
     }
 
+    if (cmd.startsWith('UPDATE USERS SET PLAN = ? WHERE ID = ?')) {
+      // Tier sync for a website-only member: params [plan, id]. The "not
+      // linked" condition is read OUT OF THE STATEMENT, not restated here: a
+      // shim that applied it on its own would pass a route that dropped it.
+      const guarded = cmd.includes('TELEGRAM_LINKED IS NULL OR TELEGRAM_LINKED = FALSE');
+      const u = this.users.find(x => x.id === params[1] && (!guarded || !x.telegram_linked));
+      if (u) u.plan = params[0];
+      return [{ affectedRows: u ? 1 : 0 }, []];
+    }
+
     if (cmd.includes('UPDATE USERS SET PLAN')) {
       // Tier sync: params [plan, telegram_id]
       const u = this.users.find(x => String(x.telegram_id) === String(params[1]));
@@ -2656,6 +2666,31 @@ async function schemaIsCurrent() {
   return EXPECTED_TABLES.every((t) => have.has(t.toLowerCase()));
 }
 
+// Columns added after the signals table first shipped. The table-only fast
+// path must reconcile these before it returns: CREATE TABLE IF NOT EXISTS does
+// not evolve an existing table, and skipping every DDL statement otherwise
+// leaves the reader and writer permanently ahead of production's schema.
+const REQUIRED_SIGNAL_COLUMNS = Object.freeze({
+  net_rr: 'DECIMAL(10,4) DEFAULT NULL',
+  rr_fee_losing: 'TINYINT(1) DEFAULT NULL',
+});
+
+async function ensureSignalColumns() {
+  const [rows] = await pool.query({
+    sql: `SELECT COLUMN_NAME AS c FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'signals'`,
+    timeout: SCHEMA_CHECK_TIMEOUT_MS,
+  });
+  const have = new Set((rows || []).map(
+    (r) => String(r.c || r.COLUMN_NAME || '').toLowerCase()));
+  const missing = Object.keys(REQUIRED_SIGNAL_COLUMNS).filter((c) => !have.has(c));
+  if (!missing.length) return [];
+  const additions = missing.map(
+    (c) => `ADD COLUMN ${c} ${REQUIRED_SIGNAL_COLUMNS[c]}`).join(', ');
+  await pool.query(`ALTER TABLE signals ${additions}`);
+  return missing;
+}
+
 /**
  * Which way migrate() goes: 'fast' (every table is there), 'ddl' (the database
  * answered and something is missing), or a throw (it did not answer: this
@@ -2759,7 +2794,9 @@ async function migrate() {
     // are no-ops that still cost minutes on a serverless cluster. Skip them.
     // A check the database did not answer throws out of here (schemaPath).
     if (await schemaPath() === 'fast') {
-      console.log('Schema already current — skipping DDL');
+      const added = await ensureSignalColumns();
+      if (added.length) console.log(`Signals schema reconciled: ${added.join(', ')}`);
+      console.log('Schema already current — skipping full DDL');
       return 'fast';
     }
     await pool.query(`
@@ -3818,7 +3855,8 @@ async function withTransaction(fn) {
 
 module.exports = {
   pool, migrate, lastStatement, describeSql, backend, withTransaction,
-  EXPECTED_TABLES, schemaIsCurrent, schemaPath, _resetSchemaPath, UNREADABLE_CHECKS_BEFORE_DDL, ensureVenueStatusTable,
+  EXPECTED_TABLES, REQUIRED_SIGNAL_COLUMNS, schemaIsCurrent, schemaPath,
+  ensureSignalColumns, _resetSchemaPath, UNREADABLE_CHECKS_BEFORE_DDL, ensureVenueStatusTable,
   // Exported for tests. The URL it normalises is the one thing in this process
   // that cannot be exercised end-to-end without a live database, so the string
   // handling is tested directly instead of being trusted.

@@ -1,6 +1,6 @@
 {
   "access_granted": "<b>Accès accordé</b>\n{sep}\nVotre compte RUNECLAW a été approuvé.\n- Rôle : <code>{role}</code>\n\nUtilisez /start pour commencer à trader.",
-  "account_upgraded": "<b>Compte mis à niveau</b>\n\nVotre niveau est passé à : {tier_label}\nUtilisez /start pour voir vos nouvelles fonctionnalités.",
+  "tier_changed": "<b>Votre niveau a changé</b>\n\nVotre niveau est maintenant : {tier_label}\n/tier indique ce qu'il comprend.",
   "admin_only": "C'est une commande d'opérateur : elle ne fonctionne que depuis le chat de l'opérateur. Tout ce que vous pouvez utiliser est dans /help.",
   "admin_only_llm_reset": "<b>Administrateurs uniquement</b>\n\nRéinitialiser le fournisseur/la clé du LLM est réservé aux administrateurs.",
   "admin_only_llm_set": "<b>Administrateurs uniquement</b>\n\nChanger le fournisseur/la clé du LLM est réservé aux administrateurs.",
@@ -217,8 +217,9 @@
   "risk_reward": "Risque/Rendement",
   "scanning": "Scan du marché en cours...",
   "set_tier_failed": "Impossible de mettre à jour le niveau.",
+  "set_tier_web_admin": "Le niveau opérateur exige un compte Telegram lié. Un membre inscrit uniquement sur le site peut être basic, pro ou elite.",
   "set_tier_result": "<b>NIVEAU MIS À JOUR</b>\n\n- Utilisateur : <b>{name}</b> (<code>{id}</code>)\n- Niveau : {tier_label}\n- Rôle : <code>{role}</code>",
-  "set_tier_usage": "<b>Utilisation</b>\n\n<code>/set_tier &lt;telegram_id&gt; &lt;tier&gt;</code>\n\nNiveaux : {tiers}\n\n🟢 <b>basic</b> — Trading paper, analyse de base\n🔵 <b>pro</b> — + Backtesting, figures, stratégies\n🟡 <b>elite</b> — + Éligible au réel, signaux prioritaires, accès anticipé\n🔴 <b>admin</b> — Accès complet",
+  "set_tier_usage": "<b>Utilisation</b>\n\n<code>/set_tier &lt;telegram_id | web:id&gt; &lt;tier&gt;</code>\n\nNiveaux : {tiers}\n\nCe que comprend chaque niveau sur ce bot : /tier. Le trading réel ne fait jamais partie d'un niveau ; c'est /grant_live qui en décide.",
   "status_active": "Actif",
   "status_paused": "En pause",
   "status_title": "ÉTAT DE RUNECLAW",

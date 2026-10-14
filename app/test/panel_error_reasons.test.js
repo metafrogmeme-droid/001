@@ -71,6 +71,12 @@ test('the code outranks the status, because one 403 is not another', () => {
     'two different refusals collapsed to one sentence — the whole defect');
 });
 
+test('an unreadable signal stream is not reported as a disconnected bot', () => {
+  const v = M.panelFailure({ status: 503, code: 'signal_stream_unavailable' });
+  assert.strictEqual(v.key, 'dd.err_panel');
+  assert.strictEqual(v.action, 'retry');
+});
+
 test('a site not wired to the bot says so rather than blaming the panel', () => {
   // routes/news.js returns this when isConfigured() is false: the request never
   // reached the bot, so no amount of retrying changes it, and the person who

@@ -516,11 +516,33 @@ def test_allows_user_still_works_as_a_boolean(monkeypatch):
 
 
 def test_the_two_messages_do_not_say_the_same_thing(monkeypatch):
-    mod = _reload_clean(monkeypatch)
+    mod = _reload_clean(monkeypatch, TOKEN_TIER_GATE_ENABLED="true", RCLAW_MINT=MINT)
     upgrade, unavailable = mod.upgrade_message(), mod.unavailable_message()
     assert "stake" in upgrade.lower()
     assert "stake at least" not in unavailable.lower(), "outage message must not demand more stake"
     assert "try again" in unavailable.lower()
+
+
+def test_with_no_stake_reader_the_refusal_asks_for_no_stake(monkeypatch):
+    """BOTH ARMS of the route. With the token gate off the bot reads no stake,
+    so a refusal asking for one names a door that does not open; the route
+    that exists is the operator's grant."""
+    mod = _reload_clean(monkeypatch)
+    upgrade = mod.upgrade_message("the backtest", "run_backtest")
+    assert "stake" not in upgrade.lower(), upgrade
+    assert "granted by the operator" in upgrade and "/tier" in upgrade, upgrade
+    assert "is an Elite feature" in upgrade, upgrade
+
+
+def test_the_refusal_names_the_tier_the_feature_needs(monkeypatch):
+    """An Elite feature asked for the Pro stake: a member who staked it would
+    have been refused again."""
+    mod = _reload_clean(monkeypatch, TOKEN_TIER_GATE_ENABLED="true", RCLAW_MINT=MINT,
+                        RCLAW_TIER_PRO_MIN="10000", RCLAW_TIER_ELITE_MIN="100000")
+    elite = mod.upgrade_message("the backtest", "run_backtest")
+    pro = mod.upgrade_message("deep scan", "deepscan")
+    assert "Elite feature" in elite and "100,000 $RCLAW" in elite, elite
+    assert "Pro feature" in pro and "10,000 $RCLAW" in pro, pro
 
 
 # ---------------------------------------------------------------------------

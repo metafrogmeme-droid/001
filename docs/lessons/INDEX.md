@@ -323,3 +323,4 @@ about to change before changing it.
 - L24664: EVERY LIVE DECISION WAS LEARNED AS A PAPER ONE, AND ITS CONFLUENCE WAS ITS CONFIDENCE AGAIN — `tests/test_a_live_decision_is_recorded_as_live.py`
 - L24706: A LIVE CALL WAS PUBLIC ON NINE DOORS, AND THE PUSH THAT SENT ITS LEVELS OUTLIVED THE SIGN-OUT — `app/test/a_live_call_is_a_members.test.js`, `app/test/a_locked_call_renders_as_locked.test.js`
 - L24774: A GROUP WAS ANSWERED AS A PRIVATE CHAT, AND ANY GROUP THE BOT WAS WRITTEN IN SUBSCRIBED ITSELF TO THE CALLS — `tests/test_a_group_reads_a_teaser.py`
+- L24838: THREE THINGS WERE CALLED A TIER, AND THE ONE THE OPERATOR SET WAS THE ONE NOTHING READ — `app/test/a_plan_card_is_the_bots_tier.test.js`, `tests/test_a_tier_buys_what_its_card_says.py`
