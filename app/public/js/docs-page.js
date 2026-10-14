@@ -72,7 +72,7 @@
 
   function tocHtml(pages, current) {
     if (!pages) return '<p class="doc-absent">' + text('docs.toc_unread', TOC_UNREAD) + ' ' + githubLink() + '</p>';
-    return '<ol>' + pages.map(function (p) {
+    return '<ol dir="ltr" lang="en">' + pages.map(function (p) {
       const here = p.slug === current ? ' aria-current="page"' : '';
       return '<li><a href="/docs/' + p.slug + '"' + here + '>' + esc(p.title) + '</a></li>';
     }).join('') + '</ol>';
@@ -97,7 +97,8 @@
     const b = res && res.body;
     if (res && res.status === 200 && b && typeof b.html === 'string' && typeof b.slug === 'string'
         && typeof b.source === 'string' && /^https:\/\/github\.com\/metafrogmeme-droid\/001\/blob\/main\/docs\/gitbook\/[A-Za-z0-9-]+\.md$/.test(b.source)) {
-      return '<div class="doc-body">' + b.html + '</div>'
+      // The docs are English: they keep their own direction inside a right-to-left page.
+      return '<div class="doc-body" dir="ltr" lang="en">' + b.html + '</div>'
         + '<div class="doc-meta"><span>' + text('docs.english', ENGLISH) + '</span>'
         + '<a href="' + esc(b.source) + '" target="_blank" rel="noopener noreferrer">' + text('docs.source', SOURCE) + '</a></div>'
         + pagerHtml(pages, b.slug);

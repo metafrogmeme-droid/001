@@ -225,6 +225,7 @@ test('the page reads its slug from the path, and only a slug', () => {
 
 test('the contents: listed and escaped when read; a sentence and the GitHub folder when not, never an empty list', () => {
   const toc = page.tocHtml(page.readablePages({ pages: PAGES }), 'faq');
+  assert.ok(toc.startsWith('<ol dir="ltr" lang="en">'), 'the titles are English');
   assert.ok(toc.includes('<a href="/docs/faq" aria-current="page">FAQ &lt;b&gt;</a>'));
   assert.ok(toc.includes('<a href="/docs/introduction">Introduction</a>'));
   for (const body of [null, {}, { pages: [] }, { pages: [{ slug: 'x' }] }, { pages: [{ slug: '../x', title: 'X' }] }]) {
@@ -232,13 +233,13 @@ test('the contents: listed and escaped when read; a sentence and the GitHub fold
   }
   const unread = page.tocHtml(null, 'faq');
   assert.ok(unread.includes(page.TOC_UNREAD) && unread.includes('href="' + page.FOLDER + '"'));
-  assert.ok(!unread.includes('<ol>'));
+  assert.ok(!unread.includes('<ol'));
 });
 
 test('the page: the body when read, "no such page" on a 404, unreadable with the GitHub folder otherwise', () => {
   const ok = { status: 200, body: { slug: 'faq', title: 'FAQ', html: '<h2>FAQ</h2>', source: docs.SOURCE + 'faq.md' } };
   const html = page.pageHtml(ok, PAGES);
-  assert.ok(html.startsWith('<div class="doc-body"><h2>FAQ</h2></div>'));
+  assert.ok(html.startsWith('<div class="doc-body" dir="ltr" lang="en"><h2>FAQ</h2></div>'), 'English keeps its direction on a right-to-left page');
   assert.ok(html.includes('href="' + docs.SOURCE + 'faq.md"'));
   assert.ok(html.includes('href="/docs/introduction" rel="prev"'), 'the pager follows the table');
   assert.ok(!html.includes('rel="next"'), 'the last page has no next');

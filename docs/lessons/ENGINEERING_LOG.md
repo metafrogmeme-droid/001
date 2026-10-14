@@ -19898,11 +19898,14 @@ folder lacks would blank the docs (the route answers 503 `docs_unreadable`, neve
 renderer (`app/lib/docs_pages.js`) is escape-first like the lessons' and prints a link only where the
 site can vouch for it: https, another page of the docs, or an image the folder carries. Any other target
 keeps its text and loses its href, and the test counts every page link and image in the sources against
-what was printed, so a page renamed without its links fails. Two defects came from looking at the
+what was printed, so a page renamed without its links fails. Three defects came from looking at the
 rendered page, not from the tests. Every `/docs/<page>` carried the shell's canonical and title, telling
 a crawler and every link preview that twenty-one pages were one; the server now writes each page's
 title, canonical and og tags into the shell (an unknown page is a 404, an unreadable folder is not). On a
-phone the contents filled the first screen; they now start folded. The site's own Docs links (`/`,
+phone the contents filled the first screen; they now start folded. In Arabic the English body inherited
+the page's right-to-left direction, so sentences began with their full stop and "$RCLAW" read "RCLAW$";
+the body and the contents now carry `dir="ltr" lang="en"`. A text in one language inside a page in
+another keeps its own direction, and no test that reads markup sees direction. The site's own Docs links (`/`,
 `/explore`) point at `/docs`; the READMEs, the agent card and the gateway site keep the GitHub folder,
 which every page also links as its source. The Live Market Validation page prints a backtest in dollars
 on a hypothetical $10,000 balance and screenshots that name a Bitget sub-account. Both were public on
