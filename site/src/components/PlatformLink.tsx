@@ -34,7 +34,7 @@
 
 /** Stable public destinations. Real hrefs — safe to render unconditionally. */
 export const TELEGRAM = 'https://t.me/HTRUNECLAW_bot'
-export const DOCS = 'https://humanoid-traders-1.gitbook.io/humanoid-traders-ai'
+export const DOCS = 'https://github.com/metafrogmeme-droid/001/tree/main/docs/gitbook'
 
 export function PlatformLink(
   { children = 'Open the platform', className = '', variant = 'primary', path = '', hideUntilResolved = true }:

@@ -19854,6 +19854,20 @@ Twenty-eight mutants over the verifier, the page, the card and both READMEs; the
 dropped the refusal of a vault token account that is not an RCLAW account the vault owns, and a test
 now names that row.)
 
+**"DOCS" LINKED A SITE THIS REPOSITORY DOES NOT PUBLISH.** Every "Docs" link (both READMEs' badge and
+header, the agent card's `documentation`, the website's header and footer on `/` and `/explore`, the
+React site's `DOCS` constant, one GitBook page) named `humanoid-traders-1.gitbook.io`, a GitBook site
+filled by a sync configured outside the repository; the previous chapter already left its sync source
+to the operator. A link is a claim about what is there, and nothing here could check that one. On
+2026-10-14 the operator asked for the docs on GitHub: every docs link now names `docs/gitbook/` in this
+repository (GitHub renders its README as the front page), the files the tests hold.
+`tests/test_public_pages_link_the_live_repository.py` refuses a GitBook site on any public surface and
+holds each docs link to that folder (five mutants, all killed). The React site's committed build
+(`website/`) was rebuilt with the link, and the first full preflight caught that it had not been: a
+change under `site/src/` is a change to `website/` too, and "The committed site is the built site" is
+the gate that says so. The folder keeps its name; the campaign drafts, the hackathon submission and
+the archived pages keep the URLs they were written with.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —

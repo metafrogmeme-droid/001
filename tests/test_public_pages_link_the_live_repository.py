@@ -20,6 +20,13 @@ it too (``token/config/rclaw-metadata.json``, ``extensions.twitter``, the
 account the Smithii sale page and the lock certificates were given). The
 README and the GitBook named a personal account instead; every X profile link
 on a public page is held to the metadata's now.
+
+"Docs" linked a GitBook site (``humanoid-traders-1.gitbook.io``) that is synced
+from outside this repository, so nothing here could say what it showed. On
+2026-10-14 the operator asked for the docs on GitHub instead: every docs link
+on a public surface names ``docs/gitbook/`` in this repository, the files the
+tests hold, and none names a GitBook site. The React site's committed build
+(``website/``) is rebuilt with it; the archived pages keep what they said.
 """
 from __future__ import annotations
 
@@ -36,7 +43,11 @@ DEAD = "github.com/Humanoid-Traders"
 PUBLIC = sorted(
     {ROOT / "README.md", ROOT / "README.zh-TW.md", ROOT / "SECURITY.md", ROOT / "agent_card.json",
      ROOT / "LICENSE", ROOT / "NOTICE",
-     ROOT / "app" / "public" / "js" / "i18n.js", ROOT / "app" / "lib" / "tool8257.js"}
+     ROOT / "app" / "public" / "js" / "i18n.js", ROOT / "app" / "lib" / "tool8257.js",
+     ROOT / "site" / "src" / "components" / "PlatformLink.tsx",
+     # website/ is site/'s committed build (CI fails when it differs); its archive/ keeps old pages as written.
+     ROOT / "website" / "index.html", ROOT / "website" / "404.html"}
+    | set((ROOT / "website").glob("*/index.html"))
     | set((ROOT / "docs" / "gitbook").glob("*.md"))
     | set((ROOT / "app" / "public").glob("*.html"))
 )
@@ -107,3 +118,22 @@ def test_every_x_profile_link_is_the_tokens_own_account():
     for name in ("README.md", "README.zh-TW.md", "docs/gitbook/README.md"):
         assert name in seen.get(handle.group(1), set()), f"{name} does not link {want}"
 
+
+
+GITBOOK_SITE = re.compile(r"https?://[\w.-]*gitbook\.(?:io|com)\b")
+DOCS = f"https://{LIVE}/tree/main/docs/gitbook"
+
+
+@pytest.mark.parametrize("path", PUBLIC, ids=_rel)
+def test_no_public_page_links_a_gitbook_site(path):
+    found = sorted(set(GITBOOK_SITE.findall(path.read_text(encoding="utf-8"))))
+    assert not found, f"{_rel(path)} links {found}; the docs are {DOCS}"
+
+
+def test_every_docs_link_is_the_docs_folder_on_github():
+    assert (ROOT / "docs" / "gitbook" / "README.md").exists(), "GitHub renders the folder's README as its front page"
+    for name in ("README.md", "README.zh-TW.md", "app/public/index.html", "app/public/explore.html",
+                 "site/src/components/PlatformLink.tsx", "website/index.html"):
+        assert DOCS in (ROOT / name).read_text(encoding="utf-8"), f"{name} does not link {DOCS}"
+    card = json.loads((ROOT / "agent_card.json").read_text(encoding="utf-8"))
+    assert card["documentation"] == DOCS

@@ -11,7 +11,7 @@
 <h5 align="center">為 Bitget AI Base Camp 打造 · Hackathon S1 — 策略與風險類別</h5>
 
 <p align="center">
-  <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai"><img src="https://img.shields.io/badge/Full_Documentation-%E2%86%92_GitBook-blue?style=for-the-badge&logo=gitbook&logoColor=white" alt="Full Documentation → GitBook"></a>
+  <a href="https://github.com/metafrogmeme-droid/001/tree/main/docs/gitbook"><img src="https://img.shields.io/badge/Full_Documentation-%E2%86%92_docs%2F_on_GitHub-blue?style=for-the-badge&logo=github&logoColor=white" alt="Full Documentation → docs/ on GitHub"></a>
 </p>
 
 <p align="center">
@@ -31,7 +31,7 @@
 <p align="center">
   <a href="https://github.com/metafrogmeme-droid/001">GitHub</a> &middot;
   <a href="https://www.humanoid-traders.com/">網站</a> &middot;
-  <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai">文件</a> &middot;
+  <a href="https://github.com/metafrogmeme-droid/001/tree/main/docs/gitbook">文件</a> &middot;
   <a href="https://t.me/HTRUNECLAW_bot">實機機器人</a> &middot;
   <a href="https://t.me/+VRNgsmkR5pszZTdk">Telegram</a> &middot;
   <a href="https://x.com/RUNECLAW_AI">X / Twitter</a>
@@ -755,7 +755,7 @@ runeclaw/
 |   |-- selftest_upgrade.py     # Self-test upgrade harness
 |   |-- (862 total test functions)
 |-- docs/
-|   |-- gitbook/                # Full GitBook documentation
+|   |-- gitbook/                # Full documentation (read it on GitHub)
 |   |-- SUBMISSION.md           # Hackathon submission document
 |-- demo/
 |   |-- sample_output.json      # Example trade idea
