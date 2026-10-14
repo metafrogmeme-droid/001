@@ -262,7 +262,8 @@ test('the website links its own docs page, and the page is served and mapped', (
   }
   const server = fs.readFileSync(path.join(APP, 'server.js'), 'utf8');
   assert.ok(server.includes("app.use('/api/docs', require('./routes/docs'))"));
-  assert.ok(server.includes("app.get(['/docs', '/docs/:slug'], (req, res) => {"));
+  assert.ok(server.includes("app.get('/docs', sendDocsShell);"));
+  assert.ok(server.includes("app.get('/docs/:slug', sendDocsShell);"));
   assert.ok(server.includes("require('./lib/docs_pages').pageShell(req.params.slug)"));
   const { STATIC_PATHS } = require('../lib/sitemap');
   assert.ok(STATIC_PATHS.some((s) => s.path === '/docs'));

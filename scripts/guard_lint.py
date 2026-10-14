@@ -489,6 +489,12 @@ RULES: list[Rule] = [
                            # authorities and a presale block. No account, no
                            # request input, no database; the file is in the
                            # repository. GET only.
+            "docs",        # /api/docs/* — the documentation in docs/gitbook/,
+                           # the folder the README already links on GitHub,
+                           # rendered escape-first (lib/docs_pages.js). No
+                           # account, no database, no request input but a slug
+                           # or an image name, each checked against the
+                           # folder's own table. GET only.
             "spot", "market", "macro", "patterns", "signals", "insight",
             "today", "feed", "gas", "dapps", "allowances",
             # ^ market data and read-only chain lookups: no account is in scope,

@@ -522,11 +522,13 @@ app.get('/duel', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res
 app.get('/token', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'token.html')); });
 // /docs and /docs/<page> — one shell; docs-page.js reads the page from the path,
 // and the shell's title and canonical name the page before any script runs.
-app.get(['/docs', '/docs/:slug'], (req, res) => {
+function sendDocsShell(req, res) {
   const shell = require('./lib/docs_pages').pageShell(req.params.slug);
   res.setHeader('Cache-Control', 'no-cache');
   res.status(shell.status).type('html').send(shell.html);
-});
+}
+app.get('/docs', sendDocsShell);
+app.get('/docs/:slug', sendDocsShell);
 // Per-signal page. The id rides as ?key= so a slash in it still arrives.
 // /signal/:key remains for an id that has no slash.
 function sendSignalPage(req, res) {
