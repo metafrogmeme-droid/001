@@ -2174,6 +2174,8 @@
   ["tok.lock_none", "pas encore créé"],
   ["tok.locks_checked", "Vérifié sur la chaîne le"],
   ["tok.locks_body", "Chaque verrou est un compte du programme Token Vesting de Smithii, qui n’a aucune instruction pour annuler ou modifier un verrou : seul le portefeuille indiqué peut réclamer, et seulement à chaque date ou après. Smithii peut mettre à jour ce programme, et aucun audit de la version en service n’est établi."],
+  ["tok.audits_h", "Audits de Smithii"],
+  ["tok.audits_body", "Ce sont des audits des programmes de Smithii, pas de RUNECLAW. Smithii peut mettre à jour les deux programmes, et tous deux ont été déployés pour la dernière fois avant le rapport final de leur audit le plus récent : le programme de vente le 2024-06-29, celui de vesting le 2025-02-03. Il n’est donc pas démontré que le code en service est celui qui a été audité. Les points que les correctifs de Halborn ont réglés (la répartition d’un vesting Merkle à plusieurs bénéficiaires, un verrou de zéro jeton) ne concernent pas les verrous de RUNECLAW : chacun appartient à un seul portefeuille, se débloque par dates et n’est jamais vide. Le code de RUNECLAW lui-même n’a fait l’objet d’aucun audit indépendant."],
   ["tok.ms_h", "Multisig de trésorerie"],
   ["tok.ms_holds", "Détient"],
   ["tok.ms_approvals", "Approbations"],

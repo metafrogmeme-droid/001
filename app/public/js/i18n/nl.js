@@ -2174,6 +2174,8 @@
   ["tok.lock_none", "nog niet aangemaakt"],
   ["tok.locks_checked", "Gecontroleerd tegen de chain op"],
   ["tok.locks_body", "Elke lock is een account van het Token Vesting-programma van Smithii, dat geen instructie heeft om een lock te annuleren of te wijzigen: alleen de genoemde wallet kan claimen, en pas op of na elke datum. Smithii kan dat programma bijwerken, en een audit van de draaiende versie is niet vastgesteld."],
+  ["tok.audits_h", "Audits van Smithii"],
+  ["tok.audits_body", "Dit zijn audits van de programma’s van Smithii, niet van RUNECLAW. Smithii kan beide programma’s bijwerken, en beide zijn voor het laatst uitgerold vóór het eindrapport van hun meest recente audit: het verkoopprogramma op 2024-06-29, het vestingprogramma op 2025-02-03. Het is dus niet aangetoond dat de draaiende code de geauditeerde code is. De bevindingen die de correcties van Halborn hebben opgelost (hoe een Merkle-vesting met meerdere ontvangers wordt verdeeld, een lock van nul tokens) raken de locks van RUNECLAW niet: elke lock hoort bij één wallet, ontgrendelt op datum en is nooit nul. De eigen code van RUNECLAW heeft geen onafhankelijke audit gehad."],
   ["tok.ms_h", "Treasury-multisig"],
   ["tok.ms_holds", "Bevat"],
   ["tok.ms_approvals", "Goedkeuringen"],

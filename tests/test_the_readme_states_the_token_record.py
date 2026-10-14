@@ -142,3 +142,15 @@ def test_the_treasury_multisig_is_the_records(name, record):
         for b in ms["buckets"]:
             assert f"{b['bucket']} {int(b['tokens']):,}" in line, b["bucket"]
         assert "not a lock" in line
+
+
+@pytest.mark.parametrize("name", READMES)
+def test_smithii_s_audits_are_the_records_and_say_what_they_cover(name, record):
+    section = _section(name)
+    for item in record["smithii_audits"]["items"]:
+        assert f"]({item['url']})" in section, (name, item["url"])
+    links = re.findall(r"\]\((https://[^)\s]+)\)", section)
+    audit_links = {u for u in links if "halborn.com" in u or "CoinFabrik" in u}
+    assert audit_links == {i["url"] for i in record["smithii_audits"]["items"]}, (name, audit_links)
+    if name == "README.md":
+        assert "not of RUNECLAW" in section and "not shown to be the audited code" in section

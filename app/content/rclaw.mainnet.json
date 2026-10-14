@@ -157,5 +157,34 @@
         "tokens": "29997299"
       }
     ]
+  },
+  "smithii_audits": {
+    "_comment": "Audits Smithii commissioned of its own programs, as Smithii links them (operator, 2026-10-14), read on that date: auditor, what was audited, when, and when the auditor reviewed the fixes. They audit Smithii's code, not RUNECLAW. program is the mainnet program the audit covers where the report names it (null where the report was not read); final_report is the date of the auditor's final report, after the fixes (Halborn: last updated; CoinFabrik: the fix review; null where not read). Both programs are upgradeable and each was last deployed before its latest audit's final report (smithii.config.json program.lastDeployedAt, locks.plan.json tool.programLastDeployed), which the website says beside these links; token/presale/the_record_names_smithii_audits.test.mjs holds that sentence to those dates. Halborn's two fixed findings (multi-recipient Merkle vesting splits, zero-amount locks) concern features RUNECLAW's locks do not use. After editing, run node app/scripts/sync_content.js.",
+    "items": [
+      {
+        "auditor": "Halborn",
+        "subject": "Smithii Token Vesting",
+        "date": "2025-04",
+        "program": "vesFcnNXtfS9JMtspbe9SkMJiRiSPwsywuWMjYwxQ2K",
+        "final_report": "2025-04-24",
+        "url": "https://www.halborn.com/audits/smithii/vesting-1ae001"
+      },
+      {
+        "auditor": "CoinFabrik",
+        "subject": "Smithii Mantis Protocol (the sale program)",
+        "date": "2024-06",
+        "program": "mntsCeVAzanrbTT3gZZzkeJMNJjeXAnPqy5AQhBUkVU",
+        "final_report": "2024-07-02",
+        "url": "https://github.com/CoinFabrik/coinfabrik-audit-reports/blob/main/Mantis/06-2024-coinfabrik-smithii_mantis_protocol_audit.pdf"
+      },
+      {
+        "auditor": "CoinFabrik",
+        "subject": "Smithii project",
+        "date": "2024-05",
+        "program": null,
+        "final_report": null,
+        "url": "https://github.com/CoinFabrik/coinfabrik-audit-reports/blob/main/Mantis/05-2024-coinfabrik-smithii_project_audit.pdf"
+      }
+    ]
   }
 }

@@ -97,8 +97,10 @@ with every address published **before the sale opens**:
 That tool has no linear mode, so each schedule is a staircase: a step's share can be claimed in
 full once its date has passed. A lock cannot be cancelled or edited, but the tool's program is
 upgradeable by an off-curve authority (the same one as the sale program; who can sign for it is
-not visible) and was last deployed before its audit's fixes, so these locks are not called
-audited. Treasury, partners and the rest of the reserve sit in a Squads v4 multisig (since
+not visible) and was last deployed before its audit's fixes
+([Halborn, April 2025](https://www.halborn.com/audits/smithii/vesting-1ae001); the two findings
+those fixes closed concern multi-recipient Merkle vestings and zero-amount locks, which these locks
+do not use), so these locks are not called audited. Treasury, partners and the rest of the reserve sit in a Squads v4 multisig (since
 2026-10-14): moving them needs its members' approvals and then its time lock's wait, which is
 custody with a delay, not a lock. The vault's address, the approvals and the delay are on
 humanoid-traders.com/token. **Presale buyers are not vested:** they can claim

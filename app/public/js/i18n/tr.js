@@ -2174,6 +2174,8 @@
   ["tok.lock_none", "henüz oluşturulmadı"],
   ["tok.locks_checked", "Zincirle şu tarihte doğrulandı:"],
   ["tok.locks_body", "Her kilit, Smithii’nin Token Vesting programındaki bir hesaptır ve bu programda bir kilidi iptal eden ya da düzenleyen bir talimat yoktur: yalnızca belirtilen cüzdan talep edebilir, o da yalnızca her tarihte veya sonrasında. Smithii bu programı güncelleyebilir ve çalışan sürümün denetlendiği doğrulanmamıştır."],
+  ["tok.audits_h", "Smithii denetimleri"],
+  ["tok.audits_body", "Bunlar RUNECLAW’ın değil, Smithii programlarının denetimleridir. Smithii her iki programı da güncelleyebilir ve ikisi de en son denetimlerinin nihai raporundan önce yüklenmiştir: satış programı 2024-06-29’da, vesting programı 2025-02-03’te. Bu yüzden çalışan kodun denetlenen kod olduğu gösterilmiş değildir. Halborn’un düzeltmeleriyle kapatılan bulgular (çok alıcılı bir Merkle vesting’in nasıl bölündüğü, sıfır tokenlik bir kilit) RUNECLAW’ın kilitlerini etkilemez: her kilit tek bir cüzdana aittir, tarihe göre açılır ve asla sıfır değildir. RUNECLAW’ın kendi kodu bağımsız bir denetimden geçmemiştir."],
   ["tok.ms_h", "Hazine çoklu imza cüzdanı"],
   ["tok.ms_holds", "İçerik"],
   ["tok.ms_approvals", "Onaylar"],

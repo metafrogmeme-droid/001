@@ -2216,6 +2216,8 @@
     "tok.lock_none": { en: "not created yet" },
     "tok.locks_checked": { en: "Checked against the chain on" },
     "tok.locks_body": { en: "Each lock is an account of Smithii’s Token Vesting program, which has no instruction to cancel or edit a lock: only the wallet named can claim, and only on or after each date. Smithii can upgrade that program, and no audit of the version running is established." },
+    "tok.audits_h": { en: "Smithii’s audits" },
+    "tok.audits_body": { en: "These are audits of Smithii’s programs, not of RUNECLAW. Smithii can upgrade both programs, and both were last deployed before their latest audit’s final report: the sale program on 2024-06-29, the vesting program on 2025-02-03. So the code running is not shown to be the audited code. The findings Halborn’s fixes closed (how a multi-recipient Merkle vesting is split, a lock of zero tokens) do not touch RUNECLAW’s locks: each is one wallet, time-based and never zero. RUNECLAW’s own code has had no independent audit." },
     "tok.ms_h": { en: "Treasury multisig" },
     "tok.ms_holds": { en: "Holds" },
     "tok.ms_approvals": { en: "Approvals" },
@@ -2238,7 +2240,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"362260b4","zh":"a7d3f3c1","pt":"0d2ef49e","fr":"2faa3e7d","de":"5108f7d8","nl":"7cb19856","ja":"6dd3db0b","ko":"58f28adf","ru":"2b5034ca","tr":"f9eabba0","it":"0a7234af","hi":"a382aec9","ar":"cb550105"};
+  var CHUNKS = {"es":"a84e7bd7","zh":"a02925e5","pt":"0b8296de","fr":"d525621a","de":"138b7a94","nl":"48348b6b","ja":"a91a76c3","ko":"749d4853","ru":"7600c0f2","tr":"bed5b579","it":"a147a675","hi":"c1f38e96","ar":"17c00246"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

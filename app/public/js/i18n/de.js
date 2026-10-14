@@ -2174,6 +2174,8 @@
   ["tok.lock_none", "noch nicht erstellt"],
   ["tok.locks_checked", "Gegen die Chain geprüft am"],
   ["tok.locks_body", "Jede Sperre ist ein Konto des Token-Vesting-Programms von Smithii, das keine Anweisung zum Abbrechen oder Ändern einer Sperre hat: Nur die genannte Wallet kann beanspruchen, und erst ab dem jeweiligen Datum. Smithii kann dieses Programm aktualisieren, und ein Audit der laufenden Version ist nicht belegt."],
+  ["tok.audits_h", "Audits von Smithii"],
+  ["tok.audits_body", "Das sind Audits der Programme von Smithii, nicht von RUNECLAW. Smithii kann beide Programme aktualisieren, und beide wurden zuletzt vor dem Abschlussbericht ihres jüngsten Audits bereitgestellt: das Verkaufsprogramm am 2024-06-29, das Vesting-Programm am 2025-02-03. Daher ist nicht belegt, dass der laufende Code der geprüfte ist. Die Befunde, die Halborns Korrekturen geschlossen haben (die Aufteilung eines Merkle-Vestings mit mehreren Empfängern, eine Sperre über null Token), betreffen die Sperren von RUNECLAW nicht: Jede gehört einer einzigen Wallet, wird nach Datum freigegeben und ist nie leer. Der eigene Code von RUNECLAW wurde nicht unabhängig geprüft."],
   ["tok.ms_h", "Treasury-Multisig"],
   ["tok.ms_holds", "Bestand"],
   ["tok.ms_approvals", "Zustimmungen"],

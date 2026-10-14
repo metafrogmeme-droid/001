@@ -46,6 +46,16 @@
   const LOCKS_BODY = 'Each lock is an account of Smithii’s Token Vesting program, which has no instruction to '
     + 'cancel or edit a lock: only the wallet named can claim, and only on or after each date. Smithii can '
     + 'upgrade that program, and no audit of the version running is established.';
+  /**
+   * The only audit links this page will print: Halborn's report pages for Smithii and CoinFabrik's
+   * published reports. A link to "the audit" is a claim people act on, so any other host is unreadable.
+   */
+  const AUDIT_URL = /^https:\/\/(?:www\.halborn\.com\/audits\/smithii\/[a-z0-9-]{1,60}|github\.com\/CoinFabrik\/coinfabrik-audit-reports\/blob\/main\/[A-Za-z0-9_.\/-]{1,160}\.pdf)$/;
+  const AUDITS_BODY = 'These are audits of Smithii’s programs, not of RUNECLAW. Smithii can upgrade both programs, and both were '
+    + 'last deployed before their latest audit’s final report: the sale program on 2024-06-29, the vesting program on '
+    + '2025-02-03. So the code running is not shown to be the audited code. The findings Halborn’s fixes closed (how a '
+    + 'multi-recipient Merkle vesting is split, a lock of zero tokens) do not touch RUNECLAW’s locks: each is one wallet, '
+    + 'time-based and never zero. RUNECLAW’s own code has had no independent audit.';
   const MULTISIG_BODY = 'The vault is held by a Squads v4 multisig. Moving tokens out of it, or changing its members, '
     + 'its approvals or its time lock, needs the approvals shown and then the time lock’s wait. The Squads v4 '
     + 'program cannot be upgraded. This is custody with a delay, not a lock: once approved and past the wait, '
@@ -312,6 +322,32 @@
       + '<p class="tok-prose">' + esc(say('tok.ms_body', MULTISIG_BODY)) + '</p>' + checked + '</section>';
   }
 
+  /** True only for a link this page may print: see AUDIT_URL. */
+  function isAuditUrl(v) {
+    return typeof v === 'string' && AUDIT_URL.test(v);
+  }
+
+  /** One audit: "Halborn · Smithii Token Vesting · 2025-04", linked only when the link is the auditor's own. */
+  function auditItem(it) {
+    const a = (it && typeof it === 'object') ? it : {};
+    const ok = (v) => typeof v === 'string' && v.trim() !== '';
+    if (!ok(a.auditor) || !ok(a.subject) || typeof a.date !== 'string' || !/^\d{4}-\d{2}$/.test(a.date)) return '<li>' + unreadable() + '</li>';
+    const label = esc(a.auditor) + ' · ' + esc(a.subject) + ' · ' + esc(a.date);
+    if (!isAuditUrl(a.url)) return '<li>' + label + ' · ' + unreadable() + '</li>';
+    return '<li><a href="' + esc(a.url) + '" target="_blank" rel="noopener noreferrer">' + label + '</a></li>';
+  }
+
+  /** Smithii's own audits, from the record, in three values, with what they do and do not cover. */
+  function auditsHtml(token) {
+    const head = '<section class="tok-card tok-audits"><h2>' + esc(say('tok.audits_h', 'Smithii’s audits')) + '</h2>';
+    const t = (token && typeof token === 'object') ? token : {};
+    if (!has(t, 'smithii_audits')) return head + '<p class="tok-absent">' + unreadable() + '</p></section>';
+    const items = t.smithii_audits && Array.isArray(t.smithii_audits.items) ? t.smithii_audits.items : null;
+    if (items === null || items.length === 0) return head + '<p class="tok-absent">' + unreadable() + '</p></section>';
+    return head + '<ul class="tok-audits-list">' + items.map(auditItem).join('') + '</ul>'
+      + '<p class="tok-prose">' + esc(say('tok.audits_body', AUDITS_BODY)) + '</p></section>';
+  }
+
   function render(token) {
     if (!token || typeof token !== 'object') return fault();
     if (typeof token.mint !== 'string' || !BASE58_ADDRESS.test(token.mint)) return fault();
@@ -367,6 +403,7 @@
     out += presaleHtml(token.presale, symbol);
     out += locksHtml(token, symbol);
     out += multisigHtml(token, symbol);
+    out += auditsHtml(token);
     out += '<p class="tok-bot">' + esc(say('tok.bot_hint', 'Also in the Telegram bot: /rclaw')) + '</p>';
     return out;
   }
@@ -414,8 +451,8 @@
   return {
     render, fault, supplyText, authorityHtml, presaleHtml, presaleCell, allocationCell, saleLinkCell,
     isSaleUrl, boot, wireCopy, locksHtml, lockHtml, unlocksCell, certificateCell, isCertificateUrl,
-    multisigHtml, quorumCell, timeLockCell, holdsCell,
+    multisigHtml, quorumCell, timeLockCell, holdsCell, auditsHtml, auditItem, isAuditUrl,
     UNREAD, NOT_ANNOUNCED, AUTH_NONE, UNREADABLE, BASE58_ADDRESS, SALE_URL, SALE_LINK_NONE, TERMS,
-    BODY_SOON, BODY_ANNOUNCED, CERTIFICATE_URL, LOCK_NONE, LOCKS_BODY, MULTISIG_BODY,
+    BODY_SOON, BODY_ANNOUNCED, CERTIFICATE_URL, LOCK_NONE, LOCKS_BODY, MULTISIG_BODY, AUDITS_BODY, AUDIT_URL,
   };
 }));

@@ -186,8 +186,11 @@ tune before launch, not a fixed parameter:
 > sale's scheduled end. One vesting exists per wallet per token, so each lock has its own wallet,
 > and only that wallet can claim; nothing can cancel or edit a lock. The tool's program is
 > **upgradeable**, by the same off-curve authority as Smithii's sale program (who can sign for it
-> is not visible), and was last deployed (2025-02-03) before its audit's fixes (April 2025), so
-> **the locks are not called audited**. Treasury, partners and the rest of the reserve are
+> is not visible), and was last deployed (2025-02-03) before its audit's fixes (Halborn, assessed
+> 28 Mar–2 Apr 2025, final report 24 Apr 2025: one medium and one low finding, both fixed, neither in a
+> feature these locks use: multi-recipient Merkle splits and zero-amount locks), so
+> **the locks are not called audited**. The record's `smithii_audits` block lists Smithii's audits
+> with their links, and /token prints them with that qualification. Treasury, partners and the rest of the reserve are
 > **not** locked by the tool: it cannot hand a lock to a multisig, so they sit in the
 > multisig (created 2026-10-14, below), which is custody with approvals and an execution delay,
 > not a lock.

@@ -2174,6 +2174,8 @@
   ["tok.lock_none", "尚未建立"],
   ["tok.locks_checked", "已於以下日期與鏈上核對"],
   ["tok.locks_body", "每個鎖倉都是 Smithii Token Vesting 程式的一個帳戶，該程式沒有取消或修改鎖倉的指令：只有列出的錢包能領取，且只能在各日期當天或之後領取。Smithii 可以升級該程式，目前運行的版本並未確認經過審計。"],
+  ["tok.audits_h", "Smithii 的審計"],
+  ["tok.audits_body", "這些是對 Smithii 程式的審計，不是對 RUNECLAW 的審計。Smithii 可以升級這兩個程式，而兩者最後一次部署都早於其最近一次審計的最終報告：銷售程式於 2024-06-29，鎖倉程式於 2025-02-03。因此無法證明目前運行的程式碼就是經過審計的版本。Halborn 修正所關閉的問題（多收款人 Merkle 鎖倉的分配方式、零代幣的鎖倉）與 RUNECLAW 的鎖倉無關：每個鎖倉都只屬於一個錢包、按時間解鎖，且數量不為零。RUNECLAW 自身的程式碼尚未經過獨立審計。"],
   ["tok.ms_h", "金庫多簽錢包"],
   ["tok.ms_holds", "持有"],
   ["tok.ms_approvals", "所需核准"],

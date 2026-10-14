@@ -2174,6 +2174,8 @@
   ["tok.lock_none", "ainda não criado"],
   ["tok.locks_checked", "Verificado contra a cadeia em"],
   ["tok.locks_body", "Cada bloqueio é uma conta do programa Token Vesting da Smithii, que não tem nenhuma instrução para cancelar ou editar um bloqueio: só a carteira indicada pode resgatar, e só na data indicada ou depois. A Smithii pode atualizar esse programa, e não está estabelecida nenhuma auditoria da versão em execução."],
+  ["tok.audits_h", "Auditorias da Smithii"],
+  ["tok.audits_body", "São auditorias dos programas da Smithii, não da RUNECLAW. A Smithii pode atualizar ambos os programas, e os dois foram implantados pela última vez antes do relatório final da sua auditoria mais recente: o programa de venda em 2024-06-29 e o de vesting em 2025-02-03. Por isso não está demonstrado que o código em execução seja o auditado. As falhas que as correções da Halborn fecharam (como se divide um vesting Merkle com vários destinatários e um bloqueio de zero tokens) não afetam os bloqueios da RUNECLAW: cada um é de uma só carteira, por datas e nunca de zero. O próprio código da RUNECLAW não teve nenhuma auditoria independente."],
   ["tok.ms_h", "Multisig da tesouraria"],
   ["tok.ms_holds", "Contém"],
   ["tok.ms_approvals", "Aprovações"],

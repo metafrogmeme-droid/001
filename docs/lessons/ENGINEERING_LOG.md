@@ -19868,6 +19868,22 @@ change under `site/src/` is a change to `website/` too, and "The committed site 
 the gate that says so. The folder keeps its name; the campaign drafts, the hackathon submission and
 the archived pages keep the URLs they were written with.
 
+**AN AUDIT LINK IS A CLAIM ABOUT WHICH CODE IS RUNNING, AND THIS ONE IS DATED.** On 2026-10-14 the
+operator passed on Smithii's note that its programs were audited (Halborn: Token Vesting; CoinFabrik:
+the Smithii project and the Mantis sale program) and asked for it on the site. The audits are real and
+now listed, in the record's `smithii_audits` block with each report's link and final-report date, and
+on /token and both READMEs. The note's implication, that the running programs are the audited ones, is
+not what the chain shows: the vesting program was last deployed on 2025-02-03, before Halborn's
+assessment (28 Mar–2 Apr 2025) and its fixes, and the sale program on 2024-06-29, three days before
+CoinFabrik's fix review. So the links come with one sentence saying so, and with what the fixed
+findings were: Halborn's medium and low (multi-recipient Merkle splits, zero-amount locks) concern
+features the three locks do not use. That sentence carries both deploy dates, and
+`token/presale/the_record_names_smithii_audits.test.mjs` holds it to `smithii.config.json` and
+`locks.plan.json` in all fourteen languages, and fails if either program is redeployed after its latest
+final report, so the sentence cannot outlive the fact. The page links only Halborn's and CoinFabrik's
+own report pages (`app/test/the_token_page_names_smithii_audits.test.js`). The /rclaw card keeps its
+shorter note: it has no room left under the bot's split point. Ten mutants, all killed.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
