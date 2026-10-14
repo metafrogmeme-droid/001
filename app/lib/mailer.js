@@ -15,6 +15,8 @@
 //   SMTP_USER      login username              (optional; AUTH LOGIN if set)
 //   SMTP_PASS      login password / API key    (optional)
 //   MAIL_FROM      "RUNECLAW <no-reply@…>"     (required to actually send)
+//   MAIL_REPLY_TO  support@…                   (optional; where a reply goes
+//                  when MAIL_FROM is an address nobody reads)
 //   APP_BASE_URL   https://app.example.com     (used to build links in emails)
 //
 // Secrets are read from the environment only; nothing is logged except the
@@ -35,6 +37,7 @@ function _cfg() {
     port: Number.isFinite(port) ? port : 587,
     user: process.env.SMTP_USER || '',
     pass: process.env.SMTP_PASS || '',
+    replyTo: (process.env.MAIL_REPLY_TO || '').trim(),
     // Allow disabling cert verification only via an explicit opt-out (some
     // internal relays use self-signed certs). Defaults to verifying.
     rejectUnauthorized:
@@ -72,13 +75,26 @@ function _encodeHeader(value) {
   return `=?UTF-8?B?${Buffer.from(value, 'utf8').toString('base64')}?=`;
 }
 
-function buildMessage({ from, to, subject, text, html, date }) {
+// The EHLO name. A relay may refuse a client that introduces itself with a
+// name that cannot exist (`*.local`), and the sender's own domain is the one
+// name this deployment is entitled to. Anything that is not a plain hostname
+// falls back to the old fixed name rather than reaching the wire.
+function _ehloName(from) {
+  const domain = (_addrOnly(String(from || '')).split('@')[1] || '').trim();
+  return /^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/.test(domain) && domain.includes('.')
+    ? domain : 'runeclaw.local';
+}
+
+function buildMessage({ from, to, subject, text, html, date, replyTo }) {
   const boundary = 'rc_' + Buffer.from(String(subject || '') + '|' + String(to || ''))
     .toString('hex')
     .slice(0, 24);
   const headers = [
     `From: ${_foldFrom(from)}`,
     `To: ${to}`,
+    // Only an address: a header value with a line break in it is a second
+    // header, and this one comes from the environment, not the user.
+    ...(replyTo && !/[\r\n]/.test(replyTo) ? [`Reply-To: ${replyTo}`] : []),
     `Subject: ${_encodeHeader(subject || '')}`,
     `Date: ${(date || new Date()).toUTCString()}`,
     'MIME-Version: 1.0',
@@ -190,7 +206,7 @@ async function _deliver(cfg, envelope, message) {
   let smtp = _talk(socket, cfg);
   try {
     _expect(await smtp.read(), 220);
-    const ehloHost = 'runeclaw.local';
+    const ehloHost = _ehloName(cfg.from);
     let reply = _expect(await smtp.send(`EHLO ${ehloHost}`), 250);
 
     if (!cfg.secure && /STARTTLS/i.test(reply.text)) {
@@ -231,7 +247,7 @@ async function sendMail({ to, subject, text, html }) {
     return { skipped: true, reason: 'not_configured' };
   }
   const envelope = { from: _addrOnly(cfg.from), to: String(to).trim() };
-  const message = buildMessage({ from: cfg.from, to, subject, text, html });
+  const message = buildMessage({ from: cfg.from, to, subject, text, html, replyTo: cfg.replyTo });
   await _deliver(cfg, envelope, message);
   console.log(`[mailer] sent to=${to} subject="${subject}"`);
   return { skipped: false };
@@ -245,4 +261,5 @@ module.exports = {
   buildMessage,
   _addrOnly,
   _encodeHeader,
+  _ehloName,
 };

@@ -40,6 +40,7 @@ function summaryFor(operator, summary) {
 }
 
 const { isVenue } = require('../lib/venues');
+const accountMail = require('../lib/account_mail');
 
 /**
  * The venue a synced trade happened on, or the default.
@@ -720,6 +721,39 @@ router.post('/tiers', async (req, res) => {
   } catch (err) {
     console.error('Tier sync error:', err.stack || err.message);
     res.status(500).json({ error: 'Tier sync failed' });
+  }
+});
+
+/**
+ * POST /api/bot/sync/tier-notice
+ * Body: { member: 'web:<site user id>', tier }
+ *
+ * Email a website-only member that the operator's /set_tier changed their
+ * plan. A Telegram member is told in Telegram; a website-only member has no
+ * chat, and the bot asks for this explicitly, once per /set_tier. It is never
+ * inferred from /tiers: that route reconciles the whole book, and "this row's
+ * plan differs" is also true of every row the first push after a deploy
+ * corrects, which would mail the membership. (X-Bot-Secret authed.)
+ *
+ * Answers what happened, not ok: { sent, reason }. A linked account is not
+ * mailed: its tier follows the Telegram id, which the bot tells in Telegram.
+ */
+router.post('/tier-notice', async (req, res) => {
+  try {
+    const web = WEB_MEMBER_KEY.exec(String(req.body?.member || '').trim());
+    const tier = String(req.body?.tier || '').toLowerCase();
+    if (!web) return res.status(400).json({ sent: false, reason: 'not_a_website_member' });
+    if (!accountMail.PLAN_NAMES[tier]) return res.status(400).json({ sent: false, reason: 'no_such_plan' });
+    const [rows] = await pool.execute(
+      'SELECT id, email, telegram_linked FROM users WHERE id = ?', [Number(web[1])]);
+    const u = rows && rows[0];
+    if (!u) return res.status(404).json({ sent: false, reason: 'no_such_member' });
+    if (u.telegram_linked) return res.json({ sent: false, reason: 'linked' });
+    const r = await accountMail.notify('tier_changed', u.email, new Date(), { tier });
+    res.json(r);
+  } catch (err) {
+    console.error('Tier notice error:', err.stack || err.message);
+    res.status(500).json({ sent: false, reason: 'failed' });
   }
 });
 

@@ -744,3 +744,35 @@ def sync_tiers_in_background(tier_map: dict, *, remember: bool = True) -> None:
     t = threading.Thread(target=sync_tiers, args=(dict(tier_map),),
                          kwargs={"remember": remember}, daemon=True)
     t.start()
+
+
+def notify_tier_change(member_key: str, tier: str) -> Optional[dict]:
+    """Ask the website to email a website-only member that /set_tier changed
+    their tier. A Telegram member is told in Telegram; a ``web:<id>`` member
+    has no chat, and without this the first they heard of a new tier was
+    their plan card, if they opened it.
+
+    A separate, explicit request rather than something the website infers
+    from the tier mirror: the mirror is a whole-book reconciliation, and
+    "this row's plan differs" is also true of every row the first push after
+    a deploy corrects. An email per corrected row would be a mailing to the
+    whole membership that nobody decided to send.
+
+    No retries (the ``_post`` default): an email is an event, not state, and
+    a retried POST whose answer was lost sends the member the same email
+    twice. Returns the website's answer, or None if it could not be reached.
+    """
+    result = _post("/api/bot/sync/tier-notice",
+                   {"member": member_key, "tier": tier})
+    if result is None:
+        log.warning("Tier notice for a website member could not be delivered "
+                    "to the website")
+    elif not result.get("sent"):
+        log.info("Tier notice not emailed: %s", result.get("reason"))
+    return result
+
+
+def notify_tier_change_in_background(member_key: str, tier: str) -> None:
+    """Non-blocking tier notice."""
+    threading.Thread(target=notify_tier_change, args=(member_key, tier),
+                     daemon=True).start()
