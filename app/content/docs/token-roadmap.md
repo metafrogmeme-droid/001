@@ -2,10 +2,10 @@
 
 **The settlement and access layer for RUNECLAW's on-chain agent economy.**
 
-> **Directional design, not a commitment or an offer.** Nothing here is financial advice or a
-> solicitation to buy any token. A token is a **gated "◆ Vision" item** — it does not ship to
-> users until the Guardrails (legal review, audits, non-custodial, disclosures) are met. Every
-> number below is a **proposed baseline to be ratified**, not a fixed parameter.
+> **Not financial advice, and not a solicitation to buy any token.** `$RCLAW` is minted on Solana
+> mainnet, and its sale on Smithii's launchpad was created on 2026-10-13; it opens on 15 Oct 2026
+> at 14:00 UTC and closes on 29 Oct 2026 (the Presale table below has the exact window). The sale terms, the three time locks and the treasury multisig are on chain; the
+> utility, the tiers and the later phases below are still proposals.
 
 This is the condensed overview. The full design lives in
 [`docs/TOKEN_ROADMAP.md`](https://github.com/metafrogmeme-droid/001/blob/main/docs/TOKEN_ROADMAP.md).
@@ -16,28 +16,26 @@ This is the condensed overview. The full design lives in
 
 ## Why a token
 
-RUNECLAW is moving *"from an autonomous trader to an on-chain agent economy."* `$RCLAW` is the
-coordination, access, and settlement primitive for that economy — **not a fundraise for its
-own sake**. It does three jobs the platform already needs:
+RUNECLAW is moving *"from an autonomous trader to an on-chain agent economy."* `$RCLAW` is
+designed as the coordination, access, and settlement primitive for that economy — **not a
+fundraise for its own sake**. It is meant to do three jobs, none of which is live yet:
 
 - **Access** — stake to unlock premium scan tiers, larger compute allowances, priority agents.
 - **Settlement** — meter agent-to-agent calls to the Shield risk engine; split marketplace
   and copy-trading revenue.
 - **Governance** — vote on risk params, new venues, and promoted strategies.
 
-The token is the **last** piece, gated behind everything below.
-
 ## Token at a glance
 
-| Field | Proposed |
+| Field | On chain |
 |---|---|
 | Ticker | **`$RCLAW`** |
 | Chain | **Solana** (classic SPL Token, minted 2026-09-30) |
 | Supply | **1,000,000,000, fixed** (decimals 9) |
-| Authorities | **Mint + freeze revoked**; treasury via Squads multisig |
+| Authorities | **Mint + freeze revoked**; treasury in a Squads v4 multisig (since 2026-10-14) |
 | Transfer tax | None (DEX-friendly) |
 
-## Utility (mapped to real features)
+## Utility (proposed)
 
 | Utility | Unlocks |
 |---|---|
@@ -72,7 +70,7 @@ those stay tied to KYC/compliance tiers.
 Full spec, worked examples, anti-gaming analysis, and the phased implementation plan:
 [`docs/TIER_MODEL.md`](https://github.com/metafrogmeme-droid/001/blob/main/docs/TIER_MODEL.md).
 
-## Allocation (1B, proposed)
+## Allocation (1B)
 
 | Bucket | % | Tokens |
 |---|---:|---:|
@@ -86,9 +84,15 @@ Full spec, worked examples, anti-gaming analysis, and the phased implementation 
 | Reserve / insurance + post-TGE liquidity | 12.9999% | 129.999M |
 | **Total** | **100%** | **1,000M** |
 
-The sale program locks and vests **nothing** — that is the team's job, and it is not done yet.
-The plan is three time locks made with Smithii's Token Vesting tool, each in its own wallet,
-with every address published **before the sale opens**:
+On chain today, the presale allocation is in the sale's vault; community, team and advisor
+tokens are in the three time locks below; the DEX-liquidity bucket and a share of the reserve
+went to the wallet that will create the pool; and treasury, partnerships and the rest of the
+reserve are in the multisig.
+
+The sale program locks and vests **nothing**, so the team made three time locks with Smithii's
+Token Vesting tool, each with its own claim wallet, and read them back from the chain on
+2026-10-13. Their addresses and certificates are on
+[www.humanoid-traders.com/token](https://www.humanoid-traders.com/token):
 
 - **Community & ecosystem:** 5 unlocks (5%, 20%, 25%, 25%, 25%): at TGE, then every 9 months (the last at month 36)
 - **Team & contributors:** 12-month cliff, then 4 unlocks of 25% every 6 months (the last at month 36)
@@ -102,19 +106,20 @@ not visible) and was last deployed before its audit's fixes
 those fixes closed concern multi-recipient Merkle vestings and zero-amount locks, which these locks
 do not use), so these locks are not called audited. Treasury, partners and the rest of the reserve sit in a Squads v4 multisig (since
 2026-10-14): moving them needs its members' approvals and then its time lock's wait, which is
-custody with a delay, not a lock. The vault's address, the approvals and the delay are on
-humanoid-traders.com/token. **Presale buyers are not vested:** they can claim
-everything the moment the sale ends.
+custody with a delay, not a lock. It takes 2 of its 3 members to approve, and its time lock is
+48 hours; the vault's address, the members and the delay are on
+[www.humanoid-traders.com/token](https://www.humanoid-traders.com/token). **Presale buyers are not
+vested:** they can claim everything the moment the sale ends.
 
 The pool is created by the team after the raise, so it is sized then. Opening at the sale price
 it needs about **24.0M RCLAW at the soft cap and 120.0M at the hard cap**. Whether the table
 above returns to a 10% / 5% liquidity / reserve split is an open decision (roadmap §13).
 
-## Presale (proposed)
+## Presale (created on mainnet 2026-10-13)
 
 The sale runs on **Smithii's launchpad** (its Mantis program on Solana mainnet). That program
-is simpler than the Genesis design this page used to describe, so the terms below are what it
-actually does — including what it does **not** do.
+does less than the Metaplex Genesis design kept as the alternative, so the terms below are what
+it actually does — including what it does **not** do.
 
 | Term | What happens |
 |---|---|
@@ -130,14 +135,13 @@ actually does — including what it does **not** do.
 | Program | Smithii's, **upgradeable**: its upgrade authority `CyTc…7KTC` is an off-curve address (program-controlled; who can sign for it is not visible). CoinFabrik's 2024 audit covers Smithii's program, not RUNECLAW |
 
 If the raise ends below the soft cap the sale still ends and the team still holds the SOL. What
-the team will do then is an open decision (roadmap §13) and must be published before the sale
-opens, because the contract will not make it.
+the team will do then is an open decision (roadmap §13); the contract will not make it.
 
 ## Launch venue
 
 | Venue | Role in this sale |
 |---|---|
-| **Smithii Launchpad** | **Chosen** (2026-10-08) — no-code, 0.1 SOL + 2.5% of sales, an audited program; but it has **no vesting, no wallet whitelist, no refund and no liquidity** |
+| **Smithii Launchpad** | **Chosen** (2026-10-08) — no-code, 0.1 SOL + 2.5% of sales, a program CoinFabrik audited in 2024 (last deployed before the audit's final report); but it has **no vesting, no wallet whitelist, no refund and no liquidity** |
 | **Metaplex Genesis** | **Alternative** — on-chain vesting, whitelist and LP lock; integrated in draft (devnet only) and not used for this sale |
 | **Pump.fun / LetsBonk** | Poor — no caps/whitelist/vesting → **not for the raise** |
 
@@ -152,18 +156,21 @@ opens, because the contract will not make it.
 
 ## Build status — and what is actually proven
 
-Draft, devnet-only reference implementations now exist for most of the mechanics above:
+Draft, devnet-only reference implementations exist for most of the mechanics above:
 the SPL Token-2022 mint tooling, a real **Metaplex Genesis** presale integration (the
-alternative venue: whitelist, liquidity with a permanent LP lock, withdraw/refund), an
-end-to-end lifecycle harness, an Anchor **staking program**, a Wormhole **NTT bridge**
-script, and the wallet/tier-gate plumbing. None of it is a launch — the project remains in
-**Phase 0**.
+alternative venue: whitelist, liquidity with a permanent LP lock, claim; its withdraw and refund
+paths do not run against the V2 presale it creates — roadmap §14), an end-to-end lifecycle
+harness, an Anchor **staking program**, a Wormhole **NTT bridge** script, and the wallet/tier-gate
+plumbing. None of that draft code is the launch.
 
-The sale itself runs on **Smithii**. Its numbers are derived offline from one config
-(`npm run presale:smithii-plan`), and once the launch is created it is read back off mainnet and
-compared with that config before the sale opens (`npm run presale:smithii-verify`).
+The launch itself is on mainnet: the classic SPL Token mint with its authorities revoked
+(2026-09-30), the three time locks (read back 2026-10-13), the Squads multisig (2026-10-14) and
+the sale on **Smithii**. The sale's numbers are derived offline from one config
+(`npm run presale:smithii-plan`); it was created on 2026-10-13 and read back off mainnet against
+that config (`npm run presale:smithii-verify`), and every row passed: price, caps, per-wallet
+limits, the window, no whitelist phase, and the tokens in the sale's vault.
 
-**An adversarial review of that code found 10 real defects, all fixed.** The most serious was
+**An adversarial review of the draft code found 10 real defects, all fixed.** The most serious was
 **critical**: the staking program bound stakes to no mint, so an attacker could stake a
 worthless token and redeem the same amount from the real `$RCLAW` vault. It is fixed, and the
 fix is *executed* rather than asserted — the attack is performed in-process against the real
@@ -173,21 +180,23 @@ What that still does **not** mean:
 
 | Proven | Not proven |
 |---|---|
-| Staking program executes; attack rejected; 8 tests pass | **No independent audit**; no SBF runtime; never on devnet/mainnet |
-| Presale params derive correctly offline | No presale transaction has ever been sent |
-| Smithii's program: CoinFabrik audited it in 2024 (for Smithii); what it does was read from its SDK and live mainnet transactions | The deployed code is not proven to be the audited code; **team, treasury and advisor locks do not exist yet** — one wallet holds all 1,000,000,000 |
+| Staking program executes in-process; the attack is rejected | **No independent audit**; deployed on devnet only (2026-07-26), never on mainnet |
+| Presale params derive correctly offline; the Smithii sale was created and read back (2026-10-13) | Nothing after Create is recorded here yet (buys, claims, the withdraw); the pool is created after the sale |
+| Smithii's programs: CoinFabrik audited the sale program in 2024 and Halborn the vesting tool in 2025 (for Smithii); what the sale program does was read from its SDK and live mainnet transactions | The deployed code is not proven to be the audited code: both programs were last deployed before their audits' final reports |
+| Community, team and advisor locks exist and were read back (2026-10-13); treasury, partnerships and the rest of the reserve are in a 2-of-3 Squads vault with a 48 h time lock (2026-10-14) | The vesting tool's program is upgradeable by an authority whose signers are not visible |
 | Bridge + TS specs typecheck | Never deployed or executed |
 
-The gaps are environmental — the authoring environment blocks Solana devnet and the Anchor/
-Solana CLIs — not optional. **Do not deploy the staking program anywhere holding value until
-it is audited.**
+The remaining gaps are open findings, not limits of the environment (roadmap §14). **Do not
+deploy the staking program anywhere holding value until it is audited.**
 
 ## Cross-chain note
 
-RUNECLAW's on-chain *identity* is on **Base** (ERC-8004/8257 + x402). `$RCLAW` stays
-**Solana-native**, with an **optional Wormhole bridge to Base later** to settle against the
-existing tool-registry rail — a **draft NTT bridge script** now exists for that (hub-and-spoke,
-locking on Solana, because the mint authority is revoked). Wormhole (`W`) and Drift are already
+RUNECLAW's agent *identity* is designed for **Base**: it publishes an ERC-8004-shaped identity
+card, whose on-chain anchor reads UNVERIFIED until a registration transaction confirms, and x402
+settlement is still a design ([`docs/INTEROP.md`](https://github.com/metafrogmeme-droid/001/blob/main/docs/INTEROP.md)).
+`$RCLAW` stays **Solana-native**, with an **optional Wormhole bridge to Base later** — a **draft
+NTT bridge script** exists for that (hub-and-spoke, locking on Solana, because the mint authority
+is revoked). Wormhole (`W`) and Drift are already
 in RUNECLAW's Solana scan universe. A lightweight Solana wallet connector
 (Phantom/Backpack, connect-and-sign) now ships alongside the EVM/ethers stack; a full
 wallet-adapter with Solflare/hardware support remains future work.
@@ -196,6 +205,6 @@ wallet-adapter with Solflare/hardware support remains future work.
 
 See the [full roadmap](https://github.com/metafrogmeme-droid/001/blob/main/docs/TOKEN_ROADMAP.md)
 for tokenomics detail, legal/compliance, the security checklist, KPIs, and the full list of
-open decisions to ratify before launch — and
+open decisions — and
 [§14 Verification status](https://github.com/metafrogmeme-droid/001/blob/main/docs/TOKEN_ROADMAP.md#14-verification-status--what-is-actually-proven)
 for precisely what has been proven versus merely built.

@@ -1,13 +1,13 @@
 # Getting Started
 
-This guide walks you through setting up RUNECLAW from scratch.
+This guide sets up RUNECLAW from a fresh clone. The live bot is [@HTRUNECLAW_bot](https://t.me/HTRUNECLAW_bot) and the website is https://www.humanoid-traders.com/ ; this page is for running your own copy.
 
 ## Prerequisites
 
 - Python 3.11 or newer
-- A Bitget account (for API credentials -- sandbox mode is supported)
-- A Telegram bot token (from [@BotFather](https://t.me/BotFather))
-- Optional: an OpenAI API key for LLM-powered analysis
+- A Telegram bot token (from [@BotFather](https://t.me/BotFather)) for Telegram mode
+- Optional: Bitget API keys. Market data is public and needs no keys; keys are only needed to trade live.
+- Optional: an API key for any supported LLM provider. Trades are decided by the rule engine with or without one.
 
 ## Installation
 
@@ -17,7 +17,7 @@ git clone https://github.com/metafrogmeme-droid/001.git RUNECLAW
 cd RUNECLAW
 
 # Create and activate a virtual environment
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate   # Linux/macOS
 .venv\Scripts\activate      # Windows
 
@@ -27,49 +27,63 @@ pip install -r bot/requirements.txt
 
 ## Configuration
 
-Copy the example environment file and fill in your credentials:
+Copy the example environment file and fill in your values:
 
 ```bash
 cp .env.example .env
 ```
 
-Open `.env` in your editor and set the required values:
+The settings most people set first:
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | For Telegram mode | Bot token from BotFather |
-| `TELEGRAM_CHAT_ID` | Optional | Restrict to a specific chat |
-| `BITGET_API_KEY` | For live data | Bitget API key |
-| `BITGET_API_SECRET` | For live data | Bitget API secret |
-| `BITGET_PASSPHRASE` | For live data | Bitget passphrase |
-| `LLM_API_KEY` | Optional | OpenAI-compatible API key. ~$0.01-0.03 per analysis call. Leave blank for free rule-based fallback. |
-| `LLM_MODEL` | Optional | Model name (default: `gpt-4o`) |
+| Variable | Needed for | Description |
+|----------|------------|-------------|
+| `TELEGRAM_BOT_TOKEN` | Telegram mode | Bot token from BotFather. Telegram mode stops at startup without it. |
+| `TELEGRAM_CHAT_ID` | Live trading | The operator's Telegram chat ID(s), comma-separated, usually your own user ID. These IDs are given the admin role at startup. Live trading will not arm without it, and it starts the allow-list (see below). |
+| `ADMIN_TELEGRAM_IDS` | Optional | Further admin IDs, comma-separated. They join the allow-list and pass the admin checks on commands such as `/approve` and `/users`. |
+| `BITGET_API_KEY` | Live trading | Bitget API key (market data needs none) |
+| `BITGET_API_SECRET` | Live trading | Bitget API secret |
+| `BITGET_PASSPHRASE` | Live trading | Bitget API passphrase |
+| `LLM_PROVIDER` | Optional | `openai`, `anthropic`, `gemini`, `groq` and others. Code default `openai`; `.env.example` sets `anthropic`. |
+| `LLM_API_KEY` | Optional | The provider's key. With it, the model's read rides beside each decision (marked as not used to decide, since `LLM_DECIDES` is off by default) and powers chat. Spend stops at `LLM_DAILY_BUDGET_USD` (code default 1.0, `.env.example` 5.0). |
+| `LLM_MODEL` | Optional | Leave empty to use the provider's default model. |
 
-All other settings have safe defaults. See `.env.example` for the full list.
+**Who can use your bot.** `TELEGRAM_CHAT_ID`, `ADMIN_TELEGRAM_IDS` and `LIVE_TRADER_TELEGRAM_IDS` together make up the allow-list. While any of them is set, everyone else gets in either through an admin's `/approve` or as a paper user on their first command, while `PAPER_AUTO_ACCEPT` is on (the default). If all three are empty there is no allow-list and anyone who finds the bot can use it as a paper user.
+
+**Keep the copied auto-confirm lines.** Every other setting has a default, and `.env.example` lists them. Two of its values depart from the code defaults on purpose: `AUTO_CONFIRM_THRESHOLD=1.0` and `AUTO_CONFIRM_LIVE_ENABLED=false` turn auto-confirm off, so the bot's own ideas wait for a person to confirm them on their card. Without a `.env`, the code defaults are `0.85` and on. See [Telegram Confirmation Flow](telegram-confirmation.md).
+
+New installs do not trade live: `SIMULATION_MODE=true` and `LIVE_TRADING_ENABLED=false` in both the code and `.env.example`. In that mode no order reaches an exchange. A self-admitted paper user's confirms open on their own practice book, which starts at `PAPER_BALANCE_USD` (default 10000). With `PAPER_SIM_OPT_IN_ENABLED` on (default off), anyone can opt in with `/paper on`. Any other confirm is refused; see [Paper Trading](paper-trading.md). [Enabling Live Trading](live-trading.md) covers going live.
 
 ## Running
 
-RUNECLAW supports three modes:
+`bot.main` has four modes: `telegram` (the default), `cli`, `scan` and `backtest`. Docker Compose runs the whole stack.
 
-### Docker Compose (recommended)
-
-The easiest way to run RUNECLAW is via Docker Compose. The compose file mounts a `./data` volume for persistent portfolio state and risk engine files:
+### Telegram Mode (default)
 
 ```bash
-docker compose up -d
+python3 -m bot.main
+# same as: python3 -m bot.main --mode telegram
 ```
 
-The `./data` directory on the host is mounted into the container, so portfolio state, circuit breaker state, and audit logs persist across container restarts.
+This starts the bot, the trading engine and the bot's gateway on port 8080. Open your bot in Telegram and send `/help`.
 
-### CLI Mode (default)
+Several of the website's panels and REST endpoints are served by a second process, the API bridge (uvicorn on port 8000). It needs FastAPI and uvicorn, which `bot/requirements.txt` does not install:
+
+```bash
+pip install "fastapi>=0.115" "uvicorn[standard]>=0.30"
+python3 api_bridge.py
+```
+
+A deployment that starts only one of the two processes is not complete. `scripts/launch_all.sh.template` (copy it out of the repository before use) starts both and checks that each stays up.
+
+### CLI Mode
 
 Interactive testing without Telegram. No bot token needed.
 
 ```bash
-python -m bot.main --mode cli
+python3 -m bot.main --mode cli
 ```
 
-You will see a `runeclaw>` prompt. Type a skill name to run it:
+You get a `runeclaw>` prompt that lists the available skills. Type a skill name to run it:
 
 ```
 runeclaw> scan_market
@@ -78,35 +92,45 @@ runeclaw> get_portfolio
 runeclaw> quit
 ```
 
-### Telegram Mode
-
-Start the full Telegram bot:
-
-```bash
-python -m bot.main --mode telegram
-```
-
-The bot will poll for updates. Open your Telegram bot and send `/help` to see available commands.
+The CLI runs its own copy of the engine. Nothing it does is saved, and nothing typed here reaches a running bot.
 
 ### Scan Mode
 
-One-shot market scan that prints results and exits:
+One market scan that prints its results and exits:
 
 ```bash
-python -m bot.main --mode scan
+python3 -m bot.main --mode scan
 ```
+
+### Backtest Mode
+
+Replays 720 synthetic 1-hour bars (30 days) of BTC/USDT and prints the result summary:
+
+```bash
+python3 -m bot.main --mode backtest
+```
+
+The bars are generated, not market history, so the result says nothing about how the strategy trades real markets.
+
+### Docker Compose
+
+```bash
+docker compose up -d
+```
+
+Compose starts four services: the bot (Telegram mode, so `TELEGRAM_BOT_TOKEN` is required), the API bridge on port 8000, Redis, and nginx. `.env` must set `REDIS_PASSWORD`, and, while the nginx service is in the file, `RUNECLAW_DOMAIN`; nginx also needs TLS certificates for that domain. For local use, comment out the nginx service, as the comment in `docker-compose.yml` says. `./data` (portfolio and breaker state) and `./logs` (the JSONL audit logs) are mounted from the host and survive restarts.
 
 ## Verifying the Setup
 
-1. Run `python -m bot.main --mode cli` and type `get_portfolio`.
-2. You should see the default paper balance of $10,000.
-3. Type `check_risk` to verify the risk engine reports all-clear.
+1. Run `python3 -m bot.main --mode cli` and type `get_portfolio`.
+2. On a fresh install, Equity and Available equal `PAPER_BALANCE_USD` (default 10000) and there are no open positions.
+3. Type `check_risk`. On a fresh install the breaker line reads `CLEAR`.
 4. Type `quit` to exit.
 
-If you see the RUNECLAW banner and portfolio output, the system is ready.
+If you see the RUNECLAW banner and the portfolio card, the install works.
 
 ## Next Steps
 
-- Read the [Architecture](architecture.md) overview to understand how the pieces fit together.
-- Explore [Skills & Commands](skills-and-commands.md) for the full command reference.
+- Read the [Architecture](architecture.md) overview to see how the pieces fit together.
+- See [Skills & Commands](skills-and-commands.md) for the core commands and who may run them.
 - Review the [Risk Framework](risk-framework.md) before generating trade ideas.

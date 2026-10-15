@@ -1,81 +1,170 @@
-# RUNECLAW Risk Manifest v1.0
-# Single source of truth for all risk parameters.
-# The risk engine loads from this file; docs render from it.
-# "The documentation cannot drift from the code because they read the same file."
+# RUNECLAW Risk Manifest v1.1
+# The documented statement of each pre-trade check: what it measures, the
+# figure it compares against, and what it does when it cannot measure.
+#
+# NOTHING LOADS THIS FILE AT RUNTIME. The risk engine reads its figures from
+# bot/config.py (RiskLimits, StrategyTypeConfig) and bot/core/order_flow.py
+# (OrderFlowConfig), and from constants in the modules named below; no docs
+# page renders from it either. It restates the code, and tests hold it there:
+#   tests/test_manifest_and_whynot.py
+#     - `defaults:` against bot/config.py::RiskLimits, field by field;
+#     - every per-check `threshold:` figure: a key that names a config field
+#       (RiskLimits, StrategyTypeConfig, OrderFlowConfig) is compared with that
+#       field's code default, and every other key is listed in the test with
+#       the code it was read from and checked against it.
+#   tests/test_risk_page_does_not_overclaim_fail_closed.py
+#     - the fail_behavior tally the public pages print.
+# A figure here that disagrees with the code fails a test. Change the code
+# first, then this file.
 #
 # Source files:
-#   bot/risk/risk_engine.py  — check logic, correlation groups, regime multipliers
-#   bot/config.py            — RiskLimits dataclass, env var bindings, defaults
+#   bot/risk/risk_engine.py  — RiskEngine._evaluate_locked: every check below
+#                              except #17
+#   bot/core/engine.py       — #17 LIQUIDITY (RuneClawEngine._analyze_signal)
+#   bot/core/order_flow.py   — OrderFlowConfig, OrderFlowAnalyzer.liquidity_guard
+#   bot/core/macro_events.py — #18 MacroEventProvider
+#   bot/config.py            — RiskLimits, StrategyTypeConfig, env bindings
 
-version: "1.0"
-updated: "2026-06-01"
+version: "1.1"
+updated: "2026-10-15"
 
 # =============================================================================
-# PRE-TRADE CHECKS (21 total)
+# PRE-TRADE CHECKS (the ones listed here)
 # =============================================================================
-# Design contract: ALL checks must pass. ANY failure = REJECTED. No overrides.
-# Fail behavior:
+# The contract, as the code keeps it: RiskEngine._evaluate_locked collects
+# every check it runs and APPROVES only when none failed
+# (`verdict = APPROVED if len(failed) == 0`). One failure rejects the trade.
+# What that does not mean:
+#   * Not every check runs on every trade. A manual /trade (idea.source
+#     "manual") skips #6 RISK_REWARD and #7 CONFIDENCE, and the opt-in
+#     FEE_AWARE and REENTRY_COOLDOWN gates. #17 LIQUIDITY runs only on the
+#     analyzer's path. #20 CONCENTRATION_PCA is not evaluated in live mode.
+#     An engine built with no macro provider (the backtest's) skips #18.
+#   * A figure can move at runtime: /drawdownlimit sets the live drawdown cap
+#     (#4) anywhere from 1% to 30%.
+#   * Live, #8, #14, #15 and #21 read the executor's book the trade joins.
+#     With LIVE_BOOK_RISK_GATES_ENABLED off (it is on by default) their live
+#     refusals are reported on the check line and not enforced.
+#   * This list is not every gate. The engine also runs gates it does not
+#     list: WARNING_RATE_BREAKER, MARGIN_RISK, STOP_DISTANCE and SLTP_SIDES
+#     (each rejects when it cannot evaluate), the live-performance governor
+#     and the opt-in equity-curve and drawdown-recovery pauses, and gates that
+#     PASS when they cannot evaluate (RC-AUD-011): the order-flow gates
+#     TAKER_3BAR and BID_DOMINANCE (no order-flow analyzer, or no fresh signal
+#     for the symbol), FUNDING_CLOCK (no funding data for the symbol, or an
+#     error), and the opt-in FEE_AWARE, REENTRY_COOLDOWN, INTENT_POLICY,
+#     VALIDATION and AUTHORITY hooks (an error leaves the trade untouched).
+# Fail behavior, for the checks listed here:
 #   "closed" = if the check cannot be evaluated, the trade is REJECTED.
 #   "open"   = if the check cannot be evaluated, the trade is allowed through.
 #   "skip"   = check is gracefully skipped when data is unavailable (returns pass).
+# `env_var` names the settings that move a check's figures; a list when there
+# are several.
 
 checks:
   - id: 1
     name: CIRCUIT_BREAKER
     description: >
-      Blocks all trades when circuit breaker is open.
-      Tripped by daily loss limit breach, max drawdown breach,
-      or consecutive loss streak reaching max_consecutive_losses.
-      Persisted to disk; survives restarts.
+      Rejects every entry while the breaker is open. Tripped by a daily-loss
+      breach (#3), a drawdown breach (#4), a consecutive-loss streak reaching
+      max_consecutive_losses (counted when a trade closes, not in this check),
+      or by hand (/pause, /halt). Persisted to disk; survives restarts.
+      How it clears depends on what tripped it. A daily-loss trip resets
+      itself on the first evaluation after the UTC day rolls over
+      (daily_loss_breaker_autoreset_enabled, on by default), unless the loss
+      streak is itself at max_consecutive_losses. A streak trip clears itself
+      streak_breaker_autoreset_hours after the last loss (0, the default, is
+      off). A drawdown or manual trip clears only by hand.
     fail_behavior: closed
-    threshold: null
-    env_var: null
+    threshold:
+      daily_loss_breaker_autoreset_enabled: true
+      streak_breaker_autoreset_hours: 0.0
+    env_var: [DAILY_LOSS_BREAKER_AUTORESET, STREAK_BREAKER_AUTORESET_HOURS]
     trips_circuit_breaker: false
-    notes: "Manual reset required via /reset command."
+    notes: "Manual reset: /reset or /resume (RiskEngine.reset_circuit_breaker)."
 
   - id: 2
     name: POSITION_SIZE
     description: >
-      Enforces notional position cap as percentage of equity.
-      Uses fixed-fractional sizing by stop distance; this check
-      clamps the result if it exceeds max_symbol_exposure_pct.
+      Caps the MARGIN committed per trade as a percentage of equity (the
+      executor places margin x leverage as notional). The size starts
+      fixed-fractional: the strategy type's risk budget
+      (StrategyTypeConfig.*_max_risk_pct) divided by stop distance x the
+      sized leverage. Reductions (regime, session, governor and others) apply,
+      and the result is clamped to the cap. The cap is per strategy type while
+      per_strategy_notional_cap_enabled is on (the default): scalp 8%,
+      intraday 10%, swing 13%, position 15%. With the flag off, or for a
+      strategy type with no figure of its own, it is max_position_pct (13%).
+      The volatility target and the regime, equity-throttle, risk-preference
+      and quality-ladder reductions can lower the figure the size is clamped
+      to; none raises it.
     fail_behavior: closed
     threshold:
-      max_notional_pct: 20.0  # same as max_symbol_exposure_pct
-    env_var: MAX_SYMBOL_EXPOSURE_PCT
+      per_strategy_notional_cap_enabled: true
+      scalp_max_position_pct: 8.0
+      intraday_max_position_pct: 10.0
+      swing_max_position_pct: 13.0
+      position_max_position_pct: 15.0
+      max_position_pct: 13.0  # flag off, or a strategy type with no figure
+    env_var: [PER_STRATEGY_NOTIONAL_CAP_ENABLED, SCALP_MAX_POSITION_PCT,
+              INTRADAY_MAX_POSITION_PCT, SWING_MAX_POSITION_PCT,
+              POSITION_MAX_POSITION_PCT, MAX_POSITION_PCT]
     trips_circuit_breaker: false
     notes: >
-      Oversized positions are clamped (not rejected) — the check
-      passes but logs the clamping. Rejection only on zero/negative equity.
+      An oversized size is clamped to the cap before this check runs, so in
+      normal operation the check passes and the size trace names the clamp.
+      It rejects on zero or negative equity, and on a size still above the cap
+      (a clamp that was bypassed). It is the per-TRADE cap; the per-symbol
+      aggregate is #15.
 
   - id: 3
     name: DAILY_LOSS
     description: >
-      Blocks trades when realized + unrealized daily PnL loss
-      exceeds max_daily_loss_pct of equity.
+      Rejects, and trips the circuit breaker, when the day's loss reaches
+      max_daily_loss_pct of equity AND is at least daily_loss_breaker_min_usd
+      in dollars (0, the default, leaves the percentage alone). Paper: the
+      tracker's daily PnL, realized plus unrealized, over equity. Live: the
+      realized PnL of today's UTC day over live equity. Across a person's
+      venues the larger of this book's and the person's loss is used, and a
+      cross-venue reading that is incomplete rejects.
     fail_behavior: closed
     threshold:
       max_daily_loss_pct: 5.0
-    env_var: MAX_DAILY_LOSS_PCT
+      daily_loss_breaker_min_usd: 0.0
+    env_var: [MAX_DAILY_LOSS_PCT, DAILY_LOSS_BREAKER_MIN_USD]
     trips_circuit_breaker: true
     notes: "Trips circuit breaker on breach."
 
   - id: 4
     name: DRAWDOWN
     description: >
-      Blocks trades when max drawdown percentage from equity
-      high-water mark exceeds max_drawdown_pct.
+      Rejects, and trips the circuit breaker, when the CURRENT drawdown from
+      the equity high-water mark reaches the cap. Paper: max_drawdown_pct
+      (10%). Live, while live risk hardening is on (live_risk_hardening_enabled,
+      the default): live_max_drawdown_pct (7%), measured from the live
+      account's own high-water mark, which is not kept across a restart unless
+      PERSIST_LIVE_DRAWDOWN_PEAK is on. The operator can move the live cap
+      anywhere from 1% to 30% at runtime (/drawdownlimit). Across a person's
+      venues the larger of this book's and the person's drawdown is used, and
+      a cross-venue reading that is incomplete rejects.
     fail_behavior: closed
     threshold:
       max_drawdown_pct: 10.0
-    env_var: MAX_DRAWDOWN_PCT
+      live_risk_hardening_enabled: true
+      live_max_drawdown_pct: 7.0
+      live_override_min_pct: 1.0   # /drawdownlimit floor
+      live_override_max_pct: 30.0  # /drawdownlimit ceiling
+    env_var: [MAX_DRAWDOWN_PCT, LIVE_RISK_HARDENING_ENABLED, LIVE_MAX_DRAWDOWN_PCT]
     trips_circuit_breaker: true
     notes: "Trips circuit breaker on breach."
 
   - id: 5
     name: OPEN_POSITIONS
     description: >
-      Limits the number of concurrently open positions.
+      Limits the number of concurrently open positions. Live: the exchange's
+      open positions plus orders pending a fill. Across a person's venues the
+      larger of this book's count and the person's is used, and a count that
+      misses a venue rejects even under the cap (it is only a floor).
     fail_behavior: closed
     threshold:
       max_open_positions: 5
@@ -85,62 +174,94 @@ checks:
   - id: 6
     name: RISK_REWARD
     description: >
-      Requires minimum risk-reward ratio on the trade idea.
-      Uses 0.01 tolerance for float rounding at boundary.
+      Requires the idea's reward:risk (|TP - entry| / |entry - SL|, rounded to
+      two places) to reach the minimum for its strategy type
+      (StrategyTypeConfig.get_min_rr): scalp 1.2, intraday 1.5, swing 1.5,
+      position 2.0, and 1.5 for a type with no figure of its own. A 0.01
+      tolerance absorbs float rounding at the boundary. Skipped for a manual
+      trade. RiskLimits.min_risk_reward (MIN_RISK_REWARD) is NOT read by this
+      check.
     fail_behavior: closed
     threshold:
-      min_risk_reward: 1.2
-    env_var: MIN_RISK_REWARD
+      scalp_min_rr: 1.2
+      intraday_min_rr: 1.5
+      swing_min_rr: 1.5
+      position_min_rr: 2.0
+      unmapped_strategy_min_rr: 1.5
+      boundary_tolerance: 0.01
+    env_var: [SCALP_MIN_RR, INTRADAY_MIN_RR, SWING_MIN_RR, POSITION_MIN_RR]
     trips_circuit_breaker: false
 
   - id: 7
     name: CONFIDENCE
     description: >
-      Requires minimum confidence score from the analyzer.
-      0.60 is the sweet spot — filters weak setups while keeping
-      enough trades to be meaningful.
+      Requires the analyzer's confidence to reach min_confidence, on the raw
+      scale: with calibration on, the comparison reads the pre-calibration
+      blend, not the calibrated figure on the idea. With
+      per_strategy_confidence_floor_enabled (off by default) the floor is the
+      strategy type's StrategyTypeConfig.*_min_confidence instead. A
+      confidence that cannot be read fails. Skipped for a manual trade, whose
+      confidence is a stamp rather than a measurement. 0.60 was chosen on the
+      frozen benchmark (docs/FROZEN_BENCHMARK.md).
     fail_behavior: closed
     threshold:
       min_confidence: 0.60
-    env_var: MIN_CONFIDENCE
+      per_strategy_confidence_floor_enabled: false
+    env_var: [MIN_CONFIDENCE, PER_STRATEGY_CONFIDENCE_FLOOR_ENABLED]
     trips_circuit_breaker: false
 
   - id: 8
     name: CORRELATION
     description: >
-      Prevents concentrated bets in the same correlation group.
-      Assets are mapped to groups (BTC, ETH, ALT_L1, MEME, etc.).
-      Unmapped assets are treated as their own group.
+      Caps concurrent positions in one correlation group: rejects when the
+      group already holds max_correlation_per_group positions. Symbols not in
+      the correlation map pool into ONE shared bucket (UNMAPPED_ALT) capped at
+      max_unmapped_correlated, and so does every perp id (BASE/USDT:USDT)
+      while correlation_perp_group_mapping_enabled is off (the default),
+      because the suffix is then not stripped before the lookup. On the paper
+      book a same-direction position whose recent returns correlate above
+      max_correlation with an open one is also rejected (CORRELATION_V2; not
+      run on the live book). Live: the counts read the executor's book, open
+      and resting. Binds manual trades too.
     fail_behavior: closed
     threshold:
       max_correlation_per_group: 2
-    env_var: MAX_CORRELATION_PER_GROUP
+      max_unmapped_correlated: 3
+      correlation_perp_group_mapping_enabled: false
+      max_correlation: 0.85
+    env_var: [MAX_CORRELATION_PER_GROUP, MAX_UNMAPPED_CORRELATED,
+              CORRELATION_PERP_GROUP_MAPPING_ENABLED, MAX_CORRELATION]
     trips_circuit_breaker: false
     notes: "See correlation_groups section below for full mapping."
 
   - id: 9
     name: LOSS_STREAK
     description: >
-      Soft reject at (max_consecutive_losses - 2) consecutive losses. Hard
-      stop (circuit breaker) at max_consecutive_losses (default 5). The
-      streak decays one step per WIN, so without a recovery path the soft
-      gate would latch permanently (blocked trading -> no wins -> blocked
-      forever). Half-open recovery: after loss_streak_probe_hours since the
-      last loss, ONE probe trade is allowed at a time (only while flat); a
-      losing probe re-arms the gate, a winning probe decays the streak.
+      Soft reject once the account-wide losing streak reaches soft_reject_at
+      (RiskEngine._soft_loss_streak_limit: max_consecutive_losses - 2, at
+      least 2 and always below the hard limit). The hard stop is the circuit
+      breaker (#1), tripped when a close takes the streak to
+      max_consecutive_losses. A winning close takes one off the streak and a
+      break-even close leaves it, so with trading blocked the soft gate would
+      latch for good. The way out: once loss_streak_probe_hours have passed
+      since the last loss, ONE probe trade is allowed at a time, and only
+      while no position is open. A losing probe re-arms the gate; a winning
+      probe decays the streak. An unknown last-loss time allows no probe.
+      Binds manual trades too.
     fail_behavior: closed
     threshold:
-      soft_reject_at: 3          # max_consecutive_losses - 2
-      circuit_breaker_at: 5      # max_consecutive_losses
-      probe_after_hours: 24      # LOSS_STREAK_PROBE_HOURS (0 = legacy latch)
-    env_var: MAX_CONSECUTIVE_LOSSES
+      soft_reject_at: 3
+      max_consecutive_losses: 5
+      loss_streak_probe_hours: 24.0  # 0 = the legacy permanent latch
+    env_var: [MAX_CONSECUTIVE_LOSSES, LOSS_STREAK_PROBE_HOURS]
     trips_circuit_breaker: false
     notes: "Soft reject derives from the hard limit. Probe cool-off via LOSS_STREAK_PROBE_HOURS."
 
   - id: 10
     name: ENTRY_PRICE
     description: >
-      Validates that entry price is positive and non-zero.
+      Validates that the entry price is finite and above zero (NaN and
+      infinity are rejected).
     fail_behavior: closed
     threshold: null
     env_var: null
@@ -149,11 +270,14 @@ checks:
   - id: 11
     name: STOP_LOSS
     description: >
-      Requires a valid stop-loss on every trade idea.
-      Stop-loss must be > 0 and cannot equal entry price.
-      Can be disabled via REQUIRE_STOP_LOSS=false.
+      Requires a valid stop-loss on every trade idea: finite, above zero, and
+      not equal to the entry price. REQUIRE_STOP_LOSS=false turns the
+      requirement off; the check then passes and says so. Which side of the
+      entry the stop sits on is checked separately (SLTP_SIDES, not listed
+      here).
     fail_behavior: closed
-    threshold: null
+    threshold:
+      require_stop_loss: true
     env_var: REQUIRE_STOP_LOSS
     trips_circuit_breaker: false
     notes: "Default: required (true)."
@@ -161,30 +285,39 @@ checks:
   - id: 12
     name: STALE_DATA
     description: >
-      Rejects trade ideas older than stale_data_max_age_seconds.
-      Measured as seconds between idea timestamp and current time.
+      Rejects a trade idea older than stale_data_max_age_seconds, measured
+      from the idea's timestamp to now. An idea placed as a limit order gets
+      limit_order_age_multiplier times that. An idea timestamped more than
+      future_skew_tolerance_seconds in the future is rejected too.
     fail_behavior: closed
     threshold:
       stale_data_max_age_seconds: 300
+      limit_order_age_multiplier: 2
+      future_skew_tolerance_seconds: 30
     env_var: STALE_DATA_MAX_AGE_SEC
     trips_circuit_breaker: false
 
   - id: 13
     name: COOLDOWN
     description: >
-      Enforces a cooldown period after the last losing trade.
-      No new trades until cooldown_after_loss_seconds have elapsed.
+      Rejects new entries until cooldown_after_loss_seconds have passed since
+      the most recent losing close, or since a close whose P&L could not be
+      read. Binds manual trades too. Under backtest replay the clock is the
+      simulated bar time.
     fail_behavior: closed
     threshold:
-      cooldown_after_loss_seconds: 300
+      cooldown_after_loss_seconds: 120
     env_var: COOLDOWN_AFTER_LOSS_SEC
     trips_circuit_breaker: false
 
   - id: 14
     name: PORTFOLIO_EXPOSURE
     description: >
-      Limits total portfolio exposure (all open positions + new position)
-      as a percentage of equity, measured mark-to-market.
+      Limits total portfolio exposure as a percentage of equity: the margin
+      committed by every open position plus the new position's margin. Paper:
+      open positions marked to market. Live: committed margin on the
+      executor's book, with no unrealized P&L; a held position whose margin
+      was never read rejects.
     fail_behavior: closed
     threshold:
       max_portfolio_exposure_pct: 80.0
@@ -194,8 +327,10 @@ checks:
   - id: 15
     name: SYMBOL_EXPOSURE
     description: >
-      Limits per-symbol exposure (existing + new position value)
-      as a percentage of equity, measured mark-to-market.
+      Limits per-symbol exposure as a percentage of equity: the margin already
+      committed on the symbol plus the new position's margin. Paper: marked
+      to market. Live: committed margin on the executor's book, with no
+      unrealized P&L; a held position whose margin was never read rejects.
     fail_behavior: closed
     threshold:
       max_symbol_exposure_pct: 20.0
@@ -205,91 +340,167 @@ checks:
   - id: 16
     name: VOLATILITY
     description: >
-      Rejects trades when ATR exceeds a percentage of entry price.
-      Fail-closed: ATR data must be present and > 0.
-      Meme coins get a tighter threshold (capped at 4.0%).
+      Rejects trades when ATR exceeds volatility_guard_atr_pct of the entry
+      price. Fail-closed: ATR data must be present and > 0. A symbol in the
+      MEME correlation group gets a WIDER threshold,
+      max(volatility_guard_atr_pct, meme_coin_threshold_floor_pct), which is
+      10% at the defaults. The group is looked up by the symbol as written
+      (BASE/USDT, or a bare BASE), so a perp id such as DOGE/USDT:USDT is not
+      matched and takes the ordinary threshold.
     fail_behavior: closed
     threshold:
-      volatility_guard_atr_pct: 6.0
-      meme_coin_cap_pct: 4.0       # hardcoded in engine
+      volatility_guard_atr_pct: 7.0
+      meme_coin_threshold_floor_pct: 10.0  # a literal in the engine
     env_var: VOLATILITY_GUARD_ATR_PCT
     trips_circuit_breaker: false
     notes: >
-      BTC hourly ATR is typically 1-4%. 6% allows elevated-vol periods
+      BTC hourly ATR is typically 1-4%. 7% allows elevated-vol periods
       while blocking extreme conditions.
 
   - id: 17
     name: LIQUIDITY
     description: >
-      Liquidity guard via OrderFlowAnalyzer in engine.py.
-      Depth threshold scales with position size: max(position_size * 10, min_book_depth_usd).
-      Large-cap pairs (BTC/ETH/SOL) always enforce a $50K floor.
-      This is the ONLY fail-open check: no data = pass.
+      Liquidity guard: OrderFlowAnalyzer.liquidity_guard (bot/core/order_flow.py),
+      called from RuneClawEngine._analyze_signal after the risk engine has
+      sized the idea. Rejects a spread above max_spread_bps, or a thinner book
+      side (summed over book_depth_levels levels) below
+      max(depth_position_multiple x the sized position, min_top_depth_usd).
+      For BTC, ETH and SOL (spot or perp ids) that floor is raised to
+      large_cap_depth_floor_usd. With guard_top_depth_enabled (on by default)
+      the best book_top_levels levels on each side must also cover the
+      position. This is the ONLY fail-open check the manifest lists: no data =
+      pass. No order-flow signal for the symbol, or a book that did not
+      resolve, lets the trade through. The engine's order-flow gates
+      TAKER_3BAR and BID_DOMINANCE and its FUNDING_CLOCK gate, which this file
+      does not list, also pass without data (see the header).
     fail_behavior: open
     threshold:
-      min_book_depth_usd: 5000.0
-      large_cap_floor_usd: 50000.0
-    env_var: MIN_BOOK_DEPTH_USD
+      max_spread_bps: 50.0
+      book_depth_levels: 25
+      depth_position_multiple: 10  # a literal in liquidity_guard
+      min_top_depth_usd: 2000.0
+      large_cap_depth_floor_usd: 10000.0
+      guard_top_depth_enabled: true
+      book_top_levels: 5
+    env_var: [OF_MAX_SPREAD_BPS, OF_BOOK_DEPTH, OF_MIN_DEPTH_USD,
+              OF_LARGE_CAP_DEPTH_FLOOR_USD, OF_GUARD_TOP_DEPTH_ENABLED,
+              OF_BOOK_TOP_LEVELS]
     trips_circuit_breaker: false
-    notes: "Runs in engine.py, not in risk_engine.py. Threshold scales with position size."
+    notes: >
+      Runs in engine.py, not in risk_engine.py. The sized position it is
+      handed is the risk engine's position_size_usd, which is MARGIN.
+      MIN_BOOK_DEPTH_USD (RiskLimits.min_book_depth_usd) is a dead knob:
+      nothing reads it, and setting it changes nothing here.
 
   - id: 18
     name: MACRO_EVENT
     description: >
-      Checks macro event risk state. Supports two providers:
-      v2 enhanced macro provider (size throttling with BLOCK/REDUCE/CLEAR states)
-      and v1 MacroCalendar (EVENT_LOCKDOWN/BLACKOUT states).
-      If no provider is configured, check is skipped (passes).
+      Asks the macro-event provider (bot/core/macro_events.py::MacroEventProvider,
+      which the bot wires into the operator's engine and every per-user
+      engine, reading config/macro_calendar.seed.json) for the state now.
+      BLOCK_NEW_ENTRIES rejects. REDUCE passes; its size multiplier was
+      already applied to the size before the cap. The windows depend on the
+      event's severity. CRITICAL (FOMC_DECISION) blocks from 60 minutes before
+      to 30 after, and reduces size from 180 minutes before. HIGH (CPI, NFP)
+      blocks from 30 before to 15 after, and reduces from 120 before. MEDIUM
+      (CORE_PCE, ISM_PMI, PPI, GDP, RETAIL_SALES) blocks from 15 before to 10
+      after. After a CRITICAL, HIGH or MEDIUM block ends, size stays reduced
+      for 30 more minutes. A LOW event (any other kind) blocks only at its
+      scheduled instant. A funding rate on the symbol of +0.10% per 8 h or
+      more blocks as a synthetic CRITICAL event. A calendar that could not be
+      loaded (blind), or a seed file that, when loaded, is older than 72 h and
+      has no event beyond the next 72 h (stale), blocks new entries unless
+      MACRO_FAILSAFE=false; a
+      provider that raises blocks too. An engine built with no provider (the
+      backtest's) skips the check and passes; the v1 MacroCalendar
+      (EVENT_LOCKDOWN and BLACKOUT reject) is consulted only by an engine
+      given a calendar and no provider.
     fail_behavior: closed
-    threshold: null
-    env_var: null
+    threshold:
+      critical_block_before_min: 60
+      critical_block_after_min: 30
+      critical_reduce_before_min: 180
+      high_block_before_min: 30
+      high_block_after_min: 15
+      high_reduce_before_min: 120
+      medium_block_before_min: 15
+      medium_block_after_min: 10
+      post_event_reduce_min: 30
+      reduce_size_multiplier: 0.5
+      funding_block_rate_per_8h: 0.001
+      calendar_stale_after_hours: 72
+    env_var: MACRO_FAILSAFE
     trips_circuit_breaker: false
     notes: >
-      v2 provider: BLOCK_NEW_ENTRIES = reject, REDUCE = pass with size multiplier.
-      v1 calendar: EVENT_LOCKDOWN = reject, BLACKOUT = reject (fail-closed).
+      Provider: BLOCK_NEW_ENTRIES = reject, REDUCE = pass with the size
+      multiplier. v1 calendar: EVENT_LOCKDOWN = reject, BLACKOUT = reject
+      (fail-closed).
 
   - id: 19
     name: MTF_ALIGNMENT
     description: >
-      Multi-timeframe trend alignment. Requires 2-of-3 (or majority)
-      timeframes to agree on direction. Reads MTF data from
-      idea.signals_used with convention "MTF:<tf>=<direction>".
+      Rejects a counter-trend entry: a LONG when the idea's higher-timeframe
+      trend (idea.htf_trend) is bearish, a SHORT when it is bullish. The
+      analyzer sets htf_trend from the daily timeframe's EMA20/EMA50 trend
+      (4h when there are no daily candles; bot/core/multi_timeframe.py). A
+      neutral or missing trend has no opinion and the check passes. With
+      htf_trend unset, legacy "MTF:<tf>=UP|DOWN" tags in idea.signals_used are
+      read instead once there are at least legacy_min_mtf_tags of them, by
+      simple majority. With MTF_ALIGNMENT_GATE_ENABLED off it always passes.
     fail_behavior: skip
     threshold:
-      min_aligned: 2               # 2 of 3 timeframes
-      majority_rule: "n//2 + 1"    # for > 3 timeframes
-    env_var: null
+      mtf_alignment_gate_enabled: true
+      legacy_min_mtf_tags: 2
+    env_var: MTF_ALIGNMENT_GATE_ENABLED
     trips_circuit_breaker: false
-    notes: "Gracefully skipped when fewer than 2 MTF signals are present."
+    notes: "Passes (no opinion) when the higher-timeframe trend is neutral or absent."
 
   - id: 20
     name: CONCENTRATION_PCA
     description: >
-      Portfolio concentration check using PCA on correlation matrix
-      of historical returns. Rejects when PC1 explains > 70% of variance.
+      Portfolio concentration check using PCA on the correlation matrix of
+      returns. Rejects when the first principal component explains more than
+      pc1_max_explained_variance of the variance. Needs at least two open
+      positions. Reads aligned price returns for the assets held
+      (var_covariance_min_points each); without them it falls back to
+      closed-trade returns (min_trade_history closed trades, two assets with
+      min_return_periods closes each) and says so on the check line, because
+      that matrix is about what the book used to hold. Not evaluated in live
+      mode; the check line says so.
     fail_behavior: skip
     threshold:
       pc1_max_explained_variance: 0.70
       min_assets_required: 2
       min_return_periods: 3
       min_trade_history: 5
-    env_var: null
+      var_covariance_min_points: 20
+    env_var: VAR_COVARIANCE_MIN_POINTS
     trips_circuit_breaker: false
     notes: "Gracefully skipped when insufficient positions or trade history."
 
   - id: 21
     name: PORTFOLIO_VAR
     description: >
-      Parametric Value at Risk check. Computes portfolio VaR from historical
-      per-trade returns using z-score 1.645 (95% confidence). Rejects when
-      proposed position would push portfolio VaR above max_portfolio_var_pct.
+      Parametric Value at Risk at confidence_level (z_score, one-day holding
+      period). Rejects when the book plus the proposed position (its margin x
+      the sized leverage, as notional) would carry a VaR above
+      max_portfolio_var_pct of equity. Volatility comes from per-trade
+      returns of closed trades, a proxy that ignores cross-asset correlation,
+      or from a covariance matrix of the held assets' price returns when
+      var_covariance_enabled is on or live risk hardening is active and every
+      asset has var_covariance_min_points of history. Skipped (passes) with
+      fewer than min_trades_required closed trades and no covariance answer.
+      Live: measured on the executor's book; a held position whose notional
+      or side was never read rejects.
     fail_behavior: skip
     threshold:
       confidence_level: 0.95
       z_score: 1.645
-      max_var_pct: 15.0
+      max_portfolio_var_pct: 15.0
       min_trades_required: 5
-    env_var: MAX_PORTFOLIO_VAR_PCT
+      var_covariance_enabled: false
+      var_covariance_min_points: 20
+    env_var: [MAX_PORTFOLIO_VAR_PCT, VAR_COVARIANCE_ENABLED, VAR_COVARIANCE_MIN_POINTS]
     trips_circuit_breaker: false
     notes: "Gracefully skipped when fewer than 5 closed trades (insufficient history)."
 
@@ -302,7 +513,7 @@ defaults:
   max_position_pct:
     value: 13.0
     env_var: MAX_POSITION_PCT
-    description: "Max percentage of equity risked per position (fixed-fractional sizing)"
+    description: "Per-trade MARGIN cap as % of equity (check #2) while per_strategy_notional_cap_enabled is off, and for a strategy type with no *_max_position_pct of its own. Not the risk budget, which is StrategyTypeConfig.*_max_risk_pct"
 
   per_strategy_notional_cap_enabled:
     value: true
@@ -375,7 +586,7 @@ defaults:
       Guardian Prompt-Injection & Transaction Firewall: when on, inbound
       chat-action text (Telegram free text / web chat) is scanned for manipulation
       shapes before it can steer an agent that acts, and a FIREWALL verdict is
-      sealed to the tamper-evident chain. Default OFF; telemetry-first — it records
+      sealed to the tamper-evident chain. Default ON; telemetry-first — it records
       and can warn, but never blocks a message unless guardian_firewall_block_high
       is also enabled.
 
@@ -393,7 +604,7 @@ defaults:
     description: >
       Guardian Portfolio Digital Twin: when on, a stress-test verdict (projected
       drawdown + liquidations under parametric price shocks) is sealed to the
-      tamper-evident chain each time the twin runs. Default OFF; the twin is pure,
+      tamper-evident chain each time the twin runs. Default ON; the twin is pure,
       read-only foresight that still computes on demand (e.g. the admin /twin
       command) even when off — it never proposes, blocks, or alters a trade.
 
@@ -404,7 +615,7 @@ defaults:
       Guardian Systemic Risk Sentinel: when on, an intra-book crowding verdict
       (correlated concentration, directional bias, same-group clusters, shared
       liquidation zones) is sealed to the tamper-evident chain each time the
-      sentinel runs. Default OFF; the sentinel is pure, read-only telemetry that
+      sentinel runs. Default ON; the sentinel is pure, read-only telemetry that
       still computes on demand (e.g. the admin /sentinel command) even when off —
       it warns about structural crowding but never blocks or alters a trade.
 
@@ -415,7 +626,7 @@ defaults:
       Guardian Universal Escape Agent: when on, a safe, ordered emergency-exit
       PLAN (which position to close first and why, ranked by liquidation
       urgency × exposure) is sealed to the tamper-evident chain each time the
-      planner runs. Default OFF; the planner is pure, read-only and still computes
+      planner runs. Default ON; the planner is pure, read-only and still computes
       on demand (e.g. the admin /escape command) even when off. It PLANS only —
       it never closes anything; execution stays with the existing kill-switch
       stack (flatten_all_positions / close_all_positions / emergency_halt_all).
@@ -467,12 +678,12 @@ defaults:
   max_correlation:
     value: 0.85
     env_var: MAX_CORRELATION
-    description: "Reserved for future pairwise correlation matrix check (not currently enforced)"
+    description: "Rolling-return correlation threshold of CORRELATION_V2 (check #8): on the paper book a same-direction position correlated above this with an open one is rejected. Not evaluated on the live book"
 
   min_risk_reward:
     value: 1.2
     env_var: MIN_RISK_REWARD
-    description: "Minimum risk-reward ratio required for trade approval"
+    description: "A global reward:risk figure that status cards print and the intent-policy compiler treats as the engine's floor. The RISK_REWARD check (#6) does NOT read it: it reads the per-strategy StrategyTypeConfig.*_min_rr"
 
   min_confidence:
     value: 0.60
@@ -542,7 +753,7 @@ defaults:
   max_symbol_exposure_pct:
     value: 20.0
     env_var: MAX_SYMBOL_EXPOSURE_PCT
-    description: "Max per-symbol exposure as % of equity (also used as notional cap)"
+    description: "Max per-symbol exposure (committed margin, existing + new) as % of equity (check #15). Not the per-trade cap, which is check #2's"
 
   max_correlation_per_group:
     value: 2
@@ -607,12 +818,12 @@ defaults:
   mtf_alignment_gate_enabled:
     value: true
     env_var: MTF_ALIGNMENT_GATE_ENABLED
-    description: "Reject counter-trend entries using the analyzer's higher-timeframe trend (EMA20/50 across 1h/4h/1d, daily-weighted, carried on idea.htf_trend): LONG blocked when HTF bearish, SHORT when HTF bullish. Neutral/unknown = skip. Default ON (operator-activated after a positive A/B: PF 1.87->2.23 on corr_dense_1h; set 0 to disable)."
+    description: "Reject counter-trend entries using the analyzer's higher-timeframe trend (the daily timeframe's EMA20/EMA50 trend, 4h when there are no daily candles, carried on idea.htf_trend): LONG blocked when HTF bearish, SHORT when HTF bullish. Neutral/unknown = skip. Default ON (operator-activated after a positive A/B: PF 1.87->2.23 on corr_dense_1h; set 0 to disable)."
 
   volatility_guard_atr_pct:
     value: 7.0
     env_var: VOLATILITY_GUARD_ATR_PCT
-    description: "Max ATR as % of price; trades above this are rejected (meme coins capped at 4%)"
+    description: "Max ATR as % of price; trades above this are rejected (check #16). A MEME-group symbol gets max(this, 10%), a wider threshold"
 
   stale_data_max_age_seconds:
     value: 300
@@ -708,10 +919,10 @@ defaults:
     value: 2000.0
     env_var: MIN_BOOK_DEPTH_USD
     description: >
-      Minimum order-book depth (per side) in USD for the liquidity guard.
-      Scaled dynamically: effective threshold = max(position_size * 10, this value).
-      Large-cap pairs (BTC/ETH/SOL) always enforce a $50K floor regardless.
-      Lowered from $50K default so small-cap and micro-test trades can pass.
+      DEAD KNOB, kept for env compatibility: nothing reads this field, and
+      setting MIN_BOOK_DEPTH_USD changes nothing. The liquidity guard (check
+      #17) reads OrderFlowConfig.min_top_depth_usd (OF_MIN_DEPTH_USD) and
+      OrderFlowConfig.large_cap_depth_floor_usd (OF_LARGE_CAP_DEPTH_FLOOR_USD).
 
   kelly_sizing_enabled:
     value: true

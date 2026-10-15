@@ -77,7 +77,12 @@ SURFACES = [
     # pasted somewhere the ratchet cannot see.
     "docs/SOCIAL_CAMPAIGN.md",
     "docs/x-thread-v5.md",
-]
+] + sorted(
+    # Added 2026-10-15, every page of it. The docs folder became the website's
+    # /docs that day, and four of its pages still said 18 or 20 (one in a file
+    # name, which is a URL and is kept). Listed by folder, not by page, so a
+    # page added tomorrow is covered without anybody remembering to add it.
+    str(p.relative_to(ROOT)) for p in (ROOT / "docs" / "gitbook").glob("*.md"))
 
 #: "23-check", "23 checks", "36 fail-closed gates", "runs 23 risk checks" …
 #: The lookbehind keeps two non-counts from reading as counts.
@@ -94,10 +99,49 @@ SURFACES = [
 #: space, so `20gate` matched a URL that contains no number at all. Found by
 #: writing the badge that replaced the old one, which is the ordinary way this
 #: kind of match is found: the guard fired on the fix.
+#:
+#: `#` and `,` — a SECTION ANCHOR and a THOUSANDS GROUP are not totals. The
+#: token roadmap links `TOKEN_ROADMAP.md#14-verification-status`, and
+#: `14-verifica` read as fourteen checks in Italian; `1,500,000` ends in a
+#: three-digit group. The foreign nouns end at a word boundary for the same
+#: reason: English "verification" begins with Italian "verifica".
+#:
+#: UP TO TWO WORDS between the number and the noun. The docs said "all 20
+#: pre-trade checks", "20 independent pre-trade checks" and "19 are
+#: fail-closed", and the pattern, which wanted the noun straight after the
+#: number, passed all three when the docs folder joined the list on
+#: 2026-10-15. The words are letters only, so "0.85 gate" and a number two
+#: numbers away still do not read as a count.
 _COUNTED_GATE = re.compile(
-    r"(?<![.\d%])\b\d{1,3}[\s‑-]*(?:check|checks|-check|risk check|fail-closed|gates?|"
-    r"Pr[üu]fungen|controlli|comprobaciones|verifica|v[ée]rifications|controles|"
+    r"(?<![.,\d%#])\b\d{1,3}(?:[\s‑-]+[^\W\d_][\w-]*){0,2}[\s‑-]*"
+    r"(?:checks?\b|-check|risk check|fail-closed|gates?\b|"
+    r"(?:Pr[üu]fungen|controlli|comprobaciones|verifica|v[ée]rifications|controles)\b|"
     r"項|项|ग्र)", re.IGNORECASE)
+
+
+#: Both arms of the pattern, each a phrase a surface really carried. The scan
+#: below passes on a clean tree whether the pattern is right or not, so the
+#: pattern is held here.
+_COUNTS_IT_MUST_READ = [
+    "runs 23 risk checks", "a 23-check gate", "36 fail-closed gates",
+    "all 20 pre-trade checks", "20 independent pre-trade checks",
+    "19 are fail-closed", "23 Prüfungen", "21项",
+]
+_NUMBERS_THAT_ARE_NOT_COUNTS = [
+    "auto-confirm (0.85 gate)", "badge/risk%20gate-fail--closed-red",
+    "TOKEN_ROADMAP.md#14-verification-status", "1,500,000 volume checks",
+    "SHA-256 length verification", "5 consecutive losses trip the breaker",
+]
+
+
+@pytest.mark.parametrize("text", _COUNTS_IT_MUST_READ)
+def test_the_pattern_reads_a_stated_count(text):
+    assert _COUNTED_GATE.search(text), text
+
+
+@pytest.mark.parametrize("text", _NUMBERS_THAT_ARE_NOT_COUNTS)
+def test_the_pattern_leaves_a_number_that_is_not_a_count(text):
+    assert not _COUNTED_GATE.search(text), _COUNTED_GATE.search(text).group(0)
 
 
 def _strip_comments(rel: str, text: str, code_only) -> str:
@@ -168,6 +212,7 @@ _MUST_STILL_PROMISE = [
     ("agent_card.json", "fail-closed pre-trade risk gate"),
     ("dashboard_static/index.html", "fail-closed risk gate"),
     ("README.md", "Fail-closed risk gate"),
+    ("docs/gitbook/README.md", "fail-closed risk gate"),
 ]
 
 

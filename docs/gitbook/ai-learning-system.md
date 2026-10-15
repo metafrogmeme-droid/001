@@ -1,153 +1,166 @@
-# AI Learning System — The 8 Sandboxed Modules
+# AI Learning System
 
-RUNECLAW includes a **self-improving AI learning system** with 8 integrated modules, all governed by an immutable safety policy. The system can observe, reflect, and propose improvements -- but it can **never override the risk engine**.
+RUNECLAW's learning code (`bot/learning/`) records what the bot decided and what happened, and
+turns part of that record into observations and improvement proposals. The **8 modules** on this
+page are advisory: none of them changes a trade, and none can override the risk engine.
 
-This is what turns RUNECLAW from a static rule+LLM trader into a true self-improving agent -- while staying 100% sandboxed.
+Three other learners in `bot/learning` do act on the decision path, before the risk gate reads an
+idea: **setup expectancy** (`SETUP_EXPECTANCY_ENABLED`, on by default) nudges an idea's
+confidence by at most ±0.05 from the bot's own record on similar setups, and **confidence
+calibration** and **voter-weight learning** (both off by default) can reshape it. All three are
+refit automatically every 25 closed trades (`LEARNING_AUTO_REFIT_ENABLED`, on by default;
+`bot/learning/auto_refit.py`). They change an idea's confidence, never the gate: the idea still
+has to pass every risk check.
 
-**Try it live:** Send `/learn` to [@HTRUNECLAW_bot](https://t.me/HTRUNECLAW_bot)
+**Try it:** send `/learn` to [@HTRUNECLAW_bot](https://t.me/HTRUNECLAW_bot).
 
 ---
 
-## The 8 Modules (In Detail)
+## The 8 modules
 
 ### 1. Experience Memory
 
-Every single trade decision (scan -> analyze -> risk -> confirm -> execute) is logged with full market context: price action, indicator values, regime, volume profile, LLM thesis, risk scores, human confirmation, and final outcome.
+Decisions are written to the learning store: every idea the risk gate rejects, every confirmed
+live order (placed, failed or unverified), and paper fills when `LEARN_CALIBRATION_FROM_PAPER` is
+on (default off). Each closed trade adds an outcome row (paper closes too, while
+`LEARN_FROM_PAPER_CLOSES` is on, the default). This is the record the other learners read, for
+example setup expectancy's "how have longs on this symbol in this regime done before?".
 
-This creates a permanent, queryable memory bank so the agent can recall: *"What happened last time we saw this exact confluence on SOL in a TREND_UP regime?"*
+**Implementation:** `bot/learning/experience.py` -- `ExperienceMemory`, stored as append-only
+JSONL (`decision_memory.jsonl`). A decision row holds:
+- Symbol, direction, confidence and its basis
+- Confluence score and each confluence voter's vote
+- Entry, stop, target, R:R and size
+- The risk verdict, with the checks passed and failed and the rejection reason
+- The decision and the mode (paper or live)
 
-**Implementation:** `bot/learning/experience.py` -- `ExperienceMemory` class. Append-only JSONL format ensures immutability. Each record includes:
-- Entry conditions (price, ATR, volume)
-- All 10 confluence voters' values
-- Regime classification (TREND_UP / RANGE / VOLATILE / etc.)
-- Risk engine verdict + which checks passed/failed
-- Human confirmation (approved/rejected)
-- Final PnL outcome (if trade was taken)
+An outcome row holds the symbol, direction, market regime and realized P&L of a closed trade.
 
 ---
 
 ### 2. Reflection Engine
 
-After every closed trade (or end-of-day), the agent runs a post-trade analysis and generates structured lessons + improvement proposals.
+When the risk gate rejects an idea, the engine records a reflection on that rejection: what was
+expected, what happened, and that the rejection should be checked against the later price.
 
-It asks itself: *"Why did this win/lose? What rule or prompt change would have improved the R:R? Was the signal valid? Was sizing correct? What would have been different with tighter stops?"*
+A post-trade reflection is built too (`LearningOrchestrator.review_trade`: was the signal valid,
+was the sizing right, did the stop and target behave), and it would generate an improvement
+proposal from each lesson. Nothing calls it yet. Reflections may recommend, never auto-apply.
 
-Reflections feed into strategy scoring but **may recommend, never auto-apply**.
-
-**Implementation:** `bot/learning/reflection.py` -- `ReflectionEngine` class. Produces `ReflectionMemory` objects with:
-- Signal quality assessment (was the entry actually good?)
-- Sizing analysis (was risk/reward correctly calibrated?)
-- Counterfactual analysis (what if stops were tighter/wider?)
-- Recommended improvement (proposal fed to safety pipeline)
+**Implementation:** `bot/learning/reflection.py` -- `ReflectionEngine`, producing
+`ReflectionMemory` records with:
+- What was expected and what happened
+- Whether the signal, the risk decision, the sizing and the stop/target behaved (unknown until
+  measured)
+- The lesson and a recommended improvement
 
 ---
 
 ### 3. Strategy Evaluator
 
-Risk-adjusted scoring with **S/A/B/C/D tier** rankings. A strategy is **never promoted based on profit alone**.
-
-S-tier strategies get prioritized in future scans; D-tier ones get de-emphasized or retired.
+Risk-adjusted scoring with **S/A/B/C/D tiers**. A strategy is **never promoted on profit
+alone**: the tier comes from a safety score first.
 
 **Scoring dimensions:**
-- Safety score (weighted highest)
-- Sharpe ratio
+- Safety score (from drawdown, profit factor, false-positive rate and sample size)
+- Sharpe-like ratio
 - Maximum drawdown
 - Win rate
-- False positive rate
-- Overfitting detection (flags strategies with < 10 trades)
+- False-positive rate
+- Overfitting flag (fewer than 30 trades with a win rate above 80%), which holds the strategy at
+  tier C
 
-**Implementation:** `bot/learning/strategy_eval.py` -- `StrategyEvaluator` class. Produces scorecards with composite grades.
+Tiers are shown on `/learn` for a person to review; the scanner does not read them. The scoring
+(`LearningOrchestrator.score_strategy`) has no caller yet, so no scorecard is produced in
+operation.
+
+**Implementation:** `bot/learning/strategy_eval.py` -- `StrategyEvaluator`.
 
 ---
 
 ### 4. Pattern Learner
 
-Groups the closes in the learning store by the condition each row recorded: the market regime (TREND_UP, RANGE, VOLATILE, etc.), a macro state other than NORMAL, or low volatility. A group is what happened under that condition, not a pattern that predicts it, and nothing reads it to make a decision: it is printed by the operator's `/patterns` card and nowhere else.
+Groups the closes in the learning store by the condition each row recorded: the market regime
+(TREND_UP, RANGE, CHOP, …), a macro state other than NORMAL, or low volatility. A group is
+what happened under that condition, not a pattern that predicts it, and nothing reads it to make
+a decision: it is printed by the operator's `/patterns` card and nowhere else.
 
-Observations only. **Patterns may NEVER override the risk engine** (enforced via Pydantic validator on `may_override_risk` field -- hardcoded `False`).
+Observations only. **Patterns may NEVER override the risk engine** (enforced by a Pydantic
+validator on the `may_override_risk` field, which must always be `False`).
 
-**Implementation:** `bot/learning/patterns.py` -- `PatternLearner.outcome_groups`. Records `PatternRecord` objects with:
+**Implementation:** `bot/learning/patterns.py` -- `PatternLearner.outcome_groups`. Records
+`PatternRecord` objects with:
 - The dimension the group is cut on and the group's value on it
 - Wins, losses and flat closes, and the win rate over scored closes
 - The 95% Wilson interval on that win rate
 - `is_experimental` flag for groups with fewer than 20 scored closes
 
-It used to name a winning trend group "trend continuation" and a losing range group "breakout failure", with a "confidence" that was the win rate capped at 0.85. Neither name was checked against the trades, and no confidence is computed now. No return figure is either: the store's outcome rows carry P&L in dollars with no stop or size, from every account's closes.
+No confidence and no return figure is computed for a group: the store's outcome rows carry P&L
+in dollars with no stop or size, from every account's closes.
 
 ---
 
 ### 5. Macro Learner
 
-Tracks how crypto (especially Solana ecosystem tokens) reacts to major macro events: **FOMC, CPI, NFP, PCE**, ETF flows, etc.
+Stores how BTC reacted to a macro event (FOMC, CPI, NFP, PCE and others) 5 minutes, 30 minutes,
+4 hours and 24 hours after it, with the event's forecast, actual and surprise, and averages those
+reactions per event type. **Context only -- it never creates a trade signal.** Nothing feeds it
+events yet (`MacroLearner.record_event` has no caller).
 
-Maintains a calendar-aware knowledge base so the agent can say: *"Last 3 NFP prints caused +4.2% average SOL move in the first 2 hours -- adjust volatility guard accordingly."*
-
-Records 5-minute to 24-hour price reactions. **Context only -- never creates trade signals.**
-
-**Implementation:** `bot/learning/macro_learner.py` -- `MacroLearner` class. Tracks:
-- Event type and date
-- Pre-event price levels (1h, 4h before)
-- Post-event price reactions (5min, 1h, 4h, 24h)
-- Volatility impact (ATR change)
-- Historical average reactions per event type
+**Implementation:** `bot/learning/macro_learner.py` -- `MacroLearner`, storing
+`MacroEventMemory` records.
 
 ---
 
 ### 6. Model Comparer
 
-Runs side-by-side accuracy tracking between the rule-based indicators and the LLM thesis.
+Built to compare the rule engine's direction and confidence with an LLM's on each trade, and to
+track agreement and accuracy over time. Nothing records a comparison yet
+(`ModelComparer.record_comparison` has no caller), and the token optimizer does not read it. A
+comparison row can mark a strong disagreement as `NO_TRADE_UNCERTAIN`; that is a label on the
+row, not a trading action.
 
-Over time it learns: *"GPT-4o-mini is better on macro context but worse on micro candlestick patterns than our custom Bollinger+ATR rules."* This data drives the tiered LLM routing in the token optimizer.
-
-When models **strongly disagree**: `NO_TRADE_UNCERTAIN`. Safety over profit.
-
-**Implementation:** `bot/learning/model_compare.py` -- `ModelComparer` class. Tracks:
-- Rule-based direction vs LLM direction per trade
-- Agreement rate over time
-- Accuracy per regime type
-- Average token cost per model tier
+**Implementation:** `bot/learning/model_compare.py` -- `ModelComparer`.
 
 ---
 
 ### 7. Prompt Optimizer
 
-Version-tracks every system/user prompt and scores their real-world performance.
+Built to version prompts, score each version's use (JSON validity, reasoning clarity, false
+signals, cost, latency) and refuse unsafe wording. No prompt version is registered yet
+(`register_version` and `record_usage` have no caller).
 
-Automatically evolves prompts: *"This version of the risk thesis prompt improved average confidence calibration by 11% -- promote to default."*
+**Refuses to register a prompt that:**
+- Contains unsafe wording ("guaranteed profit", "risk-free", "ignore risk", "bypass
+  confirmation", "auto-execute" and others)
+- Has no fail-closed language ("fail-closed", "reject" or "block")
 
-**Blocked from:**
-- Weakening fail-closed wording
-- Removing safety disclaimers
-- Creating profit guarantees
-
-**Implementation:** `bot/learning/prompt_opt.py` -- `PromptOptimizer` class. Maintains version history with:
-- Prompt text + version number
-- Performance metrics (confidence calibration, accuracy)
-- A/B test results between versions
-- Safety keyword enforcement (blocked keywords list)
+**Implementation:** `bot/learning/prompt_opt.py` -- `PromptOptimizer`. A version stores a
+SHA-256 prefix of the prompt text (not the text), its usage scores and two safety flags.
 
 ---
 
 ### 8. Feedback Collector
 
-Actively integrates human feedback from Telegram: your confirm/reject decisions, `/learn` commands, or manual notes via `/feedback`.
+Stores a person's feedback on a decision, under one of 12 types: `correct`, `incorrect`,
+`too_risky`, `too_conservative`, `unclear_explanation`, `missing_macro_context`,
+`missing_risk_reason`, `bad_symbol_choice`, `good_rejection`, `good_explanation`,
+`needs_more_evidence`, `needs_doc_update`.
 
-Closes the human-in-the-loop so the agent learns your personal trading style and risk tolerance over time.
+No Telegram command or web route submits feedback yet, confirm and reject taps are not written to
+it, and the only reader is the summary on `/learn`. It cannot bypass the risk gate.
 
-**12 feedback types:**
-`correct`, `incorrect`, `too_risky`, `too_conservative`, `good_rejection`, `bad_rejection`, `good_explanation`, `bad_explanation`, `timing_early`, `timing_late`, `size_too_large`, `size_too_small`
-
-Cannot bypass risk gates.
-
-**Implementation:** `bot/learning/feedback.py` -- `FeedbackCollector` class.
+**Implementation:** `bot/learning/feedback.py` -- `FeedbackCollector`.
 
 ---
 
-## The Safety Sandbox (Why It's Elite)
+## The safety policy
 
-Every single proposal from any of the 8 modules must pass a strict safety policy before it can influence future decisions:
+Every improvement proposal is classified by the safety policy (`bot/learning/safety_policy.py`)
+when it is created. Nothing in the running bot creates one yet: proposals come from the
+post-trade reflection and the prompt optimizer, and neither is called.
 
-### Allowed vs Blocked
+### Allowed vs blocked
 
 | Allowed | Blocked |
 |---------|---------|
@@ -160,12 +173,13 @@ Every single proposal from any of the 8 modules must pass a strict safety policy
 
 > **Approved is not applied.** Nothing in `bot/learning` writes a file or edits
 > code. The system produces proposals, classifies them, and marks the safe ones
-> as needing no human review — a human still has to act on every one. This row
-> read "Auto-apply docs & tests" until the code was checked against it.
+> as needing no human review — a human still has to act on every one.
 
-### Proposal Classification
+### Proposal classification
 
-Every proposal is classified before action:
+Classification is by keyword: a proposal whose text mentions leverage, bypassing, removing a stop
+or a limit, live trading and the like is blocked; wording that weakens safety is blocked as a
+compliance risk.
 
 | Classification | Action |
 |----------------|--------|
@@ -175,102 +189,98 @@ Every proposal is classified before action:
 | `BLOCKED_RISK_INCREASE` | Automatically rejected |
 | `BLOCKED_COMPLIANCE_RISK` | Automatically rejected |
 
-### The Hard Safety Invariant
+### The hard safety invariant
 
-The `may_override_risk` field is enforced `False` via **Pydantic validator**. Any attempt to set it to `True` raises a validation error at the schema level. This cannot be bypassed at runtime -- it's enforced at the data model layer.
+The `may_override_risk` field on `PatternRecord` is held to `False` by a **Pydantic validator**.
+Setting it to anything else raises a validation error, at construction and on later assignment
+(`validate_assignment=True`):
 
 ```python
+model_config = ConfigDict(validate_assignment=True)
+
 @field_validator("may_override_risk")
 @classmethod
-def must_not_override_risk(cls, v):
-    if v is True:
-        raise ValueError("Learning system CANNOT override risk engine")
+def must_be_false(cls, v):
+    """Safety invariant: patterns may NEVER override the risk engine."""
+    if v is not False:
+        raise ValueError("may_override_risk must ALWAYS be False")
     return False
 ```
 
 ---
 
-## Learning Workflow (10 Steps)
+## Learning workflow
+
+What runs today, and what is built but not yet called:
 
 ```text
- 1. OBSERVE    Collect market/macro/strategy signals
- 2. DECIDE     Run strategy + risk engine
- 3. LOG        Write to experience memory (append-only)
- 4. SIMULATE   Paper trade only (default)
- 5. REVIEW     Generate reflection after result
- 6. SCORE      Update strategy scorecard (S/A/B/C/D)
- 7. LEARN      Create lessons + pattern detection
- 8. VALIDATE   Check if proposal improves safety
- 9. APPROVE    Auto-approve docs/tests; human review for logic
-10. VERSION    Save with changelog and rollback plan
+ 1. DECIDE     Rule engine decides; the pre-trade risk gate rules       (runs)
+ 2. LOG        Write the decision to experience memory (append-only)    (runs)
+ 3. REFLECT    Record a reflection on each rejection                    (runs)
+ 4. OUTCOME    Record each closed trade's outcome                       (runs)
+ 5. REFIT      Refit expectancy, calibration, voter weights every 25    (runs)
+ 6. GROUP      Group closes by condition for /patterns                  (on request)
+ 7. REVIEW     Post-trade reflection after each close                   (built, not called)
+ 8. SCORE      Strategy scorecard S/A/B/C/D                             (built, not called)
+ 9. PROPOSE    Proposals from lessons and prompt scores                 (built, not called)
+10. CLASSIFY   Safety policy: approve docs/tests, queue the rest, block (built, not called)
 ```
 
-The workflow ends at step 9. Nothing applies a proposal — no file is written
-and no code is edited anywhere in `bot/learning`, so step 10 records a decision
-rather than a change. An approved proposal is one a human may act on without
+The workflow ends at classification. Nothing applies a proposal — no file is written and no code
+is edited anywhere in `bot/learning`. An approved proposal is one a human may act on without
 further review, not one that has been acted on.
 
 ---
 
-## Telegram Commands
+## Telegram commands
 
-| Command | Description |
-|---------|-------------|
-| `/learn` | Full learning dashboard: module health, learning score, strategy tiers, proposals |
-| `/patterns` | The learning store's closes by regime, with win rates and their intervals (operator only) |
-| `/proposals` | Pending strategy improvement proposals |
-| `/feedback <id> <type> [text]` | Submit human feedback on a decision |
+| Command | Who can run it | Description |
+|---------|----------------|-------------|
+| `/learn` | viewer, paper, trader, admin | Learning dashboard: module health, learning score, record and feedback counts, proposal counts, and strategy tiers when any exist. Needs the Elite tier when the tier ladder is enforced (off by default) |
+| `/patterns` | operator (admin) | The learning store's closes by regime, with win rates and their intervals |
+| `/proposals` | paper, trader, admin | The latest improvement proposals and their classification |
 
 ---
 
 ## Architecture
 
 ```text
-Trade Decision
+Trade decision (rule engine + risk gate)
      |
      v
-Experience Memory (log)        ← Module 1
+Experience Memory (log)               ← Module 1   (runs)
+     |
+     +--> Reflection on rejections    ← Module 2   (runs)
+     |
+     +--> Closed-trade outcomes ----> Setup expectancy / calibration / voter weights
+     |                                (confidence only, before the risk gate)
+     |
+     +--> Pattern Learner (/patterns) ← Module 4
      |
      v
-Reflection Engine (analyze)    ← Module 2
+Strategy Evaluator, Macro Learner, Model Comparer,
+Prompt Optimizer, Feedback Collector  ← Modules 3, 5-8 (built; not fed yet)
      |
      v
-Strategy Evaluator (score)     ← Module 3
+Proposal generation
      |
      v
-Pattern Learner (detect)       ← Module 4
+Safety policy filter  ◄── BLOCKED if risk-increasing
      |
      v
-Macro Learner (context)        ← Module 5
+Human review (if required)
      |
      v
-Model Comparer (accuracy)      ← Module 6
-     |
-     v
-Prompt Optimizer (evolve)      ← Module 7
-     |
-     v
-Feedback Collector (human)     ← Module 8
-     |
-     v
-Proposal Generation
-     |
-     v
-Safety Policy Filter  ◄── BLOCKED if risk-increasing
-     |
-     v
-Human Review (if required)
-     |
-     v
-Apply (docs/tests only, never trading logic)
+Approved (a human applies it)
 ```
 
-The learning system is **completely sandboxed** from the trading pipeline. It cannot modify risk parameters, enable live trading, or change execution logic. The orchestrator (`bot/learning/orchestrator.py`) coordinates all 8 modules and enforces the safety policy at every step.
+The eight modules cannot modify risk parameters, enable live trading or change execution logic.
+The orchestrator (`bot/learning/orchestrator.py`) coordinates them.
 
 ---
 
-## Why This Matters for Judges
+## Why it is built this way
 
-Most hackathon agents are static -- they do the same thing on day 1 and day 100.
-
-RUNECLAW is the only live, public, self-improving agent that is still 100% risk-first and cost-transparent. It learns aggressively inside the sandbox, never outside it. This demonstrates real agentic behavior without the "rogue AI" risks that make autonomous trading dangerous.
+A learning loop that can change trades is a risk of its own. So the eight modules stay
+advisory, the learners that do touch an idea can only shade its confidence before the risk gate
+reads it, and every proposal goes through the safety policy and a person.
