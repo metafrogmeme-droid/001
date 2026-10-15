@@ -237,7 +237,7 @@ and malformed input. Red-team testing framework included -- CI runs all 30 adver
 
 ### Pre-Trade Critique (heuristic concerns)
 Rule-based concerns asked on every confirmed trade before execution (`bot/core/critique.py`):
-- 5 heuristic checks: a confidence score above 90, R:R under 1.5, 4+ open positions on the book, a macro REDUCE state, a stop under 1% from entry
+- Heuristic checks: a confidence score above 90, R:R under 1.5, 4+ open positions on the book, a macro REDUCE state, a stop under 1% from entry
 - **HALT** verdict at 4+ concerns blocks execution, a trade a person confirmed included; none of the rules has been backtested, and `scripts/critique_replay.py` measures what the halt would remove on a frozen benchmark
 - **WARN** verdict logs concerns but allows trade to proceed
 - A critique error proceeds with a warning in paper and refuses the trade in live
@@ -972,7 +972,7 @@ python run_realdata_backtest.py --llm --output results.json
 
 | Capability | RUNECLAW | Typical Hackathon Bot |
 |------------|:--------:|:---------------------:|
-| Pre-trade risk gate | **Fail-closed, manifest-driven** | 0-3 basic checks |
+| Pre-trade risk gate | **Fail-closed, manifest-driven** | A few basic checks, if any |
 | Fail-closed design | **Yes** -- any failure = rejection | Fail-open (errors skip checks) |
 | Circuit breaker | **Auto-halt** on daily loss / drawdown | None or manual only |
 | Human confirmation | **Required** via Telegram keyboard, unless the operator enables auto-confirm | Auto-execute or no gate |

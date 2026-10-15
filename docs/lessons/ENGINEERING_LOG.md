@@ -19948,6 +19948,41 @@ host on every public surface it reads (the docs, the READMEs, the pages and the 
 page's list to `SUMMARY.md` in order, and holds its disclaimer to the README's word for word. When a
 surface becomes public, ask which rules the public surfaces already keep before calling it done.
 
+**EVERY DOCS PAGE WAS READ AGAINST THE CODE, AND NONE OF THE NINETEEN SURVIVED WHOLE.** 15 October
+2026, the operator's follow-up: "go through the other docs pages too". Each page was audited by
+asking the code for every number, command, role, setting and quoted string it named, then
+rewritten, then reviewed again by a reader who had not written it. The pages had been written
+for the hackathon and read since only for links. What they said, against what the code does:
+- **Safety claims.** "Fail-closed" Telegram access through a `TELEGRAM_ALLOW_OPEN` flag nothing
+  reads (an empty allow-list leaves the bot open, and `PAPER_AUTO_ACCEPT` admits anyone as a
+  paper user); a human-confirmation claim with no qualifier on eight pages, read the way
+  `test_human_confirmation_claim_is_qualified.py` reads one; a breaker that "can only be reset
+  manually" (a daily-loss trip clears at the UTC rollover by default); `MAX_POSITION_PCT` called
+  a 1% or 2% risk budget (it is a 13% margin cap, and per-strategy caps apply while
+  `PER_STRATEGY_NOTIONAL_CAP_ENABLED` is on); a meme-coin volatility limit called tighter (it is
+  wider).
+- **Risk-check counts.** Four totals (18, 20, "Twenty", 21) across five pages, one of them in a
+  file name. `test_no_hardcoded_risk_check_count.py` had banned the count on the README and the
+  site a year earlier and recorded "18 and 20 across the GitBook docs" in its own docstring;
+  the folder was never on its list.
+- **Doors.** `/trade` described as a list of pending ideas (it places a manual trade), a
+  `/feedback` command that is not registered, Confirm and Reject buttons the cards no longer
+  draw, a "SIM" banner no code builds, `/mode solana` offered to everyone (operator only).
+- **The decision flow.** Every page said the LLM writes the thesis; since 11 October the rule
+  engine decides and the LLM's read rides along (`LLM_DECIDES`, off by default).
+
+The pass found code defects too. The macro gate's is fixed with it (its chapter is "THE SEED
+WAS FOUND, LOADED AND TRUSTED…"); the rest are listed in the PR. The risk manifest, which the pages cite as the authority, carried four of the same
+stale figures; its per-check thresholds are now held to the code by
+`TestPerCheckThresholds` in `tests/test_manifest_and_whynot.py`.
+
+Two guards were narrower than their rules. The count ban listed files, so it now lists the docs
+folder by glob, and its pattern wanted the noun straight after the number, so "all 20
+pre-trade checks" and "19 are fail-closed" passed it; it now allows two words between, and a
+test holds both arms of the pattern. The human-confirmation rule listed the docs front page
+alone; it now lists every docs page that makes the claim. **A page that describes the product
+is a surface, and a rule held per file covers only the files somebody listed.**
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -21692,7 +21727,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **492 of 1321** reach for source text through `source_scan`, `code_only`
+Driven, **492 of 1322** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 492 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -24697,6 +24732,52 @@ construction, which is; the committed example policy, named by a relative
 override, loads from outside the repo root; the helpers; every repo input
 absolute and under the repo; the guard's new findings and non-findings. Eight
 mutants, all killed.)
+
+**THE SEED WAS FOUND, LOADED AND TRUSTED, AND EVERY EVENT IN IT READ AS THE LEAST SEVERE KIND.**
+15 October 2026, found by the docs pass, which asked the code what the macro
+gate's windows are before printing them. `MacroEventProvider` classifies an
+event by `event_type`, in its own spelling (`CPI`, `NFP`). The seed it is built
+on names the field `type` and spells the kinds `CPI_RELEASE` and `NFP_RELEASE`.
+Every event fell through `_SEVERITY_MAP.get(..., LOW)`, and LOW's blackout is
+the scheduled instant alone. Driven on the shipped seed, the FOMC decision of
+28 October read CLEAR at full size twenty minutes before and ten minutes after,
+and blocked only at 18:00:00. The window table in `macro_events.py`, the risk
+manifest and the docs all described windows the gate did not keep. Nothing was
+blind or stale, so none of the fail-closed paths fired: the calendar loaded
+and its events were counted.
+
+The seed has its own `severity` field, and it was right (FOMC CRITICAL, CPI and
+NFP HIGH). It was never read. That is the shape this log keeps finding: two
+readings of one quantity, one of them consulted. `_normalise_events` now maps
+the seed's field and spelling onto the provider's once, so the gate and every
+card that prints a kind read the same word, and a test holds the provider's
+classification to the seed's declared severity for every event in it.
+
+Fixing it widened the hours in which a test that builds the real engine reads
+a window: about a hundred hours a year instead of a few minutes. `tests/conftest.py`
+now reads the shipped calendar, asked with no time, at a fixed quiet instant.
+A test about the windows passes `now=`, and a test that writes its own calendar
+against the real clock keeps the real clock.
+
+**THE FIRST VERSION OF THAT FIXTURE LEAKED, AND THE FLAKE FILTER FORGAVE IT 89
+TIMES.** It requested `monkeypatch`. An autouse fixture that does so sets
+`monkeypatch` up before every other fixture of every test, so its undo runs
+last. `live_multi_user` patches `type(CONFIG).is_live` by hand and restores it
+in its own teardown, and a test using it also monkeypatched `is_live`: the
+fixture restored first, then `monkeypatch` undid the test's patch by writing
+back what it had found, the fixture's lambda. Every later test read `is_live`
+as True. The full preflight reported 89 failures and passed, because each one
+passed when re-run alone; CI on the commit before had none. Found by reading the
+gate's failing count rather than its verdict, and by pairing each earlier file
+that patches `is_live` with the first failure. The fixture now patches and
+restores by hand, like the containment fixtures above it. **An autouse fixture
+changes the teardown order of every test; one that uses `monkeypatch` changes
+it for every test that patches the same thing two ways.**
+(`tests/test_the_macro_gate_reads_the_shipped_calendar.py`: every seed event
+classified as the seed declares it; an isolated FOMC, CPI and NFP each read on
+both sides of every window edge; the harness's instant reads CLEAR. Three
+mutants, all killed: the `type` fallback removed, and each alias removed, which
+leaves FOMC right and CPI or NFP wrong.)
 
 **A HEX DIGEST CONTAINED "127", AND THE TEST READ THAT AS THE ADDRESS CROSSING.**
 On 2026-10-13 the web app's CI failed on `public chat works with NO auth and

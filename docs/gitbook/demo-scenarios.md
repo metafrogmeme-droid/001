@@ -1,239 +1,288 @@
 # Demo Scenarios
 
-This page provides step-by-step demo scenarios for evaluating RUNECLAW. Each scenario can be executed in under 3 minutes using the Telegram bot or CLI.
+This page walks through what RUNECLAW does, one scenario at a time, on the Telegram bot ([@HTRUNECLAW_bot](https://t.me/HTRUNECLAW_bot)) or on a copy you run yourself. Some scenarios need the market to cooperate: a circuit-breaker trip needs real losses, and a macro block needs a scheduled event inside its window.
+
+If the operator has switched on the tier ladder (`TIER_GATE_ENABLED`, off by default), `/analyze` needs the Pro tier and `/backtest` the Elite tier. `/tier` shows yours.
+
+## Before You Start: What Take It Does
+
+An idea card from `/analyze` carries three buttons: **Take it**, **Limit** and **Skip**. What Take it does depends on the account and on the bot:
+
+- **A new account** is admitted with the `paper` role on its first command (while `PAPER_AUTO_ACCEPT` is on, the default). Its Take it opens a position on its own practice book, and nothing is sent to an exchange. The reply reads `📝 [PAPER] Simulated …` and ends `practice mode — no real order placed`. See [Paper Trading](paper-trading.md).
+- **An account an admin has vouched for** (`/approve`, as a trader) is not on the practice book. On the live bot, its Take it places a **real order** on its own linked exchange account when the deployment has per-user live trading on (`PER_USER_LIVE_ENABLED`) and its keys are linked (`/connect`). Otherwise it is refused and nothing is placed. The operator's Take it places a real order on the operator's account.
+- **On a bot that is not in live mode**, a vouched account's Take it is refused: `⛔ Paper trading is disabled on this bot. This bot is LIVE-ONLY.` The exception is an account that has opted into practice with `/paper on`, which needs `PAPER_SIM_OPT_IN_ENABLED` (off by default).
 
 ---
 
 ## Scenario 1: Market Scan and Analysis
 
-**Goal:** Show the full pipeline from market scan to trade idea generation.
+**Goal:** Show the pipeline from market scan to trade idea.
 
 ### Steps
 
 ```text
 1. /scan
- → Bot returns top 5 movers with volume spikes and regime labels
+ → "Scanning the market…", then a MARKET SCAN card: up to 18 movers
+   with price, 24h change, a 1h sparkline and RSI, plus a breadth
+   summary (a text list if the card cannot be drawn)
 
 2. /analyze BTC
- → Bot runs full analysis pipeline:
- - Fetches 100 hourly candles
- - Computes 10+ technical indicators
- - Detects market regime (TREND/RANGE/CHOP)
- - Generates LLM thesis (or rule-based fallback)
- - Produces TradeIdea with entry, SL, TP, confidence
+ → The analysis pipeline:
+ - reads 1h candles plus higher-timeframe context
+ - computes the indicators (RSI, MACD, Bollinger Bands, ATR, ADX,
+   VWAP, OBV, Fibonacci levels, candlestick patterns)
+ - classifies the regime (TREND_UP / TREND_DOWN / EXPANSION / RANGE / CHOP)
+ - the rule engine decides direction and confidence; a configured
+   LLM's read rides along, marked as not used to decide
+   (LLM_DECIDES is off by default)
+ - the pre-trade risk gate checks the idea
+ → An idea card: the TP / IN / SL ladder, confidence, risk:reward and
+   the idea ID, with [Take it] [Limit] [Skip]
+ → Or, when there is no idea: price, 24h change and volume, and the
+   reason when one was recorded (the analyzer's own, or "Refused by
+   the risk gate" followed by the checks that failed)
 
-3. Trade idea appears with [✅ Confirm] [❌ Reject] buttons
- → Tap Confirm to execute paper trade
- → Tap Reject to discard
+3. Take it → see "Before You Start" above. On a practice account:
+   ✅ Trade executed! / 📝 [PAPER] Simulated LONG BTC/USDT …
+   Limit   → type your own entry price for the idea
+   Skip    → ❌ Got it, trade skipped.
 
 4. /portfolio
- → Shows updated balance, equity, open positions, PnL
+ → On a bot that is not in live mode: equity, available cash, win rate
+   and PnL of your practice book. In live mode: the live account you
+   may view.
 ```
 
-### What judges should observe
+### What to look for
 
-- Volume spike detection with 2x rolling average threshold
-- Regime classification (ADX-14) adapting strategy parameters
-- Structured trade idea with explicit entry/exit levels
-- Inline keyboard requiring human confirmation
-- Portfolio state updating after execution
+- Volume spikes measured against each symbol's own recent scans (more than 2x its average 24h turnover)
+- The regime the analysis read, which also scales position size
+- A structured idea with explicit entry, stop and target levels
+- An inline keyboard for human confirmation: a person's `/analyze` idea waits for their tap. The engine's own scan ideas can be confirmed without a tap when the operator enables auto-confirm: `AUTO_CONFIRM_THRESHOLD` below 1.0, and for live orders `AUTO_CONFIRM_LIVE_ENABLED` plus an eligibility record for the running strategy (none ships). The code defaults are a 0.85 threshold with `AUTO_CONFIRM_LIVE_ENABLED` on; the shipped `.env.example` sets 1.0 and false.
 
 ---
 
-## Scenario 2: Risk Engine Rejection
+## Scenario 2: Risk Gate Refusal
 
-**Goal:** Demonstrate that the fail-closed risk gate blocks trades when conditions are unsafe.
+**Goal:** Show the fail-closed risk gate refusing a trade.
 
 ### Steps
 
 ```text
-1. /analyze BTC
- → Generate a trade idea (may or may not pass risk)
+1. /analyze different assets and tap Take it until your book holds
+   5 open positions (MAX_OPEN_POSITIONS default). On a practice
+   account these are practice positions. On an account that trades
+   live, each Take it is a real order.
 
-2. If passed, confirm it. Repeat /analyze on different assets until
- you have 5 open positions (MAX_OPEN_POSITIONS default).
+2. /analyze SOL → Take it
+ → ❌ Trade didn't go through
+   Trade REJECTED on re-check: MAX_POSITIONS: 5 >= 5
 
-3. /analyze SOL
- → Risk engine REJECTS: "Max open positions exceeded"
+3. /whynot
+ → Your own confirms that placed nothing, with the reason
 
 4. /rejected
- → Shows the rejected trade with the specific check that failed
-
-5. /risk
- → Shows current exposure, daily PnL, circuit breaker status
+ → The risk engine's recent rejections, each with the first check
+   that failed (marked "engine-wide record" when you have no risk
+   engine of your own)
 ```
 
-### What judges should observe
+On the operator's live account the same limit refuses at `/analyze` already: the card reads `◇ Refused by the risk gate`, then `MAX_POSITIONS: 5 >= 5`.
 
-- Specific rejection reason identifying which check failed
-- No override mechanism -- rejection is final
-- `/rejected` command provides transparency into blocked trades
-- Risk metrics visible via `/risk`
+### What to look for
+
+- The refusal names the check that failed, in the gate's own words
+- No command overrides a refusal
+- `/whynot` and `/rejected` show refusals after the fact
 
 ---
 
 ## Scenario 3: Circuit Breaker Trip
 
-**Goal:** Show the circuit breaker halting all trading after a loss threshold is breached.
+**Goal:** Show the circuit breaker halting trading after a loss limit is breached.
 
 ### Steps
 
 ```text
-1. Execute several trades via /analyze + Confirm
- → Some will hit stop-loss and close at a loss
+1. Trade until positions close at a loss. Stops are hit by the
+   market, so this needs real price moves.
 
-2. When cumulative daily loss exceeds 5% (or drawdown exceeds 10%):
- → Circuit breaker automatically trips
+2. The breaker trips at the next risk check after any of:
+ - the day's loss reaches 5% of equity (MAX_DAILY_LOSS_PCT); on a
+   paper book open positions' unrealized PnL counts
+ - drawdown from peak equity reaches 10% (MAX_DRAWDOWN_PCT), or 7%
+   while the bot runs live (LIVE_MAX_DRAWDOWN_PCT, with
+   LIVE_RISK_HARDENING_ENABLED on, the default)
+ - 5 trades in a row lose (MAX_CONSECUTIVE_LOSSES); practice-book
+   closes do not count toward this one
 
-3. /analyze BTC
- → REJECTED: "Circuit breaker is active"
+3. Take it on any idea
+ → Trade REJECTED on re-check: CIRCUIT_BREAKER: system halted due
+   to prior losses (plus any limit that is still breached)
 
-4. /status
- → Shows "Circuit Breaker: TRIPPED"
+4. /status (the operator, or a trader with a risk engine of their own)
+ → 🔴 HALTED, and a "⛔ Trading blocked: circuit breaker" line naming why
 
-5. /risk
- → Shows daily loss %, drawdown %, breaker status
-
-6. /reset
- → Admin command to manually reset the breaker
- → Trading resumes
+5. /reset
+ → The operator's /reset clears every account's breaker. A trader with
+   a risk engine of their own (PER_USER_LIVE_ENABLED) clears only
+   theirs. A paper account cannot run it.
+ → 🟢 Circuit breaker reset / Trading resumed.
+   If the loss is still over the limit, the next check trips it again.
 ```
 
-### What judges should observe
+A practice book's breaker is its own: it refuses that book's confirms and halts nothing else, and `/status` does not show it. A daily-loss trip clears itself at the UTC day rollover (`DAILY_LOSS_BREAKER_AUTORESET`, default on). Drawdown, losing-streak and manual halts wait for `/reset` or `/resume`.
 
-- Automatic halt on loss threshold -- no human intervention needed
-- All subsequent trades blocked until manual reset
-- Reset requires explicit admin action (audited)
-- Circuit breaker state visible across `/status` and `/risk`
+### What to look for
+
+- An automatic halt when a limit is reached, with no human step needed
+- Entries refused until the breaker is cleared
+- A reset scoped to who sent it (a trader's card says it was their account only), written to `logs/risk.jsonl`
+- The breaker state on `/status` and `/risk`
 
 ---
 
-## Scenario 4: Macro Event Lockdown
+## Scenario 4: Macro Event Block
 
-**Goal:** Demonstrate the macro calendar blocking trades during high-impact events.
+**Goal:** Show the macro calendar blocking new entries around high-impact events.
 
 ### Steps
 
 ```text
 1. /macro
- → Shows current macro risk state and upcoming events
- → Example: "State: PRE_EVENT_CAUTION | Next: CPI in 2h 15m"
+ → MACRO CALENDAR card: the calendar's state (Normal, Pre Event
+   Caution, Event Lockdown, Post Event Volatility), "Next event in:
+   2.2h", the entry gate's own reading (risk state CLEAR, REDUCE or
+   BLOCK_NEW_ENTRIES, and the size multiplier), and upcoming events
+ → /macro brief shows the gate's posture alone
 
-2. When state is EVENT_LOCKDOWN (30min before to 30min after):
+2. Inside an event's block window:
  → /analyze BTC
- → REJECTED: "Macro event gate: EVENT_LOCKDOWN"
+ → ◇ Refused by the risk gate
+   MACRO_EVENT: BLOCK — BLACKOUT: CPI Release - October 2026 in 20 min
+   — blocking new entries.
 
-3. /rejected
- → Shows macro event as the rejection reason
+3. /whynot or /rejected
+ → The macro check as the reason
 
-4. After lockdown window passes:
- → /macro shows "State: POST_EVENT_VOLATILITY" or "NORMAL"
- → /analyze BTC proceeds normally
+4. After the block window:
+ → New entries are allowed again, at half size for 30 minutes
 ```
 
-### What judges should observe
+The gate's windows by event:
 
-- Awareness of real-world macro events (FOMC, CPI, NFP, etc.)
-- Automatic trade blocking during high-impact windows
-- Fail-closed: if calendar evaluation fails → BLACKOUT → all trades blocked
-- Gradual state transitions: NORMAL → CAUTION → LOCKDOWN → POST_EVENT → NORMAL
+| Events | Half size from | Blocked | Then half size for |
+|--------|----------------|---------|--------------------|
+| FOMC decision | 180 min before | 60 min before to 30 min after | 30 min |
+| CPI, NFP | 120 min before | 30 min before to 15 min after | 30 min |
+| Core PCE, ISM PMI, PPI, GDP, retail sales | — | 15 min before to 10 min after | 30 min |
+| Lower-impact events (jobless claims, Fed speeches) | — | — | — |
+
+The calendar the gate ships with (`config/macro_calendar.seed.json`) lists FOMC, CPI and NFP dates; the other rows apply to a calendar that lists those events. A funding rate of 0.10% per 8 hours or more on a symbol also blocks new entries on that symbol.
+
+### What to look for
+
+- Awareness of scheduled macro events (FOMC, CPI, NFP and others)
+- Automatic blocking inside the high-impact windows, and half size around them
+- Fail-closed: a missing or stale calendar blocks new entries unless the operator sets `MACRO_FAILSAFE=false`, and an error while evaluating it always blocks them
 
 ---
 
-## Scenario 5: Backtest Validation
+## Scenario 5: Backtest
 
-**Goal:** Run the backtesting engine and show performance metrics.
+**Goal:** Run the backtesting engine and read its scorecard.
 
 ### Steps
 
 ```text
 1. /backtest
- → Runs backtest with 720 bars of synthetic data (GBM + GARCH)
- → Returns: total trades, win rate, PnL, max drawdown, Sharpe ratio
+ → "⏳ Backtest running • 720 bars • seed 42", then a BACKTEST card
+   headed "Synthetic data — tests plumbing, not alpha": return, net PnL,
+   commission, slippage and funding; win rate, profit factor, max
+   drawdown, Sharpe and Sortino; and the pipeline the bars went through
 
 2. /backtest 1440 99
- → Custom run: 1440 bars, seed 99
+ → Custom run: 1440 bars, seed 99 (at most 5000 bars)
  → Different synthetic data, different results
 
-3. Compare metrics across runs to show consistency
+3. Run the same seed twice: it generates the same bars.
 ```
 
-### What judges should observe
+### What to look for
 
-- Synthetic data generation (not cherry-picked historical data)
-- Intrabar SL/TP/trailing stop simulation
-- Commission (0.1%) and slippage (0.05%) modeling -- commission computed once by the portfolio tracker, never double-counted
-- Backtest state isolation: each run uses temporary state files so backtests never pollute production circuit breaker or portfolio
-- Consistent metrics across seeds (worst DD < 3%, no crashed runs)
-- Trailing stops responsible for ~48% of exits with net-positive PnL
+- Synthetic data (geometric Brownian motion with volatility clustering), so the card tests the pipeline, not the strategy
+- Stop, target and trailing-stop exits checked against each bar's high and low
+- Commission (0.1%) and slippage (0.05%) modeled, with commission computed once by the portfolio tracker, never double-counted
+- State isolation: each run uses its own temporary state directory, so a backtest never touches the live breaker or any book
 
 ---
 
-## Scenario 6: Full Audit Trail
+## Scenario 6: Audit Trail
 
-**Goal:** Show that every decision is logged and traceable.
+**Goal:** Show that decisions are logged and traceable.
 
 ### Steps
 
 ```text
-1. /analyze ETH → Confirm the trade
-2. /analyze SOL → Reject the trade
-3. /analyze DOGE → Let risk engine reject it
+1. /analyze ETH → Take it
+2. /analyze SOL → Skip
+3. Keep analysing until the risk gate refuses one (see /whynot)
 
-4. Check audit logs:
- logs/trade.jsonl → trade ideas, executions, closures
- logs/risk.jsonl → risk checks, approvals, rejections
- logs/system.jsonl → engine state changes, scan results
+4. On your own install, read the logs:
+ logs/trade.jsonl       → ideas, fills, closes, skips
+ logs/risk.jsonl        → every risk evaluation, with its verdict and checks
+ logs/system.jsonl      → engine state changes and system events
+ logs/scan.jsonl        → scan results and analysis-time risk evaluations
+ logs/audit_chain.jsonl → the hash-chained decision record
 
-5. Each log entry contains:
- - Timestamp (UTC)
- - Action (trade_idea_generated, risk_check, trade_executed, etc.)
- - Result (APPROVED, REJECTED, EXECUTED)
- - Structured data (asset, direction, confidence, checks)
+5. Each log line is one JSON object with:
+ - ts (UTC, to the microsecond), level, channel, message
+ - action (analyze, risk_check, confirm, paper_fill, open_position,
+   close_position, human_reject, …)
+ - result (APPROVED, REJECTED, FILLED, EXECUTED, CLOSED, …)
+ - reasoning and data (asset, direction, confidence, checks, …)
+ - prev_hash: the SHA-256 of the previous line in that file
 ```
 
-### What judges should observe
+### What to look for
 
-- Three independent log channels
-- Machine-readable JSONL format
-- Every decision traceable: generation → risk check → confirmation → execution
-- Rejections include the specific reason
-- No black boxes -- full transparency
+- Four log channels plus a tamper-evident audit chain
+- Machine-readable JSONL, with secret-looking values redacted
+- Each decision traceable: analysis → risk check → confirmation → fill
+- Refusals carry the checks that failed
 
 ---
 
 ## CLI Quick Demo
 
-For judges who prefer terminal output over Telegram:
+To run the skills from a terminal on your own install:
 
 ```bash
-# Start CLI mode (no Telegram token needed)
-python -m bot.main --mode cli
+# A separate engine: nothing it does is saved, and nothing reaches a
+# running bot. No Telegram token needed.
+python3 -m bot.main --mode cli
 
 # At the runeclaw> prompt:
-scan_market # Show top movers
-analyze_asset BTC # Generate trade idea
-check_risk # Show risk status
-get_portfolio # Show portfolio
-explain_trade # Explain last trade decision
-quit # Exit
+scan_market                      # Show top movers
+analyze_asset BTC                # Analyse one symbol; the card ends with the idea ID
+check_risk                       # Show risk status
+get_portfolio                    # Show the portfolio card
+explain_trade trade_id=TI-...    # Explain one pending idea
+quit                             # Exit
 ```
+
+`explain_trade` with no ID lists the engine's own pending ideas from its scans. A closed trade is explained by `/postmortem` on the bot instead.
 
 ---
 
-## Test Suite Demo
+## Running the Tests
 
 ```bash
-# Run all 289+ tests
-pytest tests/test_core.py -v
+# The Python suite as CI runs it, compared against tests/known_failures.txt
+python3 scripts/ci_test_gate.py
 
-# Key test categories:
-# - Risk engine: every check, circuit breaker, edge cases
-# - Portfolio: position lifecycle, PnL, drawdown
-# - Analyzer: indicators, candlestick patterns, Fibonacci, OBV, VWAP
-# - Backtest: replay engine, trailing stops, commission/slippage, state isolation
-# - Macro: calendar states, boundary conditions, fail-closed
-# - AI Learning: experience memory, reflection, strategy tiers, pattern learner
-# - LLM Optimizer: semantic cache, tiered pipeline, batching
-# - Integration: full pipeline, rejection flows, concurrent access
+# Everything CI runs, locally, without the network gates
+python3 scripts/preflight.py --fast
 ```
+
+The test harness deletes the runtime state files under `data/` (books, positions, risk state) before and after every test. Run it in a checkout whose `data/` holds nothing you need.

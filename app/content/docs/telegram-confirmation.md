@@ -1,16 +1,21 @@
 # Telegram Confirmation Flow
 
-Every trade RUNECLAW proposes must be approved by a human before execution. This page describes the full confirmation lifecycle, from trade idea generation to final execution or rejection.
+RUNECLAW proposes trades and a person confirms them, unless the operator turns on auto-confirm. This page follows an idea from analysis to execution or rejection.
 
 ---
 
 ## Why Human-in-the-Loop?
 
-RUNECLAW is designed around a core principle: **AI proposes, humans decide.**
+RUNECLAW is designed so that the software proposes and a person decides, and a standard install works that way: the shipped `.env.example` sets `AUTO_CONFIRM_THRESHOLD=1.0` and `AUTO_CONFIRM_LIVE_ENABLED=false`, which turn auto-confirm off. The code defaults are different (`0.85` and on), so an install without those two lines has auto-confirm switched on, within the limits below.
 
-The AI generates trade ideas using technical analysis, LLM reasoning, and confluence scoring. The risk engine filters out bad ideas. But the final decision always belongs to the operator.
+What auto-confirm can and cannot do:
 
-This prevents:
+- It confirms only the engine's own ideas, on the operator account, when their confidence reaches `AUTO_CONFIRM_THRESHOLD`. A value of 1.0 (or `/autoconfirm off`) turns it off. With `ADAPTIVE_THRESHOLD_ENABLED` (on by default) the bar moves with the recent win rate, only upward in live mode, and never re-enables a bar set to 1.0.
+- A person's own `/analyze` idea or `/trade` ticket is never auto-confirmed.
+- In live mode, an order with no human tap also needs `AUTO_CONFIRM_LIVE_ENABLED` and an eligibility record for the running strategy under `benchmark/eligibility/`. None ships, so today a new live position is opened only when a person confirms it.
+
+The analyzer builds trade ideas from technical analysis and confluence scoring, and the risk gate refuses ideas that break its limits. Keeping a person on the final step guards against:
+
 - Runaway automated trading during unusual market conditions
 - Execution of trades the operator disagrees with
 - Loss of control over capital allocation
@@ -20,159 +25,170 @@ This prevents:
 ## Flow Diagram
 
 ```text
-/analyze BTC
+/analyze BTC, or an idea from the engine's own scan
  |
  v
- Analyzer: compute indicators, LLM thesis, TradeIdea
+ Analyzer: indicators, confluence, rule-engine decision -> TradeIdea
  |
  v
- Risk Engine: fail-closed checks
+ Risk gate: pre-trade checks
  |
- ├── ANY check fails → REJECTED (logged, operator notified)
- |
- v
- TradeIdea added to pending queue
+ ├── a check fails -> refused; the reply names the failed checks
  |
  v
- Telegram message sent with inline keyboard:
- ┌─────────────────────────────────────────┐
- │ TRADE IDEA — LONG BTC/USDT │
- │ Confidence: 72% | R:R: 2.8 │
- │ Entry: $108,420 | SL: $107,200 │
- │ │
- │ [✅ Confirm] [❌ Reject] │
- └─────────────────────────────────────────┘
- | |
- v v
- CONFIRM REJECT
- | |
- v v
- Risk RE-CHECK Idea discarded
- (re-checked) Audit log entry
- |
- ├── RE-CHECK fails → REJECTED (market moved)
+ Idea queued; card sent with [Take it] [Limit] [Skip]
+ |                                   |
+ v                                   v
+ TAKE IT (or a limit price)          SKIP
+ |                                   |
+ v                                   v
+ Price check + risk re-check         Idea discarded
+ |                                   Audit entry (human_reject)
+ ├── fails -> refused, with the reason
  |
  v
- Paper trade executed
- Position recorded in portfolio
- Audit log entry
+ Practice fill or live order
+ Audit entries
 ```
+
+When auto-confirm is on, the engine's own ideas skip the card and go straight to the price check and re-check.
 
 ---
 
 ## Step-by-Step Walkthrough
 
-### 1. Operator requests analysis
+### 1. You request analysis
 
-The operator sends `/analyze BTC` (or any symbol) in the Telegram chat. The bot acknowledges and begins the pipeline.
+Send `/analyze BTC` (or any symbol). The bot replies "Analyzing BTC/USDT..." and runs the pipeline. Ideas also come from the engine's own scans: they are pushed as cards to chats that turned alerts on with `/watch`, and `/latest_signal` lists the pending signals with their buttons.
 
-### 2. AI generates trade idea
+### 2. The analyzer builds a trade idea
 
 The analyzer:
 - Fetches OHLCV candles from Bitget
-- Computes 10+ technical indicators (RSI, MACD, Bollinger, ADX, VWAP, OBV, candlestick patterns, Fibonacci levels)
-- Detects market regime (TREND_UP, TREND_DOWN, RANGE, CHOP)
-- Generates an LLM-powered directional thesis (or falls back to rule-based scoring)
-- Produces a structured `TradeIdea` with entry, stop-loss, take-profit, confidence, and reasoning
+- Computes indicators (RSI, MACD, Bollinger Bands, ADX, ATR, VWAP, OBV), candlestick patterns and Fibonacci levels
+- Classifies the market regime (TREND_UP, TREND_DOWN, EXPANSION, RANGE, CHOP)
+- Sets direction and confidence with the rule engine. A configured LLM's read is attached, marked as not used to decide (`LLM_DECIDES` is off by default).
+- Produces a `TradeIdea` with entry, stop-loss, take-profit, confidence and reasoning
 
-Ideas with blended confidence below 60% are discarded before reaching the risk gate.
+Ideas below their strategy type's confidence floor (scalp 0.65, intraday 0.55, swing 0.50, position 0.45) are dropped before the risk gate, and the engine then requires 0.60 (`MIN_CONFIDENCE`) of every idea while per-strategy floors are off, the default.
 
-### 3. Risk gate evaluates the idea
+### 3. The risk gate evaluates the idea
 
-The risk engine runs its pre-trade checks. Every one must pass:
+The fail-closed pre-trade gate checks account state (circuit breaker, daily loss, drawdown, loss streak, cooldown), size and exposure (position size, open positions, portfolio and per-symbol exposure, correlation groups, PCA concentration, portfolio VaR), the idea itself (entry price, stop-loss, data freshness, risk/reward, and confidence of at least `MIN_CONFIDENCE`, default 0.60) and market conditions (volatility, order-book liquidity, macro events, multi-timeframe alignment).
 
-- Position size, daily loss, drawdown, max positions
-- Risk/reward ratio, confidence threshold
-- Correlation blocking, loss streak detection
-- Entry price sanity, stop-loss required
-- Stale data guard, cooldown timer
-- Portfolio exposure, per-symbol exposure
-- Volatility guard, circuit breaker
-- Liquidity guard, macro event gate
+A failed check refuses the idea. On `/analyze` the reply says "Refused by the risk gate" and lists the failed checks; `/whynot` and `/rejected` show refusals afterwards. Some checks are lenient by design: the liquidity guard, the order-flow gates and the funding-clock gate pass when they have no data, the multi-timeframe and VaR checks skip when their data is missing, and PCA is not evaluated in live mode. Every decision records the checks that ran in `checks_passed` and `checks_failed`. See [Risk Framework](risk-framework.md).
 
-If **any single check fails**, the trade is rejected immediately. The operator sees a rejection message with the specific check that failed. No override is possible.
+### 4. The idea card
 
-### 4. Telegram inline keyboard
+If the idea passes, the bot sends its card, under a signal-card image when one can be drawn. The text reads like this:
 
-If the idea passes every check, the bot sends a message with two inline buttons:
+```
+🟢 LONG  BTC/USDT
+────────────────
 
-- **Confirm** -- approve the trade for execution
-- **Reject** -- discard the trade idea
+  🎯 TP    │ $111,836.00
+  ──────┼────────────────────────────
+  ▲  IN   │ $108,420.00
+  ──────┼────────────────────────────
+  🛑 SL    │ $107,200.00
 
-The message includes: direction (LONG/SHORT), asset, confidence percentage, risk/reward ratio, entry price, stop-loss, and take-profit levels.
+  ◑ Confidence │████████▁▁▁▁│ score 72 (uncalibrated)
+  ☆ Risk:Reward ★★★ 2.80x (2.43x after fees)
 
-The operator can also view all pending ideas at any time with the `/trade` command.
+📎 TI-a1b2c3d4
+
+[ Take it ]  [ Limit ]  [ Skip ]
+```
+
+- The take-profit and stop-loss lines also show each level's price distance from the entry.
+- Confidence is the analyzer's own 0-100 score. It is printed with "(uncalibrated)" because it is not a probability or a win rate.
+- Risk:Reward shows the price ratio and what is left of it after estimated fees.
+- The card can also carry the setup's record from the trade journal and the model's reasoning.
+
+The buttons:
+
+- **Take it**: confirm the idea as shown
+- **Limit**: the bot asks you to type a limit price; sending it confirms the idea as a limit order at that price
+- **Skip**: discard the idea
+
+A `/trade` ticket shows **Confirm** and **Cancel** instead. Only the person a card was made for can use its buttons; on the engine's own scan ideas that is the operator. Pending ideas expire after `PENDING_IDEA_TTL` seconds (default 300).
 
 ### 5. Confirmation and re-check
 
-When the operator taps **Confirm**:
+When you tap **Take it**:
 
-1. The risk engine runs every check **again** against the current portfolio state
-2. This catches scenarios where:
- - Another trade was confirmed between idea generation and confirmation
- - Daily loss limit was reached by a closed position
- - Market conditions changed (stale data guard)
- - A macro event entered the lockdown window
-3. If the re-check passes, the trade executes
-4. If the re-check fails, the confirmation is rejected with an explanation
+1. The bot checks that you may confirm. In live mode, a confirm from anyone but an admin needs live-trading permission, unless it opens on their practice book.
+2. The current price is read again. If it cannot be read, the confirm is refused. An analysed market-order idea whose price has moved more than 2% from its entry is refused, and the bot re-analyzes it and offers a fresh card.
+3. The risk gate's checks run **again**, against the book the trade will land on (the liquidity guard is not re-run). This catches cases where:
+   - Another trade was confirmed between the idea and your tap
+   - A closed position took the daily loss to its limit
+   - The idea's data went stale
+   - A macro event entered its blackout window
+4. If the re-check passes, the trade executes. If it fails, the reply says why.
 
-This re-check is critical because time passes between idea generation and human decision. The market state at confirmation time may differ from analysis time.
+The re-check exists because time passes between the analysis and your decision, and the market may have moved.
 
 ### 6. Rejection
 
-When the operator taps **Reject**:
+When you tap **Skip**:
 
-1. The trade idea is removed from the pending queue
-2. An audit entry is logged with the rejection reason ("human_rejected")
-3. No further action is taken
+1. The idea is removed from the pending queue.
+2. An audit entry is written to `logs/trade.jsonl` with `"action": "human_reject"` and `"result": "REJECTED"`.
+3. Nothing else happens.
 
 ### 7. Execution
 
 After a successful confirmation and re-check:
 
-- **Paper mode:** The portfolio tracker opens a position with the specified entry, stop-loss, and take-profit. PnL is tracked mark-to-market.
-- **Live mode:** (If enabled) An order is placed on Bitget via ccxt. The same portfolio tracking applies.
+- **A practice confirm** (a self-admitted paper account, or a `/paper on` opt-in when `PAPER_SIM_OPT_IN_ENABLED` is on) opens a position on that person's own practice book. Nothing reaches an exchange. See [Paper Trading](paper-trading.md).
+- **Any other confirm in live mode** becomes an order on a real exchange account through the live executor: the operator account, or, with `PER_USER_LIVE_ENABLED` on, the trader's own linked account (`/connect`). The live executor tracks the position, places its stop and target on the exchange, and reconciles fills. See [Enabling Live Trading](live-trading.md).
+- **Any other confirm on a bot that is not in live mode** is refused: `⛔ Paper trading is disabled on this bot. This bot is LIVE-ONLY.`
 
-The engine then enters the MONITORING state, continuously checking open positions against current prices for stop-loss and take-profit exits.
+The engine then checks open positions every cycle for stop-loss and take-profit exits.
 
 ---
 
 ## Authorization
 
-Not everyone can confirm trades. The Telegram handler enforces authorization:
+Not everyone can confirm trades. The Telegram handler enforces an allow-list built from `TELEGRAM_CHAT_ID`, `ADMIN_TELEGRAM_IDS` and `LIVE_TRADER_TELEGRAM_IDS`:
 
 | Setting | Behavior |
 |---------|----------|
-| `TELEGRAM_CHAT_ID` set | Only messages from listed chat IDs are processed |
-| `TELEGRAM_CHAT_ID` empty, `TELEGRAM_ALLOW_OPEN=true` | Any user can interact (development only) |
-| `TELEGRAM_CHAT_ID` empty, `TELEGRAM_ALLOW_OPEN` unset | All commands rejected (fail-closed) |
+| Any of the three set | Those IDs get in. Anyone else needs an admin's `/approve`, or is admitted as a paper user on their first command while `PAPER_AUTO_ACCEPT` is on (the default). |
+| All three empty | There is no allow-list: anyone can use the bot as a paper user. Live trading will not arm without `TELEGRAM_CHAT_ID`. |
 
-Authorization applies to both slash commands and inline keyboard callbacks. An unauthorized user cannot confirm or reject trades.
+Authorization applies to slash commands and to inline buttons alike. A tap from someone who has not been admitted is refused, and a tap on someone else's card is refused.
 
 ---
 
 ## Rate Limiting
 
-Every Telegram command is rate-limited per user:
+Commands and button taps are rate-limited per user:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| Rate limit | 20 requests/minute | Per-user sliding window |
+| Rate limit | 20 requests/minute | Per-user sliding 60-second window |
 
-If a user exceeds the limit, subsequent commands are rejected with a warning until the window expires. This prevents abuse and protects the Bitget API from excessive calls.
+Over the limit, a command is answered with a warning and a button tap is ignored, until the window clears.
 
 ---
 
 ## Audit Trail
 
-Every step in the confirmation flow is logged as structured JSON:
+Each step writes a JSON line. Every line carries `ts`, `level`, `channel`, `message`, `prev_hash` (the SHA-256 of the previous line, so an edited line breaks the chain), `action`, `reasoning`, `result` and `data`. A confirmed idea leaves these entries, in this order (fields shortened with `…`):
 
-```json
-{"timestamp": "2026-05-29T14:23:01Z", "action": "trade_idea_generated", "asset": "BTC/USDT", "direction": "LONG", "confidence": 0.72}
-{"timestamp": "2026-05-29T14:23:01Z", "action": "risk_check", "result": "APPROVED", "checks_passed": 18}
-{"timestamp": "2026-05-29T14:23:15Z", "action": "telegram_callback", "data": "confirm:TI-a1b2c3d4"}
-{"timestamp": "2026-05-29T14:23:15Z", "action": "risk_recheck", "result": "APPROVED", "checks_passed": 18}
-{"timestamp": "2026-05-29T14:23:15Z", "action": "trade_executed", "asset": "BTC/USDT", "mode": "PAPER", "entry": 108420.0}
+```text
+logs/scan.jsonl    "action": "trade_idea",        "result": "GENERATED", "message": "Trade idea generated: LONG BTC/USDT",
+                   "data": {"id": "TI-a1b2c3d4", "asset": "BTC/USDT", "direction": "LONG", "confidence": 0.72,
+                            "entry": 108420.0, "sl": 107200.0, "tp": 111836.0, "rr": 2.8, "timeframe": "1h"}
+logs/risk.jsonl    "action": "risk_check",        "result": "APPROVED",
+                   "data": {"trade_id": "TI-a1b2c3d4", "verdict": "APPROVED",
+                            "checks_passed": ["CIRCUIT_BREAKER: OK", "ENTRY_PRICE: valid", …], "checks_failed": [], …}
+logs/risk.jsonl    "action": "risk_check",        "result": "APPROVED", …          (the re-check after the tap)
+logs/trade.jsonl   "action": "open_position",     "result": "EXECUTED", "message": "Opened LONG BTC/USDT", …   (a practice fill)
+logs/system.jsonl  "action": "telegram_callback", "message": "Callback: confirm:TI-a1b2c3d4:<your id>"
 ```
 
-Logs are written to `logs/trade.jsonl`, `logs/risk.jsonl`, and `logs/system.jsonl`. Every decision, confirmation, and rejection is traceable.
+A live order writes the live executor's entries to `logs/trade.jsonl` in place of the practice fill. A skipped idea writes `human_reject` to `logs/trade.jsonl` and a `reject:` callback to `logs/system.jsonl`.
+
+Logs are written to `logs/scan.jsonl`, `logs/risk.jsonl`, `logs/trade.jsonl` and `logs/system.jsonl`. Every decision, confirmation and rejection is traceable.

@@ -1,59 +1,54 @@
 # Agent Hub Alignment
 
-RUNECLAW is built to align with the **Bitget Agent Hub** ecosystem. This page maps RUNECLAW's capabilities against the Agent Hub's core domains and shows how the architecture connects to GetClaw's autonomous trading vision.
+RUNECLAW began as an entry to the Bitget AI Base Camp · Hackathon S1 (Strategy & Risk category). This page maps what it does today against the capability areas of Bitget's agent tooling (GetClaw and the Agent Hub).
 
 ---
 
-## GetClaw Capability Matrix
+## Capability Map
 
-GetClaw is positioned as a zero-install autonomous AI trading agent. The table below maps each GetClaw capability to RUNECLAW's implementation status.
-
-| GetClaw Capability | RUNECLAW Implementation | Status |
+| Capability area | What RUNECLAW does | Status |
 |---|---|---|
-| **Market activity monitoring** | MarketScanner: volume spike detection, momentum scoring, top-N mover ranking across all Bitget USDT pairs | Implemented |
-| **Portfolio exposure tracking** | PortfolioTracker: real-time equity, per-symbol exposure, total exposure %, drawdown from peak, daily PnL | Implemented |
-| **Funding rate awareness** | Not yet implemented -- planned for futures integration via ccxt `fetchFundingRate()` | Roadmap |
-| **Volatility shift detection** | ADX-14 regime detection (TREND_UP/DOWN/RANGE/CHOP) + ATR-based volatility guard + adaptive SL/TP scaling | Implemented |
-| **Liquidation risk monitoring** | Circuit breaker (5% daily loss, 10% drawdown), per-symbol exposure caps (20%), max position count | Implemented |
-| **Macro development awareness** | MacroCalendar: 10 event types (FOMC, CPI, NFP, PCE, PPI, GDP, ISM, Retail Sales, Jobless Claims, Fed Speech), 5-state risk machine | Implemented |
-| **Crypto narrative tracking** | LLM thesis generation incorporates market context; rule-based fallback when LLM unavailable | Partial |
-| **Autonomous decision loop** | 9-state FSM: IDLE → SCANNING → ANALYZING → RISK_CHECK → CONFIRMING → EXECUTING → MONITORING → COOLING_DOWN / HALTED | Implemented |
+| **Market activity monitoring** | `MarketScanner` (`bot/core/market_scanner.py`) ranks Bitget USDT pairs by momentum and volume, keeping pairs above a volume floor (`MIN_CRYPTO_VOLUME_USD`). The universe is `ASSET_UNIVERSE`, default `all_markets` (spot and USDT-M futures). | Implemented |
+| **Portfolio exposure tracking** | `PortfolioTracker` (`bot/risk/portfolio.py`) keeps the paper and practice books: equity, per-symbol and total exposure, drawdown from peak, daily P&L. Live positions and balance are read from the venue (`bot/core/live_executor.py`). | Implemented |
+| **Funding rate awareness** | Funding is read as a contrarian order-flow vote (`of_funding`) and a funding-arb confidence nudge. A carry-cost haircut lowers confidence when a trade would pay adverse funding over its hold (`FUNDING_COST_AWARE_ENABLED`, default on). A funding-clock check refuses entering on the paying side of an extreme rate just before settlement (`FUNDING_CLOCK_GATE_ENABLED`, default on). A cross-venue funding radar compares Bitget, Bybit and Hyperliquid (`bot/core/funding_radar.py`). | Implemented |
+| **Volatility shift detection** | ADX-based regime classification (TREND_UP / TREND_DOWN / EXPANSION / RANGE / CHOP), regime-aware position sizing (`REGIME_SIZING_ENABLED`, default on), and an ATR volatility guard in the pre-trade risk gate | Implemented |
+| **Liquidation risk monitoring** | No liquidation-price monitor. The limits that keep an account away from liquidation: a circuit breaker on daily loss and drawdown (defaults 5% and 10% of equity; 7% drawdown on a live book) and on a losing streak; per-symbol and total margin caps (defaults 20% and 80% of equity); a maximum number of open positions | Implemented |
+| **Macro development awareness** | The macro gate (`bot/core/macro_events.py`) blocks new entries around FOMC, CPI, NFP, Core PCE, ISM PMI, PPI, GDP and retail-sales releases, and halves size in the hours before FOMC, CPI and NFP. A blind or stale calendar blocks new entries unless `MACRO_FAILSAFE=false`. | Implemented |
+| **Crypto narrative tracking** | No dedicated narrative tracker. The rule engine decides direction and confidence (`LLM_DECIDES` is off by default); a configured model's read rides along on each idea, marked as not used to decide. | Partial |
+| **Autonomous decision loop** | A state machine: IDLE → SCANNING → ANALYZING → RISK_CHECK → CONFIRMING → EXECUTING → MONITORING → COOLING_DOWN / HALTED. A live order waits for a confirm unless auto-confirm is on and an eligibility record exists for the running strategy; none ships. See [Enabling Live Trading](live-trading.md). | Implemented |
 
 ---
 
-## Agent Hub Domain Mapping
+## Interfaces
 
-The Bitget Agent Hub organizes capabilities across several domains. Here is how RUNECLAW maps to each.
+### MCP
 
-### MCP Tools
+RUNECLAW serves MCP at `POST /mcp` (`app/routes/mcp.js`, at `https://www.humanoid-traders.com/mcp`): read-only and Guardian safety tools, plus paper-only Arena tools behind an Arena key. Ask it `tools/list` for the current catalogue; see [MCP Integration](mcp-integration.md).
 
-RUNECLAW exposes 12 internal skills that map directly to MCP tools. See [MCP Integration](mcp-integration.md) for the full tool map and data flow.
-
-| Agent Hub Domain | RUNECLAW Tools |
+| Area | Tools on `POST /mcp` (a sample) |
 |---|---|
-| Market data | `runeclaw_scan` -- fetch tickers, volume spikes, momentum signals |
-| Trading execution | `runeclaw_execute` -- paper trade execution (live via ccxt when enabled) |
-| Portfolio management | `runeclaw_portfolio` -- balance, equity, positions, PnL, drawdown |
-| Risk management | `runeclaw_risk` -- checks status, circuit breaker, exposure limits |
-| Analysis | `runeclaw_analyze` -- technical indicators + LLM thesis + trade idea |
-| Explainability | `runeclaw_explain` -- the votes and rationale behind a pending trade idea |
+| Market | `get_signals`, `get_systemic_risk`, `get_dex_compare` |
+| Track record | `get_track_record`, `get_proof_of_pnl`, `verify_call` |
+| Safety (Guardian) | `scan_transaction`, `xray_transaction`, `stress_portfolio`, `plan_escape` |
+| Execution | `arena_open` / `arena_close`, paper only. No tool places a live order. |
 
-### REST / WebSocket APIs
+### Exchange and HTTP APIs
 
 | Layer | Implementation |
 |---|---|
-| Exchange REST | Bitget Spot V2 API via ccxt (`fetchTickers`, `fetchOHLCV`, `createOrder`) |
-| Exchange WebSocket | Not yet implemented -- planned for real-time price streaming and order book |
-| Internal API | Async Python methods on `RuneClawEngine` -- all Pydantic-validated |
+| Exchange REST | Market data from Bitget's public endpoints via ccxt (spot and USDT-M futures). Orders on USDT-M perpetuals via ccxt and a signed Bitget v3 client (`bot/core/bitget_v3_client.py`). Hyperliquid, Bybit and BingX are selectable with `VENUE` (`bot/core/venues.py`). |
+| Exchange WebSocket | A Bitget public WebSocket price feed (`bot/core/ws_feed.py`) for position monitoring and order flow. REST polling remains the scanner's source. |
+| HTTP APIs | The website API and `POST /mcp` (`app/routes/`), the bot's gateway for the website (`bot/web/`), and `api_bridge.py` |
 
-### Skills & CLI
+### Skills, Telegram, Website and CLI
 
 | Interface | Details |
 |---|---|
-| Skill registry | 12 registered skills, extensible via `BaseSkill` subclass |
-| Telegram bot | 18 slash commands with inline keyboard confirmation |
-| CLI mode | Direct skill invocation via `python -m bot.main --mode cli` |
-| Scan mode | One-shot market scan: `python -m bot.main --mode scan` |
+| Skill registry | Skills registered in `build_default_registry()` (`bot/skills/skill_registry.py`); a new skill is a `BaseSkill` subclass |
+| Telegram bot | Slash commands with inline-keyboard confirmation; `/help` lists them by group |
+| Website | https://www.humanoid-traders.com/ — signed-in members propose and confirm trades through the bot's gateway |
+| CLI mode | `python3 -m bot.main --mode cli` |
+| Scan mode | One-shot market scan: `python3 -m bot.main --mode scan` |
 
 ### Developer Ecosystem
 
@@ -61,62 +56,36 @@ RUNECLAW exposes 12 internal skills that map directly to MCP tools. See [MCP Int
 |---|---|
 | Source code | [GitHub](https://github.com/metafrogmeme-droid/001) -- BUSL-1.1 (source-available) |
 | Documentation | [docs/gitbook on GitHub](https://github.com/metafrogmeme-droid/001/tree/main/docs/gitbook) |
-| Test suite | 289+ unit tests (`pytest tests/test_core.py -v`) |
+| Tests | The Python and Node suites, gated in CI (`scripts/ci_test_gate.py`; `scripts/preflight.py` runs CI's steps locally) |
 | Demo data | `demo/sample_output.json`, `demo/sample_risk_check.json`, `demo/sample_portfolio.json` |
-| Backtest engine | Synthetic data with GBM + GARCH, intrabar SL/TP/trailing stop simulation |
+| Backtest engine | Synthetic data (GBM + GARCH) and frozen recorded market datasets (`benchmark/`), with intrabar SL/TP and trailing-stop simulation |
 
 ---
 
-## Architecture Alignment with GetClaw
+## Architecture
 
 ```text
-┌─────────────────────────────────────────────────────────┐
-│ BITGET AGENT HUB │
-│ │
-│ MCP Layer ←──── RUNECLAW Tool Adapter (planned) │
-│ │ │
-│ v │
-│ ┌──────────────────────────────────────────────────┐ │
-│ │ RUNECLAW ENGINE │ │
-│ │ │ │
-│ │ ┌──────────┐ ┌──────────┐ ┌───────────────┐ │ │
-│ │ │ Scanner │ │ Analyzer │ │ Risk Engine │ │ │
-│ │ │ (Bitget) │ │ (LLM+TA) │ │ (checks) │ │ │
-│ │ └────┬─────┘ └────┬─────┘ └──────┬────────┘ │ │
-│ │ │ │ │ │ │
-│ │ v v v │ │
-│ │ ┌──────────┐ ┌──────────┐ ┌───────────────┐ │ │
-│ │ │ Macro │ │ Order │ │ Portfolio │ │ │
-│ │ │ Calendar │ │ Flow │ │ Tracker │ │ │
-│ │ └──────────┘ └──────────┘ └───────────────┘ │ │
-│ │ │ │
-│ │ FSM: IDLE → SCAN → ANALYZE → RISK → CONFIRM │ │
-│ │ → EXECUTE → MONITOR → COOL_DOWN / HALTED │ │
-│ └──────────────────────────────────────────────────┘ │
-│ │
-│ Interfaces: Telegram Bot │ CLI │ MCP (planned) │
-│ Audit: trade.jsonl │ risk.jsonl │ system.jsonl │
-└─────────────────────────────────────────────────────────┘
+ Interfaces: Telegram bot │ Website │ CLI          MCP: POST /mcp (website process)
+        │                                          read-only · Guardian · paper Arena
+        v
+ RUNECLAW ENGINE (bot process)
+   Scanner (Bitget) → Analyzer (rule engine; model read rides along)
+     → Risk engine (pre-trade gate) → Confirm → Executor
+          Executor: practice book (paper accounts) or the live venue
+   Context: macro gate · order flow · funding · portfolio tracker
+   State machine: IDLE → SCANNING → ANALYZING → RISK_CHECK → CONFIRMING
+                  → EXECUTING → MONITORING → COOLING_DOWN / HALTED
+
+ Audit: trade.jsonl │ risk.jsonl │ system.jsonl │ audit_chain.jsonl (hash-chained)
 ```
 
 ---
 
-## Roadmap: Closing the Gaps
+## Not Built
 
-| Capability | Current | Target | Priority |
-|---|---|---|---|
-| MCP tool adapter | Architecture ready, adapter not written | Full MCP tool registration on Agent Hub | High |
-| WebSocket streaming | Polling via REST | Real-time price + order book via Bitget WS | High |
-| Funding rate monitor | Not implemented | Fetch and display funding rates, alert on extremes | Medium |
-| Narrative engine | LLM thesis only | Structured crypto narrative tracking with news feed | Medium |
-| bgc CLI integration | Not implemented | `bgc runeclaw scan`, `bgc runeclaw analyze BTC` | Low |
-| Multi-exchange | Bitget only | Abstract exchange layer for ccxt-supported exchanges | Low |
-
----
-
-## Hackathon Track Alignment
-
-| Track | Alignment |
+| Capability | Today |
 |---|---|
-| **Track 1: Trading Agent** | Primary. Full autonomous trading pipeline: scan → analyze → risk → confirm → execute → monitor. |
-| **Track 2: Trading Infra** | Secondary. Modular skill registry, structured audit logging, fail-closed risk engine, extensible architecture. |
+| Agent-directory registration | MCP is served at `POST /mcp`; it is not registered with any agent directory. `/.well-known/mcp.json` and `agent_card.json` describe it. |
+| `bgc` CLI integration | Not built |
+| Narrative engine | No structured narrative or news tracking |
+| Multi-venue routing | Bitget is the default venue; Hyperliquid, Bybit and BingX are selectable with `VENUE`. Honouring a user's selected venues when routing an order is behind `MULTI_VENUE_TRADING_ENABLED` (default `false`), whose mode defaults to `shadow`: it records the routing decision and executes unchanged. |
