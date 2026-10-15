@@ -186,11 +186,14 @@ tune before launch, not a fixed parameter:
 > sale's scheduled end. One vesting exists per wallet per token, so each lock has its own wallet,
 > and only that wallet can claim; nothing can cancel or edit a lock. The tool's program is
 > **upgradeable**, by the same off-curve authority as Smithii's sale program (who can sign for it
-> is not visible), and was last deployed (2025-02-03) before its audit's fixes (April 2025), so
-> **the locks are not called audited**. Treasury, partners and the rest of the reserve are
-> **not** locked by the tool: it cannot hand a lock to a multisig, so they are to sit in the
-> multisig (not yet created), which is custody with approvals and a planned execution delay, not
-> a time lock.
+> is not visible), and was last deployed (2025-02-03) before its audit's fixes (Halborn, assessed
+> 2025-03-28 to 2025-04-02, final report 2025-04-24: one medium and one low finding, both fixed, neither in a
+> feature these locks use: multi-recipient Merkle splits and zero-amount locks), so
+> **the locks are not called audited**. The record's `smithii_audits` block lists Smithii's audits
+> with their links, and /token prints them with that qualification. Treasury, partners and the rest of the reserve are
+> **not** locked by the tool: it cannot hand a lock to a multisig, so they sit in the
+> multisig (created 2026-10-14, below), which is custody with approvals and an execution delay,
+> not a lock.
 > `token/presale/locks.plan.json` is the schedule; `npm run presale:locks-plan` prints the dates,
 > the form entries and who must hold which tokens before anything is created.
 >
@@ -201,6 +204,17 @@ tune before launch, not a fixed parameter:
 > print. `npm run presale:locks-verify` reads every lock back from the chain and compares it with
 > the plan and the record, and fails if the vesting program is redeployed or its upgrade authority
 > changes; the test suite runs the same check on a snapshot it took.
+>
+> **Multisig (2026-10-14).** The treasury, the partnerships bucket and the rest of the reserve
+> are in the vault of a Squads v4 multisig: moving tokens out, or changing its members, its
+> approvals or its delay, needs the approvals and then the time lock it enforces, and it has no
+> config authority that could change those alone. The Squads v4 program has no upgrade
+> authority. The vault, the multisig account, the approvals, the time lock and what the vault
+> holds, split into these rows, are in the token record's `multisig` block, which /token and
+> /rclaw print; `npm run presale:multisig-verify` reads them back and warns on any proposal still
+> open. The reserve row is what remained after the pool's share left with the presale tokens:
+> the RCLAW that opens the pool sits in the wallet that signed the sale's Create until the pool
+> exists.
 
 > **Venue note (2026-10-08).** The pool-sizing argument below — the F-25 decision — was forced
 > by Metaplex Genesis, whose LP token side is fixed when the bucket is created. Smithii's program
@@ -250,9 +264,9 @@ the presale price unless `--accept-below-presale` is passed, and
 **Circulating supply at TGE (approx):** the whole presale — buyers claim 100% when the sale
 ends, up to ≈ 150.0M at the hard cap — plus the pool's RCLAW (≈ 24.0M at the soft cap, ≈ 120.0M
 at the hard cap) plus the community's 5% launch tranche (12.5M): about **28% of supply at the hard cap**,
-against the ≈ 7% the 33%-unlock design gave. Team, treasury, advisors and reserve are locked at
-TGE **only once the team has created those locks**, which is not done (§11); until then one
-wallet holds them. A full **emissions / circulating-supply-over-time chart** should be
+against the ≈ 7% the 33%-unlock design gave. Community, team and advisors are in Smithii
+Vesting locks (created 2026-10-13); treasury, partnerships and the rest of the reserve are in the
+Squads multisig (2026-10-14), which delays them but does not lock them (§4, §11). A full **emissions / circulating-supply-over-time chart** should be
 published before the presale.
 
 > **Reminder:** these percentages, vesting schedules, and the total supply are a **proposed
@@ -797,7 +811,10 @@ Counsel should review the wording. The facts are measured and not negotiable.
 - [ ] **Mint authority revoked** after full supply minted (supply can never grow).
 - [ ] **Freeze authority revoked** (no wallet freezes; credibly neutral).
 - [ ] **LP permanently locked** (never-claim) or burned, with public proof.
-- [ ] **Squads multisig** treasury + **time-lock** on privileged actions; no single signer.
+- [x] **Squads multisig** treasury + **time-lock** on privileged actions; no single signer.
+      *Done 2026-10-14 for the treasury vault (the record's `multisig` block,
+      `npm run presale:multisig-verify`). The other privileged authorities below are their own
+      items.*
 - [ ] **`treasury.authority` set to the Squads vault PDA *at `presale:create`*.** This is
       immutable once `initializeV2` runs, and a review of the Genesis SDK on 2026-07-26 found
       the genesis authority is considerably more powerful than this roadmap previously
@@ -874,6 +891,9 @@ Counsel should review the wording. The facts are measured and not negotiable.
       *2026-10-13: the community, team and advisor locks (420,000,000) are created, read back
       and published (`npm run presale:locks-verify`, the record's `locks` block). The treasury,
       partners and reserve wait on the multisig, which does not exist yet.*
+      *2026-10-14: they are in the Squads multisig's vault, read back and published
+      (`npm run presale:multisig-verify`, the record's `multisig` block). The pool's RCLAW is
+      still in the wallet that signed Create, until the pool exists.*
 - [x] **`npm run presale:smithii-verify -- --authority <wallet>` passes right after Create and
       before the first phase starts.** It is the only window in which `edit` can still fix a
       wrong value, and it settles the one assumption nothing else can: that the site rounds the

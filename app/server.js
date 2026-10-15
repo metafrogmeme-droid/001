@@ -365,6 +365,8 @@ app.use('/api/signals', signalsRouter);
 app.use('/api/signal', require('./routes/signal_page'));
 // The $RCLAW record: one file in the repo, read by this route and by the bot.
 app.use('/api/token', require('./routes/token'));
+// The documentation: docs/gitbook/, the folder the README links, rendered for /docs.
+app.use('/api/docs', require('./routes/docs'));
 app.use('/api/credentials', credentialsRouter);
 app.use('/api/controls', controlsRouter);
 app.use('/api/chat', chatRouter);
@@ -518,6 +520,15 @@ app.get('/command', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); 
 app.get('/duel', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'duel.html')); });
 // /token — the $RCLAW mint, its fixed-supply facts and the presale status.
 app.get('/token', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'token.html')); });
+// /docs and /docs/<page> — one shell; docs-page.js reads the page from the path,
+// and the shell's title and canonical name the page before any script runs.
+function sendDocsShell(req, res) {
+  const shell = require('./lib/docs_pages').pageShell(req.params.slug);
+  res.setHeader('Cache-Control', 'no-cache');
+  res.status(shell.status).type('html').send(shell.html);
+}
+app.get('/docs', sendDocsShell);
+app.get('/docs/:slug', sendDocsShell);
 // Per-signal page. The id rides as ?key= so a slash in it still arrives.
 // /signal/:key remains for an id that has no slash.
 function sendSignalPage(req, res) {

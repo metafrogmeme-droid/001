@@ -150,8 +150,11 @@ test('the tool count matches what /explore actually lists', () => {
   const ex = fs.readFileSync(path.join(PUB, 'explore.html'), 'utf8');
   const { STATIC_PATHS } = require('../lib/sitemap');
   const known = new Set(STATIC_PATHS.map((s) => s.path));
+  // The docs are reached from /explore's header and footer, and they describe
+  // the tools; they are not one. Counting them would make "N tools" one too many.
+  const NOT_A_TOOL = new Set(['/docs']);
   const listed = new Set([...ex.matchAll(/href="(\/[a-z0-9-]+)"/g)]
-    .map((x) => x[1]).filter((p) => known.has(p)));
+    .map((x) => x[1]).filter((p) => known.has(p) && !NOT_A_TOOL.has(p)));
   assert.strictEqual(Number(m[1]), listed.size,
     `the landing page says ${m[1]} tools and /explore lists ${listed.size}`);
 });

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Documentation — RUNECLAW</title>
+<link rel="canonical" href="https://www.humanoid-traders.com/docs">
+<meta name="description" content="RUNECLAW’s documentation: getting started, the architecture, the commands, the risk checks, the $RCLAW token roadmap, the MCP surface and the API.">
+<meta property="og:title" content="Documentation — RUNECLAW">
+<meta property="og:site_name" content="Humanoid Traders">
+<meta property="og:description" content="RUNECLAW’s documentation: getting started, the architecture, the commands, the risk checks, the $RCLAW token roadmap, the MCP surface and the API.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.humanoid-traders.com/docs">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Documentation — RUNECLAW">
+<meta name="twitter:description" content="RUNECLAW’s documentation: getting started, the architecture, the commands, the risk checks, the $RCLAW token roadmap, the MCP surface and the API.">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#0a0b10">
+<link rel="stylesheet" href="/styles.css?v=50">
+<style>
+  /* Page-local composition only — tokens/components come from styles.css */
+  .doc-wrap { max-width: 1120px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; font-size: var(--fs-sm); }
+  .topnav a { color: var(--text-2); }
+  .doc-wrap > h1 { font-family: var(--font-display); letter-spacing: .06em; font-size: clamp(24px, 3.4vw, 34px); margin: 0 0 var(--s2); }
+  .lede { color: var(--text-2); max-width: 72ch; line-height: 1.6; margin: 0 0 var(--s4); }
+  .doc-grid { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: var(--s4); align-items: start; }
+  .doc-toc { position: sticky; top: var(--s4); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s3); font-size: var(--fs-sm); }
+  .doc-toc summary { list-style: none; cursor: pointer; margin: 0 0 var(--s2); }
+  .doc-toc summary::-webkit-details-marker { display: none; }
+  .doc-toc summary::after { content: '▾'; color: var(--text-3); margin-left: 6px; font-size: var(--fs-xs); }
+  .doc-toc details:not([open]) summary { margin: 0; }
+  .doc-toc details:not([open]) summary::after { content: '▸'; }
+  .doc-toc h2 { display: inline; font-size: var(--fs-xs); color: var(--text-3); text-transform: uppercase; letter-spacing: .1em; margin: 0; }
+  .doc-toc ol { list-style: none; margin: 0; padding: 0; }
+  .doc-toc li a { display: block; padding: 5px 8px; border-radius: 6px; color: var(--text-2); line-height: 1.35; }
+  .doc-toc li a:hover { color: var(--text); background: var(--surface-2); }
+  .doc-toc li a[aria-current="page"] { color: var(--text); background: var(--surface-2); border-left: 2px solid var(--gold); }
+  .doc-absent { margin: 0; color: var(--text-3); line-height: 1.6; }
+  .doc-page { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4) var(--s5); min-width: 0; }
+  .doc-body { line-height: 1.7; color: var(--text); overflow-wrap: anywhere; }
+  .doc-body h2 { font-family: var(--font-display); font-size: clamp(22px, 2.6vw, 28px); letter-spacing: .03em; margin: var(--s4) 0 var(--s3); }
+  .doc-body h2:first-child { margin-top: 0; }
+  .doc-body h3 { font-size: 19px; margin: var(--s5) 0 var(--s2); }
+  .doc-body hr + h3 { margin-top: 0; }
+  .doc-body h4, .doc-body h5, .doc-body h6 { font-size: 16px; margin: var(--s4) 0 var(--s2); }
+  .doc-body p, .doc-body ul, .doc-body ol, .doc-body blockquote, .doc-body pre, .doc-body .md-table { margin: 0 0 var(--s3); }
+  .doc-body ul, .doc-body ol { padding-left: 1.4em; }
+  .doc-body li { margin: 4px 0; }
+  .doc-body li > ul, .doc-body li > ol { margin: 4px 0 0; }
+  .doc-body code { font-family: var(--font-data); font-size: .88em; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+  .doc-body pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: var(--s3); overflow-x: auto; line-height: 1.5; }
+  .doc-body pre code { background: none; border: 0; padding: 0; font-size: 13px; white-space: pre; }
+  .doc-body blockquote { border-left: 3px solid var(--gold-dim); background: var(--surface-2); padding: var(--s2) var(--s3); border-radius: 0 8px 8px 0; color: var(--text-2); }
+  .doc-body blockquote > :last-child { margin-bottom: 0; }
+  .doc-body hr { border: 0; border-top: 1px solid var(--line); margin: var(--s4) 0; }
+  .doc-body img { display: block; max-width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); margin: var(--s2) 0; }
+  .doc-body .md-table { overflow-x: auto; }
+  .doc-body table { border-collapse: collapse; width: 100%; font-size: var(--fs-sm); }
+  .doc-body th, .doc-body td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  .doc-body th { background: var(--surface-2); color: var(--text-2); font-weight: 600; }
+  .doc-body .al-c { text-align: center; }
+  .doc-body .al-r { text-align: right; }
+  .doc-body .md-task { color: var(--text-3); }
+  .doc-meta { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); justify-content: space-between; border-top: 1px solid var(--line); margin-top: var(--s4); padding-top: var(--s3); font-size: var(--fs-sm); color: var(--text-3); }
+  .doc-pager { display: flex; justify-content: space-between; gap: var(--s3); margin-top: var(--s3); font-size: var(--fs-sm); }
+  .doc-pager a { color: var(--text-2); }
+  .doc-foot { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.6; border-top: 1px solid var(--line); padding-top: var(--s3); margin-top: var(--s4); }
+  @media (max-width: 820px) {
+    .doc-grid { grid-template-columns: 1fr; }
+    .doc-toc { position: static; }
+    .doc-page { padding: var(--s3); }
+  }
+</style>
+</head>
+<body>
+<div class="doc-wrap" role="main">
+  <nav class="topnav">
+    <a href="/" data-i18n="nav.back_runeclaw">← RUNECLAW</a>
+    <a href="/token" data-i18n="docs.token_link">$RCLAW token</a>
+    <span style="flex:1"></span>
+    <a href="https://t.me/HTRUNECLAW_bot" target="_blank" rel="noopener" data-i18n="nav.tg_bot">Telegram bot</a>
+  </nav>
+  <h1 data-i18n="docs.h1">Documentation</h1>
+  <p class="lede" data-i18n="docs.lede">How RUNECLAW works: getting started, the architecture, the commands, the risk checks, the $RCLAW token and the API. The same pages are in the project’s repository on GitHub.</p>
+  <div class="doc-grid">
+    <nav class="doc-toc" aria-labelledby="doc-toc-h">
+      <details id="doc-toc-d" open>
+        <summary><h2 id="doc-toc-h" data-i18n="docs.toc_h">Contents</h2></summary>
+        <div id="doc-toc"><p class="doc-absent">…</p></div>
+      </details>
+    </nav>
+    <article class="doc-page" id="doc-page" aria-live="polite"><p class="doc-absent">…</p></article>
+  </div>
+  <p class="doc-foot" data-i18n="docs.foot">Nothing in the documentation is financial advice, an offer to sell or a solicitation to buy any token.</p>
+</div>
+<script src="/js/api-retry.js?v=2"></script>
+<script src="/js/i18n-core.js?v=178"></script>
+<script src="/js/docs-page.js?v=1"></script>
+</body>
+</html>

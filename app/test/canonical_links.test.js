@@ -18,6 +18,7 @@ const FILE_FOR = {
   '/': 'index.html', '/agents': 'agents.html', '/leaderboard': 'leaderboard.html',
   '/proof': 'proof.html', '/track': 'track.html', '/letter': 'letter.html',
   '/token': 'token.html',
+  '/docs': 'docs.html',
   '/developers': 'developers.html', '/status': 'status.html', '/guardian': 'guardian.html',
   '/intent': 'intent.html', '/firewall': 'firewall.html', '/escape': 'escape.html',
   '/sentinel': 'sentinel.html', '/stress': 'stress.html', '/flight': 'flight.html',

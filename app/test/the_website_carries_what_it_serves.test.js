@@ -45,18 +45,24 @@ test('every copy under app/content is byte-identical to its original', () => {
   const lessonsInRepo = fs.readdirSync(path.join(REPO, 'docs', 'learn')).filter((f) => f.endsWith('.md'));
   assert.ok(lessonsInRepo.length >= 3);
   assert.strictEqual(pairs.filter(([src]) => src.startsWith('docs/learn/')).length, lessonsInRepo.length);
+  const docsInRepo = fs.readdirSync(path.join(REPO, 'docs', 'gitbook')).filter((f) => /\.(md|png)$/.test(f));
+  assert.ok(docsInRepo.includes('SUMMARY.md') && docsInRepo.some((f) => f.endsWith('.png')));
+  assert.strictEqual(pairs.filter(([src]) => src.startsWith('docs/gitbook/')).length, docsInRepo.length);
 });
 
 test('the drift check names a missing copy, a changed copy and a stray', () => {
   const repo = tmp('repo-');
   fs.mkdirSync(path.join(repo, 'token', 'config'), { recursive: true });
   fs.mkdirSync(path.join(repo, 'docs', 'learn'), { recursive: true });
+  fs.mkdirSync(path.join(repo, 'docs', 'gitbook'), { recursive: true });
   fs.writeFileSync(path.join(repo, 'token', 'config', 'rclaw.mainnet.json'), '{"a":1}\n');
   fs.writeFileSync(path.join(repo, 'docs', 'learn', '01-x.md'), '# X\n');
+  fs.writeFileSync(path.join(repo, 'docs', 'gitbook', 'SUMMARY.md'), '* [X](README.md)\n');
+  fs.writeFileSync(path.join(repo, 'docs', 'gitbook', 'notes.txt'), 'not served\n');
   const content = tmp('content-');
 
   const before = sync.drift({ repo, content });
-  assert.strictEqual(before.length, 2, before.join('\n'));
+  assert.strictEqual(before.length, 3, before.join('\n'));
   assert.ok(before.every((l) => l.startsWith('missing ')));
 
   sync.write({ repo, content });
@@ -64,9 +70,12 @@ test('the drift check names a missing copy, a changed copy and a stray', () => {
 
   fs.writeFileSync(path.join(content, 'rclaw.mainnet.json'), '{"a":2}\n');
   fs.writeFileSync(path.join(content, 'learn', '99-stray.md'), '# Stray\n');
+  fs.writeFileSync(path.join(content, 'docs', 'gone.md'), '# Gone\n');
+  assert.ok(!fs.existsSync(path.join(content, 'docs', 'notes.txt')), 'only .md and .png are copied');
   const after = sync.drift({ repo, content });
   assert.ok(after.some((l) => /rclaw\.mainnet\.json differs/.test(l)), after.join('\n'));
-  assert.ok(after.some((l) => /99-stray\.md has no original/.test(l)), after.join('\n'));
+  assert.ok(after.some((l) => /99-stray\.md has no original in docs\/learn/.test(l)), after.join('\n'));
+  assert.ok(after.some((l) => /docs\/gone\.md has no original in docs\/gitbook/.test(l)), after.join('\n'));
 
   sync.write({ repo, content });
   assert.deepStrictEqual(sync.drift({ repo, content }), [], 'write removes the stray too');
@@ -78,25 +87,29 @@ function appOnly({ withContent }) {
   const root = tmp('app-only-');
   const app = path.join(root, 'app');
   fs.mkdirSync(path.join(app, 'lib'), { recursive: true });
-  for (const f of ['rclaw_token.js', 'learn_lessons.js']) {
+  for (const f of ['rclaw_token.js', 'learn_lessons.js', 'docs_pages.js']) {
     fs.copyFileSync(path.join(APP, 'lib', f), path.join(app, 'lib', f));
   }
   if (withContent) fs.cpSync(path.join(APP, 'content'), path.join(app, 'content'), { recursive: true });
   return {
     rclaw: require(path.join(app, 'lib', 'rclaw_token.js')),
     lessons: require(path.join(app, 'lib', 'learn_lessons.js')),
+    docs: require(path.join(app, 'lib', 'docs_pages.js')),
   };
 }
 
-test('a deploy of app/ alone reads the token record and the lessons', () => {
-  const { rclaw, lessons } = appOnly({ withContent: true });
+test('a deploy of app/ alone reads the token record, the lessons and the docs', () => {
+  const { rclaw, lessons, docs } = appOnly({ withContent: true });
+  assert.strictEqual(docs.listPages()[0].slug, 'introduction');
   assert.strictEqual(rclaw.readRecord().mint, 'rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71qBK2CaNe');
   const n = fs.readdirSync(path.join(REPO, 'docs', 'learn')).filter((f) => f.endsWith('.md')).length;
   assert.strictEqual(lessons.listLessons().length, n);
 });
 
 test('without its content, the same deploy refuses: no record, no shelf, no empty list', () => {
-  const { rclaw, lessons } = appOnly({ withContent: false });
+  const { rclaw, lessons, docs } = appOnly({ withContent: false });
+  assert.throws(() => docs.listPages(), (e) => e.code === 'ENOENT');
+  assert.throws(() => docs.listPages(), (e) => e.code === 'ENOENT', 'a failure is not cached');
   assert.throws(() => rclaw.readRecord(), (e) => e.code === 'ENOENT' && e.name === 'Error',
     'the live 503 named the class Error: this is that read');
   assert.throws(() => lessons.listLessons(), (e) => e.code === 'ENOENT');

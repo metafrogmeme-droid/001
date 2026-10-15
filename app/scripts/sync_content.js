@@ -20,6 +20,10 @@
  * and `app/test/the_website_carries_what_it_serves.test.js` fails when one
  * differs from its original, so a record edited for the presale and not
  * synced fails CI instead of showing two mints.
+ *
+ * The documentation at /docs is the same shape: the README and the agent card
+ * link `docs/gitbook/` on GitHub, and the website serves its copy under
+ * `app/content/docs/` (`app/lib/docs_pages.js`).
  */
 
 const fs = require('node:fs');
@@ -28,12 +32,23 @@ const path = require('node:path');
 const REPO = path.join(__dirname, '..', '..');
 const CONTENT = path.join(__dirname, '..', 'content');
 
+/**
+ * The folders the website mirrors: [folder in the repo, folder under
+ * app/content, the file names it copies]. The copy of each is exact: a file
+ * the original no longer has is a stray.
+ */
+const MIRRORS = [
+  ['docs/learn', 'learn', /\.md$/],
+  ['docs/gitbook', 'docs', /\.(md|png)$/],
+];
+
 /** [source relative to the repo, copy relative to app/content]. One reading. */
 function plan({ repo = REPO } = {}) {
   const pairs = [['token/config/rclaw.mainnet.json', 'rclaw.mainnet.json']];
-  const learnDir = path.join(repo, 'docs', 'learn');
-  for (const f of fs.readdirSync(learnDir).filter((n) => n.endsWith('.md')).sort()) {
-    pairs.push([path.posix.join('docs/learn', f), path.posix.join('learn', f)]);
+  for (const [from, to, keep] of MIRRORS) {
+    for (const f of fs.readdirSync(path.join(repo, from)).filter((n) => keep.test(n)).sort()) {
+      pairs.push([path.posix.join(from, f), path.posix.join(to, f)]);
+    }
   }
   return pairs;
 }
@@ -50,21 +65,24 @@ function drift({ repo = REPO, content = CONTENT } = {}) {
     else if (!have.equals(want)) out.push(`app/content/${dst} differs from ${src}`);
   }
   const expected = new Set(pairs.map(([, dst]) => dst));
-  const learnCopies = path.join(content, 'learn');
-  let present = [];
-  try { present = fs.readdirSync(learnCopies).map((f) => path.posix.join('learn', f)); } catch (e) { present = []; }
-  for (const rel of present) {
-    if (!expected.has(rel)) out.push(`app/content/${rel} has no original in docs/learn`);
+  for (const [from, to] of MIRRORS) {
+    let present = [];
+    try { present = fs.readdirSync(path.join(content, to)).map((f) => path.posix.join(to, f)); } catch (e) { present = []; }
+    for (const rel of present) {
+      if (!expected.has(rel)) out.push(`app/content/${rel} has no original in ${from}`);
+    }
   }
   return out;
 }
 
 function write({ repo = REPO, content = CONTENT } = {}) {
   const pairs = plan({ repo });
-  fs.mkdirSync(path.join(content, 'learn'), { recursive: true });
   const expected = new Set(pairs.map(([, dst]) => dst));
-  for (const f of fs.readdirSync(path.join(content, 'learn'))) {
-    if (!expected.has(path.posix.join('learn', f))) fs.unlinkSync(path.join(content, 'learn', f));
+  for (const [, to] of MIRRORS) {
+    fs.mkdirSync(path.join(content, to), { recursive: true });
+    for (const f of fs.readdirSync(path.join(content, to))) {
+      if (!expected.has(path.posix.join(to, f))) fs.unlinkSync(path.join(content, to, f));
+    }
   }
   for (const [src, dst] of pairs) {
     fs.copyFileSync(path.join(repo, src), path.join(content, dst));

@@ -11,7 +11,7 @@
 <h5 align="center">Built for Bitget AI Base Camp · Hackathon S1 — Strategy & Risk category</h5>
 
 <p align="center">
-  <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai"><img src="https://img.shields.io/badge/Full_Documentation-%E2%86%92_GitBook-blue?style=for-the-badge&logo=gitbook&logoColor=white" alt="Full Documentation → GitBook"></a>
+  <a href="https://github.com/metafrogmeme-droid/001/tree/main/docs/gitbook"><img src="https://img.shields.io/badge/Full_Documentation-%E2%86%92_docs%2F_on_GitHub-blue?style=for-the-badge&logo=github&logoColor=white" alt="Full Documentation → docs/ on GitHub"></a>
 </p>
 
 <p align="center">
@@ -31,7 +31,7 @@
 <p align="center">
   <a href="https://github.com/metafrogmeme-droid/001">GitHub</a> &middot;
   <a href="https://www.humanoid-traders.com/">Website</a> &middot;
-  <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai">Documentation</a> &middot;
+  <a href="https://github.com/metafrogmeme-droid/001/tree/main/docs/gitbook">Documentation</a> &middot;
   <a href="https://t.me/HTRUNECLAW_bot">Live Bot</a> &middot;
   <a href="https://t.me/+VRNgsmkR5pszZTdk">Telegram</a> &middot;
   <a href="https://x.com/RUNECLAW_AI">X / Twitter</a>
@@ -77,7 +77,9 @@ The one official $RCLAW mint, on Solana: **`rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71q
 | Team & contributors | 150,000,000 | 2028-04-29 25% · 2028-10-29 25% · 2029-04-29 25% · 2029-10-29 25% | [`2iXmFjKuVe25XMPMUAkrQCBDDRrx9Qk319SFTJ7Hucuz`](https://solscan.io/account/2iXmFjKuVe25XMPMUAkrQCBDDRrx9Qk319SFTJ7Hucuz) | [certificate](https://tools.smithii.io/vesting/solana/rclaw-team) |
 | Advisors | 20,000,000 | 2027-10-29 33% · 2028-04-29 33% · 2028-10-29 34% | [`BkH2rAhRW8bx4qha8tkdDT9MiCfvu34vkQbdN616gPU8`](https://solscan.io/account/BkH2rAhRW8bx4qha8tkdDT9MiCfvu34vkQbdN616gPU8) | [certificate](https://tools.smithii.io/vesting/solana/rclaw-advisors) |
 
-Smithii can upgrade its sale and vesting programs, and no audit of the versions running is established. Each address above was read back from the chain (`npm run presale:smithii-verify`, `npm run presale:locks-verify` in `token/`). The live version is at **https://www.humanoid-traders.com/token** and in the bot (`/rclaw`). We never DM first and never ask for a seed phrase.
+**Treasury multisig** (Squads v4; that program cannot be upgraded): the vault [`G3sr3bF9RTYa8AcZVb65M78fEEPzN9YCirNyGygFCC76`](https://solscan.io/account/G3sr3bF9RTYa8AcZVb65M78fEEPzN9YCirNyGygFCC76) holds 309,997,299 RCLAW (read 2026-10-14): Treasury / DAO 200,000,000 · Partnerships & market makers 80,000,000 · Reserve / insurance fund 29,997,299. Moving tokens out, or changing these rules, needs 2 of 3 members and then a 48-hour time lock. Multisig account [`3epS2jErLKXbxJXKnsn4ziK7VEMwVi9QcKMEZR9R21mQ`](https://solscan.io/account/3epS2jErLKXbxJXKnsn4ziK7VEMwVi9QcKMEZR9R21mQ). This is custody with a delay, not a lock.
+
+Smithii's programs were audited by [Halborn](https://www.halborn.com/audits/smithii/vesting-1ae001) (Token Vesting, 2025) and by CoinFabrik ([Mantis Protocol, the sale program](https://github.com/CoinFabrik/coinfabrik-audit-reports/blob/main/Mantis/06-2024-coinfabrik-smithii_mantis_protocol_audit.pdf), 2024; [Smithii project](https://github.com/CoinFabrik/coinfabrik-audit-reports/blob/main/Mantis/05-2024-coinfabrik-smithii_project_audit.pdf), 2024). Those are audits of Smithii's code, not of RUNECLAW: Smithii can upgrade both programs, and both were last deployed before their latest audit's final report, so the code running is not shown to be the audited code. The findings Halborn's fixes closed (multi-recipient Merkle vesting splits, zero-amount locks) do not touch these locks. Each address above was read back from the chain (`npm run presale:smithii-verify`, `npm run presale:locks-verify`, `npm run presale:multisig-verify` in `token/`). The live version is at **https://www.humanoid-traders.com/token** and in the bot (`/rclaw`). We never DM first and never ask for a seed phrase.
 
 <!-- rclaw-record:end -->
 
@@ -803,7 +805,7 @@ runeclaw/
 |   |-- selftest_upgrade.py     # Self-test upgrade harness
 |   |-- (2644 total test functions across 227 files)
 |-- docs/
-|   |-- gitbook/                # Full GitBook documentation
+|   |-- gitbook/                # Full documentation (read it on GitHub)
 |   |-- SUBMISSION.md           # Hackathon submission document
 |-- demo/
 |   |-- sample_output.json      # Example trade idea

@@ -11,7 +11,7 @@
 <h5 align="center">為 Bitget AI Base Camp 打造 · Hackathon S1 — 策略與風險類別</h5>
 
 <p align="center">
-  <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai"><img src="https://img.shields.io/badge/Full_Documentation-%E2%86%92_GitBook-blue?style=for-the-badge&logo=gitbook&logoColor=white" alt="Full Documentation → GitBook"></a>
+  <a href="https://github.com/metafrogmeme-droid/001/tree/main/docs/gitbook"><img src="https://img.shields.io/badge/Full_Documentation-%E2%86%92_docs%2F_on_GitHub-blue?style=for-the-badge&logo=github&logoColor=white" alt="Full Documentation → docs/ on GitHub"></a>
 </p>
 
 <p align="center">
@@ -31,7 +31,7 @@
 <p align="center">
   <a href="https://github.com/metafrogmeme-droid/001">GitHub</a> &middot;
   <a href="https://www.humanoid-traders.com/">網站</a> &middot;
-  <a href="https://humanoid-traders-1.gitbook.io/humanoid-traders-ai">文件</a> &middot;
+  <a href="https://github.com/metafrogmeme-droid/001/tree/main/docs/gitbook">文件</a> &middot;
   <a href="https://t.me/HTRUNECLAW_bot">實機機器人</a> &middot;
   <a href="https://t.me/+VRNgsmkR5pszZTdk">Telegram</a> &middot;
   <a href="https://x.com/RUNECLAW_AI">X / Twitter</a>
@@ -76,7 +76,9 @@
 | 團隊與貢獻者 | 150,000,000 | 2028-04-29 25% · 2028-10-29 25% · 2029-04-29 25% · 2029-10-29 25% | [`2iXmFjKuVe25XMPMUAkrQCBDDRrx9Qk319SFTJ7Hucuz`](https://solscan.io/account/2iXmFjKuVe25XMPMUAkrQCBDDRrx9Qk319SFTJ7Hucuz) | [證明頁](https://tools.smithii.io/vesting/solana/rclaw-team) |
 | 顧問 | 20,000,000 | 2027-10-29 33% · 2028-04-29 33% · 2028-10-29 34% | [`BkH2rAhRW8bx4qha8tkdDT9MiCfvu34vkQbdN616gPU8`](https://solscan.io/account/BkH2rAhRW8bx4qha8tkdDT9MiCfvu34vkQbdN616gPU8) | [證明頁](https://tools.smithii.io/vesting/solana/rclaw-advisors) |
 
-Smithii 可以升級其銷售與鎖倉程式，目前運行的版本並未確認經過審計。以上每個地址都已從鏈上讀回核對（`token/` 中的 `npm run presale:smithii-verify` 與 `npm run presale:locks-verify`）。即時版本請見 **https://www.humanoid-traders.com/token** 與機器人（`/rclaw`）。我們絕不會主動私訊，也絕不會索取助記詞。
+**金庫多簽錢包**（Squads v4；該程式無法升級）：金庫帳戶 [`G3sr3bF9RTYa8AcZVb65M78fEEPzN9YCirNyGygFCC76`](https://solscan.io/account/G3sr3bF9RTYa8AcZVb65M78fEEPzN9YCirNyGygFCC76) 持有 309,997,299 RCLAW（2026-10-14 鏈上核對）：金庫／DAO 200,000,000 · 合作夥伴與做市商 80,000,000 · 儲備／保險基金 29,997,299。轉出代幣或變更這些規則，需 3 名成員中的 2 名核准，再等待 48 小時的時間鎖。多簽帳戶 [`3epS2jErLKXbxJXKnsn4ziK7VEMwVi9QcKMEZR9R21mQ`](https://solscan.io/account/3epS2jErLKXbxJXKnsn4ziK7VEMwVi9QcKMEZR9R21mQ)。這是有延遲的託管，而非鎖倉。
+
+Smithii 的程式經過 [Halborn](https://www.halborn.com/audits/smithii/vesting-1ae001)（Token Vesting，2025）與 CoinFabrik（[Mantis Protocol 銷售程式](https://github.com/CoinFabrik/coinfabrik-audit-reports/blob/main/Mantis/06-2024-coinfabrik-smithii_mantis_protocol_audit.pdf)，2024；[Smithii 專案](https://github.com/CoinFabrik/coinfabrik-audit-reports/blob/main/Mantis/05-2024-coinfabrik-smithii_project_audit.pdf)，2024）審計。這些是對 Smithii 程式碼的審計，不是對 RUNECLAW 的審計：Smithii 可以升級這兩個程式，且兩者最後一次部署都早於其最近一次審計的最終報告，因此無法證明目前運行的程式碼就是經過審計的版本。Halborn 修正所關閉的問題（多收款人 Merkle 鎖倉的分配、零代幣鎖倉）與這些鎖倉無關。以上每個地址都已從鏈上讀回核對（`token/` 中的 `npm run presale:smithii-verify`、`npm run presale:locks-verify` 與 `npm run presale:multisig-verify`）。即時版本請見 **https://www.humanoid-traders.com/token** 與機器人（`/rclaw`）。我們絕不會主動私訊，也絕不會索取助記詞。
 
 <!-- rclaw-record:end -->
 
@@ -754,7 +756,7 @@ runeclaw/
 |   |-- selftest_upgrade.py     # Self-test upgrade harness
 |   |-- (862 total test functions)
 |-- docs/
-|   |-- gitbook/                # Full GitBook documentation
+|   |-- gitbook/                # Full documentation (read it on GitHub)
 |   |-- SUBMISSION.md           # Hackathon submission document
 |-- demo/
 |   |-- sample_output.json      # Example trade idea

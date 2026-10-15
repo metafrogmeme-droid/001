@@ -26,6 +26,7 @@ const STATIC_PATHS = [
   { path: '/track', changefreq: 'weekly', priority: '0.7' },
   { path: '/letter', changefreq: 'weekly', priority: '0.6' },
   { path: '/token', changefreq: 'weekly', priority: '0.7' },
+  { path: '/docs', changefreq: 'weekly', priority: '0.7' },
   { path: '/developers', changefreq: 'monthly', priority: '0.5' },
   { path: '/status', changefreq: 'daily', priority: '0.4' },
   // Guardian — the differentiated safety suite (hub + standalone tools).

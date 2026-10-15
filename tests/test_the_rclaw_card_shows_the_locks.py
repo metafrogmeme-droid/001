@@ -12,6 +12,7 @@ page is held to as well).
 """
 from __future__ import annotations
 
+import ast
 import copy
 import json
 from pathlib import Path
@@ -25,6 +26,24 @@ from bot.token.record import load_record
 ROOT = Path(__file__).resolve().parents[1]
 CASES = json.loads((ROOT / "tests" / "fixtures" / "lock_certificate_cases.json").read_text(encoding="utf-8"))
 TELEGRAM_MAX = 4096
+
+
+def _split_at() -> int:
+    """The length at which the bot's ``_send`` splits a reply in two, read from its source.
+
+    A card under Telegram's 4,096 but over this goes out as two messages, so
+    this, not 4,096, is what "one message" means. Read by AST rather than
+    retyped, so a change to the split point moves this test with it.
+    """
+    tree = ast.parse((ROOT / "bot" / "skills" / "telegram_handler.py").read_text(encoding="utf-8"))
+    sends = [n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == "_send"]
+    assert len(sends) == 1, f"{len(sends)} _send definitions"
+    found = [n.value.value for n in ast.walk(sends[0])
+             if isinstance(n, ast.Assign) and [getattr(t, "id", None) for t in n.targets] == ["MAX_LEN"]
+             and isinstance(n.value, ast.Constant)]
+    assert len(found) == 1, f"{len(found)} MAX_LEN assignments in _send"
+    assert 0 < found[0] <= TELEGRAM_MAX
+    return found[0]
 
 
 def _record():
@@ -139,9 +158,10 @@ def test_one_unlock_of_another_shape_makes_the_list_unreadable(unlocks):
 
 
 def test_the_whole_card_fits_one_telegram_message():
-    # The card is one reply; Telegram refuses a message over 4,096 characters.
+    # The card is one reply: Telegram refuses a message over 4,096 characters,
+    # and the bot splits one over its own, lower, limit into two.
     record = _record()
-    assert len(render_token_card(record, operator=True, env_mint=None)) < TELEGRAM_MAX
+    assert len(render_token_card(record, operator=True, env_mint=None)) <= _split_at()
 
 
 def test_the_card_carries_the_locks_section_between_the_presale_and_the_warning():

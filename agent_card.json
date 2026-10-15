@@ -5,7 +5,7 @@
   "author": "Humanoid Traders",
   "license": "BUSL-1.1",
   "repository": "https://github.com/metafrogmeme-droid/001",
-  "documentation": "https://humanoid-traders-1.gitbook.io/humanoid-traders-ai",
+  "documentation": "https://github.com/metafrogmeme-droid/001/tree/main/docs/gitbook",
   "mode": "simulation",
   "capabilities": [
     "market_scan",

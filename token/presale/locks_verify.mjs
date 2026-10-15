@@ -30,12 +30,12 @@ import { makeRpc } from './smithii_verify.mjs';
 const DEFAULT_RPC = 'https://api.mainnet-beta.solana.com';
 
 /** An upgradeable program's account: tag 2, then the address of its ProgramData account. */
-function programDataAddress(buf) {
+export function programDataAddress(buf) {
   return buf.length >= 36 && buf.readUInt32LE(0) === 2 ? base58Encode(buf.subarray(4, 36)) : null;
 }
 
 /** A ProgramData account's head: tag 3, the slot it was last deployed in, then Option<upgrade authority>. */
-function programDataHead(buf) {
+export function programDataHead(buf) {
   if (buf.length < 13 || buf.readUInt32LE(0) !== 3) return null;
   const slot = Number(buf.readBigUInt64LE(4));
   const authority = buf.readUInt8(12) === 1 && buf.length >= 45 ? base58Encode(buf.subarray(13, 45)) : null;

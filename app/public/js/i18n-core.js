@@ -2215,7 +2215,33 @@
     "tok.lock_certificate": { en: "Certificate" },
     "tok.lock_none": { en: "not created yet" },
     "tok.locks_checked": { en: "Checked against the chain on" },
-    "tok.locks_body": { en: "Each lock is an account of Smithii’s Token Vesting program, which has no instruction to cancel or edit a lock: only the wallet named can claim, and only on or after each date. Smithii can upgrade that program, and no audit of the version running is established." }
+    "tok.locks_body": { en: "Each lock is an account of Smithii’s Token Vesting program, which has no instruction to cancel or edit a lock: only the wallet named can claim, and only on or after each date. Smithii can upgrade that program, and no audit of the version running is established." },
+    "tok.audits_h": { en: "Smithii’s audits" },
+    "tok.audits_body": { en: "These are audits of Smithii’s programs, not of RUNECLAW. Smithii can upgrade both programs, and both were last deployed before their latest audit’s final report: the sale program on 2024-06-29, the vesting program on 2025-02-03. So the code running is not shown to be the audited code. The findings Halborn’s fixes closed (how a multi-recipient Merkle vesting is split, a lock of zero tokens) do not touch RUNECLAW’s locks: each is one wallet, time-based and never zero. RUNECLAW’s own code has had no independent audit." },
+    "tok.ms_h": { en: "Treasury multisig" },
+    "tok.ms_holds": { en: "Holds" },
+    "tok.ms_approvals": { en: "Approvals" },
+    "tok.ms_quorum": { en: "{n} of {m} members" },
+    "tok.ms_timelock": { en: "Time lock" },
+    "tok.ms_hours": { en: "{h} hours" },
+    "tok.ms_seconds": { en: "{s} seconds" },
+    "tok.ms_no_delay": { en: "none: an approved transfer executes at once" },
+    "tok.ms_vault": { en: "Vault (holds the tokens)" },
+    "tok.ms_account": { en: "Multisig account" },
+    "tok.ms_body": { en: "The vault is held by a Squads v4 multisig. Moving tokens out of it, or changing its members, its approvals or its time lock, needs the approvals shown and then the time lock’s wait. The Squads v4 program cannot be upgraded. This is custody with a delay, not a lock: once approved and past the wait, tokens can move." },
+    "docs.h1": { en: "Documentation" },
+    "docs.lede": { en: "How RUNECLAW works: getting started, the architecture, the commands, the risk checks, the $RCLAW token and the API. The same pages are in the project’s repository on GitHub." },
+    "docs.toc_h": { en: "Contents" },
+    "docs.token_link": { en: "$RCLAW token" },
+    "docs.foot": { en: "Nothing in the documentation is financial advice, an offer to sell or a solicitation to buy any token." },
+    "docs.on_github": { en: "Read the documentation on GitHub" },
+    "docs.toc_unread": { en: "The table of contents could not be read right now." },
+    "docs.page_unread": { en: "This page could not be read right now. Try again in a minute." },
+    "docs.no_page": { en: "There is no documentation page at this address. The contents list every page." },
+    "docs.source": { en: "This page on GitHub" },
+    "docs.english": { en: "The documentation is written in English." },
+    "docs.prev": { en: "← Previous" },
+    "docs.next": { en: "Next →" }
   };
 
   // ── Split build ───────────────────────────────────────────────────────────
@@ -2227,7 +2253,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"0f526837","zh":"07770c01","pt":"7470565e","fr":"ed78de17","de":"2adfd4d1","nl":"7c813a85","ja":"95c9cfb3","ko":"2b731f2a","ru":"d965578f","tr":"9d957256","it":"9678fa8c","hi":"890fb8fa","ar":"b710459e"};
+  var CHUNKS = {"es":"0fff81ab","zh":"59e362d4","pt":"1b418b66","fr":"07d3b181","de":"0666a6f6","nl":"1801ff88","ja":"8de9141f","ko":"c81abb47","ru":"59f875d3","tr":"0757f84f","it":"f81749b3","hi":"2935218a","ar":"eab7fd6a"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

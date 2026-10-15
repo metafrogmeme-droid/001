@@ -19812,6 +19812,106 @@ itself (`scripts/red_team.py --json`). Six mutants over the X, NOTICE and red-te
 What only the operator can do is left to the operator: the repository's About box, which only GitHub's
 settings set, and the GitBook site's sync source.
 
+**THE TREASURY MULTISIG IS CUSTODY WITH A DELAY, AND "EXECUTED" ON A SCREEN WAS TWICE NOT THE PROPOSAL ASKED
+ABOUT.** On 2026-10-14 the 309,997,299 RCLAW still in the wallet that minted (treasury, partnerships and the
+reserve's remainder; the pool's share had left with the presale tokens) moved into a Squads v4 multisig
+the operator created on a phone: three member wallets, two approvals, and a time lock set by a config
+proposal. Every step was checked against the chain, not the app, and the chain disagreed three times.
+The Squads app's URL and its Receive screen show the **vault** (`["multisig", multisig, "vault", 0]`), and
+the first reading took that for the multisig; decoding the creation transaction named the multisig
+account, a different address, and a transfer to that account would be stranded, since the program signs
+only for its vaults. Then "time lock set" was a config proposal approved by two members and never
+executed: no member wallet had signed an Execute, not even a failed one, so the wallet had never sent it.
+Then "executed now" was a new proposal, a copy of the earlier one-token test send, created, approved and
+executed by mistake from the Send screen, while the time-lock proposal still sat unexecuted in the app's
+separate Config tab; the screenshot showed the Vault tab. The third Execute landed. Meanwhile the tokens
+had gone in before the delay was on, guarded for those minutes by the two approvals alone. A reply
+that says something is done is a claim about the chain, and it gets read like one.
+
+`npm run presale:multisig-verify` (`token/presale/multisig_verify.mjs`, decoders in
+`multisig_lib.mjs`) reads it back: the Squads v4 program has no upgrade authority (immutable since
+slot 302582236, unlike both Smithii programs); the multisig account is a `Multisig` owned by it, its
+threshold, its voting members (a member that keeps a seat but loses the vote turns "2 of 3" into "2 of
+2", so the set compared is the voters) and its time lock are the record's, and it has no config
+authority, the one key that could change all three alone; the record's vault is that multisig's vault
+#0; the vault's RCLAW equals the record's figure, with no delegate or close authority; and every
+proposal ever created is read, an approved one, or a draft or active one not yet stale, being a WARN
+that names it, since custody with a delay means tokens can move once one passes. A balance that differs
+from the record either way FAILS: the page prints that figure as what the vault holds, so a transfer out
+is a re-record, not a drift to tolerate. The record's `multisig` block is what /token and /rclaw print,
+and `the_record_states_the_multisig.test.mjs` replays a snapshot through the same check and breaks each
+field to see its row fail. The buckets are held to the roadmap's table: treasury and partnerships whole,
+the reserve the remainder, no more than its row.
+
+Adding the section took the /rclaw card to 4,220 characters. Its test compared the card with Telegram's
+4,096, but `_send` splits any reply over its own `MAX_LEN` of 4,000, so a card between the two passed
+and went out as two messages. The test now reads that split point out of `_send` by AST, and the card
+prints the vault and a shorter note, leaving the multisig's own account to /token and the README.
+(`token/presale/the_record_states_the_multisig.test.mjs`,
+`app/test/the_token_page_shows_the_multisig.test.js`, `tests/test_the_rclaw_card_shows_the_multisig.py`,
+`tests/test_the_readme_states_the_token_record.py`, `tests/test_the_rclaw_card_shows_the_locks.py`.
+Twenty-eight mutants over the verifier, the page, the card and both READMEs; the one that survived
+dropped the refusal of a vault token account that is not an RCLAW account the vault owns, and a test
+now names that row.)
+
+**"DOCS" LINKED A SITE THIS REPOSITORY DOES NOT PUBLISH.** Every "Docs" link (both READMEs' badge and
+header, the agent card's `documentation`, the website's header and footer on `/` and `/explore`, the
+React site's `DOCS` constant, one GitBook page) named `humanoid-traders-1.gitbook.io`, a GitBook site
+filled by a sync configured outside the repository; the previous chapter already left its sync source
+to the operator. A link is a claim about what is there, and nothing here could check that one. On
+2026-10-14 the operator asked for the docs on GitHub: every docs link now names `docs/gitbook/` in this
+repository (GitHub renders its README as the front page), the files the tests hold.
+`tests/test_public_pages_link_the_live_repository.py` refuses a GitBook site on any public surface and
+holds each docs link to that folder (five mutants, all killed). The React site's committed build
+(`website/`) was rebuilt with the link, and the first full preflight caught that it had not been: a
+change under `site/src/` is a change to `website/` too, and "The committed site is the built site" is
+the gate that says so. The folder keeps its name; the campaign drafts, the hackathon submission and
+the archived pages keep the URLs they were written with.
+
+**AN AUDIT LINK IS A CLAIM ABOUT WHICH CODE IS RUNNING, AND THIS ONE IS DATED.** On 2026-10-14 the
+operator passed on Smithii's note that its programs were audited (Halborn: Token Vesting; CoinFabrik:
+the Smithii project and the Mantis sale program) and asked for it on the site. The audits are real and
+now listed, in the record's `smithii_audits` block with each report's link and final-report date, and
+on /token and both READMEs. The note's implication, that the running programs are the audited ones, is
+not what the chain shows: the vesting program was last deployed on 2025-02-03, before Halborn's
+assessment (28 Mar–2 Apr 2025) and its fixes, and the sale program on 2024-06-29, three days before
+CoinFabrik's fix review. So the links come with one sentence saying so, and with what the fixed
+findings were: Halborn's medium and low (multi-recipient Merkle splits, zero-amount locks) concern
+features the three locks do not use. That sentence carries both deploy dates, and
+`token/presale/the_record_names_smithii_audits.test.mjs` holds it to `smithii.config.json` and
+`locks.plan.json` in all fourteen languages, and fails if either program is redeployed after its latest
+final report, so the sentence cannot outlive the fact. The first CI run on it failed `token/presale/smithii_sale.test.mjs`:
+the roadmap gave Halborn's engagement as "28 Mar–2 Apr 2025", and that guard reads every date range in
+the sale's documents as a statement of the sale window. It was right to; the dates are now written
+2025-03-28 to 2025-04-02, which no reader takes for the sale. The page links only Halborn's and CoinFabrik's
+own report pages (`app/test/the_token_page_names_smithii_audits.test.js`). The /rclaw card keeps its
+shorter note: it has no room left under the bot's split point. Ten mutants, all killed.
+
+**/DOCS SERVES THE FOLDER THE README LINKS, AND ITS TABLE OF CONTENTS IS HELD TO THE FOLDER.** On
+2026-10-14 the operator asked for the docs on the website as well as on GitHub. `/docs` and
+`/docs/<page>` now serve `docs/gitbook/` from its copy under `app/content/docs/`: the web deploy carries
+nothing beside `app/`, the record's and the lessons' finding, so `app/scripts/sync_content.js` mirrors
+folders from one table and the drift test covers this one too. `SUMMARY.md` stays the table of contents,
+as it was for GitBook, and `app/test/the_docs_page_serves_the_docs_folder.test.js` holds it and the folder
+to each other both ways: a page the table does not name is unreachable, and a page it names that the
+folder lacks would blank the docs (the route answers 503 `docs_unreadable`, never an empty list). The
+renderer (`app/lib/docs_pages.js`) is escape-first like the lessons' and prints a link only where the
+site can vouch for it: https, another page of the docs, or an image the folder carries. Any other target
+keeps its text and loses its href, and the test counts every page link and image in the sources against
+what was printed, so a page renamed without its links fails. Three defects came from looking at the
+rendered page, not from the tests. Every `/docs/<page>` carried the shell's canonical and title, telling
+a crawler and every link preview that twenty-one pages were one; the server now writes each page's
+title, canonical and og tags into the shell (an unknown page is a 404, an unreadable folder is not). On a
+phone the contents filled the first screen; they now start folded. In Arabic the English body inherited
+the page's right-to-left direction, so sentences began with their full stop and "$RCLAW" read "RCLAW$";
+the body and the contents now carry `dir="ltr" lang="en"`. A text in one language inside a page in
+another keeps its own direction, and no test that reads markup sees direction. The site's own Docs links (`/`,
+`/explore`) point at `/docs`; the READMEs, the agent card and the gateway site keep the GitHub folder,
+which every page also links as its source. The Live Market Validation page prints a backtest in dollars
+on a hypothetical $10,000 balance and screenshots that name a Bitget sub-account. Both were public on
+GitHub and GitBook already, and the page publishes them as written: a backtest's balance is not an
+account's money, and whether that page stays is the operator's call. Nineteen mutants, all killed.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -21511,7 +21611,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **492 of 1317** reach for source text through `source_scan`, `code_only`
+Driven, **492 of 1318** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 492 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
