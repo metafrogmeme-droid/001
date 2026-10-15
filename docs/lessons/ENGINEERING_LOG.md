@@ -19792,6 +19792,39 @@ print a term as written; translating them would make fourteen more copies.
 `app/test/the_token_page_names_one_mint.test.js`,
 `tests/test_the_token_card_reads_the_one_record.py`.)
 
+**THE SALE OPENED AND EVERY SURFACE STILL SAID "ANNOUNCED".** At 14:00 UTC on
+2026-10-15 the Smithii sale opened, and the home strip, the /token badge and the
+bot's /rclaw card went on saying "presale announced": the record's `status`, a
+word written on 2026-10-10 that nobody would edit at 14:00 on the day, nor at the
+close two weeks later. A status that changes on a clock is not a field to edit; it
+is a reading of the clock against the window. The record now carries the window
+Create fixed on chain (`opens_at`, `closes_at`, derived from `smithii.config.json`
+by `recordWindow` and held to it), and both readers answer announced, live or
+ended from it (`presalePhase` in `token-page.js`, `presale_phase` in
+`token_card.py`). The two languages share one table of cases
+(`tests/fixtures/presale_phase_cases.json`): the instants either side of the open
+and the close, and windows that cannot be read. An unreadable window says only
+the record's own word, "announced", which stays true of a sale that has opened,
+and states no time. The hard cap can end the sale before `closes_at`, which
+neither reader can see without the chain, so both say "or until the hard cap"
+beside the time. The home strip keeps "presale announced" in its markup, which is
+what a visitor sees if the record cannot be read; the script moves the i18n key
+with the text, so a language switch translates the sentence on screen and does not
+restore the old one.
+
+**Two tests read the real clock and broke on the first day of the sale.** One
+asserted the card said "Announced", the other that /rclaw said "Presale:
+announced"; both were true on every day the suite had run, and false from
+14:00 that day. They now pass a fixed instant before the opening, and the
+command's test holds the card to whichever phase the clock gives. This is the
+macro gate's lesson one feature over: a test whose verdict depends on the date it
+runs is a test that will fail on a date. Seventeen mutants (both readers'
+boundaries, a date that does not exist, a close at the open, the strip's key, the
+landing-page boot, the derivation), all killed.
+(`app/test/the_token_page_names_one_mint.test.js`,
+`tests/test_the_token_card_reads_the_one_record.py`,
+`token/presale/the_record_states_the_sale.test.mjs`.)
+
 **THE COMMUNITY LOCK RAN AHEAD OF ITS LINE AT EVERY STEP, AND ITS NOTE SAID ONLY AT TGE.** The
 plan of 2026-10-10 made the community lock five equal 20% steps, and its note called it "the one
 schedule that sits ABOVE the old straight line at TGE (20% against 0%)". Asked for the best

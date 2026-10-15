@@ -15,14 +15,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { loadSmithiiConfig, loadTokenRecord, recordTerms } from './smithii_lib.mjs';
+import { loadSmithiiConfig, loadTokenRecord, recordTerms, recordWindow } from './smithii_lib.mjs';
 import { launchAddress } from './smithii_verify.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const terms = (presale) => Object.fromEntries(
-  Object.entries(presale).filter(([k]) => !k.startsWith('_') && k !== 'status' && k !== 'sale_url'));
+  Object.entries(presale).filter(([k]) => !k.startsWith('_') && !['status', 'sale_url', 'opens_at', 'closes_at'].includes(k)));
 
 test('the record announces the sale with exactly the terms the config sets', () => {
   const presale = loadTokenRecord().presale;
@@ -33,6 +33,24 @@ test('the record announces the sale with exactly the terms the config sets', () 
       JSON.stringify(want, null, 2)}\nthen run node app/scripts/sync_content.js`);
   // Keys in the order the config's sentences come in: the bot prints the record in its own order.
   assert.deepEqual(Object.keys(terms(presale)), Object.keys(want));
+});
+
+test('the record carries the sale window the config sets, for the readers to say live or ended', () => {
+  // opens_at / closes_at are what the website and the bot read with the clock (presalePhase,
+  // presale_phase); the config's two instants are the ones Create fixed on chain and
+  // presale:smithii-verify read back to the minute on 2026-10-13.
+  const presale = loadTokenRecord().presale;
+  const cfg = loadSmithiiConfig();
+  const want = recordWindow(cfg);
+  assert.deepEqual({ opens_at: presale.opens_at, closes_at: presale.closes_at }, want,
+    `token/config/rclaw.mainnet.json presale window differs from smithii.config.json schedule: ${JSON.stringify(want)}`);
+  // and it follows the config, and refuses a schedule it cannot state
+  const moved = clone(cfg);
+  moved.schedule = { startUtc: '2026-11-02T10:00:00Z', endUtc: '2026-11-16T10:00:00Z' };
+  assert.deepEqual(recordWindow(moved), { opens_at: '2026-11-02T10:00:00Z', closes_at: '2026-11-16T10:00:00Z' });
+  const bad = clone(cfg);
+  bad.schedule.endUtc = '2026-10-29 14:00';
+  assert.throws(() => recordWindow(bad), /not a UTC instant/);
 });
 
 test('the sale link names the sale that was created and read back', () => {

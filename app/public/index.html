@@ -224,8 +224,11 @@
   <!-- The token announcement. Words only: the mint address, supply and the
        presale's terms live on /token, read from the one record the bot reads
        too, so this strip cannot drift from them. Its one claim, the presale's
-       status, is held to that record by the_token_page_names_one_mint.test.js. -->
-  <a class="hero-token" href="/token"><span class="hero-token-dot" aria-hidden="true"></span><span data-i18n="home.token_live">$RCLAW is live on Solana — presale announced</span> <span class="hero-token-cta" data-i18n="home.token_cta">Sale terms and the mint address →</span></a>
+       status, is held to that record by the_token_page_names_one_mint.test.js.
+       token-page.js reads the record's sale window with the clock and, once the
+       sale is live or has ended, says that instead (presalePhase); the markup's
+       sentence stays if the record cannot be read. -->
+  <a class="hero-token" href="/token"><span class="hero-token-dot" aria-hidden="true"></span><span id="hero-token-text" data-i18n="home.token_live">$RCLAW is live on Solana — presale announced</span> <span class="hero-token-cta" data-i18n="home.token_cta">Sale terms and the mint address →</span></a>
   <!-- Objection-killers right where the decision is made. All literally true and
        verifiable; no numbers, so nothing to keep fresh (and §4-safe). -->
   <ul class="trust-badges" aria-label="Why you can trust it" data-i18n-attr="aria-label:a11y.trust">
@@ -951,7 +954,8 @@
   </form>
 </section>
 
-<script src="/js/i18n-core.js?v=180"></script>
+<script src="/js/i18n-core.js?v=181"></script>
+<script src="/js/token-page.js?v=6" defer></script>
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=6"></script>
 <script src="/js/app.js?v=17"></script>

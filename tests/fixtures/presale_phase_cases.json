@@ -1,0 +1,28 @@
+{
+  "_comment": "Where an ANNOUNCED presale stands: 'announced' (before it opens), 'live' or 'ended', read from the record's opens_at / closes_at and the clock. Both readers take the same answer from these cases: the website (app/public/js/token-page.js presalePhase, app/test/the_token_page_names_one_mint.test.js) and the bot (bot/formatters/token_card.py presale_phase, tests/test_the_token_card_reads_the_one_record.py). A window that cannot be read (absent, null, not a whole UTC minute, a date that does not exist, closing before it opens) says nothing about live or ended: the phase is the record's own status, 'announced', which is true of a sale that has opened too. Any status but 'announced' has no phase (null): the reader prints that status, as it always did. The hard cap can end the sale before closes_at; neither reader can see that without the chain, so both say 'or until the hard cap' beside the time.",
+  "window": {"status": "announced", "opens_at": "2026-10-15T14:00:00Z", "closes_at": "2026-10-29T14:00:00Z"},
+  "clock": [
+    {"now": "2026-10-10T18:00:00Z", "expect": "announced"},
+    {"now": "2026-10-15T13:59:59Z", "expect": "announced"},
+    {"now": "2026-10-15T14:00:00Z", "expect": "live"},
+    {"now": "2026-10-22T09:30:00Z", "expect": "live"},
+    {"now": "2026-10-29T13:59:59Z", "expect": "live"},
+    {"now": "2026-10-29T14:00:00Z", "expect": "ended"},
+    {"now": "2027-01-01T00:00:00Z", "expect": "ended"}
+  ],
+  "unreadable_window": [
+    {"opens_at": null},
+    {"closes_at": null},
+    {"opens_at": "__absent__"},
+    {"closes_at": "__absent__"},
+    {"opens_at": "2026-10-15"},
+    {"opens_at": "2026-10-15T14:00:30Z"},
+    {"opens_at": "2026-10-15T14:00:00+00:00"},
+    {"opens_at": "2026-02-30T14:00:00Z"},
+    {"opens_at": 1792072800},
+    {"closes_at": "2026-10-15T14:00:00Z"},
+    {"closes_at": "2026-10-10T14:00:00Z"}
+  ],
+  "unreadable_now": "2026-10-22T09:30:00Z",
+  "no_phase_status": ["coming_soon", "paused_for_review", "", null, "__absent__"]
+}
