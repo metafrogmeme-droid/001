@@ -19912,6 +19912,42 @@ on a hypothetical $10,000 balance and screenshots that name a Bitget sub-account
 GitHub and GitBook already, and the page publishes them as written: a backtest's balance is not an
 account's money, and whether that page stays is the operator's call. Nineteen mutants, all killed.
 
+**A PAGE OF EVIDENCE WITH NO DATE WAS EVIDENCE OF NOTHING, AND IT DISAGREED WITH ITSELF.** On 2026-10-15 the
+operator asked to keep the Live Market Validation docs page, served since the day before at
+`/docs/live-validation`, "the best we can". Read against the repository it failed every rule this log
+records. Its stress-test screenshot said 180 runs and 855 trades beside a table that said 500 and 889; a card
+of claims had gone stale ("180 Unit Tests Passing", "Simulation-First: No Real Money" above a table that said
+live trading was enabled); the screenshot's heading named the exchange sub-account; the backtests were in
+dollars; and the page called all of it "unedited output from actual runs", with no date. The stress table
+had kept the flattering half of a sweep whose own code says the 2026-08 run had 113 of 485 runs profitable.
+The page now keeps two kinds of evidence apart: a dated snapshot (on or before 15 Jul 2026, the page's
+first commit) with the screenshot cropped to its two cards and the real-candle backtest as percentages of
+its own balance; and the stress test, re-run from `run_deep_backtest.py`. Re-running it found the audit's
+B4-09 and B4-10 still open on the record the page cites: the means folded the 85 runs that never traded in
+as 0% (a 50.9% win rate over all 500 runs, 61.3% over the 415 that traded), and nothing in the file said its
+prices were generated. Both are fixed in the script (`summarise`, `generator_params`, `provenance`), and
+`backtest_deep_results.json` is regenerated at the commit that fixed them, with `tree_clean` true. Two runs
+at two commits gave identical results for all 500 runs; the record it replaces, from an older engine, had
+8,332 trades and +2.92% where this one has 5,157 and +0.82%, which is why a figure without its commit is not
+a measurement. `tests/test_live_validation_page_states_the_recorded_sweep.py` holds the page's tables to the
+record, the record to `summarise()` over its own rows and every row to its generator parameters, and forbids
+a dollar figure in the backtest sections; `tests/test_the_deep_backtest_record_describes_itself.py` drives
+the script's three helpers. Seventeen mutants, all killed; the first round's one survivor was "Unedited"
+with a capital U, which a case-sensitive check let through.
+
+**A FOLDER PROMOTED TO A PAGE INHERITS EVERY RULE THE PAGES KEEP.** The same morning the operator opened
+`/docs` on a phone and found the docs' Quick Links sending readers to `pmvc58g2.mule.page`, the hosting
+provider's hostname, where the READMEs and every page already say www.humanoid-traders.com. The rule
+existed twice (`app/test/canonical_host.test.js` for the pages' metadata,
+`tests/test_the_readme_states_the_token_record.py` for the READMEs) and reached neither the docs folder nor
+the built site, because until 2026-10-14 the docs folder was only a GitHub folder. The front page also still
+called the project a hackathon prototype "designed for" the hackathon while the README says it began as an
+entry to it and trades live with small positions, drew "Future Bitget Execution" as the last step, and
+listed 7 of its 21 pages. `tests/test_public_pages_link_the_live_repository.py` now refuses the deployment
+host on every public surface it reads (the docs, the READMEs, the pages and the built site), holds the front
+page's list to `SUMMARY.md` in order, and holds its disclaimer to the README's word for word. When a
+surface becomes public, ask which rules the public surfaces already keep before calling it done.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
@@ -21611,7 +21647,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **492 of 1319** reach for source text through `source_scan`, `code_only`
+Driven, **492 of 1321** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 492 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

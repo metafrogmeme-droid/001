@@ -145,3 +145,40 @@ def test_every_docs_link_is_the_docs_folder_on_github():
         assert links and all(a.startswith('<a href="/docs" ') for a in links), f"{name}: {links}"
     for name in ("app/lib/docs_pages.js", "app/public/js/docs-page.js"):
         assert DOCS in (ROOT / name).read_text(encoding="utf-8"), f"{name} does not link {DOCS}"
+
+
+DEPLOY_HOST = "pmvc58g2.mule.page"
+
+
+@pytest.mark.parametrize("path", PUBLIC, ids=_rel)
+def test_no_public_page_names_the_deployment_host(path):
+    """The site's address is www.humanoid-traders.com. The hosting provider's hostname still answers (it
+    is the proxy target), but a page that links it sends readers to an address that is not the brand,
+    and the docs' Quick Links did exactly that until 2026-10-15."""
+    assert DEPLOY_HOST not in path.read_text(encoding="utf-8"), f"{_rel(path)} names {DEPLOY_HOST}"
+
+
+def _docs_entries(text: str) -> list[tuple[str, str]]:
+    return re.findall(r"^\s*[*-]\s+\[([^\]]+)\]\(([^)\s]+\.md)\)", text, re.M)
+
+
+def test_the_docs_front_page_lists_every_page_in_the_contents_order():
+    """The front page is what GitHub shows for the folder; its list named 7 of the 21 pages."""
+    folder = ROOT / "docs" / "gitbook"
+    contents = [e for e in _docs_entries((folder / "SUMMARY.md").read_text(encoding="utf-8")) if e[1] != "README.md"]
+    front = (folder / "README.md").read_text(encoding="utf-8")
+    section = front.split("## Documentation Sections", 1)[1].split("\n## ", 1)[0]
+    assert _docs_entries(section) == contents
+
+
+def test_the_docs_front_page_carries_the_readmes_disclaimer():
+    """One disclaimer, not two that drift: the docs' said "educational hackathon prototype" while the
+    README said the software trades live with small positions."""
+    def disclaimer(text: str) -> str:
+        m = re.search(r"^> \*\*DISCLAIMER:\*\*.*?(?=\n\n|\Z)", text, re.S | re.M)
+        assert m, "no disclaimer"
+        return " ".join(m.group(0).replace("> ", " ").split())
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    front = (ROOT / "docs" / "gitbook" / "README.md").read_text(encoding="utf-8")
+    assert disclaimer(front) == disclaimer(readme)
+
