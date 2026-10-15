@@ -51,6 +51,21 @@ _SEVERITY_MAP: dict[str, MacroSeverity] = {
     "FED_SPEECH": MacroSeverity.LOW,
 }
 
+#: The seed calendar's spelling of a kind, mapped onto `_SEVERITY_MAP`'s.
+#:
+#: `config/macro_calendar.seed.json`, the only calendar the engine loads, names
+#: an event's kind `type` and spells two of them `CPI_RELEASE` / `NFP_RELEASE`.
+#: `_severity_for` read `event_type` in this module's spelling, so every seed
+#: event classified LOW, whose blackout is the scheduled instant alone: driven
+#: on the shipped seed, FOMC twenty minutes out read CLEAR at full size. The
+#: seed's events are normalised onto this vocabulary once, in
+#: `_normalise_events`, so the gate and every card that prints a kind read the
+#: same word.
+_EVENT_TYPE_ALIASES: dict[str, str] = {
+    "CPI_RELEASE": "CPI",
+    "NFP_RELEASE": "NFP",
+}
+
 # ---------------------------------------------------------------------------
 # Blackout window definitions (seconds relative to event time)
 # ---------------------------------------------------------------------------
@@ -264,6 +279,9 @@ class MacroEventProvider:
         out: list[dict] = []
         for ev in raw:
             ev = dict(ev)  # shallow copy
+            etype = ev.get("event_type") or ev.get("type")
+            if isinstance(etype, str) and etype:
+                ev["event_type"] = _EVENT_TYPE_ALIASES.get(etype, etype)
             sched = ev.get("scheduled_utc")
             if isinstance(sched, str):
                 dt = datetime.fromisoformat(sched.replace("Z", "+00:00"))

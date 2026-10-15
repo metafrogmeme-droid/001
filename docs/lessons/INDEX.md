@@ -321,13 +321,14 @@ about to change before changing it.
 - L24613: THE AUDIT PRINTED A CURRENT VALUE ITS MODEL HAD NEVER BEEN TOLD — `tests/test_the_audit_is_told_the_values_in_force.py`
 - L24635: A COUNT ON THE WALL CLOCK STRADDLED A MINUTE, AND THE LIMIT IT TESTED ROUNDS UP — `app/test/request_limits_are_shared_by_every_instance.test.js`
 - L24663: A COMMITTED INPUT WAS LOOKED FOR WHEREVER THE PROCESS STOOD, AND NOT FINDING IT BLOCKED EVERY ENTRY — `tests/test_durable_paths_are_not_cwd_dependent.py`
-- L24701: A HEX DIGEST CONTAINED "127", AND THE TEST READ THAT AS THE ADDRESS CROSSING — `app/test/gateway_routes.test.js`
-- L24723: THE AUDIT WAS GIVEN A SETTING'S NUMBER AND NOT WHAT THE NUMBER WAS, AND READ IT AS THE MARKET — `tests/test_the_audit_is_told_the_values_in_force.py`
-- L24748: THE STATUS TOOL ASKED ONE SYSTEMD MANAGER, AND THE BOX RAN ITS UNITS UNDER THE OTHER — `tests/test_systemd_units_supervise.py`
-- L24773: EVERY LIVE DECISION WAS LEARNED AS A PAPER ONE, AND ITS CONFLUENCE WAS ITS CONFIDENCE AGAIN — `tests/test_a_live_decision_is_recorded_as_live.py`
-- L24815: A LIVE CALL WAS PUBLIC ON NINE DOORS, AND THE PUSH THAT SENT ITS LEVELS OUTLIVED THE SIGN-OUT — `app/test/a_live_call_is_a_members.test.js`, `app/test/a_locked_call_renders_as_locked.test.js`
-- L24883: A GROUP WAS ANSWERED AS A PRIVATE CHAT, AND ANY GROUP THE BOT WAS WRITTEN IN SUBSCRIBED ITSELF TO THE CALLS — `tests/test_a_group_reads_a_teaser.py`
-- L24947: THREE THINGS WERE CALLED A TIER, AND THE ONE THE OPERATOR SET WAS THE ONE NOTHING READ — `app/test/a_plan_card_is_the_bots_tier.test.js`, `tests/test_a_tier_buys_what_its_card_says.py`
-- L25018: ONE GROUP'S ADMIN COULD SPEAK FOR THE BOT IN EVERY GROUP, AND THE LETTER'S PUSH CARRIED THE OPERATOR'S DOLLARS TO EVERY SUBSCRIBER — `app/test/the_letter_push_names_no_dollar.test.js`, `tests/test_a_group_admin_reaches_only_their_group.py`
-- L25053: A CHANGE TO AN ACCOUNT NEVER REACHED ITS OWNER, AND THE RESEND DOOR MAILED ADDRESSES THAT CANNOT EXIST — `app/test/an_account_change_reaches_its_owner.test.js`, `app/test/the_mailer_speaks_for_its_own_domain.test.js`, `tests/test_a_website_member_hears_of_their_tier.py`
-- L25115: THE SITE SPOKE FOURTEEN LANGUAGES, AND ON A PHONE THERE WAS NO WAY TO CHOOSE ONE — `app/test/a_language_can_be_chosen_on_every_page.smoke.test.js`
+- L24701: THE SEED WAS FOUND, LOADED AND TRUSTED, AND EVERY EVENT IN IT READ AS THE LEAST SEVERE KIND — `tests/conftest.py`, `tests/test_the_macro_gate_reads_the_shipped_calendar.py`
+- L24732: A HEX DIGEST CONTAINED "127", AND THE TEST READ THAT AS THE ADDRESS CROSSING — `app/test/gateway_routes.test.js`
+- L24754: THE AUDIT WAS GIVEN A SETTING'S NUMBER AND NOT WHAT THE NUMBER WAS, AND READ IT AS THE MARKET — `tests/test_the_audit_is_told_the_values_in_force.py`
+- L24779: THE STATUS TOOL ASKED ONE SYSTEMD MANAGER, AND THE BOX RAN ITS UNITS UNDER THE OTHER — `tests/test_systemd_units_supervise.py`
+- L24804: EVERY LIVE DECISION WAS LEARNED AS A PAPER ONE, AND ITS CONFLUENCE WAS ITS CONFIDENCE AGAIN — `tests/test_a_live_decision_is_recorded_as_live.py`
+- L24846: A LIVE CALL WAS PUBLIC ON NINE DOORS, AND THE PUSH THAT SENT ITS LEVELS OUTLIVED THE SIGN-OUT — `app/test/a_live_call_is_a_members.test.js`, `app/test/a_locked_call_renders_as_locked.test.js`
+- L24914: A GROUP WAS ANSWERED AS A PRIVATE CHAT, AND ANY GROUP THE BOT WAS WRITTEN IN SUBSCRIBED ITSELF TO THE CALLS — `tests/test_a_group_reads_a_teaser.py`
+- L24978: THREE THINGS WERE CALLED A TIER, AND THE ONE THE OPERATOR SET WAS THE ONE NOTHING READ — `app/test/a_plan_card_is_the_bots_tier.test.js`, `tests/test_a_tier_buys_what_its_card_says.py`
+- L25049: ONE GROUP'S ADMIN COULD SPEAK FOR THE BOT IN EVERY GROUP, AND THE LETTER'S PUSH CARRIED THE OPERATOR'S DOLLARS TO EVERY SUBSCRIBER — `app/test/the_letter_push_names_no_dollar.test.js`, `tests/test_a_group_admin_reaches_only_their_group.py`
+- L25084: A CHANGE TO AN ACCOUNT NEVER REACHED ITS OWNER, AND THE RESEND DOOR MAILED ADDRESSES THAT CANNOT EXIST — `app/test/an_account_change_reaches_its_owner.test.js`, `app/test/the_mailer_speaks_for_its_own_domain.test.js`, `tests/test_a_website_member_hears_of_their_tier.py`
+- L25146: THE SITE SPOKE FOURTEEN LANGUAGES, AND ON A PHONE THERE WAS NO WAY TO CHOOSE ONE — `app/test/a_language_can_be_chosen_on_every_page.smoke.test.js`

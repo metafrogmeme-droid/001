@@ -1409,3 +1409,47 @@ def _contain_executor_halt_check():
     le = _sys.modules.get("bot.core.live_executor")
     if le is not None and le._HALT_CHECK is not saved:
         le.set_halt_check(saved)
+
+
+#: An instant no event in `config/macro_calendar.seed.json` is within hours of
+#: (the nearest is the CPI release fourteen and a half hours earlier).
+#: `test_the_macro_gate_reads_the_shipped_calendar.py` drives the harness's
+#: reading and asserts it is CLEAR.
+QUIET_MACRO_INSTANT = (2026, 10, 15, 4, 0)
+
+
+@pytest.fixture(autouse=True)
+def _the_shipped_macro_calendar_is_read_at_a_named_instant(monkeypatch):
+    """Read the shipped macro calendar's windows at a fixed instant, not today.
+
+    The engine builds its macro provider on `config/macro_calendar.seed.json`,
+    whose events are real FOMC, CPI and NFP releases, and the risk engine asks
+    it with no time, so it reads the wall clock. Around each release the gate
+    halves size for up to three hours and refuses entries for up to ninety
+    minutes. Any test that builds the real engine and evaluates an idea would
+    then pass on most days and fail in those hours, a verdict that depends on
+    when the suite ran; the flake filter would re-run it inside the same hour
+    and fail it again.
+
+    Only a provider on the SHIPPED seed, asked with no time, is moved. A test
+    about the windows passes `now=`, and a test that writes its own calendar
+    relative to the real clock keeps reading the real clock. Staleness and
+    blindness are decided when the calendar loads, against the real clock, and
+    are untouched.
+    """
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+
+    from bot.core import macro_events as _me
+    from bot.utils.paths import repo_path
+
+    seed = repo_path("config/macro_calendar.seed.json")
+    instant = _dt(*QUIET_MACRO_INSTANT, tzinfo=_tz.utc)
+    real = _me.MacroEventProvider._get_context_inner
+
+    def _at_the_named_instant(self, symbol, now):
+        if now is None and self._seed_path == seed:
+            now = instant
+        return real(self, symbol, now)
+
+    monkeypatch.setattr(_me.MacroEventProvider, "_get_context_inner", _at_the_named_instant)
