@@ -78,6 +78,12 @@ let _ready = false;
 let _reason = 'starting';
 let _attempts = 0;
 let _readySince = null;
+// Calls waiting for the first attempt to finish (see whenSettled).
+const _waiters = new Set();
+
+function _wake() {
+  for (const done of [..._waiters]) done();
+}
 
 /**
  * Classify a thrown value into one of REASONS. Reads ONLY the error's `code`
@@ -115,6 +121,7 @@ function markReady() {
     _readySince = new Date().toISOString();
   }
   _reason = 'ready';
+  _wake();
 }
 
 /**
@@ -128,12 +135,42 @@ function markReady() {
 function markAttemptFailed(err) {
   _attempts += 1;
   const reason = classify(err);
-  if (!_ready) _reason = reason;
+  if (!_ready) {
+    _reason = reason;
+    // A waiting call now has an answer to give: this reason, at once.
+    _wake();
+  }
   return reason;
 }
 
 function isReady() {
   return _ready;
+}
+
+/**
+ * Resolves when this instance has an answer for a call that is waiting on it:
+ * `true` once the schema is ready, `false` once an attempt has failed (the
+ * reason is no longer 'starting', it names the failure), or `false` after `ms`
+ * with the first attempt still running. Resolves at once when the first
+ * attempt has already finished either way. Never rejects.
+ *
+ * Only the not-ready gate waits on this (lib/not_ready_gate.js): a new
+ * instance holds a call for the few seconds its first check takes, rather than
+ * refusing it and leaving the page to try again.
+ */
+function whenSettled(ms) {
+  if (_ready || _reason !== 'starting') return Promise.resolve(_ready);
+  return new Promise((resolve) => {
+    let timer = null;
+    const done = () => {
+      if (!_waiters.delete(done)) return;
+      clearTimeout(timer);
+      resolve(_ready);
+    };
+    _waiters.add(done);
+    timer = setTimeout(done, ms);
+    if (timer && typeof timer.unref === 'function') timer.unref();
+  });
 }
 
 /** The public shape served by /readyz. Coarse, small, and free of internals. */
@@ -170,6 +207,7 @@ function readyzBody(snap, backendName) {
 
 /** Test seam — restores the module to its just-required state. */
 function _reset() {
+  _wake();
   _ready = false;
   _reason = 'starting';
   _attempts = 0;
@@ -178,5 +216,5 @@ function _reset() {
 
 module.exports = {
   REASONS, BACKENDS, TIMEOUT_CODE, classify, markReady, markAttemptFailed, isReady,
-  snapshot, readyzBody, _reset,
+  whenSettled, snapshot, readyzBody, _reset,
 };

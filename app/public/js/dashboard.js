@@ -11,7 +11,7 @@
   const RC = window.RC;
   const { LOGGED_IN, fetchJSON, esc, fmt, fmtMoney, fmtPrice, fmtK, signed,
           pnlClass, fmtAgo, dirChip, sanitizeBotHtml, toast, renderPanel,
-          stateBlock, mustRead, wasRead, connectStream } = RC;
+          stateBlock, sharedRead, mustRead, wasRead, connectStream } = RC;
 
   // A table cell: an idea's R:R, with what the fees leave of it under it
   // (`rrWords`, declared in the confirm-modal block below).
@@ -1126,12 +1126,12 @@
     // keeps its stale-beats-blank for the figures. Started here rather than
     // inside any one loader so no loader's failure or order decides whether
     // the others get a read.
-    const portfolioRead = LOGGED_IN ? fetchJSON('/api/portfolio', { timeoutMs: 16000 }) : null;
+    const portfolioRead = LOGGED_IN ? sharedRead(() => fetchJSON('/api/portfolio', { timeoutMs: 16000 })) : null;
     // And ONE /api/positions read, for the command bar and the positions
     // panel: two fetches of one endpoint on one screen are two answers that
     // can disagree within a single paint. Settled with null on failure so
     // the bar's omit-branch and the panel's mustRead each see the same event.
-    const positionsRead = LOGGED_IN ? fetchJSON('/api/positions', { timeoutMs: 15000 }).catch(() => null) : null;
+    const positionsRead = LOGGED_IN ? sharedRead(() => fetchJSON('/api/positions', { timeoutMs: 15000 }).catch(() => null)) : null;
     // And ONE /api/bot/sync/scan read, for every visitor: the command bar
     // takes it through getScan (omit — the cached scan on failure) and the
     // context row awaits it directly (guard — mustRead on THIS read). Settled
@@ -1139,8 +1139,8 @@
     // see one event, and adopted into the shared cache by whichever awaits
     // it first. 10000ms here, under the row's 12000ms timer — the bound the
     // budget gate cannot see from inside the loader.
-    const scanRead = fetchJSON('/api/bot/sync/scan', { timeoutMs: 10000 })
-      .catch(() => ({ ok: false, status: 0, data: null }));
+    const scanRead = sharedRead(() => fetchJSON('/api/bot/sync/scan', { timeoutMs: 10000 })
+      .catch(() => ({ ok: false, status: 0, data: null })));
 
     renderPanel(C('hero'), async () => {
       if (!LOGGED_IN) {
@@ -4610,7 +4610,7 @@
     // mustRead(null) still throws, so each panel paints its own error state.
     // BUDGET: this read asks 15000ms and is started here, before either
     // panel's timer is armed, so it is at most 15000ms into either loader.
-    const positionsRead = fetchJSON('/api/positions', { timeoutMs: 15000 }).catch(() => null);
+    const positionsRead = sharedRead(() => fetchJSON('/api/positions', { timeoutMs: 15000 }).catch(() => null));
 
     renderPanel(C('pstats'), async () => {
       const r = await fetchJSON('/api/trades/stats');
@@ -5484,8 +5484,8 @@
     // Settled with a failed-read envelope, never a rejection, and adopted
     // into the shared cache by whichever consumer awaits it first. 10000ms
     // here, under the backstop panel's 12000ms timer.
-    const scanRead = fetchJSON('/api/bot/sync/scan', { timeoutMs: 10000 })
-      .catch(() => ({ ok: false, status: 0, data: null }));
+    const scanRead = sharedRead(() => fetchJSON('/api/bot/sync/scan', { timeoutMs: 10000 })
+      .catch(() => ({ ok: false, status: 0, data: null })));
 
     renderPanel(C('eparity'), async () => {
       const rep = await getReports();

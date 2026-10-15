@@ -651,6 +651,7 @@
   ["dd.err_not_registered", "尚未在交易機器人上註冊。在 Telegram 中向它發送 /start 進行註冊。"],
   ["dd.err_bot_unlinked", "本站尚未連接交易機器人——需要操作者完成設定。"],
   ["dd.err_starting", "網站的資料庫尚未就緒，因此無法讀取此內容。請一分鐘後再試。"],
+  ["dd.err_starting_auto", "網站正在啟動。此面板稍後會自動重試。"],
   ["dd.err_operator_only", "這個面板僅限操作者帳號使用。"],
   ["dd.err_rate_limited", "目前請求過多——稍候片刻再試。"],
   ["dd.err_unreadable_body", "伺服器已回應，但內容無法讀取——請稍後重試。"],

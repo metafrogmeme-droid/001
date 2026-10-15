@@ -30,6 +30,15 @@
  * Retrying a POST is safe here because the gate refuses BEFORE any route
  * runs: the refused call did nothing. Every other response, and the last
  * "starting" one if all retries meet it too, reaches the page unchanged.
+ *
+ * A REFUSAL THE GATE HELD FIRST IS NOT RETRIED (2026-10-15). A new instance
+ * now holds a call for up to a few seconds while its first check runs
+ * (lib/not_ready_gate.js) and answers it normally once ready. If it is still
+ * not ready, the refusal carries X-RC-Starting-Held: that call has already
+ * waited, and three more tries that could each be held again would run past
+ * the time the page gives the call, so its panel would say "couldn't load"
+ * with no cause. The page gets the "starting" answer instead, while there is
+ * time to show it, and a panel retries it on its own (app.js renderPanel).
  */
 (function (root, factory) {
   const api = factory();
@@ -68,6 +77,12 @@
     return ok.some((name) => typeof globalThis[name] === 'function' && body instanceof globalThis[name]);
   }
 
+  /** The gate held this call before refusing it: it has had its wait. */
+  function wasHeld(res) {
+    return !!(res && res.headers && typeof res.headers.get === 'function'
+      && res.headers.get('X-RC-Starting-Held'));
+  }
+
   /** The gate's own answer, read from a copy so the page still gets the body. */
   async function isStarting(res) {
     if (!res || res.status !== 503) return false;
@@ -86,7 +101,7 @@
       if (!isOwnApi(input, origin) || !canSendAgain(init)) return res;
       const signal = init && init.signal;
       for (const ms of RETRY_DELAYS_MS) {
-        if (!(await isStarting(res))) return res;
+        if (wasHeld(res) || !(await isStarting(res))) return res;
         if (signal && signal.aborted) return res;
         await wait(ms);
         if (signal && signal.aborted) return res;
@@ -98,5 +113,5 @@
     return wrapped;
   }
 
-  return { wrap, isOwnApi, canSendAgain, isStarting, RETRY_DELAYS_MS };
+  return { wrap, isOwnApi, canSendAgain, isStarting, wasHeld, RETRY_DELAYS_MS };
 });

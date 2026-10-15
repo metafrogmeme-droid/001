@@ -114,6 +114,7 @@ auditConfig();
 const express = require('express');
 const { migrate, lastStatement, backend } = require('./db');
 const readiness = require('./lib/readiness');
+const { notReadyGate, holdMsFrom } = require('./lib/not_ready_gate');
 const bootLog = require('./lib/boot_log');
 const { router: authRouter } = require('./auth');
 const tradesRouter = require('./routes/trades');
@@ -326,25 +327,11 @@ app.use(express.static(path.join(__dirname, 'public'), {
 }));
 
 // ── Not-ready gate ────────────────────────────────────────────────────────
-// Until the schema is migrated, DB-backed routes must not be reached: a query
-// against an unmigrated or unreachable database produces an error, and an
-// error rendered into a panel is indistinguishable from real data meaning
-// "nothing". Refusing with an explicit 503 keeps "we cannot answer" separate
-// from "the answer is zero" — the same unreadable-is-never-zero rule the rest
-// of the codebase follows.
-//
-// Static assets are deliberately NOT gated. The marketing pages, the docs and
-// the learn pages need no database, so a database outage now degrades the site
-// instead of blacking it out.
-const DB_FREE_API = new Set(['/api/version']);
-app.use((req, res, next) => {
-  if (readiness.isReady()) return next();
-  if (!req.path.startsWith('/api/')) return next();
-  if (DB_FREE_API.has(req.path)) return next();
-  const snap = readiness.snapshot();
-  res.set('Retry-After', '15');
-  return res.status(503).json({ error: 'starting', reason: snap.reason });
-});
+// Until the schema is migrated, /api/ calls that need the database are held
+// for a new instance's first check and then refused with an explicit 503, so
+// "we cannot answer" never renders as "the answer is zero". Static assets are
+// not gated. lib/not_ready_gate.js holds the whole rule.
+app.use(notReadyGate({ readiness, holdMs: holdMsFrom(process.env) }));
 
 // API routes
 app.use('/api/auth', authRouter);

@@ -260,71 +260,72 @@ about to change before changing it.
 - L20662: AND EVERY PER-ROUTE LIMIT COUNTED PER INSTANCE, SO TWO INSTANCES MEANT TWICE THE LIMIT — `app/test/every_request_limit_has_its_own_bucket.test.js`, `app/test/request_limits_are_shared_by_every_instance.test.js`
 - L20707: A NEW INSTANCE GETS TRAFFIC BEFORE IT IS READY, SO ONE CALL IN TEN SAID "STARTING" — `app/test/the_pages_retry_the_sites_own_starting_answer.test.js`
 - L20746: THE STUCK INSTANCE WAS A CHECK THE DATABASE NEVER ANSWERED, READ AS "A TABLE IS MISSING" — `app/test/migration_ddl.test.js`
+- L20781: AN INSTANCE THAT REFUSED AT ONCE SOAKED UP THE CALLS, AND A RETRY COULD NOT REACH A SHARED READ — `app/test/a_new_instance_holds_a_call_instead_of_refusing_it.test.js`, `app/test/a_panel_waits_out_the_site_starting.smoke.test.js`
 
-## Writing tests that scan source (line 20781)
+## Writing tests that scan source (line 20826)
 
-- L21223: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
-- L21424: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
-- L21451: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
+- L21268: ONE READING, THREE READERS — `app/test/decision_court_is_reached.test.js`, `app/test/decision_court_model.test.js`, `app/test/decision_court_renders.test.js`
+- L21469: EIGHT QUANTITIES ARE CALLED "DRAWDOWN" AND SIX WERE LABELLED THE SAME
+- L21496: AND THE LABEL WOULD HAVE RENDERED ZERO TIMES, TWICE — `tests/test_prepare_web_env.py`, `tests/test_trade_live_mode.py`
 
-### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 21685)
+### Asserting a short string is ABSENT is the assertion that keeps misfiring (line 21730)
 
 
-### A module nothing calls is indistinguishable from one that does not work (line 21757)
+### A module nothing calls is indistinguishable from one that does not work (line 21802)
 
-- L22000: CHAT'S OWN DOLLAR CAP NEVER ASKED THE DAILY TOTAL — `app/test/run_on_my_bot_needs_a_rule_the_bot_runs.test.js`, `app/test/the_agents_intro_claims_only_what_a_card_carries.test.js`, `tests/test_a_chosen_side_is_enforced_at_confirm.py`, `tests/test_a_preset_the_live_bot_does_not_run_is_nobodys_strategy.py`, `tests/test_chat_spends_only_its_share_of_the_llm_budget.py`
-- L22118: THE BENCHMARK OF RECORD WAS STAMPED AT A COMMIT THAT DOES NOT EXIST — `app/test/a_drawdown_is_a_magnitude_and_a_zero_profit_factor_is_a_loss.test.js`, `tests/test_the_benchmark_record_names_a_commit_main_carries.py`, `tests/test_the_radar_doors_take_their_phrasings.py`
-- L22233: A BACKTEST COUNTED THE LADDER'S FILLS AS TRADES — `tests/test_a_backtest_counts_positions_not_fills.py`
-- L22295: A BYBIT KEY WAS CHECKED ON BYBIT'S TESTNET AND TRADED ON ITS MAINNET — `app/test/the_venue_chip_names_the_exchange.test.js`, `tests/test_a_key_is_checked_where_its_venue_trades.py`
-- L22347: "APPLYING" HAD NO AGE, AND BITGET'S REFUSALS WERE STILL JSON — `app/test/a_balances_only_venue_says_so.test.js`, `app/test/a_pending_key_says_how_long_it_has_waited.test.js`, `app/test/one_venue_s_status_never_rewrites_another.test.js`, `tests/test_a_bybit_eu_key_is_named_and_read_for_balances.py`, `tests/test_a_key_is_checked_where_its_venue_trades.py`
-- L22481: THE WEBSITE'S OWN "NOT READY" READ AS "NOT CONNECTED TO THE BOT" — `app/test/the_site_s_own_not_ready_is_not_the_bot.test.js`
-- L22503: ONE ACCOUNT, TWO EXECUTORS, AND A STOP OF 0 READ AS "NONE WANTED" — `tests/test_a_fill_with_no_stop_on_record_gets_one.py`, `tests/test_one_account_one_executor.py`
-- L22560: AND THE CLOSE IT BOOKED TWICE STAYED BOOKED TWICE — `tests/test_a_close_booked_twice_is_struck_once.py`
-- L22613: AND THE CARD COULD NOT SAY WHY IT LEFT THE OPERATOR'S OWN BOOK ALONE — `tests/test_the_link_check_says_why_it_could_not_prove.py`
-- L22642: AND THEN IT COULD NOT SAY WHOSE — `tests/test_the_link_check_reads_each_key_once.py`
-- L22678: "BALANCE: 0.00 USDT FREE" WAS A READING NOBODY MADE — `tests/test_a_key_check_never_reads_a_missing_balance_as_zero.py`, `tests/test_the_exchange_card_names_every_linked_venue.py`
-- L22696: THE KEYS CARD WAS A COPY OF THE WEBSITE'S OWN LAST ACK — `app/test/the_keys_card_shows_what_the_bot_holds.test.js`, `tests/test_the_bot_reports_the_venues_it_holds.py`
-- L22734: A SWITCH NAMED FOR STOCK TRADING TURNED NOTHING OFF — `tests/test_the_house_does_not_auto_trade_stocks.py`
-- L22764: THE SAME CARD WAS GREEN FOR AN ORDER IT DID NOT PLACE — `app/test/agent_scorecard_metrics.test.js`, `app/test/the_lab_forwards_the_cards_breaker_reset.test.js`, `tests/test_a_card_says_how_often_its_breaker_tripped.py`, `tests/test_a_replay_s_day_is_the_bar_s_day.py`, `tests/test_reproduce_in_lab_runs_the_cards_backtest.py`, `tests/test_the_autoconfirm_card_is_green_only_when_it_places.py`
+- L22045: CHAT'S OWN DOLLAR CAP NEVER ASKED THE DAILY TOTAL — `app/test/run_on_my_bot_needs_a_rule_the_bot_runs.test.js`, `app/test/the_agents_intro_claims_only_what_a_card_carries.test.js`, `tests/test_a_chosen_side_is_enforced_at_confirm.py`, `tests/test_a_preset_the_live_bot_does_not_run_is_nobodys_strategy.py`, `tests/test_chat_spends_only_its_share_of_the_llm_budget.py`
+- L22163: THE BENCHMARK OF RECORD WAS STAMPED AT A COMMIT THAT DOES NOT EXIST — `app/test/a_drawdown_is_a_magnitude_and_a_zero_profit_factor_is_a_loss.test.js`, `tests/test_the_benchmark_record_names_a_commit_main_carries.py`, `tests/test_the_radar_doors_take_their_phrasings.py`
+- L22278: A BACKTEST COUNTED THE LADDER'S FILLS AS TRADES — `tests/test_a_backtest_counts_positions_not_fills.py`
+- L22340: A BYBIT KEY WAS CHECKED ON BYBIT'S TESTNET AND TRADED ON ITS MAINNET — `app/test/the_venue_chip_names_the_exchange.test.js`, `tests/test_a_key_is_checked_where_its_venue_trades.py`
+- L22392: "APPLYING" HAD NO AGE, AND BITGET'S REFUSALS WERE STILL JSON — `app/test/a_balances_only_venue_says_so.test.js`, `app/test/a_pending_key_says_how_long_it_has_waited.test.js`, `app/test/one_venue_s_status_never_rewrites_another.test.js`, `tests/test_a_bybit_eu_key_is_named_and_read_for_balances.py`, `tests/test_a_key_is_checked_where_its_venue_trades.py`
+- L22526: THE WEBSITE'S OWN "NOT READY" READ AS "NOT CONNECTED TO THE BOT" — `app/test/the_site_s_own_not_ready_is_not_the_bot.test.js`
+- L22548: ONE ACCOUNT, TWO EXECUTORS, AND A STOP OF 0 READ AS "NONE WANTED" — `tests/test_a_fill_with_no_stop_on_record_gets_one.py`, `tests/test_one_account_one_executor.py`
+- L22605: AND THE CLOSE IT BOOKED TWICE STAYED BOOKED TWICE — `tests/test_a_close_booked_twice_is_struck_once.py`
+- L22658: AND THE CARD COULD NOT SAY WHY IT LEFT THE OPERATOR'S OWN BOOK ALONE — `tests/test_the_link_check_says_why_it_could_not_prove.py`
+- L22687: AND THEN IT COULD NOT SAY WHOSE — `tests/test_the_link_check_reads_each_key_once.py`
+- L22723: "BALANCE: 0.00 USDT FREE" WAS A READING NOBODY MADE — `tests/test_a_key_check_never_reads_a_missing_balance_as_zero.py`, `tests/test_the_exchange_card_names_every_linked_venue.py`
+- L22741: THE KEYS CARD WAS A COPY OF THE WEBSITE'S OWN LAST ACK — `app/test/the_keys_card_shows_what_the_bot_holds.test.js`, `tests/test_the_bot_reports_the_venues_it_holds.py`
+- L22779: A SWITCH NAMED FOR STOCK TRADING TURNED NOTHING OFF — `tests/test_the_house_does_not_auto_trade_stocks.py`
+- L22809: THE SAME CARD WAS GREEN FOR AN ORDER IT DID NOT PLACE — `app/test/agent_scorecard_metrics.test.js`, `app/test/the_lab_forwards_the_cards_breaker_reset.test.js`, `tests/test_a_card_says_how_often_its_breaker_tripped.py`, `tests/test_a_replay_s_day_is_the_bar_s_day.py`, `tests/test_reproduce_in_lab_runs_the_cards_backtest.py`, `tests/test_the_autoconfirm_card_is_green_only_when_it_places.py`
 
-## Deploying so a dead bot cannot look like a live one (line 22860)
+## Deploying so a dead bot cannot look like a live one (line 22905)
 
-- L23017: A PEAK WITH NO TIME BESIDE IT CANNOT SAY WHETHER TO ACT — `tests/test_phase_headroom.py`
-- L23033: THE NUDGE READ 110,529 ROWS FOR EVERY IDEA, AND THE STALL HAD NO NAME — `tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`
-- L23086: ANONYMOUS CHAT SPENT THE BUDGET SIGNED-IN CHAT ANSWERS FROM — `app/test/the_public_chat_counts_a_visitor_not_an_address.test.js`, `tests/test_anonymous_chat_cannot_spend_the_signed_in_budget.py`
-- L23118: FIVE MORE CHAT SENTENCES SAID MORE THAN WAS TRUE — `tests/test_a_failure_names_only_doors_its_surface_has.py`, `tests/test_a_public_turn_in_any_language_is_asked_for_no_levels.py`, `tests/test_the_chat_prompt_names_a_door_it_does_not_forbid.py`, `tests/test_the_public_chat_says_where_it_trades_and_who_taps.py`
-- L23162: THREE CARDS SAID MORE THAN THEY READ — `tests/test_a_group_of_closes_is_named_for_what_it_measured.py`, `tests/test_an_explanation_names_the_votes_that_drove_the_call.py`, `tests/test_the_costs_card_is_the_operators_spend_against_its_budget.py`
-- L23255: "WHY DIDN'T WE TRADE?" READ ONLY THE RISK GATE'S REFUSALS — `tests/test_why_no_trade_counts_every_analysis_by_the_stage_that_ended_it.py`
-- L23293: AND THE MARKET QUESTIONS THE ROUTER MISSES WERE ANSWERED FROM NOTHING — `tests/test_a_market_question_is_answered_from_the_engines_read.py`
-- L23319: AND THE BRIDGE'S CHAT DESCRIBED ITS OWN EMPTY ENGINE AS THE BOT — `tests/test_a_process_that_is_not_the_bot_does_not_describe_its_own_state_as_the_bots.py`
-- L23341: AND AN UNREADABLE MODEL REPLY WAS CALLED AN AMBIGUOUS MARKET — `tests/test_a_declined_analysis_names_why_it_had_no_thesis.py`
-- L23369: "72%" WAS A SCORE, AND "HIGH PROBABILITY" WAS AN UNTESTED RULE — `app/test/a_confidence_is_a_score_on_every_page.test.js`, `tests/test_a_confidence_is_a_score_not_a_probability.py`, `tests/test_a_figure_the_model_was_not_given_is_checked.py`, `tests/test_the_cheaper_tier_is_asked_by_the_same_rules.py`, `tests/test_the_critique_names_heuristics_not_probabilities.py`, `tests/test_the_critique_replay_joins_each_approval_to_its_outcome.py`
-- L23432: THE LLM CHOSE EVERY LIVE DIRECTION, AND NOTHING HAD MEASURED IT — `tests/test_the_rule_engine_decides_and_the_llm_narrates.py`
-- L23478: TEN TIMES LEVERAGE, THE SAME TRADE: AN ORDER HAS TWO LEVERAGES NOW — `app/test/a_backstop_take_profit_says_where_it_scales_out.test.js`, `tests/leverage_worlds.py`, `tests/test_ten_x_keeps_the_five_x_trade.py`, `tests/test_the_venue_take_profit_is_the_ladders_backstop.py`
+- L23062: A PEAK WITH NO TIME BESIDE IT CANNOT SAY WHETHER TO ACT — `tests/test_phase_headroom.py`
+- L23078: THE NUDGE READ 110,529 ROWS FOR EVERY IDEA, AND THE STALL HAD NO NAME — `tests/test_the_learning_nudge_reads_once_and_off_the_loop.py`
+- L23131: ANONYMOUS CHAT SPENT THE BUDGET SIGNED-IN CHAT ANSWERS FROM — `app/test/the_public_chat_counts_a_visitor_not_an_address.test.js`, `tests/test_anonymous_chat_cannot_spend_the_signed_in_budget.py`
+- L23163: FIVE MORE CHAT SENTENCES SAID MORE THAN WAS TRUE — `tests/test_a_failure_names_only_doors_its_surface_has.py`, `tests/test_a_public_turn_in_any_language_is_asked_for_no_levels.py`, `tests/test_the_chat_prompt_names_a_door_it_does_not_forbid.py`, `tests/test_the_public_chat_says_where_it_trades_and_who_taps.py`
+- L23207: THREE CARDS SAID MORE THAN THEY READ — `tests/test_a_group_of_closes_is_named_for_what_it_measured.py`, `tests/test_an_explanation_names_the_votes_that_drove_the_call.py`, `tests/test_the_costs_card_is_the_operators_spend_against_its_budget.py`
+- L23300: "WHY DIDN'T WE TRADE?" READ ONLY THE RISK GATE'S REFUSALS — `tests/test_why_no_trade_counts_every_analysis_by_the_stage_that_ended_it.py`
+- L23338: AND THE MARKET QUESTIONS THE ROUTER MISSES WERE ANSWERED FROM NOTHING — `tests/test_a_market_question_is_answered_from_the_engines_read.py`
+- L23364: AND THE BRIDGE'S CHAT DESCRIBED ITS OWN EMPTY ENGINE AS THE BOT — `tests/test_a_process_that_is_not_the_bot_does_not_describe_its_own_state_as_the_bots.py`
+- L23386: AND AN UNREADABLE MODEL REPLY WAS CALLED AN AMBIGUOUS MARKET — `tests/test_a_declined_analysis_names_why_it_had_no_thesis.py`
+- L23414: "72%" WAS A SCORE, AND "HIGH PROBABILITY" WAS AN UNTESTED RULE — `app/test/a_confidence_is_a_score_on_every_page.test.js`, `tests/test_a_confidence_is_a_score_not_a_probability.py`, `tests/test_a_figure_the_model_was_not_given_is_checked.py`, `tests/test_the_cheaper_tier_is_asked_by_the_same_rules.py`, `tests/test_the_critique_names_heuristics_not_probabilities.py`, `tests/test_the_critique_replay_joins_each_approval_to_its_outcome.py`
+- L23477: THE LLM CHOSE EVERY LIVE DIRECTION, AND NOTHING HAD MEASURED IT — `tests/test_the_rule_engine_decides_and_the_llm_narrates.py`
+- L23523: TEN TIMES LEVERAGE, THE SAME TRADE: AN ORDER HAS TWO LEVERAGES NOW — `app/test/a_backstop_take_profit_says_where_it_scales_out.test.js`, `tests/leverage_worlds.py`, `tests/test_ten_x_keeps_the_five_x_trade.py`, `tests/test_the_venue_take_profit_is_the_ladders_backstop.py`
 
-## Operational docs (line 23611)
+## Operational docs (line 23656)
 
-- L23621: THE FREEZER LOST A BAR A PAGE, AND EVERY BACKTEST READ ACROSS THE HOLE — `tests/test_a_new_position_is_marked_at_its_fill.py`, `tests/test_the_freezer_keeps_every_bar_of_every_page.py`, `tests/test_the_limit_scanner_card_says_what_runs_it.py`, `tests/test_the_limit_scanner_exits_are_its_own.py`, `tests/test_the_limit_scanner_scores_only_what_it_read.py`, `tests/test_the_scanner_backtest_rests_its_limit_from_the_next_bar.py`
-- L23775: A RULE NOTHING READ LIVE, AND FIVE DOORS THAT NAMED IT — `app/test/a_strategy_scan_shows_its_board_or_says_why.test.js`, `tests/test_each_strategy_scans_its_own_rule_now.py`, `tests/test_the_preset_list_names_doors_that_open.py`
-- L23827: THE CLOSE AND THE STOP SENT THE RECORD'S SIZE, AND THE VENUE HELD LESS — `tests/test_a_close_and_a_stop_send_what_the_venue_holds.py`, `tests/test_a_close_refused_for_size_is_flash_closed.py`, `tests/test_a_stop_refused_for_size_is_flattened.py`
-- L23922: EVERY RESTART HANDED EVERY DAILY CAP ITS WHOLE BUDGET BACK — `tests/test_the_day_s_llm_spend_outlives_a_restart.py`
-- L23950: THE PAGER'S HOLES WERE FILLED IN THEIR OWN WINDOWS, AND EVERY CARD MOVED — `app/test/a_drawdown_is_a_magnitude_and_a_zero_profit_factor_is_a_loss.test.js`, `app/test/agent_scorecard_metrics.test.js`, `app/test/an_idea_card_says_what_the_fees_leave_of_its_ratio.test.js`, `app/test/copy.test.js`, `tests/test_a_frozen_dataset_s_holes_are_filled_in_its_own_window.py`, `tests/test_a_record_is_trued_down_to_what_the_venue_holds.py`, `tests/test_an_idea_card_says_what_the_fees_leave_of_its_ratio.py`, `tests/test_every_candle_read_is_hygiened.py`, `tests/test_strategy_catalog.py`, `tests/test_the_freezer_keeps_every_bar_of_every_page.py`, `tests/test_the_offline_card_says_what_an_outage_changes.py`, `tests/test_the_public_post_says_who_decided_and_what_the_fees_leave.py`, `tests/test_the_scanner_holds_its_own_portfolio_caps.py`, `tests/test_the_website_is_sent_what_the_fees_leave_of_a_ratio.py`
-- L24206: A LIMIT THAT FILLED MID-TICK WAITED FOR THE TICK TO GET ITS STOP
-- L24254: A SECOND WRITER BETWEEN TICKS MADE FIVE SHARED READS ROUTINE — `tests/test_a_resting_fill_is_protected_between_ticks.py`, `tests/test_the_scan_lane_reads_shared_state_by_copy.py`
-- L24295: THE DUPLICATE MERGE DROPPED A REAL FILL, AND THE VENUE HELD MORE IN SILENCE — `tests/test_a_second_real_fill_is_folded_not_dropped.py`, `tests/test_one_non_fill_vocabulary.py`
-- L24355: A DETECTOR'S HAND-SET NUMBER WAS PRINTED AS A WIN RATE ON EVERY PATTERN SURFACE — `app/test/a_pattern_score_is_never_a_percent.test.js`, `tests/test_a_pattern_score_is_never_a_percent.py`
-- L24403: THE DOLLAR GUARD READ A PRICE TABLE THAT WAS WRONG BOTH WAYS AND NEVER SAW THE CACHE — `tests/test_the_cost_table_is_the_list_price_and_the_cache_is_booked.py`
-- L24474: THREE DOORS HAD THREE ANSWERS TO WHETHER A CALL WAS STILL LIVE — `app/test/a_call_is_live_only_inside_its_window.test.js`
-- L24532: THE AUDIT PRINTED A CURRENT VALUE ITS MODEL HAD NEVER BEEN TOLD — `tests/test_the_audit_is_told_the_values_in_force.py`
-- L24554: A COUNT ON THE WALL CLOCK STRADDLED A MINUTE, AND THE LIMIT IT TESTED ROUNDS UP — `app/test/request_limits_are_shared_by_every_instance.test.js`
-- L24582: A COMMITTED INPUT WAS LOOKED FOR WHEREVER THE PROCESS STOOD, AND NOT FINDING IT BLOCKED EVERY ENTRY — `tests/test_durable_paths_are_not_cwd_dependent.py`
-- L24620: A HEX DIGEST CONTAINED "127", AND THE TEST READ THAT AS THE ADDRESS CROSSING — `app/test/gateway_routes.test.js`
-- L24642: THE AUDIT WAS GIVEN A SETTING'S NUMBER AND NOT WHAT THE NUMBER WAS, AND READ IT AS THE MARKET — `tests/test_the_audit_is_told_the_values_in_force.py`
-- L24667: THE STATUS TOOL ASKED ONE SYSTEMD MANAGER, AND THE BOX RAN ITS UNITS UNDER THE OTHER — `tests/test_systemd_units_supervise.py`
-- L24692: EVERY LIVE DECISION WAS LEARNED AS A PAPER ONE, AND ITS CONFLUENCE WAS ITS CONFIDENCE AGAIN — `tests/test_a_live_decision_is_recorded_as_live.py`
-- L24734: A LIVE CALL WAS PUBLIC ON NINE DOORS, AND THE PUSH THAT SENT ITS LEVELS OUTLIVED THE SIGN-OUT — `app/test/a_live_call_is_a_members.test.js`, `app/test/a_locked_call_renders_as_locked.test.js`
-- L24802: A GROUP WAS ANSWERED AS A PRIVATE CHAT, AND ANY GROUP THE BOT WAS WRITTEN IN SUBSCRIBED ITSELF TO THE CALLS — `tests/test_a_group_reads_a_teaser.py`
-- L24866: THREE THINGS WERE CALLED A TIER, AND THE ONE THE OPERATOR SET WAS THE ONE NOTHING READ — `app/test/a_plan_card_is_the_bots_tier.test.js`, `tests/test_a_tier_buys_what_its_card_says.py`
-- L24937: ONE GROUP'S ADMIN COULD SPEAK FOR THE BOT IN EVERY GROUP, AND THE LETTER'S PUSH CARRIED THE OPERATOR'S DOLLARS TO EVERY SUBSCRIBER — `app/test/the_letter_push_names_no_dollar.test.js`, `tests/test_a_group_admin_reaches_only_their_group.py`
-- L24972: A CHANGE TO AN ACCOUNT NEVER REACHED ITS OWNER, AND THE RESEND DOOR MAILED ADDRESSES THAT CANNOT EXIST — `app/test/an_account_change_reaches_its_owner.test.js`, `app/test/the_mailer_speaks_for_its_own_domain.test.js`, `tests/test_a_website_member_hears_of_their_tier.py`
-- L25034: THE SITE SPOKE FOURTEEN LANGUAGES, AND ON A PHONE THERE WAS NO WAY TO CHOOSE ONE — `app/test/a_language_can_be_chosen_on_every_page.smoke.test.js`
+- L23666: THE FREEZER LOST A BAR A PAGE, AND EVERY BACKTEST READ ACROSS THE HOLE — `tests/test_a_new_position_is_marked_at_its_fill.py`, `tests/test_the_freezer_keeps_every_bar_of_every_page.py`, `tests/test_the_limit_scanner_card_says_what_runs_it.py`, `tests/test_the_limit_scanner_exits_are_its_own.py`, `tests/test_the_limit_scanner_scores_only_what_it_read.py`, `tests/test_the_scanner_backtest_rests_its_limit_from_the_next_bar.py`
+- L23820: A RULE NOTHING READ LIVE, AND FIVE DOORS THAT NAMED IT — `app/test/a_strategy_scan_shows_its_board_or_says_why.test.js`, `tests/test_each_strategy_scans_its_own_rule_now.py`, `tests/test_the_preset_list_names_doors_that_open.py`
+- L23872: THE CLOSE AND THE STOP SENT THE RECORD'S SIZE, AND THE VENUE HELD LESS — `tests/test_a_close_and_a_stop_send_what_the_venue_holds.py`, `tests/test_a_close_refused_for_size_is_flash_closed.py`, `tests/test_a_stop_refused_for_size_is_flattened.py`
+- L23967: EVERY RESTART HANDED EVERY DAILY CAP ITS WHOLE BUDGET BACK — `tests/test_the_day_s_llm_spend_outlives_a_restart.py`
+- L23995: THE PAGER'S HOLES WERE FILLED IN THEIR OWN WINDOWS, AND EVERY CARD MOVED — `app/test/a_drawdown_is_a_magnitude_and_a_zero_profit_factor_is_a_loss.test.js`, `app/test/agent_scorecard_metrics.test.js`, `app/test/an_idea_card_says_what_the_fees_leave_of_its_ratio.test.js`, `app/test/copy.test.js`, `tests/test_a_frozen_dataset_s_holes_are_filled_in_its_own_window.py`, `tests/test_a_record_is_trued_down_to_what_the_venue_holds.py`, `tests/test_an_idea_card_says_what_the_fees_leave_of_its_ratio.py`, `tests/test_every_candle_read_is_hygiened.py`, `tests/test_strategy_catalog.py`, `tests/test_the_freezer_keeps_every_bar_of_every_page.py`, `tests/test_the_offline_card_says_what_an_outage_changes.py`, `tests/test_the_public_post_says_who_decided_and_what_the_fees_leave.py`, `tests/test_the_scanner_holds_its_own_portfolio_caps.py`, `tests/test_the_website_is_sent_what_the_fees_leave_of_a_ratio.py`
+- L24251: A LIMIT THAT FILLED MID-TICK WAITED FOR THE TICK TO GET ITS STOP
+- L24299: A SECOND WRITER BETWEEN TICKS MADE FIVE SHARED READS ROUTINE — `tests/test_a_resting_fill_is_protected_between_ticks.py`, `tests/test_the_scan_lane_reads_shared_state_by_copy.py`
+- L24340: THE DUPLICATE MERGE DROPPED A REAL FILL, AND THE VENUE HELD MORE IN SILENCE — `tests/test_a_second_real_fill_is_folded_not_dropped.py`, `tests/test_one_non_fill_vocabulary.py`
+- L24400: A DETECTOR'S HAND-SET NUMBER WAS PRINTED AS A WIN RATE ON EVERY PATTERN SURFACE — `app/test/a_pattern_score_is_never_a_percent.test.js`, `tests/test_a_pattern_score_is_never_a_percent.py`
+- L24448: THE DOLLAR GUARD READ A PRICE TABLE THAT WAS WRONG BOTH WAYS AND NEVER SAW THE CACHE — `tests/test_the_cost_table_is_the_list_price_and_the_cache_is_booked.py`
+- L24519: THREE DOORS HAD THREE ANSWERS TO WHETHER A CALL WAS STILL LIVE — `app/test/a_call_is_live_only_inside_its_window.test.js`
+- L24577: THE AUDIT PRINTED A CURRENT VALUE ITS MODEL HAD NEVER BEEN TOLD — `tests/test_the_audit_is_told_the_values_in_force.py`
+- L24599: A COUNT ON THE WALL CLOCK STRADDLED A MINUTE, AND THE LIMIT IT TESTED ROUNDS UP — `app/test/request_limits_are_shared_by_every_instance.test.js`
+- L24627: A COMMITTED INPUT WAS LOOKED FOR WHEREVER THE PROCESS STOOD, AND NOT FINDING IT BLOCKED EVERY ENTRY — `tests/test_durable_paths_are_not_cwd_dependent.py`
+- L24665: A HEX DIGEST CONTAINED "127", AND THE TEST READ THAT AS THE ADDRESS CROSSING — `app/test/gateway_routes.test.js`
+- L24687: THE AUDIT WAS GIVEN A SETTING'S NUMBER AND NOT WHAT THE NUMBER WAS, AND READ IT AS THE MARKET — `tests/test_the_audit_is_told_the_values_in_force.py`
+- L24712: THE STATUS TOOL ASKED ONE SYSTEMD MANAGER, AND THE BOX RAN ITS UNITS UNDER THE OTHER — `tests/test_systemd_units_supervise.py`
+- L24737: EVERY LIVE DECISION WAS LEARNED AS A PAPER ONE, AND ITS CONFLUENCE WAS ITS CONFIDENCE AGAIN — `tests/test_a_live_decision_is_recorded_as_live.py`
+- L24779: A LIVE CALL WAS PUBLIC ON NINE DOORS, AND THE PUSH THAT SENT ITS LEVELS OUTLIVED THE SIGN-OUT — `app/test/a_live_call_is_a_members.test.js`, `app/test/a_locked_call_renders_as_locked.test.js`
+- L24847: A GROUP WAS ANSWERED AS A PRIVATE CHAT, AND ANY GROUP THE BOT WAS WRITTEN IN SUBSCRIBED ITSELF TO THE CALLS — `tests/test_a_group_reads_a_teaser.py`
+- L24911: THREE THINGS WERE CALLED A TIER, AND THE ONE THE OPERATOR SET WAS THE ONE NOTHING READ — `app/test/a_plan_card_is_the_bots_tier.test.js`, `tests/test_a_tier_buys_what_its_card_says.py`
+- L24982: ONE GROUP'S ADMIN COULD SPEAK FOR THE BOT IN EVERY GROUP, AND THE LETTER'S PUSH CARRIED THE OPERATOR'S DOLLARS TO EVERY SUBSCRIBER — `app/test/the_letter_push_names_no_dollar.test.js`, `tests/test_a_group_admin_reaches_only_their_group.py`
+- L25017: A CHANGE TO AN ACCOUNT NEVER REACHED ITS OWNER, AND THE RESEND DOOR MAILED ADDRESSES THAT CANNOT EXIST — `app/test/an_account_change_reaches_its_owner.test.js`, `app/test/the_mailer_speaks_for_its_own_domain.test.js`, `tests/test_a_website_member_hears_of_their_tier.py`
+- L25079: THE SITE SPOKE FOURTEEN LANGUAGES, AND ON A PHONE THERE WAS NO WAY TO CHOOSE ONE — `app/test/a_language_can_be_chosen_on_every_page.smoke.test.js`

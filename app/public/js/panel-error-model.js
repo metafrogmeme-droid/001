@@ -142,6 +142,32 @@
     fallback: 'Couldn’t load this panel.',
   };
 
+  // A NEW INSTANCE STARTING IS NOT A FAULT, AND THE PANEL WAITS IT OUT ITSELF
+  // (2026-10-15: a dashboard with "the website's database is not ready yet"
+  // on every panel and a Retry under each). The gate's `starting` refusal with
+  // reason 'starting' means this instance has not finished its first check;
+  // the next call reaches it ready, or reaches an instance that is. So the
+  // panel says it is starting and tries again by itself on this schedule,
+  // about half a minute in all, then stops and offers Retry with the plain
+  // sentence above. A db_* reason is a database that is failing, the same on
+  // every instance: no automatic retries, the sentence and Retry at once.
+  const STARTING_RETRY_MS = [2000, 4000, 8000, 16000];
+  const STARTING_AUTO = {
+    key: 'dd.err_starting_auto', action: 'retry', icon: 'icon-offline',
+    fallback: 'The website is starting up. This panel will try again by itself in a moment.',
+  };
+
+  /**
+   * When a failed panel should try again by itself: the wait in ms, or null.
+   * @param {{code?: string, reason?: string}} err
+   * @param {number} tries  automatic retries this panel has already made
+   */
+  function autoRetryDelay(err, tries) {
+    if (!err || err.code !== 'starting' || err.reason !== 'starting') return null;
+    const n = Number.isInteger(tries) && tries >= 0 ? tries : 0;
+    return n < STARTING_RETRY_MS.length ? STARTING_RETRY_MS[n] : null;
+  }
+
   /**
    * @param {{status?: number, code?: string}} err
    * @returns {{key: string, fallback: string, action: string, icon: string}}
@@ -168,5 +194,18 @@
     return typeof e === 'string' && /^[a-z][a-z0-9_]{2,39}$/.test(e) ? e : '';
   }
 
-  return { panelFailure, codeOf, BY_CODE, BY_STATUS, GENERIC };
+  /**
+   * The coarse reason the website's not-ready gate sent with `starting`, or ''.
+   * Read only for that code: it is lib/readiness.js's closed vocabulary.
+   */
+  function reasonOf(data) {
+    if (codeOf(data) !== 'starting') return '';
+    const r = data.reason;
+    return typeof r === 'string' && /^[a-z][a-z_]{2,23}$/.test(r) ? r : '';
+  }
+
+  return {
+    panelFailure, codeOf, reasonOf, autoRetryDelay,
+    BY_CODE, BY_STATUS, GENERIC, STARTING_AUTO, STARTING_RETRY_MS,
+  };
 }));

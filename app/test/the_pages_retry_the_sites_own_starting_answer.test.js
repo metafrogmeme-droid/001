@@ -160,21 +160,34 @@ test('the gate is the one place that answers starting, before any route runs', (
   }
   // Retrying a POST is safe only because nothing ran: a route that did work and
   // then answered `starting` would be run twice.
-  assert.deepStrictEqual(sites, ['server.js']);
+  assert.deepStrictEqual(sites, ['lib/not_ready_gate.js']);
   const server = codeOnly(fs.readFileSync(path.join(APP, 'server.js'), 'utf8'));
-  assert.ok(server.indexOf('const DB_FREE_API') < server.indexOf("app.use('/api/auth'"),
+  const gateAt = server.indexOf('app.use(notReadyGate(');
+  assert.ok(gateAt > 0 && gateAt < server.indexOf("app.use('/api/auth'"),
     'the gate must sit ahead of every API router');
 });
+
+/** The real gate, unheld, in a bare app with one /api/ route. */
+async function gateServer(opts = {}) {
+  const { notReadyGate } = require('../lib/not_ready_gate');
+  const readiness = require('../lib/readiness');
+  const app = express();
+  app.use(notReadyGate({ readiness, holdMs: 0, ...opts }));
+  app.get('/api/token', (req, res) => res.json({ ok: 1 }));
+  const server = http.createServer(app);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  return { server, url: `http://127.0.0.1:${server.address().port}/api/token` };
+}
 
 test('a fresh instance\'s refusal is exactly what the retry keys on', async () => {
   const readiness = require('../lib/readiness');
   readiness._reset();
-  const snap = readiness.snapshot();
-  const server = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'));
-  const code = server.match(/res\.status\(503\)\.json\(\{\s*error:\s*'([a-z_]+)',\s*reason:\s*snap\.reason\s*\}\)/);
-  assert.ok(code, 'the gate no longer answers {error, reason: snap.reason}');
-  const body = { error: code[1], reason: snap.reason };
-  assert.ok(await R.isStarting(json(503, body)), `${JSON.stringify(body)} would not be retried`);
+  const g = await gateServer();
+  try {
+    const res = await fetch(g.url);
+    assert.ok(await R.isStarting(res), `${res.status} ${await res.clone().text()} would not be retried`);
+    assert.ok(!R.wasHeld(res), 'an unheld refusal is retried by the page');
+  } finally { g.server.close(); readiness._reset(); }
 });
 
 // ── it is loaded, first, everywhere ──────────────────────────────────────

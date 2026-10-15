@@ -651,6 +651,7 @@
   ["dd.err_not_registered", "İşlem botuna henüz kayıtlı değilsiniz. Kaydolmak için Telegram’da ona /start gönderin."],
   ["dd.err_bot_unlinked", "Bu site işlem botuna bağlı değil — operatörün kurulumu tamamlaması gerekiyor."],
   ["dd.err_starting", "Web sitesinin veritabanı henüz hazır değil, bu yüzden bu okunamıyor. Bir dakika sonra yeniden deneyin."],
+  ["dd.err_starting_auto", "Web sitesi başlatılıyor. Bu panel birazdan kendiliğinden yeniden deneyecek."],
   ["dd.err_operator_only", "Bu panel yalnızca operatör hesabı içindir."],
   ["dd.err_rate_limited", "Şu anda çok fazla istek var — biraz bekleyip tekrar deneyin."],
   ["dd.err_unreadable_body", "Sunucu yanıt verdi ama yanıt okunamadı — birazdan tekrar deneyin."],

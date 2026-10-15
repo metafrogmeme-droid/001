@@ -302,6 +302,10 @@
       // js/panel-error-model.js: the code crosses the wire, the words are
       // chosen locally, and an unrecognised code still gets the old message.
       e.code = (window.PanelErrorModel ? PanelErrorModel.codeOf(r && r.data) : '');
+      // And, for the website's own not-ready answer, WHICH not-ready: a new
+      // instance starting (the panel waits it out by itself) or a database
+      // that is failing (it says so at once). See renderPanel.
+      e.reason = (window.PanelErrorModel ? PanelErrorModel.reasonOf(r && r.data) : '');
       throw e;
     }
     // A 2xx WHOSE BODY DID NOT PARSE IS A FAILED READ, and it used to be the
@@ -323,6 +327,43 @@
     }
     return r.ok ? r.data : null;
   }
+  // ── A view's one read of an endpoint, which a retry can retry ─────────
+  // A view starts ONE fetch per endpoint and hands it to every panel that
+  // shows it, so one paint cannot carry two answers. But a panel's Retry
+  // re-runs its loader, and a loader awaiting the same settled promise gets
+  // the same failure back: on the home view the Retry under a failed context
+  // row, hero or positions panel could never succeed, and neither could a
+  // panel waiting out the website's own start (renderPanel below). Awaiting
+  // this gives the read in flight or the one that was read; once a read has
+  // failed (mustRead would refuse it), the next await starts a fresh one,
+  // which the panels awaiting after it share in turn.
+  function sharedRead(start) {
+    let current = null;
+    let failed = false;
+    function begin() {
+      const p = Promise.resolve().then(start);
+      current = p;
+      failed = false;
+      p.then((r) => {
+        if (current !== p) return;
+        try { mustRead(r); } catch (_) { failed = true; }
+      }, () => { if (current === p) failed = true; });
+      return p;
+    }
+    begin();
+    const read = () => (failed ? begin() : current);
+    return {
+      then: (onRead, onError) => read().then(onRead, onError),
+      catch: (onError) => read().catch(onError),
+    };
+  }
+
+  // A panel waiting out the website's own start (PanelErrorModel
+  // .autoRetryDelay): the automatic retries each panel has made, and the one
+  // pending, so a re-render of the same panel never stacks a second.
+  const startingTries = new WeakMap();
+  const startingTimers = new WeakMap();
+
   function stateBlock({ icon = 'icon-inbox', text = null, cta = null }) {
     if (text == null) text = t('dd.nothing_here', 'Nothing here yet.');
     return `<div class="state-block">
@@ -333,6 +374,10 @@
   }
   async function renderPanel(el, loader, opts = {}) {
     if (!el) return;
+    // A render of this panel by anyone (Retry, a refresh timer, an SSE nudge)
+    // replaces an automatic retry still waiting to run.
+    const pendingRetry = startingTimers.get(el);
+    if (pendingRetry) { clearTimeout(pendingRetry); startingTimers.delete(el); }
     const { timeoutMs = 8000, empty = {} } = opts;
     // 91 of 95 panels pass no errorText, so this default IS the dashboard's
     // failure voice — it has to speak the user's language.
@@ -360,7 +405,11 @@
       // help. js/panel-error-model.js holds the closed vocabulary; anything it
       // does not recognise still lands on the generic message and Retry.
       const M = window.PanelErrorModel || null;
-      const chosen = M ? M.panelFailure(err || {}) : null;
+      // The website's own start is waited out here, by the panel, rather than
+      // left to a Retry button under a sentence that sounds like an outage.
+      const tries = startingTries.get(el) || 0;
+      const wait = (M && err && typeof M.autoRetryDelay === 'function') ? M.autoRetryDelay(err, tries) : null;
+      const chosen = wait != null ? M.STARTING_AUTO : (M ? M.panelFailure(err || {}) : null);
       // A caller-supplied errorText outranks the generic default — it is the
       // panel's own voice for an ordinary failure — but NOT a recognised
       // reason: "The news radar is unavailable right now" is worse than "your
@@ -389,10 +438,20 @@
       if (window.RCI18N) RCI18N.apply(el);
       const btn = el.querySelector('button');
       if (btn) btn.onclick = () => renderPanel(el, loader, opts);
+      if (wait != null) {
+        startingTries.set(el, tries + 1);
+        startingTimers.set(el, setTimeout(() => {
+          startingTimers.delete(el);
+          // A panel the reader has navigated away from is not fetched for.
+          if (el.isConnected) renderPanel(el, loader, opts);
+        }, wait));
+      }
     }
     try {
       const html = await loader();
       clearTimeout(timer);
+      // Read: the next start this panel meets gets its full schedule again.
+      startingTries.delete(el);
       if (timedOut && hasContent) return;
       if (html == null || html === '') {
         delete el.dataset.rcLoaded;
@@ -694,6 +753,6 @@
     TOKEN, LOGGED_IN, authHeaders, logout, hasSessionCookie, forgetStoredToken,
     fetchJSON, postWithStepUp, esc, fmt, fmtMoney, fmtPrice, fmtK, signed, pnlClass, fmtAgo,
     dirChip, sanitizeBotHtml, toast, renderPanel, stateBlock, mustRead, wasRead, connectStream,
-    modalA11y, countUp, animateCounters, revealOnScroll, syncPageIndex,
+    modalA11y, countUp, animateCounters, revealOnScroll, syncPageIndex, sharedRead,
   };
 })();

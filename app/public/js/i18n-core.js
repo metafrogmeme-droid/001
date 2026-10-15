@@ -693,6 +693,7 @@
     "dd.err_not_registered": { en: "Not registered on the trading bot yet. Send /start to it in Telegram to register." },
     "dd.err_bot_unlinked": { en: "This site is not connected to the trading bot — the operator needs to finish that setup." },
     "dd.err_starting": { en: "The website’s database is not ready yet, so this cannot be read. Try again in a minute." },
+    "dd.err_starting_auto": { en: "The website is starting up. This panel will try again by itself in a moment." },
     "dd.err_operator_only": { en: "This panel is for the operator account only." },
     "dd.err_rate_limited": { en: "Too many requests just now — wait a moment and try again." },
     "dd.err_unreadable_body": { en: "The server answered, but the reply couldn’t be read — try again in a moment." },
@@ -2253,7 +2254,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"0fff81ab","zh":"59e362d4","pt":"1b418b66","fr":"07d3b181","de":"0666a6f6","nl":"1801ff88","ja":"8de9141f","ko":"c81abb47","ru":"59f875d3","tr":"0757f84f","it":"f81749b3","hi":"2935218a","ar":"eab7fd6a"};
+  var CHUNKS = {"es":"2a25001d","zh":"5d122eed","pt":"941b3fe7","fr":"f7290efb","de":"c269ecd6","nl":"c0518e60","ja":"ee9db90b","ko":"2d688086","ru":"cbadde36","tr":"ae8e4e0b","it":"079706f8","hi":"d6a3d550","ar":"a4eb930f"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

@@ -651,6 +651,7 @@
   ["dd.err_not_registered", "Aún no estás registrado en el bot de trading. Envíale /start en Telegram para registrarte."],
   ["dd.err_bot_unlinked", "Este sitio no está conectado al bot de trading: el operador debe terminar esa configuración."],
   ["dd.err_starting", "La base de datos del sitio aún no está lista, así que esto no se puede leer. Vuelve a intentarlo en un minuto."],
+  ["dd.err_starting_auto", "El sitio se está iniciando. Este panel volverá a intentarlo por sí solo en un momento."],
   ["dd.err_operator_only", "Este panel es solo para la cuenta del operador."],
   ["dd.err_rate_limited", "Demasiadas solicitudes ahora mismo: espera un momento y vuelve a intentarlo."],
   ["dd.err_unreadable_body", "El servidor respondió, pero no se pudo leer la respuesta — reinténtalo en un momento."],

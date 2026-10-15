@@ -426,7 +426,7 @@ test('one /scan read per home render, shared by the command bar and the row, wit
   const reads = [...home.matchAll(/fetchJSON\('\/api\/bot\/sync\/scan'[^)]*\)/g)].map((m) => m[0]);
   assert.equal(reads.length, 1, `renderHome fetches /scan once, saw ${reads.length}`);
   assert.match(reads[0], /timeoutMs: 10000/);
-  assert.ok(/const scanRead = fetchJSON\('\/api\/bot\/sync\/scan'/.test(home), 'the read is the shared scanRead');
+  assert.ok(/const scanRead = sharedRead\(\(\) => fetchJSON\('\/api\/bot\/sync\/scan'/.test(home), 'the read is the shared scanRead');
   const bare = home.split('\n').filter((l) => /\bgetScan\(\)/.test(l));
   assert.ok(bare.length === 1 && /every\(60000/.test(bare[0]), `the only bare getScan() in renderHome is the minute refresh, saw ${JSON.stringify(bare)}`);
   assert.ok(/getScan\(45000, scanRead\)/.test(home), 'the command bar consumes the shared read');
@@ -454,7 +454,7 @@ test('the shell is ungated and the loader sits below the signed-in block, right 
   assert.ok(ctxAt > j, 'the loader is outside the signed-in block');
   assert.ok(ctxAt < mindAt, 'and precedes the mind-stream loader');
   // The read for it is started for every visitor, not only signed-in ones.
-  const readLine = home.split('\n').find((l) => l.includes("const scanRead = fetchJSON('/api/bot/sync/scan'"));
+  const readLine = home.split('\n').find((l) => l.includes("const scanRead = sharedRead(() => fetchJSON('/api/bot/sync/scan'"));
   assert.ok(readLine && !/LOGGED_IN/.test(readLine), 'the read is unconditional');
 });
 

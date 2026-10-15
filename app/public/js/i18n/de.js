@@ -651,6 +651,7 @@
   ["dd.err_not_registered", "Noch nicht beim Trading-Bot registriert. Sende ihm /start in Telegram, um dich zu registrieren."],
   ["dd.err_bot_unlinked", "Diese Seite ist nicht mit dem Trading-Bot verbunden — der Betreiber muss die Einrichtung abschließen."],
   ["dd.err_starting", "Die Datenbank der Website ist noch nicht bereit, daher kann dies nicht gelesen werden. Versuche es in einer Minute erneut."],
+  ["dd.err_starting_auto", "Die Website startet gerade. Dieses Panel versucht es gleich von selbst erneut."],
   ["dd.err_operator_only", "Dieses Panel ist nur für das Betreiberkonto."],
   ["dd.err_rate_limited", "Gerade zu viele Anfragen — kurz warten und erneut versuchen."],
   ["dd.err_unreadable_body", "Der Server hat geantwortet, aber die Antwort war nicht lesbar — gleich erneut versuchen."],

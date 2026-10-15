@@ -210,7 +210,7 @@ test('the home view makes ONE portfolio read and the hero and command bar consum
   const home = SRC.slice(SRC.indexOf('async function renderHome()'));
   const reads = home.match(/fetchJSON\('\/api\/portfolio'/g) || [];
   assert.equal(reads.length, 1, `renderHome fetches /api/portfolio ${reads.length} times`);
-  assert.match(home, /const portfolioRead = LOGGED_IN \? fetchJSON\('\/api\/portfolio'/);
+  assert.match(home, /const portfolioRead = LOGGED_IN \? sharedRead\(\(\) => fetchJSON\('\/api\/portfolio'/);
   assert.match(home, /getPortfolio\(true, portfolioRead\)/, 'the hero consumes the shared read');
   assert.match(home, /getPortfolio\(false, portfolioRead\)/, 'the command bar consumes the shared read');
   // getPortfolio itself still fetches when nobody hands it a read.
