@@ -87,6 +87,12 @@ def test_provenance_names_the_commit_or_says_it_could_not(script, monkeypatch):
     assert p["commit"] and len(p["commit"]) == 40
     assert p["tree_clean"] in (True, False)
 
+    def edited(args, **k):
+        out = "M run_deep_backtest.py\n" if "status" in args else "a" * 40
+        return subprocess.CompletedProcess(args, 0, stdout=out, stderr="")
+    monkeypatch.setattr(subprocess, "run", edited)
+    assert script.provenance()["tree_clean"] is False, "an edited engine or script is not the commit's result"
+
     def no_git(*a, **k):
         raise OSError("git is not installed")
     monkeypatch.setattr(subprocess, "run", no_git)
