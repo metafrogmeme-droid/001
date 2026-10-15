@@ -417,6 +417,10 @@ class CallbackHandler:
         if not self._limiter.allow(uid):
             return  # rate limited
 
+        # A button is a door too: a newcomer tapping one on a forwarded card is
+        # admitted to paper like any other first touch (PAPER_AUTO_ACCEPT).
+        if not self._check_auth(update) and self._admit_newcomer(update):
+            pass
         if not self._check_auth(update):
             # "Your account is not linked. Use /start to register." was wrong
             # for the common case: they usually ARE registered — /start created
@@ -497,8 +501,8 @@ class CallbackHandler:
                 f"✅ <b>{html.escape(_target.get('name') or 'User')}</b> "
                 f"(<code>{target_id}</code>) is in — role <code>trader</code>, "
                 f"paper trading.\n"
-                f"<i>Live trading is separate: it still needs the env "
-                f"allowlist.</i>", edit=True)
+                f"<i>Live trading is a separate permission; this does not "
+                f"grant it.</i>", edit=True)
             try:
                 await ctx.bot.send_message(
                     chat_id=int(target_id),

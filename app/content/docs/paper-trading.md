@@ -6,7 +6,7 @@ RUNECLAW keeps a practice (paper) book for each person. A practice book is a sim
 
 At every confirm the engine asks one question, `RuneClawEngine.confirm_is_practice(user_id)`. It answers yes for:
 
-- **A self-admitted account.** While `PAPER_AUTO_ACCEPT` is on (the default), a newcomer is admitted with the `paper` role on their first command. Every confirm they make opens on their own practice book until an admin vouches for them with `/approve`, whatever keys they link and whatever the live flags say.
+- **A self-admitted account.** While `PAPER_AUTO_ACCEPT` is on (the default), a newcomer is admitted with the `paper` role on first contact (any message, `/start` included). Every confirm they make opens on their own practice book until an admin vouches for them with `/approve`, whatever keys they link and whatever the live flags say.
 - **A practice opt-in.** When `PAPER_SIM_OPT_IN_ENABLED` is on (default off), any account can send `/paper on` to have its own confirms simulated on its practice book, and `/paper off` to stop.
 
 Every other confirm is a live order or nothing:
@@ -103,7 +103,7 @@ Where you see it: `/portfolio`, `/positions`, `/risk`, `/performance`, `/daily_r
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PAPER_BALANCE_USD` | 10000 | Starting cash of each new practice book |
-| `PAPER_AUTO_ACCEPT` | true | A newcomer is admitted as `paper` on their first command, and their confirms open on their practice book |
+| `PAPER_AUTO_ACCEPT` | true | A newcomer is admitted as `paper` on first contact (any message, `/start` included), and their confirms open on their practice book |
 | `PAPER_SIM_OPT_IN_ENABLED` | false | Lets an account use `/paper on` to simulate its own confirms |
 | `COMMISSION_PCT` | 0.06 | Fee charged at close on the entry and the exit notional, in percent |
 | `SIZING_LEVERAGE` | 5 | The leverage a practice position is sized and held at |

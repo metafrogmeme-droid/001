@@ -197,6 +197,11 @@ class StartCommands:
         # A welcome that promises what the following tap refuses is the reason
         # people concluded the bot was broken and left. Check the same gate the
         # commands check, and say the same thing about it.
+        # Paper is open to a newcomer when PAPER_AUTO_ACCEPT is on: /start is
+        # the first thing most people send, and it used to be the one door
+        # that turned them away while /scan a moment later let them in.
+        if self._admit_newcomer(update):
+            record = self.users.get(tg_id) or record
         _access = self._access_state(tg_id)
         if _access == "needs_approval" or not record.get("authorized", False):
             from bot.formatters.onboarding import welcome_notice
@@ -433,6 +438,12 @@ class StartCommands:
         if not self._limiter.allow(uid):
             return  # rate limited
         tg_id = self._get_tg_id(update)
+        # A newcomer whose first command is /help is admitted to paper the same
+        # way /start and every guarded command admits them (PAPER_AUTO_ACCEPT),
+        # so the catalogue they read is the one they can use.
+        _was_new = self.users.get(tg_id) is None
+        if self._admit_newcomer(update) and _was_new and self.users.get(tg_id):
+            self._seed_lang_from_telegram(update, tg_id)
         is_auth = self.users.is_authorized(tg_id)
         user = self.users.get(tg_id)
         role = user.get("role", "pending") if user else "pending"

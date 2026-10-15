@@ -4051,6 +4051,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                      if update.effective_user else "")
             self.users.register(tg_id, name=_name)
             self._seed_lang_from_telegram(update, tg_id)
+            self._admit_newcomer(update)
             from bot.formatters.onboarding import welcome_notice
             access = self._access_state(tg_id)
             notified = False
@@ -4078,7 +4079,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         # Free text skipped the gate every command enforces, so a stranger the
         # bot refused for /scan could still hold an LLM conversation on the
         # operator's API key — the F-2 lockdown with one door left open.
-        if not self._is_allowlisted(update):
+        if not self._admit_newcomer(update):
             from bot.formatters.onboarding import access_denied_notice
             notified = await self._request_operator_admission(
                 tg_id, user.get("name", ""), ctx)
@@ -5265,6 +5266,54 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             return "granted"
         return "needs_approval"
 
+    def _admit_for_paper(self, tg_id: str, name: str = "") -> bool:
+        """Admit a newcomer to PAPER trading when PAPER_AUTO_ACCEPT is on.
+
+        True when the caller passes the allowlist gate afterwards: they were
+        already in (env allowlist, an admin's /approve, an earlier
+        self-admission), the bot has no allowlist at all, or this call admitted
+        them. False when the flag is off or the admission was refused.
+
+        THE ONE DOOR. Self-admission used to happen inside `_guard` alone, so a
+        newcomer whose first touch was /start, /help, a plain message or a
+        button was told "this bot admits people by hand" and the operator was
+        paged, while the same person typing /scan a moment later was let in
+        with nobody asked. The website's gateway refused a Telegram-linked
+        account outright. Every one of those doors now asks this function, so
+        "is paper open to a stranger" has one answer.
+
+        What it grants is what `_guard` always granted: role
+        ``SELF_ADMISSION_ROLE`` (paper: no /halt, /reset, /mode or /stake) and
+        ``admitted_by=SELF_ADMISSION_BY``, never an admin's id. Live trading is
+        a separate authority (`_can_trade_live`) a self-admitted account cannot
+        satisfy, and its confirms are practice fills. `UserStore.authorize`
+        refuses a revoked record on this path, so an admin's /revoke holds.
+        """
+        allow = self._allowlist_ids()
+        if not allow or tg_id in allow or self.users.is_admitted(tg_id):
+            return True
+        if not getattr(CONFIG, "paper_auto_accept", False):
+            return False
+        if not self.users.get(tg_id):
+            self.users.register(tg_id, name=name)
+        self.users.authorize(tg_id, role=SELF_ADMISSION_ROLE, by=SELF_ADMISSION_BY)
+        if self.users.is_admitted(tg_id):
+            return True
+        system_log.warning("Paper auto-accept did not take for %s", tg_id)
+        return False
+
+    def _admit_newcomer(self, update: Update) -> bool:
+        """`_admit_for_paper` for a door that is not a command: /start, /help,
+        a first message, a button. Only in a private chat. A group is a public
+        room (bot/skills/public_room.py), where talking registers nobody and
+        enrols nothing, so there the answer is the gate as it stands."""
+        from bot.skills.public_room import is_public_room
+        if is_public_room(update):
+            return self._is_allowlisted(update)
+        name = (update.effective_user.first_name
+                if getattr(update, "effective_user", None) else "")
+        return self._admit_for_paper(self._get_tg_id(update), name or "")
+
     async def _request_operator_admission(self, tg_id: str, name: str,
                                           ctx) -> bool:
         """Ping the operator that someone was turned away. True if it landed.
@@ -5609,14 +5658,10 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # because `register()` could not name an approver, and a door that
             # forges one would be worse than the hole it replaced. /users still
             # shows who a human vouched for — and now the role column does too.
-            if getattr(CONFIG, "paper_auto_accept", False):
-                self.users.authorize(tg_id, role=SELF_ADMISSION_ROLE,
-                                     by=SELF_ADMISSION_BY)
-                if self._is_allowlisted(update):
-                    user = self.users.get(tg_id)
-                else:
-                    system_log.warning(
-                        "Paper auto-accept did not take for %s", tg_id)
+            if self._admit_for_paper(
+                    tg_id, (update.effective_user.first_name
+                            if update.effective_user else "")):
+                user = self.users.get(tg_id)
             if not self._is_allowlisted(update):
                 notified = await self._request_operator_admission(
                     tg_id,

@@ -59,9 +59,9 @@ Access is decided by the allow-list and by each user's role (`TelegramHandler._i
 ```text
 Allow-list set (TELEGRAM_CHAT_ID / ADMIN_TELEGRAM_IDS / LIVE_TRADER_TELEGRAM_IDS)
   → listed IDs are let in; TELEGRAM_CHAT_ID IDs are seeded as admins
-  → anyone else is admitted as `paper` on their first command while
-    PAPER_AUTO_ACCEPT is on (default true), or else refused until an
-    admin runs /approve
+  → anyone else is admitted as `paper` on first contact (any message,
+    /start included) while PAPER_AUTO_ACCEPT is on (default true), or
+    else refused until an admin runs /approve
 No allow-list (all three empty)
   → anyone can use the bot; a newcomer is admitted as `paper`
   → live mode refuses to arm without TELEGRAM_CHAT_ID
@@ -79,7 +79,7 @@ A `paper` user's confirm opens on their own practice book (`RuneClawEngine.confi
 
 Every card shows a person their own book. Nobody but the operator (and an admin) sees the operator's account, with per-user live trading on or off: on a live bot, a caller with no live account of their own sees their practice book on every card and in the chat (`RuneClawEngine.viewer_executor`).
 
-A `/revoke` holds. While `PAPER_AUTO_ACCEPT` is on, a newcomer is admitted on their first command, but an account an admin revoked is not admitted again that way; only an admin's `/approve` lifts the revocation (`UserStore.authorize`).
+A `/revoke` holds. While `PAPER_AUTO_ACCEPT` is on, a newcomer is admitted on first contact, but an account an admin revoked is not admitted again that way; only an admin's `/approve` lifts the revocation (`UserStore.authorize`).
 
 Authorization applies to slash commands and to inline-keyboard callbacks (confirm and reject buttons). A button pressed by someone other than the user it was sent to is refused.
 

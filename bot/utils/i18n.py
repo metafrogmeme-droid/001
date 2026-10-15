@@ -167,14 +167,14 @@ _STRINGS: dict[str, dict[str, str]] = {
             "<b>{name}</b> (<code>{tg_id}</code>) tried to use the bot and was "
             "turned away by the allowlist.\n\n"
             "Approve below, or run <code>/approve {tg_id}</code>.\n"
-            "<i>Approval grants bot access on PAPER only — live trading still "
-            "needs the env allowlist.</i>"
+            "<i>Approval grants bot access on PAPER only — live trading is a "
+            "separate permission it does not grant.</i>"
         ),
         "zh": (
             "\U0001f6ce️ <b>存取申請</b>\n\n"
             "<b>{name}</b>（<code>{tg_id}</code>）嘗試使用機器人，但被白名單擋下。\n\n"
             "可直接按下方按鈕，或執行 <code>/approve {tg_id}</code>。\n"
-            "<i>放行只會給予「模擬倉」的機器人存取權；實盤交易仍需環境變數白名單。</i>"
+            "<i>放行只會給予「模擬倉」的機器人存取權；實盤交易是另一項權限，放行不會授予。</i>"
         ),
     },
     "reg_admin_approve_button": {"en": "✅ Approve as trader", "zh": "✅ 放行為交易者"},

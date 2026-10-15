@@ -471,6 +471,22 @@ def _web_skill_denied(tg_handler, tg_id: str, skill_name: str,
     return None
 
 
+def _admit_web_caller_for_paper(tg_handler, tg_id: str, name: str) -> bool:
+    """The handler's one paper door, when the handler has it. A stand-in
+    handler without it admits nobody, which is the gate as it was."""
+    admit = getattr(tg_handler, "_admit_for_paper", None)
+    if not callable(admit):
+        return False
+    try:
+        # `is True`, not truthiness: a stand-in whose method answers anything
+        # but a real True has not admitted anybody.
+        return admit(tg_id, name or "") is True
+    except Exception as exc:  # an admission fault refuses, it never opens
+        system_log.warning("web paper admission failed for %s: %s",
+                           tg_id, type(exc).__name__)
+        return False
+
+
 def _guard_user(tg_handler, tg_id: str, command: str = "", name: str = ""):
     """Auth + role + rate limit for a web-originated request.
 
@@ -498,8 +514,15 @@ def _guard_user(tg_handler, tg_id: str, command: str = "", name: str = ""):
         # would mean an approved user works in Telegram and is refused on the
         # web — the same claim, answered two ways, which is the divergence this
         # repo keeps paying for.
+        #
+        # And the same paper door Telegram has: a Telegram-linked account that
+        # reaches the bot from the website first is admitted to paper when
+        # PAPER_AUTO_ACCEPT is on (`TelegramHandler._admit_for_paper`), instead
+        # of being sent to Telegram to wait for an operator who is not asked.
+        # The website has already authenticated the caller and proved the link.
         allow = tg_handler._allowlist_ids()
-        if allow and tg_id not in allow and not tg_handler.users.is_admitted(tg_id):
+        if (allow and tg_id not in allow and not tg_handler.users.is_admitted(tg_id)
+                and not _admit_web_caller_for_paper(tg_handler, tg_id, name)):
             return web.json_response(
                 {"error": "not_allowlisted",
                  "detail": ("Not approved for this bot yet. Send /start to it in "

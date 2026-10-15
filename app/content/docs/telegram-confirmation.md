@@ -154,7 +154,7 @@ Not everyone can confirm trades. The Telegram handler enforces an allow-list bui
 
 | Setting | Behavior |
 |---------|----------|
-| Any of the three set | Those IDs get in. Anyone else needs an admin's `/approve`, or is admitted as a paper user on their first command while `PAPER_AUTO_ACCEPT` is on (the default). |
+| Any of the three set | Those IDs get in. Anyone else needs an admin's `/approve`, or is admitted as a paper user on first contact (any message, `/start` included) while `PAPER_AUTO_ACCEPT` is on (the default). |
 | All three empty | There is no allow-list: anyone can use the bot as a paper user. Live trading will not arm without `TELEGRAM_CHAT_ID`. |
 
 Authorization applies to slash commands and to inline buttons alike. A tap from someone who has not been admitted is refused, and a tap on someone else's card is refused.

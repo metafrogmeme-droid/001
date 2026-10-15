@@ -8,7 +8,7 @@ If the operator has switched on the tier ladder (`TIER_GATE_ENABLED`, off by def
 
 An idea card from `/analyze` carries three buttons: **Take it**, **Limit** and **Skip**. What Take it does depends on the account and on the bot:
 
-- **A new account** is admitted with the `paper` role on its first command (while `PAPER_AUTO_ACCEPT` is on, the default). Its Take it opens a position on its own practice book, and nothing is sent to an exchange. The reply reads `📝 [PAPER] Simulated …` and ends `practice mode — no real order placed`. See [Paper Trading](paper-trading.md).
+- **A new account** is admitted with the `paper` role on first contact (while `PAPER_AUTO_ACCEPT` is on, the default). Its Take it opens a position on its own practice book, and nothing is sent to an exchange. The reply reads `📝 [PAPER] Simulated …` and ends `practice mode — no real order placed`. See [Paper Trading](paper-trading.md).
 - **An account an admin has vouched for** (`/approve`, as a trader) is not on the practice book. On the live bot, its Take it places a **real order** on its own linked exchange account when the deployment has per-user live trading on (`PER_USER_LIVE_ENABLED`) and its keys are linked (`/connect`). Otherwise it is refused and nothing is placed. The operator's Take it places a real order on the operator's account.
 - **On a bot that is not in live mode**, a vouched account's Take it is refused: `⛔ Paper trading is disabled on this bot. This bot is LIVE-ONLY.` The exception is an account that has opted into practice with `/paper on`, which needs `PAPER_SIM_OPT_IN_ENABLED` (off by default).
 

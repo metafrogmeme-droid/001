@@ -9,7 +9,7 @@ RUNECLAW is an AI-powered trading command core by Humanoid Traders that began as
 **Where do I use it?**
 
 - On the website: [www.humanoid-traders.com](https://www.humanoid-traders.com/)
-- On Telegram: [@HTRUNECLAW_bot](https://t.me/HTRUNECLAW_bot). Your first command admits you with the `paper` role (while `PAPER_AUTO_ACCEPT` is on, the default), and your trades open on your own practice book.
+- On Telegram: [@HTRUNECLAW_bot](https://t.me/HTRUNECLAW_bot). Your first message (`/start` included) admits you with the `paper` role (while `PAPER_AUTO_ACCEPT` is on, the default), and your trades open on your own practice book.
 
 **Does RUNECLAW trade with real money?**
 

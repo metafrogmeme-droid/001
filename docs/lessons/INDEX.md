@@ -337,3 +337,4 @@ about to change before changing it.
 - L25284: A CHANGE TO AN ACCOUNT NEVER REACHED ITS OWNER, AND THE RESEND DOOR MAILED ADDRESSES THAT CANNOT EXIST — `app/test/an_account_change_reaches_its_owner.test.js`, `app/test/the_mailer_speaks_for_its_own_domain.test.js`, `tests/test_a_website_member_hears_of_their_tier.py`
 - L25346: THE SITE SPOKE FOURTEEN LANGUAGES, AND ON A PHONE THERE WAS NO WAY TO CHOOSE ONE — `app/test/a_language_can_be_chosen_on_every_page.smoke.test.js`
 - L25380: THE AUDIT CARD PRINTED A LOOSENING UNDER THE WORD "TIGHTENS", BECAUSE ITS DIRECTION WAS THE MODEL'S SENTENCE — `tests/test_the_audit_card_says_which_way_a_change_moves.py`
+- L25423: PAPER WAS OPEN BEHIND ONE DOOR AND SHUT AT THE FIVE A NEWCOMER USES FIRST — `tests/test_paper_is_open_at_every_door.py`
