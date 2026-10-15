@@ -842,8 +842,10 @@ class CallbackHandler:
             if mode not in VALID_MODES:
                 await self._send(update, "Invalid strategy mode.", edit=True)
                 return
-            from bot.config import RUNTIME
-            RUNTIME.strategy_mode = mode
+            from bot.core import settings_registry as _settings
+            _settings.apply("strategy_mode", mode,
+                            actor=f"telegram:{self._get_tg_id(update)}",
+                            via="telegram", engine=self.engine)
             rendered = wr_strategy_mode(mode)
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("\U0001f6e1 Defensive", callback_data="mode_defensive"),

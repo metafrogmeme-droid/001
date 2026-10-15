@@ -103,7 +103,7 @@ Where you see it: `/portfolio`, `/positions`, `/risk`, `/performance`, `/daily_r
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PAPER_BALANCE_USD` | 10000 | Starting cash of each new practice book |
-| `PAPER_AUTO_ACCEPT` | true | A newcomer is admitted as `paper` on first contact (any message, `/start` included), and their confirms open on their practice book |
+| `PAPER_AUTO_ACCEPT` | true | A newcomer is admitted as `paper` on first contact (any message, `/start` included), and their confirms open on their practice book. The operator can switch it on the website's Admin page while the bot runs; that choice is saved across restarts |
 | `PAPER_SIM_OPT_IN_ENABLED` | false | Lets an account use `/paper on` to simulate its own confirms |
 | `COMMISSION_PCT` | 0.06 | Fee charged at close on the entry and the exit notional, in percent |
 | `SIZING_LEVERAGE` | 5 | The leverage a practice position is sized and held at |

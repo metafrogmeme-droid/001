@@ -511,16 +511,6 @@ class EngineOpsCommands:
                 f"<code>{a[:10]}</code> ${c:,.0f}" for a, c in capped))
         await self._send(update, "\n".join(lines))
 
-    def _persist_drawdown_override(self) -> None:
-        """Flush the risk state so the admin live-drawdown override survives a
-        restart (it is serialized into the risk state file and reloaded on
-        boot). Best-effort — the in-memory override still applies this session
-        even if the disk write fails."""
-        try:
-            self.engine.risk._save_state()
-        except Exception as exc:
-            system_log.debug("drawdown override persist failed: %s", exc)
-
     async def _cmd_drawdownlimit(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Admin only: /drawdownlimit <pct | off | status> — temporarily override
         the LIVE max-drawdown breaker limit at runtime, without a redeploy.
@@ -562,13 +552,20 @@ class EngineOpsCommands:
             return
 
         raw = args[0].strip().lower()
+        # Through the settings registry: one write path for Telegram and the
+        # admin page, which saves the override with the risk state (where it
+        # always lived) and writes the audit line. The answer says whether
+        # the save landed, which this door used to log at debug and not say.
+        from bot.core import settings_registry as _settings
         if raw in ("off", "none", "clear", "default", "reset"):
-            RUNTIME.clear_live_drawdown_override()
-            self._persist_drawdown_override()
+            res = _settings.reset("live_drawdown_override_pct",
+                                  actor=f"telegram:{self._get_tg_id(update)}",
+                                  via="telegram", engine=self.engine)
             audit(system_log, "Live drawdown override cleared via /drawdownlimit",
                   action="drawdown_override", result="CLEARED")
             lines = ["🟢 Live drawdown override <b>cleared</b> — back to the "
-                     f"configured {_CFG.risk.live_max_drawdown_pct:.1f}% cap.", ""]
+                     f"configured {_CFG.risk.live_max_drawdown_pct:.1f}% cap.",
+                     _settings.saved_sentence(res), ""]
             lines += _status_lines()
             await self._send(update, "\n".join(lines))
             return
@@ -582,16 +579,21 @@ class EngineOpsCommands:
             return
 
         lo, hi = RUNTIME.LIVE_DRAWDOWN_OVERRIDE_MIN, RUNTIME.LIVE_DRAWDOWN_OVERRIDE_MAX
-        RUNTIME.live_drawdown_override_pct = pct
+        res = _settings.apply("live_drawdown_override_pct", pct,
+                              actor=f"telegram:{self._get_tg_id(update)}",
+                              via="telegram", engine=self.engine)
+        if not res.get("ok"):
+            await self._send(update, f"🔴 {_html.escape(str(res.get('detail')))}")
+            return
         applied = RUNTIME.live_drawdown_override_pct
-        clamped = abs(applied - pct) > 1e-9
-        self._persist_drawdown_override()
+        clamped = bool(res.get("clamped"))
         audit(system_log, "Live drawdown override set via /drawdownlimit",
               action="drawdown_override", result="SET",
               data={"requested_pct": pct, "applied_pct": applied})
         lines = [f"🟠 Live drawdown limit override set to <b>{applied:.1f}%</b>."]
         if clamped:
             lines.append(f"   (clamped into the {lo:.0f}–{hi:.0f}% safe band)")
+        lines.append(_settings.saved_sentence(res))
         lines += ["", *_status_lines(), "",
                   "⚠️ Real money is down — a looser cap means the bot tolerates "
                   "<b>more loss</b> before halting. Pair with tiny per-trade margin. "
@@ -923,7 +925,13 @@ class EngineOpsCommands:
             except ValueError:
                 await self._reply(update, f"Usage: /leverage set <1-{_top}>")
                 return
-            _RT.leverage_override = val
+            from bot.core import settings_registry as _settings
+            _res = _settings.apply("leverage_override", val,
+                                   actor=f"telegram:{self._get_tg_id(update)}",
+                                   via="telegram", engine=self.engine)
+            if not _res.get("ok"):
+                await self._reply(update, f"Usage: /leverage set <1-{_top}>")
+                return
             applied = _RT.leverage_override
             _std = operator_standard(_CFG.exchange, applied)
             notes = []
@@ -945,16 +953,21 @@ class EngineOpsCommands:
                 "notional and loss at the stop, with the margin the venue "
                 "locks moving with the leverage.\n"
                 "Applies to every NEW position on every venue. Open positions "
-                "keep the leverage they were opened with.")
+                "keep the leverage they were opened with.\n"
+                + _settings.saved_sentence(_res))
             return
         if args[:1] == ["reset"]:
-            _RT.leverage_override = None
+            from bot.core import settings_registry as _settings
+            _res = _settings.reset("leverage_override",
+                                   actor=f"telegram:{self._get_tg_id(update)}",
+                                   via="telegram", engine=self.engine)
             _std = operator_standard(_CFG.exchange, None)
             await self._reply(
                 update,
                 f"⚙️ Standard leverage reset to the configured default "
                 f"(<b>{_std.leverage}x</b>"
-                + (f", {_std.source_note()}" if _std.capped else "") + ").")
+                + (f", {_std.source_note()}" if _std.capped else "") + ").\n"
+                + _settings.saved_sentence(_res))
             return
         _std = operator_standard(_CFG.exchange, _RT.leverage_override)
         _pair = order_standards(_CFG.exchange, _RT.leverage_override)
@@ -1091,25 +1104,31 @@ class EngineOpsCommands:
             return
 
         arg = args[0].lower()
+        # Through the settings registry, so the value survives a restart and
+        # the change is on the admin page's record, as the website's is.
+        from bot.core import settings_registry as _settings
+        _who = f"telegram:{self._get_tg_id(update)}"
         if arg in ("off", "disable", "manual"):
-            # Use RUNTIME to override the frozen CONFIG value
-            RUNTIME.auto_confirm_threshold = 1.0
+            _res = _settings.apply("auto_confirm_threshold", 1.0, actor=_who,
+                                   via="telegram", engine=self.engine)
             audit(system_log, "Auto-confirm DISABLED via /autoconfirm off",
                   action="autoconfirm", result="DISABLED",
                   data={"user": self._get_tg_id(update)})
             await self._send(update,
                 "\U0001f534 <b>Auto-Confirm DISABLED</b>\n\n"
-                "All trades now require manual confirmation.")
+                "All trades now require manual confirmation.\n"
+                + _settings.saved_sentence(_res))
             return
 
         try:
             new_threshold = float(arg)
-            if new_threshold < 0.5 or new_threshold > 1.0:
+            if not (0.5 <= new_threshold <= 1.0):
                 await self._send(update,
                     "\u274c Threshold must be between 0.50 and 1.00\n"
                     "Example: <code>/autoconfirm 0.75</code>")
                 return
-            RUNTIME.auto_confirm_threshold = new_threshold
+            _res = _settings.apply("auto_confirm_threshold", new_threshold,
+                                   actor=_who, via="telegram", engine=self.engine)
             audit(system_log, f"Auto-confirm threshold set to {new_threshold}",
                   action="autoconfirm", result="SET",
                   data={"user": self._get_tg_id(update), "threshold": new_threshold})
@@ -1117,7 +1136,8 @@ class EngineOpsCommands:
                 "\U0001f916 <b>Auto-Confirm Updated</b>\n\n"
                 + autoconfirm_status_line(self.engine, new_threshold,
                                           is_live=CONFIG.is_live())
-                + "\nLower confidence ideas still require manual confirmation.")
+                + "\nLower confidence ideas still require manual confirmation.\n"
+                + _settings.saved_sentence(_res))
         except ValueError:
             await self._send(update,
                 "\u274c Invalid value. Use a number (0.50-1.00) or 'off'.\n"

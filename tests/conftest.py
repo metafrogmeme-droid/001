@@ -1381,6 +1381,35 @@ def _contain_the_public_preview_counts():
 
 
 @pytest.fixture(autouse=True)
+def _contain_the_operator_settings():
+    """Hand `RUNTIME`'s settings back after every test.
+
+    `RUNTIME` is one object per process, and every door that changes an
+    operator setting writes it (`settings_registry.apply`, which /leverage,
+    /autoconfirm, /drawdownlimit, /mode, the stance buttons and the admin page
+    all call). One bot process has one operator; a test process drives those
+    doors hundreds of times, and a test that set leverage, the threshold or
+    the universe would otherwise leave it in force for every later test.
+    Restored, not asserted, for the reason the fixtures above give. A test
+    that imports `bot.config` for the first time is handed the fresh values.
+    """
+    import sys as _sys
+    cfg = _sys.modules.get("bot.config")
+    rt = getattr(cfg, "RUNTIME", None)
+    saved = ({k: v for k, v in vars(rt).items() if k != "_lock"}
+             if rt is not None else None)
+    yield
+    cfg = _sys.modules.get("bot.config")
+    rt = getattr(cfg, "RUNTIME", None)
+    if rt is None:
+        return
+    if saved is None:
+        saved = {k: v for k, v in vars(cfg.RuntimeState()).items() if k != "_lock"}
+    for k, v in saved.items():
+        setattr(rt, k, v)
+
+
+@pytest.fixture(autouse=True)
 def _contain_executor_halt_check():
     """Hand the executor's halt check back after every test.
 

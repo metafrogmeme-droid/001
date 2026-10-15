@@ -676,6 +676,7 @@ def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
 # ═════════════════════════════════════════════════════════════════
 
 def render_strategy_mode(current_mode: str) -> Dict[str, Any]:
+    from bot.core.settings_registry import STANCE_NOTE
     mode_icons = {
         "defensive": _SHIELD, "balanced": "\u2694\ufe0f",
         "aggressive": "\U0001f525", "manual": "\U0001f9d8",
@@ -685,15 +686,9 @@ def render_strategy_mode(current_mode: str) -> Dict[str, Any]:
     text = (
         f"{_header(chr(0x2699) + chr(0xFE0F), 'STRATEGY MODE')}\n\n"
         f"  Active: {icon} <b>{current_mode.upper()}</b>\n\n"
-        # ── Mode descriptions ──
-        f"  {_SHIELD} <b>Defensive</b>\n"
-        f"     <i>Conservative risk, fewer signals, wider SL</i>\n"
-        f"  \u2694\ufe0f <b>Balanced</b>\n"
-        f"     <i>Default mode, standard confluence thresholds</i>\n"
-        f"  \U0001f525 <b>Aggressive</b>\n"
-        f"     <i>More signals, tighter filters, higher exposure</i>\n"
-        f"  \U0001f9d8 <b>Manual</b>\n"
-        f"     <i>Bot analyzes, you decide. Full human control</i>\n\n"
+        # No per-mode descriptions: they promised fewer signals, wider stops
+        # and "full human control" for a value no trading code reads.
+        f"<i>{STANCE_NOTE}</i>\n\n"
         f"<i>\u25b8 Select a mode below to switch</i>"
     )
     keyboard: _Keyboard = [

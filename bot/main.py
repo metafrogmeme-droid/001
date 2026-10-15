@@ -566,6 +566,14 @@ def run_telegram() -> None:
     import atexit
     atexit.register(_cleanup_pid)
 
+    # The operator's saved settings (the admin page, /leverage, /autoconfirm,
+    # /mode, the stance), applied before the engine reads any of them. The
+    # live drawdown cap is not here: it is restored with the risk state.
+    from bot.core.settings_registry import restore_overrides
+    _restored = restore_overrides()
+    audit(system_log, "Operator settings restored", action="startup",
+          result="SETTINGS", data=_restored)
+
     engine = RuneClawEngine()
     handler = TelegramHandler(engine)
     app = handler.build_app()

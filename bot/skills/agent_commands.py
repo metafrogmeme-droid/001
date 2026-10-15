@@ -73,15 +73,15 @@ class AgentCommands:
                                  unlinked: Optional[str] = None,
                                  keep_markup: bool = False) -> str: ...
 
+    # Names only. These used to say what each stance did ("smaller sizing
+    # bias, stricter setup selection", "the engine proposes, you confirm
+    # every trade"), and nothing that sizes, selects or confirms a trade
+    # reads the stance. `STANCE_NOTE` says what it is instead.
     _STANCE_BLURB = {
-        "defensive": ("🛡 <b>Defensive</b> — smaller sizing bias, stricter "
-                      "setup selection, capital protection first."),
-        "balanced": ("⚔️ <b>Balanced</b> — the default posture: normal "
-                     "sizing, the full setup playbook."),
-        "aggressive": ("🔥 <b>Aggressive</b> — larger sizing bias, more "
-                       "setups taken. Every risk gate stays ON."),
-        "manual": ("🧘 <b>Manual</b> — the engine proposes, you confirm "
-                   "every trade."),
+        "defensive": "🛡 <b>Defensive</b>",
+        "balanced": "⚔️ <b>Balanced</b>",
+        "aggressive": "🔥 <b>Aggressive</b>",
+        "manual": "🧘 <b>Manual</b>",
     }
 
     async def _propose_stance(self, update: Update, stance: str) -> None:
@@ -93,10 +93,11 @@ class AgentCommands:
         if stance not in self._STANCE_BLURB:
             return
         current = RUNTIME.strategy_mode
+        from bot.core.settings_registry import STANCE_NOTE
         if stance == current:
             await self._send(update,
-                f"👍 We're already trading <b>{current.capitalize()}</b>.\n\n"
-                f"{self._STANCE_BLURB[current]}\n\n"
+                f"👍 The stance is already <b>{current.capitalize()}</b>.\n\n"
+                f"<i>{STANCE_NOTE}</i>\n\n"
                 "<i>/agent shows the full posture.</i>")
             return
         kb = InlineKeyboardMarkup([
@@ -105,9 +106,10 @@ class AgentCommands:
              InlineKeyboardButton("Keep current", callback_data="stance_keep")],
         ])
         await self._send(update,
-            "🎯 <b>Got it — you want to adjust how I trade.</b>\n\n"
-            f"Current: <b>{current.capitalize()}</b>\n"
+            "🎯 <b>Got it.</b>\n\n"
+            f"Current stance: <b>{current.capitalize()}</b>\n"
             f"Proposed: {self._STANCE_BLURB[stance]}\n\n"
+            f"<i>{STANCE_NOTE}</i>\n\n"
             "<i>Nothing changes until you confirm. The fail-closed risk gate, "
             "loss breakers and drawdown caps apply in every stance.</i>",
             reply_markup=kb)
@@ -133,9 +135,11 @@ class AgentCommands:
                          "<i>/positions for detail</i>")
         except Exception:
             pass
+        from bot.core.settings_registry import STANCE_NOTE
+        lines.append(f"<i>{STANCE_NOTE}</i>")
         lines.append(
-            "<i>Change how I trade by talking to me — “be more careful”, "
-            "“push harder”, “back to normal” — or tap a preset:</i>")
+            "<i>Set the stance by saying “be more careful”, “push harder” or "
+            "“back to normal”, or tap a preset:</i>")
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🛡 Defensive", callback_data="mode_defensive"),
              InlineKeyboardButton("⚔️ Balanced", callback_data="mode_balanced")],

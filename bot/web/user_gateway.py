@@ -4234,6 +4234,71 @@ async def handle_policy_clear(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "removed": removed})
 
 
+# ── Admin page: the operator's settings (OPERATOR only) ──────────────────────
+#
+# The website's Admin page reads and writes the bot's operator settings through
+# these two handlers and nothing else. Both re-check BOT-SIDE that the caller
+# is an admin (`_policy_op_guard`); the website's plan check is a second lock,
+# not the authority. A write goes through `settings_registry.apply`/`reset`,
+# the path every Telegram door takes, so a change made on the page is bounded,
+# saved and recorded exactly as one made on Telegram is. Live trading and the
+# venue are refused by name (`settings_registry.LOCKED`), whatever the page
+# sends.
+
+async def handle_admin_settings(request: web.Request) -> web.Response:
+    engine, tg_id, body = await _policy_op_guard(request)
+    if engine is None:
+        refusal: web.Response = body
+        return refusal
+    from bot.core import settings_registry
+    try:
+        return web.json_response(settings_registry.snapshot(engine))
+    except Exception as exc:
+        system_log.warning("Admin settings read failed: %s", type(exc).__name__)
+        return web.json_response({"error": "read_failed",
+                                  "detail": type(exc).__name__}, status=500)
+
+
+async def handle_admin_settings_set(request: web.Request) -> web.Response:
+    engine, tg_id, body = await _policy_op_guard(request)
+    if engine is None:
+        refusal: web.Response = body
+        return refusal
+    from bot.core import settings_registry
+    key = str(body.get("key") or "").strip()
+    if key in settings_registry.LOCKED:
+        return web.json_response({"ok": False, "error": "not_web_editable",
+                                  "detail": settings_registry.LOCKED[key]},
+                                 status=403)
+    if body.get("reset") is not True and "value" not in body:
+        return web.json_response({"ok": False, "error": "value_required",
+                                  "detail": "Send a value, or reset."}, status=400)
+    who = f"telegram:{tg_id}"
+    try:
+        if body.get("reset") is True:
+            res = settings_registry.reset(key, actor=who, via="website",
+                                          engine=engine)
+        else:
+            res = settings_registry.apply(key, body.get("value"), actor=who,
+                                          via="website", engine=engine)
+    except Exception as exc:
+        # The write may have landed before whatever raised, so this does not
+        # say "nothing changed": it says to read the value back.
+        audit(system_log, f"Web operator setting {key} FAILED",
+              action="web_setting", result="ERROR")
+        return web.json_response(
+            {"ok": False, "error": type(exc).__name__,
+             "detail": "The change may or may not have been made. Reload the "
+                       "page to read the value in force."}, status=500)
+    if not res.get("ok"):
+        return web.json_response(res, status=400)
+    res["saved_sentence"] = settings_registry.saved_sentence(res)
+    audit(system_log, f"Web operator changed {key}", action="web_setting",
+          result=str(res.get("effect")),
+          data={"key": key, "before": res.get("before"), "after": res.get("after")})
+    return web.json_response(res)
+
+
 # ── LLM connect (WEB-1: per-user BYOK key + admin ULTRA control) ─────────────
 #
 # The website is the primary surface (operator rule 2026-07-20), so the LLM
@@ -5626,4 +5691,6 @@ def build_gateway(engine, tg_handler) -> web.Application:
     app.router.add_post("/policy/apply", handle_policy_apply)
     app.router.add_post("/policy/mode", handle_policy_mode)
     app.router.add_post("/policy/clear", handle_policy_clear)
+    app.router.add_post("/admin/settings", handle_admin_settings)
+    app.router.add_post("/admin/settings/set", handle_admin_settings_set)
     return app
