@@ -318,6 +318,11 @@ class TestTheWebGatewayAgreesWithTelegram:
             mc.telegram.chat_id = "111"
             mc.telegram.admin_ids = ""
             mc.telegram.live_trader_ids = ""
+            # The paper door SHUT, as on Telegram: with PAPER_AUTO_ACCEPT on,
+            # both surfaces admit a stranger to paper (that arm is
+            # tests/test_paper_is_open_at_every_door.py). Stated, because a
+            # MagicMock answers truthy for an attribute nobody set.
+            mc.paper_auto_accept = False
             resp = user_gateway._guard_user(h, "999", "scan")
         assert resp is not None and resp.status == 403
 

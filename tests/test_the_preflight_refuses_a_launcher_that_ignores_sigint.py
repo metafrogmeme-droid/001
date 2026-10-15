@@ -137,7 +137,11 @@ class TestTheReadingIsAMeasurementOfTheLaunch:
         """nohup's own disposition is READ -- the policy of whether it refuses
         anything is `launch_refusal`'s, and the two are kept apart the way
         `toolchain` keeps the version reading apart from what to do about it."""
+        # SIGQUIT is set here too: the reading covers all three a launcher
+        # rewrites, and a run started from a background shell (which ignores
+        # QUIT) otherwise reported it beside HUP. The fixture names the state.
         with _disposition(signal.SIGINT, signal.default_int_handler), \
+                _disposition(signal.SIGQUIT, signal.SIG_DFL), \
                 _disposition(signal.SIGHUP, signal.SIG_IGN):
             assert preflight.ignored_signals() == ["SIGHUP"]
 

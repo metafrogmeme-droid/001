@@ -5310,8 +5310,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         from bot.skills.public_room import is_public_room
         if is_public_room(update):
             return self._is_allowlisted(update)
-        name = (update.effective_user.first_name
-                if getattr(update, "effective_user", None) else "")
+        user = getattr(update, "effective_user", None)
+        name = user.first_name if user is not None else ""
         return self._admit_for_paper(self._get_tg_id(update), name or "")
 
     async def _request_operator_admission(self, tg_id: str, name: str,

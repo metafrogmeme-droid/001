@@ -92,6 +92,8 @@ class StartCommands:
 
         def _seed_lang_from_telegram(self, update: Update, tg_id: str) -> bool: ...
 
+        def _admit_newcomer(self, update: Update) -> bool: ...
+
     async def _cmd_version(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/version — bot version + mode. Lightweight liveness check (rate-limited,
         no sensitive data)."""
