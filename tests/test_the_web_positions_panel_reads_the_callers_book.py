@@ -6,8 +6,9 @@ operator's executor for a caller with no linked keys ("so behaviour never
 silently breaks" -- right for placing an order, wrong for reading one), so a
 non-operator's positions panel listed the operator's live positions, symbol,
 direction and stop protection, as their own. `viewer_executor` is the reading
-every other card already uses: it answers None there, and the panel says no
-executor is attached to the account.
+every other card already uses: it answers None there, and the panel shows the
+caller their own PRACTICE book, labelled not-live (with per-user live off as
+well, since 2026-10-15).
 
 These drive the real handler with the engine's real `_executor_for`,
 `viewer_executor` and `_is_operator_user`, so the test fails if either the
@@ -45,10 +46,28 @@ def _live(symbol: str) -> SimpleNamespace:
         strategy_type="swing", signal_type="momentum_confluence")
 
 
+def _practice_row(symbol: str) -> SimpleNamespace:
+    from enum import Enum
+
+    class D(Enum):
+        SHORT = "SHORT"
+    return SimpleNamespace(
+        trade_id=f"P-{symbol}", asset=symbol, direction=D.SHORT, entry_price=2.0,
+        exit_price=None, quantity=3.0, stop_loss=2.2, take_profit=1.5, leverage=2.0,
+        pnl=0.0, commission=0.0, strategy_type="swing", opened_at=None, closed_at=None)
+
+
+#: The stranger's own PRACTICE book: asymmetric with the operator's live book
+#: in symbol, side and count, so a panel showing the wrong one cannot pass.
+PRACTICE = [_practice_row("DOGE/USDT"), _practice_row("XRP/USDT")]
+
+
 def _engine(operator_positions):
+    books = {STRANGER: SimpleNamespace(open_positions=PRACTICE)}
     eng = SimpleNamespace(live_executor=SimpleNamespace(open_positions=operator_positions),
                           _user_store=_Users(), _user_executors={},
-                          user_portfolios=SimpleNamespace(get=lambda _u: None))
+                          user_portfolios=SimpleNamespace(
+                              get=lambda u: books.get(str(u), SimpleNamespace(open_positions=[]))))
     for name in ("_executor_for", "viewer_executor", "_is_operator_user"):
         setattr(eng, name, getattr(RuneClawEngine, name).__get__(eng))
     return eng
@@ -86,8 +105,9 @@ def test_a_caller_with_no_keys_is_not_shown_the_operators_book(monkeypatch):
     assert eng._executor_for(STRANGER) is eng.live_executor, "the fallback this guards"
     status, body = _drive(monkeypatch, eng, STRANGER)
     assert status == 200
-    assert body["positions"] == [] and body["count"] == 0
-    assert body["book_read"] is False, "no executor is attached to this account"
+    # Their own PRACTICE book, labelled not-live, and nothing of the operator's.
+    assert body["live"] is False and body["book_read"] is True
+    assert sorted(p["symbol"] for p in body["positions"]) == ["DOGE/USDT", "XRP/USDT"]
 
 
 def test_the_operator_still_reads_the_operators_book(monkeypatch):
@@ -107,14 +127,19 @@ def test_a_linked_caller_reads_their_own_book(monkeypatch):
     assert [p["symbol"] for p in body["positions"]] == ["ETH/USDT:USDT"]
 
 
-def test_single_account_mode_is_unchanged(monkeypatch):
-    """With per-user live off there is one live account, and every read card
-    shows it -- `viewer_executor`'s documented single-account behaviour. This
-    slice changes which reading the panel asks, not that decision."""
+def test_single_account_mode_is_the_operators_alone(monkeypatch):
+    """With per-user live off there is one live account, and it is the
+    OPERATOR's. Every read card used to show it to every caller
+    ("single-account behaviour"); the operator decided on 2026-10-15 that
+    everyone but the operator sees only their own book. Both arms."""
     _per_user(monkeypatch, False)
     eng = _engine([_live("BTC/USDT:USDT")])
     status, body = _drive(monkeypatch, eng, STRANGER)
-    assert body["book_read"] is True and body["count"] == 1
+    assert status == 200 and body["live"] is False
+    assert sorted(p["symbol"] for p in body["positions"]) == ["DOGE/USDT", "XRP/USDT"]
+    status, body = _drive(monkeypatch, eng, OPERATOR)
+    assert status == 200 and body["live"] is True and body["book_read"] is True
+    assert [p["symbol"] for p in body["positions"]] == ["BTC/USDT:USDT"]
 
 
 

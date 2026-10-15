@@ -115,15 +115,7 @@ COMMANDS = [
 ]
 
 
-@pytest.mark.parametrize("name,fn", COMMANDS, ids=lambda x: x if isinstance(x, str) else "")
-@pytest.mark.parametrize("absence,must_say", [
-    ("absent", "No exchange account is linked to you"),
-    ("unreadable", "could not be decrypted"),
-    ("unresolved", "could not be asked"),
-])
-@pytest.mark.asyncio
-async def test_a_caller_with_no_book_is_told_which_absence(monkeypatch, name, fn, absence, must_say):
-    """Not "none", not "$0.00", and never the operator's book."""
+def _live_config(monkeypatch):
     import bot.skills.portfolio_commands as pc
 
     # CONFIG is a FROZEN dataclass, so the flag cannot be set on it — the trap
@@ -138,15 +130,84 @@ async def test_a_caller_with_no_book_is_told_which_absence(monkeypatch, name, fn
             return getattr(pc.CONFIG, name)
 
     monkeypatch.setattr(pc, "CONFIG", _Live())
+    return pc
+
+
+ABSENCES = [
+    ("absent", "No exchange account is linked to you"),
+    ("unreadable", "could not be decrypted"),
+    ("unresolved", "could not be asked"),
+    ("operator_only", "this bot trades one live account, the operator's"),
+]
+
+
+@pytest.mark.parametrize("absence,must_say", ABSENCES)
+@pytest.mark.asyncio
+async def test_the_class_card_tells_a_caller_with_no_book_which_absence(monkeypatch, absence, must_say):
+    """/classpf is a LIVE-only card (a per-class record of exchange closes),
+    so a caller with no live account is told which absence, and nothing else:
+    not "none", not "$0.00", and never the operator's book."""
+    pc = _live_config(monkeypatch)
     monkeypatch.setattr(pc, "live_account_absence", lambda _uid: absence)
     me = Stand({"scope": "none", "executor": None, "balance": None,
                 "total": None, "age_s": None})
-    await fn(me, object(), object())
+    await PortfolioCommands._cmd_classpf(me, object(), object())
     said = "\n".join(me.sent)
-    assert must_say in said, f"{name} said: {said[:200]}"
+    assert must_say in said, said[:200]
     assert "Nothing was measured." in said
     for forbidden in ("none right now", "$0.00", "0 trades"):
-        assert forbidden not in said, f"{name} manufactured a measurement: {said[:200]}"
+        assert forbidden not in said, f"manufactured a measurement: {said[:200]}"
+
+
+PRACTICE_CARDS = [c for c in COMMANDS if c[0] != "classpf"]
+
+
+@pytest.mark.parametrize("name,fn", PRACTICE_CARDS, ids=lambda x: x if isinstance(x, str) else "")
+@pytest.mark.parametrize("absence,must_say", [
+    ("absent", "No live account of yours is linked here"),
+    ("unreadable", "could not be decrypted"),
+    ("unresolved", "could not be asked"),
+    ("operator_only", "this bot trades one live account, the operator's"),
+])
+@pytest.mark.asyncio
+async def test_a_caller_with_no_live_book_sees_their_practice_book(monkeypatch, name, fn, absence, must_say):
+    """Everyone but the operator sees their own book (the operator's decision
+    of 2026-10-15): on a live bot a caller with no live account to view is
+    shown their PRACTICE book, under the line that says which live absence it
+    is, and the operator's book is never read (it raises if touched). The
+    practice book is a REAL tracker with a balance nobody else has, so the
+    card is seen rendering it rather than an error."""
+    from bot.risk.portfolio import PortfolioTracker
+
+    pc = _live_config(monkeypatch)
+    monkeypatch.setattr(pc, "live_account_absence", lambda _uid: absence)
+    me = Stand({"scope": "none", "executor": None, "balance": None,
+                "total": None, "age_s": None})
+    book = PortfolioTracker(initial_balance=4321.0)
+    me.engine.user_portfolios = _OnePortfolio(book)
+    await fn(me, object(), object())
+    said = "\n".join(me.sent)
+    assert must_say in said, f"{name} said: {said[:300]}"
+    assert "practice book" in said.lower(), f"{name} said: {said[:300]}"
+    # The positive rendering: the card drew the practice book, not an error.
+    assert PRACTICE_MARK[name] in said, f"{name} said: {said[:300]}"
+    assert "the OPERATOR's" not in said and "Error" not in said, f"{name} said: {said[:300]}"
+
+
+PRACTICE_MARK = {"performance": "PERFORMANCE", "daily_report": "DAILY REPORT",
+                 "portfolio": "$4,321.00"}
+
+
+class _OnePortfolio:
+    def __init__(self, book):
+        self._book = book
+
+    def has_user(self, user_id):
+        return True
+
+    def get(self, user_id):
+        assert user_id == "caller-1", f"the card asked for {user_id!r}'s book"
+        return self._book
 
 
 def test_the_absence_sentence_claims_least_for_a_word_it_does_not_know():

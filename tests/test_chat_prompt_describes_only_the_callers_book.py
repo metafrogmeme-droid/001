@@ -178,6 +178,10 @@ def live(monkeypatch):
     def run(engine, uid, *, absence="absent", store_raises=False, surface="telegram"):
         monkeypatch.setattr(eng_mod, "CONFIG", NS(per_user_live_enabled=engine._per_user,
                                                   is_live=lambda: True))
+        # The same flag on the config `chat_runtime.per_user_live_on` reads
+        # (which absence, and whether the link door is named): one mode, both
+        # readers, or the words would describe a different bot.
+        _per_user(monkeypatch, engine._per_user)
         if store_raises:
             monkeypatch.setattr("bot.core.exchange_credentials.get_credential_store", _raising_store)
         else:
@@ -187,6 +191,21 @@ def live(monkeypatch):
         with patch.object(type(bot.config.CONFIG), "is_live", return_value=True):
             return H._build_chat_system_prompt(_handler(engine), uid, surface=surface)
     return run
+
+
+def _per_user(monkeypatch, on: bool):
+    import dataclasses
+    monkeypatch.setattr(bot.config, "CONFIG",
+                        dataclasses.replace(bot.config.CONFIG, per_user_live_enabled=on))
+
+
+def _flat_is_said_only_of_the_practice_book(out):
+    """"none right now" is what a READ flat book says. The practice book was
+    read; a live account nobody could read was not, so the phrase may sit only
+    on the PAPER line."""
+    for line in out.splitlines():
+        if "none right now" in line:
+            assert line.startswith("ACTIVE POSITIONS (PAPER"), line
 
 
 def _check(out, must_say, must_not_say):
@@ -206,19 +225,28 @@ class TestWhoseBook:
                                                     entry_price=0.1, quantity=10.0, stop_loss=0.09,
                                                     take_profit=0.12),)],
                              ids=["paper-book-empty", "paper-book-has-a-position"])
-    def test_a_stranger_under_per_user_live_is_told_nothing_of_the_operators_book(self, live, paper_open):
+    def test_a_stranger_under_per_user_live_is_told_their_practice_book_and_nothing_of_the_operators(
+            self, live, paper_open):
         # RED HERRING: the operator's executor is populated and its cache is
-        # fresh — every number is available and plausible — and the
-        # stranger's own PAPER history is non-empty.
+        # fresh — every number is available and plausible. The stranger's own
+        # PRACTICE book is what they are described (every card shows them the
+        # same book), under a line that says no live account of theirs is
+        # linked.
         e = _engine(per_user=True, linked={}, paper=_paper_pf(paper_open))
         out = live(e, "555", absence="absent")
         _check(out,
-               ["ACTIVE POSITIONS: none can be reported", "no exchange account is linked", "/connect",
-                "Current portfolio: no linked live account",
-                "RECENT CLOSED TRADES: none on record for this user",
+               ["LIVE ACCOUNT: none can be reported", "no exchange account is linked", "/connect",
+                "Current portfolio: no linked live account", "What follows is their PRACTICE book",
+                "PRACTICE book (simulated, not real money)",
+                "RECENT CLOSED TRADES (PAPER — simulated fills)", "DOGE/USDT",
                 "Engine state: LIVE mode, CB=OFF"],
-               OPERATOR_BOOK + ["DOGE/USDT", "none right now", "open positions, equity",
-                                "ACTIVE POSITIONS (live data)", "SL $", "TIA/USDT:USDT"])
+               OPERATOR_BOOK + ["ACTIVE POSITIONS (live data)", "RECENT CLOSED TRADES (live)",
+                                "exchange balance as read", "TIA/USDT:USDT"])
+        if paper_open:
+            _check(out, ["ACTIVE POSITIONS (PAPER — a simulated account, not real money"], [])
+        else:
+            _check(out, ["ACTIVE POSITIONS (PAPER — a simulated account): none right now"], [])
+        _flat_is_said_only_of_the_practice_book(out)
 
     def test_the_operator_still_reads_the_operator_book(self, live):
         # The operator has no keys of their own (`_executor_for` falls back):
@@ -231,13 +259,29 @@ class TestWhoseBook:
                ["none can be reported", "ACTIVE POSITIONS: could not be read",
                 "Current portfolio: could not be", "no linked live account"])
 
-    def test_per_user_off_is_single_account_and_shows_everyone_the_operator_book(self, live):
-        # Looks exactly like the leak; it is the documented byte-identical
-        # single-account behaviour (viewer_executor's docstring).
+    def test_per_user_off_shows_a_stranger_their_practice_book_never_the_operators(self, live):
+        # This was "single-account behaviour": with per-user live off, every
+        # caller was shown the OPERATOR's book, and PAPER_AUTO_ACCEPT admits
+        # anyone who messages the bot. The operator decided on 2026-10-15 that
+        # everyone but the operator sees only their own book.
         e = _engine(per_user=False, linked={})
-        out = live(e, "555", store_raises=True)
+        out = live(e, "555", absence="absent")
+        _check(out, ["Current portfolio: no linked live account", "LIVE ACCOUNT: none can be reported",
+                     "ACTIVE POSITIONS (PAPER"],
+               OPERATOR_BOOK + ["equity ~$4,242.42", "ACTIVE POSITIONS (live data)",
+                                # no door: linking keys opens nothing here
+                                "/connect"])
+        # A linked stranger is told the bot trades one account, not that a
+        # store could not be asked.
+        out = live(e, "555", absence="readable")
+        _check(out, ["linked account not read here", "trades only the operator's account",
+                     "ACTIVE POSITIONS (PAPER"],
+               OPERATOR_BOOK + ["could not be resolved just now",
+                                "say the account could not be confirmed"])
+        # Both arms: the operator still reads the operator book.
+        out = live(e, "777", store_raises=True)
         _check(out, ["HYPE/USDT:USDT", "equity ~$4,242.42"],
-               ["none can be reported", "no linked live account"])
+               ["LIVE ACCOUNT:", "no linked live account", "PRACTICE book"])
 
     def test_a_linked_user_sees_their_own_book_and_not_the_operators(self, live):
         # Own balance cache EMPTY (the ordinary state); operator cache fresh
@@ -355,10 +399,13 @@ class TestWhichAbsence:
         e = _engine(per_user=True, linked={})
         out = live(e, "555", absence="unreadable")
         _check(out,
-               ["could not be decrypted", "do not say they hold nothing", "/exchange shows the key state",
-                "re-linking with /connect", "Current portfolio: linked account could not be read"],
-               ["none right now", "no exchange account is linked", "no linked live account",
+               ["could not be decrypted", "Do not say they hold nothing on the exchange",
+                "/exchange shows the key state", "re-linking with /connect",
+                "Current portfolio: linked account could not be read",
+                "their PRACTICE book, not that account"],
+               ["no exchange account is linked", "no linked live account",
                 "HYPE/USDT:USDT", "4,242"])
+        _flat_is_said_only_of_the_practice_book(out)
 
     def test_a_credential_store_that_cannot_be_asked_is_unresolved_not_absent(self, live):
         # A store fault looks, from the builder's side, exactly like a user
@@ -371,24 +418,40 @@ class TestWhichAbsence:
                 "Current portfolio: could not be resolved"],
                ["no exchange account is linked", "no linked live account", "could not be decrypted",
                 "HYPE/USDT:USDT", "4,242"])
+        _flat_is_said_only_of_the_practice_book(out)
 
     def test_the_absence_reader_never_raises_and_never_dresses_a_fault_as_absent(self, monkeypatch):
+        _per_user(monkeypatch, True)
         monkeypatch.setattr("bot.core.exchange_credentials.get_credential_store", _raising_store)
         assert th._live_account_absence("555") == "unresolved"
         monkeypatch.setattr("bot.core.exchange_credentials.get_credential_store",
                             lambda: NS(credential_state=lambda u: "readable"))
         # readable, and yet the engine bound no executor: unresolved, not absent
         assert th._live_account_absence("555") == "unresolved"
+        # ...under per-user live. With it off, readable keys and no account to
+        # view is the design (one live account, the operator's), not a fault.
+        _per_user(monkeypatch, False)
+        assert th._live_account_absence("555") == "operator_only"
+        monkeypatch.setattr("bot.core.exchange_credentials.get_credential_store", _raising_store)
+        assert th._live_account_absence("555") == "unresolved"
+        _per_user(monkeypatch, True)
         for state in ("absent", "unreadable"):
             monkeypatch.setattr("bot.core.exchange_credentials.get_credential_store",
                                 lambda s=state: NS(credential_state=lambda u: s))
             assert th._live_account_absence("555") == state
 
-    def test_every_absence_names_both_sections_and_none_says_none_right_now(self):
-        for absence in ("absent", "unreadable", "unresolved", "anything-else"):
-            summary, detail = th._no_live_account_block(absence)
-            assert summary and "ACTIVE POSITIONS" in detail and "RECENT CLOSED TRADES" in detail
-            assert "none right now" not in detail and "none right now" not in summary
+    def test_every_absence_names_the_live_account_and_the_practice_book_and_none_says_none_right_now(
+            self, monkeypatch):
+        for on in (True, False):
+            _per_user(monkeypatch, on)
+            for absence in ("absent", "unreadable", "operator_only", "unresolved", "anything-else"):
+                summary, detail = th._no_live_account_block(absence)
+                assert summary and "LIVE ACCOUNT:" in detail, absence
+                assert "PRACTICE book" in summary and "PRACTICE book" in detail, absence
+                assert "none right now" not in detail and "none right now" not in summary
+            # The door is named only where it opens onto an account of their own.
+            summary, detail = th._no_live_account_block("absent")
+            assert ("/connect" in summary + detail) is on
 
 
 # ── counts and stores ───────────────────────────────────────────────────────
@@ -493,10 +556,13 @@ class TestLiveView:
         own = _engine(per_user=True, linked={"777": user_ex}, op_ex=op_ex).live_view("777")
         assert own["scope"] == "own" and own["executor"] is user_ex and own["total"] is None
 
-    def test_per_user_off_is_the_operator_for_anyone(self, monkeypatch):
+    def test_per_user_off_is_the_operator_for_the_operator_and_nobody_else(self, monkeypatch):
         self._cfg(monkeypatch, False)
         op_ex = _op_ex()
-        v = _engine(per_user=False, linked={}, op_ex=op_ex).live_view("555")
+        e = _engine(per_user=False, linked={}, op_ex=op_ex)
+        v = e.live_view("555")
+        assert v == {"scope": "none", "executor": None, "balance": None, "total": None, "age_s": None}
+        v = e.live_view("777")
         assert v["scope"] == "operator" and v["executor"] is op_ex and v["total"] == 4242.42
 
     def test_resolver_sources(self, monkeypatch):
@@ -544,7 +610,8 @@ class TestTheDoorPerSurface:
         e = _engine(per_user=True, linked={})
         out = live(e, "555", absence=absence, surface="web")
         _check(out, ["dashboard's Account > "],
-               ["/connect", "/exchange", "HYPE/USDT:USDT", "4,242", "none right now"])
+               ["/connect", "/exchange", "HYPE/USDT:USDT", "4,242"])
+        _flat_is_said_only_of_the_practice_book(out)
         if absence == "absent":
             _check(out, ["Connect an exchange step links exchange keys", "none can be reported"], [])
         else:
@@ -781,11 +848,21 @@ class TestTheTools:
         # RED HERRING: engine.live_executor is populated and the equity read
         # answers a number — a card reading either would print $4,242.42.
         engine = self._tool_engine(viewer=lambda uid: None)
+        # The absence is read off the credential store, which is always
+        # planted here (the real one can write a master key under data/).
+        monkeypatch.setattr("bot.core.exchange_credentials.get_credential_store",
+                            lambda: NS(credential_state=lambda u: "absent"))
+        _per_user(monkeypatch, True)
         skill = reg.build_default_registry().get(skill_name)
         out = asyncio.run(skill.execute(engine, user_id="555"))
-        _check(out, ["No linked live account" if skill_name == "check_risk" else "no linked live account",
-                     "/connect"],
-               ["4,242", "HYPE/USDT:USDT", "$50.00", "87.65", "Utilization"])
+        if skill_name == "check_risk":
+            # The risk card shows this person their own PRACTICE book (as
+            # /risk does), under the line saying no live account is linked.
+            _check(out, ["Your practice book", "No live account of yours is linked", "/connect"],
+                   ["4,242", "HYPE/USDT:USDT", "87.65"])
+        else:
+            _check(out, ["no linked live account", "/connect"],
+                   ["4,242", "HYPE/USDT:USDT", "$50.00", "87.65", "Utilization"])
         engine.get_effective_equity_async.assert_not_awaited()
 
     @pytest.mark.parametrize("skill_name", ["check_risk", "playbook"])
@@ -818,13 +895,17 @@ class TestTheTools:
                      "Available: <code>unavailable", "Total Exposure: <code>$0.00"],
                ["Utilization: <code>0.0%", "Equity: <code>$0.00", "Available: <code>$0.00", "4,242"])
 
-    def test_per_user_off_is_the_operator_book_for_anyone(self, monkeypatch):
+    def test_the_operator_reads_the_operator_book(self, monkeypatch):
+        # `viewer_executor` hands the operator executor to the operator alone
+        # (TestLiveView drives that rule); the card shows what it is handed.
         import asyncio
         reg = self._cfg(monkeypatch)
         op = _op_ex()
-        engine = self._tool_engine(viewer=lambda uid: op)
-        out = asyncio.run(reg.build_default_registry().get("check_risk").execute(engine, user_id="555"))
-        _check(out, ["4,242"], ["No linked live account"])
+        engine = self._tool_engine(viewer=lambda uid: op if uid == "777" else None)
+        monkeypatch.setattr("bot.core.exchange_credentials.get_credential_store",
+                            lambda: NS(credential_state=lambda u: "absent"))
+        out = asyncio.run(reg.build_default_registry().get("check_risk").execute(engine, user_id="777"))
+        _check(out, ["4,242"], ["No linked live account", "practice book"])
 
     def test_the_risk_card_reads_the_callers_own_breaker_and_streak(self, monkeypatch):
         # `engine.risk` is the SHARED engine; a linked user under per-user

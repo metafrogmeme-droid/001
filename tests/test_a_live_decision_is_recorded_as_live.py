@@ -309,6 +309,11 @@ def test_the_operators_executor_is_bound_into_its_close(monkeypatch):
     engine = RuneClawEngine()
     engine.learning.record_closed_outcome = MagicMock()
     monkeypatch.setattr(engine, "_sync_live_state_to_website", lambda: None)
+    # The REAL engine carries an audit chain, so its close starts the
+    # flight-record sync on a daemon thread, whose POST can land while a later
+    # test has pointed the website URL at a local server of its own: a
+    # refused connect the network guard rightly reports against this test.
+    monkeypatch.setattr(engine, "_sync_flight_records", lambda: None)
     engine.live_executor.on_position_closed(_pos(0.5))
     engine.learning.record_closed_outcome.assert_called_once()
     assert seen and seen[0] is engine.live_executor

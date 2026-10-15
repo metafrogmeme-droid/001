@@ -77,6 +77,10 @@ No allow-list (all three empty)
 
 A `paper` user's confirm opens on their own practice book (`RuneClawEngine.confirm_is_practice`). A live order is placed only for the operator, on the operator's account, or, with `PER_USER_LIVE_ENABLED` on (default `false`), for a trader on their own exchange account linked with `/connect` (`TelegramHandler._can_trade_live`). A web-only account is always paper. An admin's `/revoke_live` restricts a user to paper.
 
+Every card shows a person their own book. Nobody but the operator (and an admin) sees the operator's account, with per-user live trading on or off: on a live bot, a caller with no live account of their own sees their practice book on every card and in the chat (`RuneClawEngine.viewer_executor`).
+
+A `/revoke` holds. While `PAPER_AUTO_ACCEPT` is on, a newcomer is admitted on their first command, but an account an admin revoked is not admitted again that way; only an admin's `/approve` lifts the revocation (`UserStore.authorize`).
+
 Authorization applies to slash commands and to inline-keyboard callbacks (confirm and reject buttons). A button pressed by someone other than the user it was sent to is refused.
 
 ### MCP

@@ -114,9 +114,23 @@ class TestViewerExecutor:
         monkeypatch.setattr(eng_mod, "CONFIG",
                             SimpleNamespace(per_user_live_enabled=value))
 
-    def test_per_user_off_always_operator(self, monkeypatch):
+    def test_per_user_off_the_operator_alone(self, monkeypatch):
+        """Everyone but the operator sees their own book (the operator's
+        decision of 2026-10-15). This was "always the operator", which showed
+        every self-admitted paper user the operator's live account. Both
+        arms, and the system context that still describes the operator
+        account in this mode."""
         self._set_per_user(monkeypatch, False)
-        assert _FakeEngine(executor_for="OP").viewer_executor("anyone") == "OP"
+        e = _FakeEngine(executor_for="OP", operator_ids=("777",), live_exec="OP")
+        assert e.viewer_executor("anyone") is None
+        assert e.viewer_executor("777") == "OP"
+        assert e.viewer_executor("") == "OP" and e.viewer_executor("auto") == "OP"
+
+    def test_per_user_on_the_system_context_sees_nothing(self, monkeypatch):
+        # Unchanged under per-user live: no operator id, no book.
+        self._set_per_user(monkeypatch, True)
+        e = _FakeEngine(executor_for="OP", operator_ids=("777",), live_exec="OP")
+        assert e.viewer_executor("") is None and e.viewer_executor("auto") is None
 
     def test_per_user_on_own_account_returned(self, monkeypatch):
         self._set_per_user(monkeypatch, True)

@@ -98,7 +98,10 @@ def _handler(engine):
 
 def _card(engine, user_id, *, surface="telegram", live=False):
     h = _handler(engine)
-    with patch("bot.skills.start_commands.CONFIG") as c:
+    # The live-absence word is read off the credential store, whose real
+    # instance can write a master key under data/: plant the word.
+    with patch("bot.skills.start_commands.CONFIG") as c, \
+            patch("bot.skills.chat_runtime.live_account_absence", lambda _u: "absent"):
         c.simulation_mode = not live
         c.is_live.return_value = live
         c.risk.max_drawdown_pct = 10.0
@@ -137,12 +140,21 @@ def test_the_operator_still_sees_their_own_book():
     assert "7" == _line(card, "Open Positions").split(":")[-1].strip()
 
 
-def test_a_caller_with_no_account_to_view_is_told_so_not_told_zero():
-    """`scope: none` is not a flat book. Zero open positions is a reading; no
-    account is the absence of one, and they are different sentences."""
-    card = _card(_Engine(per_user=True), "nobody", live=True)
-    assert "unavailable" in _line(card, "Open Positions")
-    assert "0" not in _line(card, "Open Positions").split(":")[-1]
+def test_a_caller_with_no_account_to_view_is_shown_their_practice_book():
+    """`scope: none` is not a flat LIVE book, and it is not the operator's:
+    everyone but the operator sees their own book (the operator's decision of
+    2026-10-15), so this caller's card is their PRACTICE book under the line
+    that says which live absence it is. The practice book is asymmetric with
+    both live books (3 open, $4,321), so the card is seen reading it."""
+    eng = _Engine(per_user=True)
+    eng.user_portfolios = NS(get=lambda uid: NS(snapshot=lambda: NS(
+        equity_usd=4321.0, open_positions=3, daily_pnl=0.0, max_drawdown_pct=0.0)))
+    with patch("bot.skills.chat_runtime.live_account_absence", lambda _u: "absent"):
+        card = _card(eng, "nobody", live=True)
+    assert card.startswith("\U0001F3AF Your practice book"), card[:200]
+    assert "3" == _line(card, "Open Positions").split(":")[-1].strip()
+    assert "$4,321.00" in _line(card, "Equity")
+    assert "Mode: PAPER" in card and "555" not in card, card
 
 
 def test_a_genuinely_flat_book_still_prints_zero():

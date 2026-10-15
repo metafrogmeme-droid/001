@@ -86,13 +86,18 @@ def _cfg(per_user: bool, chat="100", admin="200"):
 
 
 class TestCallerExecutor:
-    def test_flag_off_always_operator(self):
+    def test_flag_off_the_operator_alone(self):
         p = _cfg(per_user=False)
         try:
             h = _handler(_engine())
-            # Any caller — operator, admin, or stranger — gets the shared executor.
+            # The shared executor is the operator's: the operator and an admin
+            # keep it, and a stranger gets None (their own practice book), in
+            # this mode as under per-user live. It used to be "any caller gets
+            # the shared executor", which showed every self-admitted paper user
+            # the operator's live positions and let them tap Close on them.
             assert h._caller_executor(_update("100")) is OPERATOR
-            assert h._caller_executor(_update("999")) is OPERATOR
+            assert h._caller_executor(_update("200")) is OPERATOR
+            assert h._caller_executor(_update("999")) is None
         finally:
             p.stop()
 

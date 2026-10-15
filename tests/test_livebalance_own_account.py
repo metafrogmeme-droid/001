@@ -11,6 +11,7 @@ engine.balance_view_executor() resolves the caller's own account regardless of
 the live-trading flag — without enrolling it in the trading/monitoring loops.
 """
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from bot.core.engine import RuneClawEngine
@@ -48,10 +49,18 @@ _CREDS = {"api_key": "K" * 16, "api_secret": "S" * 16, "passphrase": "pp"}
 # ── resolver ────────────────────────────────────────────────────────
 
 class TestBalanceViewExecutor:
-    def test_no_linked_account_uses_operator(self):
+    def test_no_linked_account_is_nobodys_account(self):
+        """A caller with no keys of their own is shown no account at all,
+        never the operator's: the shared account is the operator's alone, with
+        per-user live off as well (the operator's decision of 2026-10-15).
+        Both arms: the operator, recognised by the store's admin role, still
+        reads it."""
         eng = _engine()
+        eng._user_store = SimpleNamespace(
+            get=lambda uid: {"role": "admin"} if uid == "op" else {"role": "paper"})
         with _patch_store(_Store({})):
-            assert eng.balance_view_executor("alice") is eng.live_executor
+            assert eng.balance_view_executor("alice") is None
+            assert eng.balance_view_executor("op") is eng.live_executor
 
     def test_blank_user_uses_operator(self):
         eng = _engine()

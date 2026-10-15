@@ -16506,6 +16506,96 @@ and is left open. Seven mutants, all killed on the first round.
 `bot/core/practice_fill.py`, `bot/utils/user_store.py`,
 `bot/core/engine.py`, `docs/adr/0005-practice-fills-for-paper-users.md`.)
 
+**A STRANGER WHO MESSAGED THE BOT WAS SHOWN THE OPERATOR'S LIVE ACCOUNT.**
+With `PER_USER_LIVE_ENABLED` off (the default), `viewer_executor` answered the
+operator's executor for every caller, documented as "single-account
+behaviour", and `_caller_executor` and `balance_view_executor` short-circuited
+the same way. `PAPER_AUTO_ACCEPT` (also the default) admits anyone who sends a
+command, as `paper`. So a stranger's `/portfolio`, `/positions`, `/risk`,
+`/performance`, `/daily_report`, `/start`, `/status` and `/livebalance`, the
+chat prompt, the `check_risk` and `get_portfolio` tools and the web positions
+panel all described the operator's live equity, positions and realized P&L, in
+dollars. A Details tap read the operator's venue account; the Close button
+under the operator's position reached the close door, whose live-authority
+check was the only thing that refused it. The operator decided on 2026-10-15
+that everyone but the operator sees only their own book.
+
+- **The view.** `viewer_executor` answers None, in both modes, for a caller
+  who is not the operator and resolves only to the shared executor. The
+  system context (`""`/`"auto"`: the website sync and the dashboard pusher)
+  keeps the operator account while per-user live is off, as it always had.
+  `_caller_executor` and `balance_view_executor` follow it. The async
+  `resolve_display_equity` asked `get_user_live_equity`, which is the SIZING
+  read and answers the operator's balance for anybody routed there; it asks
+  the view first now and answers `no_account`, as its sync sibling already did
+  through `live_view`.
+- **What the person sees instead is their own practice book**, under one line
+  saying which live absence it is (`chat_runtime.practice_view_note`), on every
+  card that has a practice book: the record cards, `/positions` (whose Close
+  button then closes a practice row), `/risk`, `/start`, the status card, the
+  two chat tools and the web panel (`live: false`). `/classpf` is a live-only
+  card and keeps its absence line. The chat prompt describes the same practice
+  book under a `LIVE ACCOUNT:` line (`_no_live_account_block`), so the model and
+  the cards tell one story; it used to tell the model "none can be reported"
+  while the card beside it listed practice positions.
+- **A readable key is a fourth absence.** With per-user live off a linked
+  person also resolves to no account, and `live_account_absence` read
+  "readable keys, no executor" as "the credential store could not be asked".
+  That is a fault manufactured from a setting. It answers `operator_only`
+  there: this bot trades one live account, the operator's.
+- **A door is named only where it opens.** The link door (`/connect`) is
+  offered only with per-user live on (`per_user_live_on`), where linking gives
+  a person an account of their own to see.
+- **The same reading, one door over: who may place on the shared account.**
+  Under the staged policy (`LIVE_OPEN_TO_KEY_HOLDERS=false`) with per-user live
+  off, an allowlisted non-operator passed `_can_trade_live`, and
+  `_executor_for` placed their order on the operator's balance. After the view
+  fix no card of theirs would show that position and no button of theirs would
+  close it. The open policy already refused this case; the staged branch now
+  refuses it too. The shared account is the operator's alone, for placing as
+  well as for viewing.
+- **The practice risk engine on the cards.** `caller_risk` and `risk_engines`
+  asked `risk_for`, which with per-user live off is the shared operator engine,
+  so a practice caller's `/risk` and entry gate were the operator's breaker and
+  drawdown. `trade_gate._own_risk` asks `practice_risk_for` for a practice
+  caller, the engine the confirm re-check already sizes on.
+
+The tests that pinned the old decision did so mostly by name ("per-user off is
+the operator for anyone", "single account mode is unchanged"). Each now drives
+both arms: the stranger sees their practice book and nothing of the operator's, and
+the operator still sees the operator's account. Two fixtures had to be able to
+produce the new state: a practice book that renders (a real `PortfolioTracker`
+with a balance nobody else has, where a stub's `snapshot()` returned `{}`), and
+a close test whose trader has an executor of their own. One assertion misfired
+on a short string ("could not be confirmed" is also the halt line's wording)
+and is anchored to the absence's own sentence now. Twenty-four mutants (the
+view rule in both modes, the system context, every card's read, the staged
+gate, the absence word, the door, the practice risk engine, the revocation),
+all killed. The run of the related suite also reported a refused connect: a
+test that closes a position on a REAL engine started the flight-record sync on
+a daemon thread, whose POST landed while a later test pointed the website URL
+at its own local server. That test stubs `_sync_flight_records` now, as it
+already stubbed the live-state sync beside it.
+(`tests/test_chat_prompt_describes_only_the_callers_book.py`,
+`tests/test_the_record_cards_read_the_callers_book.py`,
+`tests/test_live_equity_truthful.py`, `tests/test_live_trader_allowlist.py`,
+`tests/test_a_close_button_needs_a_permission.py`,
+`tests/test_the_web_positions_panel_reads_the_callers_book.py`,
+`tests/test_the_status_question_is_answered_by_the_status_card.py`,
+`tests/test_the_risk_card_reads_the_leverage_it_shows.py`,
+`tests/test_the_details_button_reads_the_callers_account.py`,
+`tests/test_the_balance_view_is_never_somebody_elses.py`.)
+
+**/REVOKE DID NOT HOLD: THE NEXT MESSAGE LET THE PERSON BACK IN.** `/revoke`
+sets the role to `pending` and stamps `revoked_at`. With `PAPER_AUTO_ACCEPT` on,
+`_guard`'s self-admission branch calls `authorize(uid, by="auto-accept")` for
+any caller who is not authorized, so the revoked person's next command
+admitted them again as `paper`. `authorize` now refuses self-admission for a
+record that carries `revoked_at` and audits `self_admission_refused`. Only a
+human's `/approve` lifts a revocation; a newcomer who was never revoked is
+admitted as before.
+(`tests/test_self_admission_is_not_vouched.py::TestARevocationHolds`.)
+
 **SIX SMALL CLAIMS THE REVIEW OF THE SIXTY PRS FOUND ONE STEP OVER FROM A
 FIX.** Each is a sentence or a default that said more than was read.
 
@@ -21727,7 +21817,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **492 of 1322** reach for source text through `source_scan`, `code_only`
+Driven, **492 of 1323** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 492 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule

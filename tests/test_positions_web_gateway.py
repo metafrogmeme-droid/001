@@ -131,13 +131,17 @@ def _drive_positions(monkeypatch, *, live: bool, executor, tracker=None):
     return resp.status, json.loads(resp.text)
 
 
-def test_a_live_executor_that_cannot_be_resolved_is_not_a_flat_book(monkeypatch):
-    status, body = _drive_positions(monkeypatch, live=True, executor=None)
+def test_a_caller_with_no_live_account_is_shown_their_practice_book(monkeypatch):
+    """`viewer_executor` answers None for anybody but the operator who has no
+    live account of their own (in both modes). That caller is shown their own
+    PRACTICE book, labelled not-live: never an empty live book, which is what
+    "no executor" read as before, and never the operator's."""
+    status, body = _drive_positions(monkeypatch, live=True, executor=None,
+                                    tracker=SimpleNamespace(open_positions=[_paper()]))
     assert status == 200
-    assert body["positions"] == []
-    assert body["count"] == 0
-    assert body["live"] is True
-    assert body["book_read"] is False, "no executor means nobody read a book"
+    assert body["live"] is False, "a practice row is never labelled live"
+    assert body["book_read"] is True
+    assert body["count"] == 1
 
 
 def test_an_executor_with_no_book_attribute_is_not_a_flat_book(monkeypatch):

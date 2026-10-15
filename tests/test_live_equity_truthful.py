@@ -45,6 +45,11 @@ def _live():
     # A MagicMock attribute is TRUTHY: left unset, per_user_live_enabled would
     # send _executor_for("op") through the real credential store.
     cfg.per_user_live_enabled = False
+    # "op" IS the operator: the shared account is the operator's alone, so a
+    # caller the engine does not know as the operator has no live equity to
+    # view at all (TestAStrangerIsNotShownTheOperatorsEquity).
+    cfg.telegram.chat_id = "op"
+    cfg.telegram.admin_ids = ""
     return cfg
 
 
@@ -52,6 +57,8 @@ def _paper():
     cfg = MagicMock()
     cfg.is_live.return_value = False
     cfg.per_user_live_enabled = False
+    cfg.telegram.chat_id = "op"
+    cfg.telegram.admin_ids = ""
     return cfg
 
 
@@ -172,3 +179,39 @@ class TestResolveDisplayEquitySync:
         src = code_only(inspect.getsource(RuneClawEngine.resolve_display_equity_sync))
         assert "live_view(" in src and "live_balance_cached()" in src
         assert '_live_balance_cache.get("total"' not in src
+
+
+class TestAStrangerIsNotShownTheOperatorsEquity:
+    """The operator's decision of 2026-10-15: the shared live account is the
+    operator's alone, with per-user live OFF as much as ON. A caller who is not
+    the operator gets ``no_account`` from both resolvers, never the operator's
+    figure; the operator still gets it, and so does the system context."""
+
+    @staticmethod
+    def _cfg(per_user: bool):
+        cfg = _live()
+        cfg.per_user_live_enabled = per_user
+        return cfg
+
+    def test_the_sync_resolver_in_both_modes(self):
+        for per_user in (False, True):
+            eng = _engine()
+            eng._live_balance_cache = {"total": 42.5}
+            eng._executor_for = lambda uid="", venue="", _e=eng: _e.live_executor
+            with patch("bot.core.engine.CONFIG", self._cfg(per_user)):
+                assert eng.resolve_display_equity_sync("stranger") == (None, "no_account"), per_user
+                assert eng.resolve_display_equity_sync("op") == (42.5, "live"), per_user
+                assert eng.resolve_display_equity_sync("") == (42.5, "live"), per_user
+
+    async def test_the_async_resolver_in_both_modes(self):
+        for per_user in (False, True):
+            eng = _engine()
+            eng._executor_for = lambda uid="", venue="", _e=eng: _e.live_executor
+            # The sizing read answers the operator's account for anybody routed
+            # there; the display must not pass that through as theirs.
+            eng.get_user_live_equity = AsyncMock(return_value={"total": 17.30})
+            with patch("bot.core.engine.CONFIG", self._cfg(per_user)):
+                assert await eng.resolve_display_equity("stranger") == (None, "no_account"), per_user
+                eng.get_user_live_equity.assert_not_awaited()
+                assert await eng.resolve_display_equity("op") == (17.30, "live"), per_user
+                assert await eng.resolve_display_equity("auto") == (17.30, "live"), per_user

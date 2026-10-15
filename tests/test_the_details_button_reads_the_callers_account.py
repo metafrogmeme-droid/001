@@ -109,7 +109,7 @@ def _venue_row(margin):
     }
 
 
-def _tap(*, per_user_live, linked, live=True, ident="BTCUSDT"):
+def _tap(*, per_user_live, linked, live=True, ident="BTCUSDT", as_operator=False):
     """One Details tap through the REAL dispatcher.
 
     Returns (what the caller was sent, [which venue accounts were asked]).
@@ -168,7 +168,7 @@ def _tap(*, per_user_live, linked, live=True, ident="BTCUSDT"):
     h.users = _Users()
     h._limiter = SimpleNamespace(allow=lambda uid: True)
     h._check_auth = lambda update: True
-    h._is_admin = lambda update: False
+    h._is_admin = lambda update: as_operator
     h._lang = lambda update: "en"
 
     async def _send(update, text, **kw):
@@ -257,10 +257,16 @@ class TestTheFallbackReadsTheCallersAccount:
         assert any(CALLER_MARK in s for s in sent), sent
         assert not any(OP_MARK in s for s in sent), sent
 
-    def test_single_account_mode_is_unchanged(self):
-        # PER_USER_LIVE off: every caller's account IS the operator's, on
-        # purpose, and the fallback keeps finding the untracked position.
+    def test_single_account_mode_is_the_operators_alone(self):
+        # PER_USER_LIVE off: the shared account is the OPERATOR's. It was
+        # "every caller's account IS the operator's, on purpose", which showed
+        # a self-admitted paper user the operator's position on a Details tap.
         sent, asked = _tap(per_user_live=False, linked=False)
+        assert "operator" not in asked, asked
+        assert not any(OP_MARK in s for s in sent), sent
+        # Both arms: the operator's own tap keeps finding the untracked
+        # position on the shared account.
+        sent, asked = _tap(per_user_live=False, linked=False, as_operator=True)
         assert asked == ["operator"], asked
         assert any(OP_MARK in s for s in sent), sent
 

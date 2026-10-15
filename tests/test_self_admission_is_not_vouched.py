@@ -292,6 +292,63 @@ class TestTheClampIsInTheFunnel:
         assert "self_admission_clamped" in actions
 
 
+class TestARevocationHolds:
+    """An admin's /revoke lasted until the revoked person's next command.
+
+    `_guard` self-admits anyone off the allowlist while PAPER_AUTO_ACCEPT is
+    on, and `authorize()` popped `revoked_at` for every admission, the
+    self-admission included. So /revoke set the record to pending, and the
+    next message through the open door made it paper again with nobody asked.
+    `register()` had already learned to leave a revoked record alone; the
+    door one call later had not. A revocation is now a human decision only a
+    human's /approve lifts.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_revoked_user_is_not_let_back_in(self, bot):
+        await _admit_stranger(bot)
+        assert bot.users.revoke(STRANGER) is True
+        asked: list = []
+
+        async def _request(*a, **kw):
+            asked.append(a)
+            return True
+        bot._request_operator_admission = _request
+        assert await bot._guard(_update(STRANGER), "scan", None) is False, (
+            "a revoked user's next command walked back in through auto-accept")
+        user = bot.users.get(STRANGER)
+        assert user["role"] == "pending" and user.get("revoked_at")
+        assert bot.users.is_admitted(STRANGER) is False
+        assert asked, "the operator was not asked, so nobody can decide"
+
+    @pytest.mark.asyncio
+    async def test_an_admin_approval_still_lifts_it(self, bot):
+        await _admit_stranger(bot)
+        bot.users.revoke(STRANGER)
+        assert bot.users.authorize(STRANGER, role="trader", by=str(OPERATOR)) is True
+        assert bot.users.get(STRANGER).get("revoked_at") is None
+        assert await bot._guard(_update(STRANGER), "scan", None) is True
+
+    @pytest.mark.asyncio
+    async def test_a_newcomer_never_revoked_is_still_admitted(self, bot):
+        """The other arm: the refusal keys on the revocation, not on the door."""
+        user = await _admit_stranger(bot)
+        assert user["role"] == SELF_ADMISSION_ROLE
+
+    def test_the_refusal_is_in_the_funnel_and_audited(self, tmp_path):
+        store = UserStore(tmp_path / "users.json")
+        store.register(STRANGER, name="Stranger")
+        store.authorize(STRANGER, role=SELF_ADMISSION_ROLE, by=SELF_ADMISSION_BY)
+        store.revoke(STRANGER)
+        with patch("bot.utils.user_store.audit") as rec:
+            assert store.authorize(STRANGER, role=SELF_ADMISSION_ROLE,
+                                   by=SELF_ADMISSION_BY) is False
+        assert [c.kwargs.get("action") for c in rec.call_args_list] == [
+            "self_admission_refused"]
+        assert store.get(STRANGER).get("revoked_at")
+
+
+
 # ── the controls, driven end to end ──────────────────────────────────
 
 class TestAStrangerCannotTouchTheSharedEngine:

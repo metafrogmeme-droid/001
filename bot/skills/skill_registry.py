@@ -61,6 +61,18 @@ from bot.utils.candles import ohlc_on_record, volume_on_record as _vol_on_record
 # shown where it is measured (`checks_passed` on the trade card, /risk); the
 # marketing copy now says what is true without a figure attached to nothing.
 
+def _practice_note_for(user_id: str) -> str:
+    """The line above a caller's PRACTICE book on a live bot
+    (`chat_runtime.practice_view_note`), imported where it is used because
+    chat_runtime is a sibling these skills are imported beside."""
+    from bot.skills.chat_runtime import live_account_absence, practice_view_note
+    return practice_view_note(live_account_absence(str(user_id or "")))
+
+
+def _practice_prefix(note: str) -> str:
+    return f"{note}\n\n" if note else ""
+
+
 def _get_portfolio(engine: RuneClawEngine, **kwargs):
     """Return per-user portfolio if user_id provided, else system portfolio."""
     user_id = kwargs.get("user_id")
@@ -1003,19 +1015,19 @@ class CheckRiskSkill(BaseSkill):
         # the total and the win rate cover the rows that read.
         record_note = ""
         # LIVE FIX: use real exchange equity and live positions in LIVE mode
-        if CONFIG.is_live():
-            # The book THIS caller may view, through the same isolation guard
-            # GetPortfolioSkill and the chat prompt read. This was
-            # `engine.live_executor` — the operator's positions, exposure and
-            # realized P&L, in dollars, on the risk card of every stranger
-            # whose "what's my risk" the chat model answered with this tool.
-            executor = engine.viewer_executor(user_id)
-            if executor is None:
-                return (f"\U0001f6e1 <b>RISK DASHBOARD</b> (LIVE)\n{SEP}\n\n"
-                        "No linked live account — no equity, exposure, "
-                        "positions or realized P&L of yours is on record "
-                        "here. Use <code>/connect</code> to link your "
-                        "exchange keys.")
+        # The book THIS caller may view, through the same isolation guard
+        # GetPortfolioSkill and the chat prompt read. This was
+        # `engine.live_executor` — the operator's positions, exposure and
+        # realized P&L, in dollars, on the risk card of every stranger whose
+        # "what's my risk" the chat model answered with this tool. A caller
+        # with no live account to view is shown their own PRACTICE book (the
+        # paper branch below reads `_get_portfolio`, theirs), with a line
+        # saying so.
+        _live_ex = engine.viewer_executor(user_id) if CONFIG.is_live() else None
+        _practice_note = (_practice_note_for(user_id)
+                          if CONFIG.is_live() and _live_ex is None else "")
+        if _live_ex is not None:
+            executor = _live_ex
             # `live_eq if live_eq > 0 else state.equity_usd` was the second
             # door onto the paper book: an unreadable live balance fell
             # through to the PAPER snapshot, so fixing the engine helper alone
@@ -1100,13 +1112,15 @@ class CheckRiskSkill(BaseSkill):
             # the operator's (`CostBreakdownSkill` says why); anyone else's
             # status card leaves them out rather than print another's dollars.
             own_cost = cost if _caller_is_operator(engine, user_id) else None
-            return self._status(engine, state, cb, streak, own_cost, exp_pct,
-                                display_equity, display_open, display_total_trades,
-                                display_pnl, display_win_rate, gate=gate, dd=dd,
-                                record_note=record_note)
-        return self._risk(state, cb, streak, total_exp, exp_pct, groups,
-                          display_equity, display_open, display_pnl, gate=gate,
-                          dd=dd, exp_note=exp_note, record_note=record_note)
+            return _practice_prefix(_practice_note) + self._status(
+                engine, state, cb, streak, own_cost, exp_pct,
+                display_equity, display_open, display_total_trades,
+                display_pnl, display_win_rate, gate=gate, dd=dd,
+                record_note=record_note)
+        return _practice_prefix(_practice_note) + self._risk(
+            state, cb, streak, total_exp, exp_pct, groups,
+            display_equity, display_open, display_pnl, gate=gate,
+            dd=dd, exp_note=exp_note, record_note=record_note)
 
     def _status(self, engine, state, cb, streak, cost, exp_pct,
                 display_equity, display_open, display_total_trades,
@@ -1291,17 +1305,19 @@ class GetPortfolioSkill(BaseSkill):
         from bot.config import CONFIG
 
         # LIVE mode: show real exchange data
-        if CONFIG.is_live() and hasattr(engine, 'live_executor'):
-            # Route to the SAME account the caller's other cards (/start, /risk)
-            # show — via the shared viewer resolver — so the two never disagree
-            # about which book they describe. Under per-user live, a caller with
-            # no own linked account sees nothing here rather than the operator's
-            # book (previously it hard-coded engine.live_executor and leaked the
-            # operator account to every caller).
-            executor = engine.viewer_executor(kwargs.get("user_id", "") or "")
-            if executor is None:
-                return ("<b>Portfolio</b> (LIVE)\n\nNo linked live account. "
-                        "Use <code>/connect</code> to link your exchange keys.")
+        # Route to the SAME account the caller's other cards (/start, /risk)
+        # show — via the shared viewer resolver — so the two never disagree
+        # about which book they describe. A caller with no live account to view
+        # is shown their own PRACTICE book below, with a line saying so; this
+        # used to hard-code engine.live_executor and leak the operator account
+        # to every caller.
+        _pf_uid = str(kwargs.get("user_id", "") or "")
+        _live_ex = (engine.viewer_executor(_pf_uid)
+                    if CONFIG.is_live() and hasattr(engine, 'live_executor') else None)
+        _practice_note = (_practice_note_for(_pf_uid)
+                          if CONFIG.is_live() and _live_ex is None else "")
+        if _live_ex is not None:
+            executor = _live_ex
             live_open = executor.open_positions
 
             # Win rate + real-trade set from the single shared source of truth
@@ -1431,7 +1447,7 @@ class GetPortfolioSkill(BaseSkill):
             f"Trading {_money(state.total_pnl, sign=True)}</i>"
         )
 
-        return "\n".join(lines)
+        return _practice_prefix(_practice_note) + "\n".join(lines)
 
 
 # ══════════════════════════════════════════════════════════════
