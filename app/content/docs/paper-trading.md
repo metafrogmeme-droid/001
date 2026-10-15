@@ -58,7 +58,7 @@ When either level is hit, the position closes at the price that tick read (not a
 
 ### Manual
 
-On a bot that is not in live mode, `/positions` lists practice positions, each with a **Close** button. It closes the position at the current market price. If no price can be read, the position stays open and the reply says so. In live mode the Telegram position cards show live positions only.
+`/positions` lists your practice positions, each with a **Close** button: on a bot that is not in live mode, and on a live bot for anyone with no live account of their own to view. It closes the position at the current market price. If no price can be read, the position stays open and the reply says so. On a live bot the operator, and with per-user live trading on a trader who linked keys, see their live positions there instead.
 
 ## PnL Calculation
 
@@ -96,7 +96,7 @@ Each book's `snapshot()` returns a `PortfolioState` (`bot/utils/models.py`):
 
 A book keeps its last 1,000 closed trades, and the totals above cover those.
 
-Where you see it: on a bot that is not in live mode, `/portfolio` renders your practice book. In live mode, `/portfolio` renders the live account you may view instead. On the website, a signed-in account's dashboard reads its practice book.
+Where you see it: `/portfolio`, `/positions`, `/risk`, `/performance`, `/daily_report`, `/start`, `/status` and the chat describe your practice book. On a live bot they do so for everyone with no live account of their own to view, under a line that says so: only the operator sees the operator's account, and with per-user live trading on (`PER_USER_LIVE_ENABLED`, default `false`) a trader who linked keys sees their own. On the website, a signed-in account's dashboard reads its practice book.
 
 ## Configuration
 
