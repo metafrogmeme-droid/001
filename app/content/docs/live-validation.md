@@ -1,36 +1,28 @@
 # Live Market Validation
 
-RUNECLAW is connected to Bitget exchange and validated against live market data. All results on this page are unedited output from actual runs.
+RUNECLAW reads Bitget market data and runs it through its scanner, its analyzer and its risk engine.
+This page keeps two kinds of evidence apart:
+
+- **A recorded snapshot** from the hackathon period (on or before 15 Jul 2026): one live scan, three
+  analyses and one backtest on real BTC/USDT candles, each run once. The market figures are from that
+  day; they are not live.
+- **A stress test anyone can re-run**: 500 backtests on generated prices with fixed seeds, last run on
+  15 Oct 2026. `python3 run_deep_backtest.py` reproduces it.
+
+Neither is a forecast. A backtest replays the rules on past or generated prices: it shows how the risk
+engine behaves, not what a trade will earn.
 
 ---
 
-## Live Scan + Analysis + Backtest
+## The recorded snapshot
 
-![Live scan, analysis, and backtest results](live-validation-scan.png)
+![The scan and analysis cards from the RUNECLAW website, recorded during the hackathon](live-validation-scan.png)
 
-The screenshot above shows three cards from the RUNECLAW website, populated with real data:
+The two cards above are cropped from a screenshot of the RUNECLAW website taken during the hackathon.
+The crop leaves out the screenshot's heading, which named the exchange sub-account, and its backtest
+card, whose results are below as percentages. Nothing inside the two cards is changed.
 
-- **Live Scan** -- 324 USDT pairs scanned from Bitget in real time
-- **Live Analysis** -- 3 assets analyzed through the full pipeline
-- **Backtest** -- 1,440-bar (60-day) replay on BTC/USDT 1H candles
-
----
-
-## Backtest Stress Test (500 Runs)
-
-![500-run backtest stress test](live-validation-backtest.png)
-
-The 500-run stress test covers 5 market regimes (Bull, Bear, Range/Chop, High Volatility, Crash Recovery), 20 symbols, and 5 random seeds. 889 total trades were analyzed across all runs.
-
----
-
-## Proof Artifacts
-
-![Evidence badges](live-validation-evidence.png)
-
----
-
-## Live Scan Results
+### Live scan
 
 Scanned **324 USDT pairs** from Bitget spot market. Top 10 by momentum:
 
@@ -47,15 +39,15 @@ Scanned **324 USDT pairs** from Bitget spot market. Top 10 by momentum:
 | 9 | VTHO/USDT | +30.95% | $904,287 | +1.000 | Bullish |
 | 10 | PORTAL/USDT | +56.43% | $169,470 | +1.000 | Bullish |
 
-**Summary:** 8 bullish, 2 bearish signals. No volume spikes detected (first scan -- spike detector needs rolling baseline).
+**Summary:** 8 bullish, 2 bearish signals. No volume spikes detected (first scan: the spike detector
+needs a rolling baseline).
 
----
+### Live analysis
 
-## Live Analysis Results
+Three assets were run through the full RUNECLAW analyzer (10-voter confluence model, ADX regime
+detection, Fibonacci levels, candlestick patterns, OBV, VWAP):
 
-Three assets were run through the full RUNECLAW analyzer (10-voter confluence model, ADX regime detection, Fibonacci levels, candlestick patterns, OBV, VWAP):
-
-### VTHO/USDT -- LONG (Confidence: 81%)
+#### VTHO/USDT: LONG (confidence 81%)
 
 | Field | Value |
 |-------|-------|
@@ -72,7 +64,7 @@ Three assets were run through the full RUNECLAW analyzer (10-voter confluence mo
 | Fibonacci Zone | 382-500 retracement |
 | Source | RULE_ENGINE |
 
-### NFP/USDT -- LONG (Confidence: 74%)
+#### NFP/USDT: LONG (confidence 74%)
 
 | Field | Value |
 |-------|-------|
@@ -89,7 +81,7 @@ Three assets were run through the full RUNECLAW analyzer (10-voter confluence mo
 | Fibonacci Zone | 382-500 retracement |
 | Source | RULE_ENGINE |
 
-### GENIUS/USDT -- REJECTED
+#### GENIUS/USDT: REJECTED
 
 | Field | Value |
 |-------|-------|
@@ -98,88 +90,97 @@ Three assets were run through the full RUNECLAW analyzer (10-voter confluence mo
 | Result | **REJECTED** |
 | Reason | Regime filter killed counter-trend LONG |
 
-The regime filter correctly blocked a LONG trade in a TREND_DOWN environment. This is the fail-closed design working as intended.
+The regime filter blocked a LONG trade in a TREND_DOWN market: the fail-closed design doing what it is
+for.
 
----
+### Backtest: BTC/USDT 1H, real candles
 
-## Backtest Results -- BTC/USDT 1H
+1,440 one-hour candles (60 days), 0.1% commission and 0.05% slippage per trade, on a simulated starting
+balance. Every result is a percentage of that starting balance.
 
-1,440 bars (60 days), $10,000 initial balance, 0.1% commission, 0.05% slippage.
-
-### Performance
-
-| Metric | Value |
+| Measure | Result |
 |--------|-------|
-| Initial Balance | $10,000.00 |
-| Final Equity | $10,318.24 |
-| Total Return | **+3.18%** |
-| Net PnL | $318.25 |
-| Total Commission | $17.40 |
-| Total Slippage | $8.70 |
-
-### Trade Statistics
-
-| Metric | Value |
-|--------|-------|
-| Total Trades | 5 |
+| Total return | **+3.18%** |
+| Commission paid | 0.17% |
+| Slippage paid | 0.09% |
+| Trades | 5 |
 | Winners | 4 (80%) |
 | Losers | 1 |
-| Avg Win | $133.26 |
-| Avg Loss | $214.80 |
-| Largest Win | $264.37 |
-| Largest Loss | -$214.80 |
-| Avg Duration | 30.8h |
-
-### Risk Metrics
-
-| Metric | Value |
-|--------|-------|
-| Max Drawdown | -2.45% ($258.93) |
-| Max Consecutive Losses | 1 |
-| Profit Factor | 2.48 |
-| Sharpe Ratio | 1.75 |
-| Sortino Ratio | 0.79 |
-| Calmar Ratio | 1.30 |
-
-### Pipeline Funnel
+| Average win | +1.33% |
+| Average loss | -2.15% |
+| Largest win | +2.64% |
+| Largest loss | -2.15% |
+| Average duration | 30.8 h |
+| Max drawdown | -2.45% (from peak equity) |
+| Max consecutive losses | 1 |
+| Profit factor | 2.48 |
+| Sharpe ratio | 1.75 |
+| Sortino ratio | 0.79 |
+| Calmar ratio | 1.30 |
 
 | Stage | Count | % |
 |-------|-------|---|
-| Signals Scanned | 335 | 100% |
-| Ideas Generated | 100 | 29.9% |
-| Risk-Rejected | 95 | -- |
-| Confidence-Rejected | 235 | -- |
+| Signals scanned | 335 | 100% |
+| Ideas generated | 100 | 29.9% |
+| Risk-rejected | 95 | -- |
+| Confidence-rejected | 235 | -- |
 | **Executed** | **5** | **1.5%** |
 
-The funnel shows RUNECLAW's selectivity: out of 335 signals, only 5 passed all filters and were executed. The risk engine rejected 95% of generated ideas.
+Out of 335 signals, 5 passed every filter and were executed; the risk engine rejected 95 of the 100
+ideas generated. Five trades are too few to measure an edge. What this run shows is the pipeline end to
+end, from scan to risk gate to exit, on real prices.
+
+Scanning and analysis read Bitget's public market endpoints (tickers and candles); they need no account
+access.
 
 ---
 
-## 500-Run Stress Test Summary
+## Stress test: 500 runs on generated prices
 
-| Metric | Value |
-|--------|-------|
-| Win Rate | 50.5% |
-| Trailing Stop WR | 100% |
-| Mean Trades/Run | 17.1 |
-| Zero-Trade Runs | 0% |
-| Max Drawdown | -3.87% |
-| Worst-Case PnL | -2.06% |
-| Trailing Stop PnL | +$6,814 |
-| Take-Profit PnL | +$535 |
-| Total Runs | 500 |
+20 symbols, 5 market regimes (bull trend, bear trend, range/chop, high volatility, crash then
+recovery) and 5 fixed seeds: 500 backtests of 1,500 one-hour bars each, on prices generated with
+geometric Brownian motion and GARCH volatility. The rule engine decides alone (no LLM), with the same
+0.1% commission and 0.05% slippage. Every return is a percentage of each run's simulated starting
+balance.
 
----
+Last run on **15 Oct 2026** at commit `59fae43`. Every run's result, with the parameters its prices
+were generated from, is in `backtest_deep_results.json`; run `python3 run_deep_backtest.py` to
+reproduce it. Averages are over the runs that traded: a run that opened no position returned exactly
+0%, and folding it into an average would pull every figure toward zero.
 
-## Connection Details
+| Measure | Result |
+|---|---|
+| Runs completed | 500 of 500 |
+| Runs that traded | 415 (85 did not trade) |
+| Trades | 5,157 |
+| Average return, runs that traded | +0.82% |
+| Best run | +4.96% |
+| Worst run | -2.16% |
+| Profitable runs | 304 of 415 that traded; 304 of 500 in all |
+| Median profit factor | 1.80 (11 runs had no losing trade, so no ratio) |
+| Average win rate, runs that traded | 61.3% |
+| Average max drawdown, runs that traded | 0.82% |
+| Worst drawdown | 2.62% |
+| Runs past 20% drawdown | 0 |
 
-| Parameter | Value |
-|-----------|-------|
-| Exchange | Bitget |
-| Account Mode | Unified Account |
-| API Mode | Authenticated (live trading enabled) |
-| Sandbox | false (real market data) |
-| Simulation Mode | false (live micro-test) |
-| Live Trading | true (enabled, core team only) |
+| Regime | Runs | Traded | Trades | Average return, runs that traded | Profitable runs |
+|---|---|---|---|---|---|
+| Bull Trend | 100 | 95 | 1,288 | +0.59% | 69 of 95 |
+| Bear Trend | 100 | 95 | 1,138 | +0.82% | 68 of 95 |
+| Range/Chop | 100 | 95 | 1,157 | +0.86% | 67 of 95 |
+| High Volatility | 100 | 35 | 268 | +0.77% | 26 of 35 |
+| Crash Recovery | 100 | 95 | 1,306 | +1.04% | 74 of 95 |
 
-> **Note:** The authenticated balance endpoint is unavailable because the sub-account uses Bitget's Unified Account mode, which requires v3 API endpoints not yet supported by ccxt. All market data (tickers, OHLCV) works correctly via public endpoints, which is the only data RUNECLAW needs for scanning and analysis.
+**What it shows.** How the risk engine behaves across very different markets: the worst drawdown in any
+of the 500 runs was 2.62%, against the 10% maximum drawdown of the default risk settings
+(`MAX_DRAWDOWN_PCT` in `bot/config.py`).
+
+**What it does not show.** An edge. The prices are a random walk with a drift and a volatility, with
+none of a real market's memory, so what the rules earn on them says little about what they would earn
+on a real market. A run that did not trade is counted apart: declining to trade is the regime gate
+doing its job, not a loss.
+
+Earlier versions of this page showed a stress-test screenshot (180 runs) that disagreed with its own
+table (500 runs), and a card of claims that had gone stale. Both were removed on 15 Oct 2026. The figures
+above differ from earlier ones because the backtest engine has changed since; the record names the
+commit it ran at, so each figure can be tied to the code that produced it.
