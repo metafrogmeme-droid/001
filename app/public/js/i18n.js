@@ -2577,15 +2577,54 @@
     loadChunk(current, function () { apply(document, current); });
     var sel = document.getElementById('rc-lang-select');
     if (sel && sel.value !== current) sel.value = current;
+    var face = document.querySelector('.rc-lang-face');
+    if (face) face.textContent = current.toUpperCase();
     if (opts.persistServer !== false) persistServer(current);
     try { root.dispatchEvent(new CustomEvent('rc-lang', { detail: current })); } catch (e) { /* ignore */ }
   }
 
+  /**
+   * Where the language control goes: the one reading, most specific first.
+   *
+   * It used to be a page's own `[data-i18n-switcher]` slot, else the top
+   * bar's `.nav-links`, else nowhere. Twenty pages that load this file have
+   * neither (the shared `nav.topnav` row, a bare form page), so they had no
+   * way to choose a language at all; and `.nav-links` is the scroller phones
+   * hide, so on the pages that did have it, a phone never saw it.
+   *
+   * Now: the page's slot; the top bar's action cluster (a sibling of the
+   * scroller, which stays on screen); the shared `nav.topnav` row; the top
+   * bar itself. A page with none of them gets a small fixed corner control,
+   * because a page with no way to change language is the failure this fixes.
+   */
+  function switcherHost() {
+    var d = document;
+    var slot = d.querySelector('[data-i18n-switcher]')
+      || d.querySelector('nav.topbar .top-actions')
+      || d.querySelector('nav.topnav')
+      || d.querySelector('nav.topbar');
+    if (slot) return slot;
+    if (!d.body) return null;
+    var corner = d.createElement('div');
+    corner.className = 'rc-lang-float';
+    d.body.appendChild(corner);
+    return corner;
+  }
+
   function buildSwitcher() {
     if (document.getElementById('rc-lang-select')) return;
-    var host = document.querySelector('[data-i18n-switcher]')
-      || document.querySelector('nav.topbar .nav-links');
+    var host = switcherHost();
     if (!host) return;
+    // The control is the native <select> (its list, keyboard and screen
+    // reader behaviour come with it); `face` is what a phone shows in its
+    // place: a globe and the language code, with the select laid over it,
+    // transparent, so a tap still opens the native list.
+    var wrap = document.createElement('span');
+    wrap.className = 'rc-lang';
+    var face = document.createElement('span');
+    face.className = 'rc-lang-face';
+    face.setAttribute('aria-hidden', 'true');
+    face.textContent = current.toUpperCase();
     var sel = document.createElement('select');
     sel.id = 'rc-lang-select';
     sel.className = 'rc-lang-select';
@@ -2597,9 +2636,11 @@
       sel.appendChild(o);
     });
     sel.addEventListener('change', function () { setLang(sel.value); });
+    wrap.appendChild(face);
+    wrap.appendChild(sel);
     // Place before the primary CTA when we can, so it reads as a nav control.
     var cta = host.querySelector('.btn--primary');
-    if (cta) host.insertBefore(sel, cta); else host.appendChild(sel);
+    if (cta && cta.parentNode === host) host.insertBefore(wrap, cta); else host.appendChild(wrap);
   }
 
   /**
