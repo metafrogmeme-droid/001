@@ -19935,6 +19935,19 @@ a dollar figure in the backtest sections; `tests/test_the_deep_backtest_record_d
 the script's three helpers. Seventeen mutants, all killed; the first round's one survivor was "Unedited"
 with a capital U, which a case-sensitive check let through.
 
+**A FOLDER PROMOTED TO A PAGE INHERITS EVERY RULE THE PAGES KEEP.** The same morning the operator opened
+`/docs` on a phone and found the docs' Quick Links sending readers to `pmvc58g2.mule.page`, the hosting
+provider's hostname, where the READMEs and every page already say www.humanoid-traders.com. The rule
+existed twice (`app/test/canonical_host.test.js` for the pages' metadata,
+`tests/test_the_readme_states_the_token_record.py` for the READMEs) and reached neither the docs folder nor
+the built site, because until 2026-10-14 the docs folder was only a GitHub folder. The front page also still
+called the project a hackathon prototype "designed for" the hackathon while the README says it began as an
+entry to it and trades live with small positions, drew "Future Bitget Execution" as the last step, and
+listed 7 of its 21 pages. `tests/test_public_pages_link_the_live_repository.py` now refuses the deployment
+host on every public surface it reads (the docs, the READMEs, the pages and the built site), holds the front
+page's list to `SUMMARY.md` in order, and holds its disclaimer to the README's word for word. When a
+surface becomes public, ask which rules the public surfaces already keep before calling it done.
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —
