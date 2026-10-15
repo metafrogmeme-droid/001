@@ -306,13 +306,20 @@ class AccessCommands:
                 f"\U0001f3af {t('set_tier_result', self._lang(update), name=html.escape(name), id=target_id, tier_label=tier_label, role=user.get('role', 'trader'))}")
             # Tell the member: "changed", not "upgraded", since the same
             # command lowers a tier. A website-only member has no chat to
-            # write to; their plan card reads the change.
+            # write to, so the website emails them instead (when it holds a
+            # real address and a mail relay; best-effort, background).
             if not is_web:
                 try:
                     await ctx.bot.send_message(
                         chat_id=int(target_id),
                         text=(f"\U0001f3af {t('tier_changed', get_user_lang(self.users, target_id), tier_label=tier_label)}"),
                         parse_mode="HTML")
+                except Exception:
+                    pass
+            else:
+                try:
+                    from bot.utils.website_sync import notify_tier_change_in_background
+                    notify_tier_change_in_background(target_id, tier)
                 except Exception:
                     pass
         else:
