@@ -19948,6 +19948,41 @@ host on every public surface it reads (the docs, the READMEs, the pages and the 
 page's list to `SUMMARY.md` in order, and holds its disclaimer to the README's word for word. When a
 surface becomes public, ask which rules the public surfaces already keep before calling it done.
 
+**EVERY DOCS PAGE WAS READ AGAINST THE CODE, AND NONE OF THE NINETEEN SURVIVED WHOLE.** 15 October
+2026, the operator's follow-up: "go through the other docs pages too". Each page was audited by
+asking the code for every number, command, role, setting and quoted string it named, then
+rewritten, then reviewed again by a reader who had not written it. The pages had been written
+for the hackathon and read since only for links. What they said, against what the code does:
+- **Safety claims.** "Fail-closed" Telegram access through a `TELEGRAM_ALLOW_OPEN` flag nothing
+  reads (an empty allow-list leaves the bot open, and `PAPER_AUTO_ACCEPT` admits anyone as a
+  paper user); a human-confirmation claim with no qualifier on eight pages, read the way
+  `test_human_confirmation_claim_is_qualified.py` reads one; a breaker that "can only be reset
+  manually" (a daily-loss trip clears at the UTC rollover by default); `MAX_POSITION_PCT` called
+  a 1% or 2% risk budget (it is a 13% margin cap, and per-strategy caps apply while
+  `PER_STRATEGY_NOTIONAL_CAP_ENABLED` is on); a meme-coin volatility limit called tighter (it is
+  wider).
+- **Risk-check counts.** Four totals (18, 20, "Twenty", 21) across five pages, one of them in a
+  file name. `test_no_hardcoded_risk_check_count.py` had banned the count on the README and the
+  site a year earlier and recorded "18 and 20 across the GitBook docs" in its own docstring;
+  the folder was never on its list.
+- **Doors.** `/trade` described as a list of pending ideas (it places a manual trade), a
+  `/feedback` command that is not registered, Confirm and Reject buttons the cards no longer
+  draw, a "SIM" banner no code builds, `/mode solana` offered to everyone (operator only).
+- **The decision flow.** Every page said the LLM writes the thesis; since 11 October the rule
+  engine decides and the LLM's read rides along (`LLM_DECIDES`, off by default).
+
+The pass found code defects too. The macro gate's is fixed with it (its chapter is "THE SEED
+WAS FOUND, LOADED AND TRUSTED…"); the rest are listed in the PR. The risk manifest, which the pages cite as the authority, carried four of the same
+stale figures; its per-check thresholds are now held to the code by
+`TestPerCheckThresholds` in `tests/test_manifest_and_whynot.py`.
+
+Two guards were narrower than their rules. The count ban listed files, so it now lists the docs
+folder by glob, and its pattern wanted the noun straight after the number, so "all 20
+pre-trade checks" and "19 are fail-closed" passed it; it now allows two words between, and a
+test holds both arms of the pattern. The human-confirmation rule listed the docs front page
+alone; it now lists every docs page that makes the claim. **A page that describes the product
+is a surface, and a rule held per file covers only the files somebody listed.**
+
 ## Public-surface rules
 
 No dollar amounts on public, community, leaderboard or marketplace payloads —

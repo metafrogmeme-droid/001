@@ -3,7 +3,7 @@
 * [Introduction](README.md)
 * [Getting Started](getting-started.md)
 * [Architecture](architecture.md)
-* [V5 Dashboard & AI Chat](v5-dashboard.md)
+* [Telegram Dashboard & AI Chat](v5-dashboard.md)
 * [Skills & Commands](skills-and-commands.md)
 * [Telegram Confirmation Flow](telegram-confirmation.md)
 * [AI Learning System](ai-learning-system.md)

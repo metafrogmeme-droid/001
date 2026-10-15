@@ -44,6 +44,17 @@ SURFACES = [
     "README.md",
     "README.zh-TW.md",
     "docs/gitbook/README.md",
+    # Added 2026-10-15, when the docs folder became the website's /docs: every
+    # docs page that makes the claim. telegram-confirmation.md had opened with
+    # "Every trade RUNECLAW proposes must be approved by a human before
+    # execution", and live-trading.md and risk-framework.md said the same.
+    "docs/gitbook/architecture.md",
+    "docs/gitbook/demo-scenarios.md",
+    "docs/gitbook/live-trading.md",
+    "docs/gitbook/mcp-integration.md",
+    "docs/gitbook/partner-integrations.md",
+    "docs/gitbook/risk-framework.md",
+    "docs/gitbook/telegram-confirmation.md",
     # Campaign copy: "Every trade requires human confirmation" sat here
     # unqualified in two drafts meant to be pasted into X and Discord.
     "docs/SOCIAL_CAMPAIGN.md",

@@ -1,73 +1,105 @@
 # Risk Framework
 
-RUNECLAW's risk engine is the most critical component in the system. It follows a **fail-closed** design on the checks that carry the money: if such a check cannot be evaluated or fails, the trade is rejected. There are no overrides, no force-execute flags, no backdoors.
+RUNECLAW's pre-trade risk gate (`RiskEngine.evaluate` in `bot/risk/risk_engine.py`) decides
+whether a trade idea may be placed. It is **fail-closed** on the checks that carry the money: if
+such a check fails, or cannot be evaluated, the trade is rejected. There is no force-execute
+flag. What an operator can change is listed on [Pre-Trade Risk Checks](risk-checks-18.md), which
+also gives every check's threshold.
 
-`config/risk_manifest.yaml` is the authoritative per-check statement — **17 fail-closed, 1 fail-open, 3 skip**. The liquidity guard says so itself ("the ONLY fail-open check: no data = pass"), and the advisory checks record a *skip* into the passed list when their data source is absent, or when their own evaluation raises. A skip names itself and its reason on the decision record, so `checks_passed` can be read against what was actually evaluated — but it is counted with the passes, so read the manifest rather than a slogan.
+`config/risk_manifest.yaml` states how each check it lists behaves when its data is missing. Most
+are fail-closed. The advisory checks `MTF_ALIGNMENT`, `PORTFOLIO_VAR` and `CONCENTRATION_PCA`
+declare `fail_behavior: skip`. The liquidity guard is marked fail-open, and the manifest calls it
+"the ONLY fail-open check the manifest lists: no data = pass". The engine runs more gates than the manifest lists,
+and some of them also pass when they have no data: the order-flow gates (`TAKER_3BAR`,
+`BID_DOMINANCE`) and the funding-clock gate (`FUNDING_CLOCK`). The skips and the order-flow and
+funding-clock passes without data name themselves and their reason on the decision record, and
+each is still counted with the passes in `checks_passed`, so read the record's lines rather than
+its tally. The liquidity guard runs outside the gate, when an idea is proposed, and leaves no line
+on the record when it has no order-book data.
 
-## Design Philosophy
+## Design philosophy
 
-### Fail-Closed, Not Fail-Open
+### Fail-closed, not fail-open
 
-Traditional trading bots often fail open -- if a risk check errors out, the trade proceeds. RUNECLAW inverts this:
+A gate that fails open lets a trade through when a check errors. RUNECLAW's gate does the
+opposite on its core checks:
 
-- If the risk engine throws an exception, the trade is aborted.
-- If any single check fails, the entire evaluation returns REJECTED.
-- If market data is unavailable, the check cannot pass, so the trade is blocked.
+- An error inside a core check is recorded as a failure, and any failure rejects the trade.
+- One failed check makes the whole evaluation `REJECTED`.
+- On most checks, missing market data blocks the trade. The ones that pass without data are
+  named above, and each says so on the decision record.
 
-This means the system may miss opportunities. That is an acceptable trade-off. Missing a trade is recoverable. Taking a bad trade is not.
+This means the system will miss some opportunities. That is an acceptable trade-off: a missed
+trade is recoverable, a bad one may not be.
 
-### Defense in Depth
+### Defense in depth
 
-Risk is enforced at multiple layers:
+Risk is enforced at several layers:
 
-1. **Analyzer level** -- Ideas with blended confidence below 0.60 are never generated.
-2. **Risk engine level** -- independent checks must all pass.
-3. **Confirmation level** -- Risk is re-evaluated when the human confirms (the market may have moved).
-4. **Configuration level** -- `SIMULATION_MODE=true` and `LIVE_TRADING_ENABLED=false` are both set by default. Live trading requires both flags to be flipped.
+1. **Analyzer** — the analyzer drops ideas below its strategy's confidence floor, and the engine
+   drops any idea below the gate's floor (`MIN_CONFIDENCE`, 0.60) before it is offered.
+2. **Risk gate** — every check that applies must pass.
+3. **Confirmation** — when an idea is confirmed, the price is re-read and the gate runs again
+   (the market may have moved).
+4. **Configuration** — `SIMULATION_MODE=true` and `LIVE_TRADING_ENABLED=false` by default. Live
+   trading needs `SIMULATION_MODE=false`, plus either `LIVE_TRADING_ENABLED=true` or an admin's
+   `/golive CONFIRM`, and a `TELEGRAM_CHAT_ID` allow-list.
 
-## The Twenty Risk Checks
+## The core risk checks
 
-Every `TradeIdea` must pass all twenty checks before it enters the pending queue.
+Every `TradeIdea` must pass every check that applies to it before it is offered. The decision
+record lists each check that ran. The thresholds below are code defaults; percentages are of
+account equity.
 
-### 1. Circuit Breaker
+### Circuit breaker
 
-**Check:** Is the circuit breaker active?
+**Check:** Is the circuit breaker tripped?
 
-If the circuit breaker has been tripped by a prior event (daily loss or drawdown breach), all new trades are rejected until a human manually resets it.
+While it is tripped, every new idea is rejected. The triggers and the ways it clears are under
+Circuit breaker, further down this page.
 
-### 2. Position Size
+### Position size
 
-**Check:** Does the proposed notional position size exceed 20% of equity?
+**Check:** Is the position's margin within its strategy's cap?
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| Notional cap | 20% | Maximum single position as % of equity |
+| `SCALP_MAX_POSITION_PCT` | 8% | Margin cap for a scalp |
+| `INTRADAY_MAX_POSITION_PCT` | 10% | Margin cap for an intraday trade |
+| `SWING_MAX_POSITION_PCT` | 13% | Margin cap for a swing trade |
+| `POSITION_MAX_POSITION_PCT` | 15% | Margin cap for a position trade |
+| `MAX_POSITION_PCT` | 13% | The cap for every strategy when `PER_STRATEGY_NOTIONAL_CAP_ENABLED=false` |
 
-A $10,000 portfolio means no single position can exceed $2,000 notional.
+The size is clamped to the cap before this check, and the check asserts that the clamp held. A
+swing trade's margin of at most 13% of equity is 65% of equity in notional at the 5x sizing
+leverage.
 
-### 3. Daily Loss
+### Daily loss
 
-**Check:** Has today's cumulative loss (realized + unrealized) exceeded `MAX_DAILY_LOSS_PCT`?
+**Check:** Has today's loss reached `MAX_DAILY_LOSS_PCT`?
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `MAX_DAILY_LOSS_PCT` | 5.0% | Maximum daily loss as % of equity |
 
-Daily PnL includes both closed-trade losses and mark-to-market unrealized losses on open positions. This means a temporary adverse price spike against open positions can trip the breaker. This is intentional — the system errs on the side of caution.
+On the paper book the day's P&L is realized plus the unrealized P&L of open positions, so an
+adverse move against an open position can trip the breaker. Live, it is the day's realized closes
+only; open positions are not marked into it. A breach trips the circuit breaker.
 
-If breached, the circuit breaker is automatically tripped.
+### Maximum drawdown
 
-### 4. Maximum Drawdown
-
-**Check:** Has the portfolio drawdown from peak equity exceeded `MAX_DRAWDOWN_PCT`?
+**Check:** Has equity fallen from its peak by the drawdown limit or more?
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `MAX_DRAWDOWN_PCT` | 10.0% | Maximum drawdown from peak equity |
+| `MAX_DRAWDOWN_PCT` | 10.0% | Drawdown limit on the paper book |
+| `LIVE_MAX_DRAWDOWN_PCT` | 7.0% | Drawdown limit live, while `LIVE_RISK_HARDENING_ENABLED` is on (the default) |
 
-If breached, the circuit breaker is automatically tripped.
+A breach trips the circuit breaker. The live peak is per exchange account and is re-seeded on a
+restart unless `PERSIST_LIVE_DRAWDOWN_PEAK=true`. An admin can change the live cap at runtime with
+`/drawdownlimit` (1–30%).
 
-### 5. Open Positions Limit
+### Open positions limit
 
 **Check:** Is the number of open positions at or above `MAX_OPEN_POSITIONS`?
 
@@ -75,198 +107,265 @@ If breached, the circuit breaker is automatically tripped.
 |-----------|---------|-------------|
 | `MAX_OPEN_POSITIONS` | 5 | Maximum concurrent open positions |
 
-This prevents overexposure and concentration risk.
+### Risk/reward ratio
 
-### 6. Risk/Reward Ratio
-
-**Check:** Is the trade's risk/reward ratio at least 1.2?
+**Check:** Is the trade's risk/reward at least its strategy's minimum?
 
 ```
 Risk/Reward = |Take Profit - Entry| / |Entry - Stop Loss|
 ```
 
-Trades with a risk/reward below 1.2 are rejected regardless of confidence.
+| Parameter | Default |
+|-----------|---------|
+| `SCALP_MIN_RR` | 1.2 |
+| `INTRADAY_MIN_RR` | 1.5 |
+| `SWING_MIN_RR` (swing is the default strategy) | 1.5 |
+| `POSITION_MIN_RR` | 2.0 |
 
-### 7. Confidence Threshold
+A manual `/trade` skips this check. `MIN_RISK_REWARD` is not read by the gate.
 
-**Check:** Is the AI's confidence score at least 0.60?
+### Confidence threshold
 
-Low-confidence ideas are filtered at the analyzer level (never generated), but this check acts as a second gate in case of edge cases.
+**Check:** Is the idea's confidence at least the floor (`MIN_CONFIDENCE`, 0.60)?
 
-### 8. Correlation / Concentration
+Ideas below the floor are already dropped before they are offered; this check asks again. With
+`PER_STRATEGY_CONFIDENCE_FLOOR_ENABLED` on (default off) the floor is the strategy's own. A manual
+trade skips the check.
 
-**Check:** Does opening this position exceed the max-per-group limit in the same correlation group (e.g., MEME, ALT_L1, DeFi)?
+### Correlation
+
+**Check:** Would this position exceed the cap for its correlation group (for example MEME,
+ALT_L1, DEFI)?
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `MAX_CORRELATION_PER_GROUP` | 2 | Maximum positions in one correlation group |
+| `MAX_UNMAPPED_CORRELATED` | 3 | Maximum positions among symbols outside the group map |
 
-### 9. Consecutive Loss Streak
+The groups are listed under Correlation check, further down this page.
 
-**Check:** Are there 3 or more consecutive losses?
+### Consecutive loss streak
 
-Rejects trades when the system is on a losing streak. At 5 consecutive losses, the circuit breaker trips.
+**Check:** Are there 3 or more consecutive losses (`MAX_CONSECUTIVE_LOSSES` minus 2)?
 
-### 10. Entry Price Sanity
+New trades are rejected during the streak. 24 hours after the last loss
+(`LOSS_STREAK_PROBE_HOURS`), one probe trade is allowed at a time, while no position is open. At
+5 consecutive losses the circuit breaker trips. A win takes one off the streak.
 
-**Check:** Is the entry price positive and non-zero?
+### Entry price sanity
 
-Guards against data errors producing invalid trade parameters.
+**Check:** Is the entry price positive and finite?
 
-### 11. Stop-Loss Required
+### Stop-loss required
 
-**Check:** Is a valid stop-loss set, and does it differ from the entry price?
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `REQUIRE_STOP_LOSS` | true | Whether stop-loss is mandatory |
-
-### 12. Stale Data Guard
-
-**Check:** Is the trade idea less than 5 minutes old?
+**Check:** Is a valid stop-loss set, different from the entry, on the correct side, and at least
+0.4% away (`MIN_STOP_DISTANCE_PCT`)?
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `STALE_DATA_MAX_AGE_SEC` | 300 | Maximum age of trade idea in seconds |
+| `REQUIRE_STOP_LOSS` | true | Whether a stop-loss is mandatory |
 
-### 13. Cooldown After Loss
+### Stale data guard
 
-**Check:** Has the cooldown period elapsed since the last losing trade?
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `COOLDOWN_AFTER_LOSS_SEC` | 300 | Seconds to wait after a loss |
-
-### 14. Portfolio Exposure Limit
-
-**Check:** Would total open exposure (existing + new) exceed the portfolio exposure cap?
+**Check:** Is the trade idea younger than the maximum age?
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `MAX_PORTFOLIO_EXPOSURE_PCT` | 80% | Maximum total portfolio exposure |
+| `STALE_DATA_MAX_AGE_SEC` | 300 | Maximum age of a trade idea in seconds (doubled for a limit entry) |
 
-### 15. Per-Symbol Exposure Limit
+### Cooldown after loss
 
-**Check:** Would this asset's total exposure exceed the per-symbol cap?
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `MAX_SYMBOL_EXPOSURE_PCT` | 20% | Maximum exposure to a single asset |
-
-### 16. Volatility Guard
-
-**Check:** Is the ATR (as % of price) below the volatility threshold?
+**Check:** Has the cooldown elapsed since the last loss, or since a close whose P&L could not be
+read?
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `VOLATILITY_GUARD_ATR_PCT` | 6.0% | Maximum ATR-to-price ratio |
+| `COOLDOWN_AFTER_LOSS_SEC` | 120 | Seconds to wait |
 
-Rejects trades during extreme volatility conditions where stops are unreliable. **When ATR data is unavailable, the volatility guard fails closed and rejects the trade.** This ensures the system never enters a position without a valid volatility assessment.
+### Portfolio exposure limit
 
-Of the 21 checks the manifest names, **17 are fail-closed** (including the volatility guard), **1 is fail-open** (LIQUIDITY only, skipped when order-book data is unavailable) and **3 declare `fail_behavior: skip`** (MTF_ALIGNMENT, PORTFOLIO_VAR, CONCENTRATION_PCA). This paragraph read "19 are fail-closed" and counted the three skip checks among them — a skip is recorded with the passes, not with the rejections, which is the distinction the rest of this page is about.
+**Check:** Would total margin across open positions, with this one, exceed the cap?
 
-### 17. Liquidity Guard
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `MAX_PORTFOLIO_EXPOSURE_PCT` | 80% | Maximum total margin exposure |
 
-**Check:** Is there sufficient order book depth to fill the proposed position without excessive slippage?
+### Per-symbol exposure limit
 
-This check runs on live order-flow data when available (fail-open -- skipped if order book data is unavailable). It examines cumulative depth within a configurable price band and rejects trades where the order book cannot absorb the proposed position size. The liquidity guard is the **only** fail-open check in the system.
+**Check:** Would this symbol's margin, with this position, exceed the per-symbol cap?
 
-### 18. Macro Event Gate
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `MAX_SYMBOL_EXPOSURE_PCT` | 20% | Maximum margin exposure to one symbol |
 
-**Check:** Is a major macroeconomic event imminent or in progress?
+### Volatility guard
 
-| State | Window | Effect |
-|-------|--------|--------|
-| `NORMAL` | >24h from any event | No restriction |
-| `PRE_EVENT_CAUTION` | Within 24h before event | Logged warning (informational) |
-| `EVENT_LOCKDOWN` | 30min before to 30min after | **Trade rejected** |
-| `POST_EVENT_VOLATILITY` | 30min to 4h after | Logged warning (informational) |
-| `BLACKOUT` | Calendar evaluation failed | **Trade rejected** (fail-closed) |
+**Check:** Is ATR, as a percentage of the entry price, below the threshold?
 
-Tracked events: FOMC decisions, CPI, Core PCE, NFP, PPI, GDP, ISM PMI, Retail Sales, Jobless Claims, Fed speeches. The macro calendar includes the full **2026 schedule** for FOMC, CPI, NFP, and PCE events, and uses a fail-closed design -- if the calendar cannot be evaluated, the state defaults to `BLACKOUT` and all trades are blocked.
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `VOLATILITY_GUARD_ATR_PCT` | 7.0% | Maximum ATR-to-price ratio |
 
-## Circuit Breaker
+Symbols in the MEME correlation group are allowed a wider ATR: the larger of this setting and 10%
+(the 10% is fixed in code). The group is looked up by the spot symbol, so a perpetual's id
+(`DOGE/USDT:USDT`) takes the ordinary threshold. **When ATR is unavailable, the volatility guard fails closed and
+rejects the trade.** At confirm, an idea stored without an ATR is given one from its stop
+distance before the gate runs again.
 
-The circuit breaker is a safety mechanism that halts all trading when risk limits are breached.
+### Liquidity guard
+
+**Check:** Can the book absorb the position without excessive slippage?
+
+It rejects when the spread exceeds 50 bps (`OF_MAX_SPREAD_BPS`), or when the thinner side of the
+book holds less than 10 times the position or the depth floor (`OF_MIN_DEPTH_USD`, raised by
+`OF_LARGE_CAP_DEPTH_FLOOR_USD` for BTC, ETH and SOL). It runs in the engine
+(`OrderFlowAnalyzer.liquidity_guard`) when an idea is proposed, not again at confirm. With no
+order-book data it passes: this is the manifest's "no data = pass" case.
+
+### Macro event gate
+
+**Check:** Is a scheduled macro release close?
+
+The gate reads `MacroEventProvider` (`bot/core/macro_events.py`):
+
+| Severity | Events | Size halved from | New entries blocked | Size halved after the block |
+|----------|--------|------------------|---------------------|-----------------------------|
+| Critical | FOMC decision | 180 min before | 60 min before to 30 min after | 30 min |
+| High | CPI, NFP | 120 min before | 30 min before to 15 min after | 30 min |
+| Medium | Core PCE, ISM PMI, PPI, GDP, retail sales | — | 15 min before to 10 min after | 30 min |
+| Low | Jobless claims, Fed speeches | — | — | — |
+
+The shipped calendar (`config/macro_calendar.seed.json`) schedules FOMC decisions through
+December 2027, and CPI and NFP releases through December 2026. The gate fails closed: with no
+calendar, or with one that no longer covers the next 72 hours when the bot loads it, it blocks new
+entries unless `MACRO_FAILSAFE=false`, and an error while reading it rejects the trade. It also blocks new
+entries on a symbol whose funding rate reads 0.10% per 8 h or more.
+
+### Further checks
+
+The gate also runs higher-timeframe alignment (`MTF_ALIGNMENT`), PCA concentration
+(`CONCENTRATION_PCA`, paper and backtest only), portfolio value-at-risk (`PORTFOLIO_VAR`, 15%),
+the stop-to-margin cap (`MARGIN_RISK`), the warning-rate breaker, the order-flow gates and the
+funding clock. Each is described on [Pre-Trade Risk Checks](risk-checks-18.md).
+
+## Circuit breaker
+
+The circuit breaker halts new trades when a risk limit is breached.
 
 **Trigger conditions:**
-- Daily loss exceeds `MAX_DAILY_LOSS_PCT` (default: 5%)
-- Portfolio drawdown exceeds `MAX_DRAWDOWN_PCT` (default: 10%)
+- Daily loss reaches `MAX_DAILY_LOSS_PCT` (default 5%).
+- Drawdown reaches `MAX_DRAWDOWN_PCT` (default 10%), or `LIVE_MAX_DRAWDOWN_PCT` (default 7%) live.
+- Consecutive losses reach `MAX_CONSECUTIVE_LOSSES` (default 5).
+- A manual halt (`/halt` or `/pause`).
 
-**Behavior when active:**
-- All new trade ideas are automatically rejected (Check #1 fails).
-- The Telegram `/risk` command shows "Circuit Breaker: ACTIVE".
-- The `/status` command shows "Circuit Breaker: TRIPPED".
+**Behavior when tripped:**
+- Every new trade idea is rejected (`CIRCUIT_BREAKER`).
+- `/risk` and `/status` name the gate that is refusing entries, for example `TRIPPED (drawdown)`;
+  they show `CLEAR` when nothing is refusing, and `UNREAD` when the state cannot be read.
 
 **Reset:**
-- The circuit breaker can only be reset manually (requires code-level or authorized command).
-- This is intentional -- automatic reset would defeat the purpose.
-- The reset is logged as an audit event.
+- A daily-loss trip clears by itself at the UTC day rollover (`DAILY_LOSS_BREAKER_AUTORESET`, on
+  by default), unless the losing streak has reached its limit. If the new day is also losing, the
+  daily-loss check trips it again.
+- A drawdown, streak or manual trip stays until the operator runs `/reset` or `/resume`.
+  `STREAK_BREAKER_AUTORESET_HOURS` can let a streak trip clear itself; it is 0 (off) by default.
+- Every trip and every reset is written to the audit log.
 
-## Backtest State Isolation
+## Backtest state isolation
 
-The `BacktestEngine` creates **isolated temporary state files** for portfolio and circuit breaker state during backtest runs. This ensures that backtests never pollute the production circuit breaker or portfolio state. Each backtest operates in its own sandbox -- tripping the circuit breaker during a backtest replay has no effect on the live or paper trading state. Temporary files are cleaned up automatically when the backtest completes.
+The `BacktestEngine` gives each backtest its own temporary risk-state file (breaker and streak)
+and keeps the backtest portfolio in memory, so a backtest never touches the paper or live
+circuit breaker or portfolio. Tripping the breaker during a replay has no effect outside it. The
+temporary file is removed when the backtest is cleaned up.
 
-## Re-Check on Confirmation
+## Re-check on confirmation
 
-When a human taps "Confirm" on a pending trade idea, the risk engine runs every check again against the current portfolio state. This catches scenarios where:
+When an idea is confirmed, the engine first re-reads the price on the perpetual the order would
+be placed on. It refuses the confirm if the price cannot be read, has moved more than 2% from the
+analysed entry, is already past the stop, or has moved more than halfway from the entry toward the
+stop (the drift and halfway checks apply to market ideas, not to limit or manual ones). Then the risk gate runs again against the current state, which catches:
 
-- Another trade was confirmed between idea generation and confirmation.
-- Market movement changed the risk profile.
-- The daily loss limit was reached by another closed position.
+- another trade confirmed between the idea and the confirm;
+- the daily loss limit reached by another closed position;
+- a macro window that opened in the meantime;
+- an idea that has gone stale.
 
-If the re-check fails, the confirmation is rejected with an explanation.
+If the re-check fails, the confirm is refused with the check that failed. The liquidity guard
+is not re-run at confirm.
 
-**Limitation:** The re-check uses the original entry price and stored ATR, not live market prices. It catches portfolio-state drift (new positions, drawdown changes, daily PnL updates) but not price drift on the asset itself. The stale data guard (check #12) partially mitigates this by rejecting ideas older than 5 minutes.
+## Position sizing
 
-## Position Sizing
-
-Position size uses fixed-fractional risk sizing based on stop distance:
+Size is computed as margin, from the strategy's risk budget and the stop distance:
 
 ```
-risk_budget = equity * (MAX_POSITION_PCT / 100) # e.g. 2% = max dollar loss
-position_usd = risk_budget / stop_distance_pct
-position_usd = min(position_usd, equity * 0.20) # capped at 20% notional
+risk_budget = equity × strategy risk %          # SWING_MAX_RISK_PCT 2.0; scalp 1.0, intraday 1.5, position 2.0
+margin      = risk_budget / (stop_distance × SIZING_LEVERAGE)      # sizing leverage 5
+margin      = after the adjustment steps (regime, session, macro, correlation, half-Kelly, …)
+margin      = min(margin, equity × strategy margin cap)            # swing 13%
 ```
 
-With default settings ($10,000 equity, 2% risk budget, 2.5% stop distance via 2.5x ATR):
-- Risk budget: $200 (max dollar loss if stopped out)
-- Uncapped position: $200 / 0.025 = $8,000
-- Capped position: min($8,000, $2,000) = **$2,000** (20% of equity)
-- Actual dollar risk at 2.5% stop: $2,000 × 0.025 = $50 (well below the $200 budget)
+Worked example, for a swing trade before any reduction step, with a stop 2.5% from the entry:
 
-**Important:** `MAX_POSITION_PCT` (2%) is a *risk budget* (max loss per trade), not a position size cap. The actual position size is determined by stop distance and capped at `MAX_SYMBOL_EXPOSURE_PCT` (20%). With tight stops, the risk budget implies positions larger than 20%, so the notional cap binds and the trade risks less than the full 2% budget.
+- Risk budget: 2% of equity.
+- Uncapped margin: 2% / (2.5% × 5) = 16% of equity.
+- Capped margin: 13% of equity, which is 65% of equity in notional.
+- Loss if stopped out: 65% × 2.5% = 1.625% of equity, below the 2% budget.
 
-## Correlation Check
+The steps between the budget and the cap can raise or lower the size (a trending or expanding
+regime raises it, up to ×1.5 in a strong trend), but none can lift it past the cap. The cap itself can be
+tightened, never loosened: by the volatility target (`VOL_TARGET_ATR_PCT`, 3%, when ATR is above
+it), by a down-sizing regime, and by the other cap-tightening steps the decision record names.
+The half-Kelly ceiling applies once there are 20 closed trades (`KELLY_MIN_TRADES`).
 
-The `MAX_CORRELATION_PER_GROUP` parameter (default: 2) prevents concentrated bets in the same correlation group. Assets are mapped to groups (BTC, ETH, ALT_L1, MEME, DEFI, L2, AI, CEX). If you already have 2 positions in the MEME group, a third MEME position is rejected.
+## Correlation check
 
-## Why Simulation-First
+The `MAX_CORRELATION_PER_GROUP` parameter (default 2) prevents concentrated bets in one
+correlation group. Assets are mapped to groups in `_CORRELATION_GROUPS`: BTC, ETH, ALT_L1, MEME,
+SOLANA_ECO, DEFI, L2, AI, CEX, and the tokenized-stock groups STOCK_TECH, STOCK_INDEX,
+STOCK_CRYPTO and STOCK_SEMI. If 2 positions are already open in the MEME group, a third MEME
+position is rejected. Symbols outside the map share one bucket, `UNMAPPED_ALT`, capped at 3. The
+map is keyed by spot symbols; a perpetual's symbol (`SOL/USDT:USDT`) counts in its group only
+when `CORRELATION_PERP_GROUP_MAPPING_ENABLED` is on (default off), and otherwise counts in the
+unmapped bucket.
 
-RUNECLAW defaults to paper trading for several reasons:
+## Why simulation first
 
-1. **Hackathon safety.** Judges can evaluate the system without real financial risk.
-2. **Iterative development.** The strategy can be tested and refined before any capital is at risk.
-3. **Regulatory caution.** Automated trading with real funds may have legal implications depending on jurisdiction.
-4. **Trust building.** A system should prove itself in simulation before handling real money.
+RUNECLAW defaults to paper trading:
 
-To enable live trading (not recommended for hackathon use):
+1. **Safety.** Anyone can run the full system without risking money.
+2. **Iterative development.** A strategy can be tested and refined before capital is at risk.
+3. **Regulatory caution.** Automated trading with real funds may have legal implications
+   depending on jurisdiction.
+4. **Trust building.** A system should prove itself in simulation before it handles real money.
+
+To enable live trading (see [Enabling Live Trading](live-trading.md)):
 
 ```bash
 SIMULATION_MODE=false
 LIVE_TRADING_ENABLED=true
+TELEGRAM_CHAT_ID=<your chat id>
 ```
 
-Both flags must be set. This two-key mechanism prevents accidental activation.
+Both flags must be set, and live trading will not arm without `TELEGRAM_CHAT_ID`. This two-key
+mechanism prevents accidental activation. An admin's `/golive CONFIRM` is the runtime
+alternative to `LIVE_TRADING_ENABLED`; it refuses while `SIMULATION_MODE=true`.
 
-## Compliance Considerations
+## Compliance considerations
 
-RUNECLAW is a hackathon project and is not designed for production use with real funds. However, the architecture supports compliance-friendly patterns:
+RUNECLAW trades live for its operator with small positions. It is not a regulated product, and no
+independent third-party security audit has been performed. The architecture supports
+compliance-friendly patterns:
 
-- **Full audit trail.** Every decision is logged with timestamp, action, reasoning, and result.
-- **Human-in-the-loop.** No automated execution without explicit confirmation.
+- **Full audit trail.** Every decision is logged with timestamp, action, reasoning and result.
+- **Tamper-evident audit chain.** Each entry of the audit chain (`bot/utils/audit_chain.py`,
+  `logs/audit_chain.jsonl`) is SHA-256 hash-chained to the previous one, so an edit, deletion or
+  reorder is caught on verification.
+- **Human-in-the-loop by default.** A live order with no human tap is placed only when
+  `AUTO_CONFIRM_LIVE_ENABLED` is on and an eligibility record for the running strategy exists
+  (`benchmark/eligibility/<strategy_hash>.json`; none ships). The code default of
+  `AUTO_CONFIRM_LIVE_ENABLED` is on, and the shipped `.env.example` sets it to `false`.
 - **Rate limiting.** Telegram commands are rate-limited per user.
-- **Immutable records.** Trade executions use Pydantic models that prevent post-hoc mutation.
-- **Fail-closed defaults.** The system starts in the safest possible state.
+- **Fail-closed defaults.** The system starts in paper mode with live trading off.
 
-For production deployment, additional measures would be needed: KYC integration, regulatory reporting, segregated accounts, and third-party risk audits.
+Wider production use would need more: KYC integration, regulatory reporting, segregated accounts
+and third-party risk audits.

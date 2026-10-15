@@ -1,178 +1,136 @@
 # Partner Integrations
 
-RUNECLAW is built for extensibility across the Bitget AI Base Camp ecosystem. This page documents integration-ready support for hackathon partner technologies.
+This page lists the model providers and Solana services RUNECLAW uses, and how each is configured today.
 
 ---
 
-## Alibaba Qwen (LLM Provider)
+## Model Providers
 
-RUNECLAW supports Alibaba Qwen models as a drop-in replacement for OpenAI via the OpenAI-compatible DashScope API. No code changes required -- just set two environment variables.
+The rule engine decides each trade's direction and confidence. `LLM_DECIDES` is off by default (`bot/config.py::AnalyzerConfig`), so a configured model writes a read that rides along on each idea, marked as not used to decide, and answers chat. With no model configured, the rule engine works the same and the model's read is simply absent.
 
-### Setup
+### Choosing a provider
+
+`LLM_PROVIDER` picks the primary provider. The code default is `openai`; the shipped `.env.example` sets `anthropic`. `LLM_API_KEY` is its key, `LLM_MODEL` its model, and `LLM_BASE_URL` its endpoint; an empty model or endpoint takes the provider's entry in the catalogue (`bot/llm/provider.py::PROVIDER_CATALOG`). An admin can switch provider at runtime with `/setllm`, and `/llmstatus` shows the provider, model and per-tier key state in use.
+
+| `LLM_PROVIDER` | Provider | Default model in the catalogue | Notes |
+|---|---|---|---|
+| `openai` | OpenAI | `gpt-4o` | |
+| `anthropic` | Anthropic Claude | `claude-sonnet-5` | Native SDK; `LLM_BASE_URL` is not used |
+| `gemini` | Google Gemini | `gemini-3.5-flash` | OpenAI-compatible endpoint |
+| `groq` | Groq | `openai/gpt-oss-20b` | |
+| `mistral` | Mistral | `mistral-large-latest` | |
+| `deepseek` | DeepSeek | `deepseek-chat` | |
+| `together` | Together AI | `meta-llama/Llama-3-70b-chat-hf` | |
+| `openrouter` | OpenRouter | `anthropic/claude-sonnet-5` | |
+| `alibaba` | Alibaba Cloud (Qwen) | `qwen3.6-plus` | Set `LLM_BASE_URL`; see below |
+| `grok` | xAI Grok | `grok-4.5` | |
+| `ollama` | Local Ollama | `llama3` | No key needed |
+| `runeclaw` | Self-hosted RUNECLAW model | `runeclaw-v6` | Endpoint from `RUNECLAW_LLM_BASE_URL` |
+| `custom` | Any OpenAI-compatible endpoint | none | Set `LLM_BASE_URL`, `LLM_MODEL` and a non-empty `LLM_API_KEY` |
+
+Every provider except `anthropic` is called through the OpenAI SDK (`bot/llm/provider.py::create_llm_client`). A provider other than `ollama` and `runeclaw` counts as configured only when it has a key.
+
+### Task tiers
+
+Calls are routed per task tier: `scan`, `thesis`, `learning` and `chat` (`bot/llm/provider.py::resolve_tier_config`). For each tier, the first of these that applies wins:
+
+1. An admin's runtime override (`/settier`).
+2. `LLM_TIER_<TIER>_PROVIDER`, with `LLM_TIER_<TIER>_MODEL` and `LLM_TIER_<TIER>_KEY`. With no tier key, the provider's own key variable is used (`GEMINI_API_KEY`, `GROQ_API_KEY`, `ALIBABA_API_KEY`, `XAI_API_KEY`, …), or `LLM_API_KEY` when the tier names the primary provider. This step never takes `anthropic`.
+3. For an admin's calls, the admin table: Claude on every tier, when an Anthropic key is set.
+4. The default table, when that provider's key is set: Groq for `scan`, Gemini for `thesis` and `learning`, Grok for `chat`.
+5. The primary `LLM_PROVIDER`.
+
+A tier routed by steps 1 to 4 uses the catalogue's endpoint for its provider, not `LLM_BASE_URL`. A caller who is not an admin is never routed to Anthropic. Two per-user options change the routing for a user's own `/analyze`, and both are off by default: the user's own provider key (`PER_USER_LLM_ENABLED`) and routing by the user's tier (`PER_USER_LLM_TIERS_ENABLED`). The shipped `.env.example` pins `scan`, `learning` and `chat` to Gemini; its `thesis` pin names Anthropic, which step 2 never takes, so an admin's thesis reaches Claude through step 3, and anyone else's through step 4 when that provider's key is set, and otherwise gets no model.
+
+### Qwen through Alibaba Cloud (DashScope)
 
 ```bash
-# .env configuration for Qwen
-LLM_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+# .env
+LLM_PROVIDER=alibaba
 LLM_API_KEY=your-dashscope-api-key
-LLM_MODEL=qwen-max # or qwen-plus, qwen-turbo, qwen-flash
+LLM_BASE_URL=your-dashscope-openai-compatible-endpoint
+LLM_MODEL=qwen3.6-plus   # or qwen3.6-flash; empty means qwen3.6-plus
 ```
 
-### Available Models
+Set `LLM_BASE_URL` to the OpenAI-compatible endpoint in your DashScope console. An empty value falls back to the catalogue's endpoint for `alibaba`, which is not DashScope. Only the primary provider reads `LLM_BASE_URL`, so a tier pinned with `LLM_TIER_<TIER>_PROVIDER=alibaba` also uses the catalogue's endpoint. To keep every tier on DashScope, leave the `LLM_TIER_*_PROVIDER` pins empty and leave the default table's keys (`GROQ_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`) unset, so each tier falls back to the primary provider.
 
-| Model | Best For | Cost (approx) |
-|-------|----------|---------------|
-| `qwen-max` | Flagship analysis, complex trade thesis | $2.50/M input |
-| `qwen-plus` | Balanced, production workloads | Lower |
-| `qwen-turbo` | Fast inference, cost-optimized | Lowest |
-| `qwen-flash` | Ultra-fast, simple classification | Minimal |
-
-### Alternative Providers (Qwen Models)
-
-Qwen models are also available via third-party OpenAI-compatible providers:
+### Qwen through other hosts
 
 ```bash
-# OpenRouter (cheapest: $0.15/M input)
-LLM_BASE_URL=https://openrouter.ai/api/v1
-LLM_MODEL=qwen/qwen3.6-35b-a3b
+# OpenRouter or Together AI: the catalogue supplies the endpoint
+LLM_PROVIDER=openrouter        # or together
+LLM_API_KEY=your-key
+LLM_MODEL=the-host's-current-qwen-model-id
 
-# Together AI
-LLM_BASE_URL=https://api.together.xyz/v1
-LLM_MODEL=Qwen/Qwen3.5-397B
-
-# Fireworks AI
-LLM_BASE_URL=https://api.fireworks.ai/inference/v1
-LLM_MODEL=accounts/fireworks/models/qwen3-6-plus
-
-# Local (vLLM or Ollama)
-LLM_BASE_URL=http://localhost:8000/v1
-LLM_MODEL=qwen3-32b
+# Any other OpenAI-compatible host
+LLM_PROVIDER=custom
+LLM_API_KEY=your-key
+LLM_BASE_URL=the-host's-openai-compatible-endpoint
+LLM_MODEL=the-host's-current-qwen-model-id
 ```
 
-### How It Works
-
-The `Analyzer` class initializes its LLM client with:
-
-```python
-from openai import AsyncOpenAI
-
-llm_kwargs = {"api_key": CONFIG.llm.api_key}
-if CONFIG.llm.base_url:
- llm_kwargs["base_url"] = CONFIG.llm.base_url
-self._llm = AsyncOpenAI(**llm_kwargs)
-```
-
-All existing features work identically with Qwen:
-- 10-voter confluence scoring
-- Trade thesis generation with structured output parsing
-- Rule-based fallback when LLM is unavailable
-- Token optimization (semantic cache, tiered pipeline, smart batching)
-- Cost tracking per analysis call
-
-### Verification
+### Local models
 
 ```bash
-# Test that Qwen config is wired correctly
-python -m pytest tests/test_core.py::TestQwenIntegration -v
+# Ollama: no key; the catalogue points at Ollama's default local endpoint
+LLM_PROVIDER=ollama
+LLM_MODEL=qwen2.5              # any model you have pulled
+
+# vLLM or another local OpenAI-compatible server
+LLM_PROVIDER=custom
+LLM_BASE_URL=http://localhost:<port>/v1
+LLM_MODEL=the-served-model-id
+LLM_API_KEY=any-non-empty-value
 ```
+
+For a local server, pick a port other than 8000 (`api_bridge.py`, `API_BRIDGE_PORT`) and 8080 (the bot's gateway).
+
+### Cost
+
+Prices are the provider's. RUNECLAW books an estimated cost per call (`bot/core/cost.py`) against `LLM_DAILY_BUDGET_USD` (code default 1.0; the shipped `.env.example` sets 5.0). Past it, the model is not asked again until the UTC day rolls over.
 
 ---
 
-## Solana Foundation (Ecosystem Assets)
+## Solana Ecosystem
 
-RUNECLAW includes a dedicated Solana ecosystem mode that prioritizes Solana-based tokens in market scanning. All 15 tracked tokens trade on Bitget as USDT pairs with full risk engine coverage.
+### Solana-focused scanning
 
-### Setup
+`ASSET_UNIVERSE=solana` (default `all_markets`; an operator can switch at runtime with `/mode solana`) scans Bitget's USDT spot pairs and moves the pairs listed in `SOLANA_ECOSYSTEM_SYMBOLS` (`bot/config.py`) to the top of the results. The remaining slots go to the highest-momentum other pairs. A symbol the venue does not list, or that trades under the volume floor (`MIN_CRYPTO_VOLUME_USD`), does not appear in a scan. Every idea from these pairs passes the same pre-trade risk gate as any other.
+
+The list today: `SOL/USDT`, `JUP/USDT`, `JTO/USDT`, `BONK/USDT`, `WIF/USDT`, `PYTH/USDT`, `RAY/USDT`, `ORCA/USDT`, `RENDER/USDT`, `HNT/USDT`, `MOBILE/USDT`, `W/USDT`, `JITO/USDT`, `TENSOR/USDT`, `DRIFT/USDT`.
 
 ```bash
-# .env configuration for Solana focus
+# .env
 ASSET_UNIVERSE=solana
 ```
 
-### Tracked Tokens (15)
+### Solana services
 
-| Token | Symbol | Category |
-|-------|--------|----------|
-| Solana | SOL/USDT | L1 |
-| Jupiter | JUP/USDT | DEX Aggregator |
-| Jito | JTO/USDT | MEV / Staking |
-| Bonk | BONK/USDT | Memecoin |
-| dogwifhat | WIF/USDT | Memecoin |
-| Pyth Network | PYTH/USDT | Oracle |
-| Raydium | RAY/USDT | AMM |
-| Orca | ORCA/USDT | AMM |
-| Render | RENDER/USDT | GPU / DePIN |
-| Helium | HNT/USDT | DePIN |
-| Helium Mobile | MOBILE/USDT | DePIN |
-| Wormhole | W/USDT | Bridge |
-| Jito (Governance) | JITO/USDT | Governance |
-| Tensor | TENSOR/USDT | NFT Marketplace |
-| Drift | DRIFT/USDT | Perps DEX |
+| Service | What RUNECLAW does with it | Status |
+|---|---|---|
+| Jupiter | Builds an unsigned swap transaction that the user signs in their own wallet (`bot/core/meme_swap.py`). Nothing in RUNECLAW signs or holds a key. Builds default to simulation; a mainnet transaction needs `MEME_EXECUTION_NETWORK=mainnet`. | Built |
+| DexScreener | DEX pair data for the meme radar, Solana among other chains (`app/lib/meme.js`, MCP tool `get_meme_radar`) | Built |
+| Solana JSON-RPC | Read-only balances for a Solana watch address a member links (`app/lib/solana.js`, endpoint `WEB3_RPC_URL_SOLANA`), and the $RCLAW token-tier gate (`bot/token/tier_gate.py`, off by default) | Built |
+| Birdeye, Helius DAS, Alchemy | None | Not built |
 
-### How It Works
-
-When `ASSET_UNIVERSE=solana`, the `MarketScanner` prioritizes Solana ecosystem tokens:
-
-1. **All USDT pairs** are still scanned from Bitget (full market coverage)
-2. **Solana tokens** are sorted to the top of results, regardless of momentum ranking
-3. **Remaining slots** are filled with highest-momentum non-Solana assets
-4. **Risk engine** applies identically -- every check, trailing stops, circuit breaker
-
-This ensures Solana ecosystem exposure while maintaining the full risk framework.
-
-### Verification
-
-```bash
-# Test Solana ecosystem configuration
-python -m pytest tests/test_core.py::TestSolanaEcosystem -v
-```
-
-### Post-Hackathon Roadmap: On-Chain Integration
-
-After S1, planned Solana on-chain integrations include:
-
-| Component | Provider | Purpose |
-|-----------|----------|---------|
-| DEX Routing | Jupiter Swap API | Best-price execution across Solana DEXs |
-| Price Feeds | Birdeye API | Real-time token prices, liquidity depth |
-| RPC Node | Alchemy / Helius | Account state, transaction submission |
-| Market Data | DexScreener | Trending tokens, new listings |
-| On-Chain Analysis | Helius DAS | Token metadata, holder distribution |
-
-Architecture: the existing `MarketScanner` would gain a `SolanaDataProvider` alongside the `ccxt` Bitget provider, feeding both CEX and DEX signals into the same analysis pipeline.
+None of these places an order on its own: a Jupiter swap is signed by the user in their own wallet.
 
 ---
 
-## Dune (Analytics -- Planned)
+## How They Fit Together
 
-Post-hackathon integration with Dune Analytics for on-chain intelligence:
+```text
+ Model providers (per task tier)            Bitget (market data, orders)
+               │                                        │
+               v                                        v
+ RUNECLAW engine: rule-engine decision, model read rides along, pre-trade risk gate
+               │
+      ┌────────┼─────────────────┐
+      v        v                 v
+  Telegram   Website        MCP (POST /mcp)
 
-- **Whale tracking queries** -- monitor large wallet movements on Solana
-- **DEX volume analytics** -- compare CEX vs DEX volume for signal confirmation
-- **Token holder distribution** -- concentration risk assessment
-- **Custom dashboards** -- RUNECLAW performance metrics published to Dune
-
----
-
-## Integration Architecture
-
-```
- ┌─────────────────┐
- │ LLM Provider │
- │ (Qwen / GPT) │
- └────────┬────────┘
- │
- ┌───────────┐ ┌──────────▼──────────┐ ┌──────────────┐
- │ Bitget │───▶│ RUNECLAW │───▶│ Telegram │
- │ Exchange │ │ Engine + Risk │ │ Bot │
- └───────────┘ └──────────┬──────────┘ └──────────────┘
- │
- ┌──────────────┼──────────────┐
- │ │ │
- ┌────────▼───┐ ┌──────▼─────┐ ┌─────▼──────┐
- │ Solana │ │ Dune │ │ Jupiter │
- │ RPC/Data │ │ Analytics │ │ DEX API │
- │ (planned) │ │ (planned) │ │ (planned) │
- └────────────┘ └────────────┘ └────────────┘
+ Solana services, beside the engine:
+   Jupiter (unsigned swaps) · DexScreener (meme radar) · Solana RPC (read-only balances, $RCLAW tier gate)
 ```
 
-All integrations follow the same pattern: data providers feed into the existing analysis pipeline, risk engine applies identically, and human confirmation is always required.
+Every trade idea, whatever the model provider, passes the same pre-trade risk gate. Trades need a human confirm unless the operator enables auto-confirm (`AUTO_CONFIRM_LIVE_ENABLED` with `AUTO_CONFIRM_THRESHOLD`), which is off in the shipped `.env.example` and on in the code default when no `.env` sets it. Even then, a live order nobody confirmed is placed only when a committed eligibility record exists for the running strategy, and none ships.
