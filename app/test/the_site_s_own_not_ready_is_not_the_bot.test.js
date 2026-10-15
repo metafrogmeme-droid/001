@@ -30,13 +30,12 @@ const M = require('../public/js/panel-error-model');
 const i18n = require('../public/js/i18n');
 const { codeOnly } = require('./helpers/code_only');
 
-const SERVER = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'));
+const GATE = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'lib', 'not_ready_gate.js'), 'utf8'));
 const DASH = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dashboard.js'), 'utf8'));
 
 /** The code the not-ready gate puts on the wire, read from the gate itself. */
 function gateCode() {
-  const gate = SERVER.slice(SERVER.indexOf('const DB_FREE_API'), SERVER.indexOf("app.use('/api/auth'"));
-  const m = gate.match(/res\.status\(503\)\.json\(\{\s*error:\s*'([a-z_]+)'/);
+  const m = GATE.match(/res\.status\(503\)\.json\(\{\s*error:\s*'([a-z_]+)'/);
   assert.ok(m, 'the not-ready gate no longer answers 503 with a literal error code');
   return m[1];
 }

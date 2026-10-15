@@ -651,6 +651,7 @@
   ["dd.err_not_registered", "Nog niet geregistreerd op de trading-bot. Stuur /start in Telegram om je te registreren."],
   ["dd.err_bot_unlinked", "Deze site is niet verbonden met de trading-bot — de beheerder moet die installatie afronden."],
   ["dd.err_starting", "De database van de website is nog niet klaar, dus dit kan niet worden gelezen. Probeer het over een minuut opnieuw."],
+  ["dd.err_starting_auto", "De website is aan het opstarten. Dit paneel probeert het zo vanzelf opnieuw."],
   ["dd.err_operator_only", "Dit paneel is alleen voor het beheerdersaccount."],
   ["dd.err_rate_limited", "Te veel verzoeken op dit moment — wacht even en probeer opnieuw."],
   ["dd.err_unreadable_body", "De server antwoordde, maar het antwoord was niet leesbaar — probeer het zo opnieuw."],

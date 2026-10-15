@@ -651,6 +651,7 @@
   ["dd.err_not_registered", "Pas encore inscrit sur le bot de trading. Envoyez-lui /start sur Telegram pour vous inscrire."],
   ["dd.err_bot_unlinked", "Ce site n’est pas connecté au bot de trading — l’opérateur doit terminer cette configuration."],
   ["dd.err_starting", "La base de données du site n’est pas encore prête, donc ceci ne peut pas être lu. Réessayez dans une minute."],
+  ["dd.err_starting_auto", "Le site est en cours de démarrage. Ce panneau réessaiera tout seul dans un instant."],
   ["dd.err_operator_only", "Ce panneau est réservé au compte opérateur."],
   ["dd.err_rate_limited", "Trop de requêtes pour l’instant — patientez un moment et réessayez."],
   ["dd.err_unreadable_body", "Le serveur a répondu, mais la réponse est illisible — réessayez dans un instant."],

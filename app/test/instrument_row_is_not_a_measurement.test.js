@@ -331,8 +331,8 @@ test('each view reads /api/positions ONCE and every consumer takes that read', (
   assert.equal((pf.match(/fetchJSON\('\/api\/positions'/g) || []).length, 1, 'portfolio');
   assert.equal((SRC.match(/fetchJSON\('\/api\/positions'/g) || []).length, 2, 'nowhere else');
   for (const t of ['cmd', 'hpos', 'instr', 'lpos']) assert.match(loaderBody(t), /positionsRead/, `${t} consumes the shared read`);
-  assert.match(home, /const positionsRead = LOGGED_IN \? fetchJSON\('\/api\/positions', \{ timeoutMs: 15000 \}\)\.catch\(\(\) => null\) : null;/);
-  assert.match(pf, /const positionsRead = fetchJSON\('\/api\/positions', \{ timeoutMs: 15000 \}\)\.catch\(\(\) => null\);/);
+  assert.match(home, /const positionsRead = LOGGED_IN \? sharedRead\(\(\) => fetchJSON\('\/api\/positions', \{ timeoutMs: 15000 \}\)\.catch\(\(\) => null\)\) : null;/);
+  assert.match(pf, /const positionsRead = sharedRead\(\(\) => fetchJSON\('\/api\/positions', \{ timeoutMs: 15000 \}\)\.catch\(\(\) => null\)\);/);
 });
 
 test('the instrument panel guards its spine, classifies its decorations, and states its budget arithmetic', () => {

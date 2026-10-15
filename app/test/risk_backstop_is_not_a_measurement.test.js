@@ -423,7 +423,7 @@ test('one /scan read per engine render, shared by the hoisted panels and guarded
   const reads = [...eng.matchAll(/fetchJSON\('\/api\/bot\/sync\/scan'[^)]*\)/g)].map((m) => m[0]);
   assert.equal(reads.length, 1, `renderEngine fetches /scan once, saw ${reads.length}`);
   assert.match(reads[0], /timeoutMs: 10000/);
-  assert.ok(/const scanRead = fetchJSON\('\/api\/bot\/sync\/scan'/.test(eng), 'the read is the shared scanRead');
+  assert.ok(/const scanRead = sharedRead\(\(\) => fetchJSON\('\/api\/bot\/sync\/scan'/.test(eng), 'the read is the shared scanRead');
   assert.ok(!/\bgetScan\(\)/.test(eng), 'no bare getScan() in renderEngine: the hoisted panels consume the shared read');
   assert.ok(/const scan = await getScan\(45000, scanRead\)/.test(eng), 'the hoisted panels consume the shared read');
   assert.ok(!/updateConnChip\(\)/.test(eng), 'the topbar is told by adoptScanRead, not by a second writer in the view');
@@ -444,7 +444,7 @@ test('the shell sits between the engine account and the modules, the loader in t
   assert.deepEqual(ids.slice(ids.indexOf('p-ecb'), ids.indexOf('p-ecb') + 3), ['p-ecb', 'p-ebackstop', 'p-emods']);
   const at = (s) => { const i = eng.indexOf(s); assert.ok(i > -1, s); return i; };
   assert.ok(at("renderPanel(C('ecb')") < at("renderPanel(C('ebackstop')") && at("renderPanel(C('ebackstop')") < at("renderPanel(C('emods')"));
-  assert.ok(at('const scanRead = fetchJSON') < at("renderPanel(C('ebackstop')"), 'the read starts before the panel that guards it');
+  assert.ok(at('const scanRead = sharedRead(() => fetchJSON') < at("renderPanel(C('ebackstop')"), 'the read starts before the panel that guards it');
   const shell = eng.split('\n').find((l) => l.includes('id="p-ebackstop"'));
   assert.ok(shell && /data-i18n="dp\.ebackstop"/.test(shell) && /id="c-ebackstop"/.test(shell));
   const model = HTML.indexOf('/js/risk-backstop-model.js?v=');

@@ -26,6 +26,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const readiness = require('../lib/readiness');
+const { codeOnly } = require('./helpers/code_only');
 
 const SERVER_SRC = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 
@@ -188,26 +189,55 @@ test('liveness depends on nothing that can hang', () => {
   }
 });
 
-test('DB-backed api routes are gated while unready, static content is not', () => {
-  const gate = SERVER_SRC.slice(
-    SERVER_SRC.indexOf('const DB_FREE_API'),
-    SERVER_SRC.indexOf("app.use('/api/auth'"));
-  assert.ok(/readiness\.isReady\(\)/.test(gate), 'the gate consults readiness');
-  assert.ok(/req\.path\.startsWith\('\/api\/'\)/.test(gate),
-    'only /api/ is gated — static pages must survive a database outage');
-  assert.ok(/status\(503\)/.test(gate), 'an ungated answer would render an error as data');
-  // the gate must sit AFTER the static handler, so assets still serve
-  assert.ok(SERVER_SRC.indexOf('express.static(') < SERVER_SRC.indexOf('const DB_FREE_API'));
+/** The real gate in a bare app: an /api/ route, the DB-free one, and a page. */
+async function gateApp(opts = {}) {
+  const express = require('express');
+  const http = require('node:http');
+  const { notReadyGate } = require('../lib/not_ready_gate');
+  const app = express();
+  app.use(notReadyGate({ readiness, holdMs: 0, ...opts }));
+  app.get('/api/data', (req, res) => res.json({ ok: true }));
+  app.get('/api/version', (req, res) => res.json({ v: 1 }));
+  app.get('/page.html', (req, res) => res.send('<p>static</p>'));
+  const server = http.createServer(app);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  return { server, get: (p) => fetch(base + p) };
+}
+
+test('DB-backed api routes are gated while unready, static content is not', async () => {
+  readiness._reset();
+  const g = await gateApp();
+  try {
+    const refused = await g.get('/api/data');
+    assert.strictEqual(refused.status, 503, 'an ungated answer would render an error as data');
+    assert.strictEqual((await g.get('/api/version')).status, 200, '/api/version needs no database');
+    assert.strictEqual((await g.get('/page.html')).status, 200,
+      'only /api/ is gated — static pages must survive a database outage');
+    readiness.markReady();
+    assert.strictEqual((await g.get('/api/data')).status, 200, 'the gate consults readiness');
+  } finally { g.server.close(); readiness._reset(); }
+  // And in server.js it sits AFTER the static handler, so assets still serve,
+  // and ahead of every API router.
+  const src = codeOnly(SERVER_SRC);
+  const gateAt = src.indexOf('app.use(notReadyGate(');
+  assert.ok(gateAt > 0, 'server.js no longer mounts the gate');
+  assert.ok(src.indexOf('express.static(') < gateAt);
+  assert.ok(gateAt < src.indexOf("app.use('/api/auth'"));
 });
 
-test('the not-ready refusal leaks nothing beyond the coarse reason', () => {
-  const gate = SERVER_SRC.slice(
-    SERVER_SRC.indexOf('const DB_FREE_API'),
-    SERVER_SRC.indexOf("app.use('/api/auth'"));
-  const json = gate.slice(gate.indexOf('res.status(503)'));
-  assert.ok(/reason:\s*snap\.reason/.test(json), 'only the coarse reason is returned');
-  // `error: 'starting'` is a fixed literal and fine; what must never appear is
-  // a read THROUGH an error object or the connection string.
-  assert.ok(!/err\.|\.message|\.stack|DATABASE_URL/.test(json),
-    'no error detail may reach the refusal body');
+test('the not-ready refusal leaks nothing beyond the coarse reason', async () => {
+  readiness._reset();
+  const err = Object.assign(new Error('connect ECONNREFUSED mysql://root:hunter2@db.internal:3306/app'),
+    { code: 'ECONNREFUSED' });
+  readiness.markAttemptFailed(err);
+  const g = await gateApp();
+  try {
+    const r = await g.get('/api/data');
+    assert.strictEqual(r.status, 503);
+    const text = await r.text();
+    assert.deepStrictEqual(JSON.parse(text), { error: 'starting', reason: 'db_unreachable' },
+      'only the coarse reason is returned');
+    assert.ok(!/hunter2|db\.internal|ECONNREFUSED|mysql:/.test(text), 'no error detail may reach the refusal body');
+  } finally { g.server.close(); readiness._reset(); }
 });

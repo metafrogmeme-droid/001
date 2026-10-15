@@ -20814,6 +20814,51 @@ table present sends only the check; a missing table runs the DDL; an unanswered
 check fails twice with no DDL sent and the third runs it. Ten mutants, all
 killed. (`app/test/migration_ddl.test.js`.)
 
+**AN INSTANCE THAT REFUSED AT ONCE SOAKED UP THE CALLS, AND A RETRY COULD NOT REACH A SHARED READ.**
+On 15 October the owner sent a screenshot of the dashboard with "the website's
+database is not ready yet" on every panel, a Retry under each, and ENGINE
+STATUS UNKNOWN in the topbar. Sampled live afterwards (a call and a `/readyz`
+read every 4 to 6 seconds for 15 minutes), all 48 calls answered 200 while
+the instance rotated under them, so the screenshot was the starting window the
+two chapters above describe, met at the wrong moment. Three things made one
+window into a dead screen:
+- The gate refused at once, and the previous chapter had already measured why
+  that is the worst answer on this host: the host hands each call to an
+  instance with a free slot, and an instance that refuses at once always has
+  one. The gate (`lib/not_ready_gate.js`, moved out of `server.js` so it can
+  be driven) now HOLDS a call while the first attempt is still running
+  (reason `starting`), up to `STARTING_HOLD_MS` (5 s; 0 turns it off; capped at
+  6 s, under the shortest time any page gives a call, which a test reads from
+  the pages). It answers through the route the moment the instance is ready,
+  and refuses only when the hold runs out, marked `X-RC-Starting-Held`. The
+  pages' retry spends nothing on a held refusal: three more tries that could
+  each be held again would run past the page's own time limit, and a timeout
+  names no cause. A `db_*` reason is never held, and a held call is answered
+  the moment an attempt fails (`readiness.whenSettled`), so an outage still
+  shows at once. A caller that hangs up while held runs no route; past 256
+  held calls the gate refuses as before.
+- Every panel then waited for a person. A panel that gets a fresh instance's
+  refusal (code `starting`, reason `starting`; `mustRead` now carries the
+  reason, read only off that code) says the site is starting and tries again
+  by itself after 2, 4, 8 and 16 seconds, then stops on the old sentence with
+  Retry (`PanelErrorModel.autoRetryDelay`). A failing database gets no
+  automatic retries.
+- And a Retry on the home view's context row, hero or positions panel could
+  never have worked. Each awaits the ONE read the view starts for its endpoint,
+  so it is one answer per paint, and a retried loader awaited the same settled,
+  failed promise again. `sharedRead` (`app.js`) keeps the sharing and drops the
+  trap: once a read has failed (`mustRead` would refuse it), the next await
+  starts a fresh one, which the panels awaiting after it share. The topbar
+  chip recovers with the context row because both go through `adoptScanRead`.
+The host could also be told to keep one instance warm or to route only once
+`/readyz` answers 200; that is a platform setting, and none of this assumes it.
+Fourteen mutants, all killed in one round. Three branches have no test and are
+named rather than counted: the timer an auto-retry leaves is cleared when the
+same panel is rendered again, a panel the reader navigated away from is not
+fetched for, and a panel's retry count resets when it reads.
+(`app/test/a_new_instance_holds_a_call_instead_of_refusing_it.test.js`,
+`app/test/a_panel_waits_out_the_site_starting.smoke.test.js`.)
+
 ## Writing tests that scan source
 
 Strip comments first. A comment that quotes the string it forbids is
