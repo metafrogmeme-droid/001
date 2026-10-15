@@ -21727,7 +21727,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **492 of 1322** reach for source text through `source_scan`, `code_only`
+Driven, **492 of 1323** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 492 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -25226,3 +25226,46 @@ over every page that loads the translations, read from the files: at 360px,
 select, what is shown there is on screen, and nothing else in the header was
 pushed off; at 390px choosing Spanish switches the page and the face. Nine
 mutants, all killed, each by the test that names it.)
+
+**THE AUDIT CARD PRINTED A LOOSENING UNDER THE WORD "TIGHTENS", BECAUSE ITS DIRECTION WAS THE MODEL'S SENTENCE.**
+The nightly card of 2026-10-15 printed `LIVE_PERF_REDUCE_WINRATE=0.35 (in
+force: 0.4)` under the model's rationale "raising it cuts size sooner
+(tightens)". The proposal LOWERED the floor, so the governor would cut size
+later: a loosening, during a window of 40 closes at a 28% win rate and PF
+0.24. The model had copied the flag's meaning, which describes raising it,
+onto a proposal that did the opposite. The prompt already told the model that
+"a proposal that loosens a guard says it loosens it". Nothing checked, and a
+prompt is not a check.
+- **The direction is computed.** `FLAG_UP_DIRECTION` says which way raising
+  each flag (or turning a switch on) moves its guard. `proposal_direction`
+  compares the proposal with the value in force, and the card prints the
+  result above the rationale ("This lowers it 0.4 → 0.35: it LOOSENS the
+  guard"), with a warning when the rationale's own "tighten" or "loosen" says
+  the opposite. An unread value in force is "Direction: unknown", including
+  on a switch, where reading "unread" as "off" would have guessed.
+- **One reading of a flag's direction.** The model is told a direction in
+  `FLAG_MEANINGS` and the card computes one from `FLAG_UP_DIRECTION`. A test
+  pins every meaning's word to the table, so the two cannot drift; four
+  switches and one figure stated no direction at all and now do.
+- **The evidence carries the quantity the threshold binds on.** The same card
+  said "loss streak of 21 crosses the 3-threshold". The evidence held the
+  closes and nothing else, so the model counted a run out of them itself. The
+  engine's per-symbol counter cannot read 21: it adds one per losing close on
+  that symbol, takes one off per win, and resets to zero when it benches the
+  symbol. The evidence now carries that counter, and the prompt says a run
+  counted in the closes is not it.
+This is the third card defect of one shape. The value in force was missing
+(the OF_MAX_SPREAD_BPS "tighten" that loosened); the flag's meaning was
+missing (the ATR threshold read as a market reading); now the direction was
+taken on the model's word. Each time the card printed the model's account of
+a change it could have computed itself.
+(`tests/test_the_audit_card_says_which_way_a_change_moves.py`, through
+`SelfAudit.render_report` and `gather_evidence`: the 2026-10-15 row reads
+LOOSENS with the warning above its rationale; an agreeing rationale gets no
+warning, in both directions; a tightening called loosening is flagged too;
+switches both ways; an unread value is unknown for a figure and a switch,
+and a row with no recorded value gets no line; the table matches the
+allow-list and every meaning names its direction; the evidence carries the
+engine's non-zero counters and null for an unreadable map; and the engine is
+what writes the counter the audit reads. Ten mutants, all killed, each by the
+test that names it.)

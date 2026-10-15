@@ -106,23 +106,24 @@ ALLOWED_FLAGS: dict[str, dict[str, Any]] = {
 FLAG_MEANINGS: dict[str, str] = {
     "EQUITY_THROTTLE_ENABLED": (
         "on scales position size down as the rolling profit factor of recent "
-        "closes falls (never up, never to zero); off leaves size alone"),
+        "closes falls (never up, never to zero); off leaves size alone; "
+        "turning it on tightens"),
     "ENTRY_TIMING_ENABLED": (
         "on makes a qualified idea wait for a confirmed lower-timeframe turn "
         "before it executes, and drop if its stop is touched first; fewer, "
-        "later entries"),
+        "later entries; turning it on tightens"),
     "STRUCTURE_TRAIL_ENABLED": (
         "on adds a swing-low ratchet to the trailing stop; measured inert "
-        "under the current trail settings"),
+        "under the current trail settings; turning it on tightens"),
     "CANDLE_ENTRY_VETO_ENABLED": (
         "on skips a pullback limit entry when the last closed candle is a "
-        "strong reversal pattern against the trade"),
+        "strong reversal pattern against the trade; turning it on tightens"),
     "REENTRY_COOLDOWN_SECONDS": (
         "seconds after a symbol's last real fill before a fresh entry on that "
         "symbol is allowed; raising it tightens, 0 turns it off"),
     "TREND_UP_SIZE_MULT": (
         "position size multiplier in the TREND_UP regime only; raising it "
-        "takes larger positions there"),
+        "takes larger positions there (loosens)"),
     "LIVE_PERF_REDUCE_WINRATE": (
         "the live governor's win-rate threshold (a fraction) at or below which "
         "it cuts size; raising it cuts size sooner (tightens)"),
@@ -144,6 +145,96 @@ FLAG_MEANINGS: dict[str, str] = {
         "(scaled up with position size); raising it demands deeper books "
         "(tightens)"),
 }
+
+
+#: WHICH WAY EACH FLAG MOVES THE GUARD when it is RAISED (a figure) or
+#: turned ON (a switch). The card computes every proposal's direction from
+#: this and the value in force, and prints it; it no longer rests on the
+#: model's sentence. On 2026-10-15 the card printed LIVE_PERF_REDUCE_WINRATE
+#: =0.35 (in force: 0.4) under "raising it cuts size sooner (tightens)": the
+#: model had copied the flag's meaning while proposing to LOWER it, so a
+#: proposal that loosened the governor during a 28%-win window went out
+#: labelled as tightening it. The prompt already asked a loosening proposal
+#: to say so; nothing checked. The words in FLAG_MEANINGS are pinned to this
+#: table by tests/test_the_audit_card_says_which_way_a_change_moves.py, so
+#: the model and the card cannot be told two directions.
+FLAG_UP_DIRECTION: dict[str, str] = {
+    "EQUITY_THROTTLE_ENABLED": "tightens",
+    "ENTRY_TIMING_ENABLED": "tightens",
+    "STRUCTURE_TRAIL_ENABLED": "tightens",
+    "CANDLE_ENTRY_VETO_ENABLED": "tightens",
+    "REENTRY_COOLDOWN_SECONDS": "tightens",
+    "TREND_UP_SIZE_MULT": "loosens",
+    "LIVE_PERF_REDUCE_WINRATE": "tightens",
+    "LIVE_PERF_REDUCE_MULT": "loosens",
+    "VOLATILITY_GUARD_ATR_PCT": "loosens",
+    "SYMBOL_LOSS_STREAK_THRESHOLD": "loosens",
+    "OF_MAX_SPREAD_BPS": "loosens",
+    "OF_MIN_DEPTH_USD": "tightens",
+}
+
+_ON_WORDS = ("1", "true", "yes", "on")
+
+
+def proposal_direction(flag: str, value: Any,
+                       current: Optional[str]) -> Optional[dict]:
+    """Which way a proposal moves its flag from the value in force, and
+    whether that tightens or loosens it. Computed from FLAG_UP_DIRECTION,
+    never read off the rationale.
+
+    ``None`` when there is no direction to state: an unknown flag, or a value
+    equal to the one in force. ``{"move": None, "effect": None}`` when the
+    value in force could not be read: the direction is unknown, and the card
+    says that rather than guessing from the proposal alone.
+    """
+    up = FLAG_UP_DIRECTION.get(flag)
+    spec = ALLOWED_FLAGS.get(flag)
+    if up is None or spec is None:
+        return None
+    if current is None:
+        return {"move": None, "effect": None}
+    try:
+        if spec["type"] == "bool":
+            new_on = str(value).strip().lower() in _ON_WORDS
+            cur_on = str(current).strip().lower() in _ON_WORDS
+            if new_on == cur_on:
+                return None
+            raised = new_on
+            move = "turns it on" if new_on else "turns it off"
+        else:
+            new, cur = float(value), float(current)
+            if abs(new - cur) < 1e-12:
+                return None
+            raised = new > cur
+            move = f"{'raises' if raised else 'lowers'} it {current} \u2192 {value}"
+    except (TypeError, ValueError):
+        return {"move": None, "effect": None}
+    effect = up if raised else ("loosens" if up == "tightens" else "tightens")
+    return {"move": move, "effect": effect}
+
+
+def direction_line(flag: str, value: Any, current: Optional[str],
+                   rationale: str = "") -> Optional[str]:
+    """The card's line saying which way a proposal moves the guard, printed
+    above the model's rationale, and a second one when that rationale claims
+    the opposite direction."""
+    d = proposal_direction(flag, value, current)
+    if d is None:
+        return None
+    if d["effect"] is None:
+        return ("Direction: <b>unknown</b> \u2014 the value in force could not "
+                "be read, so whether this tightens or loosens is not known.")
+    icon = "\U0001f513" if d["effect"] == "loosens" else "\U0001f512"
+    line = f"{icon} This {d['move']}: it <b>{d['effect'].upper()}</b> the guard."
+    said = str(rationale or "").lower()
+    claims_tight = "tighten" in said and "loosen" not in said
+    claims_loose = "loosen" in said and "tighten" not in said
+    if (d["effect"] == "loosens" and claims_tight) or (
+            d["effect"] == "tightens" and claims_loose):
+        line += (f"\n  \u26a0\ufe0f The rationale below calls it "
+                 f"{'tightening' if claims_tight else 'loosening'}; "
+                 f"the change {d['effect']} it.")
+    return line
 
 
 def flag_bounds() -> dict[str, dict[str, Any]]:
@@ -213,6 +304,11 @@ be read. A flag's value is a SETTING, never a market reading: the evidence \
 carries no ATR, volatility, spread, depth or funding reading, so a rationale \
 never states one. Each flag's `means` says what it controls and which \
 direction loosens it; a proposal that loosens a guard says it loosens it. \
+`symbol_loss_streaks` is the engine's own per-symbol counter, the figure \
+SYMBOL_LOSS_STREAK_THRESHOLD is compared with (it resets to 0 when a symbol \
+is benched, and a symbol not listed holds 0); a run you count in \
+`closed_trades` is not that counter, and losses across different symbols \
+are not one symbol's streak. \
 Respond with STRICT JSON only — an array \
 of at most {max_proposals} objects, no prose, no markdown fences:
 [{{"flag": "<ALLOWLISTED_FLAG>", "value": <bool|number>, \
@@ -1134,6 +1230,23 @@ class SelfAudit:
             logger.warning("self-audit governor unreadable: %s", exc)
             ev["governor"] = None
             ev["governor_inputs"] = None
+        # THE ENGINE'S OWN PER-SYMBOL LOSS COUNTERS, the quantity
+        # SYMBOL_LOSS_STREAK_THRESHOLD is compared with. The evidence carried
+        # the closes and nothing else, so on 2026-10-15 the model counted a
+        # "loss streak of 21" out of them itself and set it against the
+        # per-symbol threshold of 3. The engine's counter cannot read 21: it
+        # adds one per losing close on THAT symbol, takes one off per win,
+        # and resets to zero when it benches the symbol, so it never sits at
+        # or above the threshold. A symbol not listed holds zero; `null` is
+        # an engine whose counters could not be read.
+        try:
+            raw = getattr(engine, "_symbol_loss_streaks", None)
+            ev["symbol_loss_streaks"] = (
+                {str(k): int(v) for k, v in raw.items() if int(v) > 0}
+                if isinstance(raw, dict) else None)
+        except Exception as exc:
+            logger.warning("self-audit loss-streak counters unreadable: %s", exc)
+            ev["symbol_loss_streaks"] = None
         # WHETHER THE BRAIN WAS ANSWERING. The evidence recorded closes, win
         # rate, PF, net and gates, and nothing about which SYSTEM produced
         # them: a window traded entirely by the rule engine (brain degraded)
@@ -1365,8 +1478,15 @@ class SelfAudit:
             # nothing; `None` is a read that failed and says so.
             _cur = (f" (in force: {r['current']})" if r.get("current") is not None
                     else (" (in force: unread)" if "current" in r else ""))
+            # WHICH WAY IT MOVES, computed, above the model's sentence. A
+            # result written by a build that did not record the value in
+            # force has no key and gets no line; `None` is an unread value.
+            _dir = (direction_line(r.get("flag", ""), r.get("value"),
+                                   r.get("current"), r.get("rationale", ""))
+                    if "current" in r else None)
             lines.append(f"\n<b>{r['flag']}={r['value']}</b>{_cur}\n"
-                         f"  {r['rationale']}\n"
+                         + (f"  {_dir}\n" if _dir else "")
+                         + f"  {r['rationale']}\n"
                          f"  {verdict}\n"
                          + (f"  {bind}\n" if bind else "")
                          + f"  Apply: <code>{r['flag']}={r['value']}</code> "
