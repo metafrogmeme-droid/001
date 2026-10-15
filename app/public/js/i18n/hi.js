@@ -2120,6 +2120,8 @@
   ["home.token_live", "$RCLAW Solana पर लाइव है — प्रीसेल घोषित"],
   ["home.token_presale_live", "$RCLAW प्रीसेल अभी लाइव है"],
   ["home.token_presale_ended", "$RCLAW प्रीसेल समाप्त — क्लेम खुला है"],
+  ["bar.presale_closes", "समाप्ति"],
+  ["bar.presale_cta", "शर्तें और आधिकारिक सेल लिंक →"],
   ["home.token_cta", "बिक्री की शर्तें और मिंट पता →"],
   ["tok.h1", "$RCLAW टोकन"],
   ["tok.lede", "RUNECLAW का टोकन Solana पर है। यह पृष्ठ वह एकमात्र मिंट पता दिखाता है जो $RCLAW है, परियोजना के अपने रिकॉर्ड से पढ़ा हुआ, और प्रीसेल के बारे में क्या घोषित हुआ है और क्या नहीं।"],

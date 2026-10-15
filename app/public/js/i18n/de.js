@@ -2120,6 +2120,8 @@
   ["home.token_live", "$RCLAW ist live auf Solana — Presale angekündigt"],
   ["home.token_presale_live", "Der $RCLAW-Presale läuft jetzt"],
   ["home.token_presale_ended", "Der $RCLAW-Presale ist beendet — der Claim ist offen"],
+  ["bar.presale_closes", "Endet"],
+  ["bar.presale_cta", "Bedingungen und offizieller Verkaufslink →"],
   ["home.token_cta", "Verkaufsbedingungen und Mint-Adresse →"],
   ["tok.h1", "Der $RCLAW-Token"],
   ["tok.lede", "Der Token von RUNECLAW lebt auf Solana. Diese Seite zeigt die eine Mint-Adresse, die $RCLAW ist, gelesen aus dem eigenen Datensatz des Projekts, und was zum Presale angekündigt ist und was nicht."],

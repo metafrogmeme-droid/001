@@ -11,10 +11,12 @@
  * drives the same render the visitor sees.
  */
 (function (root, factory) {
-  const api = factory();
-  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  // The presale's phase is ONE reading, presale.js, which every page loads before this script.
+  const node = typeof module !== 'undefined' && module.exports;
+  const api = factory(node ? require('./presale.js') : root.Presale);
+  if (node) module.exports = api;
   else root.TokenPage = api;
-}(typeof self !== 'undefined' ? self : this, function () {
+}(typeof self !== 'undefined' ? self : this, function (Phase) {
   'use strict';
 
   const BASE58_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -80,8 +82,6 @@
   const BODY_SOON = 'A presale is being prepared. The date, price and venue will be announced on this page, '
     + 'in the Telegram bot and on the project’s X account before anything opens. '
     + 'Until then there is nothing to buy from us.';
-  /** A sale-window instant as the record writes it: a whole minute in UTC. */
-  const WINDOW_AT = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}):00Z$/;
   const PHASE_LIVE = 'Live now';
   const PHASE_ENDED = 'Ended';
   const PHASE_OPENS = 'Opens {t}.';
@@ -175,44 +175,9 @@
     return '<a href="' + esc(v) + '" target="_blank" rel="noopener noreferrer"><code>' + esc(v) + '</code></a>';
   }
 
-  /** Milliseconds for a window instant, or null: not a whole UTC minute, or a date that does not exist. */
-  function windowMs(v) {
-    const m = typeof v === 'string' ? WINDOW_AT.exec(v) : null;
-    if (!m) return null;
-    const ms = Date.parse(v);
-    if (!Number.isFinite(ms)) return null;
-    // Date.parse rolls 2026-02-30 over to 2 March; a date that does not exist is unreadable.
-    return new Date(ms).toISOString().slice(0, 16) === m[1] + 'T' + m[2] ? ms : null;
-  }
-
-  /** "2026-10-29T14:00:00Z" -> "2026-10-29 14:00 UTC": digits, so no language has to translate a month. */
-  function windowText(v) {
-    const m = WINDOW_AT.exec(v);
-    return m[1] + ' ' + m[2] + ' UTC';
-  }
-
-  /**
-   * Where an announced presale stands: 'announced' (before it opens), 'live' or 'ended', from the
-   * record's window and the clock. A window that cannot be read is the record's own status,
-   * 'announced', which is true of a sale that has opened too; any other status has no phase.
-   * tests/fixtures/presale_phase_cases.json holds this and the bot's reading to one answer.
-   */
-  /** [opens, closes] in milliseconds, or null: either instant unreadable, or a close not after the open. */
-  function saleWindow(p) {
-    const opens = windowMs(p.opens_at);
-    const closes = windowMs(p.closes_at);
-    return (opens === null || closes === null || closes <= opens) ? null : [opens, closes];
-  }
-
-  function presalePhase(presale, nowMs) {
-    const p = (presale && typeof presale === 'object') ? presale : {};
-    if (p.status !== 'announced') return null;
-    const w = saleWindow(p);
-    if (w === null) return 'announced';
-    const now = Number.isFinite(nowMs) ? nowMs : Date.now();
-    if (now < w[0]) return 'announced';
-    return now < w[1] ? 'live' : 'ended';
-  }
+  const presalePhase = Phase.presalePhase;
+  const saleWindow = Phase.saleWindow;
+  const windowText = Phase.windowText;
 
   /** The line under the status: when it opens, until when it is open, when it closed. */
   function phaseLine(p, phase) {

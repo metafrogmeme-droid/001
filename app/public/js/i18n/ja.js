@@ -2120,6 +2120,8 @@
   ["home.token_live", "$RCLAWがSolanaで稼働中 — プレセール発表"],
   ["home.token_presale_live", "$RCLAWのプレセールが開催中"],
   ["home.token_presale_ended", "$RCLAWのプレセールは終了しました — クレーム受付中"],
+  ["bar.presale_closes", "終了"],
+  ["bar.presale_cta", "条件と公式セールリンク →"],
   ["home.token_cta", "セール条件とミントアドレス →"],
   ["tok.h1", "$RCLAWトークン"],
   ["tok.lede", "RUNECLAWのトークンはSolana上にあります。このページでは、プロジェクト自身の記録から読み取った唯一の$RCLAWミントアドレスと、プレセールについて発表済みの内容と未発表の内容を示します。"],

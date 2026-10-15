@@ -2120,6 +2120,8 @@
   ["home.token_live", "$RCLAW가 Solana에 출시되었습니다 — 프리세일 발표"],
   ["home.token_presale_live", "$RCLAW 프리세일 진행 중"],
   ["home.token_presale_ended", "$RCLAW 프리세일 종료 — 클레임 가능"],
+  ["bar.presale_closes", "마감"],
+  ["bar.presale_cta", "조건 및 공식 판매 링크 →"],
   ["home.token_cta", "판매 조건과 민트 주소 →"],
   ["tok.h1", "$RCLAW 토큰"],
   ["tok.lede", "RUNECLAW의 토큰은 Solana에 있습니다. 이 페이지는 프로젝트 자체 기록에서 읽은 유일한 $RCLAW 민트 주소와, 프리세일에 대해 발표된 것과 아직 발표되지 않은 것을 보여줍니다."],

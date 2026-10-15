@@ -2120,6 +2120,8 @@
   ["home.token_live", "$RCLAW 已在 Solana 上線 — 預售已公布"],
   ["home.token_presale_live", "$RCLAW 預售進行中"],
   ["home.token_presale_ended", "$RCLAW 預售已結束 — 現可領取"],
+  ["bar.presale_closes", "截止"],
+  ["bar.presale_cta", "條款與官方銷售連結 →"],
   ["home.token_cta", "銷售條款與鑄造地址 →"],
   ["tok.h1", "$RCLAW 代幣"],
   ["tok.lede", "RUNECLAW 的代幣部署於 Solana。本頁顯示唯一屬於 $RCLAW 的鑄造地址（讀取自專案自身的記錄），以及預售已公布與尚未公布的內容。"],

@@ -10,6 +10,7 @@ record did not promise, or a link off the one host it may name, is
 from __future__ import annotations
 
 import html
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Any, Mapping, Optional
@@ -163,6 +164,41 @@ def presale_phase(presale: Mapping[str, Any], now: Optional[datetime] = None) ->
     if at < opens:
         return "announced"
     return "live" if at < closes else "ended"
+
+
+def presale_live_line(record: Mapping[str, Any], now: Optional[datetime] = None) -> Optional[str]:
+    """The one line /start and the welcome carry while the sale is live, or
+    None: before it opens, after it closes, with a window that cannot be read,
+    or without a sale link the card would print (`is_sale_url`). The website's
+    bar makes the same claim from the same reading (app/public/js/presale.js);
+    an advert that cannot name the official link or the closing time is one
+    the bot does not need to make."""
+    presale = record.get("presale")
+    if not isinstance(presale, Mapping) or presale_phase(presale, now) != "live":
+        return None
+    url = presale.get("sale_url")
+    if not is_sale_url(url):
+        return None
+    shown = html.escape(str(url))
+    symbol = html.escape(str(record.get("symbol") or "RCLAW"))
+    return (f"🟢 <b>The ${symbol} presale is live</b> until {_window_text(presale['closes_at'])}, "
+            f'or until the hard cap. Official sale page: <a href="{shown}">{shown}</a> · '
+            "terms and the mint: /rclaw")
+
+
+def presale_live_note(now: Optional[datetime] = None) -> str:
+    """``presale_live_line`` from the one record, as a paragraph to append, or
+    ``""``. A record that cannot be read adds nothing to the message it rides
+    on (logged by class), which is the omit half of the rule: /start and the
+    welcome make no presale claim then, true or false."""
+    try:
+        from bot.token.record import load_record
+        line = presale_live_line(load_record(), now)
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "Presale line omitted: the token record could not be read (%s)", type(exc).__name__)
+        return ""
+    return f"\n\n{line}" if line else ""
 
 
 def presale_lines(presale: Mapping[str, Any], symbol: str = "RCLAW",

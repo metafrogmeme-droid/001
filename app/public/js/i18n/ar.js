@@ -2120,6 +2120,8 @@
   ["home.token_live", "$RCLAW متاح الآن على Solana — أُعلن البيع المسبق"],
   ["home.token_presale_live", "البيع المسبق لـ $RCLAW متاح الآن"],
   ["home.token_presale_ended", "انتهى البيع المسبق لـ $RCLAW — المطالبة متاحة"],
+  ["bar.presale_closes", "ينتهي"],
+  ["bar.presale_cta", "الشروط ورابط البيع الرسمي →"],
   ["home.token_cta", "شروط البيع وعنوان الإصدار →"],
   ["tok.h1", "رمز $RCLAW"],
   ["tok.lede", "يعيش رمز RUNECLAW على Solana. تعرض هذه الصفحة عنوان الإصدار الوحيد الذي هو $RCLAW، مقروءًا من سجل المشروع نفسه، وما أُعلن وما لم يُعلن بعد عن البيع المسبق."],

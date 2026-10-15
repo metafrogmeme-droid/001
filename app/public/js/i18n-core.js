@@ -2162,6 +2162,8 @@
     "home.token_live": { en: "$RCLAW is live on Solana — presale announced" },
     "home.token_presale_live": { en: "$RCLAW presale is live now" },
     "home.token_presale_ended": { en: "$RCLAW presale has ended — claims are open" },
+    "bar.presale_closes": { en: "Closes" },
+    "bar.presale_cta": { en: "Terms and the official sale link →" },
     "home.token_cta": { en: "Sale terms and the mint address →" },
     "tok.h1": { en: "The $RCLAW token" },
     "tok.lede": { en: "RUNECLAW’s token lives on Solana. This page shows the one mint address that is $RCLAW, read from the project’s own record, and what has and has not been announced about the presale." },
@@ -2261,7 +2263,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"1681bc6e","zh":"d8c5c430","pt":"6764b10f","fr":"328c0cdd","de":"fecef6b7","nl":"a660358c","ja":"ddf1c2a5","ko":"36909752","ru":"230612cb","tr":"01a948ad","it":"f859e937","hi":"739d8245","ar":"0c573999"};
+  var CHUNKS = {"es":"914cab4b","zh":"68aafefb","pt":"42cd418d","fr":"2201dc81","de":"67838137","nl":"f3c939e3","ja":"2ad39fb0","ko":"c16e6c9c","ru":"c1e6a1e9","tr":"b232d50a","it":"c6977ab3","hi":"8a23c0ce","ar":"955b85c0"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

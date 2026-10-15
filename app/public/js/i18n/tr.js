@@ -2120,6 +2120,8 @@
   ["home.token_live", "$RCLAW Solana üzerinde yayında — ön satış duyuruldu"],
   ["home.token_presale_live", "$RCLAW ön satışı şu anda açık"],
   ["home.token_presale_ended", "$RCLAW ön satışı sona erdi — talep açık"],
+  ["bar.presale_closes", "Kapanış"],
+  ["bar.presale_cta", "Koşullar ve resmi satış bağlantısı →"],
   ["home.token_cta", "Satış koşulları ve mint adresi →"],
   ["tok.h1", "$RCLAW tokenı"],
   ["tok.lede", "RUNECLAW tokenı Solana üzerinde yaşar. Bu sayfa, projenin kendi kaydından okunan tek $RCLAW mint adresini ve ön satış hakkında nelerin duyurulup nelerin duyurulmadığını gösterir."],

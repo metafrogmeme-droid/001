@@ -19825,6 +19825,33 @@ landing-page boot, the derivation), all killed.
 `tests/test_the_token_card_reads_the_one_record.py`,
 `token/presale/the_record_states_the_sale.test.mjs`.)
 
+**THE BAR AND THE BOT'S LINE ASK THE SAME QUESTION, SO THE PHASE MOVED OUT OF THE PAGE THAT
+FIRST ASKED IT.** The operator asked for a pop-up on the website and a link in the bot while
+the sale is live, and chose a slim bar on every page and a line on /start and the welcome. Both
+make the claim the /token badge makes, so the reading moved out of `token-page.js` into
+`presale.js`, which every page with the i18n runtime loads (the two account flows, reset and
+wallet-link, do not) and which `token-page.js` now asks for its phase: a second copy in a second
+script would have been the drift this repository keeps finding one surface over. The bar shows
+only while the phase is live, never on /token (which says all of it), and stays closed for a
+visitor who closed it, keyed by the sale's closing instant so the next sale shows again. A
+record that cannot be read shows no bar: an advert that cannot say when the sale closes is one
+the site does not need to make. The closing time is its own chip, in digits and UTC, so the
+translated sentence carries no date, and the bar reuses the home strip's sentence: one string
+in fourteen languages for both. The bot's line (`token_card.presale_live_line`) appears only
+with a readable window and a sale link the /rclaw card would print, and a record that cannot be
+read adds nothing to /start or the welcome. Measured in Chromium with the page's clock pinned:
+the bar is at the top of each of the 37 pages and drawn (not covered by a fixed header), adds no
+sideways scroll at 390px, closes and stays closed, and is absent before, after, on /token and on
+an unreadable record. The first draft asserted the bar was the body's first element; another
+script inserts its own element there after the bar, so the assertion measured insertion order,
+not what a visitor sees. It now asks what is drawn at the bar's centre. Fourteen mutants, all
+killed after one fixture fix: dropping the "only a 200 is a read" check survived, because the
+503 the test served carried no token, so it could not produce the state the check exists for.
+It now also serves a 503 whose body is a live record (a stale copy a proxy kept), and the bar
+stays down.
+(`app/test/the_presale_bar_says_live_and_steps_aside.smoke.test.js`,
+`tests/test_the_bot_says_the_presale_is_live.py`.)
+
 **THE COMMUNITY LOCK RAN AHEAD OF ITS LINE AT EVERY STEP, AND ITS NOTE SAID ONLY AT TGE.** The
 plan of 2026-10-10 made the community lock five equal 20% steps, and its note called it "the one
 schedule that sits ABOVE the old straight line at TGE (20% against 0%)". Asked for the best
@@ -21850,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **492 of 1324** reach for source text through `source_scan`, `code_only`
+Driven, **492 of 1325** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 492 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
