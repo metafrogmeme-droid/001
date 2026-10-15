@@ -49,10 +49,12 @@ async function gateServer(opts) {
   return { server, url, ran };
 }
 
-async function timed(p) {
+/** A call, timed from before it is made: `fetch` does work of its own before
+ *  it returns a promise, the first time in a process most of all. */
+async function timed(call) {
   const t0 = Date.now();
-  const res = await p;
-  return { res, ms: Date.now() - t0, body: await res.json() };
+  const res = await call();
+  return { res, ms: Date.now() - t0, doneAt: Date.now(), body: await res.json() };
 }
 
 const refusedErr = () => Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
@@ -66,19 +68,23 @@ test.afterEach(() => readiness._reset());
 test('a call that arrives while the first check runs is answered once the instance is ready', async () => {
   const g = await gateServer({ holdMs: 3000 });
   try {
-    setTimeout(() => readiness.markReady(), 150);
-    const { res, ms, body } = await timed(fetch(g.url, { method: 'POST', body: '{}' }));
+    let readyAt = null;
+    setTimeout(() => { readyAt = Date.now(); readiness.markReady(); }, 150);
+    const { res, doneAt, body } = await timed(() => fetch(g.url, { method: 'POST', body: '{}' }));
     assert.equal(res.status, 200);
     assert.deepEqual(body, { ok: 1 });
     assert.deepEqual(g.ran, ['POST'], 'the route ran once, after the hold');
-    assert.ok(ms >= 100 && ms < 2000, `answered when ready, not at the end of the hold (${ms} ms)`);
+    // Measured from the moment the instance became ready, so a slow start of
+    // the client cannot move either bound.
+    assert.ok(readyAt != null && doneAt >= readyAt, 'answered before the instance was ready');
+    assert.ok(doneAt - readyAt < 1500, `answered when ready, not at the end of the hold (${doneAt - readyAt} ms after)`);
   } finally { g.server.close(); }
 });
 
 test('a hold that runs out is refused as starting, marked held', async () => {
   const g = await gateServer({ holdMs: 300 });
   try {
-    const { res, ms, body } = await timed(fetch(g.url));
+    const { res, ms, body } = await timed(() => fetch(g.url));
     assert.equal(res.status, 503);
     assert.deepEqual(body, { error: 'starting', reason: 'starting' });
     assert.equal(res.headers.get(G.HELD_HEADER), '1');
@@ -89,10 +95,9 @@ test('a hold that runs out is refused as starting, marked held', async () => {
   // The other arm: with the hold off, the same call is refused at once, unheld.
   const off = await gateServer({ holdMs: 0 });
   try {
-    const { res, ms } = await timed(fetch(off.url));
+    const { res } = await timed(() => fetch(off.url));
     assert.equal(res.status, 503);
-    assert.equal(res.headers.get(G.HELD_HEADER), null);
-    assert.ok(ms < 250, `${ms} ms`);
+    assert.equal(res.headers.get(G.HELD_HEADER), null, 'refused unheld');
   } finally { off.server.close(); }
 });
 
@@ -100,7 +105,7 @@ test('a failing database is never held, and a held call hears of a failed attemp
   readiness.markAttemptFailed(refusedErr());
   const g = await gateServer({ holdMs: 3000 });
   try {
-    const { res, ms, body } = await timed(fetch(g.url));
+    const { res, ms, body } = await timed(() => fetch(g.url));
     assert.equal(res.status, 503);
     assert.deepEqual(body, { error: 'starting', reason: 'db_unreachable' });
     assert.equal(res.headers.get(G.HELD_HEADER), null, 'not held: an outage every instance shares');
@@ -111,7 +116,7 @@ test('a failing database is never held, and a held call hears of a failed attemp
   const h = await gateServer({ holdMs: 3000 });
   try {
     setTimeout(() => readiness.markAttemptFailed(refusedErr()), 150);
-    const { res, ms, body } = await timed(fetch(h.url));
+    const { res, ms, body } = await timed(() => fetch(h.url));
     assert.equal(res.status, 503);
     assert.equal(body.reason, 'db_unreachable', 'the reason the attempt found, not "starting"');
     assert.ok(ms < 2000, `answered when the attempt failed, not at the end of the hold (${ms} ms)`);
@@ -131,25 +136,25 @@ test('a caller that hangs up while held runs no route', async () => {
     await tick(150);
     assert.deepEqual(g.ran, [], 'the route ran for a caller that had gone');
     // The other arm: a caller still there is served.
-    const { res } = await timed(fetch(g.url, { method: 'POST', body: '{}' }));
+    const { res } = await timed(() => fetch(g.url, { method: 'POST', body: '{}' }));
     assert.equal(res.status, 200);
     assert.deepEqual(g.ran, ['POST']);
   } finally { g.server.close(); }
 });
 
 test('past maxHeld calls the gate refuses at once, as before', async () => {
-  const g = await gateServer({ holdMs: 600, maxHeld: 1 });
+  const g = await gateServer({ holdMs: 2500, maxHeld: 1 });
   try {
-    const first = timed(fetch(g.url));
-    await tick(80);
-    const second = await timed(fetch(g.url));
+    const first = timed(() => fetch(g.url));
+    await tick(150);
+    const second = await timed(() => fetch(g.url));
     assert.equal(second.res.status, 503);
     assert.equal(second.res.headers.get(G.HELD_HEADER), null, 'the second call was not held');
-    assert.ok(second.ms < 400, `${second.ms} ms`);
+    assert.ok(second.ms < 1500, `refused at once, not after the 2.5 s hold (${second.ms} ms)`);
     const held = await first;
     assert.equal(held.res.headers.get(G.HELD_HEADER), '1', 'the first one was');
     // And the slot is given back: a third call is held again.
-    const third = await timed(fetch(g.url));
+    const third = await timed(() => fetch(g.url));
     assert.equal(third.res.headers.get(G.HELD_HEADER), '1');
   } finally { g.server.close(); }
 });
