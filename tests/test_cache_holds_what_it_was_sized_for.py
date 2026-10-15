@@ -55,7 +55,9 @@ class TestEvictionUsesEachEntrysOwnTTL:
         assert {k for k, v in cache.items() if v[0] > cutoff} == set()
 
     def test_entries_are_stored_with_their_own_ttl(self):
-        src = inspect.getsource(eng.RuneClawEngine._cached_ohlcv)
+        # The store lives in the fetch a miss runs once (`_cached_ohlcv`
+        # shares one fetch between callers who miss together).
+        src = inspect.getsource(eng.RuneClawEngine._fetch_ohlcv_into_cache)
         assert "(now, data, float(ttl))" in src, \
             "the entry cannot be expired on its own terms unless it carries them"
         assert "now - ttl * 2" not in src, \

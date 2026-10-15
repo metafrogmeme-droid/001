@@ -715,26 +715,46 @@ class ScanCommands:
             if args[0] in valid_venue_ids():
                 await self._scan_one_venue(update, args[0])
                 return
-        # Immediate feedback: a full market scan sweeps ~200 pairs and can take
-        # several seconds. Without an ack /scan reads as total silence (audit
-        # TG-2) — show the typing indicator AND a lightweight status line, then
-        # the result card follows. Both best-effort so a send hiccup never
-        # blocks the actual scan.
+        # ONE CARD PER GROUP CHAT. The read is shared across everyone
+        # (`market_sweep`), but in a group five members asking together would
+        # still each get the card, five copies in one chat. The first posts
+        # it; the rest are told it is coming or pointed at it.
+        from bot.core.scan_flight import MARKET_TTL_S, ROOMS, room_sentence
+        from bot.skills.public_room import is_public_room
+        _room = (update.effective_chat.id
+                 if is_public_room(update) and update.effective_chat else None)
+        if _room is not None:
+            _state, _secs = ROOMS.claim(_room, "market", MARKET_TTL_S)
+            if _state != "run":
+                await self._send(update, room_sentence(
+                    _state, _secs, MARKET_TTL_S, "market scan"))
+                return
         try:
-            if update.effective_chat:
-                await update.effective_chat.send_chat_action(ChatAction.TYPING)
-        except Exception:
-            pass
-        await self._send(update,
-            "🔍 <b>Scanning the market…</b> sweeping ~200 pairs for setups — "
-            "the results card follows in a few seconds.")
-        result = await self.registry.dispatch("scan_market", self.engine, user_id=user_id)
-        # Visual grid card from the structured signals the skill stashed; falls
-        # back to the text result on any failure.
-        signals = getattr(self.engine, "_last_scan_signals", None)
-        if signals and await self._render_scan_signals_card(update, signals, "MARKET SCAN"):
-            return
-        await self._send(update, result)
+            # Immediate feedback: a full market scan sweeps ~200 pairs and can
+            # take several seconds. Without an ack /scan reads as total silence
+            # (audit TG-2) — show the typing indicator AND a lightweight status
+            # line, then the result card follows. Both best-effort so a send
+            # hiccup never blocks the actual scan.
+            try:
+                if update.effective_chat:
+                    await update.effective_chat.send_chat_action(ChatAction.TYPING)
+            except Exception:
+                pass
+            await self._send(update,
+                "🔍 <b>Scanning the market…</b> sweeping ~200 pairs for setups — "
+                "the results card follows in a few seconds.")
+            result = await self.registry.dispatch("scan_market", self.engine, user_id=user_id)
+            # Visual grid card from the structured signals the skill stashed;
+            # falls back to the text result on any failure.
+            signals = getattr(self.engine, "_last_scan_signals", None)
+            if not (signals and await self._render_scan_signals_card(
+                    update, signals, "MARKET SCAN")):
+                await self._send(update, result)
+            if _room is not None:
+                ROOMS.posted(_room, "market")
+        finally:
+            if _room is not None:
+                ROOMS.release(_room, "market")
 
     def _scan_venues_text(self, lang: str) -> str:
         """The `/scan venues` list: every venue the table knows, as a command."""
@@ -782,32 +802,41 @@ class ScanCommands:
                                         exchange=None) -> bool:
         """Render a list of MarketSignal objects as the breadth grid card
         (with sparklines + RSI). Best-effort; returns True if a card was sent.
-        `exchange` names where the sparkline candles come from; the default is
-        the active executor's exchange, which is right for the market sweep
-        and wrong for a venue scan."""
+        `exchange` names where the sparkline candles come from. A venue scan
+        passes its own venue's client. The market sweep's default is the
+        scanner's market-data client, through the engine's candle cache.
+
+        It was the active executor's exchange, the operator's authenticated
+        TRADING client, fetched eighteen times per card with no cache. Twenty
+        people scanning together queued 360 candle requests on the client the
+        next order had to go through. Candles for a picture belong on the
+        market-data client the sweep itself read, cached and shared like every
+        other candle read (`RuneClawEngine._cached_ohlcv`)."""
         try:
             import asyncio as _asyncio
 
             import numpy as _np
 
+            from bot.core.engine import _mtf_ttl
             from bot.formatters.rich_cards import compute_rsi
             from bot.formatters.signal_card import render_scan_grid_card
 
             top = list(signals)[:18]
-            if exchange is None:
+            cached = exchange is None
+            if cached:
                 try:
-                    exchange = await self.engine.live_executor._get_exchange()
+                    exchange = await self.engine.get_futures_exchange()
                 except Exception:
-                    try:
-                        exchange = await self.engine.get_exchange()
-                    except Exception:
-                        exchange = None
+                    exchange = None
 
             async def _spark_rsi(sym):
                 if not exchange:
                     return None, None
                 try:
-                    ohlcv = await exchange.fetch_ohlcv(sym, "1h", limit=30)
+                    ohlcv = (await self.engine._cached_ohlcv(
+                                 exchange, sym, "1h", limit=30, ttl=_mtf_ttl("1h"))
+                             if cached else
+                             await exchange.fetch_ohlcv(sym, "1h", limit=30))
                     # RSI is the load-bearing figure here (it colours the chip)
                     # and the sparkline is a picture of CLOSED bars, so both
                     # take the hygiened series.
@@ -1215,6 +1244,28 @@ class ScanCommands:
         # only true while the list stays ordered and nothing enforces that.
         _tf_label = (f"ALL TIMEFRAMES ({', '.join(SUPPORTED_TIMEFRAMES)})"
                      if _multi else tf.upper())
+        # One card per group chat per timeframe, as /scan (see there).
+        from bot.core.scan_flight import DEEPSCAN_TTL_S, ROOMS, room_sentence
+        from bot.skills.public_room import is_public_room
+        _room = (update.effective_chat.id
+                 if is_public_room(update) and update.effective_chat else None)
+        _kind = f"deepscan:{tf}"
+        if _room is not None:
+            _state, _secs = ROOMS.claim(_room, _kind, DEEPSCAN_TTL_S)
+            if _state != "run":
+                await self._send(update, room_sentence(
+                    _state, _secs, DEEPSCAN_TTL_S, f"{tf} deep scan"))
+                return
+        try:
+            await self._deepscan_and_post(update, tf, _multi, _tf_label)
+            if _room is not None:
+                ROOMS.posted(_room, _kind)
+        finally:
+            if _room is not None:
+                ROOMS.release(_room, _kind)
+
+    async def _deepscan_and_post(self, update: Update, tf: str, _multi: bool,
+                                 _tf_label: str) -> None:
         await self._send(update, f"🔬 <i>Deep scanning {_tf_label} — this may take a minute...</i>")
         try:
             result = await asyncio.wait_for(
@@ -1256,9 +1307,12 @@ class ScanCommands:
                             p_buf.name = "deepscan_patterns.png"
                             chat_id = str(update.effective_chat.id) if update.effective_chat else ""
                             if chat_id:
+                                _note = getattr(self.engine, "_last_deepscan_note", "")
                                 await update.get_bot().send_photo(
                                     chat_id=int(chat_id), photo=p_buf,
-                                    caption=f"🔍 <b>Patterns</b> — {tf.upper()} — {now_str}",
+                                    caption=(f"🔍 <b>Patterns</b> — {tf.upper()} — {now_str}"
+                                             + (f"\n<i>{html.escape(_note)}</i>"
+                                                if _note else "")),
                                     parse_mode="HTML")
                                 patterns_card_sent = True
                 except Exception as exc:

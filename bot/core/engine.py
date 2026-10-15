@@ -1076,6 +1076,10 @@ class RuneClawEngine:
         # /whynot: store last RiskCheck per symbol when risk rejects a trade
         self._last_rejections: dict[str, dict] = {}
         self._last_scan_signals: list = []
+        # The last /deepscan's hits (None: no deep scan has run) and the line a
+        # shared result adds to the patterns card (bot/core/scan_flight.py).
+        self._last_deepscan_hits: list[dict] | None = None
+        self._last_deepscan_note: str = ""
         self._ohlcv_cache: dict[str, tuple[float, list, float]] = {}
         # M-13 FIX: live balance cache as instance attributes (not class-level mutables)
         self._live_balance_cache: dict = {}
@@ -7071,6 +7075,34 @@ class RuneClawEngine:
             cached_time, cached_data, _entry_ttl = self._ohlcv_cache[key]
             if now - cached_time < ttl:
                 return cached_data
+        # ONE FETCH FOR CALLERS WHO MISS TOGETHER. The TTL above only helps
+        # the caller who arrives after a fetch has landed; callers who missed
+        # together each fetched, so twenty scan cards opened at once made
+        # twenty identical requests per series. A miss now joins a fetch of
+        # the same series already in flight on this loop. It is a task, so a
+        # caller who gives up does not cancel it for the others.
+        loop = asyncio.get_running_loop()
+        inflight = self.__dict__.setdefault("_ohlcv_inflight", {})
+        fk = (id(loop), key)
+        running = inflight.get(fk)
+        if running is not None and not running.done():
+            return await asyncio.shield(running)
+        task = loop.create_task(
+            self._fetch_ohlcv_into_cache(exchange, symbol, timeframe, limit, ttl, key))
+        inflight[fk] = task
+
+        def _settled(t: asyncio.Task, fk: tuple = fk) -> None:
+            if inflight.get(fk) is t:
+                inflight.pop(fk, None)
+            if not t.cancelled():
+                t.exception()       # retrieved here, whoever else gave up
+        task.add_done_callback(_settled)
+        return await asyncio.shield(task)
+
+    async def _fetch_ohlcv_into_cache(self, exchange, symbol, timeframe, limit,
+                                      ttl, key):
+        """The fetch `_cached_ohlcv` runs once per miss, and stores."""
+        now = time.monotonic()
         _t0 = time.monotonic()
         try:
             data = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
@@ -10002,14 +10034,34 @@ class RuneClawEngine:
         ``async with`` acquire have no await between them, so the guard is atomic
         on single-threaded asyncio.
         """
+        # THE SECOND CALLER JOINS. It used to be handed a zero-count dict
+        # marked "skipped", which no reader looked at: /forcescan printed
+        # "Signals found: 0" and the Latest Signal tap "No trade setups found"
+        # while a scan was in fact running. A caller who arrives now waits for
+        # that scan and gets its result, marked ``joined``. The scan is a task
+        # that holds the lock for its whole run, so a caller who stops waiting
+        # (the tap's timeout) neither cancels it nor lets a second one start.
+        running = getattr(self, "_force_scan_task", None)
+        if (running is not None and not running.done()
+                and running.get_loop() is asyncio.get_running_loop()):
+            audit(system_log, "Force scan joined the one in progress",
+                  action="force_scan", result="JOINED")
+            return {**(await asyncio.shield(running)), "joined": True}
         if self._scan_lock.locked():
             audit(system_log, "Force scan skipped — scan already in progress",
                   action="force_scan", result="SKIPPED_INFLIGHT")
             return {"signals": 0, "ideas": 0, "auto_confirmed": 0,
                     "pending": len(self._pending_ideas), "cleared_pending": 0,
                     "skipped": "scan_already_running"}
-        async with self._scan_lock:
-            return await self._force_scan_locked(max_symbols=max_symbols, lightweight=lightweight)
+
+        async def _run() -> dict:
+            async with self._scan_lock:
+                return await self._force_scan_locked(
+                    max_symbols=max_symbols, lightweight=lightweight)
+
+        task = asyncio.get_running_loop().create_task(_run())
+        self._force_scan_task = task
+        return await asyncio.shield(task)
 
     async def _force_scan_locked(self, max_symbols: int | None = None, lightweight: bool = False) -> dict:
         """Force an immediate scan cycle, bypassing cooldown and pending gates.

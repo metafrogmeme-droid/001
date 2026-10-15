@@ -1162,9 +1162,18 @@ class EngineOpsCommands:
             await self._send(update,
                 f"\u274c <b>Scan error:</b> {result['error']}")
             return
+        if result.get("skipped"):
+            # Not "Signals found: 0": nothing was scanned by this call.
+            await self._send(update,
+                "\u23f3 <b>A scan is already running</b> and this one did not "
+                "start. Its results arrive when it finishes; /status shows "
+                "its progress.")
+            return
 
         lines = [
-            "\u2705 <b>Force Scan Complete</b>",
+            "\u2705 <b>Force Scan Complete</b>"
+            + (" <i>(joined the scan already running)</i>"
+               if result.get("joined") else ""),
             "",
             f"\U0001f4e1 Signals found: <b>{result.get('signals', 0)}</b>",
             f"\U0001f4a1 Ideas generated: <b>{result.get('ideas', 0)}</b>",

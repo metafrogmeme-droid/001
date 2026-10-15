@@ -662,19 +662,55 @@ class SkillRegistry:
 # SCAN
 # ══════════════════════════════════════════════════════════════
 
+def _sweep_failed(errs: dict) -> bool:
+    """Every venue the sweep asked failed: a failed read, not a quiet market."""
+    failed = [k for k, v in errs.items() if v]
+    return bool(errs) and len(failed) == len(errs)
+
+
+async def market_sweep(engine: RuneClawEngine):
+    """The market sweep every on-demand door reads, through one flight
+    (`bot/core/scan_flight.py`): callers who ask together share one read,
+    and a finished read is served for `MARKET_TTL_S` with its age. The value
+    is ``(signals, errors)``, and the errors are captured with the read they
+    belong to, not re-read off the scanner after another caller's sweep has
+    overwritten them. A sweep in which every venue failed is not kept."""
+    from bot.config import RUNTIME
+    from bot.core.scan_flight import FLIGHTS, MARKET_TTL_S
+
+    async def _sweep():
+        signals = await engine.scanner.scan()
+        errs = dict(getattr(engine.scanner, "last_fetch_errors", None) or {})
+        return list(signals or []), errs
+
+    shared = await FLIGHTS.run(
+        ("market", str(RUNTIME.asset_universe), id(engine)), _sweep,
+        ttl_s=MARKET_TTL_S, keep=lambda v: not _sweep_failed(v[1]))
+    # Each caller gets its own copies. The doors sort the list in place and
+    # some annotate a signal, and the read is shared: one caller's sort must
+    # not reorder another's card.
+    import copy as _copy
+
+    from bot.core.scan_flight import Shared
+    signals, errs = shared.value
+    return Shared(([_copy.copy(x) for x in signals], dict(errs)),
+                  shared.how, shared.age_s)
+
+
 class ScanMarketSkill(BaseSkill):
     name = "scan_market"
     description = "Scan exchange for top movers"
 
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
-        signals = await engine.scanner.scan()
+        from bot.core.scan_flight import MARKET_TTL_S, shared_note
+        shared = await market_sweep(engine)
+        signals, errs = shared.value
         # Which venue answered. `scan()` folds a venue that did not answer
         # into an empty half of the universe, so an empty list is two
         # different facts: a quiet market, or nothing read. Both failing is
         # a failed read — the card says so and the last good scan is kept
         # for every other reader, because an absence must not erase a
         # measurement. One failing is a partial, and the card carries it.
-        errs = getattr(engine.scanner, "last_fetch_errors", None) or {}
         failed = [f"{k}: {v}" for k, v in errs.items() if v]
         if errs and failed and all(errs.get(k) for k in errs):
             return (f"{_BAD} <b>SCANNER</b>\n\n<i>Could not read the market — "
@@ -688,6 +724,9 @@ class ScanMarketSkill(BaseSkill):
             pass
         partial = (f"\n<i>\u26a0 {_esc('; '.join(failed))} — that venue was not read, "
                    f"so this scan covers part of the universe.</i>") if failed else ""
+        _note = shared_note(shared, MARKET_TTL_S)
+        if _note:
+            partial += f"\n<i>{_esc(_note)}</i>"
         if not signals:
             return f"{_NEU} <b>SCANNER</b>\n\n<i>No signals detected.</i>{partial}"
 
@@ -2639,7 +2678,7 @@ class RunStrategySkill(BaseSkill):
         audit(system_log, f"Targeted scan: {sym}", action="run_strategy",
               data={"symbol": sym, "type": "targeted"})
 
-        signals = await engine.scanner.scan()
+        signals, _sweep_errs = (await market_sweep(engine)).value
         if not signals:
             return f"\U0001f50e <b>Targeted: {_esc(sym)}</b>\n\n<i>No market data available</i>"
 
@@ -2710,7 +2749,7 @@ class RunStrategySkill(BaseSkill):
                 "<i>No order is placed and no position is closed.</i>"
             )
 
-        signals = await engine.scanner.scan()
+        signals, _sweep_errs = (await market_sweep(engine)).value
         if not signals:
             return f"{cfg['icon']} <b>{cfg['label']}</b>\n\n<i>No signals</i>"
 
@@ -3403,7 +3442,7 @@ class ProScanSkill(BaseSkill):
         )
 
         # ── Fetch live tickers ──
-        signals = await engine.scanner.scan()
+        signals, _sweep_errs = (await market_sweep(engine)).value
         if not signals:
             return (
                 header +
@@ -4100,7 +4139,7 @@ class PlaybookSkill(BaseSkill):
         lines.append(f"- Last Scan: <code>{now}</code>")
 
         # Show recent scan results if available
-        signals = await engine.scanner.scan()
+        signals, _sweep_errs = (await market_sweep(engine)).value
         n_signals = len(signals) if signals else 0
         movers = [s for s in (signals or [])
                   if s.change_pct_24h is not None and abs(s.change_pct_24h) > 3.0]
@@ -4360,6 +4399,43 @@ class DeepScanSkill(BaseSkill):
     description = f"Deep scan {deepscan_universe_size()} symbols with chart patterns"
 
     async def execute(self, engine: RuneClawEngine, **kwargs: Any) -> str:
+        """One deep scan per (timeframe, size, budget) at a time, shared.
+
+        A deep scan is the same for everyone who asks for the same timeframe:
+        115 symbols of closed bars. It was run once per caller, so a group
+        asking together queued 115 fetches each. Callers now share one run
+        (`bot/core/scan_flight.py`), and a finished complete run is served
+        for `DEEPSCAN_TTL_S` with its age on the card. A run the time budget
+        cut short is not kept, so the next caller reads again.
+        """
+        from bot.core.scan_flight import DEEPSCAN_TTL_S, FLIGHTS, shared_note
+        # The budget in the key is read the way `_sweep` reads it: a falsy
+        # budget is no budget, so 0 and None are one scan.
+        _raw_budget = kwargs.get("budget_sec")
+        key = ("deepscan", str(kwargs.get("timeframe", "4h")),
+               int(kwargs.get("max_results", 15)),
+               float(_raw_budget) if _raw_budget else None, id(engine))
+
+        async def _read():
+            meta: dict = {}
+            text = await self._sweep(engine, _meta=meta, **kwargs)
+            return text, meta.get("top"), bool(meta.get("keep"))
+
+        shared = await FLIGHTS.run(key, _read, ttl_s=DEEPSCAN_TTL_S,
+                                   keep=lambda v: v[2])
+        text: str
+        text, top, _kept = shared.value
+        if shared.reused and top is not None:
+            # The card is drawn from this; a deep scan of another timeframe
+            # may have replaced it since the shared run finished.
+            engine._last_deepscan_hits = [dict(h) for h in top]
+        note = shared_note(shared, DEEPSCAN_TTL_S)
+        # The patterns card drops the text when it renders, so the note rides
+        # beside the hits it describes.
+        engine._last_deepscan_note = note
+        return text + (f"\n<i>{_esc(note)}</i>" if note else "")
+
+    async def _sweep(self, engine: RuneClawEngine, **kwargs: Any) -> str:
         import numpy as np
         from bot.core.chart_patterns import scan_all_chart_patterns
         from bot.core.analyzer import _detect_candlestick_patterns
@@ -4559,6 +4635,12 @@ class DeepScanSkill(BaseSkill):
 
         # Store structured hits for card rendering
         engine._last_deepscan_hits = top
+        # What the shared run hands its sharers: the hits, and whether this
+        # run read the whole universe (a budget-cut partial is not kept).
+        _meta = kwargs.get("_meta")
+        if isinstance(_meta, dict):
+            _meta.update(top=[dict(h) for h in top],
+                         keep=(not unreached and scanned > 0))
 
         # ── Stats card ───────────────────────────────────────
         lines.append("<pre>")

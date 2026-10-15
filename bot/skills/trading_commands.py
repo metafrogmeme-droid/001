@@ -1586,6 +1586,13 @@ class TradingCommands:
                     timeout=CONFIG.interactive_scan_timeout_sec,
                 )
                 pending = [i for i in self.engine.pending_ideas if _clears_display(i)]
+                if not pending and result.get("skipped"):
+                    # Nothing was scanned by this tap; "no setups found" would
+                    # be a verdict about a scan that did not happen.
+                    await self._send(update,
+                        "⏳ <b>A scan is already running.</b> Its setups "
+                        "arrive when it finishes — tap again in a minute.")
+                    return
                 if not pending:
                     sig_count = result.get("signals", 0)
                     auto_count = result.get("auto_confirmed", 0)

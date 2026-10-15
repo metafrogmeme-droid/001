@@ -1525,7 +1525,28 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
     msg = await update.message.reply_text("\u23f3 Scanning market...")
     exchange = await engine.scanner._get_exchange()
     _analyzer = getattr(engine, "analyzer", None)
-    raw = await asyncio.gather(*[_scan_symbol(exchange, s, _analyzer) for s in UNIVERSE])
+    # ONE MARKET READ FOR EVERYONE WHO ASKS TOGETHER, AND A BOUNDED ONE. The
+    # per-symbol read is the same for every caller (4h bars and the rule
+    # engine, no person in it), and it was an unbounded gather of the whole
+    # universe per call, so a group asking together fired 67 requests each at
+    # once. It is now shared (`bot/core/scan_flight.py`) and at most ten
+    # symbols are in flight. Everything after it (the entry gate, the offers,
+    # the buttons) is still this caller's own.
+    from bot.core.scan_flight import FLIGHTS, FULLSCAN_TTL_S, shared_note
+
+    async def _read():
+        _sem = asyncio.Semaphore(10)
+
+        async def _one(sym):
+            async with _sem:
+                return await _scan_symbol(exchange, sym, _analyzer)
+        return await asyncio.gather(*[_one(sym) for sym in UNIVERSE])
+
+    _shared = await FLIGHTS.run(("fullscan", id(engine)), _read,
+                                ttl_s=FULLSCAN_TTL_S, keep=lambda rows: any(rows))
+    # Copies: the rows below are annotated in place (entry, stop, target).
+    raw = [dict(r) if r else r for r in _shared.value]
+    _shared_line = shared_note(_shared, FULLSCAN_TTL_S)
     # How much of the universe actually answered. The list comprehension below
     # deletes every symbol the exchange would not serve, and without this count
     # a pass that read half the universe renders exactly like a whole one.
@@ -1637,7 +1658,8 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 await context.bot.send_photo(
                     chat_id=chat_id, photo=buf,
                     caption=(f"\u2694\ufe0f <b>RUNECLAW Live Scan</b> — {now_str}"
-                             + coverage_note(len(UNIVERSE), _readable) + no_direction_note(_no_direction)),
+                             + coverage_note(len(UNIVERSE), _readable) + no_direction_note(_no_direction)
+                             + (f"\n<i>{_shared_line}</i>" if _shared_line else "")),
                     parse_mode="HTML")
                 card_sent = True
     except Exception as exc:
@@ -1695,6 +1717,8 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
     # only ever counted the first one, so a pass that lost 40 symbols to the
     # exchange looked like a pass where 40 symbols simply scored badly.
     body += coverage_note(len(UNIVERSE), _readable) + no_direction_note(_no_direction)
+    if _shared_line:
+        body += f"\n\n<i>{_shared_line}</i>"
 
     # Provable Calls, where screenshots are born: every setup above is sealed
     # (sha256 over its decision facts) the moment it reaches the platform, so a
