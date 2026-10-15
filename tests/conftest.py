@@ -1419,7 +1419,7 @@ QUIET_MACRO_INSTANT = (2026, 10, 15, 4, 0)
 
 
 @pytest.fixture(autouse=True)
-def _the_shipped_macro_calendar_is_read_at_a_named_instant(monkeypatch):
+def _the_shipped_macro_calendar_is_read_at_a_named_instant():
     """Read the shipped macro calendar's windows at a fixed instant, not today.
 
     The engine builds its macro provider on `config/macro_calendar.seed.json`,
@@ -1436,6 +1436,16 @@ def _the_shipped_macro_calendar_is_read_at_a_named_instant(monkeypatch):
     relative to the real clock keeps reading the real clock. Staleness and
     blindness are decided when the calendar loads, against the real clock, and
     are untouched.
+
+    PATCHED BY HAND, NOT THROUGH `monkeypatch`. The first version requested
+    `monkeypatch`, and an autouse fixture that does so sets it up before every
+    other fixture of every test, so its undo runs LAST. A fixture that patches
+    by hand and restores in its own teardown (`live_multi_user` sets
+    `type(CONFIG).is_live`) then restores first, and a `monkeypatch.setattr`
+    the test made over the same attribute is undone afterwards, writing the
+    fixture's lambda back onto the class. Every later test ran with `is_live`
+    answering True: 89 failures in a full run, each forgiven by the flake
+    filter because it passed alone.
     """
     from datetime import datetime as _dt
     from datetime import timezone as _tz
@@ -1445,11 +1455,16 @@ def _the_shipped_macro_calendar_is_read_at_a_named_instant(monkeypatch):
 
     seed = repo_path("config/macro_calendar.seed.json")
     instant = _dt(*QUIET_MACRO_INSTANT, tzinfo=_tz.utc)
-    real = _me.MacroEventProvider._get_context_inner
+    cls = _me.MacroEventProvider
+    real = cls.__dict__["_get_context_inner"]
 
     def _at_the_named_instant(self, symbol, now):
         if now is None and self._seed_path == seed:
             now = instant
         return real(self, symbol, now)
 
-    monkeypatch.setattr(_me.MacroEventProvider, "_get_context_inner", _at_the_named_instant)
+    cls._get_context_inner = _at_the_named_instant
+    try:
+        yield
+    finally:
+        cls._get_context_inner = real

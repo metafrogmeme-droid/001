@@ -24758,6 +24758,21 @@ a window: about a hundred hours a year instead of a few minutes. `tests/conftest
 now reads the shipped calendar, asked with no time, at a fixed quiet instant.
 A test about the windows passes `now=`, and a test that writes its own calendar
 against the real clock keeps the real clock.
+
+**THE FIRST VERSION OF THAT FIXTURE LEAKED, AND THE FLAKE FILTER FORGAVE IT 89
+TIMES.** It requested `monkeypatch`. An autouse fixture that does so sets
+`monkeypatch` up before every other fixture of every test, so its undo runs
+last. `live_multi_user` patches `type(CONFIG).is_live` by hand and restores it
+in its own teardown, and a test using it also monkeypatched `is_live`: the
+fixture restored first, then `monkeypatch` undid the test's patch by writing
+back what it had found, the fixture's lambda. Every later test read `is_live`
+as True. The full preflight reported 89 failures and passed, because each one
+passed when re-run alone; CI on the commit before had none. Found by reading the
+gate's failing count rather than its verdict, and by pairing each earlier file
+that patches `is_live` with the first failure. The fixture now patches and
+restores by hand, like the containment fixtures above it. **An autouse fixture
+changes the teardown order of every test; one that uses `monkeypatch` changes
+it for every test that patches the same thing two ways.**
 (`tests/test_the_macro_gate_reads_the_shipped_calendar.py`: every seed event
 classified as the seed declares it; an isolated FOMC, CPI and NFP each read on
 both sides of every window edge; the harness's instant reads CLEAR. Three
