@@ -164,8 +164,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 178,
-    "sha": "8c3ff4782e4e51e2"
+    "v": 179,
+    "sha": "01d03330fb8cac8f"
   },
   "js/icons.js": {
     "v": 6,
@@ -340,8 +340,8 @@
     "sha": "e37f80e5f27cd89b"
   },
   "styles.css": {
-    "v": 50,
-    "sha": "695e8a62b55f1c9a"
+    "v": 52,
+    "sha": "92c692a70f902786"
   },
   "vendor/lightweight-charts.standalone.production.js": {
     "v": 1,
