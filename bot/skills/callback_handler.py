@@ -1360,8 +1360,10 @@ class CallbackHandler:
             # `confirm:` refuses a live PLACEMENT to a caller without live
             # authority and this branch refused nothing, so a role that may
             # not OPEN a live position could still CLOSE one -- and with
-            # per-user live off, `_caller_executor` hands every caller the
-            # OPERATOR's book, so the position closed was not theirs.
+            # per-user live off, `_caller_executor` handed every caller the
+            # OPERATOR's book, so the position closed was not theirs. (It now
+            # hands a non-operator None in both modes, and their close lands
+            # on their own practice book below.)
             #
             # It asks AFTER the executor is resolved and only when there is
             # one, which is not tidiness. With per-user live ON a caller with

@@ -203,9 +203,10 @@ class StartCommands:
             lang = get_user_lang(self.users, tg_id)
             notified = await self._request_operator_admission(
                 tg_id, (user_tg.first_name if user_tg else ""), ctx)
+            from bot.formatters.token_card import presale_live_note
             await self._send(update, welcome_notice(
                 user_name, tg_id, access="needs_approval",
-                operator_notified=notified, lang=lang))
+                operator_notified=notified, lang=lang) + presale_live_note())
             return
 
         # Authorized user — GetClaw ready
@@ -230,6 +231,18 @@ class StartCommands:
         _filled_count = 0
         _pending_count = 0
 
+        # Everyone but the operator sees their own book. A caller with no live
+        # account to view (every self-admitted paper user, and anybody not
+        # linked under per-user live) gets the card for their PRACTICE book,
+        # with a line saying so; this card used to show them the operator's
+        # live equity and position count while per-user live was off.
+        _start_ex = self._caller_executor(update) if mode_str == "LIVE" else None
+        _practice_note = ""
+        if mode_str == "LIVE" and _start_ex is None:
+            mode_str = "PAPER"
+            from bot.skills.chat_runtime import live_account_absence, practice_view_note
+            _practice_note = practice_view_note(live_account_absence(str(tg_id)))
+
         # LIVE FIX: show real exchange equity in LIVE mode
         if mode_str == "LIVE":
             # Truthful equity: never fake paper $10k when the live balance can't
@@ -238,11 +251,8 @@ class StartCommands:
             display_equity, _eq_source = await self.engine.resolve_display_equity(tg_id)
             # Per-user isolation: route through the CALLER's executor so this
             # status card reflects the SAME account /positions and /performance
-            # use (resolves to the shared operator executor when
-            # PER_USER_LIVE_ENABLED is off -- byte-identical default). A caller
-            # with no access (per-user on, no linked account) sees zero
-            # positions rather than the operator's.
-            executor = self._caller_executor(update)
+            # use.
+            executor = _start_ex
             open_pos = len(executor.open_positions) if executor else 0
             # Count filled vs pending separately
             _all_tracked = list(executor._positions.values()) if executor else []
@@ -384,6 +394,11 @@ class StartCommands:
             msg += f"\n\n⚠️ <i>{html.escape(_why)}</i>"
         if _record_partial:
             msg += f"\n\n<i>{t('closed_record_unread', lang)}</i>"
+        if _practice_note:
+            msg += f"\n\n{_practice_note}"
+        # While the presale is live: the official sale link and /rclaw.
+        from bot.formatters.token_card import presale_live_note
+        msg += presale_live_note()
         await self._send(update, msg, reply_markup=_KB_WARROOM)
 
     async def _handle_unknown_command(self, update: Update,
@@ -842,6 +857,16 @@ class StartCommands:
         # arm flag and the chat allow-list, so a bot with SIMULATION_MODE=false
         # and live never armed places nothing while this card announced LIVE.
         real_account = not CONFIG.simulation_mode
+        # WHOSE BOOK: everyone but the operator sees their own. A caller with
+        # no live account to view gets their PRACTICE book's equity and
+        # positions, with a line saying so; the engine's mode, breaker and
+        # ticks above and below are the engine's and stay as they are.
+        _practice_note = ""
+        if real_account and self.engine.live_view(user_id).get("executor") is None:
+            real_account = False
+            from bot.skills.chat_runtime import live_account_absence, practice_view_note
+            _practice_note = practice_view_note(
+                live_account_absence(str(user_id)), surface)
         from bot.core.live_readiness import mode_label as _mode_label
         mode = _mode_label()
         # LIVE FIX: show real exchange equity and live position count.
@@ -1086,6 +1111,8 @@ class StartCommands:
                 msg += f"\n{_down}"
         except Exception:
             msg += f"\n{t('fmt_monitor_checks_unread', lang)}"
+        if _practice_note:
+            msg = f"{_practice_note}\n\n{msg}"
         return msg
 
     @guard("status")

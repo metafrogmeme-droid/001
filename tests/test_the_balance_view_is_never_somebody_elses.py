@@ -12,9 +12,12 @@ without readable linked keys. Two cases made that wrong:
   account, so a person who HAS an account of their own was shown somebody
   else's under "your balance".
 
-Single-account mode is unchanged on purpose: with per-user live off there is
-one shared account, and a caller who never linked is shown it, as every other
-card shows them.
+Single-account mode followed it on 2026-10-15. With per-user live off there is
+one shared account and it is the OPERATOR's: a caller who never linked was
+shown it, as every other card then showed them, and PAPER_AUTO_ACCEPT admits
+anyone who messages the bot. The operator decided that everyone but the
+operator sees only their own book, so a person with no link sees nothing here
+in either mode, and the operator still sees the shared account.
 """
 from __future__ import annotations
 
@@ -91,8 +94,10 @@ def _view(uid, store):
     # per-user live: a person with no link sees nothing, the operator the global
     (True, PERSON, _Store("absent"), "none"),
     (True, OPERATOR, _Store("absent"), "operator"),
-    # single-account: one shared account, shown to a person who never linked
-    (False, PERSON, _Store("absent"), "operator"),
+    # single-account: the shared account is the operator's, never a
+    # stranger's (it was shown to a person who never linked)
+    (False, PERSON, _Store("absent"), "none"),
+    (False, OPERATOR, _Store("absent"), "operator"),
     # a link that will not decrypt is an account of their own, in both modes
     (False, PERSON, _Store("unreadable"), "none"),
     (True, PERSON, _Store("unreadable"), "none"),
@@ -100,7 +105,7 @@ def _view(uid, store):
     (False, PERSON, _Store("absent", raises=True), "none"),
     (True, PERSON, _Store("absent", raises=True), "none"),
     (True, OPERATOR, _Store("absent", raises=True), "operator"),
-], ids=["per-user-none", "per-user-operator", "shared-unlinked",
+], ids=["per-user-none", "per-user-operator", "shared-unlinked", "shared-operator",
         "shared-unreadable", "per-user-unreadable", "shared-store-fault",
         "per-user-store-fault", "operator-store-fault"])
 def test_the_resolver(mode, per_user, uid, store, expect):

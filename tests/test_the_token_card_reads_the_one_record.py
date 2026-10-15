@@ -37,6 +37,19 @@ from bot.token.record import TokenRecordInvalid, load_record
 
 ROOT = Path(__file__).resolve().parents[1]
 SALE_URL_CASES = json.loads((ROOT / "tests" / "fixtures" / "sale_url_cases.json").read_text(encoding="utf-8"))
+PHASES = json.loads((ROOT / "tests" / "fixtures" / "presale_phase_cases.json").read_text(encoding="utf-8"))
+# The window is read for the status, never printed as a term.
+WINDOW_KEYS = ("opens_at", "closes_at")
+
+
+def _at(iso: str) -> datetime.datetime:
+    return datetime.datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+
+
+# Before the window opens: the card's status is then the record's own word.
+# The phase reads the clock, and a test that asked the real one would say
+# something else on each day of the sale; the phases are driven below.
+BEFORE_OPEN = _at("2026-10-14T00:00:00Z")
 TERM_KEYS = [k for k, _ in token_card.TERMS]
 MINT = "rupKpYsgk6em6xx4V9E4oGN9Bvo9FQWQd71qBK2CaNe"
 SPL_TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
@@ -113,7 +126,7 @@ def test_the_card_prints_every_term_the_record_announces_and_no_other():
     # Both ways: a term added to the record and not to TERMS would go unprinted,
     # and a TERMS key the record lacks would print "unreadable" to every user.
     presale = load_record()["presale"]
-    announced = [k for k in presale if not k.startswith("_") and k not in ("status", "sale_url")]
+    announced = [k for k in presale if not k.startswith("_") and k not in ("status", "sale_url", *WINDOW_KEYS)]
     assert announced == TERM_KEYS
 
 
@@ -192,9 +205,10 @@ def test_an_unannounced_presale_reads_not_announced_for_every_term():
 
 
 def test_the_announced_presale_prints_each_term_as_written():
-    card = render_token_card(load_record())
+    card = render_token_card(load_record(), now=BEFORE_OPEN)
     lines = _presale_lines(card)
     assert lines[0] == "🗓 <b>Presale: announced</b>"
+    assert lines[1] == "Opens 2026-10-15 14:00 UTC."
     assert "Date: 15 Oct → 29 Oct 2026, or until the hard cap" in lines
     assert "Price: 30,000.3 RCLAW per SOL" in lines
     assert "For sale: 150,000,000 RCLAW" in lines
@@ -302,7 +316,11 @@ async def test_rclaw_sends_the_card_to_a_user():
     await h._cmd_rclaw(_update(), MagicMock())
     text = _sent(h)
     assert f"<code>{MINT}</code>" in text
-    assert "Presale: announced" in text
+    # The command reads the real clock, so the head is whichever phase today
+    # is (the phases themselves are driven at fixed instants above).
+    head = {"announced": "Presale: announced", "live": "Presale: live now",
+            "ended": "Presale: ended"}[token_card.presale_phase(load_record()["presale"])]
+    assert head in text
     assert "RCLAW_MINT" not in text
     assert len(h._admin_asked) == 1
 
@@ -343,3 +361,60 @@ def test_rclaw_is_in_the_help_catalogue_and_token_stays_the_detective():
     entries = all_entries()
     assert "rclaw" in entries
     assert "contract detective" in entries["token"][2]
+
+
+# ── live or ended: the window and the clock ────────────────────────────────
+
+def _windowed(**over):
+    presale = {**load_record()["presale"], **{k: v for k, v in PHASES["window"].items()}}
+    for k, v in over.items():
+        if v == "__absent__":
+            presale.pop(k, None)
+        else:
+            presale[k] = v
+    return presale
+
+
+def test_the_phase_follows_the_window_and_the_clock_as_the_website_reads_it():
+    for case in PHASES["clock"]:
+        assert token_card.presale_phase(_windowed(), _at(case["now"])) == case["expect"], case
+    for over in PHASES["unreadable_window"]:
+        assert token_card.presale_phase(_windowed(**over), _at(PHASES["unreadable_now"])) == "announced", over
+    for status in PHASES["no_phase_status"]:
+        assert token_card.presale_phase(_windowed(status=status), _at(PHASES["unreadable_now"])) is None, status
+
+
+def test_the_record_carries_the_window_the_sale_was_created_with():
+    presale = load_record()["presale"]
+    assert (presale["opens_at"], presale["closes_at"]) == (
+        PHASES["window"]["opens_at"], PHASES["window"]["closes_at"])
+
+
+@pytest.mark.parametrize("now, head, line, absent", [
+    ("2026-10-15T13:59:00Z", "🗓 <b>Presale: announced</b>", "Opens 2026-10-15 14:00 UTC.",
+     ("live now", "ended", "Open until", "Closed at")),
+    ("2026-10-20T00:00:00Z", "🟢 <b>Presale: live now</b>",
+     "Open until 2026-10-29 14:00 UTC, or until the hard cap is reached. Buy only through the sale link below.",
+     ("announced</b>", "ended", "Opens ", "Closed at")),
+    ("2026-10-29T14:00:00Z", "🗓 <b>Presale: ended</b>",
+     "Closed at 2026-10-29 14:00 UTC, or earlier if the hard cap was reached. "
+     "Buyers claim 100% of what they bought on the sale page.",
+     ("live now", "announced</b>", "Opens ", "Open until")),
+], ids=["before", "live", "ended"])
+def test_the_card_says_announced_live_or_ended_with_the_time(now, head, line, absent):
+    lines = _presale_lines(render_token_card(_record(presale=_windowed()), now=_at(now)))
+    assert lines[:2] == [head, line]
+    text = "\n".join(lines)
+    for word in absent:
+        assert word not in text, word
+    # Every term is still printed, and the sale link with them.
+    for key, label in token_card.TERMS:
+        assert any(ln.startswith(f"{label}: ") and "unreadable" not in ln for ln in lines), key
+    assert lines[-1].startswith("Smithii's sale contract enforces the price")
+
+
+def test_an_unreadable_window_keeps_the_status_and_states_no_time():
+    lines = _presale_lines(render_token_card(_record(presale=_windowed(closes_at=None)),
+                                             now=_at("2026-10-20T00:00:00Z")))
+    assert lines[0] == "🗓 <b>Presale: announced</b>"
+    assert not any(ln.startswith(("Opens ", "Open until", "Closed at")) for ln in lines)

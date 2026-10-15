@@ -101,6 +101,30 @@ class _Unset:
     """Sentinel: the field could not be read."""
 
 
+def _own_risk(engine: Any, user_id: str) -> Any:
+    """The RiskEngine that holds THIS caller's own account state.
+
+    ``risk_for`` answers the operator's shared engine for everybody while
+    per-user live is off. A caller whose confirms land on their PRACTICE book
+    is gated on ``practice_risk_for`` at the re-check (the engine bound to
+    that book), so a card that asked ``risk_for`` printed the operator's
+    drawdown, streak and breaker as theirs. Everyone but the operator sees
+    their own book, and their own book's engine.
+
+    ``is True``, not truthiness: an engine without the practice seam keeps
+    the ``risk_for`` reading, and a stand-in that answers anything for any
+    attribute is not a practice account. Raises what ``risk_for`` or the
+    practice reading raise; the callers below turn that into an unread.
+    """
+    uid = str(user_id or "")
+    is_practice = getattr(engine, "confirm_is_practice", None)
+    practice_risk = getattr(engine, "practice_risk_for", None)
+    if uid and callable(is_practice) and callable(practice_risk):
+        if is_practice(uid) is True:
+            return practice_risk(uid)
+    return engine.risk_for(uid)
+
+
 def risk_engines(engine: Any, user_id: str) -> Iterator[Any]:
     """The shared risk engine and the executing account's, deduped.
 
@@ -128,7 +152,7 @@ def risk_engines(engine: Any, user_id: str) -> Iterator[Any]:
     if not callable(fn):
         return
     try:
-        own = fn(str(user_id or ""))
+        own = _own_risk(engine, str(user_id or ""))
     except Exception:
         yield None
         return
@@ -150,7 +174,7 @@ def caller_risk(engine: Any, user_id: str) -> Any:
         shared = _read(engine, "risk")
         return None if shared is _Unset else shared
     try:
-        return fn(str(user_id or ""))
+        return _own_risk(engine, str(user_id or ""))
     except Exception:
         return None
 

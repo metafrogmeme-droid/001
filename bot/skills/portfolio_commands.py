@@ -41,7 +41,11 @@ from bot.formatters.realized_totals import (
     closed_record_partial,
     closes_on_utc_day,
 )
-from bot.skills.chat_runtime import live_account_absence, no_live_account_line
+from bot.skills.chat_runtime import (
+    live_account_absence,
+    no_live_account_line,
+    practice_view_note,
+)
 from bot.skills.command_guard import guard
 from bot.utils.i18n import t
 from bot.utils.logger import system_log
@@ -467,6 +471,15 @@ class PortfolioCommands:
 
         # LIVE FIX: in LIVE mode, show real exchange balance prominently
         mode_str = "LIVE" if CONFIG.is_live() else "PAPER"
+        # Everyone but the operator sees their own book. On a live bot a caller
+        # with no live account to view (`live_view` scope "none": every
+        # self-admitted paper user, and anybody not linked under per-user
+        # live) gets their PRACTICE book, with a line saying so, where this
+        # card used to print the operator's account.
+        _practice_note = ""
+        if mode_str == "LIVE" and self.engine.live_view(user_id).get("executor") is None:
+            mode_str = "PAPER"
+            _practice_note = practice_view_note(live_account_absence(user_id))
         # ── Values for the PNG stats card, set by BOTH branches ──────────
         # `state` is the PAPER tracker. The card below rendered six tiles
         # straight off it under a hero that was the real exchange equity, so a
@@ -780,6 +793,7 @@ class PortfolioCommands:
             # ── PAPER MODE: show paper portfolio data ──
             display_equity = state.equity_usd
             lines = [
+                *([_practice_note, ""] if _practice_note else []),
                 f"\U0001f4bc <b>{t('portfolio_title', lang)}</b> (PAPER)",
                 sep,
                 "",
@@ -910,7 +924,8 @@ class PortfolioCommands:
                 ],
             })
             _caption = f"\U0001f4ca <b>{t('portfolio_card_title', lang)}</b>" + (
-                f"\n<i>{_record_note}</i>" if _record_note else "")
+                f"\n<i>{_record_note}</i>" if _record_note else "") + (
+                f"\n{_practice_note}" if _practice_note else "")
             if _png and await self._send_photo(update, _png, _caption):
                 return
         except Exception as exc:
@@ -926,13 +941,23 @@ class PortfolioCommands:
         state = portfolio.snapshot()
         # LIVE FIX: use real open position count (per-user: the caller's own).
         #
-        # A caller with no executor has a book nobody read. It was counted as
-        # 0 open positions, the reading of a flat account; it is None now.
+        # A caller with no live account to view is shown their own PRACTICE
+        # book's positions, with a line saying which live absence it is,
+        # never the operator's. That caller used to get "book not read", and
+        # before that 0 open positions, the reading of a flat account. The
+        # renderer still takes None (`open_trades`) for a book nobody read.
         _open_rows: Optional[list]
         open_count: Optional[int]
-        if CONFIG.is_live() and hasattr(self.engine, 'live_executor'):
-            _risk_ex = self._caller_executor(update)
-            _open_rows = list(_risk_ex.open_positions) if _risk_ex else None
+        _risk_ex = (self._caller_executor(update)
+                    if CONFIG.is_live() and hasattr(self.engine, 'live_executor')
+                    else None)
+        _practice_note = (practice_view_note(live_account_absence(user_id))
+                          if CONFIG.is_live() and _risk_ex is None else "")
+        if _risk_ex is not None:
+            # An executor holding no book is a book nobody read, not a flat one
+            # (the web positions panel's `book_read`).
+            _book = getattr(_risk_ex, "open_positions", None)
+            _open_rows = list(_book) if _book is not None else None
             open_count = len(_open_rows) if _open_rows is not None else None
         else:
             _open_rows = list(getattr(portfolio, "open_positions", None) or [])
@@ -1005,6 +1030,8 @@ class PortfolioCommands:
                 entry_gate(self.engine, str(user_id or ""))["reasons"]),
         }
         rendered = wr_risk(data)
+        if _practice_note:
+            await self._send(update, _practice_note)
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(t("btn_safe_mode", lang), callback_data="risk_safe_mode"),
              InlineKeyboardButton(t("btn_pause", lang), callback_data="risk_pause")],
@@ -1122,16 +1149,19 @@ class PortfolioCommands:
         """Performance summary — per-user."""
         user_id = self._get_tg_id(update)
 
-        # LIVE mode: use real trade data from executor + exchange fallback
-        if CONFIG.is_live() and hasattr(self.engine, 'live_executor'):
-            # "Performance summary — per-user", and it read the operator's
-            # book for every caller: win rate, all-time net, today and this
-            # week, in dollars. `live_view` answers the book this caller may
-            # see, and None rather than a fallback.
-            executor = self.engine.live_view(user_id).get("executor")
-            if executor is None:
-                await self._send(update, no_live_account_line(live_account_absence(user_id)))
-                return
+        # LIVE mode: use real trade data from executor + exchange fallback.
+        # "Performance summary — per-user", and it read the operator's book for
+        # every caller: win rate, all-time net, today and this week, in
+        # dollars. `live_view` answers the book this caller may see; a caller
+        # with none is shown their own PRACTICE book below, with a line saying
+        # so.
+        _perf_ex = (self.engine.live_view(user_id).get("executor")
+                    if CONFIG.is_live() and hasattr(self.engine, 'live_executor')
+                    else None)
+        _practice_note = (practice_view_note(live_account_absence(user_id))
+                          if CONFIG.is_live() and _perf_ex is None else "")
+        if _perf_ex is not None:
+            executor = _perf_ex
             live_closed = executor.closed_positions
 
             # An "exchange trade history fallback" stood here, for a record
@@ -1320,6 +1350,8 @@ class PortfolioCommands:
             }
 
         rendered = wr_performance(data)
+        if _practice_note:
+            await self._send(update, _practice_note)
         # Visual stats card (guarded — falls back to the text readout).
         try:
             from bot.formatters.performance_card import performance_card_payload
@@ -1348,16 +1380,19 @@ class PortfolioCommands:
         # book is RUNECLAW's record; a linked trader's own account and every
         # practice book are a person's, and never a public post.
         agent_book = False
-        # LIVE mode: use real trade data from executor
-        if CONFIG.is_live() and hasattr(self.engine, 'live_executor'):
-            # The day's closes, wins and losses — this caller's, not the
-            # operator's.
-            _view = self.engine.live_view(user_id)
-            executor = _view.get("executor")
+        # LIVE mode: use real trade data from executor. The day's closes, wins
+        # and losses — this caller's, not the operator's; a caller with no live
+        # account to view gets their own PRACTICE day below, with a line
+        # saying so.
+        _view = (self.engine.live_view(user_id)
+                 if CONFIG.is_live() and hasattr(self.engine, 'live_executor')
+                 else {})
+        _daily_ex = _view.get("executor")
+        _practice_note = (practice_view_note(live_account_absence(user_id))
+                          if CONFIG.is_live() and _daily_ex is None else "")
+        if _daily_ex is not None:
+            executor = _daily_ex
             agent_book = _view.get("scope") == "operator"
-            if executor is None:
-                await self._send(update, no_live_account_line(live_account_absence(user_id)))
-                return
             from datetime import datetime as _dt_daily
 
             from bot.compat import UTC as _UTC_daily
@@ -1473,6 +1508,8 @@ class PortfolioCommands:
             "record_note": CLOSED_RECORD_UNREAD if record_partial else "",
         }
         rendered = wr_daily_report(data)
+        if _practice_note:
+            await self._send(update, _practice_note)
         await self._send(update, rendered["text"])
 
         # Forward daily report to marketing channels. §4: those groups are

@@ -2160,6 +2160,10 @@
     "vh.feed.sub": { en: "The agent’s mind-stream — every scan, thesis, trade and alert, as it happens" },
     "nav.token": { en: "$RCLAW token" },
     "home.token_live": { en: "$RCLAW is live on Solana — presale announced" },
+    "home.token_presale_live": { en: "$RCLAW presale is live now" },
+    "home.token_presale_ended": { en: "$RCLAW presale has ended — claims are open" },
+    "bar.presale_closes": { en: "Closes" },
+    "bar.presale_cta": { en: "Terms and the official sale link →" },
     "home.token_cta": { en: "Sale terms and the mint address →" },
     "tok.h1": { en: "The $RCLAW token" },
     "tok.lede": { en: "RUNECLAW’s token lives on Solana. This page shows the one mint address that is $RCLAW, read from the project’s own record, and what has and has not been announced about the presale." },
@@ -2189,6 +2193,11 @@
     "tok.venue": { en: "Venue" },
     "tok.not_announced": { en: "not announced yet" },
     "tok.presale_announced": { en: "Announced" },
+    "tok.presale_live": { en: "Live now" },
+    "tok.presale_ended": { en: "Ended" },
+    "tok.presale_opens_at": { en: "Opens {t}." },
+    "tok.presale_open_until": { en: "Open until {t}, or until the hard cap is reached. Buy only through the sale link on this page." },
+    "tok.presale_closed_at": { en: "Closed at {t}, or earlier if the hard cap was reached. Buyers claim 100% of what they bought on the sale page." },
     "tok.for_sale": { en: "For sale" },
     "tok.hard_cap": { en: "Hard cap" },
     "tok.per_wallet": { en: "Per wallet" },
@@ -2254,7 +2263,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"2a25001d","zh":"5d122eed","pt":"941b3fe7","fr":"f7290efb","de":"c269ecd6","nl":"c0518e60","ja":"ee9db90b","ko":"2d688086","ru":"cbadde36","tr":"ae8e4e0b","it":"079706f8","hi":"d6a3d550","ar":"a4eb930f"};
+  var CHUNKS = {"es":"914cab4b","zh":"68aafefb","pt":"42cd418d","fr":"2201dc81","de":"67838137","nl":"f3c939e3","ja":"2ad39fb0","ko":"c16e6c9c","ru":"c1e6a1e9","tr":"b232d50a","it":"c6977ab3","hi":"8a23c0ce","ar":"955b85c0"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

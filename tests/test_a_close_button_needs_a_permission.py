@@ -116,11 +116,17 @@ class _PaperPortfolio:
 
 
 def _tap(role, *, can_live, is_admin, live, owner_tag=UID, paper_sink=None,
-         ident=TRADE_ID, per_user_live=False):
-    """One ordinary tap through the REAL dispatcher. Returns (closed, replies)."""
-    closed: list = []
+         ident=TRADE_ID, per_user_live=False, own_book=False, closed=None):
+    """One ordinary tap through the REAL dispatcher. Returns (closed, replies).
+
+    ``own_book``: the caller has their OWN live executor (per-user live, keys
+    linked), holding the same trade id, so a close that lands records the
+    caller's uid rather than ``OPERATOR`` in ``closed``."""
+    closed = closed if closed is not None else []
     replies: list = []
     op = _OperatorExecutor(closed)
+    own = _OperatorExecutor(closed)
+    own.user_id = UID
     portfolio = _PaperPortfolio(paper_sink if paper_sink is not None else [])
 
     class _Users:
@@ -165,7 +171,7 @@ def _tap(role, *, can_live, is_admin, live, owner_tag=UID, paper_sink=None,
     h = TelegramHandler.__new__(TelegramHandler)
     h.engine = SimpleNamespace(
         live_executor=op,
-        _executor_for=lambda uid="": op,
+        _executor_for=lambda uid="": own if own_book else op,
         user_portfolios=SimpleNamespace(get=lambda uid: portfolio),
         get_exchange=lambda: _exchange_coro(),
     )
@@ -264,9 +270,28 @@ class TestTheDoorIsGated:
         assert replies
 
     def test_a_trader_with_live_authority_still_closes(self):
-        """The over-strict half of a fix is its own defect. Driven, not promised."""
-        closed, _ = _tap("trader", can_live=True, is_admin=False, live=True)
+        """The over-strict half of a fix is its own defect. Driven, not promised.
+
+        On their OWN account: a trader with live authority is one per-user
+        live routes to their own executor. The shared account is the
+        operator's alone (`viewer_executor`; `_can_trade_live` refuses a
+        non-operator on it), which the next test drives."""
+        sink: list = []
+        closed, _ = _tap("trader", can_live=True, is_admin=False, live=True,
+                         per_user_live=True, own_book=True, closed=sink)
         assert closed is True
+        assert [who for who, *_ in sink] == [UID], sink
+
+    def test_nobody_but_the_operator_closes_the_shared_account(self):
+        """With per-user live OFF every caller's `_executor_for` is the
+        operator's executor. A non-operator's tap resolves through the REAL
+        `_caller_executor` to None and falls to their own practice book, which
+        does not hold the operator's trade: nothing of the operator's moves,
+        whatever authority the double claims for them."""
+        for role in ("trader", "paper"):
+            sink: list = []
+            closed, _ = _tap(role, can_live=True, is_admin=False, live=True, closed=sink)
+            assert closed is False and sink == [], (role, sink)
 
     def test_an_admin_still_closes(self):
         closed, _ = _tap("admin", can_live=True, is_admin=True, live=True)

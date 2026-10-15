@@ -119,17 +119,20 @@ def test_a_flat_book_still_reads_zero():
 # ── the handler ─────────────────────────────────────────────────────────
 
 class _Stand:
-    def __init__(self, executor):
+    def __init__(self, executor, practice_rows=()):
         risk = types.SimpleNamespace(
             drawdown_status=lambda: {"drawdown_pct": 1.0, "effective_limit_pct": 7.0},
             slot_status=lambda n: {"cap": 5}, trading_blocked_by="",
             circuit_breaker_active=False, consecutive_losses=0)
-        state = types.SimpleNamespace(open_positions=0)
+        # The caller's PRACTICE book: its count and its rows agree, so a card
+        # that reads it is seen reading it.
+        rows = list(practice_rows)
+        state = types.SimpleNamespace(open_positions=len(rows))
         self.engine = types.SimpleNamespace(
             risk=risk, risk_for=lambda uid: risk, _halted=False,
             live_executor=object(),
             user_portfolios=types.SimpleNamespace(get=lambda uid: types.SimpleNamespace(
-                snapshot=lambda: state, open_positions=[])))
+                snapshot=lambda: state, open_positions=rows)))
         self._executor = executor
         self.sent: list[str] = []
 
@@ -149,19 +152,29 @@ class _Stand:
         self.sent.append(text)
 
 
-def _risk(executor):
+def _risk(executor, practice_rows=(), sent=None):
     from unittest import mock
 
+    import bot.skills.portfolio_commands as pc
     from bot.config import CONFIG
-    me = _Stand(executor)
-    with mock.patch.object(type(CONFIG), "is_live", lambda self: True):
+    me = _Stand(executor, practice_rows)
+    # The absence is read off the credential store; plant the word instead.
+    with mock.patch.object(type(CONFIG), "is_live", lambda self: True), \
+            mock.patch.object(pc, "live_account_absence", lambda _uid: "absent"):
         asyncio.run(PortfolioCommands._cmd_risk(me, object(), object()))
+    if sent is not None:
+        sent.extend(re.sub(r"<[^>]+>", "", m) for m in me.sent)
     return re.sub(r"<[^>]+>", "", me.sent[-1])
 
 
-def test_the_command_shows_an_unlinked_callers_book_as_unread():
-    card = _risk(None)
-    assert "book not read" in card and "Open Now ··············· —" in card, card
+def test_the_command_shows_an_unlinked_caller_their_practice_book():
+    """A caller with no live account to view (`_caller_executor` None) is
+    shown their own PRACTICE book's positions under the line that says so,
+    never "book not read" and never the operator's."""
+    sent: list = []
+    card = _risk(None, practice_rows=[_live(3, 6.0, tid="p1"), _live(3, 6.0, tid="p2")], sent=sent)
+    assert "Open Now ··············· 2" in card and "3x in use" in card, card
+    assert any("Your practice book" in m for m in sent), sent
 
 
 def test_the_command_shows_the_leverage_the_positions_run_at():
@@ -170,11 +183,22 @@ def test_the_command_shows_the_leverage_the_positions_run_at():
     assert "7x in use" in card and "Open Now ··············· 1" in card, card
 
 
+def _Unlisted():
+    return types.SimpleNamespace(open_positions=None)
+
+
+def test_the_command_shows_an_unlisted_live_book_as_unread():
+    card = _risk(_Unlisted())
+    assert "book not read" in card and "Open Now ··············· —" in card, card
+
+
 def test_the_picture_tile_shows_an_unread_book_as_a_dash():
+    # A live executor whose book cannot be listed: the one way left for this
+    # command to hold a book nobody read.
     from unittest import mock
 
     from bot.config import CONFIG
-    me = _Stand(None)
+    me = _Stand(_Unlisted())
     specs: list = []
 
     async def _photo(update, png, caption, reply_markup=None):

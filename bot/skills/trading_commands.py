@@ -71,6 +71,7 @@ from bot.core.trade_costs import (
 )
 from bot.formatters.rich_cards import position_watch_line, render_open_positions
 from bot.formatters.thesis_text import split_counter_case, thesis_prose
+from bot.skills.chat_runtime import live_account_absence, practice_view_note
 from bot.skills.command_guard import guard
 from bot.skills.scan_hints import _background_scan_is_fresh, _scan_timeout_hint, _skipped_symbols_note
 from bot.utils.candles import drop_forming_candle
@@ -1841,11 +1842,17 @@ class TradingCommands:
 
         # LIVE FIX: in LIVE mode, show positions from LiveExecutor.
         # Per-user isolation: route through the CALLER's executor so each user
-        # sees only their own account's positions (resolves to the shared operator
-        # executor when PER_USER_LIVE_ENABLED is off — byte-identical default).
-        if CONFIG.is_live():
-            executor = self._caller_executor(update)
-            live_positions = executor.open_positions if executor else []
+        # sees only their own account's positions. A caller with no live
+        # account to view (every self-admitted paper user, and anybody not
+        # linked under per-user live) is shown their own PRACTICE book below,
+        # with a line saying so; this card used to list the operator's
+        # positions to them while per-user live was off.
+        _live_ex = self._caller_executor(update) if CONFIG.is_live() else None
+        _practice_note = (practice_view_note(live_account_absence(user_id))
+                          if CONFIG.is_live() and _live_ex is None else "")
+        if _live_ex is not None:
+            executor = _live_ex
+            live_positions = executor.open_positions
             if live_positions:
                 # Marks in the venue's own spelling (`last_price`); a mark
                 # that could not be read is simply absent from the map.
@@ -2150,6 +2157,8 @@ class TradingCommands:
         # ── Split into filled positions vs pending orders ──
         filled_positions = [p for p in positions_data if p.get("status", "open") != "pending_fill"]
         pending_orders = [p for p in positions_data if p.get("status") == "pending_fill"]
+        if _practice_note:
+            await self._send(update, _practice_note)
 
         if not filled_positions and not pending_orders:
             await self._send(update, t("positions_none", self._lang(update)))
@@ -2263,7 +2272,7 @@ class TradingCommands:
                 "pnl_unread": pos.get("pnl_unread"),
                 "symbol": pair.replace("USDT", "/USDT") if "USDT" in pair else pair,
                 "direction": direction,
-                "is_live": CONFIG.is_live(),
+                "is_live": _live_ex is not None,
                 "entry": entry,
                 "now": current,
                 "pnl_pct": pnl_pct,
@@ -2306,7 +2315,7 @@ class TradingCommands:
             ]])
 
             if card_png:
-                mode_tag = "LIVE" if CONFIG.is_live() else "PAPER"
+                mode_tag = "LIVE" if _live_ex is not None else "PAPER"
                 st_tag = pos.get("strategy_type", "").upper()
                 st_str = f" [{st_tag}]" if st_tag else ""
                 cap = (f"<b>{html.escape(pair)}</b> {mode_tag}\n"

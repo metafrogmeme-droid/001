@@ -10,7 +10,9 @@ record did not promise, or a link off the one host it may name, is
 from __future__ import annotations
 
 import html
+import logging
 import re
+from datetime import datetime, timezone
 from typing import Any, Mapping, Optional
 
 NOT_ANNOUNCED = "not announced yet"
@@ -114,10 +116,101 @@ def _sale_link_text(presale: Mapping[str, Any]) -> str:
     return f'<a href="{url}">{url}</a>'
 
 
-def presale_lines(presale: Mapping[str, Any], symbol: str = "RCLAW") -> list[str]:
+# A sale-window instant as the record writes it: a whole minute in UTC. The
+# website reads the same window (token-page.js, presalePhase), and
+# tests/fixtures/presale_phase_cases.json holds both to one answer.
+WINDOW_AT = re.compile(r"(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}):00Z")
+
+
+def _window_at(value: Any) -> Optional[datetime]:
+    if not isinstance(value, str) or WINDOW_AT.fullmatch(value) is None:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:          # 2026-02-30: the shape of a date that does not exist
+        return None
+
+
+def _window(presale: Mapping[str, Any]) -> Optional[tuple[datetime, datetime]]:
+    """(opens, closes), or None when the window cannot be read: either
+    instant absent or malformed, or a close not after the open."""
+    opens = _window_at(presale.get("opens_at"))
+    closes = _window_at(presale.get("closes_at"))
+    if opens is None or closes is None or closes <= opens:
+        return None
+    return opens, closes
+
+
+def _window_text(value: str) -> str:
+    m = WINDOW_AT.fullmatch(value)
+    assert m is not None
+    return f"{m.group(1)} {m.group(2)} UTC"
+
+
+def presale_phase(presale: Mapping[str, Any], now: Optional[datetime] = None) -> Optional[str]:
+    """Where an ANNOUNCED presale stands: ``"announced"`` (before it opens),
+    ``"live"`` or ``"ended"``, from the record's ``opens_at`` / ``closes_at``
+    and the clock. A window that cannot be read is the record's own status,
+    ``"announced"``, which is true of a sale that has opened too; any other
+    status has no phase (None) and the card prints that status. The card said
+    "announced" for the whole sale while the sale was open."""
+    if presale.get("status") != "announced":
+        return None
+    window = _window(presale)
+    if window is None:
+        return "announced"
+    opens, closes = window
+    at = now if now is not None else datetime.now(timezone.utc)
+    if at < opens:
+        return "announced"
+    return "live" if at < closes else "ended"
+
+
+def presale_live_line(record: Mapping[str, Any], now: Optional[datetime] = None) -> Optional[str]:
+    """The one line /start and the welcome carry while the sale is live, or
+    None: before it opens, after it closes, with a window that cannot be read,
+    or without a sale link the card would print (`is_sale_url`). The website's
+    bar makes the same claim from the same reading (app/public/js/presale.js);
+    an advert that cannot name the official link or the closing time is one
+    the bot does not need to make."""
+    presale = record.get("presale")
+    if not isinstance(presale, Mapping) or presale_phase(presale, now) != "live":
+        return None
+    url = presale.get("sale_url")
+    if not is_sale_url(url):
+        return None
+    shown = html.escape(str(url))
+    symbol = html.escape(str(record.get("symbol") or "RCLAW"))
+    return (f"🟢 <b>The ${symbol} presale is live</b> until {_window_text(presale['closes_at'])}, "
+            f'or until the hard cap. Official sale page: <a href="{shown}">{shown}</a> · '
+            "terms and the mint: /rclaw")
+
+
+def presale_live_note(now: Optional[datetime] = None) -> str:
+    """``presale_live_line`` from the one record, as a paragraph to append, or
+    ``""``. A record that cannot be read adds nothing to the message it rides
+    on (logged by class), which is the omit half of the rule: /start and the
+    welcome make no presale claim then, true or false."""
+    try:
+        from bot.token.record import load_record
+        line = presale_live_line(load_record(), now)
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "Presale line omitted: the token record could not be read (%s)", type(exc).__name__)
+        return ""
+    return f"\n\n{line}" if line else ""
+
+
+def presale_lines(presale: Mapping[str, Any], symbol: str = "RCLAW",
+                  now: Optional[datetime] = None) -> list[str]:
     status = presale.get("status")
+    phase = presale_phase(presale, now)
     if status == "coming_soon":
         head = "🗓 <b>Presale: coming soon</b>"
+    elif phase == "live":
+        head = "🟢 <b>Presale: live now</b>"
+    elif phase == "ended":
+        head = "🗓 <b>Presale: ended</b>"
     elif status == "announced":
         head = "🗓 <b>Presale: announced</b>"
     elif isinstance(status, str) and status.strip():
@@ -125,6 +218,15 @@ def presale_lines(presale: Mapping[str, Any], symbol: str = "RCLAW") -> list[str
     else:
         head = f"🗓 <b>Presale: status {UNREADABLE}</b>"
     lines = [head]
+    if phase == "live":
+        lines.append(f"Open until {_window_text(presale['closes_at'])}, or until the hard cap is "
+                     "reached. Buy only through the sale link below.")
+    elif phase == "ended":
+        lines.append(f"Closed at {_window_text(presale['closes_at'])}, or earlier if the hard cap "
+                     "was reached. Buyers claim 100% of what they bought on the sale page.")
+    elif phase == "announced" and _window(presale) is not None:
+        # An unreadable window says nothing about when it opens.
+        lines.append(f"Opens {_window_text(presale['opens_at'])}.")
     lines.extend(f"{label}: {_term_text(presale, key, symbol)}" for key, label in TERMS)
     lines.append(f"Sale link: {_sale_link_text(presale)}")
     if status == "coming_soon":
@@ -304,7 +406,8 @@ def env_mint_line(record_mint: str, env_mint: Optional[str]) -> str:
 
 
 def render_token_card(record: Mapping[str, Any], *, operator: bool = False,
-                      env_mint: Optional[str] = None) -> str:
+                      env_mint: Optional[str] = None,
+                      now: Optional[datetime] = None) -> str:
     mint = html.escape(str(record["mint"]))
     decimals = record["decimals"]
     if not isinstance(decimals, int) or isinstance(decimals, bool):
@@ -325,7 +428,7 @@ def render_token_card(record: Mapping[str, Any], *, operator: bool = False,
         lines.append(f"Created: {UNREADABLE}")
     lines.append(f'🔗 <a href="{html.escape(str(record["explorer"]))}">View on Solscan</a>')
     lines.append("")
-    lines.extend(presale_lines(record["presale"], str(record["symbol"])))
+    lines.extend(presale_lines(record["presale"], str(record["symbol"]), now))
     lines.append("")
     lines.extend(locks_lines(record, str(record["symbol"])))
     lines.append("")

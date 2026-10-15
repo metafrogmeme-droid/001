@@ -77,10 +77,13 @@ test('the record is the website\'s copy of the file the bot reads, byte for byte
   assert.ok(page.render(r).includes('<a href="https://tools.smithii.io/launch/solana/RUNECLAW"'));
 });
 
+/** The sale window: read with the clock for the status, never printed as a term. */
+const WINDOW_KEYS = new Set(['opens_at', 'closes_at']);
+
 test('the page prints every term the record announces, and no other', () => {
   // Both ways: a term added to the record and not to TERMS would go unprinted,
   // and a TERMS key the record lacks would read "unreadable" to every visitor.
-  const announced = Object.keys(record().presale).filter((k) => k !== 'status' && k !== 'sale_url');
+  const announced = Object.keys(record().presale).filter((k) => !WINDOW_KEYS.has(k) && k !== 'status' && k !== 'sale_url');
   // The bot's TERMS is held to the same record by tests/test_the_token_card_reads_the_one_record.py.
   assert.deepStrictEqual(announced, TERM_KEYS);
 });
@@ -159,7 +162,10 @@ test('an unannounced presale reads "not announced yet" for every term', () => {
 
 test('the announced presale prints each term as written', () => {
   const presale = record().presale;
-  const html = page.presaleHtml(presale, 'RCLAW');
+  // Before the window opens, so the status is the record's own word: the phase reads the clock,
+  // and a test that asked the real one would say something else on each day of the sale (the
+  // phases are driven below, at fixed instants).
+  const html = page.presaleHtml(presale, 'RCLAW', Date.parse('2026-10-14T00:00:00Z'));
   assert.ok(html.includes('<span class="tok-status">Announced</span>'));
   for (const k of TERM_KEYS.filter((key) => key !== 'allocation_tokens')) {
     assert.ok(html.includes(`<b>${esc(presale[k])}</b>`), k);
@@ -320,4 +326,147 @@ test('the presale link preview prints what the record says', () => {
   assert.ok(facts.footer.includes('No refunds') && p.refunds === 'None');
   assert.ok(facts.footer.includes('no buyer vesting') && /No vesting for buyers/.test(p.claim));
   assert.ok(html.includes(`<link rel="canonical" href="https://www.${facts.link}">`), 'the card names this page');
+});
+
+
+// ── live or ended: the window and the clock ──────────────────────────────
+
+const PHASES = JSON.parse(fs.readFileSync(path.join(APP, '..', 'tests', 'fixtures', 'presale_phase_cases.json'), 'utf8'));
+const at = (iso) => Date.parse(iso);
+
+/** A presale built from the fixture's window, with one field replaced or removed. */
+function windowed(over) {
+  const p = { ...record().presale, ...PHASES.window };
+  for (const [k, v] of Object.entries(over || {})) {
+    if (v === '__absent__') delete p[k];
+    else p[k] = v;
+  }
+  return p;
+}
+
+test('the phase follows the window and the clock, as the bot reads it', () => {
+  for (const c of PHASES.clock) {
+    assert.strictEqual(page.presalePhase(windowed(), at(c.now)), c.expect, c.now);
+  }
+  for (const over of PHASES.unreadable_window) {
+    assert.strictEqual(page.presalePhase(windowed(over), at(PHASES.unreadable_now)), 'announced', JSON.stringify(over));
+  }
+  for (const status of PHASES.no_phase_status) {
+    assert.strictEqual(page.presalePhase(windowed({ status }), at(PHASES.unreadable_now)), null, String(status));
+  }
+});
+
+test('the record carries the window the sale was created with', () => {
+  const p = record().presale;
+  assert.strictEqual(p.opens_at, PHASES.window.opens_at);
+  assert.strictEqual(p.closes_at, PHASES.window.closes_at);
+});
+
+test('the presale card says announced, live or ended, with the time beside it', () => {
+  const live = page.presaleHtml(windowed(), 'RCLAW', at('2026-10-20T00:00:00Z'));
+  const ended = page.presaleHtml(windowed(), 'RCLAW', at('2026-10-29T14:00:00Z'));
+  const opening = page.presaleHtml(windowed(), 'RCLAW', at('2026-10-15T13:59:00Z'));
+  assert.match(opening, /class="tok-status">Announced</);
+  assert.ok(opening.includes(esc('Opens 2026-10-15 14:00 UTC.')), opening);
+  assert.match(live, /class="tok-status"><span class="tok-live">Live now<\/span></);
+  assert.ok(live.includes(esc('Open until 2026-10-29 14:00 UTC, or until the hard cap is reached.')), live);
+  assert.match(ended, /class="tok-status">Ended</);
+  assert.ok(ended.includes(esc('Closed at 2026-10-29 14:00 UTC, or earlier if the hard cap was reached.')), ended);
+  // One phase per card: no card carries another phase's words.
+  for (const [html, not] of [[opening, ['Live now', 'Ended', 'Open until', 'Closed at']],
+    [live, ['>Announced<', '>Ended<', 'Opens ', 'Closed at']],
+    [ended, ['Live now', '>Announced<', 'Opens ', 'Open until']]]) {
+    for (const w of not) assert.ok(!html.includes(w), `${w} in ${html.slice(0, 200)}`);
+  }
+  // An unreadable window keeps the record's status and states no time at all.
+  const blind = page.presaleHtml(windowed({ closes_at: null }), 'RCLAW', at('2026-10-20T00:00:00Z'));
+  assert.match(blind, /class="tok-status">Announced</);
+  assert.ok(!/Opens |Open until|Closed at|tok-phase/.test(blind), blind);
+  // Every term is still printed in every phase.
+  for (const html of [opening, live, ended]) {
+    for (const k of TERM_KEYS) assert.ok(html.includes(esc(record().presale[k])) || k === 'allocation_tokens', k);
+  }
+});
+
+test('the home strip says live or ended once the record does, and keeps its sentence otherwise', () => {
+  const el = {
+    attrs: { 'data-i18n': 'home.token_live' },
+    textContent: '$RCLAW is live on Solana — presale announced',
+    setAttribute(k, v) { this.attrs[k] = v; },
+  };
+  const token = { presale: windowed() };
+  assert.strictEqual(page.stripPhase(el, token, at('2026-10-15T13:00:00Z')), null);
+  assert.strictEqual(el.attrs['data-i18n'], 'home.token_live');
+  assert.strictEqual(el.textContent, '$RCLAW is live on Solana — presale announced');
+  assert.strictEqual(page.stripPhase(el, token, at('2026-10-20T00:00:00Z')), 'live');
+  assert.deepStrictEqual([el.attrs['data-i18n'], el.textContent], ['home.token_presale_live', page.STRIP_LIVE]);
+  assert.strictEqual(page.stripPhase(el, token, at('2026-11-01T00:00:00Z')), 'ended');
+  assert.deepStrictEqual([el.attrs['data-i18n'], el.textContent], ['home.token_presale_ended', page.STRIP_ENDED]);
+  // A record with no presale moves nothing.
+  const quiet = { ...el, attrs: { 'data-i18n': 'home.token_live' }, textContent: 'x' };
+  assert.strictEqual(page.stripPhase(quiet, {}, at('2026-10-20T00:00:00Z')), null);
+  assert.strictEqual(quiet.textContent, 'x');
+  // The landing page loads the reader and names the element it updates.
+  const landing = fs.readFileSync(path.join(APP, 'public', 'index.html'), 'utf8');
+  assert.ok(landing.includes('<span id="hero-token-text" data-i18n="home.token_live">'));
+  assert.match(landing, /<script src="\/js\/token-page\.js\?v=\d+" defer><\/script>/);
+});
+
+test('every phase sentence is translated, with its time in every language', () => {
+  const i18n = require('../public/js/i18n.js');
+  const EN = {
+    'tok.presale_live': page.PHASE_LIVE, 'tok.presale_ended': page.PHASE_ENDED,
+    'tok.presale_opens_at': page.PHASE_OPENS, 'tok.presale_open_until': page.PHASE_OPEN_UNTIL,
+    'tok.presale_closed_at': page.PHASE_CLOSED,
+    'home.token_presale_live': page.STRIP_LIVE, 'home.token_presale_ended': page.STRIP_ENDED,
+  };
+  for (const [key, en] of Object.entries(EN)) {
+    assert.strictEqual(i18n.translate(key, 'en'), en, key);
+    for (const l of i18n.LANGS) {
+      const v = i18n.translate(key, l.code);
+      assert.ok(v && v.trim(), `${key} ${l.code}`);
+      assert.strictEqual(v.includes('{t}'), en.includes('{t}'), `${key} ${l.code}: the time placeholder`);
+    }
+  }
+});
+
+test('loaded on the landing page, the script finds the strip, reads the record and moves it', async () => {
+  // Driven through the module's own browser boot: a stand-in document that holds the strip and
+  // no /token root, a stand-in fetch that answers the record, and a clock inside the window.
+  const el = {
+    attrs: { 'data-i18n': 'home.token_live' },
+    textContent: '$RCLAW is live on Solana — presale announced',
+    setAttribute(k, v) { this.attrs[k] = v; },
+  };
+  const asked = [];
+  const saved = { document: global.document, fetch: global.fetch, now: Date.now };
+  const modPath = require.resolve('../public/js/token-page.js');
+  global.document = { getElementById: (id) => (id === 'hero-token-text' ? el : null) };
+  global.fetch = async (url) => {
+    asked.push(url);
+    return { status: 200, json: async () => ({ token: { presale: windowed() } }) };
+  };
+  Date.now = () => Date.parse('2026-10-20T00:00:00Z');
+  try {
+    delete require.cache[modPath];
+    require(modPath);
+    for (let i = 0; i < 50 && el.attrs['data-i18n'] === 'home.token_live'; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    assert.deepStrictEqual(asked, ['/api/token']);
+    assert.deepStrictEqual([el.attrs['data-i18n'], el.textContent], ['home.token_presale_live', page.STRIP_LIVE]);
+    // A record that cannot be read leaves the markup's sentence standing.
+    const kept = { ...el, attrs: { 'data-i18n': 'home.token_live' }, textContent: 'kept' };
+    global.document = { getElementById: (id) => (id === 'hero-token-text' ? kept : null) };
+    global.fetch = async () => ({ status: 503, json: async () => ({ error: 'token_record_unreadable' }) });
+    delete require.cache[modPath];
+    require(modPath);
+    await new Promise((r) => setTimeout(r, 50));
+    assert.deepStrictEqual([kept.attrs['data-i18n'], kept.textContent], ['home.token_live', 'kept']);
+  } finally {
+    global.document = saved.document;
+    global.fetch = saved.fetch;
+    Date.now = saved.now;
+    delete require.cache[modPath];
+  }
 });

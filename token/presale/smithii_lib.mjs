@@ -242,6 +242,20 @@ export function scheduleProblems(cfg) {
 }
 
 // ── the sale, as the website and the bot print it ───────────────────────────
+/**
+ * The record's sale window: the two instants Create fixed on chain (presale:smithii-verify read
+ * both back to the minute on 2026-10-13). The website and the bot read them, with the clock, to
+ * say whether the sale has opened, is open or has ended, so the record never needs a hand edit
+ * on the day: "announced" was true of a sale that had opened, and said so for the whole sale.
+ * The hard cap can end a sale earlier than `closes_at`, which neither reader can see without the
+ * chain, so both say "or until the hard cap" beside it.
+ */
+export function recordWindow(cfg) {
+  const problems = scheduleProblems(cfg);
+  if (problems.length) throw new Error(problems.join('; '));
+  return { opens_at: cfg.schedule.startUtc, closes_at: cfg.schedule.endUtc };
+}
+
 // token/config/rclaw.mainnet.json carries the announced terms as sentences, because both
 // readers (the /token page and the bot's /rclaw card) print a term exactly as written. Those
 // sentences are a second copy of this config, so they are derived here and

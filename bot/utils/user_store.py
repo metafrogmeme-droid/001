@@ -636,6 +636,23 @@ class UserStore:
                   f"Refused to record an admission for un-vouchable id {key!r}",
                   action="admission_refused", result="DENIED")
             return False
+        if by == SELF_ADMISSION_BY:
+            # A REVOCATION OUTRANKS THE OPEN DOOR. `_guard` self-admits anyone
+            # who is not on the allowlist while PAPER_AUTO_ACCEPT is on, and
+            # this method cleared `revoked_at` for every admission, so an
+            # admin's /revoke lasted exactly until the revoked person's next
+            # command: they were admitted again as paper, with nobody asked.
+            # register() already refuses to upgrade a revoked record for the
+            # same reason. Only a human's /approve (any other `by`) lifts a
+            # revocation; self-admission is refused and the caller is left
+            # outside the allowlist, so `_guard` asks the operator instead.
+            with self._lock:
+                revoked = bool(self._users.get(key, {}).get("revoked_at"))
+            if revoked:
+                audit(system_log,
+                      f"Self-admission refused for revoked user {key}",
+                      action="self_admission_refused", result="REVOKED")
+                return False
         if by == SELF_ADMISSION_BY and role != SELF_ADMISSION_ROLE:
             # Clamp DOWN and record it. Refusing outright would leave the caller
             # having asked for access and received silence, which on the

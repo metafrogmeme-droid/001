@@ -255,8 +255,10 @@ def live_account_absence(user_id: str) -> str:
     """WHY the engine mapped this caller to no live account: ``"absent"``
     (never linked), ``"unreadable"`` (linked, and the stored keys will not
     decrypt — a different sentence and a different remedy; the /exchange
-    lesson) or ``"unresolved"`` (the store could not be asked, or it says
-    readable and the engine still bound no executor).
+    lesson), ``"operator_only"`` (linked and readable, and per-user live is
+    off, so this bot reads no account but the operator's) or ``"unresolved"``
+    (the store could not be asked, or it says readable under per-user live
+    and the engine still bound no executor).
 
     Never raises, and an exception here is not "absent": a status read must not
     take a card down, and it must not dress a fault as a clean bill. The chat
@@ -269,7 +271,26 @@ def live_account_absence(user_id: str) -> str:
         state = get_credential_store().credential_state(user_id)
     except Exception:
         return "unresolved"
-    return state if state in ("absent", "unreadable") else "unresolved"
+    if state in ("absent", "unreadable"):
+        return state
+    # Readable keys and still no account to view. Under per-user live that is
+    # a fault ("unresolved"); with PER_USER_LIVE_ENABLED off it is the design:
+    # this bot trades one live account, the operator's, and nobody else's book
+    # is read (`RuneClawEngine.viewer_executor`). Telling that person "the
+    # credential store could not be asked" would be a fault manufactured
+    # from a setting.
+    if state == "readable" and not per_user_live_on():
+        return "operator_only"
+    return "unresolved"
+
+
+def per_user_live_on() -> bool:
+    """Whether linking keys gives a person a live account of their own here
+    (PER_USER_LIVE_ENABLED). Off, this bot trades one account, the operator's,
+    so naming the link door to a stranger would point at a door that opens
+    onto nothing they can see. Read from `bot.config` at call time."""
+    from bot import config as _config
+    return bool(getattr(_config.CONFIG, "per_user_live_enabled", False))
 
 
 def no_live_account_line(absence: str, surface: str = "telegram") -> str:
@@ -289,6 +310,10 @@ def no_live_account_line(absence: str, surface: str = "telegram") -> str:
         return ("\U0001F512 No exchange account is linked to you, so there is no equity, "
                 "P&L, win rate or trade count of yours on record here — "
                 f"{door['link']}. Nothing was measured.")
+    if absence == "operator_only":
+        return ("\U0001F512 Your exchange keys are linked, but this bot trades one live "
+                "account, the operator's, so your account's positions and record are "
+                "not read here — not an empty account. Nothing was measured.")
     # Any other word — including one this function does not know — is the
     # sentence that claims least. A reading nobody recognises is not a reading
     # that somebody never linked.
@@ -296,6 +321,27 @@ def no_live_account_line(absence: str, surface: str = "telegram") -> str:
             "to read could not be resolved — unknown, not empty. Nothing was "
             "measured.")
 
+
+
+def practice_view_note(absence: str, surface: str = "telegram") -> str:
+    """The line above a PRACTICE book shown on a LIVE bot to a caller who has
+    no live account to view.
+
+    Everyone but the operator sees their own book (`viewer_executor`), so on a
+    live bot a self-admitted user's /portfolio, /positions and /risk show their
+    practice book. The cards used to print the operator's account there, and
+    then, for a caller with no account, only `no_live_account_line`. A person
+    whose keys exist but could not be read still needs that sentence: it is the
+    remedy, and the practice book below it is not their exchange account.
+    """
+    if absence == "absent":
+        # The door only where linking gives this person an account of their
+        # own to see (`per_user_live_on`).
+        link = link_door(surface)["link"]
+        door = f" {link[:1].upper()}{link[1:]}." if per_user_live_on() else ""
+        return ("\U0001F3AF Your practice book. No live account of yours is "
+                "linked here; the live account on this bot is the operator's." + door)
+    return no_live_account_line(absence, surface) + " Your practice book is below."
 
 
 _MENTION_EDGE = " ,:;!-\u2013\u2014\t"

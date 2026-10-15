@@ -59,7 +59,7 @@ from bot.skills.chat_runtime import (  # noqa: F401  (re-exports for tests and c
     tools_rule_for, cannot_act_rule,
     act_intent_notice, close_intent_notice, forwarded_halt_notice, halt_intent_notice, reply_contract,
     stake_verb, LINK_DOOR, strip_bot_mention, live_account_absence,
-    no_live_account_line, fallback_door,
+    no_live_account_line, fallback_door, per_user_live_on,
     skill_failure_notice, thinking_phrase, compose_telegram_answer,
 )
 from bot.nlp.intent_router import casual_halt, halt_verb, symbol_mentioned
@@ -754,50 +754,72 @@ _LINK_DOOR = LINK_DOOR
 
 
 def _no_live_account_block(absence: str, surface: str = "telegram") -> tuple[str, str]:
-    """``(portfolio_summary, positions_detail)`` for a LIVE caller with no
-    account to describe. Pure: the words for each absence and nothing else.
+    """``(summary, detail)`` about the LIVE account of a caller on a LIVE bot
+    who has none to view: the words for each absence and nothing else.
+    The caller's PRACTICE book follows both, so each says so. The one setting
+    it reads is `per_user_live_on`, which decides whether the link door opens
+    onto anything for this person.
 
-    None of the three says "none right now" — that is what a READ flat book
-    says, and none of these was read. `viewer_executor` answers None for an
-    unlinked user and for one whose keys stopped decrypting alike; the model
-    must be told which, because "you hold nothing" is true of the first and
-    a fabrication for the second. Every branch names BOTH sections so neither
-    the paper book nor another account's book can fill the gap. The door it
+    Everyone but the operator sees their own book (`viewer_executor`), so a
+    stranger on a live bot is described their practice book, which is what
+    every card now shows them. This block is what sits above it: none of the
+    four says "none right now" of the LIVE account — that is what a READ flat
+    book says, and none of these was read. `viewer_executor` answers None for
+    an unlinked user and for one whose keys stopped decrypting alike; the model
+    must be told which, because "you hold nothing on the exchange" is true of
+    the first and a fabrication for the second. Every branch says the
+    sections below are the practice book, so a practice row is never quoted as
+    a live one and another account's book never fills the gap. The door it
     names is the SURFACE's own (`_LINK_DOOR`): a web caller is sent to the
     dashboard step, never to a slash command the web chat cannot run.
     """
     door = _LINK_DOOR.get(surface, _LINK_DOOR["telegram"])
+    # With per-user live off, linking keys gives nobody but the operator a live
+    # account to see, so the link door is named only when it opens onto one.
+    link = (f"; {door['link']}" if per_user_live_on() else "")
+    practice = (" The sections below are this user's PRACTICE book (simulated, "
+                "not real money); never describe a practice position or figure as "
+                "a live one.")
     if absence == "absent":
-        summary = ("no linked live account — no equity, P&L, win rate or trade "
-                   f"count of this user's is on record here; {door['link']}")
+        summary = ("no linked live account — no live equity, P&L, win rate or "
+                   f"trade count of this user's is on record here{link}. "
+                   "What follows is their PRACTICE book")
         detail = (
-            "\n\nACTIVE POSITIONS: none can be reported — no exchange account is "
-            "linked for this user, so there are no positions, orders, closed "
-            "trades, P&L or equity of theirs to describe. Do not reference any "
-            "open position, and never describe another account's positions or "
-            "balance as theirs. If they ask about their positions or money, say "
-            f"no exchange account is linked and that {door['link']}."
-            "\n\nRECENT CLOSED TRADES: none on record for this user (no linked "
-            "live account).")
+            "\n\nLIVE ACCOUNT: none can be reported — no exchange account is "
+            "linked for this user, so there are no live positions, orders, closed "
+            "trades, P&L or equity of theirs to describe. The bot's live account "
+            "is the operator's: never describe it, or any other account's "
+            "positions or balance, as theirs. If they ask about real money, say "
+            f"no exchange account is linked{link}." + practice)
     elif absence == "unreadable":
         summary = ("linked account could not be read — this user's stored "
-                   "exchange keys could not be decrypted, so equity, P&L, win "
-                   "rate and trade count are unknown, not zero")
+                   "exchange keys could not be decrypted, so live equity, P&L, win "
+                   "rate and trade count are unknown, not zero. What follows is "
+                   "their PRACTICE book, not that account")
         detail = (
-            "\n\nACTIVE POSITIONS: could not be read — this user's linked exchange "
+            "\n\nLIVE ACCOUNT: could not be read — this user's linked exchange "
             "keys could not be decrypted, so their account was NOT read. Do not "
-            "reference any open position and do not say they hold nothing: "
-            "positions, closed trades, P&L and equity are all unread. If they "
-            f"ask, say their linked keys could not be read, that {door['state']}."
-            "\n\nRECENT CLOSED TRADES: could not be read for the same reason.")
-    else:
-        summary = ("could not be resolved just now — do not quote an equity, P&L, "
-                   "win rate or trade count; say the account could not be confirmed")
+            "say they hold nothing on the exchange: live positions, closed trades, "
+            "P&L and equity are all unread. If they ask, say their linked keys "
+            f"could not be read, that {door['state']}." + practice)
+    elif absence == "operator_only":
+        summary = ("linked account not read here — this bot trades one live "
+                   "account, the operator's, so this user's own account is not "
+                   "read; its live figures are unknown, not zero. What follows is "
+                   "their PRACTICE book")
         detail = (
-            "\n\nACTIVE POSITIONS: could not be read — this user's account could "
-            "not be resolved just now. Do not reference any open position and do "
-            "not say they hold nothing; say the account could not be confirmed."
-            "\n\nRECENT CLOSED TRADES: could not be read.")
+            "\n\nLIVE ACCOUNT: not read — this user's exchange keys are linked, "
+            "but this bot trades only the operator's account, so theirs is not "
+            "read here. Do not say they hold nothing on the exchange, and never "
+            "describe the operator's account as theirs." + practice)
+    else:
+        summary = ("could not be resolved just now — do not quote a live equity, "
+                   "P&L, win rate or trade count; say the account could not be "
+                   "confirmed. What follows is their PRACTICE book")
+        detail = (
+            "\n\nLIVE ACCOUNT: could not be read — this user's account could "
+            "not be resolved just now. Do not say they hold nothing on the "
+            "exchange; say the account could not be confirmed." + practice)
     return summary, detail
 
 
@@ -2318,13 +2340,19 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             executor = _lv.get("executor")
             _closed_unread = False
 
-            if is_live and executor is None:
-                # No account to describe: say WHICH absence, in words the
-                # model repeats. "none right now" is what a READ flat book
-                # says, and neither of these was read.
-                portfolio_summary, positions_detail = _no_live_account_block(
+            # A caller on a LIVE bot with no live account to view is described
+            # their PRACTICE book, as every card shows them (everyone but the
+            # operator sees their own book: `viewer_executor`), under a line
+            # that says WHICH live absence it is, in words the model repeats.
+            # `_paper_view` is the one test every paper arm below asks, so the
+            # live arms and the practice arms can never both run.
+            _practice_on_live = is_live and executor is None
+            _paper_view = not is_live or _practice_on_live
+            _live_note_summary = _live_note_detail = ""
+            if _practice_on_live:
+                _live_note_summary, _live_note_detail = _no_live_account_block(
                     _live_account_absence(user_id), surface)
-            elif is_live and executor is not None:
+            if is_live and executor is not None:
                 # Truthful equity for the AI context: never feed the model the
                 # paper $10k baseline in LIVE mode — if the balance is unknown,
                 # say so, so the AI can't tell the user a fabricated figure.
@@ -2422,7 +2450,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                            if state.total_trades
                            else "total PnL: no closed trades yet, so none to report")
                 portfolio_summary = (
-                    f"{state.open_positions} open positions, "
+                    (f"{_live_note_summary}: " if _live_note_summary else "")
+                    + f"{state.open_positions} open positions, "
                     f"equity ~${eq_display:,.2f} (PAPER — a simulated account, "
                     "not real money" + _unpriced_note(state) + "), "
                     f"{_tp_ctx}, "
@@ -2487,11 +2516,12 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 _marks_fn = getattr(self, "_chat_marks", None)
                 positions_detail = _live_positions_block(
                     executor, _marks_fn() if callable(_marks_fn) else None)
-            # `not is_live` on both paper arms: a live caller with no account
-            # keeps the _no_live_account_block text and never falls into the
-            # paper rows or into "none right now", which is what a READ flat
-            # book says.
-            elif not is_live and user_portfolio.open_positions:
+            # `_paper_view` on every paper arm: on a live bot it is the
+            # caller with no live account, whose practice rows follow the
+            # `_no_live_account_block` line saying which live absence it is,
+            # so "none right now" below is said of the PRACTICE book, which
+            # was read, and never of a live account, which was not.
+            elif _paper_view and user_portfolio.open_positions:
                 # THE WORST PLACE TO INVENT A NUMBER. This text is the model's
                 # evidence about the user's own money. With the old
                 # `.get(asset, entry_price)` an unpriced position arrived as
@@ -2517,12 +2547,14 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                     for pos in user_portfolio.open_positions
                 ]
                 positions_detail = (
+                    _live_note_detail +
                     "\n\nACTIVE POSITIONS (PAPER — a simulated account, not real "
                     "money; every figure below is simulated):\n" +
                     "\n".join(pos_lines)
                 )
-            elif not is_live:
+            elif _paper_view:
                 positions_detail = (
+                    _live_note_detail +
                     "\n\nACTIVE POSITIONS (PAPER — a simulated account): none right "
                     "now. Do not reference any open position -- if the user asks "
                     "about a specific symbol, treat it as a fresh question, not an "
@@ -2556,7 +2588,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                         "\n".join(trade_lines)
                         + _older_closes_note(len(live_closed), len(trade_lines))
                     )
-            elif not is_live:
+            elif _paper_view:
                 _paper_closed = user_portfolio.trade_history
                 recent_trades = _paper_closed[-self.CHAT_RECENT_CLOSES:]
                 if recent_trades:
@@ -4025,9 +4057,10 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             if access == "needs_approval":
                 notified = await self._request_operator_admission(
                     tg_id, _name, ctx)
+            from bot.formatters.token_card import presale_live_note
             await self._send(update, welcome_notice(
                 html.escape(_name or "Trader"), tg_id, access=access,
-                operator_notified=notified, lang=self._lang(update)))
+                operator_notified=notified, lang=self._lang(update)) + presale_live_note())
             return
 
         # Registered but not authorized — /revoke is the only way to be here.
@@ -5311,20 +5344,32 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                                "(%s) — refusing", tg_id, type(exc).__name__)
             return False
 
-        if not getattr(CONFIG, "live_open_to_key_holders", False):
-            # Staged rollout — the prior behaviour, byte for byte, including the
-            # demo/paper fallback where an unset allowlist leaves the store flag
-            # as the whole policy.
-            allow = self._allowlist_ids()
-            if allow and str(tg_id) not in allow:
-                return False
-            return self.users.can_trade_live(tg_id)
-
         operator = False
         try:
             operator = bool(self.engine._is_operator_user(tg_id))
         except Exception:
             operator = False
+
+        if not getattr(CONFIG, "live_open_to_key_holders", False):
+            # Staged rollout, including the demo/paper fallback where an unset
+            # allowlist leaves the store flag as the whole policy.
+            allow = self._allowlist_ids()
+            if allow and str(tg_id) not in allow:
+                return False
+            # THE SHARED ACCOUNT IS THE OPERATOR'S ALONE, under this policy as
+            # under the open one below. With PER_USER_LIVE_ENABLED off,
+            # `_executor_for` routes every caller to the operator executor, so
+            # an allowlisted non-operator passing here placed orders on the
+            # operator's balance, and `viewer_executor` no longer shows that
+            # book to anybody but the operator: they could open a position no
+            # card of theirs would show and no button of theirs would close.
+            # The allowlist test keeps the demo fallback: an unset allowlist
+            # cannot arm live at all.
+            if (allow and not operator
+                    and not getattr(CONFIG, "per_user_live_enabled", False)):
+                return False
+            return self.users.can_trade_live(tg_id)
+
         if not operator:
             # A REGULAR trader trades their OWN account or not at all.
             #
@@ -5421,21 +5466,21 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
     def _caller_executor(self, update: Update):
         """The LiveExecutor whose positions THIS caller may view/close.
 
-        Routes through the engine's per-user resolver (engine._executor_for).
-        With PER_USER_LIVE_ENABLED off this is ALWAYS the shared operator executor
-        — byte-identical to the prior single-account behaviour.
+        Routes through the engine's per-user resolver (engine._executor_for),
+        which falls back to the operator executor when a caller has no linked
+        account (intended for the gated execution path). For the VIEW/CLOSE
+        layer that fallback would leak the operator's positions to a
+        non-operator user, so here we return None in that case (caller is not
+        an operator/admin AND resolved to the shared executor) so such a caller
+        can neither see nor close anyone else's positions.
 
-        With per-user ON, engine._executor_for falls back to the operator executor
-        when a caller has no linked account (intended for the gated execution
-        path). For the VIEW/CLOSE layer that fallback would leak the operator's
-        positions to a non-operator user, so here we return None in that case
-        (caller is not an operator/admin AND resolved to the shared executor) so
-        such a caller can neither see nor close anyone else's positions.
+        IN BOTH MODES, as `RuneClawEngine.viewer_executor` gives the reason.
+        With PER_USER_LIVE_ENABLED off this returned the operator executor for
+        every caller, and every self-admitted paper user saw the operator's
+        live positions.
         """
         uid = self._get_tg_id(update)
         ex = self.engine._executor_for(uid)
-        if not getattr(CONFIG, "per_user_live_enabled", False):
-            return ex  # single-account mode — shared operator executor for all
         owns_operator = self._is_admin(update) or self._uid_matches(
             uid, CONFIG.telegram.chat_id)
         if ex is self.engine.live_executor and not owns_operator:
@@ -5590,10 +5635,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # the old copy told an allowlisted operator to "wait for approval".
             self.users.register(tg_id, name=(
                 update.effective_user.first_name if update.effective_user else ""))
+            from bot.formatters.token_card import presale_live_note
             await self._send(update, welcome_notice(
                 html.escape(update.effective_user.first_name
                             if update.effective_user else "Trader"),
-                tg_id, access="granted", lang=lang))
+                tg_id, access="granted", lang=lang) + presale_live_note())
             return False
 
         # Role-based permission check. The REASON matters: "role" is permanent

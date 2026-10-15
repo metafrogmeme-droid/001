@@ -1379,10 +1379,11 @@ class RuneClawEngine:
 
         The chat prompt builds its equity sentence, ACTIVE POSITIONS and RECENT
         CLOSED TRADES from this single reading, so the three can never describe
-        two accounts. ``viewer_executor`` is the isolation guard: under per-user
-        live a caller the engine does not map to an account is ``"none"`` — never
-        the operator's book, which is what ``self.engine.live_executor`` in the
-        prompt builder handed every caller. The balance is the balance OF THE
+        two accounts. ``viewer_executor`` is the isolation guard: a caller the
+        engine does not map to an account of their own, and who is not the
+        operator, is ``"none"`` in either mode — never the operator's book,
+        which is what ``self.engine.live_executor`` in the prompt builder
+        handed every caller. The balance is the balance OF THE
         BOOK BEING DESCRIBED: the operator cache when the executor is the
         operator's, this user's own cache otherwise, each age-gated the way
         ``live_balance_cached`` gates the operator's (never stamped -> None,
@@ -2845,11 +2846,9 @@ class RuneClawEngine:
             executor bound to THEIR account (their explicit choice to link it);
           - the OPERATOR otherwise -> the shared operator executor (the global
             CONFIG.exchange account, which is theirs);
-          - with per-user live OFF, a caller who never linked -> the shared
-            operator executor too: one shared account is what single-account
-            mode is, and `viewer_executor` shows every card that book;
-          - anybody else -> None. This was the operator's executor for every
-            caller without readable keys, so under per-user live a viewer's
+          - anybody else -> None, in both modes (`viewer_executor` gives the
+            reason the shared account is the operator's alone). This was the
+            operator's executor for every caller without readable keys, so under per-user live a viewer's
             /livebalance printed the operator's balance, positions and realized
             P&L in dollars as their own, and in either mode a linked user whose
             keys stopped decrypting (or whose store could not be asked) was
@@ -2864,26 +2863,21 @@ class RuneClawEngine:
         if not user_id or user_id in ("auto", ""):
             return self.live_executor
         operator = self._is_operator_user(user_id)
-        shared = not getattr(CONFIG, "per_user_live_enabled", False)
         try:
             from bot.core.exchange_credentials import get_credential_store
             _store = get_credential_store()
             creds = _store.get(str(user_id))
             venue = getattr(_store, "get_venue", lambda _u: "bitget")(str(user_id))
-            _state = getattr(_store, "credential_state", None)
-            state = (_state(str(user_id)) if callable(_state)
-                     else ("readable" if creds else "absent"))
         except Exception as exc:
             logger.warning("balance_view_executor: credential lookup failed for "
                            "%s: %s", user_id, type(exc).__name__)
-            creds, venue, state = None, "bitget", "unresolved"
-        # The shared account is the operator's, and in single-account mode the
-        # book of anybody who never linked. Keys that will not decrypt, and a
-        # store nobody could ask, are neither: that person may have an account
-        # of their own, and showing them somebody else's as theirs is the one
-        # answer that cannot be right.
-        fallback = (self.live_executor
-                    if operator or (shared and state == "absent") else None)
+            creds, venue = None, "bitget"
+        # The shared account is the operator's and nobody else's, in either
+        # mode. Keys that will not decrypt, and a store nobody could ask, are
+        # not a reason to show anyone the operator's account either: that
+        # person may have an account of their own, and showing them somebody
+        # else's as theirs is the one answer that cannot be right.
+        fallback = self.live_executor if operator else None
         if not creds:
             return fallback
         key = str(user_id)
@@ -3144,16 +3138,28 @@ class RuneClawEngine:
         the single source of truth for every status/portfolio card so they never
         disagree about which account they describe.
 
-        Mirrors ``_executor_for`` but adds the view-layer isolation guard: with
-        per-user live ON, a non-operator caller whose resolution only *falls
-        back* to the shared operator executor gets ``None`` instead — they must
-        never see another account's book. With per-user OFF this is always the
-        operator executor (byte-identical to single-account behaviour).
+        Mirrors ``_executor_for`` but adds the view-layer isolation guard: a
+        non-operator caller whose resolution only *falls back* to the shared
+        operator executor gets ``None`` — they must never see another
+        account's book — and every card then shows them their own practice
+        book instead.
+
+        IN BOTH MODES. With per-user live OFF this used to return the operator
+        executor for every caller ("single-account behaviour"), and
+        PAPER_AUTO_ACCEPT admits anyone who messages the bot as a paper user,
+        so a stranger's /portfolio, /positions and /risk printed the
+        operator's live equity, positions and realized P&L in dollars. The
+        operator decided on 2026-10-15 that everyone but the operator sees
+        only their own book. The one exception is the SYSTEM context (``""``
+        or ``"auto"``: the website sync and the dashboard pusher), which
+        describes the operator account while per-user live is off, as it
+        always has.
         """
         ex = self._executor_for(user_id)
-        if not getattr(CONFIG, "per_user_live_enabled", False):
-            return ex
         if ex is self.live_executor and not self._is_operator_user(user_id):
+            if (not getattr(CONFIG, "per_user_live_enabled", False)
+                    and (not user_id or user_id == "auto")):
+                return ex
             return None
         return ex
 
@@ -4093,6 +4099,9 @@ class RuneClawEngine:
           - ``"paper"``       genuine paper-mode portfolio equity.
           - ``"unavailable"`` LIVE mode, but the balance could not be read and
                               no cache exists.
+          - ``"no_account"``  LIVE mode, and this caller has no live account
+                              to view (``viewer_executor``); never the
+                              operator's figure.
 
         The whole point: in LIVE mode a failed balance read returns
         ``(None, "unavailable")`` — callers MUST render "unavailable" and MUST
@@ -4102,6 +4111,14 @@ class RuneClawEngine:
         when its ``total`` is 0.
         """
         if CONFIG.is_live():
+            # A caller with no live account to view is never handed the
+            # operator's equity. `get_user_live_equity` answers the account a
+            # trade would SIZE on, which is the operator's for anybody routed
+            # there; the display asks `viewer_executor`, the same reading the
+            # sync sibling takes through `live_view`, and says "no_account".
+            if (user_id and user_id != "auto"
+                    and self.viewer_executor(user_id) is None):
+                return None, "no_account"
             bal = await self.get_user_live_equity(user_id)
             if bal:
                 return float(bal.get("total", 0.0) or 0.0), "live"
@@ -4116,9 +4133,9 @@ class RuneClawEngine:
 
         ``source`` is ``"live"``, ``"paper"``, ``"unavailable"`` (LIVE, but no
         balance fresh enough to state — an unstamped or stale cache, or a dict
-        whose ``total`` is missing or None) or ``"no_account"`` (LIVE under
-        per-user live, and this caller has no account to view — never the
-        operator's figure). ``user_id`` ``""``/``"auto"`` is the SYSTEM context
+        whose ``total`` is missing or None) or ``"no_account"`` (LIVE, and this
+        caller has no account to view — never the operator's figure; in both
+        modes, as ``viewer_executor`` says). ``user_id`` ``""``/``"auto"`` is the SYSTEM context
         — the website sync and the dashboard pusher describe the operator
         account — and routes to the operator cache exactly as
         ``get_user_live_equity`` routes those two ids; every other id routes

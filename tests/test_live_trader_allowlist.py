@@ -15,6 +15,7 @@ identity: members ARE on the bot + live-trade allowlist, but are NOT operators
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import bot.skills.telegram_handler as th
 from bot.core.engine import RuneClawEngine
 from bot.skills.telegram_handler import TelegramHandler
 
@@ -131,9 +132,28 @@ class TestAllowlist:
             p.stop()
 
     def test_live_trader_can_trade_live(self):
+        # On their OWN account, which is what per-user live routes them to.
         p = _tele_cfg()
         try:
+            th.CONFIG.per_user_live_enabled = True  # the patched mock
             assert _handler()._can_trade_live("300") is True
+        finally:
+            p.stop()
+
+    def test_a_live_trader_never_trades_the_shared_account(self):
+        """With per-user live OFF, `_executor_for` routes every caller to the
+        OPERATOR's executor, and that account is the operator's alone
+        (`RuneClawEngine.viewer_executor` shows it to nobody else). A live
+        trader passing here would place orders on the operator's balance that
+        no card of theirs shows and no button of theirs closes."""
+        p = _tele_cfg()
+        try:
+            h = _handler()
+            h.engine = SimpleNamespace(_is_operator_user=lambda uid: str(uid) in ("100", "200"))
+            assert h._can_trade_live("300") is False
+            # Both arms: the operator still trades the shared account.
+            assert h._can_trade_live("100") is True
+            assert h._can_trade_live("200") is True
         finally:
             p.stop()
 

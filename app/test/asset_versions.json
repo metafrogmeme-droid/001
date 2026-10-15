@@ -164,8 +164,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 180,
-    "sha": "831d7541af88b0ee"
+    "v": 182,
+    "sha": "d5c3ac048776ea6b"
   },
   "js/icons.js": {
     "v": 6,
@@ -218,6 +218,10 @@
   "js/plan-card-model.js": {
     "v": 1,
     "sha": "3c147ef2a8704aa3"
+  },
+  "js/presale.js": {
+    "v": 1,
+    "sha": "2850ce3d0e9b4aa3"
   },
   "js/radar3d.js": {
     "v": 3,
@@ -304,8 +308,8 @@
     "sha": "0a41f855dcb11f74"
   },
   "js/token-page.js": {
-    "v": 5,
-    "sha": "3bbfb8621ac89668"
+    "v": 7,
+    "sha": "7cd7a2617e54c956"
   },
   "js/trade-confirm-model.js": {
     "v": 2,

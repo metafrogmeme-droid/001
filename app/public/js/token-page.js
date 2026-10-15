@@ -11,10 +11,12 @@
  * drives the same render the visitor sees.
  */
 (function (root, factory) {
-  const api = factory();
-  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  // The presale's phase is ONE reading, presale.js, which every page loads before this script.
+  const node = typeof module !== 'undefined' && module.exports;
+  const api = factory(node ? require('./presale.js') : root.Presale);
+  if (node) module.exports = api;
   else root.TokenPage = api;
-}(typeof self !== 'undefined' ? self : this, function () {
+}(typeof self !== 'undefined' ? self : this, function (Phase) {
   'use strict';
 
   const BASE58_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -80,6 +82,13 @@
   const BODY_SOON = 'A presale is being prepared. The date, price and venue will be announced on this page, '
     + 'in the Telegram bot and on the project’s X account before anything opens. '
     + 'Until then there is nothing to buy from us.';
+  const PHASE_LIVE = 'Live now';
+  const PHASE_ENDED = 'Ended';
+  const PHASE_OPENS = 'Opens {t}.';
+  const PHASE_OPEN_UNTIL = 'Open until {t}, or until the hard cap is reached. Buy only through the sale link on this page.';
+  const PHASE_CLOSED = 'Closed at {t}, or earlier if the hard cap was reached. Buyers claim 100% of what they bought on the sale page.';
+  const STRIP_LIVE = '$RCLAW presale is live now';
+  const STRIP_ENDED = '$RCLAW presale has ended — claims are open';
   const BODY_ANNOUNCED = 'These are the sale’s terms as announced. Smithii’s sale contract enforces the price, '
     + 'the hard cap, the per-wallet limits and the claim; the soft cap and everything after the sale are the '
     + 'team’s commitments, not the contract’s. We never DM first and never ask for a seed phrase.';
@@ -166,16 +175,35 @@
     return '<a href="' + esc(v) + '" target="_blank" rel="noopener noreferrer"><code>' + esc(v) + '</code></a>';
   }
 
-  function presaleHtml(presale, symbol) {
+  const presalePhase = Phase.presalePhase;
+  const saleWindow = Phase.saleWindow;
+  const windowText = Phase.windowText;
+
+  /** The line under the status: when it opens, until when it is open, when it closed. */
+  function phaseLine(p, phase) {
+    if (phase === 'live') return say('tok.presale_open_until', PHASE_OPEN_UNTIL).replace('{t}', windowText(p.closes_at));
+    if (phase === 'ended') return say('tok.presale_closed_at', PHASE_CLOSED).replace('{t}', windowText(p.closes_at));
+    if (phase === 'announced' && saleWindow(p) !== null) {
+      return say('tok.presale_opens_at', PHASE_OPENS).replace('{t}', windowText(p.opens_at));
+    }
+    return null;
+  }
+
+  function presaleHtml(presale, symbol, nowMs) {
     const p = (presale && typeof presale === 'object') ? presale : {};
     const sym = typeof symbol === 'string' && symbol ? symbol : 'RCLAW';
     let status;
     let body = null;
+    let when = null;
     if (p.status === 'coming_soon') {
       status = esc(say('tok.presale_soon', 'Coming soon'));
       body = say('tok.presale_body', BODY_SOON);
     } else if (p.status === 'announced') {
-      status = esc(say('tok.presale_announced', 'Announced'));
+      const phase = presalePhase(p, nowMs);
+      status = phase === 'live' ? '<span class="tok-live">' + esc(say('tok.presale_live', PHASE_LIVE)) + '</span>'
+        : phase === 'ended' ? esc(say('tok.presale_ended', PHASE_ENDED))
+          : esc(say('tok.presale_announced', 'Announced'));
+      when = phaseLine(p, phase);
       body = say('tok.presale_body_announced', BODY_ANNOUNCED);
     } else if (typeof p.status === 'string' && p.status.trim()) {
       status = esc(p.status.replace(/_/g, ' '));
@@ -189,9 +217,26 @@
     rows += row('tok.sale_link', 'Sale link', saleLinkCell(p));
     return '<section class="tok-card tok-presale">'
       + '<h2>' + esc(say('tok.presale_h', 'Presale')) + ' · <span class="tok-status">' + status + '</span></h2>'
+      + (when === null ? '' : '<p class="tok-phase">' + esc(when) + '</p>')
       + '<dl class="tok-facts">' + rows + '</dl>'
       + (body === null ? '' : '<p class="tok-prose">' + esc(body) + '</p>')
       + '</section>';
+  }
+
+  /**
+   * The home page's token strip. Its markup says "presale announced", which stays true and is what
+   * a visitor sees if the record cannot be read; once the record says the sale is live or has
+   * ended, the strip says that instead. The i18n key moves with the text, so a language switch
+   * translates the sentence now on screen rather than restoring the old one.
+   */
+  function stripPhase(el, token, nowMs) {
+    const phase = presalePhase(token && token.presale, nowMs);
+    const next = phase === 'live' ? ['home.token_presale_live', STRIP_LIVE]
+      : phase === 'ended' ? ['home.token_presale_ended', STRIP_ENDED] : null;
+    if (!next) return null;
+    el.setAttribute('data-i18n', next[0]);
+    el.textContent = say(next[0], next[1]);
+    return phase;
   }
 
   function notCreated() {
@@ -426,15 +471,19 @@
     });
   }
 
-  function boot(el) {
-    fetch('/api/token', { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10000) })
+  function fetchRecord() {
+    return fetch('/api/token', { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10000) })
       .then(function (r) {
         return r.json().then(function (body) {
           return { status: r.status, body: body };
         }, function () {
           return { status: r.status, body: null };
         });
-      })
+      });
+  }
+
+  function boot(el) {
+    fetchRecord()
       .then(function (res) {
         if (res.status !== 200 || !res.body || typeof res.body !== 'object') { el.innerHTML = fault(); return; }
         el.innerHTML = render(res.body.token);
@@ -443,13 +492,25 @@
       .catch(function () { el.innerHTML = fault(); });
   }
 
+  function bootStrip(el) {
+    fetchRecord()
+      .then(function (res) {
+        if (res.status === 200 && res.body && typeof res.body === 'object') stripPhase(el, res.body.token);
+      })
+      .catch(function () { /* the markup's sentence stands */ });
+  }
+
   if (typeof document !== 'undefined' && document.getElementById) {
     const el = document.getElementById('tok-root');
     if (el) boot(el);
+    const strip = document.getElementById('hero-token-text');
+    if (strip) bootStrip(strip);
   }
 
   return {
     render, fault, supplyText, authorityHtml, presaleHtml, presaleCell, allocationCell, saleLinkCell,
+    presalePhase, phaseLine, windowText, stripPhase, bootStrip,
+    PHASE_LIVE, PHASE_ENDED, PHASE_OPENS, PHASE_OPEN_UNTIL, PHASE_CLOSED, STRIP_LIVE, STRIP_ENDED,
     isSaleUrl, boot, wireCopy, locksHtml, lockHtml, unlocksCell, certificateCell, isCertificateUrl,
     multisigHtml, quorumCell, timeLockCell, holdsCell, auditsHtml, auditItem, isAuditUrl,
     UNREAD, NOT_ANNOUNCED, AUTH_NONE, UNREADABLE, BASE58_ADDRESS, SALE_URL, SALE_LINK_NONE, TERMS,
