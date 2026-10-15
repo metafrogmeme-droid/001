@@ -17,6 +17,8 @@
  * process; server.js calls it with defaults and exits on a fatal in production.
  */
 
+const publicOrigin = require('./public_origin');
+
 // A WEB_CREDS_KEY must decode (standard or url-safe base64) to exactly 32 bytes,
 // matching lib/creds_crypto.loadKey — a set-but-malformed key is worse than an
 // unset one because encryption throws at submit time with no boot signal.
@@ -147,13 +149,24 @@ function auditConfig(opts = {}) {
   // missing host produces links like "/verify?token=…" and redirect URIs like
   // "/api/auth/oauth/discord/callback" with no origin, which silently 404 or
   // fail provider validation. Fatal in production when either is enabled.
-  const base = (env.APP_BASE_URL || '').trim();
-  if (!base) {
-    if (mailerConfigured(env) || oauthConfigured(env)) {
-      fatal('APP_BASE_URL', 'unset while email/OAuth is configured — verification links and OAuth redirect URIs are malformed.');
-    } else {
-      warn('APP_BASE_URL', 'unset — email links and OAuth redirects will be malformed once you enable those flows.');
-    }
+  //
+  // Each check asks what its consumer READS, not a variable that stands near
+  // it. Email links are built from lib/public_origin (PUBLIC_ORIGIN first,
+  // then APP_BASE_URL, then WEBSITE_URL); the OAuth redirect URI is built
+  // from APP_BASE_URL alone, because that is the URL registered with each
+  // provider. Asking APP_BASE_URL for both refused to boot a deployment whose
+  // email links were correct (PUBLIC_ORIGIN set), and asking public_origin
+  // for both would pass one whose OAuth redirect was malformed.
+  const mailBase = publicOrigin.configured(env);
+  const oauthBase = (env.APP_BASE_URL || '').trim();
+  if (mailerConfigured(env) && !mailBase) {
+    fatal('APP_BASE_URL', 'no public origin (PUBLIC_ORIGIN / APP_BASE_URL / WEBSITE_URL) while email is configured — verification and reset links are malformed.');
+  }
+  if (oauthConfigured(env) && !oauthBase) {
+    fatal('APP_BASE_URL', 'unset while OAuth is configured — OAuth redirect URIs are malformed.');
+  }
+  if (!oauthBase && !mailerConfigured(env) && !oauthConfigured(env)) {
+    warn('APP_BASE_URL', 'unset — email links and OAuth redirects will be malformed once you enable those flows.');
   }
 
   // Transactional email. Intentionally a no-op when unset, but the operator

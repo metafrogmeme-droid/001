@@ -21647,7 +21647,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **492 of 1320** reach for source text through `source_scan`, `code_only`
+Driven, **492 of 1321** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 492 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -25004,3 +25004,99 @@ a plain member refused; `/link` refused in a group, supergroup and channel and
 reaching the token check in a private chat. `app/test/the_letter_push_names_no_dollar.test.js`:
 the push body is the public headline on a week whose private headline is in
 dollars. Nine mutants, all killed, each by the test that names it.)
+
+**A CHANGE TO AN ACCOUNT NEVER REACHED ITS OWNER, AND THE RESEND DOOR MAILED ADDRESSES THAT CANNOT EXIST.**
+The website could already send mail (a dependency-free SMTP client, a welcome
+that carries the verify link, a reset link), and it was switched off only
+because no relay was configured. Turning it on would have exposed what it did
+not do, and one thing it did wrong.
+- **Nothing told the owner.** A password change revoked every session, 2FA
+  asked for a code before it came off, and a deletion asked for the password.
+  None of it reached the person whose account it was: someone holding a stolen
+  session could turn 2FA off and the owner heard nothing until the next thing
+  went wrong. Each of those changes now sends a notice to the address on record
+  (`app/lib/account_mail.js`): what changed, when in UTC, what the account
+  already did about it, and the one thing to do if it was not them. A notice
+  never carries a token, a code or the new password, and it never delays or
+  fails the change it reports. Each says only what its route does: the password
+  routes revoke sessions, so those notices say so; turning 2FA off asks for a
+  session and a code, not the password, so that notice does not claim the
+  password was known.
+- **Read a value before the write that changes it.** The first test run sent
+  "your password was changed" to an account that had never had one, and sent
+  the deletion notice to nobody. Both routes read a field off the row object
+  AFTER the statement that rewrote it, and the in-memory database hands back
+  the live row, not a copy. MySQL returns copies and would have hidden both;
+  nothing promises that, so the routes now take the value when they read it.
+- **One reading of "can this address receive mail".** The app writes a
+  placeholder address for an account with no inbox: `<provider>-<id>@<provider>.runeclaw.local`
+  for Telegram, X and wallet sign-ins, and `deleted-<id>@account.invalid` for
+  an erased row. The resend-verification door checked for Telegram's shape
+  only, so an X or wallet account was "sent" a link that the relay bounced
+  back into the sender's own inbox. `deliverable()` now answers for every
+  sender, and the test derives the placeholders from the real constructors.
+- **A website-only member is told of a new tier.** `/set_tier` messages a
+  Telegram member; a `web:` member has no chat. The bot now asks the website to
+  email them, with a request of its own, never inferred from the tier mirror:
+  the mirror reconciles the whole book, and its first push after a deploy
+  "changes" every row it corrects, which would have mailed the membership. The
+  request is not retried, because an email is an event: a retried POST whose
+  answer was lost sends the same email twice.
+- **The boot check asked the wrong variable.** It refused to start once SMTP
+  was set without `APP_BASE_URL`, but the mailer builds its links from
+  `lib/public_origin` (`PUBLIC_ORIGIN` first). A deployment whose email links
+  were right was refused. The check now asks each consumer what it reads:
+  email asks the public origin, and OAuth still asks `APP_BASE_URL`, because
+  its redirect URI is the URL registered with the provider. Moving OAuth onto
+  the public origin as well would have changed the registered redirect on any
+  deployment where the two differ, and broken Discord and X sign-in on deploy.
+The mailer also introduces itself with the sender's own domain instead of
+`EHLO runeclaw.local` (a name that cannot exist, which a relay may refuse), and
+can carry a `Reply-To` for a sender nobody reads. The privacy page says mail
+goes through Google Workspace from info@humanoid-traders.com, lists what is
+sent, and says no marketing email is.
+(`app/test/an_account_change_reaches_its_owner.test.js`: each change mailed and
+the refused attempt beside it not; a first password "added"; no token, code or
+password in a notice; the deletion notice to the address read before the
+erasure; no placeholder mailed, from the real constructors; a failed send
+reported, not thrown, and logged without the SMTP text; the tier notice sent
+once, refused for a linked account, a Telegram key, the operator tier and a
+stranger, and never sent by the mirror. `app/test/the_mailer_speaks_for_its_own_domain.test.js`:
+EHLO and Reply-To on a real socket, and the boot check per consumer.
+`tests/test_a_website_member_hears_of_their_tier.py`: the real `/set_tier`
+asks for a notice for a `web:` member and messages a Telegram one, never
+retried, and the mirror never asks. Twenty-six mutants (21 website, 5 bot), all killed, each by the test that names it.)
+
+**THE SITE SPOKE FOURTEEN LANGUAGES, AND ON A PHONE THERE WAS NO WAY TO CHOOSE ONE.**
+Measured in Chromium at 390px, a common phone width: 25 of the 40 pages that
+load the translations offered no language control a visitor could see,
+including the landing page and the dashboard. Two causes, both of a kind this
+log already names.
+- **A rule that hid the control "for now" hid it on every phone.** To keep
+  the sign-up button on a narrow row, the stylesheet hid the language control
+  under 420px, which is nearly every phone. A visitor who arrived in the wrong
+  language had no way out of it. The control now shrinks instead: on a phone
+  it is a globe (and, above 420px, the language code) with the native select
+  laid over it, transparent, so a tap still opens the system list. Under 420px
+  the ☰ drops its word and the dashboard's bar drops its wordmark (a zero
+  font size on the bare text node, so the link keeps its accessible name), and
+  everything fits one 360px row.
+- **"Where the control goes" had one answer per page shape, and most shapes
+  had none.** It mounted into a page's own slot or the top bar's `.nav-links`.
+  Twenty pages use the shared `nav.topnav` row or no header at all, so they
+  never got one; and `.nav-links` is the scroller phones hide or scroll, so a
+  control placed in it was out of sight exactly where it was needed (track's
+  slot sat inside it). `switcherHost` is now the one reading, most specific
+  first: the page's slot, the top bar's action cluster, the shared row, the
+  top bar, and finally a small fixed corner control, because a page with no
+  way to change language is the failure being fixed.
+Two pages, developers and intent, still scroll sideways on a phone, by the
+same amount before and after: a long API path and a row of preset chips in
+their bodies, not the header. They are left for their own change; the test
+checks the header row, which is what this change can move.
+(`app/test/a_language_can_be_chosen_on_every_page.smoke.test.js`, in Chromium,
+over every page that loads the translations, read from the files: at 360px,
+390px and 1280px there is exactly one control, a tap at its centre reaches the
+select, what is shown there is on screen, and nothing else in the header was
+pushed off; at 390px choosing Spanish switches the page and the face. Nine
+mutants, all killed, each by the test that names it.)

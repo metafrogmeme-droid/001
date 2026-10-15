@@ -45,7 +45,7 @@
  */
 import { createFileRoute } from '@tanstack/react-router'
 
-const UPDATED = '22 August 2026'
+const UPDATED = '14 October 2026'
 
 function P({ children }: { children: React.ReactNode }) {
   return <p className="mt-4 leading-relaxed text-ink-2">{children}</p>
@@ -179,6 +179,15 @@ function Privacy() {
         <strong>Telegram, Google, Discord and X.</strong> Sign-in and messaging
         pass through their systems under their own privacy policies.
       </P>
+      <P>
+        <strong>Email.</strong> When the site emails you, the message goes out
+        through Google Workspace from info@humanoid-traders.com, under
+        Google&rsquo;s own privacy policy. It emails you for the welcome and
+        verification link, a password reset, and a notice when your password,
+        your two-factor setting, your plan or your account changes. It sends no
+        marketing email. Telegram-, X- and wallet-only accounts hold a
+        placeholder address, not a real one, and are never emailed.
+      </P>
 
       <H>Exchange API keys</H>
       <P>
@@ -296,7 +305,7 @@ function Privacy() {
         >
           message the bot
         </a>{' '}
-        or contact Humanoid Traders.
+        or email info@humanoid-traders.com.
       </P>
     </article>
   )

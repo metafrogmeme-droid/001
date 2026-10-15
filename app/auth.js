@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { pool } = require('./db');
 const mailer = require('./lib/mailer');
+const accountMail = require('./lib/account_mail');
 const oauth2 = require('./lib/oauth2');
 const { VENUES } = require('./lib/venues');
 const { tokenFromRequest, setSession, clearSession } = require('./lib/session_cookie');
@@ -815,6 +816,7 @@ router.post('/2fa/enable', authMiddleware, async (req, res) => {
     await pool.execute(
       'UPDATE users SET totp_secret = ?, totp_enabled = ?, totp_backup_codes = ? WHERE id = ?',
       [stored, 1, JSON.stringify(hashes), req.user.user_id]);
+    void accountMail.notify('totp_enabled', user.email);
     res.json({
       enabled: true,
       backup_codes: codes,
@@ -865,6 +867,7 @@ router.post('/2fa/disable', authMiddleware, async (req, res) => {
     await pool.execute(
       'UPDATE users SET totp_secret = ?, totp_enabled = ?, totp_backup_codes = ? WHERE id = ?',
       [null, 0, null, req.user.user_id]);
+    void accountMail.notify('totp_disabled', user.email);
     res.json({ enabled: false });
   } catch (err) {
     res.status(500).json({ error: '2FA disable failed' });
@@ -1479,6 +1482,12 @@ router.post('/change-password', authMiddleware, async (req, res) => {
       const ok = await bcrypt.compare(String(current_password), user.password_hash);
       if (!ok) return res.status(401).json({ error: 'Current password is incorrect' });
     }
+    // A first password on a sign-in-with-provider account is "set", not
+    // "changed": there was nothing to change, and the owner should be told
+    // which happened. Read BEFORE the write: a row object the driver hands
+    // back is not promised to be a copy, and after the UPDATE it can already
+    // carry the new hash.
+    const passwordKind = user.password_hash ? 'password_changed' : 'password_set';
     const hash = await bcrypt.hash(String(new_password), 12);
     await pool.execute('UPDATE users SET password_hash = ? WHERE id = ?', [hash, user.id]);
     // Changing a password is how someone responds to "my account is
@@ -1491,6 +1500,8 @@ router.post('/change-password', authMiddleware, async (req, res) => {
     const [fresh] = await pool.execute(
       'SELECT id, email, token_epoch FROM users WHERE id = ?', [user.id]);
     const token = fresh.length ? signToken(fresh[0]) : undefined;
+    // Not awaited: the notice never delays or fails the change it reports.
+    if (fresh.length) void accountMail.notify(passwordKind, fresh[0].email);
     // The revocation above just invalidated the cookie this request arrived
     // with. Re-issuing it is what keeps the promise in the comment — the act
     // of securing the account must not log the owner out of the tab they did
@@ -1624,6 +1635,7 @@ router.post('/reset-password', async (req, res) => {
     await revokeUserTokens(rows[0].id);
     // A successful reset clears any per-account lockout so the user can log in.
     await clearAccountFailures(String(rows[0].email).trim().toLowerCase());
+    void accountMail.notify('password_reset', rows[0].email);
     res.json({ ok: true });
   } catch (err) {
     console.error('Reset-password error:', err.stack || err.message);
@@ -1657,7 +1669,10 @@ router.post('/send-verification', authMiddleware, async (req, res) => {
       'SELECT id, email, email_verified FROM users WHERE id = ?', [req.user.user_id]);
     if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
     if (rows[0].email_verified) return res.json({ ok: true, already_verified: true });
-    if (String(rows[0].email).endsWith('@telegram.runeclaw.local')) {
+    // Every synthesised address, not only Telegram's: an X-, Discord- or
+    // wallet-only account holds one too, and a relay would bounce the link
+    // while the page said it was sent.
+    if (!accountMail.deliverable(rows[0].email)) {
       return res.status(400).json({ error: 'Add a real email address first' });
     }
     await sendVerificationEmail(rows[0].id, rows[0].email);
@@ -1810,6 +1825,10 @@ router.delete('/account', authMiddleware, async (req, res) => {
       + 'wallet_address, sol_address FROM users WHERE id = ?', [uid]);
     if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
     const user = rows[0];
+    // The address the deletion notice goes to, held as a value now: the
+    // erasure below rewrites this row to a tombstone address, and a row
+    // object is not promised to be a copy of what was read.
+    const ownerEmail = String(user.email || '');
     const b = req.body || {};
 
     // A password-less account (OAuth, wallet, Telegram-only) has no password to
@@ -1912,6 +1931,9 @@ router.delete('/account', authMiddleware, async (req, res) => {
     }
     clearSession(req, res);
     secLog('account_deleted', req, `bot=${JSON.stringify(botStores)}`);
+    // To the address read BEFORE the erasure: the row now holds a synthetic
+    // one, and this is the last message the account will ever be sent.
+    void accountMail.notify('account_deleted', ownerEmail);
     res.json({
       deleted: true,
       bot_stores: botStores,
