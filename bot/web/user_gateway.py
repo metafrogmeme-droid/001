@@ -3163,7 +3163,9 @@ async def handle_networth(request: web.Request) -> web.Response:
         "read_only": True,
         "paper": reading["paper"],
         "cex": reading["cex"],
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        # When the venue answered, for a balance served from memory too.
+        "updated_at": (reading["cex"].get("read_at")
+                       or datetime.now(timezone.utc).isoformat()),
     })
 
 
@@ -3187,8 +3189,8 @@ async def handle_holdings(request: web.Request) -> web.Response:
 
     rows: list[dict] = []
     try:
-        from bot.core.exchange_credentials import (
-            get_credential_store, balance_snapshot)
+        from bot.core.exchange_credentials import get_credential_store
+        from bot.core.venue_balance_read import read_balance
         store = get_credential_store()
         venues = store.list_venues(tg_id)          # every connected venue
         active = store.get_venue(tg_id)
@@ -3199,34 +3201,38 @@ async def handle_holdings(request: web.Request) -> web.Response:
             if not fields:
                 return {"venue": venue, "ok": False, "equity_usd": None,
                         "detail": "credentials unreadable"}
+            # The shared read (bot/core/venue_balance_read.py): the net-worth
+            # card and /networth ask the same venue for the same balance.
             async with sem:
-                try:
-                    snap = await asyncio.wait_for(
-                        balance_snapshot(venue, fields), timeout=25)
-                except asyncio.TimeoutError:
-                    snap = {"ok": False, "venue": venue, "equity_usd": None,
-                            "detail": "venue timeout"}
+                snap = await read_balance(tg_id, venue, fields, timeout=25)
             return {"venue": venue, "active": venue == active, **snap}
 
         if venues:
             rows = list(await asyncio.gather(*[_one(v) for v in venues]))
     except Exception as exc:
-        audit(system_log, f"Holdings read failed for {tg_id}: {exc}",
+        audit(system_log, f"Holdings read failed for {tg_id}: {type(exc).__name__}",
               action="web_holdings", result="ERROR")
         return web.json_response({"read_only": True, "venues": [],
                                   "error": "holdings_unavailable"})
 
-    total = 0.0
-    for r in rows:
-        v = r.get("equity_usd")
-        if r.get("ok") and isinstance(v, (int, float)):
-            total += float(v)
+    # A total over the venues that answered is a partial total: printed only
+    # when every venue answered, and the count of the ones that did not says
+    # why it is absent.
+    unread = [r for r in rows
+              if not (r.get("ok") is True and isinstance(r.get("equity_usd"), (int, float)))]
+    total = (round(sum(float(r["equity_usd"]) for r in rows), 2)
+             if rows and not unread else None)
+    # As of the OLDEST reading: a balance served from memory is as old as the
+    # read it came from, never as new as the reply.
+    read_times = sorted(str(r["read_at"]) for r in rows if r.get("read_at"))
     return web.json_response({
         "read_only": True,
         "venues": rows,
-        "venue_total_usd": round(total, 2),
+        "venue_total_usd": total,
+        "venues_unread": len(unread),
         "venue_count": len(rows),
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": (read_times[0] if read_times
+                       else datetime.now(timezone.utc).isoformat()),
     })
 
 

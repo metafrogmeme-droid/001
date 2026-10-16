@@ -342,3 +342,4 @@ about to change before changing it.
 - L25652: THE PRESALE WAS LIVE AND THE OPERATOR COULD NOT FIND IT — `app/test/the_presale_bar_says_live_and_steps_aside.smoke.test.js`, `app/test/the_presale_is_on_a_phones_first_screen.smoke.test.js`
 - L25683: ONE SIGNED-IN USER COULD SPEND THE CHAT BUDGET EVERYONE ELSE ANSWERED FROM — `tests/test_one_user_cannot_spend_chats_whole_share.py`
 - L25722: FOUR COMMANDS CHANGED A MEMBER, EACH WITH ITS OWN RULES, AND NOTHING SAID WHO — `app/test/the_admin_members_are_the_operators_and_a_grant_is_telegrams.test.js`, `tests/test_a_member_changes_through_one_path.py`
+- L25768: EVERY CARD ASKED THE VENUE FOR THE SAME BALANCE, AND THE FUNDS CARD ADDED WHAT ANSWERED — `tests/conftest.py`, `tests/test_one_venue_read_serves_every_card.py`

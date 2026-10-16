@@ -16,7 +16,6 @@ this function; nothing here can place, modify or cancel an order.
 """
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from bot.utils.logger import audit, system_log
@@ -53,8 +52,8 @@ async def networth_reading(engine: Any, user_id: str) -> dict:
         paper = None                                   # the card says so
     cex: dict = {"connected": False}
     try:
-        from bot.core.exchange_credentials import (balance_snapshot,
-                                                   get_credential_store)
+        from bot.core.exchange_credentials import get_credential_store
+        from bot.core.venue_balance_read import read_balance
         store = get_credential_store()
         if store.has(user_id):
             venue = store.get_venue(user_id)
@@ -63,15 +62,13 @@ async def networth_reading(engine: Any, user_id: str) -> dict:
                 cex = {"connected": True, "venue": venue, "ok": False,
                        "equity_usd": None, "detail": "credentials unreadable"}
             else:
-                try:
-                    snap_cex = await asyncio.wait_for(
-                        balance_snapshot(venue, fields), timeout=BALANCE_TIMEOUT_S)
-                except asyncio.TimeoutError:
-                    snap_cex = {"ok": False, "venue": venue,
-                                "equity_usd": None, "detail": "venue timeout"}
+                # The shared read (bot/core/venue_balance_read.py): the
+                # funds-by-venue card and a second tab ask the same venue.
+                snap_cex = await read_balance(user_id, venue, fields,
+                                              timeout=BALANCE_TIMEOUT_S)
                 cex = {"connected": True, **snap_cex}
     except Exception as exc:
-        audit(system_log, f"Net-worth CEX read failed for {user_id}: {exc}",
-              action="networth_read", result="ERROR")
+        audit(system_log, f"Net-worth CEX read failed for {user_id}: "
+              f"{type(exc).__name__}", action="networth_read", result="ERROR")
         cex = {"connected": False, "error": "cex_unavailable"}
     return {"paper": paper, "cex": cex}

@@ -1381,6 +1381,26 @@ def _contain_the_public_preview_counts():
 
 
 @pytest.fixture(autouse=True)
+def _contain_the_shared_balance_reads():
+    """Hold no venue balance across tests.
+
+    `bot/core/venue_balance_read.py` keeps a reading the venue answered for a
+    few seconds, keyed by caller, venue and keys. Tests reuse a handful of
+    callers and stand-in keys with a different stand-in venue each time, so a
+    reading one test's venue returned would answer the next test's ask. Emptied
+    before and after, not asserted, for the reason the fixtures above give.
+    """
+    import sys as _sys
+    vb = _sys.modules.get("bot.core.venue_balance_read")
+    if vb is not None:
+        vb._reset()
+    yield
+    vb = _sys.modules.get("bot.core.venue_balance_read")
+    if vb is not None:
+        vb._reset()
+
+
+@pytest.fixture(autouse=True)
 def _contain_the_operator_settings():
     """Hand `RUNTIME`'s settings back after every test.
 

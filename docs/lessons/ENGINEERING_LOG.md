@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **492 of 1330** reach for source text through `source_scan`, `code_only`
+Driven, **492 of 1331** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 492 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -25764,3 +25764,44 @@ four commands call the module and write nothing themselves.
 `app/test/the_admin_members_are_the_operators_and_a_grant_is_telegrams.test.js`
 drives the route; the admin phone smoke test now carries a roster. Twenty-one
 mutants, all killed.)
+
+**EVERY CARD ASKED THE VENUE FOR THE SAME BALANCE, AND THE FUNDS CARD ADDED WHAT ANSWERED.**
+A connected trader's balance is one read-only `fetch_balance` per venue.
+The website's net-worth card, its funds-by-venue card and Telegram's
+`/networth` (which renders the website's card) each made their own, on every
+view. A dashboard that opens both cards, a reload or a second tab spent the
+venue's rate budget once each. With registration open, that is many people's
+page views spending one bot's sockets and one venue's limits.
+
+`bot/core/venue_balance_read.py` is now the one read both gateway cards and
+the net-worth reading go through:
+- **A reading the venue gave in the last fifteen seconds is answered from
+  memory, and a read in flight is joined**, so a reload or a second card costs
+  no venue call.
+- **The key is the caller, the venue, the environment the venue trades in,
+  and a salted digest of the keys.** Two callers never share a reading,
+  whatever their keys. A rotated key, or a switch between demo and live, is a
+  new reading at once. The digest is salted per process and never leaves it.
+- **Only a reading the venue answered is kept.** A refusal or a timeout is
+  never served again, so an outage is not remembered past its end.
+- **A reading from memory is dated when the venue answered.** Each row carries
+  `read_at`, and a card's `updated_at` is its oldest reading. It used to be the
+  moment the reply was built, which a remembered reading would have made a
+  false "now".
+- **One caller giving up does not cancel the others' read** (shielded), a read
+  from another event loop is never awaited, and the memory is bounded,
+  dropping the least recently asked.
+
+**The funds card printed a partial total.** `venue_total_usd` summed the
+venues that answered, so one venue timing out left the other's balance as the
+total. It is `null` now unless every venue answered, beside `venues_unread`.
+No surface read it yet, so the field changed before any surface could print
+it. The card's failure line, and the net-worth reading's, logged the
+exception's message (a path, from an `OSError` in the credential store); both
+name the class now.
+
+(`tests/test_one_venue_read_serves_every_card.py` drives the shared read
+(joins, freshness, identity, rotated keys, the environment, failures not kept,
+a caller giving up, the bound, another loop) and both gateway cards over the
+real router. Seventeen mutants, all killed. `tests/conftest.py` empties the
+memory around every test.)
