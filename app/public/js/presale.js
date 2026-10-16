@@ -14,7 +14,11 @@
  * THE BAR. While the sale is live, a slim bar at the top of the page names it, shows the closing
  * time and links to /token, where the terms and the one official sale link are. It is not shown
  * on /token itself (the page says all of it), before the sale opens or after it closes, or to a
- * visitor who closed it for this sale (kept in this browser; a later sale shows again). A record
+ * visitor who closed it in the last day (kept in this browser). Closing it used to hide it for
+ * the whole two-week sale, and on 2026-10-16 the operator could not find the bar on the live
+ * site: one tap on ✕ had taken the presale off every page for that browser until it closed. A
+ * close now lasts DISMISS_MS, a close kept in the old shape counts as expired, and a later sale
+ * shows again whatever was closed before. A record
  * that cannot be read shows no bar: an advert that cannot say when the sale closes is one the
  * site does not need to make.
  *
@@ -31,6 +35,9 @@
   const WINDOW_AT = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}):00Z$/;
   const BAR_ID = 'presale-bar';
   const DISMISS_KEY = 'rc_presale_bar_closed';
+  /** How long a close lasts: a day, so a visitor is not asked twice in one sitting, and a sale
+   *  that runs for two weeks is not hidden for all of it by one tap. */
+  const DISMISS_MS = 24 * 60 * 60 * 1000;
   // The home strip's sentence, one string in fourteen languages for both.
   const BAR_TEXT = '$RCLAW presale is live now';
   const BAR_CTA = 'Terms and the official sale link →';
@@ -88,18 +95,32 @@
     }
   }
 
-  /** Whether this visitor closed the bar for the sale that closes at `closesAt`. Unreadable storage: not closed. */
-  function dismissed(storage, closesAt) {
+  function nowOr(nowMs) {
+    return Number.isFinite(nowMs) ? nowMs : Date.now();
+  }
+
+  /**
+   * Whether this visitor closed the bar for the sale that closes at `closesAt`, less than
+   * DISMISS_MS ago. The value is "<closes_at>|<ms closed at>". Unreadable storage, another sale,
+   * a value in the old shape (closes_at alone, which hid the whole sale) or a time that cannot be
+   * read: not closed.
+   */
+  function dismissed(storage, closesAt, nowMs) {
     try {
-      return !!storage && storage.getItem(DISMISS_KEY) === closesAt;
+      const v = storage ? storage.getItem(DISMISS_KEY) : null;
+      const cut = typeof v === 'string' ? v.lastIndexOf('|') : -1;
+      if (cut < 0 || v.slice(0, cut) !== closesAt) return false;
+      const at = Number(v.slice(cut + 1));
+      const age = nowOr(nowMs) - at;
+      return Number.isFinite(at) && age >= 0 && age < DISMISS_MS;
     } catch (e) {
       return false;
     }
   }
 
-  function remember(storage, closesAt) {
+  function remember(storage, closesAt, nowMs) {
     try {
-      if (storage) storage.setItem(DISMISS_KEY, closesAt);
+      if (storage) storage.setItem(DISMISS_KEY, closesAt + '|' + nowOr(nowMs));
     } catch (e) { /* a private window: the bar closes for this page only */ }
   }
 
@@ -140,7 +161,7 @@
     const p = token && token.presale;
     if (presalePhase(p, nowMs) !== 'live') return null;
     if (!doc || !doc.body || doc.getElementById(BAR_ID) || doc.getElementById('tok-root')) return null;
-    if (dismissed(storage, p.closes_at)) return null;
+    if (dismissed(storage, p.closes_at, nowMs)) return null;
     if (!doc.getElementById(BAR_ID + '-css')) {
       const style = doc.createElement('style');
       style.id = BAR_ID + '-css';
@@ -156,7 +177,7 @@
     const close = bar.querySelector('.pb-close');
     if (close) {
       close.addEventListener('click', function () {
-        remember(storage, p.closes_at);
+        remember(storage, p.closes_at, nowMs);
         if (bar.parentNode) bar.parentNode.removeChild(bar);
       });
     }
@@ -188,6 +209,6 @@
 
   return {
     WINDOW_AT, windowMs, windowText, saleWindow, presalePhase,
-    BAR_ID, DISMISS_KEY, BAR_TEXT, BAR_CTA, BAR_CLOSE, BAR_CLOSES, barHtml, showBar, bootBar, dismissed,
+    BAR_ID, DISMISS_KEY, DISMISS_MS, BAR_TEXT, BAR_CTA, BAR_CLOSE, BAR_CLOSES, barHtml, showBar, bootBar, dismissed,
   };
 }));

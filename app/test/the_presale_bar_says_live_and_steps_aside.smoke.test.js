@@ -7,8 +7,9 @@
  * page's clock pinned, because the bar is a reading of the record's sale window against the
  * clock (presale.js presalePhase) and a test that asked the real clock would say something else
  * on each day of the sale. Measured, not inferred: the bar is the body's first element, it fits
- * a phone without sideways scroll, closing it keeps it closed for this sale, and it is absent
- * before the sale, after it, on /token (which says all of it), and when the record cannot be read.
+ * a phone without sideways scroll, closing it keeps it closed for a day (not the whole sale,
+ * which is how the operator lost sight of it on 2026-10-16), and it is absent before the sale,
+ * after it, on /token (which says all of it), and when the record cannot be read.
  */
 const test = require('node:test');
 const assert = require('node:assert');
@@ -148,27 +149,57 @@ test('while the sale is live the bar is at the top of every page that carries it
   }
 });
 
-test('closed, it stays closed for this sale; it is absent on /token, outside the window and when the record cannot be read', SKIP ? { skip: SKIP } : {}, async () => {
+test('closed, it stays closed for a day; it is absent on /token, outside the window and when the record cannot be read', SKIP ? { skip: SKIP } : {}, async () => {
   const { server, base } = await serve();
   const browser = await pw.chromium.launch({ executablePath: CHROMIUM });
+  // A close stored the way the page stores it, `when` ms after LIVE: what a returning visitor's
+  // browser holds.
+  const closedAt = (closesAt, ms) => `${closesAt}|${Date.parse(LIVE) + ms}`;
+  const holding = async (opts, value) => {
+    const c = await context(browser, opts);
+    await c.addInitScript(([k, v]) => { try { localStorage.setItem(k, v); } catch (e) { /* none */ } },
+      [Presale.DISMISS_KEY, value]);
+    return c;
+  };
+  const DAY = Presale.DISMISS_MS;
   try {
     const ctx = await context(browser);
     const p = await open(ctx, base, 'index.html');
     assert.ok(await p.evaluate(barFacts));
     await p.click('#presale-bar .pb-close');
     assert.strictEqual(await p.evaluate(barFacts), null, 'the bar did not close');
-    assert.strictEqual(await p.evaluate((k) => localStorage.getItem(k), Presale.DISMISS_KEY), RECORD.token.presale.closes_at);
+    assert.strictEqual(await p.evaluate((k) => localStorage.getItem(k), Presale.DISMISS_KEY),
+      closedAt(RECORD.token.presale.closes_at, 0));
     const again = await open(ctx, base, 'arena.html');
     assert.strictEqual(await again.evaluate(barFacts), null, 'a closed bar came back on the next page');
+    await ctx.close();
+
+    // Both arms of the day. On 2026-10-16 one tap had hidden the bar for the whole sale.
+    const hour = new Date(Date.parse(LIVE) + DAY - 3600e3).toISOString();
+    const later = new Date(Date.parse(LIVE) + DAY + 60e3).toISOString();
+    const stored = closedAt(RECORD.token.presale.closes_at, 0);
+    const within = await holding({ now: hour }, stored);
+    assert.strictEqual(await (await open(within, base, 'index.html')).evaluate(barFacts), null,
+      'a close an hour short of a day ago did not hold');
+    await within.close();
+    const past = await holding({ now: later }, stored);
+    assert.ok(await (await open(past, base, 'index.html')).evaluate(barFacts), 'a close a day ago still hid the bar');
+    await past.close();
+    // A close kept in the old shape (the closing time alone) hid the whole sale; it has expired.
+    const legacy = await holding({}, RECORD.token.presale.closes_at);
+    assert.ok(await (await open(legacy, base, 'index.html')).evaluate(barFacts), 'a close in the old shape still hid the bar');
+    await legacy.close();
+    // A close stamped in the future (a clock set back since) is not a close.
+    const ahead = await holding({}, closedAt(RECORD.token.presale.closes_at, 3600e3));
+    assert.ok(await (await open(ahead, base, 'index.html')).evaluate(barFacts), 'a close from the future hid the bar');
+    await ahead.close();
     // A later sale is a different window: the bar shows again.
-    const next = await context(browser, { now: '2026-12-10T00:00:00Z',
+    const next = await holding({ now: '2026-12-10T00:00:00Z',
       token: { token: { ...RECORD.token, presale: { ...RECORD.token.presale,
-        opens_at: '2026-12-01T14:00:00Z', closes_at: '2026-12-15T14:00:00Z' } } } });
-    await next.addInitScript(([k, v]) => { try { localStorage.setItem(k, v); } catch (e) { /* none */ } },
-      [Presale.DISMISS_KEY, RECORD.token.presale.closes_at]);
+        opens_at: '2026-12-01T14:00:00Z', closes_at: '2026-12-15T14:00:00Z' } } } },
+    `${RECORD.token.presale.closes_at}|${Date.parse('2026-12-10T00:00:00Z') - 60e3}`);
     assert.ok(await (await open(next, base, 'index.html')).evaluate(barFacts), 'closing one sale hid the next');
     await next.close();
-    await ctx.close();
 
     const live = await context(browser);
     assert.strictEqual(await (await open(live, base, 'token.html')).evaluate(barFacts), null, '/token says all of it');
