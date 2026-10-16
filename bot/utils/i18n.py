@@ -371,6 +371,17 @@ _STRINGS: dict[str, dict[str, str]] = {
                "的上限，不是機器人的：登入後的聊天有它自己的預算。<br><br>"
                "<a href=\"/dashboard\">免費登入 →</a>"),
     },
+    # One signed-in user's slice of chat's budget (`USER_SHARE_BOUND` in
+    # `_llm_chat`). It names the person's share, because that is the bound
+    # reached: everyone else's chat still answers.
+    "chat_user_share_exhausted": {
+        "en": ("You've used your share of today's AI chat budget. The budget is "
+               "shared by everyone who chats with the bot, and no one person can "
+               "spend more than a share of it; yours comes back at 00:00 UTC."),
+        "zh": ("你已用完你在今天 AI 聊天預算中的份額。這份預算由所有與機器人聊天"
+               "的人共用，任何一個人都不能花超過自己的份額；你的份額會在 UTC 00:00 "
+               "恢復。"),
+    },
     "chat_thinking_0": {"en": "<i>Looking at the chart...</i>", "zh": "<i>正在看圖表...</i>"},
     "chat_thinking_1": {"en": "<i>Checking the setup...</i>", "zh": "<i>正在檢查這個設定...</i>"},
     "chat_thinking_2": {"en": "<i>Pulling up the data...</i>", "zh": "<i>正在調出資料...</i>"},

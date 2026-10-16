@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **492 of 1328** reach for source text through `source_scan`, `code_only`
+Driven, **492 of 1329** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 492 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -25679,3 +25679,42 @@ headline, and an invite link does not push it down.
 `app/test/the_presale_bar_says_live_and_steps_aside.smoke.test.js` now holds
 both arms of the day, the old-shape value and the future stamp. Four mutants,
 all killed.)
+
+**ONE SIGNED-IN USER COULD SPEND THE CHAT BUDGET EVERYONE ELSE ANSWERED FROM.**
+Chat's model spend had three bounds: the combined daily total, chat's share of
+it (`LLM_CHAT_BUDGET_SHARE`), and the anonymous preview's slice of chat
+(`LLM_PUBLIC_CHAT_BUDGET_SHARE`), added when a few hundred anonymous turns used
+up chat's share. Signed-in chat was still one pool. With registration open,
+one account asking all day spent chat's whole share, and every other user was
+told "Chat has used its share of today's AI budget" until 00:00 UTC. The free
+tier's question count (`bot/web/chat_quota.py`) did not cover it: it counts
+questions only while the operator funds the Grok tier, and paid tiers are
+exempt.
+
+Each signed-in user who is not an admin now stops at a slice of chat
+(`LLM_USER_CHAT_BUDGET_SHARE`, default a quarter), in dollars and in calls,
+since in-house models book zero dollars:
+- **The ledger books each signed-in chat call to its user** as a subset of
+  chat's figures (`record_llm(user=...)`), never a public call or another
+  category, and keeps the split across a restart like the rest of the day.
+- **A ledger written before the split was kept** restores today's figures,
+  and each user's split counts from that read. The summary records when
+  (`user_split_since`) and `/costs` says so, rather than presenting the split
+  as a whole day. One map without the other, or a malformed one, is a ledger
+  with a hole in it and reads as unreadable.
+- **No entry for a user is a measured zero.** Every booking that names a user
+  adds to its entry. An unreadable figure is chat's whole spend, the strict
+  direction the preview's reading takes.
+- **The refusal names the person's share**, in fourteen languages, because
+  that is the bound reached: everyone else's chat still answers.
+- **The rolling-note fold** is a chat call booked to the same user, so it
+  stops at the same slice and keeps the turns for tomorrow.
+- **Admins are not held to it.** The anonymous preview keeps its own slice.
+- **`/costs` shows the slice, how many users chat answered and the most any
+  one of them spent.** It never says who.
+
+(`tests/test_one_user_cannot_spend_chats_whole_share.py` drives the reading,
+the ledger with its restart and its old-shape file, the chat end to end (one
+user refused at their quarter while the next still answers; the operator not
+held), the fold both ways, the refusal in every language and the card's
+figures. Ten mutants, all killed.)

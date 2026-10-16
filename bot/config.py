@@ -1373,6 +1373,15 @@ class LLMConfig:
     # built-in answers still work.
     public_chat_budget_share: float = _env_float_bounded(
         "LLM_PUBLIC_CHAT_BUDGET_SHARE", 0.2, 0.0, 0.5)
+    # ONE SIGNED-IN USER'S SLICE OF CHAT'S BUDGET. Signed-in chat was one
+    # pool: a single person asking all day spent chat's whole share, and
+    # every other user was told the budget was used up until 00:00 UTC. Each
+    # signed-in user other than an admin now stops at this fraction of
+    # chat's dollars and of the daily call limit
+    # (`cost.user_chat_budget_bound`). 1.0 lets one user spend all of it, as
+    # before; 0 turns the model off for signed-in users who are not admins.
+    user_chat_budget_share: float = _env_float_bounded(
+        "LLM_USER_CHAT_BUDGET_SHARE", 0.25, 0.0, 1.0)
     # Questions the model answers per visitor per UTC day on the public
     # preview (`bot/web/public_chat_quota.py`). Counted in the bot process's
     # memory against a key the website derives from the visitor's address,
