@@ -770,7 +770,9 @@ def test_the_scan_section_names_numbers_a_drive_returns():
     # "twelve sequential batches" — ceil(universe / semaphore), in words.
     import textwrap
 
-    src = textwrap.dedent(inspect.getsource(DeepScanSkill.execute))
+    # `_sweep` is the read itself; `execute` shares it between callers
+    # (bot/core/scan_flight.py) and holds no semaphore of its own.
+    src = textwrap.dedent(inspect.getsource(DeepScanSkill._sweep))
     sem = next(int(c.value)
                for node in ast.walk(ast.parse(src))
                if isinstance(node, ast.Call)

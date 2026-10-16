@@ -338,4 +338,4 @@ about to change before changing it.
 - L25346: THE SITE SPOKE FOURTEEN LANGUAGES, AND ON A PHONE THERE WAS NO WAY TO CHOOSE ONE — `app/test/a_language_can_be_chosen_on_every_page.smoke.test.js`
 - L25380: THE AUDIT CARD PRINTED A LOOSENING UNDER THE WORD "TIGHTENS", BECAUSE ITS DIRECTION WAS THE MODEL'S SENTENCE — `tests/test_the_audit_card_says_which_way_a_change_moves.py`
 - L25423: PAPER WAS OPEN BEHIND ONE DOOR AND SHUT AT THE FIVE A NEWCOMER USES FIRST — `tests/test_paper_is_open_at_every_door.py`
-- L25463: SIX SETTINGS, FIVE DOORS, AND THREE ANSWERS TO "DOES IT SURVIVE A RESTART" — `app/test/the_admin_page_is_the_operators_and_a_change_needs_2fa.test.js`, `tests/test_every_operator_setting_has_one_write_path.py`
+- L25463: SIX SETTINGS, FIVE DOORS, AND THREE ANSWERS TO "DOES IT SURVIVE A RESTART" — `app/test/a_crowd_that_misses_together_fetches_once.test.js`, `app/test/the_admin_page_fits_a_phone.smoke.test.js`, `app/test/the_admin_page_is_the_operators_and_a_change_needs_2fa.test.js`, `app/test/the_mail_warning_asks_the_mailer.test.js`, `tests/test_a_crowd_that_scans_together_shares_one_read.py`, `tests/test_every_operator_setting_has_one_write_path.py`

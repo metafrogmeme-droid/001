@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **492 of 1327** reach for source text through `source_scan`, `code_only`
+Driven, **492 of 1328** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 492 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -25521,3 +25521,130 @@ drives the route: a member reads and changes nothing, an operator without 2FA
 reads but cannot change, a wrong code reaches nothing, a dead bot is named
 while the site half stands, and the gateway host never reaches the page.
 Fifteen Python mutants and seven route mutants, all killed.)
+
+**TWENTY PEOPLE SCANNING IN ONE SECOND RAN TWENTY SCANS, AND ASKED THE TRADING
+CLIENT FOR 360 CANDLE SERIES.**
+The owner asked what happens when many people scan at once. No on-demand scan
+shared anything with another caller. The Telegram limiter is per person, so
+twenty `/scan` in one second passed it twenty times:
+- twenty full market sweeps, forty `fetch_tickers` on the same two clients;
+- twenty appends to every symbol's volume history. It is a twenty-sample
+  window, so one burst replaced the baseline the spike detector compares to;
+- twenty cards, each fetching eighteen candle series through the operator's
+  authenticated TRADING client with no cache. That is 360 requests queued, at
+  50 ms each, in front of whatever order that client had to place next.
+
+`/deepscan` did the same at 115 symbols a call, and `/fullscan` at 67 in an
+unbounded gather. In a group, every member's `/scan` posted its own copy of the
+same card. A second `/forcescan` or Latest-Signal tap during a scan got a
+zero-count dict marked "skipped", which nothing read. They printed "Signals
+found: 0" and "No trade setups found" about a scan that had not happened.
+
+**One read, shared.** `bot/core/scan_flight.py` gives each read that is the
+same for everyone one run per key at a time. A caller who arrives during the
+run joins it. One who arrives within the TTL gets the result with its age on
+the card. A failed read, or one the budget cut short, is never served to the
+next caller. At most three distinct reads run at once. The run is a task, so a
+caller who stops waiting does not cancel it for the others. The shared reads:
+- the market sweep, behind `/scan`, `/run`, `/playbook`, the pro scans, web
+  chat and the chat tool;
+- the deep scan, per timeframe;
+- the full scan's market read, now at most ten symbols in flight.
+
+What a caller adds on top is still their own: their book, their entry gate,
+their offers. The sweep's errors are captured with the read they belong to,
+not re-read off a scanner another caller has since swept. Each caller gets its
+own copy of the list, because the doors sort it in place.
+
+**Candles come from the market client, and a miss joins a miss.**
+`_cached_ohlcv` served a cached series only to callers who came after it
+landed. Callers who missed together each fetched, so its TTL did nothing for a
+crowd. A miss now joins a fetch of the same series already in flight. The scan
+card reads its candles through that cache from the scanner's market-data
+client, never the trading client.
+
+**One card per group chat.** `RoomScans` lets the first member's scan post
+the card. Others are told it is coming, or pointed at it while it is current.
+A failed scan frees the chat, and a claim nobody settled goes stale. Private
+chats are not collapsed. The website's shared cache helper and the strategy
+board's "Scan now" route share a fetch in flight too. Each used to say so in
+its own comment: "this does NOT dedupe concurrent misses".
+
+**A second force scan joins the first.** "Skipped" is now read by both of its
+readers as "a scan is already running", never as "nothing found".
+
+(`tests/test_a_crowd_that_scans_together_shares_one_read.py`:
+- the flights share, age, refuse a failure, survive a caller giving up, and
+  cap distinct runs;
+- twenty `/scan` calls make one sweep, with copies, and a failed sweep is
+  read again;
+- twenty candle misses make one fetch;
+- ten cards never touch the trading client;
+- one deep scan runs per timeframe, and a partial is not kept;
+- two full scans make one bounded read;
+- five group members get one card, private chats two, and a failed scan
+  frees the chat;
+- a second force scan joins, and "skipped" is never "0 found".
+
+`app/test/a_crowd_that_misses_together_fetches_once.test.js` drives the cache
+helper and the route the same way. Sixteen Python mutants and three website
+mutants, all killed.)
+
+**The slice's own tests were green. The first full run found 31 failures and
+two gates, every one from a move the slice's own suite could not see:**
+- **A fetch split into a second method.** Twenty-one tests bind the real
+  `_cached_ohlcv` onto a stand-in that carries nothing else, and three read the
+  drop, the store and the eviction inside it. The fetch is a nested coroutine
+  again. The slice had pointed one of those three at the split-off method; the
+  second full run caught that pointer left dangling, and it reads
+  `_cached_ohlcv` again.
+- **A dispatch moved out of its gate.** `/deepscan`'s body went into a helper,
+  and `scripts/guard_lint.py` said the gated skill was now dispatched from a
+  function the token gate never reaches. It is back in the gated handler. The
+  move also hid a defect: the helper caught its own failures, so a deep scan
+  that timed out still marked the chat "posted" and pointed the next member at
+  a card nobody sent. The chat is now marked only when something was posted.
+- **A contract changed under its test.** A second force scan now joins the
+  first; `test_force_scan_is_single_flight` still asserted "skipped". It
+  asserts the join now, and the skip that the periodic tick's lock still
+  answers, both arms.
+- **Two names made ambiguous.** `ScanFlights.forget` and `RoomScans.release`
+  shared names with other classes, so the unreachable-method sweep could no
+  longer resolve either. `forget` had no caller and is gone; `release` is
+  `free_claim`.
+- **A baseline row went stale, and one shape was new.** The scan card no
+  longer touches the operator's client, so its row in
+  `tests/operator_account_reads_baseline.txt` was deleted. The deep scan's
+  shared key read the budget as `budget or 0`; it reads it as the sweep does.
+
+**THE ADMIN PAGE'S FIRST READER WAS A PHONE, AND ITS FIRST WARNING WAS A SECOND
+READING OF THE MAILER.**
+The owner opened `/admin` on a phone the day it shipped and sent a screenshot.
+Two things were wrong, and neither was visible from the tests the page shipped
+with, which drove the route and never drew the page:
+- **The tables ran off the screen.** A flag's name and its value are monospace
+  and do not wrap, so as three columns they left "What it does" a sliver at
+  the right edge: one word per line, the ends of the words cut off. The page
+  did not scroll sideways, so nothing said there was more. The six-column
+  change record would have done the same. On a phone each row is now a short
+  card, every cell under the name of its column (`data-label`).
+- **The email warning had its own reading of the mailer.**
+  `lib/config_audit.js` decided "SMTP_HOST/MAIL_FROM unset, emails are NOT
+  sent" by checking MAIL_FROM alone. The mailer sends with MAIL_FROM or
+  SMTP_FROM, so a site sending with SMTP_FROM was told its mail was not sent.
+  The audit now asks `mailer.isConfigured(env)`, and the warning names what is
+  actually missing (`mailer.missingConfig`). The two copies also disagreed on
+  blank values: the audit trimmed and the mailer did not, so a blank host made
+  the mailer dial "   ". The one reading trims, and a blank MAIL_FROM no longer
+  hides a set SMTP_FROM.
+
+(`app/test/the_admin_page_fits_a_phone.smoke.test.js` draws the page in
+Chromium at 412px and 360px with the real longest flag names and the
+screenshot's own description: nothing ends past the screen edge, the
+description is a paragraph, and every cell names its column. At 1200px the
+tables stay tables. A word-wrap rule in the first draft was taken out: no flag
+name, value or actor reaches it even at 320px, and a rule no input reaches is a
+claim nothing checks. `app/test/the_mail_warning_asks_the_mailer.test.js`
+holds the audit and the mailer to one answer across eight shapes of the
+settings, and the trimming on its own, since agreement cannot see a mistake
+both sides share. Three layout mutants and five mail mutants, all killed.)

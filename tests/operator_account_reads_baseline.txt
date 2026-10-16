@@ -26,5 +26,4 @@ bot/skills/account_commands.py::_cmd_setexchange  admin: rewrites the operator's
 bot/skills/engine_ops_commands.py::_cmd_venue  admin: switches the operator's active venue
 bot/skills/engine_ops_commands.py::_venue_status_lines  via _cmd_venue: the operator's venue and open count, printed on /venue
 bot/skills/engine_ops_commands.py::_cmd_parity  admin: /parity compares the operator's live record with the benchmark
-bot/skills/scan_commands.py::_render_scan_signals_card  market data only: the operator's client is used to fetch public 1h candles for the sparklines; no account field is read
 bot/skills/alerts_monitor.py::_on_trade_closed  the close card goes to the operator's own notify chats (TELEGRAM_CHAT_ID), never to a caller

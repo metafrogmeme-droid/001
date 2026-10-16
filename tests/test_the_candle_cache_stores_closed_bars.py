@@ -206,9 +206,14 @@ class TestTheDropHappensOnceAndOnlyAtTheBoundary:
         """
         tree = ast.parse(ENGINE_SRC)
         sites: list[tuple[str, int]] = []
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
+        # Methods and module functions only. A walk over EVERY def reported
+        # one call twice once `_cached_ohlcv` ran its fetch as a nested
+        # coroutine: under the method and again under the nested `_fetch`. A
+        # nested def is part of the method it sits in, so the method answers.
+        tops = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+        for cls in (n for n in tree.body if isinstance(n, ast.ClassDef)):
+            tops += [n for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+        for node in tops:
             for call in ast.walk(node):
                 if (isinstance(call, ast.Call)
                         and isinstance(call.func, ast.Attribute)

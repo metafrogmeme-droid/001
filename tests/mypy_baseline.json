@@ -3,7 +3,7 @@
   "counts": {
     "arg-type": 76,
     "assignment": 52,
-    "attr-defined": 28,
+    "attr-defined": 27,
     "call-arg": 3,
     "call-overload": 5,
     "exit-return": 2,

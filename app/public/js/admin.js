@@ -96,18 +96,18 @@
             : r.effect === 'unknown' ? 'direction unknown' : 'no change';
       const saved = r.persisted === true ? 'saved' : r.persisted === false ? 'not saved' : 'not confirmed';
       const label = labels[r.key] || r.key;
-      return `<tr><td class="mono">${esc(when)}</td><td>${esc(label)}</td>
-        <td class="mono">${esc(r.reset ? 'reset' : '')} ${esc(JSON.stringify(r.before))} → ${esc(JSON.stringify(r.after))}</td>
-        <td>${esc(eff)}</td><td>${esc(r.via || '')} · ${esc(r.actor || '')}</td><td>${esc(saved)}</td></tr>`;
+      return `<tr><td class="mono" data-label="When">${esc(when)}</td><td data-label="Setting">${esc(label)}</td>
+        <td class="mono" data-label="Change">${esc(r.reset ? 'reset' : '')} ${esc(JSON.stringify(r.before))} → ${esc(JSON.stringify(r.after))}</td>
+        <td data-label="Effect">${esc(eff)}</td><td data-label="Who">${esc(r.via || '')} · ${esc(r.actor || '')}</td><td data-label="Saved">${esc(saved)}</td></tr>`;
     }).join('');
     return `<table class="rows"><thead><tr><th>When</th><th>Setting</th><th>Change</th><th>Effect</th><th>Who</th><th>Saved</th></tr></thead><tbody>${body}</tbody></table>`;
   }
 
   function flagRows(flags) {
     if (!flags.length) return '<div class="empty">No flags listed.</div>';
-    const body = flags.map((f) => `<tr><td class="mono">${esc(f.name)}</td>
-        <td class="mono">${(f.value === null || f.value === undefined) ? '<span class="warn">not read</span>' : esc(f.value)}</td>
-        <td>${esc(f.means || '')}</td></tr>`).join('');
+    const body = flags.map((f) => `<tr><td class="mono" data-label="Flag">${esc(f.name)}</td>
+        <td class="mono" data-label="In force">${(f.value === null || f.value === undefined) ? '<span class="warn">not read</span>' : esc(f.value)}</td>
+        <td data-label="What it does">${esc(f.means || '')}</td></tr>`).join('');
     return `<p class="note">Read once when the bot starts. Change them in the bot's .env and restart; the nightly self-audit proposes changes to these and never applies them.</p>
       <table class="rows"><thead><tr><th>Flag</th><th>In force</th><th>What it does</th></tr></thead><tbody>${body}</tbody></table>`;
   }
@@ -117,7 +117,7 @@
     const findings = web.findings || [];
     const list = findings.length
       ? `<table class="rows"><thead><tr><th>Level</th><th>Setting</th><th>Finding</th></tr></thead><tbody>${findings.map((f) =>
-        `<tr><td>${f.level === 'fatal' ? '<span class="warn">fatal</span>' : esc(f.level)}</td><td class="mono">${esc(f.key)}</td><td>${esc(f.msg)}</td></tr>`).join('')}</tbody></table>`
+        `<tr><td data-label="Level">${f.level === 'fatal' ? '<span class="warn">fatal</span>' : esc(f.level)}</td><td class="mono" data-label="Setting">${esc(f.key)}</td><td data-label="Finding">${esc(f.msg)}</td></tr>`).join('')}</tbody></table>`
       : '<div class="empty">No configuration findings.</div>';
     return `<p class="note">Bot gateway: ${gw}. These are the site's own environment settings; they are changed on the host and need a restart.</p>${list}`;
   }

@@ -42,10 +42,25 @@ class _FakeScanEngine:
 async def test_force_scan_is_single_flight():
     eng = _FakeScanEngine()
     results = await asyncio.gather(eng.force_scan(), eng.force_scan())
-    # Exactly one scan body ran; the other returned the in-flight skip summary.
+    # Exactly one scan body ran. The second caller JOINS it and gets its
+    # result, marked "joined" (bot/core/scan_flight.py's rule for force
+    # scans too); it used to be handed a zero-count "skipped" dict that its
+    # readers printed as "Signals found: 0".
     assert eng.body_calls == 1
-    assert sum(r.get("skipped") == "scan_already_running" for r in results) == 1
-    assert sum("skipped" not in r for r in results) == 1
+    assert sum(r.get("joined") is True for r in results) == 1
+    assert all(r.get("signals") == 3 for r in results), results
+    assert not any("skipped" in r for r in results)
+
+
+@pytest.mark.asyncio
+async def test_a_force_scan_during_the_periodic_scan_is_skipped_and_says_so():
+    """The other arm: the lock held by the periodic tick (no force-scan task
+    to join) still answers "skipped", and runs nothing."""
+    eng = _FakeScanEngine()
+    async with eng._scan_lock:
+        r = await eng.force_scan()
+    assert eng.body_calls == 0
+    assert r.get("skipped") == "scan_already_running"
 
 
 @pytest.mark.asyncio

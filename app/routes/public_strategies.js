@@ -58,6 +58,11 @@ router.get('/', async (req, res) => {
 const SCAN_CACHE_MS = 60 * 1000;
 const SCAN_ID = /^[a-z0-9-]{1,40}$/;
 const scanCache = new Map();       // id -> { at: ms, data }
+// One bot call per id in flight: a crowd pressing "Scan now" together used to
+// send one gateway call each (the bot shares the read, but each call still
+// held a connection and a 55s budget). A caller who misses while one is in
+// flight awaits it.
+const scanInflight = new Map();    // id -> Promise<{status, data}>
 
 router.get('/scan', optionalAuth, rateLimit({ name: 'public_strategy_scan', windowMs: 60000, max: 6, key: ipKey }), async (req, res) => {
   if (!isConfigured()) return res.status(503).json({ error: 'Not configured' });
@@ -70,9 +75,18 @@ router.get('/scan', optionalAuth, rateLimit({ name: 'public_strategy_scan', wind
     return res.status(200).json(strategyScanFor(signedIn(req), hit.data));
   }
   try {
-    const r = await getGateway('/public/strategy-scan?id=' + encodeURIComponent(id), 55000);
+    let pending = scanInflight.get(id);
+    if (!pending) {
+      pending = getGateway('/public/strategy-scan?id=' + encodeURIComponent(id), 55000)
+        .then((r) => {
+          if (r.status === 200) scanCache.set(id, { at: Date.now(), data: r.data });
+          return r;
+        })
+        .finally(() => { scanInflight.delete(id); });
+      scanInflight.set(id, pending);
+    }
+    const r = await pending;
     if (r.status === 200) {
-      scanCache.set(id, { at: now, data: r.data });
       return res.status(200).json(strategyScanFor(signedIn(req), r.data));
     }
     // The bot names a failed venue read by its exception class; keep that

@@ -1076,6 +1076,10 @@ class RuneClawEngine:
         # /whynot: store last RiskCheck per symbol when risk rejects a trade
         self._last_rejections: dict[str, dict] = {}
         self._last_scan_signals: list = []
+        # The last /deepscan's hits (None: no deep scan has run) and the line a
+        # shared result adds to the patterns card (bot/core/scan_flight.py).
+        self._last_deepscan_hits: list[dict] | None = None
+        self._last_deepscan_note: str = ""
         self._ohlcv_cache: dict[str, tuple[float, list, float]] = {}
         # M-13 FIX: live balance cache as instance attributes (not class-level mutables)
         self._live_balance_cache: dict = {}
@@ -7071,60 +7075,88 @@ class RuneClawEngine:
             cached_time, cached_data, _entry_ttl = self._ohlcv_cache[key]
             if now - cached_time < ttl:
                 return cached_data
-        _t0 = time.monotonic()
-        try:
-            data = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
-        except BaseException as exc:
-            self._record_exchange_read(_t0, exc, symbol, timeframe)
-            raise
-        self._record_exchange_read(_t0, None, symbol, timeframe)
-        # HYGIENE AT THE BOUNDARY, because `drop_forming_candle` answers from
-        # the WALL CLOCK and a stored row carries no age. It asks "has this
-        # bar's period elapsed?" and "yes" means KEEP — so a bar that was still
-        # FORMING when it was fetched and has since closed was kept, with the
-        # partial values captured at fetch time, as the newest CLOSED bar. Its
-        # close is the price at fetch time and its volume is a part-period's,
-        # read as a whole bar's. Driven: the same three rows, read five minutes
-        # apart across the bar boundary, answer 2 rows and then 3.
-        #
-        # Reachable on every leg, and the window is a quarter of the period:
-        # `_mtf_ttl` is period // 4, so a fetch in the last quarter of a bar
-        # can be served after that bar closed and still be inside the TTL. The
-        # 180s floor makes 5m worse than a quarter — 180s against a 300s bar.
-        #
-        # The three consumers each applied it AFTER the cache read, which is
-        # the one place it cannot work. Dropping HERE is what `_mtf_ttl`'s
-        # docstring has always claimed ("the set this caches contains CLOSED
-        # bars only") and what its whole derivation reasons from; and it is the
-        # boundary rule, because three callers remembering is three chances to
-        # forget and the fourth added tomorrow is the one that forgets.
-        data = self._drop_forming_candle(data, timeframe)
-        # The entry carries ITS OWN ttl. Eviction below used to read `ttl` —
-        # the parameter of whichever call happened to trip the cap — so a
-        # primary 1h/100 fetch (ttl=120) computed a 240s cutoff and deleted
-        # every 4h entry over 4 minutes old and every 1d entry over 4 minutes
-        # old, against their own TTLs of 3600s and 21600s. Those are exactly
-        # the long-TTL legs `_mtf_ttl` exists to preserve, and discarding them
-        # is the defect the cap was raised to cure, re-entered one line down.
-        self._ohlcv_cache[key] = (now, data, float(ttl))
-        # C2-54 FIX: Hard size cap + TTL eviction to prevent unbounded growth.
-        # First try TTL-based eviction; if still over limit, evict oldest entries.
-        #
-        # The cap is DERIVED (see _ohlcv_cache_capacity) rather than the
-        # constant 200 it was: 200 could not hold a fifth of one sweep, and
-        # oldest-first eviction over a cyclic sweep meant it returned 0% hits.
-        _cap = _ohlcv_cache_capacity()
-        if len(self._ohlcv_cache) > _cap:
-            # Expire each entry against the TTL IT was stored with.
-            self._ohlcv_cache = {
-                k: v for k, v in self._ohlcv_cache.items()
-                if now - v[0] < v[2] * 2}
-        if len(self._ohlcv_cache) > _cap:
-            # Still over limit — evict oldest entries
-            sorted_keys = sorted(self._ohlcv_cache, key=lambda k: self._ohlcv_cache[k][0])
-            for old_key in sorted_keys[:len(self._ohlcv_cache) - _cap]:
-                del self._ohlcv_cache[old_key]
-        return data
+        # ONE FETCH FOR CALLERS WHO MISS TOGETHER. The TTL above only helps
+        # the caller who arrives after a fetch has landed; callers who missed
+        # together each fetched, so twenty scan cards opened at once made
+        # twenty identical requests per series. A miss now joins a fetch of
+        # the same series already in flight on this loop. It is a task, so a
+        # caller who gives up does not cancel it for the others.
+        loop = asyncio.get_running_loop()
+        inflight = self.__dict__.setdefault("_ohlcv_inflight", {})
+        fk = (id(loop), key)
+        running = inflight.get(fk)
+        if running is not None and not running.done():
+            return await asyncio.shield(running)
+        # The fetch is a nested coroutine, not a method: the stand-ins that
+        # bind the real `_cached_ohlcv` (the health monitor and closed-bar
+        # tests) carry no other engine method, and the hygiene and eviction
+        # below stay inside this function where their source tests read them.
+        async def _fetch():
+            _t0 = time.monotonic()
+            try:
+                data = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+            except BaseException as exc:
+                self._record_exchange_read(_t0, exc, symbol, timeframe)
+                raise
+            self._record_exchange_read(_t0, None, symbol, timeframe)
+            # HYGIENE AT THE BOUNDARY, because `drop_forming_candle` answers from
+            # the WALL CLOCK and a stored row carries no age. It asks "has this
+            # bar's period elapsed?" and "yes" means KEEP — so a bar that was still
+            # FORMING when it was fetched and has since closed was kept, with the
+            # partial values captured at fetch time, as the newest CLOSED bar. Its
+            # close is the price at fetch time and its volume is a part-period's,
+            # read as a whole bar's. Driven: the same three rows, read five minutes
+            # apart across the bar boundary, answer 2 rows and then 3.
+            #
+            # Reachable on every leg, and the window is a quarter of the period:
+            # `_mtf_ttl` is period // 4, so a fetch in the last quarter of a bar
+            # can be served after that bar closed and still be inside the TTL. The
+            # 180s floor makes 5m worse than a quarter — 180s against a 300s bar.
+            #
+            # The three consumers each applied it AFTER the cache read, which is
+            # the one place it cannot work. Dropping HERE is what `_mtf_ttl`'s
+            # docstring has always claimed ("the set this caches contains CLOSED
+            # bars only") and what its whole derivation reasons from; and it is the
+            # boundary rule, because three callers remembering is three chances to
+            # forget and the fourth added tomorrow is the one that forgets.
+            data = self._drop_forming_candle(data, timeframe)
+            # The entry carries ITS OWN ttl. Eviction below used to read `ttl` —
+            # the parameter of whichever call happened to trip the cap — so a
+            # primary 1h/100 fetch (ttl=120) computed a 240s cutoff and deleted
+            # every 4h entry over 4 minutes old and every 1d entry over 4 minutes
+            # old, against their own TTLs of 3600s and 21600s. Those are exactly
+            # the long-TTL legs `_mtf_ttl` exists to preserve, and discarding them
+            # is the defect the cap was raised to cure, re-entered one line down.
+            self._ohlcv_cache[key] = (now, data, float(ttl))
+            # C2-54 FIX: Hard size cap + TTL eviction to prevent unbounded growth.
+            # First try TTL-based eviction; if still over limit, evict oldest entries.
+            #
+            # The cap is DERIVED (see _ohlcv_cache_capacity) rather than the
+            # constant 200 it was: 200 could not hold a fifth of one sweep, and
+            # oldest-first eviction over a cyclic sweep meant it returned 0% hits.
+            _cap = _ohlcv_cache_capacity()
+            if len(self._ohlcv_cache) > _cap:
+                # Expire each entry against the TTL IT was stored with.
+                self._ohlcv_cache = {
+                    k: v for k, v in self._ohlcv_cache.items()
+                    if now - v[0] < v[2] * 2}
+            if len(self._ohlcv_cache) > _cap:
+                # Still over limit — evict oldest entries
+                sorted_keys = sorted(self._ohlcv_cache, key=lambda k: self._ohlcv_cache[k][0])
+                for old_key in sorted_keys[:len(self._ohlcv_cache) - _cap]:
+                    del self._ohlcv_cache[old_key]
+            return data
+
+        task = loop.create_task(_fetch())
+        inflight[fk] = task
+
+        def _settled(t: asyncio.Task, fk: tuple = fk) -> None:
+            if inflight.get(fk) is t:
+                inflight.pop(fk, None)
+            if not t.cancelled():
+                t.exception()       # retrieved here, whoever else gave up
+        task.add_done_callback(_settled)
+        return await asyncio.shield(task)
 
     @staticmethod
     def _timeframe_to_ms(timeframe: str) -> int:
@@ -9998,18 +10030,39 @@ class RuneClawEngine:
         With PTB concurrent_updates ON, two Telegram updates can enter here at
         once (two 'Latest Signal' taps, or a tap + /forcescan). Both would clear
         and repopulate _pending_ideas and double the scan/LLM/exchange load, so
-        the second caller returns immediately. The .locked() check and the
-        ``async with`` acquire have no await between them, so the guard is atomic
-        on single-threaded asyncio.
+        the second caller joins the first (below), and a caller who finds the
+        periodic tick holding the lock is told the scan was skipped. The checks
+        and the task's creation have no await between them, so the guard is
+        atomic on single-threaded asyncio.
         """
+        # THE SECOND CALLER JOINS. It used to be handed a zero-count dict
+        # marked "skipped", which no reader looked at: /forcescan printed
+        # "Signals found: 0" and the Latest Signal tap "No trade setups found"
+        # while a scan was in fact running. A caller who arrives now waits for
+        # that scan and gets its result, marked ``joined``. The scan is a task
+        # that holds the lock for its whole run, so a caller who stops waiting
+        # (the tap's timeout) neither cancels it nor lets a second one start.
+        running = getattr(self, "_force_scan_task", None)
+        if (running is not None and not running.done()
+                and running.get_loop() is asyncio.get_running_loop()):
+            audit(system_log, "Force scan joined the one in progress",
+                  action="force_scan", result="JOINED")
+            return {**(await asyncio.shield(running)), "joined": True}
         if self._scan_lock.locked():
             audit(system_log, "Force scan skipped — scan already in progress",
                   action="force_scan", result="SKIPPED_INFLIGHT")
             return {"signals": 0, "ideas": 0, "auto_confirmed": 0,
                     "pending": len(self._pending_ideas), "cleared_pending": 0,
                     "skipped": "scan_already_running"}
-        async with self._scan_lock:
-            return await self._force_scan_locked(max_symbols=max_symbols, lightweight=lightweight)
+
+        async def _run() -> dict:
+            async with self._scan_lock:
+                return await self._force_scan_locked(
+                    max_symbols=max_symbols, lightweight=lightweight)
+
+        task = asyncio.get_running_loop().create_task(_run())
+        self._force_scan_task = task
+        return await asyncio.shield(task)
 
     async def _force_scan_locked(self, max_symbols: int | None = None, lightweight: bool = False) -> dict:
         """Force an immediate scan cycle, bypassing cooldown and pending gates.

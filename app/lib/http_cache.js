@@ -32,27 +32,42 @@ function fetchJSON(url) {
 
 // Shared across every caller — see the module note above.
 const cache = {};
+// Fetches in flight, by key. Callers who miss together share one.
+const inflight = new Map();
 
 /**
  * cached(key, ttlMs, fetcher) → async () => data
  *
- * A miss awaits `fetcher`. Note this does NOT dedupe concurrent misses: two
- * callers that miss together both fetch. That is the pre-existing behaviour and
- * is left alone here on purpose — this module is a move, not a redesign.
+ * A miss awaits `fetcher`, and a caller who misses while that fetch is in
+ * flight awaits the SAME fetch: callers who miss together used to fetch once
+ * each, so a crowd opening a page at the same moment sent the venue one
+ * request per person for one snapshot. A fetch that rejects is not cached,
+ * and every caller waiting on it gets the rejection; the next caller fetches
+ * again.
  */
 function cached(key, ttlMs, fetcher) {
   return async () => {
     const now = Date.now();
     if (cache[key] && now - cache[key].ts < ttlMs) return cache[key].data;
-    const data = await fetcher();
-    cache[key] = { data, ts: now };
-    return data;
+    if (inflight.has(key)) return inflight.get(key);
+    const p = (async () => {
+      try {
+        const data = await fetcher();
+        cache[key] = { data, ts: now };
+        return data;
+      } finally {
+        inflight.delete(key);
+      }
+    })();
+    inflight.set(key, p);
+    return p;
   };
 }
 
 /** Test seam: drop cached entries so a test can control what a caller sees. */
 function _clearCache() {
   for (const k of Object.keys(cache)) delete cache[k];
+  inflight.clear();
 }
 
 module.exports = { fetchJSON, cached, _clearCache };
