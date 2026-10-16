@@ -4259,6 +4259,128 @@ async def handle_admin_settings(request: web.Request) -> web.Response:
                                   "detail": type(exc).__name__}, status=500)
 
 
+#: What the website door refuses by name, whatever a request asks: live
+#: trading is granted from Telegram only (`/grant_live`), and so is the
+#: operator's role (`/approve <id> admin`).
+_MEMBER_TELEGRAM_ONLY = {
+    "grant_live": "Live trading is granted from Telegram only (/grant_live).",
+    "grant_admin": "The admin role is granted from Telegram only (/approve <id> admin).",
+}
+_MEMBER_ACTIONS = ("approve", "revoke", "set_tier", "revoke_live")
+_ROSTER_SHOWN = 500
+
+
+def _member_refusal_text(res) -> str:
+    """One sentence for a refused change, from the same words Telegram prints
+    (`bot/utils/i18n.py`), as plain text: the page shows it with textContent."""
+    from bot.core import member_admin
+    from bot.utils.i18n import t
+    if res.error == member_admin.ROLE_TELEGRAM_ONLY:
+        return "The admin role is granted from Telegram only (/approve <id> admin)."
+    if res.error == member_admin.ADMIN_TELEGRAM_ONLY:
+        return ("This account holds the admin role or tier, so it is changed from "
+                "Telegram only (/approve, /set_tier, /revoke).")
+    if res.error == member_admin.TIER_TELEGRAM_ONLY:
+        return ("The admin tier makes an account the website's operator, so it is "
+                "set from Telegram only (/set_tier).")
+    if res.error == "invalid_role":
+        # Telegram's sentence lists the admin role as valid; from here it is not.
+        return (f"Invalid role: {(res.params or {}).get('role', '')}. The website "
+                f"grants {', '.join(member_admin.ROLES_WEB)}.")
+    params = {k: (", ".join(v) if isinstance(v, list) else v)
+              for k, v in (res.params or {}).items()}
+    try:
+        text = t(res.error, "en", **params)
+    except Exception:  # noqa: BLE001
+        text = res.error
+    return re.sub(r"<[^>]+>", "", str(text or res.error)).strip()
+
+
+async def handle_admin_members(request: web.Request) -> web.Response:
+    """The admin page's member roster and the recent member changes. Each part
+    that could not be read is None with the class of what went wrong, so one
+    dead source does not blank the other."""
+    engine, tg_id, body = await _policy_op_guard(request)
+    if engine is None:
+        refusal: web.Response = body
+        return refusal
+    from bot.core import member_admin
+    from bot.utils.user_store import TIERS
+    tg_handler = request.app["tg_handler"]
+    out: dict = {"members": None, "members_total": None, "members_error": None,
+                 "changes": None, "changes_error": None,
+                 "web_roles": list(member_admin.ROLES_WEB),
+                 "web_tiers": [x for x in TIERS if x != "admin"],
+                 "telegram_only": dict(_MEMBER_TELEGRAM_ONLY),
+                 "you": tg_id,
+                 # The caveat /users prints: an empty start is a roster of
+                 # who has messaged since. None when the store does not say.
+                 "store_started_empty": getattr(tg_handler.users, "started_empty", None)}
+    try:
+        rows = member_admin.roster(tg_handler.users, tg_handler._can_trade_live)
+        # The newest few hundred, and how many there are: a cut list is said
+        # to be one, never shown as the whole roster.
+        out["members"], out["members_total"] = rows[:_ROSTER_SHOWN], len(rows)
+    except Exception as exc:  # noqa: BLE001
+        out["members_error"] = type(exc).__name__
+    out["changes"], out["changes_error"] = member_admin.recent_changes(30)
+    return web.json_response(out)
+
+
+async def handle_admin_members_act(request: web.Request) -> web.Response:
+    """One change to one member from the admin page, through the same write
+    path as the Telegram command for it (`bot/core/member_admin.py`), as the
+    website door: it cannot grant live trading or the admin role or tier."""
+    engine, tg_id, body = await _policy_op_guard(request)
+    if engine is None:
+        refusal: web.Response = body
+        return refusal
+    from bot.core import member_admin
+    action = str(body.get("action") or "").strip()
+    if action in _MEMBER_TELEGRAM_ONLY:
+        return web.json_response({"ok": False, "error": "telegram_only",
+                                  "detail": _MEMBER_TELEGRAM_ONLY[action]}, status=403)
+    if action not in _MEMBER_ACTIONS:
+        return web.json_response({"ok": False, "error": "unknown_action",
+                                  "detail": "Unknown change."}, status=400)
+    tg_handler = request.app["tg_handler"]
+    users = tg_handler.users
+    target = str(body.get("target") or "").strip()
+    kw = {"by": tg_id, "via": member_admin.WEBSITE}
+    try:
+        if action == "approve":
+            res = member_admin.approve(users, target, body.get("role"), **kw)
+        elif action == "revoke":
+            res = member_admin.revoke(users, target, **kw)
+        elif action == "set_tier":
+            res = member_admin.set_tier(users, target, body.get("tier"), **kw)
+        else:
+            res = member_admin.revoke_live(users, target, **kw)
+    except Exception as exc:  # noqa: BLE001
+        # The write may have landed before whatever raised, so this does not
+        # say "nothing changed": it says to read the member back.
+        audit(system_log, f"Web member change {action} FAILED",
+              action="web_member", result="ERROR")
+        return web.json_response({"ok": False, "error": "change_failed",
+                                  "detail": type(exc).__name__}, status=500)
+    audit(system_log, f"Web member change {action} on {target}: "
+          f"{'OK' if res.ok else res.error}", action="web_member",
+          result="OK" if res.ok else "REFUSED")
+    payload = res.as_dict()
+    if not res.ok:
+        payload["detail"] = _member_refusal_text(res)
+        # A held write is in force and not saved: not a refusal of the change.
+        return web.json_response(payload, status=200 if res.held else 400)
+    bot = getattr(getattr(tg_handler, "app", None), "bot", None)
+    if action == "approve":
+        payload["notified"] = await member_admin.notify_approved(
+            bot, users, target, str(res.params.get("role") or ""))
+    elif action == "set_tier":
+        payload["notified"] = await member_admin.notify_tier(
+            bot, users, target, str(res.params.get("tier") or ""))
+    return web.json_response(payload)
+
+
 async def handle_admin_settings_set(request: web.Request) -> web.Response:
     engine, tg_id, body = await _policy_op_guard(request)
     if engine is None:
@@ -5693,4 +5815,6 @@ def build_gateway(engine, tg_handler) -> web.Application:
     app.router.add_post("/policy/clear", handle_policy_clear)
     app.router.add_post("/admin/settings", handle_admin_settings)
     app.router.add_post("/admin/settings/set", handle_admin_settings_set)
+    app.router.add_post("/admin/members", handle_admin_members)
+    app.router.add_post("/admin/members/act", handle_admin_members_act)
     return app

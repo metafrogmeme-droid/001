@@ -85,6 +85,32 @@ const SETTINGS = {
   },
 };
 
+// Members: the longest shapes the roster holds — a 20-digit id, a long
+// display name, a website-only member, every control a row can carry.
+const MEMBERS = {
+  two_factor: true,
+  bot_error: null,
+  bot: {
+    you: '1001',
+    members_total: 640,
+    store_started_empty: true,
+    web_roles: ['trader', 'paper', 'viewer'],
+    web_tiers: ['basic', 'pro', 'elite'],
+    telegram_only: ['grant_live', 'grant_admin'],
+    members: [
+      { id: '1001', name: 'Admin', role: 'admin', tier: 'admin', live: true, authorized: true, admitted_by: null },
+      { id: '12345678901234567890', name: 'Maximiliana Konstantinopoulou-Wetherington', role: 'trader',
+        tier: 'pro', live: true, authorized: true, admitted_by: '1001' },
+      { id: 'web:4242', name: 'w4242', role: 'paper', tier: 'basic', live: null, authorized: true, admitted_by: null },
+    ],
+    changes: [{
+      at: '2026-10-16T06:40:00Z', action: 'set_tier', target: '12345678901234567890',
+      before: { role: 'trader', tier: 'basic', live: true }, after: { role: 'trader', tier: 'pro', live: true },
+      via: 'website', actor: '1001', held: false,
+    }],
+  },
+};
+
 async function serve() {
   const app = express();
   app.get('/admin', (req, res) => res.sendFile(path.join(PUBLIC, 'admin.html')));
@@ -102,7 +128,8 @@ async function measure(viewport) {
     await ctx.addCookies([{ name: 'rc_auth', value: '1', url: base }]);
     await ctx.route('**/api/**', (route) => {
       const u = new URL(route.request().url());
-      const body = u.pathname === '/api/admin/settings' ? SETTINGS : { ok: true, data: {}, rows: [], items: [] };
+      const body = u.pathname === '/api/admin/settings' ? SETTINGS
+        : u.pathname === '/api/admin/members' ? MEMBERS : { ok: true, data: {}, rows: [], items: [] };
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
     });
     await ctx.route(/^https?:\/\/(?!127\.0\.0\.1)/, (r) => r.abort());
@@ -110,6 +137,8 @@ async function measure(viewport) {
     await page.goto(`${base}/admin`, { waitUntil: 'load' });
     await page.waitForSelector('#admFlags table.rows', { timeout: 10000 });
     await page.waitForSelector('#admWeb table.rows', { timeout: 10000 });
+    await page.waitForSelector('#admMembers table.rows', { timeout: 10000 });
+    await page.waitForSelector('#admMemberChanges table.rows', { timeout: 10000 });
     return await page.evaluate(() => {
       const vw = document.documentElement.clientWidth;
       // Every element's right edge, not only the page's scroll width: a panel
@@ -139,6 +168,14 @@ async function measure(viewport) {
         labelShown: means ? getComputedStyle(means, '::before').content : '',
         theadShown: thead ? getComputedStyle(thead).display !== 'none' : false,
         cellDisplay: means ? getComputedStyle(means).display : '',
+        tierOpen: (document.querySelector('[data-mtier="12345678901234567890"]') || {}).value || null,
+        memberButtons: [...document.querySelectorAll('#admMembers button[data-mact]')]
+          .map((b) => `${b.dataset.mid}:${b.dataset.mact}`),
+        memberNotes: (document.querySelector('#admMembers') || {}).textContent || '',
+        adminRow: ([...document.querySelectorAll('#admMembers tbody tr')]
+          .find((tr) => tr.querySelector('td').textContent.trim() === '1001') || {}).textContent || '',
+        liveUnread: [...document.querySelectorAll('#admMembers td[data-label="Trading"]')]
+          .map((td) => td.textContent.trim()),
       };
     });
   } finally {
@@ -168,6 +205,21 @@ for (const [name, vp] of [['a phone', PHONE], ['a narrow phone', NARROW]]) {
     assert.match(m.labelShown, /What it does/, 'the collapsed description does not name its column');
   });
 }
+
+test('the members panel opens each select on the member\'s value and offers only what the website may do',
+  SKIP ? { skip: SKIP } : {}, async () => {
+    const m = await measure(PHONE);
+    assert.equal(m.tierOpen, 'pro', 'the tier select opened on another tier, so "Set tier" would change it');
+    assert.deepEqual(m.memberButtons.sort(), [
+      '12345678901234567890:approve', '12345678901234567890:revoke', '12345678901234567890:revoke_live',
+      '12345678901234567890:set_tier',
+      'web:4242:set_tier',
+    ].sort(), 'a row offers a change it should not (an admin account, a web-only id approved) or misses one');
+    assert.match(m.adminRow, /Telegram only/, 'the admin row does not say where it is changed');
+    assert.match(m.memberNotes, /Showing the newest 3 of 640 members/, 'a cut roster reads as the whole roster');
+    assert.match(m.memberNotes, /started empty on this run/, 'an empty start reads as a confident roster');
+    assert.deepEqual(m.liveUnread, ['live', 'live', 'not read'], 'an unread live flag rendered as paper');
+  });
 
 test('on a desktop the Admin tables stay tables', SKIP ? { skip: SKIP } : {}, async () => {
   const m = await measure(DESKTOP);

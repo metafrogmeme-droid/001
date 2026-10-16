@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **492 of 1329** reach for source text through `source_scan`, `code_only`
+Driven, **492 of 1330** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 492 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -25718,3 +25718,49 @@ the ledger with its restart and its old-shape file, the chat end to end (one
 user refused at their quarter while the next still answers; the operator not
 held), the fold both ways, the refusal in every language and the card's
 figures. Ten mutants, all killed.)
+
+**FOUR COMMANDS CHANGED A MEMBER, EACH WITH ITS OWN RULES, AND NOTHING SAID WHO.**
+The owner asked for the admin page to manage the bot as well as its settings.
+Members were changed by `/approve`, `/revoke`, `/set_tier` and `/revoke_live`.
+Each validated its own arguments inline, wrote the store its own way, and left
+no record of who changed whom. A members panel written against the store would
+have been a fifth copy of those rules, and two doors with two copies are how a
+website comes to admit someone Telegram would refuse.
+
+`bot/core/member_admin.py` now holds the four changes. The commands and the
+admin page both call it, and every change is one line in
+`data/member_admin_audit.jsonl` (when, who, which door, the member before and
+after), which is backed up with the settings audit:
+- **The commands kept their sentences.** A refusal is the i18n key the
+  command always printed, so the Telegram replies did not change. The page
+  shows the English sentence as plain text.
+- **What the website may not do is refused by door, in the module, and again
+  by name in the route before the bot is asked:** grant the admin role, set
+  the admin tier (the site reads `plan == 'admin'` as the operator), or grant
+  live trading (no web door at all).
+- **Taking admin away is Telegram's too.** The first panel offered the
+  operator's own row a role select and a tier select, so one tap would have
+  demoted the operator from a web session. The phone smoke test found it,
+  asserting which buttons each row offers. Any account holding the admin role
+  or tier is now changed from Telegram only, and its row says so instead of
+  offering controls that would only be refused.
+- **A select opens on the member's current value**, so "Set tier" beside an
+  untouched select changes nothing.
+- **A held write (`StoreWriteHeld`) is reported as in force and not saved**,
+  is recorded, and is never shown as "Not changed".
+- **The roster shows absent as absent.** A record with no tier says "not
+  recorded", and a live flag that could not be read says "not read", never
+  "paper only". A list cut at 500 says how many there are, and a store that
+  started empty on this run carries the caveat `/users` prints, since the
+  page makes the same claim the command does. (The first draft of the cut
+  note pointed to `/users` for the rest; `/users` shows fifteen.)
+- **A change needs the operator, a linked Telegram account, two-factor
+  sign-in and a fresh code**, the same doors as the settings above it.
+
+(`tests/test_a_member_changes_through_one_path.py` drives each change both
+ways through both doors, the admin-account refusals, the audit rows, the held
+write, the roster's absences, the gateway endpoints, and an AST check that the
+four commands call the module and write nothing themselves.
+`app/test/the_admin_members_are_the_operators_and_a_grant_is_telegrams.test.js`
+drives the route; the admin phone smoke test now carries a roster. Twenty-one
+mutants, all killed.)

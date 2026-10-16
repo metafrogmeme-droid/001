@@ -35,6 +35,9 @@
   .rows td, .rows th { border-top: 1px solid var(--line); padding: 8px 6px; text-align: left; vertical-align: top; }
   .rows th { color: var(--text-3); font-weight: 600; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .06em; }
   .rows .mono { font-family: var(--font-data); }
+  .mem-act { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .mem-act select { background: var(--bg); border: 1px solid var(--line); color: var(--text-1); border-radius: var(--radius-sm); padding: 6px 8px; font-size: var(--fs-xs); }
+  .mem-note { font-size: var(--fs-xs); color: var(--text-2); margin-top: 4px; }
   /* On a phone a row is a short card: each cell on its own line under the
      name of its column. A flag name and its value are monospace and do not
      wrap, so as a three-column table they left the description a sliver at
@@ -61,12 +64,14 @@
   </nav>
   <header class="ad-hero">
     <h1>Admin</h1>
-    <p class="lede">The bot's settings in one place. A change made here takes the same path as the Telegram command for it: <b>bounded</b>, <b>saved across a restart</b>, and <b>recorded</b> with who made it and whether it tightened or loosened the guard. Changing a setting needs two-factor sign-in. Live trading and the venue are changed from Telegram only.</p>
+    <p class="lede">The bot's settings in one place. A change made here takes the same path as the Telegram command for it: <b>bounded</b>, <b>saved across a restart</b>, and <b>recorded</b> with who made it and whether it tightened or loosened the guard. Changing a setting or a member needs two-factor sign-in. Live trading, the venue, live-trading grants and the admin role are changed from Telegram only.</p>
   </header>
   <div id="admState" class="note"></div>
   <section class="panel"><h2>Bot settings</h2><div id="admSettings" class="empty">Loading…</div></section>
   <section class="panel"><h2>Telegram only</h2><div id="admLocked" class="empty">Loading…</div></section>
   <section class="panel"><h2>Recent changes</h2><div id="admChanges" class="empty">Loading…</div></section>
+  <section class="panel"><h2>Members</h2><div id="admMembers" class="empty">Loading…</div></section>
+  <section class="panel"><h2>Recent member changes</h2><div id="admMemberChanges" class="empty">Loading…</div></section>
   <section class="panel"><h2>Safety flags (set in .env, read at start)</h2><div id="admFlags" class="empty">Loading…</div></section>
   <section class="panel"><h2>Website configuration</h2><div id="admWeb" class="empty">Loading…</div></section>
 </div>
@@ -74,6 +79,6 @@
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=6"></script>
 <script src="/js/app.js?v=17"></script>
-<script src="/js/admin.js?v=2" defer></script>
+<script src="/js/admin.js?v=3" defer></script>
 </body>
 </html>
