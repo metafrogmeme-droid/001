@@ -35,6 +35,18 @@
   .rows td, .rows th { border-top: 1px solid var(--line); padding: 8px 6px; text-align: left; vertical-align: top; }
   .rows th { color: var(--text-3); font-weight: 600; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .06em; }
   .rows .mono { font-family: var(--font-data); }
+  /* On a phone a row is a short card: each cell on its own line under the
+     name of its column. A flag name and its value are monospace and do not
+     wrap, so as a three-column table they left the description a sliver at
+     the screen's edge, a word per line and cut off
+     (app/test/the_admin_page_fits_a_phone.smoke.test.js). */
+  @media (max-width: 639px) {
+    .rows thead { display: none; }
+    .rows, .rows tbody, .rows tr, .rows td { display: block; width: 100%; }
+    .rows tr { border-top: 1px solid var(--line); padding: var(--s2) 0; }
+    .rows td { border-top: none; padding: 2px 0; }
+    .rows td::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); }
+  }
   .warn { color: var(--gold-bright); }
   .muted { color: var(--text-3); }
   a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; border-radius: var(--radius-sm); }
@@ -62,6 +74,6 @@
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=6"></script>
 <script src="/js/app.js?v=17"></script>
-<script src="/js/admin.js?v=1" defer></script>
+<script src="/js/admin.js?v=2" defer></script>
 </body>
 </html>

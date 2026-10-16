@@ -25,9 +25,10 @@
 const net = require('net');
 const tls = require('tls');
 
-function _cfg() {
-  const host = process.env.SMTP_HOST || '';
-  const from = process.env.MAIL_FROM || process.env.SMTP_FROM || '';
+function _cfg(env = process.env) {
+  const host = (env.SMTP_HOST || '').trim();
+  // Trimmed before the fallback, so a blank MAIL_FROM does not hide SMTP_FROM.
+  const from = (env.MAIL_FROM || '').trim() || (env.SMTP_FROM || '').trim();
   const secure = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true';
   const port = parseInt(process.env.SMTP_PORT || (secure ? '465' : '587'), 10);
   return {
@@ -45,9 +46,17 @@ function _cfg() {
   };
 }
 
-function isConfigured() {
-  const c = _cfg();
-  return Boolean(c.host && c.from);
+// What the mailer still needs before it sends, by the names an operator sets.
+// This is the one reading of "is mail configured": the boot config audit and
+// the Admin page ask it too, so they cannot warn "unset" over a SMTP_FROM the
+// mailer is sending with (lib/config_audit.js used to check MAIL_FROM alone).
+function missingConfig(env = process.env) {
+  const c = _cfg(env);
+  return [!c.host && 'SMTP_HOST', !c.from && 'MAIL_FROM (or SMTP_FROM)'].filter(Boolean);
+}
+
+function isConfigured(env = process.env) {
+  return missingConfig(env).length === 0;
 }
 
 function baseUrl() {
@@ -255,6 +264,7 @@ async function sendMail({ to, subject, text, html }) {
 
 module.exports = {
   isConfigured,
+  missingConfig,
   baseUrl,
   sendMail,
   // exported for tests

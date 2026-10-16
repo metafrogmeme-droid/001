@@ -18,6 +18,7 @@
  */
 
 const publicOrigin = require('./public_origin');
+const mailer = require('./mailer');
 
 // A WEB_CREDS_KEY must decode (standard or url-safe base64) to exactly 32 bytes,
 // matching lib/creds_crypto.loadKey — a set-but-malformed key is worse than an
@@ -30,8 +31,10 @@ function credsKeyState(raw) {
   return buf.length === 32 ? 'ok' : 'invalid';
 }
 
+// The mailer's own reading, not a copy of it: the copy checked MAIL_FROM
+// alone, so a site sending with SMTP_FROM was told its email was NOT sent.
 function mailerConfigured(env) {
-  return Boolean((env.SMTP_HOST || '').trim() && (env.MAIL_FROM || '').trim());
+  return mailer.isConfigured(env);
 }
 
 function oauthConfigured(env) {
@@ -172,7 +175,7 @@ function auditConfig(opts = {}) {
   // Transactional email. Intentionally a no-op when unset, but the operator
   // should know verification + password-reset mail is silently not being sent.
   if (!mailerConfigured(env)) {
-    warn('SMTP', 'SMTP_HOST/MAIL_FROM unset — verification and password-reset emails are NOT sent (flows no-op).');
+    warn('SMTP', `${mailer.missingConfig(env).join(' and ')} unset — verification and password-reset emails are NOT sent (flows no-op).`);
   }
 
   // Bot analysis bridge — powers the market-insight panel. Silent localhost

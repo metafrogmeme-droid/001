@@ -25589,3 +25589,35 @@ readers as "a scan is already running", never as "nothing found".
 `app/test/a_crowd_that_misses_together_fetches_once.test.js` drives the cache
 helper and the route the same way. Sixteen Python mutants and three website
 mutants, all killed.)
+
+**THE ADMIN PAGE'S FIRST READER WAS A PHONE, AND ITS FIRST WARNING WAS A SECOND
+READING OF THE MAILER.**
+The owner opened `/admin` on a phone the day it shipped and sent a screenshot.
+Two things were wrong, and neither was visible from the tests the page shipped
+with, which drove the route and never drew the page:
+- **The tables ran off the screen.** A flag's name and its value are monospace
+  and do not wrap, so as three columns they left "What it does" a sliver at
+  the right edge: one word per line, the ends of the words cut off. The page
+  did not scroll sideways, so nothing said there was more. The six-column
+  change record would have done the same. On a phone each row is now a short
+  card, every cell under the name of its column (`data-label`).
+- **The email warning had its own reading of the mailer.**
+  `lib/config_audit.js` decided "SMTP_HOST/MAIL_FROM unset, emails are NOT
+  sent" by checking MAIL_FROM alone. The mailer sends with MAIL_FROM or
+  SMTP_FROM, so a site sending with SMTP_FROM was told its mail was not sent.
+  The audit now asks `mailer.isConfigured(env)`, and the warning names what is
+  actually missing (`mailer.missingConfig`). The two copies also disagreed on
+  blank values: the audit trimmed and the mailer did not, so a blank host made
+  the mailer dial "   ". The one reading trims, and a blank MAIL_FROM no longer
+  hides a set SMTP_FROM.
+
+(`app/test/the_admin_page_fits_a_phone.smoke.test.js` draws the page in
+Chromium at 412px and 360px with the real longest flag names and the
+screenshot's own description: nothing ends past the screen edge, the
+description is a paragraph, and every cell names its column. At 1200px the
+tables stay tables. A word-wrap rule in the first draft was taken out: no flag
+name, value or actor reaches it even at 320px, and a rule no input reaches is a
+claim nothing checks. `app/test/the_mail_warning_asks_the_mailer.test.js`
+holds the audit and the mailer to one answer across eight shapes of the
+settings, and the trimming on its own, since agreement cannot see a mistake
+both sides share. Three layout mutants and five mail mutants, all killed.)
