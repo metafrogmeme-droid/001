@@ -125,12 +125,68 @@ function _takeTokenFromHash() {
   return t;
 }
 
+// window.prompt is not available everywhere this page is shown. An app window
+// that embeds it (Pi Desktop's SoloHost tab is one) can block or stub it, and a
+// page whose only way to take the token was prompt() then polled on with no
+// token and nothing on screen saying why. The inline form is the way in that
+// every host can render; prompt() stays first for the operator used to it.
+function _askForToken() {
+  var t = null;
+  try { t = window.prompt('Enter dashboard token:'); } catch (e) { t = null; }
+  if (t && String(t).trim()) return String(t).trim();
+  _showTokenForm('');
+  return null;
+}
+
+// Built from DOM nodes and textContent, never innerHTML: the note can carry a
+// server's words, and this page holds trade authority.
+function _showTokenForm(note) {
+  if (document.getElementById('tokenForm')) return;
+  var f = document.createElement('form');
+  f.id = 'tokenForm';
+  f.setAttribute('style', 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(3,4,9,.94);font:14px system-ui,sans-serif');
+  var box = document.createElement('div');
+  box.setAttribute('style', 'background:#0b1220;border:1px solid #1b6aa8;border-radius:10px;padding:20px;width:min(360px,90vw);color:#eaf2ff');
+  var label = document.createElement('label');
+  label.htmlFor = 'tokenInput';
+  label.textContent = 'Dashboard token';
+  label.setAttribute('style', 'display:block;margin-bottom:8px;font-weight:600');
+  var input = document.createElement('input');
+  input.id = 'tokenInput';
+  input.type = 'password';
+  input.required = true;
+  input.autocomplete = 'current-password';
+  input.setAttribute('style', 'width:100%;box-sizing:border-box;padding:8px;border-radius:6px;border:1px solid #a9b8d0;background:#030409;color:#eaf2ff');
+  var hint = document.createElement('p');
+  hint.id = 'tokenNote';
+  hint.textContent = note || 'The DASHBOARD_TOKEN this bot was started with.';
+  hint.setAttribute('style', 'margin:8px 0 12px;color:#a9b8d0;font-size:12px');
+  var btn = document.createElement('button');
+  btn.type = 'submit';
+  btn.textContent = 'Open dashboard';
+  btn.setAttribute('style', 'padding:8px 14px;border-radius:6px;border:0;background:#3fb6ff;color:#030409;font-weight:600;cursor:pointer');
+  box.appendChild(label);
+  box.appendChild(input);
+  box.appendChild(hint);
+  box.appendChild(btn);
+  f.appendChild(box);
+  f.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var v = input.value.trim();
+    if (!v) return;
+    localStorage.setItem('dashboard_token', v);
+    window.location.reload();
+  });
+  document.body.appendChild(f);
+  try { input.focus(); } catch (e) { /* focus is a courtesy */ }
+}
+
 // Other fragment params are PRESERVED. Nothing here uses the hash for state
 // today, and a security fix that silently ate a future view-router's state
 // would be found the hard way.
 const _token = _takeTokenFromHash()
   || localStorage.getItem('dashboard_token')
-  || prompt('Enter dashboard token:');
+  || _askForToken();
 // RESIDUAL, stated rather than left implied: the token still lands in
 // localStorage, so it survives a browser restart and is readable by any script
 // that gets onto the page. Narrowing that to sessionStorage costs the operator
@@ -259,6 +315,7 @@ async function load() {
     if (pRes.status === 401 || pRes.status === 403) {
       showErr('Auth failed (' + pRes.status + '). Clear the saved token and reload to re-enter it.');
       localStorage.removeItem('dashboard_token');
+      _showTokenForm('The bot refused that token, or has no DASHBOARD_TOKEN set. Enter the token it was started with.');
       return;
     }
     const perf = await pRes.json();

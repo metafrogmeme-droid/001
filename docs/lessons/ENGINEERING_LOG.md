@@ -21054,7 +21054,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 270 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 271 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **492 of 1328** reach for source text through `source_scan`, `code_only`
+Driven, **493 of 1330** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 492 is a FLOOR and the honest shape is
+source scan that rule does not see, so 493 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -25679,3 +25679,75 @@ headline, and an invite link does not push it down.
 `app/test/the_presale_bar_says_live_and_steps_aside.smoke.test.js` now holds
 both arms of the day, the old-shape value and the future stamp. Four mutants,
 all killed.)
+
+**RUNECLAW WENT INTO PI AS A SELF-HOSTED PACKAGE, AND RUNNING IT FOUND THREE THINGS NO TEST HAD.**
+On 2026-10-16 the operator asked for RUNECLAW in Pi Network. SoloHost, the app
+framework inside Pi Desktop, installs a package of two files: a compose file
+that pulls a public image and an install form whose answers become `.env`
+(github.com/pi-node/solohost, SOLOHOST.md). `scripts/solohost/` is that
+package, practice only: the switches that could arm live trading, auto-confirm
+a live order or admit strangers are fixed values the form never shows. Pi's own
+validator accepts it. Running it the way SoloHost does, with a placeholder bot
+token, found:
+- **The dashboard's only way in was `prompt()`.** The App tab embeds the page,
+  and an embedded host can block or stub `prompt()`; the page then polled on
+  with no token and nothing saying why. A refused token was worse: "Disconnected"
+  forever, the stale token still saved. Both pages (the dashboard and the
+  performance chart share the block) now fall back to a form, and a 401 or 403
+  drops the token and asks again.
+- **A failed boot exited with the wrong error.** `app.initialize()` raised
+  `InvalidToken`, and the `finally` then stopped an updater that never started;
+  PTB's "This Updater is not running!" became the last line of the log.
+  `boot_health.stop_telegram` stops each part only if it is running.
+- **The rejected token was printed.** PTB's `InvalidToken` message carries the
+  token, and the uncaught exception wrote it to the log on every restart.
+  `boot_health.run_boot` prints the exception class and exits 2.
+A fourth came from extending a guard: `test_the_ci_token_is_scoped_by_the_workflow`
+read ci.yml alone, and the image workflow is the first that writes
+(`packages: write`), so the guard now reads every workflow file and keys each
+allowed write grant to its file and job.
+Not verified here: whether the Dockerfile's pinned `python:3.11-slim` digest
+still exists on Docker Hub, which rate-limited this machine; the local run
+built from Google's mirror. The image workflow's first run is that check.
+
+(`tests/test_the_solohost_package_runs_what_it_says.py` holds the package to
+SoloHost's rules, to the environment variables the bot actually reads, and to
+practice only, each rule driven on planted packages too.
+`app/test/the_dashboard_asks_for_its_token_where_prompt_cannot.smoke.test.js`
+drives both pages in Chromium with prompt answered, dismissed and throwing, and
+a refused token. `tests/test_a_failed_boot_exits_with_its_own_error.py` drives
+a real, never-initialised PTB Application.)
+
+**A SIGN-IN PROVIDER THE MAP DID NOT KNOW WOULD HAVE BEEN LOOKED UP BY TELEGRAM ID.**
+The Pi Browser app (`/pi`, `routes/piapp.js`) signs in with Pi's SDK, and the
+server exchanges the access token with Pi's App Studio login, which checks it
+against the Pi Platform (`lib/pi_auth.js`); the page never names the user. The
+first draft called the Platform's `/v2/me` itself, which Pi's App Studio
+guidance (its Convert App prompt, 2026-10-16) rules out for every app. Adding a fourth identity to `findOrCreateOAuthUser` found
+the shared path weaker than its callers:
+- **Its column map fell back to `telegram_id`.** A provider missing from
+  `_PROVIDER_ID_COLUMN` would have found, and created, accounts by Telegram id.
+  An unknown provider now throws.
+- **A new users column never reaches production on its own.** `migrate()`
+  skips all DDL when every table exists. `farcaster_fid` arrived only because
+  its change also added a table. `ensureUserColumns()` reconciles `users` on
+  the fast path, the way `ensureSignalColumns()` already did for signals.
+- **Erasure left `farcaster_fid` behind,** so signing in again with the same
+  Farcaster account landed on the tombstoned row. It and `pi_uid` are cleared now.
+- **The MemoryDB had no Farcaster branches,** so in tests a second Farcaster
+  sign-in made a second account where MySQL finds the first. Both providers
+  have branches now.
+The Mini App and the Pi app share one session controller
+(`app/public/js/arena-session.js`) rather than two copies of the trading code;
+`miniapp_arena.test.js` reads the adapter and the controller together, so a
+promise that moved into the shared file is still held.
+
+(`app/test/pi_auth.test.js` drives the exchange over every answer App Studio
+can give: vouched, refused, unreachable, a 200 with no usable uid. It also
+drives the route against the MemoryDB, where one Pi user stays one account and
+a uid or username the request claims is never the identity.
+`app/test/the_pi_app_is_the_arena_and_nothing_else.test.js` holds that nothing
+the page loads names the presale or the token.
+`app/test/the_pi_app_signs_in_with_pi.smoke.test.js` drives sign-in in
+Chromium with a stand-in SDK, and renders the Mini App's gate beside it.
+`app/test/migration_ddl.test.js` drives the user-column reconciliation.)

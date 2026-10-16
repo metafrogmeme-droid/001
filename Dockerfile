@@ -36,6 +36,10 @@ ARG BUILD_DATE=unknown
 LABEL org.opencontainers.image.revision="${BUILD_SHA}"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
 LABEL maintainer="Humanoid Traders"
+# Links the ghcr.io package to this repository, so the package page shows the
+# source and inherits its access settings.
+LABEL org.opencontainers.image.source="https://github.com/metafrogmeme-droid/001"
+LABEL org.opencontainers.image.licenses="BUSL-1.1"
 
 WORKDIR /app
 

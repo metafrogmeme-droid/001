@@ -1,0 +1,136 @@
+'use strict';
+/**
+ * The Pi Browser app: the paper arena, signed in with Pi.
+ *
+ *   GET /pi   the one page. Listed in Pi's App Studio / Developer Portal as
+ *             https://<this site>/pi.
+ *
+ * WHAT IS ON IT, AND WHAT IS NOT. The season, a paper account on the same
+ * virtual stake as everyone else, and the positions it opens. No token, no
+ * presale, no link to the rest of the site: almost every page of the site
+ * carries the presale bar, and this app's audience is Pi's, so the page is
+ * built here from the Mini App's parts rather than from the site's pages, and
+ * loads no presale.js. app/test/the_pi_app_is_the_arena_and_nothing_else.test.js
+ * holds that.
+ *
+ * IT RUNS FRAMED. Pi's SDK (sdk.minepi.com/pi-sdk.js, read 2026-10-16) talks
+ * to its host with `window.parent.postMessage`, to an origin it works out from
+ * the referrer: https://<app>.pinet.com or https://app-cdn.minepi.com in the
+ * Pi Browser, https://sandbox.minepi.com in sandbox mode, and App Studio's
+ * *.piappengine.com for an app converted there. So this page is always inside
+ * somebody's frame, which is why the session is a bearer token in memory: a
+ * SameSite=Lax cookie would not ride along.
+ *
+ * SAFE TO FRAME FOR THE SAME REASON THE MINI APP IS (routes/miniapp.js): no
+ * cookie and no storage, a session held in memory, obtainable only with an
+ * access token Pi's App Studio vouches for (lib/pi_auth.js). frame-ancestors
+ * is the one Pi's App Studio guidance gives (2026-10-16): 'self' plus
+ * https://*.pinet.com and https://*.minepi.com, never a wildcard.
+ * PI_FRAME_ANCESTORS replaces it if Pi's hosts change.
+ *
+ * THE POLICY IS PI'S, explicit and narrow. The SDK calls https://socialchain.app
+ * internally during authentication, so connect-src names it; our own code
+ * talks only to us (the App Studio exchange happens on our server, so its
+ * origin is deliberately NOT in this page's connect-src). The SDK injects
+ * inline STYLES, so style-src allows them; script-src never allows inline.
+ *
+ * THE ONE OUTSIDE SCRIPT is Pi's own SDK, which the platform requires to be
+ * loaded from sdk.minepi.com. It is allowed on this page's policy only; the
+ * site-wide policy is untouched.
+ */
+
+const express = require('express');
+const { rateLimit, ipKey } = require('../lib/rate_limit');
+
+const router = express.Router();
+
+router.use(rateLimit({ name: 'piapp', windowMs: 60000, max: 120, key: ipKey }));
+
+const PI_SDK = 'https://sdk.minepi.com/pi-sdk.js';
+
+const PI_FRAME_ANCESTORS = "'self' https://*.pinet.com https://*.minepi.com";
+
+function frameAncestors(env = process.env) {
+  const raw = String(env.PI_FRAME_ANCESTORS || '').trim();
+  return raw || PI_FRAME_ANCESTORS;
+}
+
+function piCsp(env = process.env) {
+  return [
+    "default-src 'none'",
+    "script-src 'self' https://sdk.minepi.com",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "font-src 'self'",
+    "connect-src 'self' https://socialchain.app",
+    "frame-src https://*.minepi.com",
+    "base-uri 'none'",
+    "form-action 'none'",
+    'frame-ancestors ' + frameAncestors(env),
+  ].join('; ');
+}
+
+function framable(req, res, next) {
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('Content-Security-Policy', piCsp());
+  // A bearer token in memory is the session; no cookie may ride this page.
+  res.removeHeader('Set-Cookie');
+  // A signed-in surface: never cached.
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+}
+
+router.use(framable);
+
+/**
+ * In the head, before anything else runs: api-retry, as on every page, then
+ * Pi's SDK, so window.Pi exists before the arena's scripts ask for it.
+ */
+const HEAD_SCRIPTS = ['/js/api-retry.js?v=3', PI_SDK];
+/** Deferred, in order, after the document. */
+const SCRIPTS = [
+  '/js/embed-arena-view.js?v=2',
+  '/js/miniapp-view.js?v=2',
+  '/js/arena-session.js?v=1',
+  '/js/pi-arena.js?v=1',
+];
+
+function page() {
+  const head = HEAD_SCRIPTS.map((s) => `<script src="${s}"></script>`).join('\n');
+  const scripts = SCRIPTS.map((s) => `<script src="${s}" defer></script>`).join('\n');
+  return `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RUNECLAW Arena</title>
+${head}
+<link rel="stylesheet" href="/embed.css?v=6">
+</head><body class="e-arena m-app">
+<div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
+${scripts}
+</body></html>`;
+}
+
+router.get('/', (req, res) => {
+  res.type('html').send(page());
+});
+
+/**
+ * GET /validation-key.txt (mounted at the site root by server.js). Pi's
+ * Developer Portal can ask an app's domain to serve a key it issues, to prove
+ * the domain is the developer's. From the environment only: an unset key is a
+ * 404, never an empty 200 that reads as "verified with nothing".
+ */
+function validationKey(req, res) {
+  const key = String(process.env.PI_VALIDATION_KEY || '').trim();
+  if (!key) return res.status(404).type('text/plain').send('Not found');
+  res.setHeader('Cache-Control', 'no-cache');
+  return res.type('text/plain').send(key);
+}
+
+module.exports = router;
+module.exports.validationKey = validationKey;
+module.exports._page = page;
+module.exports._piCsp = piCsp;
+module.exports.PI_SDK = PI_SDK;
+module.exports.PI_FRAME_ANCESTORS = PI_FRAME_ANCESTORS;

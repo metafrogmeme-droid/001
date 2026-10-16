@@ -62,6 +62,7 @@ Structured Audit Log
 - [Risk Framework](risk-framework.md) -- How risk is managed and enforced
 - [Agent Hub Alignment](agent-hub-alignment.md) -- How RUNECLAW maps to the Bitget Agent Hub
 - [Partner Integrations](partner-integrations.md) -- Integrations with partner technology
+- [Pi Network](pi-network.md) -- RUNECLAW Local on Pi Desktop, and the Arena in the Pi Browser
 - [MCP Integration](mcp-integration.md) -- The MCP surface and what it exposes
 - [Enabling Live Trading](live-trading.md) -- The flags and limits for trading real funds
 - [Security & Permissions](security-permissions.md) -- Keys, tokens and permission boundaries

@@ -37,9 +37,9 @@ grepping for a key.
 Write is not forbidden outright; it is forbidden SILENTLY. A scope that grants
 write must be named in `WRITE_SCOPES_ALLOWED` with its reason, and the rule is
 two-way as `known_failures.txt` is: an entry that stops applying is a hard
-failure, so a stale exemption cannot quietly cover the next one. The tree is at
-zero write scopes today, so this holds from here with nothing to forgive — the
-ruling `test_a_comment_names_the_default_the_flag_has` already set.
+failure, so a stale exemption cannot quietly cover the next one. The tree was
+at zero write scopes when this landed. The one grant since, `packages: write` on
+image.yml's publish job, is a row with its reason, keyed to that file and job.
 
 Driven against PLANTED workflows as well as the real file, because the real
 file passes and a mutation of the RULE would otherwise change no verdict
@@ -54,14 +54,31 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+WORKFLOWS_DIR = ROOT / ".github" / "workflows"
+WORKFLOW = WORKFLOWS_DIR / "ci.yml"
 
-#: Scopes that may be granted at `write` level, each with the reason. Empty is
-#: the honest state today: no job in this workflow writes anything back to
-#: GitHub — no artifact upload, no release, no PR comment, no push. A row added
-#: here without a reason fails, and a row whose scope no longer appears in the
-#: workflow fails too.
-WRITE_SCOPES_ALLOWED: dict[str, str] = {}
+
+def _workflow_files() -> list[Path]:
+    """Every workflow GitHub runs, not only ci.yml.
+
+    This guard read ci.yml alone while it was the only file. The first second
+    workflow (image.yml, the release image the SoloHost package pulls) is also
+    the first one that WRITES, so a guard that kept reading one file would have
+    acquitted exactly the grant it exists to make somebody argue for.
+    """
+    return sorted(WORKFLOWS_DIR.glob("*.yml")) + sorted(WORKFLOWS_DIR.glob("*.yaml"))
+
+
+#: Write grants, keyed `workflow-file:job:scope`, each with the reason. Keyed
+#: that narrowly so a reason written for one job cannot acquit the same scope
+#: on another. A row added here without a reason fails, and a row whose grant
+#: no longer exists fails too.
+WRITE_SCOPES_ALLOWED: dict[str, str] = {
+    "image.yml:publish:packages": (
+        "pushes the release image that scripts/solohost/docker-compose.yml "
+        "pulls to ghcr.io. It runs only on a pushed v* tag or by hand, never "
+        "on a pull request, and refuses to overwrite a tag already published."),
+}
 
 #: The two blanket forms. `write-all` is the one that matters; `read-all` grants
 #: every read scope, which is wider than anything here needs and is still a
@@ -69,12 +86,26 @@ WRITE_SCOPES_ALLOWED: dict[str, str] = {}
 BLANKET = ("write-all", "read-all")
 
 
-def _workflow() -> dict[str, Any]:
-    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+def _workflow(path: Path = WORKFLOW) -> dict[str, Any]:
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 def _jobs() -> dict[str, Any]:
     return _workflow().get("jobs") or {}
+
+
+def _every_job() -> list[tuple[str, str]]:
+    """(workflow file, job name) for every job in every workflow."""
+    return [(p.name, name) for p in _workflow_files()
+            for name in sorted(_workflow(p).get("jobs") or {})]
+
+
+def _ids(pair: tuple[str, str]) -> str:
+    return f"{pair[0]}::{pair[1]}"
+
+
+def _grant_key(wf_file: str, job_name: str, scope: str) -> str:
+    return f"{wf_file}:{job_name}:{scope}"
 
 
 def effective_permissions(wf: dict[str, Any], job: dict[str, Any]) -> Any:
@@ -108,21 +139,23 @@ def test_there_is_a_workflow_to_check():
     assert _jobs(), "ci.yml declares no jobs; this guard now watches nothing"
 
 
-def test_the_workflow_declares_a_token_scope():
+@pytest.mark.parametrize("wf_path", _workflow_files(), ids=lambda p: p.name)
+def test_the_workflow_declares_a_token_scope(wf_path):
     """The finding itself. Without this key the grant is a web-UI setting."""
-    wf = _workflow()
+    wf = _workflow(wf_path)
     assert "permissions" in wf, (
-        "ci.yml declares no workflow-level `permissions:`, so every job's "
+        f"{wf_path.name} declares no workflow-level `permissions:`, so every job's "
         "GITHUB_TOKEN is whatever the repository's Workflow permissions "
         "setting says — a control outside this repo that no test here can "
         "read.\n\nAdd, above `jobs:`:\n  permissions:\n    contents: read"
     )
 
 
-@pytest.mark.parametrize("job_name", sorted(_jobs()))
-def test_every_job_ends_up_with_a_declared_scope(job_name):
+@pytest.mark.parametrize("pair", _every_job(), ids=_ids)
+def test_every_job_ends_up_with_a_declared_scope(pair):
     """Inheriting the workflow's block counts; inheriting the repo's does not."""
-    wf = _workflow()
+    wf_file, job_name = pair
+    wf = _workflow(WORKFLOWS_DIR / wf_file)
     eff = effective_permissions(wf, wf["jobs"][job_name])
     assert eff is not None, (
         f"job `{job_name}` declares no permissions and neither does the "
@@ -130,15 +163,18 @@ def test_every_job_ends_up_with_a_declared_scope(job_name):
     )
 
 
-@pytest.mark.parametrize("job_name", sorted(_jobs()))
-def test_no_job_is_granted_write_without_a_reason(job_name):
-    wf = _workflow()
+@pytest.mark.parametrize("pair", _every_job(), ids=_ids)
+def test_no_job_is_granted_write_without_a_reason(pair):
+    wf_file, job_name = pair
+    wf = _workflow(WORKFLOWS_DIR / wf_file)
     eff = effective_permissions(wf, wf["jobs"][job_name])
-    undeclared = [s for s in _write_scopes(eff) if s not in WRITE_SCOPES_ALLOWED]
+    undeclared = [s for s in _write_scopes(eff)
+                  if _grant_key(wf_file, job_name, s) not in WRITE_SCOPES_ALLOWED]
     assert not undeclared, (
         f"job `{job_name}` is granted write on {undeclared} with no recorded "
         f"reason. If a job genuinely needs to write back to GitHub, add the "
-        f"scope to WRITE_SCOPES_ALLOWED in this file with why."
+        f"key `{wf_file}:{job_name}:<scope>` to WRITE_SCOPES_ALLOWED in this "
+        f"file with why."
     )
 
 
@@ -163,8 +199,8 @@ def grants_contents(eff: Any) -> bool:
     return str(eff.get("contents", "")).strip() in ("read", "write")
 
 
-@pytest.mark.parametrize("job_name", sorted(_jobs()))
-def test_every_job_that_checks_out_can_read_contents(job_name):
+@pytest.mark.parametrize("pair", _every_job(), ids=_ids)
+def test_every_job_that_checks_out_can_read_contents(pair):
     """THE TRAP THE REPLACE-NOT-MERGE RULE SETS, and the reason this is derived
     rather than hand-written.
 
@@ -178,7 +214,8 @@ def test_every_job_that_checks_out_can_read_contents(job_name):
     Derived from the steps, so a job added tomorrow is covered without anybody
     editing a list — the `/setllm` ten-of-eleven shape this repo keeps finding.
     """
-    wf = _workflow()
+    wf_file, job_name = pair
+    wf = _workflow(WORKFLOWS_DIR / wf_file)
     job = wf["jobs"][job_name]
     if not _checks_out(job):
         pytest.skip(f"`{job_name}` runs no checkout")
@@ -194,31 +231,32 @@ def test_every_job_that_checks_out_can_read_contents(job_name):
 def test_no_blanket_grant_anywhere():
     """`permissions: write-all` is the shape this whole guard exists to refuse,
     and `read-all` is wider than any job here needs."""
-    wf = _workflow()
     found = []
-    if isinstance(wf.get("permissions"), str) and wf["permissions"] in BLANKET:
-        found.append(f"workflow: {wf['permissions']}")
-    for name, job in (wf.get("jobs") or {}).items():
-        p = job.get("permissions")
-        if isinstance(p, str) and p in BLANKET:
-            found.append(f"{name}: {p}")
+    for path in _workflow_files():
+        wf = _workflow(path)
+        if isinstance(wf.get("permissions"), str) and wf["permissions"] in BLANKET:
+            found.append(f"{path.name}: {wf['permissions']}")
+        for name, job in (wf.get("jobs") or {}).items():
+            p = job.get("permissions")
+            if isinstance(p, str) and p in BLANKET:
+                found.append(f"{path.name}::{name}: {p}")
     assert not found, f"blanket token grant(s): {found}"
 
 
 def stale_rows(allowed: dict[str, str], live: set[str]) -> list[str]:
     """Allowlist entries no job is granted any more.
 
-    Extracted because WRITE_SCOPES_ALLOWED is EMPTY today, so this rule computes
-    over `{}` against the real tree and can never fire — vacuous, and a mutation
-    of it would change no verdict. Planted input is the only thing that can
-    measure it, which is the ruling `tier_gate_noun_baseline` already records.
+    Extracted because the real allowlist and the real grants agree, so against
+    the tree this rule never fires and a mutation of it would change no verdict
+    there. Planted input is the only thing that can measure it, which is the
+    ruling `tier_gate_noun_baseline` already records.
     """
     return sorted(set(allowed) - live)
 
 
 def reasonless_rows(allowed: dict[str, str]) -> list[str]:
-    """Allowlist entries with no reason written down. Vacuous today for the same
-    reason, and driven on planted input for the same reason."""
+    """Allowlist entries with no reason written down. Driven on planted input
+    for the same reason."""
     return sorted(k for k, v in allowed.items() if not str(v).strip())
 
 
@@ -246,10 +284,12 @@ def test_the_write_allowlist_has_no_stale_row():
     """Two-way, the `known_failures.txt` rule: an exemption that stopped
     applying must be deleted in the same commit, or it sits there ready to
     acquit the next write nobody argued for."""
-    wf = _workflow()
     live = set()
-    for job in (wf.get("jobs") or {}).values():
-        live.update(_write_scopes(effective_permissions(wf, job)))
+    for path in _workflow_files():
+        wf = _workflow(path)
+        for name, job in (wf.get("jobs") or {}).items():
+            live.update(_grant_key(path.name, name, s)
+                        for s in _write_scopes(effective_permissions(wf, job)))
     stale = stale_rows(WRITE_SCOPES_ALLOWED, live)
     assert not stale, (
         f"WRITE_SCOPES_ALLOWED names {stale}, which no job is granted any "

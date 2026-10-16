@@ -740,15 +740,17 @@ def run_telegram() -> None:
             await handler.stop_monitor()
             if dashboard_runner:
                 await dashboard_runner.cleanup()
-            await app.updater.stop()
-            await app.stop()
-            await app.shutdown()
+            # Each only if it is running: a boot that failed before polling
+            # (a rejected token) must exit with THAT error, not with PTB's
+            # "This Updater is not running!" raised from here.
+            from bot.core.boot_health import stop_telegram
+            await stop_telegram(app)
             await engine.stop()
 
-    try:
-        loop.run_until_complete(_run_all())
-    except KeyboardInterrupt:
-        print("\nShutting down...")
+    from bot.core.boot_health import run_boot
+    rc = run_boot(loop, _run_all())
+    if rc:
+        raise SystemExit(rc)
 
 
 async def run_cli() -> None:

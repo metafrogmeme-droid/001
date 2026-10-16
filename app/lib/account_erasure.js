@@ -120,6 +120,10 @@ const IDENTIFYING_COLUMNS = [
   'x_id', 'wallet_address', 'sol_address', 'verify_token',
   'verify_token_expires', 'reset_token', 'reset_token_expires',
   'referral_code', 'leaderboard_handle',
+  // Sign-in identities added after this list was written. Left in place, an
+  // erased account kept its fid or uid, and signing in again with the same
+  // Farcaster or Pi account landed back on the tombstoned row.
+  'farcaster_fid', 'pi_uid',
 ];
 
 /** The address an erased row carries. Unique per id, and unmistakably a tombstone. */

@@ -442,6 +442,19 @@ RULES: list[Rule] = [
                            # rather than one the message merely asserts.
                            # app/test/siwf.test.js drives all three, and the
                            # mutations that remove any one of them fail it.
+            "piapp",       # /pi — the Pi Browser app: ONE HTML document, like
+                           # `miniapp` above and for the same reason. Every
+                           # action it takes is an authenticated call to
+                           # /api/arena/*, which carries authMiddleware and is
+                           # counted there; requiring a session to fetch the
+                           # page would require one to reach its sign-in button.
+            "pi_auth",     # /api/pi/signin — how the Pi app OBTAINS a session,
+                           # so requiring one would be circular. Rate limited by
+                           # IP inside the router, and the identity is never the
+                           # caller's word: lib/pi_auth.js exchanges the access
+                           # token with Pi's App Studio, which checks it against
+                           # the Pi Platform, and a refused token is a 401.
+                           # app/test/pi_auth.test.js drives every answer.
             "embed",       # /embed/* — the ONLY pages this app allows inside a
                            # third-party frame, and the reason they can be is
                            # that there is nothing to authenticate. Public

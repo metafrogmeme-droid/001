@@ -1070,10 +1070,17 @@ const _PROVIDER_ID_COLUMN = {
   // here. Stored as a string like every other provider id so the shared
   // find-or-create path needs no special case.
   farcaster: 'farcaster_fid',
+  // The Pi Network uid, verified against Pi's /v2/me before it reaches here
+  // (lib/pi_auth.js). App-specific: Pi gives each app its own uid per person.
+  pi: 'pi_uid',
 };
 
 async function findOrCreateOAuthUser({ provider, providerId, email, avatarUrl }) {
-  const idCol = _PROVIDER_ID_COLUMN[provider] || 'telegram_id';
+  // No fallback column. This read `|| 'telegram_id'`, so a provider missing
+  // from the map would have looked accounts up, and created them, by Telegram
+  // id: a stranger's Pi uid matched against somebody's Telegram account.
+  const idCol = _PROVIDER_ID_COLUMN[provider];
+  if (!idCol) throw new Error(`findOrCreateOAuthUser: unknown provider ${JSON.stringify(provider)}`);
   const [byId] = await pool.execute(
     `SELECT id, email, plan, token_epoch FROM users WHERE ${idCol} = ? LIMIT 1`, [providerId]);
   if (byId.length) return byId[0];
@@ -1966,4 +1973,7 @@ module.exports = {
   // verdicts and the three rungs are nine cases, and routing all nine through
   // HTTP would test the router more than the decision.
   linkBotSecretVerdict, linkBotAuth,
+  // Exported so account erasure can be held to clearing every sign-in
+  // identity this map can write (app/test/account_erasure.test.js).
+  _PROVIDER_ID_COLUMN,
 };

@@ -1,0 +1,68 @@
+title: RUNECLAW Local
+eyebrow: SoloHost App
+description: >
+  Your own RUNECLAW trading bot on this computer, in practice mode. It scans
+  Bitget markets, builds trade ideas, checks each one against a fail-closed risk
+  gate and trades them on a practice book at real prices. No order reaches an
+  exchange, and no exchange keys are asked for.
+footer_hint: >
+  You talk to the bot in Telegram. Create one with @BotFather first, and get
+  your numeric Telegram ID from @userinfobot.
+output_file: .env
+after_save: >
+  Saved. Install or reinstall to apply. Then open your bot in Telegram, send
+  /start, and send /paper on to trade on your practice book. The App tab shows
+  the dashboard; enter your dashboard token there.
+fixed_values:
+  - name: SIMULATION_MODE
+    value: "true"
+  - name: LIVE_TRADING_ENABLED
+    value: "false"
+  - name: AUTO_CONFIRM_LIVE_ENABLED
+    value: "false"
+  - name: PAPER_AUTO_ACCEPT
+    value: "false"
+  - name: PAPER_SIM_OPT_IN_ENABLED
+    value: "true"
+fields:
+  - name: TELEGRAM_BOT_TOKEN
+    label: Telegram bot token
+    type: password
+    required: true
+    preserve_if_blank: true
+    help: From @BotFather in Telegram. Only you are let in; anyone else waits for your /approve.
+    env_comment: Your bot's token from @BotFather.
+  - name: TELEGRAM_CHAT_ID
+    label: Your Telegram user ID
+    type: text
+    required: true
+    help: The number @userinfobot shows you. This account is the bot's owner.
+    env_comment: The owner's numeric Telegram ID.
+  - name: DASHBOARD_TOKEN
+    label: Dashboard token
+    type: password
+    required: true
+    preserve_if_blank: true
+    help: Any long random phrase. The dashboard asks for it before it shows anything.
+    env_comment: Required by the dashboard's API; without it the API refuses every call.
+  - name: LLM_PROVIDER
+    label: AI provider (optional)
+    type: select
+    default: anthropic
+    help: The bot decides with its rule engine either way. A key adds the AI's read beside each idea and turns on chat.
+    options:
+      - value: anthropic
+        label: Anthropic (Claude)
+      - value: openai
+        label: OpenAI
+      - value: gemini
+        label: Google Gemini
+      - value: groq
+        label: Groq
+  - name: LLM_API_KEY
+    label: AI provider API key (optional)
+    type: password
+    required: false
+    preserve_if_blank: true
+    help: Leave blank to run on the rule engine alone.
+    env_comment: The chosen provider's key. Blank means rules only.
