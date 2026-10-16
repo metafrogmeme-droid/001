@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **492 of 1325** reach for source text through `source_scan`, `code_only`
+Driven, **492 of 1326** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 492 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -25419,3 +25419,43 @@ allow-list and every meaning names its direction; the evidence carries the
 engine's non-zero counters and null for an unreadable map; and the engine is
 what writes the counter the audit reads. Ten mutants, all killed, each by the
 test that names it.)
+
+**PAPER WAS OPEN BEHIND ONE DOOR AND SHUT AT THE FIVE A NEWCOMER USES FIRST.**
+The owner asked for paper trading with no admin approval. The switch for that
+already existed and defaulted on: `PAPER_AUTO_ACCEPT`, and `_guard` admitted a
+stranger as `paper` on their first guarded command. But `_guard` was the only
+door that asked it. A newcomer whose first touch was `/start` (unguarded), `/help`,
+a plain message or a button tap was told "this bot admits people by hand", and
+the operator was paged with an access request, while the same person typing
+`/scan` a moment later was let in with nobody asked. The website's gateway
+refused a Telegram-linked account outright and sent it to Telegram to wait for
+that operator. The docs said "your first command admits you", which was true
+only of a command that happened to be guarded. One question, "is paper open
+to a stranger", had two answers depending on which door they used.
+- **One door.** `TelegramHandler._admit_for_paper` holds the whole rule: in
+  already (env allowlist, an admin's `/approve`, an earlier self-admission, or
+  no allowlist at all), or admitted now as `SELF_ADMISSION_ROLE` with
+  `admitted_by=SELF_ADMISSION_BY` while the flag is on, or refused. `_guard`,
+  `/start`, `/help`, a first message, a later message from someone registered
+  while the door was shut, a button, and the gateway's `_guard_user` all ask
+  it. A test pins that each of them still does, and that nothing else in
+  `bot/` writes the self-admission stamp.
+- **What it never does.** It never lifts an admin's `/revoke`: `authorize`
+  refuses a revoked record on the self-admission path. It never admits anyone
+  from a group, where talking registers nobody (`_admit_newcomer` asks
+  `is_public_room` first). It never grants more than paper: no `/halt`,
+  `/reset` or `/mode`, and a confirm is a practice fill. Live trading is a
+  separate authority. The operator's request card and the admit button had said
+  live "still needs the env allowlist", which stopped being the rule when live
+  opened to key holders; they now say only that admission does not grant it.
+- **A stand-in admits nobody.** The gateway asks the handler's door through
+  `_admit_web_caller_for_paper`, which counts only a real `True`. A test double
+  whose method returns a truthy mock would otherwise have opened it.
+(`tests/test_paper_is_open_at_every_door.py`, through the real entry points
+against a temp store: each door with the flag on admits as paper, says so and
+pages nobody; with it off refuses and asks the operator; a revoked member stays
+out at `/start` and on the website; `/help` in a group admits nobody; the
+admitted account has no operator controls and its confirms are practice; a
+stand-in handler admits nobody. Twelve mutants, all killed; the guard's own door
+survived the first round, because no test in the file called `_guard`, and a
+test now does.)

@@ -712,7 +712,8 @@ ANSWERS_NOTHING_WORTH_RECORDING = {
                 "to record into, and creating one for a stranger is a store "
                 "entry nobody asked for",
     "not user.get('authorized', False)": "same — not admitted, no transcript",
-    "not self._is_allowlisted(update)": "same — not admitted, no transcript",
+    "not self._admit_newcomer(update)": "same — not admitted (the paper door "
+                                        "refused too), no transcript",
     "not self._limiter.allow(uid)": "a rate limit exists to do NO work; two "
                                     "store writes per dropped message is work, "
                                     "and a flood would fill the store with "

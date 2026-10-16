@@ -84,7 +84,7 @@ When the operator turns on tier gating (`TIER_GATE_ENABLED`, or the token gate `
 
 "Operator" on this page means an admin, or the chat named in `TELEGRAM_CHAT_ID`.
 
-With no allow-list configured, anyone who messages the bot is registered as a paper user. With one (`TELEGRAM_CHAT_ID`, `ADMIN_TELEGRAM_IDS` or `LIVE_TRADER_TELEGRAM_IDS` set), a newcomer is admitted as a paper user on their first command while `PAPER_AUTO_ACCEPT` is on (the default); otherwise the operator is notified and an admin admits them with `/approve <user_id> [role]`.
+With no allow-list configured, anyone who messages the bot is registered as a paper user. With one (`TELEGRAM_CHAT_ID`, `ADMIN_TELEGRAM_IDS` or `LIVE_TRADER_TELEGRAM_IDS` set), a newcomer is admitted as a paper user on first contact (any message, `/start` included) while `PAPER_AUTO_ACCEPT` is on (the default); otherwise the operator is notified and an admin admits them with `/approve <user_id> [role]`.
 
 ## AI Chat
 

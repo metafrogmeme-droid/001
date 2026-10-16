@@ -123,7 +123,7 @@ confluence scoring.
 ### Onboarding Flow
 
 1. With no allow-list configured (`TELEGRAM_CHAT_ID`, `ADMIN_TELEGRAM_IDS` and `LIVE_TRADER_TELEGRAM_IDS` all empty), anyone who messages the bot is registered as a paper user.
-2. With an allow-list, a newcomer is admitted as a paper user on their first command while `PAPER_AUTO_ACCEPT` is on (the default).
+2. With an allow-list, a newcomer is admitted as a paper user on first contact (any message, `/start` included) while `PAPER_AUTO_ACCEPT` is on (the default).
 3. With `PAPER_AUTO_ACCEPT` off, the newcomer is turned away and the operator is notified, once per person.
 4. An admin sends `/approve <user_id> [role]` to admit someone by hand: trader by default, or paper, viewer or admin.
 

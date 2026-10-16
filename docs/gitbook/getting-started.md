@@ -47,7 +47,7 @@ The settings most people set first:
 | `LLM_API_KEY` | Optional | The provider's key. With it, the model's read rides beside each decision (marked as not used to decide, since `LLM_DECIDES` is off by default) and powers chat. Spend stops at `LLM_DAILY_BUDGET_USD` (code default 1.0, `.env.example` 5.0). |
 | `LLM_MODEL` | Optional | Leave empty to use the provider's default model. |
 
-**Who can use your bot.** `TELEGRAM_CHAT_ID`, `ADMIN_TELEGRAM_IDS` and `LIVE_TRADER_TELEGRAM_IDS` together make up the allow-list. While any of them is set, everyone else gets in either through an admin's `/approve` or as a paper user on their first command, while `PAPER_AUTO_ACCEPT` is on (the default). If all three are empty there is no allow-list and anyone who finds the bot can use it as a paper user.
+**Who can use your bot.** `TELEGRAM_CHAT_ID`, `ADMIN_TELEGRAM_IDS` and `LIVE_TRADER_TELEGRAM_IDS` together make up the allow-list. While any of them is set, everyone else gets in either through an admin's `/approve` or as a paper user on first contact (any message, `/start` included), while `PAPER_AUTO_ACCEPT` is on (the default). If all three are empty there is no allow-list and anyone who finds the bot can use it as a paper user.
 
 **Keep the copied auto-confirm lines.** Every other setting has a default, and `.env.example` lists them. Two of its values depart from the code defaults on purpose: `AUTO_CONFIRM_THRESHOLD=1.0` and `AUTO_CONFIRM_LIVE_ENABLED=false` turn auto-confirm off, so the bot's own ideas wait for a person to confirm them on their card. Without a `.env`, the code defaults are `0.85` and on. See [Telegram Confirmation Flow](telegram-confirmation.md).
 
