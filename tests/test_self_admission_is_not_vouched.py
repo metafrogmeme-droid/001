@@ -526,19 +526,15 @@ class TestTheOperatorSeesThem:
         direction is worse: a role offered in the help text that the validator
         rejects.
         """
-        import pathlib
         import re
+        from bot.core.member_admin import ROLES_GRANTABLE
         from bot.utils.i18n import SUPPORTED_LANGS, t
-        # /users and /approve live in the access mixin since the handler split.
-        src = (pathlib.Path(__file__).resolve().parent.parent
-               / "bot" / "skills" / "access_commands.py").read_text(encoding="utf-8")
-        code = "\n".join(ln.split("#", 1)[0] for ln in src.split("\n"))
-        m = re.search(r'if role not in \(([^)]*)\)', code)
-        assert m, "the /approve role validator moved — re-point this check"
-        accepted = set(re.findall(r'"([a-z]+)"', m.group(1)))
-        accepted.discard("")
-        accepted |= {SELF_ADMISSION_ROLE} if "SELF_ADMISSION_ROLE" in m.group(1) else set()
-        assert accepted, "no roles parsed out of the validator"
+        # The roles /approve accepts are the one write path's tuple
+        # (bot/core/member_admin.py), read as the value it is. This check used
+        # to scan access_commands.py for an inline `if role not in (...)`,
+        # and went blind when the rule moved into the module both doors call.
+        accepted = set(ROLES_GRANTABLE)
+        assert SELF_ADMISSION_ROLE in accepted, "paper is no longer grantable"
         # Every language, rendered through the real `t()`. A role listed only in
         # English is invisible to exactly the operators who most need the help
         # text to be complete.
