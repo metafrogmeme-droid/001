@@ -93,14 +93,6 @@ class ScanFlights:
         while len(self._done) > self._max_entries:
             self._done.pop(next(iter(self._done)))
 
-    def forget(self, key: Any = None) -> None:
-        """Drop the cached result for ``key`` on every loop, or everything."""
-        if key is None:
-            self._done.clear()
-            return
-        for k in [k for k in self._done if k[1] == key]:
-            self._done.pop(k, None)
-
     async def run(self, key: Any, factory: Callable[[], Awaitable[Any]], *,
                   ttl_s: float,
                   keep: Optional[Callable[[Any], bool]] = None) -> Shared:
@@ -191,7 +183,7 @@ class RoomScans:
     def posted(self, chat_id: Any, kind: str) -> None:
         self._state[(str(chat_id), kind)] = ("posted", self._clock())
 
-    def release(self, chat_id: Any, kind: str) -> None:
+    def free_claim(self, chat_id: Any, kind: str) -> None:
         """A claimed scan that posted nothing: the next member may run."""
         k = (str(chat_id), kind)
         if self._state.get(k, ("", 0.0))[0] == "running":

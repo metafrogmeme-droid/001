@@ -424,6 +424,45 @@ class TestGroupChats:
         _run(go())
         assert len(dispatched) == 2, "a failed scan locked the chat out"
 
+    def test_a_failed_deep_scan_frees_the_chat_and_a_posted_one_holds_it(self):
+        """/deepscan catches its own failures and answers with an error line,
+        so "the handler returned" is not "a card was posted". Marking the chat
+        posted on every return told the next member to scroll up to a card
+        that was never sent. Both arms, on the real handler."""
+        from bot.skills.scan_commands import ScanCommands
+        fn = getattr(ScanCommands._cmd_deepscan, "__wrapped__", ScanCommands._cmd_deepscan)
+
+        def host(fail):
+            dispatched, sent = [], []
+
+            async def dispatch(name, engine, **kw):
+                dispatched.append(kw.get("timeframe"))
+                if fail:
+                    raise RuntimeError("venue down")
+                return "DEEP SCAN text"
+
+            async def _send(update, text, **kw):
+                sent.append(text)
+            h = SimpleNamespace(
+                engine=SimpleNamespace(_last_deepscan_hits=None),
+                registry=SimpleNamespace(dispatch=dispatch), _send=_send,
+                _token_gate_blocks=AsyncMock(return_value=False))
+            return h, dispatched, sent
+
+        ctx = SimpleNamespace(args=["4h"])
+        bad, bad_runs, bad_sent = host(fail=True)
+        _run(fn(bad, _upd(-200, 1), ctx))
+        _run(fn(bad, _upd(-200, 2), ctx))
+        assert len(bad_runs) == 2, "a failed deep scan locked the chat out"
+        assert not any("still current" in t for t in bad_sent), \
+            "a member was pointed at a deep-scan card that was never posted"
+
+        good, good_runs, good_sent = host(fail=False)
+        _run(fn(good, _upd(-300, 1), ctx))
+        _run(fn(good, _upd(-300, 2), ctx))
+        assert len(good_runs) == 1
+        assert "still current" in good_sent[-1]
+
     def test_a_claim_nobody_settled_goes_stale(self):
         now = [0.0]
         rooms = sf.RoomScans(stale_s=180, clock=lambda: now[0])

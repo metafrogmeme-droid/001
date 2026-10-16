@@ -25590,6 +25590,33 @@ readers as "a scan is already running", never as "nothing found".
 helper and the route the same way. Sixteen Python mutants and three website
 mutants, all killed.)
 
+**The slice's own tests were green. The first full run found 31 failures and
+two gates, every one from a move the slice's own suite could not see:**
+- **A fetch split into a second method.** Twenty-one tests bind the real
+  `_cached_ohlcv` onto a stand-in that carries nothing else, and three read the
+  drop, the store and the eviction inside it. The fetch is a nested coroutine
+  again. The slice had pointed one of those three at the split-off method; the
+  second full run caught that pointer left dangling, and it reads
+  `_cached_ohlcv` again.
+- **A dispatch moved out of its gate.** `/deepscan`'s body went into a helper,
+  and `scripts/guard_lint.py` said the gated skill was now dispatched from a
+  function the token gate never reaches. It is back in the gated handler. The
+  move also hid a defect: the helper caught its own failures, so a deep scan
+  that timed out still marked the chat "posted" and pointed the next member at
+  a card nobody sent. The chat is now marked only when something was posted.
+- **A contract changed under its test.** A second force scan now joins the
+  first; `test_force_scan_is_single_flight` still asserted "skipped". It
+  asserts the join now, and the skip that the periodic tick's lock still
+  answers, both arms.
+- **Two names made ambiguous.** `ScanFlights.forget` and `RoomScans.release`
+  shared names with other classes, so the unreachable-method sweep could no
+  longer resolve either. `forget` had no caller and is gone; `release` is
+  `free_claim`.
+- **A baseline row went stale, and one shape was new.** The scan card no
+  longer touches the operator's client, so its row in
+  `tests/operator_account_reads_baseline.txt` was deleted. The deep scan's
+  shared key read the budget as `budget or 0`; it reads it as the sweep does.
+
 **THE ADMIN PAGE'S FIRST READER WAS A PHONE, AND ITS FIRST WARNING WAS A SECOND
 READING OF THE MAILER.**
 The owner opened `/admin` on a phone the day it shipped and sent a screenshot.

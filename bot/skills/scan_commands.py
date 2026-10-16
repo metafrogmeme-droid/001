@@ -754,7 +754,7 @@ class ScanCommands:
                 ROOMS.posted(_room, "market")
         finally:
             if _room is not None:
-                ROOMS.release(_room, "market")
+                ROOMS.free_claim(_room, "market")
 
     def _scan_venues_text(self, lang: str) -> str:
         """The `/scan venues` list: every venue the table knows, as a command."""
@@ -1256,102 +1256,104 @@ class ScanCommands:
                 await self._send(update, room_sentence(
                     _state, _secs, DEEPSCAN_TTL_S, f"{tf} deep scan"))
                 return
+        # The chat is marked posted only when a card or the result went out.
+        # A timeout, an error or an empty read posts no card, so the next
+        # member may run it; marking those "posted" pointed the chat at a
+        # card that was never sent, for the whole TTL.
+        _posted = False
         try:
-            await self._deepscan_and_post(update, tf, _multi, _tf_label)
-            if _room is not None:
+            await self._send(update, f"🔬 <i>Deep scanning {_tf_label} — this may take a minute...</i>")
+            try:
+                result = await asyncio.wait_for(
+                    self.registry.dispatch("deepscan",
+                        self.engine, timeframe=tf),
+                    # A full multi-timeframe sweep does ~5× the fetches, so give
+                    # it proportionally longer. Configurable: the right value
+                    # depends on the universe, and a deadline shorter than the
+                    # work is a sizing fact, not an exchange fault.
+                    timeout=(CONFIG.deepscan_multi_timeout_sec if _multi
+                             else CONFIG.deepscan_timeout_sec),
+                )
+                if result:
+                    # NO SETUPS PICTURE. A deep scan measures patterns and decides no
+                    # direction, so it has no trade to draw. This block used to build
+                    # one per hit anyway -- "LONG if RSI < 50 or the last bar closed up",
+                    # a volume ratio of exactly 2.5 or 1.0, and entry, stop and target
+                    # from an ATR that fell back to 2% of price -- and send it as a
+                    # scan-results card with an R:R on it. The website push had the
+                    # same rows; both are gone. The patterns picture below shows what
+                    # the scan actually read.
+                    # Render the pattern observations as a card (mirrors the text
+                    # patterns readout). Text is still sent below as a fallback.
+                    patterns_card_sent = False
+                    try:
+                        p_hits = getattr(self.engine, '_last_deepscan_hits', None)
+                        if p_hits:
+                            from bot.formatters.signal_card import render_patterns_card
+                            now_str = datetime.now(UTC).strftime('%H:%M UTC')
+                            p_png = render_patterns_card(
+                                p_hits,
+                                scan_label=f"DEEP SCAN {tf.upper()}",
+                                timestamp=now_str,
+                                subtitle=f"{len(p_hits)} hits · {tf} · chart + candle patterns",
+                            )
+                            if p_png:
+                                import io as _io
+                                p_buf = _io.BytesIO(p_png)
+                                p_buf.name = "deepscan_patterns.png"
+                                chat_id = str(update.effective_chat.id) if update.effective_chat else ""
+                                if chat_id:
+                                    _note = getattr(self.engine, "_last_deepscan_note", "")
+                                    await update.get_bot().send_photo(
+                                        chat_id=int(chat_id), photo=p_buf,
+                                        caption=(f"🔍 <b>Patterns</b> — {tf.upper()} — {now_str}"
+                                                 + (f"\n<i>{html.escape(_note)}</i>"
+                                                    if _note else "")),
+                                        parse_mode="HTML")
+                                    patterns_card_sent = True
+                    except Exception as exc:
+                        system_log.warning("Deepscan patterns card render failed: %s", exc)
+
+                    # Send text result (full details + patterns). When the patterns
+                    # card rendered, the text is redundant noise — skip it.
+                    if not patterns_card_sent:
+                        await self._send(update, result)
+                    _posted = True
+                else:
+                    await self._send(update, "🔴 <b>Deepscan returned empty result.</b>")
+            except asyncio.TimeoutError:
+                # NOT "Exchange may be slow". That was a verdict inferred from a
+                # deadline expiring, and on 2026-07-29 the engine's own numbers
+                # showed the exchange was fine — the analyze phase was simply
+                # given more symbols than its budget covered. A timeout says the
+                # work did not fit the time. Which of the two was wrong is a
+                # separate question, and this message is not entitled to answer
+                # it. Same correction as the interactive-scan hint above.
+                _budget = (CONFIG.deepscan_multi_timeout_sec if _multi
+                           else CONFIG.deepscan_timeout_sec)
+                system_log.error("Deepscan timed out after %.0fs (multi=%s)",
+                                 _budget, _multi)
+                # ...and where the time goes is a question this bot can already
+                # answer. _scan_timeout_hint carries the degraded-LLM streak and
+                # the engine's own analysis-timeout record (symbol AND stage).
+                # Sending the operator to /status for a fact we hold is a
+                # deflection, and it left the diagnostic wired to exactly one of
+                # the four commands that can time out.
+                await self._send(update,
+                    f"🔴 <b>Deepscan hit its {_budget:.0f}s limit.</b> That is this "
+                    f"command's own budget — not a diagnosis of the exchange."
+                    + (_scan_timeout_hint(getattr(self.engine, "analyzer", None),
+                                          self.engine)
+                       or "\n\n<code>/status</code> carries the engine's measured "
+                          "scan timing if you want to know where the time goes."))
+            except Exception as exc:
+                system_log.error(f"Deepscan error: {exc}", exc_info=True)
+                await self._send(update, f"🔴 <b>Deepscan error:</b> <code>{_safe_exc_text(exc)}</code>")
+            if _posted and _room is not None:
                 ROOMS.posted(_room, _kind)
         finally:
             if _room is not None:
-                ROOMS.release(_room, _kind)
-
-    async def _deepscan_and_post(self, update: Update, tf: str, _multi: bool,
-                                 _tf_label: str) -> None:
-        await self._send(update, f"🔬 <i>Deep scanning {_tf_label} — this may take a minute...</i>")
-        try:
-            result = await asyncio.wait_for(
-                self.registry.dispatch("deepscan",
-                    self.engine, timeframe=tf),
-                # A full multi-timeframe sweep does ~5× the fetches, so give
-                # it proportionally longer. Configurable: the right value
-                # depends on the universe, and a deadline shorter than the
-                # work is a sizing fact, not an exchange fault.
-                timeout=(CONFIG.deepscan_multi_timeout_sec if _multi
-                         else CONFIG.deepscan_timeout_sec),
-            )
-            if result:
-                # NO SETUPS PICTURE. A deep scan measures patterns and decides no
-                # direction, so it has no trade to draw. This block used to build
-                # one per hit anyway -- "LONG if RSI < 50 or the last bar closed up",
-                # a volume ratio of exactly 2.5 or 1.0, and entry, stop and target
-                # from an ATR that fell back to 2% of price -- and send it as a
-                # scan-results card with an R:R on it. The website push had the
-                # same rows; both are gone. The patterns picture below shows what
-                # the scan actually read.
-                # Render the pattern observations as a card (mirrors the text
-                # patterns readout). Text is still sent below as a fallback.
-                patterns_card_sent = False
-                try:
-                    p_hits = getattr(self.engine, '_last_deepscan_hits', None)
-                    if p_hits:
-                        from bot.formatters.signal_card import render_patterns_card
-                        now_str = datetime.now(UTC).strftime('%H:%M UTC')
-                        p_png = render_patterns_card(
-                            p_hits,
-                            scan_label=f"DEEP SCAN {tf.upper()}",
-                            timestamp=now_str,
-                            subtitle=f"{len(p_hits)} hits · {tf} · chart + candle patterns",
-                        )
-                        if p_png:
-                            import io as _io
-                            p_buf = _io.BytesIO(p_png)
-                            p_buf.name = "deepscan_patterns.png"
-                            chat_id = str(update.effective_chat.id) if update.effective_chat else ""
-                            if chat_id:
-                                _note = getattr(self.engine, "_last_deepscan_note", "")
-                                await update.get_bot().send_photo(
-                                    chat_id=int(chat_id), photo=p_buf,
-                                    caption=(f"🔍 <b>Patterns</b> — {tf.upper()} — {now_str}"
-                                             + (f"\n<i>{html.escape(_note)}</i>"
-                                                if _note else "")),
-                                    parse_mode="HTML")
-                                patterns_card_sent = True
-                except Exception as exc:
-                    system_log.warning("Deepscan patterns card render failed: %s", exc)
-
-                # Send text result (full details + patterns). When the patterns
-                # card rendered, the text is redundant noise — skip it.
-                if not patterns_card_sent:
-                    await self._send(update, result)
-            else:
-                await self._send(update, "🔴 <b>Deepscan returned empty result.</b>")
-        except asyncio.TimeoutError:
-            # NOT "Exchange may be slow". That was a verdict inferred from a
-            # deadline expiring, and on 2026-07-29 the engine's own numbers
-            # showed the exchange was fine — the analyze phase was simply
-            # given more symbols than its budget covered. A timeout says the
-            # work did not fit the time. Which of the two was wrong is a
-            # separate question, and this message is not entitled to answer
-            # it. Same correction as the interactive-scan hint above.
-            _budget = (CONFIG.deepscan_multi_timeout_sec if _multi
-                       else CONFIG.deepscan_timeout_sec)
-            system_log.error("Deepscan timed out after %.0fs (multi=%s)",
-                             _budget, _multi)
-            # ...and where the time goes is a question this bot can already
-            # answer. _scan_timeout_hint carries the degraded-LLM streak and
-            # the engine's own analysis-timeout record (symbol AND stage).
-            # Sending the operator to /status for a fact we hold is a
-            # deflection, and it left the diagnostic wired to exactly one of
-            # the four commands that can time out.
-            await self._send(update,
-                f"🔴 <b>Deepscan hit its {_budget:.0f}s limit.</b> That is this "
-                f"command's own budget — not a diagnosis of the exchange."
-                + (_scan_timeout_hint(getattr(self.engine, "analyzer", None),
-                                      self.engine)
-                   or "\n\n<code>/status</code> carries the engine's measured "
-                      "scan timing if you want to know where the time goes."))
-        except Exception as exc:
-            system_log.error(f"Deepscan error: {exc}", exc_info=True)
-            await self._send(update, f"🔴 <b>Deepscan error:</b> <code>{_safe_exc_text(exc)}</code>")
+                ROOMS.free_claim(_room, _kind)
 
     @guard("scan")
     async def _cmd_fullscan(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
