@@ -15,6 +15,7 @@
     "/reset": "Password-reset entry. Reached only by the emailed link, and it carries a token — advertising it on the landing page invites people to load it without one, which can only render an error.",
     "/verify": "Email-verification entry, same shape as /reset: the link IS the credential.",
     "/wallet-link": "Entered from the wallet-connect flow with state already established. Landing straight on it out of context has nothing to act on.",
-    "/signal": "One signal's thesis, opened from a stream row as /signal?key=. A bare landing link has no id, so the page can only say the link has none."
+    "/signal": "One signal's thesis, opened from a stream row as /signal?key=. A bare landing link has no id, so the page can only say the link has none.",
+    "/admin": "The operator's settings page. It is linked from the dashboard for the operator only; every other account would land on a refusal, so the public landing page does not advertise it."
   }
 }

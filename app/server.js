@@ -356,6 +356,8 @@ app.use('/api/token', require('./routes/token'));
 app.use('/api/docs', require('./routes/docs'));
 app.use('/api/credentials', credentialsRouter);
 app.use('/api/controls', controlsRouter);
+// The operator's Admin page: the bot's runtime settings (operator + 2FA).
+app.use('/api/admin', require('./routes/admin'));
 app.use('/api/chat', chatRouter);
 app.use('/api/llm', require('./routes/llm'));
 // The member's tier, read from the bot (the one tier authority).
@@ -485,6 +487,7 @@ app.use('/api/stream', streamRouter);
 // SPA fallback - serve index.html for non-API routes (never cached: see above)
 app.get('/', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'index.html')); });
 app.get('/dashboard', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'dashboard.html')); });
+app.get('/admin', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'admin.html')); });
 // Account-management landing pages reached from email links.
 app.get('/track', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'track.html')); });
 app.get('/proof', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'proof.html')); });

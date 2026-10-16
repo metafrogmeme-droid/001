@@ -58,6 +58,11 @@ _CRITICAL = [
     "data/shadow_book.json",
     "data/proactive_watch.json",
     "data/venue_override.json",
+    # The operator's settings and the record of who changed them
+    # (bot/core/settings_registry.py). A restore without the first puts every
+    # setting back to its configured value without a word.
+    "data/settings_overrides.json",
+    "data/settings_audit.jsonl",
     "data/catalog_seen.json",
 ]
 _CRITICAL_GLOBS = ["data/learning/*", "data/portfolio_*", "data/risk_state_*"]

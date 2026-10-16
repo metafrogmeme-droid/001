@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **492 of 1326** reach for source text through `source_scan`, `code_only`
+Driven, **492 of 1327** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 492 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -25459,3 +25459,65 @@ admitted account has no operator controls and its confirms are practice; a
 stand-in handler admits nobody. Twelve mutants, all killed; the guard's own door
 survived the first round, because no test in the file called `_guard`, and a
 test now does.)
+
+**SIX SETTINGS, FIVE DOORS, AND THREE ANSWERS TO "DOES IT SURVIVE A RESTART".**
+The owner asked for an admin section on the website to manage the bot's
+settings. Before building one, the settings an operator can change while the
+bot runs were mapped, and each door that wrote one did its own share of the
+job. `/leverage set` wrote `RUNTIME.leverage_override` and nothing else, so a
+restart put the configured leverage back without a word. `/autoconfirm` wrote
+and logged a line, and a restart undid it too. `/drawdownlimit` saved through
+the risk state and survived. `/mode` and the stance buttons wrote and nothing
+else. No door said whether its change would last, and nothing could say who
+had changed a setting or when. A web page over that would have been a fifth
+door with a fifth set of answers.
+- **One write path.** `bot/core/settings_registry.py` holds the six settings:
+  each one's bounds, what raising it does to its guard (`up`), the Telegram
+  command that also sets it, and where it is saved. `apply` and `reset` parse
+  and bound the value the same way for every door, write through `RUNTIME`'s
+  setter (which still clamps), save it, and append one line to
+  `data/settings_audit.jsonl`: when, who, through which door, before and
+  after, and `effect`, which is computed from `up`, never from a door's
+  wording. The Telegram doors, the website's stance queue and the new Admin
+  page all call it. A test walks `bot/` and fails on any module that writes
+  one of the six on `RUNTIME` by hand. The exceptions are named with a reason:
+  the registry itself, the adaptive threshold (the engine's own move, not an
+  operator's), and the drawdown cap's restore from the risk state.
+- **One store per value.** The drawdown cap stays in the risk state, where it
+  was saved and where its round-trip tests pin it. The registry asks the
+  engine to save it, rather than keeping a second copy in its own file that a
+  boot could read in the wrong order. `RiskEngine._save_state` now answers
+  whether the write landed, because "saved" over a failed write is the one
+  false answer a settings page can give. Every door's reply ends with
+  `saved_sentence`: saved, not saved and why, or not confirmed.
+- **Unreadable is not "nothing saved".** A saved-settings file that does not
+  parse is never written over: rewriting it from an empty dict would erase
+  every other saved value. The change still applies in force and says it was
+  not saved. The page reads the file as unreadable, not as all defaults.
+- **The website's locks.** Operator only, by `users.plan` re-read on every
+  request. A change needs a fresh 2FA code, and an operator account with no
+  2FA can read the page but not change anything from it: a stolen web session
+  must not be able to raise leverage or loosen the drawdown cap. Live trading
+  and the venue are not settable from the web at all. The bot refuses them by
+  name (`LOCKED`), whatever the page sends.
+- **The stance changes nothing.** Mapping the settings found `strategy_mode`,
+  the Defensive/Balanced/Aggressive/Manual stance, read by the /agent card,
+  the war room and the dashboard, and by nothing that sizes, selects or
+  confirms a trade. The cards promised "smaller sizing bias, stricter setup
+  selection", "more signals, higher exposure" and "you confirm every trade".
+  They now say it is a label and point at the settings that do those things
+  (`STANCE_NOTE`). Making the stance mean something is a strategy change, and
+  it waits for a measurement.
+(`tests/test_every_operator_setting_has_one_write_path.py`, through the
+registry, the Telegram doors, the stance queue and the gateway handlers
+against temp files: a change is in force, saved and recorded; it survives a
+stand-in restart and a reset forgets it; an unreadable file is not written
+over; each door's bounds hold; the drawdown cap round-trips through the risk
+state, and a failed or unconfirmed save says so; the gateway is admin-only and
+refuses live trading and the venue; the paper override decides and None means
+the config; every stance surface carries the note.
+`app/test/the_admin_page_is_the_operators_and_a_change_needs_2fa.test.js`
+drives the route: a member reads and changes nothing, an operator without 2FA
+reads but cannot change, a wrong code reaches nothing, a dead bot is named
+while the site half stands, and the gateway host never reaches the page.
+Fifteen Python mutants and seven route mutants, all killed.)

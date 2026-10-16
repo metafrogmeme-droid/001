@@ -2998,6 +2998,9 @@ class RuntimeState:
         # None => CONFIG.exchange.default_leverage (5x standard). Clamped
         # hard in the setter; consulted by LiveExecutor on every open.
         self._leverage_override: int | None = None
+        # Runtime override for PAPER_AUTO_ACCEPT (the admin page). None =>
+        # the configured value, read by `paper_auto_accept_in_force`.
+        self._paper_auto_accept_override: bool | None = None
 
     @property
     def live_mode(self) -> bool:
@@ -3091,6 +3094,25 @@ class RuntimeState:
         """Revert the live drawdown cap to the configured default."""
         with self._lock:
             self._live_drawdown_override_pct = None
+
+    @property
+    def paper_auto_accept_override(self) -> bool | None:
+        with self._lock:
+            return self._paper_auto_accept_override
+
+    @paper_auto_accept_override.setter
+    def paper_auto_accept_override(self, value: bool | None) -> None:
+        with self._lock:
+            self._paper_auto_accept_override = None if value is None else bool(value)
+
+    def paper_auto_accept_in_force(self, configured: bool) -> bool:
+        """The one reading of "is paper auto-accept on": the override when an
+        operator set one, else ``configured`` (the caller's
+        ``CONFIG.paper_auto_accept``, passed in so a test that stands in a
+        config is still the config this answers from)."""
+        with self._lock:
+            o = self._paper_auto_accept_override
+        return bool(configured) if o is None else o
 
 
 RUNTIME = RuntimeState()

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>RUNECLAW — Admin</title>
+<meta name="description" content="The operator's settings for the RUNECLAW bot.">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/app_icon_512.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0b10">
+<link rel="preload" href="/fonts/cinzel-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css?v=52">
+<style>
+  .ad-wrap { max-width: 920px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); }
+  .topnav { display: flex; gap: var(--s3); align-items: center; margin-bottom: var(--s4); flex-wrap: wrap; }
+  .topnav a { color: var(--text-2); font-size: var(--fs-sm); } .topnav a:hover { color: var(--text-1); }
+  .ad-hero h1 { font-family: var(--font-display); letter-spacing: .05em; font-size: clamp(26px, 4vw, 40px); margin-bottom: var(--s2); }
+  .lede { color: var(--text-2); max-width: 72ch; line-height: 1.6; margin-bottom: var(--s4); }
+  .lede b { color: var(--text-1); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); margin-bottom: var(--s4); }
+  .panel h2 { font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: .1em; color: var(--text-3); margin-bottom: var(--s3); }
+  .set { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--s3); margin-top: var(--s3); }
+  .set .hd { display: flex; gap: var(--s3); align-items: baseline; flex-wrap: wrap; }
+  .set .nm { font-weight: 700; color: var(--text-1); }
+  .set .val { font-family: var(--font-data); color: var(--text-1); }
+  .set .src, .note, .empty { color: var(--text-3); font-size: var(--fs-xs); line-height: 1.6; }
+  .set .means { color: var(--text-2); font-size: var(--fs-sm); line-height: 1.55; margin: 6px 0; }
+  .set .ed { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; margin-top: var(--s2); }
+  .set .ed label { color: var(--text-3); font-size: var(--fs-xs); display: flex; gap: 6px; align-items: center; }
+  .set input, .set select { background: var(--bg); border: 1px solid var(--line); color: var(--text-1); border-radius: var(--radius-sm); padding: 8px 10px; font-family: var(--font-data); font-size: var(--fs-sm); min-width: 120px; }
+  .set .res { font-size: var(--fs-xs); color: var(--text-2); margin-top: 6px; }
+  .rows { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+  .rows td, .rows th { border-top: 1px solid var(--line); padding: 8px 6px; text-align: left; vertical-align: top; }
+  .rows th { color: var(--text-3); font-weight: 600; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .06em; }
+  .rows .mono { font-family: var(--font-data); }
+  .warn { color: var(--gold-bright); }
+  .muted { color: var(--text-3); }
+  a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; border-radius: var(--radius-sm); }
+</style>
+</head>
+<body>
+<div class="ad-wrap" role="main">
+  <nav class="topnav">
+    <a href="/">← RUNECLAW</a>
+    <span style="flex:1"></span>
+    <a href="/dashboard">Dashboard</a>
+  </nav>
+  <header class="ad-hero">
+    <h1>Admin</h1>
+    <p class="lede">The bot's settings in one place. A change made here takes the same path as the Telegram command for it: <b>bounded</b>, <b>saved across a restart</b>, and <b>recorded</b> with who made it and whether it tightened or loosened the guard. Changing a setting needs two-factor sign-in. Live trading and the venue are changed from Telegram only.</p>
+  </header>
+  <div id="admState" class="note"></div>
+  <section class="panel"><h2>Bot settings</h2><div id="admSettings" class="empty">Loading…</div></section>
+  <section class="panel"><h2>Telegram only</h2><div id="admLocked" class="empty">Loading…</div></section>
+  <section class="panel"><h2>Recent changes</h2><div id="admChanges" class="empty">Loading…</div></section>
+  <section class="panel"><h2>Safety flags (set in .env, read at start)</h2><div id="admFlags" class="empty">Loading…</div></section>
+  <section class="panel"><h2>Website configuration</h2><div id="admWeb" class="empty">Loading…</div></section>
+</div>
+<script src="/js/api-retry.js?v=3"></script>
+<script src="/js/icons.js?v=6"></script>
+<script src="/js/panel-error-model.js?v=6"></script>
+<script src="/js/app.js?v=17"></script>
+<script src="/js/admin.js?v=1" defer></script>
+</body>
+</html>

@@ -1453,15 +1453,18 @@
         const scan = scanR?.data?.scan || null;
         const cb = scan?.circuit_breaker || {};
         const stance = String(cb.strategy_mode || '').toLowerCase();
+        // Names only. The tags here promised "larger sizing bias" and "you
+        // confirm each trade", and nothing that sizes or confirms a trade
+        // reads the stance (bot/core/settings_registry.py STANCE_NOTE).
         const STANCE = {
-          defensive: ['🛡', 'Defensive', 'capital protection first'],
-          balanced: ['⚔️', 'Balanced', 'the default posture'],
-          aggressive: ['🔥', 'Aggressive', 'larger sizing bias, every gate still on'],
-          manual: ['🧘', 'Manual', 'proposes only — you confirm each trade'],
+          defensive: ['🛡', 'Defensive'],
+          balanced: ['⚔️', 'Balanced'],
+          aggressive: ['🔥', 'Aggressive'],
+          manual: ['🧘', 'Manual'],
         }[stance];
         const lines = [];
         if (STANCE) {
-          lines.push(`<div class="kv-row"><span>Stance</span><b>${STANCE[0]} ${STANCE[1]} <span class="muted small">— ${STANCE[2]}</span></b></div>`);
+          lines.push(`<div class="kv-row"><span>Stance</span><b>${STANCE[0]} ${STANCE[1]} <span class="muted small">— a label; sizing and confirmation follow the risk settings</span></b></div>`);
         }
         if (scan) {
           const nSyms = Object.keys(scan.symbols || {}).length;
@@ -1518,7 +1521,8 @@
                ['aggressive', '🔥 Aggressive'], ['manual', '🧘 Manual']]
               .map(([m, l]) => `<button class="btn btn--sm" data-stance="${m}" type="button">${l}</button>`).join('')}
           </div>
-          <p class="muted small" style="margin-top:6px">Operator: set the agent's global stance — the bot verifies and applies it within ~30s.</p>`);
+          <p class="muted small" style="margin-top:6px">Operator: set the agent's global stance — the bot verifies and applies it within ~30s.</p>
+          <div class="row mt-3"><a class="btn btn--sm" href="/admin">⚙️ Admin: every bot setting</a></div>`);
         }
         return lines.join('');
       }, { timeoutMs: 14000, empty: { text: T('dd.e_agent', 'Agent status unavailable right now.') } });

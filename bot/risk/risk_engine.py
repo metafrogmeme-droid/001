@@ -4762,22 +4762,27 @@ class RiskEngine:
               data={"cause": self._circuit_trip_cause,
                     "day": self._circuit_trip_day})
 
-    def _save_state(self) -> None:
+    def _save_state(self) -> Optional[bool]:
         """Persist safety-critical state to disk. Called on every state change.
-        C2-34: delegates to combined saver when wired, for atomic consistency."""
+        C2-34: delegates to combined saver when wired, for atomic consistency.
+
+        Returns True when a write landed, False when every write failed, and
+        None for a reader, which writes nothing. Most callers ignore it; the
+        settings registry reports it, because "saved" over a write that
+        failed is the one false answer a settings page can give."""
         if self._reader:
-            return          # `make_reader`: the bot is the only writer
+            return None     # `make_reader`: the bot is the only writer
         if self._combined_saver is not None:
             try:
                 self._combined_saver()
+                return True
             except Exception as exc:
                 audit(risk_log, f"Combined save failed, falling back to individual: {exc}",
                       action="save_state", result="FALLBACK")
-                self._save_state_individual()
-        else:
-            self._save_state_individual()
+                return self._save_state_individual()
+        return self._save_state_individual()
 
-    def _save_state_individual(self) -> None:
+    def _save_state_individual(self) -> bool:
         """Write risk state to its own file (legacy path or fallback)."""
         try:
             data = self._export_state_dict()
@@ -4785,10 +4790,12 @@ class RiskEngine:
             # Persist the rename itself (not just the tmp contents) so the
             # circuit-breaker state survives a crash/power loss. Best-effort.
             fsync_dir(self._state_file)
+            return True
         except Exception as exc:
             # Log save failure -- circuit breaker state is safety-critical
             audit(risk_log, f"Failed to persist risk state: {exc}",
                   action="save_state", result="ERROR")
+            return False
 
     def _export_state_dict(self) -> dict:
         """C2-34: Extract risk state as a dict without writing to disk."""

@@ -243,9 +243,10 @@ def pull_and_apply_stance(store=None) -> bool:
     applied = False
     try:
         if mode in VALID_STANCE_MODES and tg and store.get_tier(tg) == "admin":
-            from bot.config import RUNTIME
-            RUNTIME.strategy_mode = mode
-            applied = True
+            from bot.core import settings_registry
+            applied = bool(settings_registry.apply(
+                "strategy_mode", mode, actor=f"telegram:{tg}",
+                via="website-queue").get("ok"))
             log.info("Web stance change applied: %s (by tg=%s)", mode, tg)
             try:
                 from bot.core.agent_feed import FEED

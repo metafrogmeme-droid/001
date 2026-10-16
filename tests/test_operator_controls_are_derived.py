@@ -19,6 +19,10 @@ WHAT COUNTS AS SHARED STATE, and why these three markers:
                                             per-user RiskEngine" — its docstring
     RUNTIME.<x> = ...                       process-wide config every account
                                             scans against
+    settings_registry.apply/reset(...)      the same RUNTIME write, through the
+                                            one path every operator setting now
+                                            takes (bot/core/settings_registry.py);
+                                            a door calls it as `_settings`
 
 Two hops are needed, because the interesting handler bodies contain no marker
 at all. `_cmd_halt` is three lines and dispatches to `HaltSkill`, which is where
@@ -71,11 +75,22 @@ def _handler_trees() -> list[ast.Module]:
 _MUTATORS = {"emergency_halt", "reset_circuit_breaker", "reset_circuit_breaker_all"}
 
 
+# The settings registry's write path, by the names a door imports it under.
+# `apply` and `reset` are too common to match on the method alone.
+_REGISTRY_NAMES = {"settings_registry", "_settings"}
+_REGISTRY_WRITES = {"apply", "reset"}
+
+
 def _touches_shared_state(node: ast.AST) -> bool:
-    """Any call to a _MUTATORS method, or any assignment to a RUNTIME attribute."""
+    """Any call to a _MUTATORS method, any write through the settings registry,
+    or any assignment to a RUNTIME attribute."""
     for sub in ast.walk(node):
         if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute):
             if sub.func.attr in _MUTATORS:
+                return True
+            if (sub.func.attr in _REGISTRY_WRITES
+                    and isinstance(sub.func.value, ast.Name)
+                    and sub.func.value.id in _REGISTRY_NAMES):
                 return True
         if isinstance(sub, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
             targets = sub.targets if isinstance(sub, ast.Assign) else [sub.target]

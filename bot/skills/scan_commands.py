@@ -373,9 +373,12 @@ class ScanCommands:
         if not self._is_operator(update):
             await self._refuse_shared_control(update, "mode")
             return
-        # C1 FIX: use mutable RuntimeState instead of mutating frozen CONFIG
-        from bot.config import RUNTIME
-        RUNTIME.asset_universe = new_mode
+        # Through the settings registry: saved across a restart and on the
+        # admin page's record, like every other operator setting.
+        from bot.core import settings_registry as _settings
+        _settings.apply("asset_universe", new_mode,
+                        actor=f"telegram:{self._get_tg_id(update)}",
+                        via="telegram", engine=self.engine)
 
         if new_mode == "solana":
             from bot.config import SOLANA_ECOSYSTEM_SYMBOLS

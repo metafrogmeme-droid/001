@@ -5292,7 +5292,11 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
         allow = self._allowlist_ids()
         if not allow or tg_id in allow or self.users.is_admitted(tg_id):
             return True
-        if not getattr(CONFIG, "paper_auto_accept", False):
+        from bot.config import RUNTIME
+        # The admin page's override, else PAPER_AUTO_ACCEPT: one reading,
+        # `paper_auto_accept_in_force`, which the page reports from too.
+        if not RUNTIME.paper_auto_accept_in_force(
+                bool(getattr(CONFIG, "paper_auto_accept", False))):
             return False
         if not self.users.get(tg_id):
             self.users.register(tg_id, name=name)
