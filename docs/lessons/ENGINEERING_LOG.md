@@ -25648,3 +25648,34 @@ claim nothing checks. `app/test/the_mail_warning_asks_the_mailer.test.js`
 holds the audit and the mailer to one answer across eight shapes of the
 settings, and the trimming on its own, since agreement cannot see a mistake
 both sides share. Three layout mutants and five mail mutants, all killed.)
+
+**THE PRESALE WAS LIVE AND THE OPERATOR COULD NOT FIND IT.**
+On 2026-10-16, the second day of the sale, the owner sent a screenshot of the
+home page on a phone: "Dont see the presale banner". Every part of the site
+checked out. The live record said the window was open, the live `presale.js`
+was the repository's byte for byte, the content policy allowed the bar, and a
+fresh visit at the phone's width drew it at the top of the page. What the
+phone showed was the page a visitor gets **after closing the bar once**:
+- **One tap hid the sale for two weeks.** The ✕ stored the sale's closing time,
+  and the bar stayed away until the sale ended. A close now lasts a day
+  (`DISMISS_MS`), is stored with the moment it was made, and a value in the
+  old shape counts as expired, so a browser that closed it before this change
+  sees it again. A close stamped in the future (a clock set back since) is not
+  a close.
+- **The page's own presale line was below the fold.** It sat under the signup
+  note, about the eighth thing in the hero, so on a phone the first screen
+  said nothing about a sale that was open. It is now the hero's first line.
+
+The general shape: a dismissal is a claim about the visitor's intent, and
+"until the sale ends" claimed more than one tap says. When the operator
+reports a missing element, a fresh visit that shows it is not an answer; the
+question is what state the reporter's browser is in that a fresh visit is not.
+
+(`app/test/the_presale_is_on_a_phones_first_screen.smoke.test.js` draws the
+home page in Chromium at 412x780 and 360x640 with the real record and the clock
+inside the window: with the bar up and with it closed, the presale line ends
+inside the first screen, is drawn, says the sale is live and sits above the
+headline, and an invite link does not push it down.
+`app/test/the_presale_bar_says_live_and_steps_aside.smoke.test.js` now holds
+both arms of the day, the old-shape value and the future stamp. Four mutants,
+all killed.)
