@@ -237,6 +237,17 @@ class CostSummary:
     # bound, `public_chat_budget_bound`.
     public_chat_cost_usd: float = 0.0
     public_chat_calls: int = 0
+    # Signed-in chat, per user: SUBSETS of the "chat" figures, booked by
+    # `record_llm(category="chat", user=...)`, for one bound,
+    # `user_chat_budget_bound`. Every chat booking that names a user adds to
+    # its entry, so a user with no entry made no chat call booked to them
+    # today: that absence is the map's own reading, not a gap in it.
+    chat_cost_by_user: dict[str, float] = field(default_factory=dict)
+    chat_calls_by_user: dict[str, int] = field(default_factory=dict)
+    # When today's per-user split began. None: the whole day. An instant: the
+    # day's ledger was read back from a file written before the split was
+    # kept, so each user's figures count from that start, and the card says so.
+    user_split_since: Optional[str] = None
 
     @property
     def operating_cost_usd(self) -> float:
@@ -260,6 +271,11 @@ CHAT_OWN_BOUND = "chat's own dollar budget"
 #: A word of its own because the visitor is told the preview's limit, not
 #: that the bot's budget is gone: signed-in chat still has the rest.
 PUBLIC_SHARE_BOUND = "the public preview's share of chat's budget"
+#: The bound one SIGNED-IN user reaches when their own chat spend meets their
+#: slice of chat's budget (`LLM_USER_CHAT_BUDGET_SHARE`). A word of its own
+#: because the person is told their share is used, not that the bot's budget
+#: is gone: everyone else's chat still answers.
+USER_SHARE_BOUND = "one user's share of chat's budget"
 
 
 def chat_spend_usd(snap: CostSummary) -> float:
@@ -394,6 +410,16 @@ def budget_reading(snap: CostSummary, llm_cfg) -> dict:
         "chat_left": max(0.0, min(chat_cap - chat_spent, daily_left)),
         "chat_bound": chat_budget_bound(snap, llm_cfg),
         "chat_calls": chat_call_count(snap),
+        # One signed-in user's slice (`user_chat_budget_bound`), the number of
+        # users chat answered today, and the most any one of them spent, never
+        # who: a card names amounts, not people. None when no signed-in user
+        # was booked today, which is not "the busiest spent $0".
+        "user_share": float(llm_cfg.user_chat_budget_share),
+        "user_cap": user_chat_cap_usd(llm_cfg),
+        "users_today": len(snap.chat_calls_by_user),
+        "busiest_user_spent": (max(snap.chat_cost_by_user.values())
+                               if snap.chat_cost_by_user else None),
+        "user_split_since": snap.user_split_since,
         "call_limit": int(llm_cfg.daily_call_limit),
         "thesis_cap": None if thesis_cap is None else float(thesis_cap),
         "thesis_spent": thesis_spent,
@@ -496,6 +522,75 @@ def public_chat_budget_bound(snap: CostSummary, llm_cfg) -> str:
     return ""
 
 
+def user_chat_spend_usd(snap: CostSummary, user: str) -> float:
+    """Today's chat dollars booked to one signed-in user.
+
+    No entry for the user is a measured zero: every chat booking that names a
+    user adds to its entry (`CostTracker.record_llm`). A map that cannot be
+    read, or an entry that is not a finite number at least zero, is chat's
+    whole spend: every chat dollar may have been this user's, so the user
+    stops at their slice of all of it, the direction `public_chat_spend_usd`
+    takes for the same reason.
+    """
+    import math
+
+    m = getattr(snap, "chat_cost_by_user", None)
+    if not isinstance(m, dict):
+        return chat_spend_usd(snap)
+    key = str(user)
+    if key not in m:
+        return 0.0
+    raw = m[key]
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return chat_spend_usd(snap)
+    value = float(raw)
+    if not math.isfinite(value) or value < 0:
+        return chat_spend_usd(snap)
+    return value
+
+
+def user_chat_call_count(snap: CostSummary, user: str) -> int:
+    """Today's chat calls booked to one signed-in user; chat's whole count when
+    the figure cannot be read, for `user_chat_spend_usd`'s reason."""
+    m = getattr(snap, "chat_calls_by_user", None)
+    if not isinstance(m, dict):
+        return chat_call_count(snap)
+    key = str(user)
+    if key not in m:
+        return 0
+    value = m[key]
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return chat_call_count(snap)
+
+
+def user_chat_cap_usd(llm_cfg) -> float:
+    """One signed-in user's chat dollars for the day: their slice of
+    `chat_cap_usd`. One reading for the gate and the /costs card."""
+    return chat_cap_usd(llm_cfg) * float(llm_cfg.user_chat_budget_share)
+
+
+def user_chat_budget_bound(snap: CostSummary, llm_cfg, user: str) -> str:
+    """Which bound a SIGNED-IN user's chat turn has reached, or "" when none.
+
+    Whatever stops chat stops the user first (`chat_budget_bound`, the same
+    words). Then their own slice: `user_chat_budget_share` of chat's dollars
+    and of the daily call limit, so one person asking all day cannot spend
+    the share every other signed-in user answers from. Admins are not asked
+    this (the caller decides who is one); the anonymous preview has its own
+    slice (`public_chat_budget_bound`).
+    """
+    bound = chat_budget_bound(snap, llm_cfg)
+    if bound:
+        return bound
+    share = float(llm_cfg.user_chat_budget_share)
+    if user_chat_call_count(snap, user) >= llm_cfg.daily_call_limit * share:
+        return USER_SHARE_BOUND
+    if user_chat_spend_usd(snap, user) >= user_chat_cap_usd(llm_cfg):
+        return USER_SHARE_BOUND
+    return ""
+
+
 #: The file the bot's ledger is kept in, under its data directory.
 SPEND_FILE = "llm_spend.json"
 
@@ -514,6 +609,9 @@ def _summary_json(s: CostSummary) -> dict:
     out: dict[str, Any] = {k: getattr(s, k) for k in _SUMMARY_NUMBERS}
     out["cost_by_category"] = dict(s.cost_by_category)
     out["calls_by_category"] = dict(s.calls_by_category)
+    out["chat_cost_by_user"] = dict(s.chat_cost_by_user)
+    out["chat_calls_by_user"] = dict(s.chat_calls_by_user)
+    out["user_split_since"] = s.user_split_since
     return out
 
 
@@ -534,6 +632,23 @@ def _summary_from_json(d: Any) -> Optional[CostSummary]:
                 isinstance(v, (int, float)) and not isinstance(v, bool) for v in m.values()):
             return None
         setattr(s, k, {str(c): kind(v) for c, v in m.items()})
+    # The per-user split is newer than the file. A ledger written before it
+    # was kept has neither map: today's figures stand, and each user's split
+    # counts from this read, which `user_split_since` says. One map without
+    # the other, or either one malformed, is a ledger with a hole in it.
+    if "chat_cost_by_user" not in d and "chat_calls_by_user" not in d:
+        s.user_split_since = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        return s
+    for k, kind in (("chat_cost_by_user", float), ("chat_calls_by_user", int)):
+        m = d.get(k)
+        if not isinstance(m, dict) or not all(
+                isinstance(v, (int, float)) and not isinstance(v, bool) for v in m.values()):
+            return None
+        setattr(s, k, {str(u): kind(v) for u, v in m.items()})
+    since = d.get("user_split_since")
+    if since is not None and not isinstance(since, str):
+        return None
+    s.user_split_since = since
     return s
 
 
@@ -663,6 +778,7 @@ class CostTracker:
         public: bool = False,
         cache_read_tokens: int = 0,
         cache_write_tokens: int = 0,
+        user: Optional[str] = None,
     ) -> float:
         """Record an LLM API call.  Returns USD cost (0.0 if model is unpriced).
 
@@ -681,6 +797,10 @@ class CostTracker:
         public: the call answered an anonymous website visitor. Booked under
         its category as always, and ALSO in the public preview's subset —
         only for a chat call, so the subset can never exceed chat's figures.
+
+        user: the signed-in caller a chat call answered. Booked ALSO in that
+        user's subset of chat's figures, for `user_chat_budget_bound`; never
+        for a public call (the preview has its own subset) or another category.
         """
         price, _exact = resolve_llm_price(model)
         priced = price is not None
@@ -702,6 +822,11 @@ class CostTracker:
             if public and cat == "chat":
                 self._s.public_chat_cost_usd += cost
                 self._s.public_chat_calls += 1
+            who = str(user) if user else ""
+            if who and not public and cat == "chat":
+                by_cost, by_calls = self._s.chat_cost_by_user, self._s.chat_calls_by_user
+                by_cost[who] = by_cost.get(who, 0.0) + cost
+                by_calls[who] = by_calls.get(who, 0) + 1
             if not priced:
                 self._s.unpriced_calls += 1
             self._save()
@@ -742,6 +867,8 @@ class CostTracker:
             s = replace(self._s)
             s.cost_by_category = dict(self._s.cost_by_category)
             s.calls_by_category = dict(self._s.calls_by_category)
+            s.chat_cost_by_user = dict(self._s.chat_cost_by_user)
+            s.chat_calls_by_user = dict(self._s.chat_calls_by_user)
             return s
 
     def snapshot_lifetime(self) -> CostSummary:

@@ -58,6 +58,7 @@ bot/utils/backup.py :: "data/proactive_watch.json" :: _CRITICAL member, joined t
 bot/utils/backup.py :: "data/venue_override.json" :: _CRITICAL member, joined to rootp_of()
 bot/utils/backup.py :: "data/settings_overrides.json" :: _CRITICAL member, joined to rootp_of()
 bot/utils/backup.py :: "data/settings_audit.jsonl" :: _CRITICAL member, joined to rootp_of()
+bot/utils/backup.py :: "data/member_admin_audit.jsonl" :: _CRITICAL member, joined to rootp_of()
 bot/utils/backup.py :: "data/catalog_seen.json" :: _CRITICAL member, joined to rootp_of()
 bot/utils/backup.py :: "data/learning/*" :: _CRITICAL_GLOBS member, joined to rootp_of()
 bot/utils/backup.py :: "data/portfolio_*" :: _CRITICAL_GLOBS member, joined to rootp_of()

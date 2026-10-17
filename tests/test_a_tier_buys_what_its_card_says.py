@@ -253,8 +253,11 @@ def _set_tier(store, monkeypatch, *args):
 
     async def send(update, text, *a, **k):
         replies.append(text)
+    # `_get_tg_id` names who made the change: the one write path records it
+    # (bot/core/member_admin.py), as the real handler's host contract supplies.
     host = types.SimpleNamespace(users=store, _is_admin=lambda u: True,
-                                 _lang=lambda u: "en", _send=send)
+                                 _lang=lambda u: "en", _send=send,
+                                 _get_tg_id=lambda u: "999")
     bot = types.SimpleNamespace(send_message=AsyncMock())
     ctx = types.SimpleNamespace(args=list(args), bot=bot)
     asyncio.run(AccessCommands._cmd_set_tier(host, object(), ctx))

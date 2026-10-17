@@ -2353,6 +2353,18 @@ class CostBreakdownSkill(BaseSkill):
         if b["chat_bound"]:
             lines.append(f"  {_BAD} Chat has stopped for today: "
                          f"{_esc(b['chat_bound'])} reached.")
+        # One signed-in user's slice of chat (admins are not held to it).
+        # Amounts only: the card never names who spent what.
+        _busiest = ("no signed-in user booked yet" if b["busiest_user_spent"] is None
+                    else f"busiest <code>{floor}${b['busiest_user_spent']:,.4f}</code>")
+        lines.append(
+            f"- Per user: up to <code>${b['user_cap']:,.4f}</code> "
+            f"({b['user_share']:.0%} of chat) · {b['users_today']} "
+            f"user(s) today · {_busiest}")
+        if b["user_split_since"]:
+            lines.append(f"  <i>Each user's figures count from "
+                         f"{_esc(b['user_split_since'])}: the day's ledger was "
+                         "kept without them before then.</i>")
         if b["thesis_cap"] is None:
             lines.append("- Analysis: no cap of its own; it counts against "
                          "the daily total.")

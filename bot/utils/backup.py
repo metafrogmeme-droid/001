@@ -63,6 +63,9 @@ _CRITICAL = [
     # setting back to its configured value without a word.
     "data/settings_overrides.json",
     "data/settings_audit.jsonl",
+    # Who let which member in, revoked them or changed their tier, and from
+    # which door (bot/core/member_admin.py).
+    "data/member_admin_audit.jsonl",
     "data/catalog_seen.json",
 ]
 _CRITICAL_GLOBS = ["data/learning/*", "data/portfolio_*", "data/risk_state_*"]

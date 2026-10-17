@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **492 of 1328** reach for source text through `source_scan`, `code_only`
+Driven, **492 of 1331** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 492 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -25679,3 +25679,129 @@ headline, and an invite link does not push it down.
 `app/test/the_presale_bar_says_live_and_steps_aside.smoke.test.js` now holds
 both arms of the day, the old-shape value and the future stamp. Four mutants,
 all killed.)
+
+**ONE SIGNED-IN USER COULD SPEND THE CHAT BUDGET EVERYONE ELSE ANSWERED FROM.**
+Chat's model spend had three bounds: the combined daily total, chat's share of
+it (`LLM_CHAT_BUDGET_SHARE`), and the anonymous preview's slice of chat
+(`LLM_PUBLIC_CHAT_BUDGET_SHARE`), added when a few hundred anonymous turns used
+up chat's share. Signed-in chat was still one pool. With registration open,
+one account asking all day spent chat's whole share, and every other user was
+told "Chat has used its share of today's AI budget" until 00:00 UTC. The free
+tier's question count (`bot/web/chat_quota.py`) did not cover it: it counts
+questions only while the operator funds the Grok tier, and paid tiers are
+exempt.
+
+Each signed-in user who is not an admin now stops at a slice of chat
+(`LLM_USER_CHAT_BUDGET_SHARE`, default a quarter), in dollars and in calls,
+since in-house models book zero dollars:
+- **The ledger books each signed-in chat call to its user** as a subset of
+  chat's figures (`record_llm(user=...)`), never a public call or another
+  category, and keeps the split across a restart like the rest of the day.
+- **A ledger written before the split was kept** restores today's figures,
+  and each user's split counts from that read. The summary records when
+  (`user_split_since`) and `/costs` says so, rather than presenting the split
+  as a whole day. One map without the other, or a malformed one, is a ledger
+  with a hole in it and reads as unreadable.
+- **No entry for a user is a measured zero.** Every booking that names a user
+  adds to its entry. An unreadable figure is chat's whole spend, the strict
+  direction the preview's reading takes.
+- **The refusal names the person's share**, in fourteen languages, because
+  that is the bound reached: everyone else's chat still answers.
+- **The rolling-note fold** is a chat call booked to the same user, so it
+  stops at the same slice and keeps the turns for tomorrow.
+- **Admins are not held to it.** The anonymous preview keeps its own slice.
+- **`/costs` shows the slice, how many users chat answered and the most any
+  one of them spent.** It never says who.
+
+(`tests/test_one_user_cannot_spend_chats_whole_share.py` drives the reading,
+the ledger with its restart and its old-shape file, the chat end to end (one
+user refused at their quarter while the next still answers; the operator not
+held), the fold both ways, the refusal in every language and the card's
+figures. Ten mutants, all killed.)
+
+**FOUR COMMANDS CHANGED A MEMBER, EACH WITH ITS OWN RULES, AND NOTHING SAID WHO.**
+The owner asked for the admin page to manage the bot as well as its settings.
+Members were changed by `/approve`, `/revoke`, `/set_tier` and `/revoke_live`.
+Each validated its own arguments inline, wrote the store its own way, and left
+no record of who changed whom. A members panel written against the store would
+have been a fifth copy of those rules, and two doors with two copies are how a
+website comes to admit someone Telegram would refuse.
+
+`bot/core/member_admin.py` now holds the four changes. The commands and the
+admin page both call it, and every change is one line in
+`data/member_admin_audit.jsonl` (when, who, which door, the member before and
+after), which is backed up with the settings audit:
+- **The commands kept their sentences.** A refusal is the i18n key the
+  command always printed, so the Telegram replies did not change. The page
+  shows the English sentence as plain text.
+- **What the website may not do is refused by door, in the module, and again
+  by name in the route before the bot is asked:** grant the admin role, set
+  the admin tier (the site reads `plan == 'admin'` as the operator), or grant
+  live trading (no web door at all).
+- **Taking admin away is Telegram's too.** The first panel offered the
+  operator's own row a role select and a tier select, so one tap would have
+  demoted the operator from a web session. The phone smoke test found it,
+  asserting which buttons each row offers. Any account holding the admin role
+  or tier is now changed from Telegram only, and its row says so instead of
+  offering controls that would only be refused.
+- **A select opens on the member's current value**, so "Set tier" beside an
+  untouched select changes nothing.
+- **A held write (`StoreWriteHeld`) is reported as in force and not saved**,
+  is recorded, and is never shown as "Not changed".
+- **The roster shows absent as absent.** A record with no tier says "not
+  recorded", and a live flag that could not be read says "not read", never
+  "paper only". A list cut at 500 says how many there are, and a store that
+  started empty on this run carries the caveat `/users` prints, since the
+  page makes the same claim the command does. (The first draft of the cut
+  note pointed to `/users` for the rest; `/users` shows fifteen.)
+- **A change needs the operator, a linked Telegram account, two-factor
+  sign-in and a fresh code**, the same doors as the settings above it.
+
+(`tests/test_a_member_changes_through_one_path.py` drives each change both
+ways through both doors, the admin-account refusals, the audit rows, the held
+write, the roster's absences, the gateway endpoints, and an AST check that the
+four commands call the module and write nothing themselves.
+`app/test/the_admin_members_are_the_operators_and_a_grant_is_telegrams.test.js`
+drives the route; the admin phone smoke test now carries a roster. Twenty-one
+mutants, all killed.)
+
+**EVERY CARD ASKED THE VENUE FOR THE SAME BALANCE, AND THE FUNDS CARD ADDED WHAT ANSWERED.**
+A connected trader's balance is one read-only `fetch_balance` per venue.
+The website's net-worth card, its funds-by-venue card and Telegram's
+`/networth` (which renders the website's card) each made their own, on every
+view. A dashboard that opens both cards, a reload or a second tab spent the
+venue's rate budget once each. With registration open, that is many people's
+page views spending one bot's sockets and one venue's limits.
+
+`bot/core/venue_balance_read.py` is now the one read both gateway cards and
+the net-worth reading go through:
+- **A reading the venue gave in the last fifteen seconds is answered from
+  memory, and a read in flight is joined**, so a reload or a second card costs
+  no venue call.
+- **The key is the caller, the venue, the environment the venue trades in,
+  and a salted digest of the keys.** Two callers never share a reading,
+  whatever their keys. A rotated key, or a switch between demo and live, is a
+  new reading at once. The digest is salted per process and never leaves it.
+- **Only a reading the venue answered is kept.** A refusal or a timeout is
+  never served again, so an outage is not remembered past its end.
+- **A reading from memory is dated when the venue answered.** Each row carries
+  `read_at`, and a card's `updated_at` is its oldest reading. It used to be the
+  moment the reply was built, which a remembered reading would have made a
+  false "now".
+- **One caller giving up does not cancel the others' read** (shielded), a read
+  from another event loop is never awaited, and the memory is bounded,
+  dropping the least recently asked.
+
+**The funds card printed a partial total.** `venue_total_usd` summed the
+venues that answered, so one venue timing out left the other's balance as the
+total. It is `null` now unless every venue answered, beside `venues_unread`.
+No surface read it yet, so the field changed before any surface could print
+it. The card's failure line, and the net-worth reading's, logged the
+exception's message (a path, from an `OSError` in the credential store); both
+name the class now.
+
+(`tests/test_one_venue_read_serves_every_card.py` drives the shared read
+(joins, freshness, identity, rotated keys, the environment, failures not kept,
+a caller giving up, the bound, another loop) and both gateway cards over the
+real router. Seventeen mutants, all killed. `tests/conftest.py` empties the
+memory around every test.)

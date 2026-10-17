@@ -179,5 +179,116 @@ router.post('/settings', changeLimit, async (req, res) => {
   }
 });
 
+// ── Members ──────────────────────────────────────────────────────────────
+//
+// The same doors as the settings above: the bot re-checks the caller and
+// writes through `bot/core/member_admin.py`, the path /approve, /revoke,
+// /set_tier and /revoke_live take, and records the door. Granting live
+// trading or the admin role or tier is Telegram-only, refused here by name
+// before the bot is asked, and refused again there.
+const MEMBER_ACTIONS = new Set(['approve', 'revoke', 'set_tier', 'revoke_live']);
+const MEMBER_TELEGRAM_ONLY = {
+  grant_live: 'Live trading is granted from Telegram only (/grant_live).',
+  grant_admin: 'The admin role is granted from Telegram only (/approve <id> admin).',
+};
+const MEMBER_ID_RE = /^(?:[0-9]{1,20}|web:[0-9]{1,20})$/;
+const MEMBER_WORD_RE = /^[a-z]{1,16}$/;
+
+// GET /api/admin/members — the roster and the recent member changes, from the bot.
+router.get('/members', readLimit, async (req, res) => {
+  let u;
+  try {
+    u = await operatorRow(req, res);
+  } catch (err) {
+    console.error('Admin operator check error:', err.stack || err.message);
+    return res.status(500).json({ error: 'operator_check_failed' });
+  }
+  if (!u) return undefined;
+  const out = { bot: null, bot_error: null, two_factor: Boolean(u.totp_enabled) };
+  if (!u.telegram_linked || !u.telegram_id) {
+    out.bot_error = 'telegram_required';
+  } else if (!isConfigured()) {
+    out.bot_error = 'gateway_unconfigured';
+  } else {
+    try {
+      const r = await postGateway('/admin/members', { telegram_id: String(u.telegram_id) }, 12000);
+      if (r.status >= 200 && r.status < 300 && r.data && typeof r.data === 'object') {
+        out.bot = r.data;
+      } else {
+        out.bot_error = (r.data && typeof r.data.error === 'string') ? r.data.error : `status_${r.status}`;
+      }
+    } catch (err) {
+      console.error('Admin members gateway error:', err.stack || err.message);
+      out.bot_error = 'unreachable';
+    }
+  }
+  return res.json(out);
+});
+
+// POST /api/admin/members  body: { action, target, role?, tier? }, plus
+// totp_code once the 2FA prompt has asked for it.
+router.post('/members', changeLimit, async (req, res) => {
+  try {
+    const u = await operatorRow(req, res);
+    if (!u) return undefined;
+    const b = req.body || {};
+    const action = String(b.action || '');
+    if (Object.prototype.hasOwnProperty.call(MEMBER_TELEGRAM_ONLY, action)) {
+      secLog('admin_member_telegram_only', req, `action=${action}`);
+      return res.status(403).json({ error: 'telegram_only', detail: MEMBER_TELEGRAM_ONLY[action] });
+    }
+    if (!MEMBER_ACTIONS.has(action)) return res.status(400).json({ error: 'unknown_action' });
+    const target = String(b.target || '').trim();
+    if (!MEMBER_ID_RE.test(target)) return res.status(400).json({ error: 'bad_target' });
+    const word = (v) => (v === undefined || v === null ? undefined : String(v).trim().toLowerCase());
+    const role = word(b.role);
+    const tier = word(b.tier);
+    if ((role !== undefined && !MEMBER_WORD_RE.test(role)) || (tier !== undefined && !MEMBER_WORD_RE.test(tier))) {
+      return res.status(400).json({ error: 'bad_value' });
+    }
+    if (role === 'admin' || tier === 'admin') {
+      secLog('admin_member_telegram_only', req, `action=${action}`);
+      return res.status(403).json({ error: 'telegram_only', detail: MEMBER_TELEGRAM_ONLY.grant_admin });
+    }
+    if (!u.telegram_linked || !u.telegram_id) {
+      return res.status(409).json({ error: 'telegram_required', detail: 'Link your Telegram account first so the bot can verify the change.' });
+    }
+    if (!isConfigured()) {
+      return res.status(503).json({ error: 'gateway_unconfigured', detail: 'The bot gateway is not configured, so members cannot be changed from here right now.' });
+    }
+    if (!u.totp_enabled) {
+      secLog('admin_member_no_2fa', req, `action=${action}`);
+      return res.status(403).json({
+        error: 'two_factor_setup_required',
+        detail: 'Turn on two-factor sign-in before changing members from the website. Reading the list works without it, and Telegram still works.',
+      });
+    }
+    const blk = await stepUpBlock(u.totp_enabled, u.totp_secret, b.totp_code,
+      'Enter your 6-digit authenticator code to change this member.',
+      uidKey(req.user.user_id));
+    if (blk) { secLog('admin_member_2fa', req, `action=${action}`); return res.status(blk.status).json(blk.body); }
+    const mism = await foreignIdentityBlock(u.telegram_id, req.user.user_id);
+    if (mism) { secLog('admin_identity_mismatch', req); return res.status(mism.status).json(mism.body); }
+
+    const payload = { telegram_id: String(u.telegram_id), action, target };
+    if (role !== undefined) payload.role = role;
+    if (tier !== undefined) payload.tier = tier;
+    const r = await postGateway('/admin/members/act', payload, 15000);
+    secLog('admin_member', req, `action=${action} status=${r.status}`);
+    if (r.status >= 200 && r.status < 500) return res.status(r.status).json(r.data);
+    // A 5xx from the bot may follow a write that landed.
+    return res.status(502).json({
+      error: 'bot_error',
+      detail: 'The bot could not confirm the change. Reload the page to read the member as they stand.',
+    });
+  } catch (err) {
+    console.error('Admin member error:', err.stack || err.message);
+    return res.status(502).json({
+      error: 'unconfirmed',
+      detail: 'The change could not be confirmed. Reload the page to read the member as they stand.',
+    });
+  }
+});
+
 router._webFindings = webFindings;
 module.exports = router;

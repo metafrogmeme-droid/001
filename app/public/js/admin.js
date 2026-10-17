@@ -229,5 +229,180 @@
     change(b.dataset.key, b.dataset.act === 'reset').finally(() => { b.disabled = false; });
   });
 
+  // ── Members ─────────────────────────────────────────────────────────────
+  //
+  // One read, /api/admin/members, on its own: a members read that fails says
+  // so in its own two panels and leaves the settings above standing. A change
+  // posts with the 2FA prompt, and the bot answers through the write path the
+  // Telegram commands take (bot/core/member_admin.py). Granting live trading
+  // or the admin role or tier is Telegram-only and has no control here.
+
+  const MEMBER_ERROR = {
+    telegram_required: 'Link your Telegram account to read the members here.',
+    gateway_unconfigured: 'The bot gateway is not configured on this site, so the members cannot be read here.',
+    operator_only: 'The bot does not recognise your linked Telegram account as an admin.',
+    unreachable: 'The bot could not be reached.',
+  };
+  /** A field the store holds, or a muted "not recorded": absent is not a value. */
+  function held(v) {
+    return (v === null || v === undefined || v === '')
+      ? '<span class="muted">not recorded</span>' : esc(v);
+  }
+
+  function liveCell(v) {
+    if (v === true) return 'live';
+    if (v === false) return 'paper only';
+    return '<span class="muted">not read</span>';
+  }
+
+  function memberRows(d, canChange) {
+    const members = d.members || [];
+    if (!members.length) return '<div class="empty">No members registered.</div>';
+    const dis = canChange ? '' : ' disabled';
+    // Each select opens on the member's current value where the website may
+    // set it, so a tap on the button beside it changes only what was changed.
+    const opts = (list, current) => (list || []).map((v) =>
+      `<option value="${esc(v)}"${v === current ? ' selected' : ''}>${esc(v)}</option>`).join('');
+    const body = members.map((m) => {
+      const roleOpts = opts(d.web_roles, m.role);
+      const tierOpts = opts(d.web_tiers, m.tier);
+      const id = String(m.id || '');
+      const self = id === String(d.you || '');
+      const vouchable = /^[0-9]+$/.test(id);
+      const acts = [];
+      // An admin account is changed from Telegram only (member_admin.py), so
+      // its row offers nothing that would only be refused.
+      const isAdmin = m.role === 'admin' || m.tier === 'admin';
+      if (isAdmin) {
+        acts.push('<span class="muted">Changed from Telegram only</span>');
+      } else {
+        if (vouchable) {
+          acts.push(`<select data-mrole="${esc(id)}"${dis} aria-label="Role to approve as">${roleOpts}</select>`
+            + `<button class="btn btn--sm" type="button" data-mact="approve" data-mid="${esc(id)}"${dis}>Approve</button>`);
+        }
+        acts.push(`<select data-mtier="${esc(id)}"${dis} aria-label="Tier">${tierOpts}</select>`
+          + `<button class="btn btn--sm" type="button" data-mact="set_tier" data-mid="${esc(id)}"${dis}>Set tier</button>`);
+        if (vouchable && m.live === true) {
+          acts.push(`<button class="btn btn--sm" type="button" data-mact="revoke_live" data-mid="${esc(id)}"${dis}>Paper only</button>`);
+        }
+        if (vouchable && !self) {
+          acts.push(`<button class="btn btn--sm" type="button" data-mact="revoke" data-mid="${esc(id)}"${dis}>Revoke</button>`);
+        }
+      }
+      return `<tr><td class="mono" data-label="Member">${esc(id)}</td>
+        <td data-label="Name">${held(m.name)}</td>
+        <td data-label="Role">${held(m.role)}${m.authorized === false ? ' <span class="warn">(revoked)</span>' : ''}</td>
+        <td data-label="Tier">${held(m.tier)}</td>
+        <td data-label="Trading">${liveCell(m.live)}</td>
+        <td data-label="Admitted by">${held(m.admitted_by)}</td>
+        <td data-label="Change"><div class="mem-act">${acts.join('')}</div><div class="mem-note" data-mres="${esc(id)}"></div></td></tr>`;
+    }).join('');
+    let note = canChange ? '' : '<p class="note">Changing a member needs two-factor sign-in on this account. Reading works, and Telegram still works.</p>';
+    if (typeof d.members_total === 'number' && d.members_total > members.length) {
+      note += `<p class="note">Showing the newest ${esc(members.length)} of ${esc(d.members_total)} members.</p>`;
+    }
+    // The same caveat /users prints: a store that started empty is a list of
+    // who has messaged since, not of who is registered.
+    if (d.store_started_empty === true) {
+      note += '<div class="warn">The bot\'s user store started empty on this run, so this list is everyone who has messaged since, not necessarily everyone who was registered before. Check the data/ symlink and any recent restore.</div>';
+    }
+    return `${note}<table class="rows"><thead><tr><th>Member</th><th>Name</th><th>Role</th><th>Tier</th><th>Trading</th><th>Admitted by</th><th>Change</th></tr></thead><tbody>${body}</tbody></table>`;
+  }
+
+  function memberChangeRows(rows) {
+    if (!rows.length) return '<div class="empty">No member changes recorded yet.</div>';
+    const pick = (s) => (s && typeof s === 'object')
+      ? [s.role, s.tier, s.live === true ? 'live' : s.live === false ? 'paper' : null].filter(Boolean).join(' · ')
+      : 'no record';
+    const body = rows.map((r) => {
+      const at = r.at ? new Date(r.at) : null;
+      const when = at && !isNaN(at.getTime()) ? at.toLocaleString() : 'time not recorded';
+      const what = String(r.action || '').replace('_', ' ');
+      const held2 = r.held ? ' <span class="warn">(in force, not saved)</span>' : '';
+      return `<tr><td class="mono" data-label="When">${esc(when)}</td><td data-label="Change">${esc(what)}${held2}</td>
+        <td class="mono" data-label="Member">${esc(r.target || '')}</td>
+        <td data-label="Before → after">${esc(pick(r.before))} → ${esc(pick(r.after))}</td>
+        <td data-label="Who">${esc(r.via || '')} · ${esc(r.actor || '')}</td></tr>`;
+    }).join('');
+    return `<table class="rows"><thead><tr><th>When</th><th>Change</th><th>Member</th><th>Before → after</th><th>Who</th></tr></thead><tbody>${body}</tbody></table>`;
+  }
+
+  function paintMembers(d) {
+    if (!d.bot) {
+      const why = MEMBER_ERROR[d.bot_error] || `The bot answered with an error (${esc(d.bot_error || 'unknown')}).`;
+      ['admMembers', 'admMemberChanges'].forEach((id) => { $(id).innerHTML = `<div class="warn">${esc(why)}</div>`; });
+      return;
+    }
+    const b = d.bot;
+    const canChange = Boolean(d.two_factor);
+    $('admMembers').innerHTML = Array.isArray(b.members)
+      ? memberRows(b, canChange)
+      : `<div class="warn">The members could not be read (${esc(b.members_error || 'unknown')}).</div>`;
+    $('admMemberChanges').innerHTML = Array.isArray(b.changes)
+      ? memberChangeRows(b.changes)
+      : `<div class="warn">The member change record could not be read (${esc(b.changes_error || 'unknown')}).</div>`;
+  }
+
+  async function loadMembers() {
+    const r = await RC.fetchJSON('/api/admin/members', { timeoutMs: 20000 })
+      .catch(() => ({ ok: false, status: 0, data: null }));
+    if (r.status === 401 || r.status === 403) {
+      ['admMembers', 'admMemberChanges'].forEach((id) => { $(id).innerHTML = ''; });
+      return undefined;
+    }
+    if (!r.ok || r.unreadable || !r.data || typeof r.data !== 'object') {
+      const msg = `The members could not be read${r.status ? ` (HTTP ${esc(r.status)})` : ''}. Try again shortly.`;
+      ['admMembers', 'admMemberChanges'].forEach((id) => { $(id).innerHTML = `<div class="warn">${msg}</div>`; });
+      return undefined;
+    }
+    return paintMembers(r.data);
+  }
+
+  async function memberChange(action, id) {
+    const res = document.querySelector(`[data-mres="${CSS.escape(id)}"]`);
+    const body = { action, target: id };
+    if (action === 'approve') {
+      const sel = document.querySelector(`[data-mrole="${CSS.escape(id)}"]`);
+      body.role = sel ? sel.value : '';
+    }
+    if (action === 'set_tier') {
+      const sel = document.querySelector(`[data-mtier="${CSS.escape(id)}"]`);
+      body.tier = sel ? sel.value : '';
+    }
+    const say = {
+      approve: `Approve ${id} as ${body.role}?`,
+      set_tier: `Set ${id}'s tier to ${body.tier}?`,
+      revoke_live: `Restrict ${id} to paper trading?`,
+      revoke: `Revoke ${id}'s access?`,
+    }[action];
+    if (!window.confirm(say)) return;
+    if (res) res.textContent = 'Applying…';
+    const r = await RC.postWithStepUp('/api/admin/members', body, { timeoutMs: 20000 });
+    const d = (r && r.data) || {};
+    const status = r && r.status ? r.status : 0;
+    let msg;
+    if (r && r.ok && d.ok) {
+      msg = 'Done.' + (d.notified === false ? ' The member could not be told (they may not have started the bot).' : '');
+    } else if (d.held) {
+      msg = `In force, NOT saved: ${d.detail || 'the store could not be written'}. A restart goes back to what is on disk.`;
+    } else if (status >= 400 && status < 500) {
+      msg = `Not changed: ${d.detail || d.error || `HTTP ${status}`}`;
+    } else {
+      msg = `Not confirmed: ${d.detail || d.error || (status ? `HTTP ${status}` : 'no answer')} Reload to read the member as they stand.`;
+    }
+    await loadMembers();
+    const res2 = document.querySelector(`[data-mres="${CSS.escape(id)}"]`);
+    if (res2) res2.textContent = msg;
+    if (RC.toast) RC.toast(msg);
+  }
+
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-mact]');
+    if (!b) return;
+    b.disabled = true;
+    memberChange(b.dataset.mact, b.dataset.mid).finally(() => { b.disabled = false; });
+  });
+
   load();
+  loadMembers();
 })();
