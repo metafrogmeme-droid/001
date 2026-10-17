@@ -44,60 +44,29 @@
  * record — are not decided by code and are not settled here.
  */
 import { createFileRoute } from '@tanstack/react-router'
+import { Gap, H, L, P } from '../components/Prose'
 
-const UPDATED = '14 October 2026'
-
-function P({ children }: { children: React.ReactNode }) {
-  return <p className="mt-4 leading-relaxed text-ink-2">{children}</p>
-}
-
-function H({ children }: { children: React.ReactNode }) {
-  return (
-    <h2 className="mt-12 font-[family-name:var(--font-brand)] text-2xl font-bold">
-      {children}
-    </h2>
-  )
-}
-
-function L({ items }: { items: React.ReactNode[] }) {
-  return (
-    <ul className="mt-4 space-y-2.5">
-      {items.map((it, i) => (
-        <li key={i} className="flex gap-3 leading-relaxed text-ink-2">
-          <span aria-hidden="true" className="mt-2 size-1.5 shrink-0 rounded-full bg-accent" />
-          <span>{it}</span>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-/** Sections where the honest answer is "this does not exist yet". */
-function Gap({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="mt-5 rounded-lg border border-warn/40 bg-warn/5 p-4">
-      <p className="text-sm font-semibold text-warn">{title}</p>
-      <div className="mt-1.5 text-sm leading-relaxed text-ink-2">{children}</div>
-    </div>
-  )
-}
+const UPDATED = '17 October 2026'
 
 function Privacy() {
   return (
     <article className="mx-auto max-w-3xl px-5 py-16">
-      <h1
-        className="font-[family-name:var(--font-brand)] font-bold"
-        style={{ fontSize: 'var(--text-h2)' }}
-      >
+      {/* A class, not a style attribute: www serves this article under a
+          policy with no inline styles (app/routes/legal.js). */}
+      <h1 className="font-[family-name:var(--font-brand)] text-[length:var(--text-h2)] font-bold">
         Privacy
       </h1>
       <p className="data mt-2 text-sm text-ink-3">Last updated {UPDATED}</p>
 
       <P>
-        RUNECLAW is two connected surfaces: a <strong>web platform</strong> with
-        accounts, and a <strong>Telegram bot</strong>. They share data when you
-        link them. This describes what each one collects, where it is kept, and
-        what leaves our servers.
+        RUNECLAW is a <strong>web platform</strong> with accounts and a{' '}
+        <strong>Telegram bot</strong>, which share data when you link them. The
+        paper Arena also runs as an app inside the <strong>Pi Browser</strong>{' '}
+        and inside <strong>Farcaster</strong>, signed in with that network&rsquo;s
+        account and opening a RUNECLAW account of its own. This describes what
+        each one collects, where it is kept, and what leaves our servers. What
+        you agree to by using it is in the{' '}
+        <a className="text-accent underline" href="/terms">terms of use</a>.
       </P>
       <P>
         The previous version of this page described a single-operator,
@@ -112,8 +81,17 @@ function Privacy() {
           is stored only as a bcrypt hash (cost 12); we never hold the password
           itself, and the confirmation field never leaves your browser.</>,
         <><strong>A provider ID and avatar URL</strong> — if you sign in with
-          Google, Discord or X. Telegram-, X- and wallet-only accounts are given
-          a synthesised placeholder address rather than a real one.</>,
+          Google, Discord or X. Accounts made by a sign-in that supplies no
+          email (Telegram, X, a wallet, Pi or Farcaster) are given a synthesised
+          placeholder address rather than a real one.</>,
+        <><strong>Your Pi uid</strong>, if you sign in with Pi in the Pi
+          Browser. Pi gives each app its own uid for a person, and it is the one
+          thing we keep from that sign-in: your Pi username is not stored.</>,
+        <><strong>Your Farcaster ID (fid)</strong>, if you sign in with
+          Farcaster. It is the one thing we keep from that sign-in.</>,
+        <><strong>A record of each Pi tip</strong>, if you send one from the Pi
+          app: the amount, Pi&rsquo;s payment id and blockchain transaction id,
+          whether it completed, and when.</>,
         <><strong>Your Telegram ID</strong>, and username where Telegram supplies
           it, once you link the bot.</>,
         <><strong>A wallet address</strong>, if you connect one. The signature
@@ -150,6 +128,9 @@ function Privacy() {
         <>Your browser&rsquo;s own <code className="data">localStorage</code> may
           hold a referral code from a link you followed, so it still applies if
           you sign up on a later visit.</>,
+        <>The Pi Browser and Farcaster apps set no cookie and store nothing in
+          your browser. Their sign-in is a token held in the open page&rsquo;s
+          memory, gone when you close the app.</>,
       ]} />
 
       <H>What leaves our servers</H>
@@ -180,13 +161,29 @@ function Privacy() {
         pass through their systems under their own privacy policies.
       </P>
       <P>
+        <strong>Pi Network.</strong> Signing in with Pi sends the access token
+        Pi&rsquo;s own SDK gives the app to Pi&rsquo;s App Studio, which checks
+        it and answers your uid. If you tip, our server sends Pi&rsquo;s payment
+        id, and later the transaction id, to the Pi Platform to approve and
+        complete the payment, and reads Pi&rsquo;s record of it. A tip is a
+        transfer on the Pi blockchain, which is public: neither we nor anyone
+        else can delete it there. Pi handles all of this under its own privacy
+        policy.
+      </P>
+      <P>
+        <strong>Farcaster.</strong> Signing in with Farcaster sends the signed
+        sign-in message to Farcaster&rsquo;s sign-in service, which checks the
+        signature, under Farcaster&rsquo;s own privacy policy.
+      </P>
+      <P>
         <strong>Email.</strong> When the site emails you, the message goes out
         through Google Workspace from info@humanoid-traders.com, under
         Google&rsquo;s own privacy policy. It emails you for the welcome and
         verification link, a password reset, and a notice when your password,
         your two-factor setting, your plan or your account changes. It sends no
-        marketing email. Telegram-, X- and wallet-only accounts hold a
-        placeholder address, not a real one, and are never emailed.
+        marketing email. Accounts made by a sign-in that supplies no email
+        (Telegram, X, a wallet, Pi or Farcaster) hold a placeholder address,
+        not a real one, and are never emailed.
       </P>
 
       <H>Exchange API keys</H>
@@ -238,8 +235,9 @@ function Privacy() {
       <P>
         It removes your trades, positions, snapshots, alerts, watchlist,
         strategies, profile, diary, notification subscriptions, wallet links,
-        and any exchange credentials on either side. Your sessions end
-        immediately.
+        the record of any Pi tips, and any exchange credentials on either side.
+        Your sessions end immediately. A tip itself stays on the Pi blockchain,
+        which no one can erase.
       </P>
       <Gap title="One row survives, with nothing in it that names you.">
         Your account row is kept as an empty shell — every identifying field
@@ -277,7 +275,7 @@ function Privacy() {
           reveals whether an address has an account.</>,
         <>Two-factor authentication is optional, standard authenticator-app
           TOTP, compared in constant time. It is <em>not</em> prompted when you
-          sign in with Google, Telegram or a wallet signature.</>,
+          sign in with Google, Telegram, a wallet signature, Pi or Farcaster.</>,
         <>The application refuses to start if its session signing secret is
           missing or too short.</>,
       ]} />

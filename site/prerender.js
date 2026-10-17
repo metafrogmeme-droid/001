@@ -90,6 +90,13 @@ const ROUTES = [
     description:
       'What RUNECLAW collects, where it is stored, and what leaves the system.',
   },
+  {
+    path: '/terms',
+    title: 'Terms of use — RUNECLAW',
+    description:
+      'What you agree to by using RUNECLAW: paper trading, no advice, optional '
+      + 'tips, and what the service does not promise.',
+  },
 ]
 
 /**

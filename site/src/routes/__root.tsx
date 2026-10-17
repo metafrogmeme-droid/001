@@ -117,6 +117,7 @@ function Footer() {
               <li><Link to="/risk" className="text-ink-2 hover:text-ink">The risk gate</Link></li>
               <li><Link to="/changelog" className="text-ink-2 hover:text-ink">Changelog</Link></li>
               <li><Link to="/privacy" className="text-ink-2 hover:text-ink">Privacy</Link></li>
+              <li><Link to="/terms" className="text-ink-2 hover:text-ink">Terms</Link></li>
               <li>
                 <a href={DOCS} target="_blank" rel="noopener" className="text-ink-2 hover:text-ink">
                   Docs

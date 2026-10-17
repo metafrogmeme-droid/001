@@ -23,3 +23,4 @@
 - [What ships today — RUNECLAW](https://www.humanoid-traders.com/product): The chat that reads before it answers, paper-first trading with your own keys, hashed calls you can verify, the Guardian surfaces, the agent-facing API — and what is not here yet.
 - [Changelog — RUNECLAW](https://www.humanoid-traders.com/changelog): What changed, when, and where to check it — each entry points at the pull requests behind it.
 - [Privacy — RUNECLAW](https://www.humanoid-traders.com/privacy): What RUNECLAW collects, where it is stored, and what leaves the system.
+- [Terms of use — RUNECLAW](https://www.humanoid-traders.com/terms): What you agree to by using RUNECLAW: paper trading, no advice, optional tips, and what the service does not promise.
