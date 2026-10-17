@@ -1343,6 +1343,17 @@ class RuneClawEngine:
                 system_log.debug("Live balance fetch failed (no cache): %s", exc)
         return self._live_balance_cache if self._live_balance_cache else None
 
+    def _record_live_equity_day(self) -> str:
+        """One live equity row per UTC day, from a reading fresh enough to
+        state as current (`live_balance_cached`); a stale or absent cache
+        records nothing. `bot/core/equity_record.py` keeps the file; it is
+        what a live Sharpe will read. Returns the recorder's word."""
+        from bot.core.equity_record import UNREADABLE, record_daily_equity
+        reading = self.live_balance_cached()
+        if reading is None:
+            return UNREADABLE
+        return record_daily_equity(reading, mode="live", source=CONFIG.exchange.venue)
+
     def live_balance_cached(self, max_age_s: float = 900.0) -> Optional[dict]:
         """The cached live balance ONLY when fresh enough to state as current.
 
@@ -6634,6 +6645,12 @@ class RuneClawEngine:
                     self.get_live_equity(), "live equity refresh")
             except Exception:
                 pass  # non-fatal: use cached value
+            # The day's equity row, from the reading just refreshed. Fail-open:
+            # a record that cannot be written must not touch the tick.
+            try:
+                self._record_live_equity_day()
+            except Exception as exc:  # noqa: BLE001
+                system_log.debug("Daily equity row not written: %s", type(exc).__name__)
 
         # Sync WebSocket status to health monitor
         self.health.set_ws_status(self.ws_feed.is_connected())

@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **493 of 1333** reach for source text through `source_scan`, `code_only`
+Driven, **494 of 1336** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 493 is a FLOOR and the honest shape is
+source scan that rule does not see, so 494 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -25965,6 +25965,163 @@ It now asks `pickCurrentSeason` like every other reader, through
 real library in Chromium, opens it on paper, and checks the unreadable and
 empty states. `app/test/arena_seasons.test.js` drives the rename's refusals and
 that the window, rules and status survive it.)
+
+**THE TRAIL'S FIRST STEP WAS "BREAKEVEN" AT THE BARE ENTRY, SO EVERY STOP-OUT
+THERE PAID THE ROUND TRIP.** The multistage trail (`bot/utils/trailing.py`)
+floors its stage-1 stop at `entry + 0.0R`: the entry price itself. A stop-out
+there realizes 0% of notional and pays the position's fees, 0.08% on a limit
+entry and 0.12% on a market one at the shipped rates, and the books call it
+flat. TP1's lock was moved past the fees in the breakeven-after-fees chapter;
+the trail, which binds first (at 1R, before TP1's 1.5R), kept the bare entry.
+Driven before the fix, a long from 100 with 1R = 2 and ATR 2 reached 102.4
+and the executor sent the venue a stop of 100.0. In the backtest this step
+almost never bound: there the trail's ATR is 1R / 2.5, so the stage-1 ATR
+trail sat at entry + 0.2R, above the floor. Live reads the position's real
+ATR, so a swing whose stop is 2 ATR wide trails at exactly the entry. Live
+booked more of these scratches than any card showed, and the 17 Oct edge
+audit (every indicator, the backtest positions, five slow rules: nothing earns
+its costs) put it on the list.
+
+**One figure, read where TP1's lock reads it.** The trail state carries
+`fee_round_trip_pct`, and the stage floors never sit closer to the entry than
+that: `max(floor_r * 1R, fee buffer)`, so a later stage whose R-floor is inside
+the fees (a tight 1R) is raised to them too. Live sets it on every pass from
+`round_trip_pct(pos.order_type)`, as the ladder does; the backtest hands
+`make_trailing_state` two legs of its commission, the figure its TP1 lock gets;
+the paper book hands two legs of the rate its close charges, through one
+`_commission_rate()` the close reads as well. A state recorded without the
+field, or with a figure that is not a finite non-negative number, floors at
+the bare entry as it always did. The canonical benchmark
+(`benchmark/majors_1h`, `--honest --walk-forward 6`) and the six agent
+scorecards were re-run on this commit and on main side by side: identical to
+the recorded figures, so nothing is re-recorded; the step rarely binds in the
+backtest, which is the finding above. Five mutants (the floor ignoring the
+buffer, each of the three runtimes passing none, a bool read as a rate) each
+failed a test that names it.
+(`tests/test_the_first_trailing_step_is_breakeven_after_fees.py` drives the
+trail, the live monitor pass through the real `check_positions`, the
+backtest's real `_execute_fill` and `_check_stops_intrabar`, and the paper
+book's `check_stops`.)
+
+**LIVE HAD A WIN RATE AND A PROFIT FACTOR AND NO SHARPE, BECAUSE NOTHING KEPT A
+DAY'S EQUITY.** The risk engine's `record_equity_snapshot` is in memory and
+written on every evaluation; the website's `record_equity` lives in one
+process and dies with it. So the nightly self-audit could say PF 0.24 over 40
+closes and nothing could say what the account's daily returns had been. The
+engine appends one row per UTC day to `data/learning/equity_daily.jsonl`
+(`EQUITY_LOG_PATH` overrides it) right after the tick's live-equity refresh,
+from `live_balance_cached`, the reading fresh enough to state as current; a
+stale or absent cache records nothing. Three facts kept apart: a day already
+recorded stays as it is, a reading that is not a figure (a failed read that
+`get_live_equity` lets through with `error` and a zero total, a string, a
+NaN, a bool) writes nothing and never a zero, and a row says when it was read
+and from which venue. A zero balance is a measurement and is recorded. Order
+flow, funding and open interest were already recorded per analysis
+(`order_flow_snapshots.jsonl`, `OF_RECORD_SNAPSHOTS`), so the 17 Oct audit's
+"record what was never measured" is now one file short of nothing: the
+indicator study can be re-run on them in two to three months.
+(`tests/test_live_equity_is_recorded_once_a_day.py` drives the recorder, the
+engine's method bound onto a stand-in, and scans the tick for the one call
+inside its own fail-open try.)
+
+**LIVE AND `--HONEST` MEASURED DIFFERENT SYSTEMS, AND THE AS-LIVE RUN SAYS WHICH
+DIFFERENCES MATTER.** The 17 Oct edge audit read the live path against the
+honest backtest: the backtest fills every idea at the next open as a taker and
+runs one of live's five early exits; live rests a post-only limit that fills
+only when price comes back, pays the maker rate on that leg, spares a
+time-stopped position only past its fees, and closes positions on four more
+rules (`_evaluate_live_smart_exits`: no progress, the signal's hold limit,
+volume decay, the VWAP band) that no card had measured. `--as-live`
+(`bot/backtest/runner.py`) is `--honest` plus that model: a limit idea rests
+from the next bar (`_rest_limit`) and fills on a touch at its own price with no
+slippage, the maker gap on that leg is settled at the close into the balance
+the book settled, a market idea and a timing FIRE go through the same seam
+(`_queue_entry`), the smart exits run at the bar close in live's order behind
+live's two flags (`_live_smart_exit`), and the time stop reads the position's
+round trip. Not modelled, and said on the flag: the drift-to-market chase
+(bounded by the drift-cancel count) and live's wider universe. The honest path
+is byte-identical; thirteen mutants each failed a test that names them.
+
+**Driven on 2026-10-17 at `ab14edc1`, six-fold walk-forward, positions not
+legs:**
+
+| dataset | honest: pos · win · PF · net/pos | as-live | as-live, smart exits off |
+|---|---|---|---|
+| majors_1h_v2 | 138 · 47.8% · 0.74 · −$10.15 | 76 · 38.2% · 0.65 · −$8.46 | 62 · 30.6% · 0.53 · −$12.59 |
+| alts_1h_v2 | 62 · 37.1% · 0.28 · −$49.14 | 45 · 31.1% · 0.39 · −$19.29 | 40 · 27.5% · 0.33 · −$22.87 |
+| majors_1h_v3 | 98 · 51.0% · 1.19 · +$5.05 | 79 · 55.7% · 1.99 · +$15.21 | 65 · 55.4% · 2.13 · +$16.15 |
+| alts_1h_v3 | 115 · 49.6% · 0.72 · −$10.94 | 63 · 38.1% · 0.62 · −$10.27 | 59 · 37.3% · 0.58 · −$13.16 |
+| pooled | 413 · 47.5% · 0.69 · −$12.62 (3/24 folds up) | 263 · 42.2% · 0.85 · −$3.63 (8/24) | 226 · 38.9% · 0.75 · −$6.29 (7/24) |
+
+Three readings. **The resting limit takes a third of the fills and improves
+the rest**: 263 positions against 413, a lower hit rate and a smaller loss per
+position, because the fills it keeps are at the pullback price with the maker
+fee, and the ideas that run away never fill. **The smart exits do not lose**:
+with `TIME_STOP_LIVE_AUTO_CLOSE=0` the pooled profit factor falls from 0.85 to
+0.75 and the loss per position grows on three datasets of four (majors_1h_v3
+is within noise either way); they closed 35 of 262 positions, 29 on the
+signal's hold limit at 48% won, and a book that holds its losers longer opens
+fewer trades. So the audit's "measure or switch off" is answered: measured,
+kept on. **The exits that decide the book are the stop and the trail**: 148 of
+262 positions ended on the original stop at 16% won (−$34.57 each) and 67 on
+the trail after TP1 at 100% won (+$67.54 each); no position ended on a TP leg,
+because the ladder's targets are partial closes and the runner's last leg is
+the trail. Live's own card (249 exits: 76 SL hits, 10 TP hits) is the same
+shape.
+
+**What this leaves unexplained is the gap from PF 0.85 here to 0.61 (249
+exits) and 0.24 (the last 40) live.** The model's book is the ten majors and
+the eight alts the datasets hold; 226 of live's 249 exits were on markets no
+dataset holds, and the TradFi legs ran at PF 0.03–0.22 over 77 of them. 183 of
+the 249 were priced from a ticker, not a fill. The drift chase and the
+operator's pause clears are not in the model. Those are the next things to
+measure, in that order, and until a replay of live's own ideas lands near
+live's record, a card figure is a statement about the card's universe.
+(`tests/test_the_as_live_backtest_trades_the_way_live_does.py`;
+`docs/FROZEN_BENCHMARK.md` carries the table under its own date.)
+
+**THE HONEST SWITCHES STAYED ON FOR THE REST OF THE SESSION, AND THE FLAKE
+FILTER FORGAVE EVERY TEST THEY BROKE.** 17 October, the full run before the
+as-live push: `test_the_first_trailing_step_is_breakeven_after_fees` and the
+as-live scalp test failed in the suite and passed alone, and the gate's flake
+filter counted neither. The first asserted `eng._partial_tp_enabled is False`
+on a fresh engine and read True. `runner._apply_honest_fidelity` writes
+`BACKTEST_PARTIAL_TP`, `BACKTEST_TIME_STOP` and `BACKTEST_SYMBOL_LOSS_STREAK`
+into `os.environ` with `setdefault`, on purpose: `--honest` is meant to turn
+them on for the run and the engine reads them at construction.
+`test_honest_fidelity.py` drives that write, two of its tests without
+monkeypatch, so from that file on every `BacktestEngine` any later test built
+had the ladder on, whatever the test said. The same shape as the vault write
+and the logging switch before it: a production write that is the behaviour
+under test, made outside monkeypatch, so teardown has no record of it. The
+harness hands the three keys back after every test now
+(`tests/conftest.py::_contain_the_honest_backtest_switches`); the leaking
+tests are unchanged, because they test exactly what they mean to. Mutating
+the restore out reproduces the two failures with `test_honest_fidelity.py`
+run first. The same run found what the as-live engine's new attribute broke:
+two stand-ins (`test_backtest_time_stop`'s namespace, `test_entry_timing`'s
+engine built without `__init__`) did not carry `_as_live`, which is the
+"hand-written stand-in forgets the next attribute" rule in its plainest form;
+they carry it now. A ratchet row for `read_daily_equity`, the record's reader
+that nothing draws from yet, and the `.env.example` block regenerated for a
+flag whose line moved.
+
+**THE PRESALE BAR'S TEST MEASURED THE PAGE BEFORE THE BAR, AND ONLY ON A
+LOADED BOX.** 17 October, the full run of the merged tree: the web gate's one
+red test was "agent.html @1280: no bar while the sale is live", 21.9 seconds
+in; alone, the same test passed in 85. `presale.js` draws the bar only once
+its `/api/token` read has answered, and the test's `open()` waited for
+`load`, for `readyState === "complete"`, and then a fixed 300 ms: a beat
+chosen on an idle box, where the routed fetch answers in a few milliseconds.
+With two suites running (load average 6 on 4 cores) the heaviest page, the
+agent page with its 3D mascot module, had not drawn the bar when the beat
+ended, and `barFacts()` read null, which the assertion rendered as "no bar"
+for a bar that arrived a moment later. The test waits for the thing it
+depends on now: on a page that carries `presale.js` it holds for the
+`/api/token` response (a 500 is an answer too, so the no-bar arms wait the
+same way), and keeps the beat after it; a page without the script waits for
+nothing. A fixed delay in a browser test is a measurement of the box it was
+written on. (`app/test/the_presale_bar_says_live_and_steps_aside.smoke.test.js`.)
 
 **THE ONE PRIVACY POLICY ANSWERED 404 AT ITS OWN CANONICAL URL, AND A SECOND COPY WOULD HAVE BEEN THE FIX THAT REPEATS THE INCIDENT.**
 On 2026-10-17 Pi's Developer Portal refused to list the Pi app without a

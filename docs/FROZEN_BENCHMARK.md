@@ -1624,3 +1624,40 @@ its flat 0.00% takes no colour.
 Re-run step 1 to fetch a newer window (e.g. quarterly). This changes the
 `dataset_hash`, so re-baseline before comparing across snapshots — a number from
 one snapshot is not comparable to a number from another.
+
+### The record under live's own model (`--as-live`, 2026-10-17)
+
+`--as-live` is `--honest` plus the fills and exits live runs: a limit idea
+rests from the next bar and fills only on a touch at its own price as a maker
+(no slippage, the maker rate on that leg), a market idea fills at the next
+open, the time stop spares a position only past its own round trip, and the
+engine's smart exits (no progress, signal hold, volume decay, VWAP band) run
+at the bar close behind `TIME_STOP_LIVE_AUTO_CLOSE`, as in live. Not modelled:
+the drift-to-market chase (the drift-cancel count bounds it) and live's wider
+universe. The honest path is unchanged.
+
+```bash
+python3 -m bot.backtest.runner --dataset benchmark/majors_1h_v2 --as-live --walk-forward 6
+TIME_STOP_LIVE_AUTO_CLOSE=0 python3 -m bot.backtest.runner --dataset benchmark/majors_1h_v2 --as-live --walk-forward 6
+```
+
+Driven at `ab14edc1` on the four v2/v3 snapshots (positions, not legs):
+
+| dataset | `--honest` pos · win · PF | `--as-live` | `--as-live`, smart exits off |
+|---|---|---|---|
+| majors_1h_v2 | 138 · 47.8% · 0.74 | 76 · 38.2% · 0.65 | 62 · 30.6% · 0.53 |
+| alts_1h_v2 | 62 · 37.1% · 0.28 | 45 · 31.1% · 0.39 | 40 · 27.5% · 0.33 |
+| majors_1h_v3 | 98 · 51.0% · 1.19 | 79 · 55.7% · 1.99 | 65 · 55.4% · 2.13 |
+| alts_1h_v3 | 115 · 49.6% · 0.72 | 63 · 38.1% · 0.62 | 59 · 37.3% · 0.58 |
+| pooled | 413 · 47.5% · 0.69 | 263 · 42.2% · 0.85 | 226 · 38.9% · 0.75 |
+
+The resting limit takes a third of the fills and improves the rest; the smart
+exits do not lose (PF 0.85 with them, 0.75 without, worse on three datasets of
+four without), so they stay on; 148 of 262 as-live positions ended on the
+original stop at 16% won and 67 on the trail after TP1 at 100% won, the shape
+live's parity card shows (76 SL hits, 10 TP hits over 249). The gap from 0.85
+here to live's 0.61 is not in this model: 226 of live's 249 exits were on
+markets no snapshot holds. The chapter in `docs/lessons/ENGINEERING_LOG.md`
+("LIVE AND `--HONEST` MEASURED DIFFERENT SYSTEMS") has the per-position
+figures. The benchmark on record stays `--honest`; this is a second reading of
+the same snapshots, not a re-baseline.

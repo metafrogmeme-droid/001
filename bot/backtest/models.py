@@ -110,7 +110,7 @@ class BacktestConfig(BaseModel):
     # fill at the NEXT bar's open (conservative; closer to live execution).
     # Run both and compare: a large edge gap between them means the strategy's
     # backtested edge lives in the fill assumption, not the signal.
-    fill_mode: str = "close"               # "close" | "next_open"
+    fill_mode: str = "close"               # "close" | "next_open" | "live" (--as-live)
     # Auto-reset a tripped circuit breaker after this many bars (0 = never,
     # the default — breaker halts are preserved exactly like live). A
     # drawdown/streak trip normally requires MANUAL reset; in a months-long

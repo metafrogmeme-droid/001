@@ -763,10 +763,21 @@ Examples:
     trade_group.add_argument("--scanner-config", type=str, default="", metavar="JSON",
                              help="The scanner preset's own numbers, as a JSON object "
                                   "(bot.core.limit_scanner.params_from_preset).")
-    trade_group.add_argument("--fill-mode", choices=("close", "next_open"), default="close",
-                             help="Entry fill convention: same-bar close (legacy, optimistic) "
-                                  "or next-bar open (conservative; audit fix #15). Run both "
-                                  "and compare to see how much edge lives in the fill assumption.")
+    trade_group.add_argument("--fill-mode", choices=("close", "next_open", "live"), default="close",
+                             help="Entry fill convention: same-bar close (legacy, optimistic), "
+                                  "next-bar open (conservative; audit fix #15), or live (what "
+                                  "--as-live sets: a limit rests from the next bar and fills on a "
+                                  "touch as a maker, a market idea fills at the next open). Run "
+                                  "both and compare to see how much edge lives in the fill assumption.")
+    trade_group.add_argument("--as-live", action="store_true",
+                             help="Measure the system live runs: everything --honest sets, plus "
+                                  "live's fills (a resting post-only limit filled only on a touch, "
+                                  "maker fee on that leg, no entry slippage), live's time stop "
+                                  "(spares profit after fees only) and the engine's smart exits "
+                                  "(no progress, signal hold, volume decay, VWAP band; behind "
+                                  "TIME_STOP_LIVE_AUTO_CLOSE as in live). Not modelled: the "
+                                  "drift-to-market chase (counted as drift cancels, an upper "
+                                  "bound), live's wider universe.")
     trade_group.add_argument("--honest", action="store_true",
                              help="Preset for trustworthy numbers: --strict-data (never silently "
                                   "substitute synthetic) + --fill-mode next_open (conservative "
@@ -811,6 +822,10 @@ def _apply_honest_fidelity(args: argparse.Namespace) -> None:
     calls this itself rather than relying on ``main()`` having run first, since
     tests (and any future embedding) invoke them directly.
     """
+    if getattr(args, "as_live", False):
+        # As-live is honest first; the fill model is set below, after the
+        # honest block has set its own.
+        args.honest = True
     if getattr(args, "honest", False):
         args.strict_data = True
         args.fill_mode = "next_open"
@@ -856,6 +871,8 @@ def _apply_honest_fidelity(args: argparse.Namespace) -> None:
             from bot.config import CONFIG as _CFG2
             from bot.core.leverage import order_standards
             args.leverage = int(order_standards(_CFG2.exchange, None).sized)
+        if getattr(args, "as_live", False):
+            args.fill_mode = "live"
     if getattr(args, "commission", None) is None:
         args.commission = 0.1
     if getattr(args, "leverage", None) is None:

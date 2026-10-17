@@ -219,7 +219,11 @@ class PortfolioTracker:
         # M2 fix: read sl_mult from config instead of hardcoding
         sl_mult = CONFIG.analyzer.sl_atr_mult_default
         canonical_atr = initial_risk / sl_mult if initial_risk > 0 else idea.entry_price * 0.02
-        ts = make_trailing_state(idea.entry_price, idea.direction.value, initial_risk, canonical_atr)
+        # The breakeven floor is this book's round trip: its commission on the
+        # entry leg and on the exit leg, as `close_position` charges them.
+        ts = make_trailing_state(idea.entry_price, idea.direction.value, initial_risk,
+                                 canonical_atr,
+                                 fee_round_trip_pct=2.0 * self._commission_rate())
         ts["entry_price"] = idea.entry_price  # needed for activation check
         self._trailing_state[idea.id] = ts
 
@@ -272,10 +276,7 @@ class PortfolioTracker:
         # Commission is the rate on the entry notional and the exit notional.
         # BT-H1: honor the per-portfolio override when set (backtest), else live config.
         lev = getattr(trade, 'leverage', 1) or 1
-        commission_pct = (
-            self._commission_pct if self._commission_pct is not None
-            else CONFIG.risk.commission_pct
-        )
+        commission_pct = self._commission_rate()
         settled = close_figures(
             trade.entry_price,
             exit_price,
@@ -437,6 +438,16 @@ class PortfolioTracker:
                     "atr": ts.get("atr", 0),
                 }
             return status
+
+    def _commission_rate(self) -> float:
+        """The commission this book charges on each leg, in percent.
+
+        The backtest's override when it passed one (BT-H1), else the live
+        config's. One reading for the close's charge and the trail's
+        breakeven, so the two cannot disagree about what a round trip costs.
+        """
+        return (self._commission_pct if self._commission_pct is not None
+                else CONFIG.risk.commission_pct)
 
     def _leg(self, pos: TradeExecution, price: float) -> tuple[float, float]:
         """``(margin + unrealized, unrealized)`` for one open position.

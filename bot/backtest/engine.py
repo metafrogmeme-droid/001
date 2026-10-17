@@ -14,12 +14,16 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
-from bot.backtest.models import (
-    BacktestBar, BacktestConfig, BacktestResult, BacktestTrade, EquityPoint,
-)
 from bot.backtest.funding import combine as funding_combine
 from bot.backtest.funding import funding_for_position
 from bot.backtest.metrics import PF_UNDEFINED
+from bot.backtest.models import (
+    BacktestBar,
+    BacktestConfig,
+    BacktestResult,
+    BacktestTrade,
+    EquityPoint,
+)
 from bot.backtest.positions import position_rr, positions
 from bot.config import CONFIG
 from bot.core.analyzer import Analyzer
@@ -27,8 +31,8 @@ from bot.core.leverage import apply_margin_risk_cap
 from bot.core.limit_entry import resting_limit_drift
 from bot.core.partial_tp import _tp1_lock, _tp2_lock
 from bot.core.strategy_gate import side_rule, signal_clears_volume_min
-from bot.risk.risk_engine import RiskEngine
 from bot.risk.portfolio import PortfolioTracker
+from bot.risk.risk_engine import RiskEngine
 from bot.utils.logger import audit, system_log, trade_log
 from bot.utils.models import Direction, MarketSignal, RiskVerdict
 from bot.utils.trailing import make_trailing_state, update_trailing_stop
@@ -249,6 +253,15 @@ class BacktestEngine:
         # here: the result builder reads it and two tests reach that builder
         # without calling run().
         self._pending_limits: list[dict] = []
+        # `--as-live` (fill_mode="live"): the entry and exit model live runs.
+        # A limit idea rests from the NEXT bar and fills on a touch at its own
+        # price as a maker, a market idea fills at the next open as a taker,
+        # and the engine's smart exits (no progress, signal hold, volume
+        # decay, VWAP band) close positions at the bar close the way
+        # `_evaluate_live_smart_exits` closes them at market. The 17 Oct edge
+        # audit found live and `--honest` measuring different systems.
+        self._as_live = getattr(config, "fill_mode", "close") == "live"
+        self._maker_fills = 0
         self._limits_filled = 0
         self._limits_filled_same_bar = 0
         self._limits_expired = 0
@@ -353,6 +366,7 @@ class BacktestEngine:
             if apply_max or rsi_min is not None:
                 try:
                     import numpy as _np
+
                     from bot.core.ta_utils import rsi_series
                     closes = _np.asarray([b.close for b in window], dtype=float)
                     rsi_now = float(rsi_series(closes)[-1])
@@ -948,10 +962,30 @@ class BacktestEngine:
             self._et_armed += 1
             return
 
-        # 5. Execute (no human confirmation in backtest). With
-        # fill_mode="next_open" (audit fix #15) the approved idea is queued and
-        # filled at the NEXT bar's open instead of this bar's close.
-        if getattr(self.config, "fill_mode", "close") == "next_open":
+        # 5. Execute (no human confirmation in backtest).
+        self._queue_entry(idea, risk_check, bar)
+
+    def _queue_entry(self, idea, risk_check, bar) -> None:
+        """Hand an approved idea to this run's fill model.
+
+        ``close``: this bar, through `_place_entry`. ``next_open`` (audit fix
+        #15, `--honest`): queued and filled at the NEXT bar's open. ``live``
+        (`--as-live`): the order live would send. A limit idea rests from the
+        next bar and fills only on a touch, at its own price; a market idea
+        fills at the next open. The entry-timing engine hands a FIRE here too.
+        """
+        mode = getattr(self.config, "fill_mode", "close")
+        if mode == "live":
+            px = getattr(idea, "entry_price", None)
+            priced = isinstance(px, (int, float)) and not isinstance(px, bool) and px > 0
+            if str(getattr(idea, "order_type", "market")).lower() == "limit" and priced:
+                self._rest_limit(idea, risk_check, bar)
+            else:
+                # A market idea, or a limit with no readable price: the
+                # order live sends transacts at the next price.
+                self._pending_entry = (idea, risk_check)
+            return
+        if mode == "next_open":
             self._pending_entry = (idea, risk_check)
             return
         self._place_entry(idea, risk_check, bar)
@@ -1055,7 +1089,12 @@ class BacktestEngine:
             idea, px = order["idea"], order["px"]
             if self._limit_is_touched(bar, px, idea.direction):
                 self._limits_filled += 1
-                self._execute_fill(idea, order["risk_check"], px, bar)
+                # A resting limit that is touched fills as a MAKER at its own
+                # price: no slippage and the maker rate on the entry leg. Only
+                # the as-live model prices it so; the close-mode lifecycle
+                # keeps the run's one commission.
+                self._execute_fill(idea, order["risk_check"], px, bar,
+                                   maker=self._as_live)
                 continue
             if now_ts - order["placed_ts"] >= float(cfg.expire_seconds):
                 self._limits_expired += 1
@@ -1087,9 +1126,17 @@ class BacktestEngine:
             still.append(order)
         self._pending_limits = still
 
-    def _execute_fill(self, idea, risk_check, fill_price: float, bar) -> None:
+    def _execute_fill(self, idea, risk_check, fill_price: float, bar,
+                      maker: bool = False) -> None:
         """Open the position at ``fill_price`` (bar close in legacy mode, next
-        bar's open in next_open mode) with slippage/commission applied."""
+        bar's open in next_open mode) with slippage/commission applied.
+
+        ``maker``: a resting limit filled at its own price. No entry slippage,
+        and the entry leg pays the live maker rate (`entry_rate_pct("limit")`)
+        instead of this run's commission; `_close_position` settles the
+        difference. The position's round trip, which the trail's breakeven
+        and TP1's lock read, is that rate plus the exit leg.
+        """
         # Round 7 Phase 1: the intent's job ends the moment we attempt the fill —
         # it either becomes a real OPEN position (counted directly) or is rejected
         # (nothing). Clear it here either way so it isn't double-counted. No-op
@@ -1099,11 +1146,19 @@ class BacktestEngine:
 
         # Apply entry slippage BEFORE opening portfolio position so the
         # portfolio's internal equity/drawdown curve reflects slipped entries.
-        slippage = fill_price * (self.config.slippage_pct / 100)
+        slippage = 0.0 if maker else fill_price * (self.config.slippage_pct / 100)
         if idea.direction == Direction.LONG:
             adjusted_entry = fill_price + slippage
         else:
             adjusted_entry = fill_price - slippage
+        entry_rate = self.config.commission_pct
+        if maker:
+            from bot.core.trade_costs import entry_rate_pct
+            entry_rate = float(entry_rate_pct("limit"))
+            self._maker_fills += 1
+        # The round trip this position pays: its entry leg plus one exit at
+        # this run's commission. TP1's lock and the trail's breakeven read it.
+        fee_round_trip_pct = entry_rate + self.config.commission_pct
 
         # Create a slippage-adjusted copy of the idea for portfolio. The entry
         # is not rounded: six decimal places is an absolute grid, and a
@@ -1149,7 +1204,11 @@ class BacktestEngine:
         else:
             sl_mult = CONFIG.analyzer.sl_atr_mult_default
             canonical_atr = initial_risk / sl_mult if initial_risk > 0 else idea.entry_price * 0.02
-        trailing = make_trailing_state(adjusted_entry, idea.direction.value, initial_risk, canonical_atr)
+        # The trail's breakeven floor reads the same round trip as TP1's lock
+        # below: this engine's own, a commission on each leg.
+        trailing = make_trailing_state(adjusted_entry, idea.direction.value, initial_risk,
+                                       canonical_atr,
+                                       fee_round_trip_pct=fee_round_trip_pct)
         trailing["entry_price"] = adjusted_entry
         # Capture the entry regime for P&L attribution (which regimes actually
         # make money — see the report's regime breakdown). Best-effort.
@@ -1162,8 +1221,11 @@ class BacktestEngine:
         self._open_bt_positions[idea.id] = {
             "entry_time": bar.timestamp,
             "adjusted_entry": adjusted_entry,
-            "commission_entry": size_usd * (self.config.commission_pct / 100),
+            "commission_entry": size_usd * (entry_rate / 100),
             "slippage_entry": slippage * trade.quantity,
+            # Set only on a maker fill; `_close_position` refunds the gap
+            # between this and the commission the book charged on the entry.
+            "entry_commission_pct": entry_rate if maker else None,
             "idea": idea,
             "risk_verdict": risk_check.verdict.value,
             "entry_regime": _entry_regime,
@@ -1199,7 +1261,7 @@ class BacktestEngine:
                 # (0.1, a 0.2% round trip). Against the old hard-coded 0.1%
                 # lock that is a loss of 0.02% and 0.1% of notional
                 # respectively, on every "breakeven" stop-out.
-                fee_round_trip_pct=2.0 * self.config.commission_pct,
+                fee_round_trip_pct=fee_round_trip_pct,
                 trade_id=idea.id,
                 direction=idea.direction.value,
                 entry_price=adjusted_entry,
@@ -1252,10 +1314,20 @@ class BacktestEngine:
             # a stale drifter is cut here; a position already at its SL/TP this
             # bar still exits below at the (pessimistic) SL-first level because
             # the time-stop only fires once the horizon is genuinely exceeded.
-            if self._time_stop_enabled:
+            if self._time_stop_enabled or self._as_live:
                 bt_meta["bars_held"] = bt_meta.get("bars_held", 0) + 1
-                if self._time_stop_hit(bt_meta, pos, bar):
-                    self._close_position(tid, bar.close, bar, "TIME_STOP")
+            if self._time_stop_enabled and self._time_stop_hit(bt_meta, pos, bar):
+                self._close_position(tid, bar.close, bar, "TIME_STOP")
+                continue
+
+            # The engine's smart exits, as-live only: the rules
+            # `_evaluate_live_smart_exits` runs on every live position after
+            # the executor's own pass, read at this bar's close. Before the
+            # ladder and the stop path, as the time stop is.
+            if self._as_live:
+                _why = self._live_smart_exit(bt_meta, pos, bar)
+                if _why:
+                    self._close_position(tid, bar.close, bar, f"SMART_EXIT:{_why}")
                     continue
 
             # Structure trailing: per-position rolling window of CLOSED bar
@@ -1396,11 +1468,66 @@ class BacktestEngine:
         if bt_meta.get("bars_held", 0) < max_bars:
             return False
         adj_entry = bt_meta.get("adjusted_entry", pos.entry_price)
+        # Live spares a position only when its mark clears the round trip
+        # (`in_profit_after_fees`); the honest path keeps the gross reading
+        # it was recorded with. As-live asks the position's own round trip.
+        buf = 0.0
+        if self._as_live:
+            rt = bt_meta.get("fee_round_trip_pct")
+            if isinstance(rt, (int, float)) and not isinstance(rt, bool) and rt >= 0:
+                buf = adj_entry * float(rt) / 100.0
         if pos.direction == Direction.LONG:
-            in_profit = bar.close > adj_entry
+            in_profit = bar.close > adj_entry + buf
         else:
-            in_profit = bar.close < adj_entry
+            in_profit = bar.close < adj_entry - buf
         return not in_profit
+
+    def _live_smart_exit(self, bt_meta: dict, pos, bar: BacktestBar) -> Optional[str]:
+        """Which of live's smart exits closes this position at this bar, or None.
+
+        The same four rules in the same order as `_evaluate_live_smart_exits`,
+        behind the same two flags, with the bar's close as the mark and the
+        hold measured in bars since the fill. The R rules read the risk taken
+        at entry and are skipped when it cannot be read, as live skips them;
+        the VWAP band reads the VWAP the idea recorded (`entry_vwap`).
+        """
+        cfg = CONFIG.time_stop
+        if not (cfg.enabled and cfg.live_auto_close_enabled):
+            return None
+        from bot.core.position_telemetry import price_on_record
+        from bot.core.smart_exits import (
+            check_signal_hold_limit,
+            check_vwap_reversion_exit,
+            should_time_exit,
+            should_volume_decay_exit,
+        )
+        from bot.utils.candles import timeframe_to_ms
+        bar_hours = timeframe_to_ms(self.config.timeframe) / 3_600_000.0
+        hold_h = bt_meta.get("bars_held", 0) * bar_hours
+        candles_held = int(hold_h)
+        price = float(bar.close)
+        entry = float(bt_meta.get("adjusted_entry", pos.entry_price))
+        risk = bt_meta.get("initial_risk")
+        direction = pos.direction.value
+        # None, never 0.0: an unreadable 1R skips the R rules, as live's does.
+        r_mult: Optional[float] = None
+        if (isinstance(risk, (int, float)) and not isinstance(risk, bool)
+                and risk > 0 and entry > 0):
+            r_mult = ((price - entry) if direction == "LONG" else (entry - price)) / float(risk)
+        idea = bt_meta.get("idea")
+        sig = getattr(idea, "signal_type", "") or "momentum_confluence"
+        stype = getattr(idea, "strategy_type", "") or "swing"
+        if r_mult is not None:
+            if should_time_exit(stype, candles_held, r_mult)[0]:
+                return "progress"
+            if check_signal_hold_limit(sig, hold_h, r_mult)[0]:
+                return "signal_hold"
+            if should_volume_decay_exit(sig, candles_held, r_mult)[0]:
+                return "volume_decay"
+        vwap = price_on_record(getattr(idea, "entry_vwap", None))
+        if vwap is not None and check_vwap_reversion_exit(sig, price, vwap, direction, entry)[0]:
+            return "vwap"
+        return None
 
     @staticmethod
     def _maybe_structure_ratchet(bt_meta: dict, sl: float, direction: str) -> float:
@@ -1461,6 +1588,18 @@ class BacktestEngine:
         total_slippage = bt_meta["slippage_entry"] + slippage_exit * closed.quantity
         net_pnl = closed.pnl  # already net of commission from portfolio
         gross_pnl = closed.pnl + closed.commission  # add back for gross field
+        commission_usd = closed.commission
+        # A maker entry (as-live) paid the maker rate on its entry leg; the
+        # book charged this run's commission on both legs, so the gap comes
+        # back here, into the balance the book settled as the funding below
+        # does, or equity and the trade record would disagree.
+        _entry_rate = bt_meta.get("entry_commission_pct")
+        if _entry_rate is not None:
+            _refund = (bt_meta["adjusted_entry"] * closed.quantity
+                       * (self.config.commission_pct - float(_entry_rate)) / 100.0)
+            net_pnl += _refund
+            commission_usd -= _refund
+            self.portfolio.balance += _refund
 
         # Duration
         entry_time = bt_meta["entry_time"]
@@ -1495,7 +1634,7 @@ class BacktestEngine:
             size_usd=round(size_usd, 2),
             pnl_usd=round(gross_pnl, 2),  # LB-6: gross PnL (before commission)
             pnl_pct=round((gross_pnl / size_usd * 100) if size_usd > 0 else 0, 2),
-            commission_usd=round(closed.commission, 2),
+            commission_usd=round(commission_usd, 2),
             slippage_usd=round(total_slippage, 2),
             net_pnl_usd=round(net_pnl, 2),
             funding_usd=(round(_fund.usd, 4) if _fund.usd is not None else None),
@@ -1569,9 +1708,7 @@ class BacktestEngine:
         bar's close — confirmation is only knowable at bar close, matching
         how live would market in on the trigger candle's close.
         """
-        from bot.core.entry_timing import (DISARM_EXPIRED,
-                                           DISARM_INVALIDATED, FIRE,
-                                           evaluate_armed)
+        from bot.core.entry_timing import DISARM_EXPIRED, DISARM_INVALIDATED, FIRE, evaluate_armed
         if len(self._et_bar_win) < 10:
             return
         opens = [w[0] for w in self._et_bar_win]
@@ -1593,7 +1730,12 @@ class BacktestEngine:
                 audit(trade_log, f"[BT] Entry timing FIRED: {idea.asset} — {reason}",
                       action="entry_timing", result="FIRED",
                       data={"trade_id": idea.id})
-                self._execute_fill(idea, setup["risk_check"], bar.close, bar)
+                if self._as_live:
+                    # Live places the idea's order on the trigger; the
+                    # as-live model rests or queues it the same way.
+                    self._queue_entry(idea, setup["risk_check"], bar)
+                else:
+                    self._execute_fill(idea, setup["risk_check"], bar.close, bar)
             elif verdict == DISARM_INVALIDATED:
                 self._et_disarmed_invalidated += 1
                 self.risk.clear_pending_intent(idea.id)
@@ -2163,7 +2305,8 @@ class BacktestEngine:
 
 # ── Walk-Forward Backtest ──────────────────────────────────────────
 
-from pydantic import BaseModel as PydanticBaseModel, Field as PydanticField
+from pydantic import BaseModel as PydanticBaseModel
+from pydantic import Field as PydanticField
 
 
 class WalkForwardResult(PydanticBaseModel):

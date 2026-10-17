@@ -141,6 +141,7 @@ def _bt_engine():
     eng._et_bar_win = []
     eng._et_armed = eng._et_fired = 0
     eng._et_disarmed_invalidated = eng._et_disarmed_expired = 0
+    eng._as_live = False
     eng.risk = MagicMock()
     eng._execute_fill = MagicMock()
     return eng

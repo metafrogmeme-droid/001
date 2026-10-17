@@ -66,8 +66,16 @@ async function context(browser, { width = 1280, now = LIVE, token = RECORD, stat
 async function open(ctx, base, page) {
   const p = await ctx.newPage();
   await p.clock.setFixedTime(new Date(ctx.now));
+  // The bar arrives after one fetch, so a page that carries presale.js is not open until
+  // /api/token has answered. `load` plus a fixed beat measured the page BEFORE the bar on a
+  // loaded box (agent.html, 17 Oct, two suites running) and read "no bar" for a bar that
+  // arrived a moment later. The beat after the answer is the same one a visitor gets.
+  const carriesBar = /src="\/js\/presale\.js/.test(fs.readFileSync(path.join(PUBLIC, page), 'utf8'));
+  const answered = carriesBar
+    ? p.waitForResponse((r) => new URL(r.url()).pathname === '/api/token', { timeout: 15000 })
+    : Promise.resolve(null);
   await p.goto(`${base}/${page}`, { waitUntil: 'load' });
-  // The bar arrives after one fetch; give it the same beat a visitor does.
+  await answered;
   await p.waitForFunction(() => document.readyState === 'complete');
   await p.waitForTimeout(300);
   return p;
