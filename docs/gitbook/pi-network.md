@@ -44,8 +44,18 @@ There is no wildcard anywhere: App Studio is listed by its exact origin, not `*.
 
 **Signals and charts.** Signed in, the app shows the engine's latest calls the way a signed-in member sees them on the website: side, entry, stop, target, R:R and confidence. Each call has the site's TradingView chart with its levels drawn on it.
 
-- Each live call has a **Paper 200 · 2×** button. It opens the call on the paper account at the live mark, the same as the website's signal stream, and the season's rules apply. The confirmation says which of the call's exits the market had already passed.
-- The list refreshes every minute while the app is open.
+Each card offers one action at most, depending on where the call stands:
+
+| The call | The card shows | What a tap does |
+|---|---|---|
+| Live (inside the window the bot states, five minutes by default) | **Paper 200 · 2×** and a countdown | Follows the call on the paper account at the live mark, the same as the website's signal stream. The position is the call's. |
+| Window closed, but the call has not reached its target or stop | **Trade it yourself · 200 · 2×** and the time the window closed | Opens the call's side as your own trade at the live price. It is not credited to the call: the server records it as a manual position, with the same limits, season rules and armed envelope as a ticket you type. |
+| Ended (target, stop, not filled, or any other final outcome) | The outcome, and no button | Nothing. |
+
+- Either way the fill is the live mark, never the call's entry. The call's stop and target carry over only where they are still on the right side of the price, and the confirmation names any that did not. A fill far from the call's entry says how far.
+- When a window closes while the app is open, the card changes in place. The chart and anything typed in the open form are left as they were.
+- **The charts** take the website Arena's timeframes: **15m**, **1H**, **4H** and **1D**, chosen once for every chart on the panel and remembered on that device. Pinch a chart to zoom and drag it sideways to look back up to 200 bars. A vertical drag still scrolls the app, and a chart keeps its zoom when the panel refreshes.
+- The list refreshes every minute while the app is open. A refresh that finds the same calls redraws nothing.
 - A list that cannot be read says so. That message is never a claim that there are no signals.
 - The chart library is the site's own copy, served from our domain, and the candles come from our relay. The page's security policy is unchanged.
 

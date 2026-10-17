@@ -115,9 +115,9 @@ const SCRIPTS = [
   '/js/confidence-score.js?v=2',
   '/js/rr-words.js?v=1',
   '/js/embed-row.js?v=5',
-  '/js/signal-chart.js?v=2',
-  '/js/signal-status-model.js?v=3',
-  '/js/pi-signals.js?v=1',
+  '/js/signal-chart.js?v=3',
+  '/js/signal-status-model.js?v=4',
+  '/js/pi-signals.js?v=2',
   '/js/pi-arena.js?v=2',
 ];
 
@@ -130,7 +130,7 @@ function page() {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RUNECLAW Arena</title>
 ${head}
-<link rel="stylesheet" href="/embed.css?v=7">
+<link rel="stylesheet" href="/embed.css?v=8">
 </head><body class="e-arena m-app">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}

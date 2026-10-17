@@ -8,7 +8,7 @@
  * user picks a specific signal and it becomes a paper position carrying the
  * signal's own direction and its own exits.
  *
- * Three honesty rules decide almost everything here, and all three exist
+ * Five rules decide almost everything here, and each of them exists
  * because the tempting version of this feature lies:
  *
  *   1. The fill is the LIVE mark, never the signal's entry_price. A signal
@@ -41,6 +41,15 @@
  *      passed quietly dropped under rule 2 -- a stop-out re-opened as a fresh
  *      position with no stop. `callBlock` is the one reading of "is this call
  *      still current", and all three doors ask it.
+ *
+ *   5. A call past its window that has NOT ended may still be traded, but
+ *      only as the member's OWN trade (planOwnTrade): a manual position at
+ *      the live mark, through the manual open's own gates, with no signal key
+ *      and no agent on it, so no record of the call counts it. It is the
+ *      honest answer to "the window closed while I was reading": the setup
+ *      is still on the chart, and the trade is theirs, not the engine's.
+ *      A call that has ended (rule 4) offers neither, and a live one offers
+ *      only the follow, so one call never has two doors at once.
  *
  * The outcome words are the dashboard's own (public/js/signal-status-model.js):
  * a word this server does not know is FINAL there, and it is refused here, so
@@ -103,6 +112,30 @@ function endedError(s) {
 }
 
 /**
+ * Rule 2: the signal's exits, kept only where they still sit on the correct
+ * side of the LIVE fill. validateTpSl is asked one level at a time so a
+ * passed take-profit does not also discard a still-valid stop. `dropped`
+ * names what the market had already passed.
+ */
+function inheritExits(direction, mark, s) {
+  const tpTry = arena.validateTpSl(direction, mark, s.take_profit, null);
+  const slTry = arena.validateTpSl(direction, mark, null, s.stop_loss);
+  const tp = tpTry.ok ? tpTry.data.tp : null;
+  const sl = slTry.ok ? slTry.data.sl : null;
+  const dropped = [];
+  if (Number(s.take_profit) > 0 && tp == null) dropped.push('tp');
+  if (Number(s.stop_loss) > 0 && sl == null) dropped.push('sl');
+  return { tp, sl, dropped };
+}
+
+/** Rule 1: how far a fill at `mark` is from the call's own entry, in percent; null when it states none. */
+function driftPct(mark, signalEntry) {
+  return signalEntry > 0 && mark > 0
+    ? Math.round((mark / signalEntry - 1) * 10000) / 100
+    : null;
+}
+
+/**
  * @param {object} ctx
  *   signal    — { id, symbol, direction, entry_price, stop_loss, take_profit, status, created_at, expires_at }
  *   positions — currently open arena positions ([{ symbol }])
@@ -150,22 +183,9 @@ function planSignalOpen(ctx = {}) {
     ctx.balance, positions.length);
   if (!v.ok) return { ok: false, code: 'limits', error: v.error };
 
-  // Rule 2: inherit the signal's exits, but only where they still sit on the
-  // correct side of the LIVE fill. validateTpSl is checked one level at a time
-  // so a passed take-profit does not also discard a still-valid stop.
-  const tpTry = arena.validateTpSl(direction, mark, s.take_profit, null);
-  const slTry = arena.validateTpSl(direction, mark, null, s.stop_loss);
-  const tp = tpTry.ok ? tpTry.data.tp : null;
-  const sl = slTry.ok ? slTry.data.sl : null;
-  const dropped = [];
-  if (Number(s.take_profit) > 0 && tp == null) dropped.push('tp');
-  if (Number(s.stop_loss) > 0 && sl == null) dropped.push('sl');
-
-  // Rule 1: say how far this fill is from the call it came from.
+  const { tp, sl, dropped } = inheritExits(direction, mark, s);
   const signalEntry = Number(s.entry_price);
-  const driftPct = signalEntry > 0
-    ? Math.round((mark / signalEntry - 1) * 10000) / 100
-    : null;
+  const drift = driftPct(mark, signalEntry);
 
   return {
     ok: true,
@@ -177,9 +197,52 @@ function planSignalOpen(ctx = {}) {
       tp, sl,
       dropped,                           // exits the market had already passed
       signal_entry: signalEntry > 0 ? signalEntry : null,
-      drift_pct: driftPct,
-      drift_warn: driftPct != null && Math.abs(driftPct) >= DRIFT_WARN_PCT,
+      drift_pct: drift,
+      drift_warn: drift != null && Math.abs(drift) >= DRIFT_WARN_PCT,
       age_ms: ageMs,
+    },
+  };
+}
+
+/**
+ * Rule 5: the member's OWN trade on a call whose window has closed and which
+ * has not ended. Only the call's side and its still-valid exits are taken
+ * from it; the route hands those to the manual open (routes/arena.js
+ * openForUser), which applies the account's limits, the season's rules and
+ * the armed envelope exactly as it does for a typed ticket, and records the
+ * position as manual with no signal key.
+ *
+ * Refused while the call is live ('live': follow it, so the trade counts for
+ * the call) and once it has ended ('ended', rule 4), with the same sentences
+ * the follow path uses. Same shape as planSignalOpen.
+ */
+function planOwnTrade(ctx = {}) {
+  const s = ctx.signal;
+  if (!s) return { ok: false, code: 'no_signal', error: 'That signal no longer exists' };
+  const now = ctx.now instanceof Date ? ctx.now : new Date();
+  const block = callBlock(s, now);
+  if (block === 'direction') {
+    return { ok: false, code: 'direction', error: 'That signal has no tradeable direction' };
+  }
+  if (block === 'ended') return { ok: false, code: 'ended', error: endedError(s) };
+  if (block === null) {
+    return { ok: false, code: 'live',
+      error: 'That call is still live. Follow it instead, so the trade counts for the call.' };
+  }
+  const symbol = String(s.symbol || '').trim().toUpperCase();
+  const direction = String(s.direction || '').trim().toUpperCase();
+  const mark = Number(ctx.mark);
+  if (!(mark > 0)) {
+    return { ok: false, code: 'no_mark',
+      error: `No live price for ${symbol} right now — try again in a moment.` };
+  }
+  const { tp, sl, dropped } = inheritExits(direction, mark, s);
+  const signalEntry = Number(s.entry_price);
+  return {
+    ok: true,
+    data: {
+      symbol, direction, tp, sl, dropped,
+      signal_entry: signalEntry > 0 ? signalEntry : null,
     },
   };
 }
@@ -232,4 +295,4 @@ function decorateForPicker(signals, ctx = {}) {
   });
 }
 
-module.exports = { planSignalOpen, decorateForPicker, callBlock, DRIFT_WARN_PCT };
+module.exports = { planSignalOpen, planOwnTrade, decorateForPicker, callBlock, driftPct, DRIFT_WARN_PCT };

@@ -1,7 +1,7 @@
 {
   "embed.css": {
-    "v": 7,
-    "sha": "818d017aebc70d2e"
+    "v": 8,
+    "sha": "0214bf882441c1b6"
   },
   "js/agent-page.js": {
     "v": 1,
@@ -264,16 +264,16 @@
     "sha": "f3fcfd29d8415b0b"
   },
   "js/signal-chart.js": {
-    "v": 2,
-    "sha": "2e83ab4f03fab28f"
+    "v": 3,
+    "sha": "76c5db6919b7dbc8"
   },
   "js/signal-page.js": {
     "v": 2,
     "sha": "46dbdf4dd88840d3"
   },
   "js/signal-status-model.js": {
-    "v": 3,
-    "sha": "e8a9a46237897643"
+    "v": 4,
+    "sha": "9e8a78d7179b762d"
   },
   "js/solana_wallet.js": {
     "v": 4,
@@ -357,15 +357,15 @@
   },
   "js/arena-session.js": {
     "v": 3,
-    "sha": "0c72f60dd5662d2f"
+    "sha": "34580a2710f39b13"
   },
   "js/pi-arena.js": {
     "v": 2,
     "sha": "8c02284f791d56a1"
   },
   "js/pi-signals.js": {
-    "v": 1,
-    "sha": "2fc43cf3c213e380"
+    "v": 2,
+    "sha": "fb86fe2a457a83fb"
   },
   "js/pi-signin-callback.js": {
     "v": 1,

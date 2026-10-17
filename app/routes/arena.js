@@ -620,11 +620,36 @@ router.post('/open-signal', authMiddleware, tradeLimit, async (req, res) => {
     try { marks = await getTickers(); } catch (e) {
       return res.status(503).json({ error: 'Market data unavailable — try again shortly' });
     }
+    const symbol = String(sig.symbol || '').toUpperCase();
+
+    // { own: true }: the member's OWN trade on a call whose window closed
+    // before it ended (arena_signal_trade.js, rule 5). The call lends its side
+    // and its still-valid exits; the open itself is the manual one, with its
+    // limits, season rules and envelope, recorded as manual with no signal
+    // key and no agent, so no record of the call counts it.
+    if ((req.body || {}).own === true) {
+      const own = signalTrade.planOwnTrade({
+        signal: sig, mark: marks[symbol] && Number(marks[symbol].price) });
+      if (!own.ok) return res.status(own.code === 'no_mark' ? 503 : 400).json({ error: own.error, code: own.code });
+      const o = own.data;
+      const r = await openForUser(userId, {
+        symbol: o.symbol, direction: o.direction, tp: o.tp, sl: o.sl,
+        margin: (req.body || {}).margin, leverage: (req.body || {}).leverage });
+      if (r.status !== 200) return res.status(r.status).json(r.body);
+      const f = r.body.filled;
+      const drift = signalTrade.driftPct(f.entry, o.signal_entry);
+      return res.json({ ok: true, filled: {
+        ...f, own: true,
+        signal_entry: o.signal_entry, drift_pct: drift,
+        drift_warn: drift != null && Math.abs(drift) >= signalTrade.DRIFT_WARN_PCT,
+        dropped: o.dropped,
+      }, virtual: true });
+    }
+
     const acct = await loadAccount(userId);
     let positions = await loadPositions(userId);
     positions = await settleLiquidations(userId, positions, marks);
 
-    const symbol = String(sig.symbol || '').toUpperCase();
     const plan = signalTrade.planSignalOpen({
       signal: sig, positions, balance: acct.balance,
       margin: (req.body || {}).margin, leverage: (req.body || {}).leverage,
@@ -700,7 +725,7 @@ router.post('/open-signal', authMiddleware, tradeLimit, async (req, res) => {
       entry: d.entry, margin: d.margin, leverage: d.leverage, tp: d.tp, sl: d.sl,
       // The honesty payload: what the call said, what you actually got, and
       // which of its exits the market had already passed.
-      signal_entry: d.signal_entry, drift_pct: d.drift_pct, dropped: d.dropped,
+      signal_entry: d.signal_entry, drift_pct: d.drift_pct, drift_warn: d.drift_warn, dropped: d.dropped,
       key: rc.trade_key,
     }, ...(attribution ? { attribution } : {}), virtual: true });
   } catch (err) {

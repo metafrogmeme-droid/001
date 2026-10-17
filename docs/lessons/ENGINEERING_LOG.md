@@ -26310,3 +26310,73 @@ stall, the log throttle, and the status line fresh and unreadable.
 `tests/test_verify_deploy_guard.py` holds the deploy verdicts.
 `app/test/the_pi_app_signs_in_with_pi.smoke.test.js` refuses a close in
 Chromium, with and without a reason.)
+
+**A CALL PAST ITS WINDOW OFFERED NOTHING, AND THE PI APP WIPED THE TICKET EVERY MINUTE.**
+The Pi app's signal cards had one button, **Paper 200 · 2×**, shown only while
+`SignalStatusModel.actionable` held, i.e. inside the five minutes the bot
+states. A member who opened the app later saw every card with no action, and
+asked for "a take-signal trade button". Re-opening the follow past the window
+is refused on purpose (`app/lib/arena_signal_trade.js`, rules 3 and 4): it
+would put the engine's name on a call it no longer stands behind. The owner
+chose the third option, rule 5 there:
+- **One door per call.** Live: follow (`source 'signal'`, the call's key).
+  Window closed and not ended: **Trade it yourself**, the call's side as the
+  member's own trade at the live mark. Ended: no button, the outcome in the
+  dashboard's words.
+- **The own trade is a manual open.** `planOwnTrade` lends the side and the
+  still-valid exits, and the route hands them to `openForUser`, the typed
+  ticket's own path: its limits, the season's rules and the armed envelope.
+  The row is `manual` with no `signal_key` and no agent, so no record of the
+  call counts it.
+- **One reading, client and server.** `SignalStatusModel.ownable` is
+  `actionable` with the window closed. The server answers `own: true` on a
+  live call with `code 'live'` and on an ended one with `code 'ended'`. Only
+  a literal `true` asks for it.
+
+Found on the way, and worse than the missing button:
+- **The panel re-rendered the whole screen every minute.** `arena-session.js`
+  replaces the view wholesale, and the signals panel's minute re-read called
+  it whether or not anything had changed. Whatever the member had typed into
+  the open form (symbol, margin, leverage) was wiped and the keyboard closed.
+  **A refused open did the same** to the ticket its refusal was explaining.
+  A slow typist on a phone could not get an open through. That fits the
+  owner's "no new trades open on the Pi app" as well as the price outage
+  above. The session now keeps the form's values and focus across a render
+  and clears them only when a ticket is filled. The panel skips a render
+  when a re-read finds the same calls. A closing window and a timeframe
+  switch redraw only their own part.
+- **The first view asked the candle relay twice per chart.** The account
+  arrives after the calls and renders again before the first read returns.
+  A read in flight is now shared.
+
+The charts take the website Arena's timeframes (15m, 1H, 4H, 1D), 200 bars,
+the newest 60 in view. They pinch and drag sideways while a vertical drag
+scrolls the app (`tv-chart.js`'s `pageScroll` mode). A reader's zoom is
+kept across redraws, counted from the newest bar so a chart that was
+following the market keeps following it.
+
+Three things that cost a round:
+- **Source scans with a fixed character window go blind.**
+  `arena_signal_trade.test.js` read the first 4,000 and 7,000 characters of
+  the `/open-signal` handler. The own-trade branch pushed their targets out,
+  and the failures were about the window, not the code. They read the
+  handler now (`blockBetween`, to the next route's comment).
+- **The vendored Lightweight Charts exposes its exports as read-only
+  getters.** `L.createChart = wrapper` did nothing, silently. A test that
+  records charts replaces `window.LightweightCharts` with a copy.
+- **A Playwright route registered later wins.** A counter kept in the
+  earlier, catch-all handler counted no request the later one answered.
+
+Open, and not changed here: **the armed envelope does not see a follow.**
+`envelope_guard.js` says it refuses non-compliant Arena opens. The own trade
+passes through it (the manual path), but `/open-signal`'s follow and
+practice-follow never ask it. That gap predates this work and is the
+owner's call.
+(`app/test/a_closed_window_is_traded_as_your_own.test.js` drives the planner
+and the route: the three states, the manual row with no key, the exits, the
+envelope refusing an own trade, and a truthy `own` that is not `true`.
+`app/test/the_pi_app_signs_in_with_pi.smoke.test.js` drives the cards in
+Chromium: each door, the window closing on screen with the chart and the
+ticket untouched, a refused follow re-reading the calls, a refused ticket
+kept and a filled one cleared, and the timeframes, the gestures, the zoom
+kept across a render and the timeframe remembered.)
