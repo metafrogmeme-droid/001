@@ -34,6 +34,7 @@ function probes(overrides = {}) {
       generated_at: new Date(NOW - 2 * 86_400_000).toISOString() }),
     dbMode: () => 'memory',
     uptimeS: () => 3700,
+    readPrices: async () => ({ state: 'fresh', age_s: 3, symbols: 512 }),
     ...overrides,
   };
 }

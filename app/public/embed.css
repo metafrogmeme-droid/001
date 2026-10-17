@@ -326,3 +326,29 @@ html, body {
 .e-chartpage .e-ch-tf a { color: var(--e-info); text-decoration: none; }
 .e-chartpage .e-ch-tf b { color: var(--e-text); }
 .e-chartpage .e-ch-chart { height: 62vh; min-height: 280px; margin-bottom: 10px; }
+
+/* The Pi signals panel (pi-signals.js): the website Arena's timeframes over
+   charts a reader can pinch and drag, and one action per card. */
+.p-sig-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
+.p-sig-head h2 { margin: 0; }
+.p-tf { display: inline-flex; border: 1px solid var(--e-line); border-radius: 8px; overflow: hidden; }
+.p-tf-b {
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--e-text-2);
+  background: transparent; border: 0; padding: 6px 10px; min-height: 34px; min-width: 42px; cursor: pointer;
+}
+.p-tf-b + .p-tf-b { border-left: 1px solid var(--e-line); }
+.p-tf-b[aria-pressed="true"] { color: var(--e-text); background: var(--e-line); }
+.p-tf-b:focus-visible { outline: 2px solid var(--e-info); outline-offset: -2px; }
+.p-signals .e-chart { min-height: 200px; }
+.p-signals .e-chart .sc-tv { height: 200px; }
+.p-sig-act { margin-top: 10px; padding-top: 2px; border-top: 1px solid var(--e-line); }
+.p-sig-act:empty { display: none; }
+.p-sig-act .m-row { margin-bottom: 0; }
+.p-sig-when { margin: 8px 0; font-size: 12px; color: var(--e-text-3); }
+/* The follow is the accent and the own trade is plain; of the outcomes,
+   only TARGET and STOP carry a colour (signal-status-model.js CHIP). */
+.p-sig-own { color: var(--e-text); }
+.p-sig-own[disabled] { opacity: .5; cursor: default; }
+.p-sig-out { font-weight: 600; letter-spacing: .04em; margin-right: 4px; color: var(--e-text-2); }
+.p-sig-out--up { color: var(--e-up); }
+.p-sig-out--down { color: var(--e-down); }

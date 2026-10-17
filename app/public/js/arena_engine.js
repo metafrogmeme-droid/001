@@ -78,12 +78,26 @@
   }
 
   /**
+   * The pair a person means, in the exchange spelling the price map, the
+   * positions and the receipts are keyed by. "BTC", "btc", "BTC/USDT",
+   * "BTC-USDT" and "BTCUSDT" are one market: every Arena pair is USDT-M, so
+   * asking someone to type the quote was asking for the one part that cannot
+   * vary. The Pi app refused "BTC" until 2026-10-17. The server's twin for
+   * signal rows is lib/agent_match.js exchangeSymbol; a test holds the two to
+   * the same answer on every spelling the signal stream uses.
+   */
+  function pairOf(raw) {
+    const s = String(raw || '').trim().toUpperCase().replace(/:USDT$/, '').replace(/[\s/_-]+/g, '');
+    return s && !s.endsWith('USDT') ? s + 'USDT' : s;
+  }
+
+  /**
    * Validate an open request against the account state.
    * @returns { ok:true, data:{symbol,direction,margin,leverage} } | { ok:false, error }
    */
   function validateOpen(input, balance, openCount) {
     const b = input || {};
-    const symbol = String(b.symbol || '').trim().toUpperCase();
+    const symbol = pairOf(b.symbol);
     const direction = String(b.direction || '').trim().toUpperCase();
     const margin = Number(b.margin);
     const leverage = Math.round(Number(b.leverage));
@@ -199,6 +213,7 @@
     isLiquidated,
     equity,
     returnPct,
+    pairOf,
     validateOpen,
     validateTpSl,
     exitCheck,

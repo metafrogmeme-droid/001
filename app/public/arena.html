@@ -445,8 +445,8 @@ window.addEventListener('unhandledrejection', rcReportPageError);
 <script src="/js/i18n-core.js?v=183"></script>
 <script src="/js/presale.js?v=2"></script>
 <script src="/js/confidence-score.js?v=2"></script>
-<script src="/js/signal-status-model.js?v=3"></script>
-<script src="/js/arena_engine.js?v=1"></script>
+<script src="/js/signal-status-model.js?v=4"></script>
+<script src="/js/arena_engine.js?v=2"></script>
 <script src="/js/sandbox.js?v=1" defer></script>
 <script src="/js/arena-risk-model.js?v=1"></script>
 <script src="/vendor/lightweight-charts.standalone.production.js?v=1"></script>
@@ -1311,11 +1311,9 @@ window.addEventListener('unhandledrejection', rcReportPageError);
   var MAJOR_SYMS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'BNBUSDT', 'DOGEUSDT', 'ADAUSDT', 'LINKUSDT'];
   // "sol" / "Sol/usdt" → "SOLUSDT": mirror the server's normalization so a
   // hand-typed base never 400s as an invalid symbol.
-  function normSym(v) {
-    v = String(v == null ? '' : v).trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (v && !/USDT$/.test(v)) v += 'USDT';
-    return v;
-  }
+  // The engine's reading (arena_engine.js pairOf, loaded above), so this form,
+  // the Pi and Farcaster apps and the server agree on what "BTC" means.
+  function normSym(v) { return window.ArenaEngine.pairOf(v); }
   function paintChips(syms) {
     var box = $('symChips');
     if (!box) return;

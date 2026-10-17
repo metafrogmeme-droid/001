@@ -97,11 +97,21 @@ const CANDLES = { code: '00000', data: Array.from({ length: 60 }, (_, i) => {
   const o = 64000 + i * 15;
   return [String(ts), String(o), String(o + 80), String(o - 60), String(o + 20), '10', '650000'];
 }) };
+/** As many hourly bars as the page asked for (the relay's ceiling is 200). */
+function candles(limit) {
+  const n = Math.min(200, Math.max(1, Number(limit) || 60));
+  return { code: '00000', data: Array.from({ length: n }, (_, i) => {
+    const ts = NOW - (n - i) * 3600000;
+    const o = 64000 + i * 15;
+    return [String(ts), String(o), String(o + 80), String(o - 60), String(o + 20), '10', '650000'];
+  }) };
+}
 const ORDER = { orderId: 'order-from-server', amount: 3, memo: 'Support RUNECLAW', metadata: { orderId: 'order-from-server', kind: 'tip' } };
 
 async function context(browser, {
   sdk = true, signin = { status: 200, body: { token: 'session-jwt-1', handle: null } },
   tips = TIPS, unfinished = null, cancel = false, signals = null,
+  account = ACCOUNT, close = null, openSignal = null,
 } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 800 } });
   await ctx.addInitScript(({ u, c }) => { window.__PI_UNFINISHED__ = u; window.__PI_CANCEL__ = c; },
@@ -113,15 +123,17 @@ async function context(browser, {
   await ctx.route('**/api/**', (route) => {
     const req = route.request();
     const p = new URL(req.url()).pathname;
-    sent.push({ path: p, method: req.method(), auth: req.headers().authorization || '', body: req.postData() });
+    sent.push({ path: p, query: new URL(req.url()).search, method: req.method(), auth: req.headers().authorization || '', body: req.postData() });
     if (p === '/api/pi/signin') return route.fulfill({ status: signin.status, contentType: 'application/json', body: JSON.stringify(signin.body) });
     if (p === '/api/arena/season') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(SEASON) });
     if (p === '/api/signals' && signals) {
       return route.fulfill({ status: signals.status, contentType: 'application/json', body: JSON.stringify(signals.body) });
     }
     if (p.startsWith('/api/market/candles/')) {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(CANDLES) });
+      const limit = new URL(req.url()).searchParams.get('limit');
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(limit ? candles(limit) : CANDLES) });
     }
+    if (p === '/api/arena/open-signal' && openSignal) return route.fulfill(openSignal);
     if (p === '/api/arena/open-signal') {
       return route.fulfill({ status: 200, contentType: 'application/json',
         body: JSON.stringify({ ok: true, filled: { symbol: 'BTCUSDT', direction: 'LONG', entry: 65010, dropped: [] }, virtual: true }) });
@@ -136,8 +148,9 @@ async function context(browser, {
     }
     if (p === '/api/arena/account') {
       const ok = req.headers().authorization === 'Bearer session-jwt-1';
-      return route.fulfill({ status: ok ? 200 : 401, contentType: 'application/json', body: JSON.stringify(ok ? ACCOUNT : { error: 'unauthorized' }) });
+      return route.fulfill({ status: ok ? 200 : 401, contentType: 'application/json', body: JSON.stringify(ok ? account : { error: 'unauthorized' }) });
     }
+    if (p === '/api/arena/close' && close) return route.fulfill(close);
     return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
   });
   await ctx.route(/^https?:\/\/(?!127\.0\.0\.1|sdk\.minepi\.com)/, (route) => route.abort());
@@ -191,6 +204,30 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       assert.strictEqual(pi.hasCallback, true);
       assert.deepStrictEqual(errors, []);
       await ctx.close();
+    });
+
+    await t.test('a refused close says why, and an answer with no reason still names its status', async () => {
+      // 2026-10-17: the live Arena could read no price, refused every close,
+      // and the app said only "The position could not be closed."
+      const holding = { ...ACCOUNT, positions: [{ id: 7, symbol: 'ETHUSDT', direction: 'LONG', entry: 2433.92,
+        mark: null, margin: 1000, leverage: 10, pnl: null }] };
+      const cases = [
+        [{ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'No live mark for this symbol — try again shortly' }) },
+          /No live mark for this symbol — try again shortly/],
+        [{ status: 502, contentType: 'text/html', body: '<html><body>Bad gateway</body></html>' },
+          /The position could not be closed \(the server answered 502\)\./],
+      ];
+      for (const [close, want] of cases) {
+        const { ctx, sent } = await context(browser, { account: holding, close });
+        const { page, errors } = await open(ctx, `${base}/pi`);
+        assert.match(await signInAndSettle(page), /mark unavailable/);
+        await page.click('.m-close[data-close-id="7"]');
+        await page.waitForFunction((re) => new RegExp(re).test(document.querySelector('#root').textContent), want.source);
+        const asked = sent.find((x) => x.path === '/api/arena/close');
+        assert.deepStrictEqual(JSON.parse(asked.body), { position_id: 7 });
+        assert.deepStrictEqual(errors, []);
+        await ctx.close();
+      }
     });
 
     await t.test('a token Pi refused is named as that', async () => {
@@ -294,6 +331,191 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
         .filter((h) => new URL(h, location.href).origin === location.origin));
       assert.deepStrictEqual(own, []);
       assert.doesNotMatch(await page.textContent('body'), /presale|RCLAW|smithii/i);
+      assert.deepStrictEqual(errors, []);
+      await ctx.close();
+    });
+
+    // ── the signal cards: one door per call ─────────────────────────────
+
+    const CLOSED_CALL = { ...LIVE_CALL, signal_key: 'k-closed', symbol: 'SOL/USDT:USDT', entry_price: 150,
+      stop_loss: 140, take_profit: 170, created_at: new Date(NOW - 30 * 60000).toISOString(),
+      expires_at: new Date(NOW - 25 * 60000).toISOString() };
+    const ENDED_CALL = { ...LIVE_CALL, signal_key: 'k-ended', symbol: 'XRP/USDT:USDT', status: 'TARGET',
+      created_at: new Date(NOW - 90 * 60000).toISOString(), expires_at: new Date(NOW - 85 * 60000).toISOString() };
+    const cardOf = (page, key) => page.evaluate((k) => {
+      const act = document.querySelector('.p-sig-act[data-key="' + k + '"]');
+      const card = act && act.closest('.e-row');
+      return act && { act: act.textContent, card: card && card.textContent,
+        follow: !!act.querySelector('.p-sig-open'), own: !!act.querySelector('.p-sig-own'),
+        tone: (act.querySelector('.p-sig-out') || {}).className || null };
+    }, key);
+
+    await t.test('a live call is followed, a closed window is your own trade, an ended call offers nothing', async () => {
+      const { ctx, sent } = await context(browser, {
+        signals: { status: 200, body: { signals: [LIVE_CALL, CLOSED_CALL, ENDED_CALL] } },
+        openSignal: { status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, filled: {
+          symbol: 'SOLUSDT', direction: 'LONG', entry: 153.75, own: true, dropped: [],
+          signal_entry: 150, drift_pct: 2.5, drift_warn: true }, virtual: true }) },
+      });
+      const { page, errors } = await open(ctx, `${base}/pi`);
+      await signInAndSettle(page);
+      await page.waitForSelector('.p-sig-act[data-key="k-ended"]');
+
+      const live = await cardOf(page, 'k-live-1');
+      assert.deepStrictEqual([live.follow, live.own], [true, false]);
+      assert.match(live.act, /^Live call · follow it within \d+:\d\dPaper 200 · 2×$/);
+      const closed = await cardOf(page, 'k-closed');
+      assert.deepStrictEqual([closed.follow, closed.own], [false, true]);
+      assert.match(closed.act, /^Its window closed at \d\d:\d\d\. Taking it now is your own trade at the live price, not credited to the call\.Trade it yourself · 200 · 2×$/);
+      const ended = await cardOf(page, 'k-ended');
+      assert.deepStrictEqual([ended.follow, ended.own], [false, false]);
+      assert.strictEqual(ended.act, '✓ TARGET This call has ended.');
+      assert.strictEqual(ended.tone, 'p-sig-out p-sig-out--up');
+
+      await page.click('.p-sig-own');
+      await page.waitForFunction(() => /as your own trade/.test(document.querySelector('#root').textContent));
+      const opened = sent.find((s) => s.path === '/api/arena/open-signal');
+      assert.deepStrictEqual(JSON.parse(opened.body), { signal_key: 'k-closed', margin: 200, leverage: 2, own: true });
+      assert.match(await page.textContent('#root'),
+        /Opened SOLUSDT LONG at 153\.75, the live mark, as your own trade\. It is not credited to the call\. That is \+2\.5% from the call's entry of 150\./);
+      assert.deepStrictEqual(errors, []);
+      await ctx.close();
+    });
+
+    await t.test('a follow refused because the window just closed reads the calls again and offers the own trade', async () => {
+      let closedNow = false;
+      let reads = 0;
+      const { ctx } = await context(browser, {
+        signals: { status: 200, body: { signals: [LIVE_CALL] } },
+        openSignal: { status: 400, contentType: 'application/json', body: JSON.stringify({ code: 'expired',
+          error: 'That call is no longer live — its window closed at 12:05 UTC, and the engine no longer stands behind it. Open a current one.' }) },
+      });
+      // The server's clock says the window closed; the next read of the calls agrees.
+      // (Registered after context()'s, so it answers /api/signals instead: it counts its own reads.)
+      await ctx.route('**/api/signals*', (route) => {
+        reads += 1;
+        return route.fulfill({ status: 200, contentType: 'application/json',
+          body: JSON.stringify({ signals: [closedNow ? { ...LIVE_CALL, expires_at: new Date(Date.now() - 1000).toISOString() } : LIVE_CALL] }) });
+      });
+      const { page, errors } = await open(ctx, `${base}/pi`);
+      await signInAndSettle(page);
+      await page.waitForSelector('.p-sig-open');
+      closedNow = true;
+      await page.click('.p-sig-open');
+      await page.waitForSelector('.p-sig-own', { timeout: 5000 });
+      assert.match(await page.textContent('#root'), /no longer live — its window closed at 12:05 UTC/);
+      assert.strictEqual(reads, 2, 'the calls were not read again after the refusal');
+      assert.deepStrictEqual(errors, []);
+      await ctx.close();
+    });
+
+    await t.test('a window closing on screen turns its card, and redraws neither the chart nor the ticket', async () => {
+      const soon = { ...LIVE_CALL, signal_key: 'k-soon', expires_at: new Date(Date.now() + 6000).toISOString() };
+      const { ctx } = await context(browser, { signals: { status: 200, body: { signals: [soon] } } });
+      const { page, errors } = await open(ctx, `${base}/pi`);
+      await signInAndSettle(page);
+      await page.waitForSelector('.p-signals .sc-tv canvas', { timeout: 5000 });
+      await page.evaluate(() => { document.querySelector('.p-signals .sc-tv').dataset.before = '1'; });
+      const first = (await cardOf(page, 'k-soon')).act;
+      await page.fill('.m-sym', 'eth');
+      await page.fill('.m-margin', '250');
+      await page.waitForTimeout(1300);
+      assert.notStrictEqual((await cardOf(page, 'k-soon')).act, first, 'the countdown did not tick');
+
+      await page.waitForSelector('.p-sig-own', { timeout: 9000 });
+      assert.match((await cardOf(page, 'k-soon')).act, /Its window closed at/);
+      assert.ok(await page.$('.p-signals .sc-tv[data-before="1"]'), 'the chart was redrawn to turn a button');
+      assert.strictEqual(await page.inputValue('.m-sym'), 'eth');
+      assert.strictEqual(await page.inputValue('.m-margin'), '250');
+      assert.strictEqual(await page.evaluate(() => document.activeElement && document.activeElement.className), 'm-margin',
+        'the keyboard was taken away');
+      assert.deepStrictEqual(errors, []);
+      await ctx.close();
+    });
+
+    await t.test('a refused ticket keeps what was typed; a filled one clears it', async () => {
+      const { ctx } = await context(browser, { signals: { status: 200, body: { signals: [] } } });
+      await ctx.route('**/api/arena/open', (route) => route.fulfill(opened
+        ? { status: 200, contentType: 'application/json', body: '{"ok":true,"filled":{}}' }
+        : { status: 400, contentType: 'application/json', body: '{"error":"Margin must be at least 10 vUSDT"}' }));
+      let opened = false;
+      const { page, errors } = await open(ctx, `${base}/pi`);
+      await signInAndSettle(page);
+      await page.fill('.m-sym', 'btc');
+      await page.fill('.m-margin', '5');
+      await page.fill('.m-lev', '3');
+      await page.click('.m-long');
+      await page.waitForFunction(() => /Margin must be at least 10 vUSDT/.test(document.querySelector('#root').textContent));
+      assert.deepStrictEqual(await page.$$eval('.m-sym, .m-margin, .m-lev', (els) => els.map((e) => e.value)), ['btc', '5', '3'],
+        'a refusal wiped the ticket it was explaining');
+      opened = true;
+      await page.fill('.m-margin', '50');
+      await page.click('.m-long');
+      await page.waitForFunction(() => /Position opened\./.test(document.querySelector('#root').textContent));
+      assert.deepStrictEqual(await page.$$eval('.m-sym, .m-margin, .m-lev', (els) => els.map((e) => e.value)), ['', '', '']);
+      assert.deepStrictEqual(errors, []);
+      await ctx.close();
+    });
+
+    await t.test('the charts take the website\'s timeframes, pinch and drag, and keep a reader\'s zoom', async () => {
+      const { ctx, sent } = await context(browser, { signals: { status: 200, body: { signals: [LIVE_CALL] } } });
+      const { page, errors } = await open(ctx, `${base}/pi`);
+      // Record what each chart was built with, and the charts themselves.
+      // The library's exports are read-only getters, so the stand-in is a copy
+      // of the library with a recording createChart; tv-chart.js reads
+      // window.LightweightCharts when it draws.
+      await page.evaluate(() => {
+        window.__charts = [];
+        const L = window.LightweightCharts;
+        window.LightweightCharts = Object.assign({}, L, {
+          createChart(el, o) { const c = L.createChart(el, o); window.__charts.push({ o, c }); return c; },
+        });
+      });
+      await signInAndSettle(page);
+      await page.waitForSelector('.p-signals .sc-tv canvas', { timeout: 5000 });
+      assert.deepStrictEqual(await page.$$eval('.p-tf-b', (bs) => bs.map((b) => [b.textContent, b.getAttribute('aria-pressed')])),
+        [['15m', 'false'], ['1H', 'true'], ['4H', 'false'], ['1D', 'false']]);
+      const first = sent.filter((s) => s.path.startsWith('/api/market/candles/BTCUSDT'));
+      assert.deepStrictEqual(first.map((s) => s.query), ['?granularity=1h&limit=200']);
+
+      const o = await page.evaluate(() => {
+        const x = window.__charts[window.__charts.length - 1].o;
+        return { scroll: x.handleScroll, scale: x.handleScale, time: x.timeScale.visible };
+      });
+      assert.deepStrictEqual(o.scroll, { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+        'a vertical drag on a chart must scroll the app, a horizontal one the chart');
+      assert.strictEqual(o.scale.pinch, true);
+      assert.strictEqual(o.time, true);
+      const range = () => page.evaluate(() => {
+        const r = window.__charts[window.__charts.length - 1].c.timeScale().getVisibleLogicalRange();
+        return [Math.round(r.from), Math.round(r.to)];
+      });
+      assert.deepStrictEqual(await range(), [140, 201], 'the first view is the newest 60 bars of 200');
+
+      // A reader zooms in; a render of the whole screen must not undo it.
+      await page.evaluate(() => window.__charts[window.__charts.length - 1].c.timeScale().setVisibleLogicalRange({ from: 170, to: 190 }));
+      await page.waitForTimeout(150);
+      const before = await page.evaluate(() => window.__charts.length);
+      await page.click('.m-long');            // an empty ticket: refused, and the screen is rendered again
+      await page.waitForFunction((n) => window.__charts.length > n, before);
+      await page.waitForTimeout(150);
+      assert.deepStrictEqual(await range(), [170, 190], 'a redraw threw the reader\'s zoom away');
+
+      await page.click('.p-tf-b[data-tf="4h"]');
+      await page.waitForFunction(() => document.querySelector('.p-tf-b[data-tf="4h"]').getAttribute('aria-pressed') === 'true');
+      await page.waitForFunction(() => /granularity=4h/.test(performance.getEntriesByType('resource').map((e) => e.name).join(' ')));
+      assert.ok(sent.some((s) => s.path.startsWith('/api/market/candles/BTCUSDT') && s.query === '?granularity=4h&limit=200'));
+      await page.waitForTimeout(150);
+      assert.deepStrictEqual(await range(), [140, 201], 'a new timeframe opens on its own newest bars');
+
+      // The choice is the reader's next time too.
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForSelector('.m-signin');
+      const at = sent.length;
+      await signInAndSettle(page);
+      await page.waitForSelector('.p-signals .sc-tv canvas', { timeout: 5000 });
+      assert.deepStrictEqual(sent.slice(at).filter((s) => s.path.startsWith('/api/market/candles/')).map((s) => s.query),
+        ['?granularity=4h&limit=200']);
       assert.deepStrictEqual(errors, []);
       await ctx.close();
     });

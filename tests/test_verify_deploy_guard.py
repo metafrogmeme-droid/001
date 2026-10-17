@@ -61,6 +61,7 @@ class _Handler(BaseHTTPRequestHandler):
         "components": {
             "bot_gateway": {"state": "reachable"},
             "api_bridge": {"state": "reachable"},
+            "arena_prices": {"state": "fresh"},
         }
     }
 
@@ -109,6 +110,7 @@ def _serve(httpd, body, content_type="application/json"):
         "components": {
             "bot_gateway": {"state": "reachable"},
             "api_bridge": {"state": "reachable"},
+            "arena_prices": {"state": "fresh"},
         }
     }
     return f"http://127.0.0.1:{httpd.server_address[1]}"
@@ -177,6 +179,29 @@ def test_web_runtime_must_reach_both_bot_processes(server, component):
     assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
     assert component in r.stdout
     assert "DEPLOY NOT VERIFIED" in r.stdout
+
+
+@pytest.mark.parametrize("state", ["unreadable", "stale"])
+def test_a_web_runtime_with_no_live_arena_prices_is_a_failure(server, state):
+    """2026-10-17: a deploy verified clean while every Arena close was refused."""
+    want_build, want_assets = _expected()
+    url = _serve(server, {"sha": "c4d3baa", "build": want_build, "assets": want_assets})
+    _Handler.status_payload["components"]["arena_prices"]["state"] = state
+    r = _run(url)
+    assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+    assert f"arena_prices={state}" in r.stdout
+    assert "DEPLOY NOT VERIFIED" in r.stdout
+
+
+def test_a_status_without_arena_prices_is_unknown_not_verified(server):
+    """An older build does not report the line: that is not a verified Arena."""
+    want_build, want_assets = _expected()
+    url = _serve(server, {"sha": "c4d3baa", "build": want_build, "assets": want_assets})
+    del _Handler.status_payload["components"]["arena_prices"]
+    r = _run(url)
+    assert r.returncode == 3, (r.returncode, r.stdout, r.stderr)
+    assert "did not report arena_prices" in r.stdout
+    assert "web container reads live Arena prices" not in r.stdout
 
 
 def test_a_genuinely_different_build_is_still_a_fail(server):

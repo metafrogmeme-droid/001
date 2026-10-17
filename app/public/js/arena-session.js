@@ -178,6 +178,41 @@
       });
     }
 
+    /**
+     * What the member has typed into the open form, kept across a render.
+     * The view is replaced wholesale on every render, and renders come from
+     * places the member did not touch: the Pi app's signals panel re-reads
+     * its calls once a minute, and a refused open re-renders to show why.
+     * Each wiped the ticket from under the member's thumbs and closed the
+     * keyboard, so a slow typist never got an open through. Cleared only
+     * when a ticket was filled (openPosition), which is when it was used.
+     */
+    var FORM_FIELDS = ['.m-sym', '.m-margin', '.m-lev'];
+    function keepForm() {
+      var kept = { values: {}, focus: null };
+      FORM_FIELDS.forEach(function (sel) {
+        var el = root.querySelector(sel);
+        if (!el) return;
+        kept.values[sel] = el.value;
+        if (typeof document !== 'undefined' && document.activeElement === el) kept.focus = sel;
+      });
+      return kept;
+    }
+    function restoreForm(kept) {
+      FORM_FIELDS.forEach(function (sel) {
+        var el = root.querySelector(sel);
+        if (el && kept.values[sel]) el.value = kept.values[sel];
+      });
+      var f = kept.focus && root.querySelector(kept.focus);
+      if (f) f.focus();
+    }
+    function clearForm() {
+      FORM_FIELDS.forEach(function (sel) {
+        var el = root.querySelector(sel);
+        if (el) el.value = '';
+      });
+    }
+
     function render() {
       if (busy && !token) {
         root.innerHTML = state('load', opts.waiting[0], opts.waiting[1]);
@@ -205,6 +240,7 @@
         return;
       }
 
+      var kept = keepForm();
       root.innerHTML = V.seasonHtml(season)
         + M.accountHtml(account)
         + lastNote
@@ -219,6 +255,7 @@
           // board until it picks one, and saying so is more useful than a blank.
           : 'No leaderboard handle yet — set one on the web to appear in standings')
         + '</p>';
+      restoreForm(kept);
       extras.forEach(function (x) { if (x.mounted) x.mounted(root); });
     }
 
@@ -241,13 +278,14 @@
         busy = false;
         if (r.ok) {
           lastNote = M.actionNoteHtml('ok', 'Position opened.');
+          clearForm();
           return refresh();
         }
         // The server's message verbatim — it is written for a person and names
         // what to do differently. A generic "could not open" would throw that
         // away and leave the viewer guessing which field was wrong.
         lastNote = M.actionNoteHtml('warn',
-          (r.body && r.body.error) || 'The position could not be opened.');
+          refusal('opened', r));
         render();
       }).catch(function () {
         busy = false;
@@ -255,6 +293,18 @@
           'The position could not be opened — we could not reach the server.');
         render();
       });
+    }
+
+    /**
+     * A refusal in words. The server's own sentence when it sent one; when the
+     * answer carried none (a gateway page, an empty body), the status that
+     * came back. "The position could not be closed" alone was all the Pi app
+     * could say on 2026-10-17, when every close was refused for want of a
+     * live price, and it gave nobody anything to go on.
+     */
+    function refusal(verb, r) {
+      if (r.body && r.body.error) return r.body.error;
+      return 'The position could not be ' + verb + ' (the server answered ' + r.status + ').';
     }
 
     function closePosition(id) {
@@ -269,7 +319,7 @@
             return refresh();
           }
           lastNote = M.actionNoteHtml('warn',
-            (r.body && r.body.error) || 'The position could not be closed.');
+            refusal('closed', r));
           render();
         }).catch(function () {
           busy = false;

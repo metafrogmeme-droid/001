@@ -322,6 +322,20 @@
    * Every surface that shows a signal's chart asks this, so no surface keeps
    * a private choice of renderer -- the dashboard row and the embed widget
    * used to each build the SVG themselves.
+   *
+   * opts.interactive: a chart the reader may pinch to zoom and drag back
+   * through time (the Pi app's cards), while a vertical drag still scrolls
+   * the page, as in the Markets modal. Without it the chart is still and
+   * takes none of the page's gestures, which is right inside a list on a
+   * page that does not offer a timeframe. opts.visibleBars: how many of the
+   * newest bars the first view shows; the older ones are a drag away.
+   * opts.view / opts.onView: a reader's zoom and pan, as bars from the newest
+   * ({fromEnd, toEnd}), handed out on every change and handed back on the
+   * next draw, so a redraw of the page does not throw away where the reader
+   * had moved the chart. Counted from the newest bar so a bar that closed in
+   * between keeps a chart that was following the market following it. The
+   * SVG, drawn only when the library did not load, is never interactive and
+   * shows its own last MAX_BARS.
    */
   function render(el, rows, geo, opts) {
     opts = opts || {};
@@ -335,9 +349,26 @@
         return spec;
       }
       el.innerHTML = '<div class="sc-tv"></div>';
-      var h = TV.mount(el.firstElementChild, spec, { compact: true, timeAxis: opts.timeAxis,
-        attributionLogo: opts.attributionLogo });
-      if (h.ok) return { ok: true, tv: true, bars: spec.bars.length, progress: spec.progress };
+      var interactive = !!opts.interactive;
+      var h = TV.mount(el.firstElementChild, spec, { compact: !interactive, pageScroll: interactive,
+        timeAxis: opts.timeAxis, attributionLogo: opts.attributionLogo });
+      if (h.ok) {
+        var n = spec.bars.length;
+        var ts = h.chart.timeScale();
+        var v = opts.view;
+        if (v && isFinite(v.fromEnd) && isFinite(v.toEnd) && v.fromEnd > v.toEnd) {
+          ts.setVisibleLogicalRange({ from: n - v.fromEnd, to: n - v.toEnd });
+        } else if (opts.visibleBars > 0 && n > opts.visibleBars) {
+          // Logical indexes: the newest visibleBars, with two bars of air on the right.
+          ts.setVisibleLogicalRange({ from: n - opts.visibleBars, to: n + 1 });
+        }
+        if (typeof opts.onView === 'function') {
+          ts.subscribeVisibleLogicalRangeChange(function (r) {
+            if (r) opts.onView({ fromEnd: n - r.from, toEnd: n - r.to });
+          });
+        }
+        return { ok: true, tv: true, bars: n, progress: spec.progress, interactive: interactive };
+      }
     }
     var r = buildSignalChart(rows, geo, opts);
     el.innerHTML = r.ok ? r.svg : placeholderHtml(r.reason);

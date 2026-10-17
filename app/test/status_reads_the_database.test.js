@@ -86,7 +86,9 @@ test('an unreachable database is on the page and the page is not ok', async () =
   const now = new Date().toISOString();
   status.setProbes({ ...probes,
     getScan: async () => ({ received_at: now }),
-    getReports: async () => ({ received_at: now }) });
+    getReports: async () => ({ received_at: now }),
+    // Hermetic: the real prices probe reads Bitget; this test is about the database.
+    readPrices: async () => ({ state: 'fresh', age_s: 3, symbols: 512 }), });
 
   const healthy = await publicStatus();
   assert.equal(healthy.data.components.database.state, 'ok');
@@ -103,6 +105,7 @@ test('an unreachable database is on the page and the page is not ok', async () =
 
 test('a probe that throws is unreachable, never ok', async () => {
   status.setProbes({ ...status.defaultProbes(),
+    readPrices: async () => ({ state: 'fresh', age_s: 3, symbols: 512 }),
     pingDatabase: async () => { throw new Error('boom'); } });
   const s = await status.buildStatus();
   assert.equal(s.components.database.state, 'unreachable');

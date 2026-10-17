@@ -48,6 +48,14 @@ test('every copy under app/content is byte-identical to its original', () => {
   const docsInRepo = fs.readdirSync(path.join(REPO, 'docs', 'gitbook')).filter((f) => /\.(md|png)$/.test(f));
   assert.ok(docsInRepo.includes('SUMMARY.md') && docsInRepo.some((f) => f.endsWith('.png')));
   assert.strictEqual(pairs.filter(([src]) => src.startsWith('docs/gitbook/')).length, docsInRepo.length);
+  // The policies and the one stylesheet their built pages name.
+  for (const slug of ['privacy', 'terms']) {
+    assert.ok(pairs.some(([src, dst]) => src === `website/${slug}/index.html` && dst === `site/${slug}/index.html`), slug);
+    const css = fs.readFileSync(path.join(REPO, 'website', slug, 'index.html'), 'utf8')
+      .match(/<link rel="stylesheet"[^>]*href="\/assets\/([^"]+)"/)[1];
+    assert.ok(pairs.some(([src]) => src === `website/assets/${css}`), `${slug} names ${css}, which is not copied`);
+  }
+  assert.ok(!pairs.some(([src]) => /^website\/assets\/.*\.js$/.test(src)), 'the site\'s script bundle is not the website\'s to serve');
 });
 
 test('the drift check names a missing copy, a changed copy and a stray', () => {
@@ -59,10 +67,15 @@ test('the drift check names a missing copy, a changed copy and a stray', () => {
   fs.writeFileSync(path.join(repo, 'docs', 'learn', '01-x.md'), '# X\n');
   fs.writeFileSync(path.join(repo, 'docs', 'gitbook', 'SUMMARY.md'), '* [X](README.md)\n');
   fs.writeFileSync(path.join(repo, 'docs', 'gitbook', 'notes.txt'), 'not served\n');
+  for (const d of ['privacy', 'terms', 'assets']) fs.mkdirSync(path.join(repo, 'website', d), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'website', 'privacy', 'index.html'), '<article>p</article>\n');
+  fs.writeFileSync(path.join(repo, 'website', 'terms', 'index.html'), '<article>t</article>\n');
+  fs.writeFileSync(path.join(repo, 'website', 'assets', 'index.abc.css'), 'a{}\n');
+  fs.writeFileSync(path.join(repo, 'website', 'assets', 'index.abc.js'), 'x()\n');
   const content = tmp('content-');
 
   const before = sync.drift({ repo, content });
-  assert.strictEqual(before.length, 3, before.join('\n'));
+  assert.strictEqual(before.length, 6, before.join('\n'));
   assert.ok(before.every((l) => l.startsWith('missing ')));
 
   sync.write({ repo, content });
@@ -72,6 +85,7 @@ test('the drift check names a missing copy, a changed copy and a stray', () => {
   fs.writeFileSync(path.join(content, 'learn', '99-stray.md'), '# Stray\n');
   fs.writeFileSync(path.join(content, 'docs', 'gone.md'), '# Gone\n');
   assert.ok(!fs.existsSync(path.join(content, 'docs', 'notes.txt')), 'only .md and .png are copied');
+  assert.ok(!fs.existsSync(path.join(content, 'site', 'assets', 'index.abc.js')), 'only the stylesheet is copied');
   const after = sync.drift({ repo, content });
   assert.ok(after.some((l) => /rclaw\.mainnet\.json differs/.test(l)), after.join('\n'));
   assert.ok(after.some((l) => /99-stray\.md has no original in docs\/learn/.test(l)), after.join('\n'));
@@ -122,6 +136,60 @@ test('an empty shelf that did read is an empty list, not a refusal', () => {
   for (const f of fs.readdirSync(dir)) fs.unlinkSync(path.join(dir, f));
   lessons.resetCache();
   assert.deepStrictEqual(lessons.listLessons(), []);
+});
+
+// ── the policies, the same deploy shape (live, 2026-10-17) ─────────────────
+
+/**
+ * /privacy and /terms first read the built site from `../../website/`, and
+ * the live host answered both with the route's own 503 the day they shipped:
+ * the deploy had `app/` and nothing beside it, which this file's header had
+ * recorded ten days earlier. The route reads `app/content/site/` now.
+ */
+async function getText(router, p) {
+  const app = express();
+  app.use(router);
+  const server = http.createServer(app);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const r = await fetch(`http://127.0.0.1:${server.address().port}${p}`);
+    return { status: r.status, text: await r.text() };
+  } finally { server.close(); }
+}
+
+test('the policies are read from inside app/, one copied folder per page', () => {
+  const legal = require('../routes/legal');
+  const rel = path.relative(APP, legal.SITE_DIR);
+  assert.ok(!rel.startsWith('..') && !path.isAbsolute(rel),
+    `routes/legal.js reads ${legal.SITE_DIR}, which a deploy of app/ does not carry`);
+  assert.strictEqual(legal.SITE_DIR, path.join(sync.CONTENT, 'site'));
+  for (const slug of legal.PAGES) {
+    assert.ok(sync.MIRRORS.some(([from, to]) => from === `website/${slug}` && to === `site/${slug}`),
+      `/${slug} is served, but sync_content.js does not copy its page`);
+  }
+});
+
+test('a deploy of app/ alone serves /privacy and /terms; without the copies it refuses', async () => {
+  const legal = require('../routes/legal');
+  const root = tmp('app-only-');
+  fs.cpSync(path.join(APP, 'content'), path.join(root, 'app', 'content'), { recursive: true });
+  const served = legal.create({ dir: path.join(root, 'app', 'content', 'site') });
+  for (const slug of legal.PAGES) {
+    const r = await getText(served, '/' + slug);
+    assert.strictEqual(r.status, 200, slug);
+    assert.match(r.text, /<article\b/, slug);
+  }
+  const css = legal.readPage('privacy', { dir: path.join(root, 'app', 'content', 'site') }).css;
+  assert.strictEqual((await getText(served, '/assets/' + css)).status, 200);
+
+  const bare = tmp('app-bare-');
+  const orig = console.error;
+  console.error = () => {};
+  try {
+    const r = await getText(legal.create({ dir: path.join(bare, 'app', 'content', 'site') }), '/privacy');
+    assert.strictEqual(r.status, 503);
+    assert.match(r.text, /not available on this server/);
+  } finally { console.error = orig; }
 });
 
 // ── the routes say "unreadable" ───────────────────────────────────────────

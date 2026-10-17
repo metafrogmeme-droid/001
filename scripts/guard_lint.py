@@ -585,6 +585,13 @@ RULES: list[Rule] = [
             "auth.js:POST /verify-email",
             "auth.js:POST /telegram", "auth.js:POST /google",
             "auth.js:GET /oauth/:provider/start", "auth.js:GET /oauth/:provider/callback",
+            # Sign in with Pi (lib/pi_signin.js): Pi's implicit flow has no
+            # callback the server sees, so these two are its start and its
+            # callback. The token route admits no one on its own: it spends
+            # a single-use state /start issued, and the identity is what
+            # Pi's /v2/me says the token belongs to
+            # (app/test/pi_signin_on_the_website.test.js).
+            "auth.js:GET /oauth/pi/start", "auth.js:POST /oauth/pi/token",
             # Still exempt from express-route-auth, and for a narrower reason
             # than the one that used to be written here. The old note read
             # "the token IS the credential being checked" — true of the token,
