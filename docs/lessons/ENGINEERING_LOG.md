@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **495 of 1338** reach for source text through `source_scan`, `code_only`
+Driven, **495 of 1339** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 495 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -26279,3 +26279,67 @@ money-modules mypy gate follows imports, and `strategy_gate`'s
 function-local imports had dragged the scanner, the engine and the skills
 into a gate that must come back clean (267 errors in 46 files, on a module
 of ninety lines). (`tests/test_a_live_order_stays_in_the_measured_universe.py`.)
+
+**THE SLEEVE PAYS TWICE THE FUNDING THE VENUE AVERAGES, AND SURVIVES IT ONLY
+BECAUSE IT IS SMALL.** 17 October, with the first CoinAPI credits: the Bitget
+study had charged the daily trend sleeve a fixed 0.03%/day of funding and read
+about zero; Kraken spot, with none, read the pass. The fixed charge was an
+assumption, so the same weights were re-costed with the funding a long book
+actually paid, Binance USDT perps 2021-01 → 2026-06 (Bitget's history on
+CoinAPI starts 2023-06), pre-registered before the series were read
+(`docs/research/funding_study_2026-10-17.md`). On the coin-days the sleeve
+held, funding averaged 0.0589%/day against 0.0263%/day over all coin-days, a
+ratio of 2.24, above 1.5 on every one of the 16 coins: a trend-following long
+book is long exactly when perps trade rich. Exposure-weighted it paid 15%/yr
+of its long notional as read and 20%/yr with the missing settlements filled
+in, against the 11%/yr the fixed assumption charged, so the prediction that
+real funding would land BELOW the assumption was wrong in direction. The
+sleeve passed its three pre-registered criteria anyway (Sharpe 0.88, funding
+14.5% of gross profit, drawdown 12.0% against BTC's 76.7%) because its gross
+long exposure averages 8% of equity; on research3's stricter holdout window
+the same runs read 0.54 and 0.49, on the bar and not over it. Two rules
+follow. A funding assumption for a long trend rule is the conditional figure
+(about 0.06%/day on held coin-days, 15–20%/yr of long notional), never the
+venue's average. And a day with no funding sample is counted and reported,
+never read as zero: 24% of the held coin-days had none, so the as-read charge
+is a lower bound and the filled one is reported beside it. The twelve-month
+Bitget record keeps the decision; this reading keeps the sleeve on the list
+while it accrues.
+
+**/PAPER TOLD A PRACTICE ACCOUNT ITS TRADES WERE LIVE.** 17 October, from a
+`/paper` sent to the bot: the command answered from `PAPER_SIM_OPT_IN_ENABLED`
+and the opt-in alone, "Paper practice mode is not enabled on this bot" with
+the flag off and "OFF — trades live" with it on. A self-admitted account's
+confirms open on its own practice book whatever either says
+(`engine.confirm_is_practice`, which the engine's own docstring calls the one
+reading "so no surface can say LIVE over a confirm that lands on the practice
+book"), and `/paper` was that surface. It reads the admission first now: a
+self-admitted account hears that it is practice already and that an admin's
+vouch is what changes it; a vouched account hears exactly what it heard
+before. The suite that drove the old sentences registered its trader with
+`register()`, whose default role is the self-admission role, so its "trader"
+was a practice account that happened to hold a live grant, a state the engine
+reads as practice; it vouches the record now, and the new suite asserts both
+arms. (`tests/test_paper_answers_from_the_admission_first.py`.)
+
+**A COLUMN ADDED BELOW THE SCHEMA FAST PATH NEVER REACHED PRODUCTION, AND
+NOTHING TIED THE RECONCILE LISTS TO THE ALTERS BENEATH THEM.** 17 October, a
+diagnosis handed over from the live site: `migrate()`'s fast path (11 October)
+returns when every table is present, before the `ALTER TABLE … ADD COLUMN`
+statements beneath it; `net_rr` and `rr_fee_losing` were added only there the
+next day, production had every table, and `GET /api/signals` answered 503 for
+two days for a column its reader selected. The 14 October fixes (the fast
+path reconciles `REQUIRED_SIGNAL_COLUMNS` and `REQUIRED_USER_COLUMNS` first;
+the reader falls back without the fee fields) were in the deploy that
+morning, and the site answered 200 by the time the diagnosis arrived, so no
+hand-run DDL was needed. What remained was the next column: the lists are
+hand-kept, `migration_ddl.test.js` proves they are applied, and nothing
+checked that a new ALTER below the fast path is in one of them.
+`app/test/fast_path_reconciles_every_later_column.test.js` does, two-way
+against `fast_path_column_baseline.txt`, the 63 ALTER-added columns every
+production database already carries as of today: a new ALTER-added column
+must be reconciled or, by a reviewer's decision in the same commit,
+baselined; a baseline row whose ALTER is gone fails; and every reconciled
+column must still be an ALTER below the fast path, so the two paths cannot
+disagree. A third `REQUIRED_*_COLUMNS` list must be registered in the test to
+be read, and the test fails if `db.js` exports one it does not know.

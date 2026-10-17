@@ -40,6 +40,16 @@ BTC buy-and-hold's over the same days, and funding paid ≤ 40% of gross. One
 test. A failure on any criterion is reported as a failure with its numbers,
 and the sleeve stays a reading.
 
+## What the funding study of 17 October adds (written after it, before any row)
+Re-costing the same weights with Binance's real funding over 2021–2026
+(`funding_study_2026-10-17.md`) measured what a long trend book pays: 2.24×
+the venue's average rate on the coin-days it holds, 15–20%/yr of its long
+notional. The pass rule above is unchanged. The figure to compare the
+record's funding against is that conditional rate, not Bitget's average: a
+year in which the sleeve's funding per unit of long notional runs well above
+20%/yr is a year in which Bitget's longs were dearer than Binance's were, and
+is reported as such rather than as the rule failing.
+
 ## Prediction, written now
 Funding is the swing. If Bitget's realised funding on these longs averages
 under 0.01%/day, the sleeve lands near the Kraken holdout (Sharpe about 0.6);

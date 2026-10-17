@@ -247,6 +247,10 @@ class TestTheCommandsSayWhatIsInForce:
 
     @pytest.mark.parametrize("action,live", [("off", True), ("on", False)])
     def test_paper_says_which_way_the_next_confirm_goes(self, store, full_disk, paper_feature, action, live):
+        # A vouched trader: a self-admitted account is practice by admission
+        # and `/paper` answers it with that, not with the switch.
+        store._users[UID]["role"] = "trader"
+        store._users[UID]["admitted_by"] = "admin:1"
         store._users[UID]["sim_opt_in"] = not live  # the opposite of what the command sets
         host = _Cmd(store)
         _run(tc.TradingCommands._cmd_paper(host, object(), _ctx(action)))

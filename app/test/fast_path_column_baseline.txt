@@ -1,0 +1,78 @@
+# The columns the full DDL adds with ALTER TABLE ... ADD COLUMN below migrate()'s
+# fast path, as they stood on 2026-10-17: every production database already
+# carries each of these (they landed before the fast path existed, or with a
+# table whose absence forced the full DDL to run).
+#
+# WHY THIS FILE EXISTS. The fast path returns before any of those ALTERs when
+# every table is present (app/db.js, "Schema already current"). A column added
+# ONLY there after 2026-10-11 never reached a database whose tables were already
+# current: net_rr and rr_fee_losing were missing from production for two days
+# and GET /api/signals answered 503 for a column the reader selected. The fast
+# path now reconciles REQUIRED_SIGNAL_COLUMNS and REQUIRED_USER_COLUMNS first.
+#
+# TWO-WAY, the known_failures.txt rule. A NEW ALTER-added column that is not in
+# this file must be in a REQUIRED_* table (the fast path then adds it); a row
+# here whose ALTER is gone must be deleted. A row is `table column`.
+arena_api_keys agent_slug
+arena_positions agent_slug
+arena_positions exits_edited
+arena_positions seal
+arena_positions seal_payload
+arena_positions sealed_at
+arena_positions signal_key
+arena_positions sl
+arena_positions source
+arena_positions tp
+arena_positions trade_key
+arena_positions trail_pct
+arena_seasons announced_end
+arena_seasons announced_live
+arena_seasons rules
+arena_trades agent_slug
+arena_trades seal
+arena_trades seal_payload
+arena_trades sealed_at
+arena_trades signal_key
+arena_trades source
+arena_trades trade_key
+exchange_status last_error
+pending_controls venues
+seal_roots anchor_tx
+seal_roots anchored_at
+signals expires_at
+signals seal
+signals seal_payload
+signals sealed_at
+signals signal_type
+signals source
+signals timeframe
+trades event_id
+trades notes
+trades venue
+user_alerts cooldown_min
+user_alerts mode
+user_controls venues
+user_controls venues_mode
+user_strategies published_at
+users avatar_url
+users discord_id
+users email_verified
+users farcaster_fid
+users google_id
+users last_seen_at
+users leaderboard_handle
+users referral_code
+users referred_by
+users reset_token
+users reset_token_expires
+users sol_address
+users sol_verified
+users telegram_id
+users token_epoch
+users totp_backup_codes
+users totp_enabled
+users totp_secret
+users verify_token
+users verify_token_expires
+users wallet_address
+users x_id
