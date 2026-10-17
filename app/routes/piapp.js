@@ -28,6 +28,14 @@
  * https://*.pinet.com and https://*.minepi.com, never a wildcard.
  * PI_FRAME_ANCESTORS replaces it if Pi's hosts change.
  *
+ * PLUS APP STUDIO ITSELF, which that guidance leaves out. App Studio's "Checking
+ * Pi Auth" step previews this page in a frame, and App Studio (the Pi Dev
+ * Portal) runs at APP_STUDIO; appstudio.pinet.com is only an iframe around it.
+ * frame-ancestors is checked against EVERY ancestor, so on 2026-10-17 the
+ * preview showed net::ERR_BLOCKED_BY_RESPONSE until this origin was listed.
+ * It is the exact origin, not https://*.piappengine.com: that wildcard would
+ * let every app App Studio hosts frame this page.
+ *
  * THE POLICY IS PI'S, explicit and narrow. The SDK calls https://socialchain.app
  * internally during authentication, so connect-src names it; our own code
  * talks only to us (the App Studio exchange happens on our server, so its
@@ -48,7 +56,10 @@ router.use(rateLimit({ name: 'piapp', windowMs: 60000, max: 120, key: ipKey }));
 
 const PI_SDK = 'https://sdk.minepi.com/pi-sdk.js';
 
-const PI_FRAME_ANCESTORS = "'self' https://*.pinet.com https://*.minepi.com";
+/** Pi's App Studio (the Dev Portal); its backend is lib/pi_auth.js's DEFAULT_ORIGIN. */
+const APP_STUDIO = 'https://appstudio-u7cm9zhmha0ruwv8.piappengine.com';
+
+const PI_FRAME_ANCESTORS = `'self' https://*.pinet.com https://*.minepi.com ${APP_STUDIO}`;
 
 function frameAncestors(env = process.env) {
   const raw = String(env.PI_FRAME_ANCESTORS || '').trim();
@@ -134,3 +145,4 @@ module.exports._page = page;
 module.exports._piCsp = piCsp;
 module.exports.PI_SDK = PI_SDK;
 module.exports.PI_FRAME_ANCESTORS = PI_FRAME_ANCESTORS;
+module.exports.APP_STUDIO = APP_STUDIO;
