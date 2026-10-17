@@ -225,6 +225,7 @@ test('the embed and Mini App pages load it first too', async () => {
   for (const [mount, file, pages] of [
     ['/embed', 'embed', ['/signals', '/arena', '/chart']],
     ['/miniapp', 'miniapp', ['/arena']],
+    ['/pi', 'piapp', ['/']],
   ]) {
     const router = require(`../routes/${file}`);
     for (const p of pages) {

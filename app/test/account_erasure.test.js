@@ -152,6 +152,21 @@ test('every identifying column on users is cleared', () => {
     + 'and take the whole deletion with it');
 });
 
+test('every sign-in identity a provider can write is cleared', () => {
+  // Derived from the map the sign-in path writes through, not from a name
+  // pattern. The pattern below misses `farcaster_fid` and `pi_uid`, and
+  // erasure left the fid behind: signing in again with the same Farcaster
+  // account landed back on the tombstoned row.
+  const { _PROVIDER_ID_COLUMN } = require('../auth');
+  const update = erasure.erasurePlan(7, { addresses: [] }).at(-1).sql;
+  const cleared = new Set([...update.matchAll(/(\w+)\s*=/g)].map((m) => m[1]));
+  const columns = Object.values(_PROVIDER_ID_COLUMN);
+  assert.ok(columns.includes('pi_uid') && columns.includes('farcaster_fid'),
+    'the provider map no longer names the columns this test was written for');
+  assert.deepStrictEqual(columns.filter((c) => !cleared.has(c)), [],
+    'a sign-in identity survives account deletion');
+});
+
 test('every users column that names a person is cleared by the statement', () => {
   // The direction that matters for privacy, and the one a hand-written list
   // gets wrong.

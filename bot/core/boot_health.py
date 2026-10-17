@@ -176,3 +176,50 @@ def engine_should_restart(stopping: bool) -> bool:
     shape, and same reason, as ``poller_should_restart``.
     """
     return not stopping
+
+
+async def stop_telegram(app) -> None:
+    """Stop the Telegram updater and application, each only if it is running.
+
+    A boot that failed before polling started reached main.py's `finally` with
+    neither running: a token Telegram rejects is the commonest case, and the
+    first thing a new self-hosted install (scripts/solohost/) can get wrong.
+    PTB's `updater.stop()` then raises "This Updater is not running!", and that
+    second exception, not the rejected token, became the process's exit reason
+    at the bottom of the log, the line an operator reads first.
+
+    `shutdown()` is safe either way: PTB returns early from an application that
+    was never initialised.
+    """
+    updater = getattr(app, "updater", None)
+    if updater is not None and updater.running:
+        await updater.stop()
+    if app.running:
+        await app.stop()
+    await app.shutdown()
+
+
+#: What a rejected token prints. PTB's own InvalidToken message carries the
+#: token itself ("The token `...` was rejected by the server."), and an
+#: uncaught one printed it into the log on every restart: the exception CLASS
+#: is named, never its message (CLAUDE.md, public-surface rules).
+REJECTED_TOKEN_LINE = ("Telegram rejected TELEGRAM_BOT_TOKEN (InvalidToken). "
+                       "Check the token @BotFather gave you; the bot cannot start without it.")
+
+
+def run_boot(loop, coro, *, out=print) -> int:
+    """Run the bot's main coroutine; the exit code for a boot that cannot go on.
+
+    0 for a clean run or a Ctrl+C, 2 for a token Telegram rejects. Anything
+    else propagates as it always did.
+    """
+    from telegram.error import InvalidToken
+    try:
+        loop.run_until_complete(coro)
+    except KeyboardInterrupt:
+        out("\nShutting down...")
+    except InvalidToken:
+        out("  ERROR: " + REJECTED_TOKEN_LINE)
+        return 2
+    return 0
+

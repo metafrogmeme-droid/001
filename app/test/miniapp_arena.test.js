@@ -29,8 +29,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { codeOnly } = require('./helpers/code_only');
 
-const APP_JS = codeOnly(fs.readFileSync(
-  path.join(__dirname, '..', 'public', 'js', 'miniapp-arena.js'), 'utf8'));
+// The Mini App is its Farcaster adapter plus the session it shares with the Pi
+// Browser app (arena-session.js). Every clause below is about what THE APP
+// does, so it is read across both files; reading the adapter alone would pass
+// a session that moved into the shared file and stopped keeping a promise.
+const APP_JS = ['miniapp-arena.js', 'arena-session.js'].map((f) => codeOnly(fs.readFileSync(
+  path.join(__dirname, '..', 'public', 'js', f), 'utf8'))).join('\n');
 const ROUTE = codeOnly(fs.readFileSync(
   path.join(__dirname, '..', 'routes', 'miniapp.js'), 'utf8'));
 const V = require('../public/js/miniapp-view');

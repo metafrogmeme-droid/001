@@ -196,12 +196,12 @@
     "sha": "df5a16034376c919"
   },
   "js/miniapp-arena.js": {
-    "v": 1,
-    "sha": "e03fb9b5a2417f94"
+    "v": 2,
+    "sha": "9bd8709b9440e40f"
   },
   "js/miniapp-view.js": {
-    "v": 1,
-    "sha": "50ebb19d4a1813f7"
+    "v": 2,
+    "sha": "40a172db6a874100"
   },
   "js/mode-strip-model.js": {
     "v": 1,
@@ -354,5 +354,13 @@
   "js/admin.js": {
     "v": 3,
     "sha": "f68d9fa4aa93124e"
+  },
+  "js/arena-session.js": {
+    "v": 1,
+    "sha": "80e19023a8e5cb80"
+  },
+  "js/pi-arena.js": {
+    "v": 1,
+    "sha": "6a722a7f604724b0"
   }
 }

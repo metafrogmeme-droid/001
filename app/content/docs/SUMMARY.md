@@ -13,6 +13,7 @@
 * [Risk Framework](risk-framework.md)
 * [Agent Hub Alignment](agent-hub-alignment.md)
 * [Partner Integrations](partner-integrations.md)
+* [Pi Network](pi-network.md)
 * [MCP Integration](mcp-integration.md)
 * [Enabling Live Trading](live-trading.md)
 * [Security & Permissions](security-permissions.md)

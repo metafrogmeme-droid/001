@@ -1846,7 +1846,8 @@ class MemoryDB {
       }
       const user = { id: this._nextUserId++, email: params[0], password_hash: null,
         google_id: null, telegram_id: null, discord_id: null, x_id: null,
-        wallet_address: null, avatar_url: null, plan: 'free',
+        wallet_address: null, farcaster_fid: null, pi_uid: null,
+        avatar_url: null, plan: 'free',
         telegram_linked: false, link_token: null, link_token_expires: null,
         email_verified: false, verify_token: null, verify_token_expires: null,
         reset_token: null, reset_token_expires: null,
@@ -1871,6 +1872,13 @@ class MemoryDB {
         user.x_id = params[1]; user.avatar_url = params[2]; user.telegram_linked = !!params[3];
       } else if (cmd.includes('WALLET_ADDRESS')) {
         user.wallet_address = params[1]; user.avatar_url = params[2]; user.telegram_linked = !!params[3];
+      } else if (cmd.includes('FARCASTER_FID')) {
+        // Was missing: a Farcaster sign-in created a row with no fid here, so
+        // the shim's second sign-in made a SECOND account where MySQL finds
+        // the first. Honoured, as MySQL honours it.
+        user.farcaster_fid = params[1]; user.avatar_url = params[2]; user.telegram_linked = !!params[3];
+      } else if (cmd.includes('PI_UID')) {
+        user.pi_uid = params[1]; user.avatar_url = params[2]; user.telegram_linked = !!params[3];
       }
       this.users.push(user);
       return [{ insertId: user.id }, []];
@@ -1913,6 +1921,16 @@ class MemoryDB {
       return [this.users.filter(u => String(u.x_id) === String(params[0])), []];
     }
 
+    if (cmd.includes('FROM USERS WHERE FARCASTER_FID')) {
+      return [this.users.filter(u => u.farcaster_fid != null
+        && String(u.farcaster_fid) === String(params[0])), []];
+    }
+
+    if (cmd.includes('FROM USERS WHERE PI_UID')) {
+      return [this.users.filter(u => u.pi_uid != null
+        && String(u.pi_uid) === String(params[0])), []];
+    }
+
     if (cmd.includes('FROM USERS WHERE WALLET_ADDRESS')) {
       return [this.users.filter(u => u.wallet_address != null
         && String(u.wallet_address).toLowerCase() === String(params[0]).toLowerCase()), []];
@@ -1944,6 +1962,18 @@ class MemoryDB {
     if (cmd.startsWith('UPDATE USERS SET X_ID')) {
       const user = this.users.find(u => u.id === params[1]);
       if (user) user.x_id = params[0];
+      return [{ affectedRows: user ? 1 : 0 }, []];
+    }
+
+    if (cmd.startsWith('UPDATE USERS SET FARCASTER_FID')) {
+      const user = this.users.find(u => u.id === params[1]);
+      if (user) user.farcaster_fid = params[0];
+      return [{ affectedRows: user ? 1 : 0 }, []];
+    }
+
+    if (cmd.startsWith('UPDATE USERS SET PI_UID')) {
+      const user = this.users.find(u => u.id === params[1]);
+      if (user) user.pi_uid = params[0];
       return [{ affectedRows: user ? 1 : 0 }, []];
     }
 
@@ -2657,6 +2687,45 @@ const EXPECTED_TABLES = Object.freeze([
  */
 const SCHEMA_CHECK_TIMEOUT_MS = 10000;
 
+// Columns added to `users` after it first shipped, reconciled on the fast path
+// for the same reason as the signal columns above. `farcaster_fid` reached
+// production only because its change also added a TABLE (siwf_nonces), which
+// forced one full DDL run; a column added on its own would never have run
+// anywhere the schema was already current. Each may carry the index it needs.
+const REQUIRED_USER_COLUMNS = Object.freeze({
+  // The Pi Network user, as Pi's /v2/me names it for this app (routes/pi_auth.js).
+  pi_uid: 'VARCHAR(64) DEFAULT NULL',
+});
+const USER_COLUMN_INDEXES = Object.freeze({
+  // One Pi account is one RUNECLAW account.
+  pi_uid: 'CREATE UNIQUE INDEX idx_users_pi_uid ON users (pi_uid)',
+});
+
+async function ensureUserColumns() {
+  const [rows] = await pool.query({
+    sql: `SELECT COLUMN_NAME AS c FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'`,
+    timeout: SCHEMA_CHECK_TIMEOUT_MS,
+  });
+  const have = new Set((rows || []).map(
+    (r) => String(r.c || r.COLUMN_NAME || '').toLowerCase()));
+  const missing = Object.keys(REQUIRED_USER_COLUMNS).filter((c) => !have.has(c));
+  if (!missing.length) return [];
+  const additions = missing.map(
+    (c) => `ADD COLUMN ${c} ${REQUIRED_USER_COLUMNS[c]}`).join(', ');
+  await pool.query(`ALTER TABLE users ${additions}`);
+  for (const c of missing) {
+    if (!USER_COLUMN_INDEXES[c]) continue;
+    try {
+      await pool.query(USER_COLUMN_INDEXES[c]);
+    } catch (e) {
+      // Already there is the state we wanted; anything else is not.
+      if (!e || e.code !== 'ER_DUP_KEYNAME') throw e;
+    }
+  }
+  return missing;
+}
+
 async function schemaIsCurrent() {
   const [rows] = await pool.query({
     sql: 'SELECT TABLE_NAME AS t FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()',
@@ -2796,6 +2865,8 @@ async function migrate() {
     if (await schemaPath() === 'fast') {
       const added = await ensureSignalColumns();
       if (added.length) console.log(`Signals schema reconciled: ${added.join(', ')}`);
+      const addedUsers = await ensureUserColumns();
+      if (addedUsers.length) console.log(`Users schema reconciled: ${addedUsers.join(', ')}`);
       console.log('Schema already current — skipping full DDL');
       return 'fast';
     }
@@ -3712,6 +3783,14 @@ async function migrate() {
     try {
       await pool.query('CREATE UNIQUE INDEX idx_users_farcaster_fid ON users (farcaster_fid)');
     } catch (e) { /* index already exists */ }
+    // Pi Network identity (routes/pi_auth.js). Also reconciled on the fast
+    // path by ensureUserColumns(), which is where an existing deployment gets it.
+    try {
+      await pool.query('ALTER TABLE users ADD COLUMN pi_uid VARCHAR(64) DEFAULT NULL');
+    } catch (e) { /* column already exists */ }
+    try {
+      await pool.query('CREATE UNIQUE INDEX idx_users_pi_uid ON users (pi_uid)');
+    } catch (e) { /* index already exists */ }
     // Ceremony flags back-fill for pre-existing deployments.
     try { await pool.execute('ALTER TABLE arena_seasons ADD COLUMN announced_live TINYINT NOT NULL DEFAULT 0'); } catch (e) { /* present */ }
     try { await pool.execute('ALTER TABLE arena_seasons ADD COLUMN announced_end TINYINT NOT NULL DEFAULT 0'); } catch (e) { /* present */ }
@@ -3855,8 +3934,8 @@ async function withTransaction(fn) {
 
 module.exports = {
   pool, migrate, lastStatement, describeSql, backend, withTransaction,
-  EXPECTED_TABLES, REQUIRED_SIGNAL_COLUMNS, schemaIsCurrent, schemaPath,
-  ensureSignalColumns, _resetSchemaPath, UNREADABLE_CHECKS_BEFORE_DDL, ensureVenueStatusTable,
+  EXPECTED_TABLES, REQUIRED_SIGNAL_COLUMNS, REQUIRED_USER_COLUMNS, schemaIsCurrent, schemaPath,
+  ensureSignalColumns, ensureUserColumns, _resetSchemaPath, UNREADABLE_CHECKS_BEFORE_DDL, ensureVenueStatusTable,
   // Exported for tests. The URL it normalises is the one thing in this process
   // that cannot be exercised end-to-end without a live database, so the string
   // handling is tested directly instead of being trusted.

@@ -1,0 +1,73 @@
+# The release image: the Dockerfile's production stage, pushed to ghcr.io.
+#
+# scripts/solohost/docker-compose.yml (the SoloHost package for Pi Desktop)
+# pulls this image; SoloHost never builds. It runs on a pushed v* tag or by
+# hand, never on a pull request, so nothing a PR author writes reaches a token
+# that can publish. A tag already on the registry is refused, not overwritten:
+# installs that pinned it must keep getting the image they were tested with.
+name: image
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to publish, vMAJOR.MINOR.PATCH"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/metafrogmeme-droid/runeclaw
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Resolve the tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          TAG="${INPUT_TAG:-$REF_NAME}"
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$TAG' is not vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to ghcr.io
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+
+      - name: Refuse to overwrite a published tag
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          if docker manifest inspect "$IMAGE:$TAG" > /dev/null 2>&1; then
+            echo "::error::$IMAGE:$TAG is already published; release a new version"
+            exit 1
+          fi
+
+      - name: Build
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          docker build --target production \
+            --build-arg BUILD_SHA="$GITHUB_SHA" \
+            --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -t "$IMAGE:$TAG" .
+
+      - name: Push
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: docker push "$IMAGE:$TAG"

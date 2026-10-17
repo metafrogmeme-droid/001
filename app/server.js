@@ -419,6 +419,11 @@ app.use('/api/farcaster', require('./routes/farcaster_auth'));
 // session and can act — so it is its own router with the trade-off argued in
 // one place rather than smuggled into the actionless one.
 app.use('/miniapp', require('./routes/miniapp'));
+// Sign in with Pi, and the Pi Browser app it serves: the same arena session as
+// the Mini App, signed in by a Pi access token our server checks with Pi
+// (lib/pi_auth.js). The page carries no token or presale content.
+app.use('/api/pi', require('./routes/pi_auth'));
+app.use('/pi', require('./routes/piapp'));
 app.use('/api/duel', require('./routes/duel'));
 app.use('/api/since', require('./routes/since'));
 app.use('/api/watchlist', require('./routes/watchlist'));
@@ -686,6 +691,8 @@ app.get('/.well-known/assetlinks.json', (req, res) => {
       sha256_cert_fingerprints: [sha] },
   }]);
 });
+// Pi's domain-verification key, from PI_VALIDATION_KEY (routes/piapp.js).
+app.get('/validation-key.txt', require('./routes/piapp').validationKey);
 app.get('/letter/:week?', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'letter.html')); });
 app.get('/wallet-link', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'wallet-link.html')); });
 app.get('/reset', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'reset.html')); });

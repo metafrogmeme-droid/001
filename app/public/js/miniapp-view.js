@@ -63,15 +63,18 @@
    * Names what signing in DOES before asking for it. A bare "Sign in" button
    * in a trading app is a request to trust it with something unnamed.
    */
-  function signedOutHtml(season) {
+  function signedOutHtml(season, host) {
+    // The host is who signs the person in: Farcaster for the Mini App, Pi for
+    // the Pi Browser app. One sentence each, and nothing else differs.
+    var who = host === 'Pi' ? 'Pi' : 'Farcaster';
     var name = season && season.name ? season.name : null;
     return '<section class="m-gate">'
       + '<p class="m-gate-lead">'
       + (name ? 'Trade ' + esc(name) + ' with a virtual stake.' : 'Trade the season with a virtual stake.')
       + '</p>'
-      + '<p class="m-gate-sub">Signing in with Farcaster creates a paper account. '
+      + '<p class="m-gate-sub">Signing in with ' + who + ' creates a paper account. '
       + 'No exchange keys, no real funds — everyone starts on the same stake.</p>'
-      + '<button type="button" class="m-signin">Sign in with Farcaster</button>'
+      + '<button type="button" class="m-signin">Sign in with ' + who + '</button>'
       + '</section>';
   }
 
@@ -82,13 +85,17 @@
    * error — the person was asked and said no. Telling them something failed
    * would be describing their own decision back to them as a fault.
    */
-  function signInProblemHtml(status, reason) {
+  function signInProblemHtml(status, reason, host) {
     var text;
     if (status === 'rejected') text = 'Sign-in cancelled.';
-    else if (status === 'no-host') text = 'Open this from a Farcaster app to sign in.';
+    else if (status === 'no-host') {
+      text = host === 'Pi' ? 'Open this in the Pi Browser to sign in.'
+        : 'Open this from a Farcaster app to sign in.';
+    }
     else if (status === 'unknown') text = 'Sign-in did not come back. You can try again.';
     else if (reason === 'domain_mismatch') text = 'That signature was for a different app.';
     else if (reason === 'unknown_or_used_nonce') text = 'That sign-in expired. Try again.';
+    else if (reason === 'token_rejected') text = 'Pi did not confirm that sign-in. Try again.';
     else if (status === 'unavailable') text = 'Sign-in is unavailable right now — this is on our side.';
     else text = 'Sign-in could not be completed.';
     // No accent colour on a cancellation: nothing went wrong.
