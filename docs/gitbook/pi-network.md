@@ -38,9 +38,9 @@ The image is published by `.github/workflows/image.yml` when a `v*` tag is pushe
 - Pi's SDK is the only outside script, loaded in the page head.
 - Connections go to the site itself and `https://socialchain.app`, which the SDK calls during sign-in.
 - Inline styles are allowed (the SDK needs them); inline scripts are not.
-- Only `'self' https://*.pinet.com https://*.minepi.com` may frame the page.
+- Only `'self' https://*.pinet.com https://*.minepi.com` and App Studio itself, `https://appstudio-u7cm9zhmha0ruwv8.piappengine.com`, may frame the page. App Studio's "Checking Pi Auth" step shows the page in a preview inside App Studio. A browser checks every frame around a page, so without App Studio's origin the preview fails with `net::ERR_BLOCKED_BY_RESPONSE`.
 
-There is no wildcard anywhere. The App Studio exchange runs on our server, so its origin is not in the page's policy.
+There is no wildcard anywhere: App Studio is listed by its exact origin, not `*.piappengine.com`, which would let every app App Studio hosts frame the page. The App Studio sign-in exchange runs on our server, so its origin is not in the page's `connect-src`.
 
 **What is not on it.** No token, no presale, no link to the rest of the site, and no payments. The page is built from the Farcaster Mini App's parts and loads none of the site's pages.
 

@@ -113,10 +113,24 @@ test('framable by Pi\'s hosts only, uncached, and cookie-free', async () => {
   assert.match(r.headers.get('cache-control'), /no-store/);
   assert.strictEqual(r.headers.get('set-cookie'), null);
   assert.strictEqual(directive(r.headers.get('content-security-policy'), 'frame-ancestors'),
-    "frame-ancestors 'self' https://*.pinet.com https://*.minepi.com");
+    "frame-ancestors 'self' https://*.pinet.com https://*.minepi.com "
+    + 'https://appstudio-u7cm9zhmha0ruwv8.piappengine.com');
   const narrowed = await get('/pi/', { PI_FRAME_ANCESTORS: 'https://app.minepi.com' });
   assert.strictEqual(directive(narrowed.headers.get('content-security-policy'), 'frame-ancestors'),
     'frame-ancestors https://app.minepi.com');
+});
+
+test('App Studio may frame the page by its exact origin, the one whose backend signs us in', async () => {
+  // App Studio's "Checking Pi Auth" previews the page inside App Studio, and
+  // frame-ancestors is checked against every ancestor: without this origin the
+  // preview showed net::ERR_BLOCKED_BY_RESPONSE (2026-10-17).
+  const { APP_STUDIO } = require('../routes/piapp');
+  const { DEFAULT_ORIGIN } = require('../lib/pi_auth');
+  assert.strictEqual(new URL(DEFAULT_ORIGIN).host, `backend.${new URL(APP_STUDIO).host}`,
+    'the App Studio allowed to frame us is not the one we exchange tokens with');
+  const fa = directive((await get('/pi/')).headers.get('content-security-policy'), 'frame-ancestors');
+  assert.ok(fa.split(/\s+/).includes(APP_STUDIO), fa);
+  assert.doesNotMatch(fa, /\*\.piappengine\.com/, 'every app App Studio hosts could frame the page');
 });
 
 test('Pi.init is awaited, gets only its version, and no sandbox flag is set', () => {

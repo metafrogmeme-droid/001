@@ -25877,3 +25877,19 @@ the page loads names the presale or the token.
 `app/test/the_pi_app_signs_in_with_pi.smoke.test.js` drives sign-in in
 Chromium with a stand-in SDK, and renders the Mini App's gate beside it.
 `app/test/migration_ddl.test.js` drives the user-column reconciliation.)
+
+**ADDENDUM, 2026-10-17: THE FRAME LIST PI GAVE LEFT OUT PI'S OWN PREVIEW.**
+Deployed, the link check passed and "Checking Pi Auth" showed
+`net::ERR_BLOCKED_BY_RESPONSE` where the page should have been. The page's
+`frame-ancestors` was exactly Pi's guidance, `*.pinet.com` and `*.minepi.com`,
+and App Studio previews the page inside itself. App Studio (the Pi Dev Portal)
+runs at `https://appstudio-u7cm9zhmha0ruwv8.piappengine.com`;
+`appstudio.pinet.com` is only an iframe around it, and `frame-ancestors` is
+checked against every ancestor, not the nearest. The guidance was a list of
+hosts, not a measurement of the frames the verifier uses; reading
+`appstudio.pinet.com`'s own HTML would have shown the iframe. The origin is
+listed exactly: `*.piappengine.com` would let every app App Studio hosts frame
+the page. (`app/test/the_pi_app_is_the_arena_and_nothing_else.test.js` holds
+the default list, refuses that wildcard, and ties the listed App Studio to the
+backend `lib/pi_auth.js` signs in against, so the two cannot name different
+App Studios.)

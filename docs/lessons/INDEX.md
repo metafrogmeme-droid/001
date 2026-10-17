@@ -345,3 +345,4 @@ about to change before changing it.
 - L25768: EVERY CARD ASKED THE VENUE FOR THE SAME BALANCE, AND THE FUNDS CARD ADDED WHAT ANSWERED — `tests/conftest.py`, `tests/test_one_venue_read_serves_every_card.py`
 - L25809: RUNECLAW WENT INTO PI AS A SELF-HOSTED PACKAGE, AND RUNNING IT FOUND THREE THINGS NO TEST HAD — `app/test/the_dashboard_asks_for_its_token_where_prompt_cannot.smoke.test.js`, `tests/test_a_failed_boot_exits_with_its_own_error.py`, `tests/test_the_solohost_package_runs_what_it_says.py`
 - L25847: A SIGN-IN PROVIDER THE MAP DID NOT KNOW WOULD HAVE BEEN LOOKED UP BY TELEGRAM ID — `app/test/migration_ddl.test.js`, `app/test/pi_auth.test.js`, `app/test/the_pi_app_is_the_arena_and_nothing_else.test.js`, `app/test/the_pi_app_signs_in_with_pi.smoke.test.js`
+- L25881: ADDENDUM, 2026-10-17: THE FRAME LIST PI GAVE LEFT OUT PI'S OWN PREVIEW — `app/test/the_pi_app_is_the_arena_and_nothing_else.test.js`
