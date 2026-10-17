@@ -295,6 +295,8 @@
   ["arena.f_max_lev", "規則：最高槓桿"],
   ["arena.f_majors", "規則：僅限主流幣"],
   ["arena.b_launch", "開啟賽季"],
+  ["arena.f_rename", "重新命名目前賽季"],
+  ["arena.b_rename", "重新命名"],
   ["arena.ph_open", "不限"],
   ["arena.p_join", "加入競技場"],
   ["arena.join_body", "只需一個免費帳戶 — 你打開競技場的當下就會建立模擬帳戶。不需要交易所金鑰、不需要入金、無需任何設定。"],

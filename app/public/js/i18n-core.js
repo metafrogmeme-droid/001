@@ -337,6 +337,8 @@
     "arena.f_max_lev": { en: "Rule: max leverage" },
     "arena.f_majors": { en: "Rule: majors only" },
     "arena.b_launch": { en: "Launch season" },
+    "arena.f_rename": { en: "Rename the current season" },
+    "arena.b_rename": { en: "Rename" },
     "arena.ph_open": { en: "open" },
     "arena.p_join": { en: "Join the arena" },
     "arena.join_body": { en: "A free account is all it takes — your paper account is created the moment you open the Arena. No exchange keys, no deposit, nothing to configure." },
@@ -2263,7 +2265,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"914cab4b","zh":"68aafefb","pt":"42cd418d","fr":"2201dc81","de":"67838137","nl":"f3c939e3","ja":"2ad39fb0","ko":"c16e6c9c","ru":"c1e6a1e9","tr":"b232d50a","it":"c6977ab3","hi":"8a23c0ce","ar":"955b85c0"};
+  var CHUNKS = {"es":"f8a18e48","zh":"864c9cfc","pt":"3ce12086","fr":"320bea20","de":"a051feac","nl":"3aad5a2d","ja":"41da8a84","ko":"aa0ea05c","ru":"168e8160","tr":"d960ea0e","it":"c3c41065","hi":"fef57861","ar":"b3549be1"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

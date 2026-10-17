@@ -113,10 +113,24 @@ test('framable by Pi\'s hosts only, uncached, and cookie-free', async () => {
   assert.match(r.headers.get('cache-control'), /no-store/);
   assert.strictEqual(r.headers.get('set-cookie'), null);
   assert.strictEqual(directive(r.headers.get('content-security-policy'), 'frame-ancestors'),
-    "frame-ancestors 'self' https://*.pinet.com https://*.minepi.com");
+    "frame-ancestors 'self' https://*.pinet.com https://*.minepi.com "
+    + 'https://appstudio-u7cm9zhmha0ruwv8.piappengine.com');
   const narrowed = await get('/pi/', { PI_FRAME_ANCESTORS: 'https://app.minepi.com' });
   assert.strictEqual(directive(narrowed.headers.get('content-security-policy'), 'frame-ancestors'),
     'frame-ancestors https://app.minepi.com');
+});
+
+test('App Studio may frame the page by its exact origin, the one whose backend signs us in', async () => {
+  // App Studio's "Checking Pi Auth" previews the page inside App Studio, and
+  // frame-ancestors is checked against every ancestor: without this origin the
+  // preview showed net::ERR_BLOCKED_BY_RESPONSE (2026-10-17).
+  const { APP_STUDIO } = require('../routes/piapp');
+  const { DEFAULT_ORIGIN } = require('../lib/pi_auth');
+  assert.strictEqual(new URL(DEFAULT_ORIGIN).host, `backend.${new URL(APP_STUDIO).host}`,
+    'the App Studio allowed to frame us is not the one we exchange tokens with');
+  const fa = directive((await get('/pi/')).headers.get('content-security-policy'), 'frame-ancestors');
+  assert.ok(fa.split(/\s+/).includes(APP_STUDIO), fa);
+  assert.doesNotMatch(fa, /\*\.piappengine\.com/, 'every app App Studio hosts could frame the page');
 });
 
 test('Pi.init is awaited, gets only its version, and no sandbox flag is set', () => {
@@ -136,7 +150,20 @@ test('the client sends the access token, never a uid of its own', () => {
   assert.match(src, /body:\s*\{\s*accessToken:\s*auth\.accessToken\s*\}/);
   assert.doesNotMatch(src, /auth\.user|uid\s*:|username\s*:/, 'the page sends who it says the user is');
   assert.doesNotMatch(src, /localStorage|sessionStorage|document\.cookie/);
-  assert.doesNotMatch(src, /createPayment/, 'this app takes no payments');
+});
+
+test('the one payment is a tip whose terms come from the server, settled by id', () => {
+  const src = codeOnly(fs.readFileSync(path.join(PUBLIC_JS, 'pi-arena.js'), 'utf8'));
+  const calls = [...src.matchAll(/Pi\.createPayment\(/g)];
+  assert.strictEqual(calls.length, 1, 'one payment, the tip');
+  assert.match(src, /Pi\.createPayment\(\{ amount: order\.amount, memo: order\.memo, metadata: order\.metadata \}/,
+    'amount, memo and metadata must be the order the server issued, not the page\'s');
+  assert.match(src, /Pi\.authenticate\(\['username', 'payments'\]/);
+  // Approval, completion and an interrupted payment are handed to the server
+  // as Pi's ids; the payment itself is read back from Pi there.
+  assert.match(src, /'\/api\/pi\/payments\/approve', \{ method: 'POST', body: \{ paymentId: paymentId \} \}/);
+  assert.match(src, /body: \{ paymentId: paymentId, txid: txid \}/);
+  assert.match(src, /'\/api\/pi\/payments\/incomplete', \{ method: 'POST', body: \{ paymentId: id \} \}/);
 });
 
 // ── App Studio's validation file ──────────────────────────────────────────

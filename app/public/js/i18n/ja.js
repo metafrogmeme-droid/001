@@ -295,6 +295,8 @@
   ["arena.f_max_lev", "ルール：最大レバレッジ"],
   ["arena.f_majors", "ルール：主要銘柄のみ"],
   ["arena.b_launch", "シーズンを開始"],
+  ["arena.f_rename", "現在のシーズン名を変更"],
+  ["arena.b_rename", "名前を変更"],
   ["arena.ph_open", "制限なし"],
   ["arena.p_join", "アリーナに参加"],
   ["arena.join_body", "無料アカウントだけで十分です — アリーナを開いた瞬間にペーパー口座が作成されます。取引所のAPIキーも入金も設定も不要です。"],

@@ -1,7 +1,7 @@
 {
   "embed.css": {
-    "v": 6,
-    "sha": "878c429cbd87242e"
+    "v": 7,
+    "sha": "818d017aebc70d2e"
   },
   "js/agent-page.js": {
     "v": 1,
@@ -164,8 +164,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 182,
-    "sha": "d5c3ac048776ea6b"
+    "v": 183,
+    "sha": "b1a3aff2eda854be"
   },
   "js/icons.js": {
     "v": 6,
@@ -356,11 +356,15 @@
     "sha": "f68d9fa4aa93124e"
   },
   "js/arena-session.js": {
-    "v": 1,
-    "sha": "80e19023a8e5cb80"
+    "v": 2,
+    "sha": "dbc94edb7f48436a"
   },
   "js/pi-arena.js": {
+    "v": 2,
+    "sha": "8c02284f791d56a1"
+  },
+  "js/pi-signals.js": {
     "v": 1,
-    "sha": "6a722a7f604724b0"
+    "sha": "2fc43cf3c213e380"
   }
 }

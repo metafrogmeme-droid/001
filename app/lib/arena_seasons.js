@@ -65,10 +65,18 @@ function pickCurrentSeason(rows, now) {
 // is LIVE. Majors are the USDT-M pairs of the large-caps.
 const SEASON_MAJORS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'];
 
+/** A season's name, for launching one and for renaming one: the one rule. */
+function validateSeasonName(raw) {
+  const name = String(raw == null ? '' : raw).trim();
+  if (!NAME_RE.test(name)) return { ok: false, error: 'name must be 3–60 plain characters' };
+  return { ok: true, name };
+}
+
 function validateSeason(input) {
   const b = input || {};
-  const name = String(b.name || '').trim();
-  if (!NAME_RE.test(name)) return { ok: false, error: 'name must be 3–60 plain characters' };
+  const nv = validateSeasonName(b.name);
+  if (!nv.ok) return nv;
+  const name = nv.name;
   const starts = new Date(b.starts_at), ends = new Date(b.ends_at);
   if (isNaN(starts) || isNaN(ends)) return { ok: false, error: 'starts_at and ends_at must be dates' };
   if (ends <= starts) return { ok: false, error: 'the season must end after it starts' };
@@ -137,4 +145,24 @@ function seasonRanking(trades, handleOf) {
   return rows.slice(0, 50).map((r, i) => ({ rank: i + 1, ...r }));
 }
 
-module.exports = { seasonStatus, pickCurrentSeason, validateSeason, seasonRanking, checkSeasonRules, SEASON_MAJORS, NAME_RE };
+/**
+ * The /arena link preview's title and description, for the season every host
+ * shows (server.js). It read `rows[0]` of an unordered SELECT: with more than
+ * one season on record that was whichever the database returned first, so a
+ * shared link could name a finished season while another was live. Null when
+ * there is no season; the static pitch stays. §4: name, status, window only.
+ */
+function seasonUnfurl(rows, now, pitch) {
+  const season = pickCurrentSeason(rows, now);
+  if (!season) return null;
+  const st = seasonStatus(season, now);
+  const when = st === 'live' ? `is LIVE until ${new Date(season.ends_at).toISOString().slice(0, 10)}`
+    : st === 'upcoming' ? `starts ${new Date(season.starts_at).toISOString().slice(0, 10)}`
+    : 'has ended — see the Hall of Champions';
+  return {
+    title: `RUNECLAW Arena · ${season.name} ${st === 'live' ? 'is LIVE' : st}`,
+    og: `${season.name} ${when}. Same virtual stake for everyone, ranked on percent return under anonymous handles. ${pitch}`,
+  };
+}
+
+module.exports = { seasonStatus, pickCurrentSeason, validateSeason, validateSeasonName, seasonUnfurl, seasonRanking, checkSeasonRules, SEASON_MAJORS, NAME_RE };

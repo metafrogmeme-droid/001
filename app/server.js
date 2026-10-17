@@ -422,6 +422,9 @@ app.use('/miniapp', require('./routes/miniapp'));
 // Sign in with Pi, and the Pi Browser app it serves: the same arena session as
 // the Mini App, signed in by a Pi access token our server checks with Pi
 // (lib/pi_auth.js). The page carries no token or presale content.
+// Pi tips mount first: pi_auth's router limits every request it sees by IP,
+// and a tip's approve/complete retries are not sign-in attempts.
+app.use('/api/pi/payments', require('./routes/pi_payments'));
 app.use('/api/pi', require('./routes/pi_auth'));
 app.use('/pi', require('./routes/piapp'));
 app.use('/api/duel', require('./routes/duel'));
@@ -576,15 +579,8 @@ app.get('/arena', async (req, res) => {
     const { pool } = require('./db');
     const seasons = require('./lib/arena_seasons');
     const [rows] = await pool.execute('SELECT id, name, starts_at, ends_at FROM arena_seasons');
-    const season = rows[0];
-    if (season) {
-      const st = seasons.seasonStatus(season, new Date());
-      const when = st === 'live' ? `is LIVE until ${new Date(season.ends_at).toISOString().slice(0, 10)}`
-        : st === 'upcoming' ? `starts ${new Date(season.starts_at).toISOString().slice(0, 10)}`
-        : 'has ended — see the Hall of Champions';
-      title = `RUNECLAW Arena · ${season.name} ${st === 'live' ? 'is LIVE' : st}`;
-      og = `${season.name} ${when}. Same virtual stake for everyone, ranked on percent return under anonymous handles. ${og}`;
-    }
+    const u = seasons.seasonUnfurl(rows, new Date(), og);
+    if (u) { title = u.title; og = u.og; }
   } catch (e) { /* static pitch remains */ }
   const clean = (t) => t.replace(/[&<>"']/g, '');
   let html = require('fs').readFileSync(path.join(__dirname, 'public', 'arena.html'), 'utf8')

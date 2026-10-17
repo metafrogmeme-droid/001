@@ -38,11 +38,28 @@ The image is published by `.github/workflows/image.yml` when a `v*` tag is pushe
 - Pi's SDK is the only outside script, loaded in the page head.
 - Connections go to the site itself and `https://socialchain.app`, which the SDK calls during sign-in.
 - Inline styles are allowed (the SDK needs them); inline scripts are not.
-- Only `'self' https://*.pinet.com https://*.minepi.com` may frame the page.
+- Only `'self' https://*.pinet.com https://*.minepi.com` and App Studio itself, `https://appstudio-u7cm9zhmha0ruwv8.piappengine.com`, may frame the page. App Studio's "Checking Pi Auth" step shows the page in a preview inside App Studio. A browser checks every frame around a page, so without App Studio's origin the preview fails with `net::ERR_BLOCKED_BY_RESPONSE`.
 
-There is no wildcard anywhere. The App Studio exchange runs on our server, so its origin is not in the page's policy.
+There is no wildcard anywhere: App Studio is listed by its exact origin, not `*.piappengine.com`, which would let every app App Studio hosts frame the page. The App Studio sign-in exchange runs on our server, so its origin is not in the page's `connect-src`.
 
-**What is not on it.** No token, no presale, no link to the rest of the site, and no payments. The page is built from the Farcaster Mini App's parts and loads none of the site's pages.
+**Signals and charts.** Signed in, the app shows the engine's latest calls the way a signed-in member sees them on the website: side, entry, stop, target, R:R and confidence. Each call has the site's TradingView chart with its levels drawn on it.
+
+- Each live call has a **Paper 200 · 2×** button. It opens the call on the paper account at the live mark, the same as the website's signal stream, and the season's rules apply. The confirmation says which of the call's exits the market had already passed.
+- The list refreshes every minute while the app is open.
+- A list that cannot be read says so. That message is never a claim that there are no signals.
+- The chart library is the site's own copy, served from our domain, and the candles come from our relay. The page's security policy is unchanged.
+
+**What is not on it.** No token, no presale and no link to the rest of the site. The page is built from the Farcaster Mini App's parts and loads none of the site's pages. Its one payment is an optional tip.
+
+**Tips.** A signed-in Pi user can tip the team a small amount of Pi from the **Support RUNECLAW** buttons. A tip unlocks nothing and does not touch the arena account.
+
+1. The page asks our server for one of the amounts it offers. The server records an order (who, how much) and returns the amount, memo and metadata the page hands to `Pi.createPayment`. The page never chooses the amount itself.
+2. When Pi is ready, the page passes on Pi's payment id. The server reads that payment from the Pi Platform (`GET https://api.minepi.com/v2/payments/{id}`, with the server-only key) and checks it against the order: the same person, amount and order, user to app, not cancelled. Only then does it approve the payment.
+3. After the person signs, the page passes on the payment id and txid. The server checks the txid against Pi's record of the payment, then completes it. Only a completion Pi accepts records the tip as received.
+
+Each step saves what it relies on before asking Pi, so Pi's retries are safe. One Pi payment can settle one order, and one order one payment. A payment left unfinished, for example because the app was closed mid-tip, is reported by Pi's SDK at the next sign-in, and the server finishes it from Pi's own record.
+
+Pi's helper packages for this (`pi-sdk-express`, `pi-sdk-js`) were withdrawn from npm in March 2026, so the page calls `Pi.createPayment` directly and the server calls Pi's documented Platform API. The SDK's own payment calls go to the same backend it uses for sign-in, so the page's security policy is unchanged.
 
 **App Studio's validation file** is the static `app/public/pi/pi-app-validation.txt`, served at `/pi/pi-app-validation.txt`. It holds exactly App Studio's token, with no route or script of its own.
 
@@ -50,6 +67,8 @@ There is no wildcard anywhere. The App Studio exchange runs on our server, so it
 
 | Variable | What it does |
 |---|---|
+| `PI_NETWORK_API_KEY` | The app's server API key, from the Developer Portal: this app, then **Settings**, **API key**, **Reveal**. Set it in the hosting provider's secret settings, on the website server only. Without it there are no tip buttons. |
+| `PI_TIP_AMOUNTS` | The tip amounts in Pi, comma-separated, `1,3,5` by default (each at most 100) |
 | `PI_VALIDATION_KEY` | A key the Developer Portal asks the domain to serve at `/validation-key.txt`; 404 when unset |
 | `PI_FRAME_ANCESTORS` | Replaces Pi's frame list if Pi's hosts change |
 | `PI_AUTH_ORIGIN` | App Studio's backend, `https://backend.appstudio-u7cm9zhmha0ruwv8.piappengine.com` by default |

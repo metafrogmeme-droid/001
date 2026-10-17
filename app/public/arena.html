@@ -211,6 +211,11 @@
         <input id="ssMajors" type="checkbox" style="width:auto"> <span data-i18n="arena.f_majors">Rule: majors only</span></label></div>
       <div><button class="btn btn--primary" id="ssLaunch" type="button" data-i18n="arena.b_launch">Launch season</button></div>
     </div>
+    <div class="ticket">
+      <div><label for="ssRename" data-i18n="arena.f_rename">Rename the current season</label>
+        <input id="ssRename" maxlength="60" autocomplete="off"></div>
+      <div><button class="btn" id="ssRenameBtn" type="button" data-i18n="arena.b_rename">Rename</button></div>
+    </div>
     <div class="tmsg" id="ssMsg" role="status" aria-live="polite"></div>
   </section>
 
@@ -437,7 +442,7 @@ window.addEventListener('unhandledrejection', rcReportPageError);
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=6"></script>
 <script src="/js/app.js?v=17"></script>
-<script src="/js/i18n-core.js?v=182"></script>
+<script src="/js/i18n-core.js?v=183"></script>
 <script src="/js/presale.js?v=2"></script>
 <script src="/js/confidence-score.js?v=2"></script>
 <script src="/js/signal-status-model.js?v=3"></script>
@@ -1718,6 +1723,20 @@ window.addEventListener('unhandledrejection', rcReportPageError);
         $('ssLaunch').disabled = false;
         $('ssMsg').textContent = r && r.ok ? 'Season launched — the banner is live.' : ((r && r.data && (r.data.detail || r.data.error)) || 'Launch failed.');
         if (r && r.ok) loadSeason();
+      });
+      // The name every host prints (this page, the Farcaster Mini App, the Pi
+      // app). Only the name changes; the window, rules and standings stay.
+      $('ssRenameBtn').addEventListener('click', async function () {
+        var name = $('ssRename').value.trim();
+        if (!name) { $('ssMsg').textContent = 'Type the new name first.'; return; }
+        $('ssRenameBtn').disabled = true;
+        var r = await RC.fetchJSON('/api/arena/season', { method: 'PATCH', body: { name: name }, timeoutMs: 12000 }).catch(function () { return null; });
+        $('ssRenameBtn').disabled = false;
+        var done = r && r.ok && r.data && r.data.renamed;
+        $('ssMsg').textContent = done
+          ? 'Renamed "' + done.from + '" to "' + done.to + '". Every app shows the new name.'
+          : ((r && r.data && (r.data.detail || r.data.error)) || 'Rename failed.');
+        if (done) loadSeason();
       });
     }).catch(function () {});
   }
