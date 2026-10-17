@@ -1545,3 +1545,20 @@ def _the_shipped_macro_calendar_is_read_at_a_named_instant():
         yield
     finally:
         cls._get_context_inner = real
+
+
+@pytest.fixture(autouse=True)
+def _live_universe_gate_off_unless_a_test_asks():
+    """The LIVE_UNIVERSE check (default on) refuses a live evaluation on a
+    market the benchmark never measured. Fifteen suites evaluate live mode
+    on ARB, OP, SUI and the like to drive OTHER gates; with the check on,
+    every one of them would read REJECTED for a reason it is not testing.
+    Off here, restored after; `test_a_live_order_stays_in_the_measured_universe.py`
+    turns it on and is the one place it is measured."""
+    from bot.config import CONFIG
+    prev = CONFIG.risk.live_universe_gate_enabled
+    object.__setattr__(CONFIG.risk, "live_universe_gate_enabled", False)
+    try:
+        yield
+    finally:
+        object.__setattr__(CONFIG.risk, "live_universe_gate_enabled", prev)

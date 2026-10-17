@@ -93,6 +93,10 @@ GATES: dict[str, tuple[str, str, str]] = {
         "Per-symbol loss streak", KIND_REFUSE,
         "a chronically losing symbol keeps being re-entered while other "
         "symbols win"),
+    "live_universe_gate_enabled": (
+        "Live universe", KIND_REFUSE,
+        "a live order may be placed on a market outside the benchmark on "
+        "record's universe, one no card measured"),
     "equity_curve_breaker_enabled": (
         "Equity-curve breaker", KIND_REFUSE,
         "the de-risk/pause condition is inert — its feeder is never called"),

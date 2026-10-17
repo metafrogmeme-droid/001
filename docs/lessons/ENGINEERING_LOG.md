@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **495 of 1337** reach for source text through `source_scan`, `code_only`
+Driven, **495 of 1338** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 495 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -26248,3 +26248,34 @@ real funding, with its pass rule and its prediction (funding is the swing).
 (`tests/test_the_daily_trend_sleeve_reads_and_places_nothing.py`;
 `tests/test_each_strategy_scans_its_own_rule_now.py` and
 `tests/test_strategy_catalog.py` carry the new door and card.)
+
+**A LIVE ORDER STAYS IN THE MARKETS A CARD MEASURED.** 17 October, from the
+live parity card: 226 of live's 249 strategy exits were on markets no frozen
+benchmark holds, and the TradFi legs among them (gold, equities, indices
+through their perps) ran at a profit factor of 0.03 to 0.22 over 77 exits.
+The cards measured ten crypto majors on hourly bars; live was placing orders
+on 60-odd markets, and the parity card could only say of 226 exits that it
+had nothing to compare them with. The scan is cheap and the paper book is
+free, so neither is narrowed. A *live* order is: the risk gate's
+`LIVE_UNIVERSE` check, live mode only, refuses a market outside the measured
+set and says so by name on the risk card. The set is READ from the benchmark
+on record (`benchmark/majors_1h/manifest.json`, the snapshot `/parity`
+compares against), never typed into the gate, so the gate and the card cannot
+name two universes; a manifest that cannot be read is a set nobody read, and
+refuses rather than passes (`bot/risk/live_universe.py`). `LIVE_UNIVERSE`
+(comma list of markets) replaces the set when the operator widens or narrows
+it on purpose, and `LIVE_UNIVERSE_GATE_ENABLED` (on) is the switch; both are
+in the generated block of `.env.example`. Fifteen suites evaluate live mode
+on ARB, OP, SUI and the like to drive other gates; the harness holds the
+check off for them and the one suite that measures it turns it on, so no
+suite reads REJECTED for a reason it is not testing. Eight mutants, all
+killed: the gate dropped, paper evaluated too, the switch ignored, the
+unreadable set passing, the override ignored, an unmeasured market allowed,
+an empty manifest counted as read, and the failed line filed under passed.
+The gate module reads the base ticker and the benchmark root from two
+leaves (`bot/utils/market_symbols.py`, `bot/utils/paths.py`) that
+`strategy_gate` and `snapshot` re-export under their old names: the
+money-modules mypy gate follows imports, and `strategy_gate`'s
+function-local imports had dragged the scanner, the engine and the skills
+into a gate that must come back clean (267 errors in 46 files, on a module
+of ninety lines). (`tests/test_a_live_order_stays_in_the_measured_universe.py`.)

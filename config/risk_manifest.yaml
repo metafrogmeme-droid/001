@@ -735,6 +735,16 @@ defaults:
     env_var: SYMBOL_LOSS_STREAK_ENABLED
     description: "Track consecutive losses per symbol (not just account-wide) and arm a long cooldown on that symbol once the streak threshold is hit"
 
+  live_universe_gate_enabled:
+    value: true
+    env_var: LIVE_UNIVERSE_GATE_ENABLED
+    description: "A live order stays in the markets a card measured: the LIVE_UNIVERSE check refuses a live order on a market outside the benchmark on record's universe (benchmark/majors_1h). The scan, the analysis and the paper book still reach every market"
+
+  live_universe:
+    value: ""
+    env_var: LIVE_UNIVERSE
+    description: "The operator's own measured set, a comma list of markets (BTC,ETH,...), replacing the benchmark's when set. Empty reads the benchmark manifest"
+
   symbol_loss_streak_threshold:
     value: 3
     env_var: SYMBOL_LOSS_STREAK_THRESHOLD

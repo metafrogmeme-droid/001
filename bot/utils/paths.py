@@ -92,3 +92,23 @@ def env_repo_path(env_var: str, default_relative: str) -> Path:
     `env_state_path`."""
     raw = (os.getenv(env_var) or "").strip()
     return repo_path(raw or default_relative)
+
+
+BENCHMARK_DIR_NAMES = ("benchmark", "data/benchmark")
+DEFAULT_BENCHMARK_NAME = "majors_1h"
+
+
+def benchmark_root() -> Path:
+    """The directory holding the frozen snapshots, resolved at call time.
+
+    Relative, matching every other path in this codebase (all of them are
+    CWD-relative and correct only because the bot is launched from the repo
+    root — which bot/utils/state_guard.py now checks rather than assumes).
+
+    Returns the preferred name when neither exists, so an error message names
+    where the data SHOULD be rather than where it used to be.
+    """
+    for name in BENCHMARK_DIR_NAMES:
+        if Path(name).is_dir():
+            return Path(name)
+    return Path(BENCHMARK_DIR_NAMES[0])

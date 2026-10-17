@@ -501,6 +501,17 @@ class RiskLimits:
     # THAT symbol for a much longer cooldown by reusing the same
     # engine._symbol_cooldowns mechanism the post-SL cooldown already uses.
     symbol_loss_streak_enabled: bool = _env_bool("SYMBOL_LOSS_STREAK_ENABLED", True)
+    # A live order stays in the markets a card measured (default ON): the
+    # risk gate's LIVE_UNIVERSE check refuses a live order on a market outside
+    # the benchmark on record's universe (`bot/risk/live_universe.py`). The
+    # scan, the analysis and the paper book still reach every market. Off, the
+    # check is not run. Live's 17 Oct parity card: 226 of 249 exits were on
+    # markets no benchmark holds, the TradFi legs at PF 0.03-0.22.
+    live_universe_gate_enabled: bool = _env_bool("LIVE_UNIVERSE_GATE_ENABLED", True)
+    # The operator's own measured set, a comma list of markets (BTC,ETH,...),
+    # replacing the benchmark's when set. Empty (the default) reads the
+    # benchmark manifest.
+    live_universe: str = _env("LIVE_UNIVERSE", "")
     symbol_loss_streak_threshold: int = int(
         _env_float_bounded("SYMBOL_LOSS_STREAK_THRESHOLD", 3, 1, 20))
     symbol_loss_streak_cooldown_seconds: float = _env_float_bounded(

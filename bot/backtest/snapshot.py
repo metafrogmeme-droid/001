@@ -33,11 +33,11 @@ import hashlib
 import json
 import sys
 from datetime import datetime
-from bot.compat import UTC
 from pathlib import Path
 
 from bot.backtest.data_loader import DataLoader
 from bot.backtest.models import BacktestBar
+from bot.compat import UTC
 
 MANIFEST_NAME = "manifest.json"
 SNAPSHOT_VERSION = 1
@@ -68,24 +68,10 @@ DEFAULT_BENCHMARK_SYMBOLS = [
 #
 # The old location stays as a fallback so a box that has not yet moved its
 # copy keeps working, and so the move needs no flag-day ordering.
-BENCHMARK_DIR_NAMES = ("benchmark", "data/benchmark")
-DEFAULT_BENCHMARK_NAME = "majors_1h"
-
-
-def benchmark_root() -> Path:
-    """The directory holding the frozen snapshots, resolved at call time.
-
-    Relative, matching every other path in this codebase (all of them are
-    CWD-relative and correct only because the bot is launched from the repo
-    root — which bot/utils/state_guard.py now checks rather than assumes).
-
-    Returns the preferred name when neither exists, so an error message names
-    where the data SHOULD be rather than where it used to be.
-    """
-    for name in BENCHMARK_DIR_NAMES:
-        if Path(name).is_dir():
-            return Path(name)
-    return Path(BENCHMARK_DIR_NAMES[0])
+# The location itself lives in `bot/utils/paths.py`, a leaf, so a money module
+# (the risk gate's live-universe check) can read it without this module's
+# imports; the three names stay on this module's surface for every caller.
+from bot.utils.paths import BENCHMARK_DIR_NAMES, DEFAULT_BENCHMARK_NAME, benchmark_root  # noqa: E402,F401
 
 
 def default_benchmark_dir() -> str:
