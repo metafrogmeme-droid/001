@@ -75,6 +75,7 @@
     "altsweep": "ALT Sweep jetzt: die Seite des gleitenden Durchschnitts jedes Alts, ohne Order",
     "ethma": "ETH Moving-Average Trend jetzt: die Seite seines gleitenden Durchschnitts, ohne Order",
     "volrotation": "Tagesrotation jetzt: der Markt, den sie halten würde, ohne Order",
+    "dailytrend": "Tagestrend jetzt: die Märkte, die er halten würde, und ihre Gewichte, ohne Order",
     "intraday": "15m-Intraday-Scan",
     "swing": "4h-Swing-Scan",
     "stockscan": "tokenisierte US-Aktien-Perps",

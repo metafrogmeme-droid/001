@@ -224,9 +224,12 @@ def test_a_card_the_live_bot_does_not_run_says_who_runs_it():
         if not measured:
             assert c["scorecard"] and c["scorecard"].get("omitted"), c["id"]
     assert seen == {"eth-ma-trend", "alt-sweep", "daily-vol-rotation", "limit-scanner",
-                    "multi-trend"}
+                    "multi-trend", "daily-trend"}
     rotation = sc.get_agent("daily-vol-rotation")
     assert "No backtest evaluates it either." in rotation["how"]
+    sleeve = sc.get_agent("daily-trend")
+    assert "the pre-registered daily study that passed its bar is in the engineering log" in sleeve["how"]
+    assert "last closed daily bars" in sleeve["how"] and "1h bars" not in sleeve["how"]
     alt = sc.get_agent("alt-sweep")
     assert "A backtest of it opens nothing" in alt["how"]
     assert "because a run of it does not size a fill" in alt["how"]

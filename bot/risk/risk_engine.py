@@ -2647,6 +2647,18 @@ class RiskEngine:
         except Exception as exc:
             failed.append(f"STOP_DISTANCE: evaluation error ({type(exc).__name__})")
 
+        # A live order stays in the markets a card measured. Live only: the
+        # scan, the analysis and the paper book reach every market, and the
+        # measured set is read from the benchmark on record, never typed
+        # here (`bot/risk/live_universe.py`). A set nobody could read refuses.
+        if live_mode and CONFIG.risk.live_universe_gate_enabled:
+            try:
+                from bot.risk.live_universe import live_universe_line
+                _ok, _line = live_universe_line(idea.asset)
+                (passed if _ok else failed).append(_line)
+            except Exception as exc:
+                failed.append(f"LIVE_UNIVERSE: evaluation error ({type(exc).__name__})")
+
         if is_manual:
             passed.append("CONFIDENCE: skipped (manual trade)")
         else:

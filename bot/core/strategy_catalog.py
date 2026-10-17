@@ -201,10 +201,11 @@ def publishes_scorecard(cfg: dict[str, Any]) -> bool:
     the first snapshot holding its fifteen symbols would have written one.
     The daily rotation is refused for its bar size too.
     """
+    from bot.core.daily_trend import preset_is_daily_trend
     from bot.core.momentum_trend import preset_is_momentum_trend
     from bot.core.vol_rotation import publishes_scorecard as _rotation_publishes
     return (_rotation_publishes(cfg) and not _unapplied_knobs(cfg)
-            and not preset_is_momentum_trend(cfg))
+            and not preset_is_momentum_trend(cfg) and not preset_is_daily_trend(cfg))
 
 
 def _unapplied_clause(cfg: dict[str, Any]) -> str:
@@ -248,6 +249,12 @@ def unpublished_scorecard(cfg: dict[str, Any]) -> Optional[dict]:
         return vol
     if preset_is_momentum_trend(cfg):
         return {"omitted": "No track record published: no frozen backtest runs this rule yet."}
+    from bot.core.daily_trend import preset_is_daily_trend
+    if preset_is_daily_trend(cfg):
+        return {"omitted": ("No track record published: no frozen backtest runs this rule, "
+                            "and its sizing is recorded on the preset and not applied. Its "
+                            "pre-registered daily study (2014-2026, percent and ratio only) "
+                            "is in the engineering log.")}
     knobs = _unapplied_knobs(cfg)
     if not knobs:
         return None
@@ -307,6 +314,11 @@ def _not_run_sentence(cfg: dict[str, Any]) -> str:
         return NOT_RUN_LIVE + scan + " No backtest evaluates it either."
     if preset_is_momentum_trend(cfg):
         return NOT_RUN_LIVE + scan + " No frozen backtest evaluates it yet."
+    from bot.core.daily_trend import preset_is_daily_trend
+    if preset_is_daily_trend(cfg):
+        return (NOT_RUN_LIVE + scan.replace("last closed 1h bars", "last closed daily bars")
+                + " No frozen backtest evaluates it; the pre-registered daily study that "
+                "passed its bar is in the engineering log.")
     if _unapplied_knobs(cfg):
         return (NOT_RUN_LIVE + scan + " A backtest of it opens nothing, because the "
                 "knobs below do not size a fill.")
@@ -317,10 +329,12 @@ def _how_it_trades(cfg: dict[str, Any]) -> str:
     """Human 'how it trades' line derived from the preset's real config, so it
     stays honest to actual behaviour. No numbers are invented — only the
     thresholds the engine actually applies are surfaced."""
-    from bot.core import limit_scanner, momentum_trend
+    from bot.core import daily_trend, limit_scanner, momentum_trend
     from bot.core.vol_rotation import how_line, preset_is_vol_rotation
     if preset_is_vol_rotation(cfg):
         return _not_run_sentence(cfg) + " " + how_line(cfg)
+    if daily_trend.preset_is_daily_trend(cfg):
+        return _not_run_sentence(cfg) + " " + daily_trend.how_line(cfg)
     if momentum_trend.preset_is_momentum_trend(cfg):
         return _not_run_sentence(cfg) + " " + momentum_trend.how_line(cfg)
     if limit_scanner.preset_is_limit_scanner(cfg):

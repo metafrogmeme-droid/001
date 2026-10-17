@@ -523,6 +523,7 @@ python -m bot.main --mode scan
 | `/altsweep` | 山寨掃描：各幣均線方向（不下單） |
 | `/ethma` | ETH 均線趨勢：均線方向（不下單） |
 | `/volrotation` | 日線輪動：當前會持有的市場（不下單） |
+| `/dailytrend` | 日線趨勢：當前會持有的市場與權重（不下單） |
 | `/intraday` | 15 分鐘日內掃描 |
 | `/swing` | 4 小時波段掃描 |
 | `/stockscan` | 美股代幣化永續 |

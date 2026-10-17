@@ -572,6 +572,7 @@ Every registered command, grouped the way `/help` groups them. Generated from `b
 | `/altsweep` | ALT Sweep now — each alt's moving-average side, places nothing |
 | `/ethma` | ETH Moving-Average Trend now — its moving-average side, places nothing |
 | `/volrotation` | daily rotation now — the market it would hold, places nothing |
+| `/dailytrend` | daily trend sleeve now — the markets it would hold and their weights, places nothing |
 | `/intraday` | 15m intraday scan |
 | `/swing` | 4h swing scan |
 | `/stockscan` | tokenized US stock perps |

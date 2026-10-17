@@ -75,6 +75,7 @@
     "altsweep": "ALT Sweep şimdi: her altın hareketli ortalama yönü, emir vermez",
     "ethma": "ETH Moving-Average Trend şimdi: hareketli ortalama yönü, emir vermez",
     "volrotation": "günlük rotasyon şimdi: tutacağı piyasa, emir vermez",
+    "dailytrend": "günlük trend şimdi: tutacağı piyasalar ve ağırlıkları, emir yok",
     "intraday": "15m gün içi tarama",
     "swing": "4h swing taraması",
     "stockscan": "tokenleştirilmiş ABD hisse perpleri",

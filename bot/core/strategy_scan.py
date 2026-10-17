@@ -49,10 +49,12 @@ LIMIT_ENTRY = "limit_entry"
 MOMENTUM_TREND = "momentum_trend"
 VOL_ROTATION = "vol_rotation"
 MA_TREND = "ma_trend"
+DAILY_TREND = "daily_trend"
 
 
 def rule_of(cfg: Any) -> Optional[str]:
     """Which rule a preset is, or None for a house preset the live bot runs."""
+    from bot.core.daily_trend import preset_is_daily_trend
     from bot.core.limit_scanner import preset_is_limit_scanner
     from bot.core.ma_trend import preset_is_ma_trend
     from bot.core.momentum_trend import preset_is_momentum_trend
@@ -61,6 +63,8 @@ def rule_of(cfg: Any) -> Optional[str]:
         return None
     if preset_is_limit_scanner(cfg):
         return LIMIT_ENTRY
+    if preset_is_daily_trend(cfg):
+        return DAILY_TREND
     if preset_is_momentum_trend(cfg):
         return MOMENTUM_TREND
     if preset_is_vol_rotation(cfg):
@@ -103,6 +107,15 @@ def bars_needed(cfg: dict) -> Optional[int]:
         # The slow average's bars, one more, and a group to spare: a window
         # that starts mid-group would make its first group a part-period's.
         return (int(cfg["slow_period"]) + 2) * hours
+    if rule == DAILY_TREND:
+        from bot.core.daily_trend import params_from_preset as _sleeve_params
+        hours = _hours_per_bar(cfg.get("bar_timeframe"), cfg.get("bar_source_timeframe"))
+        sleeve = _sleeve_params(cfg)
+        if hours is None or sleeve is None:
+            return None
+        # The longest lookback's prior close, two days more, and a group to
+        # spare: a window that starts mid-day would make its first day partial.
+        return int((sleeve.days_needed + 2) * hours)
     if rule == VOL_ROTATION:
         hours = _hours_per_bar(cfg.get("bar_timeframe"), cfg.get("bar_source_timeframe"))
         periods: list[int] = []
@@ -271,6 +284,33 @@ def board_vol_rotation(cfg: dict, rows: dict[str, list]) -> dict:
     return {"rows": out, "verdict": verdict}
 
 
+def board_daily_trend(cfg: dict, rows: dict[str, list]) -> dict:
+    """Each market's trend score, vol and the weight the sleeve would hold."""
+    from bot.core.daily_trend import read_book
+    book = read_book(rows, cfg)
+    if book["params"] is None:
+        return {"rows": [], "verdict": "Its numbers could not be read, so no scan runs it."}
+    out = []
+    for sym in _listed(cfg):
+        r = book["reads"].get(sym)
+        if r is None:
+            continue
+        out.append({"symbol": sym, "score": _num(r.score, 3),
+                    "vol_pct": None if r.vol is None else _num(r.vol * 100, 3),
+                    "weight_pct": None if r.weight is None else _num(r.weight * 100, 3),
+                    "reason": r.reason})
+    holds = book["holds"]
+    if holds:
+        parts = ", ".join(f"{s} {book['reads'][s].weight * 100:.1f}%" for s in holds)
+        verdict = (f"It would hold {len(holds)} of {book['n_book']} markets at "
+                   f"{book['gross'] * 100:.0f}% of notional: {parts}.")
+    elif book["n_book"]:
+        verdict = "No market has a positive trend score, so it would hold nothing."
+    else:
+        verdict = "No market read, so it names no book."
+    return {"rows": out, "verdict": verdict}
+
+
 def board_limit_entry(cfg: dict, rows: dict[str, list]) -> dict:
     """Each class's leader, its scored board and the limit it would rest."""
     from bot.core import limit_scanner as ls
@@ -330,6 +370,7 @@ BOARDS = {
     MOMENTUM_TREND: board_momentum_trend,
     VOL_ROTATION: board_vol_rotation,
     MA_TREND: board_ma_trend,
+    DAILY_TREND: board_daily_trend,
 }
 
 
@@ -420,6 +461,13 @@ def render_text(board: dict) -> str:
         for r in board["rows"]:
             side = r["side"].lower() if r["side"] else "no side"
             lines.append(f"  {_esc(r['symbol'])}: {side}")
+    elif rule == DAILY_TREND:
+        for r in board["rows"]:
+            if r["score"] is None:
+                lines.append(f"  {_esc(r['symbol'])}: {_esc(r['reason'])}")
+                continue
+            w = "unread" if r["weight_pct"] is None else f"{r['weight_pct']:.1f}%"
+            lines.append(f"  {_esc(r['symbol'])}: trend score {r['score']:.2f}, weight {w}")
     lines.append(f"\n<b>{_esc(board['verdict'])}</b>")
     if board["unread"]:
         names = ", ".join(f"{_esc(u['symbol'])} ({_esc(u['why'])})" for u in board["unread"])

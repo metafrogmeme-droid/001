@@ -48,6 +48,7 @@ dashboard guard
 deepscan guard
 defi guard
 dip guard
+dailytrend guard
 disconnect guard
 drawdownlimit is_admin
 duel guard
