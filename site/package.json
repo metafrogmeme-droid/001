@@ -13,7 +13,8 @@
     "preview": "vite preview",
     "check": "tsc --noEmit",
     "test": "node --test test/*.test.js",
-    "prebuild": "node scripts/require-deps.mjs"
+    "prebuild": "node scripts/require-deps.mjs",
+    "postbuild": "node ../app/scripts/sync_content.js"
   },
   "dependencies": {
     "@tanstack/react-router": "^1.170.31",

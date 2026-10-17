@@ -79,7 +79,7 @@ In the Developer Portal:
 - **Verify App Domain** shows a key. Set it as `PI_VALIDATION_KEY` on the website server, restart, then press **Verify Domain**. The portal reads `https://www.humanoid-traders.com/pi/validation-key.txt`.
 - **Ecosystem listing** asks for a privacy policy and terms of service. They are `https://www.humanoid-traders.com/privacy` and `https://www.humanoid-traders.com/terms`.
 
-**The privacy policy and the terms** are written once, in the marketing site (`site/src/routes/privacy.tsx`, `site/src/routes/terms.tsx`). Tests there check what they say against the code. The website serves each built page's text at `/privacy` and `/terms` in a plain page: no script, no presale, and no link beyond the two policies, because Pi's listing links them.
+**The privacy policy and the terms** are written once, in the marketing site (`site/src/routes/privacy.tsx`, `site/src/routes/terms.tsx`). Tests there check what they say against the code. The website serves each built page's text at `/privacy` and `/terms` in a plain page: no script, no presale, and no link beyond the two policies, because Pi's listing links them. The web deploy ships the `app/` folder alone, so the website reads a copy of the built pages under `app/content/site/`. The site build refreshes the copy, and a test fails if it differs from the built pages.
 
 ## Not yet
 

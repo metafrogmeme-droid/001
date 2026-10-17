@@ -26177,3 +26177,27 @@ the route: byte-for-byte article, no script, no door, a 503 for each unservable
 shape, and only the stylesheet from the site's assets.
 `app/test/the_pi_app_is_the_arena_and_nothing_else.test.js` drives both key
 paths, set and unset.)
+
+*Addendum, same day: the route shipped reading a folder the deploy does not
+carry.* The first version read the built pages from `../../website/`. Every
+test passed, because every test ran in a checkout, where `website/` sits
+beside `app/`. The live host answered both URLs with the route's own 503
+("not available on this server"), because the web deploy publishes `app/`
+and nothing beside it. `app/test/the_website_carries_what_it_serves.test.js`
+had recorded exactly that on 2026-10-07, when the token record and the lessons
+failed live the same way. The lesson was in the log. What was missing was the
+search: grep the log for the deploy shape before reading a file from outside
+`app/`.
+- **The fix is the existing pattern.** `app/scripts/sync_content.js` mirrors
+  `website/privacy/`, `website/terms/` and the site's stylesheet into
+  `app/content/site/`, which the route reads.
+- **The site build runs the sync** as its `postbuild`, so a policy edit
+  cannot reach `website/` and skip `app/`.
+- **The tests:**
+  - every copy is held byte-identical to `website/`;
+  - a deploy of `app/` alone is driven to a 200 for both pages, and to a 503
+    without the copies;
+  - the route's folder is asserted to sit inside `app/`.
+- **The fail-closed answer did its job:** a sentence, not an empty policy, and
+  the live check after the deploy is what read it.
+
