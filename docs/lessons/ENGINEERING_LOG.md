@@ -26105,3 +26105,20 @@ engine built without `__init__`) did not carry `_as_live`, which is the
 they carry it now. A ratchet row for `read_daily_equity`, the record's reader
 that nothing draws from yet, and the `.env.example` block regenerated for a
 flag whose line moved.
+
+**THE PRESALE BAR'S TEST MEASURED THE PAGE BEFORE THE BAR, AND ONLY ON A
+LOADED BOX.** 17 October, the full run of the merged tree: the web gate's one
+red test was "agent.html @1280: no bar while the sale is live", 21.9 seconds
+in; alone, the same test passed in 85. `presale.js` draws the bar only once
+its `/api/token` read has answered, and the test's `open()` waited for
+`load`, for `readyState === "complete"`, and then a fixed 300 ms: a beat
+chosen on an idle box, where the routed fetch answers in a few milliseconds.
+With two suites running (load average 6 on 4 cores) the heaviest page, the
+agent page with its 3D mascot module, had not drawn the bar when the beat
+ended, and `barFacts()` read null, which the assertion rendered as "no bar"
+for a bar that arrived a moment later. The test waits for the thing it
+depends on now: on a page that carries `presale.js` it holds for the
+`/api/token` response (a 500 is an answer too, so the no-bar arms wait the
+same way), and keeps the beat after it; a page without the script waits for
+nothing. A fixed delay in a browser test is a measurement of the box it was
+written on. (`app/test/the_presale_bar_says_live_and_steps_aside.smoke.test.js`.)
