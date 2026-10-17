@@ -11,10 +11,10 @@ Their behaviour is covered where it always was
 
 A mixin, not a leaf. Every method here reads `self.users` — the store that
 IS the access decision — gates on `self._is_admin`, and answers through
-`self._send`. `is_vouchable` is imported into THIS module, which is where
-`/approve` reads it; a test that patches the handler's copy of the name is
-patching a name the gate no longer reads, so the vouching test patches it
-here.
+`self._send`. The rules of `/approve`, `/revoke`, `/set_tier` and
+`/revoke_live` are not here: they are the one write path the admin page
+shares (`bot/core/member_admin.py`), which is where `is_vouchable` is read, so
+the vouching test patches it there.
 """
 from __future__ import annotations
 
@@ -31,14 +31,12 @@ from bot.formatters.retention_baseline import (
     retention_baseline,
 )
 from bot.formatters.user_roster import render_table
-from bot.utils.i18n import get_user_lang, t
+from bot.utils.i18n import t
 from bot.utils.logger import audit, system_log
 from bot.utils.user_store import (
     ROLES,
-    SELF_ADMISSION_ROLE,
     StoreWriteHeld,
     UserStore,
-    is_vouchable,
 )
 
 if TYPE_CHECKING:
@@ -61,17 +59,6 @@ def _cap_held(target_id: str, usd, cls: str) -> str:
             f"could not be written ({cls}). A restart goes back to the cap on "
             f"disk. Fix the disk, then run <code>/setcap {target_id} {again}</code> "
             "again.")
-
-
-def _is_ascii_digits(value: str) -> bool:
-    return bool(value) and value.isascii() and value.isdigit()
-
-
-def _is_web_member_id(value: str) -> bool:
-    """`web:<id>`, the store's key for a website-only member, read by the
-    gateway's own pattern (the one door that provisions them)."""
-    from bot.web.user_gateway import _is_web_id
-    return _is_web_id(value)
 
 
 class AccessCommands:
@@ -108,54 +95,36 @@ class AccessCommands:
             return
 
         target_id = args[0].strip()
-
-        # Input validation: Telegram IDs are numeric only. Shared with the
-        # `admit:` callback and read by migrate_self_admitted_roles, which
-        # depends on this refusal to know a web-only account cannot have been
-        # vouched for — see user_store.is_vouchable.
-        if not is_vouchable(target_id):
-            await self._send(update,
-                f"\U0001f534 {t('invalid_tg_id_numeric', self._lang(update))}")
-            return
-
         role = args[1].strip().lower() if len(args) > 1 else "trader"
 
-        # `paper` is grantable here on purpose: it is where a self-admitted user
-        # already sits, so an admin who wants to keep someone at that level —
-        # or move a "trader" back down to it without revoking access outright —
-        # can, instead of having only /revoke as the next step down.
-        if role not in ("trader", SELF_ADMISSION_ROLE, "viewer", "admin"):
-            await self._send(update,
-                f"\U0001f534 {t('invalid_role', self._lang(update), role=html.escape(role))}")
+        # THE ONE WRITE PATH (bot/core/member_admin.py), shared with the admin
+        # page. It holds the rules this command used to hold inline: a
+        # numeric id only (read by migrate_self_admitted_roles, which depends
+        # on this refusal to know a web-only account cannot have been vouched
+        # for), the grantable roles (`paper` on purpose: where a
+        # self-admitted user already sits), and `by=`, which is what makes
+        # the authorization one the allowlist reads.
+        from bot.core import member_admin
+        res = member_admin.approve(self.users, target_id, role,
+                                   by=self._get_tg_id(update),
+                                   via=member_admin.TELEGRAM)
+        if not res.ok:
+            if res.error == "invalid_tg_id_numeric":
+                await self._send(update,
+                    f"\U0001f534 {t('invalid_tg_id_numeric', self._lang(update))}")
+            elif res.error == "invalid_role":
+                await self._send(update,
+                    f"\U0001f534 {t('invalid_role', self._lang(update), role=html.escape(role))}")
+            else:
+                await self._send(update,
+                    f"🔴 {t('approve_failed', self._lang(update), id=html.escape(target_id))}")
             return
-
-        # `by=` is what makes this stick. Without it the store records an
-        # authorization the allowlist does not read, and /approve announces
-        # "USER APPROVED" to the admin and "Access Granted" to the user while
-        # the very next command still answers "not approved yet".
-        ok = self.users.authorize(target_id, role=role,
-                                  by=self._get_tg_id(update))
-        if ok:
-            target = self.users.get(target_id)
-            name = target.get("name", "Unknown") if target else "Unknown"
-            can_live = self._can_trade_live(target_id)
-            trade_mode = "\U0001f525 Live" if can_live else "\U0001f4dd Paper"
-            SEP = "\u2500" * 16
-            await self._send(update,
-                f"\u2705 {t('approve_result', self._lang(update), sep=SEP, name=html.escape(name), id=target_id, role=role, trade_mode=trade_mode)}")
-            # Notify the approved user
-            try:
-                await ctx.bot.send_message(
-                    chat_id=int(target_id),
-                    text=(
-                        f"🟢 {t('access_granted', get_user_lang(self.users, target_id), sep=SEP, role=role)}"
-                    ),
-                    parse_mode="HTML")
-            except Exception:
-                pass  # User may not have started the bot yet
-        else:
-            await self._send(update,
-                f"🔴 {t('approve_failed', self._lang(update), id=html.escape(target_id))}")
+        can_live = self._can_trade_live(target_id)
+        trade_mode = "\U0001f525 Live" if can_live else "\U0001f4dd Paper"
+        SEP = "\u2500" * 16
+        await self._send(update,
+            f"\u2705 {t('approve_result', self._lang(update), sep=SEP, name=html.escape(res.name), id=target_id, role=role, trade_mode=trade_mode)}")
+        await member_admin.notify_approved(ctx.bot, self.users, target_id, role)
 
     async def _cmd_revoke(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """Admin only: /revoke <telegram_id>"""
@@ -171,21 +140,19 @@ class AccessCommands:
 
         target_id = args[0].strip()
 
-        # L-13 FIX: validate Telegram ID format
-        if not target_id.isdigit():
-            await self._send(update, f"{t('invalid_tg_id_format', self._lang(update))}")
-            return
-
-        # Don't let admin revoke themselves
-        if target_id == self._get_tg_id(update):
-            await self._send(update, f"\U0001f534 {t('cannot_revoke_self', self._lang(update))}")
-            return
-
-        ok = self.users.revoke(target_id)
-        if ok:
+        # The rules (a numeric id; never the caller's own) are the one write
+        # path's, shared with the admin page (bot/core/member_admin.py).
+        from bot.core import member_admin
+        res = member_admin.revoke(self.users, target_id, by=self._get_tg_id(update),
+                                  via=member_admin.TELEGRAM)
+        if res.ok:
             SEP = "─" * 16
             await self._send(update,
                 f"⚠️ {t('revoke_result', self._lang(update), sep=SEP, id=target_id)}")
+        elif res.error == "invalid_tg_id_format":
+            await self._send(update, f"{t('invalid_tg_id_format', self._lang(update))}")
+        elif res.error == "cannot_revoke_self":
+            await self._send(update, f"\U0001f534 {t('cannot_revoke_self', self._lang(update))}")
         else:
             await self._send(update,
                 f"\U0001f534 {t('user_not_found_id', self._lang(update), id=html.escape(target_id))}")
@@ -236,20 +203,19 @@ class AccessCommands:
                 f"{t('revoke_live_usage', self._lang(update))}")
             return
         target_id = args[0].strip()
-        if not target_id.isdigit():
+        from bot.core import member_admin
+        res = member_admin.revoke_live(self.users, target_id, by=self._get_tg_id(update),
+                                       via=member_admin.TELEGRAM)
+        if res.ok:
+            await self._send(update,
+                f"\U0001f4dd {t('revoke_live_result', self._lang(update), name=html.escape(res.name), id=target_id)}")
+        elif res.held:
+            # In force for this process, NOT on disk: said as such, never as
+            # "nothing happened".
+            await self._send(update,
+                f"\u26a0\ufe0f {t('revoke_live_held', self._lang(update), id=target_id, cls=res.params.get('cls'))}")
+        elif res.error == "invalid_tg_id":
             await self._send(update, f"\U0001f534 {t('invalid_tg_id', self._lang(update))}")
-            return
-        try:
-            ok = self.users.set_live_trading(target_id, False)
-        except StoreWriteHeld as exc:
-            await self._send(update,
-                f"\u26a0\ufe0f {t('revoke_live_held', self._lang(update), id=target_id, cls=exc.detail)}")
-            return
-        if ok:
-            user = self.users.get(target_id)
-            name = user.get("name", "Unknown") if user else "Unknown"
-            await self._send(update,
-                f"\U0001f4dd {t('revoke_live_result', self._lang(update), name=html.escape(name), id=target_id)}")
         else:
             await self._send(update, f"\U0001f534 {t('user_not_found', self._lang(update))}")
 
@@ -267,63 +233,35 @@ class AccessCommands:
             return
         target_id = args[0].strip()
         tier = args[1].strip().lower()
-        # A website-only member is `web:<site user id>` in this store
-        # (bot/web/user_gateway.py). It used to be refused here as "not a
-        # Telegram id", so a member who never linked Telegram could not be
-        # granted anything, and the website mirror had nothing to show them.
-        # ASCII digits only: `str.isdigit` is true for "١٢" and "１２".
-        is_web = _is_web_member_id(target_id)
-        if not (is_web or _is_ascii_digits(target_id)):
-            await self._send(update, f"\U0001f534 {t('invalid_tg_id', self._lang(update))}")
-            return
+        # The rules are the one write path's (bot/core/member_admin.py),
+        # shared with the admin page: a website-only member is
+        # `web:<site user id>` and may hold any tier but the operator's (the
+        # website reads `plan == 'admin'` as THE OPERATOR); a Telegram id is
+        # ASCII digits only (`str.isdigit` is true for "١٢" and "１２"). The
+        # website's `users.plan` mirror is started there too, from either door.
+        from bot.core import member_admin
         from bot.utils.user_store import TIERS
-        if tier not in TIERS:
-            await self._send(update,
-                f"\U0001f534 {t('invalid_tier', self._lang(update), tier=html.escape(tier), valid=', '.join(f'<code>{_t}</code>' for _t in TIERS))}")
-            return
-        if is_web and tier == "admin":
-            # The website reads `plan == 'admin'` as THE OPERATOR
-            # (app/lib/operator_view.js). An operator is a vouched Telegram
-            # identity; a website account is one sign-up away.
-            await self._send(update, f"\U0001f534 {t('set_tier_web_admin', self._lang(update))}")
-            return
-        user = self.users.get(target_id)
-        if not user:
-            await self._send(update, f"\U0001f534 {t('user_not_found_id_period', self._lang(update), id=target_id)}")
-            return
-        ok = self.users.set_tier(target_id, tier)
-        if ok:
-            # Mirror the change to the website so users.plan follows the
-            # bot's tier authority (best-effort, background).
-            try:
-                from bot.utils.website_sync import sync_tiers_in_background
-                sync_tiers_in_background(self.users.all_tiers())
-            except Exception:
-                pass
-            name = user.get("name", "Unknown")
-            tier_label = self.users.tier_label(target_id)
-            await self._send(update,
-                f"\U0001f3af {t('set_tier_result', self._lang(update), name=html.escape(name), id=target_id, tier_label=tier_label, role=user.get('role', 'trader'))}")
-            # Tell the member: "changed", not "upgraded", since the same
-            # command lowers a tier. A website-only member has no chat to
-            # write to, so the website emails them instead (when it holds a
-            # real address and a mail relay; best-effort, background).
-            if not is_web:
-                try:
-                    await ctx.bot.send_message(
-                        chat_id=int(target_id),
-                        text=(f"\U0001f3af {t('tier_changed', get_user_lang(self.users, target_id), tier_label=tier_label)}"),
-                        parse_mode="HTML")
-                except Exception:
-                    pass
+        res = member_admin.set_tier(self.users, target_id, tier,
+                                    by=self._get_tg_id(update),
+                                    via=member_admin.TELEGRAM)
+        if not res.ok:
+            if res.error == "invalid_tier":
+                await self._send(update,
+                    f"\U0001f534 {t('invalid_tier', self._lang(update), tier=html.escape(tier), valid=', '.join(f'<code>{_t}</code>' for _t in TIERS))}")
+            elif res.error == "user_not_found_id_period":
+                await self._send(update, f"\U0001f534 {t('user_not_found_id_period', self._lang(update), id=target_id)}")
+            elif res.error in ("invalid_tg_id", "set_tier_web_admin"):
+                await self._send(update, f"\U0001f534 {t(res.error, self._lang(update))}")
             else:
-                try:
-                    from bot.utils.website_sync import notify_tier_change_in_background
-                    notify_tier_change_in_background(target_id, tier)
-                except Exception:
-                    pass
-        else:
-            await self._send(update, f"\U0001f534 {t('set_tier_failed', self._lang(update))}")
+                await self._send(update, f"\U0001f534 {t('set_tier_failed', self._lang(update))}")
+            return
+        tier_label = self.users.tier_label(target_id)
+        role = (res.after or {}).get("role") or "trader"
+        await self._send(update,
+            f"\U0001f3af {t('set_tier_result', self._lang(update), name=html.escape(res.name), id=target_id, tier_label=tier_label, role=role)}")
+        # Tell the member: "changed", not "upgraded", since the same command
+        # lowers a tier.
+        await member_admin.notify_tier(ctx.bot, self.users, target_id, tier)
 
     async def _cmd_channel(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         """/channel — manage marketing channel auto-posting.

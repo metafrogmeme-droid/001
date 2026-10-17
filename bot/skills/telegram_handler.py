@@ -35,8 +35,9 @@ from bot.core.live_executor import entry_is_estimated, position_size_basis
 from bot.core.signal_confidence import SCORE_MEANING, displayed_confidence
 from bot.core.venues import venue_lineup_sentence
 from bot.core.cost import (
-    CHAT_OWN_BOUND, CHAT_SHARE_BOUND, PUBLIC_SHARE_BOUND, chat_budget_bound,
-    chat_cap_usd, chat_spend_usd, public_chat_budget_bound,
+    CHAT_OWN_BOUND, CHAT_SHARE_BOUND, PUBLIC_SHARE_BOUND, USER_SHARE_BOUND,
+    chat_budget_bound, chat_cap_usd, chat_spend_usd, public_chat_budget_bound,
+    user_chat_budget_bound,
 )
 from bot.core.limit_input import (consume_pending, limit_expired_text,
                                   read_pending, typed_limit_outside_levels)
@@ -3130,8 +3131,13 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             snap = self.engine.cost.snapshot()
             _chat_cap = chat_cap_usd(CONFIG.llm)
             _chat_spent = chat_spend_usd(snap)
+            # A signed-in caller who is not an admin is also held to one
+            # user's slice of chat (`user_chat_budget_bound`), so one person
+            # asking all day cannot spend the share everyone else answers from.
+            _held = bool(user_id) and not is_admin and not public
             _bound = (public_chat_budget_bound(snap, CONFIG.llm) if public
-                      else chat_budget_bound(snap, CONFIG.llm))
+                      else user_chat_budget_bound(snap, CONFIG.llm, str(user_id))
+                      if _held else chat_budget_bound(snap, CONFIG.llm))
             if _bound:
                 audit(system_log,
                       f"Chat LLM budget exhausted: {_bound} (calls={snap.llm_calls}, "
@@ -3148,6 +3154,16 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                         "preview's limit, not the bot's: signed-in chat has its "
                         "own budget.<br><br><a href=\"/dashboard\">Sign in "
                         "(free) \u2192</a>"),
+                        None, return_meta)
+                # This user's slice is reached, not chat's: everyone else's
+                # chat still answers, so the refusal says it is theirs.
+                if _bound == USER_SHARE_BOUND:
+                    return _chat_ret(_say(
+                        _ui, "chat_user_share_exhausted",
+                        "You've used your share of today's AI chat budget. "
+                        "The budget is shared by everyone who chats with the "
+                        "bot, and no one person can spend more than a share "
+                        "of it; yours comes back at 00:00 UTC.") + _what_works,
                         None, return_meta)
                 # Chat's share is its own bound, and the trade analysis still
                 # has the rest of the budget, so "used up today's AI budget"
@@ -3365,6 +3381,8 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                         # The preview's subset of chat's spend, which its
                         # own slice of the budget is measured against.
                         public=public,
+                        # And the signed-in caller's subset, which theirs is.
+                        user=str(user_id) if user_id and not public else None,
                         # The cached system prompt's reads and writes, billed
                         # beside the input (`cost.llm_call_cost`).
                         **cache_kwargs(_usage),
@@ -3770,9 +3788,13 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # The same bound the reply reads. A fold is a chat call, so a day
             # whose chat share is spent folds nothing; the turns go back on the
             # bounded queue for tomorrow rather than being spent past the cap.
+            # It is this user's conversation, booked to them, so a user whose
+            # own slice is spent folds nothing either.
             _cost = getattr(getattr(self, "engine", None), "cost", None)
             if _cost is not None:
-                _bound = chat_budget_bound(_cost.snapshot(), CONFIG.llm)
+                _snap = _cost.snapshot()
+                _bound = (chat_budget_bound(_snap, CONFIG.llm) if is_admin
+                          else user_chat_budget_bound(_snap, CONFIG.llm, str(user_id)))
                 if _bound:
                     store.push_back_pending(user_id, pending)
                     audit(system_log,
@@ -3808,7 +3830,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                        else len(note or "") // 4)
                 _cost.record_llm(model=cfg.model, prompt_tokens=_pt,
                                  completion_tokens=_ct, category="chat",
-                                 **cache_kwargs(_usage))
+                                 user=str(user_id), **cache_kwargs(_usage))
             note = (note or "").strip()
             # The note is the model's own text, and the turns it folds hold
             # `[skill] result:` blocks — the one shape `strip_fabricated_tool_
