@@ -11792,6 +11792,13 @@ class LiveExecutor:
                         old_sl = pos.stop_loss
                         pos_strategy = getattr(pos, 'strategy_type', 'swing')
                         trail_mult = CONFIG.strategy_types.get_trailing_atr_mult(pos_strategy)
+                        # The trail's breakeven is the ladder's: the round trip
+                        # past the entry, read from the position's own entry leg
+                        # on every pass as TP1's lock reads it. The first step
+                        # floored at the bare entry, so its "breakeven" stop-out
+                        # paid the fees (0.08% limit, 0.12% market).
+                        pos.trailing_state["fee_round_trip_pct"] = round_trip_pct(
+                            getattr(pos, "order_type", None))
                         new_sl, trailing_active = update_trailing_stop(
                             pos.trailing_state, price, pos.stop_loss, pos.direction,
                             trail_atr_mult=trail_mult,

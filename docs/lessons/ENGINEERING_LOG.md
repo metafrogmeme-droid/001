@@ -25877,3 +25877,40 @@ the page loads names the presale or the token.
 `app/test/the_pi_app_signs_in_with_pi.smoke.test.js` drives sign-in in
 Chromium with a stand-in SDK, and renders the Mini App's gate beside it.
 `app/test/migration_ddl.test.js` drives the user-column reconciliation.)
+
+**THE TRAIL'S FIRST STEP WAS "BREAKEVEN" AT THE BARE ENTRY, SO EVERY STOP-OUT
+THERE PAID THE ROUND TRIP.** The multistage trail (`bot/utils/trailing.py`)
+floors its stage-1 stop at `entry + 0.0R`: the entry price itself. A stop-out
+there realizes 0% of notional and pays the position's fees, 0.08% on a limit
+entry and 0.12% on a market one at the shipped rates, and the books call it
+flat. TP1's lock was moved past the fees in the breakeven-after-fees chapter;
+the trail, which binds first (at 1R, before TP1's 1.5R), kept the bare entry.
+Driven before the fix, a long from 100 with 1R = 2 and ATR 2 reached 102.4
+and the executor sent the venue a stop of 100.0. In the backtest this step
+almost never bound: there the trail's ATR is 1R / 2.5, so the stage-1 ATR
+trail sat at entry + 0.2R, above the floor. Live reads the position's real
+ATR, so a swing whose stop is 2 ATR wide trails at exactly the entry. Live
+booked more of these scratches than any card showed, and the 17 Oct edge
+audit (every indicator, the backtest positions, five slow rules: nothing earns
+its costs) put it on the list.
+
+**One figure, read where TP1's lock reads it.** The trail state carries
+`fee_round_trip_pct`, and the stage floors never sit closer to the entry than
+that: `max(floor_r * 1R, fee buffer)`, so a later stage whose R-floor is inside
+the fees (a tight 1R) is raised to them too. Live sets it on every pass from
+`round_trip_pct(pos.order_type)`, as the ladder does; the backtest hands
+`make_trailing_state` two legs of its commission, the figure its TP1 lock gets;
+the paper book hands two legs of the rate its close charges, through one
+`_commission_rate()` the close reads as well. A state recorded without the
+field, or with a figure that is not a finite non-negative number, floors at
+the bare entry as it always did. The canonical benchmark
+(`benchmark/majors_1h`, `--honest --walk-forward 6`) and the six agent
+scorecards were re-run on this commit and on main side by side: identical to
+the recorded figures, so nothing is re-recorded; the step rarely binds in the
+backtest, which is the finding above. Five mutants (the floor ignoring the
+buffer, each of the three runtimes passing none, a bool read as a rate) each
+failed a test that names it.
+(`tests/test_the_first_trailing_step_is_breakeven_after_fees.py` drives the
+trail, the live monitor pass through the real `check_positions`, the
+backtest's real `_execute_fill` and `_check_stops_intrabar`, and the paper
+book's `check_stops`.)

@@ -1149,7 +1149,11 @@ class BacktestEngine:
         else:
             sl_mult = CONFIG.analyzer.sl_atr_mult_default
             canonical_atr = initial_risk / sl_mult if initial_risk > 0 else idea.entry_price * 0.02
-        trailing = make_trailing_state(adjusted_entry, idea.direction.value, initial_risk, canonical_atr)
+        # The trail's breakeven floor reads the same round trip as TP1's lock
+        # below: this engine's own, a commission on each leg.
+        trailing = make_trailing_state(adjusted_entry, idea.direction.value, initial_risk,
+                                       canonical_atr,
+                                       fee_round_trip_pct=2.0 * self.config.commission_pct)
         trailing["entry_price"] = adjusted_entry
         # Capture the entry regime for P&L attribution (which regimes actually
         # make money — see the report's regime breakdown). Best-effort.

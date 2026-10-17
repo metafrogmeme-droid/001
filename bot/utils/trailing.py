@@ -5,7 +5,11 @@ Multi-stage trailing stop system:
 
   Stage 0 (inactive)   — No trailing, use original SL.
                           Transitions to Stage 1 when profit >= 1R.
-  Stage 1 (breakeven)  — SL floor at entry price. Trail at 2.0x ATR.
+  Stage 1 (breakeven)  — SL floor at breakeven after the round trip: the
+                          entry plus the position's fees (`fee_round_trip_pct`
+                          in the state), so a stop-out there costs nothing.
+                          A state recorded without a round trip floors at the
+                          bare entry, as it always did. Trail at 2.0x ATR.
                           Transitions to Stage 2 when profit >= 2R.
   Stage 2 (lock profit) — SL floor at entry + 0.5R. Trail at 1.5x ATR.
                           Transitions to Stage 3 when profit >= 3R.
@@ -17,6 +21,7 @@ The trail only tightens, never widens.
 
 from __future__ import annotations
 
+import math
 import os
 
 
@@ -48,6 +53,7 @@ def make_trailing_state(
     direction: str,
     initial_risk: float,
     atr_value: float,
+    fee_round_trip_pct: float | None = None,
 ) -> dict:
     """Create initial trailing-stop state for a new position.
 
@@ -56,6 +62,11 @@ def make_trailing_state(
         direction: "LONG" or "SHORT".
         initial_risk: The 1R risk amount (absolute price distance).
         atr_value: Current ATR value for trail distance calculation.
+        fee_round_trip_pct: The position's round trip in percent of notional
+            (entry leg plus one exit), the figure the TP1 lock reads. The
+            stage floors never sit closer to the entry than this, so the
+            first step's "breakeven" is breakeven after fees. None leaves the
+            floors where they always were; live sets it on every pass.
 
     Returns:
         A mutable state dict to be passed into ``update_trailing_stop``.
@@ -67,7 +78,24 @@ def make_trailing_state(
         "initial_risk": initial_risk,
         "atr": atr_value,
         "stage": 0,
+        "fee_round_trip_pct": fee_round_trip_pct,
     }
+
+
+def _fee_buffer(state: dict, entry_price: float) -> float:
+    """The price distance past the entry at which a close costs nothing.
+
+    A price move of x% of entry realizes x% of notional and the round trip
+    costs its own percent of notional, so the two compare directly, as in the
+    TP1 lock (`partial_tp._tp1_lock`). An absent or unreadable round trip is
+    no buffer: the floor stays at the bare entry, as a state written before
+    the field always behaved.
+    """
+    rt = state.get("fee_round_trip_pct")
+    if (not isinstance(rt, (int, float)) or isinstance(rt, bool)
+            or not math.isfinite(rt) or rt < 0.0):
+        return 0.0
+    return entry_price * float(rt) / 100.0
 
 
 def _compute_profit(entry_price: float, best_price: float, direction: str) -> float:
@@ -83,17 +111,20 @@ def _apply_floor_sl(
     initial_risk: float,
     direction: str,
     current_sl: float,
+    fee_buffer: float = 0.0,
 ) -> float:
     """Apply a stage's SL floor and return the tighter of floor vs current SL.
 
-    The floor is expressed in R-units from entry. For LONG positions it is
-    added; for SHORT positions it is subtracted.
+    The floor is expressed in R-units from entry, and never closer to the
+    entry than ``fee_buffer`` (breakeven after the round trip). For LONG
+    positions it is added; for SHORT positions it is subtracted.
     """
+    distance = max(floor_r * initial_risk, fee_buffer)
     if direction == "LONG":
-        floor_sl = entry_price + floor_r * initial_risk
+        floor_sl = entry_price + distance
         return max(current_sl, floor_sl)
     else:
-        floor_sl = entry_price - floor_r * initial_risk
+        floor_sl = entry_price - distance
         return min(current_sl, floor_sl)
 
 
@@ -202,7 +233,8 @@ def update_trailing_stop(
 
     # Apply the SL floor for this stage.
     if stage_def["floor_r"] is not None and initial_risk > 0:
-        sl = _apply_floor_sl(entry_price, stage_def["floor_r"], initial_risk, direction, sl)
+        sl = _apply_floor_sl(entry_price, stage_def["floor_r"], initial_risk, direction, sl,
+                             fee_buffer=_fee_buffer(state, entry_price))
 
     # Apply the ATR trail.
     if stage_def["atr_mult"] is not None:
