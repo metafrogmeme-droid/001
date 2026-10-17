@@ -2571,6 +2571,33 @@ class RunStrategySkill(BaseSkill):
                                "stop_loss_pct": 1.2, "take_profit_pct": 2.4},
             "leverage": 20,
         },
+        # The daily trend sleeve: the one rule in this project's pre-registered
+        # studies that passed its bar (the engineering log, "THE DAILY TREND
+        # RULE PASSED ON KRAKEN'S HISTORY": 2014-2021 development Sharpe 2.12,
+        # 2021-2026 holdout 0.63, long only). Its sixteen markets are the ones
+        # with daily history before June 2021 on the venue it was measured on;
+        # the live bot does not run it and no frozen backtest evaluates it.
+        # /dailytrend reads it on the last closed daily bars. The sizing is the
+        # rule's own and is recorded, not applied.
+        "daily trend": {
+            "label": "Daily Trend Sleeve", "icon": "\U0001f4cf",
+            "desc": ("16 USDT perpetuals \u2022 closed daily bars \u2022 long a market "
+                     "whose 20/60/120-day returns lean up, sized by its 30-day vol "
+                     "toward 20% a year across the book \u2022 no shorts, no stop, sold when "
+                     "the trend score falls to zero \u2022 the live bot does not run it"),
+            "symbols": [
+                "ADAUSDT", "ALGOUSDT", "ATOMUSDT", "BCHUSDT", "BTCUSDT", "DOGEUSDT",
+                "DOTUSDT", "ETCUSDT", "ETHUSDT", "FILUSDT", "LINKUSDT", "LTCUSDT",
+                "TRXUSDT", "UNIUSDT", "XLMUSDT", "XRPUSDT",
+            ],
+            "rsi_threshold": None, "rsi_min": None,
+            "regime": None, "confidence_threshold": None,
+            "direction": None, "volume_spike_min": None,
+            "sl_atr_mult": None, "tp_atr_mult": None,
+            "daily_trend": {"lookbacks": [20, 60, 120], "vol_window": 30,
+                            "target_vol": 0.20, "band": 0.10, "cap": 1.0},
+            "bar_timeframe": "1d", "bar_source_timeframe": "1h",
+        },
         # The RUNECLAW Limit Entry Scanner playbook, ported onto closed 1h
         # bars: its rules are `bot/core/limit_scanner.py`, one reading for the
         # frozen backtest and the confirm gate. BTC is the regime leader and
@@ -2648,6 +2675,7 @@ class RunStrategySkill(BaseSkill):
         "altsweep": "alt sweep",
         "limitscan": "limit scanner",
         "multitrend": "multi trend",
+        "dailytrend": "daily trend",
     }
 
     @classmethod

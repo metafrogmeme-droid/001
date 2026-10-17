@@ -75,6 +75,7 @@
     "altsweep": "ALT Sweep agora: o lado da média móvel de cada alt, sem ordens",
     "ethma": "ETH Moving-Average Trend agora: o lado da sua média móvel, sem ordens",
     "volrotation": "rotação diária agora: o mercado que manteria, sem ordens",
+    "dailytrend": "tendência diária agora: os mercados que manteria e seus pesos, sem ordens",
     "intraday": "análise intradiária a 15m",
     "swing": "análise swing a 4h",
     "stockscan": "perpétuos de ações dos EUA tokenizadas",

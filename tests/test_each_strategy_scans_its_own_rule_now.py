@@ -99,7 +99,7 @@ def test_every_preset_the_live_bot_does_not_run_has_a_scan_door_and_no_other_doe
     for key, cfg in RunStrategySkill.PRESETS.items():
         assert (doors[key] is None) == sc.live_runs(cfg), key
     assert {d for d in doors.values() if d} == {
-        "limitscan", "multitrend", "altsweep", "ethma", "volrotation"}
+        "limitscan", "multitrend", "altsweep", "ethma", "volrotation", "dailytrend"}
     # A door is the preset's own alias, so `run <alias>` and the scan name one preset.
     for key, door in doors.items():
         if door:
@@ -264,7 +264,7 @@ class _Chat:
         self.sent: list[str] = []
         for name in ("_strategy_scan", *(f"_cmd_{d}" for d in
                                          ("limitscan", "multitrend", "altsweep", "ethma",
-                                          "volrotation"))):
+                                          "volrotation", "dailytrend"))):
             setattr(self, name, getattr(ScanCommands, name).__get__(self))
 
     async def _guard(self, update, command, ctx):
@@ -275,7 +275,8 @@ class _Chat:
         self.sent.append(text)
 
 
-@pytest.mark.parametrize("door", ["limitscan", "multitrend", "altsweep", "ethma", "volrotation"])
+@pytest.mark.parametrize("door", ["limitscan", "multitrend", "altsweep", "ethma", "volrotation",
+                                  "dailytrend"])
 def test_each_door_scans_the_preset_it_is_the_alias_of(door, monkeypatch):
     asked = []
 

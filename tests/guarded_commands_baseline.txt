@@ -42,6 +42,7 @@ _cmd_daily_report journal
 _cmd_dashboard dashboard
 _cmd_deepscan deepscan
 _cmd_defi defi
+_cmd_dailytrend run
 _cmd_dip run
 _cmd_disconnect connect
 _cmd_duel start

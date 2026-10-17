@@ -1087,6 +1087,11 @@ class ScanCommands:
         """The daily rotation's reading now."""
         await self._strategy_scan(update, "daily vol rotation")
 
+    @guard("run")
+    async def _cmd_dailytrend(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        """The daily trend sleeve's book now."""
+        await self._strategy_scan(update, "daily trend")
+
     async def _render_strategy_setups_card(self, update, label: str) -> bool:
         """Render the stashed strategy setups (entry/SL/TP/R:R per idea) as the
         setups card. Best-effort; returns True if a card was sent."""

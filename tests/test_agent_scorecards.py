@@ -140,7 +140,7 @@ def test_catalog_scorecard_is_failsoft(monkeypatch):
     assert cat
     for card in cat:
         slot = card["scorecard"]
-        if card["id"] in ("daily-vol-rotation", "alt-sweep", "multi-trend"):
+        if card["id"] in ("daily-vol-rotation", "alt-sweep", "multi-trend", "daily-trend"):
             assert slot["omitted"]
             assert "No track record published" in slot["omitted"]
             assert "metrics" not in slot

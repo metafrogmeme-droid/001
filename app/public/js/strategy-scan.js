@@ -49,6 +49,10 @@
     let cells = '<b>' + esc(r.symbol) + '</b> ';
     if (rule === 'momentum_trend') {
       cells += 'momentum ' + esc(pctText(r.momentum_pct)) + ' <span class="muted">— ' + esc(r.reason) + '</span>';
+    } else if (rule === 'daily_trend') {
+      cells += (r.score == null ? esc(r.reason)
+        : 'trend score ' + esc(Number(r.score).toFixed(2)) + ', weight '
+          + (r.weight_pct == null ? 'unread' : esc(Number(r.weight_pct).toFixed(1)) + '%'));
     } else if (rule === 'vol_rotation') {
       cells += 'momentum ' + esc(pctText(r.momentum, 100)) + ', '
         + (r.above_average == null ? 'its average unread' : (r.above_average ? 'above' : 'not above') + ' its average')

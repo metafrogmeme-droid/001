@@ -75,6 +75,7 @@
     "altsweep": "ALT Sweep の現在：各アルトの移動平均の方向（発注なし）",
     "ethma": "ETH Moving-Average Trend の現在：移動平均の方向（発注なし）",
     "volrotation": "日次ローテーションの現在：保有する市場（発注なし）",
+    "dailytrend": "日足トレンド（現在）：保有する市場と比率、発注なし",
     "intraday": "15分足日中スキャン",
     "swing": "4時間足スイングスキャン",
     "stockscan": "トークン化米国株のパーペチュアル",

@@ -1313,9 +1313,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 112 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 113 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 103 of the 112 reach the tool-less chat model and 9
+typed as the card prints them, 104 of the 113 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -21054,7 +21054,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 271 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 272 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **494 of 1336** reach for source text through `source_scan`, `code_only`
+Driven, **495 of 1337** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 494 is a FLOOR and the honest shape is
+source scan that rule does not see, so 495 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -26177,3 +26177,74 @@ the route: byte-for-byte article, no script, no door, a 503 for each unservable
 shape, and only the stylesheet from the site's assets.
 `app/test/the_pi_app_is_the_arena_and_nothing_else.test.js` drives both key
 paths, set and unset.)
+
+**THE DAILY TREND RULE PASSED ON KRAKEN'S HISTORY, THE FIRST PASS IN THIRTEEN
+PRE-REGISTERED TESTS, AND IT IS A SLEEVE, NOT A BOT.** The Bitget slow-rule
+study (17 Oct) had three years of history and no power: an 18-month to 3-year
+Sharpe has a standard error near 0.8, and its one near-miss, daily trend L/S at
+dev 0.66 / holdout 0.24, could not be told from zero. Kraken publishes its whole
+spot OHLCVT history as one archive (every pair from its first trade; daily bars
+from 2013 for BTC and 2017–18 for most majors). It was fetched and verified
+against Kraken's checksums, and the same five rules, byte for byte, were
+pre-registered on it before a bar was readable (sealed 2026-10-17T07:36:30Z,
+sha256 `b54e4e85…6587a`): the universe fixed by rule (a USD pair with 150 daily
+bars before 2021-06-01, which admits 16 of the 20 and not AVAX, BNB, NEAR or
+SOL), development 2014-04 → 2021-05 as the unread window, holdout 2021-06 →
+2026-06, costs 0.10% a side, no funding on spot, the same four-part pass rule.
+Development ran, the code was sealed, the holdout was read once.
+
+| rule | dev Sharpe | holdout Sharpe | years up / traded | 90% bootstrap (full) | holdout DD | verdict |
+|---|---|---|---|---|---|---|
+| H1a trend L/S | +1.46 | +0.29 | 12/13 | [+0.52, +1.54] | 18.8% | fail (holdout) |
+| **H1b trend long-only** | **+2.12** | **+0.63** | 8/13 | [+1.05, +2.15] | 10.1% | **PASS** |
+| H2a breakout L/S | +1.38 | +0.15 | 9/13 | [+0.42, +1.43] | 20.8% | fail |
+| H2b breakout long-only | +1.73 | +0.42 | 8/12 | [+0.75, +1.80] | 14.6% | fail |
+| H3 xs momentum | +0.49 | −0.46 | 3/8 | [−0.48, +0.53] | 57.3% | fail, dropped |
+
+BTC buy-and-hold over the same holdout: Sharpe 0.44, drawdown 76.7%. H1b by
+year, net: 2015 +12%, 2016 +28%, 2017 +96%, 2018 −6.5%, 2019 +14%, 2020 +25%,
+2021 +22%, 2022 −4.5%, 2023 +7.8%, 2024 +24%, 2025 −1.2%, 2026 (to June) −0.7%.
+Holdout CAGR +4.3%.
+
+**How to read it, and what it is not.** The development window is the new
+information: 2014–2021 had never been read here, and all four trend and
+breakout rules earned Sharpe 1.4–2.1 across it, 2018 included. The holdout is
+a replication on another venue's prints, not a clean holdout: the same coins
+and years were read in the Bitget study, where H1b scored −0.02 with a fixed
+0.03%/day funding charge on a long book (about 11% a year, flagged there as
+conservative) and with the four later coins in; here, on spot with no funding
+and without them, 0.63. The funding assumption is the likely swing, and the
+next pre-registered test is the same rule against Bitget's own funding
+(public from July 2026). Spot shorting was not generally possible in 2014–17,
+so the long-only rows are the honest ones; 2014–16 hold two or three coins;
+the 20 were chosen by 2022 market cap. Thirteen tests in this line of work;
+one pass at a holdout Sharpe of 0.63 is a capital-preservation sleeve (it lost
+6.5% in 2018 and 4.5% in 2022 while BTC lost 74% and 64%), about seven
+rebalances a year per coin, and nothing like the hourly bot's advertised
+frequency. Nothing here changes the verdict on the hourly indicators.
+
+**The sleeve is a preset the live bot does not run.** `bot/core/daily_trend.py`
+is the rule as one reading: the trend score is the mean sign of a market's
+returns over 20, 60 and 120 days, floored at zero; a positive score is held at
+score × (20%/yr ÷ markets readable that day) ÷ its own 30-day realised vol,
+capped at 1× notional, rebalanced when a target moves 10%; no stop, no target.
+`/dailytrend` reads it on the last closed daily bars (grouped from 1h, a
+partial day dropped) and names the book it would hold and the weights; the
+card says who runs it (nobody) and where the study is. None is unread, never a
+zero score and never a zero weight; a zero score is a measurement (a market
+read today, not held) and counts in the split. Ten mutants (shorts allowed, an
+unreadable prior close read as flat, the vol not annualised, a flat series
+read as zero vol, the cap dropped, the split over the listed rather than the
+readable markets, a zero-score market dropped from the split, too little
+history read anyway, an unknown preset key accepted, the door missing) each
+failed a test that names them. **Its paper record is one board a UTC day**:
+the engine reads the sleeve once a day in every mode, behind the maintenance
+cap, and appends the book it would hold to `data/learning/daily_trend_book.jsonl`
+(`DAILY_TREND_BOOK_PATH`); a day already recorded is not scanned again, and a
+board nothing read on records nothing, never an empty book.
+`docs/research/daily_trend_sleeve_prereg.md` fixes, before the first row
+exists, how that record is read: not before twelve months, against Bitget's
+real funding, with its pass rule and its prediction (funding is the swing).
+(`tests/test_the_daily_trend_sleeve_reads_and_places_nothing.py`;
+`tests/test_each_strategy_scans_its_own_rule_now.py` and
+`tests/test_strategy_catalog.py` carry the new door and card.)
