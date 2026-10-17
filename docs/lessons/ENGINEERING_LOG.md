@@ -25914,3 +25914,24 @@ failed a test that names it.
 trail, the live monitor pass through the real `check_positions`, the
 backtest's real `_execute_fill` and `_check_stops_intrabar`, and the paper
 book's `check_stops`.)
+
+**LIVE HAD A WIN RATE AND A PROFIT FACTOR AND NO SHARPE, BECAUSE NOTHING KEPT A
+DAY'S EQUITY.** The risk engine's `record_equity_snapshot` is in memory and
+written on every evaluation; the website's `record_equity` lives in one
+process and dies with it. So the nightly self-audit could say PF 0.24 over 40
+closes and nothing could say what the account's daily returns had been. The
+engine appends one row per UTC day to `data/learning/equity_daily.jsonl`
+(`EQUITY_LOG_PATH` overrides it) right after the tick's live-equity refresh,
+from `live_balance_cached`, the reading fresh enough to state as current; a
+stale or absent cache records nothing. Three facts kept apart: a day already
+recorded stays as it is, a reading that is not a figure (a failed read that
+`get_live_equity` lets through with `error` and a zero total, a string, a
+NaN, a bool) writes nothing and never a zero, and a row says when it was read
+and from which venue. A zero balance is a measurement and is recorded. Order
+flow, funding and open interest were already recorded per analysis
+(`order_flow_snapshots.jsonl`, `OF_RECORD_SNAPSHOTS`), so the 17 Oct audit's
+"record what was never measured" is now one file short of nothing: the
+indicator study can be re-run on them in two to three months.
+(`tests/test_live_equity_is_recorded_once_a_day.py` drives the recorder, the
+engine's method bound onto a stand-in, and scans the tick for the one call
+inside its own fail-open try.)
