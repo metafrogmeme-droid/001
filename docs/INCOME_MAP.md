@@ -1115,7 +1115,9 @@ window (`app/lib/arena_seasons.js::#"NAMED TIME WINDOW"`), with rule variants a 
 server-side (max leverage 1-20, majors only: `app/lib/arena_seasons.js::validateSeason`, enforced
 at `app/routes/arena.js::sweepFollows#"checkSeasonRules("`, `::openForUser#"checkSeasonRules("` and `::post('/open-signal')#"checkSeasonRules("`). GET /api/arena/season is public and returns status
 plus in-window standings (`app/routes/arena.js::get('/season')`), with the wrong-season trap
-already fixed by pickCurrentSeason (`::get('/season')#"pickCurrentSeason("`). Alongside it: an opt-in
+already fixed by pickCurrentSeason (`::get('/season')#"pickCurrentSeason("`). The season's name is
+the one every host prints (the site, the Farcaster Mini App, the Pi app), and the operator can rename
+the current season without touching its window, rules or standings (`app/routes/arena.js::patch('/season')`). Alongside it: an opt-in
 anonymous ranked leaderboard showing handle, return %, trade count and win
 rate and never a dollar (`app/routes/leaderboard.js::#"Leaderboard — opt-in, anonymous handles"`), the Daily Duel with a 90-day
 record and referral 'squads' board (`app/routes/duel.js::#"Daily Duel — /api/duel"`, `app/lib/duel_service.js::RECORD_WINDOW_DAYS`, `app/lib/duel_squads.js::buildSquads`), and the

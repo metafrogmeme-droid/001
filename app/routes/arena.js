@@ -1232,6 +1232,33 @@ router.delete('/seasons/:id', authMiddleware, async (req, res) => {
   }
 });
 
+/**
+ * PATCH /api/arena/season { name }: rename the CURRENT season, operator only.
+ *
+ * A season's name is the one every host prints: the site, the Farcaster Mini
+ * App and the Pi app all read GET /api/arena/season, so a name chosen for one
+ * audience ("FARCASTER") reads oddly in the others. Until this route a name
+ * could only be set at launch, and changing it meant editing the database.
+ * Only the name changes: the window, the rules and the standings are the
+ * season's, and a rename is not a relaunch, so nothing is announced.
+ * "Current" is pickCurrentSeason's answer, the one every host shows.
+ */
+router.patch('/season', authMiddleware, async (req, res) => {
+  try {
+    if (!await adminOnly(req, res)) return;
+    const v = seasons.validateSeasonName((req.body || {}).name);
+    if (!v.ok) return res.status(400).json({ error: v.error });
+    const [rows] = await pool.execute('SELECT id, name, starts_at, ends_at FROM arena_seasons');
+    const current = pickCurrentSeason(rows, new Date());
+    if (!current) return res.status(404).json({ error: 'no_season' });
+    await pool.execute('UPDATE arena_seasons SET name = ? WHERE id = ?', [v.name, current.id]);
+    res.json({ renamed: { id: current.id, from: current.name, to: v.name } });
+  } catch (err) {
+    console.error('Arena season rename error:', err.stack || err.message);
+    res.status(503).json({ error: 'rename_failed' });
+  }
+});
+
 router.post('/season', authMiddleware, async (req, res) => {
   try {
     if (!await adminOnly(req, res)) return;

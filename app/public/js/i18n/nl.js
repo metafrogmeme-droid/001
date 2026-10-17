@@ -295,6 +295,8 @@
   ["arena.f_max_lev", "Regel: maximale hefboom"],
   ["arena.f_majors", "Regel: alleen majors"],
   ["arena.b_launch", "Seizoen starten"],
+  ["arena.f_rename", "Huidig seizoen hernoemen"],
+  ["arena.b_rename", "Hernoemen"],
   ["arena.ph_open", "geen limiet"],
   ["arena.p_join", "Doe mee in de arena"],
   ["arena.join_body", "Een gratis account is genoeg — je papieren account wordt aangemaakt zodra je de Arena opent. Geen beurs-keys, geen storting, niets in te stellen."],

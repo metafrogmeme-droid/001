@@ -295,6 +295,8 @@
   ["arena.f_max_lev", "Règle : levier maximum"],
   ["arena.f_majors", "Règle : majeures uniquement"],
   ["arena.b_launch", "Lancer la saison"],
+  ["arena.f_rename", "Renommer la saison en cours"],
+  ["arena.b_rename", "Renommer"],
   ["arena.ph_open", "sans limite"],
   ["arena.p_join", "Rejoignez l’arène"],
   ["arena.join_body", "Un compte gratuit suffit : votre compte papier est créé dès que vous ouvrez l’Arène. Aucune clé d’échange, aucun dépôt, rien à configurer."],

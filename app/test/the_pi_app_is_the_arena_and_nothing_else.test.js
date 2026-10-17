@@ -150,7 +150,20 @@ test('the client sends the access token, never a uid of its own', () => {
   assert.match(src, /body:\s*\{\s*accessToken:\s*auth\.accessToken\s*\}/);
   assert.doesNotMatch(src, /auth\.user|uid\s*:|username\s*:/, 'the page sends who it says the user is');
   assert.doesNotMatch(src, /localStorage|sessionStorage|document\.cookie/);
-  assert.doesNotMatch(src, /createPayment/, 'this app takes no payments');
+});
+
+test('the one payment is a tip whose terms come from the server, settled by id', () => {
+  const src = codeOnly(fs.readFileSync(path.join(PUBLIC_JS, 'pi-arena.js'), 'utf8'));
+  const calls = [...src.matchAll(/Pi\.createPayment\(/g)];
+  assert.strictEqual(calls.length, 1, 'one payment, the tip');
+  assert.match(src, /Pi\.createPayment\(\{ amount: order\.amount, memo: order\.memo, metadata: order\.metadata \}/,
+    'amount, memo and metadata must be the order the server issued, not the page\'s');
+  assert.match(src, /Pi\.authenticate\(\['username', 'payments'\]/);
+  // Approval, completion and an interrupted payment are handed to the server
+  // as Pi's ids; the payment itself is read back from Pi there.
+  assert.match(src, /'\/api\/pi\/payments\/approve', \{ method: 'POST', body: \{ paymentId: paymentId \} \}/);
+  assert.match(src, /body: \{ paymentId: paymentId, txid: txid \}/);
+  assert.match(src, /'\/api\/pi\/payments\/incomplete', \{ method: 'POST', body: \{ paymentId: id \} \}/);
 });
 
 // ── App Studio's validation file ──────────────────────────────────────────

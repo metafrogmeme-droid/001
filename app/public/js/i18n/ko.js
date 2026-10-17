@@ -295,6 +295,8 @@
   ["arena.f_max_lev", "규칙: 최대 레버리지"],
   ["arena.f_majors", "규칙: 주요 종목만"],
   ["arena.b_launch", "시즌 시작"],
+  ["arena.f_rename", "현재 시즌 이름 변경"],
+  ["arena.b_rename", "이름 변경"],
   ["arena.ph_open", "제한 없음"],
   ["arena.p_join", "아레나에 참여하기"],
   ["arena.join_body", "무료 계정이면 충분합니다 — 아레나를 여는 순간 모의 계정이 만들어집니다. 거래소 키도, 입금도, 설정할 것도 없습니다."],

@@ -295,6 +295,8 @@
   ["arena.f_max_lev", "Regola: leva massima"],
   ["arena.f_majors", "Regola: solo major"],
   ["arena.b_launch", "Avvia la stagione"],
+  ["arena.f_rename", "Rinomina la stagione in corso"],
+  ["arena.b_rename", "Rinomina"],
   ["arena.ph_open", "aperta"],
   ["arena.p_join", "Entra nell’arena"],
   ["arena.join_body", "Basta un account gratuito: il tuo conto simulato viene creato nell’istante in cui apri l’Arena. Niente chiavi di exchange, nessun deposito, niente da configurare."],

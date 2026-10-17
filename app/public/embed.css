@@ -306,6 +306,13 @@ html, body {
 .m-short { color: var(--e-down); }
 .m-open-note { margin: 6px 0 0; color: var(--e-text-3); font-size: 11px; text-align: center; }
 
+/* The Pi app's own buttons (pi-signals.js, pi-arena.js): a signal's paper
+   open and the tips. A <button> does not inherit the page's colour, so
+   without these the label is the browser's dark default on a dark card. */
+.p-sig-open { color: var(--e-info); }
+.p-tip { color: var(--e-text); }
+.p-sig-open[disabled], .p-tip[disabled] { opacity: .5; cursor: default; }
+
 /* A cancelled sign-in gets the muted tone: nothing went wrong. Only a real
    fault is coloured, and neither is ever green. */
 .m-problem { margin: 0 0 12px; font-size: 12.5px; text-align: center; padding: 9px 10px; border-radius: 8px; }
