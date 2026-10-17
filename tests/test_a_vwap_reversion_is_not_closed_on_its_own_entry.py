@@ -118,9 +118,13 @@ def test_every_caller_hands_it_the_entry():
                 kw = {k.arg for k in node.keywords}
                 calls.append((f"{path.relative_to(ROOT)}:{node.lineno}",
                               len(node.args) >= 5 or "entry_price" in kw))
-    # The live loop alone: the paper loop's branch read a VWAP only live
-    # confirms wrote, and a paper position has no field to carry its own.
-    assert len(calls) == 1, calls
+    # The live loop, and the as-live backtest's mirror of it
+    # (`BacktestEngine._live_smart_exit`): the paper loop's branch read a VWAP
+    # only live confirms wrote, and a paper position has no field to carry
+    # its own, so the paper loop is not among them.
+    assert {p.split(":")[0] for p, _ in calls} == {"bot/core/engine.py",
+                                                   "bot/backtest/engine.py"}, calls
+    assert len(calls) == 2, calls
     assert all(ok for _, ok in calls), calls
 
 

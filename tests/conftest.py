@@ -1313,6 +1313,34 @@ def _contain_vault_writes_to_the_environment():
 
 
 @pytest.fixture(autouse=True)
+def _contain_the_honest_backtest_switches():
+    """Hand the three `--honest` backtest switches back after every test.
+
+    THE SAME SHAPE AS THE VAULT FIXTURE ABOVE. `runner._apply_honest_fidelity`
+    writes `BACKTEST_PARTIAL_TP`, `BACKTEST_TIME_STOP` and
+    `BACKTEST_SYMBOL_LOSS_STREAK` into `os.environ` with `setdefault`, on
+    purpose: the engine reads them at construction, and `--honest` is meant to
+    turn them on for the run. `test_honest_fidelity.py` drives that write
+    without monkeypatch, so the switches stayed on for the rest of the
+    session, and every `BacktestEngine` a later test built had the partial-TP
+    ladder on when its own assertion said the plain trail path. The 17 October
+    full run: `test_the_first_trailing_step_is_breakeven_after_fees` and the
+    as-live scalp test failed in the suite, passed alone, and the flake filter
+    forgave both; a test forgiven every run is a leak to find. Restore rather
+    than assert, for the reason the fixture above gives.
+    """
+    import os as _os
+    keys = ("BACKTEST_PARTIAL_TP", "BACKTEST_TIME_STOP", "BACKTEST_SYMBOL_LOSS_STREAK")
+    saved = {k: _os.environ.get(k) for k in keys}
+    yield
+    for name, val in saved.items():
+        if val is None:
+            _os.environ.pop(name, None)
+        elif _os.environ.get(name) != val:
+            _os.environ[name] = val
+
+
+@pytest.fixture(autouse=True)
 def _contain_logging_disable():
     """Hand `logging.disable` back after every test.
 

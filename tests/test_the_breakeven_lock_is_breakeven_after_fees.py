@@ -235,8 +235,13 @@ class TestEachRuntimeSuppliesItsOwn:
 
     def test_the_backtest_supplies_its_own_commission_pair(self):
         src = code_only(self.BT.read_text())
-        assert "fee_round_trip_pct=2.0 * self.config.commission_pct" in src, (
+        # The entry leg is the fill's own rate: the run's commission for a
+        # taker fill, the maker rate for an as-live limit fill. The exit leg
+        # is always the run's commission.
+        assert "entry_rate = self.config.commission_pct" in src
+        assert "fee_round_trip_pct = entry_rate + self.config.commission_pct" in src, (
             "the backtest hands the ladder a fee model that is not its own")
+        assert "fee_round_trip_pct=fee_round_trip_pct" in src
 
     def test_partial_tp_imports_no_fee_model(self):
         """One ladder, two runtimes: the module must not pick a side."""

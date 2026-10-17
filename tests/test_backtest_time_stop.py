@@ -16,6 +16,7 @@ def _engine_stub(timeframe: str = "1h", time_stop: bool = True):
     stub = SimpleNamespace(
         config=SimpleNamespace(timeframe=timeframe),
         _time_stop_enabled=time_stop,
+        _as_live=False,  # the honest path: the gross reading, no fee buffer
     )
     return stub
 

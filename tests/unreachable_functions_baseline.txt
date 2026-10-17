@@ -107,6 +107,10 @@ bot/core/stock_trading.py:is_stock_symbol
 bot/core/divergence.py:divergence_to_confluence_votes
 bot/core/meme_swap.py:terms_expired
 bot/core/strategy_catalog.py:get_agent
+# The daily equity record's reader. The engine writes one row a day from
+# 17 October; the first thing to read it is the parity card's equity curve,
+# which has nothing to draw until the record holds a month.
+bot/core/equity_record.py:read_daily_equity
 
 # ── HELPERS AND ACCESSORS WITH NO REMAINING CALLER ──────────────────────────
 # Small, pure, and orphaned — most likely left behind when their call site was
