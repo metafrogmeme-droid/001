@@ -26201,3 +26201,59 @@ search: grep the log for the deploy shape before reading a file from outside
 - **The fail-closed answer did its job:** a sentence, not an empty policy, and
   the live check after the deploy is what read it.
 
+
+**SIGN IN WITH PI ON THE WEBSITE: THE TOKEN ARRIVES WHERE NO SERVER CAN READ IT, SO THE FLOW IS A PAGE, A STATE AND A QUESTION TO PI.**
+On 2026-10-17 Pi's Developer Portal issued the app an OAuth client id for Pi
+Sign-In, its sign-in for sites outside the Pi Browser, and the operator asked
+for it on the website. Pi's document for it (`pi-sign-in.md`) settled the
+shape:
+- **Implicit flow, no secret.** The token comes back in the redirect URI's
+  fragment, so the redirect URI is a page (`app/routes/pi_signin_page.js`)
+  whose one script (`public/js/pi-signin-callback.js`) does four things:
+  1. reads the fragment;
+  2. clears it from the address bar before anything else;
+  3. posts the token and state to `POST /api/auth/oauth/pi/token`;
+  4. lands on the home page through the same `#oauth=` / `#oauth_error=`
+     door Discord and X use. Its error sentences are its own, never text
+     copied from the URL.
+- **The state is the server's.** `/start` issues it into the shared
+  `oauth_state_store`, and the token route claims it once, for Pi only. A
+  state nobody issued, one already spent, or one issued for Discord is
+  refused before Pi is asked anything.
+- **The identity is Pi's answer about the token.** `GET /v2/me`, the call
+  Pi's document names for a website's backend. That is the opposite of the
+  Pi Browser app, where App Studio does the checking and an app must not
+  call `/v2/me` itself. The two doors are different flows, documented
+  separately, and each follows its own document. A uid in the request body
+  is ignored.
+- **One completion step.** Linking or creating the account, then minting the
+  session, moved out of the Discord/X callback into `_completeOAuth` in
+  `auth.js`, so the code flow and Pi's implicit flow share it rather than
+  drift.
+- **Not settled:** whether Pi gives one person the same uid through this flow
+  and through the Pi Browser app. Pi says only that a uid is stable within one
+  app. Both land on `users.pi_uid`, so the answer decides whether a person has
+  one account or two. It is to be checked with a real account before the
+  button is announced.
+
+Three things the first draft got wrong, each caught by a gate rather than by
+reading:
+- **`{ skip: null }` skips a `node:test` test.** The new smoke test passed
+  vacuously, all three tests SKIPPED, until the reporter's tally was read. The
+  repo's convention, `SKIP ? { skip: SKIP } : {}`, exists for exactly this.
+  Read the skipped count, not only the failures.
+- **The cache-buster ratchet reads pages from `public/*.html` and
+  `routes/*.js`.** A page built in `lib/` had a script whose `?v=` nothing
+  held. The page moved to `routes/`, where a page is a page.
+- **`server_resilience.test.js` requires every `console.error` of an error
+  to carry its stack.** The first draft logged `err.name` to keep anything of
+  the token out of the log. The stack does that just as well: no error here
+  is built from the token, and the test that drives every answer reads every
+  log line for it.
+
+(`app/test/pi_signin_on_the_website.test.js` drives the routes against a
+stateful stand-in for Pi's `/v2/me`: the refused token, Pi down, the state
+rules, link mode, one uid one account, and the token absent from every log
+line and answer. `app/test/pi_signin_callback.smoke.test.js` drives the
+callback page in Chromium: it posts, it lands, it clears the token before
+posting, and it says our own sentence for each failure.)

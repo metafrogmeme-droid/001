@@ -366,5 +366,9 @@
   "js/pi-signals.js": {
     "v": 1,
     "sha": "2fc43cf3c213e380"
+  },
+  "js/pi-signin-callback.js": {
+    "v": 1,
+    "sha": "9f9fc4fe60413a0c"
   }
 }

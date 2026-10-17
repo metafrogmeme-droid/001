@@ -1661,7 +1661,7 @@ function onTelegramAuth(user){ if(user)socialLogin('/auth/telegram',user); }
 // Redirect-based providers (Discord, X). Login: go straight to the start URL.
 // Link (logged in): mint a one-time link key first so the callback attaches the
 // identity to THIS account instead of creating a new one.
-const OAUTH_META={discord:{label:'Continue with Discord',bg:'#5865F2'},x:{label:'Continue with X',bg:'#000'}};
+const OAUTH_META={discord:{label:'Continue with Discord',bg:'#5865F2'},x:{label:'Continue with X',bg:'#000'},pi:{label:'Continue with Pi',bg:'#6B3FA0'}};
 function oauthStartUrl(provider){return API+'/auth/oauth/'+provider+'/start';}
 async function oauthLink(provider){
   if(!SESSION)return;

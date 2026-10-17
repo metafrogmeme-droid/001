@@ -692,6 +692,9 @@ app.get('/.well-known/assetlinks.json', (req, res) => {
 });
 // Pi's domain-verification key, from PI_VALIDATION_KEY (routes/piapp.js).
 app.get('/validation-key.txt', require('./routes/piapp').validationKey);
+// Pi Sign-In's redirect URI: a page, because Pi returns the token in the URL
+// fragment, which only a script can read (routes/pi_signin_page.js).
+app.get('/auth/pi/callback', require('./routes/pi_signin_page'));
 app.get('/letter/:week?', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'letter.html')); });
 app.get('/wallet-link', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'wallet-link.html')); });
 app.get('/reset', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'reset.html')); });

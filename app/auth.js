@@ -6,6 +6,7 @@ const { pool } = require('./db');
 const mailer = require('./lib/mailer');
 const accountMail = require('./lib/account_mail');
 const oauth2 = require('./lib/oauth2');
+const piSignin = require('./lib/pi_signin');
 const { VENUES } = require('./lib/venues');
 const { tokenFromRequest, setSession, clearSession } = require('./lib/session_cookie');
 const { stepUpBlock } = require('./lib/stepup');
@@ -1138,8 +1139,9 @@ router.get('/config', (_req, res) => {
     // advertising a button that cannot complete is worse than hiding it.
     telegram_bot: (TELEGRAM_BOT_TOKEN
       && (process.env.TELEGRAM_BOT_USERNAME || 'HTRUNECLAW_bot')) || null,
-    // Redirect-based providers (Discord, X) — advertised only when configured.
-    oauth_providers: oauth2.configuredProviders(),
+    // Redirect-based providers (Discord, X, and Pi's implicit flow) — advertised
+    // only when configured.
+    oauth_providers: [...oauth2.configuredProviders(), ...(piSignin.configured() ? ['pi'] : [])],
     // Self-custody wallet sign-in is available when the verifier is installed.
     wallet_login: !!_ethers,
     // Footer social links — operator-set, rendered only when present (no guessing).
@@ -1720,16 +1722,111 @@ router.post('/oauth-link-token', authMiddleware, async (req, res) => {
   res.json({ link_key: key });
 });
 
+/** The account a `?link=` key (from /oauth-link-token) asks to attach to, or null; the key is spent. */
+async function _linkUserFrom(req) {
+  const linkKey = req.query.link ? String(req.query.link) : '';
+  const lk = linkKey ? await _oauthStates.take('link', linkKey) : null;
+  return lk ? lk.userId : null;
+}
+
+/**
+ * The end of every redirect sign-in: attach the identity to the account that
+ * asked to link it, or find or create the account it names; mint the session
+ * (the cookie is set here); return the payload the landing page reads from
+ * `#oauth=`, or null when there is no account to sign in. One funnel for the
+ * code flow (Discord, X) and Pi's implicit flow, so the two cannot drift.
+ */
+async function _completeOAuth(req, res, provider, profile, flow) {
+  let user;
+  if (flow.linkUserId) {
+    // LINK mode: attach this provider identity to the already-logged-in user.
+    const idCol = _PROVIDER_ID_COLUMN[provider];
+    await pool.execute(`UPDATE users SET ${idCol} = ? WHERE id = ?`,
+      [profile.providerId, flow.linkUserId]);
+    const [rows] = await pool.execute(
+      'SELECT id, email, plan FROM users WHERE id = ?', [flow.linkUserId]);
+    user = rows[0];
+  } else {
+    user = await findOrCreateOAuthUser({
+      provider, providerId: profile.providerId,
+      email: profile.email, avatarUrl: profile.avatarUrl,
+    });
+  }
+  if (!user) return null;
+  const body = await sessionResponse(user, {
+    provider, linked: Boolean(flow.linkUserId) });
+  // The cookie is set before the landing page runs a line of script. The
+  // fragment payload still carries the profile the page renders on arrival;
+  // what it no longer has to be is the only place the session lives.
+  setSession(req, res, body.token);
+  return Buffer.from(JSON.stringify(body)).toString('base64');
+}
+
+// -- Pi Sign-In: the implicit flow (lib/pi_signin.js says why it is not the code flow) --
+
+/** Test seam: { fetch, apiBase, timeoutMs } for the call to Pi's /v2/me. */
+const _piSigninDeps = {};
+router._piSigninDeps = _piSigninDeps;
+
+// Begin → 302 to Pi's consent screen, with a state this server issued.
+router.get('/oauth/pi/start', async (req, res) => {
+  if (!piSignin.configured()) {
+    return res.status(503).send('This login provider is not configured.');
+  }
+  const linkUserId = await _linkUserFrom(req);
+  const state = oauth2.randomState();
+  await _oauthStates.put('flow', state, { provider: 'pi', linkUserId }, Date.now() + OAUTH_FLOW_TTL_MS);
+  res.redirect(piSignin.authorizeUrl({ state }));
+});
+
+// The callback page (/auth/pi/callback) posts what Pi put in the fragment.
+// The uid comes from Pi's answer about the token, never from the request.
+router.post('/oauth/pi/token', async (req, res) => {
+  const clientIp = req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
+  if (!(await checkRateLimit(clientIp))) {
+    return res.status(429).json({ error: 'Too many attempts. Try again later.' });
+  }
+  if (!piSignin.configured()) return res.status(503).json({ error: 'pi_signin_not_configured' });
+  const { access_token: accessToken, state } = req.body || {};
+  if (typeof state !== 'string' || !state || typeof accessToken !== 'string' || !accessToken) {
+    return res.status(400).json({ error: 'missing token or state' });
+  }
+  // Claimed once, here or on any other instance; expired and missing read as null.
+  const flow = await _oauthStates.take('flow', state);
+  if (!flow || flow.provider !== 'pi') {
+    await recordAttempt(clientIp);
+    return res.status(400).json({ error: 'invalid or expired login attempt' });
+  }
+  let verdict;
+  try {
+    verdict = await piSignin.identify(accessToken, _piSigninDeps);
+  } catch (err) {
+    // Pi could not be asked. Not a refusal of the person; the state is spent,
+    // so the page offers to start again.
+    console.error('Pi sign-in unavailable:', err.stack || err.message);
+    return res.status(503).json({ error: 'pi_unavailable' });
+  }
+  if (!verdict.ok) {
+    await recordAttempt(clientIp);
+    return res.status(401).json({ error: 'pi_rejected' });
+  }
+  try {
+    const payload = await _completeOAuth(req, res, 'pi', { providerId: verdict.uid }, flow);
+    if (!payload) return res.status(500).json({ error: 'could not complete login' });
+    return res.json({ oauth: payload });
+  } catch (err) {
+    console.error('Pi sign-in error:', err.stack || err.message);
+    return res.status(500).json({ error: 'login failed' });
+  }
+});
+
 // Begin the redirect flow → 302 to the provider's consent screen.
 router.get('/oauth/:provider/start', async (req, res) => {
   const provider = req.params.provider;
   if (!oauth2.isProviderConfigured(provider)) {
     return res.status(503).send('This login provider is not configured.');
   }
-  let linkUserId = null;
-  const linkKey = req.query.link ? String(req.query.link) : '';
-  const lk = linkKey ? await _oauthStates.take('link', linkKey) : null;
-  if (lk) linkUserId = lk.userId;
+  const linkUserId = await _linkUserFrom(req);
   const state = oauth2.randomState();
   const { verifier, challenge } = oauth2.pkcePair();
   await _oauthStates.put('flow', state, { provider, verifier, linkUserId }, Date.now() + OAUTH_FLOW_TTL_MS);
@@ -1760,31 +1857,9 @@ router.get('/oauth/:provider/callback', async (req, res) => {
     });
     const profile = await oauth2.fetchProfile(provider, accessToken);
 
-    let user;
-    if (flow.linkUserId) {
-      // LINK mode: attach this provider identity to the already-logged-in user.
-      const idCol = _PROVIDER_ID_COLUMN[provider];
-      await pool.execute(`UPDATE users SET ${idCol} = ? WHERE id = ?`,
-        [profile.providerId, flow.linkUserId]);
-      const [rows] = await pool.execute(
-        'SELECT id, email, plan FROM users WHERE id = ?', [flow.linkUserId]);
-      user = rows[0];
-    } else {
-      user = await findOrCreateOAuthUser({
-        provider, providerId: profile.providerId,
-        email: profile.email, avatarUrl: profile.avatarUrl,
-      });
-    }
-    if (!user) return fail('could not complete login');
-
-    const body = await sessionResponse(user, {
-      provider, linked: Boolean(flow.linkUserId) });
-    // The cookie is set on the redirect itself, so the session exists before
-    // the landing page runs a line of script. The fragment payload still
-    // carries the profile the page renders on arrival; what it no longer has
-    // to be is the only place the session lives.
-    setSession(req, res, body.token);
-    const payload = Buffer.from(JSON.stringify(body)).toString('base64');
+    // The cookie is set on the redirect itself (in _completeOAuth).
+    const payload = await _completeOAuth(req, res, provider, profile, flow);
+    if (!payload) return fail('could not complete login');
     res.redirect(`/#oauth=${payload}`);
   } catch (err) {
     console.error(`OAuth ${provider} callback error:`, err.stack || err.message);
