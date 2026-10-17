@@ -26279,3 +26279,29 @@ money-modules mypy gate follows imports, and `strategy_gate`'s
 function-local imports had dragged the scanner, the engine and the skills
 into a gate that must come back clean (267 errors in 46 files, on a module
 of ninety lines). (`tests/test_a_live_order_stays_in_the_measured_universe.py`.)
+
+**THE SLEEVE PAYS TWICE THE FUNDING THE VENUE AVERAGES, AND SURVIVES IT ONLY
+BECAUSE IT IS SMALL.** 17 October, with the first CoinAPI credits: the Bitget
+study had charged the daily trend sleeve a fixed 0.03%/day of funding and read
+about zero; Kraken spot, with none, read the pass. The fixed charge was an
+assumption, so the same weights were re-costed with the funding a long book
+actually paid, Binance USDT perps 2021-01 → 2026-06 (Bitget's history on
+CoinAPI starts 2023-06), pre-registered before the series were read
+(`docs/research/funding_study_2026-10-17.md`). On the coin-days the sleeve
+held, funding averaged 0.0589%/day against 0.0263%/day over all coin-days, a
+ratio of 2.24, above 1.5 on every one of the 16 coins: a trend-following long
+book is long exactly when perps trade rich. Exposure-weighted it paid 15%/yr
+of its long notional as read and 20%/yr with the missing settlements filled
+in, against the 11%/yr the fixed assumption charged, so the prediction that
+real funding would land BELOW the assumption was wrong in direction. The
+sleeve passed its three pre-registered criteria anyway (Sharpe 0.88, funding
+14.5% of gross profit, drawdown 12.0% against BTC's 76.7%) because its gross
+long exposure averages 8% of equity; on research3's stricter holdout window
+the same runs read 0.54 and 0.49, on the bar and not over it. Two rules
+follow. A funding assumption for a long trend rule is the conditional figure
+(about 0.06%/day on held coin-days, 15–20%/yr of long notional), never the
+venue's average. And a day with no funding sample is counted and reported,
+never read as zero: 24% of the held coin-days had none, so the as-read charge
+is a lower bound and the filled one is reported beside it. The twelve-month
+Bitget record keeps the decision; this reading keeps the sleeve on the list
+while it accrues.
