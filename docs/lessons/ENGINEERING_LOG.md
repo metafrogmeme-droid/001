@@ -25991,3 +25991,29 @@ measure, in that order, and until a replay of live's own ideas lands near
 live's record, a card figure is a statement about the card's universe.
 (`tests/test_the_as_live_backtest_trades_the_way_live_does.py`;
 `docs/FROZEN_BENCHMARK.md` carries the table under its own date.)
+
+**THE HONEST SWITCHES STAYED ON FOR THE REST OF THE SESSION, AND THE FLAKE
+FILTER FORGAVE EVERY TEST THEY BROKE.** 17 October, the full run before the
+as-live push: `test_the_first_trailing_step_is_breakeven_after_fees` and the
+as-live scalp test failed in the suite and passed alone, and the gate's flake
+filter counted neither. The first asserted `eng._partial_tp_enabled is False`
+on a fresh engine and read True. `runner._apply_honest_fidelity` writes
+`BACKTEST_PARTIAL_TP`, `BACKTEST_TIME_STOP` and `BACKTEST_SYMBOL_LOSS_STREAK`
+into `os.environ` with `setdefault`, on purpose: `--honest` is meant to turn
+them on for the run and the engine reads them at construction.
+`test_honest_fidelity.py` drives that write, two of its tests without
+monkeypatch, so from that file on every `BacktestEngine` any later test built
+had the ladder on, whatever the test said. The same shape as the vault write
+and the logging switch before it: a production write that is the behaviour
+under test, made outside monkeypatch, so teardown has no record of it. The
+harness hands the three keys back after every test now
+(`tests/conftest.py::_contain_the_honest_backtest_switches`); the leaking
+tests are unchanged, because they test exactly what they mean to. Mutating
+the restore out reproduces the two failures with `test_honest_fidelity.py`
+run first. The same run found what the as-live engine's new attribute broke:
+two stand-ins (`test_backtest_time_stop`'s namespace, `test_entry_timing`'s
+engine built without `__init__`) did not carry `_as_live`, which is the
+"hand-written stand-in forgets the next attribute" rule in its plainest form;
+they carry it now. A ratchet row for `read_daily_equity`, the record's reader
+that nothing draws from yet, and the `.env.example` block regenerated for a
+flag whose line moved.
