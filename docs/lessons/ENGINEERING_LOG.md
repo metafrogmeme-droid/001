@@ -25935,3 +25935,59 @@ indicator study can be re-run on them in two to three months.
 (`tests/test_live_equity_is_recorded_once_a_day.py` drives the recorder, the
 engine's method bound onto a stand-in, and scans the tick for the one call
 inside its own fail-open try.)
+
+**LIVE AND `--HONEST` MEASURED DIFFERENT SYSTEMS, AND THE AS-LIVE RUN SAYS WHICH
+DIFFERENCES MATTER.** The 17 Oct edge audit read the live path against the
+honest backtest: the backtest fills every idea at the next open as a taker and
+runs one of live's five early exits; live rests a post-only limit that fills
+only when price comes back, pays the maker rate on that leg, spares a
+time-stopped position only past its fees, and closes positions on four more
+rules (`_evaluate_live_smart_exits`: no progress, the signal's hold limit,
+volume decay, the VWAP band) that no card had measured. `--as-live`
+(`bot/backtest/runner.py`) is `--honest` plus that model: a limit idea rests
+from the next bar (`_rest_limit`) and fills on a touch at its own price with no
+slippage, the maker gap on that leg is settled at the close into the balance
+the book settled, a market idea and a timing FIRE go through the same seam
+(`_queue_entry`), the smart exits run at the bar close in live's order behind
+live's two flags (`_live_smart_exit`), and the time stop reads the position's
+round trip. Not modelled, and said on the flag: the drift-to-market chase
+(bounded by the drift-cancel count) and live's wider universe. The honest path
+is byte-identical; thirteen mutants each failed a test that names them.
+
+**Driven on 2026-10-17 at `ab14edc1`, six-fold walk-forward, positions not
+legs:**
+
+| dataset | honest: pos · win · PF · net/pos | as-live | as-live, smart exits off |
+|---|---|---|---|
+| majors_1h_v2 | 138 · 47.8% · 0.74 · −$10.15 | 76 · 38.2% · 0.65 · −$8.46 | 62 · 30.6% · 0.53 · −$12.59 |
+| alts_1h_v2 | 62 · 37.1% · 0.28 · −$49.14 | 45 · 31.1% · 0.39 · −$19.29 | 40 · 27.5% · 0.33 · −$22.87 |
+| majors_1h_v3 | 98 · 51.0% · 1.19 · +$5.05 | 79 · 55.7% · 1.99 · +$15.21 | 65 · 55.4% · 2.13 · +$16.15 |
+| alts_1h_v3 | 115 · 49.6% · 0.72 · −$10.94 | 63 · 38.1% · 0.62 · −$10.27 | 59 · 37.3% · 0.58 · −$13.16 |
+| pooled | 413 · 47.5% · 0.69 · −$12.62 (3/24 folds up) | 263 · 42.2% · 0.85 · −$3.63 (8/24) | 226 · 38.9% · 0.75 · −$6.29 (7/24) |
+
+Three readings. **The resting limit takes a third of the fills and improves
+the rest**: 263 positions against 413, a lower hit rate and a smaller loss per
+position, because the fills it keeps are at the pullback price with the maker
+fee, and the ideas that run away never fill. **The smart exits do not lose**:
+with `TIME_STOP_LIVE_AUTO_CLOSE=0` the pooled profit factor falls from 0.85 to
+0.75 and the loss per position grows on three datasets of four (majors_1h_v3
+is within noise either way); they closed 35 of 262 positions, 29 on the
+signal's hold limit at 48% won, and a book that holds its losers longer opens
+fewer trades. So the audit's "measure or switch off" is answered: measured,
+kept on. **The exits that decide the book are the stop and the trail**: 148 of
+262 positions ended on the original stop at 16% won (−$34.57 each) and 67 on
+the trail after TP1 at 100% won (+$67.54 each); no position ended on a TP leg,
+because the ladder's targets are partial closes and the runner's last leg is
+the trail. Live's own card (249 exits: 76 SL hits, 10 TP hits) is the same
+shape.
+
+**What this leaves unexplained is the gap from PF 0.85 here to 0.61 (249
+exits) and 0.24 (the last 40) live.** The model's book is the ten majors and
+the eight alts the datasets hold; 226 of live's 249 exits were on markets no
+dataset holds, and the TradFi legs ran at PF 0.03–0.22 over 77 of them. 183 of
+the 249 were priced from a ticker, not a fill. The drift chase and the
+operator's pause clears are not in the model. Those are the next things to
+measure, in that order, and until a replay of live's own ideas lands near
+live's record, a card figure is a statement about the card's universe.
+(`tests/test_the_as_live_backtest_trades_the_way_live_does.py`;
+`docs/FROZEN_BENCHMARK.md` carries the table under its own date.)
