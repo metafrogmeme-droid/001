@@ -26257,3 +26257,56 @@ rules, link mode, one uid one account, and the token absent from every log
 line and answer. `app/test/pi_signin_callback.smoke.test.js` drives the
 callback page in Chromium: it posts, it lands, it clears the token before
 posting, and it says our own sentence for each failure.)
+
+**THE ARENA COULD READ NO PRICE ON THE LIVE HOST, AND EVERY SURFACE THAT COULD HAVE SAID SO SAID NOTHING.**
+On 2026-10-17 the operator's screenshot of the Pi app showed an open ETHUSDT
+position at "mark unavailable", equity flat at the starting 10,000, and "The
+position could not be closed." Nothing was lost: the Arena never prices a
+close it cannot price. But nothing in the system had noticed:
+- **The reader** (`app/lib/tickers.js`) swallowed every failed read. No log
+  line said why.
+- **`/api/public/status`** had no line for the Arena's prices, and reported
+  ok.
+- **`scripts/verify_deploy.sh`** exited 0 on the same deploy.
+- **The Pi app** said only "could not be closed". The answer it got carried no
+  JSON reason, and the app had no fallback that named the status.
+
+What the live host showed, measured from outside the same afternoon:
+- Every Arena endpoint that reads marks (`/api/arena/leaderboard`,
+  `/api/arena/trader/*`) took 6.6–7.5 s: the 6 s budget of
+  `getTickersWithin`, every time, so the 30 s cache was never filled.
+- `/api/market/ticker/ETHUSDT`, which reads the same Bitget endpoint through
+  `lib/http_cache.js`'s `https.get`, answered live prices in about a second.
+- `/api/spot/market`, which uses the global `fetch` to Bitget, also answered
+  in 1.5 s. So "fetch is broken on the host" is not the finding either.
+
+The host is Alibaba Function Compute behind Cloudflare. It may freeze an
+instance between requests, and the reader's design left a fetch running
+after the response ("it will populate the cache for the next caller"), then
+had every later request join it. That is the likeliest mechanism, and it is
+not proven: the reader logged nothing. So the fix does not depend on it:
+- **Read through `https.get`**, the transport that demonstrably answers on
+  that host, with `fetchJSON`'s socket timeout.
+- **Stop joining a stalled fetch.** Past `STALLED_MS` (12 s, beyond
+  `fetchJSON`'s 8 s), the next caller starts its own.
+- **An answer with no tickers is unreadable.** An error body or an empty
+  list was cached as a fresh, empty map for 30 s.
+- **Log every failure with its stack**, at most once a minute.
+- **Name the status.** The Pi app and the Farcaster Mini App say the HTTP
+  status when a refusal carries no reason (`arena-session.js` v3).
+- **Status and deploy check.** `/api/public/status` has an `arena_prices`
+  line that reads the prices the Arena's way, within 4 s, and is not ok
+  unless they are fresh. `verify_deploy.sh` fails a deploy whose web
+  container cannot read them, and reports unknown when the line is missing.
+
+The test that would have caught it is not a unit test: the reader passed
+every one, because every one replaced its transport. Asking the live host
+from outside is what found it: the same request timed against a sibling
+route that reads the same data a different way. The status line now asks
+that question on every deploy.
+(`app/test/the_arena_reads_its_prices_through_the_path_that_answers.test.js`
+drives the production `getTickers` through its transport seam: the parse, the
+stall, the log throttle, and the status line fresh and unreadable.
+`tests/test_verify_deploy_guard.py` holds the deploy verdicts.
+`app/test/the_pi_app_signs_in_with_pi.smoke.test.js` refuses a close in
+Chromium, with and without a reason.)

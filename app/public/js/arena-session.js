@@ -247,7 +247,7 @@
         // what to do differently. A generic "could not open" would throw that
         // away and leave the viewer guessing which field was wrong.
         lastNote = M.actionNoteHtml('warn',
-          (r.body && r.body.error) || 'The position could not be opened.');
+          refusal('opened', r));
         render();
       }).catch(function () {
         busy = false;
@@ -255,6 +255,18 @@
           'The position could not be opened — we could not reach the server.');
         render();
       });
+    }
+
+    /**
+     * A refusal in words. The server's own sentence when it sent one; when the
+     * answer carried none (a gateway page, an empty body), the status that
+     * came back. "The position could not be closed" alone was all the Pi app
+     * could say on 2026-10-17, when every close was refused for want of a
+     * live price, and it gave nobody anything to go on.
+     */
+    function refusal(verb, r) {
+      if (r.body && r.body.error) return r.body.error;
+      return 'The position could not be ' + verb + ' (the server answered ' + r.status + ').';
     }
 
     function closePosition(id) {
@@ -269,7 +281,7 @@
             return refresh();
           }
           lastNote = M.actionNoteHtml('warn',
-            (r.body && r.body.error) || 'The position could not be closed.');
+            refusal('closed', r));
           render();
         }).catch(function () {
           busy = false;

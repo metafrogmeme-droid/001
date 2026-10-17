@@ -30,8 +30,12 @@ test('tap-to-pick chips exist and scroll horizontally on touch', () => {
 });
 
 test('typed symbols are normalized like the server expects', () => {
-  assert.match(html, /function normSym\(/);
-  assert.match(html, /if \(v && !\/USDT\$\/\.test\(v\)\) v \+= 'USDT';/);
+  // Not merely "like" it: the form calls the engine's pairOf, which the
+  // server's validateOpen calls too (public/js/arena_engine.js).
+  assert.match(html, /function normSym\(v\) \{ return window\.ArenaEngine\.pairOf\(v\); \}/);
+  const engine = require('../public/js/arena_engine.js');
+  assert.equal(engine.pairOf('btc'), 'BTCUSDT');
+  assert.equal(engine.pairOf('ETHUSDT'), 'ETHUSDT');
   // Both the open order and the mark fetch go through it.
   assert.match(html, /symbol: normSym\(\$\('tSym'\)\.value\)/);
   assert.match(html, /var sym = normSym\(\$\('tSym'\)\.value\);/);

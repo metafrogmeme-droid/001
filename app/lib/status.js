@@ -22,6 +22,9 @@ const DB_PROBE_MS = 2500;                 // a liveness read, not a query plan
 // declared it unreachable. Match the gateway client's normal request budget:
 // slow is visible in the request latency, but it is not the same as absent.
 const GATEWAY_PROBE_MS = 20_000;
+// The Arena's marks: long enough for a cold read through https.get, short
+// enough that the status page does not wait on a dead feed.
+const PRICES_PROBE_MS = 4000;
 
 let _probes = null;
 
@@ -118,6 +121,25 @@ function defaultProbes() {
         'SELECT week_key, generated_at FROM agent_letters ORDER BY week_key DESC LIMIT 1', []);
       return rows[0] || null;
     },
+    /**
+     * The Arena's live marks, read the way the Arena reads them
+     * (lib/tickers.js), within a short budget. On 2026-10-17 every Arena
+     * position showed "mark unavailable" and every close was refused, while
+     * this page said all was well: nothing here asked. A read, not a memory
+     * of one, because the host runs several instances and a remembered state
+     * could belong to a different one than the instance answering.
+     */
+    readPrices: async () => {
+      const tickers = require('./tickers');
+      const { map, ageMs } = await tickers.getTickersWithin(PRICES_PROBE_MS);
+      const symbols = Object.keys(map || {}).length;
+      if (!symbols || !Number.isFinite(ageMs)) return { state: 'unreadable' };
+      return {
+        state: ageMs <= tickers.FILL_MAX_AGE_MS ? 'fresh' : 'stale',
+        age_s: Math.round(ageMs / 1000),
+        symbols,
+      };
+    },
     dbMode: () => (process.env.DATABASE_URL ? 'mysql' : 'memory'),
     uptimeS: () => Math.floor(process.uptime()),
   };
@@ -189,6 +211,13 @@ async function buildStatus(now = Date.now()) {
     note: 'separate uvicorn process — powers insight, patterns and lab',
   };
 
+  let prices = { state: 'unreadable' };
+  try { prices = await p.readPrices(); } catch (e) { /* keep unreadable */ }
+  components.arena_prices = {
+    ...prices,
+    note: 'live marks the Arena prices fills, closes and P&L with',
+  };
+
   let letter = null;
   try { letter = await p.latestLetter(); } catch (e) { /* honest no_data below */ }
   components.weekly_letter = {
@@ -197,7 +226,7 @@ async function buildStatus(now = Date.now()) {
     note: 'generated on demand from recorded data — quiet weeks are normal',
   };
 
-  const worrying = ['database', 'engine_scan', 'intelligence_reports', 'bot_gateway', 'api_bridge']
+  const worrying = ['database', 'engine_scan', 'intelligence_reports', 'bot_gateway', 'api_bridge', 'arena_prices']
     .filter((k) => !['fresh', 'ok', 'reachable', 'not_configured'].includes(components[k].state));
   return {
     status: worrying.length === 0 ? 'ok'
@@ -218,5 +247,5 @@ async function buildStatus(now = Date.now()) {
 // exercised — a mutation removing its not_configured guard passed the whole
 // suite. A test double cannot vouch for the implementation it replaces.
 module.exports = {
-  buildStatus, setProbes, defaultProbes, FRESH_SCAN_MS, FRESH_REPORTS_MS, GATEWAY_PROBE_MS,
+  buildStatus, setProbes, defaultProbes, FRESH_SCAN_MS, FRESH_REPORTS_MS, GATEWAY_PROBE_MS, PRICES_PROBE_MS,
 };

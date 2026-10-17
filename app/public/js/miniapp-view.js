@@ -185,7 +185,7 @@
       + '<h2>Open a position</h2>'
       + '<div class="m-row">'
       + '<input class="m-sym" type="text" inputmode="latin" autocapitalize="characters" '
-      + 'placeholder="BTCUSDT" aria-label="Symbol">'
+      + 'placeholder="BTC" aria-label="Symbol">'
       + '<input class="m-margin" type="number" inputmode="decimal" '
       + 'placeholder="' + esc(minMargin === null ? 'margin' : String(minMargin)) + '" '
       + (minMargin === null ? '' : 'min="' + esc(minMargin) + '" ')

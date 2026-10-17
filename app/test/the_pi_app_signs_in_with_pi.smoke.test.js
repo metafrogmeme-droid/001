@@ -102,6 +102,7 @@ const ORDER = { orderId: 'order-from-server', amount: 3, memo: 'Support RUNECLAW
 async function context(browser, {
   sdk = true, signin = { status: 200, body: { token: 'session-jwt-1', handle: null } },
   tips = TIPS, unfinished = null, cancel = false, signals = null,
+  account = ACCOUNT, close = null,
 } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 800 } });
   await ctx.addInitScript(({ u, c }) => { window.__PI_UNFINISHED__ = u; window.__PI_CANCEL__ = c; },
@@ -136,8 +137,9 @@ async function context(browser, {
     }
     if (p === '/api/arena/account') {
       const ok = req.headers().authorization === 'Bearer session-jwt-1';
-      return route.fulfill({ status: ok ? 200 : 401, contentType: 'application/json', body: JSON.stringify(ok ? ACCOUNT : { error: 'unauthorized' }) });
+      return route.fulfill({ status: ok ? 200 : 401, contentType: 'application/json', body: JSON.stringify(ok ? account : { error: 'unauthorized' }) });
     }
+    if (p === '/api/arena/close' && close) return route.fulfill(close);
     return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
   });
   await ctx.route(/^https?:\/\/(?!127\.0\.0\.1|sdk\.minepi\.com)/, (route) => route.abort());
@@ -191,6 +193,30 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       assert.strictEqual(pi.hasCallback, true);
       assert.deepStrictEqual(errors, []);
       await ctx.close();
+    });
+
+    await t.test('a refused close says why, and an answer with no reason still names its status', async () => {
+      // 2026-10-17: the live Arena could read no price, refused every close,
+      // and the app said only "The position could not be closed."
+      const holding = { ...ACCOUNT, positions: [{ id: 7, symbol: 'ETHUSDT', direction: 'LONG', entry: 2433.92,
+        mark: null, margin: 1000, leverage: 10, pnl: null }] };
+      const cases = [
+        [{ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'No live mark for this symbol — try again shortly' }) },
+          /No live mark for this symbol — try again shortly/],
+        [{ status: 502, contentType: 'text/html', body: '<html><body>Bad gateway</body></html>' },
+          /The position could not be closed \(the server answered 502\)\./],
+      ];
+      for (const [close, want] of cases) {
+        const { ctx, sent } = await context(browser, { account: holding, close });
+        const { page, errors } = await open(ctx, `${base}/pi`);
+        assert.match(await signInAndSettle(page), /mark unavailable/);
+        await page.click('.m-close[data-close-id="7"]');
+        await page.waitForFunction((re) => new RegExp(re).test(document.querySelector('#root').textContent), want.source);
+        const asked = sent.find((x) => x.path === '/api/arena/close');
+        assert.deepStrictEqual(JSON.parse(asked.body), { position_id: 7 });
+        assert.deepStrictEqual(errors, []);
+        await ctx.close();
+      }
     });
 
     await t.test('a token Pi refused is named as that', async () => {

@@ -33,8 +33,11 @@ at the web container. Tunnel ingress sends `/gateway/*` to the gateway on
 bridge on `:8000`.
 
 The final verifier checks both content hashes and `/api/public/status`. A clean
-result requires `bot_gateway=reachable` and `api_bridge=reachable` as measured
-from inside the web runtime. Local port checks alone are insufficient.
+result requires `bot_gateway=reachable`, `api_bridge=reachable` and
+`arena_prices=fresh`, as measured from inside the web runtime. The last one
+means the web container can read the live marks the Arena prices closes with;
+on 2026-10-17 a deploy verified clean while it could not. Local port checks
+alone are insufficient.
 
 That is not a style preference. On 2026-08-20 a deploy ran `git fetch origin &&
 git reset --hard origin/main`, reported success, and landed on a commit **255

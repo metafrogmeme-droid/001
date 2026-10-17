@@ -521,7 +521,9 @@ async function openForUser(userId, body, opts = {}) {
     }
     const t = marks[v.data.symbol];
     const price = t && Number(t.price);
-    if (!(price > 0)) return { status: 400, body: { error: 'Unknown symbol — use a listed USDT-M pair like BTCUSDT' } };
+    if (!(price > 0)) {
+      return { status: 400, body: { error: `${v.data.symbol} is not a listed USDT-M pair. Try a coin like BTC or ETH.` } };
+    }
     // Optional TP/SL — validated against the actual fill price.
     const ts = arena.validateTpSl(v.data.direction, price, (body || {}).tp, (body || {}).sl);
     if (!ts.ok) return { status: 400, body: { error: ts.error, code: ts.code } };

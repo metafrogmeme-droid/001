@@ -36,8 +36,8 @@
     "sha": "77d4026436966cf1"
   },
   "js/arena_engine.js": {
-    "v": 1,
-    "sha": "f1fbdbc88b0fbf26"
+    "v": 2,
+    "sha": "30394ff33798ce55"
   },
   "js/basis-note.js": {
     "v": 1,
@@ -200,8 +200,8 @@
     "sha": "9bd8709b9440e40f"
   },
   "js/miniapp-view.js": {
-    "v": 2,
-    "sha": "40a172db6a874100"
+    "v": 3,
+    "sha": "520dbbfe00226024"
   },
   "js/mode-strip-model.js": {
     "v": 1,
@@ -356,8 +356,8 @@
     "sha": "f68d9fa4aa93124e"
   },
   "js/arena-session.js": {
-    "v": 2,
-    "sha": "dbc94edb7f48436a"
+    "v": 3,
+    "sha": "0c72f60dd5662d2f"
   },
   "js/pi-arena.js": {
     "v": 2,

@@ -172,12 +172,15 @@ if [ "$CHECK_WEB" -eq 1 ]; then
         try {
           const c = JSON.parse(input).components || {};
           process.stdout.write(String(c.bot_gateway?.state || "__missing__") + "|"
-            + String(c.api_bridge?.state || "__missing__"));
+            + String(c.api_bridge?.state || "__missing__") + "|"
+            + String(c.arena_prices?.state || "__missing__"));
         } catch (_) { process.exitCode = 1; }
       });
     ' 2>/dev/null)" || component_states=""
     web_gateway_state="${component_states%%|*}"
-    web_bridge_state="${component_states#*|}"
+    web_rest="${component_states#*|}"
+    web_bridge_state="${web_rest%%|*}"
+    web_prices_state="${web_rest#*|}"
     if [ -z "$component_states" ] || [ "$component_states" = "$web_gateway_state" ] \
       || [ "$web_gateway_state" = "__missing__" ] \
       || [ "$web_bridge_state" = "__missing__" ]; then
@@ -194,6 +197,17 @@ if [ "$CHECK_WEB" -eq 1 ]; then
       else
         fail "web container reports api_bridge=$web_bridge_state — insight/patterns/lab will fail"
         note "BOT_API_URL must be the same public tunnel URL; ingress routes bridge paths to :8000."
+      fi
+      # The Arena's live marks, read the way the Arena reads them. On
+      # 2026-10-17 a deploy verified clean while every Arena position showed
+      # "mark unavailable" and every close was refused: nothing here asked.
+      if [ "$web_prices_state" = "fresh" ]; then
+        ok "web container reads live Arena prices"
+      elif [ "$web_prices_state" = "__missing__" ] || [ "$web_prices_state" = "$web_bridge_state" ]; then
+        unk "$WEB_URL/api/public/status did not report arena_prices (a build before it was added?)."
+      else
+        fail "web container reports arena_prices=$web_prices_state — Arena positions show no mark and closes are refused"
+        note "The web container reads Bitget's public tickers itself; check its outbound network."
       fi
     fi
   fi
