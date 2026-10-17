@@ -348,3 +348,4 @@ about to change before changing it.
 - L25881: ADDENDUM, 2026-10-17: THE FRAME LIST PI GAVE LEFT OUT PI'S OWN PREVIEW — `app/test/the_pi_app_is_the_arena_and_nothing_else.test.js`
 - L25897: A PI TIP IS SETTLED BY PI'S RECORD OF THE PAYMENT, NEVER BY THE PAGE'S — `app/test/pi_payments.test.js`, `app/test/the_pi_app_signs_in_with_pi.smoke.test.js`
 - L25931: THE PI APP GOT THE SITE'S SIGNALS AND CHARTS FROM THE SITE'S OWN PARTS, AND A RENDER THAT REPLACES THE SCREEN TAKES ITS CHARTS WITH IT — `app/test/arena_seasons.test.js`, `app/test/the_pi_app_signs_in_with_pi.smoke.test.js`
+- L25969: THE ONE PRIVACY POLICY ANSWERED 404 AT ITS OWN CANONICAL URL, AND A SECOND COPY WOULD HAVE BEEN THE FIX THAT REPEATS THE INCIDENT — `app/test/the_pi_app_is_the_arena_and_nothing_else.test.js`, `app/test/the_policies_are_served_on_www.test.js`

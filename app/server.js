@@ -527,6 +527,9 @@ function sendDocsShell(req, res) {
 }
 app.get('/docs', sendDocsShell);
 app.get('/docs/:slug', sendDocsShell);
+// /privacy and /terms: the site's two policies, served from its build with no
+// script and no link beyond each other (routes/legal.js says why).
+app.use(require('./routes/legal'));
 // Per-signal page. The id rides as ?key= so a slash in it still arrives.
 // /signal/:key remains for an id that has no slash.
 function sendSignalPage(req, res) {

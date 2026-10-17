@@ -142,11 +142,16 @@ router.get('/', (req, res) => {
 });
 
 /**
- * GET /validation-key.txt (mounted at the site root by server.js). Pi's
- * Developer Portal can ask an app's domain to serve a key it issues, to prove
- * the domain is the developer's. From the environment only: an unset key is a
- * 404, never an empty 200 that reads as "verified with nothing".
+ * GET /validation-key.txt, at the site root (server.js) and beside the app
+ * (/pi/validation-key.txt). Pi's Developer Portal asks an app's domain to
+ * serve a key it issues, to prove the domain is the developer's, and it looks
+ * for the file under the App URL: the portal's "Verify App Domain" step names
+ * /pi/validation-key.txt for this app (2026-10-17). From the environment only:
+ * an unset key is a 404, never an empty 200 that reads as "verified with
+ * nothing".
  */
+router.get('/validation-key.txt', validationKey);
+
 function validationKey(req, res) {
   const key = String(process.env.PI_VALIDATION_KEY || '').trim();
   if (!key) return res.status(404).type('text/plain').send('Not found');
@@ -158,6 +163,8 @@ module.exports = router;
 module.exports.validationKey = validationKey;
 module.exports._page = page;
 module.exports._piCsp = piCsp;
+// Pi's frame list, shared with routes/legal.js: Pi's listing links the policies.
+module.exports.frameAncestors = frameAncestors;
 module.exports.PI_SDK = PI_SDK;
 module.exports.PI_FRAME_ANCESTORS = PI_FRAME_ANCESTORS;
 module.exports.APP_STUDIO = APP_STUDIO;

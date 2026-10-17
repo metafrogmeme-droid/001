@@ -187,10 +187,16 @@ test('the validation file is static: no route, handler or redirect names it', ()
     'the /pi router must not be mounted ahead of the static files');
 });
 
-test('the legacy domain key is served only when set, and never as an empty 200', async () => {
-  const unset = await get('/validation-key.txt', { PI_VALIDATION_KEY: '' });
-  assert.strictEqual(unset.status, 404);
-  const set = await get('/validation-key.txt', { PI_VALIDATION_KEY: '  abc123key  ' });
-  assert.strictEqual(set.status, 200);
-  assert.strictEqual(set.text, 'abc123key');
+test('the domain key is served only when set, and never as an empty 200', async () => {
+  // The Developer Portal's "Verify App Domain" step asks for the key beside
+  // the App URL, /pi/validation-key.txt (2026-10-17); the root path stays.
+  for (const p of ['/validation-key.txt', '/pi/validation-key.txt']) {
+    const unset = await get(p, { PI_VALIDATION_KEY: '' });
+    assert.strictEqual(unset.status, 404, p);
+    assert.notStrictEqual(unset.text.trim(), '', `${p}: an unset key answered an empty body`);
+    const set = await get(p, { PI_VALIDATION_KEY: '  abc123key  ' });
+    assert.strictEqual(set.status, 200, p);
+    assert.strictEqual(set.text, 'abc123key', p);
+    assert.match(set.headers.get('content-type'), /^text\/plain/, p);
+  }
 });

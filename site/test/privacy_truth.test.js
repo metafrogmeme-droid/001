@@ -124,6 +124,91 @@ test('the page discloses the OBSERVED half, because that reaches a provider too'
     'the AI-providers section must name it as something that is sent')
 })
 
+// ── every way in is named, and what each one keeps ─────────────────────────
+
+/**
+ * The page fell behind the product twice in the same way: a sign-in method
+ * shipped and the policy never learned its name. Pi and Farcaster were both
+ * live, each writing its own id onto the account row, while this page listed
+ * Google, Discord, X, Telegram and a wallet (2026-10-17, found when Pi's
+ * Developer Portal asked for a privacy URL). So the list is read from the one
+ * place a provider becomes an account column, and every key there must be
+ * named on the page. A new provider fails here until the page says what it
+ * keeps.
+ */
+const PROVIDER_NAMES = {
+  google: /\bGoogle\b/, telegram: /\bTelegram\b/, discord: /\bDiscord\b/,
+  x: /\bX\b/, wallet: /\bwallet\b/i, farcaster: /\bFarcaster\b/, pi: /\bPi\b/,
+}
+
+function providersInCode() {
+  const auth = repo('app', 'auth.js')
+  const m = auth.match(/const _PROVIDER_ID_COLUMN = \{([\s\S]*?)\n\};/)
+  assert.ok(m, 'app/auth.js no longer has _PROVIDER_ID_COLUMN — find where a provider becomes a column')
+  const keys = [...m[1].replace(/\/\/.*$/gm, '').matchAll(/^\s*([a-z_]+):\s*'/gm)].map((k) => k[1])
+  assert.ok(keys.length >= 7, `read ${keys.length} providers; the parse is wrong`)
+  return keys
+}
+
+test('every sign-in provider the code accepts is named on the page', () => {
+  const t = text()
+  for (const key of providersInCode()) {
+    const name = PROVIDER_NAMES[key]
+    assert.ok(name, `a new sign-in provider, ${key}: say on the page what it keeps, then name it here`)
+    assert.match(t, name, `the page never names the ${key} sign-in`)
+  }
+})
+
+test('the Pi sign-in keeps only the uid, and the page says the username is not stored', () => {
+  const route = repo('app', 'routes', 'pi_auth.js')
+  // The only write: the uid App Studio confirmed, and nothing else from Pi.
+  assert.match(route, /findOrCreateOAuthUser\(\{ provider: 'pi', providerId: verdict\.uid \}\)/,
+    'the Pi sign-in now stores more than the uid — the page must say what')
+  assert.doesNotMatch(route, /verdict\.username|UPDATE users/,
+    'the Pi sign-in writes something besides the uid')
+  const t = text()
+  assert.match(t, /Pi uid/)
+  assert.match(t, /Pi username is not stored/)
+})
+
+test('the Farcaster sign-in keeps only the fid', () => {
+  const route = repo('app', 'routes', 'farcaster_auth.js')
+  assert.match(route, /provider: 'farcaster',\s*providerId: String\(verdict\.fid\),\s*\}\)/,
+    'the Farcaster sign-in now stores more than the fid — the page must say what')
+  assert.doesNotMatch(route, /UPDATE users/)
+  assert.match(text(), /Farcaster ID \(fid\)/)
+})
+
+test('a Pi tip is disclosed field by field, and its record is erased with the account', () => {
+  const ddl = repo('app', 'db.js').match(/CREATE TABLE IF NOT EXISTS pi_payments \(([\s\S]*?)\n\s*\)/)
+  assert.ok(ddl, 'the pi_payments table is gone — the page still describes tip records')
+  const cols = [...ddl[1].matchAll(/^\s*([a-z_]+) [A-Z]/gm)].map((c) => c[1])
+  assert.deepStrictEqual(cols.sort(),
+    ['amount', 'created_at', 'id', 'kind', 'payment_id', 'status', 'txid', 'updated_at', 'user_id'],
+    'a tip record keeps a new field — say on the page what it is, then list it here')
+  const t = text()
+  for (const said of [/the amount/, /payment id/, /blockchain transaction id/, /whether it completed/, /and when/]) {
+    assert.match(t, said, `the page does not say a tip record keeps ${said}`)
+  }
+  const erasure = repo('app', 'lib', 'account_erasure.js')
+  assert.match(erasure, /'pi_payments'/,
+    'account deletion no longer erases tip records — the page says it does')
+  assert.match(t, /the record of any Pi tips/)
+  // And the half deletion cannot reach, stated rather than implied away.
+  assert.match(t, /stays on the Pi blockchain/)
+})
+
+test('the in-app sessions are memory only, as the page says', () => {
+  const session = repo('app', 'public', 'js', 'arena-session.js')
+  const code = session.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+  assert.doesNotMatch(code, /localStorage|sessionStorage|document\.cookie/,
+    'the Pi and Farcaster apps now keep something in the browser')
+  for (const r of [['routes', 'piapp.js'], ['routes', 'miniapp.js']]) {
+    assert.match(repo('app', ...r), /res\.removeHeader\('Set-Cookie'\)/, `${r[1]} may now set a cookie`)
+  }
+  assert.match(text(), /Pi Browser and Farcaster apps set no cookie/)
+})
+
 // ── absences stated as absences ───────────────────────────────────────────
 
 /**

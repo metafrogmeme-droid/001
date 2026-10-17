@@ -25965,3 +25965,58 @@ It now asks `pickCurrentSeason` like every other reader, through
 real library in Chromium, opens it on paper, and checks the unreadable and
 empty states. `app/test/arena_seasons.test.js` drives the rename's refusals and
 that the window, rules and status survive it.)
+
+**THE ONE PRIVACY POLICY ANSWERED 404 AT ITS OWN CANONICAL URL, AND A SECOND COPY WOULD HAVE BEEN THE FIX THAT REPEATS THE INCIDENT.**
+On 2026-10-17 Pi's Developer Portal refused to list the Pi app without a
+privacy-policy URL and a terms-of-service URL. Checking before answering found
+three things:
+- **The policy existed and nobody could reach it.** It is a page of the
+  marketing site (`site/src/routes/privacy.tsx`, prerendered into `website/`),
+  and its canonical URL is `https://www.humanoid-traders.com/privacy`. But www
+  is the Express app, which had no `/privacy`. The canonical URL answered 404,
+  and so did `/privacy` on every other host.
+- **It had fallen behind the product again**, the way its truth test's header
+  says the 31 May version did. Pi and Farcaster sign-in were live, each writing
+  its own id onto the account row. Pi tips were live, each keeping a payment id,
+  a txid and an amount. The page named none of it.
+- **There were no terms at all.**
+
+The quick fix was a new privacy page in the app's public folder: a second copy of a document
+whose incident history is exactly a copy drifting from the product. Instead:
+- **One source.** The text stays in the site, and gains a terms route
+  (`site/src/routes/terms.tsx`).
+- **www serves the built text.** `app/routes/legal.js` serves the article of
+  each built page at `/privacy` and `/terms` on www, inside a plain shell. A
+  policy edit reaches both hosts through the rebuild CI already requires.
+- **Only the article.** The built page's header and footer link to pages www
+  does not serve, and its bundle is the site's script. The shell runs no
+  script, links only to the two policies, and carries no presale, because Pi's
+  listing links these URLs.
+- **The policy's CSP forbids inline styles**, so the two `style=` attributes
+  the pages carried became classes. The route refuses to serve an article with
+  a script, an inline handler or a style attribute (a 503 with a sentence,
+  never an empty policy).
+
+The truth tests grew the same way the policy fell behind:
+- **The sign-in providers are read from `_PROVIDER_ID_COLUMN`**, the one place
+  a provider becomes an account column. A provider the page does not name now
+  fails.
+- **The tip table's columns are read from its DDL.** A tip record that keeps a
+  new field fails until the page says what it is.
+- **Each product claim in the terms is asked of the code:** the starting
+  balance from `arena_engine.js`, that the tip code writes only its own table,
+  and that no code path can pay a person back.
+- **A forbidden word.** The site's forbidden-claims scan refused the first
+  terms draft for the word "stake", which it reserves for the token. The paper
+  money is a "balance".
+
+The same day the portal's **Verify App Domain** step asked for its key at
+`/pi/validation-key.txt`, beside the App URL, not at the root where
+`PI_VALIDATION_KEY` was served. The Pi router now answers both paths from the
+same handler.
+(`site/test/privacy_truth.test.js` and `site/test/terms_truth.test.js` hold the
+documents to the code. `app/test/the_policies_are_served_on_www.test.js` holds
+the route: byte-for-byte article, no script, no door, a 503 for each unservable
+shape, and only the stylesheet from the site's assets.
+`app/test/the_pi_app_is_the_arena_and_nothing_else.test.js` drives both key
+paths, set and unset.)
