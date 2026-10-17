@@ -26,18 +26,12 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from bot.utils.market_symbols import base_ticker, perp_symbol  # noqa: F401  (re-exported)
 
-def _base(sym: str) -> str:
-    """'BTC/USDT:USDT' | 'BTCUSDT' | 'BTC' → 'BTC' (base ticker)."""
-    s = str(sym or "").upper().split(":")[0].split("/")[0].strip()
-    if s.endswith("USDT") and len(s) > 4:
-        s = s[:-4]
-    return s
-
-
-def perp_symbol(sym: str) -> str:
-    """'BTCUSDT' | 'BTC/USDT' | 'BTC' → 'BTC/USDT:USDT', the USDT-M perpetual."""
-    return f"{_base(sym)}/USDT:USDT"
+# The spellings live in a leaf (`bot/utils/market_symbols.py`) so a money
+# module can read them without this module's imports; the names stay here
+# because every caller reads them from here.
+_base = base_ticker
 
 
 #: Read only by the backtest: no idea and no `/run` scan carries an RSI.

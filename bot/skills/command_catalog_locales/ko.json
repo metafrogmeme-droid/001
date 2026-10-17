@@ -75,6 +75,7 @@
     "altsweep": "ALT Sweep 현재: 각 알트의 이동평균 방향 (주문 없음)",
     "ethma": "ETH Moving-Average Trend 현재: 이동평균 방향 (주문 없음)",
     "volrotation": "일일 로테이션 현재: 보유할 시장 (주문 없음)",
+    "dailytrend": "일봉 추세 지금: 보유할 시장과 비중, 주문 없음",
     "intraday": "15분봉 일중 스캔",
     "swing": "4시간봉 스윙 스캔",
     "stockscan": "토큰화 미국 주식 무기한 선물",

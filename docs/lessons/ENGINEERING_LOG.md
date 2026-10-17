@@ -1313,9 +1313,9 @@ that as help, but that tool is not available on this bot right now"* — and
 model's own history, so the NEXT turn was answered by a model that had been told
 the product has no help. Both statements are false about the product; the
 capability had no door on that surface. **Reusing the Telegram card would have
-replaced a false refusal with a mostly-false answer**: `_cmd_help` names 112 slash
+replaced a false refusal with a mostly-false answer**: `_cmd_help` names 113 slash
 commands for a non-admin and the web has no slash handling at all, so driven,
-typed as the card prints them, 103 of the 112 reach the tool-less chat model and 9
+typed as the card prints them, 104 of the 113 reach the tool-less chat model and 9
 reach a skill by incidental word matching — `/scan`, whose whole job is the
 universe sweep, lands on `analyze_asset`, a read of ONE asset. A card that names
 a command is claiming the command does something, at ninety times the `/vault`
@@ -21054,7 +21054,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 271 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 272 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **494 of 1336** reach for source text through `source_scan`, `code_only`
+Driven, **495 of 1338** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 494 is a FLOOR and the honest shape is
+source scan that rule does not see, so 495 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -26380,3 +26380,105 @@ Chromium: each door, the window closing on screen with the chart and the
 ticket untouched, a refused follow re-reading the calls, a refused ticket
 kept and a filled one cleared, and the timeframes, the gestures, the zoom
 kept across a render and the timeframe remembered.)
+
+**THE DAILY TREND RULE PASSED ON KRAKEN'S HISTORY, THE FIRST PASS IN THIRTEEN
+PRE-REGISTERED TESTS, AND IT IS A SLEEVE, NOT A BOT.** The Bitget slow-rule
+study (17 Oct) had three years of history and no power: an 18-month to 3-year
+Sharpe has a standard error near 0.8, and its one near-miss, daily trend L/S at
+dev 0.66 / holdout 0.24, could not be told from zero. Kraken publishes its whole
+spot OHLCVT history as one archive (every pair from its first trade; daily bars
+from 2013 for BTC and 2017–18 for most majors). It was fetched and verified
+against Kraken's checksums, and the same five rules, byte for byte, were
+pre-registered on it before a bar was readable (sealed 2026-10-17T07:36:30Z,
+sha256 `b54e4e85…6587a`): the universe fixed by rule (a USD pair with 150 daily
+bars before 2021-06-01, which admits 16 of the 20 and not AVAX, BNB, NEAR or
+SOL), development 2014-04 → 2021-05 as the unread window, holdout 2021-06 →
+2026-06, costs 0.10% a side, no funding on spot, the same four-part pass rule.
+Development ran, the code was sealed, the holdout was read once.
+
+| rule | dev Sharpe | holdout Sharpe | years up / traded | 90% bootstrap (full) | holdout DD | verdict |
+|---|---|---|---|---|---|---|
+| H1a trend L/S | +1.46 | +0.29 | 12/13 | [+0.52, +1.54] | 18.8% | fail (holdout) |
+| **H1b trend long-only** | **+2.12** | **+0.63** | 8/13 | [+1.05, +2.15] | 10.1% | **PASS** |
+| H2a breakout L/S | +1.38 | +0.15 | 9/13 | [+0.42, +1.43] | 20.8% | fail |
+| H2b breakout long-only | +1.73 | +0.42 | 8/12 | [+0.75, +1.80] | 14.6% | fail |
+| H3 xs momentum | +0.49 | −0.46 | 3/8 | [−0.48, +0.53] | 57.3% | fail, dropped |
+
+BTC buy-and-hold over the same holdout: Sharpe 0.44, drawdown 76.7%. H1b by
+year, net: 2015 +12%, 2016 +28%, 2017 +96%, 2018 −6.5%, 2019 +14%, 2020 +25%,
+2021 +22%, 2022 −4.5%, 2023 +7.8%, 2024 +24%, 2025 −1.2%, 2026 (to June) −0.7%.
+Holdout CAGR +4.3%.
+
+**How to read it, and what it is not.** The development window is the new
+information: 2014–2021 had never been read here, and all four trend and
+breakout rules earned Sharpe 1.4–2.1 across it, 2018 included. The holdout is
+a replication on another venue's prints, not a clean holdout: the same coins
+and years were read in the Bitget study, where H1b scored −0.02 with a fixed
+0.03%/day funding charge on a long book (about 11% a year, flagged there as
+conservative) and with the four later coins in; here, on spot with no funding
+and without them, 0.63. The funding assumption is the likely swing, and the
+next pre-registered test is the same rule against Bitget's own funding
+(public from July 2026). Spot shorting was not generally possible in 2014–17,
+so the long-only rows are the honest ones; 2014–16 hold two or three coins;
+the 20 were chosen by 2022 market cap. Thirteen tests in this line of work;
+one pass at a holdout Sharpe of 0.63 is a capital-preservation sleeve (it lost
+6.5% in 2018 and 4.5% in 2022 while BTC lost 74% and 64%), about seven
+rebalances a year per coin, and nothing like the hourly bot's advertised
+frequency. Nothing here changes the verdict on the hourly indicators.
+
+**The sleeve is a preset the live bot does not run.** `bot/core/daily_trend.py`
+is the rule as one reading: the trend score is the mean sign of a market's
+returns over 20, 60 and 120 days, floored at zero; a positive score is held at
+score × (20%/yr ÷ markets readable that day) ÷ its own 30-day realised vol,
+capped at 1× notional, rebalanced when a target moves 10%; no stop, no target.
+`/dailytrend` reads it on the last closed daily bars (grouped from 1h, a
+partial day dropped) and names the book it would hold and the weights; the
+card says who runs it (nobody) and where the study is. None is unread, never a
+zero score and never a zero weight; a zero score is a measurement (a market
+read today, not held) and counts in the split. Ten mutants (shorts allowed, an
+unreadable prior close read as flat, the vol not annualised, a flat series
+read as zero vol, the cap dropped, the split over the listed rather than the
+readable markets, a zero-score market dropped from the split, too little
+history read anyway, an unknown preset key accepted, the door missing) each
+failed a test that names them. **Its paper record is one board a UTC day**:
+the engine reads the sleeve once a day in every mode, behind the maintenance
+cap, and appends the book it would hold to `data/learning/daily_trend_book.jsonl`
+(`DAILY_TREND_BOOK_PATH`); a day already recorded is not scanned again, and a
+board nothing read on records nothing, never an empty book.
+`docs/research/daily_trend_sleeve_prereg.md` fixes, before the first row
+exists, how that record is read: not before twelve months, against Bitget's
+real funding, with its pass rule and its prediction (funding is the swing).
+(`tests/test_the_daily_trend_sleeve_reads_and_places_nothing.py`;
+`tests/test_each_strategy_scans_its_own_rule_now.py` and
+`tests/test_strategy_catalog.py` carry the new door and card.)
+
+**A LIVE ORDER STAYS IN THE MARKETS A CARD MEASURED.** 17 October, from the
+live parity card: 226 of live's 249 strategy exits were on markets no frozen
+benchmark holds, and the TradFi legs among them (gold, equities, indices
+through their perps) ran at a profit factor of 0.03 to 0.22 over 77 exits.
+The cards measured ten crypto majors on hourly bars; live was placing orders
+on 60-odd markets, and the parity card could only say of 226 exits that it
+had nothing to compare them with. The scan is cheap and the paper book is
+free, so neither is narrowed. A *live* order is: the risk gate's
+`LIVE_UNIVERSE` check, live mode only, refuses a market outside the measured
+set and says so by name on the risk card. The set is READ from the benchmark
+on record (`benchmark/majors_1h/manifest.json`, the snapshot `/parity`
+compares against), never typed into the gate, so the gate and the card cannot
+name two universes; a manifest that cannot be read is a set nobody read, and
+refuses rather than passes (`bot/risk/live_universe.py`). `LIVE_UNIVERSE`
+(comma list of markets) replaces the set when the operator widens or narrows
+it on purpose, and `LIVE_UNIVERSE_GATE_ENABLED` (on) is the switch; both are
+in the generated block of `.env.example`. Fifteen suites evaluate live mode
+on ARB, OP, SUI and the like to drive other gates; the harness holds the
+check off for them and the one suite that measures it turns it on, so no
+suite reads REJECTED for a reason it is not testing. Eight mutants, all
+killed: the gate dropped, paper evaluated too, the switch ignored, the
+unreadable set passing, the override ignored, an unmeasured market allowed,
+an empty manifest counted as read, and the failed line filed under passed.
+The gate module reads the base ticker and the benchmark root from two
+leaves (`bot/utils/market_symbols.py`, `bot/utils/paths.py`) that
+`strategy_gate` and `snapshot` re-export under their old names: the
+money-modules mypy gate follows imports, and `strategy_gate`'s
+function-local imports had dragged the scanner, the engine and the skills
+into a gate that must come back clean (267 errors in 46 files, on a module
+of ninety lines). (`tests/test_a_live_order_stays_in_the_measured_universe.py`.)

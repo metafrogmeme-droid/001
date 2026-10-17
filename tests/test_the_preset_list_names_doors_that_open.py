@@ -48,7 +48,7 @@ def test_each_rule_the_live_bot_does_not_run_names_a_scan_door_that_opens():
     known = registered_commands()
     text = _listed()
     doors = {k: scan_command(k) for k in RunStrategySkill.PRESETS}
-    assert {"altsweep", "ethma", "volrotation", "limitscan", "multitrend"} == {
+    assert {"altsweep", "ethma", "volrotation", "limitscan", "multitrend", "dailytrend"} == {
         d for d in doors.values() if d}
     for key, door in doors.items():
         label = RunStrategySkill.PRESETS[key]["label"]

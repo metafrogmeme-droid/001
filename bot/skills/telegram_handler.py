@@ -1237,7 +1237,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
             # the last closed bars, placing nothing (`strategy_scan`).
             ("limitscan", self._cmd_limitscan), ("multitrend", self._cmd_multitrend),
             ("altsweep", self._cmd_altsweep), ("ethma", self._cmd_ethma),
-            ("volrotation", self._cmd_volrotation),
+            ("volrotation", self._cmd_volrotation), ("dailytrend", self._cmd_dailytrend),
             ("linkwallet", self._cmd_linkwallet),
             ("scalp", self._cmd_scalp),
             ("intraday", self._cmd_intraday),

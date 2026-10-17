@@ -1354,6 +1354,28 @@ class RuneClawEngine:
             return UNREADABLE
         return record_daily_equity(reading, mode="live", source=CONFIG.exchange.venue)
 
+    async def _record_daily_trend_book(self) -> str:
+        """One row a UTC day of the book the daily trend sleeve would hold.
+
+        The sleeve is a preset the live bot does not run; its paper record is
+        this file, read on the schedule `docs/research/daily_trend_sleeve_prereg.md`
+        fixes. A day already recorded is not scanned again; a board that could
+        not be read records nothing. Returns the recorder's word.
+        """
+        from bot.core.daily_trend import NOT_ASKED, book_log_path, record_book
+        from bot.core.equity_record import ALREADY, last_recorded_day
+        from bot.core.strategy_scan import scan
+        if last_recorded_day(book_log_path()) == datetime.now(UTC).date().isoformat():
+            return ALREADY
+        # The reading rides the futures connection the scan phase already
+        # opened and opens none of its own: a tick whose scan reached no venue
+        # (a test's stubbed scanner, a boot before the first scan) asks nothing
+        # and says so, rather than building a client of its own here.
+        if getattr(getattr(self, "scanner", None), "_futures_exchange", None) is None:
+            return NOT_ASKED
+        board = await scan(self, "daily trend")
+        return record_book(board)
+
     def live_balance_cached(self, max_age_s: float = 900.0) -> Optional[dict]:
         """The cached live balance ONLY when fresh enough to state as current.
 
@@ -6651,6 +6673,13 @@ class RuneClawEngine:
                 self._record_live_equity_day()
             except Exception as exc:  # noqa: BLE001
                 system_log.debug("Daily equity row not written: %s", type(exc).__name__)
+        # The daily trend sleeve's book, once a day in every mode: a reading,
+        # not an order. Behind the maintenance cap, as the refresh above is.
+        try:
+            await self._with_maintenance_cap(
+                self._record_daily_trend_book(), "daily trend book")
+        except Exception as exc:  # noqa: BLE001
+            system_log.debug("Daily trend book not written: %s", type(exc).__name__)
 
         # Sync WebSocket status to health monitor
         self.health.set_ws_status(self.ws_feed.is_connected())

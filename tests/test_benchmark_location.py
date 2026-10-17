@@ -100,7 +100,10 @@ class TestNoConsumerPinsTheOldPath:
     # order to fall back to it — the same exemption bot/utils/atomic_write.py
     # carries in the .tmp scan, and for the same reason: the one file allowed
     # to spell the forbidden shape is the one implementing the cure.
-    RESOLVERS = {"bot/backtest/snapshot.py", "bot/core/strategy_catalog.py"}
+    # The two names live in bot/utils/paths.py (a leaf, so the risk gate's
+    # live-universe check can read the root without the snapshot module's
+    # imports); snapshot.py re-exports them for every other caller.
+    RESOLVERS = {"bot/utils/paths.py", "bot/backtest/snapshot.py", "bot/core/strategy_catalog.py"}
 
     def _sources(self):
         for base in ("bot", "scripts"):
@@ -125,7 +128,8 @@ class TestNoConsumerPinsTheOldPath:
                     offenders.append(
                         f"{path.relative_to(REPO)}: {shape}")
         assert not offenders, (
-            "resolve via bot.backtest.snapshot.benchmark_root instead — a "
+            "resolve via bot.utils.paths.benchmark_root (bot.backtest.snapshot "
+            "re-exports it) instead — a "
             "path under the data/ symlink cannot be committed:\n  "
             + "\n  ".join(offenders))
 

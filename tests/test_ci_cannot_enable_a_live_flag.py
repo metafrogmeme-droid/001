@@ -72,6 +72,8 @@ PROTECTIONS = {
     "LIVE_RISK_HARDENING_ENABLED": "the live risk hardening bundle; ON tightens",
     "PERSIST_LIVE_DRAWDOWN_PEAK": "persists the drawdown high-water mark; ON tightens",
     "TIME_STOP_LIVE_AUTO_CLOSE": "the live time-stop auto-close; ON tightens",
+    "LIVE_UNIVERSE_GATE_ENABLED": "the live-universe check on a live order; ON tightens",
+    "LIVE_UNIVERSE": "the measured set the check reads; a list of markets, never a switch",
 }
 #: The four that make a bot live; the derived family must hold each.
 MUST_HOLD = ("LIVE_TRADING_ENABLED", "SIMULATION_MODE",

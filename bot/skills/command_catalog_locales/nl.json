@@ -75,6 +75,7 @@
     "altsweep": "ALT Sweep nu: de kant van het voortschrijdend gemiddelde per alt, zonder order",
     "ethma": "ETH Moving-Average Trend nu: de kant van zijn voortschrijdend gemiddelde, zonder order",
     "volrotation": "dagelijkse rotatie nu: de markt die ze zou aanhouden, zonder order",
+    "dailytrend": "dagtrend nu: de markten die hij zou aanhouden en hun gewichten, plaatst niets",
     "intraday": "15m-intradayscan",
     "swing": "4h-swingscan",
     "stockscan": "getokeniseerde Amerikaanse aandelenperps",
