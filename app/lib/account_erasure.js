@@ -51,6 +51,9 @@ const USER_SCOPED_TABLES = [
   'pending_flatten',
   'arena_api_keys',
   'arena_envelopes',
+  // Pi tips. The rows go; the payment itself stays on Pi's ledger, which is
+  // not ours to erase, and a tip granted nothing that would need undoing.
+  'pi_payments',
   // trading history and positions
   'trades',
   'equity_snapshots',

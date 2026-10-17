@@ -15,7 +15,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const authModule = require('../auth');
-const { seasonStatus, validateSeason, seasonRanking } = require('../lib/arena_seasons');
+const { seasonStatus, validateSeason, validateSeasonName, seasonUnfurl, seasonRanking } = require('../lib/arena_seasons');
 const { setTickerFetcher } = require('../lib/tickers');
 const { pool } = require('../db');
 
@@ -33,6 +33,26 @@ test('validateSeason enforces name, order and length', () => {
   assert.ok(!validateSeason({ name: 'x', starts_at: '2026-08-01', ends_at: '2026-09-01' }).ok);
   assert.ok(!validateSeason({ name: 'Backwards', starts_at: '2026-09-01', ends_at: '2026-08-01' }).ok);
   assert.ok(!validateSeason({ name: 'Too Long', starts_at: '2026-01-01', ends_at: '2026-12-31' }).ok);
+});
+
+test('a rename is held to the same name rule as a launch', () => {
+  assert.deepEqual(validateSeasonName('  Season One  '), { ok: true, name: 'Season One' });
+  for (const bad of ['x', '', null, 'a'.repeat(61), '<script>']) {
+    assert.equal(validateSeasonName(bad).ok, false, String(bad));
+    assert.equal(validateSeason({ name: bad, starts_at: '2026-08-01', ends_at: '2026-09-01' }).ok, false);
+  }
+});
+
+test('the link preview names the season every host shows, not the first row back', () => {
+  const now = new Date('2026-10-17T12:00:00Z');
+  const ended = { id: 1, name: 'Old Season', starts_at: '2026-06-01T00:00:00Z', ends_at: '2026-07-01T00:00:00Z' };
+  const live = { id: 2, name: 'FARCASTER', starts_at: '2026-08-25T12:00:00Z', ends_at: '2026-11-24T23:59:00Z' };
+  for (const rows of [[ended, live], [live, ended]]) {
+    const u = seasonUnfurl(rows, now, 'pitch');
+    assert.equal(u.title, 'RUNECLAW Arena · FARCASTER is LIVE');
+    assert.match(u.og, /^FARCASTER is LIVE until 2026-11-24\. .* pitch$/);
+  }
+  assert.equal(seasonUnfurl([], now, 'pitch'), null);
 });
 
 test('seasonRanking sums in-window pnl vs the uniform stake, opt-in only', () => {
@@ -113,6 +133,35 @@ test('authoring a season is operator-only; a live season ranks in-window closes'
   assert.ok(me, 'ranked in the live season');
   assert.equal(me.return_pct, 5);
   assert.ok(!/balance|equity|email/i.test(JSON.stringify(s.data)));
+});
+
+test('the operator renames the current season, and nothing else about it changes', async (t) => {
+  const reg = await req('POST', '/api/auth/register', { body: { email: 'season-rename@example.com', password: 'longenough1' } });
+  const token = reg.data.token;
+  assert.equal((await req('PATCH', '/api/arena/season', { token, body: { name: 'Season One' } })).status, 403);
+  assert.equal((await req('PATCH', '/api/arena/season', { body: { name: 'Season One' } })).status, 401);
+  pool.users.find((u) => u.email === 'season-rename@example.com').plan = 'admin';
+
+  // A finished season on record too, and the NEWER row: "the current season"
+  // is pickCurrentSeason's answer, not whichever row the database returns first.
+  await pool.execute('INSERT INTO arena_seasons (name, starts_at, ends_at, rules, created_at) VALUES (?, ?, ?, ?, ?)',
+    ['Old Season', new Date(Date.now() - 30 * 86400000), new Date(Date.now() - 20 * 86400000), null, new Date()]);
+  // The tests below count ended seasons; this one is only here for the rename.
+  t.after(() => { pool.arenaSeasons = pool.arenaSeasons.filter((s) => s.name !== 'Old Season'); });
+  const before = (await req('GET', '/api/arena/season')).data.season;
+  assert.ok(before, 'the season launched above');
+  assert.notEqual(before.name, 'Old Season');
+  assert.equal((await req('PATCH', '/api/arena/season', { token, body: { name: 'x' } })).status, 400);
+  const ok = await req('PATCH', '/api/arena/season', { token, body: { name: '  Season One  ' } });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.data.renamed.from, before.name);
+  assert.equal(ok.data.renamed.to, 'Season One');
+
+  const after = (await req('GET', '/api/arena/season')).data.season;
+  assert.equal(after.name, 'Season One');
+  assert.ok(pool.arenaSeasons.some((s) => s.name === 'Old Season'), 'the finished season was renamed instead');
+  for (const k of ['starts_at', 'ends_at', 'status']) assert.deepEqual(after[k], before[k], k);
+  assert.deepEqual(after.rules, before.rules);
 });
 
 test('the /arena page mounts the season banner + standings', () => {

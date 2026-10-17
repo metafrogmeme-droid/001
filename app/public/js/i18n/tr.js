@@ -295,6 +295,8 @@
   ["arena.f_max_lev", "Kural: maksimum kaldıraç"],
   ["arena.f_majors", "Kural: yalnızca ana coinler"],
   ["arena.b_launch", "Sezonu başlat"],
+  ["arena.f_rename", "Mevcut sezonu yeniden adlandır"],
+  ["arena.b_rename", "Yeniden adlandır"],
   ["arena.ph_open", "sınırsız"],
   ["arena.p_join", "Arena’ya katıl"],
   ["arena.join_body", "Ücretsiz bir hesap yeterli — kâğıt hesabınız Arena’yı açtığınız anda oluşturulur. Borsa anahtarı yok, para yatırma yok, yapılandıracak bir şey yok."],

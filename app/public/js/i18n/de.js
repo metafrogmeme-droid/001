@@ -295,6 +295,8 @@
   ["arena.f_max_lev", "Regel: maximaler Hebel"],
   ["arena.f_majors", "Regel: nur Majors"],
   ["arena.b_launch", "Saison starten"],
+  ["arena.f_rename", "Aktuelle Saison umbenennen"],
+  ["arena.b_rename", "Umbenennen"],
   ["arena.ph_open", "offen"],
   ["arena.p_join", "Tritt der Arena bei"],
   ["arena.join_body", "Ein kostenloses Konto genügt — dein Paper-Konto entsteht in dem Moment, in dem du die Arena öffnest. Keine Börsen-Keys, keine Einzahlung, nichts einzurichten."],

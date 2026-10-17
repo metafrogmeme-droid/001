@@ -17,8 +17,8 @@
  * API works unchanged for a caller holding this token. The page keeps it in
  * memory only.
  *
- * Nothing here takes a payment. The Pi SDK's payment callback exists on the
- * page only because `Pi.authenticate` requires one.
+ * Nothing here takes a payment. The app's one payment, an optional tip, is
+ * routes/pi_payments.js, on the session this route issues.
  */
 
 const express = require('express');

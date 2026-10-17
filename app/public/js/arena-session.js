@@ -28,6 +28,16 @@
  *                   'signed-in' carries the token. Anything else is a
  *                   sentence from RCMiniView.signInProblemHtml.
  *   onFirstRender   optional, called once the first screen is up
+ *   extras          optional, a host's own blocks on the signed-in screen
+ *                   (the Pi app's signals and tips), each { place, html(),
+ *                   mounted(root), click(target, ctx) -> true when handled,
+ *                   signedIn(ctx) }; every member is optional. `place` is
+ *                   'main' (after the positions) or 'end' (after the open
+ *                   form). ctx is { api, render, refresh }: the same
+ *                   authenticated api() and nothing else, so a block can never
+ *                   hold the token itself. mounted() runs after every render,
+ *                   because a render replaces the screen and with it anything
+ *                   a block drew into it (a chart).
  */
 (function () {
   'use strict';
@@ -46,6 +56,7 @@
     var me = null;          // { handle, ... } as the host's sign-in returned it
     var lastNote = '';      // the last action's message, cleared on the next one
     var busy = false;
+    var extras = opts.extras || [];
 
     function esc(s) {
       return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -88,6 +99,17 @@
       });
     }
 
+    var extraCtx = {
+      api: api,
+      render: function () { render(); },
+      refresh: function () { return refresh(); },
+    };
+
+    function extrasHtml(place) {
+      return extras.filter(function (x) { return (x.place || 'end') === place && x.html; })
+        .map(function (x) { return x.html(); }).join('');
+    }
+
     // ── sign in ───────────────────────────────────────────────────────────
 
     var signInNote = '';
@@ -105,6 +127,7 @@
             token = outcome.token;
             me = outcome.me || {};
             signInNote = '';
+            extras.forEach(function (x) { if (x.signedIn) x.signedIn(extraCtx); });
             return refresh();
           }
           signInNote = M.signInProblemHtml(outcome.status, outcome.reason, host);
@@ -186,7 +209,9 @@
         + M.accountHtml(account)
         + lastNote
         + M.positionsHtml(account.positions)
+        + extrasHtml('main')
         + M.openFormHtml(account.limits)
+        + extrasHtml('end')
         + '<p class="e-src">'
         + (me && me.handle
           ? 'Trading as ' + esc(me.handle)
@@ -194,6 +219,7 @@
           // board until it picks one, and saying so is more useful than a blank.
           : 'No leaderboard handle yet — set one on the web to appear in standings')
         + '</p>';
+      extras.forEach(function (x) { if (x.mounted) x.mounted(root); });
     }
 
     // ── actions ───────────────────────────────────────────────────────────
@@ -263,6 +289,10 @@
       if (t.closest('.m-short')) return void openPosition('SHORT');
       var close = t.closest('.m-close');
       if (close) return void closePosition(close.getAttribute('data-close-id'));
+      if (!token) return;
+      for (var i = 0; i < extras.length; i++) {
+        if (extras[i].click && extras[i].click(t, extraCtx)) return;
+      }
     });
 
     // The season is public, so the signed-out screen can name it before anyone

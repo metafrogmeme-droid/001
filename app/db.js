@@ -254,6 +254,7 @@ class MemoryDB {
     duel_picks: { field: 'duelPicks' },
     learn_diary: { field: 'learnDiary' },
     learn_progress: { field: 'learnProgress' },
+    pi_payments: { field: 'piPayments' },
   };
 
   // ── Transactions ────────────────────────────────────────────────────────
@@ -361,6 +362,7 @@ class MemoryDB {
     this.duelRounds = [];     // Daily Duel rounds, unique on (day, idx)
     this._nextDuelRoundId = 1;
     this.duelPicks = [];      // Daily Duel picks, unique on (user_id, round_id)
+    this.piPayments = [];     // Pi tips (routes/pi_payments.js), unique payment_id
     this._nextDuelPickId = 1;
     // The arena key routes ARE implemented here now — see the ARENA API KEYS
     // branches below. They were not, which left mint/verify/bind/revoke
@@ -1245,10 +1247,12 @@ class MemoryDB {
     }
     if (cmd.includes('UPDATE ARENA_SEASONS')) {
       // ceremony flags — params: value(1), id  (SET announced_live / announced_end)
+      // or the operator's rename — params: name, id  (SET name)
       const srow = this.arenaSeasons.find(x => x.id === params[1]);
       if (!srow) return [{ affectedRows: 0 }, []];
       if (cmd.includes('ANNOUNCED_LIVE')) srow.announced_live = params[0];
       if (cmd.includes('ANNOUNCED_END')) srow.announced_end = params[0];
+      if (cmd.includes('SET NAME = ?')) srow.name = params[0];   // operator rename
       return [{ affectedRows: 1 }, []];
     }
     if (cmd.includes('FROM ARENA_SEASONS')) {
@@ -2579,6 +2583,69 @@ class MemoryDB {
       return [{ affectedRows: 1 }, []];
     }
 
+    // ── pi_payments: Pi tips (routes/pi_payments.js) ─────────────────────
+    // Each WHERE guard is read from the statement it was handed, as the
+    // siwf_nonces branch above does: the guards ARE the idempotency, and a
+    // shim that applied them unconditionally would keep a test green after
+    // the real SQL lost one.
+    const pp = cmd.replace(/\s+/g, ' ');
+    if (pp.startsWith('INSERT INTO PI_PAYMENTS')) {
+      this.piPayments = this.piPayments || [];
+      if (this.piPayments.some((r) => r.id === params[0])) {
+        const err = new Error(`Duplicate entry '${params[0]}' for key 'PRIMARY'`);
+        err.code = 'ER_DUP_ENTRY'; err.errno = 1062;
+        throw err;
+      }
+      this.piPayments.push({
+        id: params[0], user_id: params[1], kind: params[2],
+        // DECIMAL(20,7) comes back from mysql2 as a string.
+        amount: Number(params[3]).toFixed(7), status: params[4],
+        payment_id: null, txid: null, created_at: params[5], updated_at: params[6],
+      });
+      return [{ affectedRows: 1 }, []];
+    }
+    if (pp.startsWith('SELECT') && pp.includes('FROM PI_PAYMENTS')) {
+      this.piPayments = this.piPayments || [];
+      const byUser = pp.includes('AND USER_ID = ?');
+      const hit = this.piPayments.filter((r) => r.id === params[0]
+        && (!byUser || String(r.user_id) === String(params[1])));
+      return [hit.map((r) => ({ ...r })), []];
+    }
+    if (pp.startsWith('UPDATE PI_PAYMENTS SET PAYMENT_ID = ?')) {
+      this.piPayments = this.piPayments || [];
+      // UNIQUE (payment_id): one Pi payment settles one order.
+      if (this.piPayments.some((r) => r.payment_id === params[0] && r.id !== params[2])) {
+        const err = new Error(`Duplicate entry '${params[0]}' for key 'uq_pi_payments_payment'`);
+        err.code = 'ER_DUP_ENTRY'; err.errno = 1062;
+        throw err;
+      }
+      const row = this.piPayments.find((r) => r.id === params[2]
+        && (!pp.includes('AND USER_ID = ?') || String(r.user_id) === String(params[3]))
+        && (!pp.includes('PAYMENT_ID IS NULL') || r.payment_id == null));
+      if (!row) return [{ affectedRows: 0 }, []];
+      row.payment_id = params[0]; row.updated_at = params[1];
+      return [{ affectedRows: 1 }, []];
+    }
+    if (pp.startsWith('UPDATE PI_PAYMENTS SET TXID = ?')) {
+      this.piPayments = this.piPayments || [];
+      const guarded = pp.includes('(TXID IS NULL OR TXID = ?)');
+      const row = this.piPayments.find((r) => r.id === params[2]
+        && (!guarded || r.txid == null || r.txid === params[3]));
+      if (!row) return [{ affectedRows: 0 }, []];
+      row.txid = params[0]; row.updated_at = params[1];
+      return [{ affectedRows: 1 }, []];
+    }
+    if (pp.startsWith('UPDATE PI_PAYMENTS SET STATUS = ?')) {
+      this.piPayments = this.piPayments || [];
+      let cond = () => true;
+      if (pp.includes('AND STATUS = ?')) cond = (r) => r.status === params[3];
+      else if (pp.includes('AND STATUS <> ?')) cond = (r) => r.status !== params[3];
+      const row = this.piPayments.find((r) => r.id === params[2] && cond(r));
+      if (!row) return [{ affectedRows: 0 }, []];
+      row.status = params[0]; row.updated_at = params[1];
+      return [{ affectedRows: 1 }, []];
+    }
+
     // NO BRANCH MATCHED. This used to `return [[], []]` — the shim inventing
     // an answer it does not have, in the one shape this repository treats as
     // the founding defect: a failed read rendering as an empty result.
@@ -2666,6 +2733,7 @@ const EXPECTED_TABLES = Object.freeze([
   'duel_rounds',
   'duel_picks',
   'siwf_nonces',
+  'pi_payments',
 ]);
 
 /**
@@ -3862,6 +3930,26 @@ async function migrate() {
         INDEX idx_duel_picks_user (user_id),
         INDEX idx_duel_picks_round (round_id),
         INDEX idx_duel_picks_due (settle_state, resolves_at)
+      )
+    `);
+    // Pi tips (routes/pi_payments.js). One row per tip the server offered: the
+    // amount is ours, never the page's. payment_id is Pi's id, written BEFORE
+    // Pi is asked to approve, and unique, so one Pi payment settles one row;
+    // txid is written before Pi is asked to complete. status: created,
+    // approved, completed.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS pi_payments (
+        id VARCHAR(32) PRIMARY KEY,
+        user_id INT NOT NULL,
+        kind VARCHAR(16) NOT NULL,
+        amount DECIMAL(20,7) NOT NULL,
+        payment_id VARCHAR(64) NULL,
+        txid VARCHAR(128) NULL,
+        status VARCHAR(16) NOT NULL,
+        created_at TIMESTAMP NOT NULL,
+        updated_at TIMESTAMP NOT NULL,
+        UNIQUE KEY uq_pi_payments_payment (payment_id),
+        INDEX idx_pi_payments_user (user_id)
       )
     `);
     return 'ddl';

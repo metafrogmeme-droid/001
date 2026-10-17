@@ -76,6 +76,7 @@ test('Genesis everywhere — landing ribbon + arena SSR unfurl carry the live se
   assert.match(arena, /__ARENATITLE__/);
   assert.match(arena, /__ARENAOG__/);
   assert.match(srv, /__ARENAOG__/);
-  assert.match(srv, /is LIVE until/);
-  assert.match(srv, /Hall of Champions/);
+  // The words are lib/arena_seasons.seasonUnfurl's, driven (live, upcoming,
+  // ended, and two seasons in either order) in arena_seasons.test.js.
+  assert.match(srv, /seasons\.seasonUnfurl\(rows, new Date\(\), og\)/);
 });

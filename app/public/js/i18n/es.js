@@ -295,6 +295,8 @@
   ["arena.f_max_lev", "Regla: apalancamiento máximo"],
   ["arena.f_majors", "Regla: solo principales"],
   ["arena.b_launch", "Lanzar temporada"],
+  ["arena.f_rename", "Renombrar la temporada actual"],
+  ["arena.b_rename", "Renombrar"],
   ["arena.ph_open", "sin límite"],
   ["arena.p_join", "Únete a la arena"],
   ["arena.join_body", "Basta una cuenta gratuita: tu cuenta en papel se crea en el momento en que abres la Arena. Sin claves de exchange, sin depósito, nada que configurar."],

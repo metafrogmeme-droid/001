@@ -25893,3 +25893,75 @@ the page. (`app/test/the_pi_app_is_the_arena_and_nothing_else.test.js` holds
 the default list, refuses that wildcard, and ties the listed App Studio to the
 backend `lib/pi_auth.js` signs in against, so the two cannot name different
 App Studios.)
+
+**A PI TIP IS SETTLED BY PI'S RECORD OF THE PAYMENT, NEVER BY THE PAGE'S.**
+On 2026-10-17 App Studio offered Pi Payments and the operator chose an
+optional tip that unlocks nothing (`routes/pi_payments.js`,
+`lib/pi_payments.js`). Three things decided the shape:
+- **The page names ids, the server reads the payment.** Pi's SDK hands the
+  page a payment id to approve and, later, a txid to complete. The page can
+  send any id it likes, so the server reads the payment back from the Pi
+  Platform with the server-only key and refuses one that is not this person's,
+  not this amount, not this order, not user to app, or cancelled, before Pi is
+  asked to approve anything (`mismatches`). The order is the server's: the
+  page picks among the amounts the server offers and passes the server's
+  amount, memo and metadata to `Pi.createPayment` unchanged.
+- **Pi retries, so every step is written before the call that cannot be
+  taken back.** The payment id is stored (unique) before approval and the
+  txid before completion. A repeat finds the row in that state and answers the
+  same; a second payment for one order, or one payment for two, is a 409. A
+  completion Pi refuses records nothing, which is Pi's own rule. A payment the
+  SDK reports unfinished at the next sign-in is completed from Pi's record of
+  its txid, not the page's.
+- **There was no helper to prefer.** Pi's prompt says to use its framework
+  helper where one fits. `pi-sdk-express` and `pi-sdk-js` exist in its docs
+  and were unpublished from npm on 2026-03-19, which the registry, not the
+  docs, says. The three Platform calls are made directly against
+  `platform_API.md`. The SDK's own payment calls go to the backend its host
+  hands it, the one `/v2/me` already uses, so the page's `connect-src` did not
+  change; reading the SDK's source, not assuming, is what said so.
+The session payload names the user `user_id`, not `id`; the first draft of the
+routes read `req.user.id` and would have matched every order to `undefined`.
+(`app/test/pi_payments.test.js` drives a stateful stand-in for the Pi Platform
+through the whole flow, every mismatch, Pi down at each step, repeats, an
+unfinished payment, no key, and that the key reaches no response or log line.
+`app/test/the_pi_app_signs_in_with_pi.smoke.test.js` tips in Chromium with a
+stand-in SDK whose `createPayment` drives the callbacks in Pi's order.)
+
+**THE PI APP GOT THE SITE'S SIGNALS AND CHARTS FROM THE SITE'S OWN PARTS, AND A RENDER THAT REPLACES THE SCREEN TAKES ITS CHARTS WITH IT.**
+On 2026-10-17 the operator asked for signals and charts in the Pi app, in one
+deploy with the tips. `app/public/js/pi-signals.js` is a block on the shared
+session's signed-in screen. It reads `/api/signals` through the session's own
+`api()` (with the bearer token, so a live call arrives in full, as it does for
+a signed-in member on the website), draws embed-row.js's card and
+signal-chart.js's TradingView chart from our candle relay, and offers "Paper
+200 · 2×" on a live call through `/api/arena/open-signal`, the website's
+numbers. Four things decided the shape:
+- **Same origin, so no policy change.** The library is the site's vendored
+  copy and the candles are ours. A CDN widget or an exchange socket would
+  have widened `script-src` or `connect-src` on a page whose policy Pi wrote.
+- **embed-row.js's locked card links to "/", the site with the presale.** A
+  signed-in viewer is never sent a locked call, but the block renders its own
+  sentence for one anyway rather than that card, and the smoke test asserts
+  no element on the screen links to our own origin.
+- **The session replaces the whole screen on every render**, which removes
+  any chart drawn into it. The controller's extras gained a `mounted(root)`
+  hook that runs after each render, and a placement (`main` after the
+  positions, `end` after the open form), so signals and tips each have a slot
+  and charts are redrawn rather than silently lost.
+- **A `<button>` does not inherit the page's colour.** The first screenshot
+  showed the paper and tip buttons as the browser's dark default on a dark
+  card: legible to a test, invisible to a person. `embed.css` names their
+  colour now. Only looking at the rendered screen found it.
+The live season was named "FARCASTER", and the name is the one every host
+prints, Pi included. A name could only be set at launch, so changing it meant
+editing the database. `PATCH /api/arena/season` renames the current season
+(operator only, the launch's name rule, `validateSeasonName`), and touches
+nothing else about it. The `/arena` link preview read `rows[0]` of an unordered
+SELECT, so with two seasons on record a shared link could name the wrong one.
+It now asks `pickCurrentSeason` like every other reader, through
+`seasonUnfurl`, which a test drives with the rows in either order.
+(`app/test/the_pi_app_signs_in_with_pi.smoke.test.js` draws a live call with the
+real library in Chromium, opens it on paper, and checks the unreadable and
+empty states. `app/test/arena_seasons.test.js` drives the rename's refusals and
+that the window, rules and status survive it.)
