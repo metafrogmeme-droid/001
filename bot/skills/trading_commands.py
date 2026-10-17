@@ -58,6 +58,7 @@ from bot.core.position_telemetry import (
     live_rr,
     price_on_record,
 )
+from bot.core.practice_fill import self_admitted_paper_caller
 from bot.core.signal_confidence import displayed_confidence
 from bot.core.signal_levels import record_level
 from bot.core.sltp_reason import venue_reason
@@ -701,9 +702,7 @@ class TradingCommands:
         import asyncio as _aio
 
         from bot.core.exchange_credentials import get_credential_store
-        from bot.core.venue_selection import (ENFORCE_IMPLEMENTED,
-                                              get_venue_selection_store,
-                                              routing_decision)
+        from bot.core.venue_selection import ENFORCE_IMPLEMENTED, get_venue_selection_store, routing_decision
         from bot.formatters.venue_card import venue_card
 
         tg_id = self._get_tg_id(update)
@@ -1212,13 +1211,28 @@ class TradingCommands:
 
         When ON, your confirmed trades are simulated into your paper portfolio
         (full SL/TP monitoring, no real orders). Other users are unaffected.
+
+        A self-admitted account is practice already: its confirms open on its
+        own practice book whatever this switch or the flag says
+        (`engine.confirm_is_practice`, the one reading). This command used to
+        answer such an account from the flag and the opt-in alone — "not
+        enabled", or "OFF — trades live" — a surface saying LIVE over a confirm
+        that lands on the practice book. It reads the admission first now.
         """
+        tg_id = self._get_tg_id(update)
+        if self_admitted_paper_caller(self.users, tg_id):
+            await self._send(update,
+                "📝 <b>Your confirms are already practice.</b> This account was "
+                "admitted on first contact, so every confirm opens on your own "
+                "practice book and nothing reaches an exchange; <code>/paper</code> "
+                "changes nothing for it. An admin's vouch is what moves an account "
+                "to live trading.")
+            return
         if not CONFIG.paper_sim_opt_in_enabled:
             await self._send(update,
                 "📝 Paper practice mode is not enabled on this bot "
                 "(<code>PAPER_SIM_OPT_IN_ENABLED</code> is off).")
             return
-        tg_id = self._get_tg_id(update)
         action = (ctx.args[0].lower() if ctx.args else "status")
         if action in ("on", "enable", "start", "sim"):
             try:
@@ -1653,7 +1667,9 @@ class TradingCommands:
         # asset_category field, so derive it from the symbol via the shared
         # classifier. A lightweight header is sent when the category changes.
         from bot.core.market_scanner import (
-            group_by_category, category_icon, category_for_symbol,
+            category_for_symbol,
+            category_icon,
+            group_by_category,
         )
         pending = [idea for _grp in
                    group_by_category(pending, lambda x: category_for_symbol(x.asset)).values()
