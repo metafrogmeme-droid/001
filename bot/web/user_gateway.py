@@ -1158,7 +1158,14 @@ async def _chat_turn(request: web.Request, on_event=None) -> web.Response:
             # lock and do not call the exchange: both wait out the batch,
             # and the website cancels the request. The cache, or an honest
             # "not ready". An idle lane falls through and scans.
-            if skill_name in ("scan_market", "pro_scan", "deepscan"):
+            #
+            # Not the deep scan. The cache is the autonomous scan's selected
+            # pairs, which is not a pattern read: "deepscan" answered with it
+            # printed that pair list as a deep-scan result, and the deep scan
+            # never ran (2026-10-18). The deep scan takes no scan lock; it
+            # runs under its own web budget and one shared flight per
+            # timeframe, so a batch is not in its way.
+            if skill_name in ("scan_market", "pro_scan"):
                 from bot.core.scan_lane import gateway_scan_read
                 held = gateway_scan_read(engine)
                 if held is not None:

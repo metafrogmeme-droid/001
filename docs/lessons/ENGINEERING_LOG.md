@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **495 of 1339** reach for source text through `source_scan`, `code_only`
+Driven, **495 of 1341** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 495 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -26587,3 +26587,41 @@ page's shape and escaping, the scan, and Chromium following the page,
 fragment and all. `app/test/helpers/navigation.js` reads a navigation page
 for the OAuth tests. `app/test/the_policies_are_served_on_www.test.js` holds
 the markers.)
+
+**AN ARMED SIGNER WITH NOWHERE TO SEND: EVERY TESTNET READ "NO RPC".** 18
+October, a screenshot from the operator's phone: the admin signer's network
+picker listed all eleven testnets as "— no RPC", under a "Signing switch on".
+The status was true. `rpc_url_for` read only `WEB3_RPC_<NETWORK>`, the deploy
+set none of the eleven, and `.env.example` said only the chains you set
+become ready. The feature and signing switches default on so testnet signing
+works out of the box; the endpoint was the one input with no default, so the
+out-of-the-box state was armed and unreachable. Each testnet row in
+`web3_exec_gate.NETWORKS` now carries `public_rpc`, the chain's free public
+endpoint, each checked that day to answer `eth_chainId` with the row's chain
+id. Scroll Sepolia has none: its official endpoint answered 526 and no
+alternative answered, so it still says "no RPC" rather than a guess. A
+configured endpoint wins; `WEB3_RPC_PUBLIC_DEFAULTS=0` turns the defaults
+off; a mainnet row never has one. The status carries `rpc_source`
+(`configured`, `public`, or none), and the picker names a public endpoint,
+because a shared, rate-limited endpoint is a different claim from the
+operator's own. The signer suite's environment turns the defaults off, so
+its "no RPC" arms still mean no RPC: with the defaults on, three of them
+reached a real chain, which the harness's network guard caught.
+(`tests/test_a_testnet_without_an_rpc_uses_the_public_one.py`.)
+
+**"DEEPSCAN" ANSWERED WITH THE SCAN'S PAIR LIST, AND THE DEEP SCAN PAGE
+WAITED FOR A RUN NOTHING SCHEDULES.** 18 October, two screenshots: AI Chat
+answered "Deepscan" with "[deepscan] result: Scan on file — TIA/USDT, …
+(20 pairs)", and the Deep Scan page said its pattern read "appears after the
+engine's next deep scan". The 2 October lane change answers a website scan
+from `_gateway_scan_cache` while a batch holds the scan lock, and listed
+`deepscan` beside `scan_market` and `pro_scan`. The cache is the autonomous
+scan's selected pairs, a different quantity from a pattern read, and the deep
+scan takes no scan lock (its own semaphore, the main loop's scanner clients,
+a 30-second web budget, one shared flight per timeframe), so on a live engine,
+whose batch is running most of the time, the chat's deep scan almost never
+ran, and the page never received a block. It runs now. The page's three
+empty states promised an engine run; nothing in the engine runs a deep scan
+by itself, so they now name the two doors that do and the six hours the web
+keeps one. (`tests/test_a_deep_scan_is_not_the_scan_on_file.py`,
+`app/test/deep_scan_empty_state_names_the_door.test.js`.)
