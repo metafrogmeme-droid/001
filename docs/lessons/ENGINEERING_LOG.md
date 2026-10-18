@@ -26625,3 +26625,31 @@ empty states promised an engine run; nothing in the engine runs a deep scan
 by itself, so they now name the two doors that do and the six hours the web
 keeps one. (`tests/test_a_deep_scan_is_not_the_scan_on_file.py`,
 `app/test/deep_scan_empty_state_names_the_door.test.js`.)
+
+**THE PI APP SHOWED A POSITION FLAT THAT WAS NOT, AND NEVER SAID HOW OLD ITS NUMBERS WERE.**
+The owner's screenshot of the Pi app after #634 went live: a FARTCOINUSDT
+short at "entry 0.15 · mark 0.15 · 0.00", directly above a chart of the same
+coin whose levels read 0.14945. Two readings of one price on one screen. The
+positions list printed entry and mark with `vusdt()`, an amount's two
+decimals; the signal cards printed levels with `embed-row.js`'s `price()`.
+- **One rule for a price.** `miniapp-view.js` gained a `price()` with
+  `embed-row.js`'s rule, because the Farcaster Mini App loads only the first.
+  A test holds the two copies to one answer across sixteen orders of
+  magnitude. Below a cent both now take the chart's own places
+  (`tv-chart.js` `precisionFor`), so 0.0000123 no longer reads 0.000012.
+  Amounts keep two decimals.
+- **A Refresh button, with the read's time.** Nothing re-read the account on
+  a timer, so a position's mark and P&L were the ones read at sign-in or
+  after the last action, and the screen did not say so. `arena-session.js`
+  now shows "Updated HH:MM:SS" beside **↻ Refresh**. Refresh reads the
+  account, and every block with a `reload()` (the signals and their bars),
+  together. It is offered on a failed read too. The account is also read
+  again when the app returns to the foreground.
+
+The owner asked for the button; the screenshot carried the second finding.
+Read a screenshot for what it measures, not only for what it was sent for.
+(`app/test/a_position_prints_its_prices_to_their_size.test.js` holds the
+rule and the two copies' agreement.
+`app/test/the_pi_app_signs_in_with_pi.smoke.test.js` drives Refresh in
+Chromium: the account, the calls and the bars read again, the ticket kept,
+the read on returning to the app, and the recovery from a failed read.)

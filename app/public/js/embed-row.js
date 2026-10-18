@@ -123,7 +123,11 @@
     var n = num(v);
     if (n === null) return '—';
     var abs = Math.abs(n);
-    var dp = abs >= 1000 ? 2 : abs >= 1 ? 4 : 6;
+    // Below a cent, the chart's places (tv-chart.js precisionFor): one more
+    // for each factor of ten, capped at 10, so 0.0000123 keeps its digits
+    // instead of reading 0.000012.
+    var dp = abs >= 1000 ? 2 : abs >= 1 ? 4 : abs >= 0.01 || abs === 0 ? 6
+      : Math.min(10, Math.ceil(-Math.log10(abs)) + 4);
     return n.toFixed(dp).replace(/\.?0+$/, function (m) {
       return m.indexOf('.') === 0 ? '' : m;
     });

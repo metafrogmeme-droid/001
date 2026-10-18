@@ -1,7 +1,7 @@
 {
   "embed.css": {
-    "v": 8,
-    "sha": "0214bf882441c1b6"
+    "v": 9,
+    "sha": "285edd6eeba29fe2"
   },
   "js/agent-page.js": {
     "v": 1,
@@ -120,8 +120,8 @@
     "sha": "3d66a71d40da7fd8"
   },
   "js/embed-row.js": {
-    "v": 5,
-    "sha": "35ec0c125066def8"
+    "v": 6,
+    "sha": "ff6f2dc9bdaf4fca"
   },
   "js/embed-signals.js": {
     "v": 8,
@@ -200,8 +200,8 @@
     "sha": "9bd8709b9440e40f"
   },
   "js/miniapp-view.js": {
-    "v": 3,
-    "sha": "520dbbfe00226024"
+    "v": 4,
+    "sha": "552eac28780435e3"
   },
   "js/mode-strip-model.js": {
     "v": 1,
@@ -356,16 +356,16 @@
     "sha": "f68d9fa4aa93124e"
   },
   "js/arena-session.js": {
-    "v": 3,
-    "sha": "34580a2710f39b13"
+    "v": 4,
+    "sha": "4ff22a3f8d4f2a5f"
   },
   "js/pi-arena.js": {
     "v": 2,
     "sha": "8c02284f791d56a1"
   },
   "js/pi-signals.js": {
-    "v": 2,
-    "sha": "fb86fe2a457a83fb"
+    "v": 3,
+    "sha": "b027bf1d7797b855"
   },
   "js/pi-signin-callback.js": {
     "v": 1,

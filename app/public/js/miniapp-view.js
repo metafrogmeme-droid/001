@@ -41,6 +41,27 @@
     return n.toFixed(2);
   }
 
+  /**
+   * A market price, with the decimals its size needs. Entry and mark were
+   * printed with vusdt(), an amount's two decimals, so a coin at 0.14945 read
+   * "entry 0.15 · mark 0.15" while it moved, and a position looked flat that
+   * was not. The rule is embed-row.js's price(), which prints the signal
+   * cards' levels on the same screen; a test holds the two to one answer.
+   */
+  function price(v) {
+    var n = num(v);
+    if (n === null) return '—';
+    var abs = Math.abs(n);
+    // Below a cent, the chart's places (tv-chart.js precisionFor): one more
+    // for each factor of ten, capped at 10, so 0.0000123 keeps its digits
+    // instead of reading 0.000012.
+    var dp = abs >= 1000 ? 2 : abs >= 1 ? 4 : abs >= 0.01 || abs === 0 ? 6
+      : Math.min(10, Math.ceil(-Math.log10(abs)) + 4);
+    return n.toFixed(dp).replace(/\.?0+$/, function (m) {
+      return m.indexOf('.') === 0 ? '' : m;
+    });
+  }
+
   function pct(v, dp) {
     var n = num(v);
     if (n === null) return '—';
@@ -145,10 +166,10 @@
       + '</span>'
       + '</div>'
       + '<div class="m-pos-foot">'
-      + '<span>entry ' + esc(vusdt(pos.entry)) + '</span>'
+      + '<span>entry ' + esc(price(pos.entry)) + '</span>'
       // Said out loud rather than left as a dash to puzzle over: the number is
       // missing because the feed is, not because the position is worthless.
-      + '<span>' + (unreadable ? 'mark unavailable' : 'mark ' + esc(vusdt(pos.mark))) + '</span>'
+      + '<span>' + (unreadable ? 'mark unavailable' : 'mark ' + esc(price(pos.mark))) + '</span>'
       + '<span>' + esc(vusdt(pos.margin)) + ' margin</span>'
       + '<button type="button" class="m-close" data-close-id="' + esc(pos.id) + '">Close</button>'
       + '</div>'
@@ -226,6 +247,7 @@
     openFormHtml: openFormHtml,
     actionNoteHtml: actionNoteHtml,
     vusdt: vusdt,
+    price: price,
     pct: pct,
     toneFor: toneFor,
   };

@@ -520,6 +520,75 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       await ctx.close();
     });
 
+    // ── the Refresh button ───────────────────────────────────────────────
+
+    await t.test('Refresh reads the account, the calls and their bars again, and says when', async () => {
+      // A short on a coin under a dollar, whose mark moves between two reads.
+      let mark = 0.1481;
+      let accountReads = 0;
+      const { ctx, sent } = await context(browser, { signals: { status: 200, body: { signals: [LIVE_CALL] } } });
+      await ctx.route('**/api/arena/account', (route) => {
+        accountReads += 1;
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...ACCOUNT,
+          positions: [{ id: 3, symbol: 'FARTCOINUSDT', direction: 'SHORT', entry: 0.14945, mark,
+            margin: 200, leverage: 2, pnl: 1.94 }] }) });
+      });
+      const { page, errors } = await open(ctx, `${base}/pi`);
+      await signInAndSettle(page);
+      await page.waitForSelector('.p-signals .sc-tv canvas', { timeout: 5000 });
+      assert.match(await page.textContent('.m-updated'), /^Updated \d\d:\d\d:\d\d$/);
+      assert.strictEqual((await page.textContent('.m-refresh')).trim(), '↻ Refresh');
+      assert.match(await page.textContent('.m-pos'), /entry 0\.149450.*mark 0\.148100/s,
+        'a coin under a dollar was printed to two decimals');
+      await page.fill('.m-sym', 'eth');
+
+      const before = { account: accountReads, signals: sent.filter((x) => x.path === '/api/signals').length,
+        candles: sent.filter((x) => x.path.startsWith('/api/market/candles/')).length };
+      mark = 0.1470;
+      await page.click('.m-refresh');
+      await page.waitForFunction(() => /mark 0\.147000/.test(document.querySelector('.m-pos').textContent));
+      await page.waitForFunction(() => {
+        const b = document.querySelector('.m-refresh');
+        return b && !b.disabled && b.textContent.trim() === '↻ Refresh';
+      });
+      assert.strictEqual(accountReads, before.account + 1, 'the account was not read again');
+      assert.ok(sent.filter((x) => x.path === '/api/signals').length > before.signals, 'the calls were not read again');
+      assert.ok(sent.filter((x) => x.path.startsWith('/api/market/candles/')).length > before.candles,
+        'the charts kept their old bars');
+      assert.strictEqual(await page.inputValue('.m-sym'), 'eth', 'Refresh wiped the ticket');
+
+      // Back in front after being put away, the account is read again by itself.
+      const n = accountReads;
+      await page.evaluate(() => {
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      for (let i = 0; i < 60 && accountReads === n; i++) await page.waitForTimeout(50);
+      assert.strictEqual(accountReads, n + 1, 'coming back to the app did not read the account');
+      assert.deepStrictEqual(errors, []);
+      await ctx.close();
+    });
+
+    await t.test('an account that could not be read offers Refresh, and Refresh recovers it', async () => {
+      let reads = 0;
+      const { ctx } = await context(browser, { signals: { status: 200, body: { signals: [] } } });
+      await ctx.route('**/api/arena/account', (route) => {
+        reads += 1;
+        return reads === 1
+          ? route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"Arena unavailable"}' })
+          : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ACCOUNT) });
+      });
+      const { page, errors } = await open(ctx, `${base}/pi`);
+      await signInAndSettle(page);
+      await page.waitForFunction(() => /could not be loaded/.test(document.querySelector('#root').textContent));
+      await page.click('.m-refresh');
+      await page.waitForFunction(() => /No leaderboard handle yet/.test(document.querySelector('#root').textContent));
+      assert.doesNotMatch(await page.textContent('#root'), /could not be loaded/);
+      assert.strictEqual(reads, 2);
+      assert.deepStrictEqual(errors, []);
+      await ctx.close();
+    });
+
     await t.test('signals that cannot be read say so, and none is not an error', async () => {
       const down = await context(browser, { signals: { status: 503, body: { error: 'signal_stream_unavailable' } } });
       const d = await open(down.ctx, `${base}/pi`);
