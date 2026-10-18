@@ -958,7 +958,7 @@
   </form>
 </section>
 
-<script src="/js/i18n-core.js?v=183"></script>
+<script src="/js/i18n-core.js?v=184"></script>
 <script src="/js/presale.js?v=2"></script>
 <script src="/js/token-page.js?v=7" defer></script>
 <script src="/js/icons.js?v=6"></script>
@@ -1733,6 +1733,21 @@ function renderFooterSocials(links){
   add(links.x,'X');
   add(links.discord,'Discord');
 }
+// #join: the sign-up door every locked teaser links to (lib/signal_access.js
+// JOIN_HREF). It opens the create-account tab and brings it into view, the
+// same steps the hero form takes, so the sign-up still runs doRegister().
+(function joinDoor(){
+  function open(){
+    if((location.hash||'')!=='#join')return;
+    if(typeof window.switchTab==='function')window.switchTab('register');
+    var panel=document.getElementById('auth-panel');
+    if(panel&&panel.scrollIntoView)panel.scrollIntoView({behavior:'smooth',block:'center'});
+    var f=document.getElementById('reg-email');
+    if(f)setTimeout(function(){try{f.focus();}catch(_){}} ,350);
+  }
+  window.addEventListener('hashchange',open);
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',open);else open();
+})();
 // OAuth completion: the callback redirects back with the session in the URL
 // fragment (#oauth=<base64> or #oauth_error=...). Consume it before anything else.
 (function handleOauthFragment(){

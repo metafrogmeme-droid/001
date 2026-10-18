@@ -836,6 +836,8 @@
   ["dd.ec_footer", "Candidati del motore — non consulenza personale. Le conferme passano dal suo gate di rischio."],
   ["sig.lock_row", "Segnale attivo — accedi per vedere direzione e livelli"],
   ["sig.lock_cta", "Accedi per vedere l’operazione"],
+  ["sig.join_cta", "Registrati gratis per vedere tutto"],
+  ["sig.teaser_more", "altri bloccati. I membri gratuiti vedono ogni segnale attivo, setup e lettura dei pattern."],
   ["sig.lock_note", "I segnali attivi sono per i membri che hanno effettuato l’accesso: direzione, entrata, stop e target. Ogni segnale viene pubblicato per intero quando si chiude, e il suo sigillo è pubblico fin dall’inizio."],
   ["dd.et_k_agent_s", "il record dell’agente"],
   ["dd.et_k_agent_l", "Calo massimo dal picco nel track record pubblicato dell’agente — non il tuo conto."],

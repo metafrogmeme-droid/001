@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **495 of 1341** reach for source text through `source_scan`, `code_only`
+Driven, **496 of 1343** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 495 is a FLOOR and the honest shape is
+source scan that rule does not see, so 496 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -26653,3 +26653,57 @@ rule and the two copies' agreement.
 `app/test/the_pi_app_signs_in_with_pi.smoke.test.js` drives Refresh in
 Chromium: the account, the calls and the bars read again, the ticket kept,
 the read on returning to the app, and the recovery from a failed read.)
+
+**ONE COMMAND RE-DERIVES WHAT THE REPOSITORY PUBLISHES, AND IT CAN SAY NO.**
+18 October. The README's first screen said "backtest results use synthetic
+data", which stopped being true when the strategy cards moved to the frozen
+Bitget benchmark, and nothing a stranger could run checked any number on it.
+`scripts/verify_evidence.py` recomputes each frozen dataset's hashes from its
+candle files, checks every strategy card against its dataset's manifest, the
+commit it names and the public-surface rule (no dollar keys), and recomputes
+each pre-registered study's sealed hash against the registry
+(`benchmark/studies.json`) and the sidecar's last line; `--online` adds the
+published daily Merkle root and the newest sealed call. Three verdicts, three
+exit codes: MATCH 0, MISMATCH 1, CANNOT CHECK 3 (a tree with no git history
+cannot answer for a commit, and says so; a tree with nothing to check is not
+a pass). The registry's hashes were read from the sidecars by script, after
+two typed by hand did not match, and each study's row was corrected against
+its sealed file's own wording, never the summary remembered. The README's
+studies table is rendered from the registry (`--readme`) and the test fails
+when the two differ; the translation links to it rather than keeping a
+second copy. The study row's dollar check first searched the dumped JSON for
+the key names as substrings, so a verdict that said "rebalance" would have
+read as a `balance` field: it walks keys now. Thirteen mutants, all killed.
+(`tests/test_the_evidence_re_derives.py`.)
+
+**THE WEBSITE MOVED ONLY WHEN SOMEONE TYPED A SCAN, AND A VISITOR SAW
+NOTHING BUT LOCKS.** 18 October, after the deploy: the site's heartbeat was
+minutes old while its setup cards and its signal stream were two and a half
+hours old (`scan_at` 05:54, the newest signal keys `…-202610180554UTC-…`, the
+manual /scan's format). The engine's own cycle pushes a summary with no cards
+(`_push_scan_summary_to_website`, `scanned=False`), so the cards and the
+signal rows came only from a person's /scan, and the Deep Scan block only
+from a person's /deepscan. `bot/core/website_refresh.py` now runs both from
+the engine's run loop: the quick /scan pass every 15 minutes (the same shared
+read, factored out of `_scan_batch` as `_fullscan_rows`, and the same push)
+and a 4h deep scan every 3 hours, inside the 6 hours the website keeps one.
+Both reads are the rule engine's, no LLM; `WEBSITE_AUTO_SCAN_MIN` and
+`WEBSITE_AUTO_DEEPSCAN_MIN` set the cadence and 0 turns one off; each run is
+recorded on the engine as ok with a count, empty, or failed with the
+exception's class. A run that read nothing pushes nothing, so an outage does
+not replace the last good cards.
+
+The same day, the operator's call on the public lists: a visitor sees a
+sample, the newest three live calls in the signal stream, the first three
+setup cards and the first three deep-scan reads, in full and marked
+`teaser`, and the rest locked with the count and a free sign-up at `/#join`
+(`lib/signal_access.js`, `TEASER_COUNT`). The sample is chosen from the
+newest live calls overall, never from the rows a query returned: picked from
+the filtered rows, `?symbol=X` would have opened X's live call by putting it
+at the head of its own list. The shared test database ignores `WHERE`, so it
+could not see that; `app/test/a_visitor_sample_is_not_chosen_by_the_query.test.js`
+drives the route against a pool that applies the filter, and the mutation
+that picks the sample from the filtered rows fails it. Single-call doors (a
+receipt, the thesis page, a flight record, a strategy board, the MCP and
+ERC-8257 tools) stay locked. (`tests/test_the_engine_keeps_the_website_fresh.py`,
+`app/test/a_live_call_is_a_members.test.js`.)

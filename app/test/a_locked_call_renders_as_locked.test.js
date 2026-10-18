@@ -50,15 +50,48 @@ test('the dashboard\'s stream and home rows say "live call", never "no direction
     esc: (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`),
     fmtAgo: () => '2m ago',
   };
-  vm.runInNewContext(block + '\nthis.out = { lockedStreamRow, lockedSignalRow };', sandbox);
+  vm.runInNewContext(block + '\nthis.out = { lockedStreamRow, lockedSignalRow, teaserCta };', sandbox);
   for (const html of [sandbox.out.lockedStreamRow(LOCKED), sandbox.out.lockedSignalRow(LOCKED)]) {
     assert.match(html, /SOL\/USDT/, 'the market is named');
     assert.match(html, /Live call/);
-    assert.match(html, /href="\/"/, 'it says where to see the rest');
+    assert.match(html, /href="\/#join"/, 'it says where to see the rest: the free sign-up');
     assert.ok(!/no direction/.test(html), 'a known side read as "no direction"');
     assert.ok(!/data-ptrade|data-parena/.test(html), 'a Trade button on a row with no levels');
   }
   assert.match(sandbox.out.lockedStreamRow(LOCKED), /\/call\/live%3Asol%3A1/, 'the seal is still checkable');
+  // The sample's one line under a list: how many are locked, and the door.
+  const cta = sandbox.out.teaserCta(4);
+  assert.match(cta, /\+4/);
+  assert.match(cta, /href="\/#join"/);
+  assert.match(cta, /Register free/);
+  assert.equal(sandbox.out.teaserCta(0), '', 'nothing locked says nothing');
+  assert.equal(sandbox.out.teaserCta(undefined), '', 'an absent count is not a locked row');
+});
+
+test('a visitor\'s setup cards: the sample drawn as cards, the rest as one line', () => {
+  const src = read('js/dashboard.js');
+  const locked = blockBetween(src, '// ── a locked call: renderers start', '// ── a locked call: renderers end');
+  const ec = src.slice(src.indexOf('// ── the entry cards: renderer start'), src.indexOf('// ── the entry cards: renderer end'));
+  const sandbox = {
+    self: { SignalStatusModel: require('../public/js/signal-status-model.js') },
+    window: { EntryCardsModel: require('../public/js/entry-cards-model.js') },
+    T: (k, en) => en,
+    esc: (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`),
+    fmtAgo: () => '2m ago', dirChip: (d) => `<i>${d}</i>`, fmtPrice: (n) => String(n),
+  };
+  vm.runInNewContext(locked + ec + '\nthis.out = { ecPanelHtml };', sandbox);
+  const card = (sym) => ({ symbol: sym, direction: 'LONG', entry: '1', stop_loss: '0.9', tp1: '1.2', rr: '2', teaser: true });
+  const scan = { timestamp: new Date().toISOString(), calls_locked: true,
+    entry_cards: [card('AAA'), card('BBB'), card('CCC'), { symbol: 'DDD', locked: true }, { symbol: 'EEE', locked: true }],
+    entry_cards_read: { results: 5, above_floor: 5, considered: 5, cards: 5 } };
+  const html = sandbox.out.ecPanelHtml(scan, Date.now());
+  assert.equal((html.match(/data-label="Setup"/g) || []).length, 3, 'the three sampled cards are drawn whole');
+  assert.match(html, /\+2/, 'the two locked cards are counted');
+  assert.ok(!/DDD|EEE/.test(html), 'a locked card is not drawn as a row of blanks');
+  // Every card locked (an older server): the market names and the door, as before.
+  const shut = sandbox.out.ecPanelHtml({ ...scan, entry_cards: scan.entry_cards.map((c) => ({ symbol: c.symbol, locked: true })) }, Date.now());
+  assert.match(shut, /AAA/);
+  assert.match(shut, /href="\/#join"/);
 });
 
 test('the stream and home loaders route a locked row to its renderer first', () => {

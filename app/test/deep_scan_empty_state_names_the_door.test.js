@@ -9,6 +9,11 @@
  *
  * Both arms: no empty state promises an engine run, and every deep-scan
  * empty state names a door (the chat phrase and the Telegram command).
+ *
+ * Later the same day the engine got a schedule of its own
+ * (bot/core/website_refresh.py), and the text says so: "the engine runs one
+ * every few hours". That sentence is true only while the refresher's default
+ * deep-scan cadence is on, so it is checked against the bot's own default.
  */
 const test = require('node:test');
 const assert = require('node:assert');
@@ -50,4 +55,14 @@ test('every deep-scan empty state names the doors that run one, and the window i
     assert.match(t, /deep scan\\?" in AI Chat/, t);
     assert.ok(t.includes(`last ${hours[1]} hours`), `the window it names is not the web's TTL: ${t}`);
   }
+});
+
+test('"the engine runs one every few hours" is the refresher\'s own default, read from the bot', () => {
+  const py = fs.readFileSync(path.join(__dirname, '..', '..', 'bot', 'core', 'website_refresh.py'), 'utf8');
+  const m = /^DEEPSCAN_DEFAULT_MIN\s*=\s*([0-9.]+)/m.exec(py);
+  assert.ok(m, 'website_refresh.DEEPSCAN_DEFAULT_MIN moved; re-read the schedule this text claims');
+  const minutes = Number(m[1]);
+  const claims = deepScanEmptyStates().filter((t) => /engine runs one every few hours/.test(t));
+  assert.ok(claims.length >= 3, 'the empty states no longer name the schedule');
+  assert.ok(minutes > 0 && minutes <= 6 * 60, `a ${minutes}-minute default is not "every few hours"`);
 });

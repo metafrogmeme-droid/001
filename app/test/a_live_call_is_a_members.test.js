@@ -16,6 +16,13 @@
  * (171.2345 / 175.6789 / 160.1357) with a thesis word that occurs nowhere
  * else, so an absence is an absence of THAT call and a presence is THAT call.
  * The resolved call beside it is a LONG, published in full to anyone.
+ *
+ * THE SAMPLE (2026-10-18). The two lists a visitor browses, the signal
+ * stream and the scan's setup cards, show a visitor the newest TEASER_COUNT
+ * live calls in full. The fixture's live call is the newest, so it is in
+ * the sample there; FOURTH, the fourth-newest live call, carries its own
+ * fingerprints and is what those two doors must keep from a visitor. Every
+ * other door still keeps the live call itself.
  */
 process.env.JWT_SECRET = 'j'.repeat(64);
 process.env.BOT_SYNC_SECRET = 's'.repeat(48);
@@ -54,8 +61,20 @@ const DONE = {
   created_at: new Date(Date.now() - 86400e3).toISOString(),
   resolved_at: new Date().toISOString(),
 };
+const older = (s, key, sym, px, word) => ({
+  signal_key: key, symbol: sym, direction: 'LONG', confidence: 0.6,
+  entry_price: px[0], stop_loss: px[1], take_profit: px[2], rr: 2,
+  thesis: `Thesis ${word}.`, status: 'NEW', created_at: new Date(Date.now() - s * 1000).toISOString(),
+  expires_at: new Date(Date.now() + 3600e3).toISOString(),
+});
+const EXTRA1 = older(10, 'live:avax:2', 'AVAX/USDT', [21.1113, 20.5557, 22.9991], 'EXTRAONE');
+const EXTRA2 = older(20, 'live:link:3', 'LINK/USDT', [14.2229, 13.8883, 15.4447], 'EXTRATWO');
+const FOURTH = older(30, 'live:dot:4', 'DOT/USDT', [31.4159, 29.7182, 34.9792], 'FOURTHQRS');
 // The live call's fingerprints. None may reach a visitor; all reach a member.
 const SECRETS = ['171.2345', '175.6789', '160.1357', 'LIVEXYZ'];
+// The fourth-newest live call's: outside the sample, so a visitor reads none.
+const FOURTH_SECRETS = ['31.4159', '29.7182', '34.9792', 'FOURTHQRS'];
+const LIST_DOORS = new Set(['the signal stream', 'the scan']);
 const BOT = { 'X-Bot-Secret': process.env.BOT_SYNC_SECRET };
 const MEMBER = { Authorization: 'Bearer ' + jwt.sign(
   { user_id: 4242, email: 'member@test.dev' }, process.env.JWT_SECRET) };
@@ -83,8 +102,8 @@ function req(method, p, { body, headers } = {}) {
   });
 }
 
-function leaked(raw) {
-  return SECRETS.filter((s) => String(raw).includes(s));
+function leaked(raw, secrets = SECRETS) {
+  return secrets.filter((s) => String(raw).includes(s));
 }
 
 test.before(async () => {
@@ -111,15 +130,21 @@ test.before(async () => {
   await new Promise((r) => { server = app.listen(0, '127.0.0.1', r); });
   base = `http://127.0.0.1:${server.address().port}`;
 
-  const s = await req('POST', '/api/bot/sync/signals', { headers: BOT, body: { signals: [LIVE, DONE] } });
+  const s = await req('POST', '/api/bot/sync/signals', { headers: BOT, body: { signals: [LIVE, EXTRA1, EXTRA2, FOURTH, DONE] } });
   assert.equal(s.status, 200);
   const sc = await req('POST', '/api/bot/sync/scan', { headers: BOT, body: {
     regime: 'trend', timestamp: new Date().toISOString(),
     symbols: { SOLUSDT: { price: 170, rsi: 61, direction: 'SHORT', score: 0.9,
       status: 'setup', status_label: 'SETUP' } },
     entry_cards: [{ symbol: 'SOL', direction: 'SHORT', entry: '171.2345',
-      stop_loss: '175.6789', tp1: '160.1357', thesis: 'SHORT bias LIVEXYZ' }],
-    entry_cards_read: { results: 1, above_floor: 1, considered: 1, cards: 1 },
+      stop_loss: '175.6789', tp1: '160.1357', thesis: 'SHORT bias LIVEXYZ' },
+    { symbol: 'AVAX', direction: 'LONG', entry: '21.1113', stop_loss: '20.5557', tp1: '22.9991' },
+    { symbol: 'LINK', direction: 'LONG', entry: '14.2229', stop_loss: '13.8883', tp1: '15.4447' },
+    { symbol: 'DOT', direction: 'LONG', entry: '31.4159', stop_loss: '29.7182', tp1: '34.9792',
+      thesis: 'LONG bias FOURTHQRS' }],
+    entry_cards_read: { results: 4, above_floor: 4, considered: 4, cards: 4 },
+    deepscan: { tf: '4h', count: 5, hits: ['BTC', 'ETH', 'SOL', 'DOGE', 'PEPE'].map((b, i) => ({
+      symbol: `${b}/USDT`, price: 100 + i, chart_patterns: [{ name: `Pattern${b}DSQ`, signal: 'bullish', confidence: 60 }] })) },
     circuit_breaker: { open_positions: [{ symbol: 'SOLUSDT', direction: 'SHORT',
       entry_price: 171.2345, stop_loss: 175.6789 }], open_count: 1 },
   } });
@@ -210,17 +235,60 @@ const DOORS = [
 ];
 
 for (const [name, url] of DOORS) {
-  test(`${name}: a visitor reads no live call; a member reads it`, async () => {
+  // A list door samples the newest live calls; the call it must keep is the
+  // one past the sample. Every other door keeps the live call itself.
+  const secrets = LIST_DOORS.has(name) ? FOURTH_SECRETS : SECRETS;
+  test(`${name}: a visitor reads no live call past the sample; a member reads it`, async () => {
     const visitor = await req('GET', url);
     assert.equal(visitor.status, 200, `${name} answered ${visitor.status}: ${visitor.raw.slice(0, 200)}`);
-    assert.deepEqual(leaked(visitor.raw), [], `${name} handed a visitor the live call`);
+    assert.deepEqual(leaked(visitor.raw, secrets), [], `${name} handed a visitor the live call`);
     assert.match(visitor.cache, /private|no-cache/, `${name}'s answer depends on the viewer`);
     assert.ok(!/public/.test(visitor.cache), `${name} lets a shared cache keep a viewer's answer`);
     const member = await req('GET', url, { headers: MEMBER });
     assert.equal(member.status, 200);
-    assert.ok(leaked(member.raw).length > 0, `${name} withheld the live call from a member`);
+    assert.ok(leaked(member.raw, secrets).length > 0, `${name} withheld the live call from a member`);
   });
 }
+
+// ── the sample a visitor is shown ───────────────────────────────────────
+
+test('the stream: a visitor sees the newest three live calls in full and the rest locked', async () => {
+  const v = await req('GET', '/api/signals?limit=50');
+  const byKey = Object.fromEntries(v.data.signals.map((r) => [r.signal_key, r]));
+  for (const k of [LIVE.signal_key, EXTRA1.signal_key, EXTRA2.signal_key]) {
+    assert.equal(byKey[k].teaser, true, `${k} is in the sample`);
+    assert.ok(byKey[k].entry_price != null && byKey[k].direction, `${k} is shown in full`);
+  }
+  assert.equal(byKey[FOURTH.signal_key].locked, true);
+  assert.equal(byKey[DONE.signal_key].teaser, undefined, 'a resolved call is everyone\'s, not a sample');
+  assert.deepEqual(v.data.teaser, { shown: 3, locked: 1, of: A.TEASER_COUNT, join: A.JOIN_HREF });
+  const m = await req('GET', '/api/signals?limit=50', { headers: MEMBER });
+  assert.equal(m.data.teaser, undefined, 'a member is shown everything, not a sample');
+  assert.ok(!m.raw.includes('"teaser":true') && !m.raw.includes('"locked":true'));
+});
+
+test('a filter does not choose the sample: the call past it stays locked when asked for by name', async () => {
+  const v = await req('GET', '/api/signals?symbol=' + encodeURIComponent(FOURTH.symbol));
+  const row = v.data.signals.find((r) => r.signal_key === FOURTH.signal_key);
+  assert.ok(row, 'the filter returned the call it named');
+  assert.equal(row.locked, true);
+  assert.deepEqual(leaked(v.raw, FOURTH_SECRETS), []);
+});
+
+test('the scan: the first three setup cards are the sample, and so are the first three pattern reads', async () => {
+  const v = (await req('GET', '/api/bot/sync/scan')).data.scan;
+  assert.deepEqual(v.entry_cards.map((c) => c.teaser === true), [true, true, true, false]);
+  assert.deepEqual(v.entry_cards[3], { symbol: 'DOT', locked: true });
+  assert.deepEqual(v.entry_cards_teaser, { shown: 3, locked: 1, of: 3, join: A.JOIN_HREF });
+  assert.deepEqual(v.deepscan.hits.map((h) => h.locked === true), [false, false, false, true, true]);
+  assert.ok(!JSON.stringify(v.deepscan.hits.slice(3)).includes('DSQ'), 'a locked read names its market only');
+  assert.deepEqual(v.deepscan.teaser, { shown: 3, locked: 2, of: 3, join: A.JOIN_HREF });
+  assert.equal(v.symbols.SOLUSDT.direction, 'SHORT', 'a sampled card\'s market keeps the side its card shows');
+  const m = (await req('GET', '/api/bot/sync/scan', { headers: MEMBER })).data.scan;
+  assert.equal(m.entry_cards.length, 4);
+  assert.ok(m.entry_cards.every((c) => c.locked !== true && c.teaser !== true));
+  assert.ok(m.deepscan.hits.every((h) => h.locked !== true && h.teaser !== true));
+});
 
 test('the feed: a visitor reads that a call was made; a member reads the call', async () => {
   const ev = await req('POST', '/api/bot/sync/events', { headers: BOT, body: { events: [
@@ -247,9 +315,14 @@ test('a filter on a hidden field answers over resolved calls only, for a visitor
   const member = await req('GET', '/api/signals?direction=SHORT', { headers: MEMBER });
   assert.ok(member.data.signals.some((s) => s.signal_key === LIVE.signal_key), 'a member\'s filter is whole');
   const all = await req('GET', '/api/signals');
-  const row = all.data.signals.find((s) => s.signal_key === LIVE.signal_key);
-  assert.equal(row.locked, true, 'unfiltered, a visitor sees that the call exists');
-  assert.equal(row.symbol, 'SOL/USDT');
+  const row = all.data.signals.find((s) => s.signal_key === FOURTH.signal_key);
+  assert.equal(row.locked, true, 'unfiltered, a visitor sees that the call past the sample exists');
+  assert.equal(row.symbol, 'DOT/USDT');
+  // A hidden-field filter answers over resolved calls only, sample or not.
+  for (const q of ['direction=SHORT', 'min_confidence=0.1']) {
+    const v = await req('GET', '/api/signals?' + q);
+    assert.ok(v.data.signals.every((s) => s.teaser !== true), `?${q} answered with a live call`);
+  }
 });
 
 test('the MCP door: a keyed caller reads the live call; a keyless one does not', async () => {

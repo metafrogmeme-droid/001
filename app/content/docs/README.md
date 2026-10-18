@@ -90,5 +90,6 @@ Structured Audit Log
 > early-stage software. It trades live with small positions, and **no independent third-party
 > security audit has been performed**. Running it with real funds is **at your own risk**: it has
 > not had the stress testing, security review or regulatory review that production trading
-> software needs. Backtest results use synthetic data and do not predict future performance. Past
-> performance is not indicative of future results. This project is not financial advice.
+> software needs. Strategy cards are backtests on frozen Bitget history and do not predict future
+> performance; the live record is net negative to date. Past performance is not indicative of
+> future results. This project is not financial advice.
