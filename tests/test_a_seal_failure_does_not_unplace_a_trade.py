@@ -48,6 +48,10 @@ from bot.core.confirm_result import placed_nothing
 from bot.utils.audit_chain import TORN_TAIL_EVENT, AuditChain
 from bot.utils.models import AgentState, Direction, RiskCheck, RiskVerdict, TradeIdea
 
+# The live confirm is driven for a caller the test config does not name as
+# an operator; LIVE_ADMIN_ONLY would make it a paper fill (conftest).
+pytestmark = pytest.mark.usefixtures("members_may_trade_live")
+
 FILLED = "\U0001f7e2 LIVE LONG BTC/USDT opened @ $65,000.0000"
 
 

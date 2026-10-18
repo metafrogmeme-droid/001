@@ -221,7 +221,16 @@ def mode_label(config: Optional[Any] = None) -> str:
         # expensive direction of this exact mistake.
         return "UNKNOWN"
     try:
-        return "PAPER" if cfg.simulation_mode else "IDLE"
+        if cfg.simulation_mode:
+            return "PAPER"
+    except Exception:
+        return "UNKNOWN"
+    # `/golive OFF` saves a suspension that outranks the environment: the
+    # engine is not live and every tapped confirm is a paper fill
+    # (`confirm_is_practice`), so the mode is PAPER, not IDLE.
+    try:
+        from bot.config import RUNTIME
+        return "PAPER" if RUNTIME.live_suspended else "IDLE"
     except Exception:
         return "UNKNOWN"
 

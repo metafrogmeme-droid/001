@@ -37,6 +37,10 @@ from bot.utils.user_store import SELF_ADMISSION_BY, SELF_ADMISSION_ROLE, UserSto
 from tests.test_a_paper_users_first_confirm_is_practice import _armed, _Roles
 from tests.test_a_practice_confirm_reads_the_practice_book import _confirm, _uid
 
+# The live confirm is driven for a caller the test config does not name as
+# an operator; LIVE_ADMIN_ONLY would make it a paper fill (conftest).
+pytestmark = pytest.mark.usefixtures("members_may_trade_live")
+
 
 class _Record(_Roles):
     """A store whose one record carries a role and an admitting party."""

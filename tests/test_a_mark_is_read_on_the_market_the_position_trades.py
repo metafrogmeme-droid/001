@@ -47,6 +47,10 @@ from tests.test_a_seal_failure_does_not_unplace_a_trade import (
 )
 from tests.test_bitget_reads_the_perp import _bitget, _mk, _router, _stub
 
+# The live confirm is driven for a caller the test config does not name as
+# an operator; LIVE_ADMIN_ONLY would make it a paper fill (conftest).
+pytestmark = pytest.mark.usefixtures("members_may_trade_live")
+
 _no_website_sync = _seal_no_website_sync  # autouse binds per module
 
 UTC = timezone.utc

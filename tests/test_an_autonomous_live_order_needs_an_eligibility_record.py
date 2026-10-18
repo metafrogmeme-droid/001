@@ -34,6 +34,10 @@ from bot.core.confirm_result import placed_nothing
 from bot.core.engine import RuneClawEngine
 from bot.utils.models import Direction, TradeIdea
 
+# The live confirm is driven for a caller the test config does not name as
+# an operator; LIVE_ADMIN_ONLY would make it a paper fill (conftest).
+pytestmark = pytest.mark.usefixtures("members_may_trade_live")
+
 ROOT = Path(__file__).resolve().parents[1]
 HASH = "a" * 64
 

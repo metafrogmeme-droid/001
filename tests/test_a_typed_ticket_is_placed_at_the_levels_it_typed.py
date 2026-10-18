@@ -47,6 +47,10 @@ from tests.test_a_seal_failure_does_not_unplace_a_trade import (
 )
 from tests.test_the_placed_order_is_the_checked_order import _market, _Sent, _Venue
 
+# The live confirm is driven for a caller the test config does not name as
+# an operator; LIVE_ADMIN_ONLY would make it a paper fill (conftest).
+pytestmark = pytest.mark.usefixtures("members_may_trade_live")
+
 _no_website_sync = _seal_no_website_sync  # autouse binds per module
 
 

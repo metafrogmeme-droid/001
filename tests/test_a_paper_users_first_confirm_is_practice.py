@@ -38,6 +38,10 @@ from tests.test_web_gateway import (
     gateway_client,
 )
 
+# The live confirm is driven for a caller the test config does not name as
+# an operator; LIVE_ADMIN_ONLY would make it a paper fill (conftest).
+pytestmark = pytest.mark.usefixtures("members_may_trade_live")
+
 UID = "424242"
 
 

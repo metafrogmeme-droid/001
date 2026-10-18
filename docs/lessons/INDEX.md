@@ -359,3 +359,4 @@ about to change before changing it.
 - L26629: THE PI APP SHOWED A POSITION FLAT THAT WAS NOT, AND NEVER SAID HOW OLD ITS NUMBERS WERE — `app/test/a_position_prints_its_prices_to_their_size.test.js`, `app/test/the_pi_app_signs_in_with_pi.smoke.test.js`
 - L26657: ONE COMMAND RE-DERIVES WHAT THE REPOSITORY PUBLISHES, AND IT CAN SAY NO — `app/test/a_live_call_is_a_members.test.js`, `app/test/a_visitor_sample_is_not_chosen_by_the_query.test.js`, `tests/test_the_engine_keeps_the_website_fresh.py`, `tests/test_the_evidence_re_derives.py`
 - L26711: THE /START CARD SHOWED ONE BOOK — `tests/test_start_shows_the_paper_book_beside_the_live_one.py`
+- L26730: LIVE OFF MEANS PAPER, AND LIVE IS THE OPERATOR'S — `tests/test_live_off_is_paper_and_live_is_the_operators.py`

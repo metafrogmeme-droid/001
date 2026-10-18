@@ -67,6 +67,7 @@ DOORS = (
     "WEB3_LIVE_EXEC_ALLOW_MAINNET",  # on-chain, on a real chain
 )
 PROTECTIONS = {
+    "LIVE_ADMIN_ONLY": "keeps live to operators/admins, members' confirms paper; ON tightens",
     "LIVE_BOOK_RISK_GATES_ENABLED": "the live-book risk gates; ON tightens",
     "LIVE_PERFORMANCE_GOVERNOR_ENABLED": "the realized-performance governor; ON tightens",
     "LIVE_RISK_HARDENING_ENABLED": "the live risk hardening bundle; ON tightens",

@@ -85,7 +85,7 @@ AUTO_CONFIRM_LIVE_ENABLED=false   # keep a human confirm on every live order
 
 Restart the bot. Send `/golive` (admin) to read the readiness report: what blocks a live order (simulation mode on, no chat allow-list, missing credentials, a failing venue login) and what is unverified (credentials no authenticated call has tested yet). Once armed, `/livebalance` makes an authenticated call and shows the venue's own answer.
 
-To arm without `LIVE_TRADING_ENABLED`, leave it `false` and send `/golive CONFIRM`. It refuses while any blocker remains, and the arm lasts until a restart. `/golive OFF` withdraws it, and live orders stop until the next `/golive CONFIRM`.
+To arm without `LIVE_TRADING_ENABLED`, leave it `false` and send `/golive CONFIRM`. It refuses while any blocker remains, and the arm lasts until a restart. `/golive OFF` turns live off whatever the environment says: every confirm a person taps opens on the paper book, it holds across restarts (`data/live_suspended.json`), and it lasts until the next `/golive CONFIRM`. It is refused while a live position or resting entry is open, so close those first. With `LIVE_ADMIN_ONLY` on (the default), only an operator or admin ever trades live; every other member's confirm opens on their own paper book.
 
 ### 5. Monitor closely
 
@@ -117,7 +117,7 @@ To arm without `LIVE_TRADING_ENABLED`, leave it `false` and send `/golive CONFIR
 If anything goes wrong in live mode:
 
 1. Send `/halt` via Telegram (operator only). It trips the circuit breaker on the shared engine and on every per-user engine, cancels pending ideas and moves the engine to HALTED. Open positions stay open, with their stops and targets still managed; `/closeall` (admin, behind a confirm button) closes every position on every account.
-2. Send `/golive OFF`, or set `SIMULATION_MODE=true` in `.env` and restart.
+2. Once the book is flat, send `/golive OFF` (it is refused while a live position or resting entry is open), or set `SIMULATION_MODE=true` in `.env` and restart.
 3. Revoke the API key's trade permission on the exchange.
 4. Review `logs/trade.jsonl` and `logs/risk.jsonl`.
 
