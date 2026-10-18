@@ -52,8 +52,12 @@ def paper_book_line(state) -> str:
     The /start card shows the account the engine trades: the live one while
     the engine is live. An operator whose own trading is set to paper
     (`/golive OFF`) then saw "Trading: Paper" beside the live equity and no
-    figure for the book their trades now land on (2026-10-18). This is that
-    figure. Three readings, never two: an unreadable equity says so, an
+    figure for the paper book at all (2026-10-18). This is that figure. It
+    names the book; it does not claim the caller's confirms land there: with
+    live set in the environment, `/golive OFF` leaves the engine live and a
+    vouched caller's confirm is refused for the missing permission, not paper
+    traded (`confirm_is_practice` is the one reading of that). Three
+    readings, never two: an unreadable equity says so, an
     equity with unpriced open positions says it is partial, and a book with
     no closed trades says that rather than a 0% win rate.
     """
@@ -401,8 +405,8 @@ class StartCommands:
             status_label_zh = t("status_active", "zh")
         trade_mode_zh = t("mode_live", "zh") if can_live else t("mode_paper", "zh")
         pending_str = f' | Pending orders: <code>{_pending_count}</code>' if _pending_count > 0 else ''
-        # The live account is on the card; the paper book is a second book,
-        # and the one a paper-set caller's trades land on, so it gets a line.
+        # The live account is on the card; the paper book is a second book
+        # the caller holds, so it gets a line of its own.
         paper_str = paper_book_line(state) if mode == "LIVE" else ""
         pending_str_zh = f' | 掛單: <code>{_pending_count}</code>' if _pending_count > 0 else ''
 

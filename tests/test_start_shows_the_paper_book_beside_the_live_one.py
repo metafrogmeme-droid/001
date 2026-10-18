@@ -2,9 +2,10 @@
 
 18 October: with the engine live and the operator's own trading set to
 paper (`/golive OFF`), the card read "Active | LIVE", the live equity, and
-"Trading: Paper", with no figure for the paper book the operator's trades
-now land on. `paper_book_line` is that figure, rendered under the live
-lines; a paper card already shows the paper book as its equity and gets no
+"Trading: Paper", with no figure for the paper book at all.
+`paper_book_line` is that figure, rendered under the live lines (it names
+the book; whether a confirm lands there is `confirm_is_practice`'s answer,
+not this card's); a paper card already shows the paper book as its equity and gets no
 second line.
 
 Three readings, both arms: a read equity, an unreadable one, a partial one;
