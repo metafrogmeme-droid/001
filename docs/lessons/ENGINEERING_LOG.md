@@ -26547,6 +26547,47 @@ column must still be an ALTER below the fast path, so the two paths cannot
 disagree. A third `REQUIRED_*_COLUMNS` list must be registered in the test to
 be read, and the test fails if `db.js` exports one it does not know.
 
+**THE WEB HOST FOLLOWS A REDIRECT ITSELF, SO NO OAUTH HOP EVER REACHED THE BROWSER.**
+Verifying #634 live on 2026-10-18, the day Sign in with Pi was configured, two
+answers were not the ones the code sends:
+- **`GET /api/auth/oauth/pi/start`.** Our 302 to `accounts.pinet.com` came back
+  as a 200 carrying Pi's own authorize page. It had Pi's headers
+  (`x-powered-by: Next.js`, `via: 1.1 google`, a `x-middleware-rewrite`
+  echoing our client, callback and state) and none of our host's
+  (`x-fc-request-id`). Its `/_next/` assets then 404 on our domain, so "Continue
+  with Pi" would have landed on a broken copy of Pi's page at our address.
+- **`GET /api/auth/oauth/discord/callback?error=access_denied`.** Our 302 to
+  `/#oauth_error=…` came back as a 200 carrying the home page. A fragment
+  cannot survive a server-side hop, so the sentence is lost, and on a
+  successful sign-in the session would be too.
+
+This container's proxy does not follow redirects (google.com came back a
+plain 301), so the layer in front of our server does. Every test passed,
+because no test runs behind that host. The fix does not ask the host to
+change:
+- **Every OAuth hop is a 200 page that navigates** (`app/lib/navigate.js`):
+  a meta refresh and a plain link, no script, `no-store`, `no-referrer`, the
+  target HTML-escaped. The host passes a 200 through, and the browser makes
+  the hop. All four `res.redirect` calls in `auth.js` use it.
+- **No route answers with `res.redirect`.** A scan over `auth.js`,
+  `server.js`, `routes/` and `lib/` fails on a new one, because the host is
+  the one thing no test here runs.
+
+The same morning Cloudflare's Email Address Obfuscation rewrote the
+policies' contact address to "[email protected]" and added a decoder script
+that `/privacy` and `/terms` refuse (their CSP allows no script). A reader,
+and Pi's reviewers, saw no address. The route now wraps the article in
+Cloudflare's `<!--email_off-->` markers.
+
+Both were found only by asking the live host from outside after the deploy:
+the headers of a page, compared with a sibling route's, said which layer
+had answered.
+(`app/test/no_route_answers_a_redirect_the_host_would_follow.test.js`: the
+page's shape and escaping, the scan, and Chromium following the page,
+fragment and all. `app/test/helpers/navigation.js` reads a navigation page
+for the OAuth tests. `app/test/the_policies_are_served_on_www.test.js` holds
+the markers.)
+
 **AN ARMED SIGNER WITH NOWHERE TO SEND: EVERY TESTNET READ "NO RPC".** 18
 October, a screenshot from the operator's phone: the admin signer's network
 picker listed all eleven testnets as "— no RPC", under a "Signing switch on".

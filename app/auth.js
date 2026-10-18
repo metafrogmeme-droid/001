@@ -7,6 +7,9 @@ const mailer = require('./lib/mailer');
 const accountMail = require('./lib/account_mail');
 const oauth2 = require('./lib/oauth2');
 const piSignin = require('./lib/pi_signin');
+// Every OAuth hop is a page that navigates, never a 3xx: the live host follows
+// redirects itself (lib/navigate.js).
+const { navigate } = require('./lib/navigate');
 const { VENUES } = require('./lib/venues');
 const { tokenFromRequest, setSession, clearSession } = require('./lib/session_cookie');
 const { stepUpBlock } = require('./lib/stepup');
@@ -1768,7 +1771,8 @@ async function _completeOAuth(req, res, provider, profile, flow) {
 const _piSigninDeps = {};
 router._piSigninDeps = _piSigninDeps;
 
-// Begin → 302 to Pi's consent screen, with a state this server issued.
+// Begin: a page that sends the browser to Pi's consent screen, with a state
+// this server issued.
 router.get('/oauth/pi/start', async (req, res) => {
   if (!piSignin.configured()) {
     return res.status(503).send('This login provider is not configured.');
@@ -1776,7 +1780,7 @@ router.get('/oauth/pi/start', async (req, res) => {
   const linkUserId = await _linkUserFrom(req);
   const state = oauth2.randomState();
   await _oauthStates.put('flow', state, { provider: 'pi', linkUserId }, Date.now() + OAUTH_FLOW_TTL_MS);
-  res.redirect(piSignin.authorizeUrl({ state }));
+  navigate(res, piSignin.authorizeUrl({ state }));
 });
 
 // The callback page (/auth/pi/callback) posts what Pi put in the fragment.
@@ -1820,7 +1824,8 @@ router.post('/oauth/pi/token', async (req, res) => {
   }
 });
 
-// Begin the redirect flow → 302 to the provider's consent screen.
+// Begin the redirect flow: a page that sends the browser to the provider's
+// consent screen (not a 302, which the live host would follow itself).
 router.get('/oauth/:provider/start', async (req, res) => {
   const provider = req.params.provider;
   if (!oauth2.isProviderConfigured(provider)) {
@@ -1833,7 +1838,7 @@ router.get('/oauth/:provider/start', async (req, res) => {
   const url = oauth2.buildAuthorizeUrl(provider, {
     redirectUri: _oauthRedirectUri(provider), state, challenge,
   });
-  res.redirect(url);
+  navigate(res, url);
 });
 
 // Provider redirects back here with ?code&state. Exchange → profile → session,
@@ -1841,7 +1846,7 @@ router.get('/oauth/:provider/start', async (req, res) => {
 // which would land the JWT in server/proxy access logs).
 router.get('/oauth/:provider/callback', async (req, res) => {
   const provider = req.params.provider;
-  const fail = (msg) => res.redirect(`/#oauth_error=${encodeURIComponent(msg)}`);
+  const fail = (msg) => navigate(res, `/#oauth_error=${encodeURIComponent(msg)}`);
   try {
     const { code, state, error } = req.query;
     if (error) return fail(String(error));
@@ -1857,10 +1862,10 @@ router.get('/oauth/:provider/callback', async (req, res) => {
     });
     const profile = await oauth2.fetchProfile(provider, accessToken);
 
-    // The cookie is set on the redirect itself (in _completeOAuth).
+    // The cookie is set on the navigation page itself (in _completeOAuth).
     const payload = await _completeOAuth(req, res, provider, profile, flow);
     if (!payload) return fail('could not complete login');
-    res.redirect(`/#oauth=${payload}`);
+    navigate(res, `/#oauth=${payload}`);
   } catch (err) {
     console.error(`OAuth ${provider} callback error:`, err.stack || err.message);
     return fail('login failed');

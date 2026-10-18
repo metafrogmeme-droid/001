@@ -99,6 +99,13 @@ function readPage(slug, { dir = SITE_DIR } = {}) {
  * The shell. Title, description and canonical are the built page's, already
  * escaped by its build. Its classes are the site's, so the site's stylesheet
  * styles it; a test checks the stylesheet defines each one.
+ *
+ * The email_off markers are Cloudflare's: inside them its Email Address
+ * Obfuscation leaves addresses alone. Live on 2026-10-18 it rewrote the
+ * policies' contact address to "[email protected]" and added a decoder script
+ * that these pages' CSP (no script at all) refuses, so a reader, and Pi's
+ * reviewers, saw no address. The markers are HTML comments: nothing else reads
+ * them, and the article inside stays the built one, byte for byte.
  */
 function render(p) {
   const nav = NAV.map((n) => {
@@ -124,7 +131,7 @@ function render(p) {
 <span class="font-bold text-ink">RUNECLAW</span>${nav}
 </nav>
 </header>
-<main id="main">${p.article}</main>
+<main id="main"><!--email_off-->${p.article}<!--/email_off--></main>
 </body>
 </html>`;
 }

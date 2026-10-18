@@ -30,6 +30,7 @@ process.env.DISCORD_CLIENT_SECRET = 'disc-secret';
 
 const test = require('node:test');
 const assert = require('node:assert');
+const { navigationTarget } = require('./helpers/navigation');
 const express = require('express');
 
 const db = require('../db');
@@ -176,8 +177,7 @@ test('the per-IP login limit is shared too', async () => {
 
 async function startOn(base) {
   const r = await fetch(base + '/api/auth/oauth/discord/start', { redirect: 'manual' });
-  assert.strictEqual(r.status, 302);
-  return new URL(r.headers.get('location')).searchParams.get('state');
+  return new URL(await navigationTarget(r)).searchParams.get('state');
 }
 
 test('a login started on one instance completes on another, once', async () => {
@@ -185,12 +185,12 @@ test('a login started on one instance completes on another, once', async () => {
   const B = await serve(freshInstance());
   const state = await startOn(A);
   const r = await fetch(B + `/api/auth/oauth/discord/callback?code=abc&state=${state}`, { redirect: 'manual' });
-  assert.strictEqual(r.status, 302);
-  assert.ok(r.headers.get('location').startsWith('/#oauth='), r.headers.get('location'));
+  const to = await navigationTarget(r);
+  assert.ok(to.startsWith('/#oauth='), to);
   // the same state replayed, on either instance, is refused
   for (const base of [A, B]) {
     const again = await fetch(base + `/api/auth/oauth/discord/callback?code=abc&state=${state}`, { redirect: 'manual' });
-    assert.ok(again.headers.get('location').startsWith('/#oauth_error='), 'a state was accepted twice');
+    assert.ok((await navigationTarget(again)).startsWith('/#oauth_error='), 'a state was accepted twice');
   }
 });
 
