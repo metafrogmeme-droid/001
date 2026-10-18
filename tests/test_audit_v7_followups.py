@@ -19,6 +19,10 @@ from bot.compat import UTC
 from bot.utils.models import TradeIdea, Direction
 from datetime import datetime
 
+# The live confirm is driven for a caller the test config does not name as
+# an operator; LIVE_ADMIN_ONLY would make it a paper fill (conftest).
+pytestmark = pytest.mark.usefixtures("members_may_trade_live")
+
 
 def _run(coro):
     loop = asyncio.new_event_loop()

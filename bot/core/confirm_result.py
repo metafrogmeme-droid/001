@@ -35,7 +35,9 @@ REFUSAL_WORDS: dict[str, str] = {
     "Execution denied": "execution was denied",
     "\U0001f6e1": "the chosen strategy refused it",
     "\u23ed": "a position or order on this symbol already existed",
-    "\u26d4": "paper trading is disabled on this bot",
+    # Two answers begin so: "Paper trading is disabled" on a live-only bot,
+    # and an unattended confirm while `/golive OFF` stands. Both are this.
+    "\u26d4": "the engine was not live, so nothing could be placed",
     "\u23f8 [PAPER]": "the practice book was cooling down",
     "\u26a0\ufe0f [PAPER] Simulated fill failed": "the practice fill failed",
 }

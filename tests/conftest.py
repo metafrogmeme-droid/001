@@ -1428,6 +1428,26 @@ def _contain_the_shared_balance_reads():
         vb._reset()
 
 
+@pytest.fixture
+def members_may_trade_live():
+    """LIVE_ADMIN_ONLY off for one test: the per-user live policies decide.
+
+    LIVE_ADMIN_ONLY (default on) makes a confirm by anyone who is not an
+    operator a paper fill while the engine is live. The tests configure no
+    TELEGRAM_CHAT_ID, so every caller they drive through a live confirm is
+    "not an operator"; a file that tests the live path itself (the executor,
+    the envelope, the mint, the per-member gates) opts in here rather than
+    each spelling its own setter. Who reaches the live path at all is pinned
+    in tests/test_live_off_is_paper_and_live_is_the_operators.py.
+    """
+    import sys as _sys
+    cfg = _sys.modules["bot.config"].CONFIG
+    old = cfg.live_admin_only
+    object.__setattr__(cfg, "live_admin_only", False)
+    yield
+    object.__setattr__(cfg, "live_admin_only", old)
+
+
 @pytest.fixture(autouse=True)
 def _contain_the_operator_settings():
     """Hand `RUNTIME`'s settings back after every test.

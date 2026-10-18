@@ -35,6 +35,10 @@ from tests.test_a_paper_users_first_confirm_is_practice import _armed
 from tests.test_a_practice_confirm_reads_the_practice_book import _confirm, _uid
 from tests.test_a_self_admitted_confirm_is_never_placed_live import _Record
 
+# The live confirm is driven for a caller the test config does not name as
+# an operator; LIVE_ADMIN_ONLY would make it a paper fill (conftest).
+pytestmark = pytest.mark.usefixtures("members_may_trade_live")
+
 PRESETS = RunStrategySkill.PRESETS
 LIVE = "✅ LIVE order placed: BTC/USDT LONG"
 

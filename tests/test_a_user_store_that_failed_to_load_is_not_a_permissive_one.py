@@ -39,6 +39,10 @@ from tests.test_the_envelope_is_asked_at_every_door import (
 from tests.test_the_envelope_is_asked_at_every_door import audits as _audits
 from tests.test_the_envelope_is_asked_at_every_door import wired as _wired
 
+# The live confirm is driven for a caller the test config does not name as
+# an operator; LIVE_ADMIN_ONLY would make it a paper fill (conftest).
+pytestmark = pytest.mark.usefixtures("members_may_trade_live")
+
 _no_website_sync = _seal_no_website_sync
 wired = _wired
 audits = _audits   # the system channel does not propagate, so caplog cannot see it

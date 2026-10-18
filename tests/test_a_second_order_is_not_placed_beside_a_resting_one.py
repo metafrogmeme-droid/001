@@ -45,6 +45,10 @@ from tests.source_scan import code_only
 from tests.test_a_resting_limit_is_sized_at_its_own_price import _Recording
 from tests.test_the_placed_order_is_the_checked_order import _market
 
+# The live confirm is driven for a caller the test config does not name as
+# an operator; LIVE_ADMIN_ONLY would make it a paper fill (conftest).
+pytestmark = pytest.mark.usefixtures("members_may_trade_live")
+
 KEY = normalize_symbol("BTC/USDT")
 
 
@@ -342,9 +346,12 @@ class TestConfirmReadsTheAccountItPlacesOn:
     @staticmethod
     def _confirm(eng, uid="u7"):
         # The wrapper asks `confirm_is_practice` first, which reads the
-        # practice opt-in flag; off, as it ships.
+        # practice opt-in flag; off, as it ships. LIVE_ADMIN_ONLY off too:
+        # this stand-in CONFIG names no operator, and the suite drives the
+        # live per-user path (the conftest fixture cannot reach a stand-in).
         with patch.object(eng_mod, "CONFIG", SimpleNamespace(
-                is_live=lambda: True, paper_sim_opt_in_enabled=False)):
+                is_live=lambda: True, paper_sim_opt_in_enabled=False,
+                live_admin_only=False)):
             return asyncio.run(eng.confirm_trade("T7", user_id=uid))
 
     _HELD = SimpleNamespace(symbol="BTC/USDT", status="open")

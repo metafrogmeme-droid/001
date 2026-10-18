@@ -33,6 +33,10 @@ from bot.utils.models import Direction
 from tests.test_a_scan_cards_levels_are_placed_as_shown import _engine_idea, _pending
 from tests.test_a_seal_failure_does_not_unplace_a_trade import _confirm
 
+# The live confirm is driven for a caller the test config does not name as
+# an operator; LIVE_ADMIN_ONLY would make it a paper fill (conftest).
+pytestmark = pytest.mark.usefixtures("members_may_trade_live")
+
 # The idea the engine confirms, and the row the executor keeps after it has
 # re-priced the limit and moved the stop and target with it.
 IDEA_LEVELS = dict(entry_price=99.4, stop_loss=95.0, take_profit=106.0)

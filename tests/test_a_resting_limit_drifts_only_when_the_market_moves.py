@@ -76,6 +76,10 @@ from tests.test_the_drift_fallback_places_what_was_approved import (
     _Venue,
 )
 
+# The live confirm is driven for a caller the test config does not name as
+# an operator; LIVE_ADMIN_ONLY would make it a paper fill (conftest).
+pytestmark = pytest.mark.usefixtures("members_may_trade_live")
+
 _no_website_sync = _seal_no_website_sync      # autouse binds per module
 _five_x_leverage = _five_x                    # the resting suite's 5x, for its `_run`
 audits = _scan_audits

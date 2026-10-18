@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **497 of 1344** reach for source text through `source_scan`, `code_only`
+Driven, **497 of 1345** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 497 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -26726,3 +26726,27 @@ confirm still takes the live branch (`_live_fill`) and compliance lock 1
 refuses it. Nothing is paper traded, though the reply says "Reverted to
 paper-trade mode". The first draft of this line said the operator's trades
 land on the paper book; they do not, and the text was corrected before merge.
+
+**LIVE OFF MEANS PAPER, AND LIVE IS THE OPERATOR'S.** 18 October, the owner's
+call: "live is admin only, paper is the main for now". `/golive OFF` now saves
+a suspension (`RUNTIME.live_suspended`, memory and `data/live_suspended.json`)
+that `CONFIG.is_live()` reads after the environment, so it outranks
+`LIVE_TRADING_ENABLED` and survives a restart; a file that exists but cannot
+be read is suspended (fail closed), and an absent one is not. While it stands,
+`confirm_is_practice` makes every confirm a person taps a paper fill, the
+operator's included; an unattended confirm (`"auto"`) is not a person's book,
+places nothing, and says "live trading is turned off", not "LIVE-ONLY". The
+`⛔` row's `/whynot` words were "paper trading is disabled", which was false
+for the second sentence that now starts with it, so they now name what both
+mean: the engine was not live. OFF is refused while the live book holds an
+open, resting or closing row, or cannot be read (`live_book_open`): turning
+live off over a position leaves it managed as nothing. A write that fails
+still holds in memory, and the reply says a restart would re-arm. CONFIRM
+clears the suspension before it arms, and arms nothing when the clear did not
+reach disk, since the reply "ARMED" would be false while `is_live()` said no.
+`mode_label` reads PAPER, not IDLE, while suspended.
+`LIVE_ADMIN_ONLY` (default on) makes a non-operator's confirm on a live engine
+a paper fill whatever keys they link. Nineteen test files drove a live confirm
+for a caller the test config does not name as operator; they opt in to the old
+reading through one conftest fixture (`members_may_trade_live`) rather than
+each spelling a setter. (`tests/test_live_off_is_paper_and_live_is_the_operators.py`.)

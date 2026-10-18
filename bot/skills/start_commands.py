@@ -53,10 +53,9 @@ def paper_book_line(state) -> str:
     the engine is live. An operator whose own trading is set to paper
     (`/golive OFF`) then saw "Trading: Paper" beside the live equity and no
     figure for the paper book at all (2026-10-18). This is that figure. It
-    names the book; it does not claim the caller's confirms land there: with
-    live set in the environment, `/golive OFF` leaves the engine live and a
-    vouched caller's confirm is refused for the missing permission, not paper
-    traded (`confirm_is_practice` is the one reading of that). Three
+    names the book; it does not claim the caller's confirms land there
+    (`confirm_is_practice` is the one reading of that: a member's confirm
+    under LIVE_ADMIN_ONLY does, the operator's live one does not). Three
     readings, never two: an unreadable equity says so, an
     equity with unpriced open positions says it is partial, and a book with
     no closed trades says that rather than a 0% win rate.

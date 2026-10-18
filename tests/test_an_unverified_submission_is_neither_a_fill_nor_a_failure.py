@@ -79,6 +79,10 @@ from tests.test_the_scheduled_posts_say_whose_book_they_read import (  # noqa: F
 )
 from tests.test_web_gateway import AUTHED, HDRS, SECRET, FakeHandler, _propose, gateway_client
 
+# The live confirm is driven for a caller the test config does not name as
+# an operator; LIVE_ADMIN_ONLY would make it a paper fill (conftest).
+pytestmark = pytest.mark.usefixtures("members_may_trade_live")
+
 COID = LiveExecutor._client_oid("TI-EST")          # the idea `_idea()` builds
 NOW_MS = int(time.time() * 1000)
 

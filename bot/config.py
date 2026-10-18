@@ -2656,6 +2656,14 @@ class AppConfig:
     # exactly as before (single operator account). This is the master switch for
     # the per-user-accounts feature; see docs/LIVE_TRADING_ENABLEMENT.md.
     per_user_live_enabled: bool = _env_bool("PER_USER_LIVE_ENABLED", False)
+    # LIVE IS THE OPERATOR'S ALONE (owner's call, 2026-10-18: "live is admin
+    # only, paper is the main for now"). While on, a confirm by anyone who is
+    # not an operator/admin (`RuneClawEngine._is_operator_user`) is a
+    # practice fill on their own paper book whatever the engine's mode, so a
+    # linked key holder or a LIVE_TRADER_TELEGRAM_IDS member is never placed
+    # live. `confirm_is_practice` is the one reading. Off restores the
+    # per-user live policies below it.
+    live_admin_only: bool = _env_bool("LIVE_ADMIN_ONLY", True)
     # ── Multi-venue trading (Phase 4) ────────────────────────────────────
     # Whether a user's SELECTED venues are honoured when routing an order.
     # Default off: one venue, exactly as before Phases 0-3 existed.
@@ -2969,6 +2977,16 @@ class AppConfig:
             runtime_live = False
         if not (env_live or runtime_live):
             return False
+        # The operator turned live off (`/golive OFF`). That outranks the
+        # environment, and survives a restart: before this, OFF cleared only
+        # the runtime arm, so a deployment that sets live in its environment
+        # stayed live and refused the operator's confirms for the permission
+        # OFF had removed, while its reply said "Reverted to paper-trade mode".
+        try:
+            if RUNTIME.live_suspended:
+                return False
+        except NameError:
+            pass
         # F-04 FIX: refuse to arm live mode without a configured chat ID
         try:
             chat_id = self.telegram.chat_id
@@ -3021,6 +3039,10 @@ class RuntimeState:
         # Runtime override for PAPER_AUTO_ACCEPT (the admin page). None =>
         # the configured value, read by `paper_auto_accept_in_force`.
         self._paper_auto_accept_override: bool | None = None
+        # The operator's `/golive OFF`, held in memory AND on disk
+        # (LIVE_SUSPENDED_FILE) so neither a restart nor a write that failed
+        # re-arms what the operator turned off. See `live_suspended`.
+        self._live_suspended_mem: bool = False
 
     @property
     def live_mode(self) -> bool:
@@ -3031,6 +3053,55 @@ class RuntimeState:
     def live_mode(self, value: bool) -> None:
         with self._lock:
             self._live_mode = value
+
+    @classmethod
+    def _live_suspended_path(cls):
+        """Where `/golive OFF` is kept, anchored to the state directory."""
+        from bot.utils.paths import state_path
+        return state_path("data/live_suspended.json")
+
+    @property
+    def live_suspended(self) -> bool:
+        """Has the operator turned live off (`/golive OFF`)?
+
+        Read from memory and from disk, so a restart keeps it and a second
+        process (api_bridge) reads the same answer. FAIL-CLOSED: a file that
+        exists but cannot be read or parsed is suspended, because the safe
+        reading of "did the operator turn live off?" is yes. Absent is no.
+        """
+        with self._lock:
+            if self._live_suspended_mem:
+                return True
+        import json as _json
+        try:
+            raw = self._live_suspended_path().read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return False
+        except OSError:
+            return True
+        try:
+            return _json.loads(raw).get("suspended") is not False
+        except (ValueError, AttributeError):
+            return True
+
+    def set_live_suspended(self, value: bool, by: str = "") -> bool:
+        """Turn the suspension on or off. Returns whether the change reached
+        disk. Memory always takes it, so a failed write still holds until a
+        restart, and the caller says which of the two happened."""
+        import time as _time
+
+        from bot.utils.atomic_write import atomic_write_json
+        with self._lock:
+            self._live_suspended_mem = bool(value)
+        path = self._live_suspended_path()
+        try:
+            if value:
+                atomic_write_json(path, {"suspended": True, "at": _time.time(), "by": str(by)})
+            else:
+                path.unlink(missing_ok=True)
+            return True
+        except OSError:
+            return False
 
     @property
     def asset_universe(self) -> str:

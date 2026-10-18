@@ -40,6 +40,28 @@ from bot.utils.i18n import t
 from bot.utils.logger import audit, system_log
 
 
+def live_book_open(executor) -> Optional[list[str]]:
+    """The operator's live positions and resting entries, as symbols.
+
+    `[]` when there is no live executor or nothing is open; None when the
+    book cannot be read. `/golive OFF` refuses on both a non-empty list and
+    None: turning live off over a position nobody then manages as live is
+    the one outcome it must not produce, and an unread book may hold one.
+    """
+    if executor is None:
+        return []
+    try:
+        rows = list(getattr(executor, "_positions", {}).values())
+    except Exception:
+        return None
+    out = []
+    for p in rows:
+        status = getattr(p, "status", None)
+        if status in ("open", "pending_fill", "closing"):
+            out.append(str(getattr(p, "symbol", "?")))
+    return out
+
+
 def _leverage_words() -> str:
     """The venue and sizing standards in one phrase, as /leverage reads them:
     "10x venue leverage, sized at 5x"; one figure where they are one."""
@@ -1374,18 +1396,50 @@ class EngineOpsCommands:
 
         args = ctx.args or []
         if args and args[0].upper() == "OFF":
-            # Disable live mode
+            # Live off, for real. It used to clear only the runtime arm and the
+            # LIVE_TRADE permission: a deployment that sets live in its
+            # environment stayed live, the operator's next confirm took the
+            # live branch and was refused for the permission just removed, and
+            # the reply said "Reverted to paper-trade mode" (2026-10-18). The
+            # suspension now outranks the environment in `CONFIG.is_live()`,
+            # survives a restart, and makes every confirm a paper fill
+            # (`confirm_is_practice`).
             from bot.config import RUNTIME
+            _by = self._get_tg_id(update)
+            _open = live_book_open(getattr(self.engine, "live_executor", None))
+            if _open is None or _open:
+                _what = ("the live book could not be read, so whether a position is "
+                         "open is unknown" if _open is None else
+                         "live positions or resting entries are open: "
+                         + ", ".join(_html.escape(x) for x in _open))
+                audit(system_log, "LIVE OFF REFUSED via /golive OFF — book not flat",
+                      action="golive", result="REFUSED",
+                      data={"user": _by, "open": _open})
+                await self._send(update,
+                    "\u26a0\ufe0f <b>Live stays ON.</b>\n\n"
+                    f"Not turned off: {_what}. Turning live off over them would leave "
+                    "them unmanaged as live.\n\n"
+                    "Close them first (<code>/livepositions</code>, "
+                    "<code>/liveclose &lt;id&gt;</code>), then send "
+                    "<code>/golive OFF</code> again. Nothing was changed.")
+                return
             RUNTIME.live_mode = False
+            _saved = RUNTIME.set_live_suspended(True, by=_by)
             from bot.compliance.compliance_engine import Permission
             self.engine.compliance_profile.permissions.discard(Permission.LIVE_TRADE)
-            audit(system_log, "LIVE TRADING DISABLED via /golive OFF",
+            audit(system_log, "LIVE TRADING OFF via /golive OFF",
                   action="golive", result="DISABLED",
-                  data={"user": self._get_tg_id(update)})
+                  data={"user": _by, "saved": _saved})
             await self._send(update,
-                "\U0001f534 <b>LIVE TRADING DISABLED</b>\n\n"
-                "Reverted to paper-trade mode.\n"
-                "Use <code>/golive CONFIRM</code> to re-enable.")
+                "\U0001f534 <b>LIVE TRADING OFF</b>\n\n"
+                "The engine trades on paper now: every confirm tapped, yours included, "
+                "opens on the paper book, and no live order is placed.\n"
+                + ("It stays off across restarts, whatever the environment says.\n"
+                   if _saved else
+                   "\u26a0\ufe0f It could not be saved to disk, so a restart would "
+                   "arm live again from the environment. Set "
+                   "<code>SIMULATION_MODE=true</code> before restarting.\n")
+                + "\nUse <code>/golive CONFIRM</code> to arm live again.")
             return
 
         # Readiness is read BEFORE anything is armed, and shown on the preview
@@ -1429,8 +1483,18 @@ class EngineOpsCommands:
                 + "\n\n<i>Nothing was armed and no permission was granted.</i>")
             return
 
-        # Enable live mode via RuntimeState (CONFIG is frozen)
+        # Enable live mode via RuntimeState (CONFIG is frozen). The saved
+        # `/golive OFF` goes first: while it stands `is_live()` answers no,
+        # so a reply saying live is armed would be false.
         from bot.config import RUNTIME
+        if not RUNTIME.set_live_suspended(False, by=self._get_tg_id(update)):
+            audit(system_log, "LIVE TRADING NOT ARMED via /golive — saved OFF could not be cleared",
+                  action="golive", result="REFUSED", data={"user": self._get_tg_id(update)})
+            await self._send(update,
+                "\u26a0\ufe0f <b>Live is still OFF.</b>\n\n"
+                "The saved <code>/golive OFF</code> could not be cleared from disk, so "
+                "live would stay off; nothing was armed and no permission was granted.")
+            return
         RUNTIME.live_mode = True
 
         # Grant LIVE_TRADE permission on the engine's compliance profile
@@ -1449,7 +1513,7 @@ class EngineOpsCommands:
             "\u2022 <code>/livebalance</code> — check USDT balance\n"
             "\u2022 <code>/livepositions</code> — view open positions\n"
             "\u2022 <code>/liveclose &lt;id&gt;</code> — close a position\n"
-            "\u2022 <code>/golive OFF</code> — disable live mode")
+            "\u2022 <code>/golive OFF</code> — live off: paper from then on, across restarts")
 
     @guard("admin")
     async def _cmd_liveclose(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

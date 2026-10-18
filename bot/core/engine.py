@@ -738,6 +738,15 @@ class _LiveRecheck(NamedTuple):
     equity_source: Optional[str] = None
 
 
+def _live_turned_off() -> bool:
+    """`RUNTIME.live_suspended`, read fail-closed: unreadable is turned off."""
+    try:
+        from bot.config import RUNTIME
+        return bool(RUNTIME.live_suspended)
+    except Exception:
+        return True
+
+
 class RuneClawEngine:
     """
     Main event loop that ties scanner, analyzer, risk, and execution together.
@@ -8627,7 +8636,10 @@ class RuneClawEngine:
 
     def confirm_is_practice(self, user_id: str) -> bool:
         """Whether this caller's confirm opens a PRACTICE row rather than a
-        live order: a self-admitted account, or a practice-mode opt-in under
+        live order: a self-admitted account; any person while the operator
+        has turned live off (`/golive OFF`, `RUNTIME.live_suspended`); a
+        person who is not an operator while the engine is live and
+        LIVE_ADMIN_ONLY is on; or a practice-mode opt-in under
         PAPER_SIM_OPT_IN_ENABLED.
 
         THE ONE READING. The confirm branch below, the re-check that sizes
@@ -8638,6 +8650,25 @@ class RuneClawEngine:
         """
         if self._self_admitted_practice(user_id):
             return True
+        # PAPER IS THE MAIN (owner's call, 2026-10-18). Two rules, for a
+        # person only: the engine's own unattended confirms ("" / "auto")
+        # keep their path.
+        human = bool(user_id) and str(user_id) not in ("auto", "")
+        if human:
+            # The operator turned live off (`/golive OFF`): every confirm is a
+            # paper fill. Before this, a confirm after OFF took the live
+            # branch and compliance refused it for the permission OFF removed.
+            if _live_turned_off():
+                return True
+            # Live is the operator's alone (LIVE_ADMIN_ONLY): a member's
+            # confirm on a live engine is a paper fill. An identity that
+            # cannot be read is not an operator.
+            if getattr(CONFIG, "live_admin_only", True) and CONFIG.is_live():
+                try:
+                    if not self._is_operator_user(user_id):
+                        return True
+                except Exception:
+                    return True
         if not CONFIG.paper_sim_opt_in_enabled or not user_id or user_id in ("auto", ""):
             return False
         store = getattr(self, "_user_store", None)
@@ -9353,6 +9384,12 @@ class RuneClawEngine:
         if not CONFIG.is_live():
             self._pending_pyramid.pop(trade_id, None)
             self._transition(AgentState.IDLE, "paper mode disabled")
+            # A person's confirm never reaches here while live is turned off
+            # (`confirm_is_practice` made it a paper fill), so this is an
+            # unattended one. "This bot is LIVE-ONLY" would be false.
+            if _live_turned_off():
+                return ("⛔ Live trading is turned off (/golive OFF): an unattended "
+                        "confirm places nothing. Nothing was placed.")
             return "⛔ Paper trading is disabled on this bot. This bot is LIVE-ONLY."
 
         # ── RC-AUD-018 / Audit F-14: SIMULATION_MODE hard veto ──

@@ -28,6 +28,10 @@ from bot.core import critique as _crit
 from bot.core.engine import RuneClawEngine, _LiveRecheck
 from tests.test_a_seal_failure_does_not_unplace_a_trade import _engine, _run
 
+# The live confirm is driven for a caller the test config does not name as
+# an operator; LIVE_ADMIN_ONLY would make it a paper fill (conftest).
+pytestmark = pytest.mark.usefixtures("members_may_trade_live")
+
 
 @pytest.fixture(autouse=True)
 def _no_website_sync(monkeypatch):

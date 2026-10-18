@@ -278,10 +278,9 @@ def test_an_unreadable_config_never_reads_as_live():
 #: Two-valued mode derivations that are NOT a status claim, each with why.
 #: Two-way, like `known_failures.txt`: an entry that stops matching any
 #: expression must be deleted in the commit that made it stale.
-MODE_SHAPE_ALLOWED = {
-    "bot/core/live_readiness.py": "mode_label's own module — the reading, and "
-                                  "the fallback inside it IS three-valued",
-}
+# Empty: mode_label's own two-valued fallback went when `/golive OFF` became
+# a third reason the mode is PAPER (2026-10-18). Two-way: a new site fails.
+MODE_SHAPE_ALLOWED: dict[str, str] = {}
 
 
 def _two_valued_mode_sites(root):

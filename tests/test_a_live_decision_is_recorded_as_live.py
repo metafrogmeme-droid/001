@@ -38,6 +38,10 @@ from bot.core.engine import decision_mode
 from bot.learning.models import DecisionMemory
 from bot.utils.models import Direction, TradeIdea
 
+# The live confirm is driven for a caller the test config does not name as
+# an operator; LIVE_ADMIN_ONLY would make it a paper fill (conftest).
+pytestmark = pytest.mark.usefixtures("members_may_trade_live")
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BOT = ROOT / "bot"
 WRITERS = ("log_decision", "record_trade_decision", "record_closed_outcome")
