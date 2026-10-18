@@ -56,6 +56,10 @@ Each card offers one action at most, depending on where the call stands:
 - When a window closes while the app is open, the card changes in place. The chart and anything typed in the open form are left as they were.
 - **The charts** take the website Arena's timeframes: **15m**, **1H**, **4H** and **1D**, chosen once for every chart on the panel and remembered on that device. Pinch a chart to zoom and drag it sideways to look back up to 200 bars. A vertical drag still scrolls the app, and a chart keeps its zoom when the panel refreshes.
 - The list refreshes every minute while the app is open. A refresh that finds the same calls redraws nothing.
+
+**Refresh.** The signed-in screen has a **↻ Refresh** button beside the time the account was last read ("Updated 05:11:54"). It reads the account (balance, positions, marks and P&L) and the signals with their charts again, together, and leaves anything typed in the open form alone. The account is also read again when the app comes back to the foreground. Nothing else re-reads the account on a timer, so between taps the marks are the ones from that time. If the account cannot be read, the error says so and offers the same button.
+
+**Prices.** A position's entry and mark are printed with as many decimals as the price needs, the same way the signal cards print their levels: a coin at 0.14945 reads 0.149450, not 0.15. Amounts (margin, balance, P&L) keep two decimals.
 - A list that cannot be read says so. That message is never a claim that there are no signals.
 - The chart library is the site's own copy, served from our domain, and the candles come from our relay. The page's security policy is unchanged.
 

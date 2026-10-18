@@ -31,7 +31,8 @@
  *   extras          optional, a host's own blocks on the signed-in screen
  *                   (the Pi app's signals and tips), each { place, html(),
  *                   mounted(root), click(target, ctx) -> true when handled,
- *                   signedIn(ctx) }; every member is optional. `place` is
+ *                   signedIn(ctx), reload() -> Promise, for the Refresh
+ *                   button }; every member is optional. `place` is
  *                   'main' (after the positions) or 'end' (after the open
  *                   form). ctx is { api, render, refresh }: the same
  *                   authenticated api() and nothing else, so a block can never
@@ -145,6 +146,8 @@
     var account = null;     // { equity, balance, return_pct, limits, positions }
     var season = null;
     var loadError = false;
+    var readAt = null;      // when the account on screen was read
+    var refreshing = false; // the Refresh button's read, in flight
 
     function refresh() {
       return Promise.all([
@@ -166,6 +169,7 @@
         if (!acct.ok || !acct.body) throw new Error('account ' + acct.status);
 
         account = acct.body;
+        readAt = new Date();
         // The season is CONTEXT, not the subject of this page. A failed read of
         // it must not blank an account that loaded perfectly well — omit, not
         // guard, exactly as the tape is treated on the public board.
@@ -176,6 +180,38 @@
         loadError = true;
         render();
       });
+    }
+
+    function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+    /**
+     * The Refresh button, and how old the screen is. Nothing here re-reads on
+     * a timer, so a position's mark and P&L were the ones read at sign-in or
+     * after the last action, and the screen did not say how old they were.
+     * The time is when the account on screen was read, in the reader's clock.
+     */
+    function refreshBarHtml() {
+      return '<div class="m-refresh-row">'
+        + '<span class="m-updated">' + (readAt ? 'Updated ' + pad2(readAt.getHours()) + ':'
+          + pad2(readAt.getMinutes()) + ':' + pad2(readAt.getSeconds()) : '') + '</span>'
+        + '<button type="button" class="m-refresh"' + (refreshing ? ' disabled' : '') + '>'
+        + (refreshing ? 'Refreshing…' : '↻ Refresh') + '</button></div>';
+    }
+
+    /**
+     * Read everything on the screen again: the account and season, and every
+     * block that can read itself (the Pi app's signals and their charts).
+     * Each read says its own failure, so one that fails does not stop the
+     * others, and the button comes back either way.
+     */
+    function refreshAll() {
+      if (refreshing || busy || !token) return Promise.resolve();
+      refreshing = true;
+      render();
+      var reads = [refresh()].concat(extras.filter(function (x) { return x.reload; })
+        .map(function (x) { return Promise.resolve().then(function () { return x.reload(); }); }));
+      return Promise.all(reads.map(function (p) { return p.catch(function () { /* said by its own block */ }); }))
+        .then(function () { refreshing = false; render(); });
     }
 
     /**
@@ -231,6 +267,7 @@
         root.innerHTML = V.seasonHtml(season)
           + state('error', 'Your account could not be loaded.',
             'This is a fault on our side, not a statement that it is empty.')
+          + refreshBarHtml()
           + '<p class="e-src">Paper trading · virtual stakes</p>';
         return;
       }
@@ -242,6 +279,7 @@
 
       var kept = keepForm();
       root.innerHTML = V.seasonHtml(season)
+        + refreshBarHtml()
         + M.accountHtml(account)
         + lastNote
         + M.positionsHtml(account.positions)
@@ -339,10 +377,17 @@
       if (t.closest('.m-short')) return void openPosition('SHORT');
       var close = t.closest('.m-close');
       if (close) return void closePosition(close.getAttribute('data-close-id'));
+      if (t.closest('.m-refresh')) return void refreshAll();
       if (!token) return;
       for (var i = 0; i < extras.length; i++) {
         if (extras[i].click && extras[i].click(t, extraCtx)) return;
       }
+    });
+
+    // Back in front after being put away: read the account again, so the marks
+    // and P&L on screen are not the ones from before.
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden && token && !busy && !refreshing) refresh();
     });
 
     // The season is public, so the signed-out screen can name it before anyone

@@ -352,3 +352,15 @@ html, body {
 .p-sig-out { font-weight: 600; letter-spacing: .04em; margin-right: 4px; color: var(--e-text-2); }
 .p-sig-out--up { color: var(--e-up); }
 .p-sig-out--down { color: var(--e-down); }
+
+/* The signed-in screen's Refresh button (arena-session.js), and how old the
+   screen is. Muted: the time is a fact about the read, not news. */
+.m-refresh-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 10px; }
+.m-updated { color: var(--e-text-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.m-refresh {
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--e-info);
+  background: transparent; border: 1px solid var(--e-line); border-radius: 8px;
+  padding: 6px 12px; min-height: 34px; cursor: pointer;
+}
+.m-refresh[disabled] { opacity: .6; cursor: default; }
+.m-refresh:focus-visible { outline: 2px solid var(--e-info); outline-offset: 1px; }

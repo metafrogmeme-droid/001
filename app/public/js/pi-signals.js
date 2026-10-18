@@ -342,6 +342,14 @@
       startClocks();
     }
 
+    /** The session's Refresh button: the calls read again, and their charts' bars. */
+    function reload() {
+      if (!ctx) return Promise.resolve();
+      lastRead = null;
+      candles = {};
+      return load();
+    }
+
     function setTf(v) {
       if (!isTf(v) || v === tf) return;
       tf = v;
@@ -398,7 +406,7 @@
       return true;
     }
 
-    return { place: 'main', html: html, mounted: mounted, click: click, signedIn: signedIn };
+    return { place: 'main', html: html, mounted: mounted, click: click, signedIn: signedIn, reload: reload };
   }
 
   return {

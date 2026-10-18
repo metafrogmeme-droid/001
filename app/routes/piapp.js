@@ -107,17 +107,17 @@ const HEAD_SCRIPTS = ['/js/api-retry.js?v=3', PI_SDK];
  */
 const SCRIPTS = [
   '/js/embed-arena-view.js?v=2',
-  '/js/miniapp-view.js?v=3',
-  '/js/arena-session.js?v=3',
+  '/js/miniapp-view.js?v=4',
+  '/js/arena-session.js?v=4',
   '/vendor/lightweight-charts.standalone.production.js?v=1',
   '/js/tv-chart.js?v=1',
   '/js/embed-read.js?v=2',
   '/js/confidence-score.js?v=2',
   '/js/rr-words.js?v=1',
-  '/js/embed-row.js?v=5',
+  '/js/embed-row.js?v=6',
   '/js/signal-chart.js?v=3',
   '/js/signal-status-model.js?v=4',
-  '/js/pi-signals.js?v=2',
+  '/js/pi-signals.js?v=3',
   '/js/pi-arena.js?v=2',
 ];
 
@@ -130,7 +130,7 @@ function page() {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RUNECLAW Arena</title>
 ${head}
-<link rel="stylesheet" href="/embed.css?v=8">
+<link rel="stylesheet" href="/embed.css?v=9">
 </head><body class="e-arena m-app">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}
