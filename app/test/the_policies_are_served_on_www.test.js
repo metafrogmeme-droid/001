@@ -66,6 +66,19 @@ for (const slug of legal.PAGES) {
     assert.ok(r.text.includes(built(slug).match(/<link rel="canonical"[^>]*>/)[0]));
   });
 
+  test(`/${slug} keeps its contact address out of Cloudflare's email rewriting`, async () => {
+    // Live on 2026-10-18 Cloudflare's Email Address Obfuscation turned the
+    // address into "[email protected]" plus a decoder script this page's CSP
+    // refuses. Its email_off markers, around the whole article, leave it be.
+    const r = await serve(legal, '/' + slug);
+    const article = articleOf(built(slug));
+    assert.ok(r.text.includes('<!--email_off-->' + article + '<!--/email_off-->'),
+      `/${slug}'s article is not inside the email_off markers`);
+    assert.match(article, /info@humanoid-traders\.com/, 'the fixture names no address to protect');
+    assert.strictEqual((r.text.match(/<!--email_off-->/g) || []).length, 1);
+    assert.strictEqual((r.text.match(/<!--\/email_off-->/g) || []).length, 1);
+  });
+
   test(`/${slug} runs no script, carries no presale, and links only to the policies`, async () => {
     const r = await serve(legal, '/' + slug);
     assert.doesNotMatch(r.text, /<script\b/i);

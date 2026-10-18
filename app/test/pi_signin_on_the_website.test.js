@@ -30,6 +30,7 @@ process.env.DISCORD_CLIENT_SECRET = 'disc-secret';
 
 const test = require('node:test');
 const assert = require('node:assert');
+const { navigationTarget } = require('./helpers/navigation');
 const fs = require('node:fs');
 const path = require('node:path');
 const express = require('express');
@@ -75,11 +76,10 @@ test.before(async () => {
 });
 test.after(() => { if (server) server.close(); });
 
-/** /start, and the state it issued (read from the redirect to Pi). */
+/** /start, and the state it issued (read from the page that sends the browser to Pi). */
 async function start(linkKey) {
   const r = await fetch(base + '/api/auth/oauth/pi/start' + (linkKey ? `?link=${linkKey}` : ''), { redirect: 'manual' });
-  assert.strictEqual(r.status, 302);
-  return new URL(r.headers.get('location'));
+  return new URL(await navigationTarget(r));
 }
 
 async function token(body) {
@@ -224,7 +224,7 @@ test('the state must be one this server issued, for Pi, and is good once', async
   assert.strictEqual((await token({ state: 'x' })).status, 400, 'no token');
   // A state issued for Discord's code flow is not a Pi state.
   const disc = await fetch(base + '/api/auth/oauth/discord/start', { redirect: 'manual' });
-  const discState = new URL(disc.headers.get('location')).searchParams.get('state');
+  const discState = new URL(await navigationTarget(disc)).searchParams.get('state');
   assert.strictEqual((await token({ access_token: t, state: discState })).status, 400);
   assert.strictEqual(pi.calls.length, callsBefore, 'Pi is not asked about a state we did not issue');
 

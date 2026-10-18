@@ -96,7 +96,7 @@ In the Developer Portal:
 
 The website's login page offers **Continue with Pi** beside Google, Telegram, Discord, X and wallets, once `PI_OAUTH_CLIENT_ID` is set. It uses Pi Sign-In, Pi's OAuth for sites outside the Pi Browser. Pi issues a client ID and no secret, and returns the sign-in in the URL fragment.
 
-1. The button goes to `/api/auth/oauth/pi/start`. The server records a single-use `state` for ten minutes and sends the person to `https://accounts.pinet.com/oauth/authorize`, asking only for the `username` scope.
+1. The button goes to `/api/auth/oauth/pi/start`. The server records a single-use `state` for ten minutes and sends the person to `https://accounts.pinet.com/oauth/authorize`, asking only for the `username` scope. It sends them with a page that moves the browser on, not an HTTP redirect, because the web host follows redirects itself and would show Pi's page at our address.
 2. Pi sends them back to `/auth/pi/callback` with an access token in the fragment. A browser never sends a fragment to a server, so that page's one script reads it, removes it from the address bar, and posts the token and `state` to `/api/auth/oauth/pi/token`.
 3. The server checks the `state` was its own, for Pi, and unused. It then asks Pi who the token belongs to (`GET https://api.minepi.com/v2/me`) and keeps only the uid. A uid sent by the browser is ignored.
 4. The person is signed in to the account that uid names, or a new one, the same way as every other sign-in. A signed-in person can also link Pi to their existing account from the account panel.

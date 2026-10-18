@@ -354,3 +354,4 @@ about to change before changing it.
 - L26314: A CALL PAST ITS WINDOW OFFERED NOTHING, AND THE PI APP WIPED THE TICKET EVERY MINUTE — `app/test/a_closed_window_is_traded_as_your_own.test.js`, `app/test/the_pi_app_signs_in_with_pi.smoke.test.js`, `tests/test_each_strategy_scans_its_own_rule_now.py`, `tests/test_strategy_catalog.py`, `tests/test_the_daily_trend_sleeve_reads_and_places_nothing.py`
 - L26455: A LIVE ORDER STAYS IN THE MARKETS A CARD MEASURED — `tests/test_a_live_order_stays_in_the_measured_universe.py`
 - L26512: /PAPER TOLD A PRACTICE ACCOUNT ITS TRADES WERE LIVE — `app/test/fast_path_reconciles_every_later_column.test.js`, `tests/test_paper_answers_from_the_admission_first.py`
+- L26550: THE WEB HOST FOLLOWS A REDIRECT ITSELF, SO NO OAUTH HOP EVER REACHED THE BROWSER — `app/test/helpers/navigation.js`, `app/test/no_route_answers_a_redirect_the_host_would_follow.test.js`, `app/test/the_policies_are_served_on_www.test.js`
