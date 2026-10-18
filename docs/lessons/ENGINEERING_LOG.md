@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **496 of 1343** reach for source text through `source_scan`, `code_only`
+Driven, **497 of 1344** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 496 is a FLOOR and the honest shape is
+source scan that rule does not see, so 497 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -26707,3 +26707,22 @@ that picks the sample from the filtered rows fails it. Single-call doors (a
 receipt, the thesis page, a flight record, a strategy board, the MCP and
 ERC-8257 tools) stay locked. (`tests/test_the_engine_keeps_the_website_fresh.py`,
 `app/test/a_live_call_is_a_members.test.js`.)
+
+**THE /START CARD SHOWED ONE BOOK.** 18 October: with the engine live and the
+operator's own trading set to paper (`/golive OFF`), /start read "Active |
+LIVE", the live equity, and "Trading: Paper", with no figure for the paper
+book. `paper_book_line` puts that book on its
+own line under the live figures, labelled, so the live equity line still
+carries only the live balance (the earlier rule, now asserted line by line).
+Three readings: a record with no closed trades says so rather than 0%, an
+absent record says unread, and an equity with unpriced positions says partial.
+The honesty ratchet caught the first draft's `getattr(..., 0) or 0`, which read
+an absent trade count as a measured zero. (`tests/test_start_shows_the_paper_book_beside_the_live_one.py`.)
+The same afternoon showed what "Trading: Paper" does not mean: with live set
+in the environment (`SIMULATION_MODE=false`, `LIVE_TRADING_ENABLED=true`),
+`/golive OFF` clears the runtime switch and the `LIVE_TRADE` permission, but
+`CONFIG.is_live()` still reads the environment, so a vouched operator's
+confirm still takes the live branch (`_live_fill`) and compliance lock 1
+refuses it. Nothing is paper traded, though the reply says "Reverted to
+paper-trade mode". The first draft of this line said the operator's trades
+land on the paper book; they do not, and the text was corrected before merge.
