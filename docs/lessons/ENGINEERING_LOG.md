@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **495 of 1341** reach for source text through `source_scan`, `code_only`
+Driven, **495 of 1342** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 495 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -26653,3 +26653,25 @@ rule and the two copies' agreement.
 `app/test/the_pi_app_signs_in_with_pi.smoke.test.js` drives Refresh in
 Chromium: the account, the calls and the bars read again, the ticket kept,
 the read on returning to the app, and the recovery from a failed read.)
+
+**ONE COMMAND RE-DERIVES WHAT THE REPOSITORY PUBLISHES, AND IT CAN SAY NO.**
+18 October. The README's first screen said "backtest results use synthetic
+data", which stopped being true when the strategy cards moved to the frozen
+Bitget benchmark, and nothing a stranger could run checked any number on it.
+`scripts/verify_evidence.py` recomputes each frozen dataset's hashes from its
+candle files, checks every strategy card against its dataset's manifest, the
+commit it names and the public-surface rule (no dollar keys), and recomputes
+each pre-registered study's sealed hash against the registry
+(`benchmark/studies.json`) and the sidecar's last line; `--online` adds the
+published daily Merkle root and the newest sealed call. Three verdicts, three
+exit codes: MATCH 0, MISMATCH 1, CANNOT CHECK 3 (a tree with no git history
+cannot answer for a commit, and says so; a tree with nothing to check is not
+a pass). The registry's hashes were read from the sidecars by script, after
+two typed by hand did not match, and each study's row was corrected against
+its sealed file's own wording, never the summary remembered. The README's
+studies table is rendered from the registry (`--readme`) and the test fails
+when the two differ; the translation links to it rather than keeping a
+second copy. The study row's dollar check first searched the dumped JSON for
+the key names as substrings, so a verdict that said "rebalance" would have
+read as a `balance` field: it walks keys now. Thirteen mutants, all killed.
+(`tests/test_the_evidence_re_derives.py`.)
