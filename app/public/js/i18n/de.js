@@ -836,6 +836,8 @@
   ["dd.ec_footer", "Die eigenen Kandidaten der Engine — keine persönliche Beratung. Bestätigungen laufen durch ihr Risiko-Gate."],
   ["sig.lock_row", "Laufendes Signal — melden Sie sich an, um Richtung und Niveaus zu sehen"],
   ["sig.lock_cta", "Anmelden, um den Trade zu sehen"],
+  ["sig.join_cta", "Kostenlos registrieren, um alles zu sehen"],
+  ["sig.teaser_more", "weitere gesperrt. Kostenlose Mitglieder sehen jedes laufende Signal, jedes Setup und jede Musteranalyse."],
   ["sig.lock_note", "Laufende Signale sind angemeldeten Mitgliedern vorbehalten: Richtung, Einstieg, Stop und Ziel. Jedes Signal wird vollständig veröffentlicht, sobald es aufgelöst ist, und sein Siegel ist von Anfang an öffentlich."],
   ["dd.et_k_agent_s", "die Bilanz des Agenten"],
   ["dd.et_k_agent_l", "Tiefster Rückgang vom Hoch in der veröffentlichten Bilanz des Agenten — nicht Ihr Konto."],

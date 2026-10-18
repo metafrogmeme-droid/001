@@ -1026,7 +1026,26 @@
     return `<span class="chip muted" title="${esc(lockNoteText())}">🔒</span>`;
   }
   function lockCta() {
-    return `<a class="btn btn--sm" href="/">${esc(T('sig.lock_cta', 'Sign in to see the trade'))}</a>`;
+    return `<a class="btn btn--sm btn--primary" href="${esc(JOIN_HREF)}">${esc(T('sig.join_cta', 'Register free to see all'))}</a>`;
+  }
+  // ── the visitor's sample ──
+  // A visitor is sent the first few items of a list in full (each marked
+  // `teaser`) and the rest locked; the payload says how many of each and
+  // where to sign up (app/lib/signal_access.js). One line under the list
+  // names what is locked, never a row of blanks per item.
+  const JOIN_HREF = '/#join';
+  function teaserCta(n) {
+    if (!(n > 0)) return '';
+    return `<div class="row mt-2" style="gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;border:1px dashed var(--line);border-radius:10px">
+      <span>${lockChip()} <b class="num">+${n}</b> <span class="muted">${esc(T('sig.teaser_more', 'more locked. Free members see every live call, setup and pattern read.'))}</span></span>
+      <span class="right">${lockCta()}</span></div>`;
+  }
+  function isLocked(x) { return !!x && x.locked === true; }
+  // Deep-scan cards for this viewer: the open reads, then one line for the rest.
+  function dsCardsHtml(hits, max) {
+    const open = (hits || []).filter(h => !isLocked(h));
+    const shut = (hits || []).length - open.length;
+    return open.slice(0, max == null ? open.length : max).map(deepScanCard).join('') + teaserCta(shut);
   }
   function lockedSignalRow(s) {
     return `
@@ -2063,12 +2082,12 @@
       const scan = await getScan();
       const ds = scan && scan.deepscan;
       if (!ds || !(ds.hits || []).length) return null;
-      const top = ds.hits.slice(0, 8);
+      const open = ds.hits.filter(h => !isLocked(h));
       return `<p class="muted small mb-2">${ds.count || ds.hits.length} symbols with detected patterns · ${esc(ds.tf || '')}${ds.generated_at ? ' · ' + esc(ds.generated_at) : ''}</p>`
-        + top.map(deepScanCard).join('')
-        + (ds.hits.length > top.length
+        + dsCardsHtml(ds.hits, 8)
+        + (ds.hits.length > Math.min(8, open.length)
           ? `<p class="small mt-1"><a href="#deepscan">See all ${ds.hits.length} in Deep Scan →</a></p>` : '');
-    }, { empty: { icon: 'icon-target', text: 'No deep scan in the last 6 hours. One runs when someone asks: say "deep scan" in AI Chat or send /deepscan in Telegram.' } }).then(mountDeepScanMinis);
+    }, { empty: { icon: 'icon-target', text: 'No deep scan in the last 6 hours. The engine runs one every few hours, and anyone can ask for one now: say "deep scan" in AI Chat or send /deepscan in Telegram.' } }).then(mountDeepScanMinis);
 
     const symSel = document.getElementById('chartSym');
     const DEFAULTS = ['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','LINKUSDT','AVAXUSDT','SUIUSDT'];
@@ -2978,9 +2997,9 @@
       const note = scoped
         ? `Patterns behind ${hits.length} live signal ${hits.length === 1 ? 'symbol' : 'symbols'}.`
         : 'No live signal overlaps the last deep scan yet — showing the full pattern board.';
-      return `<p class="muted small mb-2">${note}</p>` + hits.slice(0, 8).map(deepScanCard).join('')
+      return `<p class="muted small mb-2">${note}</p>` + dsCardsHtml(hits, 8)
         + `<p class="muted small mt-1">Patterns are observations, not signals · <a href="#deepscan">full Deep Scan →</a></p>`;
-    }, { empty: { icon: 'icon-target', text: 'No deep scan in the last 6 hours. One runs when someone asks: say "deep scan" in AI Chat or send /deepscan in Telegram.' } }).then(mountDeepScanMinis);
+    }, { empty: { icon: 'icon-target', text: 'No deep scan in the last 6 hours. The engine runs one every few hours, and anyone can ask for one now: say "deep scan" in AI Chat or send /deepscan in Telegram.' } }).then(mountDeepScanMinis);
 
     renderPanel(C('sstats'), async () => {
       const r = await fetchJSON('/api/signals/stats', { auth: false });
@@ -3063,7 +3082,7 @@
               <td data-label="Age" class="r muted small">${fmtAgo(s.created_at)}</td>
               <td data-label="" class="r">${liveLeft(s)}${tradeBtn}${arenaBtn}</td>
             </tr>`;
-          }).join('')}</tbody></table></div>`;
+          }).join('')}</tbody></table></div>${r.data?.teaser?.locked > 0 ? teaserCta(r.data.teaser.locked) : ''}`;
       }, { empty: { icon: 'icon-radar', text: 'No signals yet. They stream in as the engine scans the market.' } })
         // AFTER the panel resolves, not beside it: renderPanel replaces the
         // container's contents, so mounting earlier would observe nodes it is
@@ -3424,13 +3443,17 @@
     }
     // A visitor is sent each card's market and nothing else; the levels are a
     // member's (app/lib/signal_access.js). Named, never drawn as empty cells.
-    if (scan && scan.calls_locked === true) {
-      const syms = (scan.entry_cards || []).map(c => esc(c && c.symbol)).filter(Boolean);
+    // A visitor's list is a sample: the first few cards whole, the rest
+    // locked to their market (app/lib/signal_access.js).
+    const all = EC.cardList(scan);
+    const cards = (all || []).filter(c => !(c && c.locked === true));
+    const shut = (all || []).length - cards.length;
+    if (scan && scan.calls_locked === true && !cards.length) {
+      const syms = (all || []).map(c => esc(c && c.symbol)).filter(Boolean);
       return `<p>${lockChip()} <b>${syms.slice(0, 8).join(' · ')}</b></p>
         <p class="muted small mt-2">${esc(lockNoteText())}</p>
         <p class="mt-2">${lockCta()}</p>`;
     }
-    const cards = EC.cardList(scan);
     const notes = EC.note(scan, now);
     return `<div class="tbl-wrap"><table class="tbl tbl--collapse">
       <thead><tr><th>Setup</th><th class="r">Entry</th><th class="r">Stop / TP1</th><th class="r">R:R</th><th>Trigger</th></tr></thead>
@@ -3442,6 +3465,7 @@
           <td data-label="R:R" class="r num">${ecRrCell(c)}</td>
           <td data-label="Trigger" class="muted small">${esc(c.trigger || '')}</td>
         </tr>`).join('')}</tbody></table></div>
+      ${shut ? teaserCta(shut) : ''}
       ${notes.map(n => `<p class="${n.stale ? 'warn' : 'muted'} small mt-2">${esc(ecSay(WORDS, n))}</p>`).join('')}
       <p class="muted small mt-2">${esc(WORDS['dd.ec_footer'] || '')}</p>`;
   }
@@ -3631,7 +3655,7 @@
     if (pd && ((pd.chart_patterns || []).length || Object.keys(pd.candlestick_patterns || pd.candle_patterns || {}).length)) {
       card = deepScanCard({ symbol: pair, price: pd.price, chg: pd.change_pct, rsi: pd.rsi,
         chart_patterns: pd.chart_patterns || [], candle_patterns: pd.candlestick_patterns || pd.candle_patterns || {} });
-    } else if (hit) {
+    } else if (hit && !isLocked(hit)) {
       card = deepScanCard(hit);
     }
     body.innerHTML = `
@@ -3809,9 +3833,9 @@
       const ds = scan && scan.deepscan;
       if (!ds || !(ds.hits || []).length) return null;
       const hdr = `<p class="muted small mb-2">${ds.count || ds.hits.length} hits · ${esc(ds.tf || '')} · chart + candle patterns${ds.generated_at ? ' · ' + esc(ds.generated_at) : ''}</p>`;
-      return hdr + ds.hits.map(deepScanCard).join('')
+      return hdr + dsCardsHtml(ds.hits)
         + `<p class="muted small mt-2">Patterns are observations, not signals.</p>`;
-    }, { empty: { icon: 'icon-radar', text: 'No deep scan in the last 6 hours. One runs when someone asks: say "deep scan" in AI Chat or send /deepscan in Telegram. Meanwhile, check any symbol below.' } }).then(mountDeepScanMinis);
+    }, { empty: { icon: 'icon-radar', text: 'No deep scan in the last 6 hours. The engine runs one every few hours, and anyone can ask for one now: say "deep scan" in AI Chat or send /deepscan in Telegram. Meanwhile, check any symbol below.' } }).then(mountDeepScanMinis);
 
     const out = document.getElementById('dsLookOut');
     async function lookup() {

@@ -3,7 +3,9 @@
  * Serves the global signal stream the bot pushes via /api/bot/sync/signals.
  * No sign-in required to read it, and a live call is a member's: a visitor
  * reads which market and when, and the whole call once it resolves
- * (lib/signal_access.js). The statistics below carry no call and stay public.
+ * (lib/signal_access.js), except the sample: the newest live calls overall,
+ * shown in full and marked `teaser`, with a `teaser` block saying how many
+ * more are locked. The statistics below carry no call and stay public.
  */
 
 const express = require('express');
@@ -13,7 +15,13 @@ const { loadCellRegistrations } = require('../lib/cell_registrations');
 const { readCalibrationCurve } = require('../lib/calibration_curve');
 const { unavailableReading } = require('../public/js/calibration-chart');
 const { publicAnalytics } = require('../lib/public_signal');
-const { signedIn, signalFor, signalResolved, viewerCacheControl } = require('../lib/signal_access');
+const {
+  signedIn, signalFor, signalResolved, teaserKeys, viewerCacheControl, TEASER_COUNT, JOIN_HREF,
+} = require('../lib/signal_access');
+
+// How far back a visitor's sample looks for live calls: the newest rows,
+// resolved ones included, so a run of resolved calls cannot hide the sample.
+const TEASER_SCAN_ROWS = 50;
 
 // Identifies, never refuses. Lazy, as routes/sync.js requires it.
 const optionalAuth = (req, res, next) => require('../auth').optionalAuth(req, res, next);
@@ -67,8 +75,24 @@ router.get('/', optionalAuth, async (req, res) => {
     const member = signedIn(req);
     const hiddenFilter = HIDDEN_FILTERS.some((k) => req.query[k] !== undefined && req.query[k] !== '');
     const seen = member || !hiddenFilter ? rows : rows.filter(signalResolved);
+    // The visitor's sample: the newest live calls overall, read with no
+    // filter, so it is the same whatever this query asked for.
+    let teased = null;
+    if (!member) {
+      const [recent] = await pool.execute(
+        `SELECT signal_key, status, pnl, created_at FROM signals
+         ORDER BY created_at DESC LIMIT ${TEASER_SCAN_ROWS}`);
+      teased = teaserKeys(recent);
+    }
     viewerCacheControl(res, 0);
-    res.json({ signals: seen.map((r) => signalFor(member, r)) });
+    const out = seen.map((r) => signalFor(member, r, teased));
+    const body = { signals: out };
+    if (!member) {
+      const locked = out.filter((r) => r && r.locked === true).length;
+      body.teaser = { shown: out.filter((r) => r && r.teaser === true).length, locked,
+        of: TEASER_COUNT, join: JOIN_HREF };
+    }
+    res.json(body);
   } catch (err) {
     console.error('Signals fetch error:', err.stack || err.message);
     // "Fail soft — an empty stream is better than a dashboard error" was the

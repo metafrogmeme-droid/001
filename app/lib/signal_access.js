@@ -27,6 +27,18 @@
  * WHAT A VISITOR SEES OF A LIVE CALL: that it exists, on which market, when,
  * and for how long it stays live. Not its side: "LONG BTC" is the trade.
  *
+ * A SAMPLE ON THE LISTS (2026-10-18, the operator's call). A visitor sees
+ * the newest TEASER_COUNT live calls in full on the two lists a visitor
+ * browses, the signal stream and the scan's setup cards, and the first
+ * TEASER_COUNT deep-scan reads, each marked `teaser`; the rest are locked
+ * with the count and a free sign-up. The sample is the same for every
+ * visitor and every query: it is chosen from the newest live calls overall
+ * (`teaserKeys`), never from the rows a filter returned, or a filter on one
+ * market would open that market's live call. Single-call doors (a receipt,
+ * the thesis page, a flight record, a strategy's board, the tool doors) stay
+ * locked: the sample is a look at the list, and the call itself is a
+ * member's.
+ *
  * ONE READING. Every route asks the functions below. Each takes the viewer's
  * answer as its first argument and opens only on `=== true`, the same strict
  * test `scanFor` applies to the operator check: a request object or a user
@@ -39,6 +51,16 @@
 
 const SignalStatus = require('../public/js/signal-status-model.js');
 const { signalOutcome, publicSignal } = require('./public_signal');
+
+/**
+ * How many live calls a visitor sees in full on a list, as a sample. One
+ * number for every list that teases; a page reads it from the payload's
+ * `teaser` block rather than keeping a copy.
+ */
+const TEASER_COUNT = 3;
+
+/** Where a visitor goes to sign up: the home page, on its create-account tab. */
+const JOIN_HREF = '/#join';
 
 /** The sentence a locked call carries, for any page that has no copy of its own. */
 const LOCK_NOTE = 'Sign in to see this call. Its direction, entry, stop and '
@@ -78,11 +100,37 @@ function lockedSignal(row) {
   return out;
 }
 
-/** One signal row for this viewer: the public row, or its locked shape. */
-function signalFor(seesCalls, row) {
+/**
+ * The keys of the live calls a visitor is shown as the sample: the first
+ * TEASER_COUNT unresolved rows of `rows`, which must be the newest rows
+ * overall, newest first, read with no visitor filter applied.
+ */
+function teaserKeys(rows) {
+  const keys = new Set();
+  for (const r of Array.isArray(rows) ? rows : []) {
+    if (keys.size >= TEASER_COUNT) break;
+    if (r && typeof r === 'object' && r.signal_key && !signalResolved(r)) keys.add(String(r.signal_key));
+  }
+  return keys;
+}
+
+/**
+ * One signal row for this viewer: the public row, or its locked shape. A
+ * live row whose key is in `teased` (a Set from `teaserKeys`) is shown in
+ * full and marked `teaser`; anything else, a missing set included, is not.
+ */
+function signalFor(seesCalls, row, teased) {
   if (!row || typeof row !== 'object') return row;
   if (seesCalls === true || signalResolved(row)) return publicSignal(row);
+  if (teased instanceof Set && row.signal_key && teased.has(String(row.signal_key))) {
+    return { ...publicSignal(row), teaser: true };
+  }
   return lockedSignal(row);
+}
+
+/** The block a teased list carries so a page can say what the sample is. */
+function teaserBlock(shown, locked) {
+  return { shown, locked, of: TEASER_COUNT, join: JOIN_HREF };
 }
 
 /**
@@ -165,18 +213,44 @@ function feedEventFor(seesCalls, ev) {
  */
 const SCAN_SYMBOL_CALL_KEYS = ['direction', 'score'];
 
+const baseSym = (s) => String(s || '').toUpperCase().replace(/[/:].*$/, '').replace(/USDT$/, '');
+
 function scanCallsFor(seesCalls, scan) {
   if (!scan || typeof scan !== 'object' || seesCalls === true) return scan;
   const out = { ...scan };
+  // The sample: the first TEASER_COUNT cards in the scan's own order (the
+  // producer's, best first), in full; the rest name their market.
+  const teased = new Set();
   if (Array.isArray(scan.entry_cards)) {
-    out.entry_cards = scan.entry_cards.map((c) => ({
-      symbol: c && c.symbol, locked: true }));
+    out.entry_cards = scan.entry_cards.map((c, i) => {
+      if (i < TEASER_COUNT && c && typeof c === 'object') {
+        teased.add(baseSym(c.symbol));
+        return { ...c, teaser: true };
+      }
+      return { symbol: c && c.symbol, locked: true };
+    });
+    const shown = Math.min(TEASER_COUNT, scan.entry_cards.length);
+    out.entry_cards_teaser = teaserBlock(shown, scan.entry_cards.length - shown);
+  }
+  // A deep scan reads patterns and names no side, and it is a sample too.
+  const ds = scan.deepscan;
+  if (ds && typeof ds === 'object' && Array.isArray(ds.hits)) {
+    const shown = Math.min(TEASER_COUNT, ds.hits.length);
+    out.deepscan = {
+      ...ds,
+      hits: ds.hits.map((h, i) => (i < TEASER_COUNT
+        ? { ...h, teaser: true }
+        : { symbol: h && h.symbol, locked: true })),
+      teaser: teaserBlock(shown, ds.hits.length - shown),
+    };
   }
   if (scan.symbols && typeof scan.symbols === 'object') {
     const symbols = {};
     for (const k of Object.keys(scan.symbols)) {
       const row = scan.symbols[k];
       if (!row || typeof row !== 'object') { symbols[k] = row; continue; }
+      // A sampled card's market keeps its side: the card beside it says it.
+      if (teased.has(baseSym(k))) { symbols[k] = row; continue; }
       const kept = {};
       for (const f of Object.keys(row)) {
         if (!SCAN_SYMBOL_CALL_KEYS.includes(f)) kept[f] = row[f];
@@ -256,6 +330,7 @@ function viewerCacheControl(res, maxAgeSeconds) {
 
 module.exports = {
   LOCK_NOTE, LOCKED_SIGNAL_FIELDS, LOCKED_FEED_TYPES, SCAN_SYMBOL_CALL_KEYS,
+  TEASER_COUNT, JOIN_HREF, teaserKeys, teaserBlock,
   signedIn, signalResolved, lockedSignal, signalFor, receiptFor, feedEventFor,
   scanCallsFor, strategyScanFor, flightRecordFor, viewerCacheControl,
 };

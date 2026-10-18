@@ -1520,9 +1520,13 @@ async def cmd_scan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 
-async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
-                      engine, top_n: int, patterns: bool, ai: bool) -> None:
-    msg = await update.message.reply_text("\u23f3 Scanning market...")
+async def _fullscan_rows(engine):
+    """The universe read every scan pass shares: ``(rows, shared)``.
+
+    ``rows`` are copies (callers annotate them in place: entry, stop,
+    target); a symbol the exchange would not serve is ``None``. ``shared`` is
+    the flight, for its note on a reused read.
+    """
     exchange = await engine.scanner._get_exchange()
     _analyzer = getattr(engine, "analyzer", None)
     # ONE MARKET READ FOR EVERYONE WHO ASKS TOGETHER, AND A BOUNDED ONE. The
@@ -1532,7 +1536,7 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
     # once. It is now shared (`bot/core/scan_flight.py`) and at most ten
     # symbols are in flight. Everything after it (the entry gate, the offers,
     # the buttons) is still this caller's own.
-    from bot.core.scan_flight import FLIGHTS, FULLSCAN_TTL_S, shared_note
+    from bot.core.scan_flight import FLIGHTS, FULLSCAN_TTL_S
 
     async def _read():
         _sem = asyncio.Semaphore(10)
@@ -1545,7 +1549,36 @@ async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
     _shared = await FLIGHTS.run(("fullscan", id(engine)), _read,
                                 ttl_s=FULLSCAN_TTL_S, keep=lambda rows: any(rows))
     # Copies: the rows below are annotated in place (entry, stop, target).
-    raw = [dict(r) if r else r for r in _shared.value]
+    return [dict(r) if r else r for r in _shared.value], _shared
+
+
+async def website_scan(engine, top_n: int = 10) -> Optional[int]:
+    """The quick /scan pass, run for the website alone: no chat, no buttons.
+
+    The website's setup cards and its signal stream were filled only by a
+    person running /scan; the engine's own cycle pushes a summary and no
+    cards, so with nobody scanning both went hours stale while the heartbeat
+    stayed fresh (2026-10-18). The engine's refresher
+    (`bot/core/website_refresh.py`) calls this on a cadence: the same read
+    (one shared flight), the same payload, the same push as /scan quick.
+
+    Returns how many markets were read, or None when none was: then nothing
+    is pushed, because an absence must not replace the last measurement.
+    """
+    raw, _shared = await _fullscan_rows(engine)
+    readable = sorted((r for r in raw if r), key=lambda x: x["score"], reverse=True)
+    if not readable:
+        return None
+    payload = _build_scan_payload(readable[:top_n], engine)
+    _push_scan_to_dashboard(readable, engine, payload=payload)
+    return len(readable)
+
+
+async def _scan_batch(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                      engine, top_n: int, patterns: bool, ai: bool) -> None:
+    msg = await update.message.reply_text("\u23f3 Scanning market...")
+    from bot.core.scan_flight import FULLSCAN_TTL_S, shared_note
+    raw, _shared = await _fullscan_rows(engine)
     _shared_line = shared_note(_shared, FULLSCAN_TTL_S)
     # How much of the universe actually answered. The list comprehension below
     # deletes every symbol the exchange would not serve, and without this count

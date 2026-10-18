@@ -836,6 +836,8 @@
   ["dd.ec_footer", "De eigen kandidaten van de engine — geen persoonlijk advies. Bevestigingen gaan door haar risicopoort."],
   ["sig.lock_row", "Lopend signaal — log in om richting en niveaus te zien"],
   ["sig.lock_cta", "Log in om de trade te zien"],
+  ["sig.join_cta", "Registreer gratis om alles te zien"],
+  ["sig.teaser_more", "meer vergrendeld. Gratis leden zien elk lopend signaal, elke setup en elke patroonanalyse."],
   ["sig.lock_note", "Lopende signalen zijn voor ingelogde leden: richting, entry, stop en doel. Elk signaal wordt volledig gepubliceerd zodra het is afgerond, en het zegel is vanaf het begin openbaar."],
   ["dd.et_k_agent_s", "het record van de agent"],
   ["dd.et_k_agent_l", "Diepste daling vanaf de piek in het gepubliceerde trackrecord van de agent — niet jouw account."],

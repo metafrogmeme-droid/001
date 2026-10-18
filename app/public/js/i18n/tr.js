@@ -836,6 +836,8 @@
   ["dd.ec_footer", "Motorun kendi adayları — kişisel tavsiye değil. Onaylar risk kapısından geçer."],
   ["sig.lock_row", "Aktif sinyal — yönü ve seviyeleri görmek için giriş yapın"],
   ["sig.lock_cta", "İşlemi görmek için giriş yapın"],
+  ["sig.join_cta", "Tümünü görmek için ücretsiz kaydolun"],
+  ["sig.teaser_more", "tane daha kilitli. Ücretsiz üyeler her aktif sinyali, kurulumu ve formasyon okumasını görür."],
   ["sig.lock_note", "Aktif sinyaller giriş yapmış üyeler içindir: yön, giriş, stop ve hedef. Her sinyal sonuçlandığında tamamen yayımlanır ve mührü baştan itibaren herkese açıktır."],
   ["dd.et_k_agent_s", "ajanın kaydı"],
   ["dd.et_k_agent_l", "Ajanın yayımlanan geçmişinde zirveden en derin düşüş — sizin hesabınız değil."],

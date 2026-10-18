@@ -836,6 +836,8 @@
   ["dd.ec_footer", "Candidatos propios del motor — no son consejo personal. Las confirmaciones pasan por su puerta de riesgo."],
   ["sig.lock_row", "Señal en curso — inicia sesión para ver la dirección y los niveles"],
   ["sig.lock_cta", "Inicia sesión para ver la operación"],
+  ["sig.join_cta", "Regístrate gratis para verlo todo"],
+  ["sig.teaser_more", "más bloqueadas. Los miembros gratuitos ven cada señal en curso, setup y lectura de patrones."],
   ["sig.lock_note", "Las señales en curso son para miembros con sesión iniciada: dirección, entrada, stop y objetivo. Cada señal se publica completa al resolverse, y su sello es público desde el principio."],
   ["dd.et_k_agent_s", "el historial del agente"],
   ["dd.et_k_agent_l", "Mayor caída desde el pico en el historial publicado del agente — no tu cuenta."],

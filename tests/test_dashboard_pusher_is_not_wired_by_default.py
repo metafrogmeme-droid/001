@@ -142,6 +142,8 @@ async def test_shutdown_actually_closes_it():
         # (`RuneClawEngine._stop_position_guard`), and a stand-in that wrote
         # its own would forget the next thing shutdown asks for.
         _stop_position_guard = RuneClawEngine._stop_position_guard
+        # ...and the website refresher beside it (`bot/core/website_refresh.py`).
+        _cancel_website_refresh = RuneClawEngine._cancel_website_refresh
         dashboard_pusher = _Pusher()
 
     stub = _Stub()

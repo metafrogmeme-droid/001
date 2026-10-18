@@ -4802,6 +4802,10 @@ class RuneClawEngine:
         if getattr(CONFIG.monitoring, "position_guard_enabled", True):
             self._start_position_guard()
             self._end_guard_with(asyncio.current_task())
+        # The website's cards, signal stream and Deep Scan, kept fresh by the
+        # engine rather than by whoever last typed /scan
+        # (`bot/core/website_refresh.py`). Ends with this loop, like the guard.
+        self._start_website_refresh()
         while self._running:
             try:
                 await self._tick_guarded()
@@ -6054,6 +6058,7 @@ class RuneClawEngine:
         self._running = False
         # First, before any executor's session closes under it.
         await self._stop_position_guard()
+        self._cancel_website_refresh()
         await self.ws_feed.stop()
         # The scan lane's exchange clients live on its loop. Close them
         # there, then close the ones this loop opened.
@@ -11033,6 +11038,22 @@ class RuneClawEngine:
             return
         self._position_guard_task: Optional[asyncio.Task[None]] = asyncio.create_task(
             self._position_guard_loop())
+
+    def _start_website_refresh(self) -> None:
+        task = getattr(self, "_website_refresh_task", None)
+        if task is not None and not task.done():
+            return
+        from bot.core.website_refresh import refresh_loop
+        self._website_refresh_task: Optional[asyncio.Task[None]] = asyncio.create_task(
+            refresh_loop(self))
+        _run = asyncio.current_task()
+        if _run is not None:
+            _run.add_done_callback(lambda _d: self._cancel_website_refresh())
+
+    def _cancel_website_refresh(self) -> None:
+        task = getattr(self, "_website_refresh_task", None)
+        if task is not None and not task.done():
+            task.cancel()
 
     def _end_guard_with(self, task) -> None:
         """Cancel the guard when ``task`` (the run loop) ends, however it ends."""

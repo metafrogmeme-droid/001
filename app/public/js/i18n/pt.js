@@ -836,6 +836,8 @@
   ["dd.ec_footer", "Candidatos do próprio motor — não é aconselhamento pessoal. As confirmações passam pelo seu portão de risco."],
   ["sig.lock_row", "Sinal ativo — inicie sessão para ver a direção e os níveis"],
   ["sig.lock_cta", "Inicie sessão para ver a operação"],
+  ["sig.join_cta", "Registe-se grátis para ver tudo"],
+  ["sig.teaser_more", "mais bloqueados. Os membros gratuitos veem cada sinal ativo, setup e leitura de padrões."],
   ["sig.lock_note", "Os sinais ativos são para membros com sessão iniciada: direção, entrada, stop e alvo. Cada sinal é publicado na íntegra quando se resolve, e o seu selo é público desde o início."],
   ["dd.et_k_agent_s", "o registo do agente"],
   ["dd.et_k_agent_l", "Maior queda desde o pico no histórico publicado do agente — não a sua conta."],
