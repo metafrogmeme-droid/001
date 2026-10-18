@@ -45,6 +45,40 @@ from bot.skills.menu_keyboards import _KB_DASH, _KB_WARROOM, _dashboard_url
 from bot.utils.i18n import SUPPORTED_LANGS, get_user_lang, resolve_lang_choice, set_user_lang, t
 from bot.utils.logger import system_log
 
+
+def paper_book_line(state) -> str:
+    """The caller's paper book, one line under the live account's figures.
+
+    The /start card shows the account the engine trades: the live one while
+    the engine is live. An operator whose own trading is set to paper
+    (`/golive OFF`) then saw "Trading: Paper" beside the live equity and no
+    figure for the book their trades now land on (2026-10-18). This is that
+    figure. Three readings, never two: an unreadable equity says so, an
+    equity with unpriced open positions says it is partial, and a book with
+    no closed trades says that rather than a 0% win rate.
+    """
+    eq = getattr(state, "equity_usd", None)
+    if isinstance(eq, bool) or not isinstance(eq, (int, float)) or eq != eq:
+        equity = "unread"
+    else:
+        equity = f"${eq:,.2f}"
+        unpriced = getattr(state, "unpriced_positions", None)
+        if isinstance(unpriced, int) and not isinstance(unpriced, bool) and unpriced > 0:
+            equity += f" (partial: {unpriced} unpriced)"
+    open_n = getattr(state, "open_positions", None)
+    open_txt = "unread" if open_n is None else str(open_n)
+    trades = getattr(state, "total_trades", None)
+    wr = getattr(state, "win_rate", None)
+    if not isinstance(trades, int) or isinstance(trades, bool):
+        record = " · record unread"
+    elif trades == 0:
+        record = " · no closed trades yet"
+    elif isinstance(wr, (int, float)) and not isinstance(wr, bool):
+        record = f" · win <code>{wr:.0%}</code> of {trades}"
+    else:
+        record = f" · {trades} closed, win rate unread"
+    return f"\n\U0001f4dd Paper book: <code>{equity}</code> · open <code>{open_txt}</code>{record}"
+
 if TYPE_CHECKING:
     from bot.core.engine import RuneClawEngine
     from bot.skills.chat_runtime import RateLimiter
@@ -367,6 +401,9 @@ class StartCommands:
             status_label_zh = t("status_active", "zh")
         trade_mode_zh = t("mode_live", "zh") if can_live else t("mode_paper", "zh")
         pending_str = f' | Pending orders: <code>{_pending_count}</code>' if _pending_count > 0 else ''
+        # The live account is on the card; the paper book is a second book,
+        # and the one a paper-set caller's trades land on, so it gets a line.
+        paper_str = paper_book_line(state) if mode == "LIVE" else ""
         pending_str_zh = f' | 掛單: <code>{_pending_count}</code>' if _pending_count > 0 else ''
 
         # Format win rate with % sign, plus the streak chip when there is one.
@@ -384,6 +421,7 @@ class StartCommands:
                  filled=_filled_count,
                  pending_str=pending_str,
                  pending_str_zh=pending_str_zh,
+                 paper_str=paper_str,
                  win_rate=wr_display,
                  tier=tier_label,
                  trade_mode=trade_mode,

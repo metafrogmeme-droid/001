@@ -237,6 +237,13 @@ def test_start_for_the_operator_reads_the_live_account(monkeypatch):
     live = NS(open_positions=[], _positions={}, closed_positions=[],
               closed_trades_read_failed=False)
     h, said = _start(monkeypatch, executor=live)
-    assert "9,999.00" in said and "4,321" not in said, said[:600]
+    # The account the card is about is the live one: its equity is the live
+    # balance, never the paper baseline. The paper book is named on a line of
+    # its own (`paper_book_line`, 2026-10-18), and only there.
+    equity_line = next(ln for ln in said.splitlines() if ln.startswith("Equity:"))
+    assert "9,999.00" in equity_line and "4,321" not in equity_line, said[:600]
+    assert any(ln.startswith("\U0001f4dd Paper book: <code>$4,321.00</code>") for ln in said.splitlines()), said[:600]
+    assert [ln for ln in said.splitlines() if "4,321" in ln] == \
+        [ln for ln in said.splitlines() if ln.startswith("\U0001f4dd Paper book:")], said[:600]
     assert "practice book" not in said.lower(), said[:400]
     h.engine.resolve_display_equity.assert_awaited_once()

@@ -12,7 +12,7 @@ def test_welcome_template_carries_the_dashboard_link():
               status_label_zh="運行中", mode="LIVE", equity="$540", filled=1,
               pending_str="", pending_str_zh="", win_rate="50%", tier="Admin",
               trade_mode="Live", trade_mode_zh="實盤",
-              web_url="https://example.test/dashboard#home", time="06:13")
+              web_url="https://example.test/dashboard#home", time="06:13", paper_str="")
     for lang in ("en", "zh"):
         msg = t("welcome_ready", lang, **kw)
         # the link rides as a real clickable anchor, in the caller's language
