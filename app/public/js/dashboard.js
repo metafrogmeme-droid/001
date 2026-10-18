@@ -2068,7 +2068,7 @@
         + top.map(deepScanCard).join('')
         + (ds.hits.length > top.length
           ? `<p class="small mt-1"><a href="#deepscan">See all ${ds.hits.length} in Deep Scan →</a></p>` : '');
-    }, { empty: { icon: 'icon-target', text: 'Pattern read appears after the engine\'s next deep scan — the full board lives in the Deep Scan view.' } }).then(mountDeepScanMinis);
+    }, { empty: { icon: 'icon-target', text: 'No deep scan in the last 6 hours. One runs when someone asks: say "deep scan" in AI Chat or send /deepscan in Telegram.' } }).then(mountDeepScanMinis);
 
     const symSel = document.getElementById('chartSym');
     const DEFAULTS = ['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','LINKUSDT','AVAXUSDT','SUIUSDT'];
@@ -2980,7 +2980,7 @@
         : 'No live signal overlaps the last deep scan yet — showing the full pattern board.';
       return `<p class="muted small mb-2">${note}</p>` + hits.slice(0, 8).map(deepScanCard).join('')
         + `<p class="muted small mt-1">Patterns are observations, not signals · <a href="#deepscan">full Deep Scan →</a></p>`;
-    }, { empty: { icon: 'icon-target', text: 'The pattern read fills in after the engine\'s next deep scan.' } }).then(mountDeepScanMinis);
+    }, { empty: { icon: 'icon-target', text: 'No deep scan in the last 6 hours. One runs when someone asks: say "deep scan" in AI Chat or send /deepscan in Telegram.' } }).then(mountDeepScanMinis);
 
     renderPanel(C('sstats'), async () => {
       const r = await fetchJSON('/api/signals/stats', { auth: false });
@@ -3811,7 +3811,7 @@
       const hdr = `<p class="muted small mb-2">${ds.count || ds.hits.length} hits · ${esc(ds.tf || '')} · chart + candle patterns${ds.generated_at ? ' · ' + esc(ds.generated_at) : ''}</p>`;
       return hdr + ds.hits.map(deepScanCard).join('')
         + `<p class="muted small mt-2">Patterns are observations, not signals.</p>`;
-    }, { empty: { icon: 'icon-radar', text: 'The deep-scan pattern read appears after the engine\'s next deep scan. Meanwhile, check any symbol below.' } }).then(mountDeepScanMinis);
+    }, { empty: { icon: 'icon-radar', text: 'No deep scan in the last 6 hours. One runs when someone asks: say "deep scan" in AI Chat or send /deepscan in Telegram. Meanwhile, check any symbol below.' } }).then(mountDeepScanMinis);
 
     const out = document.getElementById('dsLookOut');
     async function lookup() {
