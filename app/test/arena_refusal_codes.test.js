@@ -32,6 +32,26 @@ test('every validator refusal carries a stable code', () => {
   assert.equal(arena.validateTrail(999).code, 'trail_range');
 });
 
+test('a coin, a slash pair and the exchange spelling are one market', () => {
+  const am = require('../lib/agent_match');
+  for (const [typed, pair] of [['BTC', 'BTCUSDT'], ['btc', 'BTCUSDT'], [' eth ', 'ETHUSDT'],
+    ['BTC/USDT', 'BTCUSDT'], ['BTC/USDT:USDT', 'BTCUSDT'], ['BTC-USDT', 'BTCUSDT'],
+    ['sol usdt', 'SOLUSDT'], ['BTCUSDT', 'BTCUSDT'], ['1000PEPE', '1000PEPEUSDT']]) {
+    assert.equal(arena.pairOf(typed), pair, typed);
+  }
+  assert.equal(arena.pairOf(''), '');
+  assert.equal(arena.validateOpen({ symbol: 'btc', direction: 'LONG', margin: 100, leverage: 2 }, 1000).data.symbol, 'BTCUSDT');
+  assert.equal(arena.validateOpen({ symbol: '!!' }).code, 'bad_symbol', 'punctuation alone is still not a symbol');
+  // The signal rows' normaliser (lib/agent_match.js) must give the same pair
+  // for every spelling the signal stream uses, or a call and a typed open of
+  // the same coin would land on two different markets.
+  for (const s of ['BTC', 'btc', 'BTC/USDT', 'BTC/USDT:USDT', 'BTCUSDT', 'ETH/USDT']) {
+    assert.equal(arena.pairOf(s), am.exchangeSymbol(s), s);
+  }
+  // The website's form asks the engine rather than keeping its own copy.
+  assert.match(page, /function normSym\(v\) \{ return window\.ArenaEngine\.pairOf\(v\); \}/);
+});
+
 test('the tp/sl wording says "the current price", not "the entry"', () => {
   assert.match(arena.validateTpSl('LONG', 100, 90, null).error, /current price/);
   assert.match(arena.validateTpSl('LONG', 100, null, 110).error, /current price/);

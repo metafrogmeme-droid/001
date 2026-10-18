@@ -24,6 +24,12 @@
  * The documentation at /docs is the same shape: the README and the agent card
  * link `docs/gitbook/` on GitHub, and the website serves its copy under
  * `app/content/docs/` (`app/lib/docs_pages.js`).
+ *
+ * So are /privacy and /terms (`app/routes/legal.js`): the marketing site
+ * builds them into `website/`, and the website serves each built page's
+ * article, and the site's stylesheet, from `app/content/site/`. The route
+ * first read `../../website/`, and answered 503 on the live host the day it
+ * shipped (2026-10-17). After a site rebuild, run this script too.
  */
 
 const fs = require('node:fs');
@@ -40,6 +46,11 @@ const CONTENT = path.join(__dirname, '..', 'content');
 const MIRRORS = [
   ['docs/learn', 'learn', /\.md$/],
   ['docs/gitbook', 'docs', /\.(md|png)$/],
+  // The built policy pages, one folder per page, as routes/legal.js reads them.
+  ['website/privacy', 'site/privacy', /^index\.html$/],
+  ['website/terms', 'site/terms', /^index\.html$/],
+  // The site's stylesheet only: its script bundle is not served by the website.
+  ['website/assets', 'site/assets', /\.css$/],
 ];
 
 /** [source relative to the repo, copy relative to app/content]. One reading. */
@@ -104,4 +115,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { plan, drift, write, CONTENT, REPO };
+module.exports = { plan, drift, write, MIRRORS, CONTENT, REPO };

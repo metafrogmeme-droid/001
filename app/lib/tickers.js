@@ -5,7 +5,21 @@
  * Map shape: { BTCUSDT: { price, change, volume } } — change is a percent
  * (Bitget's decimal fraction ×100), volume is 24h quote volume in USDT.
  * ALERTS_TICKERS_URL overrides the source (tests / alternate routing).
+ *
+ * READ WITH https.get (lib/http_cache.js's fetchJSON), NOT THE GLOBAL fetch.
+ * On 2026-10-17 the live Arena showed every position as "mark unavailable"
+ * and refused every close. Every request that read this map took its full
+ * 6s budget and got nothing, while /api/market/ticker, which reads the same
+ * Bitget endpoint with fetchJSON, answered in about a second from the same
+ * host. The host is Function Compute, which may freeze an instance between
+ * requests; a fetch started in one request and left running cannot be
+ * counted on to finish. So this reader uses the transport that demonstrably
+ * answers there, abandons an in-flight fetch that has stalled (STALLED_MS)
+ * instead of joining it forever, and logs why a read failed: the old reader
+ * swallowed every failure, and nothing said why the Arena had no prices.
  */
+
+const { fetchJSON } = require('./http_cache');
 
 const TICKERS_URL = process.env.ALERTS_TICKERS_URL
   || 'https://api.bitget.com/api/v2/mix/market/tickers?productType=USDT-FUTURES';
@@ -19,10 +33,30 @@ let cache = { at: 0, map: null };
 // open their own 10s fetch — multiplying the very latency that made the Arena
 // account exceed its client budget in the first place.
 let inflightFetch = null;
+let inflightAt = 0;
+// A fetch still pending this long is not coming back: fetchJSON gives up on
+// a silent socket at 8s. Past this, the next caller starts its own instead of
+// joining one that a frozen instance left behind.
+const STALLED_MS = 12_000;
 
 // Injectable fetch (tests / alternate transports). Null restores the default.
 let fetchImpl = null;
 function setTickerFetcher(fn) { fetchImpl = fn || null; cache = { at: 0, map: null }; inflightFetch = null; }
+
+// When a failure was last logged (noteFailure); a dead feed is read on every request.
+let lastLoggedAt = 0;
+
+// Injectable TRANSPORT: what the real path calls for the response body, so
+// tests drive the production getTickers (cache, in-flight, parse, logging)
+// rather than replacing it. Null restores fetchJSON(TICKERS_URL).
+let transport = null;
+function setTickerTransport(fn) {
+  transport = fn || null;
+  cache = { at: 0, map: null };
+  inflightFetch = null;
+  inflightAt = 0;
+  lastLoggedAt = 0;
+}
 
 async function getTickers() {
   // The injectable fetcher deliberately skips the TTL — tests change prices
@@ -35,17 +69,49 @@ async function getTickers() {
   }
   const now = Date.now();
   if (cache.map && now - cache.at < TTL_MS) return cache.map;
-  if (inflightFetch) return inflightFetch;          // join the fetch already running
-  inflightFetch = doFetch(now).finally(() => { inflightFetch = null; });
-  return inflightFetch;
+  // Join the fetch already running, unless it has stalled.
+  if (inflightFetch && now - inflightAt < STALLED_MS) return inflightFetch;
+  const mine = doFetch(now).finally(() => {
+    // A stalled fetch that settles late must not clear the one that replaced it.
+    if (inflightFetch === mine) inflightFetch = null;
+  });
+  inflightFetch = mine;
+  inflightAt = now;
+  return mine;
+}
+
+/** Why a read failed, with its stack, at most once a minute (a dead feed is read on every request). */
+function noteFailure(err) {
+  const t = Date.now();
+  if (t - lastLoggedAt < 60_000) return;
+  lastLoggedAt = t;
+  console.error('Arena tickers unreadable:', err.stack || err.message);
 }
 
 async function doFetch(now) {
-  const res = await fetch(TICKERS_URL, { signal: AbortSignal.timeout(10_000) });
-  if (!res.ok) throw new Error(`tickers HTTP ${res.status}`);
-  const data = await res.json();
+  try {
+    const map = parseTickers(await (transport ? transport() : fetchJSON(TICKERS_URL)));
+    cache = { at: now, map };
+    return map;
+  } catch (err) {
+    noteFailure(err);
+    throw err;
+  }
+}
+
+/**
+ * Bitget's answer → { SYMBOL: { price, change, volume } }. Throws when the
+ * answer holds no tickers: an error body ({ code, msg, data: null }) or an
+ * empty list is a feed that could not be read, and caching it as a fresh,
+ * empty map would price nothing for the next 30 seconds while looking healthy.
+ */
+function parseTickers(data) {
+  const rows = data && Array.isArray(data.data) ? data.data : null;
+  if (!rows) {
+    throw new Error(`tickers answered without a list${data && data.code ? ` (code ${data.code})` : ''}`);
+  }
   const map = {};
-  for (const t of (data && data.data) || []) {
+  for (const t of rows) {
     const price = parseFloat(t.lastPr);
     if (!t.symbol || !isFinite(price)) continue;
     // `change: (parseFloat(t.change24h) || 0) * 100` was CLAUDE.md's banned
@@ -89,7 +155,7 @@ async function doFetch(now) {
       volume: Number.isFinite(vol) ? vol : null,
     };
   }
-  cache = { at: now, map };
+  if (!Object.keys(map).length) throw new Error('tickers answered no priced symbol');
   return map;
 }
 
@@ -106,8 +172,9 @@ async function doFetch(now) {
  * So: wait `budgetMs`, no longer. On timeout fall back to the last map we
  * successfully fetched even if it is past its TTL — stale marks beat no
  * marks for DISPLAY, and the caller renders a null mark honestly when neither
- * exists. The in-flight fetch is left running; it will populate the cache for
- * the next caller rather than being wasted.
+ * exists. The in-flight fetch is left running and may populate the cache for
+ * the next caller; on a host that freezes between requests it may not, which
+ * is why getTickers stops joining it after STALLED_MS.
  *
  * Returns { map, ageMs }. ageMs is 0 for a live fetch, the cache age for a
  * stale hit, and Infinity when there is nothing. Callers that WRITE — that
@@ -151,4 +218,7 @@ function lastKnownTickers() {
   return (Date.now() - cache.at) <= STALE_OK_MS ? cache.map : null;
 }
 
-module.exports = { getTickers, getTickersWithin, lastKnownTickers, setTickerFetcher, TTL_MS, FILL_MAX_AGE_MS };
+module.exports = {
+  getTickers, getTickersWithin, lastKnownTickers, setTickerFetcher, setTickerTransport, parseTickers,
+  TTL_MS, FILL_MAX_AGE_MS, STALLED_MS,
+};

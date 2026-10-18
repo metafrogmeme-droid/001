@@ -117,7 +117,7 @@ function page(title, bodyClass, script, meta, deps) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
 ${meta || ''}
-<link rel="stylesheet" href="/embed.css?v=7">
+<link rel="stylesheet" href="/embed.css?v=8">
 </head><body class="${bodyClass}">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}
@@ -155,7 +155,7 @@ router.get('/signals', (req, res) => {
       ['/vendor/lightweight-charts.standalone.production.js?v=1', '/js/tv-chart.js?v=1',
         '/js/embed-read.js?v=2', '/js/confidence-score.js?v=2', '/js/rr-words.js?v=1',
         '/js/embed-row.js?v=5',
-        '/js/signal-chart.js?v=2']));
+        '/js/signal-chart.js?v=3']));
 });
 
 /**
@@ -204,7 +204,7 @@ router.get('/chart', (req, res) => {
   res.type('html').send(
     page('RUNECLAW — live chart', 'e-chartpage', '/js/embed-chart.js?v=1', '',
       ['/vendor/lightweight-charts.standalone.production.js?v=1', '/js/tv-chart.js?v=1',
-        '/js/embed-read.js?v=2', '/js/signal-chart.js?v=2']));
+        '/js/embed-read.js?v=2', '/js/signal-chart.js?v=3']));
 });
 
 module.exports = router;

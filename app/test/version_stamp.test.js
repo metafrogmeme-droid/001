@@ -118,6 +118,7 @@ test('the status payload embeds the build block', async () => {
     latestLetter: async () => null,
     dbMode: () => 'memory',
     uptimeS: () => 1,
+    readPrices: async () => ({ state: 'fresh', age_s: 3, symbols: 512 }),
   });
   const s = await status.buildStatus(Date.now());
   assert.ok(s.build, 'status carries a build block');

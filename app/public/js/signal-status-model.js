@@ -116,6 +116,21 @@
   }
 
   /**
+   * May a page offer the member's OWN trade on this signal? The same call as
+   * `actionable` with its window closed: still pending, no outcome yet, not
+   * locked, but no longer live, so following it would put the engine's name
+   * on a call it has stopped standing behind. The trade it offers is the
+   * member's, at the live price, not credited to the call; the server asks
+   * the same question (app/lib/arena_signal_trade.js, planOwnTrade). A call
+   * is `actionable` or `ownable` or neither, never both.
+   */
+  function ownable(s, now) {
+    if (!s || locked(s)) return false;
+    const st = status(s);
+    return !st.final && (s.outcome === null || s.outcome === undefined) && !live(s, now);
+  }
+
+  /**
    * What is left of the window, for a countdown: `m:ss` while live (`0:00`
    * in its last second), `null` when the window has closed or none was
    * stated. Never a negative time.
@@ -270,7 +285,7 @@
 
   return {
     PENDING: PENDING, TERMINAL: TERMINAL, CHIP: CHIP,
-    word: word, status: status, actionable: actionable, locked: locked,
+    word: word, status: status, actionable: actionable, ownable: ownable, locked: locked,
     liveUntil: liveUntil, live: live, leftText: leftText,
     elementLive: elementLive, tick: tick,
     otherLine: otherLine, avgR: avgR, avgCls: avgCls, statsHtml: statsHtml, BASIS: BASIS,

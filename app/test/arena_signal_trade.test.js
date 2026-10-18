@@ -184,6 +184,7 @@ test('the picker never emits an amount — §4', () => {
 
 // ── the route and the shim ─────────────────────────────────────────────────
 
+const { blockBetween } = require('./helpers/block');
 const routeSrc = read('routes', 'arena.js');
 const db = read('db.js');
 
@@ -197,18 +198,23 @@ test('the route fills from the live ticker, not the bounded display read', () =>
     'a signal open must not be priced off a deliberately stale mark');
 });
 
+// The handler, from its registration to the next route's comment. It was a
+// fixed 4000/7000-character window, which went blind each time a block was
+// added above the line it looked for (the agent attribution, then the own
+// trade).
+const openSignalHandler = () => blockBetween(routeSrc,
+  "router.post('/open-signal'", '// GET /api/arena/letter', { label: 'POST /open-signal' });
+
 test('the position is recorded as coming from a signal, not as manual', () => {
-  // (window widened past 4000: the agent-attribution block sits between the
-  // season check and the INSERT now)
-  const openSig = routeSrc.slice(routeSrc.indexOf("router.post('/open-signal'"));
-  assert.match(openSig.slice(0, 7000), /d\.leverage, 'signal'/,
+  const openSig = openSignalHandler();
+  assert.match(openSig, /d\.leverage, 'signal'/,
     'a signal-opened position must be attributable to the signal');
-  assert.match(openSig.slice(0, 7000), /sig\.signal_key \|\| null, agentSlug/,
+  assert.match(openSig, /sig\.signal_key \|\| null, agentSlug/,
     'and it records WHICH signal, plus any verified agent attribution');
 });
 
 test('a live season constrains signal opens exactly as it constrains manual ones', () => {
-  const openSig = routeSrc.slice(routeSrc.indexOf("router.post('/open-signal'")).slice(0, 4000);
+  const openSig = openSignalHandler();
   assert.match(openSig, /checkSeasonRules\(/,
     'the engine’s name on a call does not exempt it from the season rules');
   // AND it must be handed the CURRENT season, not whatever row the database

@@ -12,9 +12,17 @@
  * ONE SOURCE, TWO HOSTS. The documents are written once, in the site, where
  * site/test/privacy_truth.test.js and terms_truth.test.js check their claims
  * against the code. This route serves the ARTICLE of each built page, the
- * document itself, read from website/<slug>/index.html, inside a plain shell.
- * It does not copy the text, so the two hosts cannot disagree, and a policy
- * edit reaches www through the same rebuild CI already requires.
+ * document itself, inside a plain shell. It does not rewrite the text, so the
+ * two hosts cannot disagree, and a policy edit reaches www through the same
+ * rebuild CI already requires.
+ *
+ * READ FROM app/content/site/, NOT website/. The web deploy ships `app/` and
+ * nothing beside it (docs/DEPLOY_COMMANDS.md; the token record and the
+ * lessons failed live the same way on 2026-10-07). The first version read
+ * `../../website/` and answered every visitor with its 503 on the day it
+ * shipped (2026-10-17). The copies are written by app/scripts/sync_content.js,
+ * and app/test/the_website_carries_what_it_serves.test.js holds them
+ * byte-identical to website/.
  *
  * WHY ONLY THE ARTICLE. The built page also carries the marketing site's
  * header and footer, whose links (/product, /risk, /changelog) are pages this
@@ -36,7 +44,7 @@ const path = require('path');
 const express = require('express');
 const { frameAncestors } = require('./piapp');
 
-const WEBSITE = path.join(__dirname, '..', '..', 'website');
+const SITE_DIR = path.join(__dirname, '..', 'content', 'site');
 
 /** The policies this host serves, by path. Each is a route of the site. */
 const PAGES = ['privacy', 'terms'];
@@ -63,7 +71,7 @@ function one(html, re, what) {
  * Read one built page and keep what the shell needs. Throws NotServable for
  * anything this route will not put on the platform's host.
  */
-function readPage(slug, { dir = WEBSITE } = {}) {
+function readPage(slug, { dir = SITE_DIR } = {}) {
   if (!PAGES.includes(slug)) throw new NotServable(`not a policy page: ${slug}`);
   let html;
   try {
@@ -153,7 +161,7 @@ function sendPage(slug, opts) {
 }
 
 /** The site's stylesheet, by its hashed name, and only that: the site's scripts stay off this host. */
-function sendCss({ dir = WEBSITE } = {}) {
+function sendCss({ dir = SITE_DIR } = {}) {
   const assets = path.join(dir, 'assets');
   return (req, res, next) => {
     const name = req.params.file;
@@ -177,6 +185,7 @@ function create(opts = {}) {
 module.exports = create();
 module.exports.create = create;
 module.exports.PAGES = PAGES;
+module.exports.SITE_DIR = SITE_DIR;
 module.exports.NAV = NAV;
 module.exports.readPage = readPage;
 module.exports.render = render;

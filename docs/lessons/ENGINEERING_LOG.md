@@ -26178,6 +26178,209 @@ shape, and only the stylesheet from the site's assets.
 `app/test/the_pi_app_is_the_arena_and_nothing_else.test.js` drives both key
 paths, set and unset.)
 
+*Addendum, same day: the route shipped reading a folder the deploy does not
+carry.* The first version read the built pages from `../../website/`. Every
+test passed, because every test ran in a checkout, where `website/` sits
+beside `app/`. The live host answered both URLs with the route's own 503
+("not available on this server"), because the web deploy publishes `app/`
+and nothing beside it. `app/test/the_website_carries_what_it_serves.test.js`
+had recorded exactly that on 2026-10-07, when the token record and the lessons
+failed live the same way. The lesson was in the log. What was missing was the
+search: grep the log for the deploy shape before reading a file from outside
+`app/`.
+- **The fix is the existing pattern.** `app/scripts/sync_content.js` mirrors
+  `website/privacy/`, `website/terms/` and the site's stylesheet into
+  `app/content/site/`, which the route reads.
+- **The site build runs the sync** as its `postbuild`, so a policy edit
+  cannot reach `website/` and skip `app/`.
+- **The tests:**
+  - every copy is held byte-identical to `website/`;
+  - a deploy of `app/` alone is driven to a 200 for both pages, and to a 503
+    without the copies;
+  - the route's folder is asserted to sit inside `app/`.
+- **The fail-closed answer did its job:** a sentence, not an empty policy, and
+  the live check after the deploy is what read it.
+
+
+**SIGN IN WITH PI ON THE WEBSITE: THE TOKEN ARRIVES WHERE NO SERVER CAN READ IT, SO THE FLOW IS A PAGE, A STATE AND A QUESTION TO PI.**
+On 2026-10-17 Pi's Developer Portal issued the app an OAuth client id for Pi
+Sign-In, its sign-in for sites outside the Pi Browser, and the operator asked
+for it on the website. Pi's document for it (`pi-sign-in.md`) settled the
+shape:
+- **Implicit flow, no secret.** The token comes back in the redirect URI's
+  fragment, so the redirect URI is a page (`app/routes/pi_signin_page.js`)
+  whose one script (`public/js/pi-signin-callback.js`) does four things:
+  1. reads the fragment;
+  2. clears it from the address bar before anything else;
+  3. posts the token and state to `POST /api/auth/oauth/pi/token`;
+  4. lands on the home page through the same `#oauth=` / `#oauth_error=`
+     door Discord and X use. Its error sentences are its own, never text
+     copied from the URL.
+- **The state is the server's.** `/start` issues it into the shared
+  `oauth_state_store`, and the token route claims it once, for Pi only. A
+  state nobody issued, one already spent, or one issued for Discord is
+  refused before Pi is asked anything.
+- **The identity is Pi's answer about the token.** `GET /v2/me`, the call
+  Pi's document names for a website's backend. That is the opposite of the
+  Pi Browser app, where App Studio does the checking and an app must not
+  call `/v2/me` itself. The two doors are different flows, documented
+  separately, and each follows its own document. A uid in the request body
+  is ignored.
+- **One completion step.** Linking or creating the account, then minting the
+  session, moved out of the Discord/X callback into `_completeOAuth` in
+  `auth.js`, so the code flow and Pi's implicit flow share it rather than
+  drift.
+- **Not settled:** whether Pi gives one person the same uid through this flow
+  and through the Pi Browser app. Pi says only that a uid is stable within one
+  app. Both land on `users.pi_uid`, so the answer decides whether a person has
+  one account or two. It is to be checked with a real account before the
+  button is announced.
+
+Three things the first draft got wrong, each caught by a gate rather than by
+reading:
+- **`{ skip: null }` skips a `node:test` test.** The new smoke test passed
+  vacuously, all three tests SKIPPED, until the reporter's tally was read. The
+  repo's convention, `SKIP ? { skip: SKIP } : {}`, exists for exactly this.
+  Read the skipped count, not only the failures.
+- **The cache-buster ratchet reads pages from `public/*.html` and
+  `routes/*.js`.** A page built in `lib/` had a script whose `?v=` nothing
+  held. The page moved to `routes/`, where a page is a page.
+- **`server_resilience.test.js` requires every `console.error` of an error
+  to carry its stack.** The first draft logged `err.name` to keep anything of
+  the token out of the log. The stack does that just as well: no error here
+  is built from the token, and the test that drives every answer reads every
+  log line for it.
+
+(`app/test/pi_signin_on_the_website.test.js` drives the routes against a
+stateful stand-in for Pi's `/v2/me`: the refused token, Pi down, the state
+rules, link mode, one uid one account, and the token absent from every log
+line and answer. `app/test/pi_signin_callback.smoke.test.js` drives the
+callback page in Chromium: it posts, it lands, it clears the token before
+posting, and it says our own sentence for each failure.)
+
+**THE ARENA COULD READ NO PRICE ON THE LIVE HOST, AND EVERY SURFACE THAT COULD HAVE SAID SO SAID NOTHING.**
+On 2026-10-17 the operator's screenshot of the Pi app showed an open ETHUSDT
+position at "mark unavailable", equity flat at the starting 10,000, and "The
+position could not be closed." Nothing was lost: the Arena never prices a
+close it cannot price. But nothing in the system had noticed:
+- **The reader** (`app/lib/tickers.js`) swallowed every failed read. No log
+  line said why.
+- **`/api/public/status`** had no line for the Arena's prices, and reported
+  ok.
+- **`scripts/verify_deploy.sh`** exited 0 on the same deploy.
+- **The Pi app** said only "could not be closed". The answer it got carried no
+  JSON reason, and the app had no fallback that named the status.
+
+What the live host showed, measured from outside the same afternoon:
+- Every Arena endpoint that reads marks (`/api/arena/leaderboard`,
+  `/api/arena/trader/*`) took 6.6–7.5 s: the 6 s budget of
+  `getTickersWithin`, every time, so the 30 s cache was never filled.
+- `/api/market/ticker/ETHUSDT`, which reads the same Bitget endpoint through
+  `lib/http_cache.js`'s `https.get`, answered live prices in about a second.
+- `/api/spot/market`, which uses the global `fetch` to Bitget, also answered
+  in 1.5 s. So "fetch is broken on the host" is not the finding either.
+
+The host is Alibaba Function Compute behind Cloudflare. It may freeze an
+instance between requests, and the reader's design left a fetch running
+after the response ("it will populate the cache for the next caller"), then
+had every later request join it. That is the likeliest mechanism, and it is
+not proven: the reader logged nothing. So the fix does not depend on it:
+- **Read through `https.get`**, the transport that demonstrably answers on
+  that host, with `fetchJSON`'s socket timeout.
+- **Stop joining a stalled fetch.** Past `STALLED_MS` (12 s, beyond
+  `fetchJSON`'s 8 s), the next caller starts its own.
+- **An answer with no tickers is unreadable.** An error body or an empty
+  list was cached as a fresh, empty map for 30 s.
+- **Log every failure with its stack**, at most once a minute.
+- **Name the status.** The Pi app and the Farcaster Mini App say the HTTP
+  status when a refusal carries no reason (`arena-session.js` v3).
+- **Status and deploy check.** `/api/public/status` has an `arena_prices`
+  line that reads the prices the Arena's way, within 4 s, and is not ok
+  unless they are fresh. `verify_deploy.sh` fails a deploy whose web
+  container cannot read them, and reports unknown when the line is missing.
+
+The test that would have caught it is not a unit test: the reader passed
+every one, because every one replaced its transport. Asking the live host
+from outside is what found it: the same request timed against a sibling
+route that reads the same data a different way. The status line now asks
+that question on every deploy.
+(`app/test/the_arena_reads_its_prices_through_the_path_that_answers.test.js`
+drives the production `getTickers` through its transport seam: the parse, the
+stall, the log throttle, and the status line fresh and unreadable.
+`tests/test_verify_deploy_guard.py` holds the deploy verdicts.
+`app/test/the_pi_app_signs_in_with_pi.smoke.test.js` refuses a close in
+Chromium, with and without a reason.)
+
+**A CALL PAST ITS WINDOW OFFERED NOTHING, AND THE PI APP WIPED THE TICKET EVERY MINUTE.**
+The Pi app's signal cards had one button, **Paper 200 · 2×**, shown only while
+`SignalStatusModel.actionable` held, i.e. inside the five minutes the bot
+states. A member who opened the app later saw every card with no action, and
+asked for "a take-signal trade button". Re-opening the follow past the window
+is refused on purpose (`app/lib/arena_signal_trade.js`, rules 3 and 4): it
+would put the engine's name on a call it no longer stands behind. The owner
+chose the third option, rule 5 there:
+- **One door per call.** Live: follow (`source 'signal'`, the call's key).
+  Window closed and not ended: **Trade it yourself**, the call's side as the
+  member's own trade at the live mark. Ended: no button, the outcome in the
+  dashboard's words.
+- **The own trade is a manual open.** `planOwnTrade` lends the side and the
+  still-valid exits, and the route hands them to `openForUser`, the typed
+  ticket's own path: its limits, the season's rules and the armed envelope.
+  The row is `manual` with no `signal_key` and no agent, so no record of the
+  call counts it.
+- **One reading, client and server.** `SignalStatusModel.ownable` is
+  `actionable` with the window closed. The server answers `own: true` on a
+  live call with `code 'live'` and on an ended one with `code 'ended'`. Only
+  a literal `true` asks for it.
+
+Found on the way, and worse than the missing button:
+- **The panel re-rendered the whole screen every minute.** `arena-session.js`
+  replaces the view wholesale, and the signals panel's minute re-read called
+  it whether or not anything had changed. Whatever the member had typed into
+  the open form (symbol, margin, leverage) was wiped and the keyboard closed.
+  **A refused open did the same** to the ticket its refusal was explaining.
+  A slow typist on a phone could not get an open through. That fits the
+  owner's "no new trades open on the Pi app" as well as the price outage
+  above. The session now keeps the form's values and focus across a render
+  and clears them only when a ticket is filled. The panel skips a render
+  when a re-read finds the same calls. A closing window and a timeframe
+  switch redraw only their own part.
+- **The first view asked the candle relay twice per chart.** The account
+  arrives after the calls and renders again before the first read returns.
+  A read in flight is now shared.
+
+The charts take the website Arena's timeframes (15m, 1H, 4H, 1D), 200 bars,
+the newest 60 in view. They pinch and drag sideways while a vertical drag
+scrolls the app (`tv-chart.js`'s `pageScroll` mode). A reader's zoom is
+kept across redraws, counted from the newest bar so a chart that was
+following the market keeps following it.
+
+Three things that cost a round:
+- **Source scans with a fixed character window go blind.**
+  `arena_signal_trade.test.js` read the first 4,000 and 7,000 characters of
+  the `/open-signal` handler. The own-trade branch pushed their targets out,
+  and the failures were about the window, not the code. They read the
+  handler now (`blockBetween`, to the next route's comment).
+- **The vendored Lightweight Charts exposes its exports as read-only
+  getters.** `L.createChart = wrapper` did nothing, silently. A test that
+  records charts replaces `window.LightweightCharts` with a copy.
+- **A Playwright route registered later wins.** A counter kept in the
+  earlier, catch-all handler counted no request the later one answered.
+
+Open, and not changed here: **the armed envelope does not see a follow.**
+`envelope_guard.js` says it refuses non-compliant Arena opens. The own trade
+passes through it (the manual path), but `/open-signal`'s follow and
+practice-follow never ask it. That gap predates this work and is the
+owner's call.
+(`app/test/a_closed_window_is_traded_as_your_own.test.js` drives the planner
+and the route: the three states, the manual row with no key, the exits, the
+envelope refusing an own trade, and a truthy `own` that is not `true`.
+`app/test/the_pi_app_signs_in_with_pi.smoke.test.js` drives the cards in
+Chromium: each door, the window closing on screen with the chart and the
+ticket untouched, a refused follow re-reading the calls, a refused ticket
+kept and a filled one cleared, and the timeframes, the gestures, the zoom
+kept across a render and the timeframe remembered.)
+
 **THE DAILY TREND RULE PASSED ON KRAKEN'S HISTORY, THE FIRST PASS IN THIRTEEN
 PRE-REGISTERED TESTS, AND IT IS A SLEEVE, NOT A BOT.** The Bitget slow-rule
 study (17 Oct) had three years of history and no power: an 18-month to 3-year

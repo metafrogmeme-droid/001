@@ -52,6 +52,7 @@ test('the status probe wiring reads a real age from a rehydrated scan (no false 
     latestLetter: async () => ({ week_key: '2026-W01', generated_at: new Date(NOW - 3 * 86_400_000).toISOString() }),
     dbMode: () => 'memory',
     uptimeS: () => 42,
+    readPrices: async () => ({ state: 'fresh', age_s: 3, symbols: 512 }),
   });
   const s = await status.buildStatus(NOW);
   assert.equal(s.components.engine_scan.state, 'fresh');

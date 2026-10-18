@@ -165,6 +165,20 @@ test('unknown symbols and broken market data are rejected honestly', async () =>
   assert.equal(bad.status, 400);
 });
 
+test('a coin name opens its USDT pair, and a pair that is not listed is named', async () => {
+  // The Pi app refused "BTC" and asked for "BTCUSDT" (2026-10-17). Every
+  // Arena pair is USDT-M, so the quote is the one part that cannot vary.
+  const token = await newUser();
+  PRICES = { BTCUSDT: { price: 100, change: 0, volume: 1 } };
+  const o = await req('POST', '/api/arena/open', { token, body: { symbol: ' btc ', direction: 'long', margin: 100, leverage: 2 } });
+  assert.equal(o.status, 200, JSON.stringify(o.data));
+  const a = await req('GET', '/api/arena/account', { token });
+  assert.deepEqual(a.data.positions.map((p) => p.symbol), ['BTCUSDT']);
+  const bad = await req('POST', '/api/arena/open', { token, body: { symbol: 'nope', direction: 'LONG', margin: 100, leverage: 2 } });
+  assert.equal(bad.status, 400);
+  assert.equal(bad.data.error, 'NOPEUSDT is not a listed USDT-M pair. Try a coin like BTC or ETH.');
+});
+
 test('users cannot close each other’s positions', async () => {
   const t1 = await newUser(); const t2 = await newUser();
   PRICES = { BTCUSDT: { price: 100, change: 0, volume: 1 } };
