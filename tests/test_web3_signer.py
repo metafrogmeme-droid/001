@@ -26,6 +26,10 @@ _ON = {
     "WEB3_LIVE_EXEC_ENABLED": "1",
     "WEB3_LIVE_EXEC_SIGN_ENABLED": "1",
     "WEB3_SIGNER_PRIVATE_KEY": _TEST_KEY,
+    # No public default endpoint: "no RPC" below means no RPC, and nothing here
+    # reaches a real chain (tests/test_a_testnet_without_an_rpc_uses_the_public_one.py
+    # drives the defaults).
+    "WEB3_RPC_PUBLIC_DEFAULTS": "0",
 }
 
 

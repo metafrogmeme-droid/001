@@ -200,6 +200,7 @@ def signer_status(env: Optional[dict] = None) -> dict:
         testnets.append({
             "network": name, "label": n.get("label"), "chain_id": n.get("chain_id"),
             "rpc_configured": bool(rpc_url_for(name, env)),
+            "rpc_source": rpc_source(name, env),
             "explorer": n.get("explorer", ""),
         })
     return {
@@ -330,13 +331,36 @@ def build_and_sign(*, network: str, to: Optional[str], value_wei: int, nonce: in
         return {"ok": False, "error": "signing failed"}
 
 
+def rpc_source(network: str, env: Optional[dict] = None) -> Optional[str]:
+    """Where a testnet's RPC endpoint comes from: ``"configured"`` (the
+    operator's WEB3_RPC_<NETWORK>, e.g. WEB3_RPC_SEPOLIA), ``"public"`` (the
+    chain's free public endpoint from the network table), or None (neither).
+
+    The public endpoint is the default, so the signer works on a deploy that set
+    no RPC at all; it is rate-limited and shared, which is why the picker names
+    it. WEB3_RPC_PUBLIC_DEFAULTS=0 turns the defaults off. A mainnet row has no
+    public endpoint, so nothing here reaches mainnet."""
+    return _rpc(network, env)[1]
+
+
 def rpc_url_for(network: str, env: Optional[dict] = None) -> str:
-    """The testnet RPC endpoint for a network, from WEB3_RPC_<NETWORK> (e.g.
-    WEB3_RPC_SEPOLIA, WEB3_RPC_BASE_SEPOLIA). Empty when not configured."""
+    """The testnet RPC endpoint for a network (``rpc_source`` says which).
+    Empty when there is none."""
+    return _rpc(network, env)[0]
+
+
+def _rpc(network: str, env: Optional[dict]) -> tuple[str, Optional[str]]:
     import os
     key = "WEB3_RPC_" + str(network or "").strip().upper().replace("-", "_")
     e = env if env is not None else os.environ
-    return str(e.get(key, "") or "").strip()
+    configured = str(e.get(key, "") or "").strip()
+    if configured:
+        return configured, "configured"
+    if str(e.get("WEB3_RPC_PUBLIC_DEFAULTS", "")).strip().lower() in ("0", "false", "no", "off"):
+        return "", None
+    net = gate.resolve_network(network) or {}
+    public = str(net.get("public_rpc") or "").strip() if net.get("testnet") else ""
+    return (public, "public") if public else ("", None)
 
 
 async def _rpc_call(rpc_url: str, method: str, params: list) -> dict:
@@ -433,7 +457,7 @@ async def prepare_tx(*, network: str, address: str, to: Optional[str] = None,
         return {"ok": False, "error": "no signer address — configure the signing key"}
     rpc_url = rpc_url_for(network, env)
     if not rpc_url:
-        return {"ok": False, "error": "no testnet RPC configured (WEB3_RPC_<NETWORK>)"}
+        return {"ok": False, "error": "no testnet RPC for this network — set WEB3_RPC_<NETWORK>"}
 
     # Pending nonce — includes any not-yet-mined sends so we never collide.
     nres = await _rpc_call(rpc_url, "eth_getTransactionCount", [addr, "pending"])

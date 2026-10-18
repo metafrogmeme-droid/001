@@ -10631,7 +10631,10 @@
       }
       const d = r.data;
       const nets = Array.isArray(d.testnets) ? d.testnets : [];
-      const opts = nets.map((n) => `<option value="${esc(n.network)}"${n.rpc_configured ? '' : ' data-norpc="1"'}>${esc(n.label)}${n.rpc_configured ? '' : ' — no RPC'}</option>`).join('');
+      // Three readings, three labels: the operator's own endpoint (no suffix),
+      // the chain's shared public endpoint (named, it is rate-limited), none.
+      const rpcNote = (n) => (!n.rpc_configured ? ' — no RPC' : (n.rpc_source === 'public' ? ' — public RPC' : ''));
+      const opts = nets.map((n) => `<option value="${esc(n.network)}"${n.rpc_configured ? '' : ' data-norpc="1"'}>${esc(n.label)}${rpcNote(n)}</option>`).join('');
       explorerByNet = {};
       nets.forEach((n) => { if (n.explorer) explorerByNet[n.network] = n.explorer; });
       signerAddr = d.signer_address || '';

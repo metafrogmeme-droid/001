@@ -56,7 +56,9 @@ def test_an_empty_dict_is_not_the_process_environment(monkeypatch, var, value, r
 
 def test_the_rpc_reader_too(monkeypatch):
     monkeypatch.setenv("WEB3_RPC_SEPOLIA", "http://rpc.from.the.process")
-    assert sg.rpc_url_for("sepolia", {}) == ""
+    # `{}` sets no endpoint, so it reads the chain's public one, never the process's.
+    assert sg.rpc_url_for("sepolia", {}) == sg.gate.NETWORKS["sepolia"]["public_rpc"]
+    assert sg.rpc_url_for("sepolia", {"WEB3_RPC_PUBLIC_DEFAULTS": "0"}) == ""
     assert sg.rpc_url_for("sepolia") == "http://rpc.from.the.process"
 
 

@@ -39,7 +39,8 @@ from typing import Optional
 # Known EVM networks and whether each is a testnet. Live testing starts here.
 # Every testnet below is EIP-1559 (type-2) capable — the signer builds type-2
 # transactions and the prepare step falls back to gasPrice, so a chain that
-# doesn't surface a base fee still works. RPC per chain: WEB3_RPC_<NETWORK>.
+# doesn't surface a base fee still works. RPC per chain: WEB3_RPC_<NETWORK>,
+# else the row's public_rpc.
 #
 # min_tx_gas: the chain's PROTOCOL intrinsic-gas floor for a bare value transfer
 # — 21,000 on Ethereum-metered chains. It is a floor the RPC enforces below
@@ -55,35 +56,52 @@ from typing import Optional
 # row declares one: a transfer on a chain whose coin is unnamed cannot be
 # priced, and an unpriced transfer is refused rather than treated as $0.
 #
+# public_rpc: the chain's free public endpoint, used when the operator has not
+# set WEB3_RPC_<NETWORK> (``web3_signer.rpc_url_for``). Each one was checked to
+# answer eth_chainId with the row's chain_id on 2026-10-18. Scroll Sepolia has
+# none: its official endpoint answered 526 and no alternative answered, so it
+# stays "no RPC" until the operator sets one. Testnet rows only: a mainnet
+# row never gets a default endpoint.
+#
 # explorer: stored WITHOUT a trailing slash. Both link builders below rstrip it,
 # but the convention keeps the table readable and matches chainid.network.
 NETWORKS = {
     "sepolia": {"chain_id": 11155111, "testnet": True, "label": "Ethereum Sepolia",
-                "explorer": "https://sepolia.etherscan.io", "min_tx_gas": 21000, "native": "ETH"},
+                "explorer": "https://sepolia.etherscan.io", "min_tx_gas": 21000, "native": "ETH",
+                "public_rpc": "https://ethereum-sepolia-rpc.publicnode.com"},
     "base-sepolia": {"chain_id": 84532, "testnet": True, "label": "Base Sepolia",
-                     "explorer": "https://sepolia.basescan.org", "min_tx_gas": 21000, "native": "ETH"},
+                     "explorer": "https://sepolia.basescan.org", "min_tx_gas": 21000, "native": "ETH",
+                     "public_rpc": "https://sepolia.base.org"},
     "arbitrum-sepolia": {"chain_id": 421614, "testnet": True, "label": "Arbitrum Sepolia",
-                         "explorer": "https://sepolia.arbiscan.io", "min_tx_gas": 21000, "native": "ETH"},
+                         "explorer": "https://sepolia.arbiscan.io", "min_tx_gas": 21000, "native": "ETH",
+                         "public_rpc": "https://sepolia-rollup.arbitrum.io/rpc"},
     "optimism-sepolia": {"chain_id": 11155420, "testnet": True, "label": "Optimism Sepolia",
-                         "explorer": "https://sepolia-optimism.etherscan.io", "min_tx_gas": 21000, "native": "ETH"},
+                         "explorer": "https://sepolia-optimism.etherscan.io", "min_tx_gas": 21000, "native": "ETH",
+                         "public_rpc": "https://sepolia.optimism.io"},
     "polygon-amoy": {"chain_id": 80002, "testnet": True, "label": "Polygon Amoy",
-                     "explorer": "https://amoy.polygonscan.com", "min_tx_gas": 21000, "native": "POL"},
+                     "explorer": "https://amoy.polygonscan.com", "min_tx_gas": 21000, "native": "POL",
+                     "public_rpc": "https://polygon-amoy-bor-rpc.publicnode.com"},
     "avalanche-fuji": {"chain_id": 43113, "testnet": True, "label": "Avalanche Fuji",
-                       "explorer": "https://testnet.snowtrace.io", "min_tx_gas": 21000, "native": "AVAX"},
+                       "explorer": "https://testnet.snowtrace.io", "min_tx_gas": 21000, "native": "AVAX",
+                       "public_rpc": "https://api.avax-test.network/ext/bc/C/rpc"},
     "scroll-sepolia": {"chain_id": 534351, "testnet": True, "label": "Scroll Sepolia",
                        "explorer": "https://sepolia.scrollscan.com", "min_tx_gas": 21000, "native": "ETH"},
     "linea-sepolia": {"chain_id": 59141, "testnet": True, "label": "Linea Sepolia",
-                      "explorer": "https://sepolia.lineascan.build", "min_tx_gas": 21000, "native": "ETH"},
+                      "explorer": "https://sepolia.lineascan.build", "min_tx_gas": 21000, "native": "ETH",
+                      "public_rpc": "https://rpc.sepolia.linea.build"},
     "blast-sepolia": {"chain_id": 168587773, "testnet": True, "label": "Blast Sepolia",
-                      "explorer": "https://sepolia.blastscan.io", "min_tx_gas": 21000, "native": "ETH"},
+                      "explorer": "https://sepolia.blastscan.io", "min_tx_gas": 21000, "native": "ETH",
+                      "public_rpc": "https://sepolia.blast.io"},
     "bsc-testnet": {"chain_id": 97, "testnet": True, "label": "BNB Smart Chain Testnet",
-                    "explorer": "https://testnet.bscscan.com", "min_tx_gas": 21000, "native": "BNB"},
+                    "explorer": "https://testnet.bscscan.com", "min_tx_gas": 21000, "native": "BNB",
+                    "public_rpc": "https://bsc-testnet-rpc.publicnode.com"},
     # MegaETH meters compute gas AND storage gas against the SINGLE gasLimit
     # field: a bare value transfer is 21,000 compute + 39,000 storage = 60,000.
     # The RPC rejects anything under that, so min_tx_gas here is NOT 21,000.
     # Its RPC host is "carrot", not "testnet.megaeth.com" — see .env.example.
     "megaeth-testnet": {"chain_id": 6343, "testnet": True, "label": "MegaETH Testnet",
-                        "explorer": "https://testnet-mega.etherscan.io", "min_tx_gas": 60000, "native": "ETH"},
+                        "explorer": "https://testnet-mega.etherscan.io", "min_tx_gas": 60000, "native": "ETH",
+                        "public_rpc": "https://carrot.megaeth.com/rpc"},
     "ethereum": {"chain_id": 1, "testnet": False, "label": "Ethereum",
                  "explorer": "https://etherscan.io", "min_tx_gas": 21000, "native": "ETH"},
     "base": {"chain_id": 8453, "testnet": False, "label": "Base",
