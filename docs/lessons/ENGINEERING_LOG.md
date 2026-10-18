@@ -26750,3 +26750,20 @@ a paper fill whatever keys they link. Nineteen test files drove a live confirm
 for a caller the test config does not name as operator; they opt in to the old
 reading through one conftest fixture (`members_may_trade_live`) rather than
 each spelling a setter. (`tests/test_live_off_is_paper_and_live_is_the_operators.py`.)
+
+**PAPER WAS THE MAIN MODE AND NOTHING TRADED ON IT.** The same evening, after
+`/golive OFF`: "works but I don't see open paper orders or positions". A tap
+opened on the paper book, but the engine's own confirms (the tick and
+`/forcescan`, under `"auto"`) each ended "an unattended confirm places
+nothing", so the book the owner had made the main mode stayed empty. While
+live is turned off they now open on the operator's paper book, the first id in
+`TELEGRAM_CHAT_ID`, which is the book `/positions` and `/portfolio` read for
+them (`_unattended_paper_owner`, `_practice_book_user`). The identity is not
+rewritten: passing the operator's id as the caller would have made
+`_human_confirmed` read an engine confirm as a person's tap, and the
+post-critique confidence floor waives itself for a person. Only the book the
+practice fill, its duplicate check and its risk engine read is resolved. With
+no operator configured nothing is placed, as before. `/paper` answered "not
+enabled on this bot" over confirms that were paper; it now says why they are
+(`paper_mode_reason`, asked of `confirm_is_practice`).
+(`tests/test_live_off_is_paper_and_live_is_the_operators.py`.)

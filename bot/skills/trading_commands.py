@@ -539,6 +539,50 @@ def _paper_held(enabled: bool, cls: str) -> str:
             f"The setting could not be written ({cls}), so {now}; {later}.")
 
 
+
+def paper_mode_reason(engine, tg_id: str) -> Optional[str]:
+    """Why this caller's confirms are paper because of the bot's mode, as the
+    card says it, or None when the mode does not make them paper.
+
+    Two readings, both from the bot's state rather than the caller's switch:
+    live turned off (`/golive OFF`), and a non-operator on a live bot under
+    LIVE_ADMIN_ONLY. Each is asked of `engine.confirm_is_practice`, the one
+    reading, so the card cannot say paper over a confirm that places live.
+    A suspension that cannot be read is turned off (fail closed).
+    """
+    from bot.config import RUNTIME
+    fn = getattr(engine, "confirm_is_practice", None)
+    if not callable(fn):
+        return None
+    try:
+        practice = fn(tg_id) is True
+    except Exception:
+        return None
+    if not practice:
+        return None
+    try:
+        turned_off = bool(RUNTIME.live_suspended)
+    except Exception:
+        turned_off = True
+    where = ("Open paper positions: <code>/positions</code> · balance and "
+             "history: <code>/portfolio</code>.")
+    if turned_off:
+        owner = getattr(engine, "_unattended_paper_owner", None)
+        try:
+            own = callable(owner) and owner() == str(tg_id)
+        except Exception:
+            own = False
+        return ("📝 <b>Your confirms are paper.</b> Live trading is turned off "
+                "(<code>/golive OFF</code>), so every confirm you tap opens on your "
+                "paper book and nothing reaches an exchange."
+                + (" The bot's own confirms open there too." if own else "")
+                + "\n" + where)
+    if getattr(CONFIG, "live_admin_only", True) and CONFIG.is_live():
+        return ("📝 <b>Your confirms are paper.</b> Live trading on this bot is "
+                "for admins only, so every confirm you tap opens on your own "
+                "paper book and nothing reaches an exchange.\n" + where)
+    return None
+
 class TradingCommands:
     """Open, close, list and stop. Host contract below; methods after."""
 
@@ -1227,6 +1271,15 @@ class TradingCommands:
                 "practice book and nothing reaches an exchange; <code>/paper</code> "
                 "changes nothing for it. An admin's vouch is what moves an account "
                 "to live trading.")
+            return
+        # Paper because of the bot's mode, not this switch: live turned off
+        # (`/golive OFF`), or a member on a live bot where live is the
+        # operator's alone. It answered "not enabled on this bot" here while
+        # every confirm the caller tapped was opening on their paper book
+        # (2026-10-18). `engine.confirm_is_practice` is the one reading.
+        _why_paper = paper_mode_reason(self.engine, tg_id)
+        if _why_paper is not None:
+            await self._send(update, _why_paper)
             return
         if not CONFIG.paper_sim_opt_in_enabled:
             await self._send(update,

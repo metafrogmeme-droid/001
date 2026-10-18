@@ -8650,10 +8650,14 @@ class RuneClawEngine:
         """
         if self._self_admitted_practice(user_id):
             return True
-        # PAPER IS THE MAIN (owner's call, 2026-10-18). Two rules, for a
-        # person only: the engine's own unattended confirms ("" / "auto")
-        # keep their path.
+        # PAPER IS THE MAIN (owner's call, 2026-10-18). The engine's own
+        # unattended confirms ("" / "auto") are paper while live is turned
+        # off and there is an operator whose paper book they open on
+        # (`_practice_book_user`); with no operator they keep their path,
+        # which places nothing and says so.
         human = bool(user_id) and str(user_id) not in ("auto", "")
+        if not human and self._unattended_paper_owner() is not None:
+            return True
         if human:
             # The operator turned live off (`/golive OFF`): every confirm is a
             # paper fill. Before this, a confirm after OFF took the live
@@ -8712,7 +8716,7 @@ class RuneClawEngine:
                 # The pyramid flag exempts nothing here: it was read off the
                 # live book (`_same_symbol_verdict`), and the practice fill
                 # drops it and opens a plain row.
-                _held = self._practice_book_symbols(user_id)
+                _held = self._practice_book_symbols(self._practice_book_user(user_id))
                 _what = "an open practice position"
             elif (CONFIG.is_live() and hasattr(self, "live_executor")
                     and not self._pending_pyramid.get(trade_id)):
@@ -8743,6 +8747,42 @@ class RuneClawEngine:
             result = await self._confirm_trade_inner(trade_id, user_id)
             self._why_not_confirm(idea, user_id, result)
             return result
+
+    def _unattended_paper_owner(self) -> Optional[str]:
+        """The operator whose paper book an unattended confirm opens on, or None.
+
+        Only while the operator has turned live off (`/golive OFF`). The tick
+        and `/forcescan` confirm under ``"auto"``, and every one of them used
+        to end "an unattended confirm places nothing", so the paper book the
+        owner made the main mode stayed empty however many ideas cleared the
+        auto-confirm bar (2026-10-18). The FIRST id in TELEGRAM_CHAT_ID is the
+        operator whose book `/positions` and `/portfolio` read for them. None
+        while live may run, and None with no operator configured: there is no
+        such book, and nothing is placed.
+        """
+        if not _live_turned_off():
+            return None
+        try:
+            raw = str(CONFIG.telegram.chat_id or "")
+        except AttributeError:
+            return None
+        ids = [x.strip() for x in raw.split(",") if x.strip()]
+        return ids[0] if ids else None
+
+    def _practice_book_user(self, user_id: str) -> str:
+        """Whose practice book a practice confirm by ``user_id`` opens on.
+
+        The caller's own, except an unattended confirm while live is turned
+        off, which opens on the operator's (`_unattended_paper_owner`). The
+        caller's id itself is unchanged everywhere else: ``"auto"`` is still
+        not a person's tap (`_human_confirmed`), so a gate that waives itself
+        for a human decision does not waive itself for the engine.
+        """
+        if str(user_id or "") in ("", "auto"):
+            owner = self._unattended_paper_owner()
+            if owner is not None:
+                return owner
+        return user_id
 
     def _practice_book_symbols(self, user_id: str) -> list:
         """The symbols open on this caller's practice book.
@@ -9177,7 +9217,7 @@ class RuneClawEngine:
             # Per-user risk isolation: this confirm-time gate runs against the
             # engine that owns THIS user's breaker/streak/daily-loss/drawdown
             # state. Default (per-user OFF) → shared operator engine, unchanged.
-            recheck_engine = (self.practice_risk_for(user_id) if _practice
+            recheck_engine = (self.practice_risk_for(self._practice_book_user(user_id)) if _practice
                               else self.risk_for(user_id))
             # Regime-aware sizing (gated): set regime AFTER risk_for (whose market-
             # context sync may have copied the shared engine's regime) so this
@@ -9378,15 +9418,18 @@ class RuneClawEngine:
         # so a vouched trader is unaffected.
         if _practice:
             self._pending_pyramid.pop(trade_id, None)
-            return await self._simulate_paper_fill(idea, recheck, user_id, trade_id)
+            return await self._simulate_paper_fill(
+                idea, recheck, self._practice_book_user(user_id), trade_id)
 
         # LIVE-ONLY: this bot only executes live trades. Paper mode is disabled.
         if not CONFIG.is_live():
             self._pending_pyramid.pop(trade_id, None)
             self._transition(AgentState.IDLE, "paper mode disabled")
             # A person's confirm never reaches here while live is turned off
-            # (`confirm_is_practice` made it a paper fill), so this is an
-            # unattended one. "This bot is LIVE-ONLY" would be false.
+            # (`confirm_is_practice` made it a paper fill), nor does an
+            # unattended one when there is an operator's paper book to open
+            # on, so this is an unattended confirm with no operator
+            # configured. "This bot is LIVE-ONLY" would be false.
             if _live_turned_off():
                 return ("⛔ Live trading is turned off (/golive OFF): an unattended "
                         "confirm places nothing. Nothing was placed.")

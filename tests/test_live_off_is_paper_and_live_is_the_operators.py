@@ -337,3 +337,109 @@ class TestTheUnattendedRefusal:
         RUNTIME.set_live_suspended(True)
         out, nothing, _ = self._drive(monkeypatch, tmp_path, OPERATOR)
         assert "[PAPER]" in out and not nothing, out
+
+
+# ── the engine's own confirms while live is off ─────────────────────────────
+#
+# Reported the same day: "/golive OFF works but I don't see open paper orders
+# or positions". The tick and /forcescan confirm under "auto", and every one
+# ended "an unattended confirm places nothing", so the paper book stayed empty.
+# They open on the OPERATOR's paper book now, the one /positions reads for
+# them, and "auto" is still not a person (`_human_confirmed`).
+
+def _operator_configured(ids=OPERATOR + ",999"):
+    _set("telegram", dataclasses.replace(CONFIG.telegram, chat_id=ids, admin_ids=""))
+
+
+class TestTheEnginesOwnConfirmsOpenOnTheOperatorsPaperBook:
+    def test_the_owner_is_the_first_operator_only_while_live_is_off(self, suspended_file):
+        eng = _engine()
+        _operator_configured()
+        assert eng._unattended_paper_owner() is None, "live may run: no paper owner"
+        RUNTIME.set_live_suspended(True)
+        assert eng._unattended_paper_owner() == OPERATOR
+        assert eng._practice_book_user("auto") == OPERATOR
+        assert eng._practice_book_user("") == OPERATOR
+        assert eng._practice_book_user(MEMBER) == MEMBER, "a person keeps their own book"
+
+    def test_no_operator_configured_is_no_owner(self, suspended_file):
+        RUNTIME.set_live_suspended(True)
+        eng = _engine()
+        assert eng._unattended_paper_owner() is None
+        assert eng._practice_book_user("auto") == "auto"
+        assert eng.confirm_is_practice("auto") is False
+
+    def test_auto_is_paper_and_still_not_a_person(self, suspended_file):
+        from bot.core.engine import RuneClawEngine
+        eng = _engine()
+        _operator_configured()
+        assert eng.confirm_is_practice("auto") is False
+        RUNTIME.set_live_suspended(True)
+        assert eng.confirm_is_practice("auto") is True
+        assert RuneClawEngine._human_confirmed("auto") is False, (
+            "a gate that waives itself for a human tap must not waive itself here")
+
+    def test_driven_an_auto_confirm_opens_on_the_operators_paper_book(
+            self, suspended_file, monkeypatch, tmp_path):
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        from bot.core.confirm_result import placed_nothing
+        from tests.test_a_live_decision_is_recorded_as_live import _confirming_engine
+        monkeypatch.setattr("bot.utils.website_sync.sync_in_background", lambda *a, **k: None)
+        _operator_configured()
+        RUNTIME.set_live_suspended(True)
+        engine, idea = _confirming_engine(tmp_path)
+        loop = asyncio.new_event_loop()
+        try:
+            with patch("bot.core.engine.get_exchange_position_count", new=AsyncMock(return_value=0)), \
+                 patch("bot.core.engine.invalidate_position_count_cache"):
+                out = loop.run_until_complete(engine.confirm_trade(idea.id, user_id="auto"))
+        finally:
+            loop.close()
+        engine.live_executor.execute.assert_not_awaited()
+        assert "[PAPER]" in out and not placed_nothing(out), out
+        book = engine.user_portfolios.get(OPERATOR)
+        assert [p.asset for p in book.open_positions] == [idea.asset], (
+            "the row is on the operator's book, the one /positions reads for them")
+        assert not engine.user_portfolios.has_user("auto"), "no book named 'auto'"
+
+
+# ── /paper says why the confirms are paper ──────────────────────────────────
+
+class TestPaperSaysWhy:
+    @pytest.mark.asyncio
+    async def test_live_off_says_paper_and_where_to_look(self, suspended_file):
+        h = _handler()
+        RUNTIME.set_live_suspended(True)
+        update, ctx = _update([])
+        await h._cmd_paper(update, ctx)
+        text = _said(update)
+        assert "Your confirms are paper" in text and "/golive OFF" in text
+        assert "/positions" in text and "not enabled" not in text
+
+    @pytest.mark.asyncio
+    async def test_the_operator_is_told_the_bots_confirms_land_there_too(self, suspended_file):
+        h = _handler()
+        _operator_configured("6307156912")
+        RUNTIME.set_live_suspended(True)
+        update, ctx = _update([])
+        await h._cmd_paper(update, ctx)
+        assert "The bot's own confirms open there too" in _said(update)
+
+    @pytest.mark.asyncio
+    async def test_a_member_on_a_live_bot_is_told_live_is_for_admins(self, suspended_file, env_live):
+        from bot.skills.trading_commands import paper_mode_reason
+        h = _handler()
+        assert CONFIG.is_live() is True
+        said = paper_mode_reason(h.engine, MEMBER)
+        assert said is not None and "for admins only" in said
+        assert paper_mode_reason(h.engine, OPERATOR) is None, "the operator's confirms are live"
+
+    @pytest.mark.asyncio
+    async def test_otherwise_it_is_the_opt_in_answer_as_before(self, suspended_file):
+        h = _handler()
+        update, ctx = _update([])
+        await h._cmd_paper(update, ctx)
+        text = _said(update)
+        assert "Your confirms are paper" not in text and "PAPER_SIM_OPT_IN_ENABLED" in text
