@@ -19,6 +19,7 @@ delete process.env.X_CLIENT_ID; // leave X unconfigured to test gating
 
 const test = require('node:test');
 const assert = require('node:assert');
+const { navigationTarget } = require('./helpers/navigation');
 const express = require('express');
 
 const oauth2 = require('../lib/oauth2');
@@ -99,9 +100,7 @@ test.after(() => { if (server) server.close(); });
 async function startAndGetState(provider, linkQuery) {
   const url = base + `/api/auth/oauth/${provider}/start` + (linkQuery ? `?link=${linkQuery}` : '');
   const r = await fetch(url, { redirect: 'manual' });
-  assert.strictEqual(r.status, 302);
-  const loc = r.headers.get('location');
-  return new URL(loc).searchParams.get('state');
+  return new URL(await navigationTarget(r)).searchParams.get('state');
 }
 
 test('config advertises configured providers only', async () => {
@@ -120,8 +119,7 @@ test('login flow: callback creates a session for a new social identity', async (
   const state = await startAndGetState('discord');
   const r = await fetch(
     base + `/api/auth/oauth/discord/callback?code=abc&state=${state}`, { redirect: 'manual' });
-  assert.strictEqual(r.status, 302);
-  const loc = r.headers.get('location');
+  const loc = await navigationTarget(r);
   assert.ok(loc.startsWith('/#oauth='), loc);
   const payload = JSON.parse(Buffer.from(loc.split('#oauth=')[1], 'base64').toString());
   assert.ok(payload.token);
@@ -133,8 +131,7 @@ test('login flow: callback creates a session for a new social identity', async (
 test('callback rejects an unknown/expired state', async () => {
   const r = await fetch(
     base + '/api/auth/oauth/discord/callback?code=abc&state=bogus', { redirect: 'manual' });
-  assert.strictEqual(r.status, 302);
-  assert.ok(r.headers.get('location').startsWith('/#oauth_error='));
+  assert.ok((await navigationTarget(r)).startsWith('/#oauth_error='));
 });
 
 test('link flow: a logged-in user attaches the provider to their account', async () => {
@@ -155,7 +152,7 @@ test('link flow: a logged-in user attaches the provider to their account', async
   const r = await fetch(
     base + `/api/auth/oauth/discord/callback?code=abc&state=${state}`, { redirect: 'manual' });
   const payload = JSON.parse(Buffer.from(
-    r.headers.get('location').split('#oauth=')[1], 'base64').toString());
+    (await navigationTarget(r)).split('#oauth=')[1], 'base64').toString());
   assert.strictEqual(payload.linked, true);
   assert.strictEqual(payload.user_id, reg.user_id, 'linked the SAME account, no new user');
   assert.strictEqual(payload.email, 'linker@example.com', 'keeps the original email');
