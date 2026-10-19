@@ -213,7 +213,7 @@ class Draw:
         """The RUNECLAW logotype (the serif mark with the three-bar glyph)."""
         return self.asset("wordmark", x, y, height)
 
-    def wordmark(self, W: int, H: int, pad: int, f=None, *, height: float = 15):
+    def wordmark(self, W: int, H: int, pad: int, f=None, *, height: float = 22):
         """The logotype at the bottom right, above the bottom stripe. ``f`` is
         accepted for the renderers that pass their footer font; the mark is a
         picture now and does not use it."""

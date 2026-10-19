@@ -2126,6 +2126,32 @@ def render_alpha_card(data: Dict[str, Any]) -> bytes:
     return _T.export(img)
 
 
+def _share_when(opened_at, closed_at) -> str:
+    """"Opened 17 Oct 2026 20:12 UTC · Closed 19 Oct 2026 20:35 UTC": the moments
+    a reader needs to check the call against a chart. Each half is printed
+    only when its timestamp parses; neither is a date the card made up."""
+    from datetime import datetime, timezone
+
+    def _fmt(v) -> str:
+        if v is None or v == "":
+            return ""
+        try:
+            dt = v if isinstance(v, datetime) else datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return ""
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).strftime("%-d %b %Y %H:%M UTC")
+
+    parts = []
+    o, c = _fmt(opened_at), _fmt(closed_at)
+    if o:
+        parts.append("Opened " + o)
+    if c:
+        parts.append("Closed " + c)
+    return " · ".join(parts)
+
+
 def render_share_card(data: Dict[str, Any]) -> bytes:
     """Render the social share card for one closed trade: PNG bytes.
 
@@ -2136,7 +2162,10 @@ def render_share_card(data: Dict[str, Any]) -> bytes:
     pnl_usd / size_usd / margin_usd / net_pnl keys; keep it that way.
 
     Args:
-        data: symbol (str), direction ("LONG"|"SHORT"), pnl_pct (float).
+        data: symbol (str), direction ("LONG"|"SHORT"), pnl_pct (float);
+            optionally opened_at / closed_at (ISO instants, so a reader can
+            check the call) and book ("paper"|"live"). An absent book is not
+            claimed either way: no chip, no "live" in the tagline.
 
     Returns:
         PNG bytes, or b"" if Pillow is unavailable.
@@ -2182,22 +2211,37 @@ def render_share_card(data: Dict[str, Any]) -> bytes:
 
     # ── Brand header: the logotype, then the tag ──
     y = PAD - 8
-    draw.logotype(PAD, y, 30)
-    draw.text((PAD, y + 40), "AUTONOMOUS AI TRADING AGENT", fill=_GRAY, font=f_tag)
+    draw.logotype(PAD, y, 40)
+    draw.text((PAD, y + 50), "AUTONOMOUS AI TRADING AGENT", fill=_GRAY, font=f_tag)
 
-    # ── Symbol + direction chip, on the left, under the header ──
-    draw.text((PAD, y + 78), symbol, fill=_WHITE, font=f_symbol)
+    # ── Symbol, direction chip, and which book, on the left under the header ──
+    # The book is a claim: a chip only when the caller knows it. "Traded
+    # autonomously" alone read as real money (review, 2026-10-19).
+    book = str(data.get("book") or "").lower()
+    draw.text((PAD, y + 86), symbol, fill=_WHITE, font=f_symbol)
     sym_w = draw.textlength(symbol, font=f_symbol)
-    draw.pill(PAD + sym_w + 14, y + 90, direction, dir_color, f_badge, h=32, filled=True, pad=12)
+    chip_x = PAD + sym_w + 14
+    chip_x += draw.pill(chip_x, y + 98, direction, dir_color, f_badge, h=32, filled=True, pad=12) + 10
+    if book == "paper":
+        draw.pill(chip_x, y + 98, "PAPER", _GRAY, f_badge, h=32, pad=12)
+    elif book == "live":
+        draw.pill(chip_x, y + 98, "LIVE", _GREEN, f_badge, h=32, pad=12)
+
+    # ── When: the moments a reader needs to check the call ──
+    when = _share_when(data.get("opened_at"), data.get("closed_at"))
+    if when:
+        draw.text((PAD, y + 144), when, fill=_GRAY, font=f_small)
 
     # ── Hero PnL percent ──
     hero = "return unread" if pnl_pct is None else f"{pnl_pct:+.2f}%"
-    draw.text((PAD - 4, 186), hero, fill=pnl_color, font=f_hero)
+    draw.text((PAD - 4, 200), hero, fill=pnl_color, font=f_hero)
 
     # ── Footer ──
-    tagline = "Traded autonomously. Shared without account size — percent only."
-    draw.text((PAD, H - 58), tagline, fill=_GRAY, font=f_small)
-    draw.wordmark(W, H, PAD, f_small)
-    draw.text((PAD, H - 30), "Not investment advice.", fill=_DIM, font=f_small)
+    traded = ("Paper trade, traded autonomously." if book == "paper"
+              else "Live trade, traded autonomously." if book == "live"
+              else "Traded autonomously.")
+    draw.text((PAD, H - 62), traded + " Shared without account size — percent only.", fill=_GRAY, font=f_small)
+    draw.wordmark(W, H, PAD, f_small, height=26)
+    draw.text((PAD, H - 36), "Not investment advice.", fill=_GRAY, font=f_small)
 
     return _T.export(img)

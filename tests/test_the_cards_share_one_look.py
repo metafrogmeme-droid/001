@@ -134,7 +134,7 @@ class TestTheSeamsStillHold:
         see it; the glyph's blue in the bottom-right corner can."""
         img = _png(fn(*args))
         W, H = img.width, img.height
-        corner = img.crop((W - 110 * T.S, H - 32 * T.S, W - 8 * T.S, H - 6 * T.S))
+        corner = img.crop((W - 170 * T.S, H - 42 * T.S, W - 8 * T.S, H - 6 * T.S))
         glyph = [p for p in corner.getdata() if p[2] >= 150 and p[2] - p[0] >= 40]
         assert len(glyph) > 25, f"no logotype glyph at the sign-off ({len(glyph)} blue pixels)"
         # and nothing else on a card is that blue down there: a bare canvas has none

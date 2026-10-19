@@ -5367,7 +5367,7 @@
             <td data-label="Closed" class="r muted small">${fmtAgo(t.closed_at)}</td>
             <td data-label="Note" class="td--stack"><div class="row" style="gap:6px;align-items:center">
               <input class="input" style="padding:4px 8px;font-size:var(--fs-xs);min-width:110px" placeholder="Add note…" value="${esc(t.notes || '')}" data-trade-id="${t.id}" aria-label="${esc(TF('aria.journal_for', 'Journal note for {sym}', { sym: t.symbol }))}">
-              <button class="btn btn--sm share-trade" type="button" title="Share this trade" aria-label="${esc(TF('aria.share_trade_x', 'Share {sym} trade', { sym: String(t.symbol).split('/')[0] }))}" data-sym="${esc(String(t.symbol).split('/')[0])}" data-dir="${esc(t.direction)}" data-entry="${esc(String(t.entry_price))}" data-exit="${esc(String(t.exit_price))}">Share</button>
+              <button class="btn btn--sm share-trade" type="button" title="Share this trade" aria-label="${esc(TF('aria.share_trade_x', 'Share {sym} trade', { sym: String(t.symbol).split('/')[0] }))}" data-sym="${esc(String(t.symbol).split('/')[0])}" data-dir="${esc(t.direction)}" data-entry="${esc(String(t.entry_price))}" data-exit="${esc(String(t.exit_price))}" data-opened="${esc(t.opened_at || '')}" data-closed="${esc(t.closed_at || '')}">Share</button>
               <button class="btn btn--sm ask-ai" type="button" title="Ask the AI analyst to post-mortem this trade" aria-label="${esc(TF('aria.postmortem_x', 'Post-mortem {sym} trade with the AI analyst', { sym: String(t.symbol).split('/')[0] }))}" data-sym="${esc(String(t.symbol).split('/')[0])}" data-dir="${esc(t.direction)}" data-entry="${esc(String(t.entry_price))}" data-exit="${esc(String(t.exit_price))}" data-pnl="${esc(String(t.pnl))}">Ask AI</button>
             </div></td>
           </tr>`).join('')}</tbody></table></div>`;
@@ -5412,7 +5412,7 @@
     onView('click', async (e) => {
       const btn = e.target.closest('.share-trade');
       if (!btn) return;
-      const { sym, dir, entry, exit } = btn.dataset;
+      const { sym, dir, entry, exit, opened, closed } = btn.dataset;
       const e0 = parseFloat(entry), x0 = parseFloat(exit);
       let pct = null, pctTxt = '';
       if (isFinite(e0) && isFinite(x0) && e0 > 0) {
@@ -5432,7 +5432,11 @@
         try {
           const q = `symbol=${encodeURIComponent(String(sym).toUpperCase())}` +
             `&direction=${encodeURIComponent(String(dir).toUpperCase())}` +
-            `&pnl_pct=${encodeURIComponent(pct.toFixed(2))}`;
+            `&pnl_pct=${encodeURIComponent(pct.toFixed(2))}` +
+            // The open and close instants, so a reader can check the call;
+            // the row carries no paper/live flag, so no book is claimed.
+            (opened ? `&opened_at=${encodeURIComponent(opened)}` : '') +
+            (closed ? `&closed_at=${encodeURIComponent(closed)}` : '');
           const resp = await fetch(`/api/share/card?${q}`,
             { headers: RC.authHeaders(), signal: AbortSignal.timeout(8000) });
           if (resp.ok && /image\/png/.test(resp.headers.get('content-type') || '')) {

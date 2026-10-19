@@ -26966,3 +26966,22 @@ close that sent no picture, the paper book's, sends the close card now
 with its breakdown as the caption (`paper_close_card_data`, driven with a
 real book: margin is the collateral, the hero is net on it), so the two
 books close in one voice (`tests/test_a_paper_close_sends_its_card.py`).
+
+*Second addendum, same evening: the share card, read by someone outside.*
+Four tips came back on the first render. The card now prints when the
+trade was opened and closed (UTC instants, so a reader can check the call
+against a chart) and which book it was on, as a PAPER or LIVE chip and the
+matching first words of the tagline; a caller that does not know the book
+gets neither, because "Traded autonomously" alone read as real money and
+a chip the card guessed would be worse. The disclaimer is in the label
+grey, not the watermark grey. The two optional facts travel the same two
+hops as the three public inputs (`app/routes/share.js`,
+`bot/web/user_gateway.py`), each either parsing or a 400, never a date the
+card made up; the website's share button hands over the row's times and
+no book, since the `trades` table records none (adding it to the sync
+payload is the follow-up). The privacy scan on the renderer still holds:
+symbol, direction and percent are the only trade facts on the card. Two
+notes that are not code: a memecoin ticker like TRUMP on a SHORT card
+reads as a political statement when shared, so the operator chooses what
+to post; and the house rule against price content means a card goes out
+as the product feature ("share your result card"), not as a return.
