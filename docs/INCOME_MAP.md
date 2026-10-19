@@ -897,7 +897,7 @@ share (app/lib/duel.js), accuracy is null-not-zero when nothing resolved and
 unresolved rounds are excluded from the denominator (`app/lib/duel.js::accuracy`),
 settlement runs lazily in batches on read (`app/lib/duel_service.js::settleDue`), and every
 pick is cryptographically SEALED at the moment it is made (`app/lib/duel_service.js::placePick#"const receipt = sealDuelPick("`
--> callseal.sealDuelPick, kind 'duel_pick' in `docs/PROVABLE_CALLS_SPEC.md::#'"kind":"duel_pick"'`)
+-> callseal.sealDuelPick, kind 'duel_pick' in `docs/PROVABLE_CALLS_SPEC.md::#'"v":4,"kind":"duel_pick"'`)
 so it rides into the day's Merkle root — a forecast committed before its
 outcome is known and re-derivable by a third party.
 

@@ -60,18 +60,23 @@ test('v2 field order matches the implementation exactly', () => {
   }
 });
 
-test('v3 field order matches the implementation exactly', () => {
+test('the duel payload\'s field order (v4) matches the implementation exactly', () => {
   const real = keysOf(seal.canonicalDuelPayload({
-    round_id: 1, day: '2026-08-16', symbol: 'BTC/USDT', handle: 'h',
-    pick: 'UP', entry_price: 60000, resolves_at: AT, picked_at: AT,
+    round_id: 1, day: '2026-08-16', kind: 'mover', symbol: 'BTC/USDT', symbol_b: 'ETH/USDT',
+    handle: 'h', pick: 'first', entry_price: 60000, entry_price_b: 3000, resolves_at: AT, picked_at: AT,
   }));
+  assert.equal(JSON.parse(seal.canonicalDuelPayload({ round_id: 1, day: 'd', symbol: 'B', pick: 'UP',
+    entry_price: 1, resolves_at: AT, picked_at: AT })).v, 4);
+  // The v4 document comes first in §2.3, so each key's first occurrence is
+  // v4's; v3, frozen, is documented beneath it.
   const block = SPEC.slice(SPEC.indexOf('### 2.3'), SPEC.indexOf('### 2.4'));
   let cursor = -1;
   for (const k of real) {
     const at = block.indexOf(`"${k}"`);
-    assert.ok(at > cursor, `v3: "${k}" is missing from the spec or out of order`);
+    assert.ok(at > cursor, `v4: "${k}" is missing from the spec or out of order`);
     cursor = at;
   }
+  assert.ok(block.indexOf('"v":4') < block.indexOf('"v":3'), 'v3 is still documented, after v4');
 });
 
 test('no payload carries an outcome field, at any version', () => {

@@ -2849,6 +2849,61 @@ async function ensureSignalColumns() {
   return missing;
 }
 
+// The Daily Duel's categories (2026-10-19) added columns to two tables that
+// every production database already had, so the fast path — which returns
+// before the ALTERs below it — would have left them without a `kind` and
+// without a mover's second price: the net_rr lesson, a third time, caught by
+// test/fast_path_reconciles_every_later_column.test.js before it shipped.
+const REQUIRED_DUEL_ROUND_COLUMNS = Object.freeze({
+  kind: "VARCHAR(12) NOT NULL DEFAULT 'direction'",
+  symbol_b: 'VARCHAR(20) NULL',
+  threshold_pct: 'DOUBLE NULL',
+});
+const REQUIRED_DUEL_PICK_COLUMNS = Object.freeze({
+  entry_price_b: 'DOUBLE NULL',
+  settle_price_b: 'DOUBLE NULL',
+});
+/** `pick` must hold a mover's 'second': the width the categories need. */
+const DUEL_PICK_WIDTH = 8;
+
+async function ensureTableColumns(table, required) {
+  const [rows] = await pool.query({
+    sql: `SELECT COLUMN_NAME AS c FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '${table}'`,
+    timeout: SCHEMA_CHECK_TIMEOUT_MS,
+  });
+  const have = new Set((rows || []).map(
+    (r) => String(r.c || r.COLUMN_NAME || '').toLowerCase()));
+  const missing = Object.keys(required).filter((c) => !have.has(c));
+  if (!missing.length) return [];
+  const additions = missing.map((c) => `ADD COLUMN ${c} ${required[c]}`).join(', ');
+  await pool.query(`ALTER TABLE ${table} ${additions}`);
+  return missing;
+}
+
+/**
+ * Widen duel_picks.pick to DUEL_PICK_WIDTH where it is narrower. The width is
+ * READ first: a MODIFY run blind on every boot is a table rewrite on a
+ * serverless cluster, and an unreadable width is left alone and said so,
+ * never widened on a guess.
+ */
+async function ensureDuelPickWidth() {
+  const [rows] = await pool.query({
+    sql: `SELECT CHARACTER_MAXIMUM_LENGTH AS n FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'duel_picks' AND COLUMN_NAME = 'pick'`,
+    timeout: SCHEMA_CHECK_TIMEOUT_MS,
+  });
+  const row = (rows || [])[0];
+  const n = row == null ? NaN : Number(row.n != null ? row.n : row.CHARACTER_MAXIMUM_LENGTH);
+  if (!Number.isFinite(n)) {
+    console.error('duel_picks.pick width could not be read; not widened');
+    return false;
+  }
+  if (n >= DUEL_PICK_WIDTH) return false;
+  await pool.query(`ALTER TABLE duel_picks MODIFY COLUMN pick VARCHAR(${DUEL_PICK_WIDTH}) NOT NULL`);
+  return true;
+}
+
 /**
  * Which way migrate() goes: 'fast' (every table is there), 'ddl' (the database
  * answered and something is missing), or a throw (it did not answer: this
@@ -2956,6 +3011,11 @@ async function migrate() {
       if (added.length) console.log(`Signals schema reconciled: ${added.join(', ')}`);
       const addedUsers = await ensureUserColumns();
       if (addedUsers.length) console.log(`Users schema reconciled: ${addedUsers.join(', ')}`);
+      const addedRounds = await ensureTableColumns('duel_rounds', REQUIRED_DUEL_ROUND_COLUMNS);
+      if (addedRounds.length) console.log(`Duel rounds schema reconciled: ${addedRounds.join(', ')}`);
+      const addedPicks = await ensureTableColumns('duel_picks', REQUIRED_DUEL_PICK_COLUMNS);
+      if (addedPicks.length) console.log(`Duel picks schema reconciled: ${addedPicks.join(', ')}`);
+      if (await ensureDuelPickWidth()) console.log(`Duel picks schema reconciled: pick widened to ${DUEL_PICK_WIDTH}`);
       console.log('Schema already current — skipping full DDL');
       return 'fast';
     }
@@ -3964,13 +4024,16 @@ async function migrate() {
     // already exists is the expected refusal (ER_DUP_FIELDNAME) and is
     // ignored, anything else is logged by class and code so a migration that
     // did not land is visible at boot rather than at the first 'second' call.
+    // Spelled out, not derived from the REQUIRED_DUEL_* lists above: the
+    // fast-path test reads these statements as text and holds the two lists
+    // to them both ways, which a template it cannot read would defeat.
     for (const sql of [
       "ALTER TABLE duel_rounds ADD COLUMN kind VARCHAR(12) NOT NULL DEFAULT 'direction'",
       'ALTER TABLE duel_rounds ADD COLUMN symbol_b VARCHAR(20) NULL',
       'ALTER TABLE duel_rounds ADD COLUMN threshold_pct DOUBLE NULL',
       'ALTER TABLE duel_picks ADD COLUMN entry_price_b DOUBLE NULL',
       'ALTER TABLE duel_picks ADD COLUMN settle_price_b DOUBLE NULL',
-      'ALTER TABLE duel_picks MODIFY COLUMN pick VARCHAR(8) NOT NULL',
+      `ALTER TABLE duel_picks MODIFY COLUMN pick VARCHAR(${DUEL_PICK_WIDTH}) NOT NULL`,
     ]) {
       try {
         await pool.execute(sql);
@@ -4071,7 +4134,8 @@ async function withTransaction(fn) {
 
 module.exports = {
   pool, migrate, lastStatement, describeSql, backend, withTransaction,
-  EXPECTED_TABLES, REQUIRED_SIGNAL_COLUMNS, REQUIRED_USER_COLUMNS, schemaIsCurrent, schemaPath,
+  EXPECTED_TABLES, REQUIRED_SIGNAL_COLUMNS, REQUIRED_USER_COLUMNS,
+  REQUIRED_DUEL_ROUND_COLUMNS, REQUIRED_DUEL_PICK_COLUMNS, DUEL_PICK_WIDTH, schemaIsCurrent, schemaPath,
   ensureSignalColumns, ensureUserColumns, _resetSchemaPath, UNREADABLE_CHECKS_BEFORE_DDL, ensureVenueStatusTable,
   // Exported for tests. The URL it normalises is the one thing in this process
   // that cannot be exercised end-to-end without a live database, so the string
