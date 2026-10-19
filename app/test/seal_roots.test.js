@@ -97,10 +97,28 @@ test('a completed day folds all sealed surfaces into ONE immutable root', async 
     trade_key: 'arena:bbbbbbbbbbbbbbbbbb', seal: tradeSeal, seal_payload: '{}',
     sealed_at: yesterday, opened_at: yesterday, closed_at: new Date() });
 
-  expectedLeaves = canonicalLeaves([s1.seal, s2.seal, posSeal, tradeSeal]);
+  // The Daily Duel's three seals (v6 round, v4 call, v7 settlement), each on
+  // the day it was minted: a round dealt yesterday, a call made yesterday whose
+  // settlement was written TODAY (that leaf must stay out), and a settlement
+  // written yesterday for a call made the day before (that leaf folds in).
+  const roundSeal = H('duel-round-seal'), callSeal = H('duel-call-seal');
+  const lateSettle = H('duel-settle-today'), yesterdaysSettle = H('duel-settle-yesterday');
+  pool.duelRounds.push({ id: 9201, day: yDay, idx: 0, kind: 'direction', symbol: 'BTCUSDT', agent_direction: 'long',
+    seal: roundSeal, seal_payload: '{}', created_at: yesterday.toISOString() });
+  pool.duelPicks.push(
+    { id: 9301, user_id: 93, round_id: 9201, pick: 'long', entry_price: 1, resolves_at: new Date().toISOString(),
+      settle_price: 2, settle_state: 'settled', settled_at: new Date().toISOString(),
+      seal: callSeal, seal_payload: '{}', settle_seal: lateSettle, settle_payload: '{}', created_at: yesterday.toISOString() },
+    { id: 9302, user_id: 93, round_id: 9200, pick: 'short', entry_price: 1, resolves_at: yesterday.toISOString(),
+      settle_price: 2, settle_state: 'settled', settled_at: yesterday.toISOString(),
+      seal: H('duel-call-day-before'), seal_payload: '{}', settle_seal: yesterdaysSettle, settle_payload: '{}',
+      created_at: new Date(yesterday.getTime() - 86400000).toISOString() });
+
+  expectedLeaves = canonicalLeaves([s1.seal, s2.seal, posSeal, tradeSeal, roundSeal, callSeal, yesterdaysSettle]);
   const row = await roots.rootForDay(yDay);
   assert.ok(row, 'the completed day has a root');
-  assert.equal(row.seal_count, 4, 'signals + arena position + arena trade; today and legacy excluded');
+  assert.equal(row.seal_count, 7, 'signals + arena position + arena trade + duel round + duel call + duel settlement; today and legacy excluded');
+  assert.ok(!JSON.parse(row.leaves).includes(lateSettle), 'a settlement written today is not in yesterday\'s root');
   assert.equal(row.root, merkleRoot(expectedLeaves));
   // Immutable: asking again returns the SAME stored row even if data changed.
   pool.signals.push({ ...sig('sig:root:late'), id: 9005, status: 'NEW', pnl: null, sealed_at: yesterday });

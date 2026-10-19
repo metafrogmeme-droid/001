@@ -27016,3 +27016,40 @@ link inside a worktree is a thing `git add -A` will commit.
 `app/test/miniapp_arena.test.js`,
 `app/test/the_pi_app_is_the_arena_and_nothing_else.test.js`,
 `app/test/cache_buster_ratchet.test.js`, `app/test/i18n.test.js`.)
+
+**THE DUEL BECAME PROVABLE END TO END: THE ROUND SEALED AS DEALT, THE
+SETTLEMENT SEALED AS WRITTEN, BOTH IN THE DAILY ROOT.** 19 October, the
+owner: "can we also seal it in hashes the duel and predictions outcomes?"
+A call had been sealed since v3; the two ends of it had not. The round's
+rule, that the agent's own call is hidden until the player commits, was a
+promise about the server, and the outcome was a row anyone with the
+database could rewrite. Now the round is sealed when the card is dealt,
+stance INCLUDED, behind a sixteen-hex nonce so a three-way stance is not
+a three-guess secret (Provable Calls v6, `canonicalDuelRoundPayload`), and
+the hash is on the card from the first read; the payload opens for the
+player who has called that round and for everyone when the round's day
+ends, so sha256(payload) === the hash they saw proves the stance was fixed
+before they called. The settlement gets a receipt of its own (v7,
+`canonicalDuelSettlePayload`) naming the call seal it settles and the
+round seal the call was made under: prices or the score, the outcome in
+the category's words, the verdict and the marks. An UNRESOLVED settlement
+is sealed too, null prices and all: "we could not price it" is the dated
+fact a later rewrite would most like to lose. The three are served by seal
+(`/api/call/round:…`, `duel:…`, `settle:…`, `app/lib/duel_receipts.js`),
+quoted on every card (linked on the website, quoted only in the Pi app,
+which links nowhere on the site), and folded into the daily Merkle roots
+on the day each was minted.
+
+Two rules held against the spec's own letter. Rule 2, "a payload carries
+no outcome field", was written for call receipts; a settlement receipt
+carries the outcome BY DEFINITION, so the rule now says what it meant
+(a call's payload; outcomes are sealed only in a settlement receipt that
+names the call), and the conformance test checks both halves. And the
+card's own JSON never carries a round's payload, even for a range round
+that hides nothing: the pre-pick wire test forbids the string
+`agent_direction` anywhere in it, and a payload would have carried the key
+with a null. The payload lives on the receipt, where the viewer is known.
+(`app/test/duel_routes.test.js`, `app/test/provable_calls_spec.test.js`,
+`app/test/seal_roots.test.js`, `app/test/duel_scenarios.test.js`,
+`app/test/the_pi_app_signs_in_with_pi.smoke.test.js`,
+`app/test/the_duel_page_says_when_the_feed_failed.smoke.test.js`.)

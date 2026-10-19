@@ -208,16 +208,21 @@ function sameAfterStorage(key, sealed, live) {
       // false accusation. The seal is shown so it can be checked once revealed.
       if (d.locked === true) {
         var lc = d.current || {};
+        var isRound = d.kind === 'duel_round';
         out.innerHTML = '<div class="verdict">'
-          + '<div class="big">🔏 Sealed — revealed when the call resolves</div>'
+          + '<div class="big">' + (isRound ? '🔏 Sealed when dealt — opens when the round’s day ends' : '🔏 Sealed — revealed when the call resolves') + '</div>'
           + esc(d.note || 'Live calls are for signed-in members.') + '</div>'
           + '<div class="kv">'
-          + '<span class="k">Market</span><span>' + esc(lc.symbol || '—') + '</span>'
+          + '<span class="k">' + (isRound ? 'Round' : 'Market') + '</span><span>' + esc(lc.symbol || '—') + (isRound && lc.category ? ' · ' + esc(lc.category) : '') + '</span>'
           + '<span class="k">Sealed at</span><span>' + esc(d.sealed_at || '') + '</span>'
-          + '<span class="k">Status</span><span>' + esc((d.outcome && d.outcome.status) || 'live') + '</span>'
+          + (isRound
+            ? '<span class="k">Opens at</span><span>' + esc(d.opens_at || '') + '</span>'
+            : '<span class="k">Status</span><span>' + esc((d.outcome && d.outcome.status) || 'live') + '</span>')
           + '</div>'
           + '<div style="margin-top:var(--s3)"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Seal (SHA-256)</div><div class="hash">' + esc(d.seal) + '</div></div>'
-          + '<p style="margin-top:var(--s3)"><a class="btn" href="/">Sign in to see the trade</a></p>';
+          + (isRound
+            ? '<p style="margin-top:var(--s3)" class="muted">A player who has called this round sees its payload now, signed in, on /duel.</p>'
+            : '<p style="margin-top:var(--s3)"><a class="btn" href="/">Sign in to see the trade</a></p>');
         appendAnchor(d);
         return;
       }
@@ -228,6 +233,60 @@ function sameAfterStorage(key, sealed, live) {
         var html = '<div class="verdict ' + (intact ? 'ok' : 'bad') + '">'
           + '<div class="big">' + (intact ? '✅ Seal verified in your browser' : '✖ HASH MISMATCH — this receipt is not intact') + '</div>'
           + 'sha256(sealed payload) ' + (intact ? '=' : '≠') + ' stored seal</div>';
+        if (p && (p.kind === 'duel_round' || p.kind === 'duel_pick' || p.kind === 'duel_settle')) {
+          // Provable Calls v6 / v4 / v7 — the Daily Duel's chain: the round as
+          // dealt (stance included), the call, the settlement. §4: prices, a
+          // score, states and counts; never an amount.
+          var val = function (x) { return (x === null || x === undefined) ? '—' : String(x); };
+          var row = function (k, v) { return '<span class="k">' + esc(k) + '</span><span>' + v + '</span>'; };
+          var link = function (rel) { return rel && rel.key ? '<a href="/call/' + esc(rel.key) + '">' + esc(rel.key.slice(0, 14)) + '…</a>' : '—'; };
+          var title = p.kind === 'duel_round' ? 'Daily Duel · round as dealt'
+            : p.kind === 'duel_pick' ? 'Daily Duel · call' : 'Daily Duel · settlement';
+          var market = p.match ? esc(val(p.match.home)) + ' vs ' + esc(val(p.match.away))
+            : esc(val(p.symbol)) + (p.symbol_b ? ' vs ' + esc(p.symbol_b) : '');
+          html += '<div class="kv">' + row('Receipt', esc(title));
+          if (p.kind === 'duel_round') {
+            html += row('Round', market + ' · ' + esc(val(p.category)) + ' · ' + esc(val(p.day)) + ' #' + esc(val(p.idx)))
+              + row('Claw’s call', p.agent_direction === null ? '<span class="muted">none on this round</span>' : '<b>' + esc(String(p.agent_direction).toUpperCase()) + '</b> — sealed before anyone called')
+              + (p.threshold_pct != null ? row('Band', '±' + esc(p.threshold_pct) + '%') : '')
+              + (p.match && p.match.kickoff ? row('Kick-off', esc(p.match.kickoff)) : '')
+              + row('Dealt at', esc(val(p.dealt_at)));
+          } else if (p.kind === 'duel_pick') {
+            html += row('Call', '<b>' + esc(String(p.pick).toUpperCase()) + '</b> on ' + market + ' · ' + esc(val(p.category)) + ' · ' + esc(val(p.day)))
+              + row('Player', p.handle ? esc(p.handle) : '<span class="muted">anonymous at the call</span>')
+              + row('Entry', p.entry_price === null ? '<span class="muted">none — settled on a score</span>' : esc(val(p.entry_price)) + (p.entry_price_b != null ? ' / ' + esc(p.entry_price_b) : ''))
+              + row('Resolves at', esc(val(p.resolves_at)))
+              + row('Called at', esc(val(p.picked_at)))
+              + row('Round receipt', link(d.round))
+              + row('Settlement', d.settlement ? link(d.settlement) + ' · ' + esc(d.settlement.state || '') : '<span class="muted">none yet — the call is still running</span>');
+          } else {
+            html += row('Settles', '<b>' + esc(String(p.pick).toUpperCase()) + '</b> · ' + esc(val(p.category)))
+              + row('State', esc(val(p.settle_state)))
+              + row(p.category === 'sports' ? 'Final score' : 'Close', p.settle_price === null ? '<span class="muted">none — unresolved</span>'
+                : esc(val(p.settle_price)) + (p.settle_price_b != null ? (p.category === 'sports' ? '–' : ' / ') + esc(p.settle_price_b) : ''))
+              + row('Outcome', esc(val(p.outcome)))
+              + row('Verdict', '<b>' + esc(val(p.result)) + '</b>' + (p.marks != null ? ' · ' + esc(p.marks) + ' mark' + (p.marks === 1 ? '' : 's') : ''))
+              + row('Settled at', esc(val(p.settled_at)))
+              + row('Call receipt', link(d.call))
+              + row('Round receipt', link(d.round));
+          }
+          html += row('Sealed at', esc(d.sealed_at || '')) + '</div>';
+          // Drift check: the live row must still say what was sealed.
+          var dc = d.current || {};
+          var drifted = [];
+          Object.keys(dc).forEach(function (k) {
+            if (!(k in p)) return;
+            if (!sameAfterStorage(k, p[k], dc[k])) drifted.push(k + ': sealed ' + val(p[k]) + ' → now ' + val(dc[k]));
+          });
+          if (drifted.length) {
+            html += '<div class="drift">⚠️ The live record DIFFERS from what was sealed: ' + esc(drifted.join(' · ')) + '</div>';
+          }
+          html += '<div style="margin-top:var(--s3)"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Seal (SHA-256)</div><div class="hash">' + esc(d.seal) + '</div></div>';
+          html += '<div style="margin-top:8px"><div class="k muted" style="font-size:var(--fs-xs);margin-bottom:4px">Sealed payload (hash this yourself)</div><div class="hash">' + esc(d.seal_payload) + '</div></div>';
+          out.innerHTML = html;
+          appendAnchor(d);
+          return;
+        }
         if (p && p.kind === 'arena_trade') {
           // Provable Calls v2 — an Arena paper trade sealed at OPEN time.
           // §4: prices, leverage, percent and times only — no amounts.
@@ -362,7 +421,7 @@ function sameAfterStorage(key, sealed, live) {
     .catch(function () { fail('The verify feed is unavailable right now — try again shortly.'); });
 })();
 </script>
-<script src="/js/i18n-core.js?v=187"></script>
+<script src="/js/i18n-core.js?v=188"></script>
 <script src="/js/presale.js?v=2"></script>
   <script>
   (function () {

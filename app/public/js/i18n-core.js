@@ -2011,6 +2011,9 @@
     "duel.you": { en: "You" },
     "duel.claw": { en: "Claw" },
     "duel.called_n": { en: "{n} of {m} called" },
+    "duel.rc_call": { en: "Receipt {h}" },
+    "duel.rc_settle": { en: "Settlement {h}" },
+    "duel.rc_round": { en: "Dealt sealed {h}" },
     "duel.closed": { en: "This round has closed." },
     "duel.disc": { en: "A duel has no stake and moves no money — counts and percentages only, recomputed from your own calls on every read. An unresolved round is one we could not price; it counts for neither side and is never shown as a loss. Education and practice, not investment advice." },
     "duel.share": { en: "Share your record" },
@@ -2305,7 +2308,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"dbc4d19e","zh":"8d7c0634","pt":"46ff7c4c","fr":"78a0877f","de":"2d64d137","nl":"3aef5164","ja":"851768d2","ko":"1fbddd9e","ru":"3b9019c1","tr":"24b03c2e","it":"73cfed25","hi":"c3479381","ar":"e626e03b"};
+  var CHUNKS = {"es":"861a855c","zh":"606f8878","pt":"6696acd1","fr":"8994a317","de":"0975ba7b","nl":"9ad499d2","ja":"3c35074d","ko":"d484f0d3","ru":"53efcd58","tr":"d3e94c82","it":"f25de5f3","hi":"9697348d","ar":"91dafb35"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

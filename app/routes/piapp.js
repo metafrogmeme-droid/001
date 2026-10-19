@@ -120,8 +120,8 @@ const SCRIPTS = [
   '/js/signal-status-model.js?v=4',
   '/js/pi-signals.js?v=4',
   // The Daily Duel: the website's round renderer, then the block.
-  '/js/duel.js?v=4',
-  '/js/pi-duel.js?v=2',
+  '/js/duel.js?v=5',
+  '/js/pi-duel.js?v=3',
   '/js/pi-arena.js?v=3',
 ];
 
@@ -134,7 +134,7 @@ function page() {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RUNECLAW Arena</title>
 ${head}
-<link rel="stylesheet" href="/embed.css?v=11">
+<link rel="stylesheet" href="/embed.css?v=12">
 </head><body class="e-arena m-app">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}

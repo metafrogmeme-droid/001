@@ -15,7 +15,7 @@
 const { pool } = require('../db');
 const { getTickers } = require('./tickers');
 const { closeAt } = require('./candles');
-const { sealDuelPick } = require('./callseal');
+const { sealDuelPick, sealDuelRound, sealDuelSettle, newRoundNonce } = require('./callseal');
 const duel = require('./duel');
 const sportsFeed = require('./sports_feed');
 
@@ -31,9 +31,10 @@ const SETTLE_BATCH = 6;
 // deck). A reader with its own list reads the categories' columns as absent,
 // and an absent `kind` is a classic round, so every mover and range round
 // would be scored as a LONG/SHORT call there.
-const ROUND_COLS = 'id, day, idx, kind, symbol, symbol_b, threshold_pct, agent_direction, signal_key, meta';
+const ROUND_COLS = 'id, day, idx, kind, symbol, symbol_b, threshold_pct, agent_direction, signal_key, meta,'
+  + ' seal, seal_payload, created_at';
 const PICK_COLS = 'id, round_id, pick, entry_price, entry_price_b, resolves_at, settle_price, '
-  + 'settle_price_b, settle_state, seal, created_at';
+  + 'settle_price_b, settle_state, settled_at, seal, seal_payload, settle_seal, settle_payload, created_at';
 
 function dayFloor(now, days) {
   return new Date(new Date(now).getTime() - days * 86400000).toISOString().slice(0, 10);
@@ -136,12 +137,22 @@ async function ensureRounds(day, now = new Date()) {
     throw err;
   }
 
+  const dealt_at = new Date(now).toISOString();
   for (const r of built) {
+    // Provable Calls v6: the round is sealed as dealt, stance included, and
+    // the hash is on the card before anyone can call (lib/callseal.js).
+    const m = r.meta && r.kind === 'sports' ? r.meta : null;
+    const receipt = sealDuelRound({
+      day: r.day, idx: r.idx, kind: r.kind, symbol: r.symbol, symbol_b: r.symbol_b,
+      threshold_pct: r.threshold_pct, agent_direction: r.agent_direction,
+      match: m ? { event_id: m.event_id, home: m.home, away: m.away, kickoff: m.kickoff } : null,
+      nonce: newRoundNonce(), dealt_at,
+    });
     await pool.execute(
       'INSERT IGNORE INTO duel_rounds (day, idx, kind, symbol, symbol_b, threshold_pct,'
-      + ' agent_direction, signal_key, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      + ' agent_direction, signal_key, meta, seal, seal_payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [r.day, r.idx, r.kind, r.symbol, r.symbol_b, r.threshold_pct, r.agent_direction, r.signal_key,
-        r.meta == null ? null : JSON.stringify(r.meta)]);
+        r.meta == null ? null : JSON.stringify(r.meta), receipt.seal, receipt.seal_payload, dealt_at]);
   }
   return loadRoundsForDay(day);
 }
@@ -179,20 +190,10 @@ async function settleDue(rounds, picks, now = new Date()) {
         score = null;
       }
       if (score) {
-        await pool.execute(
-          'UPDATE duel_picks SET settle_price = ?, settle_price_b = ?, settle_state = ?, settled_at = ?'
-          + ' WHERE id = ?',
-          [score.home, score.away, 'settled', new Date(now).toISOString(), p.id]);
-        p.settle_price = score.home;
-        p.settle_price_b = score.away;
-        p.settle_state = 'settled';
+        await writeSettlement(round, p, 'settled', score.home, score.away, now);
         settled++;
       } else if (duel.isAbandoned(p, now)) {
-        await pool.execute(
-          'UPDATE duel_picks SET settle_price = ?, settle_price_b = ?, settle_state = ?, settled_at = ?'
-          + ' WHERE id = ?',
-          [null, null, 'unresolved', new Date(now).toISOString(), p.id]);
-        p.settle_state = 'unresolved';
+        await writeSettlement(round, p, 'unresolved', null, null, now);
       }
       continue;
     }
@@ -205,23 +206,52 @@ async function settleDue(rounds, picks, now = new Date()) {
     const closeB = (mover && close != null && round.symbol_b && Number.isFinite(at))
       ? await closeAt(round.symbol_b, at) : null;
     if (close != null && (!mover || closeB != null)) {
-      await pool.execute(
-        'UPDATE duel_picks SET settle_price = ?, settle_price_b = ?, settle_state = ?, settled_at = ?'
-        + ' WHERE id = ?',
-        [close, mover ? closeB : null, 'settled', new Date(now).toISOString(), p.id]);
-      p.settle_price = close;
-      p.settle_price_b = mover ? closeB : null;
-      p.settle_state = 'settled';
+      await writeSettlement(round, p, 'settled', close, mover ? closeB : null, now);
       settled++;
     } else if (duel.isAbandoned(p, now)) {
-      await pool.execute(
-        'UPDATE duel_picks SET settle_price = ?, settle_price_b = ?, settle_state = ?, settled_at = ?'
-        + ' WHERE id = ?',
-        [null, null, 'unresolved', new Date(now).toISOString(), p.id]);
-      p.settle_state = 'unresolved';
+      await writeSettlement(round, p, 'unresolved', null, null, now);
     }
   }
   return settled;
+}
+
+/**
+ * One settlement, written with its own receipt (Provable Calls v7). The
+ * receipt names the call seal it settles and the round seal the call was
+ * made under, carries the prices (or the score) and the verdict the rules
+ * give them, and is folded into its day's root like every other seal. An
+ * unresolved settlement is sealed too: null prices and 'unresolved' are the
+ * facts, and a receipt for "we could not price it" is the one a later
+ * rewrite would most like to lose. A pick whose round is not loaded cannot
+ * be scored and is written without a receipt rather than with a wrong one.
+ */
+async function writeSettlement(round, p, state, close, closeB, now) {
+  const settled_at = new Date(now).toISOString();
+  let seal = null;
+  let payload = null;
+  if (round) {
+    const kind = duel.kindOf(round);
+    const outcome = state === 'settled'
+      ? duel.callOutcome(round, { ...p, settle_price: close, settle_price_b: closeB }) : null;
+    const res = duel.scoreCall(kind, p.pick, outcome, round.agent_direction);
+    const receipt = sealDuelSettle({
+      round_id: round.id, call_seal: p.seal, round_seal: round.seal, kind, pick: p.pick,
+      settle_state: state, settle_price: close, settle_price_b: closeB,
+      outcome, result: res.state, marks: res.marks, settled_at,
+    });
+    seal = receipt.seal;
+    payload = receipt.seal_payload;
+  }
+  await pool.execute(
+    'UPDATE duel_picks SET settle_price = ?, settle_price_b = ?, settle_state = ?, settled_at = ?,'
+    + ' settle_seal = ?, settle_payload = ? WHERE id = ?',
+    [close, closeB, state, settled_at, seal, payload, p.id]);
+  p.settle_price = close;
+  p.settle_price_b = closeB;
+  p.settle_state = state;
+  p.settled_at = settled_at;
+  p.settle_seal = seal;
+  p.settle_payload = payload;
 }
 
 async function handleFor(userId) {
@@ -403,7 +433,7 @@ async function recordFor(userId, now = new Date()) {
 
 module.exports = {
   RECORD_WINDOW_DAYS, SETTLE_BATCH, ROUND_COLS, PICK_COLS,
-  dayFloor, parseRound, loadRoundsForDay, loadRoundsSince, loadPicks, sportsStateFor,
+  dayFloor, parseRound, loadRoundsForDay, loadRoundsSince, loadPicks, sportsStateFor, writeSettlement,
   ensureRounds, settleDue, handleFor, placePick, cardFor, recordFor,
   _resetSportsState: () => sportsStateByDay.clear(),
 };

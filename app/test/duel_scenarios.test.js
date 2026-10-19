@@ -367,3 +367,42 @@ test('the Claw’s pill sits beside yours only where there was a stance to revea
   assert.equal(D.pickIcon('long'), '▲');
   assert.equal(D.pickIcon('home'), '', 'a team name needs no glyph');
 });
+
+// ── the provable duel (2026-10-19): receipts on the card ──────────────────
+
+test('a called round quotes its receipts; the website links them, the Pi app only quotes them', () => {
+  const a = 'a'.repeat(64), b = 'b'.repeat(64), c = 'c'.repeat(64);
+  const round = { id: 1, symbol: 'BTCUSDT', callable: true, agent_direction: 'short', seal: a,
+    my_call: { pick: 'long', pending: true, seal: b, settle_seal: null },
+    my_result: { state: 'unresolved', marks: 0, beat_agent: false } };
+  const quoted = D.roundCard(round);
+  say(quoted, ['d-receipts', 'Receipt bbbbbbbb…', 'Dealt sealed aaaaaaaa…', 'title="' + b + '"'], ['href=', 'Settlement']);
+  const linked = D.roundCard(round, null, null, { links: true });
+  say(linked, ['href="/call/duel:' + b + '"', 'href="/call/round:' + a + '"'], ['href="/call/settle:']);
+  // Settled: the settlement's receipt joins the line.
+  const settled = D.roundCard({ ...round, my_call: { pick: 'long', outcome: 'up', move_pct: 2, seal: b, settle_seal: c },
+    my_result: { state: 'correct', marks: 1, beat_agent: false } }, null, null, { links: true });
+  say(settled, ['Settlement cccccccc…', 'href="/call/settle:' + c + '"']);
+  // A round dealt before the seals, or a call without one, quotes nothing and invents nothing.
+  say(D.roundCard({ id: 2, symbol: 'ETHUSDT', callable: true, agent_direction: 'long',
+    my_call: { pick: 'long', pending: true }, my_result: { state: 'unresolved', marks: 0, beat_agent: false } }),
+  ['d-pill--you'], ['d-receipts', 'Receipt', 'Dealt sealed']);
+  assert.strictEqual(D.shortSeal('nothex'), null);
+  assert.equal(D.shortSeal(a), 'aaaaaaaa…');
+});
+
+test('an open classic round shows the commitment beside the hidden stance; a range round does not', () => {
+  const a = 'a'.repeat(64);
+  const open = D.roundCard({ id: 1, symbol: 'BTCUSDT', callable: true, seal: a });
+  say(open, ['Hidden until you call', 'Dealt sealed aaaaaaaa…', 'd-receipts--inline'], ['href=']);
+  const openLinked = D.roundCard({ id: 1, symbol: 'BTCUSDT', callable: true, seal: a }, null, null, { links: true });
+  say(openLinked, ['href="/call/round:' + a + '"']);
+  const range = D.roundCard({ id: 3, kind: 'range', symbol: 'BNBUSDT', callable: true, threshold_pct: 2, seal: a, options: ['break', 'hold', 'pass'] });
+  say(range, ['BREAKS ±2%'], ['Dealt sealed', 'd-receipts']);
+  const t = (k, en) => 'XX' + k + '|' + en;
+  assert.ok(D.roundCard({ id: 1, symbol: 'BTCUSDT', callable: true, seal: a }, t).includes('XXduel.rc_round|'));
+  const i18n = require('../public/js/i18n.js');
+  for (const k of ['duel.rc_call', 'duel.rc_settle', 'duel.rc_round']) {
+    for (const l of i18n.LANGS) assert.ok(i18n.STRINGS[k] && i18n.STRINGS[k][l.code], `${k} is missing ${l.code}`);
+  }
+});

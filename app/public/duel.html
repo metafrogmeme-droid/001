@@ -70,6 +70,10 @@
   .d-bi { margin-right: 6px; color: var(--text-3); }
   .d-btn--long .d-bi { color: var(--up); } .d-btn--short .d-bi { color: var(--down); }
   .d-called { display: flex; flex-direction: column; gap: 6px; }
+  .d-receipts { display: flex; gap: 10px; flex-wrap: wrap; font-family: var(--font-data); font-size: 11px; color: var(--text-3); }
+  .d-receipts--inline { display: inline-flex; margin-left: 6px; }
+  .d-rc { color: var(--text-3); text-decoration: none; border-bottom: 1px dotted var(--line-2); }
+  a.d-rc:hover { color: var(--gold-bright); border-bottom-color: var(--gold-bright); }
   .d-mycall { font-family: var(--font-data); font-size: var(--fs-sm); color: var(--text-1); }
   .d-state { font-size: var(--fs-sm); }
   .d-note { font-size: var(--fs-xs); color: var(--text-3); line-height: 1.5; }
@@ -135,9 +139,9 @@
 </div>
 
 <script src="/js/api-retry.js?v=3"></script>
-<script src="/js/i18n-core.js?v=187"></script>
+<script src="/js/i18n-core.js?v=188"></script>
 <script src="/js/presale.js?v=2"></script>
-<script src="/js/duel.js?v=4"></script>
+<script src="/js/duel.js?v=5"></script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -179,7 +183,8 @@
   function drawCard(data) {
     $('rounds').innerHTML = (data.rounds || []).map(function (r) {
       // The horizon is the card's, and every question names it.
-      return D.roundCard(Object.assign({ horizon_hours: data.horizon_hours }, r), T);
+      // The website may link a receipt to its verify page; the Pi app may not.
+      return D.roundCard(Object.assign({ horizon_hours: data.horizon_hours }, r), T, undefined, { links: true });
     }).join('');
     // Only a feed that FAILED is reported; a day with no match says nothing.
     $('sportsNote').hidden = !(data.sources && data.sources.sports === 'unreadable');

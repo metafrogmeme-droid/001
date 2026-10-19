@@ -306,8 +306,28 @@
    * on a back/fade round the stance is in the question, and a range or a
    * mover round never had one.
    */
-  function roundCard(round, t, now) {
+  /** The first eight characters of a seal, the way a reader quotes one. */
+  function shortSeal(seal) {
+    return /^[0-9a-f]{64}$/.test(String(seal || '')) ? String(seal).slice(0, 8) + '…' : null;
+  }
+
+  /**
+   * One receipt mention: the kind's word and the seal's first characters.
+   * `links` only on the website: the Pi app links nowhere on the site, so
+   * there the hash is quoted and the receipt is looked up on the web.
+   */
+  function receiptHtml(key, seal, text, links) {
+    const short = shortSeal(seal);
+    if (!short) return '';
+    const label = esc(text.replace('{h}', short));
+    return links
+      ? '<a class="d-rc" href="/call/' + esc(key) + ':' + esc(seal) + '" title="' + esc(seal) + '">' + label + '</a>'
+      : '<span class="d-rc" title="' + esc(seal) + '">' + label + '</span>';
+  }
+
+  function roundCard(round, t, now, opts) {
     const tr = t || IDENT;
+    const links = Boolean(opts && opts.links);
     const r = round || {};
     const kind = r.kind == null ? 'direction' : r.kind;
     const mine = r.my_call
@@ -340,10 +360,18 @@
       // a classic round after the call, a back/fade round always.
       const claw = (kind === 'direction' || kind === 'backfade') && ('agent_direction' in r)
         ? pill('d-pill--claw', tr('duel.claw', 'Claw'), clawWord(r)) : '';
+      // Provable Calls: the call's receipt, the settlement's once there is
+      // one, and the round's own seal, dealt before anyone called.
+      const receipts = [
+        receiptHtml('duel', r.my_call.seal, tr('duel.rc_call', 'Receipt {h}'), links),
+        receiptHtml('settle', r.my_call.settle_seal, tr('duel.rc_settle', 'Settlement {h}'), links),
+        receiptHtml('round', r.seal, tr('duel.rc_round', 'Dealt sealed {h}'), links),
+      ].filter(Boolean);
       body = '<div class="d-called">'
         + '<div class="d-pills">' + pill('d-pill--you', tr('duel.you', 'You'), pickLabel(r.my_call.pick, r, tr)) + claw + '</div>'
         + (mine.note ? '<span class="d-note">' + esc(mine.note) + '</span>' : '')
         + scoreNote
+        + (receipts.length ? '<div class="d-receipts">' + receipts.join('') + '</div>' : '')
         + '</div>';
     } else if (r.callable && options.length) {
       is = 'open';
@@ -376,8 +404,12 @@
     // The stance line stays on an uncalled classic round: it is the promise
     // the question used to carry ("shown once you commit"), now beside the
     // Claw's name where the pill will appear.
+    // On an open classic round the commitment sits beside the hidden stance:
+    // the hash was fixed when the card was dealt, and opens once you call.
+    const dealt = kind === 'direction' && !mine ? receiptHtml('round', r.seal, tr('duel.rc_round', 'Dealt sealed {h}'), links) : '';
     const stance = kind === 'direction' && !mine
-      ? '<span class="d-agent"><small class="d-pill-k">' + esc(tr('duel.claw', 'Claw')) + '</small>' + esc(agentLabel(r, tr).text) + '</span>' : '';
+      ? '<span class="d-agent"><small class="d-pill-k">' + esc(tr('duel.claw', 'Claw')) + '</small>' + esc(agentLabel(r, tr).text)
+        + (dealt ? ' <span class="d-receipts d-receipts--inline">' + dealt + '</span>' : '') + '</span>' : '';
     return '<article class="d-round d-round--' + esc(kind) + ' d-round--' + esc(is) + '">'
       + '<header class="d-round-h">'
       + '<span class="d-kind d-kind--' + esc(known ? kind : 'unknown') + '"><span class="d-icon">' + kindIcon(known ? kind : null) + '</span>' + esc(kindLabel(kind, tr)) + '</span>'
@@ -390,5 +422,5 @@
       + '</article>';
   }
 
-  return { esc, base, KNOWN_KINDS, callState, timeLeftText, kindIcon, pickIcon, accuracyLabel, marksLabel, agentLabel, kindLabel, questionText, pickLabel, bandText, kickoffText, teamText, roundCard };
+  return { esc, base, KNOWN_KINDS, callState, timeLeftText, kindIcon, pickIcon, shortSeal, receiptHtml, accuracyLabel, marksLabel, agentLabel, kindLabel, questionText, pickLabel, bandText, kickoffText, teamText, roundCard };
 }));

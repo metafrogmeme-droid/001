@@ -509,6 +509,10 @@ html, body {
 .p-duel .d-pill--you { border-color: var(--e-accent); }
 .p-duel .d-pill--you .d-pill-k { color: var(--e-accent); }
 .p-duel .d-note { font-size: 11.5px; color: var(--e-text-3); line-height: 1.45; }
+/* Receipts: the hash is quoted, never linked (the app links nowhere on the site). */
+.p-duel .d-receipts { display: flex; gap: 10px; flex-wrap: wrap; font-size: 10.5px; color: var(--e-text-3); font-variant-numeric: tabular-nums; }
+.p-duel .d-receipts--inline { display: inline-flex; margin-left: 6px; }
+.p-duel .d-rc { color: var(--e-text-3); border-bottom: 1px dotted var(--e-line-2); }
 .p-duel .tone-up { color: var(--e-up); }
 .p-duel .tone-down { color: var(--e-down); }
 .p-duel .tone-muted { color: var(--e-text-3); }

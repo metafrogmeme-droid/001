@@ -110,7 +110,7 @@ const ORDER = { orderId: 'order-from-server', amount: 3, memo: 'Support RUNECLAW
 // Today's duel card as /api/duel/today sends it: one round of each category,
 // the classic one uncalled, and the record as /api/duel/me sends it.
 const DUEL_CARD = { day: '2026-10-19', horizon_hours: 24, open: 4, counts_only: true, rounds: [
-  { id: 11, day: '2026-10-19', idx: 0, kind: 'direction', symbol: 'BTCUSDT', options: ['long', 'short', 'pass'], callable: true },
+  { id: 11, day: '2026-10-19', idx: 0, kind: 'direction', symbol: 'BTCUSDT', options: ['long', 'short', 'pass'], callable: true, seal: 'a'.repeat(64) },
   { id: 12, day: '2026-10-19', idx: 3, kind: 'backfade', symbol: 'SOLUSDT', options: ['back', 'fade', 'pass'], callable: true, agent_direction: 'short' },
   { id: 13, day: '2026-10-19', idx: 4, kind: 'range', symbol: 'BNBUSDT', options: ['break', 'hold', 'pass'], callable: true, threshold_pct: 2 },
   { id: 14, day: '2026-10-19', idx: 5, kind: 'mover', symbol: 'XRPUSDT', symbol_b: 'ARBUSDT', options: ['first', 'second', 'pass'], callable: true },
@@ -685,6 +685,7 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       assert.ok(sent.filter((s) => s.path === '/api/duel/today').length >= 2, 'the card was not read again after the call');
       // Nothing in the block links back to the site.
       assert.strictEqual(await page.$('.p-duel a[href]'), null);
+      assert.match(text, /Dealt sealed aaaaaaaa…/, 'the round’s commitment is quoted');
       assert.deepStrictEqual(errors, []);
       await ctx.close();
     });

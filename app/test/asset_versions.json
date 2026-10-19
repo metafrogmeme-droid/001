@@ -1,7 +1,7 @@
 {
   "embed.css": {
-    "v": 11,
-    "sha": "d47b292a755bb385"
+    "v": 12,
+    "sha": "410654fe7758226b"
   },
   "js/agent-page.js": {
     "v": 1,
@@ -100,8 +100,8 @@
     "sha": "8aaaa6478d0e98e0"
   },
   "js/duel.js": {
-    "v": 4,
-    "sha": "e796c26f07527995"
+    "v": 5,
+    "sha": "e99b4c086f452dde"
   },
   "js/embed-arena-view.js": {
     "v": 2,
@@ -164,8 +164,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 187,
-    "sha": "70c239dd3e5d152d"
+    "v": 188,
+    "sha": "ea91deb601e27732"
   },
   "js/icons.js": {
     "v": 6,
@@ -372,7 +372,7 @@
     "sha": "9f9fc4fe60413a0c"
   },
   "js/pi-duel.js": {
-    "v": 2,
-    "sha": "add5634a0928530c"
+    "v": 3,
+    "sha": "1106e92356d876a6"
   }
 }
