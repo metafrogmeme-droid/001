@@ -705,3 +705,26 @@ class TestAPaperRefreshCard:
         text = _tap_paper(self._book(1), "TRUMPUSDT", 1.685)
         pct, usd, margin = self._figures(text)
         assert abs(usd - pct / 100 * margin) < 0.02, (pct, usd, margin)
+
+
+# ── The paper close message: Size is the margin, funding is not booked ─────
+
+class TestAPaperCloseMessage:
+    def test_size_is_the_margin_with_the_notional_beside_it(self):
+        from bot.skills.callback_handler import paper_close_size_line
+        line = paper_close_size_line(1418.05, 5.0)
+        # BUSDT, 2026-10-19: /positions showed "$283.61 | 5x", the close said
+        # "Size: $1,418.05".
+        assert "Size: <code>$283.61</code> | 5x" in line
+        assert "$1,418.05</code> notional" in line
+
+    def test_no_leverage_on_record_names_the_notional(self):
+        from bot.skills.callback_handler import paper_close_size_line
+        assert paper_close_size_line(1418.05, None).startswith("- Notional:")
+        assert paper_close_size_line(1418.05, 0).startswith("- Notional:")
+
+    def test_a_flat_close_is_not_green(self):
+        from bot.skills.callback_handler import paper_close_emoji
+        assert paper_close_emoji(0.0) == "⚪"
+        assert paper_close_emoji(35.72) == "\U0001f7e2"
+        assert paper_close_emoji(-1.0) == "\U0001f534"

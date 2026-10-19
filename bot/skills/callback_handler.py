@@ -219,6 +219,29 @@ def record_exchange_direct_close(engine, executor, *, ep, ep_sym, ep_clean, side
     return True
 
 
+
+def paper_close_emoji(pnl) -> str:
+    """Green for a gain, red for a loss, and white for a close at exactly
+    zero: green says "in profit", which a flat close is not."""
+    if pnl is None:
+        return "\u26aa"
+    return "\U0001f7e2" if pnl > 0 else "\U0001f534" if pnl < 0 else "\u26aa"
+
+
+def paper_close_size_line(notional: float, leverage) -> str:
+    """The SIZE line of a paper close: the margin, as /positions prints it,
+    with the leverage and the notional beside it.
+
+    It printed the notional alone as "Size", so a position /positions showed
+    as "$283.61 | 5x" closed as "Size: $1,418.05" (2026-10-19). With no
+    leverage on record the notional is all there is, and it is named so.
+    """
+    lev = leverage if isinstance(leverage, (int, float)) and not isinstance(leverage, bool) else None
+    if lev is None or lev <= 0:
+        return f"- Notional: <code>${notional:,.2f}</code>"
+    return (f"- Size: <code>${notional / lev:,.2f}</code> | {lev:g}x "
+            f"(<code>${notional:,.2f}</code> notional)")
+
 class CallbackHandler:
     """Every button tap, authenticated and routed. Host contract below; methods after."""
 
@@ -1596,7 +1619,7 @@ class CallbackHandler:
                         break
 
             if closed_trade:
-                pnl_emoji = "\U0001f7e2" if closed_trade.pnl >= 0 else "\U0001f534"
+                pnl_emoji = paper_close_emoji(closed_trade.pnl)
                 sz = closed_trade.quantity * closed_trade.entry_price
                 from datetime import datetime, timezone
                 hold_h = 0.0
@@ -1609,13 +1632,18 @@ class CallbackHandler:
                     "",
                     f"- Entry: <code>{closed_trade.entry_price:,.4f}</code>",
                     f"- Exit: <code>{closed_trade.exit_price:,.4f}</code>",
-                    f"- Size: <code>${sz:,.2f}</code>",
+                    paper_close_size_line(sz, getattr(closed_trade, "leverage", None)),
                     "",
                     "<b>PNL Breakdown:</b>",
                     f"- Gross PNL: <code>${closed_trade.gross_pnl:+,.2f}</code>",
                     f"- Commission: <code>${closed_trade.commission:.2f}</code>",
-                    f"- Funding ({hold_h:.1f}h): <code>${funding_paid:.2f}</code>",
                     f"- <b>Net PNL: {pnl_emoji} <code>${closed_trade.pnl:+,.2f}</code></b>",
+                    # Funding is an ESTIMATE the paper book never books: Net
+                    # is gross less commission. Listed inside the breakdown
+                    # it read as a cost Net had paid (2026-10-19, BUSDT:
+                    # $38.52 - $2.80 = $35.72, with "$0.12" beside them).
+                    f"<i>Funding est. ({hold_h:.1f}h): ${funding_paid:.2f}, not booked "
+                    "on the paper book.</i>",
                     "",
                     "Say \"my portfolio\" for updated balance.",
                 ]

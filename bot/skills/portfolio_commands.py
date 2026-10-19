@@ -162,6 +162,42 @@ def _claim_public_daily_post() -> bool:
 
 
 
+def paper_windows(trades, now=None) -> dict:
+    """Today's and the last seven days' net P&L on a paper book, from closes.
+
+    The live branch's windows: today from 00:00 UTC, the week from seven days
+    before that. A close with no `closed_at` cannot be placed in a window, so
+    it counts toward the all-time total only. A window with no closes in it
+    is a measured $0.00: the paper book prices every close it books.
+    """
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+
+    from bot.compat import UTC as _UTC
+    now = now or _dt.now(_UTC)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today_start - _td(days=7)
+    today = week = total = 0.0
+    n_today = 0
+    for row in trades:
+        pnl = getattr(row, "pnl", None)
+        if pnl is None:
+            continue
+        total += float(pnl)
+        at = getattr(row, "closed_at", None)
+        if at is None:
+            continue
+        if at.tzinfo is None:
+            at = at.replace(tzinfo=_UTC)
+        if at >= today_start:
+            today += float(pnl)
+            n_today += 1
+        if at >= week_start:
+            week += float(pnl)
+    return {"today_pnl": round(today, 2), "week_pnl": round(week, 2),
+            "total_pnl": round(total, 2), "trades_today": n_today}
+
+
 def paper_exposure_pct(portfolio, state) -> Optional[float]:
     """The paper book's committed exposure, as the risk gate measures it.
 
@@ -1307,9 +1343,12 @@ class PortfolioCommands:
             # "N/A" both already default to.
             from bot.formatters.realized_totals import best_and_worst
             _best_t, _worst_t = best_and_worst(user_trades)
+            best_pnl = worst_pnl = None
             if _best_t is not None:
                 worst_pair = _worst_t.symbol.replace("/USDT", "").replace(":USDT", "")
                 best_pair = _best_t.symbol.replace("/USDT", "").replace(":USDT", "")
+                best_pnl = getattr(_best_t, "pnl_usd", None)
+                worst_pnl = getattr(_worst_t, "pnl_usd", None)
             data = {
                 "today_pnl": None if today_pnl is None else round(today_pnl, 2),
                 "week_pnl": None if week_pnl is None else round(week_pnl, 2),
@@ -1327,6 +1366,8 @@ class PortfolioCommands:
                 "total_trades": total_trades,
                 "best_pair": best_pair,
                 "worst_pair": worst_pair,
+                "best_pnl": best_pnl,
+                "worst_pnl": worst_pnl,
                 "adopted_count": len(adopted_trades),
                 # None when adopted closes exist and none could be priced, the
                 # ordinary case for an orphan whose entry the venue never
@@ -1336,9 +1377,7 @@ class PortfolioCommands:
             }
         else:
             portfolio = self.engine.user_portfolios.get(user_id)
-            state = portfolio.snapshot()
             trades = portfolio.trade_history
-            today_trades = len(trades)
             # RC-2026-010. `sum(1 for t in trades if t.pnl > 0)` raises on a
             # close carrying no recorded P&L, and `... else 0` mapped "no
             # trades" onto a MEASURED 0% win rate -- a claim that everything
@@ -1351,25 +1390,33 @@ class PortfolioCommands:
             win_rate = (_ws["rate"] * 100) if _ws["rate"] is not None else None
             best_pair = None
             worst_pair = None
+            best_pnl = worst_pnl = None
             _scored = [t for t in trades if getattr(t, "pnl", None) is not None]
             if _scored:
                 sorted_t = sorted(_scored, key=lambda t: t.pnl)
                 worst_pair = sorted_t[0].asset.replace("/USDT", "")
                 best_pair = sorted_t[-1].asset.replace("/USDT", "")
+                worst_pnl, best_pnl = sorted_t[0].pnl, sorted_t[-1].pnl
+            # THE PAPER BOOK'S WINDOWS, from its own closes. RC-2026-009 made
+            # the week an honest dash because nothing computed one; and
+            # "Trades" was `len(trade_history)`, the all-time count, sent as
+            # `trades_today` beside a Today PnL of $0.00 (2026-10-19: five
+            # closes this week read "Week —, Trades 5, Today $+0.00"). Read
+            # off `closed_at` the way the live branch reads its closes.
+            _win = paper_windows(trades)
             data = {
-                "today_pnl": (round(state.daily_pnl, 2)
-                              if getattr(state, "daily_pnl", None) is not None else None),
-                # RC-2026-009. This was the literal `0.0`. Nothing computes a
-                # week for paper, and the tile painted `week_pnl >= 0` GREEN --
-                # so a figure that was never measured was published in the
-                # colour that claims a profitable week.
-                "week_pnl": None,
+                "today_pnl": _win["today_pnl"],
+                "week_pnl": _win["week_pnl"],
+                "total_pnl": _win["total_pnl"],
                 "win_rate": win_rate,
                 "win_rate_scored": _ws["scored"],
                 "win_rate_unscored": _ws["unscored"],
-                "trades_today": today_trades,
+                "trades_today": _win["trades_today"],
+                "total_trades": len(trades),
                 "best_pair": best_pair,
                 "worst_pair": worst_pair,
+                "best_pnl": best_pnl,
+                "worst_pnl": worst_pnl,
             }
 
         rendered = wr_performance(data)
