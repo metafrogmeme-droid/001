@@ -110,11 +110,13 @@ def test_aiohttp_carries_the_advisory_fix(rel):
     """The specific regression: PYSEC-2026-3545/3546/3547 were fixed in 3.14.3
     and the deployed manifest kept 3.14.1. Named explicitly because a general
     agreement check would also pass if every manifest agreed on the VULNERABLE
-    version."""
+    version. The floor is the newest advisory fix: CVE-2026-111063,
+    CVE-2026-111064 and GHSA-2g87-pp6c-29x5 (published against 3.14.3,
+    fixed in 3.14.4) turned CI's pip-audit red on 2026-10-19."""
     pins = ALL[rel]
     if "aiohttp" not in pins:
         pytest.skip(f"{rel} does not pin aiohttp")
     parts = tuple(int(x) for x in re.findall(r"\d+", pins["aiohttp"])[:3])
-    assert parts >= (3, 14, 3), (
-        f"{rel} pins aiohttp {pins['aiohttp']}; 3.14.3 carries the "
-        "PYSEC-2026-3545/3546/3547 fixes")
+    assert parts >= (3, 14, 4), (
+        f"{rel} pins aiohttp {pins['aiohttp']}; 3.14.4 carries the "
+        "CVE-2026-111063/111064 and GHSA-2g87-pp6c-29x5 fixes")
