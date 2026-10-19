@@ -413,3 +413,48 @@ def test_the_card_prints_each_category_and_the_stance_only_where_there_is_one():
                               "entry_price": 150.0, "agent_direction": "short",
                               "resolves_at": "2026-10-20T00:00:00.000Z"})
     assert "FADE the Claw" in rec and "The Claw called" not in rec
+
+
+# ── football (2026-10-19) ───────────────────────────────────────────────────
+
+MATCH_ROUND = {
+    "id": 7, "kind": "sports", "symbol": "FD:441", "callable": True,
+    "options": ["home", "draw", "away", "pass"],
+    "match": {"home": "Arsenal FC", "away": "Chelsea FC", "home_short": "Arsenal", "away_short": "Chelsea",
+              "competition": "Premier League", "kickoff": "2026-10-19T19:00:00.000Z"},
+}
+
+
+def test_a_football_round_asks_who_wins_and_offers_both_teams_and_the_draw():
+    assert question_line(MATCH_ROUND, 24) == "Arsenal vs Chelsea — who wins? Premier League, kick-off 19:00 UTC"
+    assert round_title(MATCH_ROUND) == "Arsenal vs Chelsea"
+    assert button_rows([MATCH_ROUND]) == [[
+        ("Arsenal", "duel:7:home"), ("DRAW", "duel:7:draw"), ("Chelsea", "duel:7:away"), ("PASS", "duel:7:pass")]]
+    for pick in ("home", "draw", "away"):
+        assert parse_callback_data(pick_callback_data(7, pick)) == (7, pick)
+    out = render_card({"day": "2026-10-19", "horizon_hours": 24, "rounds": [MATCH_ROUND]})
+    assert "· Football" in out and "who wins?" in out
+    assert "The Claw" not in out, "the Claw holds no view on football"
+    assert "settles on its final score" in out
+    # A team with no short name is still named; a missing kick-off is a dash, never a time.
+    bare = {**MATCH_ROUND, "match": {"home": "Arsenal FC", "away": "Chelsea FC"}}
+    assert pick_word("home", bare) == "Arsenal FC"
+    assert "kick-off —" in question_line(bare, 24)
+
+
+def test_a_football_call_reports_the_final_score_and_never_a_move():
+    line = call_line({**MATCH_ROUND, "my_call": {"pick": "draw", "outcome": "draw", "score": {"home": 1, "away": 1}},
+                      "my_result": {"state": "correct", "marks": 1, "beat_agent": False}})
+    assert "You called DRAW — correct (final score 1–1)" in line
+    assert "%" not in line
+    nil = call_line({**MATCH_ROUND, "my_call": {"pick": "away", "outcome": "draw", "score": {"home": 0, "away": 0}},
+                     "my_result": {"state": "wrong", "marks": 0, "beat_agent": False}})
+    assert "final score 0–0" in nil, "a goalless draw is a score, not an absence"
+    running = call_line({**MATCH_ROUND, "my_call": {"pick": "home", "pending": True, "outcome": None},
+                         "my_result": {"state": "unresolved", "marks": 0, "beat_agent": False}})
+    assert "running" in running.lower() and "final score" not in running.lower()
+    rec = render_pick_result({"ok": True, "kind": "sports", "pick": "away", "symbol": "FD:441",
+                              "match": MATCH_ROUND["match"], "entry_price": None,
+                              "resolves_at": "2026-10-19T21:30:00.000Z"})
+    assert "Chelsea" in rec and "Arsenal vs Chelsea" in rec and "Kick-off 19:00 UTC" in rec
+    assert "Entry:" not in rec, "a match has no entry price to confirm"

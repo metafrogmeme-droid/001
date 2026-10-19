@@ -43,7 +43,9 @@ const CARD = { day: '2026-10-19', horizon_hours: 24, open: 3, counts_only: true,
     my_call: { pick: 'long', pending: true }, my_result: { state: 'unresolved', marks: 0, beat_agent: false } },
   { id: 14, kind: 'range', symbol: 'BNBUSDT', options: ['break', 'hold', 'pass'], callable: true, threshold_pct: 2 },
   { id: 15, kind: 'mover', symbol: 'XRPUSDT', symbol_b: 'ARBUSDT', options: ['first', 'second', 'pass'], callable: true },
-] };
+  { id: 16, kind: 'sports', symbol: 'FD:441', options: ['home', 'draw', 'away', 'pass'], callable: true,
+    match: { home: 'Arsenal FC', away: 'Chelsea FC', home_short: 'Arsenal', away_short: 'Chelsea', competition: 'Premier League', kickoff: '2026-10-19T19:00:00.000Z' } },
+], sources: { sports: 'dealt' } };
 const ME = { handle: null, window_days: 90, accuracy: { pct: null, correct: 0, wrong: 0, push: 0, scored: 0, unresolved: 1, resolved: 0 },
   marks: { marks: 0, pending: 1, beat_agent: 0 }, streak: { current: 1 }, quests: [], history: [], counts_only: true, private: true };
 
@@ -99,9 +101,9 @@ test('the Arena shows the Daily Duel', SKIP ? { skip: SKIP } : {}, async (t) => 
       const { page } = await open(ctx, base);
       await page.waitForSelector('#duelBody .duel-rec');
       const body = await page.textContent('#duelBody');
-      assert.match(body, /4 of 5 rounds still open today/);
+      assert.match(body, /5 of 6 rounds still open today/);
       const chips = await page.$$eval('#duelBody .d-chip', (els) => els.map((e) => e.textContent));
-      assert.deepStrictEqual(chips, ['Direction ×2', 'Range', 'Bigger mover']);
+      assert.deepStrictEqual(chips, ['Direction ×2', 'Range', 'Bigger mover', 'Football']);
       assert.match(body, /Accuracy/);
       assert.match(body, /—/);
       assert.doesNotMatch(body, /0%/, 'nothing has settled, so there is no rate');

@@ -219,7 +219,8 @@ test('normPick takes a category, and refuses a word another category takes', () 
   // null: any category's word, for a first look before the round is known.
   assert.equal(d.normPick('hold', null), 'hold');
   assert.equal(d.normPick('maybe', null), null);
-  assert.deepEqual(d.ALL_PICKS, ['long', 'short', 'pass', 'back', 'fade', 'break', 'hold', 'first', 'second']);
+  assert.deepEqual(d.ALL_PICKS, ['long', 'short', 'pass', 'back', 'fade', 'break', 'hold', 'first', 'second',
+    'home', 'draw', 'away']);
 });
 
 test('normPick / normDirection refuse to guess a default', () => {
@@ -356,7 +357,7 @@ test('buildRounds: the round carries no price and no horizon — those are the c
   assert.ok(!('resolves_at' in r), 'the horizon runs from the call, not from the card');
   assert.ok(!('locks_at' in r));
   assert.deepEqual(Object.keys(r).sort(),
-    ['agent_direction', 'day', 'idx', 'kind', 'signal_key', 'symbol', 'symbol_b', 'threshold_pct']);
+    ['agent_direction', 'day', 'idx', 'kind', 'meta', 'signal_key', 'symbol', 'symbol_b', 'threshold_pct']);
 });
 
 test('horizonFor runs the stated window from the moment of the call', () => {
@@ -468,4 +469,100 @@ test('publicPick keeps pending and unresolved distinct from each other', () => {
   assert.equal(done.outcome, 'up');
   assert.equal(done.move_pct, 10);
   assert.ok(!('pending' in done) && !('unresolved' in done));
+});
+
+// ── football (2026-10-19) ───────────────────────────────────────────────────
+
+const MATCH = { provider: 'football-data', event_id: '441', home: 'Arsenal FC', away: 'Chelsea FC',
+  home_short: 'Arsenal', away_short: 'Chelsea', competition: 'Premier League', kickoff: '2026-08-08T19:00:00.000Z' };
+
+test('buildRounds deals the match last, with its teams and kick-off on the round', () => {
+  const rounds = d.buildRounds('2026-08-08', [], TICKERS, MATCH);
+  assert.deepEqual(rounds.map((r) => r.kind), ['direction', 'direction', 'direction', 'range', 'mover', 'sports']);
+  const s = rounds[5];
+  assert.equal(s.symbol, 'FD:441');
+  assert.equal(s.meta.home, 'Arsenal FC');
+  assert.equal(s.meta.kickoff, '2026-08-08T19:00:00.000Z');
+  assert.strictEqual(s.agent_direction, null, 'the Claw holds no view on football');
+  // No match, or a match without a kick-off or a team, deals no round.
+  assert.ok(!d.buildRounds('2026-08-08', [], TICKERS, null).some((r) => r.kind === 'sports'));
+  assert.ok(!d.buildRounds('2026-08-08', [], TICKERS, { ...MATCH, kickoff: 'soon' }).some((r) => r.kind === 'sports'));
+  assert.ok(!d.buildRounds('2026-08-08', [], TICKERS, { ...MATCH, away: '' }).some((r) => r.kind === 'sports'));
+  // The other rounds carry no meta.
+  for (const r of rounds.slice(0, 5)) assert.strictEqual(r.meta, null);
+});
+
+test('a football round is open until kick-off, on its day, and to nobody when the kick-off cannot be read', () => {
+  const r = { id: 9, day: '2026-08-08', idx: 5, kind: 'sports', symbol: 'FD:441', meta: JSON.stringify(MATCH) };
+  assert.equal(d.isCallable(r, new Date('2026-08-08T18:59:59Z')), true);
+  assert.equal(d.isCallable(r, new Date('2026-08-08T19:00:00Z')), false, 'kick-off closes it');
+  assert.equal(d.isCallable(r, new Date('2026-08-07T23:00:00Z')), false, 'not before its day');
+  assert.equal(d.isCallable({ ...r, meta: JSON.stringify({ ...MATCH, kickoff: null }) }, new Date('2026-08-08T12:00:00Z')), false);
+  assert.equal(d.isCallable({ ...r, meta: '{not json' }, new Date('2026-08-08T12:00:00Z')), false);
+  assert.equal(d.sportsHorizonFor(r), '2026-08-08T21:30:00.000Z', 'full time: 150 minutes after kick-off');
+  assert.strictEqual(d.sportsHorizonFor({ ...r, meta: null }), null);
+  assert.equal(d.metaOf(r).home_short, 'Arsenal');
+  assert.deepEqual(d.metaOf({ meta: MATCH }), MATCH, 'an object is taken as it is');
+  assert.strictEqual(d.metaOf({ meta: '' }), null);
+});
+
+test('sportsOutcome reads a final score, and never a score that is not two numbers', () => {
+  assert.equal(d.sportsOutcome(2, 1), 'home');
+  assert.equal(d.sportsOutcome(0, 3), 'away');
+  assert.equal(d.sportsOutcome(1, 1), 'draw');
+  assert.equal(d.sportsOutcome(0, 0), 'draw', 'goalless is a draw, not an absence');
+  for (const [h, a] of [[null, 1], [1, null], [undefined, undefined], ['x', 1], [-1, 0], [NaN, 2]]) {
+    assert.strictEqual(d.sportsOutcome(h, a), null, `${h}-${a}`);
+  }
+});
+
+test('scoreCall on football: the pick names the winner or the draw; a PASS is declined; nobody beats the Claw', () => {
+  assert.deepEqual(d.scoreCall('sports', 'home', 'home', null), { state: 'correct', marks: 1, beat_agent: false });
+  assert.deepEqual(d.scoreCall('sports', 'draw', 'draw', null), { state: 'correct', marks: 1, beat_agent: false });
+  assert.deepEqual(d.scoreCall('sports', 'away', 'home', null), { state: 'wrong', marks: 0, beat_agent: false });
+  assert.equal(d.scoreCall('sports', 'pass', 'draw', null).state, 'push');
+  assert.equal(d.scoreCall('sports', 'home', null, null).state, 'unresolved');
+  assert.equal(d.scoreCall('sports', 'long', 'home', null).state, 'invalid');
+  assert.equal(d.scoreCall('sports', 'home', 'home', 'long').beat_agent, false);
+});
+
+test('a football call carries the score and no price; its round shows the match and no stance', () => {
+  const round = { id: 9, day: '2026-08-08', idx: 5, kind: 'sports', symbol: 'FD:441', meta: JSON.stringify(MATCH) };
+  const at = new Date('2026-08-08T12:00:00Z');
+  const view = d.publicRound(round, { revealAgent: true, now: at });
+  assert.deepEqual(view.options, ['home', 'draw', 'away', 'pass']);
+  assert.equal(view.match.home_short, 'Arsenal');
+  assert.equal(view.match.kickoff, '2026-08-08T19:00:00.000Z');
+  assert.ok(!('agent_direction' in view));
+  const settled = { pick: 'away', entry_price: null, settle_price: 0, settle_price_b: 2, resolves_at: '2026-08-08T21:30:00.000Z' };
+  const pub = d.publicPick(settled, { now: new Date('2026-08-08T22:00:00Z'), round });
+  assert.strictEqual(pub.entry_price, null, 'no entry price is reported, not a zero');
+  assert.equal(pub.outcome, 'away');
+  assert.deepEqual(pub.score, { home: 0, away: 2 });
+  assert.ok(!('move_pct' in pub), 'a score is not a move');
+  const pending = d.publicPick({ ...settled, settle_price: null, settle_price_b: null }, { now: new Date('2026-08-08T20:00:00Z'), round });
+  assert.equal(pending.pending, true);
+  assert.ok(!('score' in pending));
+  const [e] = d.scoreEntries([round], [{ round_id: 9, ...settled }]);
+  assert.equal(e.kind, 'sports');
+  assert.equal(e.state, 'correct');
+  assert.strictEqual(e.entry_price, null);
+  assert.strictEqual(e.move_pct, null);
+  assert.deepEqual(e.score, { home: 0, away: 2 });
+  assert.equal(e.match.home, 'Arsenal FC');
+  // Half a score settles nothing.
+  const [half] = d.scoreEntries([round], [{ round_id: 9, pick: 'away', entry_price: null, settle_price: 1, settle_price_b: null }]);
+  assert.equal(half.state, 'unresolved');
+  assert.strictEqual(half.score, null);
+});
+
+test('a score is not a move, whatever price a football row happens to carry', () => {
+  // placePick writes no entry for a match; a row that carries one anyway (an
+  // older writer, a hand edit) must still not be scored as a move: the
+  // guard is the kind, not the absence of the field.
+  const round = { id: 9, day: '2026-08-08', idx: 5, kind: 'sports', symbol: 'FD:441', meta: JSON.stringify(MATCH) };
+  const [e] = d.scoreEntries([round], [{ round_id: 9, pick: 'home', entry_price: 1, settle_price: 2, settle_price_b: 0 }]);
+  assert.equal(e.state, 'correct');
+  assert.deepEqual(e.score, { home: 2, away: 0 });
+  assert.strictEqual(e.move_pct, null);
 });

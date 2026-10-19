@@ -274,3 +274,50 @@ test('pickLabel and questionText fill the band and the symbols, and never a dash
   assert.equal(D.base('BTCUSDT'), 'BTC');
   assert.equal(D.base('PI'), 'PI');
 });
+
+// ── football (2026-10-19) ───────────────────────────────────────────────────
+
+const MATCH_ROUND = { id: 7, kind: 'sports', symbol: 'FD:441', callable: true, options: ['home', 'draw', 'away', 'pass'],
+  match: { home: 'Arsenal FC', away: 'Chelsea FC', home_short: 'Arsenal', away_short: 'Chelsea',
+    competition: 'Premier League', kickoff: '2026-10-19T19:00:00.000Z' } };
+
+test('a football round asks who wins, offers both teams and the draw, and never a stance', () => {
+  const html = D.roundCard(MATCH_ROUND);
+  say(html, ['Football', 'Arsenal', 'Chelsea', 'who wins?', 'Premier League', 'kick-off',
+    'data-pick="home"', 'data-pick="draw"', 'data-pick="away"', 'data-pick="pass"', '>ARSENAL<', '>DRAW<', '>CHELSEA<'],
+  ['Hidden until you call', 'The Claw passed', 'data-pick="long"', 'FD:441']);
+  // Closed at kick-off: its own sentence.
+  say(D.roundCard({ ...MATCH_ROUND, callable: false }), ['Kick-off has passed'], ['data-pick=', 'This round has closed.']);
+});
+
+test('a settled football call reports the final score, and a running one no score at all', () => {
+  const won = D.roundCard({ ...MATCH_ROUND, callable: false,
+    my_call: { pick: 'draw', entry_price: null, outcome: 'draw', score: { home: 1, away: 1 } },
+    my_result: { state: 'correct', marks: 1, beat_agent: false } });
+  say(won, ['You called DRAW', 'Correct', 'Final score 1–1', 'tone-up'], ['tone-down', 'MOVES MORE']);
+  const running = D.roundCard({ ...MATCH_ROUND,
+    my_call: { pick: 'home', entry_price: null, pending: true },
+    my_result: { state: 'unresolved', marks: 0, beat_agent: false } });
+  say(running, ['You called ARSENAL', 'Running', 'tone-muted'], ['Final score', 'tone-up', 'tone-down']);
+  // A goalless draw is a score, not an absence.
+  say(D.roundCard({ ...MATCH_ROUND, callable: false,
+    my_call: { pick: 'away', outcome: 'draw', score: { home: 0, away: 0 } },
+    my_result: { state: 'wrong', marks: 0, beat_agent: false } }), ['Final score 0–0', 'Wrong']);
+});
+
+test('the football strings can be translated, and a team without a short name is still named', () => {
+  const t = (k, en) => 'XX' + k + '|' + en;
+  const html = D.roundCard(MATCH_ROUND, t);
+  for (const k of ['duel.k_sports', 'duel.q_sports', 'duel.b_draw']) assert.ok(html.includes('XX' + k + '|'), k);
+  assert.ok(D.roundCard({ ...MATCH_ROUND, callable: false }, t).includes('XXduel.closed_kickoff|'));
+  const i18n = require('../public/js/i18n.js');
+  for (const k of ['duel.k_sports', 'duel.q_sports', 'duel.b_draw', 'duel.closed_kickoff', 'duel.final_score', 'duel.sports_unreadable']) {
+    assert.ok(i18n.STRINGS[k], `${k} missing from the dictionary`);
+    for (const l of i18n.LANGS) assert.ok(i18n.STRINGS[k][l.code], `${k} is missing ${l.code}`);
+  }
+  assert.equal(D.teamText({ home: 'Arsenal FC' }, 'home'), 'Arsenal FC');
+  assert.equal(D.teamText({}, 'away'), '—');
+  assert.equal(D.pickLabel('home', { match: { home: 'Arsenal FC' } }), 'ARSENAL FC');
+  assert.equal(D.kickoffText({ kickoff: 'nonsense' }), '—');
+  assert.equal(D.kindLabel('sports'), 'Football');
+});

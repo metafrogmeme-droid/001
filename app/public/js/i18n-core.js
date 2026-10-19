@@ -1974,7 +1974,7 @@
     "cd.disc": { en: "The deck is private and carries no balances — counts and facts only, recomputed from your own records on every read. Locked simply means the records don’t show it yet. Education and practice, not investment advice." },
     "nav.duel": { en: "Duel" },
     "duel.h": { en: "⚔️ Daily Duel" },
-    "duel.lede": { en: "A card a day in four categories: Direction — call a coin LONG, SHORT or PASS with the Claw’s own call hidden until you commit; Back or fade — the Claw’s second call is shown, agree with it or bet against it; Range — does a coin break a band either way; Bigger mover — which of two coins moves more. The market settles each call 24 hours after you make it. Beat the Claw and the round is worth double. Free, no stake, nothing to lose but the argument." },
+    "duel.lede": { en: "A card a day in five categories: Direction — call a coin LONG, SHORT or PASS with the Claw’s own call hidden until you commit; Back or fade — the Claw’s second call is shown, agree with it or bet against it; Range — does a coin break a band either way; Bigger mover — which of two coins moves more; Football — who wins the day’s match, settled on the final score. The market settles each market call 24 hours after you make it. Beat the Claw and the round is worth double. Free, no stake, nothing to lose but the argument." },
     "duel.signed_out": { en: "Sign in to make your calls — your record is private to your account." },
     "duel.fail": { en: "Today’s card could not load — your record is unchanged." },
     "duel.card_h": { en: "Today’s card" },
@@ -2023,9 +2023,15 @@
     "duel.b_hold": { en: "HOLDS {band}" },
     "duel.b_more": { en: "{sym} MOVES MORE" },
     "duel.vs": { en: "vs" },
+    "duel.k_sports": { en: "Football" },
+    "duel.q_sports": { en: "{home} vs {away} — who wins? {comp} · kick-off {time}" },
+    "duel.b_draw": { en: "DRAW" },
+    "duel.closed_kickoff": { en: "Kick-off has passed — calls are closed." },
+    "duel.final_score": { en: "Final score {h}–{a}" },
+    "duel.sports_unreadable": { en: "The football feed could not be read when today’s card was dealt, so no match is on it. This is on our side." },
     "sec.duel_eyebrow": { en: "Daily Duel" },
     "sec.duel_h": { en: "Think you can call it better than the AI?" },
-    "sec.duel_p": { en: "A card a day in four categories — direction, back or fade the Claw, range, bigger mover — with the Claw’s own call hidden until you commit. The market settles each call 24 hours later. Beat the Claw and the round is worth double. Free, no stake, and one tap to start." },
+    "sec.duel_p": { en: "A card a day in five categories — direction, back or fade the Claw, range, bigger mover, and the day’s football match — with the Claw’s own call hidden until you commit. The market settles each market call 24 hours later, the match on its final score. Beat the Claw and the round is worth double. Free, no stake, and one tap to start." },
     "sec.duel_cta": { en: "Make today’s call →" },
     "ach.first_call": { en: "First call made in the Daily Duel." },
     "ach.beat_the_claw": { en: "Called it right on a round the agent got wrong." },
@@ -2290,7 +2296,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"1a1de150","zh":"d20450aa","pt":"349b79c4","fr":"354f38e0","de":"058e67b8","nl":"2b4b9022","ja":"72e4d844","ko":"b9b570e4","ru":"5e702875","tr":"8e656613","it":"469f6e88","hi":"6292b59e","ar":"1cd7be78"};
+  var CHUNKS = {"es":"d92e38d4","zh":"47036efa","pt":"195efdb0","fr":"4e405057","de":"e94c9d57","nl":"da3bd3aa","ja":"60b3cb75","ko":"2998c744","ru":"b7c4739e","tr":"05163e55","it":"199b6a85","hi":"e8b2d83b","ar":"f22ad41f"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

@@ -100,8 +100,8 @@
     "sha": "8aaaa6478d0e98e0"
   },
   "js/duel.js": {
-    "v": 2,
-    "sha": "cfc1c9505748a022"
+    "v": 3,
+    "sha": "5b9d7a029579b03b"
   },
   "js/embed-arena-view.js": {
     "v": 2,
@@ -164,8 +164,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 185,
-    "sha": "85d2c816f7a4a933"
+    "v": 186,
+    "sha": "bd34066334d08ad3"
   },
   "js/icons.js": {
     "v": 6,

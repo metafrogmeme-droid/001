@@ -2491,6 +2491,7 @@ class MemoryDB {
         threshold_pct: thr == null ? null : Number(thr),
         agent_direction: col('AGENT_DIRECTION') == null ? null : col('AGENT_DIRECTION'),
         signal_key: col('SIGNAL_KEY') == null ? null : col('SIGNAL_KEY'),
+        meta: col('META') == null ? null : String(col('META')),
         created_at: new Date().toISOString(),
       });
       return [{ affectedRows: 1, insertId: this._nextDuelRoundId - 1 }, []];
@@ -2858,6 +2859,8 @@ const REQUIRED_DUEL_ROUND_COLUMNS = Object.freeze({
   kind: "VARCHAR(12) NOT NULL DEFAULT 'direction'",
   symbol_b: 'VARCHAR(20) NULL',
   threshold_pct: 'DOUBLE NULL',
+  // A football round's teams and kick-off, as JSON text (lib/sports_feed.js).
+  meta: 'TEXT NULL',
 });
 const REQUIRED_DUEL_PICK_COLUMNS = Object.freeze({
   entry_price_b: 'DOUBLE NULL',
@@ -2901,6 +2904,28 @@ async function ensureDuelPickWidth() {
   }
   if (n >= DUEL_PICK_WIDTH) return false;
   await pool.query(`ALTER TABLE duel_picks MODIFY COLUMN pick VARCHAR(${DUEL_PICK_WIDTH}) NOT NULL`);
+  return true;
+}
+
+/**
+ * A football call has no entry price, so `entry_price` must take NULL. Read
+ * first, for the same reasons as the width above; an unreadable answer is
+ * left alone and said so.
+ */
+async function ensureDuelPickEntryNullable() {
+  const [rows] = await pool.query({
+    sql: `SELECT IS_NULLABLE AS n FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'duel_picks' AND COLUMN_NAME = 'entry_price'`,
+    timeout: SCHEMA_CHECK_TIMEOUT_MS,
+  });
+  const row = (rows || [])[0];
+  const v = row == null ? '' : String(row.n != null ? row.n : row.IS_NULLABLE || '').toUpperCase();
+  if (v !== 'YES' && v !== 'NO') {
+    console.error('duel_picks.entry_price nullability could not be read; not changed');
+    return false;
+  }
+  if (v === 'YES') return false;
+  await pool.query('ALTER TABLE duel_picks MODIFY COLUMN entry_price DOUBLE NULL');
   return true;
 }
 
@@ -3016,6 +3041,7 @@ async function migrate() {
       const addedPicks = await ensureTableColumns('duel_picks', REQUIRED_DUEL_PICK_COLUMNS);
       if (addedPicks.length) console.log(`Duel picks schema reconciled: ${addedPicks.join(', ')}`);
       if (await ensureDuelPickWidth()) console.log(`Duel picks schema reconciled: pick widened to ${DUEL_PICK_WIDTH}`);
+      if (await ensureDuelPickEntryNullable()) console.log('Duel picks schema reconciled: entry_price takes NULL');
       console.log('Schema already current — skipping full DDL');
       return 'fast';
     }
@@ -3984,6 +4010,7 @@ async function migrate() {
         threshold_pct DOUBLE NULL,
         agent_direction VARCHAR(5) NULL,
         signal_key VARCHAR(128) NULL,
+        meta TEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_duel_round (day, idx),
         INDEX idx_duel_rounds_day (day)
@@ -4002,7 +4029,7 @@ async function migrate() {
         user_id INT NOT NULL,
         round_id INT NOT NULL,
         pick VARCHAR(8) NOT NULL,
-        entry_price DOUBLE NOT NULL,
+        entry_price DOUBLE NULL,
         entry_price_b DOUBLE NULL,
         resolves_at TIMESTAMP NOT NULL,
         settle_price DOUBLE NULL,
@@ -4031,9 +4058,11 @@ async function migrate() {
       "ALTER TABLE duel_rounds ADD COLUMN kind VARCHAR(12) NOT NULL DEFAULT 'direction'",
       'ALTER TABLE duel_rounds ADD COLUMN symbol_b VARCHAR(20) NULL',
       'ALTER TABLE duel_rounds ADD COLUMN threshold_pct DOUBLE NULL',
+      'ALTER TABLE duel_rounds ADD COLUMN meta TEXT NULL',
       'ALTER TABLE duel_picks ADD COLUMN entry_price_b DOUBLE NULL',
       'ALTER TABLE duel_picks ADD COLUMN settle_price_b DOUBLE NULL',
       `ALTER TABLE duel_picks MODIFY COLUMN pick VARCHAR(${DUEL_PICK_WIDTH}) NOT NULL`,
+      'ALTER TABLE duel_picks MODIFY COLUMN entry_price DOUBLE NULL',
     ]) {
       try {
         await pool.execute(sql);

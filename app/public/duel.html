@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>RUNECLAW — Daily Duel</title>
 <link rel="canonical" href="https://www.humanoid-traders.com/duel">
-<meta name="description" content="Call the market before the AI does. A card a day in four categories: direction, back or fade the Claw, range, bigger mover. The Claw's own call stays hidden until you commit, and the market settles each call 24 hours later. Free, no stake, percent and counts only.">
+<meta name="description" content="Call the market before the AI does. A card a day in five categories: direction, back or fade the Claw, range, bigger mover, and the day's football match. The Claw's own call stays hidden until you commit, and the market settles each call 24 hours later. Free, no stake, percent and counts only.">
 <meta property="og:title" content="RUNECLAW — Daily Duel">
 <meta property="og:site_name" content="Humanoid Traders">
-<meta property="og:description" content="A card a day in four categories. Call it before the Claw shows its hand. Beat the agent and the round is worth double.">
+<meta property="og:description" content="A card a day in five categories, the day's football match among them. Call it before the Claw shows its hand. Beat the agent and the round is worth double.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.humanoid-traders.com/duel">
 <meta property="og:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
@@ -80,17 +80,18 @@
   <div class="d-hero">
     <h1 data-i18n="duel.h">⚔️ Daily Duel</h1>
   </div>
-  <p class="lede" data-i18n="duel.lede">A card a day in four categories: Direction — call a coin LONG, SHORT or PASS
+  <p class="lede" data-i18n="duel.lede">A card a day in five categories: Direction — call a coin LONG, SHORT or PASS
   with the Claw’s own call hidden until you commit; Back or fade — the Claw’s second call is shown, agree with it or
-  bet against it; Range — does a coin break a band either way; Bigger mover — which of two coins moves more. The
-  market settles each call 24 hours after you make it. Beat the Claw and the round is worth double. Free, no stake,
-  nothing to lose but the argument.</p>
+  bet against it; Range — does a coin break a band either way; Bigger mover — which of two coins moves more;
+  Football — who wins the day’s match, settled on the final score. The market settles each market call 24 hours
+  after you make it. Beat the Claw and the round is worth double. Free, no stake, nothing to lose but the argument.</p>
 
   <p class="note" id="notice" hidden></p>
 
   <section class="panel" id="cardPanel" hidden>
     <h2 data-i18n="duel.card_h">Today’s card</h2>
     <div class="d-rounds" id="rounds"></div>
+    <p class="note" id="sportsNote" hidden data-i18n="duel.sports_unreadable">The football feed could not be read when today’s card was dealt, so no match is on it. This is on our side.</p>
   </section>
 
   <section class="panel" id="recPanel" hidden>
@@ -118,9 +119,9 @@
 </div>
 
 <script src="/js/api-retry.js?v=3"></script>
-<script src="/js/i18n-core.js?v=185"></script>
+<script src="/js/i18n-core.js?v=186"></script>
 <script src="/js/presale.js?v=2"></script>
-<script src="/js/duel.js?v=2"></script>
+<script src="/js/duel.js?v=3"></script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -164,6 +165,8 @@
       // The horizon is the card's, and every question names it.
       return D.roundCard(Object.assign({ horizon_hours: data.horizon_hours }, r), T);
     }).join('');
+    // Only a feed that FAILED is reported; a day with no match says nothing.
+    $('sportsNote').hidden = !(data.sources && data.sources.sports === 'unreadable');
     $('cardPanel').hidden = false;
   }
 
@@ -239,7 +242,7 @@
   // Each panel loads independently and a dead one is simply left out, so a
   // single failing source cannot blank the others. The card is the exception:
   // it is this page's single subject, so its failure is stated outright.
-  if (tok) {
+  if (signedIn) {
     get('/api/duel/today', true).then(drawCard).catch(function (e) {
       notice(e.status === 401
         ? T('duel.signed_out', 'Sign in to make your calls — your record is private to your account.')
