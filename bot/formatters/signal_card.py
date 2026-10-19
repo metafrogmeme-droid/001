@@ -2153,7 +2153,6 @@ def render_share_card(data: Dict[str, Any]) -> bytes:
 
     _font = _T.font
 
-    f_brand = _font(26, bold=True)
     f_tag = _font(13)
     f_badge = _font(20, bold=True)
     f_symbol = _font(44, bold=True)
@@ -2174,26 +2173,26 @@ def render_share_card(data: Dict[str, Any]) -> bytes:
     dir_color = _GREEN if is_long else _RED
     pnl_color = _GRAY if pnl_pct is None else (_GREEN if pnl_pct >= 0 else _RED)
 
+    # ── The mascot on the right, fading into the card, under everything else ──
+    draw.asset("mascot", W - H, 0, H)
+
     # ── Gold stripes top + bottom ──
     draw.rectangle([0, 0, W, 4], fill=_ACCENT_GOLD)
     draw.rectangle([0, H - 4, W, H], fill=_ACCENT_GOLD)
 
-    # ── Brand header ──
+    # ── Brand header: the logotype, then the tag ──
     y = PAD - 8
-    draw.text((PAD, y), "RUNECLAW", fill=_WHITE, font=f_brand)
-    draw.text((PAD, y + 34), "AUTONOMOUS AI TRADING AGENT", fill=_GRAY, font=f_tag)
+    draw.logotype(PAD, y, 30)
+    draw.text((PAD, y + 40), "AUTONOMOUS AI TRADING AGENT", fill=_GRAY, font=f_tag)
 
-    # ── Symbol + direction badge, right-aligned on the header row ──
-    badge_tw = draw.textlength(direction, font=f_badge) + 24
-    bx = W - PAD - badge_tw
-    draw.pill(bx, y + 2, direction, dir_color, f_badge, h=32, filled=True, pad=12)
+    # ── Symbol + direction chip, on the left, under the header ──
+    draw.text((PAD, y + 78), symbol, fill=_WHITE, font=f_symbol)
     sym_w = draw.textlength(symbol, font=f_symbol)
-    draw.text((W - PAD - sym_w, y + 44), symbol, fill=_WHITE, font=f_symbol)
+    draw.pill(PAD + sym_w + 14, y + 90, direction, dir_color, f_badge, h=32, filled=True, pad=12)
 
-    # ── Hero PnL percent, centered ──
+    # ── Hero PnL percent ──
     hero = "return unread" if pnl_pct is None else f"{pnl_pct:+.2f}%"
-    hero_w = draw.textlength(hero, font=f_hero)
-    draw.text(((W - hero_w) / 2, 168), hero, fill=pnl_color, font=f_hero)
+    draw.text((PAD - 4, 186), hero, fill=pnl_color, font=f_hero)
 
     # ── Footer ──
     tagline = "Traded autonomously. Shared without account size — percent only."

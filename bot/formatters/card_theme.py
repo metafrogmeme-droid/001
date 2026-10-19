@@ -199,35 +199,51 @@ class Draw:
     def hairline(self, x0: float, y: float, x1: float):
         self.line([(x0, y), (x1, y)], fill=LINE, width=1)
 
-    def wordmark(self, W: int, H: int, pad: int, f=None, *, color=DIM, rune: bool = True):
-        """``RUNECLAW`` with the rune, bottom right, above the bottom stripe."""
-        f = f or font(10, weight="semibold")
-        wm = "RUNECLAW"
-        wm_w = self.textlength(wm, font=f)
-        x = W - pad - wm_w
-        y = H - 22
-        self.text((x, y), wm, fill=color, font=f)
-        if rune:
-            icon = _rune(14)
-            if icon is not None:
-                self.image.paste(icon, (int((x - 18) * S), int((y - 2) * S)), icon)
+    def asset(self, name: str, x: float, y: float, height: float) -> float:
+        """Paste a brand asset (``assets/<name>.png``, RGBA) ``height`` logical
+        pixels tall with its top-left at (x, y); returns its logical width, or 0
+        when the file is missing (the card draws on without it)."""
+        im = _asset(name, height)
+        if im is None:
+            return 0.0
+        self.image.paste(im, (int(round(x * S)), int(round(y * S))), im)
+        return im.width / S
+
+    def logotype(self, x: float, y: float, height: float = 14) -> float:
+        """The RUNECLAW logotype (the serif mark with the three-bar glyph)."""
+        return self.asset("wordmark", x, y, height)
+
+    def wordmark(self, W: int, H: int, pad: int, f=None, *, height: float = 15):
+        """The logotype at the bottom right, above the bottom stripe. ``f`` is
+        accepted for the renderers that pass their footer font; the mark is a
+        picture now and does not use it."""
+        del f
+        im = _asset("wordmark", height)
+        if im is None:
+            self.text((W - pad - self.textlength("RUNECLAW", font=font(10)), H - 22),
+                      "RUNECLAW", fill=DIM, font=font(10))
+            return
+        self.image.paste(im, (int(round((W - pad) * S)) - im.width, int(round((H - 10 - height) * S))), im)
 
 
-_RUNE_CACHE: dict = {}
+_ASSET_CACHE: dict = {}
 
 
-def _rune(size: int):
-    """The rune glyph at ``size`` logical pixels, RGBA; None when the asset is missing."""
-    if size in _RUNE_CACHE:
-        return _RUNE_CACHE[size]
+def _asset(name: str, height: float):
+    """A brand asset scaled to ``height`` logical pixels, RGBA; None when missing."""
+    key = (name, round(height * S))
+    if key in _ASSET_CACHE:
+        return _ASSET_CACHE[key]
     try:
         from PIL import Image
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "rune.png")
-        icon = Image.open(path).convert("RGBA").resize((size * S, size * S), Image.LANCZOS)
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", name + ".png")
+        src = Image.open(path).convert("RGBA")
+        h = max(1, int(round(height * S)))
+        im = src.resize((max(1, int(round(src.width * h / src.height))), h), Image.LANCZOS)
     except Exception:
-        icon = None
-    _RUNE_CACHE[size] = icon
-    return icon
+        im = None
+    _ASSET_CACHE[key] = im
+    return im
 
 
 def new_card(W: int, H: int, bg=BG):

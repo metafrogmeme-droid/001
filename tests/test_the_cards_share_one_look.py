@@ -49,6 +49,14 @@ class TestOneLook:
             assert not re.search(r"^_(?:GREEN|RED|WHITE|BG|CARD_BG|BORDER|MUTED) = \(\d", src, re.M), (
                 f"{name} spells a colour by hand")
 
+    def test_the_brand_assets_ship_with_the_theme(self):
+        for name in ("wordmark", "mascot"):
+            assert os.path.exists(os.path.join(FORMATTERS, "assets", name + ".png")), name
+        img, draw = T.new_card(200, 60)
+        w = draw.logotype(10, 10, 20)
+        assert 80 < w < 100, w      # the mark is about 4.6 times as wide as it is tall
+        assert draw.asset("no-such-asset", 0, 0, 10) == 0.0, "a missing asset is a width of nothing, not a crash"
+
     def test_the_vendored_face_is_the_one_a_card_draws_with(self):
         f = T.font(14, bold=True)
         path = getattr(f, "path", "") or ""
@@ -121,8 +129,14 @@ class TestTheSeamsStillHold:
         (SC.render_stats_card, ({"title": "T", "tiles": [{"label": "a", "value": "1"}]},)),
         (SC.render_share_card, ({"symbol": "BTC", "direction": "LONG", "pnl_pct": 1.0},)),
     ])
-    def test_every_card_still_signs_off_with_the_wordmark(self, fn, args):
-        # The share card draws its "Not investment advice." after the mark;
-        # every other card ends on it. Either way it is among the last lines.
-        rows = drawn(fn, *args)
-        assert rows and any(t == "RUNECLAW" for t, _ in rows[-3:]), rows[-3:]
+    def test_every_card_signs_off_with_the_logotype(self, fn, args):
+        """The sign-off is the logotype picture now, so the text spy cannot
+        see it; the glyph's blue in the bottom-right corner can."""
+        img = _png(fn(*args))
+        W, H = img.width, img.height
+        corner = img.crop((W - 110 * T.S, H - 32 * T.S, W - 8 * T.S, H - 6 * T.S))
+        glyph = [p for p in corner.getdata() if p[2] >= 150 and p[2] - p[0] >= 40]
+        assert len(glyph) > 25, f"no logotype glyph at the sign-off ({len(glyph)} blue pixels)"
+        # and nothing else on a card is that blue down there: a bare canvas has none
+        blank, _ = T.new_card(200, 60)
+        assert not [p for p in blank.crop((0, 0, 200 * T.S, 60 * T.S)).getdata() if p[2] >= 150 and p[2] - p[0] >= 40]
