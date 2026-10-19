@@ -102,6 +102,7 @@ from bot.core.position_telemetry import (  # noqa: E402
 from bot.core.signal_confidence import (  # noqa: E402
     PATTERN_SCORE_WORD,
     SCORE_WORD,
+    STAMP_TEXT,
     UNCALIBRATED_WORD,
     UNMEASURED_WORD,
     UNREAD_DASH,
@@ -1143,6 +1144,13 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
     _cell(c2, y, "R:R | HOLD", f"{rr_str} | {hold_time or '—'}")
     y += CELL_H + GAP
 
+    # ── Score / Opened row: what the record says the signal scored, and when ──
+    score_text_, score_color = _score_cell(data)
+    _cell(c1, y, f"{SCORE_WORD} ({UNCALIBRATED_WORD})".upper(), score_text_, score_color)
+    opened_text = _utc_text(data.get("opened_at"))
+    _cell(c2, y, "OPENED", opened_text or "—", _WHITE if opened_text else _MUTED)
+    y += CELL_H + GAP
+
     # ── Net PnL + Fees row ──
     net_text = "—" if net_unknown else f"{signed_usd(net_pnl)}"
     fees_text = "fees unread" if fees is None else f"fees ${fees:.2f}"
@@ -1326,6 +1334,13 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
     # itself and then saying nothing, which is `_status_lines`' recorded
     # defect in an image.
     _cell(c2, y, f"{direction} | HOLD", hold_time or "unread")
+    y += CELL_H + GAP
+
+    # ── Score / Opened row ──
+    score_text_, score_color = _score_cell(data)
+    _cell(c1, y, f"{SCORE_WORD} ({UNCALIBRATED_WORD})".upper(), score_text_, score_color)
+    opened_text = _utc_text(data.get("opened_at"))
+    _cell(c2, y, "OPENED", opened_text or "—", _WHITE if opened_text else _MUTED)
     y += CELL_H + GAP
 
     net_text = "unread" if pnl_usd is None else f"{signed_usd(pnl_usd)}"
@@ -2128,25 +2143,53 @@ def render_alpha_card(data: Dict[str, Any]) -> bytes:
     return _T.export(img)
 
 
+#: The SCORE cell's word for a row written before the confidence was recorded.
+NOT_RECORDED = "not recorded"
+
+
+def _score_cell(data: Dict[str, Any]):
+    """The SCORE cell's text and colour from what the record holds.
+
+    A measured figure is the bare score in the accent colour; a hand-typed
+    ticket's stamp says so (`STAMP_TEXT`); a field nobody could read is the
+    dash; a row written before the confidence was recorded at entry says
+    "not recorded". Three absences, three sentences, and none of them a 0.
+    """
+    basis = data.get("confidence_basis")
+    if basis is None:
+        return NOT_RECORDED, _GRAY
+    if basis == "stamp":
+        return STAMP_TEXT, _GRAY
+    value = pct_on_record(data.get("confidence"))
+    if value is None:
+        return UNREAD_DASH, _MUTED
+    if value > 1:
+        value = value / 100
+    return score_number(value), _CYAN
+
+
+def _utc_text(v) -> str:
+    """"17 Oct 2026 20:12 UTC" for a timestamp that parses, else empty: never a
+    date the card made up."""
+    from datetime import datetime, timezone
+
+    if v is None or v == "":
+        return ""
+    try:
+        dt = v if isinstance(v, datetime) else datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).strftime("%-d %b %Y %H:%M UTC")
+
+
 def _share_when(opened_at, closed_at) -> str:
     """"Opened 17 Oct 2026 20:12 UTC · Closed 19 Oct 2026 20:35 UTC": the moments
     a reader needs to check the call against a chart. Each half is printed
     only when its timestamp parses; neither is a date the card made up."""
-    from datetime import datetime, timezone
-
-    def _fmt(v) -> str:
-        if v is None or v == "":
-            return ""
-        try:
-            dt = v if isinstance(v, datetime) else datetime.fromisoformat(str(v).replace("Z", "+00:00"))
-        except (TypeError, ValueError):
-            return ""
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc).strftime("%-d %b %Y %H:%M UTC")
-
     parts = []
-    o, c = _fmt(opened_at), _fmt(closed_at)
+    o, c = _utc_text(opened_at), _utc_text(closed_at)
     if o:
         parts.append("Opened " + o)
     if c:

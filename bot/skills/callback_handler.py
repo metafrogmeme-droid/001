@@ -39,6 +39,7 @@ from telegram.ext import ContextTypes
 from bot.config import CONFIG
 from bot.core.earn_account import EarnAccount, earn_account_line
 from bot.core.position_telemetry import (
+    confidence_on_entry,
     entered_at,
     format_level,
     format_rr,
@@ -262,8 +263,12 @@ def paper_close_card_data(pair: str, closed_trade, hold_h: float) -> dict:
     margin = notional / lev if lev else notional
     net = closed_trade.pnl
     direction = getattr(closed_trade.direction, "value", closed_trade.direction)
+    conf = confidence_on_entry(closed_trade)
     return {
         "symbol": pair,
+        "opened_at": entered_at(closed_trade),
+        "confidence": conf.value if conf else None,
+        "confidence_basis": conf.basis if conf else None,
         "direction": str(direction).upper(),
         "reason": "manual",
         "entry": closed_trade.entry_price,
@@ -1275,8 +1280,12 @@ class CallbackHandler:
                 pos_card_png = None
                 try:
                     from bot.formatters.signal_card import render_position_card
+                    _conf_rec = confidence_on_entry(pos_match)
                     pos_card_data = {
                         "symbol": symbol,
+                        "opened_at": entered_at(pos_match),
+                        "confidence": _conf_rec.value if _conf_rec else None,
+                        "confidence_basis": _conf_rec.basis if _conf_rec else None,
                         "direction": _dir,
                         "is_live": is_live_pos,
                         "entry": _entry,

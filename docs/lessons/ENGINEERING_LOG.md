@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **500 of 1349** reach for source text through `source_scan`, `code_only`
+Driven, **500 of 1350** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 500 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -26991,11 +26991,34 @@ every surface printed `f"${v:+,.2f}"`, the sign after the currency, and a
 reader outside read it as a typo. One helper,
 `bot/formatters/money.py::signed_usd`, now spells every signed dollar
 figure a person reads, `+$209.66` and `-$44.00`, and the Telegram text,
-the cards, the war room and the monitors moved onto it, with the tests
-that had quoted the old spelling. The backtest reports and one line in
-the exchange-sync journal keep the old shape and are listed as the
-exceptions; `tests/test_a_signed_dollar_reads_as_money.py` scans the
-surfaces for the shape and holds the list both ways, so a new site fails
-and a delisted one must be removed in the same commit. The helper takes a
-number only: what to print for a figure nobody read ("—", "unread", "not
-priced") is each surface's own sentence and stayed where it was.
+the cards, the war room, the monitors, the backtest reports and the
+exchange-sync journal line moved onto it, with the tests that had quoted
+the old spelling; the live close message's own `money()` had swapped the
+sign after the dollar on purpose and swaps no more.
+`tests/test_a_signed_dollar_reads_as_money.py` scans the whole bot for the
+shape and holds a list of exceptions both ways (empty now), so a new site
+fails and a delisted one must be removed in the same commit. One trap
+worth the sentence: the first run of the rewritten tests stopped at its
+first failure (`-x`), and nine failures in files sorted after it were
+read as none; a sweep's test run is read without `-x`, to the end. The
+helper takes a number only: what to print for a figure nobody read ("—",
+"unread", "not priced") is each surface's own sentence and stayed where it
+was.
+
+*Fourth addendum, same evening: the score on the position and close cards.*
+Asked for next: the confidence on the cards. The signal card had printed
+the one reading under SCORE (UNCALIBRATED) since the one-reading rule; the
+position and close cards printed none, because neither book recorded one.
+A position knew its entry, stop and target, and not what the engine had
+scored the idea it came from. The reading is recorded at entry now, once,
+on both books (the live position in its entry facts, the paper trade on
+two fields of its own), and one reader, `confidence_on_entry` in
+`bot/core/position_telemetry.py`, hands it to every card beside the
+instant the position opened. Recorded, not looked up: the current scan's
+idea for the same symbol is a different quantity, and a card that printed
+it would print a figure the trade was never opened on. Three absences,
+three sentences: a hand-typed ticket's stamp says "not measured", a field
+nobody could read says the dash, and a row written before the field says
+"not recorded"; none is a 0, and none wears the accent colour a measured
+figure does (`tests/test_the_position_cards_print_the_score_the_record_holds.py`;
+seven mutants, each killed).

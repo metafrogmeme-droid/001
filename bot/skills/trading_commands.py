@@ -52,6 +52,7 @@ from bot.core.open_orders import (
     synth_order_from_tracked,
 )
 from bot.core.position_telemetry import (
+    confidence_on_entry,
     entered_at,
     format_level,
     format_rr,
@@ -269,8 +270,12 @@ def live_position_card_data(pos: Any, mark: object, now: Any) -> dict:
            else pnl_usd - total - funding)
     sl = price_on_record(getattr(pos, "stop_loss", None))
     tp = price_on_record(getattr(pos, "take_profit", None))
+    conf = confidence_on_entry(pos)
     return {
         "symbol": getattr(pos, "symbol", ""), "direction": direction,
+        "opened_at": opened,
+        "confidence": conf.value if conf else None,
+        "confidence_basis": conf.basis if conf else None,
         "is_live": True, "entry": entry, "now": cur,
         "pnl_pct": pnl_pct, "pnl_usd": pnl_usd, "net_pnl": net,
         "fees": None if total is None or funding is None else total + funding,
@@ -2028,9 +2033,13 @@ class TradingCommands:
                         become a crashed card, which is worse.
                         """
                         return None if v is None else round(v, n)
+                    _conf_rec = confidence_on_entry(pos)
                     positions_data.append({
                         "pair": pos.symbol.replace("/", "").replace(":USDT", ""),
                         "direction": pos.direction,
+                        "opened_at": entered_at(pos),
+                        "confidence": _conf_rec.value if _conf_rec else None,
+                        "confidence_basis": _conf_rec.basis if _conf_rec else None,
                         "entry": record_level(pos.entry_price),
                         "price_unavailable": _unread,
                         # Which reading the P&L is missing, for the sentence
@@ -2201,9 +2210,13 @@ class TradingCommands:
                     from datetime import datetime, timezone
                     hold_h = (datetime.now(timezone.utc) - pos.opened_at).total_seconds() / 3600
                     _rr_paper = live_rr(last_price, pos.stop_loss, pos.take_profit)
+                    _conf_rec = confidence_on_entry(pos)
                     positions_data.append({
                         "pair": pos.asset.replace("/", ""),
                         "direction": pos.direction.value,
+                        "opened_at": entered_at(pos),
+                        "confidence": _conf_rec.value if _conf_rec else None,
+                        "confidence_basis": _conf_rec.basis if _conf_rec else None,
                         "entry": record_level(pos.entry_price),
                         # None, never the entry price (that would assert the
                         # market sits exactly there) and never 0: the photo
@@ -2375,6 +2388,9 @@ class TradingCommands:
 
             pos_card_data = {
                 "pnl_unread": pos.get("pnl_unread"),
+                "opened_at": pos.get("opened_at"),
+                "confidence": pos.get("confidence"),
+                "confidence_basis": pos.get("confidence_basis"),
                 "symbol": pair.replace("USDT", "/USDT") if "USDT" in pair else pair,
                 "direction": direction,
                 "is_live": _live_ex is not None,

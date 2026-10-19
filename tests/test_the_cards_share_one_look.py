@@ -78,7 +78,7 @@ class TestOneLook:
         with_ctx = _png(SC.render_position_card(dict(POSITION, rsi=28, rsi_label="oversold")))
         without = _png(SC.render_position_card(POSITION))
         assert with_ctx.height > without.height
-        assert without.height < 440 * T.S
+        assert without.height < 480 * T.S, "the old fixed height; a trimmed card is under it"
 
     def test_the_palette_keeps_its_meanings_apart(self):
         """Green, red, grey and muted are claims the tests read by fill; the

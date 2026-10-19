@@ -318,6 +318,13 @@ class TradeExecution(BaseModel):
     fill_label: str = ""
     opened_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     closed_at: Optional[datetime] = None
+    # THE CONFIDENCE AT ENTRY. `displayed_confidence(idea)` as it read when the
+    # position was opened -- value and basis -- so the position's own cards
+    # print the figure the signal's cards printed, and not a later scan's. A
+    # basis of None is a row written before the field existed (2026-10-19):
+    # not recorded, a third fact beside "stamp" and "unread", and never a zero.
+    confidence_at_entry: Optional[float] = None
+    confidence_basis: Optional[str] = None
 
     @model_validator(mode="after")
     def _validate_execution_sanity(self):
