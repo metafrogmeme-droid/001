@@ -68,7 +68,11 @@ def test_session_gate_is_wired_into_confirm_path():
     session multiplier must now appear in the engine's confirm path."""
     from bot.core.engine import RuneClawEngine
     src = inspect.getsource(RuneClawEngine._confirm_trade_inner)
-    assert "get_market_session" in src
+    # `equity_session_for` is `get_market_session` for the market the asset's
+    # underlying trades on (US or Taiwan, 2026-10-19); asserted to wrap it.
+    from bot.core import stock_trading
+    assert "equity_session_for" in src
+    assert "get_market_session" in inspect.getsource(stock_trading.equity_session_for)
     assert "size_multiplier" in src
     assert "stock_session_gate" in src      # block audit trail
     assert "stock_session_sizing" in src    # reduce audit trail

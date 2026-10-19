@@ -9557,18 +9557,21 @@ class RuneClawEngine:
             _cat = "Crypto"
         from bot.core.stock_trading import EQUITY_PERP_CLASSES
         if _cat in EQUITY_PERP_CLASSES:
-            from bot.core.stock_trading import get_market_session
-            _sess = get_market_session()
+            from bot.core.stock_trading import MARKET_NAMES, equity_session_for
+            # The hours of the exchange this perp's underlying trades on:
+            # New York's for a US name, Taipei's for a Taiwan one.
+            _sess = equity_session_for(idea.asset)
+            _mkt = MARKET_NAMES.get(_sess.market, _sess.market)
             if _sess.size_multiplier <= 0.0:
                 audit(trade_log,
-                      f"BLOCKED: {idea.asset} — US markets {_sess.session_name} "
+                      f"BLOCKED: {idea.asset} — {_mkt} markets {_sess.session_name} "
                       f"(opens in {_sess.hours_until_open:.1f}h) and "
                       f"STOCK_BLOCK_OUTSIDE_HOURS is on",
                       action="stock_session_gate", result="BLOCKED",
                       data={"symbol": idea.asset, "session": _sess.session_name})
                 self._pending_pyramid.pop(trade_id, None)
                 self._transition(AgentState.IDLE, f"stock session gate {trade_id}")
-                return (f"Trade REJECTED: US markets are {_sess.session_name} "
+                return (f"Trade REJECTED: {_mkt} markets are {_sess.session_name} "
                         f"(open in {_sess.hours_until_open:.1f}h) — equity perp "
                         f"entries are blocked outside regular hours.")
             if _sess.size_multiplier < 1.0:
