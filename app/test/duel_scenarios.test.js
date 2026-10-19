@@ -298,7 +298,8 @@ test('a settled football call reports the final score, and a running one no scor
   const running = D.roundCard({ ...MATCH_ROUND,
     my_call: { pick: 'home', entry_price: null, pending: true },
     my_result: { state: 'unresolved', marks: 0, beat_agent: false } });
-  say(running, ['d-pill--you', '>ARSENAL<', 'Running', 'tone-muted'], ['Final score', 'tone-up', 'tone-down']);
+  // A running match settles on its final score, not at a clock time, so its pill says so.
+  say(running, ['d-pill--you', '>ARSENAL<', 'Settles after full time', 'tone-muted'], ['Final score', 'tone-up', 'tone-down', 'Settles in']);
   // A goalless draw is a score, not an absence.
   say(D.roundCard({ ...MATCH_ROUND, callable: false,
     my_call: { pick: 'away', outcome: 'draw', score: { home: 0, away: 0 } },
@@ -404,5 +405,50 @@ test('an open classic round shows the commitment beside the hidden stance; a ran
   const i18n = require('../public/js/i18n.js');
   for (const k of ['duel.rc_call', 'duel.rc_settle', 'duel.rc_round']) {
     for (const l of i18n.LANGS) assert.ok(i18n.STRINGS[k] && i18n.STRINGS[k][l.code], `${k} is missing ${l.code}`);
+  }
+});
+
+// ── the 19 Oct review: a match settles after full time, a kick-off names its
+// zone and its day, a mark says what it is ───────────────────────────────────
+
+test('a running football call settles after full time, never on a countdown; a market call keeps its clock', () => {
+  const now = new Date('2026-10-19T12:00:00Z');
+  assert.equal(D.callState({ kind: 'sports', pending: true, resolves_at: '2026-10-19T21:30:00Z' }, null, now).text, 'Settles after full time');
+  assert.equal(D.callState({ kind: 'direction', pending: true, resolves_at: '2026-10-20T09:12:00Z' }, null, now).text, 'Settles in 21h 12m');
+  const html = D.roundCard({ ...MATCH_ROUND,
+    my_call: { pick: 'home', entry_price: null, pending: true, resolves_at: '2026-10-19T21:30:00Z' },
+    my_result: { state: 'unresolved', marks: 0, beat_agent: false } }, null, now);
+  say(html, ['Settles after full time', 'tone-muted', '>ARSENAL<'], ['Settles in', '>Running<']);
+  const t = (k, en) => 'XX' + k + '|' + en;
+  assert.ok(D.callState({ kind: 'sports', pending: true }, t).text.startsWith('XXduel.st_fulltime|'));
+});
+
+test('a kick-off is printed in the reader’s clock with its zone, and with its day when that is not today', () => {
+  const ref = new Date('2026-10-19T12:00:00Z');
+  const kickoff = '2026-10-19T19:00:00.000Z';
+  const d = new Date(kickoff);
+  const hhmm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  const text = D.kickoffText({ kickoff }, ref);
+  // The clock reading, then a zone name: "19:00 UTC", "21:00 GMT+2".
+  assert.match(text, new RegExp('(^|^[A-Z][a-z]{2} )' + hhmm + ' [A-Z][A-Za-z0-9+\\-:]*$'), text);
+  // The day appears exactly when the reader's local date differs from the reference day.
+  const sameLocalDay = d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth() && d.getDate() === ref.getDate();
+  assert.equal(/^[A-Z][a-z]{2} /.test(text), !sameLocalDay, text);
+  // A kick-off a week on always carries its day.
+  assert.match(D.kickoffText({ kickoff: '2026-10-25T19:00:00.000Z' }, ref), /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d\d:\d\d /);
+  assert.equal(D.kickoffText({ kickoff: 'nonsense' }, ref), '—');
+  assert.ok(D.roundCard(MATCH_ROUND, null, ref).includes(hhmm), 'the card prints the kick-off through the same reader');
+});
+
+test('the marks figure says what a mark is, beside the count still running', () => {
+  const how = '1 per correct call, 2 for beating the Claw';
+  assert.deepEqual(D.marksLabel({ marks: 4, pending: 1 }), { text: '4', tone: 'muted', sub: '1 still running', how });
+  assert.deepEqual(D.marksLabel({ marks: 0, pending: 0 }), { text: '0', tone: 'muted', sub: '', how });
+  assert.equal(D.marksLabel({}).text, '—');
+  assert.equal(D.marksLabel({ marks: 2 }, (k, en) => 'XX' + k + '|' + en).how, 'XXduel.marks_how|' + how);
+  const i18n = require('../public/js/i18n.js');
+  for (const k of ['duel.marks_how', 'duel.st_fulltime']) {
+    assert.ok(i18n.STRINGS[k], `${k} missing from the dictionary`);
+    for (const l of i18n.LANGS) assert.ok(i18n.STRINGS[k][l.code], `${k} is missing ${l.code}`);
   }
 });

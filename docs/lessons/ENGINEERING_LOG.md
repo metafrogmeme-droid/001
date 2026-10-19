@@ -27053,3 +27053,41 @@ with a null. The payload lives on the receipt, where the viewer is known.
 `app/test/seal_roots.test.js`, `app/test/duel_scenarios.test.js`,
 `app/test/the_pi_app_signs_in_with_pi.smoke.test.js`,
 `app/test/the_duel_page_says_when_the_feed_failed.smoke.test.js`.)
+
+**A REVIEW FROM OUTSIDE READ A SEASON'S NAME AS A USER LABEL, A SCREENSHOT
+FIXTURE AS A MOVING KICK-OFF, AND THE HOST'S BADGE SCRIPT AS OURS.** 19
+October, an external review of the Pi app and the website, read against the
+code before any of it was fixed. Three of its findings were the review's own
+error, and each is a lesson about what a surface says to someone who does not
+know the code. "FARCASTER" in the Pi header was the live Arena season's name,
+set by the operator's season rename; the header printed the name alone, so a
+reader took it for an account label. The header now says "Season" before the
+badge. The kick-off that "drifted between screenshots" was my own screenshot
+fixture, which set `kickoff` relative to `Date.now()` on every render; the
+feed's kick-off is a fixed fact. But the card printed a bare "21:33" with no
+zone, and a time with no zone cannot be told from a time that moves, so
+`kickoffText` now prints the zone it is read in and the day when that is not
+today. And the "inline script violates CSP" error on every page is the
+hosting provider's injected badge (`mule.page`), which our hash-based
+`script-src` blocks; it is not in this repository and the fix is in the host's
+project settings. The review's real findings were fixed the same day: a
+replay-theater symbol built by stripping punctuation from `CRV/USDT:USDT`
+(`CRVUSDTUSDT`, a live 502 on the home page); a football call that counted
+down to a clock time nobody set (it settles after full time); a toast that sat
+on the next card for seven seconds; a marks figure with no rule beside it; the
+word "stake" across the Arena and Duel copy in fourteen languages (the terms
+reserve it for the token, and three translations had the literal word for a
+bet); no safety line beside the Telegram door; a link preview that did not
+say what the page says; `/study` for a door labelled "Study Room"; and a Pi
+page with no description, no preview image and no icon.
+
+Two findings were not mine to act on and are recorded as such: hiding the
+presale and the token from the home page is the owner's call (the sale is
+live and announced), and a branded share image needs an image library the
+website does not carry, or a canvas drawn in the browser from the wordmark,
+which is the plan.
+(`app/test/the_theater_asks_for_the_contract_symbol.test.js`,
+`app/test/duel_scenarios.test.js`, `app/test/embed_arena_view.test.js`,
+`app/test/the_pi_app_is_the_arena_and_nothing_else.test.js`,
+`app/test/the_home_page_warns_about_impostors.test.js`,
+`app/test/canonical_links.test.js`.)

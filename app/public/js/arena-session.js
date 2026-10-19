@@ -116,7 +116,9 @@
       });
     }
 
-    var TOAST_MS = 7000;
+    // Long enough to read a sentence, short enough not to sit on the next
+    // card; a tap dismisses it sooner.
+    var TOAST_MS = 3500;
     function showToast(kind, text) {
       if (!text) return;
       toast = { kind: kind || 'ok', text: text, until: Date.now() + TOAST_MS };
@@ -126,7 +128,7 @@
     }
     function toastHtml() {
       if (!toast || toast.until <= Date.now()) return '';
-      return '<div class="p-toast p-toast--' + esc(toast.kind) + '" role="status">' + esc(toast.text) + '</div>';
+      return '<button type="button" class="p-toast p-toast--' + esc(toast.kind) + '" role="status" aria-label="Dismiss">' + esc(toast.text) + '</button>';
     }
 
     var extraCtx = {
@@ -318,7 +320,7 @@
         root.innerHTML = V.seasonHtml(season)
           + signInNote
           + M.signedOutHtml(season, host)
-          + '<p class="e-src">Paper trading · virtual stakes</p>';
+          + '<p class="e-src">Paper trading · virtual balance</p>';
         return;
       }
 
@@ -327,7 +329,7 @@
           + state('error', 'Your account could not be loaded.',
             'This is a fault on our side, not a statement that it is empty.')
           + refreshBarHtml()
-          + '<p class="e-src">Paper trading · virtual stakes</p>';
+          + '<p class="e-src">Paper trading · virtual balance</p>';
         return;
       }
 
@@ -445,6 +447,12 @@
       var close = t.closest('.m-close');
       if (close) return void closePosition(close.getAttribute('data-close-id'));
       if (t.closest('.m-refresh')) return void refreshAll();
+      if (t.closest('.p-toast')) {
+        toast = null;
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = null;
+        return void render();
+      }
       if (!token) return;
       var tb = t.closest('.p-tab-b');
       if (tb) {

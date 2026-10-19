@@ -134,11 +134,15 @@
           : '';
       }
       var streak = me.streak && me.streak.current != null ? String(me.streak.current) : '—';
+      var marks = D.marksLabel(me.marks);
       return '<div class="p-duel-rec">'
         + stat('Accuracy', D.accuracyLabel(me.accuracy))
-        + stat('Marks', D.marksLabel(me.marks))
+        + stat('Marks', marks)
         + stat('Streak', { text: '🔥 ' + streak, tone: 'muted', sub: '' })
-        + '</div>';
+        + '</div>'
+        // What a mark is, under the row: "Accuracy 60% of 5" beside "Marks 4"
+        // cannot be reconciled without the rule.
+        + (marks.how ? '<p class="p-duel-how">' + esc('Marks: ' + marks.how) + '</p>' : '');
     }
 
     /** How many of today's rounds are called, and how many are still open. */
@@ -185,7 +189,7 @@
       var day = card && !failed ? '<span class="p-duel-day">' + esc(card.day) + ' UTC</span>' : '';
       return '<section class="m-open p-duel"><div class="p-sig-head"><h2>Daily Duel</h2>' + day + '</div>'
         + recordHtml() + progressHtml() + noteHtml + body
-        + '<p class="m-open-note">Call the market before the Claw does · no stake · counts and percent only</p>'
+        + '<p class="m-open-note">Call the market before the Claw does · free to play · counts and percent only</p>'
         + '</section>';
     }
 

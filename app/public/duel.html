@@ -102,9 +102,9 @@
   </div>
   <p class="lede" data-i18n="duel.lede">A card a day in five categories: Direction — call a coin LONG, SHORT or PASS
   with the Claw’s own call hidden until you commit; Back or fade — the Claw’s second call is shown, agree with it or
-  bet against it; Range — does a coin break a band either way; Bigger mover — which of two coins moves more;
+  go against it; Range — does a coin break a band either way; Bigger mover — which of two coins moves more;
   Football — who wins the day’s match, settled on the final score. The market settles each market call 24 hours
-  after you make it. Beat the Claw and the round is worth double. Free, no stake, nothing to lose but the argument.</p>
+  after you make it. Beat the Claw and the round is worth double. Free, with nothing to lose but the argument.</p>
 
   <p class="note" id="notice" hidden></p>
 
@@ -133,15 +133,15 @@
     <div id="squads"></div>
   </section>
 
-  <p class="disc" data-i18n="duel.disc">A duel has no stake and moves no money — counts and percentages only,
+  <p class="disc" data-i18n="duel.disc">A duel is free and moves no money — counts and percentages only,
   recomputed from your own calls on every read. An unresolved round is one we could not price; it counts for neither
   side and is never shown as a loss. Education and practice, not investment advice.</p>
 </div>
 
 <script src="/js/api-retry.js?v=3"></script>
-<script src="/js/i18n-core.js?v=188"></script>
+<script src="/js/i18n-core.js?v=189"></script>
 <script src="/js/presale.js?v=2"></script>
-<script src="/js/duel.js?v=5"></script>
+<script src="/js/duel.js?v=6"></script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -177,7 +177,8 @@
   function stat(k, label) {
     return '<div class="stat"><div class="k">' + esc(k) + '</div>'
       + '<div class="v tone-' + esc(label.tone) + '">' + esc(label.text) + '</div>'
-      + (label.sub ? '<div class="d">' + esc(label.sub) + '</div>' : '') + '</div>';
+      + (label.sub ? '<div class="d">' + esc(label.sub) + '</div>' : '')
+      + (label.how ? '<div class="d d-how">' + esc(label.how) + '</div>' : '') + '</div>';
   }
 
   function drawCard(data) {

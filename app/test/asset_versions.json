@@ -1,11 +1,11 @@
 {
   "embed.css": {
-    "v": 12,
-    "sha": "410654fe7758226b"
+    "v": 13,
+    "sha": "c3fe76d9a1e7d1cf"
   },
   "js/agent-page.js": {
-    "v": 1,
-    "sha": "d368ad38000f60e0"
+    "v": 2,
+    "sha": "57210c73a86e7dea"
   },
   "js/agent-scorecard.js": {
     "v": 9,
@@ -28,8 +28,8 @@
     "sha": "709de236d56f9677"
   },
   "js/arb-carry-model.js": {
-    "v": 1,
-    "sha": "da03e9e1ddefd8c4"
+    "v": 2,
+    "sha": "268f842613e1119b"
   },
   "js/arena-risk-model.js": {
     "v": 1,
@@ -84,8 +84,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 247,
-    "sha": "8643ad3201ad91f9"
+    "v": 248,
+    "sha": "a39b35aafcfddb26"
   },
   "js/decision-court-model.js": {
     "v": 3,
@@ -100,16 +100,16 @@
     "sha": "8aaaa6478d0e98e0"
   },
   "js/duel.js": {
-    "v": 5,
-    "sha": "e99b4c086f452dde"
+    "v": 6,
+    "sha": "0f89b9e537ca1fdc"
   },
   "js/embed-arena-view.js": {
-    "v": 2,
-    "sha": "263ddbb234b5a51d"
+    "v": 3,
+    "sha": "bbac1ea1802faf6e"
   },
   "js/embed-arena.js": {
-    "v": 2,
-    "sha": "3f9563476b68436c"
+    "v": 3,
+    "sha": "be250eea58844e68"
   },
   "js/embed-chart.js": {
     "v": 1,
@@ -140,8 +140,8 @@
     "sha": "d1e7b4fdef7a0136"
   },
   "js/equity-theatre-model.js": {
-    "v": 2,
-    "sha": "015b11d0eff4f461"
+    "v": 3,
+    "sha": "b174310ee033ad0d"
   },
   "js/escape-model.js": {
     "v": 2,
@@ -164,8 +164,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 188,
-    "sha": "ea91deb601e27732"
+    "v": 189,
+    "sha": "4349d2ed0ab9a158"
   },
   "js/icons.js": {
     "v": 6,
@@ -200,8 +200,8 @@
     "sha": "9bd8709b9440e40f"
   },
   "js/miniapp-view.js": {
-    "v": 4,
-    "sha": "552eac28780435e3"
+    "v": 5,
+    "sha": "0a5736933ce9331e"
   },
   "js/mode-strip-model.js": {
     "v": 1,
@@ -300,8 +300,8 @@
     "sha": "93a650c4329ff1f1"
   },
   "js/theater.js": {
-    "v": 2,
-    "sha": "2d1bbf1c17554a79"
+    "v": 3,
+    "sha": "a80337c76056c495"
   },
   "js/thesis-model.js": {
     "v": 2,
@@ -356,8 +356,8 @@
     "sha": "f68d9fa4aa93124e"
   },
   "js/arena-session.js": {
-    "v": 5,
-    "sha": "debfbb9bcb0b31fd"
+    "v": 6,
+    "sha": "f8b777925c2a42f2"
   },
   "js/pi-arena.js": {
     "v": 3,
@@ -372,7 +372,7 @@
     "sha": "9f9fc4fe60413a0c"
   },
   "js/pi-duel.js": {
-    "v": 3,
-    "sha": "1106e92356d876a6"
+    "v": 4,
+    "sha": "9998fdc9a3490753"
   }
 }

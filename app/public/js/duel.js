@@ -96,6 +96,9 @@
     const tr = t || IDENT;
     const e = entry || {};
     if (e.pending) {
+      // A football call is settled on the final score when the feed reports
+      // it, not at a clock time: a countdown would name a moment nobody set.
+      if (e.kind === 'sports') return { text: tr('duel.st_fulltime', 'Settles after full time'), tone: 'muted', known: false };
       // A running call says WHEN it settles where the horizon can be read;
       // a horizon that cannot be read is "Running", never a made-up time.
       const left = timeLeftText(e.resolves_at, now, tr);
@@ -168,7 +171,11 @@
     const tr = t || IDENT;
     const m = marks || {};
     const n = Number(m.marks);
-    const out = { text: Number.isFinite(n) ? String(n) : '—', tone: 'muted', sub: '' };
+    // `how` is what a mark is, beside the number: a reader who sees
+    // "Accuracy 60% of 5" next to "Marks 4" cannot reconcile the two without
+    // the rule. `sub` stays what is outstanding, and empty when nothing is.
+    const out = { text: Number.isFinite(n) ? String(n) : '—', tone: 'muted', sub: '',
+      how: tr('duel.marks_how', '1 per correct call, 2 for beating the Claw') };
     if (m.pending > 0) {
       out.sub = tr('duel.marks_pending', '{n} still running').replace('{n}', m.pending);
     }
@@ -196,13 +203,27 @@
     return String(sym == null ? '' : sym).replace(/(USDT|USDC|USD)$/i, '') || String(sym == null ? '' : sym);
   }
 
-  /** A kick-off in the reader's own clock, HH:MM; a dash when unreadable. */
-  function kickoffText(match) {
+  /**
+   * A kick-off in the reader's own clock, with the zone it is read in and the
+   * day when it is not today: "21:00 CEST", "Sat 21:00 CEST". A fixture's
+   * kick-off is a fixed fact from the feed; a bare "21:00" with no zone read
+   * as if it might be moving. A dash when unreadable.
+   */
+  function kickoffText(match, now) {
     const t = Date.parse((match || {}).kickoff || '');
     if (!Number.isFinite(t)) return '—';
     const d = new Date(t);
+    const ref = new Date(now == null ? Date.now() : now);
     const pad = (n) => (n < 10 ? '0' : '') + n;
-    return pad(d.getHours()) + ':' + pad(d.getMinutes());
+    let out = pad(d.getHours()) + ':' + pad(d.getMinutes());
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' }).formatToParts(d);
+      const zone = parts.find((p) => p.type === 'timeZoneName');
+      if (zone && zone.value) out += ' ' + zone.value;
+    } catch (e) { /* no zone name available: the time still stands */ }
+    const sameDay = d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth() && d.getDate() === ref.getDate();
+    if (!sameDay) out = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()] + ' ' + out;
+    return out;
   }
 
   /** A team's short name, its name, or a dash: never a blank button. */
@@ -222,7 +243,7 @@
    * rendered on every surface, so a player meeting a mover for the first
    * time is told what "first" means before they are offered it.
    */
-  function questionText(round, t) {
+  function questionText(round, t, now) {
     const tr = t || IDENT;
     const r = round || {};
     switch (r.kind == null ? 'direction' : r.kind) {
@@ -247,7 +268,7 @@
         const m = r.match || {};
         return tr('duel.q_sports', '{home} vs {away} — who wins? {comp} · kick-off {time}')
           .replace('{home}', teamText(m, 'home')).replace('{away}', teamText(m, 'away'))
-          .replace('{comp}', String(m.competition || '—')).replace('{time}', kickoffText(m));
+          .replace('{comp}', String(m.competition || '—')).replace('{time}', kickoffText(m, now));
       }
       default:
         return tr('duel.q_unknown', 'This round asks a question this page cannot show. Update the app.');
@@ -331,7 +352,7 @@
     const r = round || {};
     const kind = r.kind == null ? 'direction' : r.kind;
     const mine = r.my_call
-      ? callState(Object.assign({}, r.my_call, r.my_result || {}), tr, now)
+      ? callState(Object.assign({ kind }, r.my_call, r.my_result || {}), tr, now)
       : null;
     // A category this page can put a question to. A newer server's round of
     // another kind is not offered, whatever words it sends: a button under a
@@ -416,7 +437,7 @@
       + status
       + '</header>'
       + '<h3 class="d-sym">' + title + '</h3>'
-      + '<p class="d-q">' + esc(questionText(r, tr)) + '</p>'
+      + '<p class="d-q">' + esc(questionText(r, tr, now)) + '</p>'
       + stance
       + body
       + '</article>';

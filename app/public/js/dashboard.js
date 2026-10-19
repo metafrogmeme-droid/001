@@ -4494,7 +4494,7 @@
               ['📈', 'Your equity curve, drawdown chart and trade journal — built from your actual fills'],
               ['🌐', 'Net worth everywhere — connected exchange + on-chain wallet, read-only'],
               ['🏦', 'DeFi mirror — Aave health factors, Lido, Uniswap, with risk warnings'],
-              ['🏟️', 'A Paper Arena account with the same virtual stake as everyone'],
+              ['🏟️', 'A Paper Arena account with the same virtual balance as everyone'],
               ['🛡️', 'The Guardian suite watching your book — alerts included'],
             ].map(([i, t]) => `<div class="kv-row"><span>${i} ${t}</span><span class="muted small">🔒 free account</span></div>`).join('')}
             <p style="margin-top:var(--s3)"><a class="btn btn--primary btn--sm" href="/">Create your free account</a>
@@ -4596,8 +4596,8 @@
         </section>
         <section class="panel" id="p-replay">
           <h2 class="panel-title"><svg class="icon" aria-hidden="true"><use href="#icon-bolt"></use></svg><span data-i18n="dp.hubreplay">What-if replay</span>
-            <span class="badge" style="margin-left:auto" title="Real recorded agent trades, mirrored at your stake — hypothetical, not account history">hypothetical</span></h2>
-          <p style="color:var(--text-2);margin-bottom:var(--s3)">What if you'd mirrored <b>every trade the agent closed</b> with a fixed stake?
+            <span class="badge" style="margin-left:auto" title="Real recorded agent trades, mirrored at your amount — hypothetical, not account history">hypothetical</span></h2>
+          <p style="color:var(--text-2);margin-bottom:var(--s3)">What if you'd mirrored <b>every trade the agent closed</b> with a fixed amount per trade?
             Replayed from real recorded results — you can also just ask the chat.</p>
           <form class="row" id="replayForm" style="gap:var(--s2);flex-wrap:wrap;margin-bottom:var(--s3)">
             <label class="small" style="align-self:center">Stake $</label>
@@ -4932,7 +4932,7 @@
       const earned = (d.badges || []).filter(b => b.earned);
       const rp = d.return_pct;
       return `<div class="w3-hero">
-          <span class="k">Arena return <span class="muted small">all-time · vs the uniform stake</span></span>
+          <span class="k">Arena return <span class="muted small">all-time · vs the uniform balance</span></span>
           <b class="v num ${pnlClass(rp)}">${rp > 0 ? '+' : ''}${fmt(rp, 2)}%</b>
         </div>
         <div class="kv-row"><span>Balance / equity</span>
@@ -5218,13 +5218,13 @@
           <div class="stat-row" style="margin-bottom:var(--s3)">
             <div class="stat"><div class="k">Net (fixed $${fmt(d.stake, 0)}/trade)</div>
               <div class="v ${cls}">${fmtMoney(f.net_pnl_usd)}</div>
-              <div class="small muted">${f.return_pct >= 0 ? '+' : ''}${fmt(f.return_pct, 1)}% per-stake · ${d.trades} trades</div></div>
+              <div class="small muted">${f.return_pct >= 0 ? '+' : ''}${fmt(f.return_pct, 1)}% per trade · ${d.trades} trades</div></div>
             <div class="stat"><div class="k">Win rate</div>
               <div class="v">${fmt(d.win_rate_pct, 0)}%</div>
               <div class="small muted">${d.wins}W / ${d.losses}L</div></div>
             <div class="stat"><div class="k">Max drawdown ${ddLabel('replayWhatIf')}</div>
               <div class="v">${fmt(f.max_drawdown_pct, 1)}%</div>
-              <div class="small muted">on the fixed-stake bankroll</div></div>
+              <div class="small muted">on the fixed-amount bankroll</div></div>
             <div class="stat"><div class="k">Compounded</div>
               <div class="v">${fmtMoney(d.compound.final_usd)}</div>
               <div class="small muted">rolling the full bankroll</div></div>

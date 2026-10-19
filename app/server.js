@@ -506,6 +506,8 @@ app.get('/guardian', (req, res) => { res.setHeader('Cache-Control', 'no-cache');
 app.get('/firewall', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'firewall.html')); });
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
+// "Study Room" is the door's label; /study is the address people guess for it.
+app.get('/study', (req, res) => { res.redirect(301, '/learn'); });
 app.get('/learn', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'learn.html')); });
 // /rune — the soulbound collection, public and honest about all three forge
 // states (cold / unreadable / lit) before and after deployment.
