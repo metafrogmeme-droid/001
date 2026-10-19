@@ -362,3 +362,4 @@ about to change before changing it.
 - L26730: LIVE OFF MEANS PAPER, AND LIVE IS THE OPERATOR'S — `tests/test_live_off_is_paper_and_live_is_the_operators.py`
 - L26754: PAPER WAS THE MAIN MODE AND NOTHING TRADED ON IT — `tests/test_live_off_is_paper_and_live_is_the_operators.py`
 - L26771: THE PAPER CARDS, READ FOR THE FIRST TIME AS THE MAIN BOOK — `tests/test_an_unpriced_paper_mark_is_absent_not_zero.py`, `tests/test_the_details_button_reads_the_callers_account.py`
+- L26789: THE PAPER PERFORMANCE CARD AND THE CLOSE MESSAGE — `tests/test_performance_card_states.py`, `tests/test_the_details_button_reads_the_callers_account.py`

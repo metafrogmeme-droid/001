@@ -26785,3 +26785,18 @@ SIZE printed the notional too, beside `/positions` printing the margin. And
 fills it; it now asks the risk gate's reading (`paper_exposure_pct`), and a
 realized $0.00 is muted rather than green. (`tests/test_an_unpriced_paper_mark_is_absent_not_zero.py`,
 `tests/test_the_details_button_reads_the_callers_account.py`.)
+
+**THE PAPER PERFORMANCE CARD AND THE CLOSE MESSAGE.** 19 October, the owner's
+screenshots of five paper closes, all winners. `/performance` read "Today
+$+0.00 · Week — · Trades 5 · Worst SKYAI" with Worst in red: the paper branch
+never computed a week (RC-2026-009 had made it an honest dash rather than a
+green 0.0), "Trades" was `len(trade_history)` sent as `trades_today`, and the
+Best and Worst tiles were green and red for existing at all. The windows are
+now read off the paper closes' `closed_at`, the way the live branch reads its
+own (`paper_windows`), and Best/Worst take the colour of the trade's own P&L.
+The paper close message printed the notional as "Size" ($1,418.05 for a
+position `/positions` showed as $283.61 at 5x) and listed an estimated funding
+charge inside a breakdown whose Net is gross less commission, so the $0.12 read
+as a cost Net had paid; Size is the margin with the notional beside it, and
+the funding line says it is not booked. (`tests/test_performance_card_states.py`,
+`tests/test_the_details_button_reads_the_callers_account.py`.)

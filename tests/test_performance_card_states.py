@@ -196,3 +196,53 @@ def test_unknown_and_measured_flat_do_not_share_a_glyph():
     assert _pnl_arrow(None) != _pnl_arrow(0.0)
     assert _spark(None) != _spark(0.0)
     assert _money(None) != _money(0.0)
+
+
+# ── 2026-10-19: the paper card's windows, and Best/Worst coloured by sign ──
+#
+# Five paper closes, all winners, read "Today $+0.00 · Week — · Trades 5 ·
+# Worst SKYAI" with Worst in red. The week was never computed for paper,
+# "Trades" was the all-time count sent as `trades_today`, and the Best/Worst
+# tiles were green/red for existing at all.
+
+def test_worst_is_red_only_when_it_lost():
+    won = _tile(performance_card_payload({"worst_pair": "SKYAI", "worst_pnl": 4.1}), "Worst")
+    lost = _tile(performance_card_payload({"worst_pair": "SKYAI", "worst_pnl": -4.1}), "Worst")
+    unread = _tile(performance_card_payload({"worst_pair": "SKYAI"}), "Worst")
+    assert won["color"] == "green" and lost["color"] == "red"
+    assert unread["color"] == "gray", "a pair with no P&L beside it claims nothing"
+
+
+def test_best_is_green_only_when_it_won():
+    lost = _tile(performance_card_payload({"best_pair": "BTC", "best_pnl": -1.0}), "Best")
+    won = _tile(performance_card_payload({"best_pair": "BTC", "best_pnl": 1.0}), "Best")
+    assert lost["color"] == "red" and won["color"] == "green"
+
+
+def _close(pnl, at):
+    from types import SimpleNamespace
+    return SimpleNamespace(pnl=pnl, closed_at=at)
+
+
+def test_the_paper_windows_are_read_off_the_closes():
+    from datetime import datetime, timedelta, timezone
+
+    from bot.skills.portfolio_commands import paper_windows
+    now = datetime(2026, 10, 19, 6, 27, tzinfo=timezone.utc)
+    rows = [
+        _close(10.0, now - timedelta(hours=2)),          # today
+        _close(-3.0, now - timedelta(days=2)),           # this week
+        _close(93.42, now - timedelta(days=6)),          # this week
+        _close(50.0, now - timedelta(days=30)),          # older
+        _close(7.0, None),                               # no close time: total only
+    ]
+    w = paper_windows(rows, now=now)
+    assert w["today_pnl"] == 10.0 and w["trades_today"] == 1
+    assert w["week_pnl"] == round(10.0 - 3.0 + 93.42, 2)
+    assert w["total_pnl"] == round(10.0 - 3.0 + 93.42 + 50.0 + 7.0, 2)
+
+
+def test_an_empty_paper_book_is_a_measured_zero_week():
+    from bot.skills.portfolio_commands import paper_windows
+    w = paper_windows([])
+    assert w == {"today_pnl": 0.0, "week_pnl": 0.0, "total_pnl": 0.0, "trades_today": 0}

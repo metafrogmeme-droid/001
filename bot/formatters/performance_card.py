@@ -112,9 +112,15 @@ def performance_card_payload(data: Dict[str, Any],
              "color": "gray" if trades is None else "white"},
             # "N/A" is what these carried for "no trades yet". Kept out of the
             # measured vocabulary: an absent pair is an absent reading.
+            # COLOUR IS THE TRADE'S OWN SIGN. "Worst" was red and "Best" green
+            # for existing at all, so a book where all five closes won
+            # printed its smallest win in red (2026-10-19). A pair with no
+            # P&L beside it claims nothing.
             {"label": "Best", "value": str(data.get("best_pair") or DASH),
-             "color": "green" if data.get("best_pair") else "gray"},
+             "color": (_money_color(data.get("best_pnl"))
+                       if data.get("best_pair") else "gray")},
             {"label": "Worst", "value": str(data.get("worst_pair") or DASH),
-             "color": "red" if data.get("worst_pair") else "gray"},
+             "color": (_money_color(data.get("worst_pnl"))
+                       if data.get("worst_pair") else "gray")},
         ],
     }
