@@ -53,7 +53,23 @@
   .d-btn:hover { border-color: var(--gold-bright); color: var(--gold-bright); }
   .d-btn:disabled { opacity: .45; cursor: default; }
   .d-btn--pass { flex-basis: 100%; }
-  .d-called { display: flex; flex-direction: column; gap: 4px; }
+  .d-round-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: var(--s2); }
+  .d-kind { display: inline-flex; align-items: center; gap: 5px; }
+  .d-icon { font-size: 12px; line-height: 1; }
+  .d-status { font-size: var(--fs-xs); font-family: var(--font-data); white-space: nowrap; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--text-2); }
+  .d-status.tone-up { color: var(--up); border-color: var(--up); }
+  .d-status.tone-down { color: var(--down); border-color: var(--down); }
+  .d-sym { margin: 0 0 4px; font-weight: 600; }
+  .d-agent { display: flex; align-items: center; gap: 6px; }
+  .d-pill-k { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-3); }
+  .d-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+  .d-pill { display: inline-flex; flex-direction: column; gap: 1px; min-width: 96px; padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--surface); }
+  .d-pill b { font-family: var(--font-data); font-size: var(--fs-sm); color: var(--text-1); }
+  .d-pill--you { border-color: var(--gold-bright); }
+  .d-pill--you .d-pill-k { color: var(--gold-bright); }
+  .d-bi { margin-right: 6px; color: var(--text-3); }
+  .d-btn--long .d-bi { color: var(--up); } .d-btn--short .d-bi { color: var(--down); }
+  .d-called { display: flex; flex-direction: column; gap: 6px; }
   .d-mycall { font-family: var(--font-data); font-size: var(--fs-sm); color: var(--text-1); }
   .d-state { font-size: var(--fs-sm); }
   .d-note { font-size: var(--fs-xs); color: var(--text-3); line-height: 1.5; }
@@ -119,9 +135,9 @@
 </div>
 
 <script src="/js/api-retry.js?v=3"></script>
-<script src="/js/i18n-core.js?v=186"></script>
+<script src="/js/i18n-core.js?v=187"></script>
 <script src="/js/presale.js?v=2"></script>
-<script src="/js/duel.js?v=3"></script>
+<script src="/js/duel.js?v=4"></script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };

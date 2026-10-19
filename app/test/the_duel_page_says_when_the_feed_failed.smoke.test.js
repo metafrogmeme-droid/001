@@ -97,7 +97,7 @@ test('the /duel page', SKIP ? { skip: SKIP } : {}, async (t) => {
       assert.strictEqual(await hidden(page, 'notice'), true, 'a cookie session is signed in; the page must not ask again');
       assert.ok(sent.includes('/api/duel/today'));
       assert.strictEqual(await page.$$eval('#rounds .d-actions', (els) => els.length), 6);
-      const picks = await page.$$eval('#rounds .d-actions[data-round="16"] .d-btn', (els) => els.map((e) => e.getAttribute('data-pick') + ':' + e.textContent));
+      const picks = await page.$$eval('#rounds .d-actions[data-round="16"] .d-btn', (els) => els.map((e) => e.getAttribute('data-pick') + ':' + e.textContent.replace(/^[^A-Za-z]+/, '')));
       assert.deepStrictEqual(picks, ['home:ARSENAL', 'draw:DRAW', 'away:CHELSEA', 'pass:PASS']);
       assert.match(await page.textContent('#rounds'), /Arsenal vs Chelsea — who wins\? Premier League/);
       assert.strictEqual(await hidden(page, 'sportsNote'), true, 'a dealt match is nothing to apologise for');

@@ -42,16 +42,69 @@
   }
 
   /**
+   * Time to a horizon, in words: "21h 10m", "40m", or "any moment" once it
+   * has passed; null when the horizon cannot be read, so the caller can say
+   * "Running" instead of inventing a time.
+   */
+  function timeLeftText(resolvesAt, now, t) {
+    const tr = t || IDENT;
+    const at = Date.parse(resolvesAt || '');
+    if (!Number.isFinite(at)) return null;
+    const ms = at - (now == null ? Date.now() : new Date(now).getTime());
+    if (ms <= 0) return tr('duel.t_soon', 'any moment');
+    const mins = Math.ceil(ms / 60000);
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h === 0) return tr('duel.t_m', '{m}m').replace('{m}', m);
+    return tr('duel.t_hm', '{h}h {m}m').replace('{h}', h).replace('{m}', m);
+  }
+
+  /** A glyph for the category chip. Decoration, not a claim: no colour here. */
+  function kindIcon(kind) {
+    switch (kind) {
+      case 'direction': return '\u2195';   // ↕
+      case 'backfade': return '\u2694';    // ⚔
+      case 'range': return '\u2194';       // ↔
+      case 'mover': return '\u26A1';       // ⚡
+      case 'sports': return '\u26BD';      // ⚽
+      default: return '?';
+    }
+  }
+
+  /** A glyph before a button's word, for the picks that have a natural one. */
+  function pickIcon(pick) {
+    switch (pick) {
+      case 'long': return '\u25B2';    // ▲
+      case 'short': return '\u25BC';   // ▼
+      case 'pass': return '\u2013';    // –
+      case 'back': return '\u2713';    // ✓
+      case 'fade': return '\u2715';    // ✕
+      case 'break': return '\u21C5';   // ⇅
+      case 'hold': return '\u21D4';    // ⇔
+      default: return '';
+    }
+  }
+
+  /**
    * How one of the caller's calls is doing.
    *
    * `tone` is the colour claim, and it is 'muted' for everything we do not
    * know. A green stripe beside a call whose price we never read would assert
    * a win that nothing in the record supports.
    */
-  function callState(entry, t) {
+  function callState(entry, t, now) {
     const tr = t || IDENT;
     const e = entry || {};
-    if (e.pending) return { text: tr('duel.st_pending', 'Running'), tone: 'muted', known: false };
+    if (e.pending) {
+      // A running call says WHEN it settles where the horizon can be read;
+      // a horizon that cannot be read is "Running", never a made-up time.
+      const left = timeLeftText(e.resolves_at, now, tr);
+      return {
+        text: left ? tr('duel.st_settles', 'Settles in {t}').replace('{t}', left) : tr('duel.st_pending', 'Running'),
+        tone: 'muted',
+        known: false,
+      };
+    }
     if (e.unresolved || e.state === 'unresolved') {
       return {
         text: tr('duel.st_unresolved', 'Unresolved — no price'),
@@ -174,7 +227,7 @@
     const r = round || {};
     switch (r.kind == null ? 'direction' : r.kind) {
       case 'direction':
-        return tr('duel.q_direction', 'Higher or lower in {h}h? The Claw’s own call is shown once you commit.')
+        return tr('duel.q_direction', 'Higher or lower in {h}h?')
           .replace('{h}', r.horizon_hours == null ? 24 : r.horizon_hours);
       case 'backfade': {
         const dir = r.agent_direction === 'long' ? tr('duel.b_long', 'LONG')
@@ -253,12 +306,12 @@
    * on a back/fade round the stance is in the question, and a range or a
    * mover round never had one.
    */
-  function roundCard(round, t) {
+  function roundCard(round, t, now) {
     const tr = t || IDENT;
     const r = round || {};
     const kind = r.kind == null ? 'direction' : r.kind;
     const mine = r.my_call
-      ? callState(Object.assign({}, r.my_call, r.my_result || {}), tr)
+      ? callState(Object.assign({}, r.my_call, r.my_result || {}), tr, now)
       : null;
     // A category this page can put a question to. A newer server's round of
     // another kind is not offered, whatever words it sends: a button under a
@@ -267,28 +320,49 @@
     const options = !known ? []
       : Array.isArray(r.options) ? r.options : (kind === 'direction' ? ['long', 'short', 'pass'] : []);
 
+    const pill = (cls, k, v) => '<span class="d-pill ' + cls + '"><small class="d-pill-k">' + esc(k) + '</small><b>' + esc(v) + '</b></span>';
+    const clawWord = (rr) => (rr.agent_direction === 'long' ? tr('duel.b_long', 'LONG')
+      : rr.agent_direction === 'short' ? tr('duel.b_short', 'SHORT') : tr('duel.b_pass', 'PASS'));
+
     let body;
+    let status;
+    let is;
     if (mine) {
+      is = 'called';
+      status = '<span class="d-status tone-' + esc(mine.tone) + '">' + esc(mine.text) + '</span>';
       // A football call shows the final score beside its result; a score is
       // printed only when one was read (my_call.score), never as 0–0.
       const sc = r.my_call.score;
       const scoreNote = kind === 'sports' && sc && sc.home != null && sc.away != null
         ? '<span class="d-note">' + esc(tr('duel.final_score', 'Final score {h}–{a}')
           .replace('{h}', sc.home).replace('{a}', sc.away)) + '</span>' : '';
+      // The Claw's own word sits beside yours where there was one to reveal:
+      // a classic round after the call, a back/fade round always.
+      const claw = (kind === 'direction' || kind === 'backfade') && ('agent_direction' in r)
+        ? pill('d-pill--claw', tr('duel.claw', 'Claw'), clawWord(r)) : '';
       body = '<div class="d-called">'
-        + '<span class="d-mycall">' + esc(tr('duel.you_called', 'You called') + ' ' + pickLabel(r.my_call.pick, r, tr)) + '</span>'
-        + '<span class="d-state tone-' + esc(mine.tone) + '">' + esc(mine.text) + '</span>'
+        + '<div class="d-pills">' + pill('d-pill--you', tr('duel.you', 'You'), pickLabel(r.my_call.pick, r, tr)) + claw + '</div>'
         + (mine.note ? '<span class="d-note">' + esc(mine.note) + '</span>' : '')
         + scoreNote
         + '</div>';
     } else if (r.callable && options.length) {
+      is = 'open';
+      status = '<span class="d-status tone-muted">' + esc(tr('duel.st_open', 'Open')) + '</span>';
       body = '<div class="d-actions" data-round="' + esc(r.id) + '">'
-        + options.map((pick) => '<button class="d-btn' + (pick === 'pass' ? ' d-btn--pass' : '')
-          + '" data-pick="' + esc(pick) + '">' + esc(pickLabel(pick, r, tr)) + '</button>').join('')
+        + options.map((pick) => {
+          const icon = pickIcon(pick);
+          return '<button class="d-btn d-btn--' + esc(pick) + (pick === 'pass' ? ' d-btn--pass' : '')
+            + '" data-pick="' + esc(pick) + '">' + (icon ? '<span class="d-bi">' + icon + '</span>' : '')
+            + esc(pickLabel(pick, r, tr)) + '</button>';
+        }).join('')
         + '</div>';
     } else if (r.callable) {
+      is = 'unknown';
+      status = '';
       body = '<div class="d-note">' + esc(tr('duel.q_unknown', 'This round asks a question this page cannot show. Update the app.')) + '</div>';
     } else {
+      is = 'closed';
+      status = '<span class="d-status tone-muted">' + esc(tr('duel.st_closed', 'Closed')) + '</span>';
       body = '<div class="d-note">' + esc(kind === 'sports'
         ? tr('duel.closed_kickoff', 'Kick-off has passed — calls are closed.')
         : tr('duel.closed', 'This round has closed.')) + '</div>';
@@ -299,16 +373,22 @@
       : kind === 'sports'
         ? esc(teamText(r.match, 'home')) + ' <span class="d-vs">' + esc(tr('duel.vs', 'vs')) + '</span> ' + esc(teamText(r.match, 'away'))
         : esc(r.symbol);
-    const stance = kind === 'direction'
-      ? '<span class="d-agent">' + esc(agentLabel(r, tr).text) + '</span>' : '';
-    return '<article class="d-round d-round--' + esc(kind) + '">'
-      + '<header class="d-round-h"><span class="d-sym">' + title + '</span>'
-      + '<span class="d-kind">' + esc(kindLabel(kind, tr)) + '</span></header>'
+    // The stance line stays on an uncalled classic round: it is the promise
+    // the question used to carry ("shown once you commit"), now beside the
+    // Claw's name where the pill will appear.
+    const stance = kind === 'direction' && !mine
+      ? '<span class="d-agent"><small class="d-pill-k">' + esc(tr('duel.claw', 'Claw')) + '</small>' + esc(agentLabel(r, tr).text) + '</span>' : '';
+    return '<article class="d-round d-round--' + esc(kind) + ' d-round--' + esc(is) + '">'
+      + '<header class="d-round-h">'
+      + '<span class="d-kind d-kind--' + esc(known ? kind : 'unknown') + '"><span class="d-icon">' + kindIcon(known ? kind : null) + '</span>' + esc(kindLabel(kind, tr)) + '</span>'
+      + status
+      + '</header>'
+      + '<h3 class="d-sym">' + title + '</h3>'
       + '<p class="d-q">' + esc(questionText(r, tr)) + '</p>'
       + stance
       + body
       + '</article>';
   }
 
-  return { esc, base, KNOWN_KINDS, callState, accuracyLabel, marksLabel, agentLabel, kindLabel, questionText, pickLabel, bandText, kickoffText, teamText, roundCard };
+  return { esc, base, KNOWN_KINDS, callState, timeLeftText, kindIcon, pickIcon, accuracyLabel, marksLabel, agentLabel, kindLabel, questionText, pickLabel, bandText, kickoffText, teamText, roundCard };
 }));

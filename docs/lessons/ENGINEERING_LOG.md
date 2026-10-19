@@ -26967,3 +26967,52 @@ The agent guide, the runbook, the systemd README and the deploy commands say
 (`tests/test_the_duel_bot_is_its_own_process.py`,
 `tests/test_systemd_units_supervise.py`, `tests/test_launch_all_starts_both.py`,
 `tests/test_claude_md_accuracy.py`.)
+
+**THE PI APP BECAME THREE TABS BEHIND A STICKY TOP, AND A DUEL ROUND SAYS WHEN
+IT SETTLES.** 19 October, the owner, with a screenshot of the app: "we need
+this ui more user friendly and up to 2027 standards". The signed-in screen
+was one scroll from the equity to the last chart: the positions, six duel
+rounds of four near-identical lines each ("Higher or lower in 24h? The Claw's
+own call is shown once you commit. The Claw called SHORT. You called SHORT.
+Running."), the record, then the signals with their charts, and nothing said
+WHEN a running call would settle. It is now a sticky top (season, equity,
+Refresh), three panels behind a bottom bar (Arena, Duel with the count of
+rounds still open to a call, Signals), and a toast for a recorded call; a
+refusal stays in its block, where it is read. `arena-session.js` groups a
+host's blocks by a `tab` each may name, and shows the bar only when there are
+two or more, so the Farcaster mini app, which passes no blocks, is unchanged.
+The active tab is a closure variable like the session: no browser storage on
+a framable page.
+
+The round card, on every surface since `duel.js` draws it for /duel, the Pi
+app and the Arena alike: a category chip with a glyph and a hue of its own,
+a status pill (Open · Settles in 21h 12m · Correct — you beat the Claw ·
+Closed), the title, the question, then either the buttons (▲ LONG, ▼ SHORT,
+– PASS, ✓ BACK, ✕ FADE, ⇅ BREAKS, ⇔ HOLDS; a team's name needs no glyph) or
+two pills, yours and the Claw's. Three honesty points held. (1) The time to
+settle is read from the call's own `resolves_at`; a horizon that cannot be
+read says "Running", never a made-up time. (2) The Claw's pill appears only
+where there was a stance to reveal (a classic round after the call, a
+back/fade round always); a range, a mover or a match never held one, and a
+Claw that passed says PASS, the word a pass has everywhere, not a blank. (3)
+The hue on the chip is decoration and is neither the green nor the red that
+mean won and lost. The direction question lost its second sentence in all
+14 languages; the promise it carried ("shown once you commit") lives on the
+stance line beside the Claw's name until the call is made.
+
+Found on the way, and the costlier lesson: the duel bot's first commit had
+tracked `app/node_modules` as a SYMLINK to a developer's checkout (the
+worktree it was built in linked the folder by hand, and a `git add -A` took
+the link). Merged into the checkout that owned the real folder, git replaced
+the installed packages with a link to themselves: an ignored path is
+expendable to git, and the folder is ignored. Every worktree pointed at that
+folder, so no copy survived; `npm ci` restored it from the cache, and the
+entry is untracked. A dependency folder is never tracked, and a hand-made
+link inside a worktree is a thing `git add -A` will commit.
+(`app/test/duel_scenarios.test.js`, `app/test/pi_duel_block.test.js`,
+`app/test/the_pi_app_signs_in_with_pi.smoke.test.js`,
+`app/test/the_duel_page_says_when_the_feed_failed.smoke.test.js`,
+`app/test/the_arena_shows_the_daily_duel.smoke.test.js`,
+`app/test/miniapp_arena.test.js`,
+`app/test/the_pi_app_is_the_arena_and_nothing_else.test.js`,
+`app/test/cache_buster_ratchet.test.js`, `app/test/i18n.test.js`.)

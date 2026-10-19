@@ -2002,6 +2002,15 @@
     "duel.acc_unresolved": { en: "Nothing has settled yet" },
     "duel.acc_of": { en: "of {n} settled calls" },
     "duel.marks_pending": { en: "{n} still running" },
+    "duel.st_open": { en: "Open" },
+    "duel.st_closed": { en: "Closed" },
+    "duel.st_settles": { en: "Settles in {t}" },
+    "duel.t_hm": { en: "{h}h {m}m" },
+    "duel.t_m": { en: "{m}m" },
+    "duel.t_soon": { en: "any moment" },
+    "duel.you": { en: "You" },
+    "duel.claw": { en: "Claw" },
+    "duel.called_n": { en: "{n} of {m} called" },
     "duel.closed": { en: "This round has closed." },
     "duel.disc": { en: "A duel has no stake and moves no money — counts and percentages only, recomputed from your own calls on every read. An unresolved round is one we could not price; it counts for neither side and is never shown as a loss. Education and practice, not investment advice." },
     "duel.share": { en: "Share your record" },
@@ -2012,7 +2021,7 @@
     "duel.k_range": { en: "Range" },
     "duel.k_mover": { en: "Bigger mover" },
     "duel.k_unknown": { en: "Unknown round type" },
-    "duel.q_direction": { en: "Higher or lower in {h}h? The Claw’s own call is shown once you commit." },
+    "duel.q_direction": { en: "Higher or lower in {h}h?" },
     "duel.q_backfade": { en: "The Claw called {dir} on {sym}. Back it, or fade it?" },
     "duel.q_range": { en: "Does {sym} move more than {band} either way in {h}h?" },
     "duel.q_mover": { en: "{a} or {b} — which moves more in {h}h, either way?" },
@@ -2296,7 +2305,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"d92e38d4","zh":"47036efa","pt":"195efdb0","fr":"4e405057","de":"e94c9d57","nl":"da3bd3aa","ja":"60b3cb75","ko":"2998c744","ru":"b7c4739e","tr":"05163e55","it":"199b6a85","hi":"e8b2d83b","ar":"f22ad41f"};
+  var CHUNKS = {"es":"dbc4d19e","zh":"8d7c0634","pt":"46ff7c4c","fr":"78a0877f","de":"2d64d137","nl":"3aef5164","ja":"851768d2","ko":"1fbddd9e","ru":"3b9019c1","tr":"24b03c2e","it":"73cfed25","hi":"c3479381","ar":"e626e03b"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

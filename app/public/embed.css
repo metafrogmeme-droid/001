@@ -18,6 +18,17 @@
   --e-up: #31c48d;
   --e-down: #f05252;
   --e-info: #4db6ff;
+  --e-surface-2: #181c26;
+  --e-line-2: #2e3447;
+  --e-accent: #4db6ff;
+  --e-accent-soft: rgba(77, 182, 255, .14);
+  /* One hue per duel category, on the chip only. Decoration, not a claim:
+     none of them is the green or the red that mean "won" and "lost". */
+  --e-k-direction: #6cb6ff;
+  --e-k-backfade: #b39cff;
+  --e-k-range: #f6b85c;
+  --e-k-mover: #ff8fcf;
+  --e-k-sports: #5fd7e8;
 }
 
 * { box-sizing: border-box; }
@@ -365,38 +376,156 @@ html, body {
 .m-refresh[disabled] { opacity: .6; cursor: default; }
 .m-refresh:focus-visible { outline: 2px solid var(--e-info); outline-offset: 1px; }
 
-/* The Daily Duel block (pi-duel.js), drawn with the website's own round
-   renderer (duel.js). The same class names as /duel, in the app's palette;
-   the category chip and the question line are the block's own. Colour is a
-   claim: only a settled result carries one (tone-up / tone-down). */
-.p-duel .d-rounds { display: grid; gap: 10px; }
-.p-duel .d-round { border: 1px solid var(--e-line); border-radius: 10px; padding: 10px 12px; }
-.p-duel .d-round-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
-.p-duel .d-sym { font-weight: 700; letter-spacing: .02em; color: var(--e-text); }
-.p-duel .d-vs { font-weight: 400; color: var(--e-text-3); }
-.p-duel .d-kind { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--e-text-3); border: 1px solid var(--e-line); border-radius: 999px; padding: 2px 8px; }
-.p-duel .d-q { margin: 2px 0 8px; font-size: 12.5px; color: var(--e-text-2); line-height: 1.45; }
-.p-duel .d-agent { display: block; margin: 0 0 8px; font-size: 11.5px; color: var(--e-text-3); }
-.p-duel .d-actions { display: flex; gap: 7px; flex-wrap: wrap; }
-.p-duel .d-btn {
-  flex: 1 1 0; min-width: 96px; min-height: 40px; padding: 8px 10px; border-radius: 8px;
-  border: 1px solid var(--e-line); background: transparent; color: var(--e-text);
-  font: inherit; font-size: 12.5px; font-weight: 600; letter-spacing: .02em; cursor: pointer;
+/* ── the Pi app's screen: a sticky top, one tab at a time, a toast ───────
+   arena-session.js draws the season and the account into .p-top and each
+   block into a .p-panel; with two or more tabs the panels not on screen are
+   `hidden` and a bar at the bottom switches them, so the app is no longer one
+   long scroll from the equity to the last chart. */
+.p-top {
+  position: sticky; top: 0; z-index: 5;
+  display: grid; grid-template-columns: 1fr auto; column-gap: 12px; align-items: start;
+  margin: -12px -12px 10px; padding: 12px 12px 8px;
+  background: linear-gradient(var(--e-bg) 86%, rgba(11, 13, 18, 0));
 }
-.p-duel .d-btn--pass { flex-basis: 100%; color: var(--e-text-2); font-weight: 500; }
-.p-duel .d-btn:focus-visible { outline: 2px solid var(--e-info); outline-offset: 1px; }
-.p-duel .d-called { display: flex; flex-direction: column; gap: 3px; }
-.p-duel .d-mycall { font-size: 12.5px; font-weight: 600; color: var(--e-text); }
-.p-duel .d-state { font-size: 12.5px; }
+.p-top .a-season { margin: 0; min-width: 0; }
+.p-top .a-season h1 { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p-top .a-sub { margin-top: 4px; }
+.p-top .m-acct { margin: 0; text-align: right; }
+.p-top .m-eq { justify-content: flex-end; gap: 6px; }
+.p-top .m-eq-label { display: none; }
+.p-top .m-eq-val { font-size: 22px; }
+.p-top .m-eq-ret { margin-left: 0; font-size: 13px; }
+.p-top .m-free { margin-top: 1px; }
+.p-top .m-refresh-row { grid-column: 1 / -1; margin: 6px 0 0; }
+.p-top .m-refresh { min-height: 30px; padding: 4px 10px; font-size: 12px; }
+
+.p-panel[hidden] { display: none; }
+.p-has-tabs { padding-bottom: 92px; }
+.p-tabs {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  display: flex; gap: 4px;
+  padding: 6px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  background: rgba(18, 21, 29, .96); border-top: 1px solid var(--e-line);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.p-tab-b {
+  flex: 1 1 0; position: relative; min-height: 52px; border: 0; border-radius: 12px;
+  background: transparent; color: var(--e-text-3);
+  font: inherit; font-size: 11.5px; font-weight: 600; letter-spacing: .02em;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  cursor: pointer;
+}
+.p-tab-i { font-size: 18px; line-height: 1; }
+.p-tab-b[aria-pressed="true"] { color: var(--e-accent); background: var(--e-accent-soft); }
+.p-tab-b:focus-visible { outline: 2px solid var(--e-accent); outline-offset: -2px; }
+.p-tab-n {
+  position: absolute; top: 6px; right: calc(50% - 26px);
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  background: var(--e-accent); color: var(--e-bg);
+  font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.p-toast {
+  position: fixed; left: 12px; right: 12px; bottom: calc(82px + env(safe-area-inset-bottom, 0px)); z-index: 11;
+  padding: 11px 14px; border-radius: 12px; font-size: 13px; line-height: 1.45;
+  background: var(--e-surface-2); border: 1px solid var(--e-line-2); color: var(--e-text);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
+}
+.p-toast--ok { border-color: var(--e-accent); }
+.p-toast--warn { border-color: var(--e-down); color: var(--e-down); }
+@media (prefers-reduced-motion: no-preference) {
+  .p-toast { animation: p-toast-in .22s ease-out; }
+  @keyframes p-toast-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+}
+
+/* Positions as rows on an elevated surface: the side, the symbol and the
+   P&L on one line, the prices beneath, the close small and to the right. */
+.m-pos { position: relative; background: var(--e-surface-2); border-color: var(--e-line-2); border-radius: 12px; }
+.m-pos-foot { padding-right: 78px; }
+.m-pos .m-close { position: absolute; right: 11px; bottom: 10px; margin-left: 0; }
+.m-pos-head .a-tick-dir { font-size: 10px; padding: 2px 6px; border-radius: 6px; }
+.m-pos-sym { font-size: 15px; }
+.m-pos-foot { gap: 8px 12px; font-size: 11.5px; }
+.m-close { border-radius: 8px; min-height: 32px; }
+.m-open-note { font-size: 11px; }
+
+/* The Daily Duel block (pi-duel.js), drawn with the website's own round
+   renderer (duel.js). The same class names as /duel, in the app's palette.
+   A round reads top to bottom as chip · status, the title, the question,
+   then either the buttons or the two pills (yours, the Claw's). Colour is a
+   claim: a settled result carries one (tone-up / tone-down), a category chip
+   carries its own hue and nothing else does. */
+.p-duel .d-rounds { display: grid; gap: 10px; }
+.p-duel .d-round {
+  background: var(--e-surface-2); border: 1px solid var(--e-line-2); border-radius: 14px; padding: 12px 13px 13px;
+}
+.p-duel .d-round--called { border-color: var(--e-line); }
+.p-duel .d-round-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+.p-duel .d-kind {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--e-text-2); border: 1px solid currentColor; border-radius: 999px; padding: 3px 9px 3px 7px;
+}
+.p-duel .d-icon { font-size: 12px; line-height: 1; }
+.p-duel .d-kind--direction { color: var(--e-k-direction); }
+.p-duel .d-kind--backfade { color: var(--e-k-backfade); }
+.p-duel .d-kind--range { color: var(--e-k-range); }
+.p-duel .d-kind--mover { color: var(--e-k-mover); }
+.p-duel .d-kind--sports { color: var(--e-k-sports); }
+.p-duel .d-status {
+  font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap;
+  padding: 3px 9px; border-radius: 999px; background: var(--e-bg); border: 1px solid var(--e-line);
+}
+.p-duel .d-status.tone-up { color: var(--e-up); border-color: rgba(49, 196, 141, .45); }
+.p-duel .d-status.tone-down { color: var(--e-down); border-color: rgba(240, 82, 82, .45); }
+.p-duel .d-status.tone-muted { color: var(--e-text-2); }
+.p-duel .d-sym { margin: 0 0 3px; font-size: 17px; font-weight: 700; letter-spacing: -.01em; color: var(--e-text); }
+.p-duel .d-vs { font-weight: 400; font-size: 13px; color: var(--e-text-3); }
+.p-duel .d-q { margin: 0 0 9px; font-size: 13px; color: var(--e-text-2); line-height: 1.45; }
+.p-duel .d-agent { display: flex; align-items: center; gap: 6px; margin: -3px 0 9px; font-size: 12px; color: var(--e-text-3); }
+.p-duel .d-pill-k {
+  font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: .08em; color: var(--e-text-3);
+}
+.p-duel .d-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.p-duel .d-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 48px; padding: 10px 12px; border-radius: 12px;
+  border: 1px solid var(--e-line-2); background: var(--e-bg); color: var(--e-text);
+  font: inherit; font-size: 13px; font-weight: 650; letter-spacing: .02em; cursor: pointer;
+}
+.p-duel .d-btn:active { transform: scale(.98); }
+.p-duel .d-bi { font-size: 13px; line-height: 1; color: var(--e-text-2); }
+.p-duel .d-btn--long .d-bi { color: var(--e-up); }
+.p-duel .d-btn--short .d-bi { color: var(--e-down); }
+.p-duel .d-btn--pass { grid-column: 1 / -1; min-height: 40px; color: var(--e-text-2); font-weight: 500; background: transparent; }
+.p-duel .d-btn:focus-visible { outline: 2px solid var(--e-accent); outline-offset: 1px; }
+.p-duel .d-called { display: flex; flex-direction: column; gap: 6px; }
+.p-duel .d-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+.p-duel .d-pill {
+  display: inline-flex; flex-direction: column; gap: 1px; min-width: 96px;
+  padding: 7px 11px; border-radius: 10px; background: var(--e-bg); border: 1px solid var(--e-line);
+}
+.p-duel .d-pill b { font-size: 13.5px; font-weight: 700; letter-spacing: .02em; }
+.p-duel .d-pill--you { border-color: var(--e-accent); }
+.p-duel .d-pill--you .d-pill-k { color: var(--e-accent); }
 .p-duel .d-note { font-size: 11.5px; color: var(--e-text-3); line-height: 1.45; }
 .p-duel .tone-up { color: var(--e-up); }
 .p-duel .tone-down { color: var(--e-down); }
 .p-duel .tone-muted { color: var(--e-text-3); }
 .p-duel-day { color: var(--e-text-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
-.p-duel-rec { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
-.p-duel-stat { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--e-line); border-radius: 8px; padding: 8px 10px; }
-.p-duel-stat .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--e-text-3); }
-.p-duel-stat .v { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.p-duel-stat .v.tone-muted { color: var(--e-text-2); }
-.p-duel-stat .d { font-size: 10.5px; color: var(--e-text-3); }
-.p-duel-norec { margin: 8px 0 0; font-size: 11.5px; color: var(--e-text-3); }
+.p-duel-rec {
+  display: grid; grid-template-columns: repeat(3, 1fr); margin: 0 0 10px;
+  background: var(--e-surface-2); border: 1px solid var(--e-line-2); border-radius: 12px;
+}
+.p-duel-stat { display: flex; flex-direction: column; gap: 1px; padding: 9px 10px; min-width: 0; }
+.p-duel-stat + .p-duel-stat { border-left: 1px solid var(--e-line); }
+.p-duel-stat .k { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--e-text-3); }
+.p-duel-stat .v { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.p-duel-stat .v.tone-muted { color: var(--e-text); }
+.p-duel-stat .d { font-size: 10.5px; color: var(--e-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p-duel-norec { margin: 0 0 10px; font-size: 11.5px; color: var(--e-text-3); }
+.p-duel-prog { margin: 0 0 10px; }
+.p-duel-prog-t { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--e-text-2); margin-bottom: 5px; font-variant-numeric: tabular-nums; }
+.p-duel-prog-o { color: var(--e-accent); font-weight: 600; }
+.p-duel-bar { height: 5px; border-radius: 999px; background: var(--e-line); overflow: hidden; }
+.p-duel-bar-f { height: 100%; border-radius: 999px; background: var(--e-accent); transition: width .3s ease; }
