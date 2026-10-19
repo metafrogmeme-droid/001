@@ -61,7 +61,7 @@ class TestPerformanceTotals:
 
     def test_an_unpriceable_book_prints_no_all_time_figure(self):
         out = _text(self.ALL_UNPRICED)
-        assert "$+0.00" not in out
+        assert "+$0.00" not in out
 
     def test_it_is_not_painted_as_profit(self):
         # `_pnl_arrow(None)` is the white circle; green would claim a gain.
@@ -72,12 +72,12 @@ class TestPerformanceTotals:
         out = _text(dict(self.ALL_UNPRICED, total_pnl=12.34, today_pnl=1.0,
                          week_pnl=5.0, win_rate=60.0, win_rate_scored=3,
                          win_rate_unscored=0))
-        assert "$+12.34" in out
+        assert "+$12.34" in out
 
     def test_a_measured_flat_day_still_prints_zero(self):
         # 0.0 is a reading. Only None is not.
         out = _text(dict(self.ALL_UNPRICED, today_pnl=0.0))
-        assert "$+0.00" in out
+        assert "+$0.00" in out
 
     def test_the_caller_no_longer_folds_the_total(self):
         code = _handler_code()

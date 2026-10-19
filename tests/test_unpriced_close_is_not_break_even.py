@@ -93,7 +93,7 @@ class TestMoney:
         assert money(None) == UNREAD
 
     def test_a_number_stays_a_number(self):
-        assert money(-0.2128) == "$-0.2128"
+        assert money(-0.2128) == "-$0.2128"
         assert money(0.0) == "$0.0000"
 
 

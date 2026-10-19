@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 
 from bot.formatters import signal_card as SC
+from bot.formatters.money import signed_usd
 from bot.skills.callback_handler import paper_close_card_data
 from tests.png_text import drawn, fill_of
 from tests.source_scan import code_only
@@ -57,7 +58,8 @@ class TestTheSeam:
         assert f"{'+' if pct >= 0 else ''}{pct:.2f}%" in texts, texts
         assert "on margin, after fees" in texts, "the hero names its basis"
         assert f"${d['margin_usd']:,.2f} | 5x" in texts
-        assert fill_of(rows, f"${ct.pnl:+,.2f}  (fees ${ct.commission:.2f})") == (SC._GREEN if ct.pnl >= 0 else SC._RED)
+        net_line = f"{signed_usd(ct.pnl)}  (fees ${ct.commission:.2f})"
+        assert fill_of(rows, net_line) == (SC._GREEN if ct.pnl >= 0 else SC._RED)
 
 
 class TestTheHandler:

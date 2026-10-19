@@ -104,6 +104,7 @@ def font(size: int, bold: bool = False, *, weight: Optional[str] = None, cjk: bo
         paths += CJK_FONT_PATHS
     paths.append(os.path.join(_FONT_DIR, _WEIGHT_FILES.get(w, "Inter-Regular.otf")))
     paths += _DEJAVU[w in ("semibold", "bold")]
+    f: Any
     for path in paths:
         try:
             f = ImageFont.truetype(path, px)
@@ -207,7 +208,7 @@ class Draw:
         if im is None:
             return 0.0
         self.image.paste(im, (int(round(x * S)), int(round(y * S))), im)
-        return im.width / S
+        return float(im.width) / S
 
     def logotype(self, x: float, y: float, height: float = 14) -> float:
         """The RUNECLAW logotype (the serif mark with the three-bar glyph)."""
@@ -239,7 +240,7 @@ def _asset(name: str, height: float):
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", name + ".png")
         src = Image.open(path).convert("RGBA")
         h = max(1, int(round(height * S)))
-        im = src.resize((max(1, int(round(src.width * h / src.height))), h), Image.LANCZOS)
+        im = src.resize((max(1, int(round(src.width * h / src.height))), h), Image.Resampling.LANCZOS)
     except Exception:
         im = None
     _ASSET_CACHE[key] = im

@@ -161,7 +161,7 @@ class TestTheRenderers:
                       live_position_card_data(_pos(), 102.0, NOW))
         assert "1.1x" in out
         assert "fees $0.08" in out
-        assert "$+1.92" in out
+        assert "+$1.92" in out
         assert "0.0x" not in out
 
     def test_an_adopted_position_prints_unread_and_no_stop(self):
@@ -373,7 +373,7 @@ class TestThePositionsCommand:
         cards, out = self._drive([p], {"SOL/USDT:USDT": 102.0}, monkeypatch)
         assert cards and cards[0]["size_usd"] is None
         # notional 102 x ROE 10% would have been printed as $10.20
-        assert "$+10.20" not in out
+        assert "+$10.20" not in out
 
     def test_a_stop_the_record_does_not_hold_is_not_bot_managed(
             self, monkeypatch):

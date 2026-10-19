@@ -3,7 +3,7 @@
 A LIVE CARD ON 2026-09-16 proposed two changes to the live-performance
 governor and could not say whether either did anything::
 
-    Live window: 40 closes · win 22% · PF 0.6 · net $-18.85
+    Live window: 40 closes · win 22% · PF 0.6 · net -$18.85
     LIVE_PERF_REDUCE_WINRATE=0.55 … Apply: (env + restart)
     LIVE_PERF_REDUCE_MULT=0.25    … Apply: (env + restart)
 

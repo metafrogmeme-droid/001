@@ -5,13 +5,13 @@ RC-2026-009 and RC-2026-010, which share a card and a file.
 Three defects, all measured by executing the original expressions at HEAD
 rather than reading them:
 
-  Week tile  -> `$+0.00` color=green
+  Week tile  -> `+$0.00` color=green
       The paper branch set `"week_pnl": 0.0` as a LITERAL -- nothing computes a
       week for paper -- and the tile coloured it `"green" if week_pnl >= 0`.
       `0.0 >= 0` is true, so an un-computed number was published in the colour
       that claims a profitable week. Colour is a claim.
 
-  Hero       -> label='Total PnL' value=$-412.30
+  Hero       -> label='Total PnL' value=-$412.30
       `_tp = data.get("total_pnl", data.get("today_pnl", 0.0))`. The paper dict
       has no `total_pnl`, so TODAY'S figure was published under an all-time
       label.
@@ -61,15 +61,15 @@ def test_a_measured_flat_week_is_not_a_profit():
     """0.00 IS a real result -- but it is break-even, and green says profit."""
     p = performance_card_payload({"today_pnl": 0.0, "week_pnl": 0.0})
     week = _tile(p, "Week")
-    assert week["value"] == "$+0.00"
+    assert week["value"] == "+$0.00"
     assert week["color"] == "white", "a break-even week is painted as a gain"
 
 
 def test_a_measured_week_still_reports_normally():
     gain = _tile(performance_card_payload({"week_pnl": 120.5}), "Week")
     loss = _tile(performance_card_payload({"week_pnl": -80.0}), "Week")
-    assert gain["value"] == "$+120.50" and gain["color"] == "green"
-    assert loss["value"] == "$-80.00" and loss["color"] == "red"
+    assert gain["value"] == "+$120.50" and gain["color"] == "green"
+    assert loss["value"] == "-$80.00" and loss["color"] == "red"
 
 
 def test_todays_figure_is_not_published_under_an_all_time_label():
@@ -77,13 +77,13 @@ def test_todays_figure_is_not_published_under_an_all_time_label():
     assert "Total" not in p["hero"]["label"], (
         f"hero label is {p['hero']['label']!r} while the value is today's figure"
     )
-    assert p["hero"]["value"] == "$-412.30"
+    assert p["hero"]["value"] == "-$412.30"
 
 
 def test_a_real_all_time_total_keeps_its_label():
     p = performance_card_payload({"today_pnl": -412.30, "total_pnl": 980.0})
     assert p["hero"]["label"] == "Total PnL"
-    assert p["hero"]["value"] == "$+980.00"
+    assert p["hero"]["value"] == "+$980.00"
 
 
 # ── RC-2026-010: honesty upstream must not delete the card ────────────────
@@ -175,7 +175,7 @@ def test_the_text_card_survives_a_fully_unmeasured_reading():
         "win_rate_scored": 0, "win_rate_unscored": 2, "trades_today": 2,
         "best_pair": None, "worst_pair": None,
     })["text"]
-    assert "$0.00" not in out and "$+0.00" not in out
+    assert "$0.00" not in out and "+$0.00" not in out
     assert "0%" not in out
 
 
@@ -200,7 +200,7 @@ def test_unknown_and_measured_flat_do_not_share_a_glyph():
 
 # ── 2026-10-19: the paper card's windows, and Best/Worst coloured by sign ──
 #
-# Five paper closes, all winners, read "Today $+0.00 · Week — · Trades 5 ·
+# Five paper closes, all winners, read "Today +$0.00 · Week — · Trades 5 ·
 # Worst SKYAI" with Worst in red. The week was never computed for paper,
 # "Trades" was the all-time count sent as `trades_today`, and the Best/Worst
 # tiles were green/red for existing at all.

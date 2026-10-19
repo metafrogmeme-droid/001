@@ -92,7 +92,7 @@ def test_the_stock_row_is_the_report_s_and_the_card_s(tmp_path):
     # are not trades of the strategy. Every filled close was 14.
     assert _line(said, "Stock") == (
         f"{category_icon('Stock')} <b>Stock</b>: 12 trades · PF <b>0.67</b> · "
-        "WR 25% · net $-3.00 · 1 unpriced")
+        "WR 25% · net -$3.00 · 1 unpriced")
     parity_stock = [ln for ln in _parity(ex).splitlines() if re.match(r"\s+Stock\s", ln)]
     assert len(parity_stock) == 1 and " 12 tr " in parity_stock[0], parity_stock
     assert class_record(ex, "Stock")["trades"] == 12
@@ -110,7 +110,7 @@ def test_classes_come_largest_net_first(tmp_path):
     said = _classpf(_book(tmp_path))
     assert _line(said, "Crypto") == (
         f"{category_icon('Crypto')} <b>Crypto</b>: 4 trades · PF <b>—</b> · "
-        "WR 100% · net $+20.00")
+        "WR 100% · net +$20.00")
     assert said.index("<b>Crypto</b>") < said.index("<b>Stock</b>")
 
 

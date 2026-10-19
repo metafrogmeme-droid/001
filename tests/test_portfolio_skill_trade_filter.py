@@ -67,4 +67,4 @@ async def test_never_filled_orders_excluded_from_trade_count_and_win_rate(monkey
     assert "Win rate: <code>50%</code>" in result
     # Realized PnL only reflects the genuine trades (10 - 5 = 5), never the
     # $999 orphan or the $0 non-fills.
-    assert "$+5.00" in result
+    assert "+$5.00" in result

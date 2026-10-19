@@ -82,7 +82,7 @@ class TestTheCard:
 
     def test_an_absent_net_pnl_is_not_a_flat_day(self):
         out = _text({})
-        assert "$+0.00" not in out
+        assert "+$0.00" not in out
         assert "unread" in out
 
     def test_unknown_gets_the_neutral_icon_not_the_red_one(self):
@@ -99,7 +99,7 @@ class TestTheCard:
                      "risk_status": "Healthy", "drawdown_pct": 4.1})
         assert "Healthy" in out
         assert "drawdown 4.1%" in out
-        assert "$+12.34" in out
+        assert "+$12.34" in out
 
     def test_no_scorable_trade_shows_no_dollar_figure_for_best_or_worst(self):
         out = _text({"trades": 3, "net_pnl": None, "best_trade": "N/A",

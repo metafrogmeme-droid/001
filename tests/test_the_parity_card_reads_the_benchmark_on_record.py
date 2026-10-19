@@ -483,7 +483,7 @@ class TestTheAbortsAreKeptApart:
     def test_the_card_and_the_digest_say_it_in_one_sentence(self):
         s = parity.parity_summary(_card_shaped_rows(), COMMISSION, benchmark=_reading())
         line = parity.aborts_line(s)
-        assert line.startswith("Execution aborts kept apart: 11 (net $-4.05)")
+        assert line.startswith("Execution aborts kept apart: 11 (net -$4.05)")
         assert "leverage_overshoot 10" in line and "sl_placement_failed 1" in line
         assert "not strategy exits" in line
         assert line in parity.format_report(s)

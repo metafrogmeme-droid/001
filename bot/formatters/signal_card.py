@@ -7,9 +7,11 @@ Matches the dark-themed, grid-layout design with colored accents.
 
 from __future__ import annotations
 
-import re
 import logging
+import re
 from typing import Any, Dict, Optional
+
+from bot.formatters.money import signed_usd
 
 log = logging.getLogger("runeclaw.signal_card")
 
@@ -1091,7 +1093,7 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
     # The producer names WHICH reading is missing; a mark that was read and a
     # margin that was not used to print "price unavailable" too.
     usd_text = (f"  ({data.get('pnl_unread') or 'price unavailable'})"
-                if pnl_unknown else f"  (${pnl_usd:+,.2f})")
+                if pnl_unknown else f"  ({signed_usd(pnl_usd)})")
     draw.text((PAD + pnl_w, y + 8), usd_text, fill=pnl_color, font=f_value)
 
     y += 42
@@ -1142,7 +1144,7 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
     y += CELL_H + GAP
 
     # ── Net PnL + Fees row ──
-    net_text = "—" if net_unknown else f"${net_pnl:+,.2f}"
+    net_text = "—" if net_unknown else f"{signed_usd(net_pnl)}"
     fees_text = "fees unread" if fees is None else f"fees ${fees:.2f}"
     full_w = W - PAD * 2
     _cell(c1, y, "NET PnL", f"{net_text}  ({fees_text})", net_color, w=full_w)
@@ -1283,7 +1285,7 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
     big_font = _T.font(34, weight="bold")
     draw.text((PAD, y), pnl_text, fill=pnl_color, font=big_font)
     pnl_tw = draw.textlength(pnl_text, font=big_font)
-    usd_text = "" if pnl_usd is None else f"  (${pnl_usd:+,.2f})"
+    usd_text = "" if pnl_usd is None else f"  ({signed_usd(pnl_usd)})"
     if usd_text:
         draw.text((PAD + pnl_tw, y + 8), usd_text, fill=pnl_color, font=f_value)
     # A percentage with no basis beside it is three different numbers wearing
@@ -1326,7 +1328,7 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
     _cell(c2, y, f"{direction} | HOLD", hold_time or "unread")
     y += CELL_H + GAP
 
-    net_text = "unread" if pnl_usd is None else f"${pnl_usd:+,.2f}"
+    net_text = "unread" if pnl_usd is None else f"{signed_usd(pnl_usd)}"
     fees_text = "fees unread" if fees is None else f"fees ${fees:.2f}"
     full_w = W - PAD * 2
     _cell(c1, y, "NET PnL", f"{net_text}  ({fees_text})", pnl_color, w=full_w)

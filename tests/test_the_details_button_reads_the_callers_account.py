@@ -571,8 +571,8 @@ class TestTheRuleItselfBites:
 
 # ── A paper position's Refresh card states its dollars on the margin ────────
 #
-# 2026-10-18: a 5x paper short read "+17.41% ($+459.56)" on Refresh and
-# closed a minute later for a gross $+93.42. The branch took `entry * qty`
+# 2026-10-18: a 5x paper short read "+17.41% (+$459.56)" on Refresh and
+# closed a minute later for a gross +$93.42. The branch took `entry * qty`
 # as the margin under a comment saying the paper book is unlevered; the book
 # stores `qty = margin * leverage / entry`, so that product is the notional,
 # and the dollars came out leverage times too large.

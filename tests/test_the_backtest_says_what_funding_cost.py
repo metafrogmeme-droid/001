@@ -306,8 +306,8 @@ class TestBothScorecardsSayWhich:
             "an unpriced run printed as a number is the whole defect")
 
     def test_the_column_prints_the_signed_figure_when_priced(self):
-        assert funding_figure(CHARGED, -12.5) == "$-12.50"
-        assert funding_figure(NOT_PERP, 0.0) == "$+0.00"
+        assert funding_figure(CHARGED, -12.5) == "-$12.50"
+        assert funding_figure(NOT_PERP, 0.0) == "+$0.00"
 
     def test_the_unpriced_sentence_says_the_net_is_before_funding(self):
         note = funding_note(UNPRICED, None)
@@ -329,7 +329,7 @@ class TestBothScorecardsSayWhich:
         assert "before funding" in out, "no sentence says the net excludes funding"
 
         priced = runner._format_result_summary(_result(CHARGED, -12.5))
-        assert "$-12.50" in priced
+        assert "-$12.50" in priced
         assert "not priced" not in priced
 
     def test_the_backtest_skill_card_carries_both(self):

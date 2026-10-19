@@ -21054,7 +21054,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 274 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 275 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **499 of 1348** reach for source text through `source_scan`, `code_only`
+Driven, **500 of 1349** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 499 is a FLOOR and the honest shape is
+source scan that rule does not see, so 500 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -26985,3 +26985,17 @@ notes that are not code: a memecoin ticker like TRUMP on a SHORT card
 reads as a political statement when shared, so the operator chooses what
 to post; and the house rule against price content means a card goes out
 as the product feature ("share your result card"), not as a return.
+
+*Third addendum, same evening: `$+209.66`.* The next tip was a spelling:
+every surface printed `f"${v:+,.2f}"`, the sign after the currency, and a
+reader outside read it as a typo. One helper,
+`bot/formatters/money.py::signed_usd`, now spells every signed dollar
+figure a person reads, `+$209.66` and `-$44.00`, and the Telegram text,
+the cards, the war room and the monitors moved onto it, with the tests
+that had quoted the old spelling. The backtest reports and one line in
+the exchange-sync journal keep the old shape and are listed as the
+exceptions; `tests/test_a_signed_dollar_reads_as_money.py` scans the
+surfaces for the shape and holds the list both ways, so a new site fails
+and a delisted one must be removed in the same commit. The helper takes a
+number only: what to print for a figure nobody read ("—", "unread", "not
+priced") is each surface's own sentence and stayed where it was.

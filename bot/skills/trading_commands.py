@@ -70,6 +70,7 @@ from bot.core.trade_costs import (
     idea_rr_words,
     net_reward_risk,
 )
+from bot.formatters.money import signed_usd
 from bot.formatters.rich_cards import position_watch_line, render_open_positions
 from bot.formatters.thesis_text import split_counter_case, thesis_prose
 from bot.skills.chat_runtime import live_account_absence, practice_view_note
@@ -2410,7 +2411,7 @@ class TradingCommands:
                          else "\U0001f7e2" if pnl_pct >= 0 else "\U0001f534")
             _pnl_txt = ((pos.get("pnl_unread") or "price unavailable")
                         if not _pnl_known
-                        else f"{pnl_pct:+.2f}% (${pnl_usd:+,.2f})")
+                        else f"{pnl_pct:+.2f}% ({signed_usd(pnl_usd)})")
             # Owner-tag the destructive Close callback (RC-AUD-004 style IDOR
             # guard) so only the user who owns this position can close it.
             kb = InlineKeyboardMarkup([[

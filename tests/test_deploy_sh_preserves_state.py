@@ -127,7 +127,7 @@ class TestFirstRunMigratesLiveState:
 
     def test_closed_trades_survive(self, tmp_path):
         # The realized-PnL record. Its absence is what made the UI report
-        # "$+0.00 all-time" — a zero asserted where the truth was "no data".
+        # "+$0.00 all-time" — a zero asserted where the truth was "no data".
         repo = _make_repo(tmp_path); persist = tmp_path / "persist"
         _run(repo, persist)
         assert (persist / "data" / "closed_trades.json").exists()

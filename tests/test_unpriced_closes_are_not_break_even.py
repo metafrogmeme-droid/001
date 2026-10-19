@@ -7,8 +7,8 @@ verbatim, under a comment recording that `float(x or 0)` reading it back as 0.0
 Three surfaces then did exactly that anyway:
 
   /portfolio (LIVE)   sum((p.pnl_usd or 0) for p in live_closed)
-                      -> "Net PnL: $+0.00 🟢" from zero measurements, and
-                         "✅ BTCUSDT LONG → $+0.00" per unpriced row.
+                      -> "Net PnL: +$0.00 🟢" from zero measurements, and
+                         "✅ BTCUSDT LONG → +$0.00" per unpriced row.
   /daily_report       wins / trades, scored numerator over ALL-closes
                       denominator -> a rate that counts unpriced closes as
                          defeats, printed above "Total/Wins/Losses" that do

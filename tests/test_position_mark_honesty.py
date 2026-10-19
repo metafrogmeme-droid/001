@@ -62,7 +62,7 @@ class TestAnUnreadMarkIsNeverBreakEven:
         )
 
     def test_it_prints_no_dollar_figure(self):
-        assert "$+0.00" not in render_open_positions([_unread()])
+        assert "+$0.00" not in render_open_positions([_unread()])
 
     def test_it_says_the_pnl_is_unknown(self):
         assert "P&L unknown" in render_open_positions([_unread()])
@@ -102,7 +102,7 @@ class TestTheHeaderAndTheRowsCannotDisagree:
     dollars outright. A position carrying only a percentage therefore rendered
 
         <b>Open Positions (1)</b> ⚠️ P&L unknown
-        🟢 <b>ETHUSDT</b> LONG | 🟢 +10.0% ($+50.00)
+        🟢 <b>ETHUSDT</b> LONG | 🟢 +10.0% (+$50.00)
 
     — the warning and its own refutation, two lines apart. "Absent is never a
     measurement" is symmetric: calling a mark we read unknown is a false claim

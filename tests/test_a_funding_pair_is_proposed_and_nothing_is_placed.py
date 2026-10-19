@@ -335,7 +335,7 @@ class TestTheCard:
 
     @pytest.mark.parametrize("verdict,icon", [
         (ArbVerdict("survives", "survives fees — mean net $1.10 per entry"), "🟢"),
-        (ArbVerdict("does_not", "does not survive fees — mean net $-0.40 per entry"), "🔴"),
+        (ArbVerdict("does_not", "does not survive fees — mean net -$0.40 per entry"), "🔴"),
         (THIN, "🟡"),
         (ArbVerdict("unread", "could not read the record: OSError"), "🔴"),
     ])
