@@ -29,7 +29,7 @@ from bot.compat import UTC
 from dataclasses import dataclass
 from typing import Optional
 
-from bot.config import CONFIG, US_STOCK_SYMBOLS
+from bot.config import CONFIG, TAIWAN_STOCK_PERPETUALS, US_STOCK_SYMBOLS
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ def autonomous_class_refusal(asset: str) -> Optional[str]:
 
 @dataclass
 class MarketSession:
-    """Current US market session state."""
+    """Current session state of the market an equity perp's underlying trades on."""
     is_regular_hours: bool     # 09:30-16:00 ET
     is_extended_hours: bool    # pre-market or after-hours
     is_weekend: bool           # Saturday or Sunday
@@ -78,10 +78,62 @@ class MarketSession:
     hours_until_open: float    # hours until next regular session open
     hours_until_close: float   # hours until current session close (0 if closed)
     size_multiplier: float     # position size adjustment (1.0 = full, 0.5 = half)
+    market: str = "US"         # whose hours these are: "US" or "TW"
 
 
-def get_market_session(now: Optional[datetime] = None) -> MarketSession:
-    """Determine the current US stock market session.
+#: The market whose hours apply, by the market's own name, for sentences.
+MARKET_NAMES: dict[str, str] = {"US": "US", "TW": "Taiwan"}
+
+_TW_SET = frozenset(TAIWAN_STOCK_PERPETUALS)
+
+
+def stock_market(symbol: str) -> str:
+    """Which exchange's hours an equity perp follows: "TW" for the Taiwan
+    Stock Exchange names (`TAIWAN_STOCK_PERPETUALS`), "US" for the rest.
+
+    The session gate read New York's hours for every equity perp, so a TSMC
+    perp was sized down during Taipei's open and at full size overnight
+    there. A symbol spelled without the ":USDT" settle suffix is matched too.
+    """
+    s = str(symbol or "")
+    if s in _TW_SET or f"{s}:USDT" in _TW_SET:
+        return "TW"
+    return "US"
+
+
+def _taiwan_session(now: datetime) -> "MarketSession":
+    """The TWSE session: regular 09:00-13:30 Asia/Taipei (UTC+8, no DST),
+    i.e. 01:00-05:30 UTC on weekdays. It has no pre- or after-hours session
+    on this reading, so outside it is "closed", sized as the US "closed" is.
+    Exchange holidays are not modelled, as the US session does not model
+    them either."""
+    weekday = now.weekday()
+    t = now.hour + now.minute / 60.0
+    open_, close = 1.0, 5.5
+    outside = 0.0 if CONFIG.stocks.block_outside_hours else 0.25
+    if weekday >= 5:
+        days = 7 - weekday
+        return MarketSession(False, False, True, "weekend",
+                             round(days * 24 - t + open_, 1), 0, outside, "TW")
+    if open_ <= t < close:
+        return MarketSession(True, False, False, "regular", 0,
+                             round(close - t, 1), 1.0, "TW")
+    if t < open_:
+        until = open_ - t
+    else:
+        until = (24 - t + open_) if weekday < 4 else ((7 - weekday) * 24 - t + open_)
+    return MarketSession(False, False, False, "closed", round(until, 1), 0, outside, "TW")
+
+
+def equity_session_for(asset: str, now: Optional[datetime] = None) -> "MarketSession":
+    """The session the confirm-time equity gate reads for ``asset``: the
+    hours of the exchange its underlying trades on."""
+    return get_market_session(now, market=stock_market(asset))
+
+
+def get_market_session(now: Optional[datetime] = None, market: str = "US") -> MarketSession:
+    """Determine the current stock market session (US unless ``market`` is
+    "TW", which reads the Taiwan Stock Exchange's hours).
 
     All times in UTC. Regular session: 13:30-20:00 UTC (9:30-16:00 ET).
     Pre-market: 08:00-13:30 UTC (4:00-9:30 ET).
@@ -89,6 +141,8 @@ def get_market_session(now: Optional[datetime] = None) -> MarketSession:
     """
     if now is None:
         now = datetime.now(UTC)
+    if market == "TW":
+        return _taiwan_session(now)
 
     weekday = now.weekday()  # 0=Monday, 6=Sunday
     hour = now.hour
