@@ -115,6 +115,7 @@ const express = require('express');
 const { migrate, lastStatement, backend } = require('./db');
 const readiness = require('./lib/readiness');
 const { notReadyGate, holdMsFrom } = require('./lib/not_ready_gate');
+const { navigate } = require('./lib/navigate');
 const bootLog = require('./lib/boot_log');
 const { router: authRouter } = require('./auth');
 const tradesRouter = require('./routes/trades');
@@ -507,7 +508,9 @@ app.get('/firewall', (req, res) => { res.setHeader('Cache-Control', 'no-cache');
 app.get('/escape', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'escape.html')); });
 app.get('/intent', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'intent.html')); });
 // "Study Room" is the door's label; /study is the address people guess for it.
-app.get('/study', (req, res) => { res.redirect(301, '/learn'); });
+// The host follows a 3xx itself (lib/navigate.js has the measurement), so the
+// alias answers a page that navigates, never a redirect.
+app.get('/study', (req, res) => { navigate(res, '/learn'); });
 app.get('/learn', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'learn.html')); });
 // /rune — the soulbound collection, public and honest about all three forge
 // states (cold / unreadable / lit) before and after deployment.

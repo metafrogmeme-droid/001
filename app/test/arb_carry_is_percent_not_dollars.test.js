@@ -104,7 +104,7 @@ test('the stake the percents are OF is stated, or said to be unreported', () => 
   assert.match(A.basis(5000), /\$5,000 would have earned/);
   for (const v of [null, undefined, 0, -1, NaN, '1000']) {
     const s = A.basis(v);
-    assert.match(s, /percent of the tracked stake/, String(v));
+    assert.match(s, /percent of the tracked capital/, String(v));
     assert.match(s, /not reported/, String(v));
     assert.ok(!/\$/.test(s), `${String(v)} must not name a dollar figure`);
   }
