@@ -65,6 +65,16 @@
   @keyframes rkPop { 0% { transform: translateY(4px); opacity: 0; } 100% { transform: none; opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { .rk-move { animation: none; } }
   .lb-row .tr { color: var(--text-3); font-size: var(--fs-xs); }
+  /* Daily Duel panel */
+  .duel-line { font-size: var(--fs-sm); color: var(--text-2); }
+  .duel-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--s2); }
+  .duel-chips .d-chip { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-3); border: 1px solid var(--line-2); border-radius: 999px; padding: 2px 8px; font-family: var(--font-data); }
+  .duel-rec { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--s2); margin-top: var(--s3); }
+  .duel-rec .st { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--s2) var(--s3); }
+  .duel-rec .k { font-size: var(--fs-xs); color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; }
+  .duel-rec .v { font-family: var(--font-data); font-size: 18px; margin-top: 2px; }
+  .duel-rec .d { font-size: var(--fs-xs); color: var(--text-3); margin-top: 2px; }
+  .duel-rec .tone-up { color: var(--up); } .duel-rec .tone-down { color: var(--down); } .duel-rec .tone-muted { color: var(--text-2); }
   .season-head { display: flex; gap: var(--s3); align-items: baseline; flex-wrap: wrap; margin-bottom: var(--s2); }
   .season-head .nm { font-family: var(--font-display); letter-spacing: .04em; font-size: var(--fs-lg); color: var(--gold-bright); }
   .season-head .st-chip { font-size: 9px; text-transform: uppercase; letter-spacing: .06em; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line-2); font-family: var(--font-data); }
@@ -180,6 +190,15 @@
       <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="arena.s_tape">· latest closes · percent only</span>
       <span class="tape-pulse" id="tapePulse"></span></h2>
     <div id="tapeRows" aria-live="polite"><div class="empty" data-i18n="arena.tape_empty">Quiet tape — nothing closed yet. Be the first print of the day.</div></div>
+  </section>
+
+  <!-- Daily Duel — today's card by category, the record when signed in. The
+       game is played at /duel; this panel says what is open and leads there. -->
+  <section class="panel" id="duelPanel">
+    <h2><span data-i18n="arena.p_duel">Daily Duel</span>
+      <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="arena.s_duel">· call the market before the Claw does · no stake</span></h2>
+    <div id="duelBody"><div class="empty" data-i18n="arena.duel_signed_out">Sign in to call today’s rounds — free, no stake, your record stays private.</div></div>
+    <p style="margin-top:var(--s3)"><a class="btn btn--sm" href="/duel" data-i18n="arena.duel_cta">Play today’s card →</a></p>
   </section>
 
   <!-- Competition season banner + standings (populated when one is authored) -->
@@ -442,13 +461,14 @@ window.addEventListener('unhandledrejection', rcReportPageError);
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=6"></script>
 <script src="/js/app.js?v=17"></script>
-<script src="/js/i18n-core.js?v=184"></script>
+<script src="/js/i18n-core.js?v=186"></script>
 <script src="/js/presale.js?v=2"></script>
 <script src="/js/confidence-score.js?v=2"></script>
 <script src="/js/signal-status-model.js?v=4"></script>
 <script src="/js/arena_engine.js?v=2"></script>
 <script src="/js/sandbox.js?v=1" defer></script>
 <script src="/js/arena-risk-model.js?v=1"></script>
+<script src="/js/duel.js?v=3"></script>
 <script src="/vendor/lightweight-charts.standalone.production.js?v=1"></script>
 <script src="/js/tv-chart.js?v=1"></script>
 <script src="/js/chartread.js?v=9"></script>
@@ -1650,6 +1670,51 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     });
   }
 
+  // The Daily Duel: what is open today, by category, and the record. The
+  // card is read only for a signed-in viewer (the route needs a session);
+  // signed out, the panel says so and leads to the game. A card that could
+  // not be read is stated as unreadable, never drawn as "nothing open"; the
+  // record is left out, and said to be, when it cannot be read.
+  function duelStat(k, label) {
+    return '<div class="st"><div class="k">' + esc(k) + '</div>'
+      + '<div class="v tone-' + esc(label.tone) + '">' + esc(label.text) + '</div>'
+      + (label.sub ? '<div class="d">' + esc(label.sub) + '</div>' : '') + '</div>';
+  }
+  async function loadDuel() {
+    var el = $('duelBody');
+    if (!RC.LOGGED_IN) {
+      el.innerHTML = '<div class="empty">' + esc(T('arena.duel_signed_out', 'Sign in to call today’s rounds — free, no stake, your record stays private.')) + '</div>';
+      return;
+    }
+    var r = await RC.fetchJSON('/api/duel/today', { timeoutMs: 12000 }).catch(function () { return null; });
+    var d = r && r.ok && r.data;
+    if (!d || !Array.isArray(d.rounds)) {
+      el.innerHTML = '<div class="empty">' + esc(T('arena.duel_fail', 'Today’s card could not be loaded — nothing here is a statement about your record.')) + '</div>';
+      return;
+    }
+    var open = d.rounds.filter(function (x) { return x.callable && !x.my_call; });
+    var byKind = {};
+    open.forEach(function (x) { byKind[x.kind] = byKind[x.kind] ? byKind[x.kind] + 1 : 1; });
+    var chips = Object.keys(byKind).map(function (k) {
+      return '<span class="d-chip">' + esc(RCDuel.kindLabel(k, T)) + (byKind[k] > 1 ? ' ×' + byKind[k] : '') + '</span>';
+    }).join('');
+    var line = open.length
+      ? fill(T('arena.duel_open', '{n} of {m} rounds still open today'), { n: open.length, m: d.rounds.length })
+      : T('arena.duel_called_all', 'You have called every round today — the market settles each one 24h after your call.');
+    var rec = '';
+    var me = await RC.fetchJSON('/api/duel/me', { timeoutMs: 12000 }).catch(function () { return null; });
+    var m = me && me.ok && me.data;
+    if (m && m.accuracy) {
+      var streak = m.streak && m.streak.current != null ? String(m.streak.current) : '—';
+      rec = '<div class="duel-rec">'
+        + duelStat(T('duel.acc_k', 'Accuracy'), RCDuel.accuracyLabel(m.accuracy, T))
+        + duelStat(T('duel.marks_k', 'Marks'), RCDuel.marksLabel(m.marks, T))
+        + duelStat(T('duel.streak_k', 'Streak'), { text: '🔥 ' + streak, tone: 'muted', sub: '' })
+        + '</div>';
+    }
+    el.innerHTML = '<div class="duel-line">' + esc(line) + '</div>'
+      + (chips ? '<div class="duel-chips">' + chips + '</div>' : '') + rec;
+  }
   async function loadSeason() {
     var r = await RC.fetchJSON('/api/arena/season', { auth: false, timeoutMs: 12000 }).catch(function () { return null; });
     var d = r && r.ok && r.data;
@@ -1794,6 +1859,7 @@ window.addEventListener('unhandledrejection', rcReportPageError);
   loadTape();
   loadSeason();
   loadHall();
+  loadDuel();
   setInterval(loadBoard, 45000);
   setInterval(loadTape, 25000);
   setInterval(loadSeason, 60000);

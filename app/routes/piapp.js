@@ -102,8 +102,9 @@ const HEAD_SCRIPTS = ['/js/api-retry.js?v=3', PI_SDK];
  * Deferred, in order, after the document. The signals panel's parts are the
  * embed board's (routes/embed.js, /embed/signals), at the same versions: the
  * site's TradingView library, vendored, then the card and chart modules,
- * then the panel itself (pi-signals.js). pi-arena.js stays last: it starts
- * the session with every block it needs already loaded.
+ * then the panel itself (pi-signals.js); then the Daily Duel's renderer
+ * (duel.js, the website's own) and its block (pi-duel.js). pi-arena.js stays
+ * last: it starts the session with every block it needs already loaded.
  */
 const SCRIPTS = [
   '/js/embed-arena-view.js?v=2',
@@ -118,7 +119,10 @@ const SCRIPTS = [
   '/js/signal-chart.js?v=3',
   '/js/signal-status-model.js?v=4',
   '/js/pi-signals.js?v=3',
-  '/js/pi-arena.js?v=2',
+  // The Daily Duel: the website's round renderer, then the block.
+  '/js/duel.js?v=3',
+  '/js/pi-duel.js?v=1',
+  '/js/pi-arena.js?v=3',
 ];
 
 function page() {
@@ -130,7 +134,7 @@ function page() {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RUNECLAW Arena</title>
 ${head}
-<link rel="stylesheet" href="/embed.css?v=9">
+<link rel="stylesheet" href="/embed.css?v=10">
 </head><body class="e-arena m-app">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}

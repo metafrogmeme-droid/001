@@ -243,7 +243,10 @@
     waiting: ['Waiting for Pi…', 'Approve the sign-in in the Pi Browser.'],
     signIn: signIn,
     extras: [
-      // The engine's calls with their charts, after the positions.
+      // The Daily Duel's card, after the positions: quick to play, so ahead
+      // of the signals and their charts.
+      window.RCPiDuel.create(),
+      // The engine's calls with their charts.
       window.RCPiSignals.create(),
       // The tip, last.
       { place: 'end', html: tipHtml, click: click, signedIn: signedIn },

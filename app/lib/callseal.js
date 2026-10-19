@@ -174,15 +174,24 @@ function sealArenaTrade(t) {
  * must not be able to read out of somebody else's receipt.
  */
 function canonicalDuelPayload(p) {
+  // v4 (2026-10-19): the round's category and what its question needs — the
+  // second symbol and entry of a mover, the band of a range — so a receipt
+  // for "BTC or ETH, which moves more" commits to both prices it was made at.
+  // A classic round carries nulls there; its receipt changed only in version.
   return JSON.stringify({
-    v: 3,
+    v: 4,
     kind: 'duel_pick',
     round_id: Number(p.round_id),
     day: String(p.day),
+    category: p.kind == null ? 'direction' : String(p.kind),
     symbol: String(p.symbol),
+    symbol_b: p.symbol_b == null ? null : String(p.symbol_b),
+    threshold_pct: p.threshold_pct == null ? null : Number(p.threshold_pct),
     handle: p.handle ? String(p.handle) : null,
     pick: String(p.pick),
-    entry_price: Number(p.entry_price),
+    // null for a call with no entry (a football match is settled by a score).
+    entry_price: p.entry_price == null ? null : Number(p.entry_price),
+    entry_price_b: p.entry_price_b == null ? null : Number(p.entry_price_b),
     resolves_at: new Date(p.resolves_at).toISOString(),
     picked_at: new Date(p.picked_at || Date.now()).toISOString(),
   });

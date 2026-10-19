@@ -107,11 +107,26 @@ function candles(limit) {
   }) };
 }
 const ORDER = { orderId: 'order-from-server', amount: 3, memo: 'Support RUNECLAW', metadata: { orderId: 'order-from-server', kind: 'tip' } };
+// Today's duel card as /api/duel/today sends it: one round of each category,
+// the classic one uncalled, and the record as /api/duel/me sends it.
+const DUEL_CARD = { day: '2026-10-19', horizon_hours: 24, open: 4, counts_only: true, rounds: [
+  { id: 11, day: '2026-10-19', idx: 0, kind: 'direction', symbol: 'BTCUSDT', options: ['long', 'short', 'pass'], callable: true },
+  { id: 12, day: '2026-10-19', idx: 3, kind: 'backfade', symbol: 'SOLUSDT', options: ['back', 'fade', 'pass'], callable: true, agent_direction: 'short' },
+  { id: 13, day: '2026-10-19', idx: 4, kind: 'range', symbol: 'BNBUSDT', options: ['break', 'hold', 'pass'], callable: true, threshold_pct: 2 },
+  { id: 14, day: '2026-10-19', idx: 5, kind: 'mover', symbol: 'XRPUSDT', symbol_b: 'ARBUSDT', options: ['first', 'second', 'pass'], callable: true },
+  { id: 15, day: '2026-10-19', idx: 6, kind: 'sports', symbol: 'FD:441', options: ['home', 'draw', 'away', 'pass'], callable: true,
+    match: { home: 'Arsenal FC', away: 'Chelsea FC', home_short: 'Arsenal', away_short: 'Chelsea', competition: 'Premier League', kickoff: '2026-10-19T19:00:00.000Z' } },
+], sources: { sports: 'dealt' } };
+const DUEL_ME = { handle: null, window_days: 90, accuracy: { pct: null, correct: 0, wrong: 0, push: 0, scored: 0, unresolved: 2, resolved: 0 },
+  marks: { marks: 0, pending: 2, beat_agent: 0 }, streak: { current: 2 }, quests: [], history: [], counts_only: true, private: true };
+const DUEL_PICKED = { ok: true, round_id: 13, kind: 'range', symbol: 'BNBUSDT', pick: 'hold', entry_price: 600, threshold_pct: 2,
+  resolves_at: '2026-10-20T12:00:00.000Z', seal: 'a'.repeat(64) };
 
 async function context(browser, {
   sdk = true, signin = { status: 200, body: { token: 'session-jwt-1', handle: null } },
   tips = TIPS, unfinished = null, cancel = false, signals = null,
   account = ACCOUNT, close = null, openSignal = null,
+  duel = { status: 200, body: DUEL_CARD }, duelMe = { status: 200, body: DUEL_ME }, duelPick = null,
 } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 800 } });
   await ctx.addInitScript(({ u, c }) => { window.__PI_UNFINISHED__ = u; window.__PI_CANCEL__ = c; },
@@ -132,6 +147,11 @@ async function context(browser, {
     if (p.startsWith('/api/market/candles/')) {
       const limit = new URL(req.url()).searchParams.get('limit');
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(limit ? candles(limit) : CANDLES) });
+    }
+    if (p === '/api/duel/today') return route.fulfill({ status: duel.status, contentType: 'application/json', body: JSON.stringify(duel.body) });
+    if (p === '/api/duel/me') return route.fulfill({ status: duelMe.status, contentType: 'application/json', body: JSON.stringify(duelMe.body) });
+    if (p === '/api/duel/pick') {
+      return route.fulfill(duelPick || { status: 200, contentType: 'application/json', body: JSON.stringify(DUEL_PICKED) });
     }
     if (p === '/api/arena/open-signal' && openSignal) return route.fulfill(openSignal);
     if (p === '/api/arena/open-signal') {
@@ -604,6 +624,74 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       await none.ctx.close();
     });
 
+    await t.test('signed in, the Daily Duel shows every category with its own buttons, and a tap records a call', async () => {
+      const { ctx, sent } = await context(browser, { signals: { status: 200, body: { signals: [] } } });
+      const { page, errors } = await open(ctx, `${base}/pi`);
+      await signInAndSettle(page);
+      await page.waitForSelector('.p-duel .d-round');
+      const today = sent.find((s) => s.path === '/api/duel/today');
+      assert.strictEqual(today && today.auth, 'Bearer session-jwt-1', 'the card was read without the session');
+      const kinds = await page.$$eval('.p-duel .d-round .d-kind', (els) => els.map((e) => e.textContent));
+      assert.deepStrictEqual(kinds, ['Direction', 'Back or fade', 'Range', 'Bigger mover', 'Football']);
+      const text = await page.textContent('.p-duel');
+      assert.match(text, /Arsenal vs Chelsea — who wins\? Premier League/);
+      assert.match(text, /Higher or lower in 24h\?/);
+      assert.match(text, /The Claw called SHORT on SOL\. Back it, or fade it\?/);
+      assert.match(text, /Does BNB move more than ±2% either way in 24h\?/);
+      assert.match(text, /XRP or ARB — which moves more in 24h, either way\?/);
+      // Each round offers its own words, in its own order.
+      const picks = await page.$$eval('.p-duel .d-actions', (els) => els.map((e) => e.getAttribute('data-round') + ':'
+        + [...e.querySelectorAll('.d-btn')].map((b) => b.getAttribute('data-pick')).join(',')));
+      assert.deepStrictEqual(picks, ['11:long,short,pass', '12:back,fade,pass', '13:break,hold,pass', '14:first,second,pass',
+        '15:home,draw,away,pass']);
+      // The record: a dash before anything has settled, never 0%, with what is still running.
+      const rec = await page.textContent('.p-duel-rec');
+      assert.match(rec, /Accuracy/);
+      assert.match(rec, /—/);
+      assert.doesNotMatch(rec, /0%/);
+      assert.match(rec, /2 still running/);
+      assert.match(rec, /🔥 2/);
+      // A tap posts the round and the word, with the session, and the reply is shown as sent.
+      await page.click('.p-duel .d-actions[data-round="13"] .d-btn[data-pick="hold"]');
+      await page.waitForFunction(() => /Call recorded: HOLDS ±2% on BNB at 600/.test(document.querySelector('#root').textContent));
+      const pick = sent.find((s) => s.path === '/api/duel/pick');
+      assert.deepStrictEqual(JSON.parse(pick.body), { round_id: 13, pick: 'hold' });
+      assert.strictEqual(pick.auth, 'Bearer session-jwt-1');
+      assert.ok(sent.filter((s) => s.path === '/api/duel/today').length >= 2, 'the card was not read again after the call');
+      // Nothing in the block links back to the site.
+      assert.strictEqual(await page.$('.p-duel a[href]'), null);
+      assert.deepStrictEqual(errors, []);
+      await ctx.close();
+    });
+    await t.test('a duel refusal is shown in the server\'s words, and an unreadable card is said to be', async () => {
+      const refused = await context(browser, { signals: { status: 200, body: { signals: [] } },
+        duelPick: { status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'You have already called this round.' }) } });
+      const r = await open(refused.ctx, `${base}/pi`);
+      await signInAndSettle(r.page);
+      await r.page.waitForSelector('.p-duel .d-actions[data-round="11"]');
+      await r.page.click('.p-duel .d-actions[data-round="11"] .d-btn[data-pick="short"]');
+      await r.page.waitForFunction(() => /You have already called this round\./.test(document.querySelector('#root').textContent));
+      assert.doesNotMatch(await r.page.textContent('.p-duel'), /Call recorded/);
+      await refused.ctx.close();
+      const down = await context(browser, { signals: { status: 200, body: { signals: [] } },
+        duel: { status: 503, body: { error: 'The day\'s rounds are unavailable', reason: 'prices_unreadable' } } });
+      const d = await open(down.ctx, `${base}/pi`);
+      await signInAndSettle(d.page);
+      await d.page.waitForFunction(() => /Today’s card could not be loaded/.test(document.querySelector('#root').textContent));
+      const text = await d.page.textContent('.p-duel');
+      assert.doesNotMatch(text, /No rounds/, 'an unreadable card must not read as an empty one');
+      assert.strictEqual(await d.page.$('.p-duel-rec'), null, 'no record is drawn beside an unreadable card');
+      await down.ctx.close();
+      // The card read, the record not: the card stands, the record is said to be unread.
+      const norec = await context(browser, { signals: { status: 200, body: { signals: [] } },
+        duelMe: { status: 500, body: { error: 'Your record is unavailable' } } });
+      const n = await open(norec.ctx, `${base}/pi`);
+      await signInAndSettle(n.page);
+      await n.page.waitForSelector('.p-duel .d-round');
+      await n.page.waitForFunction(() => /Your record could not be read just now/.test(document.querySelector('#root').textContent));
+      assert.strictEqual(await n.page.$('.p-duel-rec'), null);
+      await norec.ctx.close();
+    });
     await t.test('the Farcaster Mini App, which shares the session, still renders its own gate', async () => {
       const { ctx } = await context(browser);
       const { page, errors } = await open(ctx, `${base}/miniapp/arena`);

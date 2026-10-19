@@ -26816,3 +26816,108 @@ STOCK_PERPETUALS, the first draft, put seven near-zero-volume names into Deep
 Scan's fixed universe, a thirteenth batch on every sweep (the accuracy test
 that counts the batches caught it); they stay out of the curated lists and
 reach the scan through the exchange's catalog. (`tests/test_a_taiwan_stock_perp_is_a_stock_on_taipei_hours.py`.)
+
+**THE DUEL GOT FOUR CATEGORIES, AND EVERY SURFACE RENDERS A ROUND FROM THE
+ROUND'S OWN WORDS.** 19 October, the owner: "we need also more predictions
+categorys". The Daily Duel had one question, LONG/SHORT/PASS on a symbol with
+the agent's stance hidden until the call, three rounds a day. It now deals a
+card in four: the three classic rounds; a BACK/FADE round on the agent's
+second call of the day, where the stance is the question (fading it correctly
+is beating it, two marks); a RANGE round (does the coin move more than its
+band either way, the band stored on the round so a later change to the table
+cannot rescore a round played under it); and a BIGGER MOVER round (two
+symbols, two entries snapped in the same read, two closes, compared by the
+size of the move; a tie inside the dead band is where a PASS is right; one
+readable close is half a comparison and settles nothing). The agent's second
+call is HELD BACK from the classic rounds: a classic round on the same symbol
+would print, one card lower, the stance the classic round hides.
+
+Three shapes were kept out on purpose. (1) The picks a category takes live in
+ONE table, `app/lib/duel.js` KINDS, and the server publishes each round's
+`options`; the website, the Pi app and the Telegram keyboard render their
+buttons FROM that list, so no surface can offer a word the server refuses.
+The bot keeps a copy of the table for the callback parser and for a card
+that predates the field, and a test reads the JavaScript source and holds
+the two to one answer. (2) A round of a kind a client does not know is
+offered NOTHING: its question cannot be shown, so a button under it would be
+a call the player cannot have meant; the server's own `kindOf` answers null
+for such a row and it is callable by nobody and scored for nobody. (3) The
+stance is reported only where there was one to reveal: a range or a mover
+round never held a view, and a null `agent_direction` on it would have read
+as "the Claw passed" on a choice never offered, so the field is absent there
+even after a call. The sealed receipt moved to v4 and commits to the second
+symbol and entry.
+
+The migration adds columns to tables that exist on the production database
+and widens `pick` to eight characters ('second'); each ALTER is its own
+statement, an existing column is the expected refusal and anything else is
+logged by class and code at boot, because a widening that did not land would
+have surfaced as a 500 on the first mover call. And the first full preflight
+failed on exactly that: the ALTERs sat below the schema FAST PATH, which
+returns before them wherever every table already exists, which is every
+production database. The net_rr lesson a third time, caught by
+`app/test/fast_path_reconciles_every_later_column.test.js` before it shipped.
+The columns are in `REQUIRED_DUEL_ROUND_COLUMNS` / `REQUIRED_DUEL_PICK_COLUMNS`
+now, reconciled on the fast path like the signal and user columns, and the
+width of `pick` is READ before it is widened: an unreadable width is left
+alone and said so, never widened on a guess. (`app/test/duel_engine.test.js`,
+`app/test/migration_ddl.test.js`,
+`app/test/duel_routes.test.js`, `app/test/duel_scenarios.test.js`,
+`app/test/the_pi_app_signs_in_with_pi.smoke.test.js`,
+`app/test/the_arena_shows_the_daily_duel.smoke.test.js`,
+`tests/test_duel_telegram_surface.py`.)
+
+**THE DUEL GOT A FOOTBALL ROUND, SETTLED BY A SCORE A FEED REPORTS, NOT BY A
+PRICE THE MARKET MOVES.** 19 October, the owner: "lets add sports
+predictions". The card deals one match a day where a football feed is
+configured (`app/lib/sports_feed.js`: football-data.org v4, the token in the
+website server's environment as `FOOTBALL_DATA_TOKEN`, never in chat): the
+earliest kick-off in the best competition on the day that is still an hour
+off when the card is dealt, HOME / DRAW / AWAY / PASS, closed at kick-off
+rather than at a horizon, resolving 150 minutes after it and settled on the
+FINISHED full-time score. Nothing else on the card changed shape: the match
+rides a round's `meta` column (teams, competition, kick-off, the feed's event
+id as the round's symbol, `FD:<id>`), the score rides `settle_price` /
+`settle_price_b`, and the sealed receipt is the same v4 payload with a null
+entry.
+
+Four places where a market habit would have told a lie about a match. (1) A
+football call has NO entry price, so `entry_price` is null on the row, in
+the payload and on every surface; the column had to become nullable for it,
+and a zero there would have printed as a price the call was taken at. (2) A
+score is read only from a FINISHED match with both numbers present: an
+in-play 1–0 is not a result, a cancelled match's null–null is not 0–0, and a
+goalless draw IS a score (`resultOf`, `sportsOutcome`). A match not finished
+at its horizon is asked again on the next settle; one that never finishes is
+unresolved after the give-up window, nobody's loss. (3) The feed is a third
+source on the card, and its two absences are different sentences: a feed
+that cannot be read THROWS out of `candidateFor` and the card says so
+(`sources.sports` is `unreadable`, and /duel prints a note that this is on
+our side); a readable feed with no qualifying match is `none` and says
+nothing, as does an unconfigured feed (`off`). An unreadable feed never
+cancels the day's market rounds. (4) A round whose kick-off cannot be read
+is open to nobody, not open all day on a guess, and a call on it is refused
+with a 503 that says why.
+
+The two surfaces that print a result print the score beside it ("Final score
+1–1" on the website, "(final score 1–1)" in the bot) only when one was read,
+and never a move: a score is not a percentage. The feed's transport is
+injectable, so every test drives the choosing, the parsing and the settling
+without the network, and the token is never in a request path.
+(`app/test/sports_feed.test.js`, `app/test/duel_engine.test.js`,
+`app/test/duel_routes.test.js`, `app/test/duel_scenarios.test.js`,
+`app/test/the_pi_app_signs_in_with_pi.smoke.test.js`,
+`app/test/the_arena_shows_the_daily_duel.smoke.test.js`,
+`app/test/the_duel_page_says_when_the_feed_failed.smoke.test.js`,
+`tests/test_duel_telegram_surface.py`.)
+
+Two things found on the way. The /duel page loaded its card only for a
+session with the legacy localStorage token, while the flag it computed for
+the cookie session (`signedIn`, the M14 fix) went unread one block lower:
+every cookie session, which is every session, was told to sign in, one click
+from the Arena panel's own link. The page smoke test above signs in by the
+cookie alone. And `scripts/lessons_index.py` read a chapter lead from its
+first line only; the log wraps at 78 columns and most titles are longer, so
+252 of the 576 chapters were absent from the index and their guard tests
+were credited to the chapter before them. The generator joins a wrapped
+title now, and the index regenerated with every chapter on it.

@@ -753,9 +753,9 @@ rune and ten achievement glyphs. The honesty posture is unusually strong:
 achievements are pure predicates recomputed from records on every read, never
 grant tables (`app/lib/achievements.js::#"never by grant tables"`), so the deck 'can never show a trophy the
 records don't back', and the route's header pins that no balance, equity or
-dollar rides the payload. Alongside it the Daily Duel (a daily pick with a
-90-day record) and /learn (lessons + a per-day trading diary) are real
-recurring-engagement loops.
+dollar rides the payload. Alongside it the Daily Duel (a daily card in five
+categories with a 90-day record) and /learn (lessons + a per-day trading
+diary) are real recurring-engagement loops.
 
 *Gap.* Two distinct gaps. (1) ZERO integration with any external loyalty/quest
 platform — grep for galxe, layer3, zealy, quest3, crew3, guild.xyz and taskon
@@ -874,10 +874,18 @@ renderReputation, which fetches at `app/public/js/dashboard.js::renderReputation
 **Forecasting tournaments** — partial
 
 A complete, reachable, publicly-ranked forecasting contest — the Daily Duel —
-with ZERO prize and ZERO stake. Three rounds a UTC day, each a symbol plus the
-agent's hidden stance; the player calls LONG/SHORT/PASS and is scored over a
-24h horizon measured from their own call, beating the agent scoring double
-(`app/lib/duel.js::#"Three rounds a UTC day"`, `::ROUNDS_PER_DAY`, `::HORIZON_HOURS`). Doors, opened and read: Telegram /duel at
+with ZERO prize and ZERO stake. A card a UTC day in five categories: three
+classic rounds, each a symbol plus the agent's hidden stance (LONG/SHORT/PASS);
+a back/fade round on the agent's second call of the day, its stance shown; a
+range round (does the coin break its band either way); a bigger-mover round
+(which of two coins moves more); and, where a football feed is configured, the
+day's match (home, draw, away), closed at kick-off and settled on the final
+score from football-data.org (`app/lib/sports_feed.js::pickCandidate`,
+`::resultOf`). Each market call is scored over a 24h horizon measured from
+the player's own call, beating the agent scoring double
+(`app/lib/duel.js::#"A card a UTC day"`, `::CARD`, `::KINDS`, `::HORIZON_HOURS`). The same card is played in
+the Pi Browser app (`app/public/js/pi-duel.js`) and shown on the website Arena
+(`app/public/arena.html::#"duelPanel"`). Doors, opened and read: Telegram /duel at
 `bot/skills/start_commands.py::StartCommands._cmd_duel` (@guard("start"), which `pending` holds, so
 the free on-ramp stays reachable by a newcomer while the allowlist gate and the
 rate limit are no longer skipped — it carried NO gate at all until 2026-09-18),
@@ -892,7 +900,7 @@ share (app/lib/duel.js), accuracy is null-not-zero when nothing resolved and
 unresolved rounds are excluded from the denominator (`app/lib/duel.js::accuracy`),
 settlement runs lazily in batches on read (`app/lib/duel_service.js::settleDue`), and every
 pick is cryptographically SEALED at the moment it is made (`app/lib/duel_service.js::placePick#"const receipt = sealDuelPick("`
--> callseal.sealDuelPick, kind 'duel_pick' in `docs/PROVABLE_CALLS_SPEC.md::#'"kind":"duel_pick"'`)
+-> callseal.sealDuelPick, kind 'duel_pick' in `docs/PROVABLE_CALLS_SPEC.md::#'"v":4,"kind":"duel_pick"'`)
 so it rides into the day's Merkle root — a forecast committed before its
 outcome is known and re-derivable by a third party.
 

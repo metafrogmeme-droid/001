@@ -18,6 +18,11 @@
  * waiting starts reading as a loss. And because colour is a claim as loudly as
  * the number is, neither of them may be painted green or red: an unknown gets
  * a muted tone, always.
+ *
+ * THE CATEGORIES (2026-10-19). A round carries its `kind` and its `options`,
+ * the picks the server takes on it, and this file renders from those: the
+ * question in words, the buttons in the round's own order, the words a call
+ * is reported in. No list of which words a category takes lives here.
  */
 (function (root, factory) {
   const api = factory();
@@ -27,6 +32,8 @@
   'use strict';
 
   const IDENT = (k, en) => en;
+  /** The categories this renderer can put a question to (lib/duel.js KINDS). */
+  const KNOWN_KINDS = ['direction', 'backfade', 'range', 'mover', 'sports'];
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
@@ -115,6 +122,109 @@
     return out;
   }
 
+  /**
+   * The category's name, for a chip on the card. A category this page does
+   * not know is named as such, never dressed as one it does.
+   */
+  function kindLabel(kind, t) {
+    const tr = t || IDENT;
+    switch (KNOWN_KINDS.indexOf(kind) >= 0 ? kind : null) {
+      case 'direction': return tr('duel.k_direction', 'Direction');
+      case 'backfade': return tr('duel.k_backfade', 'Back or fade');
+      case 'range': return tr('duel.k_range', 'Range');
+      case 'mover': return tr('duel.k_mover', 'Bigger mover');
+      case 'sports': return tr('duel.k_sports', 'Football');
+      default: return tr('duel.k_unknown', 'Unknown round type');
+    }
+  }
+
+  /** The base of an exchange symbol: 'ARBUSDT' -> 'ARB'. */
+  function base(sym) {
+    return String(sym == null ? '' : sym).replace(/(USDT|USDC|USD)$/i, '') || String(sym == null ? '' : sym);
+  }
+
+  /** A kick-off in the reader's own clock, HH:MM; a dash when unreadable. */
+  function kickoffText(match) {
+    const t = Date.parse((match || {}).kickoff || '');
+    if (!Number.isFinite(t)) return '—';
+    const d = new Date(t);
+    const pad = (n) => (n < 10 ? '0' : '') + n;
+    return pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  /** A team's short name, its name, or a dash: never a blank button. */
+  function teamText(match, side) {
+    const m = match || {};
+    return String(m[side + '_short'] || m[side] || '—');
+  }
+
+  /** The band a range round asks about, '±2%'; a dash when the round carries none. */
+  function bandText(round) {
+    const n = Number((round || {}).threshold_pct);
+    return Number.isFinite(n) && n > 0 ? '±' + n + '%' : '—';
+  }
+
+  /**
+   * The question a round asks, in words. Every category has one, and it is
+   * rendered on every surface, so a player meeting a mover for the first
+   * time is told what "first" means before they are offered it.
+   */
+  function questionText(round, t) {
+    const tr = t || IDENT;
+    const r = round || {};
+    switch (r.kind == null ? 'direction' : r.kind) {
+      case 'direction':
+        return tr('duel.q_direction', 'Higher or lower in {h}h? The Claw’s own call is shown once you commit.')
+          .replace('{h}', r.horizon_hours == null ? 24 : r.horizon_hours);
+      case 'backfade': {
+        const dir = r.agent_direction === 'long' ? tr('duel.b_long', 'LONG')
+          : r.agent_direction === 'short' ? tr('duel.b_short', 'SHORT') : '—';
+        return tr('duel.q_backfade', 'The Claw called {dir} on {sym}. Back it, or fade it?')
+          .replace('{dir}', dir).replace('{sym}', base(r.symbol));
+      }
+      case 'range':
+        return tr('duel.q_range', 'Does {sym} move more than {band} either way in {h}h?')
+          .replace('{sym}', base(r.symbol)).replace('{band}', bandText(r))
+          .replace('{h}', r.horizon_hours == null ? 24 : r.horizon_hours);
+      case 'mover':
+        return tr('duel.q_mover', '{a} or {b} — which moves more in {h}h, either way?')
+          .replace('{a}', base(r.symbol)).replace('{b}', base(r.symbol_b))
+          .replace('{h}', r.horizon_hours == null ? 24 : r.horizon_hours);
+      case 'sports': {
+        const m = r.match || {};
+        return tr('duel.q_sports', '{home} vs {away} — who wins? {comp} · kick-off {time}')
+          .replace('{home}', teamText(m, 'home')).replace('{away}', teamText(m, 'away'))
+          .replace('{comp}', String(m.competition || '—')).replace('{time}', kickoffText(m));
+      }
+      default:
+        return tr('duel.q_unknown', 'This round asks a question this page cannot show. Update the app.');
+    }
+  }
+
+  /**
+   * The word on a button, or in "You called …", for one pick on one round.
+   * A mover's two sides are its symbols; everything else is a dictionary word.
+   */
+  function pickLabel(pick, round, t) {
+    const tr = t || IDENT;
+    const r = round || {};
+    switch (pick) {
+      case 'long': return tr('duel.b_long', 'LONG');
+      case 'short': return tr('duel.b_short', 'SHORT');
+      case 'pass': return tr('duel.b_pass', 'PASS');
+      case 'back': return tr('duel.b_back', 'BACK THE CLAW');
+      case 'fade': return tr('duel.b_fade', 'FADE THE CLAW');
+      case 'break': return tr('duel.b_break', 'BREAKS {band}').replace('{band}', bandText(r));
+      case 'hold': return tr('duel.b_hold', 'HOLDS {band}').replace('{band}', bandText(r));
+      case 'first': return tr('duel.b_more', '{sym} MOVES MORE').replace('{sym}', base(r.symbol));
+      case 'second': return tr('duel.b_more', '{sym} MOVES MORE').replace('{sym}', base(r.symbol_b));
+      case 'home': return teamText(r.match, 'home').toUpperCase();
+      case 'away': return teamText(r.match, 'away').toUpperCase();
+      case 'draw': return tr('duel.b_draw', 'DRAW');
+      default: return String(pick == null ? '' : pick).toUpperCase();
+    }
+  }
+
   /** What the agent said, or an honest statement that it said nothing. */
   function agentLabel(round, t) {
     const tr = t || IDENT;
@@ -135,39 +245,70 @@
     };
   }
 
-  /** One round on today's card. */
+  /**
+   * One round on today's card. The buttons are the round's OWN `options`, in
+   * its order, so a surface never offers a word the server would refuse; a
+   * round that names none (a category this page does not know) offers none.
+   * The classic round shows the stance line (hidden, passed, or the call);
+   * on a back/fade round the stance is in the question, and a range or a
+   * mover round never had one.
+   */
   function roundCard(round, t) {
     const tr = t || IDENT;
     const r = round || {};
-    const agent = agentLabel(r, tr);
+    const kind = r.kind == null ? 'direction' : r.kind;
     const mine = r.my_call
       ? callState(Object.assign({}, r.my_call, r.my_result || {}), tr)
       : null;
+    // A category this page can put a question to. A newer server's round of
+    // another kind is not offered, whatever words it sends: a button under a
+    // question the page cannot show is a call the player cannot have meant.
+    const known = KNOWN_KINDS.indexOf(kind) >= 0;
+    const options = !known ? []
+      : Array.isArray(r.options) ? r.options : (kind === 'direction' ? ['long', 'short', 'pass'] : []);
 
     let body;
     if (mine) {
-      const call = String(r.my_call.pick || '').toUpperCase();
+      // A football call shows the final score beside its result; a score is
+      // printed only when one was read (my_call.score), never as 0–0.
+      const sc = r.my_call.score;
+      const scoreNote = kind === 'sports' && sc && sc.home != null && sc.away != null
+        ? '<span class="d-note">' + esc(tr('duel.final_score', 'Final score {h}–{a}')
+          .replace('{h}', sc.home).replace('{a}', sc.away)) + '</span>' : '';
       body = '<div class="d-called">'
-        + '<span class="d-mycall">' + esc(tr('duel.you_called', 'You called') + ' ' + call) + '</span>'
+        + '<span class="d-mycall">' + esc(tr('duel.you_called', 'You called') + ' ' + pickLabel(r.my_call.pick, r, tr)) + '</span>'
         + '<span class="d-state tone-' + esc(mine.tone) + '">' + esc(mine.text) + '</span>'
         + (mine.note ? '<span class="d-note">' + esc(mine.note) + '</span>' : '')
+        + scoreNote
+        + '</div>';
+    } else if (r.callable && options.length) {
+      body = '<div class="d-actions" data-round="' + esc(r.id) + '">'
+        + options.map((pick) => '<button class="d-btn' + (pick === 'pass' ? ' d-btn--pass' : '')
+          + '" data-pick="' + esc(pick) + '">' + esc(pickLabel(pick, r, tr)) + '</button>').join('')
         + '</div>';
     } else if (r.callable) {
-      body = '<div class="d-actions" data-round="' + esc(r.id) + '">'
-        + '<button class="d-btn" data-pick="long">' + esc(tr('duel.b_long', 'LONG')) + '</button>'
-        + '<button class="d-btn" data-pick="short">' + esc(tr('duel.b_short', 'SHORT')) + '</button>'
-        + '<button class="d-btn d-btn--pass" data-pick="pass">' + esc(tr('duel.b_pass', 'PASS')) + '</button>'
-        + '</div>';
+      body = '<div class="d-note">' + esc(tr('duel.q_unknown', 'This round asks a question this page cannot show. Update the app.')) + '</div>';
     } else {
-      body = '<div class="d-note">' + esc(tr('duel.closed', 'This round has closed.')) + '</div>';
+      body = '<div class="d-note">' + esc(kind === 'sports'
+        ? tr('duel.closed_kickoff', 'Kick-off has passed — calls are closed.')
+        : tr('duel.closed', 'This round has closed.')) + '</div>';
     }
 
-    return '<article class="d-round">'
-      + '<header class="d-round-h"><span class="d-sym">' + esc(r.symbol) + '</span>'
-      + '<span class="d-agent">' + esc(agent.text) + '</span></header>'
+    const title = kind === 'mover'
+      ? esc(base(r.symbol)) + ' <span class="d-vs">' + esc(tr('duel.vs', 'vs')) + '</span> ' + esc(base(r.symbol_b))
+      : kind === 'sports'
+        ? esc(teamText(r.match, 'home')) + ' <span class="d-vs">' + esc(tr('duel.vs', 'vs')) + '</span> ' + esc(teamText(r.match, 'away'))
+        : esc(r.symbol);
+    const stance = kind === 'direction'
+      ? '<span class="d-agent">' + esc(agentLabel(r, tr).text) + '</span>' : '';
+    return '<article class="d-round d-round--' + esc(kind) + '">'
+      + '<header class="d-round-h"><span class="d-sym">' + title + '</span>'
+      + '<span class="d-kind">' + esc(kindLabel(kind, tr)) + '</span></header>'
+      + '<p class="d-q">' + esc(questionText(r, tr)) + '</p>'
+      + stance
       + body
       + '</article>';
   }
 
-  return { esc, callState, accuracyLabel, marksLabel, agentLabel, roundCard };
+  return { esc, base, KNOWN_KINDS, callState, accuracyLabel, marksLabel, agentLabel, kindLabel, questionText, pickLabel, bandText, kickoffText, teamText, roundCard };
 }));
