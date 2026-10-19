@@ -238,7 +238,7 @@ test('launching a season announces it — push broadcast + agent-feed event (§4
   const [events] = await pool.execute('SELECT event_type, title, body FROM agent_events ORDER BY id DESC LIMIT 5', []);
   const ev = events.find((e) => e.event_type === 'arena_season' && /Announce Cup/.test(e.title));
   assert.ok(ev, 'agent feed announces the season');
-  assert.match(ev.body, /same virtual stake/i);
+  assert.match(ev.body, /same virtual balance/i);
   assert.ok(!/\$\s?\d|\d+%/.test(ev.title + ' ' + ev.body), 'announcement carries no numbers (§4)');
   push.setSender(null);
 });

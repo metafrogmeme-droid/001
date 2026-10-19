@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>RUNECLAW — Paper Trading Arena</title>
 <link rel="canonical" href="https://www.humanoid-traders.com/arena">
-<meta name="description" content="Every RUNECLAW account gets a paper trading account with the same 10,000 vUSDT virtual stake — no exchange API keys needed. Trade live crypto markets risk-free at real Bitget prices, track your PnL, and climb the public leaderboard (percent return, anonymous handles). The zero-friction way to prove your edge.">
+<meta name="description" content="Every RUNECLAW account gets a paper trading account with the same 10,000 vUSDT virtual balance — no exchange API keys needed. Trade live crypto markets risk-free at real Bitget prices, track your PnL, and climb the public leaderboard (percent return, anonymous handles). The zero-friction way to prove your edge.">
 <meta property="og:title" content="__ARENATITLE__">
 <meta property="og:site_name" content="Humanoid Traders">
 <meta property="og:description" content="__ARENAOG__">
@@ -169,7 +169,7 @@
     <a href="/dashboard" data-i18n="arena.b_open_app">Open the app</a>
   </nav>
   <div class="ar-hero"><h1 data-i18n="arena.h1">Paper Trading Arena</h1></div>
-  <p class="lede" data-i18n-html="arena.lede">Every account starts with the same <b>10,000 vUSDT virtual stake</b> — no exchange API keys,
+  <p class="lede" data-i18n-html="arena.lede">Every account starts with the same <b>10,000 vUSDT virtual balance</b> — no exchange API keys,
   no setup, no risk. Fills and marks use <b>real live Bitget prices</b>, liquidations are enforced exactly like
   the Stress Lab models them, and the public board ranks <b>percent return</b> under anonymous handles.
   Prove your edge before you ever connect a real account — and when paper competitions run, this is where
@@ -196,8 +196,8 @@
        game is played at /duel; this panel says what is open and leads there. -->
   <section class="panel" id="duelPanel">
     <h2><span data-i18n="arena.p_duel">Daily Duel</span>
-      <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="arena.s_duel">· call the market before the Claw does · no stake</span></h2>
-    <div id="duelBody"><div class="empty" data-i18n="arena.duel_signed_out">Sign in to call today’s rounds — free, no stake, your record stays private.</div></div>
+      <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="arena.s_duel">· call the market before the Claw does · free to play</span></h2>
+    <div id="duelBody"><div class="empty" data-i18n="arena.duel_signed_out">Sign in to call today’s rounds — free, nothing to lose, your record stays private.</div></div>
     <p style="margin-top:var(--s3)"><a class="btn btn--sm" href="/duel" data-i18n="arena.duel_cta">Play today’s card →</a></p>
   </section>
 
@@ -461,14 +461,14 @@ window.addEventListener('unhandledrejection', rcReportPageError);
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=6"></script>
 <script src="/js/app.js?v=17"></script>
-<script src="/js/i18n-core.js?v=186"></script>
+<script src="/js/i18n-core.js?v=189"></script>
 <script src="/js/presale.js?v=2"></script>
 <script src="/js/confidence-score.js?v=2"></script>
 <script src="/js/signal-status-model.js?v=4"></script>
 <script src="/js/arena_engine.js?v=2"></script>
 <script src="/js/sandbox.js?v=1" defer></script>
 <script src="/js/arena-risk-model.js?v=1"></script>
-<script src="/js/duel.js?v=3"></script>
+<script src="/js/duel.js?v=6"></script>
 <script src="/vendor/lightweight-charts.standalone.production.js?v=1"></script>
 <script src="/js/tv-chart.js?v=1"></script>
 <script src="/js/chartread.js?v=9"></script>
@@ -1678,12 +1678,13 @@ window.addEventListener('unhandledrejection', rcReportPageError);
   function duelStat(k, label) {
     return '<div class="st"><div class="k">' + esc(k) + '</div>'
       + '<div class="v tone-' + esc(label.tone) + '">' + esc(label.text) + '</div>'
-      + (label.sub ? '<div class="d">' + esc(label.sub) + '</div>' : '') + '</div>';
+      + (label.sub ? '<div class="d">' + esc(label.sub) + '</div>' : '')
+      + (label.how ? '<div class="d d-how">' + esc(label.how) + '</div>' : '') + '</div>';
   }
   async function loadDuel() {
     var el = $('duelBody');
     if (!RC.LOGGED_IN) {
-      el.innerHTML = '<div class="empty">' + esc(T('arena.duel_signed_out', 'Sign in to call today’s rounds — free, no stake, your record stays private.')) + '</div>';
+      el.innerHTML = '<div class="empty">' + esc(T('arena.duel_signed_out', 'Sign in to call today’s rounds — free, nothing to lose, your record stays private.')) + '</div>';
       return;
     }
     var r = await RC.fetchJSON('/api/duel/today', { timeoutMs: 12000 }).catch(function () { return null; });
@@ -1741,7 +1742,7 @@ window.addEventListener('unhandledrejection', rcReportPageError);
     if (sb) sb.addEventListener('click', function () {
       // §4: the share text carries the mechanism, never a number.
       var text = '“' + s.name + '” is ' + (s.status === 'live' ? 'LIVE' : s.status)
-        + ' on the RUNECLAW Paper Arena — same virtual stake for everyone, ranked purely on percent return. Think you can take the crown? '
+        + ' on the RUNECLAW Paper Arena — same virtual balance for everyone, ranked purely on percent return. Think you can take the crown? '
         + location.origin + '/arena';
       var done = function () { sb.textContent = '✅ Copied — paste it anywhere'; };
       if (navigator.clipboard && navigator.clipboard.writeText) {

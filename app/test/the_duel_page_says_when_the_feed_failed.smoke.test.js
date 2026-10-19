@@ -34,7 +34,7 @@ const CHROMIUM = findChromium();
 const SKIP = !pw ? 'playwright-core is not installed' : !CHROMIUM ? 'no Chromium binary found' : null;
 
 const MARKET = [
-  { id: 11, kind: 'direction', symbol: 'BTCUSDT', options: ['long', 'short', 'pass'], callable: true },
+  { id: 11, kind: 'direction', symbol: 'BTCUSDT', options: ['long', 'short', 'pass'], callable: true, seal: 'a'.repeat(64) },
   { id: 12, kind: 'direction', symbol: 'ETHUSDT', options: ['long', 'short', 'pass'], callable: true },
   { id: 13, kind: 'backfade', symbol: 'SOLUSDT', options: ['back', 'fade', 'pass'], callable: true, agent_direction: 'long' },
   { id: 14, kind: 'range', symbol: 'BNBUSDT', options: ['break', 'hold', 'pass'], callable: true, threshold_pct: 2 },
@@ -97,10 +97,11 @@ test('the /duel page', SKIP ? { skip: SKIP } : {}, async (t) => {
       assert.strictEqual(await hidden(page, 'notice'), true, 'a cookie session is signed in; the page must not ask again');
       assert.ok(sent.includes('/api/duel/today'));
       assert.strictEqual(await page.$$eval('#rounds .d-actions', (els) => els.length), 6);
-      const picks = await page.$$eval('#rounds .d-actions[data-round="16"] .d-btn', (els) => els.map((e) => e.getAttribute('data-pick') + ':' + e.textContent));
+      const picks = await page.$$eval('#rounds .d-actions[data-round="16"] .d-btn', (els) => els.map((e) => e.getAttribute('data-pick') + ':' + e.textContent.replace(/^[^A-Za-z]+/, '')));
       assert.deepStrictEqual(picks, ['home:ARSENAL', 'draw:DRAW', 'away:CHELSEA', 'pass:PASS']);
       assert.match(await page.textContent('#rounds'), /Arsenal vs Chelsea — who wins\? Premier League/);
       assert.strictEqual(await hidden(page, 'sportsNote'), true, 'a dealt match is nothing to apologise for');
+      assert.strictEqual(await page.getAttribute('#rounds .d-rc', 'href'), '/call/round:' + 'a'.repeat(64), 'the website links the commitment to its receipt');
       await ctx.close();
     });
     await t.test('the feed failed: the note is shown and the market rounds stand', async () => {

@@ -61,3 +61,11 @@ test('canonical URLs are absolute https, not relative', () => {
     assert.match(canonOf(read(file)), /^https:\/\//, `${file} canonical is absolute https`);
   }
 });
+
+test('the Study Room answers at the address people guess for it', () => {
+  // The nav calls /learn "Study Room"; a review typed /study and got a 404.
+  const { codeOnly } = require('./helpers/code_only');
+  const server = codeOnly(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'));
+  assert.match(server, /app\.get\('\/study', \(req, res\) => \{ res\.redirect\(301, '\/learn'\); \}\);/);
+  assert.ok(fs.existsSync(path.join(PUB, 'learn.html')), 'the redirect lands on a page that exists');
+});

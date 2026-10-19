@@ -107,9 +107,9 @@ const HEAD_SCRIPTS = ['/js/api-retry.js?v=3', PI_SDK];
  * last: it starts the session with every block it needs already loaded.
  */
 const SCRIPTS = [
-  '/js/embed-arena-view.js?v=2',
-  '/js/miniapp-view.js?v=4',
-  '/js/arena-session.js?v=4',
+  '/js/embed-arena-view.js?v=3',
+  '/js/miniapp-view.js?v=5',
+  '/js/arena-session.js?v=6',
   '/vendor/lightweight-charts.standalone.production.js?v=1',
   '/js/tv-chart.js?v=1',
   '/js/embed-read.js?v=2',
@@ -118,10 +118,10 @@ const SCRIPTS = [
   '/js/embed-row.js?v=6',
   '/js/signal-chart.js?v=3',
   '/js/signal-status-model.js?v=4',
-  '/js/pi-signals.js?v=3',
+  '/js/pi-signals.js?v=4',
   // The Daily Duel: the website's round renderer, then the block.
-  '/js/duel.js?v=3',
-  '/js/pi-duel.js?v=1',
+  '/js/duel.js?v=6',
+  '/js/pi-duel.js?v=4',
   '/js/pi-arena.js?v=3',
 ];
 
@@ -133,8 +133,20 @@ function page() {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RUNECLAW Arena</title>
+<meta name="description" content="Paper-trade the RUNECLAW Arena and call the Daily Duel from the Pi Browser. Free, paper money, no real funds; standings by percent return.">
+<meta property="og:title" content="RUNECLAW Arena">
+<meta property="og:description" content="Paper-trade the Arena and call the Daily Duel from the Pi Browser. Free, paper money, no real funds.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.humanoid-traders.com/pi">
+<meta property="og:image" content="https://www.humanoid-traders.com/pi_og_1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0b0e14">
+<link rel="icon" type="image/png" sizes="200x200" href="/pi_icon_200.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/pi_touch_180.png">
 ${head}
-<link rel="stylesheet" href="/embed.css?v=10">
+<link rel="stylesheet" href="/embed.css?v=13">
 </head><body class="e-arena m-app">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}

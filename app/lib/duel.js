@@ -350,6 +350,8 @@ function scoreEntries(rounds, picks) {
       move_pct: outcome === null || kind === 'sports' ? null : movePct(p.entry_price, p.settle_price),
       resolves_at: p.resolves_at,
       created_at: p.created_at,
+      seal: p.seal || null,
+      settle_seal: p.settle_seal || null,
       ...res,
     };
     if (kind === 'sports') {
@@ -671,6 +673,20 @@ function isAbandoned(pick, now = new Date()) {
  * from the start; a range or a mover round never has it, the agent having
  * held no view on either.
  */
+/**
+ * Whether a round's commitment payload may be opened for this viewer. A
+ * classic round's payload carries the Claw's stance, so it opens for the
+ * player who has called and for everyone once the round has closed; every
+ * other category hides nothing and opens at once. The seal itself is always
+ * public: that is what makes it a commitment.
+ */
+function roundSealRevealed(round, { revealAgent = false, now = new Date() } = {}) {
+  const r = round || {};
+  if (!r.seal_payload) return false;
+  if (kindOf(r) !== 'direction') return true;
+  return Boolean(revealAgent) || !isCallable(r, now);
+}
+
 function publicRound(round, { revealAgent, now = new Date() } = {}) {
   const r = round || {};
   const kind = kindOf(r);
@@ -682,6 +698,11 @@ function publicRound(round, { revealAgent, now = new Date() } = {}) {
     symbol: r.symbol,
     options: picksFor(kind).slice(),
     callable: isCallable(r, now),
+    // Provable Calls v6: the hash the round was dealt under, before anyone
+    // called. The payload is never on the card: it carries the Claw's stance
+    // and lives on the receipt (/api/call/round:<seal>), which opens it by
+    // roundSealRevealed for the viewer asking.
+    seal: r.seal || null,
   };
   if (kind === 'mover') out.symbol_b = r.symbol_b;
   if (kind === 'range') out.threshold_pct = Number(r.threshold_pct);
@@ -716,6 +737,8 @@ function publicPick(pick, { now = new Date(), round = null } = {}) {
     entry_price: p.entry_price == null ? null : Number(p.entry_price),
     resolves_at: p.resolves_at,
     seal: p.seal || null,
+    // Provable Calls v7: the settlement's own receipt, once there is one.
+    settle_seal: p.settle_seal || null,
     outcome: null,
   };
   if (kind === 'mover') out.entry_price_b = Number(p.entry_price_b);
@@ -740,7 +763,7 @@ module.exports = {
   CARD, ROUNDS_PER_DAY, FULL_CARD_CALLS, HORIZON_HOURS, DEAD_BAND_PCT, SETTLE_GIVE_UP_MS, SPORTS_FULL_TIME_MS,
   KINDS, KIND_NAMES, PICKS, ALL_PICKS, RANGE_BAND_PCT, DUEL_POOL, DUEL_QUEST_POOL,
   kindOf, picksFor, normPick, normDirection, dayKey, dayStartMs, horizonFor, rangeBandFor,
-  metaOf, kickoffMs, sportsHorizonFor,
+  metaOf, kickoffMs, sportsHorizonFor, roundSealRevealed,
   movePct, outcomeOf, rangeOutcome, moverOutcome, sportsOutcome, pickOutcome, callOutcome,
   scoreCall, scorePick, scoreEntries, accuracy, computeMarks,
   duelStreak, weeklyDuelQuests,

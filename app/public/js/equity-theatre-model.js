@@ -69,8 +69,8 @@
       long: { key: 'dd.et_k_closed_l', en: 'Deepest fall from peak on the running total of your CLOSED trades, in dollars — it does not include open positions.' },
     },
     replayWhatIf: {
-      short: { key: 'dd.et_k_replay_s', en: 'a what-if at your stake' },
-      long: { key: 'dd.et_k_replay_l', en: 'Deepest fall in a replay of the agent’s signals at the stake you chose — nothing here was traded.' },
+      short: { key: 'dd.et_k_replay_s', en: 'a what-if at your amount' },
+      long: { key: 'dd.et_k_replay_l', en: 'Deepest fall in a replay of the agent’s signals at the amount you chose — nothing here was traded.' },
     },
     backtestLab: {
       short: { key: 'dd.et_k_lab_s', en: 'this backtest' },
