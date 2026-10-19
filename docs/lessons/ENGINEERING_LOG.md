@@ -26856,6 +26856,61 @@ alone and said so, never widened on a guess. (`app/test/duel_engine.test.js`,
 `app/test/the_arena_shows_the_daily_duel.smoke.test.js`,
 `tests/test_duel_telegram_surface.py`.)
 
+**THE DUEL GOT A FOOTBALL ROUND, SETTLED BY A SCORE A FEED REPORTS, NOT BY A
+PRICE THE MARKET MOVES.** 19 October, the owner: "lets add sports
+predictions". The card deals one match a day where a football feed is
+configured (`app/lib/sports_feed.js`: football-data.org v4, the token in the
+website server's environment as `FOOTBALL_DATA_TOKEN`, never in chat): the
+earliest kick-off in the best competition on the day that is still an hour
+off when the card is dealt, HOME / DRAW / AWAY / PASS, closed at kick-off
+rather than at a horizon, resolving 150 minutes after it and settled on the
+FINISHED full-time score. Nothing else on the card changed shape: the match
+rides a round's `meta` column (teams, competition, kick-off, the feed's event
+id as the round's symbol, `FD:<id>`), the score rides `settle_price` /
+`settle_price_b`, and the sealed receipt is the same v4 payload with a null
+entry.
+
+Four places where a market habit would have told a lie about a match. (1) A
+football call has NO entry price, so `entry_price` is null on the row, in
+the payload and on every surface; the column had to become nullable for it,
+and a zero there would have printed as a price the call was taken at. (2) A
+score is read only from a FINISHED match with both numbers present: an
+in-play 1–0 is not a result, a cancelled match's null–null is not 0–0, and a
+goalless draw IS a score (`resultOf`, `sportsOutcome`). A match not finished
+at its horizon is asked again on the next settle; one that never finishes is
+unresolved after the give-up window, nobody's loss. (3) The feed is a third
+source on the card, and its two absences are different sentences: a feed
+that cannot be read THROWS out of `candidateFor` and the card says so
+(`sources.sports` is `unreadable`, and /duel prints a note that this is on
+our side); a readable feed with no qualifying match is `none` and says
+nothing, as does an unconfigured feed (`off`). An unreadable feed never
+cancels the day's market rounds. (4) A round whose kick-off cannot be read
+is open to nobody, not open all day on a guess, and a call on it is refused
+with a 503 that says why.
+
+The two surfaces that print a result print the score beside it ("Final score
+1–1" on the website, "(final score 1–1)" in the bot) only when one was read,
+and never a move: a score is not a percentage. The feed's transport is
+injectable, so every test drives the choosing, the parsing and the settling
+without the network, and the token is never in a request path.
+(`app/test/sports_feed.test.js`, `app/test/duel_engine.test.js`,
+`app/test/duel_routes.test.js`, `app/test/duel_scenarios.test.js`,
+`app/test/the_pi_app_signs_in_with_pi.smoke.test.js`,
+`app/test/the_arena_shows_the_daily_duel.smoke.test.js`,
+`app/test/the_duel_page_says_when_the_feed_failed.smoke.test.js`,
+`tests/test_duel_telegram_surface.py`.)
+
+Two things found on the way. The /duel page loaded its card only for a
+session with the legacy localStorage token, while the flag it computed for
+the cookie session (`signedIn`, the M14 fix) went unread one block lower:
+every cookie session, which is every session, was told to sign in, one click
+from the Arena panel's own link. The page smoke test above signs in by the
+cookie alone. And `scripts/lessons_index.py` read a chapter lead from its
+first line only; the log wraps at 78 columns and most titles are longer, so
+252 of the 576 chapters were absent from the index and their guard tests
+were credited to the chapter before them. The generator joins a wrapped
+title now, and the index regenerated with every chapter on it.
+
 **THE DAILY DUEL GOT ITS OWN TELEGRAM BOT, AND IT IS NOT THE BOT.** 19
 October, the owner: "if possible we can make new telegram bot and run this
 also on mulerun same time as the other bot". `python3 -m bot.duel_bot` polls a

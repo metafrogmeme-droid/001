@@ -207,11 +207,13 @@ function migrateAgainst(answer, calls = 1) {
           ? (sql.includes("TABLE_NAME = 'users'") ? 'USER_COLUMNS'
             : sql.includes("TABLE_NAME = 'duel_rounds'") ? 'DUEL_ROUND_COLUMNS'
               : sql.includes("COLUMN_NAME = 'pick'") ? 'DUEL_PICK_WIDTH'
-                : sql.includes("TABLE_NAME = 'duel_picks'") ? 'DUEL_PICK_COLUMNS' : 'SIGNAL_COLUMNS')
+                : sql.includes("COLUMN_NAME = 'entry_price'") ? 'DUEL_PICK_ENTRY_NULL'
+                  : sql.includes("TABLE_NAME = 'duel_picks'") ? 'DUEL_PICK_COLUMNS' : 'SIGNAL_COLUMNS')
           : sql.startsWith('ALTER TABLE signals') ? 'ALTER_SIGNALS'
             : sql.startsWith('ALTER TABLE users') ? 'ALTER_USERS'
               : sql.startsWith('ALTER TABLE duel_rounds') ? 'ALTER_DUEL_ROUNDS'
-                : sql.startsWith('ALTER TABLE duel_picks MODIFY') ? 'WIDEN_DUEL_PICK'
+                : sql.startsWith('ALTER TABLE duel_picks MODIFY COLUMN pick ') ? 'WIDEN_DUEL_PICK'
+                : sql.startsWith('ALTER TABLE duel_picks MODIFY COLUMN entry_price') ? 'RELAX_DUEL_ENTRY'
                   : sql.startsWith('ALTER TABLE duel_picks') ? 'ALTER_DUEL_PICKS'
                     : sql.startsWith('CREATE UNIQUE INDEX idx_users') ? 'INDEX_USERS'
                       : (sql.match(/CREATE TABLE IF NOT EXISTS (\\w+)/) || [, 'OTHER'])[1];
@@ -246,16 +248,19 @@ function fastAnswer(signalCols, userCols, duel = {}) {
   const rounds = JSON.stringify((duel.rounds || Object.keys(db.REQUIRED_DUEL_ROUND_COLUMNS)).map((c) => ({ c })));
   const picks = JSON.stringify((duel.picks || Object.keys(db.REQUIRED_DUEL_PICK_COLUMNS)).map((c) => ({ c })));
   const width = JSON.stringify(duel.width === null ? [] : [{ n: duel.width == null ? db.DUEL_PICK_WIDTH : duel.width }]);
+  const nullable = JSON.stringify(duel.entryNullable === null ? [] : [{ n: duel.entryNullable == null ? 'YES' : duel.entryNullable }]);
   return `async (sql) => sql.includes('information_schema.TABLES') ? [${tables}]
     : sql.includes('information_schema.COLUMNS')
       ? (sql.includes("TABLE_NAME = 'users'") ? [${usr}]
         : sql.includes("TABLE_NAME = 'duel_rounds'") ? [${rounds}]
           : sql.includes("COLUMN_NAME = 'pick'") ? [${width}]
-            : sql.includes("TABLE_NAME = 'duel_picks'") ? [${picks}] : [${sig}])
+            : sql.includes("COLUMN_NAME = 'entry_price'") ? [${nullable}]
+              : sql.includes("TABLE_NAME = 'duel_picks'") ? [${picks}] : [${sig}])
       : [[], []]`;
 }
 /** The fast path's reads, in order, when every table and column is present. */
-const FAST_READS = ['CHECK', 'SIGNAL_COLUMNS', 'USER_COLUMNS', 'DUEL_ROUND_COLUMNS', 'DUEL_PICK_COLUMNS', 'DUEL_PICK_WIDTH'];
+const FAST_READS = ['CHECK', 'SIGNAL_COLUMNS', 'USER_COLUMNS', 'DUEL_ROUND_COLUMNS', 'DUEL_PICK_COLUMNS',
+  'DUEL_PICK_WIDTH', 'DUEL_PICK_ENTRY_NULL'];
 
 test('migrate with every table and required column present skips full DDL', () => {
   const { REQUIRED_SIGNAL_COLUMNS, REQUIRED_USER_COLUMNS } = require('../db');
@@ -270,7 +275,7 @@ test('the fast path adds missing signal columns instead of skipping them forever
   const r = migrateAgainst(fastAnswer([], Object.keys(REQUIRED_USER_COLUMNS)));
   assert.deepEqual(r.outcomes, ['fast']);
   assert.deepEqual(r.sent, ['CHECK', 'SIGNAL_COLUMNS', 'ALTER_SIGNALS', 'USER_COLUMNS',
-    'DUEL_ROUND_COLUMNS', 'DUEL_PICK_COLUMNS', 'DUEL_PICK_WIDTH']);
+    'DUEL_ROUND_COLUMNS', 'DUEL_PICK_COLUMNS', 'DUEL_PICK_WIDTH', 'DUEL_PICK_ENTRY_NULL']);
 });
 
 test('the fast path adds a missing user column, with its unique index', () => {
@@ -280,7 +285,7 @@ test('the fast path adds a missing user column, with its unique index', () => {
   const r = migrateAgainst(fastAnswer(Object.keys(REQUIRED_SIGNAL_COLUMNS), []));
   assert.deepEqual(r.outcomes, ['fast']);
   assert.deepEqual(r.sent, ['CHECK', 'SIGNAL_COLUMNS', 'USER_COLUMNS', 'ALTER_USERS', 'INDEX_USERS',
-    'DUEL_ROUND_COLUMNS', 'DUEL_PICK_COLUMNS', 'DUEL_PICK_WIDTH']);
+    'DUEL_ROUND_COLUMNS', 'DUEL_PICK_COLUMNS', 'DUEL_PICK_WIDTH', 'DUEL_PICK_ENTRY_NULL']);
 });
 
 test('the fast path adds the duel categories\' columns and widens pick, and leaves a current table alone', () => {
@@ -293,7 +298,7 @@ test('the fast path adds the duel categories\' columns and widens pick, and leav
   assert.deepEqual(r.outcomes, ['fast']);
   assert.deepEqual(r.sent, ['CHECK', 'SIGNAL_COLUMNS', 'USER_COLUMNS',
     'DUEL_ROUND_COLUMNS', 'ALTER_DUEL_ROUNDS', 'DUEL_PICK_COLUMNS', 'ALTER_DUEL_PICKS',
-    'DUEL_PICK_WIDTH', 'WIDEN_DUEL_PICK']);
+    'DUEL_PICK_WIDTH', 'WIDEN_DUEL_PICK', 'DUEL_PICK_ENTRY_NULL']);
   // Already wide enough: no rewrite of the table.
   const wide = migrateAgainst(fastAnswer(Object.keys(db.REQUIRED_SIGNAL_COLUMNS), Object.keys(db.REQUIRED_USER_COLUMNS),
     { width: 16 }));
@@ -303,6 +308,14 @@ test('the fast path adds the duel categories\' columns and widens pick, and leav
     { width: null }));
   assert.deepEqual(unread.outcomes, ['fast']);
   assert.deepEqual(unread.sent, FAST_READS);
+  // A football call has no entry: entry_price must take NULL. A NOT NULL
+  // column is relaxed; a nullable one and an unreadable answer are left alone.
+  const strict = migrateAgainst(fastAnswer(Object.keys(db.REQUIRED_SIGNAL_COLUMNS), Object.keys(db.REQUIRED_USER_COLUMNS),
+    { entryNullable: 'NO' }));
+  assert.deepEqual(strict.sent, FAST_READS.concat(['RELAX_DUEL_ENTRY']));
+  const unreadNull = migrateAgainst(fastAnswer(Object.keys(db.REQUIRED_SIGNAL_COLUMNS), Object.keys(db.REQUIRED_USER_COLUMNS),
+    { entryNullable: null }));
+  assert.deepEqual(unreadNull.sent, FAST_READS);
 });
 
 test('migrate with a table missing runs the DDL', () => {

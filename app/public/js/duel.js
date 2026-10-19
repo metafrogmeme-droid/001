@@ -33,7 +33,7 @@
 
   const IDENT = (k, en) => en;
   /** The categories this renderer can put a question to (lib/duel.js KINDS). */
-  const KNOWN_KINDS = ['direction', 'backfade', 'range', 'mover'];
+  const KNOWN_KINDS = ['direction', 'backfade', 'range', 'mover', 'sports'];
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
@@ -133,6 +133,7 @@
       case 'backfade': return tr('duel.k_backfade', 'Back or fade');
       case 'range': return tr('duel.k_range', 'Range');
       case 'mover': return tr('duel.k_mover', 'Bigger mover');
+      case 'sports': return tr('duel.k_sports', 'Football');
       default: return tr('duel.k_unknown', 'Unknown round type');
     }
   }
@@ -140,6 +141,21 @@
   /** The base of an exchange symbol: 'ARBUSDT' -> 'ARB'. */
   function base(sym) {
     return String(sym == null ? '' : sym).replace(/(USDT|USDC|USD)$/i, '') || String(sym == null ? '' : sym);
+  }
+
+  /** A kick-off in the reader's own clock, HH:MM; a dash when unreadable. */
+  function kickoffText(match) {
+    const t = Date.parse((match || {}).kickoff || '');
+    if (!Number.isFinite(t)) return '—';
+    const d = new Date(t);
+    const pad = (n) => (n < 10 ? '0' : '') + n;
+    return pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  /** A team's short name, its name, or a dash: never a blank button. */
+  function teamText(match, side) {
+    const m = match || {};
+    return String(m[side + '_short'] || m[side] || '—');
   }
 
   /** The band a range round asks about, '±2%'; a dash when the round carries none. */
@@ -174,6 +190,12 @@
         return tr('duel.q_mover', '{a} or {b} — which moves more in {h}h, either way?')
           .replace('{a}', base(r.symbol)).replace('{b}', base(r.symbol_b))
           .replace('{h}', r.horizon_hours == null ? 24 : r.horizon_hours);
+      case 'sports': {
+        const m = r.match || {};
+        return tr('duel.q_sports', '{home} vs {away} — who wins? {comp} · kick-off {time}')
+          .replace('{home}', teamText(m, 'home')).replace('{away}', teamText(m, 'away'))
+          .replace('{comp}', String(m.competition || '—')).replace('{time}', kickoffText(m));
+      }
       default:
         return tr('duel.q_unknown', 'This round asks a question this page cannot show. Update the app.');
     }
@@ -196,6 +218,9 @@
       case 'hold': return tr('duel.b_hold', 'HOLDS {band}').replace('{band}', bandText(r));
       case 'first': return tr('duel.b_more', '{sym} MOVES MORE').replace('{sym}', base(r.symbol));
       case 'second': return tr('duel.b_more', '{sym} MOVES MORE').replace('{sym}', base(r.symbol_b));
+      case 'home': return teamText(r.match, 'home').toUpperCase();
+      case 'away': return teamText(r.match, 'away').toUpperCase();
+      case 'draw': return tr('duel.b_draw', 'DRAW');
       default: return String(pick == null ? '' : pick).toUpperCase();
     }
   }
@@ -244,10 +269,17 @@
 
     let body;
     if (mine) {
+      // A football call shows the final score beside its result; a score is
+      // printed only when one was read (my_call.score), never as 0–0.
+      const sc = r.my_call.score;
+      const scoreNote = kind === 'sports' && sc && sc.home != null && sc.away != null
+        ? '<span class="d-note">' + esc(tr('duel.final_score', 'Final score {h}–{a}')
+          .replace('{h}', sc.home).replace('{a}', sc.away)) + '</span>' : '';
       body = '<div class="d-called">'
         + '<span class="d-mycall">' + esc(tr('duel.you_called', 'You called') + ' ' + pickLabel(r.my_call.pick, r, tr)) + '</span>'
         + '<span class="d-state tone-' + esc(mine.tone) + '">' + esc(mine.text) + '</span>'
         + (mine.note ? '<span class="d-note">' + esc(mine.note) + '</span>' : '')
+        + scoreNote
         + '</div>';
     } else if (r.callable && options.length) {
       body = '<div class="d-actions" data-round="' + esc(r.id) + '">'
@@ -257,12 +289,16 @@
     } else if (r.callable) {
       body = '<div class="d-note">' + esc(tr('duel.q_unknown', 'This round asks a question this page cannot show. Update the app.')) + '</div>';
     } else {
-      body = '<div class="d-note">' + esc(tr('duel.closed', 'This round has closed.')) + '</div>';
+      body = '<div class="d-note">' + esc(kind === 'sports'
+        ? tr('duel.closed_kickoff', 'Kick-off has passed — calls are closed.')
+        : tr('duel.closed', 'This round has closed.')) + '</div>';
     }
 
     const title = kind === 'mover'
       ? esc(base(r.symbol)) + ' <span class="d-vs">' + esc(tr('duel.vs', 'vs')) + '</span> ' + esc(base(r.symbol_b))
-      : esc(r.symbol);
+      : kind === 'sports'
+        ? esc(teamText(r.match, 'home')) + ' <span class="d-vs">' + esc(tr('duel.vs', 'vs')) + '</span> ' + esc(teamText(r.match, 'away'))
+        : esc(r.symbol);
     const stance = kind === 'direction'
       ? '<span class="d-agent">' + esc(agentLabel(r, tr).text) + '</span>' : '';
     return '<article class="d-round d-round--' + esc(kind) + '">'
@@ -274,5 +310,5 @@
       + '</article>';
   }
 
-  return { esc, base, KNOWN_KINDS, callState, accuracyLabel, marksLabel, agentLabel, kindLabel, questionText, pickLabel, bandText, roundCard };
+  return { esc, base, KNOWN_KINDS, callState, accuracyLabel, marksLabel, agentLabel, kindLabel, questionText, pickLabel, bandText, kickoffText, teamText, roundCard };
 }));

@@ -120,7 +120,7 @@ const SCRIPTS = [
   '/js/signal-status-model.js?v=4',
   '/js/pi-signals.js?v=3',
   // The Daily Duel: the website's round renderer, then the block.
-  '/js/duel.js?v=2',
+  '/js/duel.js?v=3',
   '/js/pi-duel.js?v=1',
   '/js/pi-arena.js?v=3',
 ];

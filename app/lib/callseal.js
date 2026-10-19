@@ -189,7 +189,8 @@ function canonicalDuelPayload(p) {
     threshold_pct: p.threshold_pct == null ? null : Number(p.threshold_pct),
     handle: p.handle ? String(p.handle) : null,
     pick: String(p.pick),
-    entry_price: Number(p.entry_price),
+    // null for a call with no entry (a football match is settled by a score).
+    entry_price: p.entry_price == null ? null : Number(p.entry_price),
     entry_price_b: p.entry_price_b == null ? null : Number(p.entry_price_b),
     resolves_at: new Date(p.resolves_at).toISOString(),
     picked_at: new Date(p.picked_at || Date.now()).toISOString(),
