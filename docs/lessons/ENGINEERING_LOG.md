@@ -21054,7 +21054,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 273 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 274 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **498 of 1347** reach for source text through `source_scan`, `code_only`
+Driven, **499 of 1348** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 498 is a FLOOR and the honest shape is
+source scan that rule does not see, so 499 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -26961,4 +26961,8 @@ mascot. The logotype is the sign-off on every card now, a picture under
 card behind a fade. A picture is invisible to the text spy, so the
 sign-off is asserted from the pixels: the glyph's blue in the bottom-right
 corner, which a bare canvas does not have. A missing asset file is a
-width of nothing and a card without the mark, never a crash.
+width of nothing and a card without the mark, never a crash. And the one
+close that sent no picture, the paper book's, sends the close card now
+with its breakdown as the caption (`paper_close_card_data`, driven with a
+real book: margin is the collateral, the hero is net on it), so the two
+books close in one voice (`tests/test_a_paper_close_sends_its_card.py`).

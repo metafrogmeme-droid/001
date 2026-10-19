@@ -242,6 +242,40 @@ def paper_close_size_line(notional: float, leverage) -> str:
     return (f"- Size: <code>${notional / lev:,.2f}</code> | {lev:g}x "
             f"(<code>${notional:,.2f}</code> notional)")
 
+
+def paper_close_card_data(pair: str, closed_trade, hold_h: float) -> dict:
+    """What the close card is handed for a PAPER close.
+
+    The live close has sent `render_close_card` a picture since the card
+    existed; the paper close sent text alone, so the two books closed in two
+    voices (2026-10-19). This is the paper book's record in the keys the
+    card reads: margin is the collateral (notional / leverage), as
+    `/positions` and the size line print it; the hero percent is the net
+    return on that margin, the basis the card prefers; an exit the book did
+    not record stays None, which the card prints as "unread".
+    """
+    lev = getattr(closed_trade, "leverage", None)
+    if isinstance(lev, bool) or not isinstance(lev, (int, float)) or lev <= 0:
+        lev = None
+    notional = float(closed_trade.quantity) * float(closed_trade.entry_price)
+    margin = notional / lev if lev else notional
+    net = closed_trade.pnl
+    direction = getattr(closed_trade.direction, "value", closed_trade.direction)
+    return {
+        "symbol": pair,
+        "direction": str(direction).upper(),
+        "reason": "manual",
+        "entry": closed_trade.entry_price,
+        "exit": closed_trade.exit_price,
+        "pnl_usd": net,
+        "fees": closed_trade.commission,
+        "margin_usd": margin,
+        "leverage": lev or 1,
+        "hold_time": f"{hold_h:.1f}h" if hold_h > 0 else "",
+        "pnl_pct_margin_net": (net / margin * 100.0) if margin > 0 and net is not None else None,
+    }
+
+
 class CallbackHandler:
     """Every button tap, authenticated and routed. Host contract below; methods after."""
 
@@ -1647,7 +1681,18 @@ class CallbackHandler:
                     "",
                     "Say \"my portfolio\" for updated balance.",
                 ]
-                await self._send(update, "\n".join(lines), edit=True)
+                # The same picture the live close sends, with the breakdown
+                # as its caption; the text alone when no card could be drawn.
+                close_png = None
+                try:
+                    from bot.formatters.signal_card import render_close_card
+                    close_png = render_close_card(paper_close_card_data(pair, closed_trade, hold_h))
+                except Exception:
+                    close_png = None
+                if close_png:
+                    await self._send_photo(update, close_png, "\n".join(lines))
+                else:
+                    await self._send(update, "\n".join(lines), edit=True)
             else:
                 await self._send(update,
                     f"\u2705 <b>{html.escape(pair)}</b> — already closed.\n\n"
