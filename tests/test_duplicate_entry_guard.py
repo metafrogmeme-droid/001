@@ -33,6 +33,10 @@ class _FakeEngine:
     _self_admitted_practice = RuneClawEngine._self_admitted_practice
     confirm_is_practice = RuneClawEngine.confirm_is_practice
     _practice_book_symbols = RuneClawEngine._practice_book_symbols
+    # Whose paper book an unattended confirm opens on (live turned off):
+    # the real readings, so this stand-in cannot forget the next one.
+    _unattended_paper_owner = RuneClawEngine._unattended_paper_owner
+    _practice_book_user = RuneClawEngine._practice_book_user
 
     def __init__(self, ideas):
         self._pending_ideas = ideas

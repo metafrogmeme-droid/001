@@ -545,10 +545,6 @@ def _r4(v: Optional[float]) -> Optional[float]:
     return None if v is None else round(v, 4)
 
 
-def _r2(v: Optional[float]) -> Optional[float]:
-    """round(v, 2), with an absence kept an absence."""
-    return None if v is None else round(v, 2)
-
 
 def paper_mode_reason(engine, tg_id: str) -> Optional[str]:
     """Why this caller's confirms are paper because of the bot's mode, as the
@@ -1287,7 +1283,7 @@ class TradingCommands:
         # operator's alone. It answered "not enabled on this bot" here while
         # every confirm the caller tapped was opening on their paper book
         # (2026-10-18). `engine.confirm_is_practice` is the one reading.
-        _why_paper = paper_mode_reason(self.engine, tg_id)
+        _why_paper = paper_mode_reason(getattr(self, "engine", None), tg_id)
         if _why_paper is not None:
             await self._send(update, _why_paper)
             return
@@ -2203,6 +2199,7 @@ class TradingCommands:
                         pnl_pct = None
                     from datetime import datetime, timezone
                     hold_h = (datetime.now(timezone.utc) - pos.opened_at).total_seconds() / 3600
+                    _rr_paper = live_rr(last_price, pos.stop_loss, pos.take_profit)
                     positions_data.append({
                         "pair": pos.asset.replace("/", ""),
                         "direction": pos.direction.value,
@@ -2226,8 +2223,11 @@ class TradingCommands:
                         "pnl_usd": (None if not _priced else _r4(_leveraged_pnl_usd(
                             pos.entry_price, last_price, pos.direction.value,
                             pos.quantity * pos.entry_price / pos_lev, pos_lev))),
-                        "rr_live": (None if not _priced else _r2(live_rr(
-                            last_price, pos.stop_loss, pos.take_profit))),
+                        # Guarded on the RATIO, which also fails on a leg the
+                        # record does not hold; and on the mark, since an
+                        # unpriced row's `last_price` is the entry.
+                        "rr_live": (None if _rr_paper is None or not _priced
+                                    else round(_rr_paper, 2)),
                         "sl_dist_pct": (round(abs(last_price - pos.stop_loss) / last_price * 100, 2)
                                         if _priced and price_on_record(pos.stop_loss) is not None
                                         else None),
