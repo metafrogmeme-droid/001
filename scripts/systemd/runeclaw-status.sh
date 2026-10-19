@@ -27,7 +27,12 @@
 
 set -uo pipefail
 
-UNITS="runeclaw-bot runeclaw-bridge runeclaw-gateway"
+UNITS="runeclaw-bot runeclaw-bridge runeclaw-gateway runeclaw-duel"
+# Units a box may legitimately not have. The Daily Duel bot runs only where
+# DUEL_BOT_TOKEN is set (scripts/systemd/runeclaw-duel.service); on a box
+# without it, "not installed" is the expected state and not a failure. An
+# optional unit that IS installed is held to every check below.
+OPTIONAL_UNITS=" runeclaw-duel "
 
 # Port probes, paired with the unit that serves them. A unit can be active and
 # not serving; that is the case the ExecStartPost gate catches at start time and
@@ -36,6 +41,7 @@ probe_for() {
   case "$1" in
     runeclaw-bot)    echo "http://127.0.0.1:8080/gateway/health" ;;
     runeclaw-bridge) echo "http://127.0.0.1:8000/health" ;;
+    runeclaw-duel)   echo "http://127.0.0.1:8081/health" ;;
     *)               echo "" ;;
   esac
 }
@@ -82,6 +88,11 @@ for unit in $UNITS; do
   elif [ "$user_manager_ok" -eq 1 ] && listed --user "$unit"; then
     scope="user"; sc=(systemctl --user)
   elif [ "$user_manager_ok" -eq 1 ]; then
+    case "$OPTIONAL_UNITS" in
+      *" $unit "*)
+        echo "OPTIONAL       ${unit} — not installed. It runs only where DUEL_BOT_TOKEN is set; see scripts/systemd/README.md."
+        continue ;;
+    esac
     echo "NOT INSTALLED  ${unit} — no unit file, system or user. Nothing supervises this process."
     [ "$worst" -lt 1 ] && worst=1
     continue

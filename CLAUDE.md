@@ -214,7 +214,10 @@ correct code to satisfy an analyser.
 
 - There are **two processes**: `python3 -m bot.main --mode telegram` (bot,
   engine, gateway on :8080) and `api_bridge.py` (uvicorn on :8000). A deploy
-  that starts one and reports success is not a deploy.
+  that starts one and reports success is not a deploy. An optional third,
+  `python3 -m bot.duel_bot` (the Daily Duel's own Telegram bot, health on
+  :8081), runs only where `DUEL_BOT_TOKEN` is set; it builds no engine and
+  touches none of the bot's state.
 - Use `python3`, not `python`.
 - `scripts/launch_all.sh.template` is the launcher (copy it out of the repo
   before use) and `scripts/systemd/` holds the units; do not run both.
@@ -251,6 +254,6 @@ regenerate the index), not here. This file stays under 25,000 bytes;
 ## Operational docs
 
 - `docs/LIVE_HARDENING_RUNBOOK.md` — boot probes, triage, caps, deploy checks
-- `scripts/launch_all.sh.template` — both processes, both ports
-- `scripts/systemd/README.md` — supervising the two processes
+- `scripts/launch_all.sh.template` — both processes, both ports, the optional duel bot
+- `scripts/systemd/README.md` — supervising the processes
 - `scripts/cloudflared/` — named-tunnel procedure for the bot gateway

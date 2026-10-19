@@ -792,6 +792,34 @@ Two separate defects made that possible, and both are closed:
 `unreachable`. Those are different faults with different fixes — "unreachable"
 sends you hunting a dead process that was never addressed.
 
+### The optional third: the Daily Duel's own bot
+
+    python3 -m bot.duel_bot   the Daily Duel on a SECOND BotFather token
+                              (DUEL_BOT_TOKEN). No engine, no venue, none of
+                              the bot's state; it reads the card and records
+                              calls through the website's bot channel, and
+                              links a player by posting the link token to
+                              /api/auth/validate-token. Health on :8081.
+
+It runs only where `DUEL_BOT_TOKEN` is set in the bot's `.env`. The launcher
+reads the variable for presence and starts it third, smoke-tests it and
+probes `:8081/health` before `DEPLOY_DONE`; `scripts/systemd/runeclaw-duel.service`
+supervises it, and `runeclaw-status.sh` lists it as OPTIONAL on a box without
+it, not as NOT INSTALLED. Two refusals at boot, each exit 78 (EX_CONFIG, the
+unit's `RestartPreventExitStatus`, so a misconfigured box gets one journal
+line and a stopped unit rather than a fifteen-second loop): a token that is
+not set, and a token equal to `TELEGRAM_BOT_TOKEN` — two processes polling one
+token answer each other's 409 getUpdates conflict forever, and the main bot's
+poller watchdog would restart against this one every thirty seconds.
+
+`/health` answers 200 only while the poller is running and no stop has been
+requested; `active (running)` says a process exists, not that it polls.
+
+To create the bot: BotFather `/newbot`, a name of your choosing, then put the
+token in the bot box's `.env` as `DUEL_BOT_TOKEN=` (never in chat, never in
+the web container's env) and restart `runeclaw-duel`. Set the bot's commands
+in BotFather to `duel`, `me`, `board`, `link`, `help`.
+
 ## The learning overlays, and why two of them read zero
 
 `/calibration` shows three overlays. On 2026-08-25 it read:

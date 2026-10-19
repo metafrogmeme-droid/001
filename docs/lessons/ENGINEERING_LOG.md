@@ -21054,7 +21054,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 272 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 273 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **497 of 1346** reach for source text through `source_scan`, `code_only`
+Driven, **498 of 1347** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 497 is a FLOOR and the honest shape is
+source scan that rule does not see, so 498 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -23134,6 +23134,11 @@ fine, the gateway recovered, the status page called the system healthy, and two
 panels returned 502 until an operator noticed broken pages. A deploy that
 starts one of two processes and reports success is the same defect as a suite
 that runs a subset and reports it as the whole.
+
+An optional third process joined them on 2026-10-19: `python3 -m bot.duel_bot`,
+the Daily Duel's own Telegram bot on its own token, started by the launcher
+only where `DUEL_BOT_TOKEN` is set and supervised by `runeclaw-duel.service`
+(health on :8081). It is not the bot: no engine, none of the bot's state.
 
 `python3 -m bot.main` defaults to `--mode telegram`. It used to default to
 `cli`, which finds no TTY and **exits zero** — so a launcher that forgot the
@@ -26921,3 +26926,44 @@ first line only; the log wraps at 78 columns and most titles are longer, so
 252 of the 576 chapters were absent from the index and their guard tests
 were credited to the chapter before them. The generator joins a wrapped
 title now, and the index regenerated with every chapter on it.
+
+**THE DAILY DUEL GOT ITS OWN TELEGRAM BOT, AND IT IS NOT THE BOT.** 19
+October, the owner: "if possible we can make new telegram bot and run this
+also on mulerun same time as the other bot". `python3 -m bot.duel_bot` polls a
+second BotFather token beside `bot.main` and plays the duel and nothing else:
+it reads the card and records calls through the website's bot channel (the
+route the main bot's /duel already used) and renders with the same formatter,
+so the categories, the questions and the buttons are one reading across the
+two bots, the website and the Pi app. Identity is the website account: /link
+posts the link token to `/api/auth/validate-token` with the bot secret, the
+contract the main bot's /link uses, and the website binds the chat.
+
+What it was kept from doing is the chapter. It builds no engine, opens no
+venue, and touches none of the main bot's state — not the SQLite store the
+main bot's /link also writes, not the JSON user store, not the main bot's PID
+file, not the audit chain; a test scans for each of those names. Its own PID
+file names an earlier instance only when `/proc/<pid>/cmdline` says
+`bot.duel_bot`: a number in a file is reused by any process after a reboot,
+and the main bot kills whatever its file names. Its token must be its own: a
+`DUEL_BOT_TOKEN` equal to `TELEGRAM_BOT_TOKEN` is refused at boot, because two
+processes polling one token answer each other's 409 getUpdates conflict
+forever and the main bot's poller watchdog restarts against the other every
+thirty seconds. Both refusals exit 78 (EX_CONFIG), and the unit's
+`RestartPreventExitStatus=78` is the same number by a test, so a box that has
+not created the bot gets one journal line and a stopped unit rather than a
+fifteen-second restart loop; every other exit restarts, as the other units
+do. `/health` on :8081 answers 200 only while the poller runs and no stop was
+requested, because `active (running)` says a process exists and nothing more.
+
+The third process is optional, and three readers had to learn the word. The
+launcher starts it only where the token is present (read from `.env` for
+presence, never printed), smoke-tests it and probes its port before
+`DEPLOY_DONE`, and says `duel=off` otherwise. The status script lists an
+uninstalled `runeclaw-duel` as OPTIONAL and leaves the verdict to the two
+required units; a NOT INSTALLED there would have made every box without the
+bot read as broken, and a verdict that is always red stops meaning anything.
+The agent guide, the runbook, the systemd README and the deploy commands say
+"two processes, and an optional third" rather than three.
+(`tests/test_the_duel_bot_is_its_own_process.py`,
+`tests/test_systemd_units_supervise.py`, `tests/test_launch_all_starts_both.py`,
+`tests/test_claude_md_accuracy.py`.)
