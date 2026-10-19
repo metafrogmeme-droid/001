@@ -213,3 +213,27 @@ def test_it_ships_as_a_template_not_an_executable(src: str) -> None:
     )
     code = _code_only(src)
     assert "RUNECLAW_REPO" in code, "the template hardcodes a repo path"
+
+
+# ── the optional third process (2026-10-19) ──────────────────────────────────
+
+def test_the_duel_bot_is_started_only_where_its_token_is_set(src: str) -> None:
+    """`python3 -m bot.duel_bot` polls a second BotFather token. A box without
+    one must start the two required processes exactly as before, and the
+    launcher must never print the token while deciding."""
+    code = _code_only(src)
+    m = re.search(r'nohup "\$PY_BIN" -m bot\.duel_bot', code)
+    assert m, "the launcher does not start the duel bot"
+    guard = code.index("if duel_configured; then")
+    assert guard < m.start() < code.index("fi", m.start()), "the duel launch is not inside its guard"
+    assert re.search(r"grep -qE '\^DUEL_BOT_TOKEN=", code), "presence is not read from .env"
+    assert not re.search(r"(echo|log|printf)[^\n]*\$\{?DUEL_BOT_TOKEN", code), "the token is printed"
+    assert "DUEL_BOT_TOKEN is not set" in code, "a box without the token is not told so"
+
+
+def test_the_duel_bot_is_smoke_tested_and_its_port_probed(src: str) -> None:
+    code = _code_only(src)
+    assert re.search(r'verify_bot_alive\.sh --pid "\$DUEL_PID" \|\| die', code)
+    assert "8081/health" in code, "the duel bot's health port is never probed"
+    assert code.index("8081/health") < code.index("DEPLOY_DONE")
+    assert 'duel=$DUEL_PID' in code, "DEPLOY_DONE does not say whether the duel bot runs"

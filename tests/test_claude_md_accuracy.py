@@ -1254,7 +1254,8 @@ def _fenced_blocks(chapter: str) -> list[str]:
 
 
 def test_the_deploy_chapter_names_both_processes():
-    for proc in ("bot.main", "api_bridge"):
+    # ...and the optional third, the Daily Duel's own bot (2026-10-19).
+    for proc in ("bot.main", "api_bridge", "bot.duel_bot"):
         assert proc in DEPLOY_CHAPTER, (
             f"the deploy chapter does not mention {proc}. There are two "
             "processes; a chapter describing one of them is how the bridge "
