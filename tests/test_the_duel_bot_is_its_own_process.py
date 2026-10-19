@@ -139,11 +139,11 @@ def test_health_answers_200_only_while_polling_and_not_stopping():
 def test_the_limiter_counts_per_key_within_its_window():
     now = [0.0]
     rl = db.RateLimit(2, 60.0, clock=lambda: now[0])
-    assert rl.allow("a") and rl.allow("a")
-    assert not rl.allow("a")
-    assert rl.allow("b"), "another chat is not limited by the first"
+    assert rl.admit("a") and rl.admit("a")
+    assert not rl.admit("a")
+    assert rl.admit("b"), "another chat is not limited by the first"
     now[0] = 61.0
-    assert rl.allow("a")
+    assert rl.admit("a")
 
 
 # ── the wiring ─────────────────────────────────────────────────────────────

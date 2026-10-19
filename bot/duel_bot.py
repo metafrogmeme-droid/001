@@ -131,7 +131,7 @@ class RateLimit:
         self._clock = clock
         self._hits: dict[str, list[float]] = {}
 
-    def allow(self, key: Any) -> bool:
+    def admit(self, key: Any) -> bool:
         now = self._clock()
         k = str(key)
         hits = [t for t in self._hits.get(k, []) if now - t < self.seconds]
@@ -432,7 +432,7 @@ class DuelBot:
         return InlineKeyboardMarkup(rows) if rows else None
 
     async def _limited(self, update) -> bool:
-        if self.commands.allow(self._chat_id(update)):
+        if self.commands.admit(self._chat_id(update)):
             return False
         await self._reply(update, "Slow down a little — try again in a minute.")
         return True
@@ -492,7 +492,7 @@ class DuelBot:
             await self._reply(update, t("link_prompt", "en", url=self.url()))
             return
         chat_id = self._chat_id(update)
-        if not self.links.allow(chat_id):
+        if not self.links.admit(chat_id):
             await self._reply(update, "Too many link attempts — wait ten minutes and try again.")
             return
         status, body = await asyncio.to_thread(self.validate, str(args[0]).strip(), chat_id)
