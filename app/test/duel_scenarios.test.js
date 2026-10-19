@@ -178,3 +178,99 @@ test('symbols and picks are escaped on the way into the card', () => {
   assert.ok(!html.includes('<img'), 'a symbol is data, not markup');
   assert.ok(html.includes('&lt;img'));
 });
+
+// ── the categories ──────────────────────────────────────────────────────────
+
+test('each category asks its question in words and offers the round\'s own options', () => {
+  const direction = D.roundCard({ id: 1, kind: 'direction', symbol: 'BTCUSDT', callable: true, horizon_hours: 24,
+    options: ['long', 'short', 'pass'] });
+  say(direction, ['Direction', 'Higher or lower in 24h?', 'Hidden until you call', 'data-pick="long"', 'data-pick="short"', 'data-pick="pass"']);
+
+  const backfade = D.roundCard({ id: 2, kind: 'backfade', symbol: 'SOLUSDT', callable: true, agent_direction: 'short',
+    options: ['back', 'fade', 'pass'] });
+  say(backfade, ['Back or fade', 'The Claw called SHORT on SOL. Back it, or fade it?', 'BACK THE CLAW', 'FADE THE CLAW', 'data-pick="fade"'],
+    ['Hidden until you call', 'data-pick="long"']);
+
+  const range = D.roundCard({ id: 3, kind: 'range', symbol: 'BNBUSDT', callable: true, threshold_pct: 2, horizon_hours: 24,
+    options: ['break', 'hold', 'pass'] });
+  say(range, ['Range', 'Does BNB move more than ±2% either way in 24h?', 'BREAKS ±2%', 'HOLDS ±2%'],
+    ['Hidden until you call', 'The Claw passed', 'data-pick="long"']);
+
+  const mover = D.roundCard({ id: 4, kind: 'mover', symbol: 'XRPUSDT', symbol_b: 'ARBUSDT', callable: true, horizon_hours: 24,
+    options: ['first', 'second', 'pass'] });
+  say(mover, ['Bigger mover', 'XRP', 'ARB', 'which moves more in 24h', 'XRP MOVES MORE', 'ARB MOVES MORE', 'data-pick="first"', 'data-pick="second"'],
+    ['Hidden until you call', 'The Claw passed']);
+});
+
+test('the buttons are the round\'s options in the round\'s order, never a word the server would refuse', () => {
+  const html = D.roundCard({ id: 3, kind: 'range', symbol: 'BNBUSDT', callable: true, threshold_pct: 4,
+    options: ['hold', 'break', 'pass'] });
+  const picks = [...html.matchAll(/data-pick="([a-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(picks, ['hold', 'break', 'pass']);
+  // A round without an options list, of the classic kind, offers the classic three.
+  const classic = D.roundCard({ id: 1, symbol: 'BTCUSDT', callable: true });
+  assert.deepEqual([...classic.matchAll(/data-pick="([a-z]+)"/g)].map((m) => m[1]), ['long', 'short', 'pass']);
+});
+
+test('a round of a kind this page does not know offers nothing and says so', () => {
+  const html = D.roundCard({ id: 9, kind: 'weather', symbol: 'BTCUSDT', callable: true, options: ['rain', 'sun', 'pass'] });
+  say(html, ['Unknown round type', 'cannot show'], ['data-pick=', '<button']);
+});
+
+test('a called round reports the call in the words of its category', () => {
+  const mover = D.roundCard({ id: 4, kind: 'mover', symbol: 'XRPUSDT', symbol_b: 'ARBUSDT', callable: true,
+    options: ['first', 'second', 'pass'],
+    my_call: { pick: 'second', outcome: 'second', move_pct: 1, move_pct_b: 10 },
+    my_result: { state: 'correct', marks: 1, beat_agent: false } });
+  say(mover, ['You called ARB MOVES MORE', 'Correct', 'tone-up'], ['SECOND', 'tone-down']);
+  const range = D.roundCard({ id: 3, kind: 'range', symbol: 'BNBUSDT', callable: true, threshold_pct: 2,
+    options: ['break', 'hold', 'pass'],
+    my_call: { pick: 'hold', pending: true },
+    my_result: { state: 'unresolved', marks: 0, beat_agent: false } });
+  say(range, ['You called HOLDS ±2%', 'Running', 'tone-muted'], ['tone-up', 'tone-down']);
+  const fade = D.roundCard({ id: 2, kind: 'backfade', symbol: 'SOLUSDT', callable: true, agent_direction: 'short',
+    options: ['back', 'fade', 'pass'],
+    my_call: { pick: 'fade', outcome: 'up', move_pct: 3 },
+    my_result: { state: 'correct', marks: 2, beat_agent: true } });
+  say(fade, ['You called FADE THE CLAW', 'beat the Claw', 'tone-up']);
+});
+
+test('the category strings can all be translated, placeholders intact', () => {
+  const t = (k, en) => 'XX' + k + '|' + en;
+  const seen = (html) => [...html.matchAll(/XX(duel\.[a-z_]+)\|/g)].map((m) => m[1]);
+  const keys = new Set();
+  for (const r of [
+    { id: 1, kind: 'direction', symbol: 'BTCUSDT', callable: true, options: ['long', 'short', 'pass'] },
+    { id: 2, kind: 'backfade', symbol: 'SOLUSDT', callable: true, agent_direction: 'long', options: ['back', 'fade', 'pass'] },
+    { id: 3, kind: 'range', symbol: 'BNBUSDT', callable: true, threshold_pct: 2, options: ['break', 'hold', 'pass'] },
+    { id: 4, kind: 'mover', symbol: 'XRPUSDT', symbol_b: 'ARBUSDT', callable: true, options: ['first', 'second', 'pass'] },
+    { id: 5, kind: 'weather', symbol: 'BTCUSDT', callable: true, options: [] },
+  ]) seen(D.roundCard(r, t)).forEach((k) => keys.add(k));
+  for (const k of ['duel.k_direction', 'duel.k_backfade', 'duel.k_range', 'duel.k_mover', 'duel.k_unknown',
+    'duel.q_direction', 'duel.q_backfade', 'duel.q_range', 'duel.q_mover', 'duel.q_unknown',
+    'duel.b_back', 'duel.b_fade', 'duel.b_break', 'duel.b_hold', 'duel.b_more', 'duel.vs']) {
+    assert.ok(keys.has(k), `${k} is baked in English`);
+  }
+  // Every key the renderer asks for is in the dictionary, in every language.
+  const i18n = require('../public/js/i18n.js');
+  for (const k of keys) {
+    assert.ok(i18n.STRINGS[k], `${k} missing from the dictionary`);
+    for (const l of i18n.LANGS) assert.ok(i18n.STRINGS[k][l.code], `${k} is missing ${l.code}`);
+  }
+});
+
+test('pickLabel and questionText fill the band and the symbols, and never a dash for a band that is there', () => {
+  const range = { kind: 'range', symbol: 'DOGEUSDT', threshold_pct: 4, horizon_hours: 24 };
+  assert.equal(D.pickLabel('break', range), 'BREAKS ±4%');
+  assert.equal(D.pickLabel('hold', { kind: 'range', symbol: 'X' }), 'HOLDS —', 'a round with no band says so');
+  assert.equal(D.pickLabel('first', { symbol: 'XRPUSDT', symbol_b: 'ARBUSDT' }), 'XRP MOVES MORE');
+  assert.equal(D.pickLabel('second', { symbol: 'XRPUSDT', symbol_b: 'ARBUSDT' }), 'ARB MOVES MORE');
+  assert.equal(D.pickLabel('pass', {}), 'PASS');
+  assert.equal(D.questionText(range), 'Does DOGE move more than ±4% either way in 24h?');
+  assert.equal(D.questionText({ kind: 'backfade', symbol: 'SOLUSDT', agent_direction: 'long' }),
+    'The Claw called LONG on SOL. Back it, or fade it?');
+  assert.equal(D.kindLabel('mover'), 'Bigger mover');
+  assert.equal(D.kindLabel('weather'), 'Unknown round type');
+  assert.equal(D.base('BTCUSDT'), 'BTC');
+  assert.equal(D.base('PI'), 'PI');
+});

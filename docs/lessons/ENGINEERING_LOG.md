@@ -26800,3 +26800,44 @@ charge inside a breakdown whose Net is gross less commission, so the $0.12 read
 as a cost Net had paid; Size is the margin with the notional beside it, and
 the funding line says it is not booked. (`tests/test_performance_card_states.py`,
 `tests/test_the_details_button_reads_the_callers_account.py`.)
+
+**THE DUEL GOT FOUR CATEGORIES, AND EVERY SURFACE RENDERS A ROUND FROM THE
+ROUND'S OWN WORDS.** 19 October, the owner: "we need also more predictions
+categorys". The Daily Duel had one question, LONG/SHORT/PASS on a symbol with
+the agent's stance hidden until the call, three rounds a day. It now deals a
+card in four: the three classic rounds; a BACK/FADE round on the agent's
+second call of the day, where the stance is the question (fading it correctly
+is beating it, two marks); a RANGE round (does the coin move more than its
+band either way, the band stored on the round so a later change to the table
+cannot rescore a round played under it); and a BIGGER MOVER round (two
+symbols, two entries snapped in the same read, two closes, compared by the
+size of the move; a tie inside the dead band is where a PASS is right; one
+readable close is half a comparison and settles nothing). The agent's second
+call is HELD BACK from the classic rounds: a classic round on the same symbol
+would print, one card lower, the stance the classic round hides.
+
+Three shapes were kept out on purpose. (1) The picks a category takes live in
+ONE table, `app/lib/duel.js` KINDS, and the server publishes each round's
+`options`; the website, the Pi app and the Telegram keyboard render their
+buttons FROM that list, so no surface can offer a word the server refuses.
+The bot keeps a copy of the table for the callback parser and for a card
+that predates the field, and a test reads the JavaScript source and holds
+the two to one answer. (2) A round of a kind a client does not know is
+offered NOTHING: its question cannot be shown, so a button under it would be
+a call the player cannot have meant; the server's own `kindOf` answers null
+for such a row and it is callable by nobody and scored for nobody. (3) The
+stance is reported only where there was one to reveal: a range or a mover
+round never held a view, and a null `agent_direction` on it would have read
+as "the Claw passed" on a choice never offered, so the field is absent there
+even after a call. The sealed receipt moved to v4 and commits to the second
+symbol and entry.
+
+The migration adds columns to tables that exist on the production database
+and widens `pick` to eight characters ('second'); each ALTER is its own
+statement, an existing column is the expected refusal and anything else is
+logged by class and code at boot, because a widening that did not land would
+have surfaced as a 500 on the first mover call. (`app/test/duel_engine.test.js`,
+`app/test/duel_routes.test.js`, `app/test/duel_scenarios.test.js`,
+`app/test/the_pi_app_signs_in_with_pi.smoke.test.js`,
+`app/test/the_arena_shows_the_daily_duel.smoke.test.js`,
+`tests/test_duel_telegram_surface.py`.)

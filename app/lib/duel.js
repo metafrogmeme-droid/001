@@ -2,11 +2,23 @@
 /**
  * Daily Duel — the player calls the market before the agent's call is shown.
  *
- * Three rounds a UTC day. A round is a SYMBOL and the agent's stance on it;
- * the player calls LONG / SHORT / PASS, and the 24h horizon is measured from
- * THEIR call. Beating the agent scores double.
+ * A card a UTC day, in four CATEGORIES of question, every one of them settled
+ * by the market and nothing else:
  *
- * The entry belongs to the pick, not to the round, and that is a fairness
+ *   direction   three rounds. A SYMBOL and the agent's stance on it; the
+ *               player calls LONG / SHORT / PASS and the stance is shown only
+ *               once they have. The classic duel. Beating the agent scores
+ *               double.
+ *   backfade    one round, when the agent made a second call that day. The
+ *               agent's call is the question: "The Claw called SHORT on SOL —
+ *               back it or fade it?" Fading it correctly is beating it.
+ *   range       one round. "Does BNB move more than ±2% either way?" The
+ *               band is the round's own, stored with it, so a later change to
+ *               the table cannot rescore a round that was played under it.
+ *   mover       one round. "BTC or ETH — which moves more?" Two symbols, two
+ *               entries, two settles, compared by the size of the move.
+ *
+ * Every entry belongs to the pick, not to the round, and that is a fairness
  * property rather than an implementation detail. A shared entry snapped at
  * midnight would hand every later player a free look at how the day had
  * already gone — and a lock early enough to prevent that would close the game
@@ -16,7 +28,9 @@
  * This module is PURE — no I/O, no clock beyond an injectable `now`, no DB. It
  * is the single implementation of the rules: the web routes, the public board
  * and the Telegram surface all score through here, so the three can never
- * disagree about what a player's record is.
+ * disagree about what a player's record is. The picks a round takes are
+ * published on the round (`options`), so no surface keeps its own copy of
+ * which words a category accepts.
  *
  * Nothing here is stored. Marks, accuracy, streaks and quests are recomputed
  * from the picks and the settled rounds on every read, the same posture as
@@ -28,7 +42,9 @@
  *   loss, not a flat, and not a zero — it is excluded from the accuracy
  *   denominator entirely and reported separately, because a total computed
  *   over rows we could not read is a partial total printed as a whole one.
- *   `accuracy().pct` is null — never 0 — when nothing has resolved.
+ *   `accuracy().pct` is null — never 0 — when nothing has resolved. A mover
+ *   round with ONE readable settle is unresolved: half a comparison is not a
+ *   comparison.
  *
  * §4: counts, percent and market prices only. No amount of any currency is
  * computed or carried here.
@@ -38,20 +54,79 @@ const { computeStreak, isoWeek, weekStart } = require('./arena_streaks');
 const { SEASON_MAJORS } = require('./arena_seasons');
 const { exchangeSymbol } = require('./agent_match');
 
-const ROUNDS_PER_DAY = 3;
+/**
+ * The card. Three classic rounds, then one of each other kind; back/fade needs
+ * a second agent call that day, so a card holds five rounds or six.
+ */
+const CARD = Object.freeze({ direction: 3, backfade: 1, range: 1, mover: 1 });
+/** The most rounds a day's card holds. */
+const ROUNDS_PER_DAY = CARD.direction + CARD.backfade + CARD.range + CARD.mover;
 /** How long a call runs, measured from the moment it was made. */
 const HORIZON_HOURS = 24;
-/** |move| under this settles FLAT: below it the "direction" is noise. */
+/** |move| under this settles FLAT: below it the "direction" is noise. The
+ *  same band decides a TIE between two movers. */
 const DEAD_BAND_PCT = 0.05;
 const DAY_MS = 86400000;
 
-const PICKS = Object.freeze(['long', 'short', 'pass']);
+/**
+ * The categories, with the picks each takes and the outcome on which a PASS is
+ * the right call: the market "went nowhere" (flat) or the two movers tied. A
+ * range round has no such outcome, so a PASS on it is always declined.
+ */
+const KINDS = Object.freeze({
+  direction: Object.freeze({ picks: Object.freeze(['long', 'short', 'pass']), neutral: 'flat' }),
+  backfade: Object.freeze({ picks: Object.freeze(['back', 'fade', 'pass']), neutral: 'flat' }),
+  range: Object.freeze({ picks: Object.freeze(['break', 'hold', 'pass']), neutral: null }),
+  mover: Object.freeze({ picks: Object.freeze(['first', 'second', 'pass']), neutral: 'tie' }),
+});
+const KIND_NAMES = Object.freeze(Object.keys(KINDS));
+/** The classic round's picks, kept under their old name for the callers that
+ *  only ever meant those. */
+const PICKS = KINDS.direction.picks;
 const DIRECTIONS = Object.freeze(['long', 'short']);
+/** Every pick any round takes, for a first look at a request before its round
+ *  is known. */
+const ALL_PICKS = Object.freeze(
+  KIND_NAMES.reduce((acc, k) => acc.concat(KINDS[k].picks.filter((p) => acc.indexOf(p) < 0)), []));
 
-/** 'LONG' -> 'long'; anything else -> null. Never guesses a default. */
-function normPick(v) {
+/**
+ * The band a range round asks about, by the symbol's class. A major moves
+ * less in a day than an alt, so the question is kept close to a coin flip for
+ * each. The band chosen is STORED on the round: this table is for building a
+ * card, never for scoring one.
+ */
+const RANGE_BAND_PCT = Object.freeze({ major: 2, other: 4 });
+
+/**
+ * Symbols a card is topped up from, the season's majors first. Each must be
+ * priced by the ticker map before it reaches a card (buildRounds), so an
+ * unlisted or delisted one costs a round, never a guessed entry.
+ */
+const DUEL_POOL = Object.freeze(SEASON_MAJORS.concat([
+  'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT', 'LINKUSDT', 'LTCUSDT', 'DOTUSDT', 'SUIUSDT', 'ARBUSDT',
+]));
+
+/** A round's category. A stored round without one is a classic round (the
+ *  rows that predate the categories); a category this code does not know is
+ *  null, and a null kind is callable by nobody and scored for nobody. */
+function kindOf(round) {
+  const r = round || {};
+  if (r.kind == null || r.kind === '') return 'direction';
+  const k = String(r.kind).trim().toLowerCase();
+  return KINDS[k] ? k : null;
+}
+
+/** The picks a category takes; none for a category we do not know. */
+function picksFor(kind) {
+  return KINDS[kind] ? KINDS[kind].picks : Object.freeze([]);
+}
+
+/** 'LONG' -> 'long' for the given category; anything else -> null. Never
+ *  guesses a default. `kind` null means any category's pick. */
+function normPick(v, kind = 'direction') {
   const s = String(v == null ? '' : v).trim().toLowerCase();
-  return PICKS.indexOf(s) >= 0 ? s : null;
+  const set = kind === null ? ALL_PICKS : picksFor(kind);
+  return set.indexOf(s) >= 0 ? s : null;
 }
 
 /** The agent's stance. null means the agent had NO VIEW — a real state that
@@ -75,6 +150,12 @@ function dayStartMs(day) {
     ? Date.parse(day + 'T00:00:00.000Z') : NaN;
 }
 
+/** The band for a symbol, by its class (build time only; see RANGE_BAND_PCT). */
+function rangeBandFor(symbol) {
+  return SEASON_MAJORS.indexOf(String(symbol || '').toUpperCase()) >= 0
+    ? RANGE_BAND_PCT.major : RANGE_BAND_PCT.other;
+}
+
 /**
  * The move a round made, as a percent — or null when either price is
  * unreadable. A price of zero or below is not a price; it is a failed read
@@ -95,10 +176,31 @@ function outcomeOf(entryPrice, settlePrice) {
   return move > 0 ? 'up' : 'down';
 }
 
+/** 'break' | 'hold' | null. A band that is not a positive number cannot
+ *  settle anything, so it answers null rather than treating every move as a
+ *  break of nothing. */
+function rangeOutcome(entryPrice, settlePrice, bandPct) {
+  const move = movePct(entryPrice, settlePrice);
+  const band = Number(bandPct);
+  if (move === null || !Number.isFinite(band) || band <= 0) return null;
+  return Math.abs(move) >= band ? 'break' : 'hold';
+}
+
+/** 'first' | 'second' | 'tie' | null. Half a comparison answers null. */
+function moverOutcome(entryA, settleA, entryB, settleB) {
+  const a = movePct(entryA, settleA);
+  const b = movePct(entryB, settleB);
+  if (a === null || b === null) return null;
+  const diff = Math.abs(a) - Math.abs(b);
+  if (Math.abs(diff) < DEAD_BAND_PCT) return 'tie';
+  return diff > 0 ? 'first' : 'second';
+}
+
 /**
- * A stored call's outcome, over its own window. `settle_state === 'unresolved'`
- * is the terminal "we never got a price for this" marker and answers null, the
- * same as an unsettled call — both are absences, and neither is a measurement.
+ * A stored classic call's outcome, over its own window. `settle_state ===
+ * 'unresolved'` is the terminal "we never got a price for this" marker and
+ * answers null, the same as an unsettled call — both are absences, and
+ * neither is a measurement.
  */
 function pickOutcome(pick) {
   if (!pick) return null;
@@ -106,43 +208,86 @@ function pickOutcome(pick) {
   return outcomeOf(pick.entry_price, pick.settle_price);
 }
 
+/** A stored call's outcome under its round's category. */
+function callOutcome(round, pick) {
+  if (!pick) return null;
+  if (pick.settle_state === 'unresolved') return null;
+  const r = round || {};
+  switch (kindOf(r)) {
+    case 'direction':
+    case 'backfade':
+      return outcomeOf(pick.entry_price, pick.settle_price);
+    case 'range':
+      return rangeOutcome(pick.entry_price, pick.settle_price, r.threshold_pct);
+    case 'mover':
+      return moverOutcome(pick.entry_price, pick.settle_price, pick.entry_price_b, pick.settle_price_b);
+    default:
+      return null;
+  }
+}
+
 /**
  * Score one call.
  *
  *   unreadable outcome     -> 'unresolved'  0    (excluded from the denominator)
- *   PASS  + flat           -> 'correct'     1    (declining noise is a call)
- *   PASS  + up/down        -> 'push'        0    (declined — NOT a loss)
- *   LONG/SHORT + flat      -> 'push'        0    (the market didn't answer)
+ *   PASS  + neutral        -> 'correct'     1    (declining noise is a call)
+ *   PASS  + anything else  -> 'push'        0    (declined — NOT a loss)
+ *   a side + neutral       -> 'push'        0    (the market didn't answer)
  *   right                  -> 'correct'     1
  *     ...and the agent was wrong -> 2 marks, beat_agent
  *   wrong                  -> 'wrong'       0    (never negative)
  *
  * `beat_agent` requires the agent to have actually had a view. On a round the
- * agent passed on there is nothing to beat, so it stays false.
+ * agent passed on there is nothing to beat, so it stays false; a range or a
+ * mover round carries no view at all. On a back/fade round the agent's view
+ * IS the question: backing it correctly scores one, fading it correctly
+ * scores two, because the agent was wrong.
  */
-function scorePick(pick, outcome, agentDirection) {
-  const p = normPick(pick);
+function scoreCall(kind, pick, outcome, agentDirection) {
+  const p = normPick(pick, kind);
   if (p === null) return { state: 'invalid', marks: 0, beat_agent: false };
   if (outcome == null) return { state: 'unresolved', marks: 0, beat_agent: false };
+  const neutral = KINDS[kind].neutral;
 
   if (p === 'pass') {
-    return outcome === 'flat'
+    return neutral !== null && outcome === neutral
       ? { state: 'correct', marks: 1, beat_agent: false }
       : { state: 'push', marks: 0, beat_agent: false };
   }
-  if (outcome === 'flat') return { state: 'push', marks: 0, beat_agent: false };
+  if (neutral !== null && outcome === neutral) return { state: 'push', marks: 0, beat_agent: false };
 
   const hit = (d, o) => (d === 'long' && o === 'up') || (d === 'short' && o === 'down');
-  if (!hit(p, outcome)) return { state: 'wrong', marks: 0, beat_agent: false };
-
   const agent = normDirection(agentDirection);
-  const beat = agent !== null && !hit(agent, outcome);
-  return { state: 'correct', marks: beat ? 2 : 1, beat_agent: beat };
+
+  if (kind === 'direction') {
+    if (!hit(p, outcome)) return { state: 'wrong', marks: 0, beat_agent: false };
+    const beat = agent !== null && !hit(agent, outcome);
+    return { state: 'correct', marks: beat ? 2 : 1, beat_agent: beat };
+  }
+  if (kind === 'backfade') {
+    // A back/fade round without a stance is a round that could not have been
+    // asked; nothing can be scored against it.
+    if (agent === null) return { state: 'invalid', marks: 0, beat_agent: false };
+    const mine = p === 'back' ? agent : (agent === 'long' ? 'short' : 'long');
+    if (!hit(mine, outcome)) return { state: 'wrong', marks: 0, beat_agent: false };
+    const beat = p === 'fade';
+    return { state: 'correct', marks: beat ? 2 : 1, beat_agent: beat };
+  }
+  // range and mover: the pick names the outcome it predicts.
+  return p === outcome
+    ? { state: 'correct', marks: 1, beat_agent: false }
+    : { state: 'wrong', marks: 0, beat_agent: false };
+}
+
+/** Score one classic call: the three-argument form every older caller uses. */
+function scorePick(pick, outcome, agentDirection) {
+  return scoreCall('direction', pick, outcome, agentDirection);
 }
 
 /**
  * Join picks to rounds and score each. Rounds are matched by `id`; a pick
- * whose round is missing is dropped rather than scored against nothing.
+ * whose round is missing is dropped rather than scored against nothing, and
+ * so is a pick on a round whose category this code does not know.
  * Returns one entry per scored pick, newest-agnostic (caller sorts).
  */
 function scoreEntries(rounds, picks) {
@@ -153,13 +298,16 @@ function scoreEntries(rounds, picks) {
     if (!p) continue;
     const round = byId.get(String(p.round_id));
     if (!round) continue;
-    const outcome = pickOutcome(p);
-    const res = scorePick(p.pick, outcome, round.agent_direction);
-    out.push({
+    const kind = kindOf(round);
+    if (kind === null) continue;
+    const outcome = callOutcome(round, p);
+    const res = scoreCall(kind, p.pick, outcome, round.agent_direction);
+    const entry = {
       round_id: round.id,
       day: round.day,
+      kind,
       symbol: round.symbol,
-      pick: normPick(p.pick),
+      pick: normPick(p.pick, kind),
       agent_direction: normDirection(round.agent_direction),
       outcome,
       entry_price: Number(p.entry_price),
@@ -167,7 +315,14 @@ function scoreEntries(rounds, picks) {
       resolves_at: p.resolves_at,
       created_at: p.created_at,
       ...res,
-    });
+    };
+    if (kind === 'mover') {
+      entry.symbol_b = round.symbol_b;
+      entry.entry_price_b = Number(p.entry_price_b);
+      entry.move_pct_b = outcome === null ? null : movePct(p.entry_price_b, p.settle_price_b);
+    }
+    if (kind === 'range') entry.threshold_pct = Number(round.threshold_pct);
+    out.push(entry);
   }
   return out;
 }
@@ -230,6 +385,7 @@ function duelStreak(picks, now = new Date()) {
  * arena's (those are trade-shaped) but the same rotation, so the two surfaces
  * turn over together.
  */
+const FULL_CARD_CALLS = CARD.direction + CARD.range + CARD.mover;
 const DUEL_QUEST_POOL = [
   { key: 'three_calls', icon: '🎯', name: 'Make 3 calls', target: 3,
     have: (w) => w.length },
@@ -237,13 +393,15 @@ const DUEL_QUEST_POOL = [
     have: (w) => Math.min(1, w.filter((e) => e.beat_agent).length) },
   { key: 'two_correct', icon: '🏹', name: 'Land 2 correct calls', target: 2,
     have: (w) => w.filter((e) => e.state === 'correct').length },
-  { key: 'full_card', icon: '📅', name: 'Call all 3 rounds in one day', target: 1,
+  // Five, not "every round": a day's card holds five rounds or six, and a
+  // quest must name a number a player can count to.
+  { key: 'full_card', icon: '📅', name: 'Call ' + FULL_CARD_CALLS + ' rounds in one day', target: 1,
     have: (w) => {
       const perDay = new Map();
       for (const e of w) perDay.set(e.day, (perDay.get(e.day) || 0) + 1);
       let best = 0;
       for (const n of perDay.values()) if (n > best) best = n;
-      return best >= ROUNDS_PER_DAY ? 1 : 0;
+      return best >= FULL_CARD_CALLS ? 1 : 0;
     } },
   { key: 'read_the_noise', icon: '📐', name: 'Pass on a round that settles flat', target: 1,
     have: (w) => Math.min(1, w.filter((e) => e.pick === 'pass' && e.state === 'correct').length) },
@@ -265,14 +423,21 @@ function weeklyDuelQuests(entries, now = new Date()) {
 /**
  * The day's rounds, deterministic given the same inputs.
  *
- * The agent's own calls come first, strongest conviction leading, then the
- * majors by 24h volume top the card up. A round is created ONLY when a real
- * price backs it: no price, no round — never a round with a guessed entry,
- * which would silently make every pick on it unscoreable later.
+ * The classic rounds come first: the agent's own calls, strongest conviction
+ * leading, then the pool by 24h volume tops them up. The agent's SECOND call
+ * of the day is held back from them and becomes the back/fade round, where
+ * its stance is the question; held back, because a classic round on the same
+ * symbol would have its hidden stance printed one card lower. Then the range
+ * round on the next pooled symbol, and the mover on the two after that.
  *
- * A topped-up round carries `agent_direction: null`, which the surfaces render
- * as "the Claw passed". That is an honest absence, not a hidden direction, and
- * it means nobody can be credited with beating an opinion that was never held.
+ * A round is created ONLY when a real price backs it: no price, no round —
+ * never a round with a guessed entry, which would silently make every pick on
+ * it unscoreable later. A symbol appears on a card once.
+ *
+ * A topped-up classic round carries `agent_direction: null`, which the
+ * surfaces render as "the Claw passed". That is an honest absence, not a
+ * hidden direction, and it means nobody can be credited with beating an
+ * opinion that was never held.
  */
 function buildRounds(day, signals, tickers) {
   if (!Number.isFinite(dayStartMs(day))) return [];
@@ -280,28 +445,23 @@ function buildRounds(day, signals, tickers) {
   const chosen = [];
   const seen = new Set();
 
-  const add = (symbol, agentDirection, signalKey) => {
-    if (chosen.length >= ROUNDS_PER_DAY) return;
-    // Exchange-style, the key the ticker map uses. The agent's calls arrive in
-    // the scanner's spelling ('PENDLE/USDT'), so reading them raw priced none
-    // of them and every card was topped up with majors the Claw "passed" on,
-    // while the calls it had actually made that day went unused.
+  // Exchange-style, the key the ticker map uses. The agent's calls arrive in
+  // the scanner's spelling ('PENDLE/USDT'), so reading them raw priced none
+  // of them and every card was topped up with majors the Claw "passed" on,
+  // while the calls it had actually made that day went unused.
+  const priced = (symbol) => {
     const sym = exchangeSymbol(symbol);
-    if (!sym || seen.has(sym)) return;
+    if (!sym || seen.has(sym)) return null;
     // A symbol we cannot price right now is a symbol nobody could call, so it
     // does not go on the card. The price itself is NOT kept: the entry belongs
     // to whoever calls it, at the moment they do.
     const m = marks[sym];
     const price = m == null ? NaN : Number(m.price);
-    if (!Number.isFinite(price) || price <= 0) return;
-    seen.add(sym);
-    chosen.push({
-      day,
-      idx: chosen.length,
-      symbol: sym,
-      agent_direction: agentDirection,
-      signal_key: signalKey,
-    });
+    if (!Number.isFinite(price) || price <= 0) return null;
+    return sym;
+  };
+  const push = (round) => {
+    chosen.push(Object.assign({ day, idx: chosen.length }, round));
   };
 
   // Unknown confidence sorts BELOW every known one — explicitly, rather than
@@ -318,16 +478,81 @@ function buildRounds(day, signals, tickers) {
     return Number.isFinite(v) ? v : -1;
   };
 
+  // The agent's priced calls, strongest first, one per symbol.
+  const calls = [];
+  const callSyms = new Set();
   const ranked = (signals || [])
     .filter((s) => s && s.symbol && normDirection(s.direction) !== null)
     .slice()
     .sort((a, b) => conf(b) - conf(a));
   for (const s of ranked) {
-    add(s.symbol, normDirection(s.direction), s.signal_key == null ? null : String(s.signal_key));
+    const sym = exchangeSymbol(s.symbol);
+    if (!sym || callSyms.has(sym)) continue;
+    const m = marks[sym];
+    const price = m == null ? NaN : Number(m.price);
+    if (!Number.isFinite(price) || price <= 0) continue;
+    callSyms.add(sym);
+    calls.push({ symbol: sym, agent_direction: normDirection(s.direction),
+      signal_key: s.signal_key == null ? null : String(s.signal_key) });
+  }
+  const held = calls.length >= 2 ? calls.splice(1, 1)[0] : null;
+
+  // Classic rounds: the agent's calls, then the pool by volume.
+  const pool = DUEL_POOL.slice().sort((a, b) => vol(b) - vol(a));
+  const nextPooled = () => {
+    for (const sym of pool) {
+      const p = priced(sym);
+      if (p) return p;
+    }
+    return null;
+  };
+  for (const c of calls) {
+    if (chosen.length >= CARD.direction) break;
+    const sym = priced(c.symbol);
+    if (!sym) continue;
+    seen.add(sym);
+    push({ kind: 'direction', symbol: sym, symbol_b: null, threshold_pct: null,
+      agent_direction: c.agent_direction, signal_key: c.signal_key });
+  }
+  while (chosen.length < CARD.direction) {
+    const sym = nextPooled();
+    if (!sym) break;
+    seen.add(sym);
+    push({ kind: 'direction', symbol: sym, symbol_b: null, threshold_pct: null,
+      agent_direction: null, signal_key: null });
   }
 
-  const majors = SEASON_MAJORS.slice().sort((a, b) => vol(b) - vol(a));
-  for (const sym of majors) add(sym, null, null);
+  // Back or fade: the agent's second call, its stance on the card.
+  if (held) {
+    const sym = priced(held.symbol);
+    if (sym) {
+      seen.add(sym);
+      push({ kind: 'backfade', symbol: sym, symbol_b: null, threshold_pct: null,
+        agent_direction: held.agent_direction, signal_key: held.signal_key });
+    }
+  }
+
+  // Range: the next pooled symbol, with the band its class gets.
+  const rangeSym = nextPooled();
+  if (rangeSym) {
+    seen.add(rangeSym);
+    push({ kind: 'range', symbol: rangeSym, symbol_b: null, threshold_pct: rangeBandFor(rangeSym),
+      agent_direction: null, signal_key: null });
+  }
+
+  // Mover: the next two. One alone is no comparison, so it is left off.
+  const a = nextPooled();
+  if (a) {
+    seen.add(a);
+    const b = nextPooled();
+    if (b) {
+      seen.add(b);
+      push({ kind: 'mover', symbol: a, symbol_b: b, threshold_pct: null,
+        agent_direction: null, signal_key: null });
+    } else {
+      seen.delete(a);
+    }
+  }
 
   return chosen;
 }
@@ -337,9 +562,11 @@ function buildRounds(day, signals, tickers) {
  * when the day does. There is no earlier lock and none is needed: because each
  * call is scored from the price at the moment it was made, waiting buys a
  * player nothing, so the card can stay open for the whole day it belongs to.
+ * A round of a category this code does not know is open to nobody.
  */
 function isCallable(round, now = new Date()) {
   if (!round || !round.day) return false;          // unknown day => not open
+  if (kindOf(round) === null) return false;
   return dayKey(now) === String(round.day);
 }
 
@@ -367,21 +594,34 @@ function isAbandoned(pick, now = new Date()) {
 }
 
 /**
- * The public view of a round. `agent_direction` is OMITTED — not nulled —
- * until the caller has committed: a null field is indistinguishable from "the
- * agent passed", which is a real answer, so showing null early would leak one
- * fact and lie about another.
+ * The public view of a round: its category, the picks it takes (`options`),
+ * and what the question needs — the second symbol of a mover, the band of a
+ * range. `agent_direction` is OMITTED — not nulled — until the caller has
+ * committed: a null field is indistinguishable from "the agent passed", which
+ * is a real answer, so showing null early would leak one fact and lie about
+ * another. On a back/fade round the stance is the question, so it is there
+ * from the start; a range or a mover round never has it, the agent having
+ * held no view on either.
  */
 function publicRound(round, { revealAgent, now = new Date() } = {}) {
   const r = round || {};
+  const kind = kindOf(r);
   const out = {
     id: r.id,
     day: r.day,
     idx: r.idx,
+    kind,
     symbol: r.symbol,
+    options: picksFor(kind).slice(),
     callable: isCallable(r, now),
   };
-  if (revealAgent) out.agent_direction = normDirection(r.agent_direction);
+  if (kind === 'mover') out.symbol_b = r.symbol_b;
+  if (kind === 'range') out.threshold_pct = Number(r.threshold_pct);
+  // A range or a mover round never held a view, so the field is never there:
+  // a null on it would read as "the Claw passed" on a choice never offered.
+  if ((revealAgent && kind === 'direction') || kind === 'backfade') {
+    out.agent_direction = normDirection(r.agent_direction);
+  }
   return out;
 }
 
@@ -392,20 +632,25 @@ function publicRound(round, { revealAgent, now = new Date() } = {}) {
  * not arrived"; `unresolved` is "it has, and we could not price it". Collapsing
  * either into an outcome — or into each other — is how a waiting call starts
  * reading as a settled loss.
+ *
+ * `round` decides the category; without one the call is read as a classic.
  */
-function publicPick(pick, { now = new Date() } = {}) {
+function publicPick(pick, { now = new Date(), round = null } = {}) {
   const p = pick || {};
+  const kind = round ? kindOf(round) : 'direction';
   const out = {
-    pick: normPick(p.pick),
+    pick: normPick(p.pick, kind),
     entry_price: Number(p.entry_price),
     resolves_at: p.resolves_at,
     seal: p.seal || null,
     outcome: null,
   };
-  const outcome = pickOutcome(p);
+  if (kind === 'mover') out.entry_price_b = Number(p.entry_price_b);
+  const outcome = round ? callOutcome(round, p) : pickOutcome(p);
   if (outcome !== null) {
     out.outcome = outcome;
     out.move_pct = Math.round(movePct(p.entry_price, p.settle_price) * 100) / 100;
+    if (kind === 'mover') out.move_pct_b = Math.round(movePct(p.entry_price_b, p.settle_price_b) * 100) / 100;
   } else if (isDue(p, now)) {
     out.unresolved = true;
   } else {
@@ -415,11 +660,11 @@ function publicPick(pick, { now = new Date() } = {}) {
 }
 
 module.exports = {
-  ROUNDS_PER_DAY, HORIZON_HOURS, DEAD_BAND_PCT, SETTLE_GIVE_UP_MS,
-  PICKS, DUEL_QUEST_POOL,
-  normPick, normDirection, dayKey, dayStartMs, horizonFor,
-  movePct, outcomeOf, pickOutcome,
-  scorePick, scoreEntries, accuracy, computeMarks,
+  CARD, ROUNDS_PER_DAY, FULL_CARD_CALLS, HORIZON_HOURS, DEAD_BAND_PCT, SETTLE_GIVE_UP_MS,
+  KINDS, KIND_NAMES, PICKS, ALL_PICKS, RANGE_BAND_PCT, DUEL_POOL, DUEL_QUEST_POOL,
+  kindOf, picksFor, normPick, normDirection, dayKey, dayStartMs, horizonFor, rangeBandFor,
+  movePct, outcomeOf, rangeOutcome, moverOutcome, pickOutcome, callOutcome,
+  scoreCall, scorePick, scoreEntries, accuracy, computeMarks,
   duelStreak, weeklyDuelQuests,
   buildRounds, isCallable, isDue, isAbandoned, publicRound, publicPick,
 };

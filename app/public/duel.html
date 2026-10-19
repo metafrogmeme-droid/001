@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>RUNECLAW — Daily Duel</title>
 <link rel="canonical" href="https://www.humanoid-traders.com/duel">
-<meta name="description" content="Call the market before the AI does. Three rounds a day drawn from the agent's own live signals: call LONG, SHORT or PASS, the Claw's call stays hidden until you commit, and the market settles it 24 hours later. Free, no stake, percent and counts only.">
+<meta name="description" content="Call the market before the AI does. A card a day in four categories: direction, back or fade the Claw, range, bigger mover. The Claw's own call stays hidden until you commit, and the market settles each call 24 hours later. Free, no stake, percent and counts only.">
 <meta property="og:title" content="RUNECLAW — Daily Duel">
 <meta property="og:site_name" content="Humanoid Traders">
-<meta property="og:description" content="Three rounds a day. Call it before the Claw shows its hand. Beat the agent and the round is worth double.">
+<meta property="og:description" content="A card a day in four categories. Call it before the Claw shows its hand. Beat the agent and the round is worth double.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.humanoid-traders.com/duel">
 <meta property="og:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
@@ -43,7 +43,10 @@
   .d-round { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); padding: var(--s3); }
   .d-round-h { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s2); margin-bottom: var(--s3); flex-wrap: wrap; }
   .d-sym { font-family: var(--font-data); font-size: 17px; color: var(--gold-bright); }
-  .d-agent { font-size: var(--fs-xs); color: var(--text-3); }
+  .d-agent { display: block; font-size: var(--fs-xs); color: var(--text-3); margin-bottom: var(--s2); }
+  .d-kind { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-3); border: 1px solid var(--line-2); border-radius: 999px; padding: 2px 8px; }
+  .d-vs { color: var(--text-3); font-weight: 400; font-size: var(--fs-sm); }
+  .d-q { font-size: var(--fs-sm); color: var(--text-2); line-height: 1.5; margin: 0 0 var(--s3); }
   .d-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .d-btn { flex: 1 1 0; min-width: 74px; padding: 10px 8px; border-radius: var(--radius-sm); border: 1px solid var(--line);
            background: var(--bg); color: var(--text-1); font-family: var(--font-data); font-size: var(--fs-sm); cursor: pointer; }
@@ -77,9 +80,11 @@
   <div class="d-hero">
     <h1 data-i18n="duel.h">⚔️ Daily Duel</h1>
   </div>
-  <p class="lede" data-i18n="duel.lede">Three rounds a day, drawn from the agent’s own live signals. Call LONG, SHORT
-  or PASS — the Claw’s call stays hidden until you commit, and the market settles it 24 hours later. Beat the Claw
-  and the round is worth double. Free, no stake, nothing to lose but the argument.</p>
+  <p class="lede" data-i18n="duel.lede">A card a day in four categories: Direction — call a coin LONG, SHORT or PASS
+  with the Claw’s own call hidden until you commit; Back or fade — the Claw’s second call is shown, agree with it or
+  bet against it; Range — does a coin break a band either way; Bigger mover — which of two coins moves more. The
+  market settles each call 24 hours after you make it. Beat the Claw and the round is worth double. Free, no stake,
+  nothing to lose but the argument.</p>
 
   <p class="note" id="notice" hidden></p>
 
@@ -113,9 +118,9 @@
 </div>
 
 <script src="/js/api-retry.js?v=3"></script>
-<script src="/js/i18n-core.js?v=184"></script>
+<script src="/js/i18n-core.js?v=185"></script>
 <script src="/js/presale.js?v=2"></script>
-<script src="/js/duel.js?v=1"></script>
+<script src="/js/duel.js?v=2"></script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -155,7 +160,10 @@
   }
 
   function drawCard(data) {
-    $('rounds').innerHTML = (data.rounds || []).map(function (r) { return D.roundCard(r, T); }).join('');
+    $('rounds').innerHTML = (data.rounds || []).map(function (r) {
+      // The horizon is the card's, and every question names it.
+      return D.roundCard(Object.assign({ horizon_hours: data.horizon_hours }, r), T);
+    }).join('');
     $('cardPanel').hidden = false;
   }
 

@@ -326,6 +326,13 @@
     "arena.s_radar": { en: "· live market · hover a blip" },
     "arena.s_tape": { en: "· latest closes · percent only" },
     "arena.s_hall": { en: "· ended seasons · immutable" },
+    "arena.p_duel": { en: "Daily Duel" },
+    "arena.s_duel": { en: "· call the market before the Claw does · no stake" },
+    "arena.duel_open": { en: "{n} of {m} rounds still open today" },
+    "arena.duel_called_all": { en: "You have called every round today — the market settles each one 24h after your call." },
+    "arena.duel_cta": { en: "Play today’s card →" },
+    "arena.duel_signed_out": { en: "Sign in to call today’s rounds — free, no stake, your record stays private." },
+    "arena.duel_fail": { en: "Today’s card could not be loaded — nothing here is a statement about your record." },
     "arena.s_virtual": { en: "· virtual funds only" },
     "arena.s_paper_rev": { en: "· paper only · revocable any time" },
     "arena.s_board": { en: "· percent return · anonymous handles" },
@@ -1967,7 +1974,7 @@
     "cd.disc": { en: "The deck is private and carries no balances — counts and facts only, recomputed from your own records on every read. Locked simply means the records don’t show it yet. Education and practice, not investment advice." },
     "nav.duel": { en: "Duel" },
     "duel.h": { en: "⚔️ Daily Duel" },
-    "duel.lede": { en: "Three rounds a day, drawn from the agent’s own live signals. Call LONG, SHORT or PASS — the Claw’s call stays hidden until you commit, and the market settles it 24 hours later. Beat the Claw and the round is worth double. Free, no stake, nothing to lose but the argument." },
+    "duel.lede": { en: "A card a day in four categories: Direction — call a coin LONG, SHORT or PASS with the Claw’s own call hidden until you commit; Back or fade — the Claw’s second call is shown, agree with it or bet against it; Range — does a coin break a band either way; Bigger mover — which of two coins moves more. The market settles each call 24 hours after you make it. Beat the Claw and the round is worth double. Free, no stake, nothing to lose but the argument." },
     "duel.signed_out": { en: "Sign in to make your calls — your record is private to your account." },
     "duel.fail": { en: "Today’s card could not load — your record is unchanged." },
     "duel.card_h": { en: "Today’s card" },
@@ -2000,9 +2007,25 @@
     "duel.share": { en: "Share your record" },
     "duel.share_optin": { en: "Join the board with a handle to share a card." },
     "duel.share_text": { en: "I am calling the market against RUNECLAW’s AI agent." },
+    "duel.k_direction": { en: "Direction" },
+    "duel.k_backfade": { en: "Back or fade" },
+    "duel.k_range": { en: "Range" },
+    "duel.k_mover": { en: "Bigger mover" },
+    "duel.k_unknown": { en: "Unknown round type" },
+    "duel.q_direction": { en: "Higher or lower in {h}h? The Claw’s own call is shown once you commit." },
+    "duel.q_backfade": { en: "The Claw called {dir} on {sym}. Back it, or fade it?" },
+    "duel.q_range": { en: "Does {sym} move more than {band} either way in {h}h?" },
+    "duel.q_mover": { en: "{a} or {b} — which moves more in {h}h, either way?" },
+    "duel.q_unknown": { en: "This round asks a question this page cannot show. Update the app." },
+    "duel.b_back": { en: "BACK THE CLAW" },
+    "duel.b_fade": { en: "FADE THE CLAW" },
+    "duel.b_break": { en: "BREAKS {band}" },
+    "duel.b_hold": { en: "HOLDS {band}" },
+    "duel.b_more": { en: "{sym} MOVES MORE" },
+    "duel.vs": { en: "vs" },
     "sec.duel_eyebrow": { en: "Daily Duel" },
     "sec.duel_h": { en: "Think you can call it better than the AI?" },
-    "sec.duel_p": { en: "Three rounds a day, drawn from the agent’s own live signals. Call LONG, SHORT or PASS — the Claw’s call stays hidden until you commit, and the market settles it 24 hours later. Beat the Claw and the round is worth double. Free, no stake, and one tap to start." },
+    "sec.duel_p": { en: "A card a day in four categories — direction, back or fade the Claw, range, bigger mover — with the Claw’s own call hidden until you commit. The market settles each call 24 hours later. Beat the Claw and the round is worth double. Free, no stake, and one tap to start." },
     "sec.duel_cta": { en: "Make today’s call →" },
     "ach.first_call": { en: "First call made in the Daily Duel." },
     "ach.beat_the_claw": { en: "Called it right on a round the agent got wrong." },
@@ -2010,7 +2033,7 @@
     "qn.three_calls": { en: "Make 3 calls" },
     "qn.beat_the_claw": { en: "Beat the Claw once" },
     "qn.two_correct": { en: "Land 2 correct calls" },
-    "qn.full_card": { en: "Call all 3 rounds in one day" },
+    "qn.full_card": { en: "Call 5 rounds in one day" },
     "qn.read_the_noise": { en: "Pass on a round that settles flat" },
     "duel.board_h": { en: "This month’s board" },
     "duel.squads_h": { en: "Squads — you and everyone who joined on your code" },
@@ -2267,7 +2290,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"84dfc8bb","zh":"b52bc570","pt":"fa66b4f4","fr":"5906992c","de":"f4f29473","nl":"53245920","ja":"6fdce13e","ko":"1c8bf02e","ru":"c50e5ba1","tr":"3fe14f0d","it":"fc5baa99","hi":"8f7a63d1","ar":"9fe4e972"};
+  var CHUNKS = {"es":"1a1de150","zh":"d20450aa","pt":"349b79c4","fr":"354f38e0","de":"058e67b8","nl":"2b4b9022","ja":"72e4d844","ko":"b9b570e4","ru":"5e702875","tr":"8e656613","it":"469f6e88","hi":"6292b59e","ar":"1cd7be78"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

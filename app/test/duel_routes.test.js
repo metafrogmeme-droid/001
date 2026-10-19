@@ -31,6 +31,7 @@ let PRICES = {
   SOLUSDT: { price: 150, volume: 700 },
   BNBUSDT: { price: 600, volume: 600 },
   XRPUSDT: { price: 0.5, volume: 500 },
+  ARBUSDT: { price: 1.2, volume: 50 },
 };
 
 let server, base;
@@ -99,7 +100,10 @@ test.after(() => {
 test('GET /today opens the day with a full card, open for the whole day', async () => {
   const res = await req('GET', '/api/duel/today', { token: U[0] });
   assert.equal(res.status, 200);
-  assert.equal(res.body.rounds.length, duel.ROUNDS_PER_DAY);
+  // The fixture prices the five majors and one alt: three classic rounds, a
+  // range round on the fourth major, a mover on the last two.
+  assert.deepEqual(res.body.rounds.map((r) => r.kind), ['direction', 'direction', 'direction', 'range', 'mover']);
+  assert.equal(res.body.rounds.length, duel.buildRounds(duel.dayKey(new Date()), [], PRICES).length);
   assert.equal(res.body.day, duel.dayKey(new Date()));
   assert.equal(res.body.horizon_hours, duel.HORIZON_HOURS);
   for (const r of res.body.rounds) {
@@ -109,7 +113,10 @@ test('GET /today opens the day with a full card, open for the whole day', async 
     // the game for most of the hours anybody is awake.
     assert.equal(r.callable, true);
     assert.ok(!('entry_price' in r), 'the entry belongs to the call, not the card');
+    assert.deepEqual(r.options, duel.picksFor(r.kind), 'the card says which words the round takes');
   }
+  const range = res.body.rounds.find((r) => r.kind === 'range');
+  assert.equal(range.threshold_pct, duel.RANGE_BAND_PCT.major);
 });
 
 test('the card is created once and shared — a second reader sees the same rounds', async () => {
@@ -130,7 +137,8 @@ test('concurrent first reads do not duplicate the day', async () => {
     assert.equal(r.status, 200);
     r.body.rounds.forEach((x) => ids.add(x.id));
   }
-  assert.equal(ids.size, duel.ROUNDS_PER_DAY, 'a race must not mint a second card');
+  assert.equal(ids.size, duel.buildRounds(duel.dayKey(new Date()), [], PRICES).length,
+    'a race must not mint a second card');
 });
 
 // ── the anti-cheat: the agent's stance ──────────────────────────────────────
@@ -417,4 +425,105 @@ test('no amount of any currency rides the duel payloads', async () => {
   // Market prices ARE public facts, and the entry the player was offered is
   // one of them.
   assert.ok(me.raw.includes('entry_price'));
+});
+
+// ── the categories ──────────────────────────────────────────────────────────
+
+test('a range call is recorded with the round\'s own band, and a classic word on it is refused by name', async () => {
+  const token = U[7];
+  const card = await req('GET', '/api/duel/today', { token });
+  const range = card.body.rounds.find((r) => r.kind === 'range');
+  assert.equal(range.symbol, 'BNBUSDT');
+  assert.equal(range.threshold_pct, duel.RANGE_BAND_PCT.major);
+  assert.ok(!('agent_direction' in range), 'a range round holds no stance to hide');
+  const wrong = await req('POST', '/api/duel/pick', { token, body: { round_id: range.id, pick: 'long' } });
+  assert.equal(wrong.status, 400);
+  assert.equal(wrong.body.error, 'Call BREAK, HOLD or PASS.');
+  const res = await req('POST', '/api/duel/pick', { token, body: { round_id: range.id, pick: 'HOLD' } });
+  assert.equal(res.status, 200, res.raw);
+  assert.equal(res.body.kind, 'range');
+  assert.equal(res.body.pick, 'hold');
+  assert.equal(res.body.threshold_pct, duel.RANGE_BAND_PCT.major);
+  assert.equal(res.body.entry_price, 600);
+  assert.ok(!('agent_direction' in res.body), 'nothing to reveal on a range round');
+  const after = await req('GET', '/api/duel/today', { token });
+  const mine = after.body.rounds.find((r) => r.id === range.id);
+  assert.equal(mine.my_call.pick, 'hold');
+  assert.equal(mine.my_call.pending, true);
+  assert.ok(!('agent_direction' in mine));
+});
+
+test('a mover call snaps BOTH entries at once and seals both; one unreadable price refuses it outright', async () => {
+  const token = U[7];
+  const card = await req('GET', '/api/duel/today', { token });
+  const mover = card.body.rounds.find((r) => r.kind === 'mover');
+  assert.equal(mover.symbol, 'XRPUSDT');
+  assert.equal(mover.symbol_b, 'ARBUSDT');
+  assert.deepEqual(mover.options, ['first', 'second', 'pass']);
+  // The second leg's price is gone: no call, and the sentence names the leg.
+  const savedB = PRICES.ARBUSDT;
+  PRICES = { ...PRICES, ARBUSDT: { price: null, volume: 50 } };
+  const refused = await req('POST', '/api/duel/pick', { token, body: { round_id: mover.id, pick: 'first' } });
+  PRICES = { ...PRICES, ARBUSDT: savedB };
+  assert.equal(refused.status, 503);
+  assert.match(refused.body.error, /ARBUSDT/);
+  const res = await req('POST', '/api/duel/pick', { token, body: { round_id: mover.id, pick: 'second' } });
+  assert.equal(res.status, 200, res.raw);
+  assert.equal(res.body.kind, 'mover');
+  assert.equal(res.body.entry_price, 0.5);
+  assert.equal(res.body.entry_price_b, 1.2);
+  assert.equal(res.body.symbol_b, 'ARBUSDT');
+  // The receipt commits to both prices the call was made at.
+  const uid = await userIdFor('duel7@example.com');
+  const [rows] = await pool.execute(
+    'SELECT id, round_id, pick, entry_price, entry_price_b, seal, seal_payload FROM duel_picks WHERE user_id = ?', [uid]);
+  const stored = rows.find((r) => Number(r.round_id) === Number(mover.id));
+  assert.equal(stored.entry_price_b, 1.2);
+  const payload = JSON.parse(stored.seal_payload);
+  assert.equal(payload.category, 'mover');
+  assert.equal(payload.symbol_b, 'ARBUSDT');
+  assert.equal(payload.entry_price_b, 1.2);
+  assert.equal(payload.entry_price, 0.5);
+  const after = await req('GET', '/api/duel/today', { token });
+  const mine = after.body.rounds.find((r) => r.id === mover.id);
+  assert.equal(mine.my_call.entry_price_b, 1.2);
+  assert.equal(mine.my_call.pending, true);
+});
+
+test('a mover settles only when BOTH closes can be read, and scores the bigger move', async () => {
+  const token = U[5];
+  const uid = await userIdFor('duel5@example.com');
+  const card = await req('GET', '/api/duel/today', { token });
+  const mover = card.body.rounds.find((r) => r.kind === 'mover');
+  const resolvesAt = new Date(Date.now() - 3600000).toISOString();
+  await pool.execute(
+    'INSERT INTO duel_picks (user_id, round_id, pick, entry_price, entry_price_b, resolves_at,'
+    + ' seal, seal_payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [uid, mover.id, 'second', 100, 50, resolvesAt, 'm'.repeat(64), '{}',
+      new Date(Date.now() - 90000000).toISOString()]);
+  const bucket = String(Math.floor(Date.parse(resolvesAt) / 3600000) * 3600000);
+  // Only the first leg has a candle: nothing settles, nothing is guessed.
+  setCandleFetcher(async (symbol) => (symbol === 'XRPUSDT' ? [[bucket, '1', '2', '0', '101', '1', '1']] : []));
+  let me = await req('GET', '/api/duel/me', { token });
+  let mine = me.body.history.find((h) => h.round_id === mover.id);
+  assert.equal(mine.state, 'unresolved');
+  assert.strictEqual(mine.outcome, null);
+  assert.equal(me.body.accuracy.scored, 0, 'half a comparison must not score');
+  // Both legs: XRP +1%, ARB +10% — the second moved more.
+  setCandleFetcher(async (symbol) => [[bucket, '1', '2', '0', symbol === 'XRPUSDT' ? '101' : '55', '1', '1']]);
+  me = await req('GET', '/api/duel/me', { token });
+  setCandleFetcher(async () => []);
+  mine = me.body.history.find((h) => h.round_id === mover.id);
+  assert.equal(mine.outcome, 'second');
+  assert.equal(mine.state, 'correct');
+  assert.equal(mine.kind, 'mover');
+  assert.equal(mine.move_pct_b, 10);
+  assert.equal(mine.symbol_b, 'ARBUSDT');
+  assert.equal(me.body.accuracy.correct, 1);
+});
+
+test('a word no round takes is refused before any round is read', async () => {
+  const res = await req('POST', '/api/duel/pick', { token: U[6], body: { round_id: 999999, pick: 'sideways' } });
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /not a call/);
 });

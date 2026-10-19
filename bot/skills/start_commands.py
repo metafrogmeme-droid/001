@@ -673,20 +673,14 @@ class StartCommands:
         label where the lookup expected a symbol, and it rendered zero times in
         production while looking perfectly correct in the source.
         """
-        from bot.formatters.duel_card import pick_callback_data
-        rows = []
-        for r in rounds or []:
-            if r.get("my_call") or not r.get("callable"):
-                continue
-            rid = r.get("id")
-            if rid is None:
-                continue
-            sym = str(r.get("symbol") or "?")
-            rows.append([
-                InlineKeyboardButton(f"{sym} LONG", callback_data=pick_callback_data(rid, "long")),
-                InlineKeyboardButton("SHORT", callback_data=pick_callback_data(rid, "short")),
-                InlineKeyboardButton("PASS", callback_data=pick_callback_data(rid, "pass")),
-            ])
+        from bot.formatters.duel_card import button_rows
+        # The labels and tokens are the formatter's (button_rows), built from
+        # each round's own `options`, so a range round offers BREAKS / HOLDS
+        # and a mover its two symbols, never a LONG the server would refuse.
+        rows = [
+            [InlineKeyboardButton(label, callback_data=data) for label, data in row]
+            for row in button_rows(rounds)
+        ]
         return InlineKeyboardMarkup(rows) if rows else None
 
     # `start`, which `pending` HOLDS — so the free on-ramp the catalogue
@@ -695,8 +689,10 @@ class StartCommands:
     # gets are no longer skipped.
     @guard("start")
     async def _cmd_duel(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """/duel — today's Daily Duel card: call LONG, SHORT or PASS before the
-        agent's own call is shown, and the market settles it 24h later.
+        """/duel — today's Daily Duel card, in four categories: call LONG,
+        SHORT or PASS before the agent's own call is shown; back or fade the
+        agent's second call; does a coin break its band; which of two coins
+        moves more. The market settles each call 24h later.
 
         The duel is scored in the web app. This surface reads the card and posts
         a call through the same code the website uses; scoring it again here

@@ -47,12 +47,11 @@ router.get('/', async (req, res) => {
 
     // Daily Duel. Scored through the same pure engine the duel routes use, so
     // the deck can never disagree with the page about the player's record.
+    const duelCols = require('../lib/duel_service');
     const [duelRounds] = await pool.execute(
-      'SELECT id, day, idx, symbol, agent_direction, signal_key FROM duel_rounds'
-      + ' WHERE day >= ? ORDER BY day, idx', [DUEL_FLOOR()]);
+      `SELECT ${duelCols.ROUND_COLS} FROM duel_rounds WHERE day >= ? ORDER BY day, idx`, [DUEL_FLOOR()]);
     const [duelPicks] = await pool.execute(
-      'SELECT id, round_id, pick, entry_price, resolves_at, settle_price, settle_state,'
-      + ' seal, created_at FROM duel_picks WHERE user_id = ?', [uid]);
+      `SELECT ${duelCols.PICK_COLS} FROM duel_picks WHERE user_id = ?`, [uid]);
     const duelEntries = duel.scoreEntries(duelRounds || [], duelPicks || []);
     const duelAcc = duel.accuracy(duelEntries);
     const duelMarks = duel.computeMarks(duelEntries);

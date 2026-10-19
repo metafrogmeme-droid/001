@@ -21,14 +21,15 @@ const { rateLimit, ipKey } = require('../lib/rate_limit');
 const { pool } = require('../db');
 const duel = require('../lib/duel');
 const squads = require('../lib/duel_squads');
+const { ROUND_COLS, PICK_COLS: OWN_PICK_COLS } = require('../lib/duel_service');
 
 const router = express.Router();
 router.use(rateLimit({ name: 'public_duel', windowMs: 60000, max: 30, key: ipKey }));
 
 const CACHE_MS = 30000;
-const ROUND_COLS = 'id, day, idx, symbol, agent_direction, signal_key';
-const PICK_COLS = 'id, user_id, round_id, pick, entry_price, resolves_at, '
-  + 'settle_price, settle_state, created_at';
+// The service's lists, so a column the categories added (a mover's second
+// price, a round's kind) is read here too; the board needs the owner as well.
+const PICK_COLS = 'user_id, ' + OWN_PICK_COLS;
 
 let cache = { at: 0, key: null, data: null };
 

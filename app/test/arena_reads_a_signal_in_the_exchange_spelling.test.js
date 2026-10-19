@@ -198,11 +198,18 @@ test("the duel card is built from the agent's calls in the scanner's spelling", 
   const u = await register();
   const card = await req('GET', '/api/duel/today', { token: u.token });
   assert.equal(card.status, 200, JSON.stringify(card.data));
-  assert.deepEqual(card.data.rounds.map((r) => r.symbol).slice(0, 2), ['PENDLEUSDT', 'ARBUSDT'],
+  // The strongest call leads the classic rounds; the second is the back/fade
+  // round, its stance on the card (lib/duel.js buildRounds).
+  assert.equal(card.data.rounds[0].symbol, 'PENDLEUSDT',
     'the card was topped up with majors while the agent had called PENDLE and ARB');
-  const stored = (pool.duelRounds || []).map((r) => [r.symbol, r.agent_direction, r.signal_key]);
-  assert.deepEqual(stored.slice(0, 2),
-    [['PENDLEUSDT', 'long', 'd-pendle'], ['ARBUSDT', 'short', 'd-arb']]);
+  assert.equal(card.data.rounds[0].kind, 'direction');
+  const bf = card.data.rounds.find((r) => r.kind === 'backfade');
+  assert.ok(bf, 'the second call makes the back/fade round');
+  assert.equal(bf.symbol, 'ARBUSDT');
+  assert.equal(bf.agent_direction, 'short');
+  const stored = (pool.duelRounds || []).map((r) => [r.kind, r.symbol, r.agent_direction, r.signal_key]);
+  assert.deepEqual(stored[0], ['direction', 'PENDLEUSDT', 'long', 'd-pendle']);
+  assert.deepEqual(stored.find((r) => r[0] === 'backfade'), ['backfade', 'ARBUSDT', 'short', 'd-arb']);
 });
 
 test('buildRounds prices a scanner-spelled call and does not list a major twice', () => {

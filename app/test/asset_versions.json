@@ -1,7 +1,7 @@
 {
   "embed.css": {
-    "v": 9,
-    "sha": "285edd6eeba29fe2"
+    "v": 10,
+    "sha": "2c4fca4ac0c88bbc"
   },
   "js/agent-page.js": {
     "v": 1,
@@ -100,8 +100,8 @@
     "sha": "8aaaa6478d0e98e0"
   },
   "js/duel.js": {
-    "v": 1,
-    "sha": "5dbbfd3297612824"
+    "v": 2,
+    "sha": "cfc1c9505748a022"
   },
   "js/embed-arena-view.js": {
     "v": 2,
@@ -164,8 +164,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 184,
-    "sha": "7f634708a142da31"
+    "v": 185,
+    "sha": "85d2c816f7a4a933"
   },
   "js/icons.js": {
     "v": 6,
@@ -360,8 +360,8 @@
     "sha": "4ff22a3f8d4f2a5f"
   },
   "js/pi-arena.js": {
-    "v": 2,
-    "sha": "8c02284f791d56a1"
+    "v": 3,
+    "sha": "26ac784ae9f55944"
   },
   "js/pi-signals.js": {
     "v": 3,
@@ -370,5 +370,9 @@
   "js/pi-signin-callback.js": {
     "v": 1,
     "sha": "9f9fc4fe60413a0c"
+  },
+  "js/pi-duel.js": {
+    "v": 1,
+    "sha": "b0c2a24b777e79b3"
   }
 }

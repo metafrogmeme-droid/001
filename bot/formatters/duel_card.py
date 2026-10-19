@@ -22,6 +22,10 @@ something has actually settled, because a player who has not been measured has
 not failed.
 
 No dollar amount appears anywhere: a duel has no stake to report.
+
+THE CATEGORIES (2026-10-19). A round carries its `kind` and its `options`;
+the card prints the question each kind asks and the keyboard offers the
+round's own words, so the bot never offers a tap the server would refuse.
 """
 
 from __future__ import annotations
@@ -41,7 +45,150 @@ _PICK_WORD = {"long": "LONG", "short": "SHORT", "pass": "PASS"}
 
 
 CALLBACK_PREFIX = "duel"
-PICKS = ("long", "short", "pass")
+# THE CATEGORIES (2026-10-19). The picks each round takes, as app/lib/duel.js
+# KINDS defines them; tests/test_duel_telegram_surface.py holds the two to one
+# answer by reading that file. The card itself says which words a round takes
+# (`options`), and the keyboard is built from those; this table is the
+# fallback for a card that predates the field, and the set the callback parser
+# admits. A round of a kind not listed here offers no button.
+KIND_PICKS = {
+    "direction": ("long", "short", "pass"),
+    "backfade": ("back", "fade", "pass"),
+    "range": ("break", "hold", "pass"),
+    "mover": ("first", "second", "pass"),
+}
+PICKS = tuple(dict.fromkeys(p for picks in KIND_PICKS.values() for p in picks))
+_KIND_NAME = {
+    "direction": "Direction",
+    "backfade": "Back or fade",
+    "range": "Range",
+    "mover": "Bigger mover",
+}
+
+
+def kind_of(round_: dict | None) -> str | None:
+    """A round's category. Absent means a classic (direction) round, the rows
+    that predate the categories; a kind this code does not know is None, and
+    a None kind gets no question, no button and no guess at what it meant."""
+    kind = (round_ or {}).get("kind")
+    if kind is None or kind == "":
+        return "direction"
+    kind = str(kind).strip().lower()
+    return kind if kind in KIND_PICKS else None
+
+
+def _base(symbol: Any) -> str:
+    """'ARBUSDT' -> 'ARB'; the symbol itself when no quote suffix is found."""
+    sym = str(symbol or "")
+    for quote in ("USDT", "USDC", "USD"):
+        if sym.upper().endswith(quote) and len(sym) > len(quote):
+            return sym[: -len(quote)]
+    return sym
+
+
+def _band(round_: dict | None) -> str:
+    """'±2%' for a range round's own band; a dash when it carries none."""
+    thr = _num((round_ or {}).get("threshold_pct"))
+    return f"±{thr:g}%" if thr is not None and thr > 0 else "—"
+
+
+def round_title(round_: dict | None) -> str:
+    """What a round is about: its symbol, or a mover's pair."""
+    r = round_ or {}
+    if kind_of(r) == "mover":
+        return f"{_base(r.get('symbol'))} vs {_base(r.get('symbol_b'))}"
+    return str(r.get("symbol") or "?")
+
+
+def question_line(round_: dict | None, horizon_hours: Any = None) -> str | None:
+    """The question a round asks, in words, or None for a kind this code does
+    not know. Every category has one, so a player meeting a mover for the
+    first time is told what the first button means before it is offered."""
+    r = round_ or {}
+    h = _num(horizon_hours)
+    hh = f"{int(h)}h" if h is not None else "the horizon"
+    kind = kind_of(r)
+    if kind == "direction":
+        return f"Higher or lower in {hh}? The Claw's own call is shown once you commit."
+    if kind == "backfade":
+        direction = r.get("agent_direction")
+        word = _PICK_WORD.get(str(direction), "—") if direction is not None else "—"
+        return f"The Claw called {word} on {_base(r.get('symbol'))}. Back it, or fade it?"
+    if kind == "range":
+        return f"Does {_base(r.get('symbol'))} move more than {_band(r)} either way in {hh}?"
+    if kind == "mover":
+        return (f"{_base(r.get('symbol'))} or {_base(r.get('symbol_b'))} — "
+                f"which moves more in {hh}, either way?")
+    return None
+
+
+def pick_word(pick: Any, round_: dict | None = None) -> str:
+    """The word a call is reported in. A mover's two sides are its symbols."""
+    r = round_ or {}
+    p = str(pick or "").lower()
+    if p in _PICK_WORD:
+        return _PICK_WORD[p]
+    if p == "back":
+        return "BACK the Claw"
+    if p == "fade":
+        return "FADE the Claw"
+    if p == "break":
+        return f"BREAKS {_band(r)}"
+    if p == "hold":
+        return f"HOLDS {_band(r)}"
+    if p == "first":
+        return f"{_base(r.get('symbol'))} moves more"
+    if p == "second":
+        return f"{_base(r.get('symbol_b'))} moves more"
+    return str(pick or "?").upper()
+
+
+def round_options(round_: dict | None) -> tuple[str, ...]:
+    """The picks a round takes: the card's own list when it carries one, else
+    the table's for its kind. A word the table does not know is dropped, so a
+    newer server cannot put a button here whose tap the parser would refuse."""
+    r = round_ or {}
+    kind = kind_of(r)
+    if kind is None:
+        return ()
+    raw = r.get("options")
+    if isinstance(raw, (list, tuple)) and raw:
+        return tuple(str(p).lower() for p in raw if str(p).lower() in PICKS)
+    return KIND_PICKS[kind]
+
+
+def button_rows(rounds: Any) -> list[list[tuple[str, str]]]:
+    """One row of (label, callback_data) per uncalled, callable round.
+
+    The first button names the market so a row reads on its own; the labels
+    are short because Telegram fits three to a row on a phone. The callback
+    data is `duel:<round_id>:<pick>` — ids and enum tokens, never prose (#999).
+    """
+    rows: list[list[tuple[str, str]]] = []
+    for r in rounds or []:
+        if not isinstance(r, dict) or r.get("my_call") or not r.get("callable"):
+            continue
+        rid = r.get("id")
+        if rid is None:
+            continue
+        options = round_options(r)
+        if not options:
+            continue
+        kind = kind_of(r)
+        row: list[tuple[str, str]] = []
+        for i, pick in enumerate(options):
+            if kind == "mover":
+                label = "PASS" if pick == "pass" else pick_word(pick, r)
+            elif pick == "pass":
+                label = "PASS"
+            else:
+                word = pick_word(pick, r)
+                if pick in ("back", "fade"):
+                    word = word.split(" ")[0]          # BACK / FADE
+                label = f"{_base(r.get('symbol'))} {word}" if i == 0 else word
+            row.append((label, pick_callback_data(rid, pick)))
+        rows.append(row)
+    return rows
 
 
 def pick_callback_data(round_id: Any, pick: str) -> str:
@@ -132,13 +279,18 @@ def marks_line(marks: dict | None) -> str:
     return head + (" (" + ", ".join(bits) + ")" if bits else "")
 
 
-def agent_line(round_: dict) -> str:
+def agent_line(round_: dict) -> str | None:
     """What the agent said — or an honest statement that it has not been shown.
 
     "Hidden" and "passed" are different sentences. The API omits the field
     rather than nulling it precisely so these two can be told apart; collapsing
-    them here would throw that away.
+    them here would throw that away. Only a classic round has this line: on a
+    back/fade round the stance is the question, and a range or a mover round
+    never had one, so saying "passed" there would describe a choice that was
+    never on offer.
     """
+    if kind_of(round_) != "direction":
+        return None
     if "agent_direction" not in round_:
         return "The Claw: hidden until you call"
     direction = round_.get("agent_direction")
@@ -159,7 +311,7 @@ def call_line(round_: dict) -> str | None:
     elif call.get("unresolved") or state == "unresolved":
         state = "unresolved"
     glyph = _STATE_GLYPH.get(state, "⏳")
-    word = _PICK_WORD.get(str(call.get("pick")), str(call.get("pick") or "?").upper())
+    word = pick_word(call.get("pick"), round_)
     text = {
         "correct": "correct",
         "wrong": "wrong",
@@ -196,15 +348,26 @@ def render_card(data: dict | None) -> str:
     lines.append("")
 
     if not rounds:
-        lines.append("No rounds are open right now.")
+        lines.append("No rounds are on today's card.")
     for r in rounds:
-        lines.append(f"*{r.get('symbol', '?')}*")
-        lines.append("  " + agent_line(r))
+        kind = kind_of(r)
+        name = _KIND_NAME.get(kind or "", "Unknown round type")
+        lines.append(f"*{round_title(r)}* · {name}")
+        question = question_line(r, horizon)
+        if question:
+            lines.append("  " + question)
+        else:
+            lines.append("  This round asks a question this bot cannot show. Update the bot.")
+        agent = agent_line(r)
+        if agent:
+            lines.append("  " + agent)
         mine = call_line(r)
         if mine:
             lines.append("  " + mine)
-        elif r.get("callable"):
+        elif r.get("callable") and question:
             lines.append("  _Not called yet — tap below._")
+        elif r.get("callable"):
+            pass
         else:
             lines.append("  _This round has closed._")
         lines.append("")
@@ -233,13 +396,18 @@ def render_pick_result(result: dict | None, status: int | None = None) -> str:
     if not result or not result.get("ok"):
         return (result or {}).get("error") or "Your call could not be recorded — try again."
 
-    word = _PICK_WORD.get(str(result.get("pick")), str(result.get("pick") or "?").upper())
-    lines = [f"✅ Call recorded: *{word}* on *{result.get('symbol', '?')}*"]
+    word = pick_word(result.get("pick"), result)
+    lines = [f"✅ Call recorded: *{word}* on *{round_title(result)}*"]
     entry = _num(result.get("entry_price"))
     if entry is not None:
         lines.append(f"Entry: {entry:g} (snapped for you, just now)")
+    entry_b = _num(result.get("entry_price_b"))
+    if entry_b is not None:
+        lines.append(f"{_base(result.get('symbol_b'))} entry: {entry_b:g} (snapped in the same read)")
     agent = result.get("agent_direction")
-    if "agent_direction" in result:
+    # The stance is reported where it was something to reveal: on a classic
+    # round. On a back/fade round it was the question, already on the card.
+    if "agent_direction" in result and kind_of(result) == "direction":
         lines.append(
             "The Claw passed on this one."
             if agent is None

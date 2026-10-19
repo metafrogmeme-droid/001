@@ -311,12 +311,11 @@ router.get('/duel/:handle/image', async (req, res) => {
     }
 
     const season = new Date().toISOString().slice(0, 7);
+    const { ROUND_COLS, PICK_COLS } = require('../lib/duel_service');
     const [rounds] = await pool.execute(
-      'SELECT id, day, idx, symbol, agent_direction, signal_key FROM duel_rounds'
-      + ' WHERE day >= ? ORDER BY day, idx', [season + '-01']);
+      `SELECT ${ROUND_COLS} FROM duel_rounds WHERE day >= ? ORDER BY day, idx`, [season + '-01']);
     const [picks] = await pool.execute(
-      'SELECT id, round_id, pick, entry_price, resolves_at, settle_price, settle_state,'
-      + ' seal, created_at FROM duel_picks WHERE user_id = ?', [u[0].id]);
+      `SELECT ${PICK_COLS} FROM duel_picks WHERE user_id = ?`, [u[0].id]);
     const entries = duel.scoreEntries(
       (rounds || []).filter((r) => String(r.day).slice(0, 7) === season), picks || []);
     const st = playerStanding(handle, entries);

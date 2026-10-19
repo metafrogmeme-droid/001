@@ -2475,10 +2475,22 @@ class MemoryDB {
         // INSERT IGNORE: the row already exists, nothing inserted, no error.
         return [{ affectedRows: 0, insertId: 0 }, []];
       }
+      // The column list decides the shape, as it does in SQL: the old five
+      // columns (the share and public-board suites plant classic rounds that
+      // way) and the categories' eight.
+      const cols = (cmd.match(/\(([^)]*)\)\s*VALUES/) || ['', ''])[1]
+        .split(',').map((c) => c.trim());
+      const col = (name) => { const i = cols.indexOf(name); return i < 0 ? null : params[i]; };
+      const kind = col('KIND');
+      const thr = col('THRESHOLD_PCT');
       this.duelRounds.push({
-        id: this._nextDuelRoundId++, day, idx: Number(idx), symbol: params[2],
-        agent_direction: params[3] == null ? null : params[3],
-        signal_key: params[4] == null ? null : params[4],
+        id: this._nextDuelRoundId++, day, idx: Number(idx),
+        kind: kind == null ? 'direction' : kind,
+        symbol: col('SYMBOL'),
+        symbol_b: col('SYMBOL_B') == null ? null : col('SYMBOL_B'),
+        threshold_pct: thr == null ? null : Number(thr),
+        agent_direction: col('AGENT_DIRECTION') == null ? null : col('AGENT_DIRECTION'),
+        signal_key: col('SIGNAL_KEY') == null ? null : col('SIGNAL_KEY'),
         created_at: new Date().toISOString(),
       });
       return [{ affectedRows: 1, insertId: this._nextDuelRoundId - 1 }, []];
@@ -2507,25 +2519,34 @@ class MemoryDB {
         err.errno = 1062;
         throw err;
       }
+      const pcols = (cmd.match(/\(([^)]*)\)\s*VALUES/) || ['', ''])[1]
+        .split(',').map((c) => c.trim());
+      const pcol = (name) => { const i = pcols.indexOf(name); return i < 0 ? null : params[i]; };
       this.duelPicks.push({
         id: this._nextDuelPickId++, user_id: Number(user_id), round_id: Number(round_id),
-        pick: params[2],
-        entry_price: params[3],
-        resolves_at: params[4],
-        settle_price: null, settle_state: null, settled_at: null,
-        seal: params[5] == null ? null : params[5],
-        seal_payload: params[6] == null ? null : params[6],
-        created_at: params[7] || new Date().toISOString(),
+        pick: pcol('PICK'),
+        entry_price: pcol('ENTRY_PRICE'),
+        entry_price_b: pcol('ENTRY_PRICE_B') == null ? null : pcol('ENTRY_PRICE_B'),
+        resolves_at: pcol('RESOLVES_AT'),
+        settle_price: null, settle_price_b: null, settle_state: null, settled_at: null,
+        seal: pcol('SEAL') == null ? null : pcol('SEAL'),
+        seal_payload: pcol('SEAL_PAYLOAD') == null ? null : pcol('SEAL_PAYLOAD'),
+        created_at: pcol('CREATED_AT') || new Date().toISOString(),
       });
       return [{ affectedRows: 1, insertId: this._nextDuelPickId - 1 }, []];
     }
     if (cmd.startsWith('UPDATE DUEL_PICKS SET SETTLE')) {
-      // params: settle_price, settle_state, settled_at, id
-      const p = this.duelPicks.find(x => Number(x.id) === Number(params[3]));
+      // Two shapes, told apart by the statement: the classic
+      //   settle_price, settle_state, settled_at, id
+      // and the categories'
+      //   settle_price, settle_price_b, settle_state, settled_at, id
+      const two = cmd.includes('SETTLE_PRICE_B');
+      const p = this.duelPicks.find(x => Number(x.id) === Number(params[two ? 4 : 3]));
       if (p) {
         p.settle_price = params[0] == null ? null : params[0];
-        p.settle_state = params[1] == null ? null : params[1];
-        p.settled_at = params[2];
+        if (two) p.settle_price_b = params[1] == null ? null : params[1];
+        p.settle_state = params[two ? 2 : 1] == null ? null : params[two ? 2 : 1];
+        p.settled_at = params[two ? 3 : 2];
       }
       return [{ affectedRows: p ? 1 : 0 }, []];
     }
@@ -3897,7 +3918,10 @@ async function migrate() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         day CHAR(10) NOT NULL,
         idx TINYINT NOT NULL,
+        kind VARCHAR(12) NOT NULL DEFAULT 'direction',
         symbol VARCHAR(20) NOT NULL,
+        symbol_b VARCHAR(20) NULL,
+        threshold_pct DOUBLE NULL,
         agent_direction VARCHAR(5) NULL,
         signal_key VARCHAR(128) NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -3917,10 +3941,12 @@ async function migrate() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
         round_id INT NOT NULL,
-        pick VARCHAR(5) NOT NULL,
+        pick VARCHAR(8) NOT NULL,
         entry_price DOUBLE NOT NULL,
+        entry_price_b DOUBLE NULL,
         resolves_at TIMESTAMP NOT NULL,
         settle_price DOUBLE NULL,
+        settle_price_b DOUBLE NULL,
         settle_state VARCHAR(12) NULL,
         settled_at TIMESTAMP NULL,
         seal VARCHAR(64) NULL,
@@ -3932,6 +3958,29 @@ async function migrate() {
         INDEX idx_duel_picks_due (settle_state, resolves_at)
       )
     `);
+    // The categories (2026-10-19). A round that predates them has no `kind`
+    // and reads as a classic (direction) round; `pick` widens from 5 to 8 so
+    // a mover's 'second' fits. Each ALTER is its own statement: a column that
+    // already exists is the expected refusal (ER_DUP_FIELDNAME) and is
+    // ignored, anything else is logged by class and code so a migration that
+    // did not land is visible at boot rather than at the first 'second' call.
+    for (const sql of [
+      "ALTER TABLE duel_rounds ADD COLUMN kind VARCHAR(12) NOT NULL DEFAULT 'direction'",
+      'ALTER TABLE duel_rounds ADD COLUMN symbol_b VARCHAR(20) NULL',
+      'ALTER TABLE duel_rounds ADD COLUMN threshold_pct DOUBLE NULL',
+      'ALTER TABLE duel_picks ADD COLUMN entry_price_b DOUBLE NULL',
+      'ALTER TABLE duel_picks ADD COLUMN settle_price_b DOUBLE NULL',
+      'ALTER TABLE duel_picks MODIFY COLUMN pick VARCHAR(8) NOT NULL',
+    ]) {
+      try {
+        await pool.execute(sql);
+      } catch (e) {
+        if (!(e && (e.code === 'ER_DUP_FIELDNAME' || e.errno === 1060))) {
+          console.error('duel schema migration did not apply:',
+            (e && e.constructor && e.constructor.name) || 'Error', e && e.code, sql.split(' ').slice(0, 5).join(' '));
+        }
+      }
+    }
     // Pi tips (routes/pi_payments.js). One row per tip the server offered: the
     // amount is ours, never the page's. payment_id is Pi's id, written BEFORE
     // Pi is asked to approve, and unique, so one Pi payment settles one row;
