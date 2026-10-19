@@ -39,6 +39,22 @@ def _is_lead(text: str) -> bool:
     return bool(letters) and sum(c.isupper() for c in letters) / len(letters) > 0.8
 
 
+def _lead_text(lines: list[str], i: int) -> str:
+    """The line a chapter lead starts on, joined with the lines its bold
+    title wraps onto. The log is wrapped at 78 columns and most titles are
+    longer, so a lead read from its first line alone was not a lead at all:
+    252 of 576 chapters were missing from the index and their guard tests
+    were credited to the chapter before them."""
+    text = lines[i]
+    if not text.startswith("**"):
+        return text
+    j = i
+    while "**" not in text[2:] and j + 1 < len(lines) and j - i < 3:
+        j += 1
+        text += " " + lines[j].strip()
+    return text
+
+
 def _clean(text: str) -> str:
     text = text.strip().rstrip(".:")
     return text.replace("|", "\\|")
@@ -53,7 +69,7 @@ def build(log_text: str) -> str:
             entries.append((i, "section" if m.group(1) == "##" else "subsection",
                             m.group(2)))
             continue
-        m = _LEAD.match(line)
+        m = _LEAD.match(_lead_text(lines, i - 1))
         if m and _is_lead(m.group(1)):
             entries.append((i, "chapter", m.group(1)))
 

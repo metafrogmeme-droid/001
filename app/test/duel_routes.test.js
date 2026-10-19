@@ -21,6 +21,7 @@ const express = require('express');
 const authModule = require('../auth');
 const { setTickerFetcher } = require('../lib/tickers');
 const { setCandleFetcher } = require('../lib/candles');
+const sportsFeed = require('../lib/sports_feed');
 const duelRouter = require('../routes/duel');
 const duel = require('../lib/duel');
 const { pool } = require('../db');
@@ -67,9 +68,21 @@ function req(method, path, { token, body } = {}) {
 const POOL_SIZE = 8;
 const U = [];
 
+// The football feed, answered by a stand-in: today's match kicks off three
+// hours from now, and nothing has finished unless a test says so.
+const KICKOFF = new Date(Date.now() + 3 * 3600000).toISOString();
+let MATCH_BODY = { status: 'TIMED', score: { fullTime: { home: null, away: null } } };
+function matchRows() {
+  return { matches: [{ id: 7001, utcDate: KICKOFF, status: 'TIMED',
+    homeTeam: { name: 'Arsenal FC', shortName: 'Arsenal' }, awayTeam: { name: 'Chelsea FC', shortName: 'Chelsea' },
+    competition: { name: 'Premier League', code: 'PL' } }] };
+}
+
 test.before(async () => {
   setTickerFetcher(async () => PRICES);
   setCandleFetcher(async () => []);           // nothing settles unless a test says so
+  process.env.FOOTBALL_DATA_TOKEN = 'test-token';
+  sportsFeed.setSportsTransport(async (path) => (path.startsWith('/matches/') ? MATCH_BODY : matchRows()));
   const app = express();
   app.use(express.json());
   app.use('/api/auth', authModule.router);
@@ -92,6 +105,8 @@ test.before(async () => {
 test.after(() => {
   setTickerFetcher(null);
   setCandleFetcher(null);
+  sportsFeed.setSportsTransport(null);
+  delete process.env.FOOTBALL_DATA_TOKEN;
   if (server) server.close();
 });
 
@@ -101,9 +116,12 @@ test('GET /today opens the day with a full card, open for the whole day', async 
   const res = await req('GET', '/api/duel/today', { token: U[0] });
   assert.equal(res.status, 200);
   // The fixture prices the five majors and one alt: three classic rounds, a
-  // range round on the fourth major, a mover on the last two.
-  assert.deepEqual(res.body.rounds.map((r) => r.kind), ['direction', 'direction', 'direction', 'range', 'mover']);
-  assert.equal(res.body.rounds.length, duel.buildRounds(duel.dayKey(new Date()), [], PRICES).length);
+  // range round on the fourth major, a mover on the last two; and the feed
+  // deals the day's match.
+  assert.deepEqual(res.body.rounds.map((r) => r.kind), ['direction', 'direction', 'direction', 'range', 'mover', 'sports']);
+  assert.equal(res.body.rounds.length, duel.buildRounds(duel.dayKey(new Date()), [], PRICES, { event_id: 1,
+    home: 'a', away: 'b', kickoff: KICKOFF }).length);
+  assert.deepEqual(res.body.sources, { sports: 'dealt' });
   assert.equal(res.body.day, duel.dayKey(new Date()));
   assert.equal(res.body.horizon_hours, duel.HORIZON_HOURS);
   for (const r of res.body.rounds) {
@@ -137,8 +155,8 @@ test('concurrent first reads do not duplicate the day', async () => {
     assert.equal(r.status, 200);
     r.body.rounds.forEach((x) => ids.add(x.id));
   }
-  assert.equal(ids.size, duel.buildRounds(duel.dayKey(new Date()), [], PRICES).length,
-    'a race must not mint a second card');
+  assert.equal(ids.size, duel.buildRounds(duel.dayKey(new Date()), [], PRICES, { event_id: 1,
+    home: 'a', away: 'b', kickoff: KICKOFF }).length, 'a race must not mint a second card');
 });
 
 // ── the anti-cheat: the agent's stance ──────────────────────────────────────
@@ -526,4 +544,119 @@ test('a word no round takes is refused before any round is read', async () => {
   const res = await req('POST', '/api/duel/pick', { token: U[6], body: { round_id: 999999, pick: 'sideways' } });
   assert.equal(res.status, 400);
   assert.match(res.body.error, /not a call/);
+});
+
+test('a football call is recorded with no entry, resolves at full time, and settles on the final score', async () => {
+  const token = U[4];
+  const uid = await userIdFor('duel4@example.com');
+  const card = await req('GET', '/api/duel/today', { token });
+  const match = card.body.rounds.find((r) => r.kind === 'sports');
+  assert.equal(match.symbol, 'FD:7001');
+  assert.deepEqual(match.options, ['home', 'draw', 'away', 'pass']);
+  assert.equal(match.match.home_short, 'Arsenal');
+  assert.equal(match.match.kickoff, KICKOFF);
+  assert.equal(match.callable, true);
+  const wrong = await req('POST', '/api/duel/pick', { token, body: { round_id: match.id, pick: 'long' } });
+  assert.equal(wrong.status, 400);
+  assert.equal(wrong.body.error, 'Call HOME, DRAW, AWAY or PASS.');
+  const res = await req('POST', '/api/duel/pick', { token, body: { round_id: match.id, pick: 'home' } });
+  assert.equal(res.status, 200, res.raw);
+  assert.equal(res.body.kind, 'sports');
+  assert.strictEqual(res.body.entry_price, null, 'a match has no entry price');
+  assert.equal(res.body.resolves_at, new Date(Date.parse(KICKOFF) + duel.SPORTS_FULL_TIME_MS).toISOString());
+  assert.equal(res.body.match.away, 'Chelsea FC');
+  assert.ok(!('agent_direction' in res.body));
+  const [rows] = await pool.execute(
+    'SELECT id, round_id, entry_price, seal_payload FROM duel_picks WHERE user_id = ?', [uid]);
+  const stored = rows.find((r) => Number(r.round_id) === Number(match.id));
+  assert.strictEqual(stored.entry_price, null);
+  const payload = JSON.parse(stored.seal_payload);
+  assert.equal(payload.category, 'sports');
+  assert.equal(payload.symbol, 'FD:7001');
+  assert.strictEqual(payload.entry_price, null);
+  // Not finished at the horizon: nothing settles, nothing is guessed.
+  await pool.execute('UPDATE duel_picks SET settle_price = ?, settle_price_b = ?, settle_state = ?, settled_at = ? WHERE id = ?',
+    [null, null, null, null, stored.id]);
+  const picksRows = (await pool.execute('SELECT id FROM duel_picks WHERE user_id = ?', [uid]))[0];
+  assert.ok(picksRows.length >= 1);
+  // Pull the horizon into the past so it is due.
+  const mem = pool.duelPicks.find((x) => Number(x.id) === Number(stored.id));
+  mem.resolves_at = new Date(Date.now() - 60000).toISOString();
+  MATCH_BODY = { status: 'IN_PLAY', score: { fullTime: { home: 1, away: 0 } } };
+  let me = await req('GET', '/api/duel/me', { token });
+  let mine = me.body.history.find((h) => h.round_id === match.id);
+  assert.equal(mine.state, 'unresolved');
+  assert.strictEqual(mine.score, null);
+  // Finished: the final score settles it, and the call reports the score.
+  MATCH_BODY = { status: 'FINISHED', score: { fullTime: { home: 2, away: 1 } } };
+  sportsFeed._resetCache();
+  me = await req('GET', '/api/duel/me', { token });
+  mine = me.body.history.find((h) => h.round_id === match.id);
+  assert.equal(mine.state, 'correct');
+  assert.deepEqual(mine.score, { home: 2, away: 1 });
+  assert.strictEqual(mine.entry_price, null);
+  assert.strictEqual(mine.move_pct, null);
+  const after = await req('GET', '/api/duel/today', { token });
+  const shown = after.body.rounds.find((r) => r.id === match.id);
+  assert.deepEqual(shown.my_call.score, { home: 2, away: 1 });
+  assert.equal(shown.my_result.state, 'correct');
+  MATCH_BODY = { status: 'TIMED', score: { fullTime: { home: null, away: null } } };
+});
+
+test('a match that kicked off is closed to calls', async () => {
+  const token = U[5];
+  const card = await req('GET', '/api/duel/today', { token });
+  const match = card.body.rounds.find((r) => r.kind === 'sports');
+  const mem = pool.duelRounds.find((x) => Number(x.id) === Number(match.id));
+  const saved = mem.meta;
+  mem.meta = JSON.stringify({ ...JSON.parse(saved), kickoff: new Date(Date.now() - 60000).toISOString() });
+  try {
+    const closed = await req('GET', '/api/duel/today', { token });
+    assert.equal(closed.body.rounds.find((r) => r.id === match.id).callable, false);
+    const res = await req('POST', '/api/duel/pick', { token, body: { round_id: match.id, pick: 'draw' } });
+    assert.equal(res.status, 409);
+    assert.match(res.body.error, /closed/);
+  } finally {
+    mem.meta = saved;
+  }
+});
+
+test('the card says what the feed said: dealt, none, unreadable, off, unknown', async () => {
+  const svc = require('../lib/duel_service');
+  svc._resetSportsState();
+  const noon = (day) => new Date(day + 'T08:00:00Z');
+  try {
+    // Unreadable: the market rounds stand, the match is missing, and it is SAID.
+    sportsFeed.setSportsTransport(async () => { throw new Error('ECONNRESET'); });
+    let rounds = await svc.ensureRounds('2031-01-05', noon('2031-01-05'));
+    assert.ok(rounds.length >= 5, 'an unreadable feed must not cancel the day');
+    assert.ok(!rounds.some((r) => duel.kindOf(r) === 'sports'));
+    assert.equal(svc.sportsStateFor('2031-01-05', rounds), 'unreadable');
+    // Readable, nothing on: the other sentence.
+    sportsFeed.setSportsTransport(async () => ({ matches: [] }));
+    rounds = await svc.ensureRounds('2031-01-06', noon('2031-01-06'));
+    assert.ok(!rounds.some((r) => duel.kindOf(r) === 'sports'));
+    assert.equal(svc.sportsStateFor('2031-01-06', rounds), 'none');
+    // Dealt: the rounds answer for themselves, whatever this process remembers.
+    sportsFeed.setSportsTransport(async () => ({ matches: [{ id: 7002, utcDate: '2031-01-07T19:00:00Z', status: 'TIMED',
+      homeTeam: { name: 'Inter' }, awayTeam: { name: 'Milan' }, competition: { name: 'Serie A', code: 'SA' } }] }));
+    rounds = await svc.ensureRounds('2031-01-07', noon('2031-01-07'));
+    assert.ok(rounds.some((r) => duel.kindOf(r) === 'sports'));
+    assert.equal(svc.sportsStateFor('2031-01-07', rounds), 'dealt');
+    svc._resetSportsState();
+    assert.equal(svc.sportsStateFor('2031-01-07', rounds), 'dealt');
+    // A day this process did not deal: unknown, not none.
+    assert.equal(svc.sportsStateFor('2031-01-08', []), 'unknown');
+    // No token: off, and the feed is never asked.
+    delete process.env.FOOTBALL_DATA_TOKEN;
+    let asked = 0;
+    sportsFeed.setSportsTransport(async () => { asked++; return { matches: [] }; });
+    rounds = await svc.ensureRounds('2031-01-09', noon('2031-01-09'));
+    assert.equal(asked, 0);
+    assert.equal(svc.sportsStateFor('2031-01-09', rounds), 'off');
+  } finally {
+    process.env.FOOTBALL_DATA_TOKEN = 'test-token';
+    sportsFeed.setSportsTransport(async (path) => (path.startsWith('/matches/') ? MATCH_BODY : matchRows()));
+    svc._resetSportsState();
+  }
 });

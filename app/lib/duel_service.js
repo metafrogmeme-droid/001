@@ -17,6 +17,7 @@ const { getTickers } = require('./tickers');
 const { closeAt } = require('./candles');
 const { sealDuelPick } = require('./callseal');
 const duel = require('./duel');
+const sportsFeed = require('./sports_feed');
 
 /** How far back a player's record is computed, stated on every payload that
  *  carries it rather than truncating in silence. */
@@ -30,7 +31,7 @@ const SETTLE_BATCH = 6;
 // deck). A reader with its own list reads the categories' columns as absent,
 // and an absent `kind` is a classic round, so every mover and range round
 // would be scored as a LONG/SHORT call there.
-const ROUND_COLS = 'id, day, idx, kind, symbol, symbol_b, threshold_pct, agent_direction, signal_key';
+const ROUND_COLS = 'id, day, idx, kind, symbol, symbol_b, threshold_pct, agent_direction, signal_key, meta';
 const PICK_COLS = 'id, round_id, pick, entry_price, entry_price_b, resolves_at, settle_price, '
   + 'settle_price_b, settle_state, seal, created_at';
 
@@ -38,16 +39,35 @@ function dayFloor(now, days) {
   return new Date(new Date(now).getTime() - days * 86400000).toISOString().slice(0, 10);
 }
 
+/** A row as read: `meta` is JSON text in the table and an object here. */
+function parseRound(r) {
+  if (!r) return r;
+  return Object.assign({}, r, { meta: duel.metaOf(r) });
+}
+
 async function loadRoundsForDay(day) {
   const [rows] = await pool.execute(
     `SELECT ${ROUND_COLS} FROM duel_rounds WHERE day = ? ORDER BY idx`, [day]);
-  return rows || [];
+  return (rows || []).map(parseRound);
 }
 
 async function loadRoundsSince(day) {
   const [rows] = await pool.execute(
     `SELECT ${ROUND_COLS} FROM duel_rounds WHERE day >= ? ORDER BY day, idx`, [day]);
-  return rows || [];
+  return (rows || []).map(parseRound);
+}
+
+/**
+ * What the football feed said when a day's card was dealt BY THIS PROCESS:
+ * 'dealt', 'none' (a readable feed with no qualifying match) or 'unreadable'.
+ * Three sentences; a card built elsewhere answers from its rounds alone.
+ */
+const sportsStateByDay = new Map();
+
+function sportsStateFor(day, rounds) {
+  if ((rounds || []).some((r) => duel.kindOf(r) === 'sports')) return 'dealt';
+  if (!sportsFeed.isConfigured()) return 'off';
+  return sportsStateByDay.get(day) || 'unknown';
 }
 
 async function loadPicks(userId) {
@@ -68,7 +88,7 @@ async function loadPicks(userId) {
  * which is a confident statement about the game made from a failure to read the
  * market.
  */
-async function ensureRounds(day) {
+async function ensureRounds(day, now = new Date()) {
   const existing = await loadRoundsForDay(day);
   // A day that has rounds has its card. It is not topped up later: the
   // builder is deterministic over the prices and calls it is given, and those
@@ -93,8 +113,23 @@ async function ensureRounds(day) {
     signals = [];
   }
 
+  // The football match, where a feed is configured. A feed that cannot be
+  // read costs the card its match and is SAID to have failed; a readable feed
+  // with no match today is the other sentence. Neither cancels the day.
+  let sports = null;
+  if (sportsFeed.isConfigured()) {
+    try {
+      sports = await sportsFeed.candidateFor(day, now);
+      sportsStateByDay.set(day, sports ? 'dealt' : 'none');
+    } catch (e) {
+      sportsStateByDay.set(day, 'unreadable');
+      console.error('Sports feed unreadable:', (e && e.constructor && e.constructor.name) || 'Error',
+        e && e.status ? `HTTP ${e.status}` : '');
+    }
+  }
+
   const tickers = await getTickers();
-  const built = duel.buildRounds(day, signals, tickers);
+  const built = duel.buildRounds(day, signals, tickers, sports);
   if (!built.length) {
     const err = new Error('no market prices available to open the day');
     err.rcReason = 'prices_unreadable';
@@ -104,8 +139,9 @@ async function ensureRounds(day) {
   for (const r of built) {
     await pool.execute(
       'INSERT IGNORE INTO duel_rounds (day, idx, kind, symbol, symbol_b, threshold_pct,'
-      + ' agent_direction, signal_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [r.day, r.idx, r.kind, r.symbol, r.symbol_b, r.threshold_pct, r.agent_direction, r.signal_key]);
+      + ' agent_direction, signal_key, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [r.day, r.idx, r.kind, r.symbol, r.symbol_b, r.threshold_pct, r.agent_direction, r.signal_key,
+        r.meta == null ? null : JSON.stringify(r.meta)]);
   }
   return loadRoundsForDay(day);
 }
@@ -129,6 +165,37 @@ async function settleDue(rounds, picks, now = new Date()) {
   let settled = 0;
   for (const p of due.slice(0, SETTLE_BATCH)) {
     const round = roundOf.get(String(p.round_id));
+    if (round && duel.kindOf(round) === 'sports') {
+      // The final score, from the feed, when the match has FINISHED. Not yet
+      // finished: nothing is written and the next settle asks again. Past the
+      // give-up window (a postponed or abandoned match): unresolved, never a
+      // loss. An unreadable feed is logged by class and leaves the call pending.
+      const m = duel.metaOf(round);
+      let score = null;
+      try {
+        score = m && m.event_id ? await sportsFeed.finalScore(m.event_id) : null;
+      } catch (e) {
+        console.error('Sports feed unreadable at settle:', (e && e.constructor && e.constructor.name) || 'Error');
+        score = null;
+      }
+      if (score) {
+        await pool.execute(
+          'UPDATE duel_picks SET settle_price = ?, settle_price_b = ?, settle_state = ?, settled_at = ?'
+          + ' WHERE id = ?',
+          [score.home, score.away, 'settled', new Date(now).toISOString(), p.id]);
+        p.settle_price = score.home;
+        p.settle_price_b = score.away;
+        p.settle_state = 'settled';
+        settled++;
+      } else if (duel.isAbandoned(p, now)) {
+        await pool.execute(
+          'UPDATE duel_picks SET settle_price = ?, settle_price_b = ?, settle_state = ?, settled_at = ?'
+          + ' WHERE id = ?',
+          [null, null, 'unresolved', new Date(now).toISOString(), p.id]);
+        p.settle_state = 'unresolved';
+      }
+      continue;
+    }
     const symbol = round && round.symbol;
     const at = Date.parse(p.resolves_at);
     const close = (symbol && Number.isFinite(at)) ? await closeAt(symbol, at) : null;
@@ -203,28 +270,40 @@ async function placePick(userId, roundId, rawPick, now = new Date()) {
   // The entry is snapped NOW, for this player. A stale mark would score the
   // call from a price it was never offered at, so an unreadable ticker refuses
   // the call outright rather than guessing one. A mover needs both of its
-  // symbols priced in the same read.
-  const tickers = await getTickers();
-  const priceOf = (sym) => {
-    const mark = tickers && tickers[sym];
-    const v = mark == null ? NaN : Number(mark.price);
-    return Number.isFinite(v) && v > 0 ? v : null;
-  };
-  const entry = priceOf(round.symbol);
-  const entryB = kind === 'mover' ? priceOf(round.symbol_b) : null;
-  const unpriced = entry === null ? round.symbol : (kind === 'mover' && entryB === null ? round.symbol_b : null);
-  if (unpriced) {
-    return {
-      ok: false,
-      status: 503,
-      reason: 'prices_unreadable',
-      error: `Cannot read a ${unpriced} price right now — your call was not recorded.`,
+  // symbols priced in the same read. A sports call has no entry at all: it
+  // is settled by a score, and resolves at full time after the kick-off.
+  let entry = null;
+  let entryB = null;
+  let resolves_at;
+  if (kind === 'sports') {
+    resolves_at = duel.sportsHorizonFor(round);
+    if (!resolves_at) {
+      return { ok: false, status: 503, reason: 'kickoff_unreadable',
+        error: 'This match has no readable kick-off — your call was not recorded.' };
+    }
+  } else {
+    const tickers = await getTickers();
+    const priceOf = (sym) => {
+      const mark = tickers && tickers[sym];
+      const v = mark == null ? NaN : Number(mark.price);
+      return Number.isFinite(v) && v > 0 ? v : null;
     };
+    entry = priceOf(round.symbol);
+    entryB = kind === 'mover' ? priceOf(round.symbol_b) : null;
+    const unpriced = entry === null ? round.symbol : (kind === 'mover' && entryB === null ? round.symbol_b : null);
+    if (unpriced) {
+      return {
+        ok: false,
+        status: 503,
+        reason: 'prices_unreadable',
+        error: `Cannot read a ${unpriced} price right now — your call was not recorded.`,
+      };
+    }
+    resolves_at = duel.horizonFor(now);
   }
 
   const handle = await handleFor(userId);
   const picked_at = new Date(now).toISOString();
-  const resolves_at = duel.horizonFor(now);
   const receipt = sealDuelPick({
     round_id: round.id, day: round.day, kind, symbol: round.symbol,
     symbol_b: kind === 'mover' ? round.symbol_b : null,
@@ -258,6 +337,11 @@ async function placePick(userId, roundId, rawPick, now = new Date()) {
   };
   if (kind === 'mover') { out.symbol_b = round.symbol_b; out.entry_price_b = entryB; }
   if (kind === 'range') out.threshold_pct = Number(round.threshold_pct);
+  if (kind === 'sports') {
+    const m = duel.metaOf(round);
+    out.match = m ? { home: m.home, away: m.away, home_short: m.home_short || m.home,
+      away_short: m.away_short || m.away, competition: m.competition || '', kickoff: m.kickoff || null } : null;
+  }
   // The stance is owed on the rounds that have one to reveal. A range or a
   // mover round never held a view, and saying "the Claw passed" on it would
   // describe a choice that was never on offer.
@@ -270,7 +354,7 @@ async function placePick(userId, roundId, rawPick, now = new Date()) {
 /** Today's card as the caller sees it, with their own calls attached. */
 async function cardFor(userId, now = new Date()) {
   const day = duel.dayKey(now);
-  const rounds = await ensureRounds(day);
+  const rounds = await ensureRounds(day, now);
   const picks = await loadPicks(userId);
   await settleDue(rounds, picks, now);
   const mine = new Map(picks.map((p) => [String(p.round_id), p]));
@@ -292,6 +376,11 @@ async function cardFor(userId, now = new Date()) {
     horizon_hours: duel.HORIZON_HOURS,
     rounds: cards,
     open: cards.filter((c) => c.callable && !c.my_call).length,
+    // Why there is, or is not, a football round: 'dealt', 'none' (a readable
+    // feed with no match today), 'unreadable' (the feed failed when the card
+    // was dealt), 'off' (no feed configured), 'unknown' (the card was dealt
+    // by another process). A surface says something only for 'unreadable'.
+    sources: { sports: sportsStateFor(day, rounds) },
     counts_only: true,
   };
 }
@@ -314,6 +403,7 @@ async function recordFor(userId, now = new Date()) {
 
 module.exports = {
   RECORD_WINDOW_DAYS, SETTLE_BATCH, ROUND_COLS, PICK_COLS,
-  dayFloor, loadRoundsForDay, loadRoundsSince, loadPicks,
+  dayFloor, parseRound, loadRoundsForDay, loadRoundsSince, loadPicks, sportsStateFor,
   ensureRounds, settleDue, handleFor, placePick, cardFor, recordFor,
+  _resetSportsState: () => sportsStateByDay.clear(),
 };

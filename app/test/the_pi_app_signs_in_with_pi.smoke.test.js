@@ -114,7 +114,9 @@ const DUEL_CARD = { day: '2026-10-19', horizon_hours: 24, open: 4, counts_only: 
   { id: 12, day: '2026-10-19', idx: 3, kind: 'backfade', symbol: 'SOLUSDT', options: ['back', 'fade', 'pass'], callable: true, agent_direction: 'short' },
   { id: 13, day: '2026-10-19', idx: 4, kind: 'range', symbol: 'BNBUSDT', options: ['break', 'hold', 'pass'], callable: true, threshold_pct: 2 },
   { id: 14, day: '2026-10-19', idx: 5, kind: 'mover', symbol: 'XRPUSDT', symbol_b: 'ARBUSDT', options: ['first', 'second', 'pass'], callable: true },
-] };
+  { id: 15, day: '2026-10-19', idx: 6, kind: 'sports', symbol: 'FD:441', options: ['home', 'draw', 'away', 'pass'], callable: true,
+    match: { home: 'Arsenal FC', away: 'Chelsea FC', home_short: 'Arsenal', away_short: 'Chelsea', competition: 'Premier League', kickoff: '2026-10-19T19:00:00.000Z' } },
+], sources: { sports: 'dealt' } };
 const DUEL_ME = { handle: null, window_days: 90, accuracy: { pct: null, correct: 0, wrong: 0, push: 0, scored: 0, unresolved: 2, resolved: 0 },
   marks: { marks: 0, pending: 2, beat_agent: 0 }, streak: { current: 2 }, quests: [], history: [], counts_only: true, private: true };
 const DUEL_PICKED = { ok: true, round_id: 13, kind: 'range', symbol: 'BNBUSDT', pick: 'hold', entry_price: 600, threshold_pct: 2,
@@ -630,8 +632,9 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       const today = sent.find((s) => s.path === '/api/duel/today');
       assert.strictEqual(today && today.auth, 'Bearer session-jwt-1', 'the card was read without the session');
       const kinds = await page.$$eval('.p-duel .d-round .d-kind', (els) => els.map((e) => e.textContent));
-      assert.deepStrictEqual(kinds, ['Direction', 'Back or fade', 'Range', 'Bigger mover']);
+      assert.deepStrictEqual(kinds, ['Direction', 'Back or fade', 'Range', 'Bigger mover', 'Football']);
       const text = await page.textContent('.p-duel');
+      assert.match(text, /Arsenal vs Chelsea — who wins\? Premier League/);
       assert.match(text, /Higher or lower in 24h\?/);
       assert.match(text, /The Claw called SHORT on SOL\. Back it, or fade it\?/);
       assert.match(text, /Does BNB move more than ±2% either way in 24h\?/);
@@ -639,7 +642,8 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       // Each round offers its own words, in its own order.
       const picks = await page.$$eval('.p-duel .d-actions', (els) => els.map((e) => e.getAttribute('data-round') + ':'
         + [...e.querySelectorAll('.d-btn')].map((b) => b.getAttribute('data-pick')).join(',')));
-      assert.deepStrictEqual(picks, ['11:long,short,pass', '12:back,fade,pass', '13:break,hold,pass', '14:first,second,pass']);
+      assert.deepStrictEqual(picks, ['11:long,short,pass', '12:back,fade,pass', '13:break,hold,pass', '14:first,second,pass',
+        '15:home,draw,away,pass']);
       // The record: a dash before anything has settled, never 0%, with what is still running.
       const rec = await page.textContent('.p-duel-rec');
       assert.match(rec, /Accuracy/);

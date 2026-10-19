@@ -56,6 +56,7 @@ KIND_PICKS = {
     "backfade": ("back", "fade", "pass"),
     "range": ("break", "hold", "pass"),
     "mover": ("first", "second", "pass"),
+    "sports": ("home", "draw", "away", "pass"),
 }
 PICKS = tuple(dict.fromkeys(p for picks in KIND_PICKS.values() for p in picks))
 _KIND_NAME = {
@@ -63,6 +64,7 @@ _KIND_NAME = {
     "backfade": "Back or fade",
     "range": "Range",
     "mover": "Bigger mover",
+    "sports": "Football",
 }
 
 
@@ -92,11 +94,33 @@ def _band(round_: dict | None) -> str:
     return f"±{thr:g}%" if thr is not None and thr > 0 else "—"
 
 
+def _team(round_: dict | None, side: str) -> str:
+    """A football round's team, short name first; a dash when unread."""
+    match = (round_ or {}).get("match") or {}
+    return str(match.get(f"{side}_short") or match.get(side) or "—")
+
+
+def _kickoff_utc(round_: dict | None) -> str:
+    """'HH:MM UTC' from the match's kick-off, or a dash when unreadable."""
+    raw = ((round_ or {}).get("match") or {}).get("kickoff")
+    if not raw:
+        return "—"
+    try:
+        from datetime import datetime
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return "—"
+    return dt.strftime("%H:%M UTC")
+
+
 def round_title(round_: dict | None) -> str:
-    """What a round is about: its symbol, or a mover's pair."""
+    """What a round is about: its symbol, a mover's pair, or a match's teams."""
     r = round_ or {}
-    if kind_of(r) == "mover":
+    kind = kind_of(r)
+    if kind == "mover":
         return f"{_base(r.get('symbol'))} vs {_base(r.get('symbol_b'))}"
+    if kind == "sports":
+        return f"{_team(r, 'home')} vs {_team(r, 'away')}"
     return str(r.get("symbol") or "?")
 
 
@@ -119,6 +143,10 @@ def question_line(round_: dict | None, horizon_hours: Any = None) -> str | None:
     if kind == "mover":
         return (f"{_base(r.get('symbol'))} or {_base(r.get('symbol_b'))} — "
                 f"which moves more in {hh}, either way?")
+    if kind == "sports":
+        comp = str(((r.get("match") or {}).get("competition")) or "—")
+        return (f"{_team(r, 'home')} vs {_team(r, 'away')} — who wins? "
+                f"{comp}, kick-off {_kickoff_utc(r)}")
     return None
 
 
@@ -140,6 +168,12 @@ def pick_word(pick: Any, round_: dict | None = None) -> str:
         return f"{_base(r.get('symbol'))} moves more"
     if p == "second":
         return f"{_base(r.get('symbol_b'))} moves more"
+    if p == "home":
+        return _team(r, "home")
+    if p == "away":
+        return _team(r, "away")
+    if p == "draw":
+        return "DRAW"
     return str(pick or "?").upper()
 
 
@@ -177,7 +211,7 @@ def button_rows(rounds: Any) -> list[list[tuple[str, str]]]:
         kind = kind_of(r)
         row: list[tuple[str, str]] = []
         for i, pick in enumerate(options):
-            if kind == "mover":
+            if kind in ("mover", "sports"):
                 label = "PASS" if pick == "pass" else pick_word(pick, r)
             elif pick == "pass":
                 label = "PASS"
@@ -324,6 +358,10 @@ def call_line(round_: dict) -> str | None:
     move = _num(call.get("move_pct"))
     # A move is only printed when a price actually backed it.
     tail = f" ({move:+.2f}%)" if move is not None and state in ("correct", "wrong", "push") else ""
+    score = call.get("score") or {}
+    home, away = _num(score.get("home")), _num(score.get("away"))
+    if home is not None and away is not None and state in ("correct", "wrong", "push"):
+        tail = f" (final score {int(home)}–{int(away)})"
     return f"{glyph} You called {word} — {text}{tail}"
 
 
@@ -344,7 +382,8 @@ def render_card(data: dict | None) -> str:
     lines = ["⚔️ *Daily Duel* — " + str(data.get("day") or "today")]
     horizon = _num(data.get("horizon_hours"))
     if horizon is not None:
-        lines.append(f"_Each call runs {int(horizon)}h from the moment you make it._")
+        lines.append(f"_A market call runs {int(horizon)}h from the moment you make it; "
+                     "a match settles on its final score._")
     lines.append("")
 
     if not rounds:
@@ -401,6 +440,8 @@ def render_pick_result(result: dict | None, status: int | None = None) -> str:
     entry = _num(result.get("entry_price"))
     if entry is not None:
         lines.append(f"Entry: {entry:g} (snapped for you, just now)")
+    if kind_of(result) == "sports":
+        lines.append(f"Kick-off {_kickoff_utc(result)} — settled on the final score.")
     entry_b = _num(result.get("entry_price_b"))
     if entry_b is not None:
         lines.append(f"{_base(result.get('symbol_b'))} entry: {entry_b:g} (snapped in the same read)")

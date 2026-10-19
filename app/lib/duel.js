@@ -17,6 +17,9 @@
  *               the table cannot rescore a round that was played under it.
  *   mover       one round. "BTC or ETH — which moves more?" Two symbols, two
  *               entries, two settles, compared by the size of the move.
+ *   sports      one round, where a football feed is configured. "Arsenal vs
+ *               Chelsea — who wins?" Settled by the final score, not the
+ *               market; calls close at kick-off. (lib/sports_feed.js)
  *
  * Every entry belongs to the pick, not to the round, and that is a fairness
  * property rather than an implementation detail. A shared entry snapped at
@@ -58,9 +61,11 @@ const { exchangeSymbol } = require('./agent_match');
  * The card. Three classic rounds, then one of each other kind; back/fade needs
  * a second agent call that day, so a card holds five rounds or six.
  */
-const CARD = Object.freeze({ direction: 3, backfade: 1, range: 1, mover: 1 });
+const CARD = Object.freeze({ direction: 3, backfade: 1, range: 1, mover: 1, sports: 1 });
 /** The most rounds a day's card holds. */
-const ROUNDS_PER_DAY = CARD.direction + CARD.backfade + CARD.range + CARD.mover;
+const ROUNDS_PER_DAY = CARD.direction + CARD.backfade + CARD.range + CARD.mover + CARD.sports;
+/** Kick-off to a published result: 90 minutes, half-time, stoppage, and slack. */
+const SPORTS_FULL_TIME_MS = 150 * 60000;
 /** How long a call runs, measured from the moment it was made. */
 const HORIZON_HOURS = 24;
 /** |move| under this settles FLAT: below it the "direction" is noise. The
@@ -78,6 +83,7 @@ const KINDS = Object.freeze({
   backfade: Object.freeze({ picks: Object.freeze(['back', 'fade', 'pass']), neutral: 'flat' }),
   range: Object.freeze({ picks: Object.freeze(['break', 'hold', 'pass']), neutral: null }),
   mover: Object.freeze({ picks: Object.freeze(['first', 'second', 'pass']), neutral: 'tie' }),
+  sports: Object.freeze({ picks: Object.freeze(['home', 'draw', 'away', 'pass']), neutral: null }),
 });
 const KIND_NAMES = Object.freeze(Object.keys(KINDS));
 /** The classic round's picks, kept under their old name for the callers that
@@ -150,6 +156,21 @@ function dayStartMs(day) {
     ? Date.parse(day + 'T00:00:00.000Z') : NaN;
 }
 
+/** A round's `meta` (a football match's teams and kick-off), stored as JSON
+ *  text and read back as an object; null when the round carries none. */
+function metaOf(round) {
+  const m = (round || {}).meta;
+  if (m == null || m === '') return null;
+  if (typeof m === 'object') return m;
+  try { return JSON.parse(String(m)); } catch (e) { return null; }
+}
+
+/** A sports round's kick-off, as ms, or NaN when it carries none. */
+function kickoffMs(round) {
+  const m = metaOf(round);
+  return m && m.kickoff ? Date.parse(m.kickoff) : NaN;
+}
+
 /** The band for a symbol, by its class (build time only; see RANGE_BAND_PCT). */
 function rangeBandFor(symbol) {
   return SEASON_MAJORS.indexOf(String(symbol || '').toUpperCase()) >= 0
@@ -184,6 +205,17 @@ function rangeOutcome(entryPrice, settlePrice, bandPct) {
   const band = Number(bandPct);
   if (move === null || !Number.isFinite(band) || band <= 0) return null;
   return Math.abs(move) >= band ? 'break' : 'hold';
+}
+
+/** 'home' | 'draw' | 'away' | null from a final score. A score that is not
+ *  two non-negative numbers is no score. */
+function sportsOutcome(home, away) {
+  if (home == null || away == null) return null;
+  const h = Number(home);
+  const a = Number(away);
+  if (!Number.isFinite(h) || !Number.isFinite(a) || h < 0 || a < 0) return null;
+  if (h === a) return 'draw';
+  return h > a ? 'home' : 'away';
 }
 
 /** 'first' | 'second' | 'tie' | null. Half a comparison answers null. */
@@ -221,6 +253,9 @@ function callOutcome(round, pick) {
       return rangeOutcome(pick.entry_price, pick.settle_price, r.threshold_pct);
     case 'mover':
       return moverOutcome(pick.entry_price, pick.settle_price, pick.entry_price_b, pick.settle_price_b);
+    case 'sports':
+      // The final score rides the two settle columns: home, then away.
+      return sportsOutcome(pick.settle_price, pick.settle_price_b);
     default:
       return null;
   }
@@ -273,7 +308,7 @@ function scoreCall(kind, pick, outcome, agentDirection) {
     const beat = p === 'fade';
     return { state: 'correct', marks: beat ? 2 : 1, beat_agent: beat };
   }
-  // range and mover: the pick names the outcome it predicts.
+  // range, mover and sports: the pick names the outcome it predicts.
   return p === outcome
     ? { state: 'correct', marks: 1, beat_agent: false }
     : { state: 'wrong', marks: 0, beat_agent: false };
@@ -310,12 +345,18 @@ function scoreEntries(rounds, picks) {
       pick: normPick(p.pick, kind),
       agent_direction: normDirection(round.agent_direction),
       outcome,
-      entry_price: Number(p.entry_price),
-      move_pct: outcome === null ? null : movePct(p.entry_price, p.settle_price),
+      // A sports call has no entry: null, never a zero that would read as a price.
+      entry_price: p.entry_price == null ? null : Number(p.entry_price),
+      move_pct: outcome === null || kind === 'sports' ? null : movePct(p.entry_price, p.settle_price),
       resolves_at: p.resolves_at,
       created_at: p.created_at,
       ...res,
     };
+    if (kind === 'sports') {
+      const m = metaOf(round);
+      entry.match = m ? { home: m.home, away: m.away, competition: m.competition, kickoff: m.kickoff } : null;
+      entry.score = outcome === null ? null : { home: Number(p.settle_price), away: Number(p.settle_price_b) };
+    }
     if (kind === 'mover') {
       entry.symbol_b = round.symbol_b;
       entry.entry_price_b = Number(p.entry_price_b);
@@ -439,7 +480,7 @@ function weeklyDuelQuests(entries, now = new Date()) {
  * hidden direction, and it means nobody can be credited with beating an
  * opinion that was never held.
  */
-function buildRounds(day, signals, tickers) {
+function buildRounds(day, signals, tickers, sports) {
   if (!Number.isFinite(dayStartMs(day))) return [];
   const marks = tickers || {};
   const chosen = [];
@@ -461,7 +502,7 @@ function buildRounds(day, signals, tickers) {
     return sym;
   };
   const push = (round) => {
-    chosen.push(Object.assign({ day, idx: chosen.length }, round));
+    chosen.push(Object.assign({ day, idx: chosen.length, meta: null }, round));
   };
 
   // Unknown confidence sorts BELOW every known one — explicitly, rather than
@@ -554,6 +595,18 @@ function buildRounds(day, signals, tickers) {
     }
   }
 
+  // Football: the feed's dealt match, when one was read (lib/sports_feed.js).
+  // Its symbol is the provider's event key; the teams and kick-off ride meta.
+  const m = sports && typeof sports === 'object' ? sports : null;
+  if (m && m.event_id && m.home && m.away && Number.isFinite(Date.parse(m.kickoff || ''))) {
+    push({ kind: 'sports', symbol: ('FD:' + String(m.event_id)).slice(0, 20), symbol_b: null,
+      threshold_pct: null, agent_direction: null, signal_key: null,
+      meta: { provider: m.provider || 'football-data', event_id: String(m.event_id),
+        home: String(m.home), away: String(m.away),
+        home_short: String(m.home_short || m.home), away_short: String(m.away_short || m.away),
+        competition: String(m.competition || ''), kickoff: new Date(m.kickoff).toISOString() } });
+  }
+
   return chosen;
 }
 
@@ -566,8 +619,23 @@ function buildRounds(day, signals, tickers) {
  */
 function isCallable(round, now = new Date()) {
   if (!round || !round.day) return false;          // unknown day => not open
-  if (kindOf(round) === null) return false;
-  return dayKey(now) === String(round.day);
+  const kind = kindOf(round);
+  if (kind === null) return false;
+  if (dayKey(now) !== String(round.day)) return false;
+  if (kind === 'sports') {
+    // Calls close at kick-off; a round whose kick-off cannot be read is open
+    // to nobody rather than open all day on a guess.
+    const ko = kickoffMs(round);
+    return Number.isFinite(ko) && new Date(now).getTime() < ko;
+  }
+  return true;
+}
+
+/** When a sports call resolves: full time after the round's kick-off, or
+ *  null when the kick-off cannot be read (then no call is taken). */
+function sportsHorizonFor(round) {
+  const ko = kickoffMs(round);
+  return Number.isFinite(ko) ? new Date(ko + SPORTS_FULL_TIME_MS).toISOString() : null;
 }
 
 /** The horizon for a call made now. */
@@ -617,6 +685,11 @@ function publicRound(round, { revealAgent, now = new Date() } = {}) {
   };
   if (kind === 'mover') out.symbol_b = r.symbol_b;
   if (kind === 'range') out.threshold_pct = Number(r.threshold_pct);
+  if (kind === 'sports') {
+    const m = metaOf(r);
+    out.match = m ? { home: m.home, away: m.away, home_short: m.home_short || m.home,
+      away_short: m.away_short || m.away, competition: m.competition || '', kickoff: m.kickoff || null } : null;
+  }
   // A range or a mover round never held a view, so the field is never there:
   // a null on it would read as "the Claw passed" on a choice never offered.
   if ((revealAgent && kind === 'direction') || kind === 'backfade') {
@@ -640,7 +713,7 @@ function publicPick(pick, { now = new Date(), round = null } = {}) {
   const kind = round ? kindOf(round) : 'direction';
   const out = {
     pick: normPick(p.pick, kind),
-    entry_price: Number(p.entry_price),
+    entry_price: p.entry_price == null ? null : Number(p.entry_price),
     resolves_at: p.resolves_at,
     seal: p.seal || null,
     outcome: null,
@@ -649,8 +722,12 @@ function publicPick(pick, { now = new Date(), round = null } = {}) {
   const outcome = round ? callOutcome(round, p) : pickOutcome(p);
   if (outcome !== null) {
     out.outcome = outcome;
-    out.move_pct = Math.round(movePct(p.entry_price, p.settle_price) * 100) / 100;
-    if (kind === 'mover') out.move_pct_b = Math.round(movePct(p.entry_price_b, p.settle_price_b) * 100) / 100;
+    if (kind === 'sports') {
+      out.score = { home: Number(p.settle_price), away: Number(p.settle_price_b) };
+    } else {
+      out.move_pct = Math.round(movePct(p.entry_price, p.settle_price) * 100) / 100;
+      if (kind === 'mover') out.move_pct_b = Math.round(movePct(p.entry_price_b, p.settle_price_b) * 100) / 100;
+    }
   } else if (isDue(p, now)) {
     out.unresolved = true;
   } else {
@@ -660,10 +737,11 @@ function publicPick(pick, { now = new Date(), round = null } = {}) {
 }
 
 module.exports = {
-  CARD, ROUNDS_PER_DAY, FULL_CARD_CALLS, HORIZON_HOURS, DEAD_BAND_PCT, SETTLE_GIVE_UP_MS,
+  CARD, ROUNDS_PER_DAY, FULL_CARD_CALLS, HORIZON_HOURS, DEAD_BAND_PCT, SETTLE_GIVE_UP_MS, SPORTS_FULL_TIME_MS,
   KINDS, KIND_NAMES, PICKS, ALL_PICKS, RANGE_BAND_PCT, DUEL_POOL, DUEL_QUEST_POOL,
   kindOf, picksFor, normPick, normDirection, dayKey, dayStartMs, horizonFor, rangeBandFor,
-  movePct, outcomeOf, rangeOutcome, moverOutcome, pickOutcome, callOutcome,
+  metaOf, kickoffMs, sportsHorizonFor,
+  movePct, outcomeOf, rangeOutcome, moverOutcome, sportsOutcome, pickOutcome, callOutcome,
   scoreCall, scorePick, scoreEntries, accuracy, computeMarks,
   duelStreak, weeklyDuelQuests,
   buildRounds, isCallable, isDue, isAbandoned, publicRound, publicPick,
