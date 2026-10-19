@@ -1200,6 +1200,25 @@ STOCK_PERPETUALS: list[str] = [
     "DIASTOCK/USDT:USDT",  # SPDR Dow Jones Industrial Average
 ]
 
+# ── Taiwan Stock Perpetuals ──────────────────────────────────────
+# Bitget perps on Taiwan Stock Exchange names, listed as bare tickers the
+# classifier could only call Crypto (the new-listings card, 2026-10-19:
+# "$0.0M/day", class Crypto). The classifier calls them Stock, so they take
+# the stock volume floor and are not auto-traded unless STOCK_TRADING_ENABLED
+# is on; their session is the TWSE's, not New York's
+# (`stock_trading.stock_market`). NOT in STOCK_PERPETUALS: that list seeds
+# the curated scan universes (Deep Scan's fixed list among them), and these
+# names reach the scan through the exchange's own catalog like any listing.
+TAIWAN_STOCK_PERPETUALS: list[str] = [
+    "TWTSM/USDT:USDT",     # TSMC
+    "TWUMC/USDT:USDT",     # United Microelectronics
+    "TWDELTA/USDT:USDT",   # Delta Electronics
+    "TWASX/USDT:USDT",     # Taiwan-listed (Bitget ticker TWASX)
+    "NANYA/USDT:USDT",     # Nanya Technology
+    "WINBOND/USDT:USDT",   # Winbond Electronics
+    "YAGEO/USDT:USDT",     # Yageo
+]
+
 # ── Combined TradFi Universe ────────────────────────────────────
 # All non-crypto USDT-M perpetuals: metals + commodities + ETFs + pre-IPO + stocks
 TRADFI_PERPETUALS: list[str] = (

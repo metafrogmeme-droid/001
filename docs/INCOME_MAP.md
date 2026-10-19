@@ -1801,8 +1801,9 @@ rotation, index beta.
 *Where.* Telegram /stockscan (@guard("scan"),
 `bot/skills/scan_commands.py::ScanCommands._cmd_stockscan`, registered `bot/skills/telegram_handler.py::TelegramHandler.build_app#'("stockscan", self'`) and
 /mode stocks (universe switch, `bot/skills/command_catalog.py::GROUPS#'("mode", "switch universe'`);
-bot/core/stock_trading.py, also read by `bot/core/engine.py::RuneClawEngine._confirm_trade_inner#"_sess = get_market_session"`
-(get_market_session) and `bot/skills/scan_commands.py::ScanCommands._cmd_mode#"from bot.core.stock_trading"`.
+bot/core/stock_trading.py, also read by `bot/core/engine.py::RuneClawEngine._confirm_trade_inner#"_sess = equity_session_for"`
+(the session of the market the asset trades on: New York, or Taipei for the
+Taiwan stock perps) and `bot/skills/scan_commands.py::ScanCommands._cmd_mode#"from bot.core.stock_trading"`.
 
 **Price alerts and anomaly-alert scoping**
 

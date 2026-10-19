@@ -633,8 +633,8 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       assert.strictEqual(today && today.auth, 'Bearer session-jwt-1', 'the card was read without the session');
       const kinds = await page.$$eval('.p-duel .d-round .d-kind', (els) => els.map((e) => e.textContent));
       assert.deepStrictEqual(kinds, ['Direction', 'Back or fade', 'Range', 'Bigger mover', 'Football']);
-      assert.match(text, /Arsenal vs Chelsea — who wins\? Premier League/);
       const text = await page.textContent('.p-duel');
+      assert.match(text, /Arsenal vs Chelsea — who wins\? Premier League/);
       assert.match(text, /Higher or lower in 24h\?/);
       assert.match(text, /The Claw called SHORT on SOL\. Back it, or fade it\?/);
       assert.match(text, /Does BNB move more than ±2% either way in 24h\?/);

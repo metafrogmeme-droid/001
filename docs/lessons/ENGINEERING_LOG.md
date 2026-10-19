@@ -21877,7 +21877,7 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **498 of 1346** reach for source text through `source_scan`, `code_only`
+Driven, **498 of 1347** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
 source scan that rule does not see, so 498 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
@@ -26805,6 +26805,22 @@ charge inside a breakdown whose Net is gross less commission, so the $0.12 read
 as a cost Net had paid; Size is the margin with the notional beside it, and
 the funding line says it is not booked. (`tests/test_performance_card_states.py`,
 `tests/test_the_details_button_reads_the_callers_account.py`.)
+
+**THE TAIWAN STOCK PERPS, ON TAIPEI'S HOURS.** 19 October: the new-listings
+card named TSMC, UMC, Delta, Nanya, Winbond, Yageo and TWASX as Crypto at
+"$0.0M/day", since a bare-ticker TradFi listing is Crypto until a config entry
+names it, and the owner said to add them all. `TAIWAN_STOCK_PERPETUALS` names
+them and the classifier calls them Stock (the stock volume floor, and no
+autonomous confirm while STOCK_TRADING_ENABLED is off). Two things did not
+come with the name. The confirm-time equity gate read New York's session for
+every equity perp, which would have sized a TSMC perp down during Taipei's
+open and at full size overnight there; `stock_market` names each perp's
+exchange and `equity_session_for` reads that exchange's hours (TWSE
+09:00-13:30 Asia/Taipei, 01:00-05:30 UTC). And appending them to
+STOCK_PERPETUALS, the first draft, put seven near-zero-volume names into Deep
+Scan's fixed universe, a thirteenth batch on every sweep (the accuracy test
+that counts the batches caught it); they stay out of the curated lists and
+reach the scan through the exchange's catalog. (`tests/test_a_taiwan_stock_perp_is_a_stock_on_taipei_hours.py`.)
 
 **THE DUEL GOT FOUR CATEGORIES, AND EVERY SURFACE RENDERS A ROUND FROM THE
 ROUND'S OWN WORDS.** 19 October, the owner: "we need also more predictions
