@@ -164,8 +164,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 186,
-    "sha": "bd34066334d08ad3"
+    "v": 187,
+    "sha": "b4513e8b8459e838"
   },
   "js/icons.js": {
     "v": 6,
@@ -374,5 +374,9 @@
   "js/pi-duel.js": {
     "v": 1,
     "sha": "b0c2a24b777e79b3"
+  },
+  "js/studies-panel.js": {
+    "v": 1,
+    "sha": "956628eed9c6ec33"
   }
 }

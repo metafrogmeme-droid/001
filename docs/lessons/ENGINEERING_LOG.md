@@ -26921,3 +26921,26 @@ first line only; the log wraps at 78 columns and most titles are longer, so
 252 of the 576 chapters were absent from the index and their guard tests
 were credited to the chapter before them. The generator joins a wrapped
 title now, and the index regenerated with every chapter on it.
+
+**THE SEALED STUDIES, ON THE PAGE WHERE A VISITOR READS THE CARDS.** 19
+October. `benchmark/studies.json` names the four pre-registered studies, two
+rules that passed among fourteen tested, and only the README and
+`scripts/verify_evidence.py` read it, so /agents, where a visitor decides
+whether a strategy card means anything, never said which rules had been tried
+and failed. GET /api/public/studies serves the website's copy (the web deploy
+ships `app/` alone, so `sync_content.js` copies it into `app/content/`) as an
+allowlist: named prose, the measured fields by name, a counted pass, and a
+link only inside the research tree. A field the registry gains later is left
+out until it is named; a value of the wrong type is left out, so the cell says
+"not recorded" instead of printing it; prose naming a dollar amount refuses
+the registry. An unreadable registry is a 503 with the class and a sentence on
+the page, never an empty list, which would read as research never done. A row
+with no verdict (a benchmark, a re-costing run) is served without `pass`, not
+`pass: false`, and a pass count the registry did not record is null, which the
+panel says rather than printing "0 of 5". The one coloured word is a
+pre-registered pass; a Sharpe ratio carries no green, because a ratio is not a
+profit. Eleven mutants, nine killed on the first round; the two survivors (a
+missing pass count as 0, a null ratio as 0.00) each got the test that kills
+it. (`app/test/the_agents_page_shows_the_sealed_studies.test.js`,
+`app/lib/studies.js`, `app/routes/public_studies.js`,
+`app/public/js/studies-panel.js`.)

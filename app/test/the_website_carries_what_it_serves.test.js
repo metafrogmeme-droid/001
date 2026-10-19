@@ -42,6 +42,7 @@ test('every copy under app/content is byte-identical to its original', () => {
     'run `node app/scripts/sync_content.js` and commit app/content');
   const pairs = sync.plan();
   assert.ok(pairs.some(([src]) => src === 'token/config/rclaw.mainnet.json'));
+  assert.ok(pairs.some(([src, dst]) => src === 'benchmark/studies.json' && dst === 'studies.json'));
   const lessonsInRepo = fs.readdirSync(path.join(REPO, 'docs', 'learn')).filter((f) => f.endsWith('.md'));
   assert.ok(lessonsInRepo.length >= 3);
   assert.strictEqual(pairs.filter(([src]) => src.startsWith('docs/learn/')).length, lessonsInRepo.length);
@@ -64,6 +65,8 @@ test('the drift check names a missing copy, a changed copy and a stray', () => {
   fs.mkdirSync(path.join(repo, 'docs', 'learn'), { recursive: true });
   fs.mkdirSync(path.join(repo, 'docs', 'gitbook'), { recursive: true });
   fs.writeFileSync(path.join(repo, 'token', 'config', 'rclaw.mainnet.json'), '{"a":1}\n');
+  fs.mkdirSync(path.join(repo, 'benchmark'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'benchmark', 'studies.json'), '{"studies":[]}\n');
   fs.writeFileSync(path.join(repo, 'docs', 'learn', '01-x.md'), '# X\n');
   fs.writeFileSync(path.join(repo, 'docs', 'gitbook', 'SUMMARY.md'), '* [X](README.md)\n');
   fs.writeFileSync(path.join(repo, 'docs', 'gitbook', 'notes.txt'), 'not served\n');
@@ -75,7 +78,7 @@ test('the drift check names a missing copy, a changed copy and a stray', () => {
   const content = tmp('content-');
 
   const before = sync.drift({ repo, content });
-  assert.strictEqual(before.length, 6, before.join('\n'));
+  assert.strictEqual(before.length, 7, before.join('\n'));
   assert.ok(before.every((l) => l.startsWith('missing ')));
 
   sync.write({ repo, content });

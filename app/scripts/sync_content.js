@@ -30,6 +30,9 @@
  * article, and the site's stylesheet, from `app/content/site/`. The route
  * first read `../../website/`, and answered 503 on the live host the day it
  * shipped (2026-10-17). After a site rebuild, run this script too.
+ *
+ * So is the studies registry (`benchmark/studies.json`): after a study is
+ * added or re-sealed, run this script, or the copy test fails.
  */
 
 const fs = require('node:fs');
@@ -55,7 +58,13 @@ const MIRRORS = [
 
 /** [source relative to the repo, copy relative to app/content]. One reading. */
 function plan({ repo = REPO } = {}) {
-  const pairs = [['token/config/rclaw.mainnet.json', 'rclaw.mainnet.json']];
+  const pairs = [
+    ['token/config/rclaw.mainnet.json', 'rclaw.mainnet.json'],
+    // The pre-registered studies registry, which /api/public/studies serves
+    // (app/lib/studies.js). The README's table and scripts/verify_evidence.py
+    // read the original.
+    ['benchmark/studies.json', 'studies.json'],
+  ];
   for (const [from, to, keep] of MIRRORS) {
     for (const f of fs.readdirSync(path.join(repo, from)).filter((n) => keep.test(n)).sort()) {
       pairs.push([path.posix.join(from, f), path.posix.join(to, f)]);
