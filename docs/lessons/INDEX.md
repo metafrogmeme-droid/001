@@ -360,3 +360,5 @@ about to change before changing it.
 - L26657: ONE COMMAND RE-DERIVES WHAT THE REPOSITORY PUBLISHES, AND IT CAN SAY NO — `app/test/a_live_call_is_a_members.test.js`, `app/test/a_visitor_sample_is_not_chosen_by_the_query.test.js`, `tests/test_the_engine_keeps_the_website_fresh.py`, `tests/test_the_evidence_re_derives.py`
 - L26711: THE /START CARD SHOWED ONE BOOK — `tests/test_start_shows_the_paper_book_beside_the_live_one.py`
 - L26730: LIVE OFF MEANS PAPER, AND LIVE IS THE OPERATOR'S — `tests/test_live_off_is_paper_and_live_is_the_operators.py`
+- L26754: PAPER WAS THE MAIN MODE AND NOTHING TRADED ON IT — `tests/test_live_off_is_paper_and_live_is_the_operators.py`
+- L26771: THE PAPER CARDS, READ FOR THE FIRST TIME AS THE MAIN BOOK — `tests/test_an_unpriced_paper_mark_is_absent_not_zero.py`, `tests/test_the_details_button_reads_the_callers_account.py`

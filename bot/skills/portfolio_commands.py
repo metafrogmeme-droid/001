@@ -161,6 +161,26 @@ def _claim_public_daily_post() -> bool:
     return False
 
 
+
+def paper_exposure_pct(portfolio, state) -> Optional[float]:
+    """The paper book's committed exposure, as the risk gate measures it.
+
+    `PortfolioState.portfolio_exposure_pct` is a field nothing fills (its own
+    comment says so), and the /portfolio card printed it: "EXPOSURE 0%" over
+    two open paper positions (2026-10-18). The gate's reading is
+    `get_position_value()` (margin plus unrealized) over equity
+    (`RiskEngine`, PORTFOLIO_EXPOSURE), so the card asks the same one. None,
+    never 0, when the equity is not positive or a position has no mark: the
+    value then falls back to entry prices and is a partial, not a reading.
+    """
+    try:
+        equity = float(state.equity_usd)
+        if equity <= 0 or state.unpriced_positions:
+            return None
+        return float(portfolio.get_position_value()) / equity * 100.0
+    except Exception:
+        return None
+
 class PortfolioCommands:
     """The book, the record and the gates, as cards. Host contract below; methods after."""
 
@@ -881,7 +901,7 @@ class PortfolioCommands:
             _card_wr = _pws["rate"]
             _card_open = state.open_positions
             _card_trades = state.total_trades
-            _card_exposure = state.portfolio_exposure_pct
+            _card_exposure = paper_exposure_pct(portfolio, state)
             _card_dd = state.max_drawdown_pct
             _card_dd_src = "paper" if _card_dd is not None else None
 
@@ -907,8 +927,11 @@ class PortfolioCommands:
                     {"label": t("lbl_realized_pnl", lang),
                      "value": ("--" if _card_pnl is None
                                else f"${_card_pnl:+,.2f}"),
-                     "color": ("gray" if _card_pnl is None
-                               else "green" if _card_pnl >= 0 else "red")},
+                     # Colour is a claim: green says "in profit". A book
+                     # with nothing closed has a realized $0.00, which is
+                     # not a profit, so zero takes the muted colour.
+                     "color": ("gray" if _card_pnl is None or _card_pnl == 0
+                               else "green" if _card_pnl > 0 else "red")},
                     {"label": t("lbl_win_rate", lang),
                      "value": "--" if _card_wr is None else f"{_card_wr:.0%}",
                      "color": "gray" if _card_wr is None else "cyan"},

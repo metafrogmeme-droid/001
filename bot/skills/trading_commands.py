@@ -539,6 +539,56 @@ def _paper_held(enabled: bool, cls: str) -> str:
             f"The setting could not be written ({cls}), so {now}; {later}.")
 
 
+
+def _r4(v: Optional[float]) -> Optional[float]:
+    """round(v, 4), with an absence kept an absence."""
+    return None if v is None else round(v, 4)
+
+
+
+def paper_mode_reason(engine, tg_id: str) -> Optional[str]:
+    """Why this caller's confirms are paper because of the bot's mode, as the
+    card says it, or None when the mode does not make them paper.
+
+    Two readings, both from the bot's state rather than the caller's switch:
+    live turned off (`/golive OFF`), and a non-operator on a live bot under
+    LIVE_ADMIN_ONLY. Each is asked of `engine.confirm_is_practice`, the one
+    reading, so the card cannot say paper over a confirm that places live.
+    A suspension that cannot be read is turned off (fail closed).
+    """
+    from bot.config import RUNTIME
+    fn = getattr(engine, "confirm_is_practice", None)
+    if not callable(fn):
+        return None
+    try:
+        practice = fn(tg_id) is True
+    except Exception:
+        return None
+    if not practice:
+        return None
+    try:
+        turned_off = bool(RUNTIME.live_suspended)
+    except Exception:
+        turned_off = True
+    where = ("Open paper positions: <code>/positions</code> · balance and "
+             "history: <code>/portfolio</code>.")
+    if turned_off:
+        owner = getattr(engine, "_unattended_paper_owner", None)
+        try:
+            own = callable(owner) and owner() == str(tg_id)
+        except Exception:
+            own = False
+        return ("📝 <b>Your confirms are paper.</b> Live trading is turned off "
+                "(<code>/golive OFF</code>), so every confirm you tap opens on your "
+                "paper book and nothing reaches an exchange."
+                + (" The bot's own confirms open there too." if own else "")
+                + "\n" + where)
+    if getattr(CONFIG, "live_admin_only", True) and CONFIG.is_live():
+        return ("📝 <b>Your confirms are paper.</b> Live trading on this bot is "
+                "for admins only, so every confirm you tap opens on your own "
+                "paper book and nothing reaches an exchange.\n" + where)
+    return None
+
 class TradingCommands:
     """Open, close, list and stop. Host contract below; methods after."""
 
@@ -1227,6 +1277,15 @@ class TradingCommands:
                 "practice book and nothing reaches an exchange; <code>/paper</code> "
                 "changes nothing for it. An admin's vouch is what moves an account "
                 "to live trading.")
+            return
+        # Paper because of the bot's mode, not this switch: live turned off
+        # (`/golive OFF`), or a member on a live bot where live is the
+        # operator's alone. It answered "not enabled on this bot" here while
+        # every confirm the caller tapped was opening on their paper book
+        # (2026-10-18). `engine.confirm_is_practice` is the one reading.
+        _why_paper = paper_mode_reason(getattr(self, "engine", None), tg_id)
+        if _why_paper is not None:
+            await self._send(update, _why_paper)
             return
         if not CONFIG.paper_sim_opt_in_enabled:
             await self._send(update,
@@ -2140,6 +2199,7 @@ class TradingCommands:
                         pnl_pct = None
                     from datetime import datetime, timezone
                     hold_h = (datetime.now(timezone.utc) - pos.opened_at).total_seconds() / 3600
+                    _rr_paper = live_rr(last_price, pos.stop_loss, pos.take_profit)
                     positions_data.append({
                         "pair": pos.asset.replace("/", ""),
                         "direction": pos.direction.value,
@@ -2153,6 +2213,27 @@ class TradingCommands:
                         "current": record_level(last_price) if _priced else None,
                         "price_unavailable": not _priced,
                         "pnl_pct": round(pnl_pct, 2) if pnl_pct is not None else None,
+                        # THE DOLLARS BESIDE THE PERCENT, on the same basis.
+                        # This row carried no `pnl_usd`, and the card shows a
+                        # P&L only when it has both, so every paper position
+                        # with a fresh mark printed "price unavailable" beside
+                        # its own NOW price while the header summed it
+                        # (2026-10-18). `_leveraged_pnl_usd` is the reading
+                        # the live rows use; None when unpriced.
+                        "pnl_usd": (None if not _priced else _r4(_leveraged_pnl_usd(
+                            pos.entry_price, last_price, pos.direction.value,
+                            pos.quantity * pos.entry_price / pos_lev, pos_lev))),
+                        # Guarded on the RATIO, which also fails on a leg the
+                        # record does not hold; and on the mark, since an
+                        # unpriced row's `last_price` is the entry.
+                        "rr_live": (None if _rr_paper is None or not _priced
+                                    else round(_rr_paper, 2)),
+                        "sl_dist_pct": (round(abs(last_price - pos.stop_loss) / last_price * 100, 2)
+                                        if _priced and price_on_record(pos.stop_loss) is not None
+                                        else None),
+                        "tp_dist_pct": (round(abs(pos.take_profit - last_price) / last_price * 100, 2)
+                                        if _priced and price_on_record(pos.take_profit) is not None
+                                        else None),
                         "sl": record_level(pos.stop_loss),
                         "tp": record_level(pos.take_profit),
                         # MARGIN, matching the live branch above, because both

@@ -200,7 +200,7 @@ PASSED_THROUGH = {
     "result": (
         "confirm_trade's answer from the inner path, walked below, returned "
         "after the why-not record keeps it when it placed nothing"),
-    "await self._simulate_paper_fill(idea, recheck, user_id, trade_id)":
+    "await self._simulate_paper_fill(idea, recheck, self._practice_book_user(user_id), trade_id)":
         "the practice fill, walked below",
     "practice_book_refusal(exc)": (
         "the practice book could not be read; the sentence is Trade REJECTED, "
