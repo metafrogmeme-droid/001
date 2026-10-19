@@ -686,10 +686,10 @@ class TestAPaperRefreshCard:
     @staticmethod
     def _figures(text):
         import re
-        m = re.search(r"([+-]\d+\.\d+)% \(\$([+-][\d,]+\.\d+)\)", text)
+        m = re.search(r"([+-]\d+\.\d+)% \(([+-])\$([\d,]+\.\d+)\)", text)
         size = re.search(r"Size <code>\$([\d,]+\.\d+)</code>", text)
         assert m and size, text
-        return (float(m.group(1)), float(m.group(2).replace(",", "")),
+        return (float(m.group(1)), float(m.group(2) + m.group(3).replace(",", "")),
                 float(size.group(1).replace(",", "")))
 
     def test_a_5x_short_states_its_dollars_on_the_margin(self):

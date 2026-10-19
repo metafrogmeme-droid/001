@@ -25,8 +25,9 @@ from typing import Any, NamedTuple, Optional
 from bot.config import CONFIG
 from bot.core.live_executor import normalize_symbol
 from bot.core.order_state import read_amount
+from bot.formatters.money import signed_usd
 from bot.utils.close_reason import stop_exit_label
-from bot.utils.logger import audit, trade_log, system_log
+from bot.utils.logger import audit, system_log, trade_log
 from bot.utils.models import Direction
 
 logger = logging.getLogger(__name__)
@@ -485,7 +486,7 @@ async def sync_portfolio_with_exchange(engine) -> list[str]:
                 msg = (
                     f"Ghost closed: {trade_id} "
                     f"({key[0]} {key[1]}) — {close_reason} | "
-                    f"exit=${close_price:,.4f} | PnL=${pnl:+.4f} ({close_source})"
+                    f"exit=${close_price:,.4f} | PnL={signed_usd(pnl, places=4, grouped=False)} ({close_source})"
                 )
                 audit(trade_log, msg, action="ghost_close", result="OK",
                       data={"trade_id": trade_id, "symbol": key[0],

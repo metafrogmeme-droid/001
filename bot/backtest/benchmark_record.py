@@ -38,6 +38,8 @@ import subprocess
 from pathlib import Path
 from typing import NamedTuple, Optional
 
+from bot.formatters.money import signed_usd
+
 ROOT = Path(__file__).resolve().parents[2]
 DATASET = "benchmark/majors_1h"
 BENCHMARK_RESULT = ROOT / DATASET / "result.json"
@@ -247,7 +249,7 @@ def card_line(r: BenchmarkReading) -> str:
     mean = ("n/a" if r.mean_oos_return_pct is None
             else f"{r.mean_oos_return_pct:+.2f}%")
     win = "n/a" if r.pooled_win_rate is None else f"{r.pooled_win_rate:.0%}"
-    net = "n/a" if r.pooled_net_usd is None else f"${r.pooled_net_usd:+,.2f}"
+    net = "n/a" if r.pooled_net_usd is None else signed_usd(r.pooled_net_usd)
     # The leverage the record filled at, beside the figures it scales: live
     # places every order at DEFAULT_LEVERAGE, and a record read against it
     # has to say which leverage its returns and drawdowns were measured at.

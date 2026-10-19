@@ -158,7 +158,7 @@ class TestNoLineMixesTwoBooks:
             out = asyncio.run(SR.GetPortfolioSkill().execute(engine, user_id=VIEWER))
         for row in ("LLM", "Infra", "NET", "Per Trd"):
             assert not re.search(rf"▸ {row}\b|▶ {row}\b", out), row
-        assert re.search(r"▶ Trading\s+\$\+50\.00", out), out
+        assert re.search(r"▶ Trading\s+\+\$50\.00", out), out
         assert "All-time: 4 trades • Trading +$50.00" in out
         assert "Session:" not in out
 

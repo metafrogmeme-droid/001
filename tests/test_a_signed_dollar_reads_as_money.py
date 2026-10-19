@@ -5,8 +5,8 @@ currency, and a reader outside called it out on 2026-10-19. One helper,
 ``bot/formatters/money.py::signed_usd``, spells the figure for every surface a
 person reads; this file drives the helper, drives one card through the text
 spy, and scans the surfaces for the old shape so a new site cannot bring it
-back. The scan is two-way: the sites left on the old shape are listed with a
-reason, and a listed site that moves onto the helper must be delisted.
+back. The scan is two-way: a site left on the old shape would be listed with
+a reason, and a listed site that moves onto the helper must be delisted.
 """
 from __future__ import annotations
 
@@ -24,21 +24,15 @@ ROOT = os.path.dirname(HERE)
 #: ``${x:+.2f}`` / ``${x:+,.2f}``: the sign inside the number, after the ``$``.
 OLD_SHAPE = re.compile(r"\$\{[^{}]+:\+,?\.\d+f\}")
 
-#: Surfaces a person reads, scanned whole.
-SURFACES = ("bot/skills", "bot/formatters", "bot/warroom", "bot/core", "bot/web", "bot/utils", "bot/nlp")
+#: The whole bot, scanned whole: the Telegram text, the cards, the war room,
+#: the monitors, the backtest reports and the journal lines alike.
+SURFACES = ("bot",)
 
 #: Sites that keep the old shape, with the reason a reviewer can check.
 #: Two-way: a count that changes fails here, so a site moved onto the helper is
-#: delisted in the same commit.
-LEFT_AS_THEY_WERE = {
-    # One line in the operator's journal, written by the logger, never sent to a person.
-    "bot/core/exchange_sync.py": 1,
-}
-
-#: The backtest reports are a surface of their own (operator-run, written to
-#: the terminal and the benchmark record) and were not part of the sweep.
-#: Still two-way: when they move onto the helper, drop this.
-BACKTEST_STILL_ON_THE_OLD_SHAPE = True
+#: delisted in the same commit. Empty since the sweep reached the backtest
+#: reports and the exchange-sync journal line too.
+LEFT_AS_THEY_WERE: dict = {}
 
 
 def _py_files(rel):
@@ -99,10 +93,10 @@ class TestNoSurfaceGoesBack:
             "sign-after-dollar sites changed; move a new one onto signed_usd, "
             "or delist one that moved:\n" + "\n".join(f"  {k}: {v}" for k, v in sorted(found.items())))
 
-    def test_the_backtest_exclusion_is_still_needed(self):
-        n = sum(_hits(rel) for rel in _py_files("bot/backtest"))
-        assert (n > 0) == BACKTEST_STILL_ON_THE_OLD_SHAPE, (
-            f"bot/backtest has {n} sign-after-dollar sites; the exclusion above is stale")
+    def test_the_scan_sees_the_shape_it_forbids(self):
+        """Both arms: a scan that matched nothing would pass on an empty regex."""
+        assert OLD_SHAPE.search('f"net ${x:+,.2f}"') and OLD_SHAPE.search('f"${v:+.4f}"')
+        assert not OLD_SHAPE.search('f"{signed_usd(x)}"') and not OLD_SHAPE.search('f"${x:,.2f}"')
 
     def test_the_helper_itself_is_not_scanned_as_a_hit(self):
         """The helper's docstring quotes the old shape; ``code_only`` blanks it."""

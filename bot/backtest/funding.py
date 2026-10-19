@@ -46,6 +46,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
+from bot.formatters.money import signed_usd
 from bot.risk.funding_clock import SETTLEMENT_INTERVAL_SEC, pays_funding
 
 #: Nothing was priced: no rate was supplied, or the caller never said whether
@@ -176,7 +177,7 @@ def funding_figure(state: str, total: Optional[float]) -> str:
     """
     if state == UNPRICED or total is None:
         return "not priced"
-    return f"${total:+,.2f}"
+    return signed_usd(total)
 
 
 def combine(states: list) -> str:

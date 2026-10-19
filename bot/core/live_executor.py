@@ -750,18 +750,17 @@ UNREAD = "unread"
 def money(v) -> str:
     """A dollar figure, or ``unread`` when there is no figure to print.
 
-    The sign sits after the dollar (``$-0.2128``), four places, no
-    thousands comma — the spelling the close cards already use. ``fmt``
-    puts the sign in front of the prefix; this swaps that one spelling
-    back. Unreadable (None, NaN, a non-number) is the word, never ``$0``.
+    Four places, no thousands comma, the sign before the dollar
+    (``-$0.2128``), as ``fmt`` spells it and as every surface spells a signed
+    figure since 2026-10-19 (``bot/formatters/money.py``); this used to swap
+    the sign after the dollar. Unreadable (None, NaN, a non-number) is the
+    word, never ``$0``.
     """
     if v is None:
         return UNREAD
     text = fmt(v, places=4, prefix="$", thousands=False)
     if text is None:
         return UNREAD
-    if text.startswith("-$"):
-        return "$-" + text[2:]
     return text
 
 
