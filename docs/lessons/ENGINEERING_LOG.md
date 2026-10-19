@@ -26921,3 +26921,36 @@ first line only; the log wraps at 78 columns and most titles are longer, so
 252 of the 576 chapters were absent from the index and their guard tests
 were credited to the chapter before them. The generator joins a wrapped
 title now, and the index regenerated with every chapter on it.
+
+**THE TELEGRAM IMAGE CARDS WERE TEN RENDERERS WITH TEN PALETTES; NOW THEY
+ARE ONE LOOK, AND THE HONESTY TESTS NEVER NOTICED.** 19 October, the owner,
+with screenshots of the position card, the scan ranking and a chart beside
+the new duel cards: "these renders need to be more like the new cards we
+build; check all." `bot/formatters/signal_card.py` had grown to ten PNG
+renderers over 2,400 lines, each with its own copy of the palette, its own
+DejaVu font loader and its own cell helper, drawn at one device pixel per
+logical pixel on a 520-wide canvas, so every phone showed them soft; the
+ETF card and the matplotlib chart had copies of their own. The fix is the
+layer the website's cards already had in CSS: `bot/formatters/card_theme.py`
+holds the palette (embed.css's), one font loader over a vendored Inter
+(OFL, `bot/formatters/fonts/`), a `Draw` that multiplies every coordinate by
+`S = 2` and loads fonts at `size * S`, and three shapes, a tile, a tinted
+pill and the rune wordmark. Each renderer kept its layout and its strings
+and swapped its closures for the theme's; the chart took the same palette
+and registers the same files with matplotlib.
+
+What made this safe to do in an afternoon is that the honesty tests on the
+cards read the right seam. `tests/png_text.py` spies on
+`ImageDraw.ImageDraw.text`, the one call every string crosses, and
+`test_close_card_unpriced.py` reads the stripe's pixel at the top edge. The
+theme's `Draw.text` hands the real `ImageDraw` the same string and the same
+fill, the constants kept their names and their meanings (green and red say
+measured, grey says not), and the stripe stayed the top edge, so 351 card
+tests passed unchanged across a complete restyle. A test that reads pixels
+of a named constant or strings through the drawing seam survives a
+redesign; one that pinned a coordinate or a font path would have had to be
+rewritten with every card. `tests/test_the_cards_share_one_look.py` holds
+the renderers to the theme (no palette, font loader or canvas of their own),
+the theme to the seams (the spy still sees string and fill; the stripe is
+still the first row; a pill's ground is a tint, never the colour), and the
+canvas to its content (a card ends where its last line ends).
