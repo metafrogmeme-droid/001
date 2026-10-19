@@ -91,16 +91,32 @@ verifiable by whoever holds the key. `tp` and `sl` are `number | null`.
 **No amount appears.** Not margin, not balance, not PnL — not even virtual ones.
 A public receipt carries prices, leverage and times only. (See §6.)
 
-### 2.3 · `v: 3` — a dated directional call
+### 2.3 · `v: 4` — a dated call in one of four categories (and `v: 3` before it)
+
+```json
+{"v":4,"kind":"duel_pick","round_id":0,"day":"YYYY-MM-DD","category":"direction",
+ "symbol":"…","symbol_b":null,"threshold_pct":null,
+ "handle":null,"pick":"…","entry_price":0,"entry_price_b":null,
+ "resolves_at":"2026-08-16T12:00:00.000Z","picked_at":"2026-08-16T12:00:00.000Z"}
+```
+
+`category` is the round's kind (`direction`, `backfade`, `range`, `mover`);
+`symbol_b` and `entry_price_b` are a mover's second leg and the price it was
+snapped at in the same read, `threshold_pct` the band a range round was played
+under. Each is `null` where the category has no such thing, so a receipt for
+"BTC or ETH, which moves more" commits to both prices it was made at, and a
+later change to the band table cannot rescore a round. Carries the horizon
+(`resolves_at`) as a sealed fact, so the window a call was made for cannot be
+widened afterwards to make it look right.
+
+Receipts sealed before 2026-10-19 are `v: 3`, which carried none of the
+category fields. Its order is frozen:
 
 ```json
 {"v":3,"kind":"duel_pick","round_id":0,"day":"YYYY-MM-DD","symbol":"…",
  "handle":null,"pick":"…","entry_price":0,
  "resolves_at":"2026-08-16T12:00:00.000Z","picked_at":"2026-08-16T12:00:00.000Z"}
 ```
-
-Carries the horizon (`resolves_at`) as a sealed fact, so the window a call was
-made for cannot be widened afterwards to make it look right.
 
 ### 2.4 · Verifying one receipt
 

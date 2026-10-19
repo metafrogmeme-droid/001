@@ -26836,7 +26836,16 @@ The migration adds columns to tables that exist on the production database
 and widens `pick` to eight characters ('second'); each ALTER is its own
 statement, an existing column is the expected refusal and anything else is
 logged by class and code at boot, because a widening that did not land would
-have surfaced as a 500 on the first mover call. (`app/test/duel_engine.test.js`,
+have surfaced as a 500 on the first mover call. And the first full preflight
+failed on exactly that: the ALTERs sat below the schema FAST PATH, which
+returns before them wherever every table already exists, which is every
+production database. The net_rr lesson a third time, caught by
+`app/test/fast_path_reconciles_every_later_column.test.js` before it shipped.
+The columns are in `REQUIRED_DUEL_ROUND_COLUMNS` / `REQUIRED_DUEL_PICK_COLUMNS`
+now, reconciled on the fast path like the signal and user columns, and the
+width of `pick` is READ before it is widened: an unreadable width is left
+alone and said so, never widened on a guess. (`app/test/duel_engine.test.js`,
+`app/test/migration_ddl.test.js`,
 `app/test/duel_routes.test.js`, `app/test/duel_scenarios.test.js`,
 `app/test/the_pi_app_signs_in_with_pi.smoke.test.js`,
 `app/test/the_arena_shows_the_daily_duel.smoke.test.js`,
