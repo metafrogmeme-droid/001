@@ -83,3 +83,65 @@ def test_the_book_header_names_the_unread_mark_as_the_cause(monkeypatch):
     priced: list = []
     _drive(monkeypatch, {"BTC/USDT": 61_000.0}, priced)
     assert "could not be priced" not in "\n".join(str(x) for x in priced)
+
+
+# ── A priced paper row carries its dollars, so the card shows its P&L ──────
+#
+# 2026-10-18, after `/golive OFF`: each paper position card printed "price
+# unavailable" beside its own NOW price, while the header summed the book to
+# +16.64%. The row carried a percent and no `pnl_usd`, and the card shows a
+# P&L only when it has both.
+
+def test_a_read_mark_gives_the_card_its_dollars_rr_and_distances(monkeypatch):
+    sent: list = []
+    cards = _drive(monkeypatch, {"BTC/USDT": 61_000.0}, sent)
+    card = cards[0]
+    # margin = qty * entry / lev = 0.01 * 60,000 / 2 = 300; ROE = 1/60 * 2.
+    assert card["pnl_usd"] is not None and abs(card["pnl_usd"] - 10.0) < 1e-6
+    assert card["rr"] is not None
+    text = "\n".join(str(x) for x in sent)
+    assert "price unavailable" not in text, text
+
+
+def test_an_unread_mark_still_has_no_dollars(monkeypatch):
+    sent: list = []
+    cards = _drive(monkeypatch, {}, sent)
+    assert cards[0]["pnl_usd"] is None and cards[0]["rr"] is None
+    assert "price unavailable" in "\n".join(str(x) for x in sent)
+
+
+# ── The /portfolio card's exposure is the risk gate's reading ──────────────
+
+def _book_with_two_positions(mark=True):
+    from bot.risk.portfolio import PortfolioTracker
+    from bot.utils.models import TradeIdea
+    book = PortfolioTracker(initial_balance=10_000.0)
+    for asset, entry in (("TRUMP/USDT", 1.7468), ("B/USDT", 0.12479)):
+        idea = TradeIdea(asset=asset, direction=Direction.SHORT, entry_price=entry,
+                         stop_loss=entry * 1.05, take_profit=entry * 0.93,
+                         confidence=0.8, reasoning="t", signals_used=["t"])
+        book.open_position(idea, size_usd=400.0, leverage=5)
+    if mark:
+        book.mark_to_market({"TRUMP/USDT": 1.684, "B/USDT": 0.12126})
+    return book
+
+
+def test_two_open_paper_positions_are_not_zero_exposure():
+    from bot.skills.portfolio_commands import paper_exposure_pct
+    book = _book_with_two_positions()
+    state = book.snapshot()
+    pct = paper_exposure_pct(book, state)
+    assert pct is not None and pct > 0
+    assert abs(pct - book.get_position_value() / state.equity_usd * 100) < 1e-9
+
+
+def test_an_empty_book_is_a_measured_zero_and_an_unread_one_is_none():
+    from bot.risk.portfolio import PortfolioTracker
+    from bot.skills.portfolio_commands import paper_exposure_pct
+    empty = PortfolioTracker(initial_balance=10_000.0)
+    assert paper_exposure_pct(empty, empty.snapshot()) == 0.0
+    unpriced = _book_with_two_positions(mark=False)
+    st = unpriced.snapshot()
+    if st.unpriced_positions:
+        assert paper_exposure_pct(unpriced, st) is None
+    assert paper_exposure_pct(empty, NS(equity_usd=0.0, unpriced_positions=0)) is None

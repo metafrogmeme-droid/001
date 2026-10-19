@@ -567,3 +567,141 @@ class TestTheRuleItselfBites:
                                    {"p.py::_cmd_e": "admin: claimed"})
         assert any("_cmd_e: the row says the read is admin-gated" in p
                    for p in problems), problems
+
+
+# ── A paper position's Refresh card states its dollars on the margin ────────
+#
+# 2026-10-18: a 5x paper short read "+17.41% ($+459.56)" on Refresh and
+# closed a minute later for a gross $+93.42. The branch took `entry * qty`
+# as the margin under a comment saying the paper book is unlevered; the book
+# stores `qty = margin * leverage / entry`, so that product is the notional,
+# and the dollars came out leverage times too large.
+
+def _tap_paper(book, ident, mark):
+    sent: list = []
+
+    class _Users:
+        def get(self, tid):
+            return {"role": "trader", "authorized": True}
+
+        def has_permission(self, tid, perm):
+            return True
+
+        def live_trading_revoked(self, *a, **k):
+            return False
+
+        def can_trade_live(self, tid):
+            return True
+
+        def is_authorized(self, *a, **k):
+            return True
+
+        def is_admitted(self, *a, **k):
+            return True
+
+        def permission_denial(self, *a, **k):
+            return None
+
+        def get_tier(self, *a, **k):
+            return "free"
+
+        def register(self, *a, **k):
+            return None
+
+    async def _market_exchange():
+        return _Exchange("market", [])
+
+    h = TelegramHandler.__new__(TelegramHandler)
+    h.engine = SimpleNamespace(
+        live_executor=_Executor(_Exchange("operator", [])),
+        _executor_for=lambda uid="": None,
+        user_portfolios=SimpleNamespace(get=lambda uid: book),
+        get_exchange=_market_exchange,
+    )
+    h.users = _Users()
+    h._limiter = SimpleNamespace(allow=lambda uid: True)
+    h._check_auth = lambda update: True
+    h._is_admin = lambda update: False
+    h._lang = lambda update: "en"
+
+    async def _send(update, text, **kw):
+        sent.append(text)
+
+    async def _send_photo(update, png, caption="", **kw):
+        sent.append(caption or "")
+
+    h._send = _send
+    h._send_photo = _send_photo
+
+    async def _noop(*a, **k):
+        return None
+
+    query = SimpleNamespace(
+        data=f"pos_details_{ident}",
+        message=SimpleNamespace(edit_reply_markup=_noop, chat_id=int(UID)),
+        answer=_noop,
+    )
+    update = SimpleNamespace(
+        callback_query=query,
+        effective_user=SimpleNamespace(id=int(UID), first_name="X"),
+        effective_chat=SimpleNamespace(id=int(UID)),
+    )
+
+    async def _analysis(exchange, symbol, timeframe="1h"):
+        return {"price": mark}
+
+    async def _no_chart(*a, **k):
+        return None
+
+    orig_live = type(bot_config.CONFIG).is_live
+    orig_fad = cb_mod.fetch_analysis_data
+    orig_card = signal_card.render_position_card
+    orig_chart = chart_renderer.build_position_chart
+    signal_card.render_position_card = lambda data: None
+    chart_renderer.build_position_chart = _no_chart
+    type(bot_config.CONFIG).is_live = lambda self: False
+    cb_mod.fetch_analysis_data = _analysis
+    try:
+        asyncio.new_event_loop().run_until_complete(
+            h._handle_callback(update, SimpleNamespace()))
+    finally:
+        type(bot_config.CONFIG).is_live = orig_live
+        cb_mod.fetch_analysis_data = orig_fad
+        signal_card.render_position_card = orig_card
+        chart_renderer.build_position_chart = orig_chart
+    return "\n".join(str(x) for x in sent)
+
+
+class TestAPaperRefreshCard:
+    def _book(self, leverage):
+        from bot.risk.portfolio import PortfolioTracker
+        from bot.utils.models import Direction, TradeIdea
+        book = PortfolioTracker(initial_balance=10_000.0)
+        idea = TradeIdea(asset="TRUMP/USDT", direction=Direction.SHORT, entry_price=1.7468,
+                         stop_loss=1.8262, take_profit=1.6277, confidence=0.8,
+                         reasoning="t", signals_used=["t"])
+        book.open_position(idea, size_usd=527.88, leverage=leverage)
+        return book
+
+    @staticmethod
+    def _figures(text):
+        import re
+        m = re.search(r"([+-]\d+\.\d+)% \(\$([+-][\d,]+\.\d+)\)", text)
+        size = re.search(r"Size <code>\$([\d,]+\.\d+)</code>", text)
+        assert m and size, text
+        return (float(m.group(1)), float(m.group(2).replace(",", "")),
+                float(size.group(1).replace(",", "")))
+
+    def test_a_5x_short_states_its_dollars_on_the_margin(self):
+        text = _tap_paper(self._book(5), "TRUMPUSDT", 1.685)
+        pct, usd, margin = self._figures(text)
+        assert abs(margin - 527.88) < 0.01, "the card's Size is the margin"
+        # The dollars are the ROE of the margin: about $93, the gross the
+        # close booked. On the notional they were five times that.
+        assert abs(usd - pct / 100 * margin) < 0.02, (pct, usd, margin)
+        assert 80 < usd < 100, text
+
+    def test_a_1x_position_is_the_same_reading(self):
+        text = _tap_paper(self._book(1), "TRUMPUSDT", 1.685)
+        pct, usd, margin = self._figures(text)
+        assert abs(usd - pct / 100 * margin) < 0.02, (pct, usd, margin)

@@ -540,6 +540,16 @@ def _paper_held(enabled: bool, cls: str) -> str:
 
 
 
+def _r4(v: Optional[float]) -> Optional[float]:
+    """round(v, 4), with an absence kept an absence."""
+    return None if v is None else round(v, 4)
+
+
+def _r2(v: Optional[float]) -> Optional[float]:
+    """round(v, 2), with an absence kept an absence."""
+    return None if v is None else round(v, 2)
+
+
 def paper_mode_reason(engine, tg_id: str) -> Optional[str]:
     """Why this caller's confirms are paper because of the bot's mode, as the
     card says it, or None when the mode does not make them paper.
@@ -2206,6 +2216,24 @@ class TradingCommands:
                         "current": record_level(last_price) if _priced else None,
                         "price_unavailable": not _priced,
                         "pnl_pct": round(pnl_pct, 2) if pnl_pct is not None else None,
+                        # THE DOLLARS BESIDE THE PERCENT, on the same basis.
+                        # This row carried no `pnl_usd`, and the card shows a
+                        # P&L only when it has both, so every paper position
+                        # with a fresh mark printed "price unavailable" beside
+                        # its own NOW price while the header summed it
+                        # (2026-10-18). `_leveraged_pnl_usd` is the reading
+                        # the live rows use; None when unpriced.
+                        "pnl_usd": (None if not _priced else _r4(_leveraged_pnl_usd(
+                            pos.entry_price, last_price, pos.direction.value,
+                            pos.quantity * pos.entry_price / pos_lev, pos_lev))),
+                        "rr_live": (None if not _priced else _r2(live_rr(
+                            last_price, pos.stop_loss, pos.take_profit))),
+                        "sl_dist_pct": (round(abs(last_price - pos.stop_loss) / last_price * 100, 2)
+                                        if _priced and price_on_record(pos.stop_loss) is not None
+                                        else None),
+                        "tp_dist_pct": (round(abs(pos.take_profit - last_price) / last_price * 100, 2)
+                                        if _priced and price_on_record(pos.take_profit) is not None
+                                        else None),
                         "sl": record_level(pos.stop_loss),
                         "tp": record_level(pos.take_profit),
                         # MARGIN, matching the live branch above, because both

@@ -1028,10 +1028,21 @@ class CallbackHandler:
                     _sl = pos_match.stop_loss
                     _tp = pos_match.take_profit
                     _opened = pos_match.opened_at
-                    # The paper book is unlevered, so notional IS the margin
-                    # here — a real reading rather than a stand-in.
-                    _margin = _entry * _qty
-                    _cost = _margin
+                    # THE MARGIN IS THE NOTIONAL OVER THE LEVERAGE. This said
+                    # "the paper book is unlevered, so notional IS the
+                    # margin", and it is not: `PortfolioTracker.open_position`
+                    # sets `quantity = size_usd * leverage / entry`, so
+                    # `entry * qty` is the notional. Read as the margin, the
+                    # dollar P&L below came out `leverage` times too large: a
+                    # 5x paper short read "+17.41% ($+459.56)" on Refresh and
+                    # closed for a gross $+93.42 a minute later (2026-10-18).
+                    # `_cost` stays the notional, which the fee estimates read.
+                    _cost = _entry * _qty
+                    _paper_lev = getattr(pos_match, "leverage", None)
+                    _margin = (_cost / _paper_lev
+                               if isinstance(_paper_lev, (int, float))
+                               and not isinstance(_paper_lev, bool) and _paper_lev > 0
+                               else None)
                     _sl_oid = None
                     _tp_oid = None
 
@@ -1085,6 +1096,11 @@ class CallbackHandler:
                 # Real leveraged dollar P&L (was _qty×price-delta, which understated
                 # it by the leverage multiple for a margin-based quantity).
                 pnl_usd = _leveraged_pnl_usd(_entry, last_px, _dir, _margin, leverage)
+                # SIZE IS THE MARGIN, as /positions prints it. On a paper row
+                # `sz` is the notional (the fee estimates read it), and this
+                # card printed "$2,639.40" for the position /positions showed
+                # as "$527.88 | 5x". The notional only with no margin on record.
+                _size_shown = _margin if _margin is not None else sz
                 # ...and put the PERCENT on the same basis as that dollar.
                 #
                 # It was computed ~50 lines above as a raw price move, because
@@ -1179,7 +1195,7 @@ class CallbackHandler:
                     f"{d_emoji} {_dir} | {pnl_emoji} {_pnl_str}",
                     "",
                     f"Entry <code>{_entry:,.6f}</code> / Now <code>{last_px:,.6f}</code>",
-                    f"Size <code>${sz:,.2f}</code>{lev_str} | Hold {hold_str} | R:R {format_rr(rr_live)}",
+                    f"Size <code>${_size_shown:,.2f}</code>{lev_str} | Hold {hold_str} | R:R {format_rr(rr_live)}",
                     _level_row("SL", _sl_px, sl_dist, sl_tag),
                     _level_row("TP", _tp_px, tp_dist, tp_tag),
                     html.escape(_time_line),
@@ -1213,7 +1229,7 @@ class CallbackHandler:
                         "pnl_usd": pnl_usd,
                         "net_pnl": net_pnl,
                         "fees": total_fees + funding_paid,
-                        "size_usd": sz,
+                        "size_usd": _size_shown,
                         "leverage": leverage,
                         "hold_time": hold_str,
                         "rr": rr_live,

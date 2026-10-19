@@ -26767,3 +26767,21 @@ no operator configured nothing is placed, as before. `/paper` answered "not
 enabled on this bot" over confirms that were paper; it now says why they are
 (`paper_mode_reason`, asked of `confirm_is_practice`).
 (`tests/test_live_off_is_paper_and_live_is_the_operators.py`.)
+
+**THE PAPER CARDS, READ FOR THE FIRST TIME AS THE MAIN BOOK.** The same
+evening, the owner's screenshots of the paper book found four defects no live
+card had shown. `/positions` printed "price unavailable" beside each paper
+row's own NOW price while its header summed the book: the paper row carried a
+percent and no `pnl_usd`, and the card shows a P&L only with both. It now
+carries the dollars from `_leveraged_pnl_usd`, the live rows' reading, plus the
+R:R and stop distances. The Refresh card read a 5x short as "+17.41%
+($+459.56)" a minute before it closed for a gross $+93.42: its paper branch
+took `entry * qty` as the margin under a comment saying the paper book is
+unlevered, and the book stores `qty = margin * leverage / entry`, so that
+product is the notional and the dollars were leverage times too large. Its
+SIZE printed the notional too, beside `/positions` printing the margin. And
+`/portfolio` printed "EXPOSURE 0%" over two open positions from
+`PortfolioState.portfolio_exposure_pct`, a field whose own comment says nothing
+fills it; it now asks the risk gate's reading (`paper_exposure_pct`), and a
+realized $0.00 is muted rather than green. (`tests/test_an_unpriced_paper_mark_is_absent_not_zero.py`,
+`tests/test_the_details_button_reads_the_callers_account.py`.)
