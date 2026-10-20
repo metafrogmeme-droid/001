@@ -60,6 +60,22 @@ function venueOf(t) {
   return isVenue(v) ? v : 'bitget';
 }
 
+/**
+ * Which book a synced trade was on: 'paper', 'live', or null.
+ *
+ * Three values, like the column. The bot sends the word when its record
+ * carries the flag (`website_sync._book_of`), and nothing when it does not.
+ * Nothing, and anything that is not one of the two words, is stored as NULL:
+ * "the bot did not say", which the share card renders as no chip at all.
+ * There is no default to back-fill here — the agent's record has carried
+ * both books — so a guess would put PAPER on a real-money card or LIVE on a
+ * practice one.
+ */
+function bookOf(t) {
+  const b = String((t && t.book) || '').toLowerCase().trim();
+  return b === 'paper' || b === 'live' ? b : null;
+}
+
 const router = express.Router();
 
 // Best-effort nudge to connected dashboards -- never let a broadcast issue
@@ -386,9 +402,12 @@ function refuseAnotherAccount(req, res) {
  * POST /api/bot/sync
  * Body: {
  *   equity: number,
- *   positions: [{ symbol, direction, entry_price, size_usd, fees, pattern, stop_loss, take_profit, opened_at }],
- *   closed_trades: [{ symbol, direction, entry_price, exit_price, size_usd, pnl, fees, pattern, opened_at, closed_at }]
+ *   positions: [{ symbol, direction, entry_price, size_usd, fees, pattern, stop_loss, take_profit, opened_at, venue?, book? }],
+ *   closed_trades: [{ symbol, direction, entry_price, exit_price, size_usd, pnl, fees, pattern, opened_at, closed_at, venue?, book? }]
  * }
+ *
+ * `book` is 'paper' or 'live' when the bot's record says, absent otherwise
+ * (`bookOf`); `venue` defaults when absent (`venueOf`).
  *
  * Replaces the agent's record: the authorized bot user's trades. That id is
  * server-enforced, and a payload naming any OTHER account is refused
@@ -432,13 +451,13 @@ router.post('/', async (req, res) => {
     if (closed_trades && closed_trades.length > 0) {
       for (const t of closed_trades) {
         await conn.execute(
-          `INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, status, pattern, opened_at, closed_at, venue)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED', ?, ?, ?, ?)`,
+          `INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, status, pattern, opened_at, closed_at, venue, book)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED', ?, ?, ?, ?, ?)`,
           [user_id, t.symbol, t.direction, t.entry_price, t.exit_price,
            t.size_usd, t.pnl, t.fees || 0, t.pattern || null,
            t.opened_at ? new Date(t.opened_at) : new Date(),
            t.closed_at ? new Date(t.closed_at) : new Date(),
-           venueOf(t)]
+           venueOf(t), bookOf(t)]
         );
       }
     }
@@ -447,13 +466,13 @@ router.post('/', async (req, res) => {
     if (positions && positions.length > 0) {
       for (const p of positions) {
         await conn.execute(
-          `INSERT INTO trades (user_id, symbol, direction, entry_price, size_usd, fees, status, pattern, stop_loss, take_profit, opened_at, venue)
-           VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?)`,
+          `INSERT INTO trades (user_id, symbol, direction, entry_price, size_usd, fees, status, pattern, stop_loss, take_profit, opened_at, venue, book)
+           VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?)`,
           [user_id, p.symbol, p.direction, p.entry_price,
            p.size_usd, p.fees || 0, p.pattern || null,
            p.stop_loss || null, p.take_profit || null,
            p.opened_at ? new Date(p.opened_at) : new Date(),
-           venueOf(p)]
+           venueOf(p), bookOf(p)]
         );
       }
     }
@@ -579,11 +598,11 @@ router.post('/trade-event', async (req, res) => {
     try {
       if (event === 'open') {
         await pool.execute(
-          `INSERT INTO trades (user_id, symbol, direction, entry_price, size_usd, fees, status, pattern, stop_loss, take_profit, event_id)
-           VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)`,
+          `INSERT INTO trades (user_id, symbol, direction, entry_price, size_usd, fees, status, pattern, stop_loss, take_profit, event_id, book)
+           VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?)`,
           [user_id, trade.symbol, trade.direction, trade.entry_price,
            trade.size_usd, trade.fees || 0, trade.pattern || null,
-           trade.stop_loss || null, trade.take_profit || null, eid]
+           trade.stop_loss || null, trade.take_profit || null, eid, bookOf(trade)]
         );
       } else if (event === 'close') {
         // ATOMIC. The comment this replaces declined a transaction because the
@@ -600,12 +619,12 @@ router.post('/trade-event', async (req, res) => {
         // position on /positions, on a money surface.
         await withTransaction(async (conn) => {
           await conn.execute(
-            `INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, status, pattern, opened_at, closed_at, event_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED', ?, ?, ?, ?)`,
+            `INSERT INTO trades (user_id, symbol, direction, entry_price, exit_price, size_usd, pnl, fees, status, pattern, opened_at, closed_at, event_id, book)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED', ?, ?, ?, ?, ?)`,
             [user_id, trade.symbol, trade.direction, trade.entry_price, trade.exit_price,
              trade.size_usd, trade.pnl, trade.fees || 0, trade.pattern || null,
              trade.opened_at ? new Date(trade.opened_at) : new Date(),
-             trade.closed_at ? new Date(trade.closed_at) : new Date(), eid]
+             trade.closed_at ? new Date(trade.closed_at) : new Date(), eid, bookOf(trade)]
           );
           // CLOSE THIS POSITION, NOT AN ARBITRARY ONE. Symbol-only LIMIT 1
           // closed whichever same-symbol row came first, and two opens on one

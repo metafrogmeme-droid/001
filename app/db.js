@@ -2218,6 +2218,7 @@ class MemoryDB {
       if (!('status' in trade)) trade.status = 'OPEN';          // schema DEFAULT 'OPEN'
       if (!('fees' in trade)) trade.fees = 0;                   // DEFAULT 0
       if (!('venue' in trade)) trade.venue = 'bitget';          // DEFAULT 'bitget'
+      if (!('book' in trade)) trade.book = null;                // DEFAULT NULL
       if (!('opened_at' in trade)) trade.opened_at = new Date(); // DEFAULT CURRENT_TIMESTAMP
       this.trades.push(trade);
       return [{ insertId: trade.id }, []];
@@ -3246,6 +3247,7 @@ async function migrate() {
         closed_at TIMESTAMP NULL,
         notes TEXT DEFAULT NULL,
         venue VARCHAR(20) NOT NULL DEFAULT 'bitget',
+        book VARCHAR(5) DEFAULT NULL,
         INDEX idx_user_status (user_id, status),
         INDEX idx_user_opened (user_id, opened_at)
       )
@@ -3266,6 +3268,15 @@ async function migrate() {
     try {
       await pool.execute(
         "ALTER TABLE trades ADD COLUMN venue VARCHAR(20) NOT NULL DEFAULT 'bitget'");
+    } catch (e) { /* column already exists — fine */ }
+    // WHICH BOOK the trade was on: 'paper' or 'live', as the bot said, and
+    // NULL when it did not (a row synced by an older bot, or one whose record
+    // carried no flag). Nullable on purpose, unlike `venue`: the agent's
+    // record has carried both books over time, so a default here would be a
+    // guess, and the share card built from this row prints a PAPER or LIVE
+    // chip only from a value the bot sent.
+    try {
+      await pool.execute('ALTER TABLE trades ADD COLUMN book VARCHAR(5) DEFAULT NULL');
     } catch (e) { /* column already exists — fine */ }
     // Multi-venue selection, for deployments whose tables predate it. Nullable
     // on BOTH: NULL means "nothing proposed" / "the bot has not told us yet",
