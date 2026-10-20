@@ -646,7 +646,7 @@
   ["ac.brand_sub", "Núcleo de comando"],
   ["ac.eyebrow", "Inteligente · Adaptável · Implacável"],
   ["ac.hint", "Arraste para orbitar o agente. Ele vigia os mercados para que não tenha de o fazer."],
-  ["ac.title", "O agente <span>AI Viking</span>"],
+  ["ac.title", "O agente <span>RUNECLAW</span>"],
   ["ac.creed", "<span>ANALISO.</span><span>ADAPTO-ME.</span><span>EXECUTO.</span><span>VENÇO.</span>"],
   ["ac.summoning", "A invocar o agente…<br><span class=\"muted small\">(o modelo 3D aparece assim que <code>/mascot/agent.glb</code> for adicionado)</span>"],
   ["a11y.search_strategies", "Pesquisar estratégias"],

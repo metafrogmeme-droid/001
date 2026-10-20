@@ -27425,3 +27425,65 @@ rows, which no tap reaches, are held to the one reading by an AST walk over
 `positions_data.append({...})`
 (`tests/test_the_position_buttons_spell_one_pair.py`). Six mutants, each
 killed.
+
+## A SLOT THAT SHOWS NOTHING WHEN ITS RENDERER DOES NOT RUN IS AN EMPTY CLAIM, AND A SHARE WITH NO IMAGE BORROWS THE HOME PAGE'S
+
+20 October 2026, two screenshots from the operator. The dashboard's Agent
+Hub showed an empty 112-pixel box where the new 3D owl belonged, on a phone.
+And a post shared from the decision picture ("SHORT QNTSTOCK · target
++19.2% @5×") previewed the site's old banner, not the card the share flow
+had been redesigned to carry.
+
+**The box.** The page loads the 3D viewer only when the visitor has not
+asked for reduced motion (Android's "Remove animations", which a power
+saving mode can also switch on), and the avatar host held nothing else: no
+viewer, no owl. Reproduced in Chromium at phone width with `reducedMotion:
+'reduce'`; without it the owl rendered. The same box stayed empty in two
+more cases nobody had driven: a browser with no WebGL (the renderer's
+constructor throws, uncaught, inside a promise) and a model still loading.
+Every avatar host now starts with a still of the owl (the same model,
+rendered by the viewer itself to a 21 KB WebP), the viewer keeps its canvas
+hidden until the model is loaded and framed, then removes the still, and a
+constructor that throws sets the state to `failed` and leaves the still.
+
+**The crop.** When the viewer did run, the avatar framed the upper 60% of
+the model, lifted toward the chest emblem: a head-and-chest bust, written
+for the humanoid mascot the owl replaced on 19 October. On a round owl that
+slice is the badge on its forehead, with the ears and the eyes cut off at
+the edges. Nobody had looked at the avatar after the model changed; the
+assets test pinned the model's glow and weight, not what the frame showed.
+Both modes now frame the whole character; the test paints the box behind
+the transparent canvas and reads its edge ring (mostly background, or the
+owl was cropped).
+
+**The page one over.** `/agent` skips the 3D below 900px, by design, and
+its placeholder said "the 3D model appears once `/mascot/agent.glb` is
+added" (a file that has not been the model for months) under a title
+naming "The AI Viking Agent" over an owl, with "Drag to orbit the agent"
+beneath a still. The placeholder is the still, the title and the page's
+meta name RUNECLAW (fourteen languages), and the drag hint is hidden unless
+the 3D is on screen.
+
+**The share.** The closed-trade Share attaches a server-rendered card; the
+decision picture's Share, the one the operator used, sent text and a link
+and nothing else, so X built the preview from the link's `og:image`: the
+home page's banner. The fix is not to reuse the result card, which would
+print a target in the voice of a return. It is a PLAN card
+(`signal_card.py::render_plan_card`, `kind=plan` on both relays): a PLAN
+chip, TARGET over the figure, the figure in the accent colour and never
+the winning green, the leverage and the underlying price move spelled out
+("on margin at 5× · a +3.84% price move"), "A plan, not a result." in the
+footer, and the result card's privacy contract (percent only). The page
+sends the price move `levelMove` computed, not its leveraged label, and the
+card multiplies only by a leverage the caller stated.
+
+The rule under all four: a surface that depends on something optional (a
+renderer, a capability, a file) has to say what it shows when that thing
+is absent, and the answer is never nothing, because nothing on a phone
+reads as "broken" and nothing in a link preview is filled by somebody
+else's image. Driven in Chromium
+(`app/test/the_owl_is_on_screen_even_when_the_3d_cannot_run.smoke.test.js`:
+reduced motion, no WebGL, WebGL and the framing ring, the agent page on a
+phone and a desktop) and through the card's drawn text and both relays
+(`tests/test_share_card.py`, `app/test/share_card.test.js`,
+`app/test/dashboard_social.test.js`). Twelve mutants, each killed.

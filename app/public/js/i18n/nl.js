@@ -646,7 +646,7 @@
   ["ac.brand_sub", "Commandokern"],
   ["ac.eyebrow", "Intelligent · Adaptief · Meedogenloos"],
   ["ac.hint", "Sleep om om de agent te draaien. Hij houdt de markten in de gaten, zodat jij dat niet hoeft."],
-  ["ac.title", "De <span>AI Viking</span>-agent"],
+  ["ac.title", "De <span>RUNECLAW</span>-agent"],
   ["ac.creed", "<span>IK ANALYSEER.</span><span>IK PAS ME AAN.</span><span>IK VOER UIT.</span><span>IK WIN.</span>"],
   ["ac.summoning", "De agent wordt opgeroepen…<br><span class=\"muted small\">(het 3D-model verschijnt zodra <code>/mascot/agent.glb</code> is toegevoegd)</span>"],
   ["a11y.search_strategies", "Strategieën zoeken"],

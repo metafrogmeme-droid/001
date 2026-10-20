@@ -9,6 +9,13 @@
 (function () {
   'use strict';
   const RC = window.RC;
+  // THE OWL, STILL. Every avatar host starts with this image inside it, and
+  // the 3D viewer (mascot3d.js) removes it once the model is on screen. When
+  // the viewer never runs -- "reduce motion" on the phone (the page does not
+  // load it then), no WebGL, a model that fails to load -- the still stays,
+  // so the slot is never the empty box it was on 2026-10-20.
+  const OWL_STILL = '<img class="rc3d-poster" src="/mascot/runeclaw_owl_round.webp?v=1" alt="" '
+    + 'width="768" height="768" decoding="async" style="width:100%;height:100%;object-fit:contain;display:block">';
   const { LOGGED_IN, fetchJSON, esc, fmt, fmtMoney, fmtPrice, fmtK, signed,
           pnlClass, fmtAgo, dirChip, sanitizeBotHtml, toast, renderPanel,
           stateBlock, sharedRead, mustRead, wasRead, connectStream } = RC;
@@ -3767,8 +3774,9 @@
     if (shareBtn) shareBtn.onclick = async () => {
       const dirTxt = geo && geo.d ? String(geo.d).toUpperCase() + ' ' : '';
       let target = '';
+      let mv = null;
       if (geo && window.RCChartRead && window.RCChartRead.levelMove) {
-        const mv = window.RCChartRead.levelMove(geo.e, geo.tp, geo.d, geo.l);
+        mv = window.RCChartRead.levelMove(geo.e, geo.tp, geo.d, geo.l);
         if (mv) target = ` · target ${mv.text}`;
       }
       let url = location.origin;
@@ -3778,6 +3786,28 @@
       } catch (_) { /* fall back to the bare origin */ }
       const text = `${dirTxt}${base}${target} — a RUNECLAW decision picture`
         + (target ? ' (a plan, not a result).' : '.');
+      // The PLAN card (best-effort): the bot draws it in the share card's
+      // theme with a PLAN chip and TARGET over the figure, never a result's
+      // green. Without it, the post's preview was the home page's banner
+      // (2026-10-20). Only when there is a direction and a target to draw.
+      let file = null;
+      const dir = geo && geo.d ? String(geo.d).toUpperCase() : '';
+      if (mv && (dir === 'LONG' || dir === 'SHORT')) {
+        try {
+          const q = `kind=plan&symbol=${encodeURIComponent(String(base).toUpperCase())}`
+            + `&direction=${dir}&target_pct=${encodeURIComponent(mv.pct.toFixed(2))}`
+            + (mv.leverage ? `&leverage=${encodeURIComponent(mv.leverage)}` : '')
+            + `&at=${encodeURIComponent(new Date().toISOString())}`;
+          const resp = await fetch(`/api/share/card?${q}`,
+            { headers: RC.authHeaders(), signal: AbortSignal.timeout(8000) });
+          if (resp.ok && /image\/png/.test(resp.headers.get('content-type') || '')) {
+            file = new File([await resp.blob()], `runeclaw-${base}-plan.png`, { type: 'image/png' });
+          }
+        } catch (_) { /* the card is optional */ }
+      }
+      if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], text, url }); return; } catch (_) { /* fall through */ }
+      }
       if (navigator.share) {
         try { await navigator.share({ text, url }); return; } catch (_) { /* cancelled → fall through */ }
       }
@@ -8713,7 +8743,7 @@
     container.innerHTML = `
       <div class="view-head" style="display:flex;align-items:center;gap:var(--s4)">
         <div class="agent-avatar" data-rc-agent3d="avatar" aria-hidden="true"
-             style="width:92px;height:92px;flex:none;border-radius:16px;overflow:hidden"></div>
+             style="width:92px;height:92px;flex:none;border-radius:16px;overflow:hidden">${OWL_STILL}</div>
         <div><h1>AI Analyst</h1><span class="sub">The same agent that runs the Telegram bot — portfolio-aware, trade-capable.</span></div>
       </div>
       <div id="chatInlineHost"></div>`;
@@ -8929,7 +8959,7 @@
       <div class="stack" id="hubStack">
         <section class="panel panel--primary" style="display:flex;align-items:center;gap:var(--s4)">
           <div class="agent-avatar" data-rc-agent3d="avatar" aria-hidden="true"
-               style="width:112px;height:112px;flex:none;border-radius:16px;overflow:hidden"></div>
+               style="width:112px;height:112px;flex:none;border-radius:16px;overflow:hidden">${OWL_STILL}</div>
           <div>
             <div class="eyebrow" style="font-family:var(--font-data);font-size:var(--fs-xs);letter-spacing:.16em;text-transform:uppercase;color:var(--up)">Your agent · live</div>
             <div style="font-family:var(--font-brand);font-size:var(--fs-lg);letter-spacing:.03em">RUNECLAW</div>
@@ -9458,7 +9488,7 @@
   async function renderMacro() {
     container.innerHTML = `
       <div class="view-head" style="display:flex;align-items:center;gap:var(--s4)">
-        <div class="agent-avatar" data-rc-agent3d="avatar" aria-hidden="true" style="width:84px;height:84px;flex:none;border-radius:16px;overflow:hidden"></div>
+        <div class="agent-avatar" data-rc-agent3d="avatar" aria-hidden="true" style="width:84px;height:84px;flex:none;border-radius:16px;overflow:hidden">${OWL_STILL}</div>
         <div><h1>Macro AI</h1><span class="sub">The market’s risk backdrop — sentiment, structure &amp; the engine’s regime</span></div>
       </div>
       <div class="stack">
@@ -10371,7 +10401,7 @@
   async function renderGuardian() {
     container.innerHTML = `
       <div class="view-head" style="display:flex;align-items:center;gap:var(--s4)">
-        <div class="agent-avatar" data-rc-agent3d="avatar" aria-hidden="true" style="width:84px;height:84px;flex:none;border-radius:16px;overflow:hidden"></div>
+        <div class="agent-avatar" data-rc-agent3d="avatar" aria-hidden="true" style="width:84px;height:84px;flex:none;border-radius:16px;overflow:hidden">${OWL_STILL}</div>
         <div><h1>Guardian</h1><span class="sub">The safety layer — live posture across every control, plus tamper-evident evidence for every decision</span></div>
       </div>
       <div class="stack">

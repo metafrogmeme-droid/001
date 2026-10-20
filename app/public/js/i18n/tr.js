@@ -646,7 +646,7 @@
   ["ac.brand_sub", "Komuta Çekirdeği"],
   ["ac.eyebrow", "Zeki · Uyarlanabilir · Amansız"],
   ["ac.hint", "Ajanın çevresinde dönmek için sürükle. Piyasaları senin yerine o izliyor."],
-  ["ac.title", "<span>AI Viking</span> Ajanı"],
+  ["ac.title", "<span>RUNECLAW</span> Ajanı"],
   ["ac.creed", "<span>ANALİZ EDERİM.</span><span>UYUM SAĞLARIM.</span><span>UYGULARIM.</span><span>KAZANIRIM.</span>"],
   ["ac.summoning", "Ajan çağrılıyor…<br><span class=\"muted small\">(<code>/mascot/agent.glb</code> eklendiğinde 3B model görünür)</span>"],
   ["a11y.search_strategies", "Strateji ara"],

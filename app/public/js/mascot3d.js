@@ -83,7 +83,15 @@ export function mountAgent(host, opts = {}) {
   const avatar = opts.mode === 'avatar';   // compact bust, faces viewer, reacts
   const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+  // No WebGL (a blocked GPU, an old phone) throws here. That is "the 3D
+  // cannot run", not a page error: the host keeps its still image.
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+  } catch (e) {
+    host.setAttribute('data-rc3d-state', 'failed');
+    return null;
+  }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -94,7 +102,11 @@ export function mountAgent(host, opts = {}) {
   renderer.toneMappingExposure = avatar ? 1.15 : 1.0;
   renderer.domElement.style.width = '100%';
   renderer.domElement.style.height = '100%';
-  renderer.domElement.style.display = 'block';
+  // The canvas stays hidden while the host's still image (.rc3d-poster) is
+  // showing, and replaces it only once the model is loaded and framed: a
+  // slow or failed load leaves the owl on screen, never an empty box.
+  const stills = Array.prototype.slice.call(host.querySelectorAll('.rc3d-poster'));
+  renderer.domElement.style.display = stills.length ? 'none' : 'block';
   host.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -161,12 +173,16 @@ export function mountAgent(host, opts = {}) {
   function reframe() {
     if (!model || !model.__fit) return;
     const f = model.__fit, half = (camera.fov * Math.PI / 180) / 2;
-    // Showcase frames the whole character; avatar crops to a head-and-chest bust
-    // (fit a shorter vertical slice and lift the target toward the rune emblem).
-    const fitH = avatar ? f.sy * 0.60 : f.sy;
-    const fitW = avatar ? f.sy * 0.60 : f.sx;
-    const ty = avatar ? f.cy + f.sy * 0.18 : f.cy;
-    const dist = Math.max(fitH / 2 / Math.tan(half), fitW / 2 / Math.tan(half) / camera.aspect) * (avatar ? 1.04 : 1.12);
+    // Both modes frame the WHOLE character. The avatar used to crop to a
+    // head-and-chest bust (the upper 60%, lifted toward the chest emblem),
+    // which suited the humanoid agent it was written for; on the round owl
+    // that slice is the badge on its forehead, with the ears and the eyes
+    // cut off at the edges (2026-10-20, the operator's phone). The avatar
+    // keeps a tighter margin than the showcase because it is small.
+    const fitH = f.sy;
+    const fitW = f.sx;
+    const ty = f.cy;
+    const dist = Math.max(fitH / 2 / Math.tan(half), fitW / 2 / Math.tan(half) / camera.aspect) * (avatar ? 1.06 : 1.12);
     const dir = new THREE.Vector3().subVectors(camera.position, controls.target);
     if (dir.lengthSq() === 0) dir.set(0, 0, 1);
     dir.normalize().multiplyScalar(dist);
@@ -226,6 +242,8 @@ export function mountAgent(host, opts = {}) {
       current = null;
       fadeTo(wantThinking ? 'analyze' : 'idle', false);
     }
+    renderer.domElement.style.display = 'block';
+    stills.forEach((p) => { if (p.parentNode) p.parentNode.removeChild(p); });
     host.setAttribute('data-rc3d-state', 'ready');
   }, undefined, () => { host.setAttribute('data-rc3d-state', 'error'); });
 

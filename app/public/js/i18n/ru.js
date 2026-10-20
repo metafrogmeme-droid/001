@@ -646,7 +646,7 @@
   ["ac.brand_sub", "Командное ядро"],
   ["ac.eyebrow", "Умный · Адаптивный · Неустанный"],
   ["ac.hint", "Перетащите, чтобы облететь агента. Он следит за рынками вместо вас."],
-  ["ac.title", "Агент <span>AI Viking</span>"],
+  ["ac.title", "Агент <span>RUNECLAW</span>"],
   ["ac.creed", "<span>Я АНАЛИЗИРУЮ.</span><span>Я АДАПТИРУЮСЬ.</span><span>Я ИСПОЛНЯЮ.</span><span>Я ПОБЕЖДАЮ.</span>"],
   ["ac.summoning", "Вызываем агента…<br><span class=\"muted small\">(3D-модель появится после добавления <code>/mascot/agent.glb</code>)</span>"],
   ["a11y.search_strategies", "Поиск стратегий"],

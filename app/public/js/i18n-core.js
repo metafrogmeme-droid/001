@@ -688,7 +688,7 @@
     "ac.brand_sub": { en: "Command Core" },
     "ac.eyebrow": { en: "Intelligent · Adaptive · Relentless" },
     "ac.hint": { en: "Drag to orbit the agent. It watches the markets so you don't have to." },
-    "ac.title": { en: "The <span>AI Viking</span> Agent" },
+    "ac.title": { en: "The <span>RUNECLAW</span> Agent" },
     "ac.creed": { en: "<span>I ANALYZE.</span><span>I ADAPT.</span><span>I EXECUTE.</span><span>I WIN.</span>" },
     "ac.summoning": { en: "Summoning the agent…<br><span class=\"muted small\">(the 3D model appears once <code>/mascot/agent.glb</code> is added)</span>" },
     "a11y.search_strategies": { en: "Search strategies" },
@@ -2362,7 +2362,7 @@
   // source builds. Under SPLIT=false the chunk loader is never reached, so
   // the tests boot exactly the monolith they always did.
   var SPLIT = true;
-  var CHUNKS = {"es":"243ae3ba","zh":"0cecee4e","pt":"9ee04971","fr":"d241f058","de":"27a3e20d","nl":"bb1e6a31","ja":"3681ccbc","ko":"4655faab","ru":"001f9b48","tr":"7abfec05","it":"1aaa6d4a","hi":"709264d2","ar":"d9a0b094"};
+  var CHUNKS = {"es":"e3556f40","zh":"4efccb62","pt":"2db578eb","fr":"2902bc0d","de":"517feb95","nl":"a94c9f3a","ja":"9850f175","ko":"f0f9786c","ru":"4f89202d","tr":"0ed5b3ef","it":"0b0f8477","hi":"876a789a","ar":"0d46a091"};
   // The loaded chunks, keyed by language. The chunk assigns into the same
   // object on `window`, so a chunk that lands after this script ran is seen.
   var DICTS = root.RCI18N_DICTS = root.RCI18N_DICTS || {};

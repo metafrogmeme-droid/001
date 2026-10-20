@@ -646,7 +646,7 @@
   ["ac.brand_sub", "Kommandokern"],
   ["ac.eyebrow", "Intelligent · Adaptiv · Unerbittlich"],
   ["ac.hint", "Ziehen, um den Agenten zu umkreisen. Er beobachtet die Märkte, damit du es nicht musst."],
-  ["ac.title", "Der <span>AI Viking</span>-Agent"],
+  ["ac.title", "Der <span>RUNECLAW</span>-Agent"],
   ["ac.creed", "<span>ICH ANALYSIERE.</span><span>ICH PASSE MICH AN.</span><span>ICH FÜHRE AUS.</span><span>ICH GEWINNE.</span>"],
   ["ac.summoning", "Agent wird beschworen…<br><span class=\"muted small\">(das 3D-Modell erscheint, sobald <code>/mascot/agent.glb</code> hinzugefügt ist)</span>"],
   ["a11y.search_strategies", "Strategien suchen"],
