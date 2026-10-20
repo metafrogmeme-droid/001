@@ -2090,6 +2090,29 @@ async function duelUserFor(req) {
   return { id: userId };
 }
 
+/**
+ * GET /context/smart-money?symbol=   (X-Bot-Secret authed)
+ *
+ * The smart-money line for a symbol, read through Flovia and remembered for
+ * a day (lib/smart_money.js). The bot asks here when it renders a signal
+ * card, so one symbol is read once a day however many cards show it, and
+ * the answer is the reader's own three-valued result: read, or not read
+ * with the reason. The bot prints exactly that; nothing here decides.
+ */
+router.get('/context/smart-money', async (req, res) => {
+  const symbol = String(req.query.symbol || '').slice(0, 32);
+  if (!symbol) return res.status(400).json({ error: 'symbol required' });
+  try {
+    const { smartMoneyReading } = require('../lib/smart_money');
+    const reading = await smartMoneyReading(symbol);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ symbol, reading });
+  } catch (err) {
+    console.error('Smart-money context error:', (err && err.constructor && err.constructor.name) || 'Error');
+    res.status(503).json({ error: 'context_unavailable' });
+  }
+});
+
 router.get('/duel', async (req, res) => {
   try {
     const who = await duelUserFor(req);

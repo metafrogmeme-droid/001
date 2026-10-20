@@ -282,7 +282,25 @@ function canonicalDuelSettlePayload(s) {
     result: String(s.result),
     marks: numOrNull(s.marks),
     settled_at: new Date(s.settled_at || Date.now()).toISOString(),
+    // A SECOND READING, when one was made (2026-10-20): the same instant's
+    // price from a second provider, and whether it disagreed with the close
+    // past the tolerance. `disputed` is three-valued: true (disagreed), false
+    // (agreed), null (no second reading: not checked). It rides INSIDE the
+    // hashed bytes so no renderer can drop a dispute, and the venue's close
+    // above stays the one price the verdict was given on.
+    second_source: secondSourceOrNull(s.second_source),
+    second_source_b: secondSourceOrNull(s.second_source_b),
+    disputed: s.disputed == null ? null : Boolean(s.disputed),
   });
+}
+
+function secondSourceOrNull(x) {
+  if (!x || typeof x !== 'object' || x.read !== true) return null;
+  return {
+    provider: String(x.provider || ''),
+    price: numOrNull(x.price),
+    source_at: x.source_at ? new Date(x.source_at).toISOString() : null,
+  };
 }
 
 /** { seal_payload, seal } for one settlement. */

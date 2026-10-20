@@ -120,7 +120,7 @@ const SCRIPTS = [
   '/js/signal-status-model.js?v=4',
   '/js/pi-signals.js?v=4',
   // The Daily Duel: the website's round renderer, then the block.
-  '/js/duel.js?v=6',
+  '/js/duel.js?v=7',
   '/js/pi-duel.js?v=4',
   '/js/pi-arena.js?v=3',
 ];
@@ -146,7 +146,7 @@ function page() {
 <link rel="icon" type="image/png" sizes="200x200" href="/pi_icon_200.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/pi_touch_180.png">
 ${head}
-<link rel="stylesheet" href="/embed.css?v=13">
+<link rel="stylesheet" href="/embed.css?v=14">
 </head><body class="e-arena m-app">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}

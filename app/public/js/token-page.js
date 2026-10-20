@@ -421,6 +421,9 @@
         + 'check the address before you trade anything.')) + '</p>'
       + '</section>';
 
+    out += '<section class="tok-card" id="tok-pool"><h2>' + esc(say('tok.pool_h', 'Where it trades')) + '</h2>'
+      + '<p class="tok-absent">…</p></section>';
+
     let facts = '<section class="tok-card"><h2>' + esc(say('tok.facts_h', 'On-chain facts')) + '</h2><dl class="tok-facts">';
     facts += row('tok.chain', 'Chain', chain);
     facts += row('tok.standard', 'Standard',
@@ -471,6 +474,74 @@
     });
   }
 
+  /** $1,234,567 → "$1.2M"; a market figure at a panel's size; '' for a non-number. */
+  function compactUsd(v) {
+    // `Number(null)` is 0, a perfectly finite dollar: absence is refused
+    // before the coercion, or an unread liquidity prints as $0.00.
+    if (v === null || v === undefined || v === '') return '';
+    const n = Number(v);
+    if (!isFinite(n) || n < 0) return '';
+    if (n >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+    if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+    if (n >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
+    return '$' + n.toFixed(n < 1 ? 4 : 2);
+  }
+
+  function agoText(iso) {
+    const t = Date.parse(iso);
+    if (!isFinite(t)) return '';
+    const m = Math.max(0, Math.round((Date.now() - t) / 60000));
+    return m < 1 ? 'just now' : m === 1 ? '1 minute ago' : m < 60 ? m + ' minutes ago' : Math.round(m / 60) + 'h ago';
+  }
+
+  /**
+   * The pool panel, from /api/token/pool's three answers. `listed: false` is
+   * CoinGecko's fact (no pool yet); `listed: null` or a failed fetch is a
+   * read that failed, and the two get different sentences. A figure the
+   * answer did not carry is unreadable, never 0.
+   */
+  function poolHtml(state) {
+    let body;
+    const s = state && typeof state === 'object' ? state : null;
+    if (s && s.listed === true && s.pool && typeof s.pool === 'object') {
+      const pool = s.pool;
+      const fig = (v) => { const t = compactUsd(v); return t ? '<b>' + esc(t) + '</b>' : unreadable(); };
+      const link = typeof pool.url === 'string' && pool.url.indexOf('https://www.geckoterminal.com/solana/pools/') === 0
+        ? ' <a href="' + esc(pool.url) + '" target="_blank" rel="noopener">' + esc(say('tok.pool_open', 'View on GeckoTerminal')) + ' ↗</a>' : '';
+      body = '<dl class="tok-facts">'
+        + row('tok.pool_pool', 'Pool', esc(pool.name || pool.address || '') + (pool.dex ? ' · ' + esc(pool.dex) : '') + link)
+        + row('tok.pool_liq', 'Liquidity', fig(pool.reserve_usd))
+        + row('tok.pool_vol', '24h volume', fig(pool.volume_24h_usd))
+        + row('tok.pool_price', 'Price', fig(pool.price_usd))
+        + '</dl>'
+        + '<p class="tok-prose small">' + esc(say('tok.pool_note', 'The largest pool on the first page CoinGecko answered, read {ago}. Market facts only: a price is not a promise.').replace('{ago}', agoText(s.read_at) || '—'))
+        + ' ' + esc(say('tok.pool_credit', 'Data provided by CoinGecko')) + '</p>';
+    } else if (s && s.listed === false) {
+      body = '<p class="tok-prose">' + esc(say('tok.pool_none', 'Not listed on a DEX yet. CoinGecko reports no pool holding this mint; this will show the pool once there is one.')) + '</p>'
+        + '<p class="tok-prose small">' + esc(say('tok.pool_credit', 'Data provided by CoinGecko')) + '</p>';
+    } else {
+      body = '<p class="tok-absent">' + esc(say('tok.pool_unread', 'The pool could not be read just now. This is a read that failed, not a token with no pool.')) + '</p>';
+    }
+    return '<h2>' + esc(say('tok.pool_h', 'Where it trades')) + '</h2>' + body;
+  }
+
+  function fetchPool() {
+    return fetch('/api/token/pool', { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12000) })
+      .then(function (r) {
+        return r.json().then(function (body) { return { status: r.status, body: body }; },
+          function () { return { status: r.status, body: null }; });
+      });
+  }
+
+  /** Paint the pool panel into its placeholder; a failed fetch is the unread sentence. */
+  function bootPool(el) {
+    const slot = el.querySelector('#tok-pool');
+    if (!slot) return Promise.resolve();
+    return fetchPool()
+      .then(function (res) { slot.innerHTML = poolHtml(res.status === 200 ? res.body : null); })
+      .catch(function () { slot.innerHTML = poolHtml(null); });
+  }
+
   function fetchRecord() {
     return fetch('/api/token', { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10000) })
       .then(function (r) {
@@ -488,6 +559,7 @@
         if (res.status !== 200 || !res.body || typeof res.body !== 'object') { el.innerHTML = fault(); return; }
         el.innerHTML = render(res.body.token);
         wireCopy(el);
+        bootPool(el);
       })
       .catch(function () { el.innerHTML = fault(); });
   }
@@ -511,7 +583,7 @@
     render, fault, supplyText, authorityHtml, presaleHtml, presaleCell, allocationCell, saleLinkCell,
     presalePhase, phaseLine, windowText, stripPhase, bootStrip,
     PHASE_LIVE, PHASE_ENDED, PHASE_OPENS, PHASE_OPEN_UNTIL, PHASE_CLOSED, STRIP_LIVE, STRIP_ENDED,
-    isSaleUrl, boot, wireCopy, locksHtml, lockHtml, unlocksCell, certificateCell, isCertificateUrl,
+    isSaleUrl, boot, wireCopy, poolHtml, bootPool, compactUsd, locksHtml, lockHtml, unlocksCell, certificateCell, isCertificateUrl,
     multisigHtml, quorumCell, timeLockCell, holdsCell, auditsHtml, auditItem, isAuditUrl,
     UNREAD, NOT_ANNOUNCED, AUTH_NONE, UNREADABLE, BASE58_ADDRESS, SALE_URL, SALE_LINK_NONE, TERMS,
     BODY_SOON, BODY_ANNOUNCED, CERTIFICATE_URL, LOCK_NONE, LOCKS_BODY, MULTISIG_BODY, AUDITS_BODY, AUDIT_URL,

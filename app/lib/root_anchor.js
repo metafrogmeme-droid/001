@@ -56,6 +56,10 @@ function chains(env) {
       rpcs: rpcList('WEB3_RPC_URL_BASE_ANCHOR', BASE_RPCS, env),
       explorer_tx: 'https://basescan.org/tx/',
       native: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+      // QuickNode's name for this chain, through Flovia (lib/flovia.js): a
+      // second reader of a transaction when every RPC above fails to answer.
+      // A chain without one (the DogeOS testnet) has no fallback.
+      quicknode: 'base',
     },
     'dogeos-testnet': {
       key: 'dogeos-testnet', chain_id: 6281971, name: 'DogeOS testnet', testnet: true,
@@ -169,10 +173,58 @@ async function verifyAnchor(txHash, day, root, fetchImpl, chainKey = DEFAULT_CHA
       };
     } catch (e) { lastErr = e; }
   }
+  // Every RPC failed to ANSWER (a "no such transaction" above is an answer
+  // and returns before this). A chain QuickNode serves gets one more reader,
+  // through Flovia, so a day's anchor is not unverifiable because two public
+  // endpoints were down. The verdict says which reader gave it.
+  if (chain.quicknode) {
+    const second = await verifyThroughQuickNode(txHash, day, root, chain);
+    if (second) return second;
+  }
   return { status: 'unknown', reason: lastErr ? String(lastErr.message || lastErr).slice(0, 120) : 'rpc unreachable' };
 }
 
+/**
+ * The same verification over QuickNode's read of the chain (two reads: the
+ * transaction, then its block's header for the time). Null when Flovia is
+ * unconfigured or refused, or answered something this cannot read, so the
+ * caller's own "unknown" stands with its own reason; a verdict otherwise,
+ * marked `source: 'quicknode'`.
+ */
+async function verifyThroughQuickNode(txHash, day, root, chain) {
+  let flovia;
+  try { flovia = require('./flovia'); } catch (e) { return null; }
+  if (!flovia.configured()) return null;
+  const ask = (method, params, block) => flovia.call('flovia_quicknode', {
+    chain: chain.quicknode, method, params, ...(block ? { block } : {}),
+    request_text: `RUNECLAW seal-root anchor check: ${method} on ${chain.name} for ${txHash}`,
+    purpose: 'Verifying a day\'s seal-root anchor when the public RPCs do not answer; the verdict is shown on the roots page.',
+  });
+  const txR = await ask('eth_getTransactionByHash', { hash: txHash });
+  if (!txR.read) return null;
+  const tx = txR.data && typeof txR.data === 'object' ? (txR.data.result !== undefined ? txR.data.result : txR.data) : null;
+  if (tx === null) return { status: 'mismatch', reason: `no such transaction on ${chain.name}`, source: 'quicknode' };
+  if (!tx || typeof tx !== 'object') return null;
+  if (!tx.blockHash && !tx.blockNumber) return { status: 'unknown', reason: 'transaction not yet mined', source: 'quicknode' };
+  const expected = payloadFor(day, root).toLowerCase();
+  const data = String(tx.input || tx.data || '').toLowerCase();
+  if (data !== expected) return { status: 'mismatch', reason: 'calldata does not equal the tagged root payload', source: 'quicknode' };
+  const num = typeof tx.blockNumber === 'string' && /^0x/i.test(tx.blockNumber) ? parseInt(tx.blockNumber, 16) : Number(tx.blockNumber);
+  if (!Number.isFinite(num)) return { status: 'unknown', reason: 'block unreadable', source: 'quicknode' };
+  const blockR = await ask('eth_getBlockByNumber', { header_only: true }, num);
+  if (!blockR.read) return { status: 'unknown', reason: 'block unreadable', source: 'quicknode' };
+  const block = blockR.data && typeof blockR.data === 'object' ? (blockR.data.result !== undefined ? blockR.data.result : blockR.data) : null;
+  const ts = block && (block.timestamp !== undefined ? block.timestamp : block.time);
+  const secs = typeof ts === 'string' && /^0x/i.test(ts) ? parseInt(ts, 16) : Number(ts);
+  if (!Number.isFinite(secs) || secs <= 0) return { status: 'unknown', reason: 'block unreadable', source: 'quicknode' };
+  return {
+    status: 'verified', source: 'quicknode',
+    block_time: new Date(secs * 1000).toISOString(),
+    from: String(tx.from || ''),
+  };
+}
+
 module.exports = {
-  buildAnchorPlan, verifyAnchor, payloadFor, PREFIX, BASE_RPCS, DOGEOS_TESTNET_RPCS,
+  buildAnchorPlan, verifyAnchor, verifyThroughQuickNode, payloadFor, PREFIX, BASE_RPCS, DOGEOS_TESTNET_RPCS,
   chains, chainInfo, publicChains, DEFAULT_CHAIN,
 };
