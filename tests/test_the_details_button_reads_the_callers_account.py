@@ -577,8 +577,11 @@ class TestTheRuleItselfBites:
 # stores `qty = margin * leverage / entry`, so that product is the notional,
 # and the dollars came out leverage times too large.
 
-def _tap_paper(book, ident, mark):
+def _tap_paper(book, ident, mark, seen=None, action="details"):
+    """Tap `pos_details_<ident>` (or, with action='close', `pos_close_<ident>:<uid>`) on `book`;
+    `seen` collects the symbols the analysis and the chart are asked for."""
     sent: list = []
+    seen = seen if seen is not None else []
 
     class _Users:
         def get(self, tid):
@@ -611,12 +614,16 @@ def _tap_paper(book, ident, mark):
     async def _market_exchange():
         return _Exchange("market", [])
 
+    async def _market_price(asset):
+        return mark
+
     h = TelegramHandler.__new__(TelegramHandler)
     h.engine = SimpleNamespace(
         live_executor=_Executor(_Exchange("operator", [])),
         _executor_for=lambda uid="": None,
         user_portfolios=SimpleNamespace(get=lambda uid: book),
         get_exchange=_market_exchange,
+        market_price=_market_price,
     )
     h.users = _Users()
     h._limiter = SimpleNamespace(allow=lambda uid: True)
@@ -637,7 +644,7 @@ def _tap_paper(book, ident, mark):
         return None
 
     query = SimpleNamespace(
-        data=f"pos_details_{ident}",
+        data=f"pos_details_{ident}" if action == "details" else f"pos_close_{ident}:{UID}",
         message=SimpleNamespace(edit_reply_markup=_noop, chat_id=int(UID)),
         answer=_noop,
     )
@@ -648,9 +655,11 @@ def _tap_paper(book, ident, mark):
     )
 
     async def _analysis(exchange, symbol, timeframe="1h"):
+        seen.append(("analysis", symbol))
         return {"price": mark}
 
     async def _no_chart(*a, **k):
+        seen.append(("chart", a[1] if len(a) > 1 else k.get("symbol")))
         return None
 
     orig_live = type(bot_config.CONFIG).is_live
@@ -670,6 +679,66 @@ def _tap_paper(book, ident, mark):
         signal_card.render_position_card = orig_card
         chart_renderer.build_position_chart = orig_chart
     return "\n".join(str(x) for x in sent)
+
+
+class TestASwapSpelledPracticePosition:
+    """QNTSTOCK/USDT:USDT, 2026-10-20: the positions list spelled its pair
+    "QNTSTOCKUSDT:USDT" (the slash stripped, the settle suffix kept), the
+    Details button carried that id, the handler matched it against
+    "QNTSTOCKUSDT" and answered "position closed" over an open position; the
+    chart's symbol was derived from the same spelling as "QNTSTOCK/USDT:/USDT".
+    """
+
+    @staticmethod
+    def _book():
+        from bot.risk.portfolio import PortfolioTracker
+        from bot.utils.models import Direction, TradeIdea
+        book = PortfolioTracker(initial_balance=10_000.0)
+        idea = TradeIdea(asset="QNTSTOCK/USDT:USDT", direction=Direction.SHORT, entry_price=34.3841,
+                         stop_loss=34.8716, take_profit=33.0653, confidence=0.77,
+                         reasoning="t", signals_used=["t"])
+        book.open_position(idea, size_usd=1338.46, leverage=5)
+        return book
+
+    def test_the_id_an_older_card_sent_still_finds_the_position(self):
+        seen: list = []
+        text = _tap_paper(self._book(), "QNTSTOCKUSDT:USDT", 34.256, seen)
+        assert "not found" not in text and "position closed" not in text, text
+        assert "QNTSTOCKUSDT" in text and "Entry" in text, text
+        # The card names the pair without the suffix, as the live rows do.
+        assert "QNTSTOCKUSDT:USDT" not in text, text
+
+    def test_the_clean_id_finds_it_too(self):
+        text = _tap_paper(self._book(), "QNTSTOCKUSDT", 34.256)
+        assert "Entry" in text and "not found" not in text, text
+
+    def test_the_chart_and_the_analysis_are_asked_for_the_positions_own_symbol(self):
+        seen: list = []
+        _tap_paper(self._book(), "QNTSTOCKUSDT:USDT", 34.256, seen)
+        assert ("analysis", "QNTSTOCK/USDT:USDT") in seen, seen
+        assert ("chart", "QNTSTOCK/USDT:USDT") in seen, seen
+        assert not any(":/USDT" in str(s) for _, s in seen), seen
+
+    def test_nothing_matched_is_not_found_and_never_closed(self):
+        # A position the handler cannot find is not thereby closed: the
+        # sentence says "not found", not "closed".
+        text = _tap_paper(self._book(), "NOPEUSDT", 1.0)
+        assert "not found among your open positions" in text, text
+        assert "position closed" not in text, text
+
+    def test_the_close_button_with_the_older_id_closes_this_position(self):
+        book = self._book()
+        text = _tap_paper(book, "QNTSTOCKUSDT:USDT", 34.256, action="close")
+        assert "QNTSTOCKUSDT" in text and "already closed" not in text, text
+        assert not book.open_positions, "the practice position was closed"
+        assert "QNTSTOCKUSDT:USDT" not in text, "the close names the pair without the suffix"
+
+    def test_a_close_that_finds_nothing_says_so_and_closes_nothing(self):
+        book = self._book()
+        text = _tap_paper(book, "NOPEUSDT", 1.0, action="close")
+        assert "not found among your open positions" in text and "nothing was closed" in text, text
+        assert "already closed" not in text, text
+        assert len(book.open_positions) == 1, "nothing was closed"
 
 
 class TestAPaperRefreshCard:
