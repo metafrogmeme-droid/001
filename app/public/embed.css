@@ -537,3 +537,107 @@ html, body {
 .p-duel-prog-o { color: var(--e-accent); font-weight: 600; }
 .p-duel-bar { height: 5px; border-radius: 999px; background: var(--e-line); overflow: hidden; }
 .p-duel-bar-f { height: 100%; border-radius: 999px; background: var(--e-accent); transition: width .3s ease; }
+
+/* ── the Pi app's first screen, labels, Leaders, About and receipts ───────
+   (arena-session.js, miniapp-view.js, pi-leaders.js, pi-arena.js,
+   pi-receipt.js). The owl is the still the website's avatar uses. */
+.m-gate--intro { padding-top: 14px; }
+.m-gate-pic { display: block; width: 144px; height: 144px; margin: 0 auto 10px; object-fit: contain; }
+.m-gate-title { margin: 0 0 6px; font-size: 24px; font-weight: 750; letter-spacing: -.01em; }
+.m-gate--intro .m-gate-lead { font-size: 15px; font-weight: 500; color: var(--e-text-2); line-height: 1.5; margin-bottom: 14px; }
+.m-gate-points { list-style: none; margin: 0 auto 18px; padding: 0; max-width: 340px; text-align: left; display: grid; gap: 8px; }
+.m-gate-points li {
+  display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; line-height: 1.45; color: var(--e-text);
+  background: var(--e-surface-2); border: 1px solid var(--e-line-2); border-radius: 12px; padding: 10px 12px;
+}
+.m-gate-i { color: var(--e-accent); font-size: 15px; line-height: 1.3; flex: 0 0 auto; width: 18px; text-align: center; }
+.m-gate--intro .m-gate-sub { margin: 12px 0 6px; }
+.p-legal { margin: 8px 0 0; text-align: center; font-size: 12px; color: var(--e-text-3); }
+.p-legal a { color: var(--e-info); text-decoration: none; padding: 6px 4px; }
+.p-legal a:focus-visible { outline: 2px solid var(--e-info); outline-offset: 1px; }
+
+/* The header on a tab other than the arena: the Refresh row only. */
+.p-top--slim { grid-template-columns: 1fr; padding-bottom: 4px; }
+.p-top--slim .m-refresh-row { margin-top: 0; }
+.p-off-b, .p-goto {
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--e-text-2); cursor: pointer;
+  background: transparent; border: 1px solid var(--e-line); border-radius: 8px;
+  padding: 4px 10px; min-height: 30px; margin-left: auto;
+}
+.p-off-b[aria-pressed="true"] { color: var(--e-accent); border-color: var(--e-accent); }
+.p-goto { margin-left: 4px; color: var(--e-info); }
+.p-off-b:focus-visible, .p-goto:focus-visible { outline: 2px solid var(--e-info); outline-offset: 1px; }
+.m-refresh-row .p-off-b + .m-refresh { margin-left: 0; }
+
+/* The open form's visible labels. */
+.m-row--fields { align-items: flex-end; }
+.m-field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 0; min-width: 0; }
+.m-row--fields .m-field:first-child { flex: 1.4 1 0; }
+.m-label { font-size: 11px; font-weight: 600; color: var(--e-text-2); letter-spacing: .02em; }
+.m-field input {
+  font: inherit; font-size: 13.5px; min-width: 0; width: 100%; box-sizing: border-box;
+  color: var(--e-text); background: var(--e-bg);
+  border: 1px solid var(--e-line); border-radius: 7px; padding: 10px; min-height: 42px;
+}
+.m-field input::placeholder { color: var(--e-text-3); opacity: 1; }
+.m-field input:focus-visible { outline: 2px solid var(--e-info); outline-offset: 1px; }
+.m-open-how { margin: 2px 0 0; color: var(--e-text-2); font-size: 12px; line-height: 1.45; text-align: center; }
+
+/* Leaders: your name, then the standings. */
+.p-name, .p-board { margin-bottom: 14px; }
+.p-name-is { margin: 0 0 10px; font-size: 14px; }
+.p-name .m-field { margin-bottom: 8px; }
+.p-name-save { color: var(--e-info); }
+.p-name-edit, .p-name-cancel { color: var(--e-text); }
+.p-name-hide { color: var(--e-text-2); }
+.p-name-save[disabled] { opacity: .5; cursor: default; }
+
+/* About. */
+.p-about-p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.55; color: var(--e-text); }
+.p-about-list { margin: 0 0 12px; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; line-height: 1.5; color: var(--e-text-2); }
+.p-about-list b { color: var(--e-text); }
+
+/* A Duel receipt is a button in the Pi app: tapping it checks the seal here. */
+.p-duel .d-rc-v {
+  font: inherit; font-size: 10.5px; cursor: pointer; background: transparent;
+  color: var(--e-text-3); border: 0; border-bottom: 1px dotted var(--e-line-2); padding: 2px 0;
+}
+.p-duel .d-rc-go { color: var(--e-info); font-weight: 600; margin-left: 2px; }
+.p-duel .d-rc-v:focus-visible { outline: 2px solid var(--e-info); outline-offset: 2px; }
+.p-rc-sheet {
+  margin: 0 0 12px; padding: 12px 13px; border-top: 0;
+  background: var(--e-surface-2); border: 1px solid var(--e-accent); border-radius: 14px;
+}
+.p-rc-close {
+  font: inherit; font-size: 14px; color: var(--e-text-2); cursor: pointer; min-width: 36px; min-height: 36px;
+  background: transparent; border: 1px solid var(--e-line); border-radius: 8px;
+}
+.p-rc-v { margin: 0 0 4px; font-size: 15px; font-weight: 700; color: var(--e-text); }
+.p-rc-v--ok { color: var(--e-text); }
+.p-rc-v--bad { color: var(--e-down); }
+.p-rc-sub { margin: 0 0 8px; font-size: 12px; line-height: 1.5; color: var(--e-text-2); }
+.p-rc-rows { display: grid; gap: 4px; margin: 6px 0 10px; }
+.p-rc-row { display: grid; grid-template-columns: 7.5em 1fr; gap: 8px; font-size: 12.5px; color: var(--e-text); }
+.p-rc-row .k { color: var(--e-text-3); }
+.p-rc-k { margin: 6px 0 2px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--e-text-3); }
+.p-rc-hash {
+  margin: 0 0 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+  color: var(--e-text-2); word-break: break-all; line-height: 1.5;
+}
+.p-rc-raw summary { cursor: pointer; font-size: 12px; color: var(--e-info); margin: 4px 0; }
+/* The market field types in capitals; its example placeholder does not. */
+.m-sym::placeholder { text-transform: none; }
+
+/* No wallet (the DogeOS app in X's or Telegram's browser): the page's link. */
+.m-copy { margin: -4px 0 14px; text-align: center; }
+.m-copy-how { margin: 0 0 8px; color: var(--e-text-2); font-size: 12.5px; line-height: 1.5; }
+.m-copy-row { display: flex; gap: 7px; }
+.m-copy-url {
+  flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12.5px; color: var(--e-text);
+  background: var(--e-bg); border: 1px solid var(--e-line); border-radius: 7px; padding: 9px 10px; min-height: 40px;
+}
+.m-copy-b {
+  flex: 0 0 auto; font: inherit; font-size: 13px; font-weight: 600; color: var(--e-info); cursor: pointer;
+  background: transparent; border: 1px solid var(--e-line); border-radius: 8px; padding: 8px 12px; min-height: 40px;
+}
+.m-copy-url:focus-visible, .m-copy-b:focus-visible { outline: 2px solid var(--e-info); outline-offset: 1px; }

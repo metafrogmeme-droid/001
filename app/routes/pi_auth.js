@@ -55,11 +55,16 @@ router.post('/signin', async (req, res) => {
     const user = await findOrCreateOAuthUser({ provider: 'pi', providerId: verdict.uid });
     const [rows] = await pool.execute(
       'SELECT leaderboard_handle FROM users WHERE id = ? LIMIT 1', [user.id]);
+    const handle = (rows[0] && rows[0].leaderboard_handle) || null;
     res.json({
       token: signToken(user),
       // null is a real answer: no handle chosen yet, so this account is not on
       // any board. The page says so rather than inventing one.
-      handle: (rows[0] && rows[0].leaderboard_handle) || null,
+      handle,
+      // For an account with no name, the username Pi just verified, offered in
+      // the app's name box and saved only if the person taps Save. It is sent
+      // back to the person it names and is not stored here.
+      suggested_handle: handle ? null : piAuth.handleSuggestion(verdict.username),
     });
   } catch (err) {
     console.error('Pi signin error:', err.stack || err.message);

@@ -2016,6 +2016,7 @@
   ["duel.rc_call", "Recibo {h}"],
   ["duel.rc_settle", "Liquidação {h}"],
   ["duel.rc_round", "Selada ao distribuir {h}"],
+  ["duel.rc_check", "Verificar"],
   ["duel.closed", "Esta ronda fechou."],
   ["duel.disc", "Um duelo é grátis e não move dinheiro — só contagens e percentagens, recalculadas das suas chamadas a cada leitura. Uma ronda por resolver é uma que não conseguímos avaliar; não conta para nenhum lado e nunca aparece como perda. Educação e prática, não aconselhamento de investimento."],
   ["duel.share", "Partilhe o seu registo"],

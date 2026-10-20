@@ -348,13 +348,19 @@
 
   /**
    * One receipt mention: the kind's word and the seal's first characters.
-   * `links` only on the website: the Pi app links nowhere on the site, so
-   * there the hash is quoted and the receipt is looked up on the web.
+   * `links` true on the website: a link to the receipt page. The Pi app links
+   * nowhere on the site, so there `links` is 'verify': a button the app's own
+   * block answers by checking the receipt in place (pi-receipt.js), with
+   * `check` as its visible word. Anything else quotes the hash and no more.
    */
-  function receiptHtml(key, seal, text, links) {
+  function receiptHtml(key, seal, text, links, check) {
     const short = shortSeal(seal);
     if (!short) return '';
     const label = esc(text.replace('{h}', short));
+    if (links === 'verify') {
+      return '<button type="button" class="d-rc d-rc-v" data-receipt="' + esc(key) + ':' + esc(seal) + '" data-label="' + label + '" title="' + esc(seal) + '">'
+        + label + ' <span class="d-rc-go">' + esc(check || 'Check') + '</span></button>';
+    }
     return links
       ? '<a class="d-rc" href="/call/' + esc(key) + ':' + esc(seal) + '" title="' + esc(seal) + '">' + label + '</a>'
       : '<span class="d-rc" title="' + esc(seal) + '">' + label + '</span>';
@@ -397,7 +403,8 @@
 
   function roundCard(round, t, now, opts) {
     const tr = t || IDENT;
-    const links = Boolean(opts && opts.links);
+    const links = opts && opts.verify ? 'verify' : Boolean(opts && opts.links);
+    const check = links === 'verify' ? tr('duel.rc_check', 'Check') : null;
     const r = round || {};
     const kind = r.kind == null ? 'direction' : r.kind;
     const mine = r.my_call
@@ -433,9 +440,9 @@
       // Provable Calls: the call's receipt, the settlement's once there is
       // one, and the round's own seal, dealt before anyone called.
       const receipts = [
-        receiptHtml('duel', r.my_call.seal, tr('duel.rc_call', 'Receipt {h}'), links),
-        receiptHtml('settle', r.my_call.settle_seal, tr('duel.rc_settle', 'Settlement {h}'), links),
-        receiptHtml('round', r.seal, tr('duel.rc_round', 'Dealt sealed {h}'), links),
+        receiptHtml('duel', r.my_call.seal, tr('duel.rc_call', 'Receipt {h}'), links, check),
+        receiptHtml('settle', r.my_call.settle_seal, tr('duel.rc_settle', 'Settlement {h}'), links, check),
+        receiptHtml('round', r.seal, tr('duel.rc_round', 'Dealt sealed {h}'), links, check),
       ].filter(Boolean);
       body = '<div class="d-called">'
         + '<div class="d-pills">' + pill('d-pill--you', tr('duel.you', 'You'), pickLabel(r.my_call.pick, r, tr)) + claw + '</div>'
@@ -476,7 +483,7 @@
     // Claw's name where the pill will appear.
     // On an open classic round the commitment sits beside the hidden stance:
     // the hash was fixed when the card was dealt, and opens once you call.
-    const dealt = kind === 'direction' && !mine ? receiptHtml('round', r.seal, tr('duel.rc_round', 'Dealt sealed {h}'), links) : '';
+    const dealt = kind === 'direction' && !mine ? receiptHtml('round', r.seal, tr('duel.rc_round', 'Dealt sealed {h}'), links, check) : '';
     const stance = kind === 'direction' && !mine
       ? '<span class="d-agent"><small class="d-pill-k">' + esc(tr('duel.claw', 'Claw')) + '</small>' + esc(agentLabel(r, tr).text)
         + (dealt ? ' <span class="d-receipts d-receipts--inline">' + dealt + '</span>' : '') + '</span>' : '';

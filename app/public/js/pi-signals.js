@@ -372,7 +372,11 @@
         busy = false;
         var f = r.ok && r.body && r.body.filled;
         if (f) {
-          note = ['ok', filledText(f)];
+          // A toast, like the arena's own open: it replaces whatever the last
+          // action said. As a note in this panel it left the arena's toast
+          // ("Position closed: …") on screen over the trade just opened.
+          if (typeof c.toast === 'function') { note = null; c.toast('ok', filledText(f)); }
+          else note = ['ok', filledText(f)];
           return c.refresh();
         }
         // The server names why (window closed, still live, ended, already

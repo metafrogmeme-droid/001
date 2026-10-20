@@ -71,4 +71,17 @@ async function verifyAccessToken(accessToken, deps = {}) {
   return { ok: true, uid, username };
 }
 
-module.exports = { verifyAccessToken, authOrigin, wellFormedToken, DEFAULT_ORIGIN, LOGIN_PATH, TIMEOUT_MS };
+/**
+ * A leaderboard name to OFFER a Pi user who has none: the username Pi
+ * verified, cut to what the board accepts (routes/leaderboard.js HANDLE_RE,
+ * 3 to 20 letters, numbers or underscores), or null when nothing usable is
+ * left. It is offered, never saved: the Pi app fills its name box with it and
+ * the person decides whether to tap Save (app/public/js/pi-leaders.js).
+ */
+function handleSuggestion(username) {
+  if (typeof username !== 'string') return null;
+  const cut = username.replace(/[^A-Za-z0-9_]/g, '').slice(0, 20);
+  return cut.length >= 3 ? cut : null;
+}
+
+module.exports = { verifyAccessToken, authOrigin, wellFormedToken, handleSuggestion, DEFAULT_ORIGIN, LOGIN_PATH, TIMEOUT_MS };

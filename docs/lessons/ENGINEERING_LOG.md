@@ -27487,3 +27487,72 @@ reduced motion, no WebGL, WebGL and the framing ring, the agent page on a
 phone and a desktop) and through the card's drawn text and both relays
 (`tests/test_share_card.py`, `app/test/share_card.test.js`,
 `app/test/dashboard_social.test.js`). Twelve mutants, each killed.
+
+## A NOTE THAT OUTLIVES ITS ACTION DESCRIBES THE NEXT ONE, AND A DOOR THE APP DOES NOT HAVE IS NOT A DIRECTION
+
+*2026-10-20, the Pi app, from the owner's review of a submission recording.*
+
+**"Position closed." over a trade just opened.** The recording for the Pi
+hackathon showed it twice, at 0:45 and 1:02, right after a one-tap paper
+trade on the Signals tab. Nothing closed anything. The shared session
+(`arena-session.js`) kept one note for the arena tab, `lastNote`, and set it
+on a filled open ("Position opened.") and on a done close ("Position
+closed."); only the arena's own next action cleared it. A close, then a
+follow from the Signals tab (which said "Opened BTCUSDT LONG" in its own
+panel and never touched the arena's note), then back to the arena: the tab
+read "Position closed." above the position that had just opened. A note
+with no lifetime but "until the next thing done here" is a claim about
+whatever comes next, on any tab.
+
+The fix gives each kind of message its own lifetime. A done open or close
+is a toast that names the position from the server's answer ("Position
+opened: BTCUSDT LONG at 65010, 2×.", "Position closed: BTCUSDT LONG at
+65500. Result +46.88 credits.") and goes away; the signal follow is a toast
+too, so it replaces an older one instead of sitting under it. A refusal is
+still a note, because it has to be read, and it goes with a change of tab.
+A result the server did not send is left out of the sentence, never printed
+as zero; a real zero is printed.
+
+**A door the app does not have.** The arena's footer told a Pi user with no
+leaderboard name to "set one on the web". The Pi app links nowhere on the
+site (the presale lives there), so the sentence pointed at a door the app
+does not have, and a listing reviewer reads it as a redirect out of the
+app. The name is chosen in a Leaders tab, through the website's own
+`/api/leaderboard/opt-in`, with the session's token; the footer's sentence
+opens that tab. Sign-in offers the username Pi verified as the box's first
+value (`lib/pi_auth.js::handleSuggestion`), never the page's copy of it,
+and it is saved only on a tap: a username identifies a person, and putting
+it on a public board is theirs to do. The privacy page says both halves,
+and its truth test now pins that the route reads the username once, to
+offer it back, and writes nothing.
+
+**The same shape, one surface over each time.**
+- The receipt. The Duel tab quoted each seal and nothing more, because the
+  receipt page is on the site. The check now runs in the app
+  (`pi-receipt.js`): the payload hashed in the browser, the day's proof
+  replayed to its root, a sealed round shown as sealed with no verdict, an
+  unreadable receipt as ours. The DogeOS app runs the same Duel block, so it
+  loads the same module, and a page without the module quotes the hash
+  instead of offering a button that would throw.
+- The unit. vUSDT is the website's word; the Pi app says credits. The one
+  server refusal that names a unit (`code: min_margin`) is re-said in the
+  host's unit from its code and the server's own limit; every other refusal
+  is the server's sentence.
+- The header. The season's name and the balance headed every tab, so the
+  season read as the Duel's title ("FARCASTER · SEASON LIVE" over the Duel).
+  They head the arena tab only. The name itself is data: the operator
+  renames the current season on `/arena`, and every host follows.
+- No wallet. The DogeOS app opened from X lands in X's browser, which has
+  no wallet; "open this page in a browser with a wallet" left the person to
+  find the address. The note now carries the page's link with a Copy
+  button, which selects the box when the browser refuses the clipboard.
+
+Driven in Chromium (`app/test/the_pi_app_says_what_just_happened.smoke.test.js`,
+on a harness shared with the older Pi smoke test,
+`app/test/helpers/pi_app_harness.js`), with a real seal and a real one-step
+proof for the receipt; by the views (`miniapp_arena.test.js`), the sign-in
+route (`pi_auth.test.js`), the Duel renderer (`duel_scenarios.test.js`) and
+the page guard, which now pins the app's only links to the two policies and
+names the one shared link it never reaches. Eighteen mutants, each killed;
+the policy-text mutant had to be aimed at the built page, which is what the
+truth test reads.

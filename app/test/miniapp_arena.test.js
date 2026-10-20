@@ -175,6 +175,71 @@ test('the open form takes its limits from the server, not from itself', () => {
     'the note advertised a limit nobody supplied');
 });
 
+// ── the Pi app's words for the same account (2026-10-20 review) ──────────
+
+test('a host that calls the balance credits says credits throughout; Farcaster still says vUSDT', () => {
+  const acct = { equity: 10345.22, balance: 9000, return_pct: 3.45 };
+  const limits = { min_margin: 10, max_leverage: 20 };
+  for (const html of [V.accountHtml(acct, { unit: 'credits' }), V.openFormHtml(limits, { unit: 'credits' })]) {
+    assert.match(html, /credits/);
+    assert.doesNotMatch(html, /vUSDT/, 'the Pi app printed vUSDT');
+  }
+  assert.match(V.openFormHtml(limits, { unit: 'credits' }), /min 10 credits/);
+  assert.match(V.accountHtml(acct), /vUSDT/, 'the Mini App lost its unit');
+  assert.match(V.openFormHtml(limits), /min 10 vUSDT/);
+  assert.strictEqual(V.sourceLine({ unit: 'credits' }), 'Practice trading · credits, not money');
+  assert.strictEqual(V.sourceLine(), 'Paper trading · virtual balance');
+});
+
+test('every field of the open form has a visible label, and its placeholder reads as an example', () => {
+  const html = V.openFormHtml({ min_margin: 10, max_leverage: 20 }, { unit: 'credits' });
+  for (const [label, cls] of [['Market', 'm-sym'], ['Amount \\(credits\\)', 'm-margin'], ['Leverage', 'm-lev']]) {
+    assert.match(html, new RegExp('<label class="m-field"><span class="m-label">' + label + '</span><input class="' + cls + '"'),
+      `the ${cls} field has no visible label`);
+  }
+  // "BTC", "10" and "lev" read as values already typed.
+  assert.match(html, /placeholder="e\.g\. BTC"/);
+  assert.match(html, /placeholder="min 10"/);
+  assert.match(html, /placeholder="1–20"/);
+  assert.match(html, /Long gains if the price rises, short if it falls/);
+});
+
+test('a done open or close names the position, and a result nobody sent is left out, not zero', () => {
+  assert.strictEqual(V.openedText({ symbol: 'BTCUSDT', direction: 'long', entry: 65010, leverage: 2 }),
+    'Position opened: BTCUSDT LONG at 65010, 2×.');
+  assert.strictEqual(V.openedText(null), 'Position opened.');
+  const held = { id: 7, symbol: 'BTCUSDT', direction: 'SHORT' };
+  assert.strictEqual(V.closedText({ symbol: 'BTCUSDT', pnl: -12.5, exit_price: 65500 }, held, { unit: 'credits' }),
+    'Position closed: BTCUSDT SHORT at 65500. Result -12.50 credits.');
+  // A real zero is a result; an absent one is not printed as one.
+  assert.match(V.closedText({ symbol: 'BTCUSDT', pnl: 0, exit_price: 65500 }, held), /Result 0\.00 vUSDT\.$/);
+  assert.doesNotMatch(V.closedText({ symbol: 'BTCUSDT', pnl: null, exit_price: 65500 }, held), /Result/);
+  assert.match(V.closedText({ symbol: 'BTCUSDT', pnl: -200, liquidated: true }, held), /^Position liquidated: BTCUSDT SHORT\./);
+  assert.strictEqual(V.closedText(null, null), 'Position closed.');
+});
+
+test('no wallet in the DogeOS app offers the page\'s link; no other host and no other outcome does', () => {
+  const url = 'https://www.humanoid-traders.com/doge';
+  const html = V.signInProblemHtml('no-host', null, 'DogeOS', { pageUrl: url });
+  assert.match(html, /<input class="m-copy-url" type="text" readonly value="https:\/\/www\.humanoid-traders\.com\/doge"/);
+  assert.match(html, /class="m-copy-b">Copy link</);
+  assert.doesNotMatch(V.signInProblemHtml('no-host', null, 'Pi', { pageUrl: url }), /m-copy/);
+  assert.doesNotMatch(V.signInProblemHtml('rejected', null, 'DogeOS', { pageUrl: url }), /m-copy/);
+  assert.doesNotMatch(V.signInProblemHtml('no-host', null, 'DogeOS'), /m-copy/);
+});
+
+test('a host\'s first screen is its own; without one the gate is the plain sentence', () => {
+  const intro = V.signedOutHtml(null, 'Pi', { intro: { image: '/mascot/x.webp', title: 'Beat the Claw', lead: 'Lead.',
+    points: [{ icon: '*', text: 'One' }, { icon: '*', text: 'Two' }], note: 'Note.' } });
+  assert.match(intro, /<img class="m-gate-pic" src="\/mascot\/x\.webp" alt=""/);
+  assert.match(intro, /<h1 class="m-gate-title">Beat the Claw<\/h1>/);
+  assert.strictEqual((intro.match(/<li>/g) || []).length, 2);
+  assert.match(intro, /Sign in with Pi/);
+  const plain = V.signedOutHtml({ name: 'October' }, 'Farcaster');
+  assert.match(plain, /Trade October with a virtual balance\./);
+  assert.doesNotMatch(plain, /m-gate-pic/);
+});
+
 // ── a cancelled sign-in is a decision, not a fault ────────────────────────
 
 test('cancelling sign-in is not reported as an error', () => {

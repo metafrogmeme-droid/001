@@ -2016,6 +2016,7 @@
   ["duel.rc_call", "Ricevuta {h}"],
   ["duel.rc_settle", "Liquidazione {h}"],
   ["duel.rc_round", "Sigillata alla distribuzione {h}"],
+  ["duel.rc_check", "Verifica"],
   ["duel.closed", "Questo round è chiuso."],
   ["duel.disc", "Un duello è gratis e non muove denaro — solo conteggi e percentuali, ricalcolati dalle tue chiamate a ogni lettura. Un round non risolto è uno che non siamo riusciti a prezzare; non conta per nessuno e non appare mai come una perdita. Educazione e pratica, non consigli di investimento."],
   ["duel.share", "Condividi il tuo record"],

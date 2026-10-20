@@ -10,7 +10,9 @@
  * the round's own `options`, and the server names every refusal.
  *
  * NO LINK BACK TO THE SITE. The Pi app carries no presale and links nowhere
- * on the site (routes/piapp.js); the game is played here in full.
+ * on the site (routes/piapp.js); the game is played here in full, and so is
+ * the proof: each receipt on a card is a button that checks the seal in the
+ * person's own browser (pi-receipt.js), where the website links to /call.
  *
  * HONESTY. A card that could not be read is said to be unreadable, never
  * drawn empty: "no rounds" is a claim about the game. A record that could not
@@ -80,6 +82,8 @@
     var busy = false;
     var timer = null;
     var ctx = null;
+    var receipt = null;   // { key, label, res }: the receipt being checked, res null while it runs
+    var scrollTo = false; // bring the receipt sheet into view after the next render
 
     function load() {
       if (!ctx) return Promise.resolve();
@@ -183,12 +187,13 @@
         body = M.actionNoteHtml('note', 'No rounds are on today’s card.');
       } else {
         body = '<div class="d-rounds">' + card.rounds.map(function (r) {
-          return D.roundCard(Object.assign({ horizon_hours: card.horizon_hours }, r), null);
+          return D.roundCard(Object.assign({ horizon_hours: card.horizon_hours }, r), null, undefined, { verify: !!window.RCPiReceipt });
         }).join('') + '</div>';
       }
       var day = card && !failed ? '<span class="p-duel-day">' + esc(card.day) + ' UTC</span>' : '';
+      var sheet = receipt && window.RCPiReceipt ? window.RCPiReceipt.sheetHtml(receipt.label, receipt.res) : '';
       return '<section class="m-open p-duel"><div class="p-sig-head"><h2>Daily Duel</h2>' + day + '</div>'
-        + recordHtml() + progressHtml() + noteHtml + body
+        + recordHtml() + progressHtml() + noteHtml + sheet + body
         + '<p class="m-open-note">Call the market before the Claw does · free to play · counts and percent only</p>'
         + '</section>';
     }
@@ -224,7 +229,32 @@
       });
     }
 
+    /** Check one receipt in place; a second tap on another replaces it. */
+    function checkReceipt(btn, c) {
+      var key = btn.getAttribute('data-receipt');
+      var label = btn.getAttribute('data-label') || 'Receipt';
+      receipt = { key: key, label: label, res: null };
+      scrollTo = true;
+      c.render();
+      window.RCPiReceipt.check(c.api, key).then(function (res) {
+        // A newer tap replaced this one; its result is not this sheet's.
+        if (!receipt || receipt.key !== key) return;
+        receipt.res = res;
+        c.render();
+      });
+    }
+
+    function mounted(rootEl) {
+      if (!scrollTo) return;
+      scrollTo = false;
+      var el = rootEl.querySelector('.p-rc-sheet');
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
+    }
+
     function click(target, c) {
+      var rc = target.closest('.p-duel .d-rc-v');
+      if (rc) { checkReceipt(rc, c); return true; }
+      if (target.closest('.p-duel .p-rc-close')) { receipt = null; c.render(); return true; }
       var b = target.closest('.p-duel .d-btn');
       if (!b) return false;
       var wrap = b.closest('.d-actions');
@@ -233,7 +263,7 @@
       return true;
     }
 
-    return { place: 'main', tab: 'duel', label: 'Duel', icon: '\u2694', badge: badge, html: html, click: click, signedIn: signedIn, reload: reload };
+    return { place: 'main', tab: 'duel', label: 'Duel', icon: '\u2694', badge: badge, html: html, click: click, signedIn: signedIn, reload: reload, mounted: mounted };
   }
 
   return { create: create, recordedText: recordedText, REFRESH_MS: REFRESH_MS };

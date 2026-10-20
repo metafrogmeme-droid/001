@@ -1,8 +1,9 @@
 /*
  * The arena in the Pi Browser: sign in with Pi, trade the season, and tip.
  *
- * The Pi half only: the SDK's sign-in and the tip; the signals panel is
- * pi-signals.js. The session, the account and the trading are
+ * The Pi half only: the SDK's sign-in, the first screen, the About sheet and
+ * the tip; the signals panel is pi-signals.js, the Duel pi-duel.js and the
+ * standings pi-leaders.js. The session, the account and the trading are
  * arena-session.js, shared with the Farcaster Mini App,
  * and its header carries the argument for why the session lives in memory only.
  *
@@ -224,7 +225,10 @@
           body: { accessToken: auth.accessToken },
         }).then(function (r) {
           if (r.ok && r.body && r.body.token) {
-            return { status: 'signed-in', token: r.body.token, me: { handle: r.body.handle } };
+            // The suggestion is our server's, from the username Pi verified;
+            // the SDK's own copy of the user is never read (header above).
+            return { status: 'signed-in', token: r.body.token,
+              me: { handle: r.body.handle, suggested_handle: r.body.suggested_handle || null } };
           }
           // 503 is ours (Pi could not be asked); 401 is Pi refusing the token.
           if (r.status === 503) return { status: 'unavailable' };
@@ -237,19 +241,64 @@
       });
   }
 
+  // ── about ───────────────────────────────────────────────────────────────
+
+  /**
+   * The About sheet, opened from the header: what this is, what it is not,
+   * where the policies are, and the tip. The tip sat in the middle of the
+   * trading screen, where an amount in π beside the trade buttons read as a
+   * price of entry; it unlocks nothing, and it now lives where that is said.
+   */
+  function aboutHtml() {
+    var M = window.RCMiniView;
+    return '<section class="m-open p-about">'
+      + '<h2>About RUNECLAW Arena</h2>'
+      + '<p class="p-about-p">Call the market against an AI and practise trading at live prices. '
+      + 'Everything here is practice: credits are not money, and they cannot be bought, sold or withdrawn.</p>'
+      + '<ul class="p-about-list">'
+      + '<li><b>Daily Duel.</b> A few rounds a day: call each one before the Claw reveals its own call. '
+      + 'Every round is sealed when it is dealt; tap a receipt to check it in your browser.</li>'
+      + '<li><b>Signals.</b> The calls the agent makes, with their charts. Follow one with practice credits.</li>'
+      + '<li><b>Leaders.</b> The season ranked on percent return, under the name you choose.</li>'
+      + '</ul>'
+      + M.legalHtml()
+      + '</section>'
+      + tipHtml();
+  }
+
   window.RCArenaSession.start({
     root: document.getElementById('root'),
     host: 'Pi',
     waiting: ['Waiting for Pi…', 'Approve the sign-in in the Pi Browser.'],
     signIn: signIn,
+    // Credits, not vUSDT: see miniapp-view.js unitLabel.
+    view: {
+      unit: 'credits',
+      intro: {
+        image: '/mascot/runeclaw_owl_round.webp?v=1',
+        title: 'Beat the Claw',
+        lead: 'Call the market against an AI. Free to play, and every round is provable.',
+        points: [
+          { icon: '\u2694', text: 'Daily Duel: call today\u2019s rounds before the AI shows its own.' },
+          { icon: '\u25CE', text: 'Practice trading at live prices, with credits, not money.' },
+          { icon: '\u265B', text: 'A season leaderboard, ranked on percent return.' },
+        ],
+        note: 'Signing in with Pi creates a practice account. No exchange keys, no real funds.',
+      },
+    },
+    noHandle: 'No leaderboard name yet. Choose one in',
+    noHandleTab: 'leaders',
+    legal: true,
     extras: [
-      // The Daily Duel's card, after the positions: quick to play, so ahead
-      // of the signals and their charts.
+      // The Daily Duel's card: quick to play, so the first tab after the arena.
       window.RCPiDuel.create(),
       // The engine's calls with their charts.
       window.RCPiSignals.create(),
-      // The tip, last.
-      { place: 'end', html: tipHtml, click: click, signedIn: signedIn },
+      // The season's standings, and your name on them.
+      window.RCPiLeaders.create(),
+      // What this is, the policies and the tip, behind the header's About.
+      { place: 'main', tab: 'about', bar: false, label: 'About', icon: '\u24D8',
+        html: aboutHtml, click: click, signedIn: signedIn },
     ],
   });
 }());

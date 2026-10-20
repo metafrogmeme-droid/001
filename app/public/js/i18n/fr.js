@@ -2016,6 +2016,7 @@
   ["duel.rc_call", "Reçu {h}"],
   ["duel.rc_settle", "Règlement {h}"],
   ["duel.rc_round", "Scellée à la donne {h}"],
+  ["duel.rc_check", "Vérifier"],
   ["duel.closed", "Cette manche est close."],
   ["duel.disc", "Un duel est gratuit et ne déplace aucun argent — comptes et pourcentages seulement, recalculés depuis vos annonces à chaque lecture. Une manche non résolue est une manche que nous n’avons pas pu valoriser ; elle ne compte pour personne et n’apparaît jamais comme une perte. Éducation et pratique, pas un conseil en investissement."],
   ["duel.share", "Partagez votre registre"],

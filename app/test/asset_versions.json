@@ -1,7 +1,7 @@
 {
   "embed.css": {
-    "v": 14,
-    "sha": "637967776c83f373"
+    "v": 16,
+    "sha": "c235690646262282"
   },
   "js/admin.js": {
     "v": 3,
@@ -40,8 +40,8 @@
     "sha": "77d4026436966cf1"
   },
   "js/arena-session.js": {
-    "v": 6,
-    "sha": "f8b777925c2a42f2"
+    "v": 8,
+    "sha": "7625755ef66002a7"
   },
   "js/arena_engine.js": {
     "v": 2,
@@ -108,16 +108,16 @@
     "sha": "8aaaa6478d0e98e0"
   },
   "js/doge-app.js": {
-    "v": 1,
-    "sha": "93d1066bd966730c"
+    "v": 2,
+    "sha": "64a7b78850670502"
   },
   "js/doge-proof.js": {
     "v": 1,
     "sha": "36a2fa665721307e"
   },
   "js/duel.js": {
-    "v": 7,
-    "sha": "4213148c23ad7ac7"
+    "v": 8,
+    "sha": "3ce34294ef7bac4a"
   },
   "js/embed-arena-view.js": {
     "v": 3,
@@ -180,8 +180,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 193,
-    "sha": "1b9dae4179dc6545"
+    "v": 194,
+    "sha": "13f4c4c877b3fbc2"
   },
   "js/icons.js": {
     "v": 6,
@@ -216,8 +216,8 @@
     "sha": "9bd8709b9440e40f"
   },
   "js/miniapp-view.js": {
-    "v": 7,
-    "sha": "9bd0fcddce63170e"
+    "v": 9,
+    "sha": "4a4b904ecb62d729"
   },
   "js/mode-strip-model.js": {
     "v": 1,
@@ -232,16 +232,24 @@
     "sha": "25cb3003194ae98c"
   },
   "js/pi-arena.js": {
-    "v": 3,
-    "sha": "26ac784ae9f55944"
+    "v": 4,
+    "sha": "cca9b0e1dec9212a"
   },
   "js/pi-duel.js": {
-    "v": 4,
-    "sha": "9998fdc9a3490753"
+    "v": 6,
+    "sha": "2d170442afa56990"
+  },
+  "js/pi-leaders.js": {
+    "v": 1,
+    "sha": "6ae3b4abff75a72d"
+  },
+  "js/pi-receipt.js": {
+    "v": 1,
+    "sha": "3c4e62fedd0d8235"
   },
   "js/pi-signals.js": {
-    "v": 4,
-    "sha": "1105314b8a46a1c0"
+    "v": 5,
+    "sha": "eb5fa452874883cb"
   },
   "js/pi-signin-callback.js": {
     "v": 1,

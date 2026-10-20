@@ -2016,6 +2016,7 @@
   ["duel.rc_call", "Bewijs {h}"],
   ["duel.rc_settle", "Afrekening {h}"],
   ["duel.rc_round", "Verzegeld bij delen {h}"],
+  ["duel.rc_check", "Controleren"],
   ["duel.closed", "Deze ronde is gesloten."],
   ["duel.disc", "Een duel is gratis en verplaatst geen geld — alleen tellingen en percentages, bij elke lezing herrekend uit je eigen calls. Een onopgeloste ronde is er één die we niet konden prijzen; die telt voor geen van beide en wordt nooit als verlies getoond. Educatie en oefening, geen beleggingsadvies."],
   ["duel.share", "Deel je record"],

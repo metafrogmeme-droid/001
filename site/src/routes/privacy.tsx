@@ -46,7 +46,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Gap, H, L, P } from '../components/Prose'
 
-const UPDATED = '17 October 2026'
+const UPDATED = '20 October 2026'
 
 function Privacy() {
   return (
@@ -86,7 +86,9 @@ function Privacy() {
           placeholder address rather than a real one.</>,
         <><strong>Your Pi uid</strong>, if you sign in with Pi in the Pi
           Browser. Pi gives each app its own uid for a person, and it is the one
-          thing we keep from that sign-in: your Pi username is not stored.</>,
+          thing we keep from that sign-in: your Pi username is not stored. The
+          Pi app offers it as a name for the leaderboard, and it is kept only if
+          you choose it there.</>,
         <><strong>Your Farcaster ID (fid)</strong>, if you sign in with
           Farcaster. It is the one thing we keep from that sign-in.</>,
         <><strong>A record of each Pi tip</strong>, if you send one from the Pi

@@ -94,6 +94,43 @@ test('nothing the page loads carries the presale or the token', async () => {
   }
 });
 
+test('the only pages the app links to are the two policies, which carry no presale', async () => {
+  // Every href any script on the page can write. The policies are served by
+  // routes/legal.js from the site's build, with no script, no presale bar and
+  // no link beyond each other (the_policies_are_served_on_www.test.js holds
+  // that); the Pi Developer Portal asks for both, and a reviewer will open them.
+  //
+  // Named exceptions, each a link a shared module can write that the Pi app
+  // never reaches, with the reason; a listed one that is gone fails too.
+  const UNREACHED = {
+    // The locked-call card links to the home page; pi-signals.js draws locked
+    // calls itself, and the smoke test drives one (the_pi_app_signs_in_with_pi).
+    'embed-row.js': ['/'],
+  };
+  const r = await get('/pi/');
+  const targets = new Set();
+  const seen = {};
+  for (const src of scripts(r.text).filter((x) => x.startsWith('/js/'))) {
+    const name = src.replace(/^\/js\//, '').replace(/\?.*$/, '');
+    for (const m of codeOnly(fs.readFileSync(path.join(PUBLIC_JS, name), 'utf8')).matchAll(/href="(\/[^"' +]*)"/g)) {
+      if ((UNREACHED[name] || []).includes(m[1])) { (seen[name] = seen[name] || new Set()).add(m[1]); continue; }
+      targets.add(m[1]);
+    }
+  }
+  for (const [name, list] of Object.entries(UNREACHED)) {
+    for (const t of list) assert.ok(seen[name] && seen[name].has(t), `${name} no longer writes ${t}; drop the exception`);
+  }
+  for (const t of targets) {
+    assert.ok(t === '/privacy' || t === '/terms' || t.startsWith('/call/'), `the Pi app can link to ${t}`);
+  }
+  // /call/ is the website's receipt link, which duel.js draws only when asked
+  // for links; the Pi block asks for the in-app check instead.
+  const duelBlock = codeOnly(fs.readFileSync(path.join(PUBLIC_JS, 'pi-duel.js'), 'utf8'));
+  assert.match(duelBlock, /\{ verify: true \}/, 'the Pi Duel stopped asking for the in-app receipt check');
+  assert.doesNotMatch(duelBlock, /links:\s*true/, 'the Pi Duel asks for links to the website');
+  assert.ok(targets.has('/privacy') && targets.has('/terms'), 'the policies are not reachable from the app');
+});
+
 test('the policy is Pi\'s: explicit sources, no wildcard, no inline script', async () => {
   const csp = (await get('/pi/')).headers.get('content-security-policy');
   assert.strictEqual(directive(csp, 'default-src'), "default-src 'none'");

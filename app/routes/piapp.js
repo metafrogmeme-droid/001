@@ -103,13 +103,14 @@ const HEAD_SCRIPTS = ['/js/api-retry.js?v=3', PI_SDK];
  * embed board's (routes/embed.js, /embed/signals), at the same versions: the
  * site's TradingView library, vendored, then the card and chart modules,
  * then the panel itself (pi-signals.js); then the Daily Duel's renderer
- * (duel.js, the website's own) and its block (pi-duel.js). pi-arena.js stays
- * last: it starts the session with every block it needs already loaded.
+ * (duel.js, the website's own), the receipt check (pi-receipt.js) and the
+ * Duel block (pi-duel.js); then the Leaders tab (pi-leaders.js). pi-arena.js
+ * stays last: it starts the session with every block it needs already loaded.
  */
 const SCRIPTS = [
   '/js/embed-arena-view.js?v=3',
-  '/js/miniapp-view.js?v=7',
-  '/js/arena-session.js?v=6',
+  '/js/miniapp-view.js?v=9',
+  '/js/arena-session.js?v=8',
   '/vendor/lightweight-charts.standalone.production.js?v=1',
   '/js/tv-chart.js?v=1',
   '/js/embed-read.js?v=2',
@@ -118,11 +119,15 @@ const SCRIPTS = [
   '/js/embed-row.js?v=6',
   '/js/signal-chart.js?v=3',
   '/js/signal-status-model.js?v=4',
-  '/js/pi-signals.js?v=4',
+  '/js/pi-signals.js?v=5',
   // The Daily Duel: the website's round renderer, then the block.
-  '/js/duel.js?v=7',
-  '/js/pi-duel.js?v=4',
-  '/js/pi-arena.js?v=3',
+  '/js/duel.js?v=8',
+  // The in-app receipt check, before the block that uses it.
+  '/js/pi-receipt.js?v=1',
+  '/js/pi-duel.js?v=6',
+  // The Leaders tab: the season's standings and your name on them.
+  '/js/pi-leaders.js?v=1',
+  '/js/pi-arena.js?v=4',
 ];
 
 function page() {
@@ -146,7 +151,7 @@ function page() {
 <link rel="icon" type="image/png" sizes="200x200" href="/pi_icon_200.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/pi_touch_180.png">
 ${head}
-<link rel="stylesheet" href="/embed.css?v=14">
+<link rel="stylesheet" href="/embed.css?v=16">
 </head><body class="e-arena m-app">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}

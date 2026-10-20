@@ -164,11 +164,19 @@ test('the Pi sign-in keeps only the uid, and the page says the username is not s
   // The only write: the uid App Studio confirmed, and nothing else from Pi.
   assert.match(route, /findOrCreateOAuthUser\(\{ provider: 'pi', providerId: verdict\.uid \}\)/,
     'the Pi sign-in now stores more than the uid — the page must say what')
-  assert.doesNotMatch(route, /verdict\.username|UPDATE users/,
+  assert.doesNotMatch(route, /UPDATE users|INSERT INTO/,
     'the Pi sign-in writes something besides the uid')
+  // The username is read once, to be offered back to the person it names as a
+  // leaderboard name (2026-10-20); it is saved only by the board's own route,
+  // when they choose it, and the page says so.
+  assert.deepStrictEqual(route.match(/verdict\.username/g), ['verdict.username'],
+    'the Pi sign-in reads the username for something new — the page must say what')
+  assert.match(route, /suggested_handle: handle \? null : piAuth\.handleSuggestion\(verdict\.username\)/)
   const t = text()
   assert.match(t, /Pi uid/)
   assert.match(t, /Pi username is not stored/)
+  assert.match(t, /offers it as a name for the leaderboard/)
+  assert.match(t, /kept only if you choose it/)
 })
 
 test('the Farcaster sign-in keeps only the fid', () => {

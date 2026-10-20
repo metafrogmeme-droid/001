@@ -2016,6 +2016,7 @@
   ["duel.rc_call", "Beleg {h}"],
   ["duel.rc_settle", "Abrechnung {h}"],
   ["duel.rc_round", "Beim Austeilen versiegelt {h}"],
+  ["duel.rc_check", "Prüfen"],
   ["duel.closed", "Diese Runde ist geschlossen."],
   ["duel.disc", "Ein Duell ist kostenlos und bewegt kein Geld — nur Zählungen und Prozente, bei jedem Lesen aus deinen Rufen neu berechnet. Eine ungeklärte Runde ist eine, die wir nicht bepreisen konnten; sie zählt für keine Seite und erscheint nie als Verlust. Bildung und Übung, keine Anlageberatung."],
   ["duel.share", "Teile deinen Verlauf"],

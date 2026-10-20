@@ -2016,6 +2016,7 @@
   ["duel.rc_call", "Makbuz {h}"],
   ["duel.rc_settle", "Kapanış {h}"],
   ["duel.rc_round", "Dağıtılırken mühürlendi {h}"],
+  ["duel.rc_check", "Doğrula"],
   ["duel.closed", "Bu raund kapandı."],
   ["duel.disc", "Düello ücretsizdir ve para hareket etmez — yalnızca sayımlar ve yüzdeler, her okumada kendi çağrılarından yeniden hesaplanır. Çözülmemiş raund, fiyatlandıramadığımız rauntdur; hiçbir tarafa sayılmaz ve asla kayıp olarak gösterilmez. Eğitim ve pratik, yatırım tavsiyesi değil."],
   ["duel.share", "Kaydını paylaş"],
