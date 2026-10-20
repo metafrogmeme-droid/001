@@ -646,7 +646,7 @@
   ["ac.brand_sub", "نواة القيادة"],
   ["ac.eyebrow", "ذكي · متكيّف · دؤوب"],
   ["ac.hint", "اسحب للدوران حول الوكيل. إنه يراقب الأسواق نيابة عنك."],
-  ["ac.title", "وكيل <span>AI Viking</span>"],
+  ["ac.title", "وكيل <span>RUNECLAW</span>"],
   ["ac.creed", "<span>أُحلّل.</span><span>أتكيّف.</span><span>أُنفّذ.</span><span>أفوز.</span>"],
   ["ac.summoning", "جارٍ استدعاء الوكيل…<br><span class=\"muted small\">(يظهر النموذج ثلاثي الأبعاد بعد إضافة <code>/mascot/agent.glb</code>)</span>"],
   ["a11y.search_strategies", "ابحث في الاستراتيجيات"],

@@ -646,7 +646,7 @@
   ["ac.brand_sub", "कमांड कोर"],
   ["ac.eyebrow", "बुद्धिमान · अनुकूलनशील · अथक"],
   ["ac.hint", "एजेंट को घुमाने के लिए ड्रैग करें। यह बाज़ारों पर नज़र रखता है, ताकि आपको यह न करना पड़े।"],
-  ["ac.title", "<span>AI Viking</span> एजेंट"],
+  ["ac.title", "<span>RUNECLAW</span> एजेंट"],
   ["ac.creed", "<span>मैं विश्लेषण करता हूँ।</span><span>मैं अनुकूलन करता हूँ।</span><span>मैं निष्पादित करता हूँ।</span><span>मैं जीतता हूँ।</span>"],
   ["ac.summoning", "एजेंट को बुलाया जा रहा है…<br><span class=\"muted small\">(3D मॉडल तब दिखता है जब <code>/mascot/agent.glb</code> जोड़ दिया जाता है)</span>"],
   ["a11y.search_strategies", "रणनीतियाँ खोजें"],

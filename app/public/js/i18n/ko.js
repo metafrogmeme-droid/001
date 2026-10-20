@@ -646,7 +646,7 @@
   ["ac.brand_sub", "커맨드 코어"],
   ["ac.eyebrow", "지능적 · 적응적 · 집요함"],
   ["ac.hint", "드래그해 에이전트 주위를 돌려보세요. 당신 대신 시장을 지켜봅니다."],
-  ["ac.title", "<span>AI Viking</span> 에이전트"],
+  ["ac.title", "<span>RUNECLAW</span> 에이전트"],
   ["ac.creed", "<span>나는 분석한다.</span><span>나는 적응한다.</span><span>나는 실행한다.</span><span>나는 이긴다.</span>"],
   ["ac.summoning", "에이전트를 소환하는 중…<br><span class=\"muted small\">(<code>/mascot/agent.glb</code>를 추가하면 3D 모델이 나타납니다)</span>"],
   ["a11y.search_strategies", "전략 검색"],

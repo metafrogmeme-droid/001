@@ -3,20 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>RUNECLAW — AI Viking Agent</title>
-<meta name="description" content="Meet the RUNECLAW AI Viking agent — a real-time 3D companion for the trading engine.">
+<title>RUNECLAW — the agent</title>
+<meta name="description" content="Meet the RUNECLAW agent — a real-time 3D companion for the trading engine.">
 <!-- Social share cards (UX-6): absolute URLs — unfurlers ignore relative og:image. -->
-<meta property="og:title" content="RUNECLAW — AI Viking Agent">
+<meta property="og:title" content="RUNECLAW — the agent">
 <meta property="og:site_name" content="Humanoid Traders">
-<meta property="og:description" content="Meet the RUNECLAW AI Viking agent — a real-time 3D companion for the trading engine.">
+<meta property="og:description" content="Meet the RUNECLAW agent — a real-time 3D companion for the trading engine.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.humanoid-traders.com/agent">
 <meta property="og:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="RUNECLAW — AI Viking Agent">
-<meta name="twitter:description" content="Meet the RUNECLAW AI Viking agent — a real-time 3D companion for the trading engine.">
+<meta name="twitter:title" content="RUNECLAW — the agent">
+<meta name="twitter:description" content="Meet the RUNECLAW agent — a real-time 3D companion for the trading engine.">
 <meta name="twitter:image" content="https://www.humanoid-traders.com/og_image_1200x630.jpg">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <meta name="theme-color" content="#0a0b10">
@@ -34,6 +34,11 @@
   /* The "awaiting model" placeholder shows until a model is ready. */
   .agent-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--text-3); font-size: var(--fs-sm); pointer-events: none; }
   [data-rc3d-state="ready"] .agent-placeholder { display: none; }
+  /* The owl, still: what the stage shows when the 3D does not run (a phone,
+     reduced motion, no WebGL) and while it loads. */
+  .agent-still { width: 100%; height: 100%; object-fit: contain; display: block; }
+  /* "Drag to orbit" is a claim about the 3D; a still cannot be dragged. */
+  .agent-stage:not([data-rc3d-state="ready"]) ~ .agent-hint { visibility: hidden; }
 </style>
 </head>
 <body>
@@ -45,10 +50,10 @@
 
 <main class="agent-wrap">
   <div class="agent-eyebrow" data-i18n="ac.eyebrow">Intelligent · Adaptive · Relentless</div>
-  <h1 class="agent-title" data-i18n-html="ac.title">The <span>AI Viking</span> Agent</h1>
+  <h1 class="agent-title" data-i18n-html="ac.title">The <span>RUNECLAW</span> Agent</h1>
   <div class="agent-stage" data-rc-agent3d aria-label="RUNECLAW 3D agent" data-i18n-attr="aria-label:a11y.agent3d">
     <div class="agent-placeholder">
-      <span data-i18n-html="ac.summoning">Summoning the agent…<br><span class="muted small">(the 3D model appears once <code>/mascot/agent.glb</code> is added)</span></span>
+      <img class="rc3d-poster agent-still" src="/mascot/runeclaw_owl_round.webp?v=1" alt="" width="768" height="768" decoding="async">
     </div>
   </div>
   <div class="agent-creed mt-4" data-i18n-html="ac.creed"><span>I ANALYZE.</span><span>I ADAPT.</span><span>I EXECUTE.</span><span>I WIN.</span></div>
@@ -63,8 +68,8 @@
 }}
 </script>
 <script src="/js/icons.js?v=6"></script>
-<script type="module" src="/js/mascot3d.js?v=6"></script>
-<script src="/js/i18n-core.js?v=192"></script>
+<script type="module" src="/js/mascot3d.js?v=7"></script>
+<script src="/js/i18n-core.js?v=193"></script>
 <script src="/js/presale.js?v=2"></script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>

@@ -92,8 +92,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 250,
-    "sha": "1ed9e1412d13d668"
+    "v": 252,
+    "sha": "981f5d10afdf7f35"
   },
   "js/decision-court-model.js": {
     "v": 3,
@@ -180,8 +180,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 192,
-    "sha": "8507c2244f458522"
+    "v": 193,
+    "sha": "1b9dae4179dc6545"
   },
   "js/icons.js": {
     "v": 6,
@@ -204,8 +204,8 @@
     "sha": "35f7ba011c75fae3"
   },
   "js/mascot3d.js": {
-    "v": 6,
-    "sha": "fc403653d6d6d2ea"
+    "v": 7,
+    "sha": "aa1978d097d8f1af"
   },
   "js/metric-cluster-model.js": {
     "v": 1,

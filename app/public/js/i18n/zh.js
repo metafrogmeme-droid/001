@@ -646,7 +646,7 @@
   ["ac.brand_sub", "指揮核心"],
   ["ac.eyebrow", "智慧 · 適應 · 不懈"],
   ["ac.hint", "拖曳以環繞代理。它替你盯著市場。"],
-  ["ac.title", "<span>AI Viking</span> 代理"],
+  ["ac.title", "<span>RUNECLAW</span> 代理"],
   ["ac.creed", "<span>我分析。</span><span>我適應。</span><span>我執行。</span><span>我致勝。</span>"],
   ["ac.summoning", "正在召喚代理…<br><span class=\"muted small\">（加入 <code>/mascot/agent.glb</code> 後即顯示 3D 模型）</span>"],
   ["a11y.search_strategies", "搜尋策略"],

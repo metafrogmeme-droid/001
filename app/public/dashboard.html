@@ -92,7 +92,7 @@
 </div>
 
 <script src="/js/api-retry.js?v=3"></script>
-<script src="/js/i18n-core.js?v=192"></script>
+<script src="/js/i18n-core.js?v=193"></script>
 <script src="/js/presale.js?v=2"></script>
 <script src="/js/icons.js?v=6"></script>
 <script src="/js/panel-error-model.js?v=6"></script>
@@ -103,7 +103,7 @@
 <script src="/js/confidence-score.js?v=2" defer></script>
 <script src="/js/rr-words.js?v=1" defer></script>
 <script src="/js/chat.js?v=40" defer></script>
-<!-- 3D AI Viking agent: import map + reactive viewer (defers; no-op if the model is absent). -->
+<!-- 3D RUNECLAW owl: import map + reactive viewer (defers; no-op if the model is absent). -->
 <script type="importmap">
 { "imports": {
   "three": "/vendor/three/three.module.min.js",
@@ -114,7 +114,7 @@
   (function () {
     try {
       if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-      var load = function () { import('/js/mascot3d.js?v=6').catch(function () {}); };
+      var load = function () { import('/js/mascot3d.js?v=7').catch(function () {}); };
       if ('requestIdleCallback' in window) requestIdleCallback(load, { timeout: 2500 });
       else setTimeout(load, 1200);
     } catch (e) { }
@@ -156,7 +156,7 @@
 <script src="/js/calibration-chart.js?v=2" defer></script>
 <script src="/js/signal-page.js?v=2" defer></script>
 <script src="/js/plan-card-model.js?v=1" defer></script>
-<script src="/js/dashboard.js?v=250" defer></script>
+<script src="/js/dashboard.js?v=252" defer></script>
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}</script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>

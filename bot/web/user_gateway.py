@@ -3739,6 +3739,47 @@ async def handle_agent_card_public(request: web.Request) -> web.Response:
 _SHARE_SYMBOL_RE = re.compile(r"^[A-Z0-9]{1,15}$")
 
 
+def _share_plan_card(request: web.Request, symbol: str, direction: str) -> web.Response:
+    """kind=plan: the decision picture's card. target_pct (the price move to
+    the take-profit) is required and finite; leverage (a multiple, 0 < x <= 200)
+    and at (an ISO instant) are optional and either parse or are a 400."""
+    try:
+        target_pct = float(request.query.get("target_pct") or "")
+    except (TypeError, ValueError):
+        return web.json_response({"error": "bad_target"}, status=400)
+    if not math.isfinite(target_pct):
+        return web.json_response({"error": "bad_target"}, status=400)
+    data: dict = {"symbol": symbol, "direction": direction,
+                  "target_pct": max(-100000.0, min(100000.0, target_pct))}
+    raw_lev = (request.query.get("leverage") or "").strip()
+    if raw_lev:
+        try:
+            lev = float(raw_lev)
+        except ValueError:
+            return web.json_response({"error": "bad_leverage"}, status=400)
+        if not math.isfinite(lev) or lev <= 0 or lev > 200:
+            return web.json_response({"error": "bad_leverage"}, status=400)
+        data["leverage"] = lev
+    raw_at = (request.query.get("at") or "").strip()
+    if raw_at:
+        try:
+            dt = datetime.fromisoformat(raw_at.replace("Z", "+00:00"))
+        except ValueError:
+            return web.json_response({"error": "bad_time"}, status=400)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        data["at"] = dt.astimezone(timezone.utc).isoformat()
+    try:
+        from bot.formatters.signal_card import render_plan_card
+        png = render_plan_card(data)
+    except Exception:
+        png = b""
+    if not png:
+        return web.json_response({"error": "render_unavailable"}, status=503)
+    return web.Response(body=png, content_type="image/png",
+                        headers={"Cache-Control": "public, max-age=300"})
+
+
 async def handle_share_card(request: web.Request) -> web.Response:
     """GET /gateway/share-card?symbol=&direction=&pnl_pct=[&opened_at=&closed_at=&book=] — PNG bytes.
 
@@ -3753,6 +3794,8 @@ async def handle_share_card(request: web.Request) -> web.Response:
     direction = (request.query.get("direction") or "").upper().strip()
     if not _SHARE_SYMBOL_RE.match(symbol) or direction not in ("LONG", "SHORT"):
         return web.json_response({"error": "invalid"}, status=400)
+    if (request.query.get("kind") or "").strip().lower() == "plan":
+        return _share_plan_card(request, symbol, direction)
     try:
         pnl_pct = float(request.query.get("pnl_pct") or "")
     except (TypeError, ValueError):
