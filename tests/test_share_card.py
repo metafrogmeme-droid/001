@@ -82,3 +82,75 @@ async def test_gateway_share_card_translates_missing_pillow_to_503(monkeypatch):
     monkeypatch.setattr(sc, "render_share_card", lambda data: b"")
     resp = await _call("symbol=BTC&direction=LONG&pnl_pct=1")
     assert resp.status == 503
+
+
+# ── The review of 2026-10-19: when, and which book ─────────────────────────
+
+def _rows(data):
+    from tests.png_text import drawn
+    return drawn(render_share_card, data)
+
+
+BASE = {"symbol": "TRUMP", "direction": "SHORT", "pnl_pct": 17.41}
+
+
+def test_the_card_says_when_the_trade_was_opened_and_closed():
+    rows = _rows(dict(BASE, opened_at="2026-10-17T20:12:00Z", closed_at="2026-10-19T20:35:10+00:00"))
+    texts = [t for t, _ in rows]
+    assert "Opened 17 Oct 2026 20:12 UTC · Closed 19 Oct 2026 20:35 UTC" in texts, texts
+
+
+def test_an_unparseable_or_absent_time_is_no_date_at_all():
+    from bot.formatters.signal_card import _share_when
+    assert _share_when(None, None) == ""
+    assert _share_when("soon", "2026-10-19T20:35:10Z") == "Closed 19 Oct 2026 20:35 UTC"
+    assert not any(t.startswith("Opened") or t.startswith("Closed") for t, _ in _rows(BASE))
+
+
+def test_the_book_is_a_chip_and_a_sentence_only_when_known():
+    from bot.formatters import signal_card as SC
+    from tests.png_text import fill_of
+    paper = _rows(dict(BASE, book="paper"))
+    assert fill_of(paper, "PAPER") == SC._GRAY
+    assert any(t.startswith("Paper trade, traded autonomously.") for t, _ in paper)
+    live = _rows(dict(BASE, book="live"))
+    assert fill_of(live, "LIVE") == SC._GREEN
+    assert any(t.startswith("Live trade, traded autonomously.") for t, _ in live)
+    unknown = [t for t, _ in _rows(BASE)]
+    assert "PAPER" not in unknown and "LIVE" not in unknown
+    assert any(t.startswith("Traded autonomously. Shared without") for t, _ in _rows(BASE)), (
+        "an unknown book claims neither")
+    assert not any("Live trade" in t or "Paper trade" in t for t in unknown)
+
+
+def test_the_disclaimer_is_readable():
+    from bot.formatters import signal_card as SC
+    from tests.png_text import fill_of
+    assert fill_of(_rows(BASE), "Not investment advice.") == SC._GRAY
+
+
+@pytest.mark.asyncio
+async def test_gateway_relays_the_optional_fields_and_refuses_junk():
+    import bot.formatters.signal_card as sc
+    seen = {}
+
+    def _spy(data):
+        seen.update(data)
+        return b"\x89PNG\r\n\x1a\n" + b"x" * 16
+
+    orig = sc.render_share_card
+    sc.render_share_card = _spy
+    try:
+        ok = await _call("symbol=BTC&direction=LONG&pnl_pct=1&opened_at=2026-10-17T20:12:00Z"
+                         "&closed_at=2026-10-19T20:35:10%2B02:00&book=Paper")
+        assert ok.status == 200, ok.status
+        assert seen["opened_at"] == "2026-10-17T20:12:00+00:00"
+        assert seen["closed_at"] == "2026-10-19T18:35:10+00:00", "relayed as a UTC instant"
+        assert seen["book"] == "paper"
+        seen.clear()
+        bare = await _call("symbol=BTC&direction=LONG&pnl_pct=1")
+        assert bare.status == 200 and "book" not in seen and "opened_at" not in seen
+        assert (await _call("symbol=BTC&direction=LONG&pnl_pct=1&opened_at=yesterday")).status == 400
+        assert (await _call("symbol=BTC&direction=LONG&pnl_pct=1&book=margin")).status == 400
+    finally:
+        sc.render_share_card = orig

@@ -37,7 +37,7 @@ TWO WRONG ANSWERS FROM ONE UNREADABLE FIELD:
     entry price, one module over.
 
 Both flowed into `get_weekly_review`'s `avg_r_multiple`, which `/journal`
-prints as `Avg R-Multiple: +0.02R` above `Best: SOL $+41.00 (0.0R)`.
+prints as `Avg R-Multiple: +0.02R` above `Best: SOL +$41.00 (0.0R)`.
 """
 
 import json

@@ -21054,7 +21054,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 273 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 276 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **498 of 1347** reach for source text through `source_scan`, `code_only`
+Driven, **501 of 1351** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 498 is a FLOOR and the honest shape is
+source scan that rule does not see, so 501 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -27091,3 +27091,104 @@ which is the plan.
 `app/test/the_pi_app_is_the_arena_and_nothing_else.test.js`,
 `app/test/the_home_page_warns_about_impostors.test.js`,
 `app/test/canonical_links.test.js`.)
+
+**THE TELEGRAM IMAGE CARDS WERE TEN RENDERERS WITH TEN PALETTES; NOW THEY
+ARE ONE LOOK, AND THE HONESTY TESTS NEVER NOTICED.** 19 October, the owner,
+with screenshots of the position card, the scan ranking and a chart beside
+the new duel cards: "these renders need to be more like the new cards we
+build; check all." `bot/formatters/signal_card.py` had grown to ten PNG
+renderers over 2,400 lines, each with its own copy of the palette, its own
+DejaVu font loader and its own cell helper, drawn at one device pixel per
+logical pixel on a 520-wide canvas, so every phone showed them soft; the
+ETF card and the matplotlib chart had copies of their own. The fix is the
+layer the website's cards already had in CSS: `bot/formatters/card_theme.py`
+holds the palette (embed.css's), one font loader over a vendored Inter
+(OFL, `bot/formatters/fonts/`), a `Draw` that multiplies every coordinate by
+`S = 2` and loads fonts at `size * S`, and three shapes, a tile, a tinted
+pill and the rune wordmark. Each renderer kept its layout and its strings
+and swapped its closures for the theme's; the chart took the same palette
+and registers the same files with matplotlib.
+
+What made this safe to do in an afternoon is that the honesty tests on the
+cards read the right seam. `tests/png_text.py` spies on
+`ImageDraw.ImageDraw.text`, the one call every string crosses, and
+`test_close_card_unpriced.py` reads the stripe's pixel at the top edge. The
+theme's `Draw.text` hands the real `ImageDraw` the same string and the same
+fill, the constants kept their names and their meanings (green and red say
+measured, grey says not), and the stripe stayed the top edge, so 351 card
+tests passed unchanged across a complete restyle. A test that reads pixels
+of a named constant or strings through the drawing seam survives a
+redesign; one that pinned a coordinate or a font path would have had to be
+rewritten with every card. `tests/test_the_cards_share_one_look.py` holds
+the renderers to the theme (no palette, font loader or canvas of their own),
+the theme to the seams (the spy still sees string and fill; the stripe is
+still the first row; a pill's ground is a tint, never the colour), and the
+canvas to its content (a card ends where its last line ends).
+
+*Addendum, same day.* The owner sent the brand: the serif logotype and the
+mascot. The logotype is the sign-off on every card now, a picture under
+`bot/formatters/assets/`, and the mascot stands on the right of the share
+card behind a fade. A picture is invisible to the text spy, so the
+sign-off is asserted from the pixels: the glyph's blue in the bottom-right
+corner, which a bare canvas does not have. A missing asset file is a
+width of nothing and a card without the mark, never a crash. And the one
+close that sent no picture, the paper book's, sends the close card now
+with its breakdown as the caption (`paper_close_card_data`, driven with a
+real book: margin is the collateral, the hero is net on it), so the two
+books close in one voice (`tests/test_a_paper_close_sends_its_card.py`).
+
+*Second addendum, same evening: the share card, read by someone outside.*
+Four tips came back on the first render. The card now prints when the
+trade was opened and closed (UTC instants, so a reader can check the call
+against a chart) and which book it was on, as a PAPER or LIVE chip and the
+matching first words of the tagline; a caller that does not know the book
+gets neither, because "Traded autonomously" alone read as real money and
+a chip the card guessed would be worse. The disclaimer is in the label
+grey, not the watermark grey. The two optional facts travel the same two
+hops as the three public inputs (`app/routes/share.js`,
+`bot/web/user_gateway.py`), each either parsing or a 400, never a date the
+card made up; the website's share button hands over the row's times and
+no book, since the `trades` table records none (adding it to the sync
+payload is the follow-up). The privacy scan on the renderer still holds:
+symbol, direction and percent are the only trade facts on the card. Two
+notes that are not code: a memecoin ticker like TRUMP on a SHORT card
+reads as a political statement when shared, so the operator chooses what
+to post; and the house rule against price content means a card goes out
+as the product feature ("share your result card"), not as a return.
+
+*Third addendum, same evening: `$+209.66`.* The next tip was a spelling:
+every surface printed `f"${v:+,.2f}"`, the sign after the currency, and a
+reader outside read it as a typo. One helper,
+`bot/formatters/money.py::signed_usd`, now spells every signed dollar
+figure a person reads, `+$209.66` and `-$44.00`, and the Telegram text,
+the cards, the war room, the monitors, the backtest reports and the
+exchange-sync journal line moved onto it, with the tests that had quoted
+the old spelling; the live close message's own `money()` had swapped the
+sign after the dollar on purpose and swaps no more.
+`tests/test_a_signed_dollar_reads_as_money.py` scans the whole bot for the
+shape and holds a list of exceptions both ways (empty now), so a new site
+fails and a delisted one must be removed in the same commit. One trap
+worth the sentence: the first run of the rewritten tests stopped at its
+first failure (`-x`), and nine failures in files sorted after it were
+read as none; a sweep's test run is read without `-x`, to the end. The
+helper takes a number only: what to print for a figure nobody read ("—",
+"unread", "not priced") is each surface's own sentence and stayed where it
+was.
+
+*Fourth addendum, same evening: the score on the position and close cards.*
+Asked for next: the confidence on the cards. The signal card had printed
+the one reading under SCORE (UNCALIBRATED) since the one-reading rule; the
+position and close cards printed none, because neither book recorded one.
+A position knew its entry, stop and target, and not what the engine had
+scored the idea it came from. The reading is recorded at entry now, once,
+on both books (the live position in its entry facts, the paper trade on
+two fields of its own), and one reader, `confidence_on_entry` in
+`bot/core/position_telemetry.py`, hands it to every card beside the
+instant the position opened. Recorded, not looked up: the current scan's
+idea for the same symbol is a different quantity, and a card that printed
+it would print a figure the trade was never opened on. Three absences,
+three sentences: a hand-typed ticket's stamp says "not measured", a field
+nobody could read says the dash, and a row written before the field says
+"not recorded"; none is a 0, and none wears the accent colour a measured
+figure does (`tests/test_the_position_cards_print_the_score_the_record_holds.py`;
+seven mutants, each killed).

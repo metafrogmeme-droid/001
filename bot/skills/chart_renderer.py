@@ -22,6 +22,7 @@ import asyncio
 import io
 import logging
 import math
+import os
 import re
 import threading
 import time
@@ -44,20 +45,23 @@ _THEMES = {
     # candle colours, the same muted axis text, the same faint grid, and the
     # entry in the brand gold the web modal draws it in. A signal's Telegram
     # picture and its web chart are one style, not two.
+    # The image cards' palette (bot/formatters/card_theme.py, from the
+    # website's embed.css): the chart a signal ships with and the card beside
+    # it are one surface, not two.
     "dark": {
-        "figcolor": "#12141c",
-        "facecolor": "#12141c",
-        "gridcolor": "#1d212e",
-        "text": "#d8dde8",
-        "muted": "#8f99ab",
-        "up": "#2fbf71",
-        "down": "#e5484d",
-        "ema_fast": "#2962ff",
-        "ema_slow": "#ff9800",
-        "rsi": "#7e57c2",
+        "figcolor": "#0b0e14",
+        "facecolor": "#0b0e14",
+        "gridcolor": "#1b2030",
+        "text": "#e8ecf4",
+        "muted": "#8a96ac",
+        "up": "#2bd576",
+        "down": "#ff5c5c",
+        "ema_fast": "#3fb6ff",
+        "ema_slow": "#e6b03c",
+        "rsi": "#8b7cf6",
         "entry": "#e6b03c",
-        "stop": "#e5484d",
-        "target": "#2fbf71",
+        "stop": "#ff5c5c",
+        "target": "#2bd576",
         "vwap": "#f5c542",
         "choch": "#ff7043",
     },
@@ -101,6 +105,33 @@ except Exception as exc:  # noqa: BLE001 — any import failure ⇒ graceful tex
 # mplfinance renders through pyplot's global state; serialize across worker
 # threads so concurrent scans can't corrupt a shared figure.
 _RENDER_LOCK = threading.Lock()
+
+
+def _register_card_fonts() -> list:
+    """The sans-serif stack: Inter from the cards' vendored files when
+    matplotlib can register them, DejaVu Sans behind it. Registered once,
+    at import, so the chart's type is the cards' type."""
+    stack = ["DejaVu Sans"]
+    if not _CHARTS_AVAILABLE:
+        return stack
+    try:
+        from matplotlib import font_manager
+        here = os.path.dirname(os.path.abspath(__file__))
+        fonts = os.path.join(os.path.dirname(here), "formatters", "fonts")
+        added = 0
+        for name in ("Inter-Regular.otf", "Inter-Medium.otf", "Inter-SemiBold.otf", "Inter-Bold.otf"):
+            path = os.path.join(fonts, name)
+            if os.path.exists(path):
+                font_manager.fontManager.addfont(path)
+                added += 1
+        if added:
+            stack.insert(0, "Inter")
+    except Exception:  # noqa: BLE001 — a font is a nicety; the chart draws either way
+        pass
+    return stack
+
+
+_SANS_SERIF = _register_card_fonts()
 
 
 def charts_available() -> bool:
@@ -333,6 +364,8 @@ def render_chart_png(df, title: str = "RUNECLAW Setup", dpi: int = 180,
             "text.color": t["text"],
             "axes.titlecolor": t["text"],
             "font.size": 10,
+            "font.family": "sans-serif",
+            "font.sans-serif": _SANS_SERIF,
             "axes.linewidth": 0.8,
         },
     )

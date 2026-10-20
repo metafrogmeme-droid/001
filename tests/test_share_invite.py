@@ -10,7 +10,7 @@ was missing, not the room.
 THE RISK THIS FILE EXISTS FOR. CLAUDE.md: *no dollar amounts on public,
 community, leaderboard or marketplace payloads — percent, ratio and count
 only.* The operator's own close card is private and correctly reads
-`PnL: $+0.15`. A button that FORWARDED that card would publish account size
+`PnL: +$0.15`. A button that FORWARDED that card would publish account size
 into a group chat in one tap, with no warning and no way to retract it.
 
 So a share is a re-render and never a forward, and `assert_no_money` runs

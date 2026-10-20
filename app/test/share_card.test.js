@@ -123,3 +123,19 @@ test('privacy: the route accepts no dollar/size parameters', () => {
     assert.ok(!src.includes(leak), `share route must never touch ${leak}`);
   }
 });
+
+test('the open and close instants and the book are relayed when valid, refused when junk', async () => {
+  let r = await req('GET', '/api/share/card?symbol=BTC&direction=LONG&pnl_pct=1'
+    + '&opened_at=2026-10-17T20%3A12%3A00Z&closed_at=2026-10-19T22%3A35%3A10%2B02%3A00&book=Paper', { token });
+  assert.equal(r.status, 200);
+  assert.match(lastGatewayPath, /opened_at=2026-10-17T20%3A12%3A00\.000Z/, 'an ISO instant');
+  assert.match(lastGatewayPath, /closed_at=2026-10-19T20%3A35%3A10\.000Z/, 'normalised to UTC');
+  assert.match(lastGatewayPath, /book=paper/);
+  r = await req('GET', '/api/share/card?symbol=BTC&direction=LONG&pnl_pct=1', { token });
+  assert.equal(r.status, 200);
+  assert.doesNotMatch(lastGatewayPath, /opened_at|closed_at|book=/, 'nothing invented for an absent field');
+  for (const qs of ['opened_at=yesterday', 'closed_at=', 'book=margin']) {
+    r = await req('GET', `/api/share/card?symbol=BTC&direction=LONG&pnl_pct=1&${qs}`, { token });
+    assert.equal(r.status, qs === 'closed_at=' ? 200 : 400, qs);
+  }
+});

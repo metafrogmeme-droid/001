@@ -41,6 +41,7 @@ from typing import Any, Optional
 from bot.core.live_executor import position_size_basis
 from bot.core.position_telemetry import entered_at
 from bot.core.trade_journal import r_multiple_for
+from bot.formatters.money import signed_usd
 from bot.utils.close_reason import NON_FILL_CLOSE_REASONS
 from bot.utils.leveraged_return import realized_margin_return_pct
 
@@ -108,7 +109,7 @@ def _base(symbol: Any) -> str:
 
 
 def _money(v: Optional[float]) -> str:
-    return f"${v:+,.2f}" if v is not None else "not priced"
+    return f"{signed_usd(v)}" if v is not None else "not priced"
 
 
 def _price(v: Optional[float]) -> str:

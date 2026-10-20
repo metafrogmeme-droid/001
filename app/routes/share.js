@@ -1,7 +1,7 @@
 /**
  * Share cards — server-rendered PNG for the closed-trade share flow.
  *
- * GET /api/share/card?symbol=&direction=&pnl_pct=
+ * GET /api/share/card?symbol=&direction=&pnl_pct=[&opened_at=&closed_at=&book=]
  *
  * The card is a pure function of three public inputs (symbol, direction,
  * PnL percent) rendered by the bot's Pillow renderer and relayed here as
@@ -35,6 +35,20 @@ router.get('/card', async (req, res) => {
   if (!Number.isFinite(pnl_pct)) return res.status(400).json({ error: 'Invalid pnl_pct' });
   try {
     const qs = new URLSearchParams({ symbol, direction, pnl_pct: pnl_pct.toFixed(2) });
+    // Optional: when the trade was opened and closed, and which book, so the
+    // card can say so. A time is relayed as an ISO instant; junk is a 400,
+    // never a card with a made-up date.
+    for (const key of ['opened_at', 'closed_at']) {
+      if (req.query[key] === undefined || req.query[key] === '') continue;
+      const ms = Date.parse(String(req.query[key]));
+      if (!Number.isFinite(ms)) return res.status(400).json({ error: `Invalid ${key}` });
+      qs.set(key, new Date(ms).toISOString());
+    }
+    if (req.query.book !== undefined && req.query.book !== '') {
+      const book = String(req.query.book).toLowerCase();
+      if (book !== 'paper' && book !== 'live') return res.status(400).json({ error: 'Invalid book' });
+      qs.set('book', book);
+    }
     const r = await getGatewayBinary(`/share-card?${qs.toString()}`, 15000);
     if (r.status !== 200 || !/image\/png/.test(r.contentType)) {
       return res.status(502).json({ error: 'Card unavailable' });

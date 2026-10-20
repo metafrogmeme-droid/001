@@ -26,6 +26,7 @@ import time
 from contextvars import ContextVar
 from datetime import datetime
 from bot.compat import UTC
+from bot.formatters.money import signed_usd
 from typing import Optional, Any
 from bot.utils.paths import state_path
 from bot.utils.outbound import reply_safe
@@ -266,7 +267,7 @@ def _position_row_parts(entry, qty, margin, notional, lev, sl, tp, mark, *,
                 upnl = (mk - entry) * qty
                 if is_short:
                     upnl = -upnl
-                parts.append(f"unrealized ${upnl:+,.2f}")
+                parts.append(f"unrealized {signed_usd(upnl)}")
             else:
                 parts.append("unrealized $ NOT COMPUTABLE (quantity not on record)")
     return parts
@@ -459,7 +460,7 @@ def _closed_trade_line(t) -> str:
 
     Reads BOTH close vocabularies (`_first_attr`): the paper arm of the
     prompt had its own inline row — `exit ${t.exit_price:,.4f}, PnL
-    ${t.pnl:+,.2f}` — with none of this function's readings, and an
+    {signed_usd(t.pnl)}` — with none of this function's readings, and an
     `exit_price` of None (a paper close whose exit was never recorded)
     raised inside the block and took the whole section with it. The close
     time is printed when the record carries one, because "when did I close
@@ -495,7 +496,7 @@ def _closed_trade_line(t) -> str:
         f"entry ${entry:,.4f}" if entry is not None else "entry NOT ON RECORD",
         f"exit ${exit_:,.4f}" if exit_ is not None
         else "exit NOT ON RECORD (the close price could not be read)",
-        f"PnL ${pnl_f:+,.2f}" if pnl_f is not None
+        f"PnL {signed_usd(pnl_f)}" if pnl_f is not None
         else "PnL not recorded (this close could not be priced — do not call it flat)",
     ]
     reason = str(getattr(t, "close_reason", "") or "")
@@ -2399,7 +2400,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 _priced_rows = [t for t in live_closed
                                 if getattr(t, "pnl_usd", None) is not None]
                 total_pnl = sum(float(t.pnl_usd) for t in _priced_rows)
-                _pnl_ctx = (f"${total_pnl:+,.2f}" if _priced_rows or not live_closed
+                _pnl_ctx = (f"{signed_usd(total_pnl)}" if _priced_rows or not live_closed
                             else "not measurable")
                 _fee_rows = [t for t in live_closed
                              if getattr(t, "commission", None) is not None]
@@ -2447,7 +2448,7 @@ class TelegramHandler(GuardianCommands, LLMCommands, AccessCommands, YieldComman
                 # `total_pnl` is a float that defaults to 0.0, so an account
                 # with no closed trade read "total PnL $+0.00" — a measured
                 # break-even on money never risked. The count decides.
-                _tp_ctx = (f"total PnL ${state.total_pnl:+,.2f}"
+                _tp_ctx = (f"total PnL {signed_usd(state.total_pnl)}"
                            if state.total_trades
                            else "total PnL: no closed trades yet, so none to report")
                 portfolio_summary = (

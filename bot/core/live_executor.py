@@ -78,7 +78,7 @@ from bot.core.trade_costs import (
     round_trip_pct,
 )
 from bot.core.time_exits import UNRECORDED_ORIGINS, in_profit_after_fees, thesis_recorded
-from bot.core.position_telemetry import entered_at, price_on_record
+from bot.core.position_telemetry import confidence_on_entry, entered_at, price_on_record
 from bot.core.order_state import (
     CLOSE_CARD_NOT_RENDERED, CLOSE_KEPT_OPEN_MARKERS, NOTHING_TO_CLOSE, SIZE_REFUSALS,
     STOP_REFUSED_FOR_SIZE, amount_to_send, first_reading, flash_close_applied, flatten_outcome, held_on_side,
@@ -664,10 +664,15 @@ def entry_facts_for(idea, *, order_type: str, order_id: Optional[str] = None) ->
     target are what the position was sized and risk-approved on."""
     try:
         entry = _num_or_none(getattr(idea, "entry_price", None))
+        from bot.core.signal_confidence import displayed_confidence
+        _conf = displayed_confidence(idea)
         return {
             "v": 1,
             "decision_price": _num_or_none(getattr(idea, "market_at_signal", None)) or entry,
             "intended_entry": entry,
+            # The one reading of the confidence, as the signal's cards showed it.
+            "confidence": _conf.value,
+            "confidence_basis": _conf.basis,
             "initial_stop_loss": _num_or_none(getattr(idea, "stop_loss", None)),
             "initial_take_profit": _num_or_none(getattr(idea, "take_profit", None)),
             "placed_order_type": str(order_type) if order_type else None,
@@ -745,18 +750,17 @@ UNREAD = "unread"
 def money(v) -> str:
     """A dollar figure, or ``unread`` when there is no figure to print.
 
-    The sign sits after the dollar (``$-0.2128``), four places, no
-    thousands comma — the spelling the close cards already use. ``fmt``
-    puts the sign in front of the prefix; this swaps that one spelling
-    back. Unreadable (None, NaN, a non-number) is the word, never ``$0``.
+    Four places, no thousands comma, the sign before the dollar
+    (``-$0.2128``), as ``fmt`` spells it and as every surface spells a signed
+    figure since 2026-10-19 (``bot/formatters/money.py``); this used to swap
+    the sign after the dollar. Unreadable (None, NaN, a non-number) is the
+    word, never ``$0``.
     """
     if v is None:
         return UNREAD
     text = fmt(v, places=4, prefix="$", thousands=False)
     if text is None:
         return UNREAD
-    if text.startswith("-$"):
-        return "$-" + text[2:]
     return text
 
 
@@ -15081,6 +15085,7 @@ class LiveExecutor:
             # what lets a reader that knows which close it is asking about
             # refuse an earlier close of the same symbol — the slot is
             # last-write-wins and the symbol alone cannot tell them apart.
+            _cr = confidence_on_entry(pos)
             self._last_close_data = {
                 "trade_id": pos.trade_id,
                 "symbol": pos.symbol,
@@ -15108,6 +15113,9 @@ class LiveExecutor:
                 "notional_usd": None if _notional_usd is None else round(_notional_usd, 2),
                 "leverage": pos.leverage or 1,
                 "hold_time": hold_str,
+                "opened_at": entered_at(pos),
+                "confidence": _cr.value if _cr else None,
+                "confidence_basis": _cr.basis if _cr else None,
                 "confirmed": close_confirmed,
                 "close_order_id": close_order_id,
             }
@@ -16355,6 +16363,7 @@ class LiveExecutor:
         if entry_unread:
             close_msg += ENTRY_UNREAD_NOTE
 
+        _cr = confidence_on_entry(pos)
         self._last_close_data = {
             "trade_id": pos.trade_id,
             "symbol": pos.symbol,
@@ -16379,6 +16388,9 @@ class LiveExecutor:
             "notional_usd": None if _notional_usd is None else round(_notional_usd, 2),
             "leverage": lev,
             "hold_time": hold_str,
+            "opened_at": entered_at(pos),
+            "confidence": _cr.value if _cr else None,
+            "confidence_basis": _cr.basis if _cr else None,
             "confirmed": _confirmed,
             "close_order_id": "",
         }

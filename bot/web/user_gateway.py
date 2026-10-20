@@ -3740,10 +3740,11 @@ _SHARE_SYMBOL_RE = re.compile(r"^[A-Z0-9]{1,15}$")
 
 
 async def handle_share_card(request: web.Request) -> web.Response:
-    """GET /gateway/share-card?symbol=&direction=&pnl_pct= — PNG bytes.
+    """GET /gateway/share-card?symbol=&direction=&pnl_pct=[&opened_at=&closed_at=&book=] — PNG bytes.
 
-    The card is a pure function of three public inputs (symbol, direction,
-    PnL percent); no account, user store, or dollar figure is ever in scope on
+    The card is a pure function of public inputs (symbol, direction, PnL
+    percent, and optionally the open and close instants and which book);
+    no account, user store, or dollar figure is ever in scope on
     this path, which is exactly why it is safe to render on request. Inputs are
     clamped hard because they are caller-supplied. This is the gateway's only
     binary (non-JSON) response; callers must not route it through JSON relays.
@@ -3759,10 +3760,30 @@ async def handle_share_card(request: web.Request) -> web.Response:
     if not math.isfinite(pnl_pct):
         return web.json_response({"error": "bad_pnl"}, status=400)
     pnl_pct = max(-100000.0, min(100000.0, pnl_pct))
+    # Optional: when the trade was opened and closed, and which book. Each is
+    # caller-supplied and either parses or is a 400; a card never carries a
+    # date or a book it was not given.
+    extra: dict = {}
+    for key in ("opened_at", "closed_at"):
+        raw = (request.query.get(key) or "").strip()
+        if not raw:
+            continue
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return web.json_response({"error": "bad_time"}, status=400)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        extra[key] = dt.astimezone(timezone.utc).isoformat()
+    book = (request.query.get("book") or "").strip().lower()
+    if book:
+        if book not in ("paper", "live"):
+            return web.json_response({"error": "bad_book"}, status=400)
+        extra["book"] = book
     try:
         from bot.formatters.signal_card import render_share_card
         png = render_share_card(
-            {"symbol": symbol, "direction": direction, "pnl_pct": pnl_pct})
+            {"symbol": symbol, "direction": direction, "pnl_pct": pnl_pct, **extra})
     except Exception:
         png = b""
     if not png:

@@ -7,39 +7,40 @@ Matches the dark-themed, grid-layout design with colored accents.
 
 from __future__ import annotations
 
-import re
-import io
 import logging
+import re
 from typing import Any, Dict, Optional
+
+from bot.formatters.money import signed_usd
 
 log = logging.getLogger("runeclaw.signal_card")
 
 # ── Color palette ───────────────────────────────────────────────
-_BG = (18, 22, 30)           # Dark navy background
-_CARD_BG = (25, 30, 42)      # Slightly lighter card panels
-_BORDER = (40, 50, 70)       # Subtle border
-_ACCENT_GOLD = (212, 175, 55)  # Gold accent line
-_GREEN = (0, 200, 100)       # Profit / LONG
-_RED = (230, 60, 60)         # Loss / SHORT
-_WHITE = (230, 230, 240)     # Primary text
-_GRAY = (130, 140, 160)      # Secondary text / labels
-_CYAN = (80, 200, 220)       # Accent highlights
-_YELLOW = (230, 190, 50)     # Warning / pattern badge
-_DIM = (60, 70, 90)          # Dimmed elements
+# The website's palette (`card_theme`, from app/public/embed.css). The NAMES
+# are the contract the renderers and the tests share: green and red say a
+# figure was measured, grey says it was not, and the accent marks a reading.
+from bot.formatters import card_theme as _T  # noqa: E402
+
+_BG = _T.BG                  # the ground
+_CARD_BG = _T.SURFACE        # a tile
+_BORDER = _T.LINE            # a hairline
+_ACCENT_GOLD = _T.GOLD       # an insight card's stripe, the entry marker
+_GREEN = _T.UP               # Profit / LONG
+_RED = _T.DOWN               # Loss / SHORT
+_WHITE = _T.TEXT             # Primary text
+_GRAY = (138, 150, 172)      # Secondary text / labels / a figure nobody read
+_CYAN = _T.ACCENT            # Accent highlights
+_YELLOW = _T.WARN            # Warning / pattern badge
+_DIM = _T.DIM                # Dimmed elements
 # Deliberately NOT green and NOT red: an unreadable figure must not be
 # coloured like a profit or a loss, because colour is a claim too and the
 # accent stripe carries it across the full width of the card.
-_MUTED = (150, 155, 170)     # A value we could not read
+_MUTED = _T.MUTED            # A value we could not read
 
 # CJK-capable fonts (cover Latin too) for cards whose labels are translated to
 # Chinese. Tried in order; if none are present the renderer falls back to the
 # Latin font (Chinese would show as tofu, but English cards are never affected).
-_CJK_FONT_PATHS = [
-    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
-    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-    "/usr/share/fonts/opentype/noto/NotoSansCJKtc-Regular.otf",
-    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-]
+_CJK_FONT_PATHS = _T.CJK_FONT_PATHS
 
 
 #: Every close reason the code actually emits, mapped explicitly. Consulted
@@ -101,6 +102,7 @@ from bot.core.position_telemetry import (  # noqa: E402
 from bot.core.signal_confidence import (  # noqa: E402
     PATTERN_SCORE_WORD,
     SCORE_WORD,
+    STAMP_TEXT,
     UNCALIBRATED_WORD,
     UNMEASURED_WORD,
     UNREAD_DASH,
@@ -213,9 +215,7 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
     Returns:
         PNG bytes
     """
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-    except ImportError:
+    if not _T.pillow_available():
         log.warning("Pillow not installed, cannot render signal card")
         return b""
 
@@ -226,24 +226,12 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
     CELL_H = 62
     CELL_GAP = 10
 
-    img = Image.new("RGB", (W, H), _BG)
-    draw = ImageDraw.Draw(img)
+    img, draw = _T.new_card(W, H)
 
     # ── Fonts (use default if no TTF available) ──
-    def _font(size: int, bold: bool = False):
-        for path in [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/TTF/DejaVuSans.ttf",
-        ]:
-            try:
-                return ImageFont.truetype(path, size)
-            except (OSError, IOError):
-                continue
-        return ImageFont.load_default()
+    _font = _T.font
 
-    font_title = _font(22, bold=True)
+    font_title = _font(24, bold=True)
     font_label = _font(11)
     font_value = _font(16, bold=True)
     font_badge = _font(13, bold=True)
@@ -322,29 +310,19 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
 
     # Direction badge
     badge_x = PAD + rank_w + 6 + sym_w + 12
-    badge_text = f" {direction} "
-    badge_tw = draw.textlength(badge_text, font=font_badge)
     badge_h = 22
-    draw.rounded_rectangle(
-        [badge_x, y + 1, badge_x + badge_tw + 4, y + 1 + badge_h],
-        radius=4, fill=dir_color)
-    draw.text((badge_x + 2, y + 4), badge_text, fill=(0, 0, 0), font=font_badge)
+    badge_tw = draw.pill(badge_x, y + 1, direction, dir_color, font_badge, h=badge_h) - 4
 
     # Strategy type badge (after direction)
     if strategy_type:
         st_x = badge_x + badge_tw + 10
-        st_text = f" {strategy_type} "
-        st_tw = draw.textlength(st_text, font=font_badge)
         st_color = {
             "SCALP": (180, 80, 220),    # purple
             "INTRADAY": (60, 140, 220),  # blue
             "SWING": (220, 160, 40),     # amber
             "POSITION": (40, 180, 120),  # teal
         }.get(strategy_type, _GRAY)
-        draw.rounded_rectangle(
-            [st_x, y + 1, st_x + st_tw + 4, y + 1 + badge_h],
-            radius=4, fill=st_color)
-        draw.text((st_x + 2, y + 4), st_text, fill=(0, 0, 0), font=font_badge)
+        draw.pill(st_x, y + 1, strategy_type, st_color, font_badge, h=badge_h)
 
     # Volume indicator (right side)
     if vol_x > 0:
@@ -355,20 +333,13 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
     y += 40
 
     # ── Separator ──
-    draw.line([(PAD, y), (W - PAD, y)], fill=_BORDER, width=1)
+    draw.hairline(PAD, y, W - PAD)
     y += 12
 
     # ── Grid cells ──
     def _draw_cell(x: int, y: int, label: str, value: str,
                    value_color=_WHITE, w: int = CELL_W) -> None:
-        # Cell background
-        draw.rounded_rectangle(
-            [x, y, x + w, y + CELL_H],
-            radius=6, fill=_CARD_BG, outline=_BORDER)
-        # Label
-        draw.text((x + 12, y + 8), label, fill=_GRAY, font=font_label)
-        # Value
-        draw.text((x + 12, y + 28), value, fill=value_color, font=font_value)
+        draw.tile(x, y, w, CELL_H, label, value, value_color, font_label, font_value, label_color=_GRAY)
 
     # Row 1: Entry | Stop Loss
     col1_x = PAD
@@ -418,12 +389,7 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
     if pattern:
         badge_y = y
         icon = "\u26a0"  # ⚠
-        pat_text = f"  {icon} {pattern}  "
-        pat_tw = draw.textlength(pat_text, font=font_badge)
-        draw.rounded_rectangle(
-            [PAD, badge_y, PAD + pat_tw + 8, badge_y + 26],
-            radius=5, fill=(40, 35, 15), outline=_YELLOW)
-        draw.text((PAD + 4, badge_y + 5), pat_text, fill=_YELLOW, font=font_badge)
+        draw.pill(PAD, badge_y, f"{icon} {pattern}", _YELLOW, font_badge, h=26, pad=12)
         y += 34
 
     # ── Summary line ──
@@ -443,18 +409,17 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
         draw.text((PAD, y + 2), auto_summary, fill=_GRAY, font=font_summary)
         y += 22
 
-    # ── Gold accent line at bottom ──
+    # ── Gold accent line at bottom, on a card trimmed to what it drew ──
+    H = y + 30
+    img = _T.crop(img, W, H)
+    draw = _T.Draw(img)
     draw.rectangle([0, H - 3, W, H], fill=_ACCENT_GOLD)
 
     # ── RUNECLAW watermark ──
-    wm_text = "RUNECLAW"
-    wm_w = draw.textlength(wm_text, font=font_small)
-    draw.text((W - PAD - wm_w, H - 22), wm_text, fill=_DIM, font=font_small)
+    draw.wordmark(W, H, PAD, font_small)
 
     # ── Export ──
-    buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
-    return buf.getvalue()
+    return _T.export(img)
 
 
 def card_rr_text(idea) -> str:
@@ -589,15 +554,13 @@ def render_scan_results_card(
     timestamp: str = "",
 ) -> bytes:
     """Render a styled PNG card showing scan results overview."""
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-    except ImportError:
+    if not _T.pillow_available():
         log.warning("Pillow not installed, cannot render scan card")
         return b""
 
     W = 520
     PAD = 18
-    ROW_H = 130
+    ROW_H = 112
     GATE_H = 70
     HEADER_H = 50
     FOOTER_H = 30
@@ -606,21 +569,9 @@ def render_scan_results_card(
     n = min(len(setups), MAX_SETUPS)
     H = HEADER_H + (GATE_H if btc_gate else 0) + n * ROW_H + FOOTER_H + PAD
 
-    img = Image.new("RGB", (W, H), _BG)
-    draw = ImageDraw.Draw(img)
+    img, draw = _T.new_card(W, H)
 
-    def _font(size: int, bold: bool = False):
-        for path in [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/TTF/DejaVuSans.ttf",
-        ]:
-            try:
-                return ImageFont.truetype(path, size)
-            except (OSError, IOError):
-                continue
-        return ImageFont.load_default()
+    _font = _T.font
 
     f_header = _font(18, bold=True)
     f_rank = _font(14, bold=True)
@@ -707,22 +658,17 @@ def render_scan_results_card(
         rx += draw.textlength(rank_text, font=f_badge) + 8
         draw.text((rx, ry - 2), sym, fill=_WHITE, font=f_rank)
         rx += draw.textlength(sym, font=f_rank) + 10
-        badge_text = f" {direction} "
-        badge_tw = draw.textlength(badge_text, font=f_badge)
-        draw.rounded_rectangle(
-            [rx, ry, rx + badge_tw + 4, ry + 20], radius=4, fill=dir_color)
-        draw.text((rx + 2, ry + 3), badge_text, fill=(0, 0, 0), font=f_badge)
+        draw.pill(rx, ry, direction, dir_color, f_badge, h=20)
 
         # Under the SCORE label, a bare number: a setup's confidence or the
         # scanner's momentum score, and neither is a probability, so the
         # percent sign this drew read as one.
         _score_txt = str(score_pct)
-        score_tw = draw.textlength(_score_txt, font=f_rank)
-        score_x = W - PAD - 12 - score_tw
-        draw.text((score_x, ry - 1), _score_txt, fill=score_color, font=f_rank)
+        pill_w = draw.textlength(_score_txt, font=f_rank) + 20
+        score_x = W - PAD - 12 - pill_w
+        draw.pill(score_x, ry - 2, _score_txt, score_color, f_rank, h=24, pad=10)
         sc_lbl_w = draw.textlength("SCORE", font=f_label)
-        draw.text((score_x + (score_tw - sc_lbl_w) / 2, ry - 14),
-                  "SCORE", fill=_GRAY, font=f_label)
+        draw.text((score_x - 8 - sc_lbl_w, ry + 5), "SCORE", fill=_GRAY, font=f_label)
 
         dy = ry + 26
         col_w = (W - PAD * 2 - 24) // 3
@@ -769,12 +715,9 @@ def render_scan_results_card(
                   fill=_DIM, font=f_small)
 
     draw.rectangle([0, H - 3, W, H], fill=_ACCENT_GOLD)
-    wm_w = draw.textlength("RUNECLAW", font=f_small)
-    draw.text((W - PAD - wm_w, H - 18), "RUNECLAW", fill=_DIM, font=f_small)
+    draw.wordmark(W, H, PAD, f_small)
 
-    _buf = io.BytesIO()
-    img.save(_buf, format="PNG", optimize=True)
-    return _buf.getvalue()
+    return _T.export(img)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -806,9 +749,7 @@ def render_patterns_card(
     Returns:
         PNG bytes (empty bytes if Pillow is unavailable).
     """
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-    except ImportError:
+    if not _T.pillow_available():
         log.warning("Pillow not installed, cannot render patterns card")
         return b""
 
@@ -832,21 +773,9 @@ def render_patterns_card(
     body_h = sum(_block_h(h) + GAP for h in shown) if shown else 60
     H = HEADER_H + body_h + FOOTER_H
 
-    img = Image.new("RGB", (W, H), _BG)
-    draw = ImageDraw.Draw(img)
+    img, draw = _T.new_card(W, H)
 
-    def _font(size: int, bold: bool = False):
-        for path in [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/TTF/DejaVuSans.ttf",
-        ]:
-            try:
-                return ImageFont.truetype(path, size)
-            except (OSError, IOError):
-                continue
-        return ImageFont.load_default()
+    _font = _T.font
 
     f_header = _font(18, bold=True)
     f_sub = _font(10)
@@ -988,12 +917,9 @@ def render_patterns_card(
     foot = (f"Bars: {PATTERN_SCORE_WORD} 0-100, {UNMEASURED_WORD} · "
             f"observations, not signals")
     draw.text((PAD, H - 20), foot, fill=_DIM, font=f_small)
-    wm_w = draw.textlength("RUNECLAW", font=f_small)
-    draw.text((W - PAD - wm_w, H - 20), "RUNECLAW", fill=_DIM, font=f_small)
+    draw.wordmark(W, H, PAD, f_small)
 
-    _buf = io.BytesIO()
-    img.save(_buf, format="PNG", optimize=True)
-    return _buf.getvalue()
+    return _T.export(img)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1031,32 +957,18 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
     Returns:
         PNG bytes
     """
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-    except ImportError:
+    if not _T.pillow_available():
         log.warning("Pillow not installed, cannot render position card")
         return b""
 
     W, H = 520, 480
     PAD = 20
 
-    img = Image.new("RGB", (W, H), _BG)
-    draw = ImageDraw.Draw(img)
+    img, draw = _T.new_card(W, H)
 
-    def _font(size: int, bold: bool = False):
-        for path in [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/TTF/DejaVuSans.ttf",
-        ]:
-            try:
-                return ImageFont.truetype(path, size)
-            except (OSError, IOError):
-                continue
-        return ImageFont.load_default()
+    _font = _T.font
 
-    f_title = _font(20, bold=True)
+    f_title = _font(24, bold=True)
     f_label = _font(10)
     f_value = _font(14, bold=True)
     f_big = _font(18, bold=True)
@@ -1161,35 +1073,34 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
     sym_w = draw.textlength(symbol, font=f_title)
 
     badge_x = PAD + sym_w + 12
-    badge_text = f" {direction} "
-    badge_tw = draw.textlength(badge_text, font=f_badge)
-    draw.rounded_rectangle(
-        [badge_x, y + 2, badge_x + badge_tw + 4, y + 22],
-        radius=4, fill=dir_color)
-    draw.text((badge_x + 2, y + 5), badge_text, fill=(0, 0, 0), font=f_badge)
+    badge_tw = draw.pill(badge_x, y + 2, direction, dir_color, f_badge, h=20) - 4
 
+    # Which book: a live position wears the accent of a real fill, a paper
+    # one says so rather than saying nothing.
+    mode_x = badge_x + badge_tw + 12
     if is_live:
-        live_x = badge_x + badge_tw + 16
-        draw.text((live_x, y + 5), "LIVE", fill=_GREEN, font=f_badge)
+        draw.pill(mode_x, y + 2, "LIVE", _GREEN, f_badge, h=20)
+    else:
+        draw.pill(mode_x, y + 2, "PAPER", _GRAY, f_badge, h=20)
 
     y += 34
 
     # ── PnL Hero Row ──
     pnl_sign = "+" if pnl_pct >= 0 else ""
     pnl_text = "—" if pnl_unknown else f"{pnl_sign}{pnl_pct:.2f}%"
-    draw.text((PAD, y), pnl_text, fill=pnl_color, font=_font(28, bold=True))
-    pnl_w = draw.textlength(pnl_text, font=_font(28, bold=True))
+    draw.text((PAD, y), pnl_text, fill=pnl_color, font=_T.font(34, weight="bold"))
+    pnl_w = draw.textlength(pnl_text, font=_T.font(34, weight="bold"))
 
     # The producer names WHICH reading is missing; a mark that was read and a
     # margin that was not used to print "price unavailable" too.
     usd_text = (f"  ({data.get('pnl_unread') or 'price unavailable'})"
-                if pnl_unknown else f"  (${pnl_usd:+,.2f})")
+                if pnl_unknown else f"  ({signed_usd(pnl_usd)})")
     draw.text((PAD + pnl_w, y + 8), usd_text, fill=pnl_color, font=f_value)
 
     y += 42
 
     # ── Separator ──
-    draw.line([(PAD, y), (W - PAD, y)], fill=_BORDER, width=1)
+    draw.hairline(PAD, y, W - PAD)
     y += 12
 
     # ── Entry / Now row ──
@@ -1198,10 +1109,7 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
     GAP = 10
 
     def _cell(x, cy, label, value, color=_WHITE, w=CELL_W):
-        draw.rounded_rectangle([x, cy, x + w, cy + CELL_H],
-                               radius=6, fill=_CARD_BG, outline=_BORDER)
-        draw.text((x + 10, cy + 6), label, fill=_GRAY, font=f_label)
-        draw.text((x + 10, cy + 24), value, fill=color, font=f_value)
+        draw.tile(x, cy, w, CELL_H, label, value, color, f_label, f_value, label_color=_GRAY)
 
     c1 = PAD
     c2 = PAD + CELL_W + GAP
@@ -1236,8 +1144,15 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
     _cell(c2, y, "R:R | HOLD", f"{rr_str} | {hold_time or '—'}")
     y += CELL_H + GAP
 
+    # ── Score / Opened row: what the record says the signal scored, and when ──
+    score_text_, score_color = _score_cell(data)
+    _cell(c1, y, f"{SCORE_WORD} ({UNCALIBRATED_WORD})".upper(), score_text_, score_color)
+    opened_text = _utc_text(data.get("opened_at"))
+    _cell(c2, y, "OPENED", opened_text or "—", _WHITE if opened_text else _MUTED)
+    y += CELL_H + GAP
+
     # ── Net PnL + Fees row ──
-    net_text = "—" if net_unknown else f"${net_pnl:+,.2f}"
+    net_text = "—" if net_unknown else f"{signed_usd(net_pnl)}"
     fees_text = "fees unread" if fees is None else f"fees ${fees:.2f}"
     full_w = W - PAD * 2
     _cell(c1, y, "NET PnL", f"{net_text}  ({fees_text})", net_color, w=full_w)
@@ -1252,17 +1167,16 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
         draw.text((PAD, y), ctx_text, fill=_GRAY, font=f_small)
         y += 18
 
-    # ── Bottom stripe ──
+    # ── Bottom stripe, on a card trimmed to what it drew ──
+    H = y + 30
+    img = _T.crop(img, W, H)
+    draw = _T.Draw(img)
     draw.rectangle([0, H - 4, W, H], fill=stripe_color)
 
     # ── Watermark ──
-    wm = "RUNECLAW"
-    wm_w = draw.textlength(wm, font=f_small)
-    draw.text((W - PAD - wm_w, H - 20), wm, fill=_DIM, font=f_small)
+    draw.wordmark(W, H, PAD, f_small)
 
-    _buf = io.BytesIO()
-    img.save(_buf, format="PNG", optimize=True)
-    return _buf.getvalue()
+    return _T.export(img)
 
 
 def render_close_card(data: Dict[str, Any]) -> bytes:
@@ -1276,32 +1190,18 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
     Returns:
         PNG bytes
     """
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-    except ImportError:
+    if not _T.pillow_available():
         log.warning("Pillow not installed, cannot render close card")
         return b""
 
     W, H = 520, 400
     PAD = 20
 
-    img = Image.new("RGB", (W, H), _BG)
-    draw = ImageDraw.Draw(img)
+    img, draw = _T.new_card(W, H)
 
-    def _font(size: int, bold: bool = False):
-        for path in [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/TTF/DejaVuSans.ttf",
-        ]:
-            try:
-                return ImageFont.truetype(path, size)
-            except (OSError, IOError):
-                continue
-        return ImageFont.load_default()
+    _font = _T.font
 
-    f_title = _font(20, bold=True)
+    f_title = _font(24, bold=True)
     f_label = _font(10)
     f_value = _font(14, bold=True)
     f_badge = _font(12, bold=True)
@@ -1381,12 +1281,7 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
     sym_w = draw.textlength(symbol, font=f_title)
 
     badge_x = PAD + sym_w + 12
-    badge_text = " CLOSED "
-    badge_tw = draw.textlength(badge_text, font=f_badge)
-    draw.rounded_rectangle(
-        [badge_x, y + 2, badge_x + badge_tw + 4, y + 22],
-        radius=4, fill=stripe_color)
-    draw.text((badge_x + 2, y + 5), badge_text, fill=(0, 0, 0), font=f_badge)
+    badge_tw = draw.pill(badge_x, y + 2, "CLOSED", stripe_color, f_badge, h=20) - 4
 
     reason_x = badge_x + badge_tw + 16
     draw.text((reason_x, y + 5), reason, fill=_GRAY, font=f_badge)
@@ -1395,20 +1290,21 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
     # ── PnL Hero Row ──
     pnl_text = ("unread" if pnl_pct is None
                 else f"{'+' if pnl_pct >= 0 else ''}{pnl_pct:.2f}%")
-    big_font = _font(28, bold=True)
+    big_font = _T.font(34, weight="bold")
     draw.text((PAD, y), pnl_text, fill=pnl_color, font=big_font)
     pnl_tw = draw.textlength(pnl_text, font=big_font)
-    usd_text = "" if pnl_usd is None else f"  (${pnl_usd:+,.2f})"
+    usd_text = "" if pnl_usd is None else f"  ({signed_usd(pnl_usd)})"
     if usd_text:
         draw.text((PAD + pnl_tw, y + 8), usd_text, fill=pnl_color, font=f_value)
     # A percentage with no basis beside it is three different numbers wearing
     # one label — this card has shown the price move and the gross ROE under
     # the same 28pt type, for the same trade, on different days.
-    if pnl_pct is not None:
-        draw.text((PAD, y + 30), _basis, fill=_GRAY, font=f_small)
     y += 42
+    if pnl_pct is not None:
+        draw.text((PAD, y - 2), _basis, fill=_GRAY, font=f_small)
+        y += 14
 
-    draw.line([(PAD, y), (W - PAD, y)], fill=_BORDER, width=1)
+    draw.hairline(PAD, y, W - PAD)
     y += 12
 
     CELL_W = (W - PAD * 3) // 2
@@ -1418,10 +1314,7 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
     c2 = PAD + CELL_W + GAP
 
     def _cell(x, cy, label, value, color=_WHITE, w=CELL_W):
-        draw.rounded_rectangle([x, cy, x + w, cy + CELL_H],
-                               radius=6, fill=_CARD_BG, outline=_BORDER)
-        draw.text((x + 10, cy + 6), label, fill=_GRAY, font=f_label)
-        draw.text((x + 10, cy + 24), value, fill=color, font=f_value)
+        draw.tile(x, cy, w, CELL_H, label, value, color, f_label, f_value, label_color=_GRAY)
 
     _cell(c1, y, "ENTRY", _fmt(entry or 0))
     _cell(c2, y, "EXIT",
@@ -1443,7 +1336,14 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
     _cell(c2, y, f"{direction} | HOLD", hold_time or "unread")
     y += CELL_H + GAP
 
-    net_text = "unread" if pnl_usd is None else f"${pnl_usd:+,.2f}"
+    # ── Score / Opened row ──
+    score_text_, score_color = _score_cell(data)
+    _cell(c1, y, f"{SCORE_WORD} ({UNCALIBRATED_WORD})".upper(), score_text_, score_color)
+    opened_text = _utc_text(data.get("opened_at"))
+    _cell(c2, y, "OPENED", opened_text or "—", _WHITE if opened_text else _MUTED)
+    y += CELL_H + GAP
+
+    net_text = "unread" if pnl_usd is None else f"{signed_usd(pnl_usd)}"
     fees_text = "fees unread" if fees is None else f"fees ${fees:.2f}"
     full_w = W - PAD * 2
     _cell(c1, y, "NET PnL", f"{net_text}  ({fees_text})", pnl_color, w=full_w)
@@ -1458,14 +1358,13 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
         draw.text((PAD, y), f"Verified: {verify_text}", fill=verify_color, font=f_small)
         y += 18
 
+    H = y + 30
+    img = _T.crop(img, W, H)
+    draw = _T.Draw(img)
     draw.rectangle([0, H - 4, W, H], fill=stripe_color)
-    wm = "RUNECLAW"
-    wm_w = draw.textlength(wm, font=f_small)
-    draw.text((W - PAD - wm_w, H - 20), wm, fill=_DIM, font=f_small)
+    draw.wordmark(W, H, PAD, f_small)
 
-    buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
-    return buf.getvalue()
+    return _T.export(img)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1488,9 +1387,7 @@ def render_orders_card(orders: list[Dict[str, Any]], timestamp: str = "",
     Returns:
         PNG bytes
     """
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-    except ImportError:
+    if not _T.pillow_available():
         log.warning("Pillow not installed, cannot render orders card")
         return b""
 
@@ -1507,21 +1404,9 @@ def render_orders_card(orders: list[Dict[str, Any]], timestamp: str = "",
 
     H = HEADER_H + n * ROW_H + FOOTER_H + PAD
 
-    img = Image.new("RGB", (W, H), _BG)
-    draw = ImageDraw.Draw(img)
+    img, draw = _T.new_card(W, H)
 
-    def _font(size: int, bold: bool = False):
-        for path in [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/TTF/DejaVuSans.ttf",
-        ]:
-            try:
-                return ImageFont.truetype(path, size)
-            except (OSError, IOError):
-                continue
-        return ImageFont.load_default()
+    _font = _T.font
 
     f_header = _font(18, bold=True)
     f_rank = _font(14, bold=True)
@@ -1601,19 +1486,8 @@ def render_orders_card(orders: list[Dict[str, Any]], timestamp: str = "",
         draw.text((rx, ry - 2), sym, fill=_WHITE, font=f_rank)
         rx += draw.textlength(sym, font=f_rank) + 10
 
-        badge_text = f" {dir_label} "
-        badge_tw = draw.textlength(badge_text, font=f_badge)
-        draw.rounded_rectangle(
-            [rx, ry, rx + badge_tw + 4, ry + 20], radius=4, fill=dir_color)
-        draw.text((rx + 2, ry + 3), badge_text, fill=(0, 0, 0), font=f_badge)
-        rx += badge_tw + 12
-
-        type_text = f" {type_label} "
-        type_tw = draw.textlength(type_text, font=f_badge)
-        draw.rounded_rectangle(
-            [rx, ry, rx + type_tw + 4, ry + 20], radius=4,
-            fill=(30, 35, 50), outline=type_color)
-        draw.text((rx + 2, ry + 3), type_text, fill=type_color, font=f_badge)
+        rx += draw.pill(rx, ry, dir_label, dir_color, f_badge, h=20) + 8
+        draw.pill(rx, ry, type_label, type_color, f_badge, h=20)
 
         # Data row: Limit | Current | Distance
         dy = ry + 26
@@ -1658,12 +1532,9 @@ def render_orders_card(orders: list[Dict[str, Any]], timestamp: str = "",
         draw.text((PAD, footer_y), f"Source: {source}", fill=_DIM, font=f_small)
 
     draw.rectangle([0, H - 3, W, H], fill=_PURPLE)
-    wm_w = draw.textlength("RUNECLAW", font=f_small)
-    draw.text((W - PAD - wm_w, H - 18), "RUNECLAW", fill=_DIM, font=f_small)
+    draw.wordmark(W, H, PAD, f_small)
 
-    _buf = io.BytesIO()
-    img.save(_buf, format="PNG", optimize=True)
-    return _buf.getvalue()
+    return _T.export(img)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1723,9 +1594,7 @@ def render_scan_grid_card(data: Dict[str, Any]) -> bytes:
     Returns:
         PNG bytes (b"" if Pillow unavailable or grid empty).
     """
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-    except ImportError:
+    if not _T.pillow_available():
         log.warning("Pillow not installed, cannot render scan grid card")
         return b""
 
@@ -1757,21 +1626,9 @@ def render_scan_grid_card(data: Dict[str, Any]) -> bytes:
     H = (HEADER_H + BANNER_H + SECTION_H + len(g_rows) * GRID_ROW_H
          + setups_block + FOOTER_H + PAD)
 
-    img = Image.new("RGB", (W, H), _BG)
-    draw = ImageDraw.Draw(img)
+    img, draw = _T.new_card(W, H)
 
-    def _font(size: int, bold: bool = False):
-        for path in [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/TTF/DejaVuSans.ttf",
-        ]:
-            try:
-                return ImageFont.truetype(path, size)
-            except (OSError, IOError):
-                continue
-        return ImageFont.load_default()
+    _font = _T.font
 
     f_header = _font(18, bold=True)
     f_section = _font(11, bold=True)
@@ -1895,10 +1752,7 @@ def render_scan_grid_card(data: Dict[str, Any]) -> bytes:
             ty = ry + 10
             draw.text((rx, ty), sym, fill=_WHITE, font=f_sym)
             rx += draw.textlength(sym, font=f_sym) + 10
-            bt = f" {direction} "
-            btw = draw.textlength(bt, font=f_section)
-            draw.rounded_rectangle([rx, ty, rx + btw + 4, ty + 18], radius=4, fill=col)
-            draw.text((rx + 2, ty + 2), bt, fill=(0, 0, 0), font=f_section)
+            draw.pill(rx, ty, direction, col, f_section, h=18)
             rr = s.get("rr")
             if isinstance(rr, (int, float)) and rr > 0:
                 rr_txt = f"R:R {rr:.1f}"
@@ -1942,12 +1796,9 @@ def render_scan_grid_card(data: Dict[str, Any]) -> bytes:
             draw.text((W - PAD - vw, fy), vtxt, fill=_GRAY, font=f_small)
 
     draw.rectangle([0, H - 3, W, H], fill=_GOLD)
-    wm_w = draw.textlength("RUNECLAW", font=f_small)
-    draw.text((W - PAD - wm_w, H - 18), "RUNECLAW", fill=_DIM, font=f_small)
+    draw.wordmark(W, H, PAD, f_small)
 
-    _buf = io.BytesIO()
-    img.save(_buf, format="PNG", optimize=True)
-    return _buf.getvalue()
+    return _T.export(img)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1975,9 +1826,7 @@ def render_stats_card(data: Dict[str, Any]) -> bytes:
     Returns:
         PNG bytes (b"" if Pillow unavailable).
     """
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-    except ImportError:
+    if not _T.pillow_available():
         log.warning("Pillow not installed, cannot render stats card")
         return b""
 
@@ -2008,25 +1857,12 @@ def render_stats_card(data: Dict[str, Any]) -> bytes:
     FOOTER_H = 28 if footer else 12
     H = HEADER_H + HERO_H + rows * (TILE_H + GAP) + FOOTER_H + PAD
 
-    img = Image.new("RGB", (W, H), _BG)
-    draw = ImageDraw.Draw(img)
+    img, draw = _T.new_card(W, H)
 
     def _font(size: int, bold: bool = False):
-        latin = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/TTF/DejaVuSans.ttf",
-        ]
-        # When the card has CJK text, try a CJK-capable font first (it also
-        # covers Latin, so numbers/$ still render); fall back to DejaVu.
-        paths = (_CJK_FONT_PATHS + latin) if use_cjk else latin
-        for path in paths:
-            try:
-                return ImageFont.truetype(path, size)
-            except (OSError, IOError):
-                continue
-        return ImageFont.load_default()
+        # A CJK-capable face first when the card has CJK text (it covers
+        # Latin too, so numbers and $ still render).
+        return _T.font(size, bold, cjk=use_cjk)
 
     f_title = _font(19, bold=True)
     f_sub = _font(10)
@@ -2058,12 +1894,9 @@ def render_stats_card(data: Dict[str, Any]) -> bytes:
         r, c = divmod(i, 2)
         tx = PAD + c * (TILE_W + PAD)
         ty = y + r * (TILE_H + GAP)
-        draw.rounded_rectangle([tx, ty, tx + TILE_W, ty + TILE_H],
-                               radius=8, fill=_CARD_BG, outline=_BORDER)
-        draw.text((tx + 12, ty + 10), str(tile.get("label", "")).upper(),
-                  fill=_GRAY, font=f_label)
-        draw.text((tx + 12, ty + 26), str(tile.get("value", "")),
-                  fill=_col(tile.get("color")), font=f_value)
+        draw.tile(tx, ty, TILE_W, TILE_H, str(tile.get("label", "")).upper(),
+                  str(tile.get("value", "")), _col(tile.get("color")), f_label, f_value,
+                  label_color=_GRAY)
     y += rows * (TILE_H + GAP)
 
     # ── Footer ──
@@ -2071,12 +1904,9 @@ def render_stats_card(data: Dict[str, Any]) -> bytes:
         draw.text((PAD, y + 2), footer, fill=_DIM, font=f_sub)
 
     draw.rectangle([0, H - 3, W, H], fill=_ACCENT_GOLD)
-    wm_w = draw.textlength("RUNECLAW", font=f_sub)
-    draw.text((W - PAD - wm_w, H - 16), "RUNECLAW", fill=_DIM, font=f_sub)
+    draw.wordmark(W, H, PAD, f_sub)
 
-    _buf = io.BytesIO()
-    img.save(_buf, format="PNG", optimize=True)
-    return _buf.getvalue()
+    return _T.export(img)
 
 
 def render_alpha_card(data: Dict[str, Any]) -> bytes:
@@ -2087,9 +1917,7 @@ def render_alpha_card(data: Dict[str, Any]) -> bytes:
     Sections whose data is missing are skipped, and the canvas is cropped to
     the drawn height. Returns b"" if Pillow is unavailable or on error data.
     """
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-    except ImportError:
+    if not _T.pillow_available():
         log.warning("Pillow not installed, cannot render alpha card")
         return b""
     if data.get("error"):
@@ -2099,23 +1927,11 @@ def render_alpha_card(data: Dict[str, Any]) -> bytes:
     PAD = 20
     CANVAS_H = 900  # tall working canvas; cropped to the final y at the end
 
-    img = Image.new("RGB", (W, CANVAS_H), _BG)
-    draw = ImageDraw.Draw(img)
+    img, draw = _T.new_card(W, CANVAS_H)
 
-    def _font(size: int, bold: bool = False):
-        for path in [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/TTF/DejaVuSans.ttf",
-        ]:
-            try:
-                return ImageFont.truetype(path, size)
-            except (OSError, IOError):
-                continue
-        return ImageFont.load_default()
+    _font = _T.font
 
-    f_title = _font(20, bold=True)
+    f_title = _font(24, bold=True)
     f_badge = _font(12, bold=True)
     f_label = _font(10)
     f_value = _font(14, bold=True)
@@ -2153,11 +1969,7 @@ def render_alpha_card(data: Dict[str, Any]) -> bytes:
     draw.text((PAD, y), symbol, fill=_WHITE, font=f_title)
     sym_w = draw.textlength(symbol, font=f_title)
     badge_x = PAD + sym_w + 12
-    badge_text = " DAILY ALPHA "
-    badge_tw = draw.textlength(badge_text, font=f_badge)
-    draw.rounded_rectangle([badge_x, y + 2, badge_x + badge_tw + 4, y + 22],
-                           radius=4, fill=_ACCENT_GOLD)
-    draw.text((badge_x + 2, y + 5), badge_text, fill=(0, 0, 0), font=f_badge)
+    draw.pill(badge_x, y + 2, "DAILY ALPHA", _ACCENT_GOLD, f_badge, h=20)
     gen = data.get("generated")
     if gen is not None:
         try:
@@ -2173,7 +1985,7 @@ def render_alpha_card(data: Dict[str, Any]) -> bytes:
     p_w = draw.textlength(f"${_fmt(price)}", font=f_hero)
     draw.text((PAD + p_w + 10, y + 10), chg_text, fill=chg_color, font=f_value)
     y += 40
-    draw.line([(PAD, y), (W - PAD, y)], fill=_BORDER, width=1)
+    draw.hairline(PAD, y, W - PAD)
     y += 12
 
     # ── Trend badge + per-TF dots ──
@@ -2247,11 +2059,7 @@ def render_alpha_card(data: Dict[str, Any]) -> bytes:
         def _tag(text: str, good: bool):
             nonlocal xx
             color = _GREEN if good else _RED
-            tw = draw.textlength(text, font=f_badge)
-            draw.rounded_rectangle([xx, y, xx + tw + 10, y + 20],
-                                   radius=4, outline=color)
-            draw.text((xx + 5, y + 3), text, fill=color, font=f_badge)
-            xx += tw + 20
+            xx += draw.pill(xx, y, text, color, f_badge, h=20) + 10
         if "macd_1d" in st:
             _tag(f"MACD 1D {'Buy' if st['macd_1d'] > 0 else 'Sell'}", st["macd_1d"] > 0)
         if "macd_4h" in st:
@@ -2329,14 +2137,64 @@ def render_alpha_card(data: Dict[str, Any]) -> bytes:
     # ── Bottom stripe + watermark, then crop ──
     H = y + 10
     draw.rectangle([0, H - 4, W, H], fill=_ACCENT_GOLD)
-    wm = "RUNECLAW"
-    wm_w = draw.textlength(wm, font=f_small)
-    draw.text((W - PAD - wm_w, H - 22), wm, fill=_DIM, font=f_small)
-    img = img.crop((0, 0, W, H))
+    draw.wordmark(W, H, PAD, f_small)
+    img = _T.crop(img, W, H)
 
-    _buf = io.BytesIO()
-    img.save(_buf, format="PNG", optimize=True)
-    return _buf.getvalue()
+    return _T.export(img)
+
+
+#: The SCORE cell's word for a row written before the confidence was recorded.
+NOT_RECORDED = "not recorded"
+
+
+def _score_cell(data: Dict[str, Any]):
+    """The SCORE cell's text and colour from what the record holds.
+
+    A measured figure is the bare score in the accent colour; a hand-typed
+    ticket's stamp says so (`STAMP_TEXT`); a field nobody could read is the
+    dash; a row written before the confidence was recorded at entry says
+    "not recorded". Three absences, three sentences, and none of them a 0.
+    """
+    basis = data.get("confidence_basis")
+    if basis is None:
+        return NOT_RECORDED, _GRAY
+    if basis == "stamp":
+        return STAMP_TEXT, _GRAY
+    value = pct_on_record(data.get("confidence"))
+    if value is None:
+        return UNREAD_DASH, _MUTED
+    if value > 1:
+        value = value / 100
+    return score_number(value), _CYAN
+
+
+def _utc_text(v) -> str:
+    """"17 Oct 2026 20:12 UTC" for a timestamp that parses, else empty: never a
+    date the card made up."""
+    from datetime import datetime, timezone
+
+    if v is None or v == "":
+        return ""
+    try:
+        dt = v if isinstance(v, datetime) else datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).strftime("%-d %b %Y %H:%M UTC")
+
+
+def _share_when(opened_at, closed_at) -> str:
+    """"Opened 17 Oct 2026 20:12 UTC · Closed 19 Oct 2026 20:35 UTC": the moments
+    a reader needs to check the call against a chart. Each half is printed
+    only when its timestamp parses; neither is a date the card made up."""
+    parts = []
+    o, c = _utc_text(opened_at), _utc_text(closed_at)
+    if o:
+        parts.append("Opened " + o)
+    if c:
+        parts.append("Closed " + c)
+    return " · ".join(parts)
 
 
 def render_share_card(data: Dict[str, Any]) -> bytes:
@@ -2349,14 +2207,15 @@ def render_share_card(data: Dict[str, Any]) -> bytes:
     pnl_usd / size_usd / margin_usd / net_pnl keys; keep it that way.
 
     Args:
-        data: symbol (str), direction ("LONG"|"SHORT"), pnl_pct (float).
+        data: symbol (str), direction ("LONG"|"SHORT"), pnl_pct (float);
+            optionally opened_at / closed_at (ISO instants, so a reader can
+            check the call) and book ("paper"|"live"). An absent book is not
+            claimed either way: no chip, no "live" in the tagline.
 
     Returns:
         PNG bytes, or b"" if Pillow is unavailable.
     """
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-    except ImportError:
+    if not _T.pillow_available():
         log.warning("Pillow not installed, cannot render share card")
         return b""
 
@@ -2364,23 +2223,10 @@ def render_share_card(data: Dict[str, Any]) -> bytes:
     W, H = 800, 418
     PAD = 44
 
-    img = Image.new("RGB", (W, H), _BG)
-    draw = ImageDraw.Draw(img)
+    img, draw = _T.new_card(W, H)
 
-    def _font(size: int, bold: bool = False):
-        for path in [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" if bold
-            else "/usr/share/fonts/TTF/DejaVuSans.ttf",
-        ]:
-            try:
-                return ImageFont.truetype(path, size)
-            except (OSError, IOError):
-                continue
-        return ImageFont.load_default()
+    _font = _T.font
 
-    f_brand = _font(26, bold=True)
     f_tag = _font(13)
     f_badge = _font(20, bold=True)
     f_symbol = _font(44, bold=True)
@@ -2401,38 +2247,46 @@ def render_share_card(data: Dict[str, Any]) -> bytes:
     dir_color = _GREEN if is_long else _RED
     pnl_color = _GRAY if pnl_pct is None else (_GREEN if pnl_pct >= 0 else _RED)
 
+    # ── The mascot on the right, fading into the card, under everything else ──
+    draw.asset("mascot", W - H, 0, H)
+
     # ── Gold stripes top + bottom ──
     draw.rectangle([0, 0, W, 4], fill=_ACCENT_GOLD)
     draw.rectangle([0, H - 4, W, H], fill=_ACCENT_GOLD)
 
-    # ── Brand header ──
+    # ── Brand header: the logotype, then the tag ──
     y = PAD - 8
-    draw.text((PAD, y), "RUNECLAW", fill=_WHITE, font=f_brand)
-    draw.text((PAD, y + 34), "AUTONOMOUS AI TRADING AGENT", fill=_GRAY, font=f_tag)
+    draw.logotype(PAD, y, 40)
+    draw.text((PAD, y + 50), "AUTONOMOUS AI TRADING AGENT", fill=_GRAY, font=f_tag)
 
-    # ── Symbol + direction badge, right-aligned on the header row ──
-    badge_text = f" {direction} "
-    badge_tw = draw.textlength(badge_text, font=f_badge)
-    bx = W - PAD - badge_tw - 8
-    draw.rounded_rectangle([bx, y + 2, bx + badge_tw + 8, y + 34], radius=6,
-                           fill=dir_color)
-    draw.text((bx + 4, y + 6), badge_text, fill=(0, 0, 0), font=f_badge)
+    # ── Symbol, direction chip, and which book, on the left under the header ──
+    # The book is a claim: a chip only when the caller knows it. "Traded
+    # autonomously" alone read as real money (review, 2026-10-19).
+    book = str(data.get("book") or "").lower()
+    draw.text((PAD, y + 86), symbol, fill=_WHITE, font=f_symbol)
     sym_w = draw.textlength(symbol, font=f_symbol)
-    draw.text((W - PAD - sym_w, y + 44), symbol, fill=_WHITE, font=f_symbol)
+    chip_x = PAD + sym_w + 14
+    chip_x += draw.pill(chip_x, y + 98, direction, dir_color, f_badge, h=32, filled=True, pad=12) + 10
+    if book == "paper":
+        draw.pill(chip_x, y + 98, "PAPER", _GRAY, f_badge, h=32, pad=12)
+    elif book == "live":
+        draw.pill(chip_x, y + 98, "LIVE", _GREEN, f_badge, h=32, pad=12)
 
-    # ── Hero PnL percent, centered ──
+    # ── When: the moments a reader needs to check the call ──
+    when = _share_when(data.get("opened_at"), data.get("closed_at"))
+    if when:
+        draw.text((PAD, y + 144), when, fill=_GRAY, font=f_small)
+
+    # ── Hero PnL percent ──
     hero = "return unread" if pnl_pct is None else f"{pnl_pct:+.2f}%"
-    hero_w = draw.textlength(hero, font=f_hero)
-    draw.text(((W - hero_w) / 2, 168), hero, fill=pnl_color, font=f_hero)
+    draw.text((PAD - 4, 200), hero, fill=pnl_color, font=f_hero)
 
     # ── Footer ──
-    tagline = "Traded autonomously. Shared without account size — percent only."
-    draw.text((PAD, H - 58), tagline, fill=_GRAY, font=f_small)
-    wm = "RUNECLAW"
-    wm_w = draw.textlength(wm, font=f_small)
-    draw.text((W - PAD - wm_w, H - 30), wm, fill=_DIM, font=f_small)
-    draw.text((PAD, H - 30), "Not investment advice.", fill=_DIM, font=f_small)
+    traded = ("Paper trade, traded autonomously." if book == "paper"
+              else "Live trade, traded autonomously." if book == "live"
+              else "Traded autonomously.")
+    draw.text((PAD, H - 62), traded + " Shared without account size — percent only.", fill=_GRAY, font=f_small)
+    draw.wordmark(W, H, PAD, f_small, height=26)
+    draw.text((PAD, H - 36), "Not investment advice.", fill=_GRAY, font=f_small)
 
-    buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
-    return buf.getvalue()
+    return _T.export(img)

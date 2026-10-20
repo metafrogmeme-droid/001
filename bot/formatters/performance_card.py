@@ -22,6 +22,8 @@ profitable week.
 """
 from typing import Any, Dict, Optional
 
+from bot.formatters.money import signed_usd
+
 # An em dash, not "0", "N/A" or "". Distinct at a glance from every measured
 # value on the card.
 DASH = "—"
@@ -44,7 +46,7 @@ def _num(v: Any) -> Optional[float]:
 
 def _money(v: Any) -> str:
     n = _num(v)
-    return DASH if n is None else f"${n:+,.2f}"
+    return DASH if n is None else f"{signed_usd(n)}"
 
 
 def _money_color(v: Any) -> str:

@@ -2116,7 +2116,7 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catc
 (function () {
     try {
       if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-      var load = function () { import('/js/mascot3d.js?v=5').catch(function () {}); };
+      var load = function () { import('/js/mascot3d.js?v=6').catch(function () {}); };
       if ('requestIdleCallback' in window) requestIdleCallback(load, { timeout: 2500 });
       else setTimeout(load, 1200);
     } catch (e) { /* no-JS-modules / old browser — hero just stays 2D */ }

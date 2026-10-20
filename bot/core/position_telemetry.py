@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from bot.core.signal_confidence import ConfidenceReading
+
 
 def price_on_record(v: object) -> Optional[float]:
     """The price the record holds, or ``None`` when it holds none.
@@ -482,6 +484,25 @@ def format_trail_fired(fired: Optional[bool]) -> str:
         return "Trail-fired: — (SL update time unavailable)"
     return "Trail-fired: ✅ SL re-issued by trail" if fired else \
         "Trail-fired: ❄️ NOT FIRED (SL unchanged since open)"
+
+
+def confidence_on_entry(pos) -> Optional[ConfidenceReading]:
+    """The confidence recorded when the position was opened, or None when the
+    record holds none.
+
+    Both books record `displayed_confidence(idea)` at the fill: the live
+    position in its entry facts (`entry_facts_for`), the paper trade on two
+    fields of its own. A row written before 2026-10-19 carries neither and
+    answers None, which a card prints as "not recorded": a third fact beside
+    a stamp nobody measured and a field nobody could read, and never a zero.
+    """
+    facts = getattr(pos, "entry_facts", None)
+    if isinstance(facts, dict) and isinstance(facts.get("confidence_basis"), str):
+        return ConfidenceReading(pct_on_record(facts.get("confidence")), facts["confidence_basis"])
+    basis = getattr(pos, "confidence_basis", None)
+    if isinstance(basis, str):
+        return ConfidenceReading(pct_on_record(getattr(pos, "confidence_at_entry", None)), basis)
+    return None
 
 
 def entered_at(pos):

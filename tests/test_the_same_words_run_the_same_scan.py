@@ -373,7 +373,7 @@ async def test_the_scan_header_describes_the_book_this_caller_may_view(live_mode
 
 @pytest.mark.asyncio
 async def test_an_unreadable_book_reads_not_linked_rather_than_zero(live_mode):
-    """`None` is a book nobody could describe. `Open: 0/5 | PnL: $+0.00` tells
+    """`None` is a book nobody could describe. `Open: 0/5 | PnL: +$0.00` tells
     an unlinked caller two measurements about an account nobody looked at —
     and the scan itself needs no account, so the card still runs."""
     from bot.skills.skill_registry import ProScanSkill
@@ -383,7 +383,7 @@ async def test_an_unreadable_book_reads_not_linked_rather_than_zero(live_mode):
 
     head = out.split("Timeframe")[0]
     assert head.count("not linked") == 2, head
-    assert "0/" not in head and "$+0.00" not in head, head
+    assert "0/" not in head and "+$0.00" not in head, head
     # ...and the equity line, which IS read, is still printed.
     assert "1,234" in head or "1234" in head, head
 
@@ -402,7 +402,7 @@ async def test_an_unpriced_close_is_not_counted_as_break_even(live_mode):
     head = out.split("Timeframe")[0]
     # Whatever it says, it must not be a confident break-even read off a
     # close with no price on record.
-    assert "$+0.00" not in head, head
+    assert "+$0.00" not in head, head
 
 
 # ── 4. a partial says it is one ─────────────────────────────────────────────

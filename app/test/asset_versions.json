@@ -3,6 +3,10 @@
     "v": 13,
     "sha": "c3fe76d9a1e7d1cf"
   },
+  "js/admin.js": {
+    "v": 3,
+    "sha": "f68d9fa4aa93124e"
+  },
   "js/agent-page.js": {
     "v": 2,
     "sha": "57210c73a86e7dea"
@@ -34,6 +38,10 @@
   "js/arena-risk-model.js": {
     "v": 1,
     "sha": "77d4026436966cf1"
+  },
+  "js/arena-session.js": {
+    "v": 6,
+    "sha": "f8b777925c2a42f2"
   },
   "js/arena_engine.js": {
     "v": 2,
@@ -84,8 +92,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 248,
-    "sha": "a39b35aafcfddb26"
+    "v": 249,
+    "sha": "e041d2c38aff2ffb"
   },
   "js/decision-court-model.js": {
     "v": 3,
@@ -188,8 +196,8 @@
     "sha": "35f7ba011c75fae3"
   },
   "js/mascot3d.js": {
-    "v": 5,
-    "sha": "913fea490b4eec25"
+    "v": 6,
+    "sha": "fc403653d6d6d2ea"
   },
   "js/metric-cluster-model.js": {
     "v": 1,
@@ -214,6 +222,22 @@
   "js/panel-error-model.js": {
     "v": 6,
     "sha": "25cb3003194ae98c"
+  },
+  "js/pi-arena.js": {
+    "v": 3,
+    "sha": "26ac784ae9f55944"
+  },
+  "js/pi-duel.js": {
+    "v": 4,
+    "sha": "9998fdc9a3490753"
+  },
+  "js/pi-signals.js": {
+    "v": 4,
+    "sha": "1105314b8a46a1c0"
+  },
+  "js/pi-signin-callback.js": {
+    "v": 1,
+    "sha": "9f9fc4fe60413a0c"
   },
   "js/plan-card-model.js": {
     "v": 1,
@@ -350,29 +374,5 @@
   "vendor/lightweight-charts.standalone.production.js": {
     "v": 1,
     "sha": "c7dda807d662a95b"
-  },
-  "js/admin.js": {
-    "v": 3,
-    "sha": "f68d9fa4aa93124e"
-  },
-  "js/arena-session.js": {
-    "v": 6,
-    "sha": "f8b777925c2a42f2"
-  },
-  "js/pi-arena.js": {
-    "v": 3,
-    "sha": "26ac784ae9f55944"
-  },
-  "js/pi-signals.js": {
-    "v": 4,
-    "sha": "1105314b8a46a1c0"
-  },
-  "js/pi-signin-callback.js": {
-    "v": 1,
-    "sha": "9f9fc4fe60413a0c"
-  },
-  "js/pi-duel.js": {
-    "v": 4,
-    "sha": "9998fdc9a3490753"
   }
 }

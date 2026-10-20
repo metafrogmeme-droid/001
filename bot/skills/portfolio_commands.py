@@ -36,6 +36,7 @@ from bot.compat import UTC
 from bot.config import CONFIG
 from bot.core.live_executor import committed_margin, committed_margin_note, take_profit_note
 from bot.core.trade_gate import caller_risk, entry_gate
+from bot.formatters.money import signed_usd
 from bot.formatters.realized_totals import (
     CLOSED_RECORD_UNREAD,
     closed_record_partial,
@@ -319,7 +320,7 @@ class PortfolioCommands:
             lines.append(
                 f"{category_icon(cat)} <b>{cat}</b>: {n} trade{'' if n == 1 else 's'} · "
                 f"PF <b>{pf_s}</b> · WR {100.0 * r['win_rate']:.0f}% · "
-                f"net ${r['net']:+.2f}{unpriced_s}")
+                f"net {signed_usd(r['net'], grouped=False)}{unpriced_s}")
         for cat in [c for c in unpriced if c not in classes]:
             lines.append(
                 f"{category_icon(cat)} <b>{cat}</b>: 0 priced trades · PF <b>—</b> · "
@@ -674,7 +675,7 @@ class PortfolioCommands:
                                  f"<code>{t('pnl_unknown', lang)}</code> ⚠️")
             else:
                 _net_pnl_line = (f"- {t('lbl_net_pnl', lang)}: "
-                                 f"<code>${live_total_pnl:+,.2f}</code> "
+                                 f"<code>{signed_usd(live_total_pnl)}</code> "
                                  f"{'🟢' if live_total_pnl >= 0 else '🔴'}")
                 if _unpriced_closes:
                     _net_pnl_line += (f" ⚠️ <i>"
@@ -705,7 +706,7 @@ class PortfolioCommands:
                     f"<code>{t('pnl_unknown', lang)}</code> \u26a0\ufe0f")
             elif _marked:
                 _u_line = (f"- {t('lbl_unrealized_pnl', lang)}: "
-                           f"<code>${live_unrealized:+,.2f}</code> "
+                           f"<code>{signed_usd(live_unrealized)}</code> "
                            f"{'🟢' if live_unrealized >= 0 else '🔴'}")
                 if _unmarked:
                     _u_line += (f" \u26a0\ufe0f <i>"
@@ -782,7 +783,8 @@ class PortfolioCommands:
                     else:
                         pnl_val = float(_p)
                         pnl_icon = "✅" if pnl_val >= 0 else "❌"
-                        lines.append(f"  {pnl_icon} {pair} {tr.direction} → <code>${pnl_val:+,.2f}</code>{fee_note}")
+                        lines.append(f"  {pnl_icon} {pair} {tr.direction} → "
+                                     f"<code>{signed_usd(pnl_val)}</code>{fee_note}")
 
             # Session tally from LiveExecutor
             if live_closed:
@@ -802,7 +804,7 @@ class PortfolioCommands:
                 # confident negative.
                 _rate = _ws["rate"]
                 _wr_str = "n/a" if _rate is None else f"{_rate * 100:.0f}%"
-                _net_str = (f"${live_total_pnl:+,.2f}" if _pnl_known
+                _net_str = (f"{signed_usd(live_total_pnl)}" if _pnl_known
                             else "unreadable")
                 lines.extend([
                     "", sep, "",
@@ -822,7 +824,7 @@ class PortfolioCommands:
                     # bot did not open and knows least about.
                     _ad = realized_totals(adopted_trades)
                     _ad_str = ("P&L not recorded" if _ad["net"] is None
-                               else f"${_ad['net']:+,.2f}")
+                               else f"{signed_usd(_ad['net'])}")
                     lines.append(
                         f"<i>⚠️ Excluded {len(adopted_trades)} adopted orphans ({_ad_str})</i>")
             else:
@@ -895,14 +897,15 @@ class PortfolioCommands:
                     lines.append(f"  {t('entry', lang)}: <code>${pos.entry_price:,.4f}</code> → {t('lbl_current', lang)}: {_cur_txt}")
                     lines.append(f"  {t('lbl_sl', lang)}: <code>${pos.stop_loss:,.4f}</code> | {t('lbl_tp', lang)}: <code>${pos.take_profit:,.4f}</code>"
                                  f"{html.escape(take_profit_note(pos))}")
-                    _pnl_usd_txt = ("—" if pnl_usd is None else f"<code>${pnl_usd:+,.2f}</code>")
+                    _pnl_usd_txt = ("—" if pnl_usd is None else f"<code>{signed_usd(pnl_usd)}</code>")
                     lines.append(f"  {t('lbl_size', lang)}: <code>${size_usd:,.2f}</code> | {t('lbl_pnl', lang)}: {_pnl_usd_txt}")
 
             if history:
                 lines.extend(["", sep, "", f"<b>{t('hdr_recent_trades', lang)}</b>"])
                 for tr in history[-5:]:
                     pnl_icon = "✅" if tr.pnl > 0 else "❌"
-                    lines.append(f"  {pnl_icon} {tr.asset} {tr.direction.value} → <code>${tr.pnl:+.2f}</code>")
+                    lines.append(f"  {pnl_icon} {tr.asset} {tr.direction.value} → "
+                                 f"<code>{signed_usd(tr.pnl, grouped=False)}</code>")
 
             # Session tally
             if state.total_trades > 0:
@@ -922,7 +925,7 @@ class PortfolioCommands:
                     "", sep, "",
                     f"<b>{t('lbl_session', lang)}</b> {wins}W/{losses}L"
                     + _unpriced_tag(_ws) + " | "
-                    f"{t('lbl_net', lang)}: <code>${state.total_pnl:+.2f}</code> | "
+                    f"{t('lbl_net', lang)}: <code>{signed_usd(state.total_pnl, grouped=False)}</code> | "
                     f"{t('lbl_win_rate_lc', lang)}: <code>{state.win_rate:.0%}</code>",
                 ])
             else:
@@ -962,7 +965,7 @@ class PortfolioCommands:
                 "tiles": [
                     {"label": t("lbl_realized_pnl", lang),
                      "value": ("--" if _card_pnl is None
-                               else f"${_card_pnl:+,.2f}"),
+                               else f"{signed_usd(_card_pnl)}"),
                      # Colour is a claim: green says "in profit". A book
                      # with nothing closed has a realized $0.00, which is
                      # not a profit, so zero takes the muted colour.

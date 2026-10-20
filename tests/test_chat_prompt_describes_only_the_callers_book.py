@@ -215,7 +215,7 @@ def _check(out, must_say, must_not_say):
         assert phrase not in out, f"prompt wrongly claimed {phrase!r}\n---\n{out}"
 
 
-OPERATOR_BOOK = ["HYPE/USDT:USDT", "WIF/USDT:USDT", "4,242", "$+87.65"]
+OPERATOR_BOOK = ["HYPE/USDT:USDT", "WIF/USDT:USDT", "4,242", "+$87.65"]
 
 
 # ── whose book ──────────────────────────────────────────────────────────────
@@ -254,7 +254,7 @@ class TestWhoseBook:
         e = _engine(per_user=True, linked={})
         out = live(e, "777", store_raises=True)
         _check(out,
-               ["HYPE/USDT:USDT", "WIF/USDT:USDT", "$+87.65",
+               ["HYPE/USDT:USDT", "WIF/USDT:USDT", "+$87.65",
                 "equity ~$4,242.42 (exchange balance as read", "1 open positions", "total trades 1"],
                ["none can be reported", "ACTIVE POSITIONS: could not be read",
                 "Current portfolio: could not be", "no linked live account"])
@@ -307,7 +307,7 @@ class TestWhoseBook:
         out = live(e, "555", store_raises=True)
         _check(out, ["PEPE/USDT:USDT", "closed-trade records could not be read", "UNKNOWN, not zero",
                      "RECENT CLOSED TRADES (live): could not be read"],
-               ["total trades 0", "total trades 1", "WIF/USDT:USDT", "HYPE/USDT:USDT", "$+87.65"])
+               ["total trades 0", "total trades 1", "WIF/USDT:USDT", "HYPE/USDT:USDT", "+$87.65"])
 
     def test_an_unidentified_caller_gets_no_book_under_per_user_live(self, live):
         # The portfolio registry REFUSES an empty id (MultiUserPortfolio
@@ -471,13 +471,13 @@ class TestCountsAndStores:
         # live_executor sets the flag inside an `except` wrapped around a
         # per-row append, so the list may hold a PARTIAL parse: a builder
         # honouring the flag only for an empty list prints the partial record
-        # as the whole — `net PnL $+87.65, win rate 100%, total trades 1`.
+        # as the whole — `net PnL +$87.65, win rate 100%, total trades 1`.
         e = _engine(per_user=True, linked={},
                     op_ex=_op_ex(closed_positions=rows, closed_trades_read_failed=True))
         out = live(e, "777", store_raises=True)
         _check(out, ["closed-trade records could not be read", "UNKNOWN, not zero",
                      "RECENT CLOSED TRADES (live): could not be read", "Do not say there were none"],
-               ["total trades 0", "total trades 1", "net PnL $+0.00", "$+87.65", "win rate 100%",
+               ["total trades 0", "total trades 1", "net PnL +$0.00", "+$87.65", "win rate 100%",
                 "WIF/USDT:USDT"])
         # SIBLING: an empty list with the flag False is a fresh account and
         # legitimately prints total trades 0 — the flag, not the emptiness,

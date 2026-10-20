@@ -184,6 +184,10 @@ class PortfolioTracker:
         # over the entry, at 8 decimal places.
         qty = open_quantity(size_usd, leverage, idea.entry_price)
 
+        # The one reading of the idea's confidence, recorded at the fill for
+        # the position's cards (`confidence_on_entry` reads it back).
+        from bot.core.signal_confidence import displayed_confidence
+        _conf = displayed_confidence(idea)
         trade = TradeExecution(
             trade_id=idea.id,
             asset=idea.asset,
@@ -199,6 +203,8 @@ class PortfolioTracker:
             venue=venue,
             fill_label=fill_label,
             opened_at=datetime.now(UTC),
+            confidence_at_entry=_conf.value,
+            confidence_basis=_conf.basis,
         )
 
         self.balance -= size_usd

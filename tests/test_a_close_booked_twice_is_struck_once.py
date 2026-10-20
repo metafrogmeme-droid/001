@@ -321,7 +321,7 @@ def test_a_journal_that_could_not_be_saved_keeps_the_entry(tmp_path, monkeypatch
 
 def test_the_card_names_both_records_and_offers_one_tap(books):
     text, buttons = dc.duplicates_card(dc.find_duplicate_closes(books))
-    assert "kept: operator book · 08 Oct 18:11 UTC · net $+0.48" in text
+    assert "kept: operator book · 08 Oct 18:11 UTC · net +$0.48" in text
     assert (f"duplicate: book {OP} (an operator id's book with no keys linked now: "
             "strike only if it traded the operator's account)") in text
     assert "in its ledger + journal" in text

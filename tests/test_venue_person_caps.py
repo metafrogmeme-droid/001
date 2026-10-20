@@ -256,7 +256,7 @@ def test_the_engine_binds_the_hook_for_every_per_user_engine():
 # ── daily loss, which is NOT a floor ─────────────────────────────────────
 
 def test_daily_loss_is_measured_over_total_equity():
-    """Per-person means BOTH halves of the ratio move together. $-50 across
+    """Per-person means BOTH halves of the ratio move together. -$50 across
     $2000 of total equity is 2.5%, not the 5% one $1000 book would report."""
     from bot.risk.venue_aggregate import person_daily_loss_pct
     t = aggregate([_r("bitget", eq=1000.0, daily=-50.0),
