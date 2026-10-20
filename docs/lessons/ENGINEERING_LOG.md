@@ -21054,7 +21054,7 @@ above that return explains the flag BY NAME: the mutation that deleted it from
 the code left the assertion matching the prose, and the round reported the
 guard green over the defect it was written for. `tests/source_scan.py` is the
 shared `tokenize`-based `code_only()` for Python — import it rather than
-copying it, as 277 test files already do — and `app/test/helpers/code_only.js`
+copying it, as 278 test files already do — and `app/test/helpers/code_only.js`
 is the same thing for JS, which was already in the tree when that guard was
 written.
 
@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **503 of 1354** reach for source text through `source_scan`, `code_only`
+Driven, **504 of 1355** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 503 is a FLOOR and the honest shape is
+source scan that rule does not see, so 504 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -27376,3 +27376,52 @@ pool", a read remembered like any other, while a 5xx, a 429, Flovia's own
 provider's answer that arrives as an error is still an answer, and only
 the party that answered gets to say "not found" (five mutants, each
 killed).
+
+## A DISPLAY NAME HAS NO INVERSE, AND A BUTTON THAT FINDS NOTHING HAS NOT CLOSED ANYTHING
+
+20 October 2026, the operator's screenshots. The positions list showed a
+practice short on QNTSTOCK with the card headed "QNTSTOCKUSDT:USDT"; the tap
+on its symbol button answered "✅ QNTSTOCKUSDT:USDT — position closed", and
+"positions" a second later listed the same short, open, with its size. No
+chart came with the card either.
+
+One quantity, two readings. The list's live rows spelled a pair by stripping
+the slash and the settle suffix; its paper rows stripped the slash only. A
+swap-spelled practice asset (`QNTSTOCK/USDT:USDT`, the engine's own spelling
+since the perps) was therefore listed as "QNTSTOCKUSDT:USDT", the Details
+and Close buttons carried that id, and the handler compared it with the
+asset stripped both ways ("QNTSTOCKUSDT"): no match, so the branch for
+"no match" ran, and that branch said "position closed". The chart was asked
+for the inverse of the display name, `pair.replace("USDT", "/USDT")`, which
+on a name that still carried the suffix produced "QNTSTOCK/USDT:/USDT", a
+symbol no venue has; the analysis read failed the same way, so the Refresh
+card would have printed no market context either.
+
+Three things were wrong and each is the kind this log keeps meeting:
+
+- **A second copy of a reading.** `live_executor.display_symbol` was the
+  pair reading (slash and settle suffix stripped, `MEGA/USDT:USDT →
+  MEGAUSDT`); the paper rows carried a hand-rolled one beside it. Both rows
+  and both button paths now spell the pair through that one function, and
+  the button match applies it to BOTH sides, because an id a card sent
+  before the fix still carries the suffix and a crafted one may.
+- **An inverse of a display name.** A pair is a name for people; it does
+  not round-trip to the venue's symbol, and the handler had the position in
+  hand with its own `asset`. The chart and the analysis are asked for that;
+  the inverse remains only for a pair nothing matched.
+- **Absent is not a measurement.** "No open position matched this id" was
+  rendered as "position closed" (Details) and "already closed" (Close), a
+  tick and a verb for a state nobody read; the stale-sync incident of the
+  same button printed the same tick for the same reason. Both now say "not
+  found among your open positions" and the close adds "nothing was closed".
+
+Driven, not scanned: a practice short on `QNTSTOCK/USDT:USDT` tapped with
+the suffixed id and with the clean one renders its card both times, the
+analysis and the chart are asked for `QNTSTOCK/USDT:USDT`, the Close with
+the suffixed id closes it and names the pair without the suffix, and an id
+that matches nothing is "not found" on both buttons with the book untouched
+(`tests/test_the_details_button_reads_the_callers_account.py`). The list's
+rows, which no tap reaches, are held to the one reading by an AST walk over
+`positions_data.append({...})`
+(`tests/test_the_position_buttons_spell_one_pair.py`). Six mutants, each
+killed.

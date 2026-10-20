@@ -38,6 +38,7 @@ from telegram.ext import ContextTypes
 
 from bot.config import CONFIG
 from bot.core.earn_account import EarnAccount, earn_account_line
+from bot.core.live_executor import display_symbol as pair_symbol
 from bot.core.position_telemetry import (
     confidence_on_entry,
     entered_at,
@@ -975,9 +976,13 @@ class CallbackHandler:
                             break
 
             if pos_match is None:
+                # Both sides through the one pair reading: the id a card sent
+                # may carry the settle suffix (a card sent before 2026-10-20
+                # did, and so does a crafted one) and the asset always does.
                 for p in portfolio.open_positions:
-                    if p.asset.replace("/", "").replace(":USDT", "") == pair:
+                    if pair_symbol(p.asset) == pair_symbol(ident):
                         pos_match = p
+                        pair = pair_symbol(p.asset)
                         break
 
             # The button passes a trade_id (TI-xxxx). When local tracking has
@@ -1056,7 +1061,13 @@ class CallbackHandler:
             except Exception:
                 exchange = None
 
-            symbol = pair.replace("USDT", "/USDT") if "USDT" in pair else pair
+            # The matched position's own symbol. The inverse of the display
+            # name (`pair.replace("USDT", "/USDT")`) is kept only for a pair
+            # nothing matched; on "QNTSTOCKUSDT:USDT" it made
+            # "QNTSTOCK/USDT:/USDT", and no chart or analysis came back.
+            _own = ((getattr(pos_match, "asset", None) or getattr(pos_match, "symbol", None))
+                    if pos_match is not None else None)
+            symbol = _own if _own else (pair.replace("USDT", "/USDT") if "USDT" in pair else pair)
             adata = None
             if exchange:
                 adata = await fetch_analysis_data(exchange, symbol, timeframe="1h")
@@ -1403,9 +1414,13 @@ class CallbackHandler:
                 ]
                 await self._send(update, "\n".join(lines), edit=True)
             else:
+                # Nothing matched. That is "not found", not "closed": a
+                # position this handler cannot find is not thereby closed
+                # (the stale-sync incident and the suffix mismatch above both
+                # printed a tick over an open position).
                 await self._send(update,
-                    f"\u2705 <b>{html.escape(pair)}</b> — position closed.\n\n"
-                    "Say \"positions\" to see current state.",
+                    f"\u26a0\ufe0f <b>{html.escape(pair)}</b> — not found among your open positions.\n\n"
+                    "If it closed, say \"positions\" to see the current state.",
                     edit=True)
                 # Remove stale buttons
                 try:
@@ -1639,7 +1654,8 @@ class CallbackHandler:
             if not live_closed:
                 # Paper mode close
                 for pos in list(portfolio.open_positions):
-                    if pos.asset.replace("/", "").replace(":USDT", "") == pair:
+                    if pair_symbol(pos.asset) == pair_symbol(ident):
+                        pair = pair_symbol(pos.asset)
                         close_price = None
                         try:
                             # The perp's price, the market the practice book
@@ -1702,9 +1718,13 @@ class CallbackHandler:
                 else:
                     await self._send(update, "\n".join(lines), edit=True)
             else:
+                # Nothing matched, so nothing was closed; "already closed" was
+                # a claim this branch had no reading for (the suffix mismatch
+                # of 2026-10-20 printed it over an open practice position).
                 await self._send(update,
-                    f"\u2705 <b>{html.escape(pair)}</b> — already closed.\n\n"
-                    "Say \"positions\" to see current state.",
+                    f"\u26a0\ufe0f <b>{html.escape(pair)}</b> — not found among your open positions; "
+                    "nothing was closed.\n\n"
+                    "Say \"positions\" to see the current state.",
                     edit=True)
                 # Remove stale buttons
                 try:

@@ -42,6 +42,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from bot.config import CONFIG
+from bot.core.live_executor import display_symbol as pair_symbol
 from bot.core.live_executor import take_profit_note
 from bot.core.open_orders import (
     open_orders_for,
@@ -2035,7 +2036,10 @@ class TradingCommands:
                         return None if v is None else round(v, n)
                     _conf_rec = confidence_on_entry(pos)
                     positions_data.append({
-                        "pair": pos.symbol.replace("/", "").replace(":USDT", ""),
+                        "pair": pair_symbol(pos.symbol),
+                        # The position's own symbol, for the card's chart and
+                        # analysis: the pair is a display name and not its inverse.
+                        "asset": pos.symbol,
                         "direction": pos.direction,
                         "opened_at": entered_at(pos),
                         "confidence": _conf_rec.value if _conf_rec else None,
@@ -2212,7 +2216,17 @@ class TradingCommands:
                     _rr_paper = live_rr(last_price, pos.stop_loss, pos.take_profit)
                     _conf_rec = confidence_on_entry(pos)
                     positions_data.append({
-                        "pair": pos.asset.replace("/", ""),
+                        # ONE reading of the pair, the live rows' (`pair_symbol`:
+                        # strip the slash AND the settle suffix). This row kept
+                        # the suffix, so a swap-spelled practice position
+                        # (QNTSTOCK/USDT:USDT, 2026-10-20) was listed as
+                        # "QNTSTOCKUSDT:USDT", its Details button carried that
+                        # id, the handler matched it against "QNTSTOCKUSDT" and
+                        # answered "position closed" for an open position, and
+                        # the chart's symbol was derived from it as
+                        # "QNTSTOCK/USDT:/USDT", which no venue has.
+                        "pair": pair_symbol(pos.asset),
+                        "asset": pos.asset,
                         "direction": pos.direction.value,
                         "opened_at": entered_at(pos),
                         "confidence": _conf_rec.value if _conf_rec else None,
@@ -2391,7 +2405,9 @@ class TradingCommands:
                 "opened_at": pos.get("opened_at"),
                 "confidence": pos.get("confidence"),
                 "confidence_basis": pos.get("confidence_basis"),
-                "symbol": pair.replace("USDT", "/USDT") if "USDT" in pair else pair,
+                # The position's own symbol; the inverse of a display name
+                # (`pair.replace("USDT", "/USDT")`) mangles a settle suffix.
+                "symbol": pos.get("asset") or (pair.replace("USDT", "/USDT") if "USDT" in pair else pair),
                 "direction": direction,
                 "is_live": _live_ex is not None,
                 "entry": entry,
