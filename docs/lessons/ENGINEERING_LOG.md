@@ -27707,3 +27707,15 @@ Arabic right to left, prizes on and off) and
 Thirty mutants, each killed: the runtime, the server's pick and order, the
 build's four checks, the client switches, the renderer's and the card's
 words, and the prize table and plan.
+
+**A file git ignores passes every local gate.** Indonesian's source was
+`app/i18n/pi/id.json`, and `id.json` is the name of a Solana keypair, which
+the repo's .gitignore denies everywhere with no exception, as it should.
+`git add app/i18n/` added fifteen languages and said nothing about the
+sixteenth; the build, the tests and a 21-of-22 preflight all read the
+untracked copy in the working tree, and CI, which checks out only what was
+committed, had no Indonesian at all. The keypair rule stays as it is: the
+sources are `<code>.pairs.json` now, and a test asks git (`git check-ignore
+--no-index`) whether any of them would be ignored, with the old name as its
+other arm. A gate that reads the working tree measures the working tree, not
+the commit.

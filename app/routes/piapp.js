@@ -116,7 +116,7 @@ const HEAD_SCRIPTS = ['/js/api-retry.js?v=3', PI_SDK];
  * deferred scripts. The chosen language's chunk is placed right after it,
  * per request (page()), which finds it by this one name.
  */
-const PI_I18N_SCRIPT = '/js/pi-i18n.js?v=1';
+const PI_I18N_SCRIPT = '/js/pi-i18n.js?v=2';
 
 const SCRIPTS = [
   PI_I18N_SCRIPT,

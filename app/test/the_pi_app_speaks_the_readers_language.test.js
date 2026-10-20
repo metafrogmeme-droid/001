@@ -63,7 +63,7 @@ function doctored(code, edit) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-i18n-'));
   const src = path.join(__dirname, '..', 'i18n', 'pi');
   for (const f of fs.readdirSync(src)) fs.copyFileSync(path.join(src, f), path.join(dir, f));
-  const file = path.join(dir, `${code}.json`);
+  const file = path.join(dir, `${code}${build.SUFFIX}`);
   fs.writeFileSync(file, JSON.stringify(edit(JSON.parse(fs.readFileSync(file, 'utf8')))));
   return dir;
 }
@@ -83,7 +83,7 @@ test('a placeholder dropped or misspelt in a translation is a problem the build 
 
 test('a sentence the app no longer says, or one a language lacks, is a problem the build names', () => {
   const stale = build.build({ srcDir: doctored('vi', (pairs) => pairs.concat([['A sentence nobody draws', 'Một câu']])) });
-  assert.ok(stale.problems.some((x) => /vi\.json: "A sentence nobody draws" is no longer in the Pi app/.test(x)), stale.problems.join('\n'));
+  assert.ok(stale.problems.some((x) => /vi\.pairs\.json: "A sentence nobody draws" is no longer in the Pi app/.test(x)), stale.problems.join('\n'));
   const gone = build.build({ srcDir: doctored('vi', (pairs) => pairs.filter((p) => p[0] !== 'Season standings')) });
   assert.deepStrictEqual(gone.missing.vi, ['Season standings']);
   assert.ok(gone.problems.includes('vi: 1 sentence(s) not translated'));
@@ -289,7 +289,26 @@ test('the chunks are pairs, not "name": value lines a secret scanner keys on', (
     assert.match(line, /^ {4}\[".*",".*"\],$/, line);
   }
   for (const code of PiI18n.CODES.filter((c) => c !== 'en')) {
-    const raw = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'i18n', 'pi', `${code}.json`), 'utf8'));
+    const raw = JSON.parse(fs.readFileSync(path.join(build.SRC_DIR, `${code}${build.SUFFIX}`), 'utf8'));
     assert.ok(Array.isArray(raw) && raw.every((p) => Array.isArray(p) && p.length === 2), code);
   }
+});
+
+/**
+ * A source git ignores is a translation only this checkout has. Indonesian's
+ * was `id.json`, the name of a Solana keypair that .gitignore denies
+ * everywhere; every test passed here on the untracked copy, and CI, which
+ * checks out only what was committed, had no Indonesian at all. So git is
+ * asked directly: no translation source may be ignored.
+ */
+test('git keeps every translation source: none is ignored', () => {
+  const { spawnSync } = require('node:child_process');
+  const repo = path.join(__dirname, '..', '..');
+  const files = PiI18n.CODES.filter((c) => c !== 'en').map((c) => path.relative(repo, path.join(build.SRC_DIR, `${c}${build.SUFFIX}`)));
+  const r = spawnSync('git', ['check-ignore', '--no-index', ...files], { cwd: repo, encoding: 'utf8' });
+  // 1: nothing matched an ignore rule. 0: something did (listed on stdout).
+  assert.strictEqual(r.status, 1, `ignored by git: ${r.stdout || r.stderr}`);
+  // Both arms: the same question about the old name is answered "ignored".
+  const old = spawnSync('git', ['check-ignore', '--no-index', 'app/i18n/pi/id.json'], { cwd: repo, encoding: 'utf8' });
+  assert.strictEqual(old.status, 0, 'the keypair rule no longer covers id.json; this test is asking the wrong question');
 });

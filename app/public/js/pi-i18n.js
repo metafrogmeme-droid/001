@@ -5,7 +5,7 @@
  * every page, the presale's among them, and nothing the Pi app loads may
  * (app/test/the_pi_app_is_the_arena_and_nothing_else.test.js). This is a
  * small table of the Pi app's own sentences, one chunk per language
- * (public/js/pi-i18n/<code>.js, built from app/i18n/pi/<code>.json by
+ * (public/js/pi-i18n/<code>.js, built from app/i18n/pi/<code>.pairs.json by
  * app/scripts/build_pi_i18n.js).
  *
  * ENGLISH IS THE KEY. A sentence is written once, in English, where it is
