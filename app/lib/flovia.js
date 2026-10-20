@@ -143,6 +143,24 @@ function unpack(result) {
 }
 
 /** A refusal's short explanation, from the shapes Flovia uses. */
+/**
+ * A tool error that is the PROVIDER's answer (Flovia executed the lookup and
+ * CoinGecko or Nansen answered an HTTP error) carries that answer's status,
+ * its code and who answered, so a reader can tell "the provider said not
+ * found" from "Flovia did not look". Flovia's own refusals carry no status.
+ */
+function withProviderAnswer(out, data) {
+  if (!data || typeof data !== 'object') return out;
+  const ex = data.explanation && typeof data.explanation === 'object' ? data.explanation : {};
+  const status = Number(data.status);
+  if (Number.isFinite(status) && status > 0) out.status = status;
+  if (typeof ex.code === 'string') out.code = ex.code;
+  if (typeof ex.by === 'string') out.by = ex.by;
+  if (ex.executed === 'yes' || ex.executed === true) out.executed = true;
+  else if (ex.executed === 'no' || ex.executed === false) out.executed = false;
+  return out;
+}
+
 function refusalDetail(data) {
   if (data && typeof data === 'object') {
     const ex = data.explanation;
@@ -185,7 +203,7 @@ async function call(tool, args, opts = {}) {
     if (!msg) return notRead('malformed', `http ${r.status}, no JSON-RPC reply`);
     if (msg.error) return notRead('refused', msg.error.message || `rpc ${msg.error.code}`);
     const data = unpack(msg.result);
-    if (msg.result && msg.result.isError) return notRead('refused', refusalDetail(data));
+    if (msg.result && msg.result.isError) return withProviderAnswer(notRead('refused', refusalDetail(data)), data);
     // Flovia can answer a tool call with its own structured refusal rather
     // than an isError: an explanation whose executed flag is false.
     if (data && typeof data === 'object' && data.explanation && data.explanation.executed === false) {

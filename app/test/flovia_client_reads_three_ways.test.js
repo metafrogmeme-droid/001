@@ -86,6 +86,19 @@ test('a refused key, a dead server and a tool error are three different absences
   r = await flovia.call('flovia_nansen', {});
   assert.equal(r.read, false); assert.equal(r.reason, 'refused');
   assert.match(r.detail, /free window/);
+  assert.ok(!('status' in r) && !('executed' in r), "Flovia's own refusal names no provider answer");
+
+  // A provider's HTTP answer, delivered as a tool error: the status, the
+  // code and who answered ride with it, so a reader can tell CoinGecko's
+  // "not found" from a refusal to look.
+  flovia.setFetch(stub((msg) => reply(200, { jsonrpc: '2.0', id: msg.id, result: { isError: true, content: [{ type: 'text', text: JSON.stringify({ ok: false, status: 404, response: '{"status":{"error_code":404,"error_message":"Not found"}}', explanation: { by: 'coingecko', code: 'http_404', executed: 'yes', meaning: 'CoinGecko answered HTTP 404; see response.' } }) }] } })).fetch);
+  r = await flovia.call('flovia_coingecko', {});
+  assert.deepStrictEqual([r.read, r.reason, r.status, r.code, r.by, r.executed], [false, 'refused', 404, 'http_404', 'coingecko', true]);
+  assert.match(r.detail, /HTTP 404/);
+  // "executed: no" is carried as false, never as a provider's answer.
+  flovia.setFetch(stub((msg) => reply(200, { jsonrpc: '2.0', id: msg.id, result: { isError: true, content: [{ type: 'text', text: JSON.stringify({ ok: false, status: 404, explanation: { by: 'coingecko', code: 'not_sent', executed: 'no', meaning: 'not sent' } }) }] } })).fetch);
+  r = await flovia.call('flovia_coingecko', {});
+  assert.deepStrictEqual([r.read, r.reason, r.status, r.executed], [false, 'refused', 404, false]);
 
   // Flovia's own structured refusal, delivered as a normal result.
   flovia.setFetch(stub((msg) => reply(200, { jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: JSON.stringify({ explanation: { executed: false, meaning: 'too large' } }) }] } })).fetch);

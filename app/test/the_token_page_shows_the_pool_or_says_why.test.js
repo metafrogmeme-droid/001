@@ -31,6 +31,7 @@ flovia.setFetch(async (url, init) => {
   if (msg.method === 'notifications/initialized') return { status: 202, ok: true, headers: { get: () => null }, text: async () => '' };
   asked.push(msg.params.arguments);
   if (answer === 'refuse') return reply(msg, { explanation: { meaning: 'window spent' } }, true);
+  if (answer && answer.toolError) return reply(msg, answer.toolError, true);
   return reply(msg, answer);
 });
 const MINT = rclaw.readRecord().mint;
@@ -74,6 +75,43 @@ test('no pool is a fact CoinGecko reported; a refusal and no key are reads that 
   assert.equal(asked.length, before, 'no key, no lookup');
 });
 
+/** CoinGecko's own HTTP answer, as Flovia delivers it (a tool error that names who answered). */
+function providerAnswer(status, by = 'coingecko', executed = 'yes') {
+  return { toolError: { ok: false, status, response: '{"status":{"error_code":' + status + ',"error_message":"Not found"}}',
+    explanation: { by, code: 'http_' + status, executed, meaning: `${by} answered HTTP ${status}; see response.` } } };
+}
+
+test("CoinGecko's 404 for the mint is 'no pool', a read; a 5xx and Flovia's own 404 are not", async () => {
+  // The first live read (2026-10-20): the mint is not indexed, CoinGecko
+  // answered 404, and the panel said "could not be read" about a token that
+  // is simply not listed yet.
+  answer = providerAnswer(404);
+  let r = await tokenPool();
+  assert.deepStrictEqual([r.listed, r.reason], [false, 'no_pool']);
+  assert.match(r.detail, /404/);
+  // Remembered as a read: no second lookup inside the window.
+  const before = asked.length;
+  r = await tokenPool();
+  assert.deepStrictEqual([r.listed, r.reason, asked.length], [false, 'no_pool', before]);
+  // A 5xx says nothing about the pool.
+  forget(); answer = providerAnswer(500);
+  r = await tokenPool();
+  assert.deepStrictEqual([r.listed, r.reason], [null, 'refused']);
+  // Flovia's own 404 (an unknown path, nothing executed) is not CoinGecko's.
+  forget(); answer = providerAnswer(404, 'flovia', 'no');
+  r = await tokenPool();
+  assert.deepStrictEqual([r.listed, r.reason], [null, 'refused']);
+  // A 404 CoinGecko is named on but did not answer (nothing executed) is
+  // not its answer either: only an executed lookup's 404 is "no pool".
+  forget(); answer = providerAnswer(404, 'coingecko', 'no');
+  r = await tokenPool();
+  assert.deepStrictEqual([r.listed, r.reason], [null, 'refused']);
+  // A 404 that no provider claims is not read as an answer either.
+  forget(); answer = { toolError: { ok: false, status: 404, explanation: { meaning: 'not found' } } };
+  r = await tokenPool();
+  assert.deepStrictEqual([r.listed, r.reason], [null, 'refused']);
+});
+
 test('a row without an address or with unreadable figures is read as such, never as zero', () => {
   const rows = poolsOf({ data: [
     { id: 'solana_CCCC', attributes: { reserve_in_usd: 'n/a', volume_usd: {}, base_token_price_usd: null }, relationships: {} },
@@ -103,6 +141,9 @@ test('the route: 200 with a pool, 200 not listed, 503 could not be read', async 
     forget(); answer = 'refuse';
     r = await get();
     assert.equal(r.status, 503); assert.deepStrictEqual([r.body.error, r.body.listed, r.body.reason], ['pool_unreadable', null, 'refused']);
+    forget(); answer = providerAnswer(404);
+    r = await get();
+    assert.equal(r.status, 200); assert.deepStrictEqual([r.body.listed, r.body.reason], [false, 'no_pool']);
   } finally { server.close(); }
 });
 

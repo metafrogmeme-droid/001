@@ -8,6 +8,7 @@
  *   { listed: true,  pool: { address, name, dex, reserve_usd, volume_24h_usd, price_usd, url },
  *     note, credit, read_at }                       a pool holds the mint
  *   { listed: false, reason: 'no_pool', read_at }   CoinGecko answered and listed none
+                                                     (an empty page, or its 404 for the mint)
  *   { listed: null,  reason, detail? }              could not be read: unconfigured, refused,
  *                                                    unreachable, malformed, record_unreadable
  *
@@ -64,7 +65,18 @@ async function readPools(mint) {
     request_text: 'RUNECLAW token page: the $RCLAW DEX pool\'s liquidity, volume and price',
     purpose: 'Showing the token\'s DEX pool on the public token page; market facts only.',
   });
-  if (!r.read) return { listed: null, reason: r.reason, detail: r.detail };
+  if (!r.read) {
+    // CoinGecko's own "Not found" for the mint, delivered through Flovia as
+    // a tool error, is CoinGecko's ANSWER: it indexes no pool for this token.
+    // The first live read (2026-10-20) painted it "could not be read" for a
+    // token that is simply not listed yet. Only the provider's 404 is read
+    // so; a 5xx, a 429 and Flovia's own refusals (no provider answered) stay
+    // unreadable, because none of them says anything about the pool.
+    if (r.by === 'coingecko' && r.executed === true && r.status === 404) {
+      return { listed: false, reason: 'no_pool', detail: 'CoinGecko indexes no pool for this mint (HTTP 404)' };
+    }
+    return { listed: null, reason: r.reason, detail: r.detail };
+  }
   const pools = poolsOf(r.data);
   if (!pools.length) return { listed: false, reason: 'no_pool' };
   pools.sort((a, b) => (b.reserve_usd == null ? -1 : b.reserve_usd) - (a.reserve_usd == null ? -1 : a.reserve_usd));
