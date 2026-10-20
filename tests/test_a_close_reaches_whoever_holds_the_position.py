@@ -309,7 +309,7 @@ class TestTheOwnerDoor:
         text = " ".join(str(kw.get("caption") or kw.get("text") or "")
                         for kw in w.sent)
         assert "987.65" not in text, text
-        assert "+5.00" in text, text
+        assert "+$5.00" in text, text
         # The CARD path has its own send, and a recipient check on the
         # text-only path cannot see it: the first round sent this card to the
         # operator's chats and survived.

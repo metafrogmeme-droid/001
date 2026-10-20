@@ -215,7 +215,7 @@ def render_etf_card(data: Any) -> bytes:
     y += 8
 
     if btc is not None and providers:
-        draw.line([PAD, y, W - PAD, y], fill=_BORDER, width=1)
+        draw.hairline(PAD, y, W - PAD)
         y += 14
         draw.text((PAD, y), f"BTC FUNDS · {_short_date(btc.get('funds_date')).upper()}", fill=_GRAY, font=f_label)
         y += 30

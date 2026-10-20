@@ -333,7 +333,7 @@ def render_signal_card(data: Dict[str, Any]) -> bytes:
     y += 40
 
     # ── Separator ──
-    draw.line([(PAD, y), (W - PAD, y)], fill=_BORDER, width=1)
+    draw.hairline(PAD, y, W - PAD)
     y += 12
 
     # ── Grid cells ──
@@ -1100,7 +1100,7 @@ def render_position_card(data: Dict[str, Any]) -> bytes:
     y += 42
 
     # ── Separator ──
-    draw.line([(PAD, y), (W - PAD, y)], fill=_BORDER, width=1)
+    draw.hairline(PAD, y, W - PAD)
     y += 12
 
     # ── Entry / Now row ──
@@ -1304,7 +1304,7 @@ def render_close_card(data: Dict[str, Any]) -> bytes:
         draw.text((PAD, y - 2), _basis, fill=_GRAY, font=f_small)
         y += 14
 
-    draw.line([(PAD, y), (W - PAD, y)], fill=_BORDER, width=1)
+    draw.hairline(PAD, y, W - PAD)
     y += 12
 
     CELL_W = (W - PAD * 3) // 2
@@ -1985,7 +1985,7 @@ def render_alpha_card(data: Dict[str, Any]) -> bytes:
     p_w = draw.textlength(f"${_fmt(price)}", font=f_hero)
     draw.text((PAD + p_w + 10, y + 10), chg_text, fill=chg_color, font=f_value)
     y += 40
-    draw.line([(PAD, y), (W - PAD, y)], fill=_BORDER, width=1)
+    draw.hairline(PAD, y, W - PAD)
     y += 12
 
     # ── Trend badge + per-TF dots ──
