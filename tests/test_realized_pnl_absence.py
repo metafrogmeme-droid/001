@@ -1,4 +1,4 @@
-"""`Realized PnL (all-time): 🟢 $+0.00` when there are no closed trades.
+"""`Realized PnL (all-time): 🟢 +$0.00` when there are no closed trades.
 
 Handoff open item #3. The card asserted a measured break-even where the truth
 was "no records", and on 2026-08-05 that reading — beside a real equity and a
@@ -8,7 +8,7 @@ investigation. Persistence was working the whole time.
 The claim is made TWICE on one line, which is why fixing the number alone
 would have left it half-cured:
 
-    $+0.00   a signed figure, to the cent
+    +$0.00   a signed figure, to the cent
     🟢       an accent that says "not down" on its own
 
 Both now come from one tri-state. `pnl_stats` returns None when nothing could
@@ -73,7 +73,7 @@ SCENARIOS = [
     pytest.param(
         dict(realized_pnl=None, total_closed=0, win_rate=None),
         ["No closed trades recorded", "—"],
-        ["$+0.00", "$0.00", "🟢", "Win rate"],
+        ["+$0.00", "$0.00", "🟢", "Win rate"],
         id="empty-book-is-not-a-flat-book",
     ),
     pytest.param(
@@ -82,18 +82,18 @@ SCENARIOS = [
         # measurement was possible, whatever arrived in the argument.
         dict(realized_pnl=0.0, total_closed=0, win_rate=0.0),
         ["No closed trades recorded", "—"],
-        ["$+0.00", "🟢"],
+        ["+$0.00", "🟢"],
         id="a-legacy-caller-still-cannot-print-a-fake-zero",
     ),
     pytest.param(
         dict(realized_pnl=None, total_closed=4, win_rate=None, unscored=4),
         ["—", "0 of 4 closes", "4 carry no recorded"],
-        ["$+0.00", "🟢", "Win rate: <code>0%</code>"],
+        ["+$0.00", "🟢", "Win rate: <code>0%</code>"],
         id="four-closes-none-priced-is-not-a-wipeout",
     ),
     pytest.param(
         dict(realized_pnl=3.0, total_closed=3, win_rate=50.0, unscored=1),
-        ["$+3.00", "2 of 3 closes", "1 carry no recorded"],
+        ["+$3.00", "2 of 3 closes", "1 carry no recorded"],
         ["No closed trades recorded"],
         id="a-partial-total-names-its-window",
     ),
@@ -101,7 +101,7 @@ SCENARIOS = [
         dict(realized_pnl=None, total_closed=0, win_rate=None,
              read_failed=True),
         ["could not be read", "incomplete, not zero", "—"],
-        ["No closed trades recorded", "$+0.00", "🟢"],
+        ["No closed trades recorded", "+$0.00", "🟢"],
         id="an-unreadable-store-is-not-an-empty-one",
     ),
     pytest.param(
@@ -109,7 +109,7 @@ SCENARIOS = [
         # Suppressing this would be the opposite defect — hiding a fact
         # because it looks like the absence of one.
         dict(realized_pnl=0.0, total_closed=6, win_rate=33.0),
-        ["$+0.00", "🟢", "Win rate: <code>33%</code>"],
+        ["+$0.00", "🟢", "Win rate: <code>33%</code>"],
         ["No closed trades recorded", "could not be read"],
         id="a-measured-breakeven-is-a-fact-and-still-prints",
     ),

@@ -21,7 +21,7 @@ three-valued: True (a positive blocker), False (READ clear), None.
 
 **Its daily-loss chip printed the PAPER book's dollars beside the LIVE
 equity.** `f"Daily PnL: ${state.daily_pnl:+.2f}"` off `engine.portfolio` —
-which live fills never touch, so in live mode it read `$+0.00`, a flat day on
+which live fills never touch, so in live mode it read `+$0.00`, a flat day on
 an account that may have lost 4% — and the `$+` spelling walked through the
 web's dollar scrub, whose pattern allowed a minus and not a plus. The chip is
 the RATIO the breaker measures now, off the breaker's own live accumulator in
@@ -215,7 +215,7 @@ class TestTheDailyLossChip:
         assert "$" not in json.dumps(cb["rules"])
 
     def test_a_positive_day_carries_no_plus_dollar_either(self):
-        # `$+12.34` is the spelling the web scrub could not see.
+        # `+$12.34` is the spelling the web scrub could not see.
         cb = _payload(_engine(paper_daily=12.34, paper_equity=1000.0), _cfg(live=False))["circuit_breaker"]
         chip = _rule({"circuit_breaker": cb}, "Daily PnL")
         assert chip["label"] == "Daily PnL: +1.2% of equity (cap 5%)" and chip["active"] is False

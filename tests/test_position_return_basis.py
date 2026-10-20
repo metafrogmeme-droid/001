@@ -2,15 +2,15 @@
 
 Operator screenshots, 2026-08-17. The same live APT/USDT SHORT:
 
-    card 1   -2.56%  ($-0.64)     /open_positions
-    card 2   -0.13%  ($-0.64)     position detail, one minute later
+    card 1   -2.56%  (-$0.64)     /open_positions
+    card 2   -0.13%  (-$0.64)     position detail, one minute later
 
 Identical entry (0.51754), identical mark (0.51820), identical dollar. Read in
 sequence that is a 2.4-point recovery that never happened. Reconciled:
 
     raw price move      -0.13%   <- card 2's headline
     x20 leverage (ROE)  -2.55%   <- card 1's headline
-    gross PnL           $-0.64   <- shown beside BOTH
+    gross PnL           -$0.64   <- shown beside BOTH
 
 Both numbers were individually correct. Neither said which question it was
 answering, and they sat in the same slot with the same dollar next to them.

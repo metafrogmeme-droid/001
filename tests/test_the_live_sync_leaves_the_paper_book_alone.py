@@ -10,7 +10,7 @@ there, and ``engine.portfolio._on_trade_close`` is the composite that calls
 cooldown and breaker, fed the P&L of a paper position priced off the live
 ticker. Driven on the unfixed tree: a paper ETH long entered at 2000, a venue
 holding nothing, the ticker at 2500 -- the sweep booked "Ghost closed ...
-PnL=$+625.0000 (ticker)" and handed ``621.62`` to the risk callback.
+PnL=+$625.0000 (ticker)" and handed ``621.62`` to the risk callback.
 
 Phase 2 read the same book to decide what was tracked, so a stale paper ETH
 long made a real, untracked ETH long on the venue read as tracked and adoption

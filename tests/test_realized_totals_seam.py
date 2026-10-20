@@ -56,7 +56,7 @@ class TestAnUnreadableTotalIsNoneNotZero:
         """The defect, stated as arithmetic, so the difference is visible.
 
         `sum((p.pnl_usd or 0) ...)` over three unpriced closes is 0 — a number
-        that formats as `$+0.00` and colours green under `>= 0`.
+        that formats as `+$0.00` and colours green under `>= 0`.
         """
         rows = [_t(), _t(), _t()]
         old = sum((r.pnl_usd or 0) for r in rows)

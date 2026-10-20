@@ -26,6 +26,7 @@ from bot.backtest.engine import BacktestEngine
 from bot.backtest.funding import funding_figure, funding_note
 from bot.backtest.models import BacktestConfig
 from bot.backtest.positions import positions
+from bot.formatters.money import signed_usd
 from bot.utils.paths import state_path
 
 
@@ -1054,7 +1055,7 @@ def _pooled_attribution_report(trades, *, label: str) -> str:
     s = pooled_stats(trades)
     pf_str = "— (no losing trade)" if s["pf"] is None else f"{s['pf']:.2f}"
     lines = ["", f"  ── EDGE ATTRIBUTION ({label}) " + "─" * 30,
-             f"  Pooled: {s['trades']} trades  net ${s['net_usd']:+,.2f}"
+             f"  Pooled: {s['trades']} trades  net {signed_usd(s['net_usd'])}"
              f"  win {s['win_rate']:.0%}  PF {pf_str}  ({s['wins']}W/{s['losses']}L"
              + (f"/{s['flat']}F" if s["flat"] else "") + ")"]
     lines.extend(_bucket_lines(trades))
@@ -1082,8 +1083,8 @@ def _narrative(result, per_symbol: dict | None = None) -> str:
         best = max(per_symbol.items(), key=lambda kv: kv[1]["net_pnl"])
         worst = min(per_symbol.items(), key=lambda kv: kv[1]["net_pnl"])
         if best[1]["net_pnl"] > 0:
-            lines.append(f"  Best symbol {best[0]} (${best[1]['net_pnl']:+,.2f}); "
-                         f"worst {worst[0]} (${worst[1]['net_pnl']:+,.2f}).")
+            lines.append(f"  Best symbol {best[0]} ({signed_usd(best[1]['net_pnl'])}); "
+                         f"worst {worst[0]} ({signed_usd(worst[1]['net_pnl'])}).")
     return "\n".join(lines)
 
 

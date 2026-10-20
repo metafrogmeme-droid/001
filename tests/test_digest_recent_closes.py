@@ -16,7 +16,7 @@ sites already call it. This digest went its own way, which is the failure the
 module's docstring names: fixing the LINE leaves the surface half-cured, so the
 fix has to follow the VALUE.
 
-The card also printed `net $+0.00` — with the sign — which reads as a measured
+The card also printed `net +$0.00` — with the sign — which reads as a measured
 flat night rather than as nothing having been readable.
 """
 from __future__ import annotations
@@ -67,7 +67,7 @@ def test_a_real_book_reads_correctly():
                     _pos(-40.0, tid="d"), _pos(-60.0, tid="e")])
     assert "Recent closes: <b>5</b>" in body
     assert "<b>3</b> wins" in body
-    assert "$+200.00" in body
+    assert "+$200.00" in body
     assert "unpriced" not in body, "no caveat is due on a complete window"
 
 
@@ -76,15 +76,15 @@ def test_an_unpriced_close_is_neither_a_zero_nor_a_non_win():
     assert "Recent closes: <b>3</b>" in body, "the COUNT of closes is still 3"
     assert "<b>1</b> wins of 2 priced" in body, (
         "the unpriced close was scored as a non-win against the full count")
-    assert "$+60.00" in body, "the unpriced close was summed as a break-even"
+    assert "+$60.00" in body, "the unpriced close was summed as a break-even"
     assert "1 unpriced" in body, "the window the figures cover was not disclosed"
 
 
 def test_a_book_nothing_can_price_reports_no_net():
     body = _digest([_pos(None, tid="a"), _pos(None, tid="b")])
     assert "net <code>—</code>" in body, (
-        "`net $+0.00` reads as a measured flat night, not as an unreadable one")
-    assert "$+0.00" not in body
+        "`net +$0.00` reads as a measured flat night, not as an unreadable one")
+    assert "+$0.00" not in body
     assert "<b>0</b> wins of 0 priced" in body
 
 
@@ -92,7 +92,7 @@ def test_a_measured_flat_book_still_prints_its_zero():
     """The other half of the rule. Two closes that both broke even is a
     result, and hiding it is the same defect facing the other way."""
     body = _digest([_pos(0.0, tid="a"), _pos(0.0, tid="b")])
-    assert "$+0.00" in body, "a measured break-even was suppressed"
+    assert "+$0.00" in body, "a measured break-even was suppressed"
     assert "<b>0</b> wins of 2 priced" in body
     assert "unpriced" not in body
 
@@ -121,5 +121,5 @@ def test_a_nonsense_pnl_is_absent_rather_than_extreme(bad):
     shared reader drops them; a local `float(x or 0)` would have propagated
     them into the total and printed `$+nan`."""
     body = _digest([_pos(50.0, tid="a"), _pos(bad, tid="b")])
-    assert "$+50.00" in body
+    assert "+$50.00" in body
     assert "nan" not in body.lower() and "inf" not in body.lower()

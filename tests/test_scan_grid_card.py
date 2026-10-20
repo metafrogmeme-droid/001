@@ -5,6 +5,7 @@ Display-only PNG renderer — assert it produces a valid PNG and degrades safely
 
 import struct
 
+from bot.formatters.card_theme import S
 from bot.formatters.signal_card import render_scan_grid_card
 
 
@@ -31,7 +32,7 @@ def test_renders_grid_only():
         "summary": {"up": 7, "down": 5, "vol_usd": 1.18e8},
     })
     w, h = _png_size(png)
-    assert w == 560 and h > 200
+    assert w == 560 * S and h > 200 * S
 
 
 def test_renders_grid_and_setups():
@@ -45,7 +46,7 @@ def test_renders_grid_and_setups():
         ],
     })
     w, h = _png_size(png)
-    assert w == 560 and h > 300
+    assert w == 560 * S and h > 300 * S
 
 
 def test_empty_grid_returns_empty():
@@ -56,7 +57,7 @@ def test_missing_optionals_safe():
     # No rsi / score / spark / summary / setups — must still render.
     png = render_scan_grid_card({"grid": [{"sym": "A", "price": 1.0, "change_pct": -2.0}]})
     w, _ = _png_size(png)
-    assert w == 560
+    assert w == 560 * S
 
 
 def test_banner_increases_height():

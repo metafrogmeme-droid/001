@@ -53,6 +53,7 @@ from bot.backtest.benchmark_record import (
 from bot.config import CONFIG
 from bot.core.arb_tracker import MIN_VERDICT_ENTRIES, mean_interval
 from bot.core.close_lookup import FEE_CLOSE_LEG, FEE_ESTIMATED, UNRECORDED, fee_stated, is_ticker_priced
+from bot.formatters.money import signed_usd
 from bot.learning.readiness import wilson_interval
 from bot.utils.close_reason import is_execution_abort, is_filled_close
 from bot.utils.paths import state_path
@@ -406,7 +407,8 @@ def parity_verdict(strategy: list[dict], benchmark: BenchmarkReading, *,
                 f"the bar is {min_trades}"))
         else:
             lo, hi = interval
-            words = (f"mean net ${mean:+.2f} per trade, 95% interval ${lo:+.2f}..${hi:+.2f} "
+            words = (f"mean net {signed_usd(mean, grouped=False)} per trade, 95% interval "
+                     f"{signed_usd(lo, grouped=False)}..{signed_usd(hi, grouped=False)} "
                      f"over {n} strategy exits")
             if lo > 0:
                 v.update(edge="positive", edge_sentence=f"live edge POSITIVE — {words}")
@@ -649,7 +651,7 @@ def aborts_line(s: dict) -> str:
     reasons = ", ".join(
         f"{k} {g['trades']}" + (f" (latest {latest[k]})" if k in latest else "")
         for k, g in a["by_reason"].items())
-    return (f"Execution aborts kept apart: {a['trades']} (net ${a['net']:+,.2f}) — {reasons} "
+    return (f"Execution aborts kept apart: {a['trades']} (net {signed_usd(a['net'])}) — {reasons} "
             f"(post-fill flatten guards, not strategy exits)")
 
 
@@ -659,7 +661,7 @@ def format_report(s: dict) -> str:
                 "report against data/closed_trades.json.")
     v = s["verdict"]
     lines = ["", "  ── LIVE ↔ BACKTEST PARITY " + "─" * 42,
-             f"  Live realized: {s['trades']} strategy exits  net ${s['net_pnl']:+,.2f}"
+             f"  Live realized: {s['trades']} strategy exits  net {signed_usd(s['net_pnl'])}"
              f"  win {s['win_rate']:.0%}  PF {_pf_str(s['pf'])}  ({_sample(s)})"
              + (f"  ({s['excluded_non_fills']} never-filled records excluded)"
                 if s.get("excluded_non_fills") else "")

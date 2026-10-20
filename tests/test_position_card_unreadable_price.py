@@ -95,7 +95,7 @@ def test_colour_is_a_claim_too():
                  "net_color = _MUTED if net_unknown",
                  "stripe_color = _MUTED if pnl_unknown"):
         assert line in block, f"unreadable must not be coloured as profit/loss: {line}"
-    assert "_MUTED = (" in code
+    assert "_MUTED = _T.MUTED" in code, "the muted colour is the theme's, not a literal of this file's"
     # ...and _MUTED must genuinely not be either signal colour.
     assert signal_card._MUTED != signal_card._GREEN
     assert signal_card._MUTED != signal_card._RED

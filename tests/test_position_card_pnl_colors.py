@@ -16,7 +16,7 @@ fee-adjusted figure; the hero row should consistently reflect the gross move.
 
 from unittest.mock import patch
 
-from bot.formatters.signal_card import render_position_card
+from bot.formatters.signal_card import _GREEN, _RED, render_position_card
 
 _BASE_DATA = {
     "symbol": "WIF/USDT", "direction": "SHORT", "is_live": True,
@@ -54,15 +54,15 @@ class TestPositionCardGrossVsNetColors:
         assert _is_png(png)
 
         hero_pct = next(t for t, _ in calls if t == "+0.60%")
-        hero_usd = next((t, c) for t, c in calls if t == "  ($+0.19)")
-        net_row = next((t, c) for t, c in calls if t.startswith("$-0.02"))
+        hero_usd = next((t, c) for t, c in calls if t == "  (+$0.19)")
+        net_row = next((t, c) for t, c in calls if t.startswith("-$0.02"))
 
         # Hero % and hero $ share the SAME (gross-positive -> green) color.
         hero_pct_color = next(c for t, c in calls if t == hero_pct)
         assert hero_pct_color == hero_usd[1]
-        assert hero_pct_color == (0, 200, 100)  # _GREEN
+        assert hero_pct_color == _GREEN
         # The dedicated NET PnL row is independently colored red (net is negative).
-        assert net_row[1] == (230, 60, 60)  # _RED
+        assert net_row[1] == _RED
 
     def test_gross_negative_net_positive_is_also_internally_consistent(self):
         # The inverse case: an unfavorable gross move that a rebate/adjustment
@@ -71,15 +71,15 @@ class TestPositionCardGrossVsNetColors:
         png, calls = _captured_text_colors(data)
         assert _is_png(png)
 
-        hero_usd_color = next(c for t, c in calls if t == "  ($-0.10)")
-        net_row_color = next(c for t, c in calls if t.startswith("$+0.05"))
-        assert hero_usd_color == (230, 60, 60)  # _RED (gross)
-        assert net_row_color == (0, 200, 100)   # _GREEN (net)
+        hero_usd_color = next(c for t, c in calls if t == "  (-$0.10)")
+        net_row_color = next(c for t, c in calls if t.startswith("+$0.05"))
+        assert hero_usd_color == _RED  # gross
+        assert net_row_color == _GREEN   # net
 
     def test_aligned_signs_still_render_correctly(self):
         # Sanity: when gross and net agree (the common case), nothing regresses.
         data = dict(_BASE_DATA, pnl_pct=2.0, pnl_usd=5.0, net_pnl=4.5, fees=0.5)
         png, calls = _captured_text_colors(data)
         assert _is_png(png)
-        assert any(t == "  ($+5.00)" and c == (0, 200, 100) for t, c in calls)
-        assert any(t.startswith("$+4.50") and c == (0, 200, 100) for t, c in calls)
+        assert any(t == "  (+$5.00)" and c == _GREEN for t, c in calls)
+        assert any(t.startswith("+$4.50") and c == _GREEN for t, c in calls)

@@ -1,5 +1,5 @@
 /**
- * RUNECLAW 3D agent — a real-time WebGL viewer for the AI Viking agent model.
+ * RUNECLAW 3D agent — a real-time WebGL viewer for the RUNECLAW mascot model.
  *
  * Loads a glTF-binary model from /mascot/agent.glb (which brings its own
  * rune-disc base + holographics) and lights it with room-environment PBR plus a
@@ -58,7 +58,15 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
  * `mascot_assets.test.js`, which pins the glow budget so a future edit cannot
  * quietly point back at Luminous.
  */
-const MODEL_URL = '/mascot/RUNECLAW_Command_Core_Mascot_Premium.glb?v=1';
+// THE OWL (2026-10-19). The round RUNECLAW owl replaces the Viking agent:
+// 660 KB, emissive strength 3 (the rune) and 1.2 (the eyes), both under the
+// ceiling `mascot_assets.test.js` pins. Its clips are Idle / Blink / Talk;
+// the reactive names below are mapped onto them by CLIP_ALIAS, so the
+// dashboard's reactions need no renaming inside the model file.
+const MODEL_URL = '/mascot/runeclaw_owl_round.glb?v=1';
+// A reaction a model has no clip for plays the aliased clip instead; a model
+// that has neither plays nothing, as before. Clip names are read lower-cased.
+const CLIP_ALIAS = { analyze: 'talk', execute: 'talk', alert: 'blink' };
 const RUNE = 0x3fb6ff;
 const _instances = new Set();   // every live viewer, for global react()/disposeAll()
 
@@ -171,7 +179,7 @@ export function mountAgent(host, opts = {}) {
   // once then return to idle — or hold 'analyze' while the chat is thinking.
   function fadeTo(name, once) {
     if (!mixer) return;
-    const to = actionByName[name]; if (!to) return;
+    const to = actionByName[name] || actionByName[CLIP_ALIAS[name]]; if (!to) return;
     const same = to === current;
     to.reset();
     to.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity);
@@ -213,7 +221,7 @@ export function mountAgent(host, opts = {}) {
     // Build the clip actions and settle on the resting expression. Reactive
     // callers (chat "thinking", live signals/fills) cross-fade between these.
     if (mixer) {
-      clips.forEach((cl) => { actionByName[cl.name] = mixer.clipAction(cl).stop(); });
+      clips.forEach((cl) => { actionByName[String(cl.name || '').toLowerCase()] = mixer.clipAction(cl).stop(); });
       if (!actionByName.idle) actionByName.idle = mixer.clipAction(clips[0]);
       current = null;
       fadeTo(wantThinking ? 'analyze' : 'idle', false);

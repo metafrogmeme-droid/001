@@ -99,11 +99,11 @@ class TestAFieldThatLosesItsValueLosesItsLabel:
         ("PnL: -$0.1354 | Fees: $0.14", ""),
         # The FIRST field emptied: the separator goes with it, so the survivor
         # does not arrive behind a leading `| `.
-        ("Net PnL: $+412.90 | Trades: 4", "Trades: 4"),
+        ("Net PnL: +$412.90 | Trades: 4", "Trades: 4"),
         # The LAST field emptied: the separator before it goes too.
-        ("Trades: 4 | Net PnL: $+412.90", "Trades: 4"),
+        ("Trades: 4 | Net PnL: +$412.90", "Trades: 4"),
         # A middle field emptied.
-        ("Trades: 4 | Net PnL: $+412.90 | Risk: Healthy",
+        ("Trades: 4 | Net PnL: +$412.90 | Risk: Healthy",
          "Trades: 4 | Risk: Healthy"),
         # A parenthesised figure leaves the parens behind, and the name stays.
         ("Best: BTC (+$88.10) | Worst: ETH (-$12.00)", "Best: BTC | Worst: ETH"),
@@ -175,7 +175,7 @@ class TestAPriceLabelAcquitsItsOwnFieldAndNothingElse:
         # `/broadcast` hands arbitrary admin text to `post_custom`, so this is
         # not a hypothetical about a future post method.
         f = _forwarder(tmp_path, monkeypatch)
-        asyncio.run(f.post_custom("\U0001f4e2 Exit: $0.4198 | Net PnL: $-0.13"))
+        asyncio.run(f.post_custom("\U0001f4e2 Exit: $0.4198 | Net PnL: -$0.13"))
         sent = f._bot.sent[0]
         assert "$0.4198" in sent
         assert "0.13" not in sent.split("$0.4198")[1]

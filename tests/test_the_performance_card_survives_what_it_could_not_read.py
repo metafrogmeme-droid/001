@@ -67,14 +67,14 @@ async def test_an_unpriced_adopted_close_does_not_take_the_card_down(monkeypatch
     said = await _card(monkeypatch, book)
     assert "PERFORMANCE" in said, f"no card was sent: {said!r}"
     assert "Excluded 1 adopted orphan (—)" in said, said
-    assert "$+137.42" in said
+    assert "+$137.42" in said
 
 
 @pytest.mark.asyncio
 async def test_a_priced_adopted_close_keeps_its_figure(monkeypatch):
     book = Book([_Closed(137.42, "T-1"), _Closed(-4.5, "TI-adopted-SOL-1")])
     said = await _card(monkeypatch, book)
-    assert "Excluded 1 adopted orphan ($-4.50)" in said, said
+    assert "Excluded 1 adopted orphan (-$4.50)" in said, said
 
 
 @pytest.mark.asyncio

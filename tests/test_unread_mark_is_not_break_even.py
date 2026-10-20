@@ -120,7 +120,7 @@ def test_a_measured_zero_is_still_shown_as_a_measured_zero():
 
 def test_a_real_loss_is_unaffected():
     out = render_open_positions([_row(pnl_pct=-2.56, current=0.51820, pnl_usd=-0.64)])
-    assert "-2.6%" in out and "$-0.64" in out
+    assert "-2.6%" in out and "-$0.64" in out
     pnl_seg = out[out.index("SHORT |"):out.index("\n", out.index("SHORT |"))]
     assert "\U0001f534" in pnl_seg, "a measured loss keeps its red"
 

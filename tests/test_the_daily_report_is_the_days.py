@@ -102,7 +102,7 @@ async def test_the_card_counts_only_the_days_closes(monkeypatch):
     rows = [_close(p, ago, f"T-{i}") for i, (p, ago) in enumerate(THREE)]
     said, posted = await _live_report(monkeypatch, rows)
     assert "Total ·················· 1" in said, said
-    assert "$+5.00" in said and "$+35.00" not in said and "$+50.00" not in said
+    assert "+$5.00" in said and "+$35.00" not in said and "+$50.00" not in said
     assert "Today, UTC" in said
 
 
@@ -148,7 +148,7 @@ async def test_the_paper_branch_is_the_day_too(monkeypatch):
     await PortfolioCommands._cmd_daily_report(me, object(), object())
     said = "\n".join(me.sent)
     assert "Total ·················· 1" in said, said
-    assert "$+5.00" in said and "ETH" not in said
+    assert "+$5.00" in said and "ETH" not in said
 
 
 class TestTheDay:

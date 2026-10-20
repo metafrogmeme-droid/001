@@ -5,7 +5,7 @@ content only." Nothing enforced that, and two of the five post methods carried
 dollar amounts straight out:
 
     post_trade_closed(msg)      "PnL: +$12.3456 (+1.23%)"     — every close
-    post_daily_report(summary)  "Net PnL: $+412.90"
+    post_daily_report(summary)  "Net PnL: +$412.90"
                                 "Best: BTC (+$88.10)"
                                 "Worst: SOL (-$41.20)"
 
@@ -77,7 +77,7 @@ class TestPricesSurviveBecauseTheyArePublicFacts:
 
 class TestEveryOtherDollarAmountLeaves:
     @pytest.mark.parametrize("line,expect", [
-        ("Net PnL: <code>$+412.90</code>", ""),
+        ("Net PnL: <code>+$412.90</code>", ""),
         ("Equity: $10,000", ""),
         ("Balance: $ 250.00", ""),
         ("Best: <code>BTC</code> (+$88.10)", "Best: <code>BTC</code>"),
@@ -202,7 +202,7 @@ class TestTheBoundaryEnforcesItRegardlessOfCaller:
 
     def test_a_caller_that_forgets_is_still_scrubbed(self, tmp_path, monkeypatch):
         f = _forwarder(tmp_path, monkeypatch)
-        asyncio.run(f.post_custom("Net PnL: $+412.90\nEntry: $63,500.0000"))
+        asyncio.run(f.post_custom("Net PnL: +$412.90\nEntry: $63,500.0000"))
         sent = f._bot.sent[0]
         assert "412.90" not in sent
         assert "$63,500.0000" in sent

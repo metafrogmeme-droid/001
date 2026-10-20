@@ -85,7 +85,7 @@ async def test_a_kept_open_answer_beside_a_stale_slot_of_the_same_symbol_shows_n
     assert "was NOT closed by this request" in h.sent[0]
     assert "CLOSE NOT CONFIRMED" in h.sent[0] and "NOT re-protected" in h.sent[0], (
         "the answer is quoted, whole enough to carry its protection line")
-    assert "$+0.00" not in h.sent[0]
+    assert "+$0.00" not in h.sent[0]
 
 
 @pytest.mark.asyncio
@@ -105,7 +105,7 @@ async def test_a_position_another_path_closed_first_is_not_called_kept_open(card
 async def test_this_closes_own_card_is_rendered(card):
     h = _Handler()
     await _report(h, _slot("T1", pnl=12.5), "✅ CLOSED LONG BTC/USDT:USDT @ $101.00 (manual_nlp)")
-    assert len(h.photos) == 1 and "CLOSED" in h.photos[0][1] and "$+12.50" in h.photos[0][1]
+    assert len(h.photos) == 1 and "CLOSED" in h.photos[0][1] and "+$12.50" in h.photos[0][1]
     assert h.sent == []
 
 
@@ -119,7 +119,7 @@ async def test_an_earlier_close_of_the_same_symbol_is_not_this_closes_card(card)
     await _report(h, _slot("T0", pnl=99.0), answer)
     assert h.photos == [], "the slot's trade id is not this close's"
     assert len(h.sent) == 1 and "PnL: unread" in h.sent[0]
-    assert "$+0.00" not in h.sent[0] and "$+99.00" not in h.sent[0]
+    assert "+$0.00" not in h.sent[0] and "+$99.00" not in h.sent[0]
 
 
 @pytest.mark.asyncio
@@ -139,13 +139,13 @@ async def test_a_close_booked_without_a_card_prints_the_answer(card):
 @pytest.mark.asyncio
 async def test_a_cancelled_pending_order_is_not_a_closed_card(card):
     """'CANCELLED pending … limit order' reads as closed (nothing to protect),
-    and used to print '<b>X closed</b> … Exit <entry> … 🟢 PnL: $+0.00' for an
+    and used to print '<b>X closed</b> … Exit <entry> … 🟢 PnL: +$0.00' for an
     order that never filled."""
     h = _Handler()
     await _report(h, None, "✅ CANCELLED pending LONG BTC/USDT:USDT limit order (verified)")
     assert h.photos == []
     assert len(h.sent) == 1 and "CANCELLED pending" in h.sent[0]
-    assert "closed</b>" not in h.sent[0] and "$+0.00" not in h.sent[0]
+    assert "closed</b>" not in h.sent[0] and "+$0.00" not in h.sent[0]
 
 
 @pytest.mark.asyncio
