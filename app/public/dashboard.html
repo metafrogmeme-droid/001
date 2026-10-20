@@ -114,7 +114,7 @@
   (function () {
     try {
       if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-      var load = function () { import('/js/mascot3d.js?v=5').catch(function () {}); };
+      var load = function () { import('/js/mascot3d.js?v=6').catch(function () {}); };
       if ('requestIdleCallback' in window) requestIdleCallback(load, { timeout: 2500 });
       else setTimeout(load, 1200);
     } catch (e) { }
@@ -156,7 +156,7 @@
 <script src="/js/calibration-chart.js?v=2" defer></script>
 <script src="/js/signal-page.js?v=2" defer></script>
 <script src="/js/plan-card-model.js?v=1" defer></script>
-<script src="/js/dashboard.js?v=248" defer></script>
+<script src="/js/dashboard.js?v=249" defer></script>
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}</script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>

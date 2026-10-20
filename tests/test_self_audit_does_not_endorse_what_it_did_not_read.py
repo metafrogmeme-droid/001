@@ -4,7 +4,7 @@ THE CARD THAT PROMPTED THIS, from the live bot on 2026-09-08::
 
     🧾 Nightly self-audit
     ────────────────
-    Live window: 40 closes · win 28% · PF 0.4 · net $-26.86
+    Live window: 40 closes · win 28% · PF 0.4 · net -$26.86
     Shadow book: MTF_ALIGNMENT is the costliest gate (net +4.1R over 97
                  blocked trades)
 

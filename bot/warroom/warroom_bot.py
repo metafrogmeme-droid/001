@@ -12,6 +12,8 @@ import html
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from bot.formatters.money import signed_usd
+
 __all__ = [
     "render_start",
     "render_status",
@@ -94,7 +96,7 @@ _DASH = "\u2014"
 def _money(v: Optional[float], sign: bool = False) -> str:
     if v is None:
         return _DASH
-    return f"${v:+,.2f}" if sign else f"${v:,.2f}"
+    return f"{signed_usd(v)}" if sign else f"${v:,.2f}"
 
 
 def _spark(v: Optional[float]) -> str:
@@ -546,7 +548,7 @@ def render_positions(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def _money_or_unread(v: Any) -> str:
     """A signed dollar figure, or ``unread`` when there is no figure."""
-    return "unread" if v is None else f"${v:+.2f}"
+    return "unread" if v is None else f"{signed_usd(v, grouped=False)}"
 
 
 def _sign_icon(pnl: Optional[float]) -> str:
@@ -658,9 +660,9 @@ def render_daily_report(data: Dict[str, Any]) -> Dict[str, Any]:
         # The name is "N/A" exactly when the figure is None -- both come from
         # the same scorable-rows check -- so printing "N/A unread" would say
         # the same absence twice.
-        f"{_kv('Best', best_t if best_p is None else f'{best_t} ${best_p:+.2f}')}"
+        f"{_kv('Best', best_t if best_p is None else f'{best_t} {signed_usd(best_p, grouped=False)}')}"
         f"  {_sign_icon(best_p)}\n"
-        f"{_kv('Worst', worst_t if worst_p is None else f'{worst_t} ${worst_p:+.2f}')}"
+        f"{_kv('Worst', worst_t if worst_p is None else f'{worst_t} {signed_usd(worst_p, grouped=False)}')}"
         f"  {_sign_icon(worst_p)}"
         "</pre>\n\n"
         # ── Risk ──

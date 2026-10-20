@@ -5,6 +5,7 @@ render_stats_card: the hero-number + tile-grid status card used by /portfolio
 
 import struct
 
+from bot.formatters.card_theme import S
 from bot.formatters.signal_card import render_stats_card
 
 
@@ -26,7 +27,7 @@ def test_renders_hero_and_tiles():
         "footer": "Bitget USDT-M Futures",
     })
     w, h = _dims(png)
-    assert w == 520 and h > 200
+    assert w == 520 * S and h > 200 * S
 
 
 def test_renders_without_hero_or_footer():
@@ -35,7 +36,7 @@ def test_renders_without_hero_or_footer():
         {"label": "Circuit", "value": "OK", "color": "green"},
     ]})
     w, _ = _dims(png)
-    assert w == 520
+    assert w == 520 * S
 
 
 def test_unknown_color_falls_back_white():

@@ -39,6 +39,7 @@ from telegram.ext import ContextTypes
 from bot.config import CONFIG
 from bot.core.earn_account import EarnAccount, earn_account_line
 from bot.core.position_telemetry import (
+    confidence_on_entry,
     entered_at,
     format_level,
     format_rr,
@@ -55,6 +56,7 @@ from bot.formatters.drift_offer import (
     render_reanalyzed_offer,
     venue_fill_price,
 )
+from bot.formatters.money import signed_usd
 from bot.formatters.rich_cards import display_symbol, fetch_analysis_data, market_context_line, rsi_label
 from bot.nlp.button_actions import required_permission
 from bot.skills.menu_keyboards import _KB_DASH, _KB_WARROOM
@@ -242,6 +244,44 @@ def paper_close_size_line(notional: float, leverage) -> str:
     return (f"- Size: <code>${notional / lev:,.2f}</code> | {lev:g}x "
             f"(<code>${notional:,.2f}</code> notional)")
 
+
+def paper_close_card_data(pair: str, closed_trade, hold_h: float) -> dict:
+    """What the close card is handed for a PAPER close.
+
+    The live close has sent `render_close_card` a picture since the card
+    existed; the paper close sent text alone, so the two books closed in two
+    voices (2026-10-19). This is the paper book's record in the keys the
+    card reads: margin is the collateral (notional / leverage), as
+    `/positions` and the size line print it; the hero percent is the net
+    return on that margin, the basis the card prefers; an exit the book did
+    not record stays None, which the card prints as "unread".
+    """
+    lev = getattr(closed_trade, "leverage", None)
+    if isinstance(lev, bool) or not isinstance(lev, (int, float)) or lev <= 0:
+        lev = None
+    notional = float(closed_trade.quantity) * float(closed_trade.entry_price)
+    margin = notional / lev if lev else notional
+    net = closed_trade.pnl
+    direction = getattr(closed_trade.direction, "value", closed_trade.direction)
+    conf = confidence_on_entry(closed_trade)
+    return {
+        "symbol": pair,
+        "opened_at": entered_at(closed_trade),
+        "confidence": conf.value if conf else None,
+        "confidence_basis": conf.basis if conf else None,
+        "direction": str(direction).upper(),
+        "reason": "manual",
+        "entry": closed_trade.entry_price,
+        "exit": closed_trade.exit_price,
+        "pnl_usd": net,
+        "fees": closed_trade.commission,
+        "margin_usd": margin,
+        "leverage": lev or 1,
+        "hold_time": f"{hold_h:.1f}h" if hold_h > 0 else "",
+        "pnl_pct_margin_net": (net / margin * 100.0) if margin > 0 and net is not None else None,
+    }
+
+
 class CallbackHandler:
     """Every button tap, authenticated and routed. Host contract below; methods after."""
 
@@ -412,7 +452,7 @@ class CallbackHandler:
             pnl_emoji, reason_short = humanize_close_reason(
                 close_data.get("reason", "manual"), pnl_val)
             _pnl_txt = ("unread" if pnl_val is None
-                        else f"${pnl_val:+,.2f}")
+                        else f"{signed_usd(pnl_val)}")
             cap = (f"{pnl_emoji} <b>{html.escape(pair)}</b> CLOSED\n"
                    f"PnL: {_pnl_txt} | {html.escape(reason_short)}")
             await self._send_photo(update, close_png, cap)
@@ -599,9 +639,7 @@ class CallbackHandler:
                 update, parts[5] if len(parts) > 5 else "")
             if earn is None:
                 return
-            from bot.core.yield_radar import (
-                MIN_IDLE_USD, build_report, execute_stake_fixed,
-                lock_end_date)
+            from bot.core.yield_radar import MIN_IDLE_USD, build_report, execute_stake_fixed, lock_end_date
             client = earn.client
             if step == "1":
                 report = await asyncio.to_thread(
@@ -987,8 +1025,8 @@ class CallbackHandler:
                         if (ep_clean == ident_clean or ep_sym == ident
                                 or (_rs_clean and ep_clean == _rs_clean)):
                             # Build a lightweight mock object for rendering
-                            from types import SimpleNamespace
                             from datetime import datetime, timezone
+                            from types import SimpleNamespace
                             ts = ep.get("timestamp")
                             opened = datetime.fromtimestamp(ts / 1000, tz=timezone.utc) if ts else datetime.now(timezone.utc)
                             pos_match = SimpleNamespace(
@@ -1152,7 +1190,7 @@ class CallbackHandler:
                 # conditional at each would be three chances to forget it, and
                 # forgetting it is a TypeError on a live card rather than a
                 # wrong number — `{None:+.2f}` raises.
-                _pnl_str = (f"{pnl_pct:+.2f}% (${pnl_usd:+,.2f})" if _priced
+                _pnl_str = (f"{pnl_pct:+.2f}% ({signed_usd(pnl_usd)})" if _priced
                             else "return unknown — no margin on record for this "
                                  "position")
 
@@ -1174,7 +1212,7 @@ class CallbackHandler:
 
                 # Net PNL after all fees — and no net of an unknown gross.
                 net_pnl = (pnl_usd - total_fees - funding_paid) if _priced else None
-                _net_str = f"${net_pnl:+,.2f}" if net_pnl is not None else "\u2014"
+                _net_str = f"{signed_usd(net_pnl)}" if net_pnl is not None else "\u2014"
 
                 # Hold time display
                 if hold_hours < 1:
@@ -1242,8 +1280,12 @@ class CallbackHandler:
                 pos_card_png = None
                 try:
                     from bot.formatters.signal_card import render_position_card
+                    _conf_rec = confidence_on_entry(pos_match)
                     pos_card_data = {
                         "symbol": symbol,
+                        "opened_at": entered_at(pos_match),
+                        "confidence": _conf_rec.value if _conf_rec else None,
+                        "confidence_basis": _conf_rec.basis if _conf_rec else None,
                         "direction": _dir,
                         "is_live": is_live_pos,
                         "entry": _entry,
@@ -1564,7 +1606,7 @@ class CallbackHandler:
                                     _approx = (" (≈ last price — fill not returned)"
                                                if fill_source == "last" else "")
                                     _exit_s = f"<code>{fill_price:,.6f}</code>{_approx}"
-                                    _pnl_s = (f"Net PnL: <code>${net_pnl:+,.2f}</code> "
+                                    _pnl_s = (f"Net PnL: <code>{signed_usd(net_pnl)}</code> "
                                               f"(fees ${commission:.2f})")
                                 lines = [
                                     f"\u2705 <b>{html.escape(ep_clean)} — Position Closed</b>",
@@ -1635,9 +1677,9 @@ class CallbackHandler:
                     paper_close_size_line(sz, getattr(closed_trade, "leverage", None)),
                     "",
                     "<b>PNL Breakdown:</b>",
-                    f"- Gross PNL: <code>${closed_trade.gross_pnl:+,.2f}</code>",
+                    f"- Gross PNL: <code>{signed_usd(closed_trade.gross_pnl)}</code>",
                     f"- Commission: <code>${closed_trade.commission:.2f}</code>",
-                    f"- <b>Net PNL: {pnl_emoji} <code>${closed_trade.pnl:+,.2f}</code></b>",
+                    f"- <b>Net PNL: {pnl_emoji} <code>{signed_usd(closed_trade.pnl)}</code></b>",
                     # Funding is an ESTIMATE the paper book never books: Net
                     # is gross less commission. Listed inside the breakdown
                     # it read as a cost Net had paid (2026-10-19, BUSDT:
@@ -1647,7 +1689,18 @@ class CallbackHandler:
                     "",
                     "Say \"my portfolio\" for updated balance.",
                 ]
-                await self._send(update, "\n".join(lines), edit=True)
+                # The same picture the live close sends, with the breakdown
+                # as its caption; the text alone when no card could be drawn.
+                close_png = None
+                try:
+                    from bot.formatters.signal_card import render_close_card
+                    close_png = render_close_card(paper_close_card_data(pair, closed_trade, hold_h))
+                except Exception:
+                    close_png = None
+                if close_png:
+                    await self._send_photo(update, close_png, "\n".join(lines))
+                else:
+                    await self._send(update, "\n".join(lines), edit=True)
             else:
                 await self._send(update,
                     f"\u2705 <b>{html.escape(pair)}</b> — already closed.\n\n"

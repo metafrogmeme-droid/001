@@ -15,7 +15,6 @@ rather than sending a picture of nothing.
 
 from __future__ import annotations
 
-import io
 import logging
 import math
 from datetime import datetime, timezone
@@ -24,15 +23,17 @@ from typing import Any, Optional
 
 log = logging.getLogger("runeclaw.etf_card")
 
-_BG = (18, 22, 30)
-_CARD_BG = (25, 30, 42)
-_BORDER = (40, 50, 70)
-_ACCENT = (212, 175, 55)
-_GREEN = (0, 200, 100)
-_RED = (230, 60, 60)
-_WHITE = (230, 230, 240)
-_GRAY = (130, 140, 160)
-_MUTED = (150, 155, 170)
+from bot.formatters import card_theme as _T  # noqa: E402
+
+_BG = _T.BG
+_CARD_BG = _T.SURFACE
+_BORDER = _T.LINE
+_ACCENT = _T.GOLD
+_GREEN = _T.UP
+_RED = _T.DOWN
+_WHITE = _T.TEXT
+_GRAY = (138, 150, 172)
+_MUTED = _T.MUTED
 
 DASH = "—"
 
@@ -116,19 +117,7 @@ def _short_date(d: Any) -> str:
         return DASH
 
 
-def _font(size: int, bold: bool = False):
-    from PIL import ImageFont
-    for path in (
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold
-        else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" if bold
-        else "/usr/share/fonts/TTF/DejaVuSans.ttf",
-    ):
-        try:
-            return ImageFont.truetype(path, size)
-        except OSError:
-            continue
-    return ImageFont.load_default()
+_font = _T.font
 
 
 _UNREAD_WORDS = {
@@ -144,9 +133,7 @@ def render_etf_card(data: Any) -> bytes:
     assets = [a for a in (data.get("assets") or []) if isinstance(a, dict)]
     if not any(a.get("read") is True for a in assets):
         return b""
-    try:
-        from PIL import Image, ImageDraw
-    except ImportError:
+    if not _T.pillow_available():
         log.warning("Pillow not installed, cannot render the ETF flows card")
         return b""
 
@@ -162,8 +149,7 @@ def render_etf_card(data: Any) -> bytes:
     if takeaway:
         H += 70
     H += 60
-    img = Image.new("RGB", (W, H), _BG)
-    draw = ImageDraw.Draw(img)
+    img, draw = _T.new_card(W, H)
     f_title = _font(22, bold=True)
     f_sub = _font(13)
     f_label = _font(12, bold=True)
@@ -182,7 +168,7 @@ def render_etf_card(data: Any) -> bytes:
 
     total = _dict(data.get("total"))
     net = total.get("net_flow_usd")
-    draw.rounded_rectangle([PAD, y, W - PAD, y + 70], radius=10, fill=_CARD_BG, outline=_BORDER)
+    draw.rounded_rectangle([PAD, y, W - PAD, y + 70], radius=12, fill=_CARD_BG, outline=_BORDER)
     draw.text((PAD + 16, y + 10), "NET FLOW", fill=_GRAY, font=f_label)
     draw.text((PAD + 16, y + 26), usd_signed(net), fill=_colour(net), font=f_big)
     inside = total.get("assets_in_total") or []
@@ -229,7 +215,7 @@ def render_etf_card(data: Any) -> bytes:
     y += 8
 
     if btc is not None and providers:
-        draw.line([PAD, y, W - PAD, y], fill=_BORDER, width=1)
+        draw.hairline(PAD, y, W - PAD)
         y += 14
         draw.text((PAD, y), f"BTC FUNDS · {_short_date(btc.get('funds_date')).upper()}", fill=_GRAY, font=f_label)
         y += 30
@@ -276,6 +262,5 @@ def render_etf_card(data: Any) -> bytes:
               "Coin amounts are estimates at the funds' net-asset-implied price. Market data only.",
               fill=_GRAY, font=f_small)
 
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+    draw.wordmark(W, H, PAD, f_small)
+    return _T.export(img)

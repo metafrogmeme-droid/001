@@ -18,6 +18,7 @@ import numpy as np
 from bot.core.position_telemetry import pct_on_record, price_on_record
 from bot.core.signal_confidence import displayed_confidence
 from bot.formatters.drawdown_card import drawdown_source_note
+from bot.formatters.money import signed_usd
 from bot.formatters.price_text import fmt_price as _fmt_price
 from bot.utils.candles import drop_forming_candle
 from bot.utils.i18n import t
@@ -958,7 +959,7 @@ def render_live_portfolio_summary(equity: Optional[float], open_count: int,
         pnl_cell = "⚪ <code>—</code>"
     else:
         pnl_icon = "\U0001f7e2" if realized_pnl >= 0 else "\U0001f534"
-        pnl_cell = f"{pnl_icon} <code>${realized_pnl:+,.2f}</code>"
+        pnl_cell = f"{pnl_icon} <code>{signed_usd(realized_pnl)}</code>"
     lines = [
         "<b>Portfolio</b> (LIVE)\n",
         # Optional like realized_pnl and win_rate beside it: this renderer was
@@ -1180,7 +1181,7 @@ def render_open_positions(positions: List[Dict[str, Any]], lang: str = "en") -> 
             # record): a dash, where `{None:+,.2f}` raised.
             _pnl_cell = f"{pnl_icon} {_pct(pnl)} (\u2014)"
         else:
-            _pnl_cell = f"{pnl_icon} {_pct(pnl)} (${pnl_usd_val:+,.2f})"
+            _pnl_cell = f"{pnl_icon} {_pct(pnl)} ({signed_usd(pnl_usd_val)})"
         lines.extend([
             f"{d_icon} <b>{pair}</b> {direction}{st_tag} | {_pnl_cell}",
             f"  {_fmt_price(entry)} -> {_mark_cell} | {size_str}{lev_str}{rr_str} | {hold_str}",

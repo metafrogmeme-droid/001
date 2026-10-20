@@ -31,6 +31,7 @@ from telegram.ext import ContextTypes
 from bot.config import CONFIG
 from bot.core.order_state import close_did_not_happen, unfilled_order_heading
 from bot.core.signal_confidence import displayed_confidence
+from bot.formatters.money import signed_usd
 from bot.marketing.public_text import close_outcome, public_close_line
 from bot.utils.i18n import get_user_lang, t
 from bot.utils.logger import _redact_string, audit, system_log
@@ -457,7 +458,7 @@ class AlertsMonitor:
                     pnl_usd = close_data.get("pnl_usd")
                     reason = close_data.get("reason", "closed")
                     pnl_emoji, reason_short = humanize_close_reason(reason, pnl_usd)
-                    _pnl_txt = "unread" if pnl_usd is None else f"${pnl_usd:+,.2f}"
+                    _pnl_txt = "unread" if pnl_usd is None else f"{signed_usd(pnl_usd)}"
                     cap = (f"{pnl_emoji} <b>{html.escape(sym)}</b> {direction} CLOSED\n"
                            f"PnL: {_pnl_txt} | {html.escape(reason_short)}")
                     # The share button re-renders in PERCENT; it never forwards

@@ -16,6 +16,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
 from bot.compat import UTC
+from bot.formatters.money import signed_usd
 from typing import Any, Optional
 
 from bot.core.signal_confidence import (
@@ -552,7 +553,7 @@ def _money(v: Optional[float], sign: bool = False) -> str:
     if not isinstance(v, (int, float)) or isinstance(v, bool):
         return "--"
     if sign:
-        return f"${v:+,.2f}"
+        return f"{signed_usd(v)}"
     return f"${v:,.2f}"
 
 def _price(v: float) -> str:
@@ -1425,7 +1426,7 @@ class GetPortfolioSkill(BaseSkill):
                     icon = ("\u26aa" if pnl_val is None
                             else "\U0001f7e2" if pnl_val >= 0 else "\U0001f534")
                     _cell = ("no recorded P&amp;L" if pnl_val is None
-                             else f"<code>${pnl_val:+,.2f}</code>")
+                             else f"<code>{signed_usd(pnl_val)}</code>")
                     lines.append(f"  {icon} {t.symbol} {t.direction} {_cell}")
 
             if not live_open and not live_closed:
@@ -2228,7 +2229,7 @@ class TradeJournalSkill(BaseSkill):
             lines.append(
                 f"  {icon}{arrow} <b>{_esc(trade.asset)}</b>  {trade.direction.value}  {tag}\n"
                 f"  - Entry: <code>${trade.entry_price:,.2f}</code> \u2192 Exit: <code>{exit_p}</code>\n"
-                f"  - PnL: <code>${trade.pnl:+,.2f}</code>  |  Size: <code>${size:,.0f}</code>{dur}"
+                f"  - PnL: <code>{signed_usd(trade.pnl)}</code>  |  Size: <code>${size:,.0f}</code>{dur}"
             )
 
         # The rate is over DECIDED closes (a flat is neither), and the line
@@ -2244,7 +2245,7 @@ class TradeJournalSkill(BaseSkill):
             f"<b>Last {len(recent)} closes</b>\n"
             f"- Record: <b>{wins}W / {losses}L{flat_s}</b>  "
             f"\u2502{wr_bar}\u2502 {rate_s}\n"
-            f"- Net PnL: <code>${total_pnl:+,.2f}</code>"
+            f"- Net PnL: <code>{signed_usd(total_pnl)}</code>"
         )
         return "\n".join(lines)
 

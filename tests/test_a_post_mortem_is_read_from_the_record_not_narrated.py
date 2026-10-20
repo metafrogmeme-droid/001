@@ -172,7 +172,7 @@ class TestNonFills:
         out = pm.postmortem_for(_executor(_expired(), _expired(trade_id="t-eth-8")), None)
         assert "No filled live trade on this account" in out
         assert "2 order(s) on record never filled" in out
-        for never in ("$+0.00", "0.00R", "Held", "Return on margin", "+0.00%"):
+        for never in ("+$0.00", "0.00R", "Held", "Return on margin", "+0.00%"):
             assert never not in out, never
         out = pm.postmortem_for(_executor(_live(symbol="BTC/USDT"), _expired()), None, symbol="ETH")
         assert "No filled live <b>ETH</b> trade on this account" in out
@@ -185,7 +185,7 @@ class TestNonFills:
         # the plan it WOULD have had is still on record and still shown
         assert "Entry $3,000.0000" in out and "Planned R: 3.00R" in out
         for never in ("Net P&L", "Realized R", "Return on margin", "Held", "Thesis at entry",
-                      "$+0.00", "0.00R"):
+                      "+$0.00", "0.00R"):
             assert never not in out, never
 
     def test_a_non_fill_label_on_a_priced_close_is_a_mislabelled_trade(self):
@@ -194,7 +194,7 @@ class TestNonFills:
         row = _live(close_reason="canceled", pnl_usd=-3.2)
         assert not pm.never_filled(row)
         out = pm.postmortem_for(_executor(row), None)
-        assert "Net P&L $-3.20" in out and "never filled" not in out
+        assert "Net P&L -$3.20" in out and "never filled" not in out
 
 
 # ── the rendering, three-valued ────────────────────────────────────────────
@@ -207,7 +207,7 @@ class TestTheRendering:
         for must in ("ETH/USDT LONG</b> (LIVE)", "Trade id: <code>t-eth-1</code>",
                      "<code>scalp</code>", "<code>breakout</code>",
                      "Entry $3,000.0000", "Stop $2,900.0000", "Target $3,300.0000",
-                     "Planned R: 3.00R", "Exit $3,120.0000", "Net P&L $+11.40",
+                     "Planned R: 3.00R", "Exit $3,120.0000", "Net P&L +$11.40",
                      "fees $0.60", "Realized R: +1.14R", "Return on margin: +38.00% at 10x",
                      "Held 4.0h", "Closed via <code>TP</code>", "Regime: TREND_UP",
                      "nothing above was inferred"):
@@ -221,7 +221,7 @@ class TestTheRendering:
     def test_a_paper_close_renders_from_its_own_vocabulary(self):
         out = pm.postmortem_for(_paper_book(_paper()), None, book_kind="paper")
         for must in ("ETH/USDT LONG</b> (PAPER)", "Trade id: <code>p-eth-1</code>",
-                     "Exit $3,120.0000", "Net P&L $+11.40", "fees $0.60", "Realized R: +1.14R",
+                     "Exit $3,120.0000", "Net P&L +$11.40", "fees $0.60", "Realized R: +1.14R",
                      # margin is DEFINED for a paper row: entry * qty / leverage
                      "Return on margin: +38.00% at 10x", "Held 4.0h", "Close reason: not recorded"):
             assert must in out, must

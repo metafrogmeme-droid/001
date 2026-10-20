@@ -33,6 +33,7 @@ from typing import Optional
 
 from bot.compat import UTC
 from bot.core.trade_costs import taker_legs_pct
+from bot.formatters.money import signed_usd
 
 log = logging.getLogger(__name__)
 
@@ -329,17 +330,20 @@ def arb_verdict(carries: list[PaperCarry], *, notional: float = PAPER_NOTIONAL_U
     n_words = f"{scored} closed entries{open_note}, {held:.0f}h held"
     if lo > 0:
         return ArbVerdict("survives",
-                          f"survives fees — mean net ${mean:+.2f} per entry after the "
-                          f"${fee:.2f} round trip, 95% interval ${lo:+.2f}..${hi:+.2f}, "
+                          f"survives fees — mean net {signed_usd(mean, grouped=False)} per entry after the "
+                          f"${fee:.2f} round trip, 95% interval "
+                          f"{signed_usd(lo, grouped=False)}..{signed_usd(hi, grouped=False)}, "
                           f"{n_words}", **base)
     if hi < 0:
         return ArbVerdict("does_not",
-                          f"does not survive fees — mean net ${mean:+.2f} per entry after "
-                          f"the ${fee:.2f} round trip, 95% interval ${lo:+.2f}..${hi:+.2f}, "
+                          f"does not survive fees — mean net {signed_usd(mean, grouped=False)} per entry after "
+                          f"the ${fee:.2f} round trip, 95% interval "
+                          f"{signed_usd(lo, grouped=False)}..{signed_usd(hi, grouped=False)}, "
                           f"{n_words}", **base)
     return ArbVerdict("thin",
-                      f"record too thin to say — mean net ${mean:+.2f} per entry, but the "
-                      f"95% interval ${lo:+.2f}..${hi:+.2f} straddles zero over {n_words}",
+                      f"record too thin to say — mean net {signed_usd(mean, grouped=False)} per entry, but the "
+                      f"95% interval {signed_usd(lo, grouped=False)}..{signed_usd(hi, grouped=False)} "
+                      f"straddles zero over {n_words}",
                       **base)
 
 
@@ -409,12 +413,12 @@ def format_arb_html(carries: list[PaperCarry], current_rows=None,
     for c in carries[:8]:
         days = c.observed_hours / 24.0
         lines.append(
-            f"<b>{c.base}</b>: paper carry <code>${c.earned_usd:+.2f}</code> "
+            f"<b>{c.base}</b>: paper carry <code>{signed_usd(c.earned_usd, grouped=False)}</code> "
             f"on ${notional:,.0f} · held {c.held_hours:.0f}h of "
             f"{days:.1f}d observed · {c.entries} entr{'y' if c.entries == 1 else 'ies'}\n"
             f"- now <code>{c.last_spread_apr:.1f}%/yr</code> ({c.venues})")
     lines.append(
-        f"Total paper carry: <code>${total:+.2f}</code> across "
+        f"Total paper carry: <code>{signed_usd(total, grouped=False)}</code> across "
         f"{len(carries)} coin(s)")
     if verdict is not None:
         icon = {"survives": "🟢", "does_not": "🔴"}.get(verdict.state, "🟡")

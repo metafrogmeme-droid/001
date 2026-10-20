@@ -92,8 +92,8 @@
     "sha": "062325eb3c39125a"
   },
   "js/dashboard.js": {
-    "v": 248,
-    "sha": "a39b35aafcfddb26"
+    "v": 249,
+    "sha": "e041d2c38aff2ffb"
   },
   "js/decision-court-model.js": {
     "v": 3,
@@ -204,8 +204,8 @@
     "sha": "35f7ba011c75fae3"
   },
   "js/mascot3d.js": {
-    "v": 5,
-    "sha": "913fea490b4eec25"
+    "v": 6,
+    "sha": "fc403653d6d6d2ea"
   },
   "js/metric-cluster-model.js": {
     "v": 1,

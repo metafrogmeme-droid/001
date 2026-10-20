@@ -237,7 +237,7 @@ class TestTheCardNamesEveryBucket:
     def test_a_partial_total_carries_its_coverage(self):
         line = _total_pnl_line({"total_pnl": 12.5, "pnl_scored": 3,
                                 "pnl_unscored": 2})
-        assert "$+12.50" in line and "3 of 5" in line
+        assert "+$12.50" in line and "3 of 5" in line
 
 
 class TestBestAndWorstAreMeasured:
@@ -269,8 +269,8 @@ class TestBestAndWorstAreMeasured:
 
     def test_a_priced_window_still_names_both(self):
         out = _render(_journal(_entry(10.0), _entry(-4.0), _unreadable()))
-        assert "Best:" in out and "$+10.00" in out
-        assert "Worst:" in out and "$-4.00" in out
+        assert "Best:" in out and "+$10.00" in out
+        assert "Worst:" in out and "-$4.00" in out
 
 
 class TestTheWindowCoverage:
@@ -351,7 +351,7 @@ class TestTheRenderedCard:
     def test_an_unpriceable_window_reaches_the_operator_as_neither(self):
         out = _render(_journal(_unreadable(), _unreadable()))
         assert "0%" not in out
-        assert "$+0.00" not in out
+        assert "+$0.00" not in out
         assert "could be priced" in out
 
     def test_a_partial_window_says_so_on_the_card(self):

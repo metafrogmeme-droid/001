@@ -34,6 +34,7 @@ from telegram.ext import ContextTypes
 
 from bot.config import CONFIG
 from bot.core.margin_clamp import read_money_field
+from bot.formatters.money import signed_usd
 from bot.skills.command_guard import guard
 from bot.utils.exc_text import _safe_exc_text
 from bot.utils.i18n import t
@@ -223,7 +224,7 @@ def _total_pnl_line(review: dict) -> str:
     total = review.get("total_pnl")
     if total is None:
         return "<b>—</b> <i>nothing in the window could be priced</i>"
-    line = f"<b>${float(total):+.2f}</b>"
+    line = f"<b>{signed_usd(float(total), grouped=False)}</b>"
     scored, unscored = review.get("pnl_scored"), review.get("pnl_unscored")
     if scored is not None and unscored:
         line += f" <i>over the {scored} of {scored + unscored} we could price</i>"
@@ -1653,7 +1654,7 @@ class EngineOpsCommands:
                     continue
                 lines.append(
                     f"{_icon} {'Best' if _key == 'best_trade' else 'Worst'}: "
-                    f"{_t['symbol']} ${_t['pnl']:+.2f} "
+                    f"{_t['symbol']} {signed_usd(_t['pnl'], grouped=False)} "
                     f"({_r_tag(_t.get('r'), _t.get('r_reason'))})")
 
             # Top lessons

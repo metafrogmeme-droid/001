@@ -45,6 +45,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from bot.compat import UTC
+from bot.formatters.money import signed_usd
 from typing import Any, Callable, Optional, Set
 
 from bot.config import CONFIG
@@ -1261,7 +1262,7 @@ class ProactiveMonitor:
                 f"Strategy exits: <b>{s['trades']}</b> · win rate "
                 f"<code>{s['win_rate'] * 100:.0f}%</code> · PF "
                 f"<code>{_pf_str(s['pf'])}</code>\n"
-                f"Net <code>${s['net_pnl']:+,.2f}</code> · fees "
+                f"Net <code>{signed_usd(s['net_pnl'])}</code> · fees "
                 f"<code>${s['total_fees']:,.2f}</code> "
                 f"{fee_clause}"
                 f"{drift}{extra}\n\n<i>/parity for the full bucketed report.</i>")
@@ -1527,7 +1528,7 @@ class ProactiveMonitor:
                     ws = win_stats(closed)
                     ps = pnl_stats(closed)
                     net_bit = ("net <code>—</code>" if ps["total"] is None
-                               else f"net <code>${ps['total']:+,.2f}</code>")
+                               else f"net <code>{signed_usd(ps['total'])}</code>")
                     unpriced = (f" · {ws['unscored']} unpriced"
                                 if ws["unscored"] else "")
                     lines.append(

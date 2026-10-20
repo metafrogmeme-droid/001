@@ -1,4 +1,4 @@
-"""/portfolio's exchange-fallback card printed `uPnL: $+0.00` for a mark it never read.
+"""/portfolio's exchange-fallback card printed `uPnL: +$0.00` for a mark it never read.
 
 The card appears when the bot's own book is empty and the venue's is not --
 "Showing exchange data -- local tracking out of sync" -- which is the one

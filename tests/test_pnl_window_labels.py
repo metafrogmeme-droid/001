@@ -2,7 +2,7 @@
 
 2026-07-30, the live /portfolio card:
 
-    Realized PnL: 🔴 $-3.25
+    Realized PnL: 🔴 -$3.25
     Trades: 104 | Win rate: 59%
     Recent:
       🔴 APT -0.68  🟢 UNI +0.95  🟢 WIF +1.50  🟢 MCD +0.71  🟢 UNI +1.08

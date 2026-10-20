@@ -10,7 +10,7 @@ the two-meanings name `position_size_basis` retired, a header claiming
 "(live data)" over simulated money, `exit ${t.exit_price:,.4f}` with no
 reading, no PAPER label anywhere, and a raise on any None that the `except`
 around the block turned into "could not be read" for the positions AND the
-closed trades at once. The summary line printed `total PnL $+0.00` on an
+closed trades at once. The summary line printed `total PnL +$0.00` on an
 account that had never closed a trade, and `engine_state` defaulted to ""
 — which the context builder OMITS, so a fault before the mode was read
 deleted the live/paper/halted line in silence.
@@ -82,7 +82,7 @@ class TestPaperRow:
         _check(out, ["LONG DOGE/USDT", "entry $0.1000", "qty 10", "margin $1.00", "lev 1x",
                      "notional $1.00", "SL $0.0900", "TP $0.1200", "MARK $0.1100",
                      "price move +10.00% from entry", "return on margin +10.00% at 1x",
-                     "unrealized $+0.10"],
+                     "unrealized +$0.10"],
                ["NOT ON RECORD", "NONE ON RECORD", "UNAVAILABLE", "NOT COMPUTABLE"])
 
     def test_margin_is_derived_from_the_paper_leverage(self):
@@ -91,11 +91,11 @@ class TestPaperRow:
         # on that margin — the two bases print under their own names.
         out = _paper_position_row(_paper_pos(leverage=5.0), 0.11)
         _check(out, ["margin $0.20", "lev 5x", "notional $1.00", "price move +10.00% from entry",
-                     "return on margin +50.00% at 5x", "unrealized $+0.10"], [])
+                     "return on margin +50.00% at 5x", "unrealized +$0.10"], [])
 
     def test_a_short_inverts_the_move_and_the_dollar(self):
         out = _paper_position_row(_paper_pos(direction=NS(value="SHORT")), 0.11)
-        _check(out, ["SHORT DOGE/USDT", "price move -10.00% from entry", "unrealized $-0.10",
+        _check(out, ["SHORT DOGE/USDT", "price move -10.00% from entry", "unrealized -$0.10",
                      "return on margin -10.00% at 1x"], ["+10.00%"])
 
     @pytest.mark.parametrize("stop", [0.0, None, "x", float("nan")])
@@ -125,7 +125,7 @@ class TestPaperRow:
         _check(out, ["lev NOT ON RECORD", "margin NOT ON RECORD",
                      "return on margin NOT COMPUTABLE (leverage not on record)",
                      # RED HERRING: the notional and the dollar need only entry and qty
-                     "notional $1.00", "price move +10.00% from entry", "unrealized $+0.10"],
+                     "notional $1.00", "price move +10.00% from entry", "unrealized +$0.10"],
                ["margin $", "lev 1x"])
 
     def test_an_absent_entry_withholds_every_price_derived_figure(self):
@@ -138,7 +138,7 @@ class TestPaperRow:
         # RED HERRING for the whole file: a mark AT the entry is a measured
         # flat position and prints as one — absent is what must not.
         out = _paper_position_row(_paper_pos(), 0.1)
-        _check(out, ["price move +0.00% from entry", "unrealized $+0.00", "MARK $0.1000"],
+        _check(out, ["price move +0.00% from entry", "unrealized +$0.00", "MARK $0.1000"],
                ["UNAVAILABLE", "NOT COMPUTABLE"])
 
     def test_the_real_paper_model_renders_through_the_same_words(self):
@@ -150,7 +150,7 @@ class TestPaperRow:
         _check(out, ["SHORT SOL/USDT", "entry $150.0000", "qty 2", "margin $100.00", "lev 3x",
                      "notional $300.00", "SL $160.0000", "TP $120.0000", "MARK $140.0000",
                      "price move +6.67% from entry", "return on margin +20.00% at 3x",
-                     "unrealized $+20.00"],
+                     "unrealized +$20.00"],
                ["NOT ON RECORD", "?"])
 
     def test_the_live_row_and_the_paper_row_share_one_renderer(self):
@@ -181,20 +181,20 @@ class TestPaperRow:
 class TestClosedRow:
     def test_a_paper_close_prints_its_record_and_its_time(self):
         out = _closed_trade_line(_paper_close())
-        _check(out, ["LONG DOGE/USDT", "entry $0.1000", "exit $0.2000", "PnL $+1.00",
+        _check(out, ["LONG DOGE/USDT", "entry $0.1000", "exit $0.2000", "PnL +$1.00",
                      "closed 2026-09-12 14:30 UTC"],
                ["NOT ON RECORD", "not recorded", "close time not on record", "?"])
 
     def test_an_unrecorded_paper_exit_is_stated_not_zero_and_does_not_raise(self):
         out = _closed_trade_line(_paper_close(exit_price=None))
-        _check(out, ["exit NOT ON RECORD (the close price could not be read)", "PnL $+1.00"],
+        _check(out, ["exit NOT ON RECORD (the close price could not be read)", "PnL +$1.00"],
                ["exit $0.0000"])
 
     def test_a_measured_zero_paper_pnl_is_still_a_zero(self):
         # RED HERRING: the paper book closes a trade with its P&L set
         # atomically, so 0.0 there is a measured break-even.
         out = _closed_trade_line(_paper_close(pnl=0.0))
-        _check(out, ["PnL $+0.00"], ["not recorded"])
+        _check(out, ["PnL +$0.00"], ["not recorded"])
 
     def test_a_record_with_no_close_time_says_so(self):
         out = _closed_trade_line(_paper_close(closed_at=None))
@@ -208,7 +208,7 @@ class TestClosedRow:
                   close_price=1.2, pnl_usd=87.65, commission=0.01, close_reason="TP", status="closed",
                   closed_at=CLOSED_AT)
         out = _closed_trade_line(live)
-        _check(out, ["SHORT WIF/USDT:USDT", "entry $1.0000", "exit $1.2000", "PnL $+87.65", "closed via TP",
+        _check(out, ["SHORT WIF/USDT:USDT", "entry $1.0000", "exit $1.2000", "PnL +$87.65", "closed via TP",
                      "closed 2026-09-12 14:30 UTC"], ["NOT ON RECORD", "not recorded"])
         unpriced = _closed_trade_line(NS(symbol="WIF/USDT:USDT", direction="LONG", entry_price=1.0,
                                          close_price=None, pnl_usd=None))
@@ -219,7 +219,7 @@ class TestClosedRow:
         # rescued by a stray paper-named field.
         out = _closed_trade_line(NS(symbol="WIF/USDT:USDT", asset="OTHER", direction="LONG", entry_price=1.0,
                                     close_price=None, exit_price=1.5, pnl_usd=None, pnl=5.0))
-        _check(out, ["WIF/USDT:USDT", "exit NOT ON RECORD", "PnL not recorded"], ["OTHER", "$1.5000", "$+5.00"])
+        _check(out, ["WIF/USDT:USDT", "exit NOT ON RECORD", "PnL not recorded"], ["OTHER", "$1.5000", "+$5.00"])
 
 
 # ── the pending rows never raise and never print a placeholder ─────────────
@@ -279,7 +279,7 @@ class TestThePaperPrompt:
         # sections with "could not be read".
         out = _prompt(_paper_pf(open_positions=[_paper_pos(stop_loss=None)], trade_history=[_paper_close()]))
         _check(out, ["ACTIVE POSITIONS (PAPER", "SL NONE ON RECORD", "CURRENT PRICE UNAVAILABLE",
-                     "RECENT CLOSED TRADES (PAPER — simulated fills)", "exit $0.2000", "PnL $+1.00",
+                     "RECENT CLOSED TRADES (PAPER — simulated fills)", "exit $0.2000", "PnL +$1.00",
                      "closed 2026-09-12 14:30 UTC"],
                ["could not be read just now", "SL $0.0000"])
 
@@ -290,13 +290,13 @@ class TestThePaperPrompt:
                      "total trades 0"],
                # anchored to the section's own header: the base prompt's grounding
                # rule names "RECENT CLOSED TRADES" in prose
-               ["total PnL $+0.00", "$+0.00", "(live data)", "RECENT CLOSED TRADES (PAPER"])
+               ["total PnL +$0.00", "+$0.00", "(live data)", "RECENT CLOSED TRADES (PAPER"])
 
     def test_a_closed_paper_trade_prints_its_total_and_its_rows(self):
         # RED HERRING: with a closed trade on record the total IS a figure,
         # and a measured $0.00 close is printed as one.
         out = _prompt(_paper_pf(trade_history=[_paper_close(pnl=0.0)]))
-        _check(out, ["total PnL $+0.00", "RECENT CLOSED TRADES (PAPER — simulated fills)", "PnL $+0.00",
+        _check(out, ["total PnL +$0.00", "RECENT CLOSED TRADES (PAPER — simulated fills)", "PnL +$0.00",
                      "total trades 1"],
                ["no closed trades yet"])
 

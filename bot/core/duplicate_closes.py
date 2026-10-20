@@ -42,6 +42,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from bot.compat import UTC
+from bot.formatters.money import signed_usd
 from bot.utils.json_store import (
     UNREADABLE,
     StoreUnreadable,
@@ -532,7 +533,7 @@ def _when(t: Optional[datetime]) -> str:
 
 
 def _usd(x: Optional[float]) -> str:
-    return "net unread" if x is None else f"net ${x:+,.2f}"
+    return "net unread" if x is None else f"net {signed_usd(x)}"
 
 
 def duplicates_card(report: DuplicateReport) -> tuple[str, list]:

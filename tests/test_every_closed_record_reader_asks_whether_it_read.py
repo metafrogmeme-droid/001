@@ -279,7 +279,7 @@ def test_classpf_scores_an_unpriced_close_neither_way():
     line = next(x for x in said.splitlines() if "Crypto" in x)
     # One win of one priced close: 100%, not the 50% the zero made it.
     assert "WR 100%" in line and "1 unpriced" in line, line
-    assert "net $+5.00" in line
+    assert "net +$5.00" in line
 
 
 def test_classpf_prints_no_profit_factor_over_no_loss():
@@ -386,7 +386,7 @@ def _old_and_today():
 def test_daily_pnl_on_the_risk_panes_is_the_days_closes(mode):
     card = _risk_skill(_old_and_today(), partial=False, mode=mode)
     line = next(x for x in card.splitlines() if "Daily PnL" in x)
-    assert "+5.00" in line and "55.00" not in line, line
+    assert "+$5.00" in line and "55.00" not in line, line
 
 
 @pytest.mark.parametrize("mode", ["risk", "status"])
@@ -559,7 +559,7 @@ def _scan_head(partial):
 def test_the_scan_header_marks_a_total_over_a_partial_record():
     head = _scan_head(True)
     pnl = next(x for x in head.splitlines() if "PnL:" in x)
-    assert "+5.00" in pnl and "record partly unread" in pnl, pnl
+    assert "+$5.00" in pnl and "record partly unread" in pnl, pnl
     assert "record partly unread" not in _scan_head(False)
 
 

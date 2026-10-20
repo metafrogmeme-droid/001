@@ -199,6 +199,29 @@ async function showTab(page, name) {
   await page.waitForSelector('.p-panel[data-tab="' + name + '"]:not([hidden])');
 }
 
+/**
+ * Wait for the n-th request to `path` to be recorded, or fail with `why`.
+ *
+ * `sent` is filled by the page's request event, which lands a few
+ * milliseconds after the page issued the call. A block that shows its toast
+ * BEFORE it re-reads (the duel's pick handler does, on purpose: the person
+ * sees "Call recorded" without waiting on the next read) can therefore be
+ * observed with the toast up and the read not yet recorded, and a snapshot
+ * assertion taken at that instant said "the card was not read again" about
+ * a read that arrived 20 ms later. It did, once, on a loaded box. The
+ * other read-again checks in this file wait for a state the page reaches
+ * only after its reads (the Refresh button re-enabling); this one has no
+ * such state to wait on, so it waits on the record itself.
+ */
+async function readAgain(sent, path, n, why, ms = 5000) {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    if (sent.filter((s) => s.path === path).length >= n) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  assert.fail(why);
+}
+
 test('the Pi app signs in with Pi and shows the arena, and says why when it cannot', SKIP ? { skip: SKIP } : {}, async (t) => {
   const { server, base } = await serve();
   const browser = await pw.chromium.launch({ executablePath: CHROMIUM, args: ['--no-sandbox'] });
@@ -682,7 +705,7 @@ test('the Pi app signs in with Pi and shows the arena, and says why when it cann
       const pick = sent.find((s) => s.path === '/api/duel/pick');
       assert.deepStrictEqual(JSON.parse(pick.body), { round_id: 13, pick: 'hold' });
       assert.strictEqual(pick.auth, 'Bearer session-jwt-1');
-      assert.ok(sent.filter((s) => s.path === '/api/duel/today').length >= 2, 'the card was not read again after the call');
+      await readAgain(sent, '/api/duel/today', 2, 'the card was not read again after the call');
       // Nothing in the block links back to the site.
       assert.strictEqual(await page.$('.p-duel a[href]'), null);
       assert.match(text, /Dealt sealed aaaaaaaa…/, 'the round’s commitment is quoted');

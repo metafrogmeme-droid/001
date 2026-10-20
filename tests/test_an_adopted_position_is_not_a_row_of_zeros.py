@@ -11,7 +11,7 @@ handed the model
 
     entry $0.0000, size $0.00, lev 0x, SL $0.0000, TP $0.0000
 
-and, given a mark, `unrealized +N% ($+0.00)` from a quantity it never checked.
+and, given a mark, `unrealized +N% (+$0.00)` from a quantity it never checked.
 Each of those is a number the model repeats in a sentence that sounds
 considered: "your stop is at $0" is `_cmd_open_positions`'s SL-None-for-every-
 orphan incident, arriving through the chat.
@@ -42,6 +42,7 @@ from types import SimpleNamespace as NS
 import pytest
 
 from bot.core.live_executor import LiveExecutor, LivePosition, restore_provenance
+from bot.formatters.money import signed_usd
 from bot.skills import telegram_handler as th
 from bot.skills.telegram_handler import _closed_trade_line, _live_position_row, _live_positions_block
 from bot.utils.leveraged_return import _leveraged_pnl_usd, _leveraged_return_pct
@@ -171,13 +172,13 @@ class TestBothBasesAreLabelled:
         out = _live_position_row(_pos(), 63000.0)
         assert "price move +5.00% from entry" in out
         assert "return on margin +50.00% at 10x" in out
-        assert "unrealized $+30.00" in out
+        assert "unrealized +$30.00" in out
 
     def test_a_short_inverts_both_and_the_dollar(self):
         out = _live_position_row(_pos(direction="SHORT"), 63000.0)
         assert "price move -5.00%" in out
         assert "return on margin -50.00%" in out
-        assert "unrealized $-30.00" in out
+        assert "unrealized -$30.00" in out
 
     def test_the_dollar_agrees_with_the_card_helper(self):
         """Quantity route here, margin route on the card; on a consistent
@@ -185,7 +186,7 @@ class TestBothBasesAreLabelled:
         p = _pos()
         out = _live_position_row(p, 63000.0)
         card = _leveraged_pnl_usd(p.entry_price, 63000.0, "LONG", p.cost_usd, p.leverage)
-        assert f"unrealized ${card:+,.2f}" in out
+        assert f"unrealized {signed_usd(card)}" in out
 
     def test_the_margin_return_is_the_card_helper(self):
         p = _pos(leverage=20)
@@ -211,7 +212,7 @@ class TestBothBasesAreLabelled:
         assert "lev NOT ON RECORD" in out
         assert "return on margin NOT COMPUTABLE" in out
         assert "price move +5.00% from entry" in out
-        assert "unrealized $+30.00" in out
+        assert "unrealized +$30.00" in out
         assert "at 0x" not in out and "at 1x" not in out
 
     def test_leverage_is_derived_from_margin_and_notional_when_unstored(self):
@@ -225,7 +226,7 @@ class TestBothBasesAreLabelled:
         """0.0 is a real outcome; the rule is about absence, not about zero."""
         out = _live_position_row(_pos(), 60000.0)
         assert "price move +0.00% from entry" in out
-        assert "unrealized $+0.00" in out
+        assert "unrealized +$0.00" in out
 
 
 # ── Absent is words, never a number ────────────────────────────────────────
@@ -364,14 +365,14 @@ class TestAnUnpricedCloseIsNotAnExitAtEntry:
         out = _closed_trade_line(_closed())
         assert "entry $60,000.0000" in out
         assert "exit $63,000.0000" in out
-        assert "PnL $+29.50" in out
+        assert "PnL +$29.50" in out
         assert "closed via TP" in out
         assert "NOT ON RECORD" not in out and "not recorded" not in out
 
     def test_a_measured_break_even_close_still_prints_zero(self):
         """RED HERRING. 0.0 is a measured outcome; only None is an absence."""
         out = _closed_trade_line(_closed(pnl_usd=0.0))
-        assert "PnL $+0.00" in out
+        assert "PnL +$0.00" in out
         assert "not recorded" not in out
 
     def test_an_adopted_close_with_no_entry_is_named_not_zeroed(self):

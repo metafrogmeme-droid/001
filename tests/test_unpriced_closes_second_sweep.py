@@ -13,14 +13,14 @@ Three are worth naming because of WHERE they were:
     fabrication laundered through natural language is harder to catch than a
     wrong number on a card, because the sentence sounds considered". The LIVE
     closed-trade block below it did `t.pnl_usd or 0`, so a close nobody could
-    price reached the model as "PnL $+0.00" and came back to the user as prose.
+    price reached the model as "PnL +$0.00" and came back to the user as prose.
 
   * `/balance`, the un-cured sibling of `/portfolio` — the same store, the same
     three sums, the same `or 0`, printed beside "{n} trades" so the total read
     as covering all of them.
 
   * `/portfolio`'s excluded-orphans parenthetical: the ONE line on that card
-    that #122 did not convert, 180 lines below the ones it did. "($+0.00)"
+    that #122 did not convert, 180 lines below the ones it did. "(+$0.00)"
     reads as "excluding them changed nothing", on the rows the bot did not open
     and knows least about.
 
