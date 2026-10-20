@@ -3,6 +3,10 @@
     "v": 13,
     "sha": "c3fe76d9a1e7d1cf"
   },
+  "js/admin.js": {
+    "v": 3,
+    "sha": "f68d9fa4aa93124e"
+  },
   "js/agent-page.js": {
     "v": 2,
     "sha": "57210c73a86e7dea"
@@ -16,8 +20,8 @@
     "sha": "ef071afddd5042f6"
   },
   "js/anchor_cell.js": {
-    "v": 1,
-    "sha": "4c0941f188bddaa5"
+    "v": 2,
+    "sha": "4c6d90bed0c90a30"
   },
   "js/api-retry.js": {
     "v": 3,
@@ -34,6 +38,10 @@
   "js/arena-risk-model.js": {
     "v": 1,
     "sha": "77d4026436966cf1"
+  },
+  "js/arena-session.js": {
+    "v": 6,
+    "sha": "f8b777925c2a42f2"
   },
   "js/arena_engine.js": {
     "v": 2,
@@ -98,6 +106,14 @@
   "js/docs-page.js": {
     "v": 1,
     "sha": "8aaaa6478d0e98e0"
+  },
+  "js/doge-app.js": {
+    "v": 1,
+    "sha": "93d1066bd966730c"
+  },
+  "js/doge-proof.js": {
+    "v": 1,
+    "sha": "36a2fa665721307e"
   },
   "js/duel.js": {
     "v": 6,
@@ -164,8 +180,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 189,
-    "sha": "4349d2ed0ab9a158"
+    "v": 190,
+    "sha": "ffd0d173d6253dfd"
   },
   "js/icons.js": {
     "v": 6,
@@ -200,8 +216,8 @@
     "sha": "9bd8709b9440e40f"
   },
   "js/miniapp-view.js": {
-    "v": 5,
-    "sha": "0a5736933ce9331e"
+    "v": 7,
+    "sha": "9bd0fcddce63170e"
   },
   "js/mode-strip-model.js": {
     "v": 1,
@@ -214,6 +230,22 @@
   "js/panel-error-model.js": {
     "v": 6,
     "sha": "25cb3003194ae98c"
+  },
+  "js/pi-arena.js": {
+    "v": 3,
+    "sha": "26ac784ae9f55944"
+  },
+  "js/pi-duel.js": {
+    "v": 4,
+    "sha": "9998fdc9a3490753"
+  },
+  "js/pi-signals.js": {
+    "v": 4,
+    "sha": "1105314b8a46a1c0"
+  },
+  "js/pi-signin-callback.js": {
+    "v": 1,
+    "sha": "9f9fc4fe60413a0c"
   },
   "js/plan-card-model.js": {
     "v": 1,
@@ -350,29 +382,5 @@
   "vendor/lightweight-charts.standalone.production.js": {
     "v": 1,
     "sha": "c7dda807d662a95b"
-  },
-  "js/admin.js": {
-    "v": 3,
-    "sha": "f68d9fa4aa93124e"
-  },
-  "js/arena-session.js": {
-    "v": 6,
-    "sha": "f8b777925c2a42f2"
-  },
-  "js/pi-arena.js": {
-    "v": 3,
-    "sha": "26ac784ae9f55944"
-  },
-  "js/pi-signals.js": {
-    "v": 4,
-    "sha": "1105314b8a46a1c0"
-  },
-  "js/pi-signin-callback.js": {
-    "v": 1,
-    "sha": "9f9fc4fe60413a0c"
-  },
-  "js/pi-duel.js": {
-    "v": 4,
-    "sha": "9998fdc9a3490753"
   }
 }

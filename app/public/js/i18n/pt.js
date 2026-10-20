@@ -161,6 +161,7 @@
   ["es.dust_t", "Um piso, não uma cotação: gas atual × uma transação de bridge típica × o preço ao vivo da moeda nativa, comparado a este saldo. Taxas de bridge, de relayer e gas de destino vêm por cima. Um sinal heurístico de preços ao vivo — muda; nunca um veredicto."],
   ["es.w_loaded", "{n} posições carregadas das suas chains. {home} parece a sua chain principal (maior saldo) — todo o resto entrou como bridged, que o plano leva para casa POR ÚLTIMO. É um palpite: mude qualquer linha. O espelho só vê spot — adicione perps, empréstimos, LPs e staking você mesmo; o plano é tão completo quanto os seus inputs."],
   ["rt.anchored", "verificada na Base"],
+  ["rt.anchored_on", "verificada na {chain}"],
   ["rt.anchor_mismatch", "a âncora registada NÃO corresponde a esta raiz"],
   ["rt.anchor_unverified", "âncora registada — cadeia inacessível para confirmar"],
   ["rt.unanchored", "ainda não ancorada on-chain"],

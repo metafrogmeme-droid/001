@@ -72,34 +72,57 @@
       // "chain not reachable to confirm", never green), then each anchored day
       // is re-checked live against /api/roots/verify and repainted.
       // RCAnchorCell.anchorCell is the seam; it is pure and unit-tested.
-      var cell = function (r, verdict) {
-        return window.RCAnchorCell
-          ? RCAnchorCell.anchorCell(r, verdict, T)
+      // One cell PER CHAIN (Base, the DogeOS testnet): the feed's `anchors`
+      // list, each painted only from what that chain said. The chain's name
+      // and explorer come from the feed's registry, not from literals here.
+      var chainsByKey = {};
+      ((d && d.chains) || []).forEach(function (c) { chainsByKey[c.key] = c; });
+      var anchorsOf = function (r) {
+        var list = Array.isArray(r.anchors) ? r.anchors.slice() : [];
+        if (!list.length && r.anchor_tx) list.push({ chain: 'base', tx: r.anchor_tx });
+        return list;
+      };
+      var cell = function (r, verdicts) {
+        if (!window.RCAnchorCell) {
           // The module failing to load must not silently downgrade the page to
           // the old database-sourced claim. Say the state is unreadable.
-          : '<span class="n">' + esc(T('rt.anchor_unverified', 'anchor state unavailable')) + '</span>';
+          return '<span class="n">' + esc(T('rt.anchor_unverified', 'anchor state unavailable')) + '</span>';
+        }
+        var list = anchorsOf(r);
+        if (!list.length) return RCAnchorCell.anchorCell({ anchor_tx: null }, null, T);
+        return list.map(function (a) {
+          var chain = chainsByKey[a.chain] || (a.chain === 'base' ? RCAnchorCell.BASE : { key: a.chain, name: a.chain, explorer_tx: '' });
+          var v = verdicts && Object.prototype.hasOwnProperty.call(verdicts, a.chain) ? verdicts[a.chain] : null;
+          return RCAnchorCell.anchorCell({ anchor_tx: a.tx }, v, T, chain);
+        }).join(' <span class="n">·</span> ');
       };
+      var verdicts = {};
       box.innerHTML = roots.map(function (r) {
         return '<div class="root-row" data-day="' + esc(r.day) + '">'
           + '<div class="hd"><span class="day">' + esc(r.day) + '</span>'
           + '<span class="n">' + (Number(r.seal_count) || 0) + ' seals committed</span>'
-          + '<span class="anchor-cell">' + cell(r, null) + '</span></div>'
+          + '<span class="anchor-cell">' + cell(r, {}) + '</span></div>'
           + '<div class="root-hash" data-root="' + esc(r.root) + '" title="Click to copy" role="button" tabindex="0">' + esc(r.root) + '</div>'
           + '</div>';
       }).join('');
 
-      // Live re-verify, one request per ANCHORED day only. Unanchored days
-      // have nothing to check and asking would be 30 pointless requests.
-      roots.filter(function (r) { return r.anchor_tx; }).forEach(function (r) {
-        fetch('/api/roots/verify/' + encodeURIComponent(r.day), { headers: { Accept: 'application/json' } })
-          .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
-          .then(function (v) {
-            var host = box.querySelector('[data-day="' + CSS.escape(r.day) + '"] .anchor-cell');
-            if (host) host.innerHTML = cell(r, v);
-          })
-          // A failed lookup leaves the row exactly as drawn — "recorded, not
-          // confirmed". It must never fall through to green.
-          .catch(function () { /* stays unknown, which is the truth */ });
+      // Live re-verify, one request per ANCHORED day AND CHAIN only. Unanchored
+      // days have nothing to check and asking would be 30 pointless requests.
+      roots.forEach(function (r) {
+        anchorsOf(r).forEach(function (a) {
+          fetch('/api/roots/verify/' + encodeURIComponent(r.day) + '?chain=' + encodeURIComponent(a.chain),
+            { headers: { Accept: 'application/json' } })
+            .then(function (res) { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+            .then(function (v) {
+              verdicts[r.day] = verdicts[r.day] || {};
+              verdicts[r.day][a.chain] = v;
+              var host = box.querySelector('[data-day="' + CSS.escape(r.day) + '"] .anchor-cell');
+              if (host) host.innerHTML = cell(r, verdicts[r.day]);
+            })
+            // A failed lookup leaves the row exactly as drawn — "recorded, not
+            // confirmed". It must never fall through to green.
+            .catch(function () { /* stays unknown, which is the truth */ });
+        });
       });
     })
     .catch(function () {
@@ -118,8 +141,8 @@
   }
 })();
 </script>
-<script src="/js/anchor_cell.js?v=1"></script>
-<script src="/js/i18n-core.js?v=189"></script>
+<script src="/js/anchor_cell.js?v=2"></script>
+<script src="/js/i18n-core.js?v=190"></script>
 <script src="/js/presale.js?v=2"></script>
 <script src="/js/palette.js?v=1" defer></script>
 </body>

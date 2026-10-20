@@ -81,11 +81,14 @@ test('an unreadable chain answers UNKNOWN — never a guess', async () => {
 
 test('the routes gate on chain verification, and the first anchor wins', () => {
   const src = read('routes', 'roots.js');
-  assert.match(src, /verifyAnchor\(txHash, row\.day, row\.root\)/,
-    'the submit route must verify against Base before recording anything');
+  assert.match(src, /verifyAnchor\(txHash, row\.day, row\.root, undefined, chain\.key\)/,
+    'the submit route must verify against the named chain before recording anything');
   assert.match(src, /v\.status === 'unknown'/);
-  assert.match(src, /WHERE day = \? AND anchor_tx IS NULL/,
-    'an anchored root must be immutable, like the root itself');
+  const svc = read('lib', 'seal_roots.js');
+  assert.match(svc, /INSERT IGNORE INTO seal_root_anchors/,
+    'an anchor per (day, chain) is written once — first write wins');
+  assert.match(svc, /WHERE day = \? AND anchor_tx IS NULL/,
+    'the Base leg mirrored into the older column is immutable, like the root itself');
   assert.match(src, /authMiddleware/, 'the submit route is rate-limitable per user');
 });
 
@@ -93,6 +96,9 @@ test('the shim honours the anchor UPDATE with first-write-wins', () => {
   const db = read('db.js');
   assert.match(db, /UPDATE SEAL_ROOTS/);
   assert.match(db, /r\.day === params\[2\] && r\.anchor_tx == null/);
+  assert.match(db, /INSERT IGNORE INTO SEAL_ROOT_ANCHORS/);
+  assert.match(db, /r\.day === params\[0\] && r\.chain === params\[1\]/,
+    'the per-chain table is first-write-wins per (day, chain) under the shim too');
 });
 
 test('the verify endpoint is the public self-audit — cached only when verified', () => {
@@ -101,14 +107,16 @@ test('the verify endpoint is the public self-audit — cached only when verified
   assert.ok(at > -1);
   const slice = src.slice(at, at + 1600);
   assert.match(slice, /status: 'unanchored'/, 'an unanchored day answers honestly, not 404');
-  assert.match(slice, /verifyAnchor\(row\.anchor_tx, row\.day, row\.root\)/);
+  assert.match(slice, /verifyAnchor\(have\.tx, row\.day, row\.root, undefined, chain\.key\)/);
   assert.match(slice, /if \(v\.status === 'verified'\) _verifyCache\.set/,
     'caching an UNKNOWN answer would freeze a transient RPC failure into fact');
 });
 
 test('the call page states the on-chain leg — present or honestly absent', () => {
   const page = read('public', 'call.html');
-  assert.match(page, /d\.anchor\.anchor_tx/);
+  assert.match(page, /anchorsOf\(d\.anchor\)/, 'the receipt reads the day\'s anchors on every chain');
+  assert.match(page, /\/api\/roots\/verify\/' \+ encodeURIComponent\(d\.anchor\.day\) \+ '\?chain='/,
+    'each chain is re-checked by name');
   assert.match(page, /basescan\.org\/tx\//);
   // The leg moved into `anchorLeg(a, verdict)` so the receipt can re-check the
   // chain instead of asserting "This root is anchored on Base" from our own
@@ -131,8 +139,9 @@ test('the call page states the on-chain leg — present or honestly absent', () 
 
 test('anchorFor carries the anchor leg to the receipt payload', () => {
   const src = read('lib', 'seal_roots.js');
-  assert.match(src, /anchor_tx: rootRow\.anchor_tx \|\| null/);
-  assert.match(src, /anchored_at: rootRow\.anchored_at \|\| null/);
+  assert.match(src, /anchors = await anchorsFor\(day, rootRow\)/, 'the receipt reads every chain\'s anchor');
+  assert.match(src, /anchor_tx: base \? base\.tx : null/, 'the Base leg keeps its older spelling beside the list');
+  assert.match(src, /anchored_at: base \? base\.block_time : null/);
 });
 
 test('the roots feed and page carry the anchor honestly', () => {
@@ -163,4 +172,30 @@ test('the roots feed and page carry the anchor honestly', () => {
       assert.ok(String(i18n.STRINGS[k][l.code] || '').trim().length, `${k} missing ${l.code}`);
     }
   }
+});
+
+// ── more than one chain (2026-10-19) ───────────────────────────────────────
+test('the verifier reads the chain it is told, and refuses one it does not know', async () => {
+  const { chainInfo, DOGEOS_TESTNET_RPCS } = require('../lib/root_anchor.js');
+  const seen = [];
+  const onDoge = async (url, opts) => {
+    seen.push(url);
+    const { method } = JSON.parse(opts.body);
+    return { ok: true, json: async () => ({ jsonrpc: '2.0', result:
+      method === 'eth_getTransactionByHash' ? { hash: TX, blockHash: '0x1', input: payloadFor(DAY, ROOT), from: '0xd06e' }
+        : { timestamp: '0x688a0d80' } }) };
+  };
+  const v = await verifyAnchor(TX, DAY, ROOT, onDoge, 'dogeos-testnet');
+  assert.equal(v.status, 'verified');
+  assert.ok(seen.length && seen.every((u) => DOGEOS_TESTNET_RPCS.includes(u)), `asked ${seen}`);
+  // A chain this build does not know is refused before any RPC is asked —
+  // never verified "as Base" by falling through to the default.
+  const asked = [];
+  const nope = await verifyAnchor(TX, DAY, ROOT, async (u) => { asked.push(u); throw new Error('must not be called'); }, 'solana');
+  assert.equal(nope.status, 'mismatch');
+  assert.match(nope.reason, /unknown chain/);
+  assert.deepEqual(asked, []);
+  assert.equal(buildAnchorPlan(DAY, ROOT, 'solana'), null);
+  assert.equal(chainInfo('solana'), null);
+  assert.equal(chainInfo('dogeos-testnet').chain_id, 6281971);
 });

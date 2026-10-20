@@ -161,6 +161,7 @@
   ["es.dust_t", "Un minimo, non un preventivo: gas attuale × una tipica transazione bridge × il prezzo live della moneta nativa, rispetto a questo saldo. Commissioni bridge, relayer e gas di destinazione si aggiungono. Un segnale euristico da prezzi live — cambia; mai un verdetto."],
   ["es.w_loaded", "{n} holding caricati dalle tue chain. {home} sembra la tua chain principale (saldo maggiore) — tutto il resto è entrato come bridged, che il piano riporta a casa PER ULTIMO. È una stima: cambia qualsiasi riga. Il mirror vede solo spot — aggiungi tu perp, prestiti, LP e staking; il piano è completo quanto i suoi input."],
   ["rt.anchored", "verificata su Base"],
+  ["rt.anchored_on", "verificata su {chain}"],
   ["rt.anchor_mismatch", "l’ancoraggio registrato NON corrisponde a questa radice"],
   ["rt.anchor_unverified", "ancoraggio registrato — chain non raggiungibile per confermare"],
   ["rt.unanchored", "non ancora ancorata on-chain"],
