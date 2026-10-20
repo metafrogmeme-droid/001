@@ -27362,3 +27362,17 @@ by CoinGecko" ride with the figures, as the provider asks.
 `app/test/the_token_page_shows_the_pool_or_says_why.test.js`,
 `tests/test_the_smart_money_line_prints_what_the_website_read.py`,
 `tests/test_smart_money_is_a_line_and_never_a_verdict.py`.)
+
+*Addendum, 20 October, the first live read.* With the key in place the
+pool panel on `/token` said "could not be read". It had read fine: CoinGecko
+answered HTTP 404 for the mint, because it indexes no pool for a token that
+is not on any DEX yet, and the client folded every tool error into one
+`refused`, so the provider's own answer wore the same word as a spent
+allowance. Flovia's error names who answered (`explanation.by`), whether the
+lookup ran (`executed`) and the status; the client now carries those three
+on a refusal, and the pool reader reads CoinGecko's executed 404 as "no
+pool", a read remembered like any other, while a 5xx, a 429, Flovia's own
+404 and a 404 nobody claims stay "could not be read". The rule: a
+provider's answer that arrives as an error is still an answer, and only
+the party that answered gets to say "not found" (five mutants, each
+killed).
