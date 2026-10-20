@@ -27709,7 +27709,7 @@ build's four checks, the client switches, the renderer's and the card's
 words, and the prize table and plan.
 
 **A file git ignores passes every local gate.** Indonesian's source was
-`app/i18n/pi/id.json`, and `id.json` is the name of a Solana keypair, which
+`id.json` in `app/i18n/pi/`, and `id.json` is the name of a Solana keypair, which
 the repo's .gitignore denies everywhere with no exception, as it should.
 `git add app/i18n/` added fifteen languages and said nothing about the
 sixteenth; the build, the tests and a 21-of-22 preflight all read the
