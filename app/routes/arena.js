@@ -1302,7 +1302,7 @@ router.post('/season', authMiddleware, async (req, res) => {
     try {
       await require('../lib/push').notifySubscribers({
         title: `🏟️ Arena season: ${v.data.name}`,
-        body: `The season ${when} — same virtual stake for everyone, ranked on percent return. Take the crown.`,
+        body: `The season ${when} — same virtual balance for everyone, ranked on percent return. Take the crown.`,
         url: '/arena',
       });
     } catch (e) { /* push not configured — the banner still announces it */ }
@@ -1311,7 +1311,7 @@ router.post('/season', authMiddleware, async (req, res) => {
         `INSERT INTO agent_events (event_type, severity, symbol, title, body, data_json, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         ['arena_season', 'info', null, `Arena season launched: ${v.data.name}`,
-          `The paper-trading season ${when}. Same virtual stake for everyone, standings by percent return only — enter at /arena.`,
+          `The paper-trading season ${when}. Same virtual balance for everyone, standings by percent return only — enter at /arena.`,
           JSON.stringify({ starts_at: v.data.starts_at, ends_at: v.data.ends_at }), new Date()]);
     } catch (e) { /* feed insert is best-effort too */ }
     res.json({ ok: true, season: { name: v.data.name, starts_at: v.data.starts_at, ends_at: v.data.ends_at } });

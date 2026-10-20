@@ -129,11 +129,11 @@
   function basis(v) {
     const n = read(v);
     if (n === null || n <= 0) {
-      return 'Paper carry per spread, as a percent of the tracked stake '
-        + '(the stake itself was not reported)';
+      return 'Paper carry per spread, as a percent of the tracked capital '
+        + '(the capital itself was not reported)';
     }
     return 'What $' + n.toLocaleString() + ' would have earned holding each '
-      + 'spread, as a percent of that stake';
+      + 'spread, as a percent of that capital';
   }
 
   return {

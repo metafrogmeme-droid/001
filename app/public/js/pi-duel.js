@@ -43,6 +43,14 @@
     var word = D.pickLabel(r.pick, r);
     var at = M && typeof M.price === 'function' ? M.price(r.entry_price) : String(r.entry_price);
     var text;
+    if (r.kind === 'sports') {
+      // A match has no entry price to quote: the call is settled on the
+      // final score, and the sentence says so instead of printing a dash.
+      var m = r.match || {};
+      var home = m.home_short || m.home || '—';
+      var away = m.away_short || m.away || '—';
+      return 'Call recorded: ' + word + ' on ' + home + ' vs ' + away + '. Settled on the final score.';
+    }
     if (r.kind === 'mover') {
       var atB = M && typeof M.price === 'function' ? M.price(r.entry_price_b) : String(r.entry_price_b);
       text = 'Call recorded: ' + word + '. ' + D.base(r.symbol) + ' at ' + at + ', '
@@ -122,16 +130,44 @@
       var D = window.RCDuel;
       if (!me) {
         return card && !failed
-          ? '<p class="p-duel-norec">Your record could not be read just now. The card above is current.</p>'
+          ? '<p class="p-duel-norec">Your record could not be read just now. The card is current.</p>'
           : '';
       }
       var streak = me.streak && me.streak.current != null ? String(me.streak.current) : '—';
+      var marks = D.marksLabel(me.marks);
       return '<div class="p-duel-rec">'
         + stat('Accuracy', D.accuracyLabel(me.accuracy))
-        + stat('Marks', D.marksLabel(me.marks))
+        + stat('Marks', marks)
         + stat('Streak', { text: '🔥 ' + streak, tone: 'muted', sub: '' })
+        + '</div>'
+        // What a mark is, under the row: "Accuracy 60% of 5" beside "Marks 4"
+        // cannot be reconciled without the rule.
+        + (marks.how ? '<p class="p-duel-how">' + esc('Marks: ' + marks.how) + '</p>' : '');
+    }
+
+    /** How many of today's rounds are called, and how many are still open. */
+    function counts() {
+      var rounds = card && !failed ? card.rounds : [];
+      var called = rounds.filter(function (r) { return r.my_call; }).length;
+      var open = rounds.filter(function (r) { return r.callable && !r.my_call; }).length;
+      return { total: rounds.length, called: called, open: open };
+    }
+
+    /** The day's progress: "3 of 6 called" over a bar. A card with no rounds shows none. */
+    function progressHtml() {
+      var c = counts();
+      if (!c.total) return '';
+      var pct = Math.round((c.called / c.total) * 100);
+      return '<div class="p-duel-prog" role="progressbar" aria-valuemin="0" aria-valuemax="' + esc(c.total)
+        + '" aria-valuenow="' + esc(c.called) + '">'
+        + '<div class="p-duel-prog-t"><span>' + esc(c.called + ' of ' + c.total + ' called') + '</span>'
+        + (c.open ? '<span class="p-duel-prog-o">' + esc(c.open + ' open') + '</span>' : '') + '</div>'
+        + '<div class="p-duel-bar"><div class="p-duel-bar-f" style="width:' + pct + '%"></div></div>'
         + '</div>';
     }
+
+    /** The number on the Duel tab: rounds still open to a call. */
+    function badge() { return counts().open; }
 
     function html() {
       var M = window.RCMiniView;
@@ -152,8 +188,8 @@
       }
       var day = card && !failed ? '<span class="p-duel-day">' + esc(card.day) + ' UTC</span>' : '';
       return '<section class="m-open p-duel"><div class="p-sig-head"><h2>Daily Duel</h2>' + day + '</div>'
-        + noteHtml + body + recordHtml()
-        + '<p class="m-open-note">Call the market before the Claw does · no stake · counts and percent only</p>'
+        + recordHtml() + progressHtml() + noteHtml + body
+        + '<p class="m-open-note">Call the market before the Claw does · free to play · counts and percent only</p>'
         + '</section>';
     }
 
@@ -172,7 +208,8 @@
       c.api('/api/duel/pick', { method: 'POST', body: { round_id: roundId, pick: pick } }).then(function (r) {
         busy = false;
         if (r.ok && r.body && r.body.ok) {
-          note = ['ok', recordedText(r.body)];
+          if (typeof c.toast === 'function') { note = null; c.toast('ok', recordedText(r.body)); }
+          else note = ['ok', recordedText(r.body)];
         } else {
           // The server names why: a closed round, a price it could not read,
           // a call already made, a word this round does not take.
@@ -196,7 +233,7 @@
       return true;
     }
 
-    return { place: 'main', html: html, click: click, signedIn: signedIn, reload: reload };
+    return { place: 'main', tab: 'duel', label: 'Duel', icon: '\u2694', badge: badge, html: html, click: click, signedIn: signedIn, reload: reload };
   }
 
   return { create: create, recordedText: recordedText, REFRESH_MS: REFRESH_MS };

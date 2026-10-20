@@ -79,22 +79,70 @@ test('the duel payload\'s field order (v4) matches the implementation exactly', 
   assert.ok(block.indexOf('"v":4') < block.indexOf('"v":3'), 'v3 is still documented, after v4');
 });
 
-test('no payload carries an outcome field, at any version', () => {
+test('the dealt-round payload\'s field order (v6) matches the implementation exactly', () => {
+  const real = keysOf(seal.canonicalDuelRoundPayload({
+    day: '2026-10-19', idx: 6, kind: 'sports', symbol: 'FD:441', agent_direction: null,
+    match: { event_id: 441, home: 'Arsenal FC', away: 'Chelsea FC', kickoff: AT }, nonce: 'abcdef0123456789', dealt_at: AT,
+  }));
+  const block = SPEC.slice(SPEC.indexOf('### 2.5'), SPEC.indexOf('### 2.6'));
+  let cursor = -1;
+  for (const k of real) {
+    const at = block.indexOf(`"${k}"`);
+    assert.ok(at > cursor, `v6: "${k}" is missing from the spec or out of order`);
+    cursor = at;
+  }
+  const p = JSON.parse(seal.canonicalDuelRoundPayload({ day: 'd', idx: 0, symbol: 'B', agent_direction: 'long', nonce: 'n', dealt_at: AT }));
+  assert.equal(p.v, 6);
+  assert.equal(p.agent_direction, 'long', 'the stance IS in the commitment; that is the point');
+  assert.strictEqual(p.match, null);
+  assert.match(seal.newRoundNonce(), /^[0-9a-f]{16}$/, 'sixteen hex characters, as the spec says');
+  assert.notEqual(seal.newRoundNonce(), seal.newRoundNonce());
+});
+
+test('the settlement payload\'s field order (v7) matches the implementation exactly, and it names the call it settles', () => {
+  const real = keysOf(seal.canonicalDuelSettlePayload({
+    round_id: 1, call_seal: 'a'.repeat(64), round_seal: 'b'.repeat(64), kind: 'mover', pick: 'first',
+    settle_state: 'settled', settle_price: 1, settle_price_b: 2, outcome: 'first', result: 'correct', marks: 1, settled_at: AT,
+  }));
+  const block = SPEC.slice(SPEC.indexOf('### 2.6'), SPEC.indexOf('## 3 '));
+  let cursor = -1;
+  for (const k of real) {
+    const at = block.indexOf(`"${k}"`);
+    assert.ok(at > cursor, `v7: "${k}" is missing from the spec or out of order`);
+    cursor = at;
+  }
+  const un = JSON.parse(seal.canonicalDuelSettlePayload({ round_id: 1, call_seal: 'a'.repeat(64), round_seal: null,
+    kind: 'direction', pick: 'long', settle_state: 'unresolved', settle_price: null, settle_price_b: null,
+    outcome: null, result: 'unresolved', marks: 0, settled_at: AT }));
+  assert.equal(un.v, 7);
+  assert.strictEqual(un.settle_price, null, 'an unresolved settlement seals a null, never a zero');
+  assert.strictEqual(un.round_seal, null, 'a call on a round dealt before v6 names no round seal');
+  assert.equal(un.marks, 0);
+});
+
+test('no CALL payload carries an outcome field, at any version; only the settlement receipt does', () => {
   // Rule 2 of §2 and conformance point 2. This is what makes a seal a
-  // pre-commitment rather than a summary written afterwards.
+  // pre-commitment rather than a summary written afterwards. The one payload
+  // that carries an outcome is the settlement's (v7), and it names the call
+  // seal it settles rather than touching the call's own receipt.
   const OUTCOME = ['pnl', 'status', 'exit_price', 'exit', 'closed_at',
-    'resolved_at', 'result', 'won', 'win', 'outcome', 'pct'];
+    'resolved_at', 'result', 'won', 'win', 'outcome', 'pct', 'settle_price', 'settle_state'];
   const payloads = [
     seal.canonicalPayload({ signal_key: 's', symbol: 'B', direction: 'L', created_at: AT }),
     seal.canonicalArenaPayload({ trade_key: 't', symbol: 'B', direction: 'L', opened_at: AT }),
     seal.canonicalDuelPayload({ round_id: 1, day: 'd', symbol: 'B', pick: 'UP',
       entry_price: 1, resolves_at: AT, picked_at: AT }),
+    seal.canonicalSignalPayload({ signal_key: 's', symbol: 'B', direction: 'L', created_at: AT }),
+    seal.canonicalDuelRoundPayload({ day: 'd', idx: 0, symbol: 'B', nonce: 'n', dealt_at: AT }),
   ];
   for (const p of payloads) {
     for (const k of keysOf(p)) {
       assert.ok(!OUTCOME.includes(k), `${k} is an outcome and must not be sealed`);
     }
   }
+  const settle = keysOf(seal.canonicalDuelSettlePayload({ round_id: 1, call_seal: 'a'.repeat(64), kind: 'direction',
+    pick: 'long', settle_state: 'settled', settle_price: 1, outcome: 'up', result: 'correct', marks: 1, settled_at: AT }));
+  assert.ok(settle.includes('outcome') && settle.includes('result') && settle.includes('call_seal'));
 });
 
 // ── the hash rule ─────────────────────────────────────────────────────────

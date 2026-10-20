@@ -137,7 +137,7 @@ test('the ticket shows a pre-trade risk preview + the season panel a §4-safe sh
   assert.match(html, /of your balance at risk/);
   assert.match(html, /id="shareSeason"|shareSeason/);
   // the share text sells the mechanism, never a number (§4)
-  assert.match(html, /same virtual stake for everyone/);
+  assert.match(html, /same virtual balance for everyone/);
 });
 
 test('the Arena mounts the 3D market radar with real feed data (reduced-motion safe lib)', () => {

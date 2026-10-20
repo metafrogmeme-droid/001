@@ -175,9 +175,12 @@
       : status === 'upcoming' ? 'starts soon'
         : status === 'ended' ? 'ended' : null;
 
+    // "Season" before the badge: the name alone ("FARCASTER") read as a user
+    // label in a review, because nothing on the screen said what it named.
     return '<header class="a-season">'
       + '<h1>' + esc(season.name || 'The Arena') + '</h1>'
       + '<p class="a-sub">'
+      + '<span class="a-season-k">' + (o.kicker === undefined ? 'Season' : esc(o.kicker)) + '</span>'
       + (badge ? '<span class="a-badge a-badge--' + esc(status) + '">' + esc(badge) + '</span>' : '')
       // The countdown is omitted when unreadable rather than shown as zero.
       + (left ? '<span class="a-left">' + esc(left) + '</span>' : '')

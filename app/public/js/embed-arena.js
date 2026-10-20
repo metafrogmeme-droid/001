@@ -99,7 +99,7 @@
             + V.standingsHtml(rows, j)
             + tape
             + shareHtml(season, rows, j.ranked_total)
-            + '<p class="e-src">Paper trading · virtual stakes · '
+            + '<p class="e-src">Paper trading · virtual balance · '
             + '<a href="/arena" target="_blank" rel="noopener">join the arena</a></p>';
         });
       })

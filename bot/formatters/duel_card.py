@@ -100,17 +100,23 @@ def _team(round_: dict | None, side: str) -> str:
     return str(match.get(f"{side}_short") or match.get(side) or "—")
 
 
-def _kickoff_utc(round_: dict | None) -> str:
-    """'HH:MM UTC' from the match's kick-off, or a dash when unreadable."""
-    raw = ((round_ or {}).get("match") or {}).get("kickoff")
+def _utc(raw: object, fmt: str) -> str:
+    """An ISO instant in the given strftime shape, UTC; a dash when unreadable."""
     if not raw:
         return "—"
     try:
-        from datetime import datetime
+        from datetime import datetime, timezone
         dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
     except ValueError:
         return "—"
-    return dt.strftime("%H:%M UTC")
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc)
+    return dt.strftime(fmt)
+
+
+def _kickoff_utc(round_: dict | None) -> str:
+    """'HH:MM UTC' from the match's kick-off, or a dash when unreadable."""
+    return _utc(((round_ or {}).get("match") or {}).get("kickoff"), "%H:%M UTC")
 
 
 def round_title(round_: dict | None) -> str:
@@ -455,5 +461,7 @@ def render_pick_result(result: dict | None, status: int | None = None) -> str:
             else f"The Claw called {_PICK_WORD.get(str(agent), str(agent))}."
         )
     if result.get("resolves_at"):
-        lines.append(f"Settles: {result['resolves_at']}")
+        # A moment a person can read, not the wire's ISO string.
+        when = _utc(result["resolves_at"], "%Y-%m-%d %H:%M UTC")
+        lines.append(f"Settles: {when}")
     return "\n".join(lines)

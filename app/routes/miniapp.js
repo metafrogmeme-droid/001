@@ -102,7 +102,7 @@ function page(title, bodyClass, script, meta, deps) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
 ${meta || ''}
-<link rel="stylesheet" href="/embed.css?v=10">
+<link rel="stylesheet" href="/embed.css?v=13">
 </head><body class="${bodyClass}">
 <div id="root" aria-live="polite"><div class="e-load">Loading…</div></div>
 ${scripts}
@@ -129,7 +129,7 @@ router.get('/arena', (req, res) => {
   } catch (_) { meta = ''; }
   res.type('html').send(
     page('RUNECLAW — trade the arena', 'e-arena m-app', '/js/miniapp-arena.js?v=2', meta,
-      ['/js/embed-arena-view.js?v=2', '/js/miniapp-view.js?v=4', '/js/arena-session.js?v=4']));
+      ['/js/embed-arena-view.js?v=3', '/js/miniapp-view.js?v=5', '/js/arena-session.js?v=6']));
 });
 
 module.exports = router;

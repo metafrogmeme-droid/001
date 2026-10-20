@@ -65,7 +65,7 @@ function req(method, path, { token, body } = {}) {
 // registers a fixed pool once and each test names the member it needs. Burning
 // a registration per test would trip the limiter and turn real failures into a
 // wall of 429s. Members that must stay pick-free are marked below.
-const POOL_SIZE = 8;
+const POOL_SIZE = 10;   // the register limiter allows ten per address
 const U = [];
 
 // The football feed, answered by a stand-in: today's match kicks off three
@@ -87,6 +87,7 @@ test.before(async () => {
   app.use(express.json());
   app.use('/api/auth', authModule.router);
   app.use('/api/duel', duelRouter);
+  app.use('/api/call', require('../routes/call'));   // the receipts, by seal
   await new Promise((resolve) => {
     server = app.listen(0, '127.0.0.1', () => {
       base = `http://127.0.0.1:${server.address().port}`;
@@ -659,4 +660,159 @@ test('the card says what the feed said: dealt, none, unreadable, off, unknown', 
     sportsFeed.setSportsTransport(async (path) => (path.startsWith('/matches/') ? MATCH_BODY : matchRows()));
     svc._resetSportsState();
   }
+});
+
+// ── the provable duel (2026-10-19): the round, the call and the settlement sealed ─
+
+const sha256 = (x) => require('crypto').createHash('sha256').update(x, 'utf8').digest('hex');
+
+test('every dealt round carries its seal on the card, and never its payload', async () => {
+  const card = await req('GET', '/api/duel/today', { token: U[8] });
+  assert.ok(card.body.rounds.length >= 5);
+  for (const r of card.body.rounds) assert.match(r.seal, /^[0-9a-f]{64}$/, 'a dealt round is sealed');
+  assert.equal(/seal_payload|nonce/.test(card.raw), false, 'the commitment opens on the receipt, not on the card');
+});
+
+test('a classic round’s receipt is locked to a visitor, opens for the player who called it, and proves the stance was fixed first', async () => {
+  const token = U[8];
+  const card = await req('GET', '/api/duel/today', { token });
+  const target = card.body.rounds.find((r) => r.kind === 'direction');
+  const locked = await req('GET', '/api/call/round:' + target.seal);
+  assert.equal(locked.status, 200, locked.raw);
+  assert.equal(locked.body.kind, 'duel_round');
+  assert.equal(locked.body.locked, true);
+  assert.ok(!('seal_payload' in locked.body), 'a locked round sends no payload at all');
+  assert.ok(!('agent_direction' in locked.body.current), 'a locked round names no stance');
+  assert.equal(locked.body.opens_at, new Date(Date.parse(card.body.day + 'T00:00:00Z') + 86400000).toISOString(), 'it opens when the round’s day ends');
+  assert.equal(locked.body.seal, target.seal);
+  // Signed in but not yet called: still locked.
+  const stillLocked = await req('GET', '/api/call/round:' + target.seal, { token });
+  assert.equal(stillLocked.body.locked, true);
+  const picked = await req('POST', '/api/duel/pick', { token, body: { round_id: target.id, pick: 'short' } });
+  assert.equal(picked.status, 200, picked.raw);
+  const open = await req('GET', '/api/call/round:' + target.seal, { token });
+  assert.equal(open.body.revealed, true);
+  assert.ok(!('locked' in open.body));
+  assert.equal(sha256(open.body.seal_payload), target.seal, 'the hash on the card is the hash of the opened payload');
+  const p = JSON.parse(open.body.seal_payload);
+  assert.equal(p.v, 6);
+  assert.equal(p.kind, 'duel_round');
+  assert.strictEqual(p.agent_direction, picked.body.agent_direction, 'the stance revealed by the call is the one sealed when dealt');
+  assert.match(p.nonce, /^[0-9a-f]{16}$/);
+  assert.equal(p.symbol, target.symbol);
+  assert.equal(p.day, card.body.day);
+  assert.strictEqual(open.body.current.agent_direction, picked.body.agent_direction);
+  assert.ok(open.body.sealed_at, 'when it was dealt');
+  // A visitor stays locked out until the day ends.
+  const visitor = await req('GET', '/api/call/round:' + target.seal);
+  assert.equal(visitor.body.locked, true);
+  // A range round hides nothing: its receipt opens to anyone at once.
+  const range = card.body.rounds.find((r) => r.kind === 'range');
+  const rr = await req('GET', '/api/call/round:' + range.seal);
+  assert.equal(rr.body.revealed, true);
+  assert.equal(sha256(rr.body.seal_payload), range.seal);
+  const rp = JSON.parse(rr.body.seal_payload);
+  assert.strictEqual(rp.agent_direction, null);
+  assert.equal(rp.threshold_pct, range.threshold_pct);
+  assert.equal(rp.category, 'range');
+  // The football round's commitment names the match.
+  const match = card.body.rounds.find((r) => r.kind === 'sports');
+  const mr = await req('GET', '/api/call/round:' + match.seal);
+  assert.equal(mr.body.revealed, true);
+  const mp = JSON.parse(mr.body.seal_payload);
+  assert.equal(mp.match.home, 'Arsenal FC');
+  assert.equal(mp.match.kickoff, KICKOFF);
+});
+
+test('a call’s receipt names its round seal, and its settlement is a receipt of its own', async () => {
+  const token = U[9];
+  const uid = await userIdFor('duel9@example.com');
+  const card = await req('GET', '/api/duel/today', { token });
+  const target = card.body.rounds.find((r) => r.kind === 'direction');
+  const picked = await req('POST', '/api/duel/pick', { token, body: { round_id: target.id, pick: 'long' } });
+  assert.equal(picked.status, 200, picked.raw);
+  const after = await req('GET', '/api/duel/today', { token });
+  const mine = after.body.rounds.find((r) => r.id === target.id).my_call;
+  assert.match(mine.seal, /^[0-9a-f]{64}$/);
+  assert.strictEqual(mine.settle_seal, null, 'nothing has settled, so there is no settlement receipt');
+  const rc = await req('GET', '/api/call/duel:' + mine.seal);
+  assert.equal(rc.status, 200, rc.raw);
+  assert.equal(rc.body.kind, 'duel_pick');
+  assert.equal(sha256(rc.body.seal_payload), mine.seal);
+  assert.equal(JSON.parse(rc.body.seal_payload).v, 4);
+  assert.equal(rc.body.round.seal, target.seal);
+  assert.equal(rc.body.round.key, 'round:' + target.seal);
+  assert.strictEqual(rc.body.settlement, null);
+  assert.equal(rc.body.current.pick, 'long');
+  assert.equal(rc.body.current.symbol, target.symbol);
+  assert.equal(/margin|vusdt|balance/i.test(rc.raw), false, 'a public receipt carries no amount');
+
+  // Settle it: the horizon in the past, a close 5% above the entry.
+  const mem = pool.duelPicks.find((x) => Number(x.user_id) === uid && Number(x.round_id) === Number(target.id));
+  mem.resolves_at = new Date(Date.now() - 60000).toISOString();
+  const bucket = String(Math.floor(Date.parse(mem.resolves_at) / 3600000) * 3600000);
+  const close = Number(mem.entry_price) * 1.05;
+  setCandleFetcher(async () => [[bucket, '1', '2', '0', String(close), '1', '1']]);
+  const me = await req('GET', '/api/duel/me', { token });
+  setCandleFetcher(async () => []);
+  const h = me.body.history.find((x) => x.round_id === target.id);
+  assert.equal(h.state, 'correct');
+  assert.equal(h.seal, mine.seal);
+  assert.match(h.settle_seal, /^[0-9a-f]{64}$/);
+  const sr = await req('GET', '/api/call/settle:' + h.settle_seal);
+  assert.equal(sr.status, 200, sr.raw);
+  assert.equal(sr.body.kind, 'duel_settle');
+  assert.equal(sha256(sr.body.seal_payload), h.settle_seal);
+  const sp = JSON.parse(sr.body.seal_payload);
+  assert.equal(sp.v, 7);
+  assert.equal(sp.call_seal, mine.seal, 'the settlement names the call it settles');
+  assert.equal(sp.round_seal, target.seal, 'and the round the call was made under');
+  assert.equal(sp.settle_state, 'settled');
+  assert.equal(sp.outcome, 'up');
+  assert.equal(sp.result, 'correct');
+  assert.equal(sp.marks, h.marks);
+  assert.equal(sp.settle_price, Number(String(close)));
+  assert.strictEqual(sp.settle_price_b, null);
+  assert.equal(sr.body.call.key, 'duel:' + mine.seal);
+  assert.equal(sr.body.current.settle_state, 'settled');
+  // The call's receipt now names the settlement; the card shows both seals.
+  const rc2 = await req('GET', '/api/call/duel:' + mine.seal);
+  assert.equal(rc2.body.settlement.seal, h.settle_seal);
+  assert.equal(rc2.body.settlement.state, 'settled');
+  const shown = (await req('GET', '/api/duel/today', { token })).body.rounds.find((r) => r.id === target.id).my_call;
+  assert.equal(shown.settle_seal, h.settle_seal);
+  // Unknown hashes are a sentence, never an empty receipt.
+  const none = await req('GET', '/api/call/settle:' + 'f'.repeat(64));
+  assert.equal(none.status, 404);
+  assert.match(none.body.error, /No sealed settlement/);
+  assert.equal((await req('GET', '/api/call/round:' + 'f'.repeat(64))).status, 404);
+  assert.equal((await req('GET', '/api/call/duel:' + 'f'.repeat(64))).status, 404);
+  assert.equal((await req('GET', '/api/call/duel:nothex')).status, 404, 'a malformed duel key is no receipt');
+});
+
+test('an unresolved settlement is sealed too: null prices and the verdict unresolved', async () => {
+  const token = U[1];
+  const uid = await userIdFor('duel1@example.com');
+  const card = await req('GET', '/api/duel/today', { token });
+  const target = card.body.rounds.filter((r) => r.kind === 'direction')[1];
+  const picked = await req('POST', '/api/duel/pick', { token, body: { round_id: target.id, pick: 'long' } });
+  assert.equal(picked.status, 200, picked.raw);
+  const mem = pool.duelPicks.find((x) => Number(x.user_id) === uid && Number(x.round_id) === Number(target.id));
+  mem.resolves_at = new Date(Date.now() - duel.SETTLE_GIVE_UP_MS - 60000).toISOString();   // past the give-up window
+  setCandleFetcher(async () => []);                                                       // and no candle, ever
+  const me = await req('GET', '/api/duel/me', { token });
+  const h = me.body.history.find((x) => x.round_id === target.id);
+  assert.equal(h.state, 'unresolved');
+  assert.match(h.settle_seal, /^[0-9a-f]{64}$/, 'an unresolved settlement has a receipt');
+  const sr = await req('GET', '/api/call/settle:' + h.settle_seal);
+  assert.equal(sr.status, 200, sr.raw);
+  const sp = JSON.parse(sr.body.seal_payload);
+  assert.equal(sp.settle_state, 'unresolved');
+  assert.strictEqual(sp.settle_price, null);
+  assert.strictEqual(sp.settle_price_b, null);
+  assert.strictEqual(sp.outcome, null);
+  assert.equal(sp.result, 'unresolved');
+  assert.equal(sp.marks, 0);
+  assert.equal(sp.call_seal, h.seal);
+  assert.strictEqual(sr.body.current.settle_price, null, 'the live record agrees: no price, not a zero');
 });

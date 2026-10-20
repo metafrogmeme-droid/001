@@ -139,6 +139,53 @@ Step 2 is the one people skip. A valid hash over a payload that no longer
 matches the displayed record means the **display** was rewritten, which is
 exactly the failure a receipt exists to surface.
 
+### 2.5 · `v: 6` — a dealt Daily Duel round, sealed before anyone calls it
+
+```json
+{"v":6,"kind":"duel_round","day":"YYYY-MM-DD","idx":0,"category":"direction",
+ "symbol":"…","symbol_b":null,"threshold_pct":null,"agent_direction":"long",
+ "match":null,"nonce":"0123456789abcdef","dealt_at":"2026-10-19T00:00:05.000Z"}
+```
+
+A commitment. The classic round's rule is that the agent's own call is hidden
+until the player commits; this receipt makes that checkable instead of
+promised. The round is sealed as dealt, **stance included**, and the seal is on
+the card from the first read. The payload stays closed while the round is
+open to calls: it opens for a signed-in player who has called that round, and
+for everyone once the round's UTC day has ended. `sha256(payload) == seal` over
+the opened payload proves the stance was fixed before the call, not after.
+
+`nonce` is sixteen random hex characters: a three-way stance behind a bare
+hash would be a three-guess secret. `match` is the football round's event
+(`{event_id, home, away, kickoff}`) and `null` elsewhere; a round that hides
+nothing (range, mover, back/fade, football) opens at once, nonce and all. A
+round dealt before 2026-10-19 has no seal; its receipt does not exist rather
+than being a blank one.
+
+### 2.6 · `v: 7` — a Daily Duel settlement, a receipt of its own
+
+```json
+{"v":7,"kind":"duel_settle","round_id":0,"call_seal":"<64 hex>","round_seal":"<64 hex>",
+ "category":"direction","pick":"long","settle_state":"settled",
+ "settle_price":0,"settle_price_b":null,"outcome":"up","result":"correct","marks":1,
+ "settled_at":"2026-10-20T12:00:00.000Z"}
+```
+
+Rule 2 keeps a **call** receipt free of outcome fields; an outcome gets a
+receipt of its own, minted when the settlement is written, naming the call seal
+it settles and the round seal the call was made under. A reader then holds a
+chain, round → call → settlement, each hash a leaf in its day's root (§4).
+`settle_price` / `settle_price_b` carry the closes (a mover's two legs) or a
+match's final score (home, away); `outcome` is the market's answer in the
+category's words (`up` `down` `flat`, `break` `hold`, `first` `second` `tie`,
+`home` `draw` `away`) and `result` the verdict the public rules give the call
+(`correct` `wrong` `push` `unresolved`), `marks` the count it earned.
+
+An **unresolved** settlement is sealed too, with `settle_state: "unresolved"`,
+both prices `null`, `outcome: null`, `result: "unresolved"` and `marks: 0`. "We
+could not price it" is a dated fact, and the receipt a later rewrite would
+most like to lose.
+
 ---
 
 ## 3 · Addressing
@@ -147,6 +194,11 @@ Receipts are served by an opaque key. Two forms are in use:
 
 - `sig:<id>` — an engine signal
 - `arena:<18 hex>` — a paper trade, from 9 random bytes
+- `round:<seal>`, `duel:<seal>`, `settle:<seal>` — a Daily Duel round (§2.5),
+  call (§2.3) and settlement (§2.6), addressed by their own seal: sixty-four
+  hex characters nobody can derive from public data. A call's receipt names
+  its round seal and, once there is one, its settlement; a settlement's names
+  the call it settles.
 
 A key is a capability, not a secret: knowing it lets you *verify* a receipt, not
 alter one. Implementations MUST NOT make a key guessable from public data if
@@ -174,6 +226,11 @@ Three details that implementations get wrong:
   MUST NOT be served: the set is still growing, and publishing a root over a
   partial day is a commitment nobody can rely on. Asking for today returns
   "the day is still open", never a hash.
+- **A seal belongs to the day it was minted**, not to the day of the thing it
+  describes: a Daily Duel round sealed as dealt, the call made on it and the
+  settlement written for it are three leaves on up to three days. Adding a
+  surface never moves a stored root; days completed before the surface was
+  sealed keep the root they had.
 
 ### 4.1 · Membership proofs
 
@@ -209,15 +266,17 @@ the mirrorer nothing but a paste.
 An implementation conforms when:
 
 1. `sha256(seal_payload) == seal` for every receipt it serves.
-2. `seal_payload` contains **no outcome field** at any version.
+2. A **call** receipt's `seal_payload` contains **no outcome field** at any
+   version. An outcome is sealed only in a settlement receipt of its own
+   (§2.6), which names the call seal it settles.
 3. The served `seal_payload` is the byte-exact string that was hashed.
 4. Roots follow §4, and no root is served for an unfinished day.
 5. An unreadable receipt is served as an **error**, never as an empty or
    partial one. A receipt-shaped response with a missing or malformed seal is
    worse than no response: a reader who copies a hash that does not verify
    concludes the whole publisher is theatre, including the true parts.
-6. Outcomes, when published, are attached to the record — never merged into the
-   payload.
+6. Outcomes, when published, are attached to the record — never merged into a
+   call's payload. A settlement receipt is an attachment with a seal.
 
 ---
 
@@ -238,6 +297,10 @@ surface into a disclosure surface.
 | 1 | Engine signals |
 | 2 | Paper trades, sealed at open |
 | 3 | Dated directional calls, with a sealed horizon; daily Merkle roots |
+| 4 | A signal call with its reasoning; a duel call in one of five categories |
+| 5 | A pre-signature scan |
+| 6 | A dealt duel round, the agent's stance committed before anyone calls |
+| 7 | A duel settlement: prices or score, outcome and verdict, naming the call |
 
 A future version MUST NOT change an existing version's field order — receipts
 already sealed must stay verifiable forever. New facts get a new `v`.

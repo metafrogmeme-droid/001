@@ -131,6 +131,10 @@ test('a live season shows its name, that it is live, and how long is left', () =
   assert.match(html, /Genesis/);
   assert.match(html, /a-badge--live/);
   assert.match(html, /31d left/);
+  // The name is the name of a SEASON, and the header says so: a season called
+  // "FARCASTER" read as an account label in a review when nothing did.
+  assert.match(html, /<span class="a-season-k">Season<\/span>/);
+  assert.match(V.seasonHtml(GENESIS, { nowMs: T0, kicker: 'Saison' }), /a-season-k">Saison</);
 });
 
 test('no season at all says so without implying an empty competition', () => {

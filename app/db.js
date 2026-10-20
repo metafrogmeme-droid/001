@@ -2469,6 +2469,11 @@ class MemoryDB {
     // creation race-safe, and (user_id, round_id) IS the write-once anti-cheat.
     // A shim that let a second pick through would keep the suite green while
     // production let players revise a call after seeing the outcome.
+    // A half-open time window [lo, hi) for the duel sweeps; hi may be absent.
+    const inWindow = (at, lo, hi) => {
+      const t = new Date(at).getTime();
+      return t >= new Date(lo).getTime() && (hi == null || t < new Date(hi).getTime());
+    };
     if (cmd.includes('INSERT INTO DUEL_ROUNDS') || cmd.includes('INSERT IGNORE INTO DUEL_ROUNDS')) {
       const [day, idx] = params;
       if (this.duelRounds.some(r => r.day === day && Number(r.idx) === Number(idx))) {
@@ -2492,6 +2497,9 @@ class MemoryDB {
         agent_direction: col('AGENT_DIRECTION') == null ? null : col('AGENT_DIRECTION'),
         signal_key: col('SIGNAL_KEY') == null ? null : col('SIGNAL_KEY'),
         meta: col('META') == null ? null : String(col('META')),
+        seal: col('SEAL') == null ? null : String(col('SEAL')),
+        seal_payload: col('SEAL_PAYLOAD') == null ? null : String(col('SEAL_PAYLOAD')),
+        created_at: col('CREATED_AT') || new Date().toISOString(),
         created_at: new Date().toISOString(),
       });
       return [{ affectedRows: 1, insertId: this._nextDuelRoundId - 1 }, []];
@@ -2504,6 +2512,11 @@ class MemoryDB {
         rows = this.duelRounds.filter(r => r.day >= params[0]);
       } else if (cmd.includes('WHERE DAY =')) {
         rows = this.duelRounds.filter(r => r.day === params[0]);
+      } else if (cmd.includes('WHERE SEAL =')) {
+        rows = this.duelRounds.filter(r => r.seal && r.seal === params[0]);
+      } else if (cmd.includes('WHERE CREATED_AT >=')) {
+        // The daily root's sweep: a half-open window [lo, hi).
+        rows = this.duelRounds.filter(r => inWindow(r.created_at, params[0], params[1]));
       } else {
         rows = this.duelRounds.slice();
       }
@@ -2532,22 +2545,31 @@ class MemoryDB {
         settle_price: null, settle_price_b: null, settle_state: null, settled_at: null,
         seal: pcol('SEAL') == null ? null : pcol('SEAL'),
         seal_payload: pcol('SEAL_PAYLOAD') == null ? null : pcol('SEAL_PAYLOAD'),
+        settle_seal: null, settle_payload: null,
         created_at: pcol('CREATED_AT') || new Date().toISOString(),
       });
       return [{ affectedRows: 1, insertId: this._nextDuelPickId - 1 }, []];
     }
     if (cmd.startsWith('UPDATE DUEL_PICKS SET SETTLE')) {
-      // Two shapes, told apart by the statement: the classic
+      // Three shapes, told apart by the statement: the classic
       //   settle_price, settle_state, settled_at, id
-      // and the categories'
+      // the categories'
       //   settle_price, settle_price_b, settle_state, settled_at, id
-      const two = cmd.includes('SETTLE_PRICE_B');
-      const p = this.duelPicks.find(x => Number(x.id) === Number(params[two ? 4 : 3]));
+      // and the sealed settlement's (Provable Calls v7)
+      //   settle_price, settle_price_b, settle_state, settled_at, settle_seal, settle_payload, id
+      const sealed = cmd.includes('SETTLE_SEAL');
+      const two = sealed || cmd.includes('SETTLE_PRICE_B');
+      const idAt = sealed ? 6 : two ? 4 : 3;
+      const p = this.duelPicks.find(x => Number(x.id) === Number(params[idAt]));
       if (p) {
         p.settle_price = params[0] == null ? null : params[0];
         if (two) p.settle_price_b = params[1] == null ? null : params[1];
         p.settle_state = params[two ? 2 : 1] == null ? null : params[two ? 2 : 1];
         p.settled_at = params[two ? 3 : 2];
+        if (sealed) {
+          p.settle_seal = params[4] == null ? null : params[4];
+          p.settle_payload = params[5] == null ? null : params[5];
+        }
       }
       return [{ affectedRows: p ? 1 : 0 }, []];
     }
@@ -2555,9 +2577,14 @@ class MemoryDB {
       let rows;
       if (cmd.includes('WHERE USER_ID =')) {
         rows = this.duelPicks.filter(p => Number(p.user_id) === Number(params[0]));
+      } else if (cmd.includes('WHERE SETTLE_SEAL =')) {
+        rows = this.duelPicks.filter(p => p.settle_seal && p.settle_seal === params[0]);
+      } else if (cmd.includes('WHERE SEAL =')) {
+        rows = this.duelPicks.filter(p => p.seal && p.seal === params[0]);
+      } else if (cmd.includes('WHERE SETTLED_AT >=')) {
+        rows = this.duelPicks.filter(p => p.settled_at && inWindow(p.settled_at, params[0], params[1]));
       } else if (cmd.includes('WHERE CREATED_AT >=')) {
-        rows = this.duelPicks.filter(p =>
-          new Date(p.created_at).getTime() >= new Date(params[0]).getTime());
+        rows = this.duelPicks.filter(p => inWindow(p.created_at, params[0], params[1]));
       } else {
         rows = this.duelPicks.slice();
       }
@@ -2861,10 +2888,17 @@ const REQUIRED_DUEL_ROUND_COLUMNS = Object.freeze({
   threshold_pct: 'DOUBLE NULL',
   // A football round's teams and kick-off, as JSON text (lib/sports_feed.js).
   meta: 'TEXT NULL',
+  // The round's commitment (Provable Calls v6): sealed when dealt, stance
+  // included, revealed once the player has called (lib/callseal.js).
+  seal: 'VARCHAR(64) NULL',
+  seal_payload: 'TEXT NULL',
 });
 const REQUIRED_DUEL_PICK_COLUMNS = Object.freeze({
   entry_price_b: 'DOUBLE NULL',
   settle_price_b: 'DOUBLE NULL',
+  // The settlement's own receipt (Provable Calls v7), naming the call seal.
+  settle_seal: 'VARCHAR(64) NULL',
+  settle_payload: 'TEXT NULL',
 });
 /** `pick` must hold a mover's 'second': the width the categories need. */
 const DUEL_PICK_WIDTH = 8;
@@ -4011,6 +4045,8 @@ async function migrate() {
         agent_direction VARCHAR(5) NULL,
         signal_key VARCHAR(128) NULL,
         meta TEXT NULL,
+        seal VARCHAR(64) NULL,
+        seal_payload TEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_duel_round (day, idx),
         INDEX idx_duel_rounds_day (day)
@@ -4038,6 +4074,8 @@ async function migrate() {
         settled_at TIMESTAMP NULL,
         seal VARCHAR(64) NULL,
         seal_payload TEXT NULL,
+        settle_seal VARCHAR(64) NULL,
+        settle_payload TEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uniq_duel_pick (user_id, round_id),
         INDEX idx_duel_picks_user (user_id),
@@ -4059,8 +4097,12 @@ async function migrate() {
       'ALTER TABLE duel_rounds ADD COLUMN symbol_b VARCHAR(20) NULL',
       'ALTER TABLE duel_rounds ADD COLUMN threshold_pct DOUBLE NULL',
       'ALTER TABLE duel_rounds ADD COLUMN meta TEXT NULL',
+      'ALTER TABLE duel_rounds ADD COLUMN seal VARCHAR(64) NULL',
+      'ALTER TABLE duel_rounds ADD COLUMN seal_payload TEXT NULL',
       'ALTER TABLE duel_picks ADD COLUMN entry_price_b DOUBLE NULL',
       'ALTER TABLE duel_picks ADD COLUMN settle_price_b DOUBLE NULL',
+      'ALTER TABLE duel_picks ADD COLUMN settle_seal VARCHAR(64) NULL',
+      'ALTER TABLE duel_picks ADD COLUMN settle_payload TEXT NULL',
       `ALTER TABLE duel_picks MODIFY COLUMN pick VARCHAR(${DUEL_PICK_WIDTH}) NOT NULL`,
       'ALTER TABLE duel_picks MODIFY COLUMN entry_price DOUBLE NULL',
     ]) {
