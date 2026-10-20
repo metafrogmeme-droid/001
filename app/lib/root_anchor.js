@@ -1,26 +1,32 @@
 'use strict';
 /**
- * On-chain anchoring for the daily seal roots — Provable Calls' missing leg.
+ * On-chain anchoring for the daily seal roots — Provable Calls' missing leg,
+ * on more than one chain.
  *
  * A mirrored root already proves no call can be back-inserted into a day
  * WITHOUT changing the root; what it cannot prove alone is WHEN the root
  * existed — for that you had to trust our database's timestamps. An anchor
- * transaction on Base closes that gap: the day's root rides as calldata in a
+ * transaction closes that gap: the day's root rides as calldata in a
  * zero-value transaction, and the BLOCK timestamp — a fact no one here
  * controls — becomes the independent upper bound on when every seal in that
  * day was minted.
  *
  * Non-custodial to the letter (same doctrine as the ERC-8257 plan): the
  * server never holds a key and never sends a transaction. buildAnchorPlan()
- * produces the exact transaction for the operator's own wallet; verifyAnchor()
- * READS the chain through the same keyless RPC set the wallet mirror uses and
- * only ever records what it verified. On an RPC failure it answers UNKNOWN —
- * it never guesses either way.
+ * produces the exact transaction for a wallet's owner; verifyAnchor() READS
+ * the chain through keyless RPCs and only ever records what it verified. On
+ * an RPC failure it answers UNKNOWN — it never guesses either way.
+ *
+ * ONE PAYLOAD, EVERY CHAIN. The bytes are the same on Base and on the DogeOS
+ * testnet (2026-10-19, the Vibe Code on DOGE entry): what differs is which
+ * chain's block clock bounds the day, and a day may be anchored on each.
+ * The chain registry below is the one reading of a chain's id, RPCs and
+ * explorer; the routes, the pages and the DogeOS app read it from here
+ * (`GET /api/roots/chains`) rather than carrying literals of their own.
  *
  * Payload format, self-describing and greppable on-chain:
  *   utf8("RCROOT1:" + day + ":" + root)   as the tx `data`, hex-encoded.
  */
-
 const PREFIX = 'RCROOT1';
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ROOT_RE = /^[0-9a-f]{64}$/;
@@ -28,35 +34,86 @@ const TX_RE = /^0x[0-9a-f]{64}$/i;
 
 // Same keyless Base endpoints the wallet mirror verified (lib/wallet.js).
 const BASE_RPCS = ['https://mainnet.base.org', 'https://base-rpc.publicnode.com'];
+// DogeOS's own public testnet endpoint (docs.dogeos.com, read 2026-10-19).
+const DOGEOS_TESTNET_RPCS = ['https://rpc.testnet.dogeos.com/'];
+
+/** A comma list in the environment replaces a chain's default RPCs. */
+function rpcList(envKey, defaults, env) {
+  const raw = String((env || process.env)[envKey] || '').trim();
+  const urls = raw ? raw.split(',').map((s) => s.trim()).filter((s) => /^https?:\/\//.test(s)) : [];
+  return urls.length ? urls : defaults.slice();
+}
+
+/**
+ * The chains a day's root may be anchored on. `key` is what the API and the
+ * database call the chain; `chain_id` is what a wallet is asked to switch to;
+ * `native` is what `wallet_addEthereumChain` needs to describe it.
+ */
+function chains(env) {
+  return {
+    base: {
+      key: 'base', chain_id: 8453, name: 'Base', testnet: false,
+      rpcs: rpcList('WEB3_RPC_URL_BASE_ANCHOR', BASE_RPCS, env),
+      explorer_tx: 'https://basescan.org/tx/',
+      native: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    },
+    'dogeos-testnet': {
+      key: 'dogeos-testnet', chain_id: 6281971, name: 'DogeOS testnet', testnet: true,
+      rpcs: rpcList('DOGEOS_TESTNET_RPC_URLS', DOGEOS_TESTNET_RPCS, env),
+      explorer_tx: 'https://dogeos-testnet.l2scan.co/tx/',
+      faucet: 'https://faucet.testnet.dogeos.com',
+      native: { name: 'Dogecoin', symbol: 'DOGE', decimals: 18 },
+    },
+  };
+}
+const DEFAULT_CHAIN = 'base';
+
+/** The registry entry for `key`, or null for a chain this build does not know. */
+function chainInfo(key, env) {
+  const all = chains(env);
+  return Object.prototype.hasOwnProperty.call(all, String(key || '')) ? all[String(key)] : null;
+}
+
+/** What a page or an app may be told about every chain: no RPC override leaks. */
+function publicChains(env) {
+  return Object.values(chains(env)).map((c) => ({
+    key: c.key, chain_id: c.chain_id, name: c.name, testnet: c.testnet,
+    rpcs: c.rpcs, explorer_tx: c.explorer_tx, native: c.native,
+    ...(c.faucet ? { faucet: c.faucet } : {}),
+  }));
+}
 
 function payloadFor(day, root) {
   return '0x' + Buffer.from(`${PREFIX}:${day}:${root}`, 'utf8').toString('hex');
 }
 
 /**
- * The transaction the operator sends from their own wallet: a zero-value
- * self-send on Base whose data is the tagged root. DRY RUN ONLY.
+ * The transaction a wallet's owner sends: a zero-value self-send on `chain`
+ * whose data is the tagged root. DRY RUN ONLY. Null for a malformed day or
+ * root, or a chain this build does not know.
  */
-function buildAnchorPlan(day, root) {
+function buildAnchorPlan(day, root, chainKey = DEFAULT_CHAIN) {
   if (!DAY_RE.test(String(day)) || !ROOT_RE.test(String(root))) return null;
+  const chain = chainInfo(chainKey);
+  if (!chain) return null;
   const data = payloadFor(day, root);
   return {
     dry_run: true,
-    chain_id: 8453,
-    chain: 'Base',
+    chain_id: chain.chain_id,
+    chain: chain.name,
+    chain_key: chain.key,
     to: 'YOUR OWN ADDRESS (a zero-value self-send — no contract needed)',
     value: '0',
     data,
     day, root,
     instructions: [
-      'Send a 0-value transaction FROM your own wallet TO the same address on '
-        + 'Base, with `data` set to the data field above. Any wallet that '
-        + 'allows hex data works.',
-      `Or with foundry: cast send <YOUR_ADDRESS> --value 0 --rpc-url ${BASE_RPCS[0]} `
+      `Send a 0-value transaction FROM your own wallet TO the same address on ${chain.name}, `
+        + 'with `data` set to the data field above. Any wallet that allows hex data works.',
+      `Or with foundry: cast send <YOUR_ADDRESS> --value 0 --rpc-url ${chain.rpcs[0]} `
         + `--private-key <YOUR_KEY_NEVER_SHARED_WITH_THE_SERVER> ${data}`,
-      'Then submit the transaction hash back via POST /api/roots/anchor — the '
-        + 'server verifies the calldata against the chain before recording '
-        + 'anything.',
+      'Then submit the transaction hash back via POST /api/roots/anchor '
+        + `{ day, tx_hash, chain: "${chain.key}" } — the server verifies the calldata `
+        + 'against the chain before recording anything.',
     ],
     non_custodial_note: 'The server never holds a key and never sends a '
       + 'transaction. This is a plan, not an action.',
@@ -70,13 +127,15 @@ function buildAnchorPlan(day, root) {
  * → { status: 'unknown', reason }               the chain could not be read — NOT a verdict
  *
  * `fetchImpl` is injectable for tests; production uses global fetch against
- * the keyless Base RPCs with one rotation, like the wallet mirror.
+ * the chain's keyless RPCs with one rotation, like the wallet mirror.
  */
-async function verifyAnchor(txHash, day, root, fetchImpl) {
+async function verifyAnchor(txHash, day, root, fetchImpl, chainKey = DEFAULT_CHAIN) {
   if (!TX_RE.test(String(txHash))) return { status: 'mismatch', reason: 'malformed transaction hash' };
   if (!DAY_RE.test(String(day)) || !ROOT_RE.test(String(root))) {
     return { status: 'mismatch', reason: 'malformed day or root' };
   }
+  const chain = chainInfo(chainKey);
+  if (!chain) return { status: 'mismatch', reason: 'unknown chain' };
   const f = fetchImpl || global.fetch;
   const call = async (url, method, params) => {
     const r = await f(url, {
@@ -89,10 +148,10 @@ async function verifyAnchor(txHash, day, root, fetchImpl) {
     return j.result;
   };
   let lastErr = null;
-  for (const url of BASE_RPCS) {
+  for (const url of chain.rpcs) {
     try {
       const tx = await call(url, 'eth_getTransactionByHash', [txHash]);
-      if (!tx) return { status: 'mismatch', reason: 'no such transaction on Base' };
+      if (!tx) return { status: 'mismatch', reason: `no such transaction on ${chain.name}` };
       if (!tx.blockHash) return { status: 'unknown', reason: 'transaction not yet mined' };
       const expected = payloadFor(day, root).toLowerCase();
       const data = String(tx.input || tx.data || '').toLowerCase();
@@ -113,4 +172,7 @@ async function verifyAnchor(txHash, day, root, fetchImpl) {
   return { status: 'unknown', reason: lastErr ? String(lastErr.message || lastErr).slice(0, 120) : 'rpc unreachable' };
 }
 
-module.exports = { buildAnchorPlan, verifyAnchor, payloadFor, PREFIX, BASE_RPCS };
+module.exports = {
+  buildAnchorPlan, verifyAnchor, payloadFor, PREFIX, BASE_RPCS, DOGEOS_TESTNET_RPCS,
+  chains, chainInfo, publicChains, DEFAULT_CHAIN,
+};

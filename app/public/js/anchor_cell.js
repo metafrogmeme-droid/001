@@ -75,11 +75,25 @@
    * The cell's HTML. `t` is the i18n lookup (key, fallback) so the page can
    * translate without this module importing anything.
    */
-  function anchorCell(row, verdict, t) {
+  /** The chain an anchor without a named chain is on: Base, as every anchor was before 2026-10-19. */
+  var BASE = { key: 'base', name: 'Base', explorer_tx: 'https://basescan.org/tx/' };
+
+  function anchorCell(row, verdict, t, chain) {
     var T = typeof t === 'function' ? t : function (k, en) { return en; };
+    // A named chain is the chain, explorer or not: one the registry has not
+    // described gets its key and NO link, never Base's explorer for its hash.
+    var c = chain && chain.key ? chain : BASE;
     var state = anchorState(row, verdict);
     var tx = row && row.anchor_tx ? String(row.anchor_tx) : '';
-    var href = 'https://basescan.org/tx/' + esc(tx);
+    var href = c.explorer_tx ? c.explorer_tx + esc(tx) : '';
+    // The cell is a link to the transaction when the chain has an explorer to
+    // link, and the same words without one when it does not.
+    var open = function (style) {
+      return href
+        ? '<a class="n"' + (style ? ' style="' + style + '"' : '') + ' href="' + href + '" target="_blank" rel="noopener">'
+        : '<span class="n"' + (style ? ' style="' + style + '"' : '') + '>';
+    };
+    var close = href ? '</a>' : '</span>';
 
     if (state === 'unanchored') {
       return '<span class="n">' + esc(T('rt.unanchored', 'not yet anchored on-chain')) + '</span>';
@@ -89,26 +103,45 @@
       // The ONLY green path, and it is green because the chain said so.
       var when = verdict && verdict.block_time
         ? ' · ' + esc(String(verdict.block_time).slice(0, 10)) : '';
-      return '<a class="n" style="color:var(--up)" href="' + href
-        + '" target="_blank" rel="noopener">⛓ '
-        + esc(T('rt.anchored', 'verified on Base')) + when + '</a>';
+      return open('color:var(--up)') + '⛓ '
+        + esc(T('rt.anchored_on', 'verified on {chain}').replace('{chain}', c.name || c.key)) + when + close;
     }
 
     if (state === 'mismatch') {
       // Loud. This is corruption or tampering, and the page exists to surface
       // it rather than to keep a tidy row.
-      return '<a class="n" style="color:var(--down);font-weight:600" href="' + href
-        + '" target="_blank" rel="noopener">⚠ '
+      return open('color:var(--down);font-weight:600') + '⚠ '
         + esc(T('rt.anchor_mismatch', 'recorded anchor does NOT match this root'))
-        + '</a>';
+        + close;
     }
 
     // unknown — a transaction is recorded and we could not confirm it just
     // now. Neutral, never green, and it says which of the two it is.
-    return '<a class="n" href="' + href + '" target="_blank" rel="noopener">⛓ '
+    return open('') + '⛓ '
       + esc(T('rt.anchor_unverified', 'anchor recorded — chain not reachable to confirm'))
-      + '</a>';
+      + close;
   }
 
-  return { anchorState: anchorState, anchorCell: anchorCell, esc: esc };
+  /**
+   * Every chain's cell for one day, from the feed row's `anchors` list (or its
+   * older `anchor_tx`, read as Base). `verdicts` is keyed by chain key, each
+   * the parsed body of /api/roots/verify/:day?chain=, or absent; `chains` is
+   * keyed by chain key from /api/roots (name and explorer). No anchor on any
+   * chain is said once; an anchor is a cell per chain, each painted only from
+   * what that chain said.
+   */
+  function anchorCells(row, verdicts, t, chains) {
+    var T = typeof t === 'function' ? t : function (k, en) { return en; };
+    var list = row && Array.isArray(row.anchors) ? row.anchors.slice() : [];
+    if (!list.length && row && row.anchor_tx) list.push({ chain: 'base', tx: row.anchor_tx });
+    if (!list.length) {
+      return '<span class="n">' + esc(T('rt.unanchored', 'not yet anchored on-chain')) + '</span>';
+    }
+    return list.map(function (a) {
+      var c = (chains && chains[a.chain]) || (a.chain === 'base' ? BASE : { key: a.chain, name: a.chain, explorer_tx: '' });
+      var v = verdicts && Object.prototype.hasOwnProperty.call(verdicts, a.chain) ? verdicts[a.chain] : null;
+      return anchorCell({ anchor_tx: a.tx }, v, T, c);
+    }).join(' <span class="n">·</span> ');
+  }
+  return { anchorState: anchorState, anchorCell: anchorCell, anchorCells: anchorCells, esc: esc, BASE: BASE };
 }));

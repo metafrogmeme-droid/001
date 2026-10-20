@@ -20,8 +20,8 @@
     "sha": "ef071afddd5042f6"
   },
   "js/anchor_cell.js": {
-    "v": 1,
-    "sha": "4c0941f188bddaa5"
+    "v": 2,
+    "sha": "4c6d90bed0c90a30"
   },
   "js/api-retry.js": {
     "v": 3,
@@ -107,6 +107,14 @@
     "v": 1,
     "sha": "8aaaa6478d0e98e0"
   },
+  "js/doge-app.js": {
+    "v": 1,
+    "sha": "93d1066bd966730c"
+  },
+  "js/doge-proof.js": {
+    "v": 1,
+    "sha": "36a2fa665721307e"
+  },
   "js/duel.js": {
     "v": 6,
     "sha": "0f89b9e537ca1fdc"
@@ -172,8 +180,8 @@
     "sha": "c2dffd9f3305eabf"
   },
   "js/i18n-core.js": {
-    "v": 189,
-    "sha": "4349d2ed0ab9a158"
+    "v": 190,
+    "sha": "ffd0d173d6253dfd"
   },
   "js/icons.js": {
     "v": 6,
@@ -208,8 +216,8 @@
     "sha": "9bd8709b9440e40f"
   },
   "js/miniapp-view.js": {
-    "v": 5,
-    "sha": "0a5736933ce9331e"
+    "v": 7,
+    "sha": "9bd0fcddce63170e"
   },
   "js/mode-strip-model.js": {
     "v": 1,

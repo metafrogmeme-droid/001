@@ -161,6 +161,7 @@
   ["es.dust_t", "Bir taban, teklif değil: mevcut gaz × tipik bir köprü işlemi × yerel coinin canlı fiyatı, bu bakiyeyle karşılaştırılır. Köprü ücretleri, relayer ücretleri ve varış zinciri gazı bunun üstüne eklenir. Canlı fiyatlardan türetilen sezgisel bir işaret — değişir; asla bir hüküm değildir."],
   ["es.w_loaded", "Zincirlerinden {n} varlık yüklendi. {home} ana zincirin gibi görünüyor (en büyük bakiye) — geri kalan her şey köprülenmiş olarak girdi ve plan bunları EN SON eve getirir. Bu bir tahmin: istediğin satırı değiştir. Ayna yalnızca spotu görür — perp, kredi, LP ve stake’i kendin ekle; plan ancak girdileri kadar tamdır."],
   ["rt.anchored", "Base’te doğrulandı"],
+  ["rt.anchored_on", "{chain}’te doğrulandı"],
   ["rt.anchor_mismatch", "kayıtlı sabitleme bu kökle EŞLEŞMİYOR"],
   ["rt.anchor_unverified", "sabitleme kaydedildi — doğrulamak için zincire erişilemiyor"],
   ["rt.unanchored", "henüz zincire sabitlenmedi"],

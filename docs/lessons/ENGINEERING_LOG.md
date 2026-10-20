@@ -27192,3 +27192,51 @@ nobody could read says the dash, and a row written before the field says
 "not recorded"; none is a 0, and none wears the accent colour a measured
 figure does (`tests/test_the_position_cards_print_the_score_the_record_holds.py`;
 seven mutants, each killed).
+
+## A ROOT ANCHORED ON TWO CHAINS IS TWO FACTS, AND THE PAGE THAT NAMED ONE CHAIN BY HAND NAMED THE WRONG ONE
+
+The Vibe Code on DOGE entry (2026-10-19) asked for one thing the site did
+not have: the daily seal roots anchored on the DogeOS testnet, by the
+players' own wallets, beside the Base anchor the operator already sends.
+The anchor was one column on the root's row (`seal_roots.anchor_tx`) and one
+chain, spelled by name in the verifier, the feed, the roots page, the receipt
+page and the cell renderer: "verified on Base", `basescan.org/tx/`, chain id
+8453. Adding a chain meant finding every one of those spellings, and the
+first attempt found four and missed the fifth: the cell renderer's `href`
+was Base's explorer for any chain whose entry lacked an explorer, so an
+anchor on a chain the registry had not described would have linked a DogeOS
+hash to basescan. A test that handed the renderer a chain it had never heard
+of ("somewhere-else") is what found it.
+
+**One registry, read everywhere.** `lib/root_anchor.js` holds each chain's
+id, name, RPCs, explorer and native currency; `GET /api/roots/chains` hands
+it to the pages and to the DogeOS app, which asks the wallet to switch to
+the chain it reads there and spells no chain id of its own
+(`the_doge_app_plays_the_duel_and_anchors_on_dogeos.test.js` scans every
+page script for the literal). The verifier reads the chain the caller
+named and no other: a hash mined on DogeOS is "no such transaction on
+Base", and the test proves it by stubbing each chain's RPC with its own
+ledger.
+
+**An anchor is a row per (day, chain), written only after that chain
+confirmed the calldata, first write per chain wins.** The Base leg is
+mirrored into the older column so receipts and pages written before the
+table still read it, and a deployment whose only anchor is the older column
+reads it as a Base anchor. The cell is painted per chain from that chain's
+verdict: a day verified on Base and merely recorded on DogeOS shows one
+green cell and one neutral one, never two greens.
+
+**Non-custodial stayed non-custodial.** The anchoring on `/doge` is the
+player's wallet sending a zero-value self-send with the root as data; the
+server hands out the plan and records the hash after the chain confirmed
+it. The submit route allows six tries a minute per user, so the page asks
+every twelve seconds while the transaction is still being mined, ten times
+at most, and keeps the hash on screen when it gives up; a test holds the
+poll under the budget. The first version of the end-to-end test spent that
+budget itself, seven submissions from one account, and read a 429 as the
+route refusing a wrong chain.
+
+(`app/test/roots_anchor_on_more_than_one_chain.test.js`,
+`app/test/the_doge_app_plays_the_duel_and_anchors_on_dogeos.test.js`,
+`app/test/anchor_cell.test.js`, `app/test/root_anchor.test.js`;
+`docs/hackathon/VIBE_CODE_ON_DOGE.md` is the entry and the prompt pack.)

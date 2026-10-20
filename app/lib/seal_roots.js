@@ -97,11 +97,67 @@ async function listRoots(limit = 30, scan = 7) {
     const d = dayOf(new Date(today + 'T00:00:00.000Z').getTime() - i * 24 * 3600 * 1000);
     await rootForDay(d);   // lazily fills any recent gap; empty days stay absent
   }
+  let rows;
   try {
-    const [rows] = await pool.execute(
+    [rows] = await pool.execute(
       `SELECT day, root, seal_count, computed_at, anchor_tx, anchored_at FROM seal_roots ORDER BY day DESC LIMIT ${Math.min(Number(limit) || 30, 90)}`);
-    return rows;
   } catch (e) { return []; }
+  // Every chain's anchor beside the row, so the feed and the pages read one
+  // list rather than the Base column plus a table.
+  for (const r of rows) r.anchors = await anchorsFor(r.day, r);
+  return rows;
+}
+
+/**
+ * Every chain's anchor of a day's root, sorted by chain key: the rows of
+ * seal_root_anchors, plus the Base leg a deployment recorded in
+ * seal_roots.anchor_tx before the table existed, read as `base` when the
+ * table holds no Base row. A day with none answers an empty list — "not yet
+ * anchored" is a fact about the chains, and an unreadable table is read as
+ * none the same way the feed reads an unreadable root list as empty.
+ */
+async function anchorsFor(day, rootRow) {
+  let rows = [];
+  try {
+    const [r] = await pool.execute(
+      'SELECT day, chain, tx, from_addr, block_time, verified_at FROM seal_root_anchors WHERE day = ?', [day]);
+    rows = (r || []).map((a) => ({
+      chain: String(a.chain), tx: String(a.tx), from: a.from_addr || null,
+      block_time: a.block_time || null, verified_at: a.verified_at || null,
+    }));
+  } catch (e) { rows = []; }
+  const legacy = rootRow && rootRow.anchor_tx;
+  if (legacy && !rows.some((a) => a.chain === 'base')) {
+    rows.push({ chain: 'base', tx: String(legacy), from: null,
+      block_time: rootRow.anchored_at || null, verified_at: null, legacy: true });
+  }
+  return rows.sort((a, b) => (a.chain < b.chain ? -1 : a.chain > b.chain ? 1 : 0));
+}
+
+/**
+ * Record a VERIFIED anchor: first write per (day, chain) wins, immutable like
+ * the root itself. The Base leg is mirrored into seal_roots' older columns,
+ * which receipts written before the table still read. True when this call
+ * recorded it; false when that chain already had one (a race with another
+ * submitter, or a duplicate).
+ */
+async function recordAnchor(day, chain, tx, verdict) {
+  const blockTime = verdict && verdict.block_time ? new Date(verdict.block_time) : null;
+  let recorded = false;
+  try {
+    const [r] = await pool.execute(
+      'INSERT IGNORE INTO seal_root_anchors (day, chain, tx, from_addr, block_time, verified_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [day, chain, tx, (verdict && verdict.from) || null, blockTime, new Date()]);
+    recorded = !!(r && r.affectedRows);
+  } catch (e) { recorded = false; }
+  if (recorded && chain === 'base') {
+    try {
+      await pool.execute(
+        'UPDATE seal_roots SET anchor_tx = ?, anchored_at = ? WHERE day = ? AND anchor_tx IS NULL',
+        [tx, blockTime, day]);
+    } catch (e) { /* the older columns mirror the table; the table is the record */ }
+  }
+  return recorded;
 }
 
 /**
@@ -121,11 +177,14 @@ async function anchorFor(seal, sealedAt) {
   if (!Array.isArray(leaves) || !leaves.length) return null;
   const proof = merkleProof(leaves, String(seal));
   if (!proof) return null;
+  const anchors = await anchorsFor(day, rootRow);
+  const base = anchors.find((a) => a.chain === 'base') || null;
   return { day, root: rootRow.root, seal_count: rootRow.seal_count, proof,
     // The on-chain leg, when the operator has anchored the day: the Base
     // transaction whose block time bounds every seal in the day.
-    anchor_tx: rootRow.anchor_tx || null,
-    anchored_at: rootRow.anchored_at || null };
+    anchors,
+    anchor_tx: base ? base.tx : null,
+    anchored_at: base ? base.block_time : null };
 }
 
-module.exports = { sealsForDay, rootForDay, listRoots, anchorFor, dayOf };
+module.exports = { sealsForDay, rootForDay, listRoots, anchorFor, anchorsFor, recordAnchor, dayOf };
