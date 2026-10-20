@@ -21877,9 +21877,9 @@ rule is the only thing in play. 13 of 13 after that.
 **Do not convert wholesale, and the number that said how few there were was
 the other half of the 47 above.** That sentence read *"47 of 532 test files
 scan source"* — a 9% minority a reader could imagine sweeping in an afternoon.
-Driven, **501 of 1351** reach for source text through `source_scan`, `code_only`
+Driven, **502 of 1352** reach for source text through `source_scan`, `code_only`
 or `inspect.getsource`, and a hand-rolled `read_text()` on a module path is a
-source scan that rule does not see, so 501 is a FLOOR and the honest shape is
+source scan that rule does not see, so 502 is a FLOOR and the honest shape is
 *about half the suite*. (It read 398 for one slice, because the first rule
 matched the token anywhere in the file's TEXT — so seven files that only NAME
 a reader in a docstring were counted as reaching for source, and the next
@@ -27192,6 +27192,27 @@ nobody could read says the dash, and a row written before the field says
 "not recorded"; none is a 0, and none wears the accent colour a measured
 figure does (`tests/test_the_position_cards_print_the_score_the_record_holds.py`;
 seven mutants, each killed).
+
+*Fifth addendum, 20 October: the website's share card learned which book.*
+The second addendum left one thing undone: the website's share button sent
+the card no book, because the `trades` table had no column for one and the
+sync sent no such field, so every card shared from the dashboard claimed
+neither, including the trades the bot knew perfectly well. The bot knows on
+both of its writers: the paper portfolio's rows are `TradeExecution` records
+with `is_paper=True`, and the live executor's rows are the live book by
+construction (`_sync_live_state_to_website` marks its dicts so). One reader,
+`website_sync._book_of`, answers "paper" for a True flag, "live" for a False
+one and None for anything else, and each wire carries the key only when
+there is a word to carry. The website stores it in a NULLABLE column, unlike
+`venue`: every existing row WAS Bitget, so that default was a back-fill of a
+fact, but the agent's record has carried both books over time, so a default
+here would be a guess that printed PAPER on a real-money card or LIVE on a
+practice one. NULL is "the bot did not say", the history route hands it to
+the page as such, and the share button forwards the word under the same
+guard the two instants use, so an older row claims nothing
+(`tests/test_the_synced_trade_says_which_book_it_was_on.py`,
+`app/test/the_share_card_knows_which_book_the_trade_was_on.test.js`;
+fifteen mutants, each killed).
 
 ## A ROOT ANCHORED ON TWO CHAINS IS TWO FACTS, AND THE PAGE THAT NAMED ONE CHAIN BY HAND NAMED THE WRONG ONE
 

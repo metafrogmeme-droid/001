@@ -2012,6 +2012,11 @@ class RuneClawEngine:
                 # When the POSITION opened: a limit entry that rested before
                 # it filled was not held while it rested.
                 "opened_at": entered_at(pos),
+                # These are the live executor's own rows, so the website's copy
+                # (and the share card built from it) may say LIVE. Read by
+                # `website_sync._book_of`; the paper book's rows carry the same
+                # flag as `TradeExecution.is_paper`.
+                "is_paper": False,
             }
 
         def _closed_dict(pos) -> dict:
